@@ -6,12 +6,22 @@ import { isMobile } from "../../utils/isMobile";
 import { formatDuration } from "../../utils/formatDuration";
 import { getSongDisplayImages, getWaveformImage } from "../../utils/images";
 import { isCharnelMode } from "../../app/services/charnel";
+import {
+  getAutoDownloadEnabled,
+  setAutoDownloadEnabled,
+  getSyncQueueToLocal,
+} from "../../app/services/storage/db";
+import { onAutoDownloadEnabled } from "../../music/services/autoDownload";
 
 import { Icon, type IconName } from "../icons/registry";
 import { MediaThumbnail } from "../media/MediaThumbnail";
 import { ContextMenu, type MenuAction } from "../overlays/ContextMenu";
 import { MarqueeText } from "../text/MarqueeText";
-import { isSongCachedReactive, getLoadingProgress } from "../../music/services/cache/blobCache";
+import {
+  isSongCachedReactive,
+  isSongSyncedLocally,
+  getLoadingProgress,
+} from "../../music/services/cache/blobCache";
 import { isPlayingDirectURLReactive } from "../../music/services/storage/audioAccess";
 import { useResolvedP2PImageUrl } from "../../music/services/storage/blobResolver";
 import { getBackgroundConfig } from "../../app/services/backgroundImage";
@@ -97,6 +107,10 @@ export interface QueueSidebarProps {
   loadingSongIds?: Set<string>;
   /** index of the song that is pending "up next" (loading to play next) */
   upNextIndex?: number;
+  /** callback when resume downloads button is clicked */
+  onResumeDownloads?: () => void;
+  /** number of songs pending download (for resume button count) */
+  pendingDownloadCount?: number;
 }
 
 // queue sidebar component
@@ -110,6 +124,19 @@ export function QueueSidebar(props: QueueSidebarProps) {
   const [activeTab, setActiveTab] = createSignal<QueueTab>("queue");
   const [draggedIndex, setDraggedIndex] = createSignal<number | null>(null);
   const [dropTargetIndex, setDropTargetIndex] = createSignal<number | null>(null);
+
+  // auto-download toggle state
+  const [autoDownloadOn, setAutoDownloadOn] = createSignal(getAutoDownloadEnabled());
+
+  const toggleAutoDownload = () => {
+    const newValue = !autoDownloadOn();
+    setAutoDownloadOn(newValue);
+    setAutoDownloadEnabled(newValue);
+    // when toggling ON, clear failed downloads to allow retry
+    if (newValue) {
+      onAutoDownloadEnabled();
+    }
+  };
 
   // pointer-based drag state for Tauri (HTML5 drag doesn't work in WKWebView)
   const [pointerDragIndex, setPointerDragIndex] = createSignal<number | null>(null);
@@ -377,38 +404,78 @@ export function QueueSidebar(props: QueueSidebarProps) {
             </button>
           </div>
 
-          <Show
-            when={
-              (activeTab() === "queue" && props.songs.length > 0) ||
-              (activeTab() === "history" && props.historyEntries.length > 0)
-            }
-          >
-            <button
-              class="px-3 py-1.5 text-xs text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-accent-500)]/10 rounded transition-colors"
-              onClick={() => {
-                if (activeTab() === "queue") {
-                  props.onClearAll();
-                } else {
-                  props.onClearHistory?.();
+          <div class="flex items-center gap-1">
+            <Show when={activeTab() === "queue"}>
+              <button
+                class={`px-1.5 py-1.5 rounded transition-colors ${
+                  autoDownloadOn()
+                    ? "text-[var(--color-accent-500)] bg-[var(--color-accent-500)]/20"
+                    : "text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)] hover:bg-[var(--color-accent-500)]/10"
+                }`}
+                onClick={toggleAutoDownload}
+                title={
+                  autoDownloadOn()
+                    ? "turn off auto download for all songs in the queue"
+                    : "turn on auto download for all songs in the queue"
                 }
-              }}
-              title={
-                activeTab() === "queue" ? "clear all songs from queue" : "clear all queue history"
+                aria-label={autoDownloadOn() ? "disable auto download" : "enable auto download"}
+              >
+                <Icon name="autoDownload" size={14} />
+              </button>
+            </Show>
+
+            <Show
+              when={
+                (activeTab() === "queue" && props.songs.length > 0) ||
+                (activeTab() === "history" && props.historyEntries.length > 0)
               }
             >
-              clear
-            </button>
-          </Show>
+              <button
+                class="px-3 py-1.5 text-xs text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-accent-500)]/10 rounded transition-colors"
+                onClick={() => {
+                  if (activeTab() === "queue") {
+                    props.onClearAll();
+                  } else {
+                    props.onClearHistory?.();
+                  }
+                }}
+                title={
+                  activeTab() === "queue" ? "clear all songs from queue" : "clear all queue history"
+                }
+              >
+                clear
+              </button>
+            </Show>
 
-          <button
-            class="p-2 hover:bg-[var(--color-accent-500)]/20 transition-colors"
-            onClick={() => props.onClose()}
-            title="close"
-            aria-label="close"
-          >
-            <Icon name="close" size={20} color="var(--color-accent-500)" />
-          </button>
+            <button
+              class="p-2 hover:bg-[var(--color-accent-500)]/20 transition-colors"
+              onClick={() => props.onClose()}
+              title="close"
+              aria-label="close"
+            >
+              <Icon name="close" size={20} color="var(--color-accent-500)" />
+            </button>
+          </div>
         </div>
+
+        {/* resume downloads row - shows when sync_queue_to_local is enabled and there are pending downloads */}
+        <Show
+          when={
+            activeTab() === "queue" &&
+            getSyncQueueToLocal() &&
+            props.pendingDownloadCount &&
+            props.pendingDownloadCount > 0
+          }
+        >
+          <div class="px-4 py-1.5">
+            <button
+              class="w-full px-3 py-1 text-xs text-[var(--color-accent-500)] hover:text-[var(--color-accent-400)] hover:bg-[var(--color-accent-500)]/10 rounded transition-colors text-center"
+              onClick={() => props.onResumeDownloads?.()}
+            >
+              resume downloads ({props.pendingDownloadCount} pending)
+            </button>
+          </div>
+        </Show>
 
         {/* queue tab content */}
         <div
@@ -674,7 +741,24 @@ export function QueueSidebar(props: QueueSidebarProps) {
                                 const isLoading = props.loadingSongIds?.has(song()?.sha256 ?? "");
                                 // don't underline if currently loading
                                 if (isLoading) return undefined;
-                                // underline only when cached (not when playing direct URL)
+
+                                // local/downloaded/synced songs are always available offline
+                                const sourceType = song()?.source_type;
+                                if (
+                                  sourceType === "local" ||
+                                  sourceType === "downloaded" ||
+                                  sourceType === "synced"
+                                ) {
+                                  return "underline";
+                                }
+
+                                // check if remote song has been synced to local storage
+                                const sha256 = song()?.sha256;
+                                if (sha256 && isSongSyncedLocally(sha256)) {
+                                  return "underline";
+                                }
+
+                                // for remote songs, underline only when cached (not when playing direct URL)
                                 const isCached = isSongCachedReactive(
                                   song()?.remote_server_id,
                                   song()?.sha256

@@ -8,6 +8,7 @@ import {
   getCachedP2PBlobUrl,
   type ThumbnailSize,
 } from "../../music/services/storage/blobResolver";
+import { isCharnelAvailable } from "../../app/api/client";
 import { Icon } from "../icons/registry";
 import type { ImageMetadata } from "../../music/services/storage/types";
 import { pickBestImage } from "../../utils/images";
@@ -64,7 +65,15 @@ async function resolveImageUrl(
   }
 
   // priority 3: just remote URL (no server ID)
+  // SAFEGUARD: in charnel mode, don't use localhost URLs (stale sidecar refs)
   if (image?.remote_url) {
+    if (isCharnelAvailable() && image.remote_url.includes("localhost")) {
+      console.warn(
+        "MediaThumbnail: skipping stale localhost URL in charnel mode:",
+        image.remote_url.slice(0, 50)
+      );
+      return null;
+    }
     return thumbnailSize ? `${image.remote_url}/thumb/${thumbnailSize}` : image.remote_url;
   }
 

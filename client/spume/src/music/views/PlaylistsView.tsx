@@ -9,7 +9,6 @@ import { setBackgroundImage, clearBackgroundImage } from "../../app/services/bac
 import { useViewportHeight, getNavHeight } from "../../utils/viewport";
 import { Button } from "../../components/buttons/Button";
 import { IconButton } from "../../components/buttons/IconButton";
-import { Badge } from "../../components/badges/Badge";
 import { ImageCarouselModal } from "../../components/modals/ImageCarouselModal";
 import { toast } from "../../components/feedback/Toast";
 import { LoadingState } from "../../components/feedback";
@@ -34,17 +33,8 @@ import { useToggleFavoriteMutation } from "../queries/favorites";
 import { usePlaylistContextMenu, useSongContextMenu } from "../hooks/contextMenu";
 import { getBlobObjectURL } from "../services/storage/blobs";
 import { resolveBlobUrl } from "../services/storage/blobResolver";
-import {
-  checkIfPlaylistNeedsSync,
-  downloadPlaylist,
-  syncPlaylist,
-  type DownloadProgress,
-  type SyncCheckResult,
-} from "../services/playlists/downloadSync";
 import { canUpdatePlaylist } from "../data/permissions";
-import { getRemoteByUrl } from "../../app/services/remotes/remoteManager";
-import { getPlaylistById, initMusicDB } from "../services/storage/db";
-import { convertToLocalPlaylist, isEditablePlaylist } from "../services/storage/playlists";
+import { getPlaylistById } from "../services/storage/db";
 import { type Playlist } from "../services/storage/types";
 import { getRoutePrefix } from "../utils/routing";
 import { PlaylistEditor } from "./playlists/PlaylistEditor";
@@ -108,8 +98,6 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
     target: HTMLElement;
   } | null = null;
   const DRAG_THRESHOLD = 8;
-  const [syncStatus, setSyncStatus] = createSignal<SyncCheckResult | null>(null);
-  const [syncSourceRemoteName, setSyncSourceRemoteName] = createSignal<string | null>(null);
   const [backgroundImageUrl, setBackgroundImageUrl] = createSignal<string | null>(null);
 
   onMount(() => {
@@ -209,8 +197,6 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
       clearBackgroundImage(); // clear global background when leaving view
     });
   });
-  const [downloadProgress, setDownloadProgress] = createSignal<DownloadProgress | null>(null);
-  const [isDownloading, setIsDownloading] = createSignal(false);
   const [scrollToIndex, setScrollToIndex] = createSignal<((index: number) => void) | null>(null);
   const [isLocalClick, setIsLocalClick] = createSignal(false);
 
@@ -248,7 +234,6 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
       setIsLocalClick(false);
     }
   });
-  const [isSyncing, setIsSyncing] = createSignal(false);
 
   // mutations for updating playlist
   const reorderSongsMutation = useReorderPlaylistSongsMutation();
@@ -264,37 +249,6 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
 
   // check if viewing remote playlists
   const isViewingRemote = createMemo(() => getCurrentRemote() !== null);
-
-  // check sync status for both remote and local playlists
-  createEffect(() => {
-    const playlist = selectedPlaylist();
-    const remote = getCurrentRemote();
-    const viewingRemote = isViewingRemote();
-
-    if (playlist && remote && viewingRemote) {
-      // viewing remote playlist - check if there's a local copy (P2P remotes can't sync playlists)
-      if (remote.base_url) {
-        checkIfPlaylistNeedsSync(remote.base_url, playlist.playlist_id).then(setSyncStatus);
-      } else {
-        setSyncStatus(null);
-      }
-      setSyncSourceRemoteName(null); // remote context doesn't need remote name
-    } else if (!viewingRemote && playlist?.source_remote_url && playlist?.source_remote_id) {
-      // viewing local synced playlist - check if needs sync with its remote source
-      checkIfPlaylistNeedsSync(playlist.source_remote_url, playlist.source_remote_id).then(
-        setSyncStatus
-      );
-
-      // look up remote name from URL
-      getRemoteByUrl(playlist.source_remote_url).then((remote) => {
-        setSyncSourceRemoteName(remote?.name || null);
-      });
-    } else {
-      // not a synced playlist - clear sync status
-      setSyncStatus(null);
-      setSyncSourceRemoteName(null);
-    }
-  });
 
   // fetch playlists using infinite query
   const playlistsQuery = usePlaylistsQuery({
@@ -339,7 +293,7 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
   });
 
   // get selected playlist metadata
-  // for local playlists, fetch full record from db to get sync fields
+  // for local playlists, fetch full record from db
   const [_fullPlaylist, setFullPlaylist] = createSignal<Playlist | null>(null);
 
   // fetch full playlist when viewing local and selection changes
@@ -354,7 +308,7 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
       return;
     }
 
-    // fetch full playlist record from db to get sync fields
+    // fetch full playlist record from db
     getPlaylistById(id).then((playlist) => {
       setFullPlaylist(playlist || null);
 
@@ -510,8 +464,17 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
     }
 
     // otherwise it's a blob ID, need to resolve it to a blob URL
+    // no remote = local mode, resolve from local storage
     if (!remote) {
-      setBackgroundImageUrl(null);
+      // check for local_blob_id first (synced playlist images)
+      const localBlobId = imageMeta?.local_blob_id;
+      if (localBlobId) {
+        getBlobObjectURL(localBlobId).then((objectUrl) => {
+          setBackgroundImageUrl(objectUrl || null);
+        });
+      } else {
+        setBackgroundImageUrl(null);
+      }
       return;
     }
 
@@ -672,11 +635,6 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
     const playlist = selectedPlaylist();
     if (!playlist) return;
 
-    // prevent editing synced playlists
-    if (playlist.is_editable === false) {
-      return;
-    }
-
     setEditMode(!editMode());
   };
 
@@ -772,140 +730,6 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
     } finally {
       setDraggedSongId(null);
       setDropTargetIndex(null);
-    }
-  };
-
-  // handle download playlist (save remote playlist locally)
-  const handleDownloadPlaylist = async () => {
-    const playlist = selectedPlaylist();
-    if (!playlist) return;
-
-    const remote = getCurrentRemote();
-    if (!remote) {
-      errorLog("no remote source - download only works with remote playlists");
-      return;
-    }
-
-    setIsDownloading(true);
-    setDownloadProgress(null);
-
-    try {
-      await downloadPlaylist(remote, playlist.playlist_id, (progress) => {
-        setDownloadProgress(progress);
-      });
-
-      debug("playlist downloaded successfully");
-      // refresh sync status (base_url must exist if download succeeded)
-      const newSyncStatus = await checkIfPlaylistNeedsSync(remote.base_url!, playlist.playlist_id);
-      setSyncStatus(newSyncStatus);
-      setDownloadProgress(null);
-
-      // remove local playlist queries from cache so they fetch fresh when switching to local source
-      // (invalidateQueries alone isn't enough because refetchOnMount: false prevents stale queries from refetching on mount)
-      queryClient.removeQueries({ queryKey: ["playlists", "local"] });
-
-      toast.success(`saved "${playlist.title}" to local`, {
-        title: "saved to local",
-      });
-    } catch (error) {
-      errorLog("failed to download playlist:", error);
-      setDownloadProgress({
-        stage: "error",
-        totalSongs: 0,
-        downloadedSongs: 0,
-        error: error instanceof Error ? error.message : "save failed",
-      });
-
-      toast.error(error instanceof Error ? error.message : "save failed", {
-        title: "save failed",
-      });
-    } finally {
-      setIsDownloading(false);
-    }
-  };
-
-  // handle sync playlist (update local copy from remote)
-  const handleSyncPlaylist = async () => {
-    // get full playlist object first
-    const playlist = selectedPlaylist();
-    if (!playlist) return;
-
-    const status = syncStatus();
-    if (!status || !status.localPlaylistId) return;
-
-    const remote = getCurrentRemote();
-    if (!remote) return;
-
-    // fetch the LOCAL playlist from IndexedDB — syncPlaylist expects the local record
-    await initMusicDB();
-    const localPlaylist = await getPlaylistById(status.localPlaylistId);
-    if (!localPlaylist) {
-      errorLog("local playlist not found:", status.localPlaylistId);
-      return;
-    }
-
-    setIsSyncing(true);
-    setDownloadProgress(null);
-
-    try {
-      await syncPlaylist(remote, localPlaylist, (progress) => {
-        setDownloadProgress(progress);
-      });
-
-      debug("playlist synced successfully");
-      // refresh sync status (base_url must exist if sync succeeded)
-      const newSyncStatus = await checkIfPlaylistNeedsSync(remote.base_url!, playlist.playlist_id);
-      setSyncStatus(newSyncStatus);
-      setDownloadProgress(null);
-
-      // remove local playlist queries from cache so they fetch fresh when switching to local source
-      queryClient.removeQueries({ queryKey: ["playlists", "local"] });
-
-      toast.success(`synced updates for "${playlist.title}"`, {
-        title: "updates synced",
-      });
-    } catch (error) {
-      errorLog("failed to sync playlist:", error);
-      setDownloadProgress({
-        stage: "error",
-        totalSongs: 0,
-        downloadedSongs: 0,
-        error: error instanceof Error ? error.message : "sync failed",
-      });
-
-      toast.error(error instanceof Error ? error.message : "sync failed", {
-        title: "sync failed",
-      });
-    } finally {
-      setIsSyncing(false);
-    }
-  };
-
-  // handle make local copy (convert synced playlist to editable local copy)
-  const handleMakeLocalCopy = async () => {
-    const playlist = selectedPlaylist();
-    if (!playlist || !playlist.source_remote_id) return;
-
-    try {
-      const db = await initMusicDB();
-      await convertToLocalPlaylist(db, playlist.playlist_id);
-
-      debug("converted to local playlist");
-      // refresh playlist data
-      setFullPlaylist(null);
-      await getPlaylistById(playlist.playlist_id).then((p) => {
-        setFullPlaylist(p || null);
-      });
-
-      toast.success(`"${playlist.title}" is now editable`, {
-        title: "converted to local playlist",
-      });
-    } catch (error) {
-      errorLog("failed to convert to local playlist:", error);
-
-      toast.error(error instanceof Error ? error.message : "conversion failed", {
-        title: "conversion failed",
-      });
     }
   };
 
@@ -1176,17 +1000,6 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
                                     created {formatRelativeTime(selectedPlaylist()!.created_at)}
                                   </span>
                                 </Show>
-                                <Show
-                                  when={syncStatus()?.localPlaylistId && !syncStatus()?.needsSync}
-                                >
-                                  <Badge variant="success" size="sm">
-                                    <Show when={!isViewingRemote()} fallback="synced">
-                                      synced from{" "}
-                                      {syncSourceRemoteName() ||
-                                        selectedPlaylist()?.source_remote_url}
-                                    </Show>
-                                  </Badge>
-                                </Show>
                               </div>
                             </Show>
 
@@ -1194,10 +1007,9 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
                             <Show when={!editMode() && !isNarrow()}>
                               <div class="flex gap-2 sticky top-0 py-2 z-10">
                                 <Show
-                                  when={
-                                    selectedPlaylist()?.is_editable !== false &&
-                                    canUpdatePlaylist(selectedPlaylist()?.created_by_id ?? null)
-                                  }
+                                  when={canUpdatePlaylist(
+                                    selectedPlaylist()?.created_by_id ?? null
+                                  )}
                                 >
                                   <IconButton
                                     icon="edit"
@@ -1226,95 +1038,6 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
                                   targetId={selectedPlaylist()?.playlist_id || ""}
                                   isFavorite={selectedPlaylist()?.is_favorite ?? false}
                                 />
-                                {/* save to local / sync buttons - not shown in tauri (server handles storage) */}
-                                <Show when={isViewingRemote() && !isCharnelMode()}>
-                                  <Show
-                                    when={syncStatus()?.localPlaylistId}
-                                    fallback={
-                                      <Button
-                                        variant="ghost"
-                                        class="border border-[var(--color-accent-500)]"
-                                        onClick={handleDownloadPlaylist}
-                                        disabled={isDownloading()}
-                                      >
-                                        {isDownloading() ? (
-                                          "saving..."
-                                        ) : (
-                                          <>
-                                            <span>save</span>
-                                            <span class="hidden sm:inline"> to local</span>
-                                          </>
-                                        )}
-                                      </Button>
-                                    }
-                                  >
-                                    <Show when={syncStatus()?.needsSync}>
-                                      <Button
-                                        variant="ghost"
-                                        class="border border-[var(--color-accent-500)]"
-                                        onClick={handleSyncPlaylist}
-                                        disabled={isSyncing()}
-                                      >
-                                        {isSyncing() ? "syncing..." : "sync updates"}
-                                      </Button>
-                                    </Show>
-                                  </Show>
-                                </Show>
-                                <Show
-                                  when={
-                                    !isViewingRemote() &&
-                                    !isCharnelMode() &&
-                                    selectedPlaylist()?.source_remote_id
-                                  }
-                                >
-                                  <Button variant="secondary" onClick={handleMakeLocalCopy}>
-                                    make local copy
-                                  </Button>
-                                </Show>
-                              </div>
-                            </Show>
-
-                            {/* download/sync progress indicator */}
-                            <Show when={downloadProgress()}>
-                              <div class="mt-4 p-3 bg-[var(--color-bg-secondary)] border border-[var(--color-border-default)] rounded">
-                                <Show
-                                  when={downloadProgress()?.stage === "error"}
-                                  fallback={
-                                    <>
-                                      <div class="flex items-center justify-between mb-2">
-                                        <span class="text-sm text-[var(--color-text-secondary)]">
-                                          {downloadProgress()?.stage === "fetching"
-                                            ? "fetching playlist metadata..."
-                                            : `${downloadProgress()?.downloadedSongs || 0} / ${downloadProgress()?.totalSongs || 0} songs`}
-                                        </span>
-                                      </div>
-                                      <Show
-                                        when={
-                                          downloadProgress()?.stage === "downloading" &&
-                                          downloadProgress()?.totalSongs
-                                        }
-                                      >
-                                        <div class="w-full bg-[var(--color-bg-tertiary)] rounded-full h-2 mb-2">
-                                          <div
-                                            class="bg-[var(--color-accent-500)] h-2 rounded-full transition-all duration-300"
-                                            style={{
-                                              width: `${((downloadProgress()?.downloadedSongs || 0) / (downloadProgress()?.totalSongs || 1)) * 100}%`,
-                                            }}
-                                          />
-                                        </div>
-                                      </Show>
-                                      <Show when={downloadProgress()?.currentSong}>
-                                        <p class="text-xs text-[var(--color-text-tertiary)] truncate">
-                                          {downloadProgress()?.currentSong}
-                                        </p>
-                                      </Show>
-                                    </>
-                                  }
-                                >
-                                  <p class="text-sm text-[var(--color-error)]">
-                                    error: {downloadProgress()?.error}
-                                  </p>
-                                </Show>
                               </div>
                             </Show>
                           </div>
@@ -1324,10 +1047,7 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
                         <Show when={!editMode() && isNarrow()}>
                           <div class="flex gap-2 justify-between flex-wrap sticky top-12 backdrop-blur-sm px-6 py-2 z-20">
                             <Show
-                              when={
-                                selectedPlaylist()?.is_editable !== false &&
-                                canUpdatePlaylist(selectedPlaylist()?.created_by_id ?? null)
-                              }
+                              when={canUpdatePlaylist(selectedPlaylist()?.created_by_id ?? null)}
                             >
                               <IconButton
                                 icon="edit"
@@ -1360,51 +1080,6 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
                               targetId={selectedPlaylist()?.playlist_id || ""}
                               isFavorite={selectedPlaylist()?.is_favorite ?? false}
                             />
-                            {/* save to local / sync buttons - not shown in tauri (server handles storage) */}
-                            <Show when={isViewingRemote() && !isCharnelMode()}>
-                              <Show
-                                when={syncStatus()?.localPlaylistId}
-                                fallback={
-                                  <Button
-                                    variant="ghost"
-                                    class="border border-[var(--color-accent-500)]"
-                                    onClick={handleDownloadPlaylist}
-                                    disabled={isDownloading()}
-                                  >
-                                    {isDownloading() ? (
-                                      "saving..."
-                                    ) : (
-                                      <>
-                                        <span>save</span>
-                                        <span class="hidden sm:inline"> to local</span>
-                                      </>
-                                    )}
-                                  </Button>
-                                }
-                              >
-                                <Show when={syncStatus()?.needsSync}>
-                                  <Button
-                                    variant="ghost"
-                                    class="border border-[var(--color-accent-500)]"
-                                    onClick={handleSyncPlaylist}
-                                    disabled={isSyncing()}
-                                  >
-                                    {isSyncing() ? "syncing..." : "sync updates"}
-                                  </Button>
-                                </Show>
-                              </Show>
-                            </Show>
-                            <Show
-                              when={
-                                !isViewingRemote() &&
-                                !isCharnelMode() &&
-                                selectedPlaylist()?.source_remote_id
-                              }
-                            >
-                              <Button variant="secondary" onClick={handleMakeLocalCopy}>
-                                make local copy
-                              </Button>
-                            </Show>
                           </div>
                         </Show>
 
@@ -1461,10 +1136,7 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
                                               ...(song.images || []),
                                               ...(song.album_images || []),
                                             ]}
-                                            disabled={
-                                              isCharnelMode() ||
-                                              !isEditablePlaylist(selectedPlaylist()!)
-                                            }
+                                            disabled={isCharnelMode()}
                                           >
                                             <DraggableRowSongContent
                                               title={song.title}

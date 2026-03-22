@@ -22,6 +22,8 @@ export const FreqholeConfigSchema = z.object({
   server_image_path: z.string().optional(),
   /** whether to disable backdrop blur (performance setting) */
   disable_backdrop_blur: z.boolean().optional(),
+  /** whether to sync queue songs from remotes to local library (default: true) */
+  sync_queue_to_local: z.boolean().optional(),
 });
 
 export type FreqholeConfig = z.infer<typeof FreqholeConfigSchema>;

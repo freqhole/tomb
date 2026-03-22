@@ -51,7 +51,15 @@ export const AllIcons: Story = {
         "favoriteOutline",
       ] as IconName[],
       "auth & user": ["logout", "user"] as IconName[],
-      system: ["settings", "info", "upload", "check", "x", "alertTriangle"] as IconName[],
+      system: [
+        "settings",
+        "info",
+        "upload",
+        "check",
+        "x",
+        "alertTriangle",
+        "autoDownload",
+      ] as IconName[],
       brand: ["freqhole"] as IconName[],
     };
 

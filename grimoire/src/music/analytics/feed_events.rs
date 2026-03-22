@@ -416,7 +416,7 @@ pub async fn upsert_album_feed_event(
     let song_count = album.song_count;
     let total_duration_ms = album.total_duration;
     let year = album.year;
-    let images = album.images;
+    let images = album.images.clone();
     let extra_images = album.extra_images;
     let genres = album.genres;
     let tags = album.tags;

@@ -36,9 +36,34 @@ export default function SettingsView() {
   const [infoMessage, setInfoMessage] = createSignal("");
   const [infoIsError, setInfoIsError] = createSignal(false);
 
+  // sync settings
+  const [syncQueueToLocal, setSyncQueueToLocal] = createSignal(true);
+
   onMount(async () => {
     await loadServerConfig();
+    await loadSyncSettings();
   });
+
+  async function loadSyncSettings() {
+    try {
+      const enabled = await invoke<boolean>("get_sync_queue_to_local");
+      setSyncQueueToLocal(enabled);
+    } catch (e) {
+      console.error("failed to load sync settings:", e);
+    }
+  }
+
+  async function toggleSyncQueueToLocal() {
+    const newValue = !syncQueueToLocal();
+    setSyncQueueToLocal(newValue);
+    try {
+      await invoke("set_sync_queue_to_local", { enabled: newValue });
+    } catch (e) {
+      console.error("failed to save sync setting:", e);
+      // revert on error
+      setSyncQueueToLocal(!newValue);
+    }
+  }
 
   async function loadServerConfig() {
     try {
@@ -337,6 +362,64 @@ export default function SettingsView() {
                 {imageMessage()}
               </div>
             </Show>
+          </div>
+
+          <div class="settings-section" style={{ "margin-top": "2rem" }}>
+            <h2>
+              sync setting<span class="pinky">s</span>
+            </h2>
+
+            <div
+              style={{
+                display: "flex",
+                "align-items": "center",
+                gap: "1rem",
+                "margin-top": "1rem",
+              }}
+            >
+              <button
+                class={`toggle-button ${syncQueueToLocal() ? "active" : ""}`}
+                onClick={toggleSyncQueueToLocal}
+                style={{
+                  width: "48px",
+                  height: "24px",
+                  "border-radius": "12px",
+                  border: "none",
+                  background: syncQueueToLocal()
+                    ? "var(--color-accent-500, #ff69b4)"
+                    : "var(--color-bg-tertiary, #333)",
+                  cursor: "pointer",
+                  position: "relative",
+                  transition: "background 0.2s",
+                  "flex-shrink": "0",
+                }}
+              >
+                <div
+                  style={{
+                    position: "absolute",
+                    top: "2px",
+                    left: syncQueueToLocal() ? "26px" : "2px",
+                    width: "20px",
+                    height: "20px",
+                    "border-radius": "50%",
+                    background: "white",
+                    transition: "left 0.2s",
+                  }}
+                />
+              </button>
+              <div>
+                <div style={{ "font-weight": "500" }}>sync queue to local</div>
+                <div
+                  style={{
+                    "font-size": "0.875rem",
+                    color: "var(--color-text-secondary, #888)",
+                    "margin-top": "0.25rem",
+                  }}
+                >
+                  automatically download remote songs in queue to local library
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </Show>

@@ -67,6 +67,18 @@ export interface ContextMenuOptions {
   queueIndex?: number;
   /** callback when remove from queue is clicked */
   onRemoveFromQueue?: () => void;
+  /** whether to show "clear songs above" action (queue view only) */
+  showClearAbove?: boolean;
+  /** callback when clear songs above is clicked */
+  onClearAbove?: () => void;
+  /** whether to show "clear songs below" action (queue view only) */
+  showClearBelow?: boolean;
+  /** callback when clear songs below is clicked */
+  onClearBelow?: () => void;
+  /** whether to show "delete from local library" action (for synced songs) */
+  showDeleteFromLocal?: boolean;
+  /** callback when delete from local is clicked */
+  onDeleteFromLocal?: () => void;
   /** whether item is currently favorited */
   isFavorite?: boolean;
   /** custom actions to append */
@@ -86,6 +98,40 @@ export function useSongContextMenu(
 ): MenuAction[] {
   const navigate = useNavigate();
   const actions: MenuAction[] = [];
+
+  // queue management actions FIRST (when in queue context)
+  if (options.showRemoveFromQueue && options.queueIndex !== undefined) {
+    actions.push({
+      label: "remove from queue",
+      icon: IconNames.close,
+      onClick: () => {
+        options.onRemoveFromQueue?.();
+      },
+    });
+
+    // clear before/after actions (only in queue context)
+    if (options.showClearAbove && options.queueIndex > 0) {
+      actions.push({
+        label: "clear songs before",
+        icon: IconNames.chevronUp,
+        onClick: () => {
+          options.onClearAbove?.();
+        },
+      });
+    }
+
+    if (options.showClearBelow) {
+      actions.push({
+        label: "clear songs after",
+        icon: IconNames.chevronDown,
+        onClick: () => {
+          options.onClearBelow?.();
+        },
+      });
+    }
+
+    actions.push({ type: "separator" });
+  }
 
   // play actions
   if (options.showPlayActions !== false) {
@@ -141,12 +187,11 @@ export function useSongContextMenu(
     actions.push({ type: "separator" });
   }
 
-  // playlist/queue management
+  // playlist management (remove from playlist)
   if (options.showRemoveFromPlaylist && options.playlistId) {
     actions.push({
       label: "remove from playlist",
-      icon: IconNames.delete,
-      destructive: true,
+      icon: IconNames.close,
       onClick: async () => {
         const dataSource = getDataSource();
         if (dataSource.removeSongsFromPlaylist) {
@@ -158,18 +203,6 @@ export function useSongContextMenu(
           queryClient.invalidateQueries({ queryKey: queryKeys.playlists.all() });
           queryClient.invalidateQueries({ queryKey: ["playlists", options.playlistId, "songs"] });
         }
-      },
-    });
-    actions.push({ type: "separator" });
-  }
-
-  if (options.showRemoveFromQueue && options.queueIndex !== undefined) {
-    actions.push({
-      label: "remove from queue",
-      icon: IconNames.delete,
-      destructive: true,
-      onClick: () => {
-        options.onRemoveFromQueue?.();
       },
     });
     actions.push({ type: "separator" });
@@ -249,6 +282,28 @@ export function useSongContextMenu(
             console.error("failed to delete song:", error);
             toast.error("failed to delete song");
           }
+        }
+      },
+    });
+  }
+
+  // delete from local library (for synced songs) - LAST destructive action
+  if (options.showDeleteFromLocal) {
+    actions.push({ type: "separator" });
+    actions.push({
+      label: "delete from local library",
+      icon: IconNames.delete,
+      destructive: true,
+      onClick: async () => {
+        const confirmed = await confirm({
+          title: "delete from local library",
+          message: `Remove "${song.title}" from your local library? The song will still be available from the server.`,
+          confirmText: "delete",
+          cancelText: "cancel",
+          variant: "destructive",
+        });
+        if (confirmed) {
+          options.onDeleteFromLocal?.();
         }
       },
     });

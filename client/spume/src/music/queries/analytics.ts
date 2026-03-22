@@ -12,13 +12,14 @@ function adaptFeedImages(
   remoteId?: string,
 ): ImageMetadata[] | null {
   if (!images || images.length === 0) return null;
-  return images.map((img) => ({
+  const adapted = images.map((img) => ({
     remote_blob_id: img.blob_id,
     remote_url: baseUrl ? getRemoteMediaUrl(baseUrl, img.blob_id) : undefined,
     remote_server_id: remoteId,
     is_primary: img.is_primary === 1,
     blob_type: (img.blob_type as ImageMetadata["blob_type"]) ?? "thumbnail",
   }));
+  return adapted;
 }
 
 // adapt a raw API feed response to app-level types

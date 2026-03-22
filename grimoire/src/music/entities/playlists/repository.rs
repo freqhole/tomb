@@ -912,6 +912,89 @@ pub async fn remove_songs_from_playlist(
     GrimoireResponse::success("Songs removed from playlist successfully", ())
 }
 
+/// set playlist songs with explicit positions
+///
+/// this clears all existing songs and adds the new ones with specified positions.
+/// useful for sync operations where order must be preserved exactly.
+pub async fn set_playlist_songs(
+    playlist_id: &str,
+    songs: &[(String, i64)], // (song_id, position)
+    created_by: Option<(&str, &str)>,
+) -> GrimoireResponse<()> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "failed to connect to database",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
+
+    // verify playlist exists
+    let playlist_exists = sqlx::query!(
+        "SELECT id FROM playlistz WHERE id = ? AND deleted_at IS NULL",
+        playlist_id
+    )
+    .fetch_optional(&pool)
+    .await;
+
+    if matches!(playlist_exists, Ok(None) | Err(_)) {
+        let err = GrimoireError::PlaylistNotFound {
+            id: playlist_id.to_string(),
+        };
+        return GrimoireResponse::failure("playlist not found", vec![ErrorDetail::from(&err)]);
+    }
+
+    // clear existing songs
+    if let Err(e) = sqlx::query!(
+        "DELETE FROM playlist_songz WHERE playlist_id = ?",
+        playlist_id
+    )
+    .execute(&pool)
+    .await
+    {
+        return GrimoireResponse::failure(
+            "failed to clear existing songs",
+            vec![ErrorDetail::from(e)],
+        );
+    }
+
+    // add songs with explicit positions
+    for (song_id, position) in songs {
+        if let Err(e) = sqlx::query!(
+            "INSERT INTO playlist_songz (playlist_id, song_id, position, added_at)
+             VALUES (?, ?, ?, unixepoch())",
+            playlist_id,
+            song_id,
+            position
+        )
+        .execute(&pool)
+        .await
+        {
+            tracing::warn!("failed to add song {} to playlist: {}", song_id, e);
+            // continue with other songs rather than failing entirely
+        }
+    }
+
+    // bump updated_at
+    let _ = sqlx::query!(
+        "UPDATE playlistz SET updated_at = unixepoch() WHERE id = ?",
+        playlist_id
+    )
+    .execute(&pool)
+    .await;
+
+    // update feed event
+    if let Some((user_id, username)) = created_by {
+        let _ = upsert_playlist_feed_event(playlist_id, user_id, username).await;
+    } else {
+        let _ = upsert_playlist_feed_event(playlist_id, "", "").await;
+    }
+
+    GrimoireResponse::success(&format!("set {} songs on playlist", songs.len()), ())
+}
+
 /// get songs in a playlist
 pub async fn get_playlist_songs(playlist_id: &str) -> GrimoireResponse<Vec<PlaylistSong>> {
     let pool = match database::connect().await {

@@ -52,6 +52,10 @@ pub async fn dispatch(
         return resp;
     }
 
+    if let Some(resp) = super::sync::dispatch(path, caller, &body).await {
+        return resp;
+    }
+
     // no domain handled this path
     GrimoireResponse::failure(
         "route not found",

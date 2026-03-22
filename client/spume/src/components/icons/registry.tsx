@@ -248,6 +248,51 @@ export const AlertTriangleIcon = (props: IconProps) => (
   </BaseIcon>
 );
 
+// Auto download icon: pill-shaped "AUTO" badge
+export const AutoDownloadIcon = (props: IconProps) => {
+  const heightNum = () => (typeof props.size === "number" ? props.size : 16);
+  const width = () => Math.round(heightNum() * 2.2); // wider than tall for pill shape
+  const color = () => props.color ?? "currentColor";
+
+  return (
+    <svg
+      width={width()}
+      height={heightNum()}
+      viewBox="0 0 44 20"
+      fill="none"
+      class={props.className}
+      aria-label={props["aria-label"] ?? "Auto download"}
+      role="img"
+      style={{ "flex-shrink": 0 }}
+    >
+      {/* pill background */}
+      <rect
+        x="0.5"
+        y="0.5"
+        width="43"
+        height="19"
+        rx="9.5"
+        stroke={color()}
+        stroke-width="1"
+        fill="none"
+      />
+      {/* AUTO text */}
+      <text
+        x="22"
+        y="14.5"
+        text-anchor="middle"
+        fill={color()}
+        font-size="11"
+        font-weight="600"
+        font-family="system-ui, -apple-system, sans-serif"
+        letter-spacing="0.5"
+      >
+        AUTO
+      </text>
+    </svg>
+  );
+};
+
 export const LoaderIcon = (props: IconProps) => (
   <BaseIcon {...props} aria-label={props["aria-label"] ?? "Loading"}>
     <path d="M12,4V2A10,10 0 0,0 2,12H4A8,8 0 0,1 12,4Z" />
@@ -444,6 +489,7 @@ export const IconRegistry = {
   headphones: HeadphonesIcon,
   carousel: CarouselIcon,
   externalLink: ExternalLinkIcon,
+  autoDownload: AutoDownloadIcon,
 
   // Stroke variants
   addStroke: AddStrokeIcon,
@@ -539,6 +585,7 @@ export const IconNames = {
   headphones: "headphones",
   carousel: "carousel",
   externalLink: "externalLink",
+  autoDownload: "autoDownload",
 
   // Stroke variants
   addStroke: "addStroke",

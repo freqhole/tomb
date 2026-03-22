@@ -6,26 +6,34 @@
 // SolidJS reactive context issues from createMemo at module scope.
 
 import { permissions } from "../../app/api/client";
-import { getCurrentUser } from "./index";
+import { getCurrentUser, getCurrentRemote } from "./index";
+
+// helper: in local mode (no remote), all operations are permitted
+function isLocalMode(): boolean {
+  return getCurrentRemote() === null;
+}
 
 // ============================================================================
 // role-based permission functions
 // ============================================================================
 
-/** can user set favorites? requires Member role */
+/** can user set favorites? requires Member role (or local mode) */
 export function canSetFavorite(): boolean {
+  if (isLocalMode()) return true;
   const user = getCurrentUser();
   return user ? permissions.canSetFavorite(user.role) : false;
 }
 
-/** can user set ratings? requires Member role */
+/** can user set ratings? requires Member role (or local mode) */
 export function canSetRating(): boolean {
+  if (isLocalMode()) return true;
   const user = getCurrentUser();
   return user ? permissions.canSetRating(user.role) : false;
 }
 
-/** can user create playlists? requires Member role */
+/** can user create playlists? requires Member role (or local mode) */
 export function canCreatePlaylist(): boolean {
+  if (isLocalMode()) return true;
   const user = getCurrentUser();
   return user ? permissions.canCreatePlaylist(user.role) : false;
 }
@@ -48,14 +56,16 @@ export function canCreateFetchJob(): boolean {
   return user ? permissions.canCreateFetchJob(user.role) : false;
 }
 
-/** can user create listen sessions? requires Member role */
+/** can user create listen sessions? requires Member role (or local mode) */
 export function canCreateListenSession(): boolean {
+  if (isLocalMode()) return true;
   const user = getCurrentUser();
   return user ? permissions.canCreateListenSession(user.role) : false;
 }
 
-/** is user at least Member? */
+/** is user at least Member? (true in local mode) */
 export function isMemberOrHigher(): boolean {
+  if (isLocalMode()) return true;
   const user = getCurrentUser();
   return user ? permissions.isMemberOrHigher(user.role) : false;
 }
@@ -140,43 +150,49 @@ export function canAccessMusicBrainz(): boolean {
 // ownership-based permission functions (need owner id parameter)
 // ============================================================================
 
-/** can user delete this playlist? requires ownership or Admin role */
+/** can user delete this playlist? requires ownership or Admin role (or local mode) */
 export function canDeletePlaylist(playlistOwnerId: string | null): boolean {
+  if (isLocalMode()) return true;
   const user = getCurrentUser();
   if (!user) return false;
   return permissions.canDeletePlaylist(user.userId, playlistOwnerId, user.role);
 }
 
-/** can user update this playlist? requires ownership or Admin role */
+/** can user update this playlist? requires ownership or Admin role (or local mode) */
 export function canUpdatePlaylist(playlistOwnerId: string | null): boolean {
+  if (isLocalMode()) return true;
   const user = getCurrentUser();
   if (!user) return false;
   return permissions.canUpdatePlaylist(user.userId, playlistOwnerId, user.role);
 }
 
-/** can user add songs to this playlist? requires ownership or Admin role */
+/** can user add songs to this playlist? requires ownership or Admin role (or local mode) */
 export function canAddSongsToPlaylist(playlistOwnerId: string | null): boolean {
+  if (isLocalMode()) return true;
   const user = getCurrentUser();
   if (!user) return false;
   return permissions.canAddSongsToPlaylist(user.userId, playlistOwnerId, user.role);
 }
 
-/** can user remove songs from this playlist? requires ownership or Admin role */
+/** can user remove songs from this playlist? requires ownership or Admin role (or local mode) */
 export function canRemoveSongsFromPlaylist(playlistOwnerId: string | null): boolean {
+  if (isLocalMode()) return true;
   const user = getCurrentUser();
   if (!user) return false;
   return permissions.canRemoveSongsFromPlaylist(user.userId, playlistOwnerId, user.role);
 }
 
-/** can user reorder songs in this playlist? requires ownership or Admin role */
+/** can user reorder songs in this playlist? requires ownership or Admin role (or local mode) */
 export function canReorderPlaylistSongs(playlistOwnerId: string | null): boolean {
+  if (isLocalMode()) return true;
   const user = getCurrentUser();
   if (!user) return false;
   return permissions.canReorderPlaylistSongs(user.userId, playlistOwnerId, user.role);
 }
 
-/** can user delete this listen session? requires ownership (no admin override) */
+/** can user delete this listen session? requires ownership (no admin override, or local mode) */
 export function canDeleteListenSession(sessionOwnerId: string | null): boolean {
+  if (isLocalMode()) return true;
   const user = getCurrentUser();
   if (!user) return false;
   return permissions.canDeleteListenSession(user.userId, sessionOwnerId);

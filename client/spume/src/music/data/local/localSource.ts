@@ -541,12 +541,6 @@ export class LocalMusicDataSource implements MusicDataSource {
       title: params.title,
       description: params.description || null,
       is_public: params.is_public ?? false,
-      source_type: "local",
-      source_remote_id: null,
-      source_remote_url: null,
-      source_etag: null,
-      last_synced_at: null,
-      is_editable: true,
       created_at: now,
       updated_at: now,
     };

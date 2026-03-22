@@ -340,6 +340,38 @@ pub async fn add_album_image(
         }
     };
 
+    // check if this exact image already exists for this album
+    let existing = sqlx::query_scalar!(
+        "SELECT COUNT(*) FROM album_imagez WHERE album_id = ? AND media_blob_id = ?",
+        album_id,
+        media_blob_id
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap_or(0);
+
+    if existing > 0 {
+        // image already exists - if we want it to be primary, update it
+        if is_primary {
+            // demote other images and promote this one
+            let _ = sqlx::query!(
+                "UPDATE album_imagez SET is_primary = 0 WHERE album_id = ? AND media_blob_id != ?",
+                album_id,
+                media_blob_id
+            )
+            .execute(&pool)
+            .await;
+            let _ = sqlx::query!(
+                "UPDATE album_imagez SET is_primary = 1 WHERE album_id = ? AND media_blob_id = ?",
+                album_id,
+                media_blob_id
+            )
+            .execute(&pool)
+            .await;
+        }
+        return GrimoireResponse::success("Image already exists on album", ());
+    }
+
     // if setting as primary, unset other primary images first
     if is_primary {
         if let Err(e) = sqlx::query!(
@@ -381,6 +413,12 @@ pub async fn add_album_image(
             GrimoireResponse::success("Image added to album", ())
         }
         Err(e) => {
+            tracing::warn!(
+                "add_album_image: FAILED album_id={}, blob_id={}, error={}",
+                album_id,
+                media_blob_id,
+                e
+            );
             GrimoireResponse::failure("Failed to add image to album", vec![ErrorDetail::from(e)])
         }
     }

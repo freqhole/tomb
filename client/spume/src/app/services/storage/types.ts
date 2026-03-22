@@ -11,6 +11,10 @@ export interface AppState {
   // tracks dismissed persistent notices, keyed by notice ID + version
   // e.g. { "config-upgrade:0.1.4": true }
   dismissed_notices?: Record<string, boolean>;
+  // when true, queue songs from remotes are synced to local library (default: true)
+  sync_queue_to_local?: boolean;
+  // when true, auto-downloads all queue songs in background (default: false)
+  auto_download_enabled?: boolean;
 }
 
 // queue history entry — represents one "add to queue" action

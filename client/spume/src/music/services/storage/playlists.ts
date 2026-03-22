@@ -1,131 +1,129 @@
-// playlist storage helpers for local and synced playlists
+// playlist storage helpers
 
 import type { IDBPDatabase } from "idb";
-import type { ImageMetadata, Playlist, PlaylistSong } from "./types";
+import type { ImageMetadata, Playlist, PlaylistSong, Song } from "./types";
 import { STORE_PLAYLISTS, STORE_PLAYLIST_SONGS } from "./types";
 
-// ===== SYNCED PLAYLIST FUNCTIONS =====
+/**
+ * unwrap proxy arrays before storing in IndexedDB
+ * (SolidJS stores use proxies that can't be cloned for IDB)
+ */
+function unwrapImages(images?: ImageMetadata[]): ImageMetadata[] | undefined {
+  if (!images) return undefined;
+  return images.map((img) => ({ ...img }));
+}
 
 /**
- * create a synced playlist downloaded from a remote server
- * sets source_type="remote" and stores sync metadata
+ * create a local playlist
  */
-export async function createSyncedPlaylist(
+export async function createLocalPlaylist(
   db: IDBPDatabase,
   playlist: {
     playlist_id: string;
     title: string;
-    description: string | null;
-    is_public: boolean;
+    description?: string | null;
+    is_public?: boolean;
     images?: ImageMetadata[];
-    source_remote_id: string;
-    source_remote_url: string;
-    source_etag: string;
   },
 ): Promise<void> {
   const now = Date.now();
-  const syncedPlaylist: Playlist = {
-    ...playlist,
-    source_type: "remote",
-    source_remote_id: playlist.source_remote_id,
-    source_remote_url: playlist.source_remote_url,
-    source_etag: playlist.source_etag,
-    last_synced_at: now,
-    is_editable: false,
+  const localPlaylist: Playlist = {
+    playlist_id: playlist.playlist_id,
+    title: playlist.title,
+    description: playlist.description ?? null,
+    is_public: playlist.is_public ?? false,
+    images: unwrapImages(playlist.images),
     created_at: now,
     updated_at: now,
   };
 
-  await db.put(STORE_PLAYLISTS, syncedPlaylist);
+  await db.put(STORE_PLAYLISTS, localPlaylist);
 }
 
 /**
- * update the etag and last_synced_at for a synced playlist
+ * create or update a local playlist with its songs.
+ * called when syncing songs from a remote playlist to local storage.
  */
-export async function updateSyncedPlaylistETag(
+export async function upsertLocalPlaylistWithSongs(
   db: IDBPDatabase,
-  playlistId: string,
-  etag: string,
+  playlist: {
+    playlist_id: string;
+    title: string;
+    description?: string | null;
+    is_public?: boolean;
+    images?: ImageMetadata[];
+  },
+  songs: Song[],
 ): Promise<void> {
-  const playlist = await db.get(STORE_PLAYLISTS, playlistId);
-  if (!playlist) {
-    throw new Error("playlist not found");
+  const now = Date.now();
+
+  // unwrap proxy arrays before storing
+  const images = unwrapImages(playlist.images);
+
+  // check if playlist exists
+  const existing = await db.get(STORE_PLAYLISTS, playlist.playlist_id);
+
+  if (existing) {
+    // update existing playlist metadata
+    const updated: Playlist = {
+      ...existing,
+      title: playlist.title,
+      description: playlist.description ?? existing.description,
+      is_public: playlist.is_public ?? existing.is_public,
+      images: images ?? existing.images,
+      updated_at: now,
+    };
+    await db.put(STORE_PLAYLISTS, updated);
+  } else {
+    // create new playlist
+    const newPlaylist: Playlist = {
+      playlist_id: playlist.playlist_id,
+      title: playlist.title,
+      description: playlist.description ?? null,
+      is_public: playlist.is_public ?? false,
+      images,
+      created_at: now,
+      updated_at: now,
+    };
+    await db.put(STORE_PLAYLISTS, newPlaylist);
   }
 
-  playlist.source_etag = etag;
-  playlist.last_synced_at = Date.now();
-  playlist.updated_at = Date.now();
+  // update songs - replace all existing with new list
+  const tx = db.transaction(STORE_PLAYLIST_SONGS, "readwrite");
+  const store = tx.objectStore(STORE_PLAYLIST_SONGS);
 
-  await db.put(STORE_PLAYLISTS, playlist);
-}
-
-/**
- * get all synced playlists (source_type="remote")
- */
-export async function getSyncedPlaylists(
-  db: IDBPDatabase,
-): Promise<Playlist[]> {
-  const index = db.transaction(STORE_PLAYLISTS).store.index("by_source_type");
-  return await index.getAll("remote");
-}
-
-/**
- * convert a synced playlist to a local editable copy
- * clears sync metadata and allows editing
- */
-export async function convertToLocalPlaylist(
-  db: IDBPDatabase,
-  playlistId: string,
-): Promise<void> {
-  const playlist = await db.get(STORE_PLAYLISTS, playlistId);
-  if (!playlist) {
-    throw new Error("playlist not found");
+  // delete existing songs for this playlist
+  const index = store.index("by_playlist_id");
+  const existingSongs = await index.getAll(playlist.playlist_id);
+  for (const song of existingSongs) {
+    await store.delete([song.playlist_id, song.song_id]);
   }
 
-  // clear sync fields
-  playlist.source_type = "local";
-  playlist.source_remote_id = null;
-  playlist.source_remote_url = null;
-  playlist.source_etag = null;
-  playlist.last_synced_at = null;
-  playlist.is_editable = true;
-  playlist.updated_at = Date.now();
+  // add new songs (using sha256 as song_id for local storage)
+  for (let i = 0; i < songs.length; i++) {
+    const song = songs[i];
+    const playlistSong: PlaylistSong = {
+      playlist_id: playlist.playlist_id,
+      song_id: song.sha256,
+      position: i,
+      added_at: now,
+    };
+    await store.put(playlistSong);
+  }
 
-  await db.put(STORE_PLAYLISTS, playlist);
-}
-
-/**
- * check if a playlist is synced from a remote
- */
-export function isSyncedPlaylist(playlist: Playlist): boolean {
-  return playlist.source_type === "remote";
+  await tx.done;
 }
 
 /**
  * check if a playlist is editable
  */
-export function isEditablePlaylist(playlist: Playlist): boolean {
-  // default to true for legacy playlists without is_editable field
-  return playlist.is_editable !== false;
+export function isEditablePlaylist(_playlist: Playlist): boolean {
+  // all playlists are now editable (sync metadata removed)
+  return true;
 }
 
 /**
- * get a playlist by its remote id and url
- * useful for checking if a remote playlist is already downloaded
- */
-export async function getPlaylistByRemoteId(
-  db: IDBPDatabase,
-  remoteId: string,
-  remoteUrl: string,
-): Promise<Playlist | undefined> {
-  const allPlaylists = await db.getAll(STORE_PLAYLISTS);
-  return allPlaylists.find(
-    (p) => p.source_remote_id === remoteId && p.source_remote_url === remoteUrl,
-  );
-}
-
-/**
- * create or update playlist songs for a synced playlist
+ * create or update playlist songs
  * replaces all existing songs with the new list
  */
 export async function updatePlaylistSongs(

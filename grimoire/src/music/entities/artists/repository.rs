@@ -535,6 +535,38 @@ pub async fn add_artist_image(
         }
     };
 
+    // check if this exact image already exists for this artist
+    let existing = sqlx::query_scalar!(
+        "SELECT COUNT(*) FROM artist_imagez WHERE artist_id = ? AND media_blob_id = ?",
+        artist_id,
+        media_blob_id
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap_or(0);
+
+    if existing > 0 {
+        // image already exists - if we want it to be primary, update it
+        if is_primary {
+            // demote other images and promote this one
+            let _ = sqlx::query!(
+                "UPDATE artist_imagez SET is_primary = 0 WHERE artist_id = ? AND media_blob_id != ?",
+                artist_id,
+                media_blob_id
+            )
+            .execute(&pool)
+            .await;
+            let _ = sqlx::query!(
+                "UPDATE artist_imagez SET is_primary = 1 WHERE artist_id = ? AND media_blob_id = ?",
+                artist_id,
+                media_blob_id
+            )
+            .execute(&pool)
+            .await;
+        }
+        return GrimoireResponse::success("Image already exists on artist", ());
+    }
+
     // if setting as primary, unset other primary images first
     if is_primary {
         if let Err(e) = sqlx::query!(

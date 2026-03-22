@@ -1,7 +1,7 @@
 // normalized music storage types matching server schema
 
 // source types for songs
-export type MusicSourceType = "local" | "downloaded" | "remote";
+export type MusicSourceType = "local" | "downloaded" | "synced" | "remote";
 
 // image metadata with source-specific fields
 export interface ImageMetadata {
@@ -89,6 +89,9 @@ export interface Song {
   album_primary_genre_id: string | null; // most common genre for this album
   album_primary_genre_name?: string | null; // genre name for display
 
+  // sync behavior flags
+  skip_feed_events?: boolean; // skip album feed events when syncing (e.g., songs from playlist queue)
+
   // user-specific metadata (from current authenticated user)
   is_favorite?: boolean; // whether user has favorited this song
   user_rating?: number; // user's rating (1-5)
@@ -150,13 +153,6 @@ export interface Playlist {
   created_at: number;
   updated_at: number;
   created_by_id?: string | null; // user who created the playlist
-  // sync fields for remote playlists
-  source_type?: "local" | "remote"; // undefined for legacy, defaults to "local"
-  source_remote_id?: string | null; // remote playlist id
-  source_remote_url?: string | null; // base url of remote server
-  source_etag?: string | null; // last known etag for sync
-  last_synced_at?: number | null; // timestamp of last sync
-  is_editable?: boolean; // false for synced playlists, defaults to true
   // user-specific fields (from query views)
   is_favorite?: boolean;
   user_rating?: number;

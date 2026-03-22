@@ -378,8 +378,9 @@ pub struct FreqholeConfig {
     /// server image file path (absolute path for convertFileSrc)
     pub server_image_path: Option<String>,
     /// disable backdrop-filter blur effects (for linux/webkitgtk compatibility)
-    #[serde(default)]
     pub disable_backdrop_blur: bool,
+    /// sync queue songs from remotes to local library (default: true)
+    pub sync_queue_to_local: bool,
 }
 
 /// get freqhole server config (for bridge communication with spume)
@@ -406,7 +407,14 @@ pub fn get_freqhole_config(app_handle: tauri::AppHandle) -> Option<FreqholeConfi
 
     // get app config for display settings
     let app_config = FreqholeAppConfig::load(&app_handle);
-    let disable_backdrop_blur = app_config.map(|c| c.disable_backdrop_blur).unwrap_or(false);
+    let disable_backdrop_blur = app_config
+        .as_ref()
+        .map(|c| c.disable_backdrop_blur)
+        .unwrap_or(false);
+    let sync_queue_to_local = app_config
+        .as_ref()
+        .map(|c| c.sync_queue_to_local)
+        .unwrap_or(true);
 
     eprintln!(
         "[get_freqhole_config] returning: server_name={}, server_image_path={:?}",
@@ -419,6 +427,7 @@ pub fn get_freqhole_config(app_handle: tauri::AppHandle) -> Option<FreqholeConfi
         server_url: format!("http://localhost:{}", server.port),
         server_image_path: server.image_path.as_ref().map(|p| p.display().to_string()),
         disable_backdrop_blur,
+        sync_queue_to_local,
     })
 }
 
@@ -2058,6 +2067,31 @@ pub async fn reject_all_knocks(app_handle: tauri::AppHandle) -> Result<u32, Stri
     }
 
     Ok(rejected)
+}
+
+// =============================================================================
+// app config settings
+// =============================================================================
+
+/// get the sync_queue_to_local setting (default: true)
+#[tauri::command]
+pub fn get_sync_queue_to_local(app_handle: tauri::AppHandle) -> bool {
+    FreqholeAppConfig::load(&app_handle)
+        .map(|c| c.sync_queue_to_local)
+        .unwrap_or(true)
+}
+
+/// set the sync_queue_to_local setting
+#[tauri::command]
+pub fn set_sync_queue_to_local(app_handle: tauri::AppHandle, enabled: bool) -> Result<(), String> {
+    let mut config = FreqholeAppConfig::load(&app_handle).unwrap_or_default();
+    config.sync_queue_to_local = enabled;
+    config.save(&app_handle)?;
+
+    // emit config changed event so spume can update its state
+    let _ = notify_config_changed(&app_handle, "sync_queue_to_local changed");
+
+    Ok(())
 }
 
 // =============================================================================

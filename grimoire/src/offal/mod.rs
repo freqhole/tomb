@@ -15,6 +15,7 @@ pub mod auth;
 pub mod media_blobz;
 pub mod music;
 pub mod public; // unauthenticated routes (hello, knock)
+pub mod sync;
 pub mod upload;
 
 use crate::api_registry::RouteInfo;
@@ -47,6 +48,7 @@ pub fn all_routes() -> Vec<RouteInfo> {
     routes.extend(media_blobz::routes());
     routes.extend(music::routes());
     routes.extend(public::routes());
+    routes.extend(sync::routes());
     routes.extend(upload::routes());
     routes
 }

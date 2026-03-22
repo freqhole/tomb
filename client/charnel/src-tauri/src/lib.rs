@@ -45,6 +45,16 @@ impl ShutdownToken {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // set up tracing subscriber to see grimoire logs
+    use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+    tracing_subscriber::registry()
+        .with(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("grimoire=info")),
+        )
+        .with(tracing_subscriber::fmt::layer())
+        .init();
+
     let p2p_state = Arc::new(P2pState::new());
 
     tauri::Builder::default()
@@ -320,6 +330,9 @@ pub fn run() {
             commands::reject_knock,
             commands::delete_knock,
             commands::reject_all_knocks,
+            // app config settings
+            commands::get_sync_queue_to_local,
+            commands::set_sync_queue_to_local,
             commands::check_config_needs_upgrade,
             commands::upgrade_config,
             // server config / image management

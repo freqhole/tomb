@@ -34,6 +34,7 @@ reqwest = "0.12"
 url = "2"
 tokio = { version = "1", features = ["rt-multi-thread", "time"] }
 tokio-util = { version = "0.7", features = ["rt"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 which = "7"
 urlencoding = "2"
 chrono = "0.4"

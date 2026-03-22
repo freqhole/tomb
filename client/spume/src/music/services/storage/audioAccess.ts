@@ -56,8 +56,8 @@ export async function getAudioURL(song: Song): Promise<string> {
   directURLSongs.delete(song.sha256);
   removeFromDirectURLSet(song.sha256);
 
-  // local and downloaded files: read from opfs
-  if (song.source_type === "local" || song.source_type === "downloaded") {
+  // local, downloaded, and synced files: read from opfs
+  if (song.source_type === "local" || song.source_type === "downloaded" || song.source_type === "synced") {
     if (!song.opfs_path) {
       throw new Error(`song has no opfs path: ${song.sha256}`);
     }

@@ -44,17 +44,26 @@ import {
   togglePlayback,
   volume,
 } from "../music/services/audio/player";
-import { getLoadingSongIds } from "../music/services/cache/blobCache";
+import { getLoadingSongIds, isSongSyncedLocally } from "../music/services/cache/blobCache";
 import {
   getLoadingP2PSongIds,
   preCacheRemoteTransport,
   resolveBlobUrl,
   usesBlobResolver,
 } from "../music/services/storage/blobResolver";
+import { deleteSongFromLocal } from "../music/services/sync";
+import {
+  getPendingDownloadCount,
+  resumeAutoDownload,
+  updateAutoDownloadQueue,
+  resumeAutoDownloadsOnInit,
+} from "../music/services/autoDownload";
 import {
   canGoNext,
   canGoPrevious,
   clearQueue,
+  clearSongsAbove,
+  clearSongsBelow,
   removeFromQueue,
   reorderQueue,
 } from "../music/services/queue/queue";
@@ -117,6 +126,20 @@ export function AppLayout(props: AppLayoutProps) {
   // responsive: track narrow viewport
   const [isNarrow, setIsNarrow] = createSignal(isNarrowViewport());
 
+  // reactive memo for loading song ids (combines HTTP + P2P + current song loading)
+  const loadingSongIds = createMemo(() => {
+    const loadingSet = new Set(getLoadingSongIds());
+    for (const sha256 of getLoadingP2PSongIds()) {
+      loadingSet.add(sha256);
+    }
+    // add current song if audio is loading (includes P2P fetch wait)
+    const currentSha256 = appState()?.current_sha256;
+    if (isLoading() && currentSha256) {
+      loadingSet.add(currentSha256);
+    }
+    return loadingSet;
+  });
+
   // connection progress state (shared module)
   const connectionProgress = getConnectionProgress();
 
@@ -168,6 +191,9 @@ export function AppLayout(props: AppLayoutProps) {
 
     // reconnect progress tracking if there's an active queue from a previous page load
     reconnectProgressTracking();
+
+    // resume auto-downloads if enabled (downloads songs beyond rolling window)
+    void resumeAutoDownloadsOnInit();
 
     // start analytics sync loop
     startAnalyticsSync();
@@ -355,6 +381,21 @@ export function AppLayout(props: AppLayoutProps) {
       }
     } else {
       setCurrentSongData(null);
+    }
+  });
+
+  // update auto-download queue when queue or current song changes
+  createEffect(() => {
+    const state = appState();
+    if (!state) return;
+
+    const currentIndex = state.current_song_index ?? 0;
+    const queueLength = state.queue.length;
+
+    // this effect will re-run when queue or current index changes
+    // the function internally checks if auto-download is enabled
+    if (queueLength > 0) {
+      void updateAutoDownloadQueue(currentIndex);
     }
   });
 
@@ -761,20 +802,7 @@ export function AppLayout(props: AppLayoutProps) {
           currentTime={currentTime()}
           duration={duration()}
           progressMap={progressMap()}
-          loadingSongIds={(() => {
-            // combine: HTTP pre-caching + P2P pre-caching + current song loading
-            const loadingSet = new Set(getLoadingSongIds());
-            // add P2P loading songs
-            for (const sha256 of getLoadingP2PSongIds()) {
-              loadingSet.add(sha256);
-            }
-            // add current song if audio is loading (includes P2P fetch wait)
-            const currentSha256 = appState()?.current_sha256;
-            if (isLoading() && currentSha256) {
-              loadingSet.add(currentSha256);
-            }
-            return loadingSet;
-          })()}
+          loadingSongIds={loadingSongIds()}
           onClose={() => void setQueueOpen(false)}
           onSongClick={(index) => {
             const state = appState();
@@ -797,14 +825,38 @@ export function AppLayout(props: AppLayoutProps) {
           onClearAll={() => {
             void clearQueue();
           }}
+          onResumeDownloads={() => {
+            resumeAutoDownload();
+          }}
+          pendingDownloadCount={getPendingDownloadCount()}
           getContextMenuActions={(index, _queueSong) => {
             const state = appState();
             if (!state?.queue[index]) return [];
 
             const fullSong = state.queue[index];
+            const queueLength = state.queue.length;
+            const isSynced = isSongSyncedLocally(fullSong.sha256);
             return useSongContextMenu(fullSong, {
               showPlayActions: false,
               isFavorite: fullSong.is_favorite || false,
+              showRemoveFromQueue: true,
+              queueIndex: index,
+              onRemoveFromQueue: () => void removeFromQueue(index),
+              showClearAbove: index > 0,
+              onClearAbove: () => void clearSongsAbove(index),
+              showClearBelow: index < queueLength - 1,
+              onClearBelow: () => void clearSongsBelow(index),
+              showDeleteFromLocal: isSynced,
+              onDeleteFromLocal: async () => {
+                const result = await deleteSongFromLocal(fullSong.id);
+                if (result.success) {
+                  const { toast } = await import("../components/feedback/Toast");
+                  toast.success("removed from local library");
+                } else {
+                  const { toast } = await import("../components/feedback/Toast");
+                  toast.error(result.error || "failed to delete");
+                }
+              },
             });
           }}
           historyEntries={queueHistory()}

@@ -19,3 +19,4 @@ data/dev.db
 *.profraw
 /freqhole-config.toml
 
+/client/charnel/.vite

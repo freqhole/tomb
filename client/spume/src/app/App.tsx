@@ -13,6 +13,7 @@ import { ArtistEditorModal } from "../components/modals/ArtistEditorModal";
 import { SongEditorModal } from "../components/modals/SongEditorModal";
 import { ImageCarouselModal } from "../components/modals/ImageCarouselModal";
 import { TagSelectorModal } from "../components/modals/TagSelectorModal";
+import { QueueFullModal } from "../music/components/QueueFullModal";
 import {
   getDataSource,
   getCurrentRemote,
@@ -51,6 +52,7 @@ import {
   cleanupCacheNetworkHandlers,
   initCacheNetworkHandlers,
   initCachedAudioURLs,
+  initSyncedSha256sFromIDB,
 } from "../music/services/cache/blobCache";
 import {
   getAllRemotes,
@@ -70,7 +72,7 @@ import { checkPendingKnocks, showKnockCreatedToast } from "./services/toastNotic
 import { initMusicDB } from "../music/services/storage/db";
 import type { Song } from "../music/services/storage/types";
 import { routes } from "./routes";
-import { initAppDB } from "./services/storage/db";
+import { initAppDB, setSyncQueueToLocal } from "./services/storage/db";
 import { debug } from "../utils/logger";
 import {
   isCharnelMode,
@@ -246,7 +248,11 @@ export function App() {
       server_url: config.server_url,
       server_image_path: config.server_image_path,
       disable_backdrop_blur: config.disable_backdrop_blur,
+      sync_queue_to_local: config.sync_queue_to_local,
     });
+
+    // sync charnel config to spume AppState
+    await setSyncQueueToLocal(config.sync_queue_to_local ?? true);
 
     try {
       // upsert creates or updates the tauri-managed remote
@@ -366,7 +372,10 @@ export function App() {
       initCacheNetworkHandlers();
 
       // seed reactive cache set from existing metadata
-      void initCachedAudioURLs();
+      await initCachedAudioURLs();
+
+      // seed synced sha256s from IDB/grimoire (for underline indicators on synced songs)
+      await initSyncedSha256sFromIDB();
 
       // register service worker (prod web mode only)
       void registerServiceWorker();
@@ -646,6 +655,9 @@ export function App() {
           />
         )}
       </Show>
+
+      {/* queue full modal (global, managed by queue service) */}
+      <QueueFullModal />
     </>
   );
 }

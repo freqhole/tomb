@@ -334,6 +334,50 @@ pub async fn get_song_media_blob_id(song_id: &str) -> GrimoireResult<String> {
         id: song_id.to_string(),
     })
 }
+
+/// get a song ID by media blob sha256
+///
+/// returns the song ID if a non-deleted song exists with a media blob matching the sha256
+pub async fn get_song_by_sha256(sha256: &str) -> GrimoireResult<Option<String>> {
+    let pool = database::connect().await?;
+
+    let song_id: Option<String> = sqlx::query_scalar!(
+        r#"
+        SELECT s.id as "id!"
+        FROM songz s
+        JOIN media_blobz mb ON s.media_blob_id = mb.id
+        WHERE mb.sha256 = ? AND s.deleted_at IS NULL
+        LIMIT 1
+        "#,
+        sha256
+    )
+    .fetch_optional(&pool)
+    .await?;
+
+    Ok(song_id)
+}
+
+/// get all sha256 hashes for synced songs
+///
+/// returns all sha256s from media blobs that are linked to non-deleted songs
+pub async fn get_all_song_sha256s() -> GrimoireResult<Vec<String>> {
+    let pool = database::connect().await?;
+
+    let sha256s: Vec<String> = sqlx::query_scalar!(
+        r#"
+        SELECT DISTINCT mb.sha256 as "sha256!"
+        FROM songz s
+        JOIN media_blobz mb ON s.media_blob_id = mb.id
+        WHERE mb.sha256 IS NOT NULL AND s.deleted_at IS NULL
+        "#
+    )
+    .fetch_all(&pool)
+    .await?;
+
+    tracing::debug!("returning {} synced sha256s", sha256s.len());
+    Ok(sha256s)
+}
+
 /// add an image to a song
 ///
 /// if `created_by` is provided (as (user_id, username)), a feed event will be created
@@ -343,65 +387,15 @@ pub async fn add_song_image(
     is_primary: bool,
     created_by: Option<(&str, &str)>,
 ) -> GrimoireResponse<()> {
-    tracing::info!(
-        "add_song_image called: song_id={}, media_blob_id={}, is_primary={}",
-        song_id,
-        media_blob_id,
-        is_primary
-    );
-
     let pool = match database::connect().await {
         Ok(p) => p,
         Err(e) => {
-            tracing::error!("add_song_image: failed to connect to database: {:?}", e);
             return GrimoireResponse::failure(
                 "Failed to connect to database",
                 vec![ErrorDetail::from(e)],
             );
         }
     };
-
-    // check if this image already exists for this song
-    let existing = sqlx::query_scalar!(
-        "SELECT COUNT(*) as count FROM song_imagez WHERE song_id = ? AND media_blob_id = ?",
-        song_id,
-        media_blob_id
-    )
-    .fetch_one(&pool)
-    .await;
-
-    tracing::info!(
-        "add_song_image: existing check result for song_id={}, media_blob_id={}: {:?}",
-        song_id,
-        media_blob_id,
-        existing
-    );
-
-    // check if the media_blob_id exists in media_blobz
-    let blob_exists = sqlx::query_scalar!(
-        "SELECT COUNT(*) as count FROM media_blobz WHERE id = ?",
-        media_blob_id
-    )
-    .fetch_one(&pool)
-    .await;
-
-    tracing::info!(
-        "add_song_image: media_blob exists check for media_blob_id={}: {:?}",
-        media_blob_id,
-        blob_exists
-    );
-
-    // check if the song exists
-    let song_exists =
-        sqlx::query_scalar!("SELECT COUNT(*) as count FROM songz WHERE id = ?", song_id)
-            .fetch_one(&pool)
-            .await;
-
-    tracing::info!(
-        "add_song_image: song exists check for song_id={}: {:?}",
-        song_id,
-        song_exists
-    );
 
     // if setting as primary, unset other primary images first
     if is_primary {
@@ -412,7 +406,6 @@ pub async fn add_song_image(
         .execute(&pool)
         .await
         {
-            tracing::error!("add_song_image: failed to unset primary: {:?}", e);
             return GrimoireResponse::failure(
                 "Failed to unset existing primary images",
                 vec![ErrorDetail::from(e)],
@@ -431,8 +424,6 @@ pub async fn add_song_image(
     .await
     {
         Ok(_) => {
-            tracing::info!("add_song_image: successfully added image");
-
             // create feed event if user provided
             if let Some((user_id, username)) = created_by {
                 let _ = crate::music::analytics::feed_events::create_image_feed_event(
@@ -448,7 +439,6 @@ pub async fn add_song_image(
             GrimoireResponse::success("Image added to song", ())
         }
         Err(e) => {
-            tracing::error!("add_song_image: INSERT failed: {:?}", e);
             GrimoireResponse::failure("Failed to add image to song", vec![ErrorDetail::from(e)])
         }
     }

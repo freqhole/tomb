@@ -67,21 +67,21 @@ export function CollectionCard(props: CollectionCardProps): JSX.Element {
 
   // event handlers
   const handleClick = () => {
-    if (props.onClick) {
+    if (props.onClick && props.collection) {
       props.onClick(props.collection);
     }
   };
 
   const handlePlay = (e: MouseEvent) => {
     e.stopPropagation();
-    if (props.onPlay) {
+    if (props.onPlay && props.collection) {
       props.onPlay(props.collection);
     }
   };
 
   const handleContextMenu = (e: MouseEvent) => {
     e.preventDefault();
-    if (props.onContextMenu) {
+    if (props.onContextMenu && props.collection) {
       props.onContextMenu(e, props.collection);
     }
   };
@@ -123,149 +123,151 @@ export function CollectionCard(props: CollectionCardProps): JSX.Element {
   };
 
   return (
-    <div
-      class={`group cursor-pointer flex flex-col ${props.class || ""}`}
-      onClick={handleClick}
-      onContextMenu={handleContextMenu}
-      onMouseEnter={() => setIsCardHovering(true)}
-      onMouseLeave={() => setIsCardHovering(false)}
-    >
-      {/* image/artwork area */}
-      <div
-        class={`${sizeClasses().container} bg-[var(--color-bg-base)] rounded-lg mb-2 relative transition-all duration-300 group-hover:rounded-none`}
-      >
-        <MediaImage
-          images={props.collection.images}
-          imageUrl={props.collection.imageUrl}
-          alt={props.collection.title}
-          domainType={props.collection.domainType}
-          showFallback={true}
-          enableAlbumHover={true}
-          thumbnailSize={200}
-          class="w-full h-full rounded-lg group-hover:rounded-none"
-        />
-
-        {/* favorite toggle - top right corner */}
-        <Show
-          when={props.collection.isFavorite !== undefined && props.collection.isFavorite !== null}
-        >
-          <div
-            class="absolute top-2 right-2 z-40 transition-opacity duration-200"
-            classList={{
-              "opacity-100": props.collection.isFavorite === true,
-              "opacity-0 group-hover:opacity-100": props.collection.isFavorite !== true,
-            }}
-          >
-            <FavoriteHeart
-              isFavorite={props.collection.isFavorite ?? false}
-              onToggle={(isFavorite) => props.onFavoriteToggle?.(props.collection, isFavorite)}
-              size="sm"
-              class="bg-black/30 backdrop-blur-sm rounded-full hover:bg-black/50 transition-colors"
-            />
-          </div>
-        </Show>
-
-        {/* hover overlay with play button */}
-        <div class="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-          <button
-            class={`${sizeClasses().playButton} bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-400)] text-[var(--color-text-on-accent)] flex items-center justify-center transition-colors`}
-            onClick={handlePlay}
-            title={`play ${props.collection.domainType}`}
-          >
-            <PlayIcon size={props.size === "small" ? 20 : 24} className="ml-1" />
-          </button>
-        </div>
-      </div>
-
-      {/* collection info */}
-      <div class="space-y-0.5 min-w-0">
-        {/* title */}
-        <MarqueeText
-          text={props.collection.title}
-          class={`text-[var(--color-text-primary)] font-medium ${sizeClasses().title} group-hover:text-[var(--color-accent-500)] transition-colors`}
-          isHovering={isCardHovering}
-        />
-
-        {/* subtitle */}
-        <Show when={props.collection.subtitle}>
-          <MarqueeText
-            text={props.collection.subtitle!}
-            class={`text-[var(--color-text-primary)]/75 ${sizeClasses().subtitle} group-hover:text-[var(--color-text-primary)] transition-colors`}
-            isHovering={isCardHovering}
-          />
-        </Show>
-
-        {/* artist info for albums/songs only - not playlists */}
-        <Show
-          when={
-            props.collection.artist &&
-            props.collection.domainType !== "playlist" &&
-            !props.collection.subtitle?.includes(props.collection.artist!)
-          }
-        >
-          <MarqueeText
-            text={`by ${props.collection.artist}`}
-            class={`text-[var(--color-text-primary)]/75 ${sizeClasses().subtitle} group-hover:text-[var(--color-text-secondary)] transition-colors`}
-            isHovering={isCardHovering}
-          />
-        </Show>
-
-        {/* metadata row */}
+    <Show when={props.collection}>
+      {(collection) => (
         <div
-          class={`text-[var(--color-text-tertiary)]/65 ${sizeClasses().meta} group-hover:text-[var(--color-text-secondary)] transition-colors`}
+          class={`group cursor-pointer flex flex-col ${props.class || ""}`}
+          onClick={handleClick}
+          onContextMenu={handleContextMenu}
+          onMouseEnter={() => setIsCardHovering(true)}
+          onMouseLeave={() => setIsCardHovering(false)}
         >
-          <div class="flex items-center gap-2 flex-wrap">
-            {/* year */}
-            <Show when={props.showYear && props.collection.year}>
-              <span>{props.collection.year}</span>
+          {/* image/artwork area */}
+          <div
+            class={`${sizeClasses().container} bg-[var(--color-bg-base)] rounded-lg mb-2 relative transition-all duration-300 group-hover:rounded-none`}
+          >
+            <MediaImage
+              images={collection().images}
+              imageUrl={collection().imageUrl}
+              alt={collection().title}
+              domainType={collection().domainType}
+              showFallback={true}
+              enableAlbumHover={true}
+              thumbnailSize={200}
+              class="w-full h-full rounded-lg group-hover:rounded-none"
+            />
+
+            {/* favorite toggle - top right corner */}
+            <Show when={collection().isFavorite !== undefined && collection().isFavorite !== null}>
+              <div
+                class="absolute top-2 right-2 z-40 transition-opacity duration-200"
+                classList={{
+                  "opacity-100": collection().isFavorite === true,
+                  "opacity-0 group-hover:opacity-100": collection().isFavorite !== true,
+                }}
+              >
+                <FavoriteHeart
+                  isFavorite={collection().isFavorite ?? false}
+                  onToggle={(isFavorite) => props.onFavoriteToggle?.(collection(), isFavorite)}
+                  size="sm"
+                  class="bg-black/30 backdrop-blur-sm rounded-full hover:bg-black/50 transition-colors"
+                />
+              </div>
             </Show>
 
-            {/* track count */}
-            <Show when={props.collection.trackCount && props.collection.trackCount > 0}>
-              <span>
-                {props.collection.trackCount} track
-                {props.collection.trackCount !== 1 ? "s" : ""}
-              </span>
+            {/* hover overlay with play button */}
+            <div class="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+              <button
+                class={`${sizeClasses().playButton} bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-400)] text-[var(--color-text-on-accent)] flex items-center justify-center transition-colors`}
+                onClick={handlePlay}
+                title={`play ${collection().domainType}`}
+              >
+                <PlayIcon size={props.size === "small" ? 20 : 24} className="ml-1" />
+              </button>
+            </div>
+          </div>
+
+          {/* collection info */}
+          <div class="space-y-0.5 min-w-0">
+            {/* title */}
+            <MarqueeText
+              text={collection().title}
+              class={`text-[var(--color-text-primary)] font-medium ${sizeClasses().title} group-hover:text-[var(--color-accent-500)] transition-colors`}
+              isHovering={isCardHovering}
+            />
+
+            {/* subtitle */}
+            <Show when={collection().subtitle}>
+              <MarqueeText
+                text={collection().subtitle!}
+                class={`text-[var(--color-text-primary)]/75 ${sizeClasses().subtitle} group-hover:text-[var(--color-text-primary)] transition-colors`}
+                isHovering={isCardHovering}
+              />
             </Show>
 
-            {/* duration */}
-            <Show when={props.showDuration && props.collection.totalDuration}>
-              <span>{props.collection.totalDuration}</span>
+            {/* artist info for albums/songs only - not playlists */}
+            <Show
+              when={
+                collection().artist &&
+                collection().domainType !== "playlist" &&
+                !collection().subtitle?.includes(collection().artist!)
+              }
+            >
+              <MarqueeText
+                text={`by ${collection().artist}`}
+                class={`text-[var(--color-text-primary)]/75 ${sizeClasses().subtitle} group-hover:text-[var(--color-text-secondary)] transition-colors`}
+                isHovering={isCardHovering}
+              />
             </Show>
 
-            {/* play count */}
-            <Show when={props.showPlayCount && props.collection.playCount}>
-              <span>{props.collection.playCount} plays</span>
+            {/* metadata row */}
+            <div
+              class={`text-[var(--color-text-tertiary)]/65 ${sizeClasses().meta} group-hover:text-[var(--color-text-secondary)] transition-colors`}
+            >
+              <div class="flex items-center gap-2 flex-wrap">
+                {/* year */}
+                <Show when={props.showYear && collection().year}>
+                  <span>{collection().year}</span>
+                </Show>
+
+                {/* track count */}
+                <Show when={collection().trackCount && collection().trackCount > 0}>
+                  <span>
+                    {collection().trackCount} track
+                    {collection().trackCount !== 1 ? "s" : ""}
+                  </span>
+                </Show>
+
+                {/* duration */}
+                <Show when={props.showDuration && collection().totalDuration}>
+                  <span>{collection().totalDuration}</span>
+                </Show>
+
+                {/* play count */}
+                <Show when={props.showPlayCount && collection().playCount}>
+                  <span>{collection().playCount} plays</span>
+                </Show>
+              </div>
+            </div>
+
+            {/* genres */}
+            <Show when={props.showGenres && collection().genres}>
+              <MarqueeText
+                text={collection().genres!}
+                class={`${sizeClasses().meta} text-[var(--color-text-tertiary)]/50 group-hover:text-[var(--color-text-primary)] transition-colors bg-black/50 px-1 py-0.5 rounded`}
+                isHovering={isCardHovering}
+              />
+            </Show>
+            {/* tags */}
+            <Show when={collection().tags && collection().tags.length > 0}>
+              <div class="w-full overflow-hidden flex flex-wrap gap-1">
+                <For each={collection().tags}>
+                  {(tag) => (
+                    <Badge
+                      size="sm"
+                      variant="outline"
+                      class="text-[var(--color-text-tertiary)]/70 group-hover:text-[var(--color-primary)] transition-colors"
+                    >
+                      #{tag}
+                    </Badge>
+                  )}
+                </For>
+              </div>
             </Show>
           </div>
         </div>
-
-        {/* genres */}
-        <Show when={props.showGenres && props.collection.genres}>
-          <MarqueeText
-            text={props.collection.genres!}
-            class={`${sizeClasses().meta} text-[var(--color-text-tertiary)]/50 group-hover:text-[var(--color-text-primary)] transition-colors bg-black/50 px-1 py-0.5 rounded`}
-            isHovering={isCardHovering}
-          />
-        </Show>
-        {/* tags */}
-        <Show when={props.collection.tags && props.collection.tags.length > 0}>
-          <div class="w-full overflow-hidden flex flex-wrap gap-1">
-            <For each={props.collection.tags}>
-              {(tag) => (
-                <Badge
-                  size="sm"
-                  variant="outline"
-                  class="text-[var(--color-text-tertiary)]/70 group-hover:text-[var(--color-primary)] transition-colors"
-                >
-                  #{tag}
-                </Badge>
-              )}
-            </For>
-          </div>
-        </Show>
-      </div>
-    </div>
+      )}
+    </Show>
   );
 }
 

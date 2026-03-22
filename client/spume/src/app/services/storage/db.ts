@@ -184,6 +184,26 @@ async function setQueueOpen(isOpen: boolean): Promise<void> {
   await updateAppState({ queue_open: isOpen });
 }
 
+// set sync queue to local setting
+async function setSyncQueueToLocal(enabled: boolean): Promise<void> {
+  await updateAppState({ sync_queue_to_local: enabled });
+}
+
+// get sync queue to local setting (default: true)
+function getSyncQueueToLocal(): boolean {
+  return appState()?.sync_queue_to_local ?? true;
+}
+
+// set auto-download enabled setting
+async function setAutoDownloadEnabled(enabled: boolean): Promise<void> {
+  await updateAppState({ auto_download_enabled: enabled });
+}
+
+// get auto-download enabled setting (default: false)
+function getAutoDownloadEnabled(): boolean {
+  return appState()?.auto_download_enabled ?? false;
+}
+
 // set active remote id
 async function setActiveRemoteId(remoteId: string | null): Promise<void> {
   await updateAppState({ active_remote_id: remoteId });
@@ -320,17 +340,21 @@ export {
   deletePendingRemote,
   deletePendingRemoteByPeerAddr,
   deleteP2PIdentity,
+  getAutoDownloadEnabled,
   getAllPendingRemotes,
   getPendingRemoteById,
   getPendingRemoteByPeerAddr,
   getP2PIdentity,
+  getSyncQueueToLocal,
   initAppDB,
   loadAppState,
   saveP2PIdentity,
   setActiveRemoteId,
+  setAutoDownloadEnabled,
   setCurrentSong,
   setQueue,
   setQueueOpen,
+  setSyncQueueToLocal,
   updateAppState,
   updatePendingRemote,
   updateSongInQueue,
