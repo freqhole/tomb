@@ -17,7 +17,12 @@ import { getOrCreateGenre } from "../storage/db/genres";
 import { createTag } from "../storage/db/tags";
 import { addAlbumTag, getAlbumTags } from "../storage/db/albumTags";
 import { storeBlob } from "../storage/blobs";
-import { markSongSynced } from "../cache/blobCache";
+import {
+  markSongSynced,
+  canStartDownload,
+  isDownloadInProgress,
+  registerDownload,
+} from "../download";
 import type { GenreRef, ImageMetadata, Song } from "../storage/types";
 import type { Remote } from "../../../app/services/storage/schemas/remote";
 
@@ -431,15 +436,25 @@ export async function syncSongToLocal(
     return { success: false, error: "song missing remote_server_id" };
   }
 
-  try {
-    const db = await initMusicDB();
+  // check unified download state BEFORE any async work
+  // this prevents duplicate downloads when multiple triggers fire
+  if (!canStartDownload(sha256)) {
+    const reason = isDownloadInProgress(sha256) ? "download in progress" : "already synced";
+    debug("syncSongToLocal", `skipping ${sha256.slice(0, 8)}... (${reason})`);
+    return { success: true, localSongId: sha256, skipped: true };
+  }
 
-    // check if already synced by sha256
-    const existingSong = await db.get("songs", sha256);
-    if (existingSong) {
-      debug("syncSongToLocal", `song already exists locally: ${sha256.slice(0, 8)}...`);
-      return { success: true, localSongId: sha256, skipped: true };
-    }
+  // wrap the actual sync work in a promise we can register
+  const syncPromise = (async (): Promise<SyncResult> => {
+    try {
+      const db = await initMusicDB();
+
+      // double-check DB in case another sync completed between our check and registration
+      const existingSong = await db.get("songs", sha256);
+      if (existingSong) {
+        debug("syncSongToLocal", `song already exists locally: ${sha256.slice(0, 8)}...`);
+        return { success: true, localSongId: sha256, skipped: true };
+      }
 
     // get the remote configuration
     const remote = await getRemoteById(remote_server_id);
@@ -584,12 +599,17 @@ export async function syncSongToLocal(
 
     debug("syncSongToLocal", `synced song ${song.title} to local storage`);
     return { success: true, localSongId: sha256 };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(`failed to sync song ${song.title}:`, error);
+      return { success: false, error: message };
+    }
+  })();
 
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.error(`failed to sync song ${song.title}:`, error);
-    return { success: false, error: message };
-  }
+  // register this download so other callers can check/skip
+  registerDownload(sha256, syncPromise as unknown as Promise<void>);
+
+  return syncPromise;
 }
 
 /**

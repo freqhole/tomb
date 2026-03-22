@@ -5,7 +5,7 @@
 import { isCharnelMode } from "../../../app/services/charnel";
 import { debug, warn } from "../../../utils/logger";
 import { deleteSongCascade } from "../storage/db/cascades";
-import { unmarkSongSynced } from "../cache/blobCache";
+import { unmarkSongSynced } from "../download";
 
 export interface DeleteSongResult {
   success: boolean;

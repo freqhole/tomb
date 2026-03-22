@@ -52,8 +52,8 @@ import {
   cleanupCacheNetworkHandlers,
   initCacheNetworkHandlers,
   initCachedAudioURLs,
-  initSyncedSha256sFromIDB,
 } from "../music/services/cache/blobCache";
+import { initDownloadState } from "../music/services/download";
 import {
   getAllRemotes,
   upsertTauriRemote,
@@ -374,8 +374,8 @@ export function App() {
       // seed reactive cache set from existing metadata
       await initCachedAudioURLs();
 
-      // seed synced sha256s from IDB/grimoire (for underline indicators on synced songs)
-      await initSyncedSha256sFromIDB();
+      // initialize download state (synced sha256s from IDB/grimoire)
+      await initDownloadState();
 
       // register service worker (prod web mode only)
       void registerServiceWorker();

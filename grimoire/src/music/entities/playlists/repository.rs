@@ -26,21 +26,44 @@ pub async fn create_playlist(req: CreatePlaylistRequest) -> GrimoireResponse<Pla
     let created_by_str = req.created_by_id.clone();
     let updated_by_str = req.created_by_id.clone();
 
-    let playlist_id = match sqlx::query!(
-        r#"INSERT INTO playlistz (title, description, is_public, created_by_id, created_by, updated_by)
-         VALUES (?, ?, ?, ?, ?, ?)
-         RETURNING id"#,
-        req.title,
-        req.description,
-        is_public,
-        req.created_by_id,
-        created_by_str,
-        updated_by_str
-    )
-    .fetch_one(&pool)
-    .await {
-        Ok(row) => row.id,
-        Err(e) => return GrimoireResponse::failure("Failed to create playlist", vec![ErrorDetail::from(e)]),
+    // use provided ID or let the database generate one
+    let playlist_id = if let Some(ref custom_id) = req.id {
+        // insert with explicit ID
+        match sqlx::query!(
+            r#"INSERT INTO playlistz (id, title, description, is_public, created_by_id, created_by, updated_by)
+             VALUES (?, ?, ?, ?, ?, ?, ?)"#,
+            custom_id,
+            req.title,
+            req.description,
+            is_public,
+            req.created_by_id,
+            created_by_str,
+            updated_by_str
+        )
+        .execute(&pool)
+        .await {
+            Ok(_) => custom_id.clone(),
+            Err(e) => return GrimoireResponse::failure("Failed to create playlist", vec![ErrorDetail::from(e)]),
+        }
+    } else {
+        // let database generate the ID
+        match sqlx::query_scalar!(
+            r#"INSERT INTO playlistz (title, description, is_public, created_by_id, created_by, updated_by)
+             VALUES (?, ?, ?, ?, ?, ?)
+             RETURNING id"#,
+            req.title,
+            req.description,
+            is_public,
+            req.created_by_id,
+            created_by_str,
+            updated_by_str
+        )
+        .fetch_one(&pool)
+        .await {
+            Ok(Some(id)) => id,
+            Ok(None) => return GrimoireResponse::failure("Failed to get playlist ID", vec![]),
+            Err(e) => return GrimoireResponse::failure("Failed to create playlist", vec![ErrorDetail::from(e)]),
+        }
     };
 
     // Fetch with song count

@@ -221,7 +221,7 @@ export function CollectionCard(props: CollectionCardProps): JSX.Element {
                 </Show>
 
                 {/* track count */}
-                <Show when={collection().trackCount && collection().trackCount > 0}>
+                <Show when={collection().trackCount && collection().trackCount! > 0}>
                   <span>
                     {collection().trackCount} track
                     {collection().trackCount !== 1 ? "s" : ""}
@@ -249,7 +249,7 @@ export function CollectionCard(props: CollectionCardProps): JSX.Element {
               />
             </Show>
             {/* tags */}
-            <Show when={collection().tags && collection().tags.length > 0}>
+            <Show when={collection().tags && collection().tags!.length > 0}>
               <div class="w-full overflow-hidden flex flex-wrap gap-1">
                 <For each={collection().tags}>
                   {(tag) => (

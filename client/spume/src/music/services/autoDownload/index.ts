@@ -7,6 +7,8 @@ export {
   updateAutoDownloadQueue,
   resumeAutoDownloadsOnInit,
   downloadAllNow,
-  clearFailedDownloads,
   onAutoDownloadEnabled,
 } from "./manager";
+
+// re-export clearAllFailures from download state for callers that need it directly
+export { clearAllFailures } from "../download";

@@ -11,7 +11,16 @@ import {
   addToLoadingSet,
   removeFromLoadingSet,
   updateLoadingProgress,
-} from "../cache/blobCache";
+  getActiveDownloadCount,
+  isDownloadInProgress,
+  isDownloadsPaused,
+  pauseDownloads,
+  resumeDownloads,
+  hasFailedPermanently,
+  markDownloadFailed,
+  clearAllFailures,
+  MAX_RETRY_ATTEMPTS,
+} from "../download";
 import { queryClient } from "../../../queryClient";
 import { queryKeys } from "../../queries/queryKeys";
 import { debug, warn } from "../../../utils/logger";
@@ -20,33 +29,8 @@ import type { Song } from "../storage/types";
 // max concurrent downloads for auto-download mode
 const MAX_CONCURRENT_DOWNLOADS = 3;
 
-// max retry attempts for failed downloads
-const MAX_RETRY_ATTEMPTS = 3;
-
-// track active downloads
-const [activeDownloads, setActiveDownloads] = createSignal(new Set<string>());
+// pending queue (local to this manager)
 const [pendingQueue, setPendingQueue] = createSignal<SyncableSong[]>([]);
-const [isPaused, setIsPaused] = createSignal(false);
-
-// track failed downloads with retry count (sha256 -> attempts)
-const failedDownloads = new Map<string, number>();
-
-// check if a song has permanently failed (exhausted retries)
-function hasFailedPermanently(sha256: string): boolean {
-  return (failedDownloads.get(sha256) ?? 0) >= MAX_RETRY_ATTEMPTS;
-}
-
-// mark a download as failed and increment retry count
-function markDownloadFailed(sha256: string): number {
-  const attempts = (failedDownloads.get(sha256) ?? 0) + 1;
-  failedDownloads.set(sha256, attempts);
-  return attempts;
-}
-
-// clear failure tracking (e.g., when user manually retries)
-export function clearFailedDownloads(): void {
-  failedDownloads.clear();
-}
 
 // get count of songs pending download (in queue but not synced and not currently downloading)
 export function getPendingDownloadCount(): number {
@@ -55,19 +39,19 @@ export function getPendingDownloadCount(): number {
 
 // check if auto-download is actively running
 export function isAutoDownloadRunning(): boolean {
-  return activeDownloads().size > 0;
+  return getActiveDownloadCount() > 0;
 }
 
 // pause auto-downloads (player downloads for playback still override)
 export function pauseAutoDownload(): void {
-  setIsPaused(true);
+  pauseDownloads();
   debug("autoDownload", "paused auto-downloads");
 }
 
 // resume auto-downloads (also clears failures to allow one more retry round)
 export function resumeAutoDownload(): void {
-  setIsPaused(false);
-  clearFailedDownloads(); // allow one more retry for all failed downloads
+  resumeDownloads();
+  clearAllFailures(); // allow one more retry for all failed downloads
   debug("autoDownload", "resumed auto-downloads (retrying failed)");
   // trigger processing of pending queue
   void processQueue();
@@ -75,7 +59,7 @@ export function resumeAutoDownload(): void {
 
 // called when auto-download is toggled on - clears failures to allow retries
 export function onAutoDownloadEnabled(): void {
-  clearFailedDownloads();
+  clearAllFailures();
   debug("autoDownload", "auto-download enabled, cleared failures for retry");
 }
 
@@ -91,15 +75,15 @@ async function isP2PRemoteSong(song: Song): Promise<boolean> {
 
 // process the next batch of downloads
 async function processQueue(): Promise<void> {
-  if (isPaused()) return;
+  if (isDownloadsPaused()) return;
   if (!getAutoDownloadEnabled()) return;
   if (!getSyncQueueToLocal()) return;
   
-  const current = activeDownloads();
+  const currentCount = getActiveDownloadCount();
   const pending = pendingQueue();
   
   // calculate how many we can start
-  const slotsAvailable = MAX_CONCURRENT_DOWNLOADS - current.size;
+  const slotsAvailable = MAX_CONCURRENT_DOWNLOADS - currentCount;
   if (slotsAvailable <= 0) return;
   if (pending.length === 0) return;
   
@@ -117,13 +101,6 @@ async function processQueue(): Promise<void> {
 // download a single song
 async function downloadSong(song: SyncableSong): Promise<void> {
   const sha256 = song.sha256;
-  
-  // add to active set
-  setActiveDownloads(prev => {
-    const next = new Set(prev);
-    next.add(sha256);
-    return next;
-  });
   
   // add to UI loading set so queue shows loading indicator
   addToLoadingSet(sha256);
@@ -157,13 +134,6 @@ async function downloadSong(song: SyncableSong): Promise<void> {
     const attempts = markDownloadFailed(sha256);
     warn("autoDownload", `error downloading ${song.title} (attempt ${attempts}/${MAX_RETRY_ATTEMPTS}):`, error);
   } finally {
-    // remove from active set
-    setActiveDownloads(prev => {
-      const next = new Set(prev);
-      next.delete(sha256);
-      return next;
-    });
-    
     // remove from UI loading set
     removeFromLoadingSet(sha256);
     
@@ -218,7 +188,6 @@ export async function updateAutoDownloadQueue(
   let accumulatedSeconds = 0;
   const targetSeconds = upcomingMinutes * 60;
   const songsToDownload: SyncableSong[] = [];
-  const active = activeDownloads();
   
   for (let i = currentSongIndex; i < queue.length; i++) {
     const song = queue[i];
@@ -241,7 +210,7 @@ export async function updateAutoDownloadQueue(
     }
     
     // skip if already downloading
-    if (active.has(song.sha256)) {
+    if (isDownloadInProgress(song.sha256)) {
       continue;
     }
     
@@ -259,7 +228,8 @@ export async function updateAutoDownloadQueue(
     songsToDownload.push(song);
   }
   
-  debug("autoDownload", `updated queue: ${songsToDownload.length} songs pending (${active.size} active)`);
+  const activeCount = getActiveDownloadCount();
+  debug("autoDownload", `updated queue: ${songsToDownload.length} songs pending (${activeCount} active)`);
   setPendingQueue(songsToDownload);
   
   // start processing if we have slots available
@@ -301,7 +271,7 @@ export async function downloadAllNow(): Promise<void> {
   }
   
   // clear failed download history to allow retries
-  clearFailedDownloads();
+  clearAllFailures();
   
   // find current index from sha256
   const currentSha256 = state.current_sha256;
@@ -310,14 +280,13 @@ export async function downloadAllNow(): Promise<void> {
     : 0;
   const queue = state.queue;
   const songsToDownload: SyncableSong[] = [];
-  const active = activeDownloads();
   
   // collect all unsynced P2P songs from current onwards
   for (let i = currentIndex; i < queue.length; i++) {
     const song = queue[i];
     
     if (isSongSyncedLocally(song.sha256)) continue;
-    if (active.has(song.sha256)) continue;
+    if (isDownloadInProgress(song.sha256)) continue;
     if (!canSyncSong(song)) continue;
     
     const isP2P = await isP2PRemoteSong(song);
@@ -330,7 +299,7 @@ export async function downloadAllNow(): Promise<void> {
   setPendingQueue(songsToDownload);
   
   // make sure we're not paused
-  setIsPaused(false);
+  resumeDownloads();
   
   // start processing
   void processQueue();

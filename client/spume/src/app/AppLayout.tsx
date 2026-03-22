@@ -44,7 +44,7 @@ import {
   togglePlayback,
   volume,
 } from "../music/services/audio/player";
-import { getLoadingSongIds, isSongSyncedLocally } from "../music/services/cache/blobCache";
+import { getLoadingSongIds, isSongSyncedLocally } from "../music/services/download";
 import {
   getLoadingP2PSongIds,
   preCacheRemoteTransport,
@@ -389,7 +389,9 @@ export function AppLayout(props: AppLayoutProps) {
     const state = appState();
     if (!state) return;
 
-    const currentIndex = state.current_song_index ?? 0;
+    const currentIndex = state.current_sha256
+      ? state.queue.findIndex((s) => s.sha256 === state.current_sha256)
+      : 0;
     const queueLength = state.queue.length;
 
     // this effect will re-run when queue or current index changes

@@ -23,11 +23,13 @@ import { debug } from "../../../utils/logger";
 import { 
   getRemoteCacheName, 
   saveP2PBlobMetadata, 
+  getCachedBlob,
+} from "../cache/blobCache";
+import {
   updateLoadingProgress,
   addToLoadingSet,
   removeFromLoadingSet,
-  getCachedBlob,
-} from "../cache/blobCache";
+} from "../download";
 import { syncSongToLocal, canSyncSong } from "../sync";
 import { queryClient } from "../../../queryClient";
 import { queryKeys } from "../../queries/queryKeys";

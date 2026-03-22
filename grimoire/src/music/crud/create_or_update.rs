@@ -1079,6 +1079,7 @@ pub async fn get_or_create_playlist_by_name(
         use crate::music::entities::playlists::{create_playlist, CreatePlaylistRequest};
 
         let create_req = CreatePlaylistRequest {
+            id: None,
             title: Some(name.to_string()),
             description: None,
             is_public,

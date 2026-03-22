@@ -240,10 +240,14 @@ export async function syncPlaylistToLocalFromQueue(
     // download and store images locally
     const localImages = await downloadAndStoreImages(remote, sourceImages);
 
+    // use prefixed ID to match grimoire sync pattern
+    // this ensures we can find and update existing synced playlists
+    const syncedPlaylistId = `synced-${source.entity_id}`;
+
     await upsertLocalPlaylistWithSongs(
       db,
       {
-        playlist_id: source.entity_id,
+        playlist_id: syncedPlaylistId,
         title: source.label,
         images: localImages.length > 0 ? localImages : undefined,
       },

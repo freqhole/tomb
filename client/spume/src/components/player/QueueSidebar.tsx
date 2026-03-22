@@ -17,11 +17,8 @@ import { Icon, type IconName } from "../icons/registry";
 import { MediaThumbnail } from "../media/MediaThumbnail";
 import { ContextMenu, type MenuAction } from "../overlays/ContextMenu";
 import { MarqueeText } from "../text/MarqueeText";
-import {
-  isSongCachedReactive,
-  isSongSyncedLocally,
-  getLoadingProgress,
-} from "../../music/services/cache/blobCache";
+import { isSongCachedReactive } from "../../music/services/cache/blobCache";
+import { isSongSyncedLocally, getLoadingProgress } from "../../music/services/download";
 import { isPlayingDirectURLReactive } from "../../music/services/storage/audioAccess";
 import { useResolvedP2PImageUrl } from "../../music/services/storage/blobResolver";
 import { getBackgroundConfig } from "../../app/services/backgroundImage";

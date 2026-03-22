@@ -36,6 +36,11 @@ pub struct GetPlaylistRequest {
 /// request for creating a new playlist
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema, Parser)]
 pub struct CreatePlaylistRequest {
+    /// Optional playlist ID (if not provided, one will be generated)
+    /// Use this for synced playlists where you need a deterministic ID
+    #[arg(long)]
+    pub id: Option<String>,
+
     /// Playlist title
     #[arg(long)]
     pub title: Option<String>,

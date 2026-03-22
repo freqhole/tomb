@@ -2,13 +2,17 @@
 // uses hybrid time-based + LRU eviction strategy
 // caches are partitioned by remote for easy management and cleanup
 
-import { createSignal } from "solid-js";
 import { createStore, reconcile } from "solid-js/store";
 import { debug, warn, error as errorLog } from "../../../utils/logger";
 import type { ImageMetadata } from "../storage/types";
 import { getWaveformImage } from "../../../utils/images";
 import { getRemoteById } from "../../../app/services/remotes/remoteManager";
 import { isP2PRemote, isCharnelManagedRemoteSync } from "../storage/blobResolver";
+import {
+  addToLoadingSet,
+  updateLoadingProgress,
+  removeFromLoadingSet,
+} from "../download";
 
 // ===== per-remote cache naming =====
 // cache names follow pattern: freqhole-blobs-{remoteId}
@@ -66,94 +70,6 @@ const MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 // using store instead of signal<Set> so each key can be tracked independently
 const [cacheStatus, setCacheStatus] = createStore<Record<string, boolean>>({});
 
-// store of synced sha256s for UI feedback (songs downloaded to local OPFS/IDB)
-// this allows checking if a remote song has been synced locally even when
-// the song object comes from the remote data source
-const [syncedSha256s, setSyncedSha256s] = createStore<Record<string, boolean>>({});
-
-// version signal to force re-reads when store is bulk-updated
-// (solid stores don't track access to non-existent keys, so we need this for initialization)
-const [syncedVersion, setSyncedVersion] = createSignal(0);
-
-// check if a song has been synced to local storage (by sha256)
-// this is useful for showing "cached" indicators on remote songs that have been synced
-export function isSongSyncedLocally(sha256: string | null | undefined): boolean {
-  if (!sha256) return false;
-  // access version to ensure reactivity when store is bulk-loaded
-  syncedVersion();
-  return syncedSha256s[sha256] ?? false;
-}
-
-// mark a song as synced locally (called after successful sync)
-export function markSongSynced(sha256: string): void {
-  setSyncedSha256s(sha256, true);
-}
-
-// unmark a song as synced locally (called after deletion from local storage)
-export function unmarkSongSynced(sha256: string): void {
-  setSyncedSha256s(sha256, false);
-}
-
-// initialize synced sha256s store from grimoire (charnel mode)
-// called on startup to know which songs already exist locally
-async function initSyncedSha256sFromGrimoire(): Promise<void> {
-  try {
-    const { invoke } = await import("@tauri-apps/api/core");
-    const response = await invoke("api_call", {
-      path: "/api/sync/sha256s",
-      body: null,
-    }) as { success: boolean; data?: string[] };
-
-    if (response.success && response.data) {
-      for (const sha256 of response.data) {
-        setSyncedSha256s(sha256, true);
-      }
-      // bump version to trigger re-renders for components using isSongSyncedLocally
-      setSyncedVersion((v) => v + 1);
-      debug("blobCache", `initialized ${response.data.length} synced sha256s from grimoire`);
-    }
-  } catch (err) {
-    warn("blobCache", "failed to initialize synced sha256s from grimoire:", err);
-  }
-}
-
-// initialize synced sha256s store (call on app startup)
-// in charnel mode: reads from grimoire sqlite
-// in browser mode: reads from IndexedDB
-export async function initSyncedSha256sFromIDB(): Promise<void> {
-  // check if we're in charnel/tauri mode
-  const isCharnel = typeof window !== "undefined" && "__TAURI__" in window;
-  
-  if (isCharnel) {
-    return initSyncedSha256sFromGrimoire();
-  }
-  
-  // browser mode: read from IDB
-  try {
-    // dynamic import to avoid circular dependencies
-    const { initMusicDB } = await import("../storage/db");
-    const db = await initMusicDB();
-    
-    // get all synced songs and populate the store
-    const tx = db.transaction("songs", "readonly");
-    const store = tx.objectStore("songs");
-    const index = store.index("by_source_type");
-    const syncedSongs = await index.getAll("synced");
-    
-    for (const song of syncedSongs) {
-      if (song.sha256) {
-        setSyncedSha256s(song.sha256, true);
-      }
-    }
-    
-    // bump version to trigger re-renders for components using isSongSyncedLocally
-    setSyncedVersion((v) => v + 1);
-    debug("blobCache", `initialized ${syncedSongs.length} synced sha256s from IDB`);
-  } catch (err) {
-    warn("blobCache", "failed to initialize synced sha256s from IDB:", err);
-  }
-}
-
 // check if a URL is in the reactive cache set (for UI binding)
 // NOTE: this expects the key format `${remoteId}/${blobId}`, not a full URL
 export function isBlobCachedReactive(url: string | null | undefined): boolean {
@@ -185,64 +101,6 @@ function removeFromCachedSet(url: string): void {
 
 function clearCachedSet(): void {
   setCacheStatus(reconcile({}));
-}
-
-// reactive set of song sha256s currently being pre-cached (for UI loading indicators)
-const [loadingSha256s, setLoadingSha256s] = createSignal<Set<string>>(new Set());
-
-// reactive map of sha256 -> progress (0-1) for songs being downloaded
-// null or undefined means indeterminate progress (no content-length header)
-const [loadingProgress, setLoadingProgress] = createSignal<Map<string, number | null>>(new Map());
-
-// get the set of currently loading song sha256s (for UI binding)
-export function getLoadingSongIds(): Set<string> {
-  return loadingSha256s();
-}
-
-// get loading progress for a song (0-1, or null for indeterminate)
-export function getLoadingProgress(sha256: string): number | null | undefined {
-  return loadingProgress().get(sha256);
-}
-
-// get all loading progress as a map (for UI binding)
-export function getAllLoadingProgress(): Map<string, number | null> {
-  return loadingProgress();
-}
-
-// made public for P2P blob resolver to track loading state
-export function addToLoadingSet(sha256: string): void {
-  setLoadingSha256s((prev) => {
-    if (prev.has(sha256)) return prev;
-    const next = new Set(prev);
-    next.add(sha256);
-    return next;
-  });
-}
-
-// made public for P2P blob resolver to update progress
-export function updateLoadingProgress(sha256: string, progress: number | null): void {
-  setLoadingProgress((prev) => {
-    const next = new Map(prev);
-    next.set(sha256, progress);
-    return next;
-  });
-}
-
-// made public for P2P blob resolver to track loading state
-export function removeFromLoadingSet(sha256: string): void {
-  setLoadingSha256s((prev) => {
-    if (!prev.has(sha256)) return prev;
-    const next = new Set(prev);
-    next.delete(sha256);
-    return next;
-  });
-  // clear progress when done loading
-  setLoadingProgress((prev) => {
-    if (!prev.has(sha256)) return prev;
-    const next = new Map(prev);
-    next.delete(sha256);
-    return next;
-  });
 }
 
 // seed the reactive set from existing cache metadata on startup

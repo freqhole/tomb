@@ -732,30 +732,72 @@ pub async fn sync_playlist(caller: &Caller, body: JsonValue) -> GrimoireResponse
         );
     }
 
-    // create playlist using grimoire function
-    let playlist_response = crate::music::entities::playlists::create_playlist(
-        crate::music::entities::playlists::CreatePlaylistRequest {
-            title: Some(req.title.clone()),
-            description: req.description.clone(),
-            is_public: Some(false),
-            created_by_id: Some(caller.user_id.clone()),
-        },
-    )
-    .await;
+    // generate deterministic playlist ID for synced playlists
+    // this allows us to find and update existing synced playlists
+    let synced_playlist_id = format!("synced-{}", req.remote_playlist_id);
 
-    if !playlist_response.success {
-        return GrimoireResponse::failure("failed to create playlist", playlist_response.errors);
-    }
+    // check if this synced playlist already exists
+    let existing = crate::music::entities::playlists::get_playlist(&synced_playlist_id).await;
 
+    let playlist_id = if existing.success && existing.data.is_some() {
+        // update existing playlist metadata
+        tracing::info!(
+            "updating existing synced playlist: {} ({})",
+            req.title,
+            synced_playlist_id
+        );
+
+        let _update_response = crate::music::entities::playlists::update_playlist(
+            &synced_playlist_id,
+            crate::music::entities::playlists::UpdatePlaylistRequest {
+                playlist_id: synced_playlist_id.clone(),
+                title: Some(req.title.clone()),
+                description: req.description.clone(),
+                is_public: Some(false),
+                updated_by: Some(caller.user_id.clone()),
+                entity_urls: None,
+            },
+        )
+        .await;
+
+        synced_playlist_id
+    } else {
+        // create new playlist with deterministic ID
+        tracing::info!(
+            "creating new synced playlist: {} ({})",
+            req.title,
+            synced_playlist_id
+        );
+
+        let create_response = crate::music::entities::playlists::create_playlist(
+            crate::music::entities::playlists::CreatePlaylistRequest {
+                id: Some(synced_playlist_id.clone()),
+                title: Some(req.title.clone()),
+                description: req.description.clone(),
+                is_public: Some(false),
+                created_by_id: Some(caller.user_id.clone()),
+            },
+        )
+        .await;
+
+        if !create_response.success {
+            return GrimoireResponse::failure("failed to create playlist", create_response.errors);
+        }
+
+        synced_playlist_id
+    };
+
+    // fetch the playlist for response
+    let playlist_response = crate::music::entities::playlists::get_playlist(&playlist_id).await;
     let playlist = match playlist_response.data {
         Some(p) => p,
         None => {
             return GrimoireResponse::failure(
-                "no playlist returned",
+                "playlist not found after create/update",
                 vec![ErrorDetail::new(
                     "internal_error",
-                    "create failed",
-                    "playlist creation returned no data",
+                    "fetch failed",
+                    "could not retrieve playlist",
                 )],
             );
         }

@@ -300,7 +300,7 @@ export function useSongContextMenu(
           message: `Remove "${song.title}" from your local library? The song will still be available from the server.`,
           confirmText: "delete",
           cancelText: "cancel",
-          variant: "destructive",
+          variant: "danger",
         });
         if (confirmed) {
           options.onDeleteFromLocal?.();
