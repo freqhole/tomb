@@ -381,10 +381,12 @@ export default function SettingsView() {
                 class={`toggle-button ${syncQueueToLocal() ? "active" : ""}`}
                 onClick={toggleSyncQueueToLocal}
                 style={{
-                  width: "48px",
+                  flex: "none",
+                  width: "44px",
                   height: "24px",
                   "border-radius": "12px",
                   border: "none",
+                  padding: "0",
                   background: syncQueueToLocal()
                     ? "var(--color-accent-500, #ff69b4)"
                     : "var(--color-bg-tertiary, #333)",
@@ -397,10 +399,10 @@ export default function SettingsView() {
                 <div
                   style={{
                     position: "absolute",
-                    top: "2px",
-                    left: syncQueueToLocal() ? "26px" : "2px",
-                    width: "20px",
-                    height: "20px",
+                    top: "4px",
+                    left: syncQueueToLocal() ? "24px" : "4px",
+                    width: "16px",
+                    height: "16px",
                     "border-radius": "50%",
                     background: "white",
                     transition: "left 0.2s",
