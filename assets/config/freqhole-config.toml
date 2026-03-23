@@ -460,3 +460,18 @@ default_role = "viewer"
 # these requests are stored and can be approved/rejected via CLI or tauri wizard.
 # when approved, the peer is granted access with the specified role.
 knocking_enabled = false
+
+# OPTIONAL: bind iroh to a specific UDP port for manual port forwarding (default: 0 = disabled)
+# use this if your router doesn't support UPnP and you've manually set up port forwarding.
+#
+# how to use:
+# 1. pick an unused UDP port (e.g., 12345)
+# 2. forward that port in your router: UDP external:12345 -> your_local_ip:12345
+# 3. set bind_port = 12345 here
+#
+# iroh will bind to this port locally. when it detects your external IP via STUN,
+# it will advertise external_ip:12345 to peers, enabling direct connections.
+# without this, connections go through relay servers (slower, but still works).
+#
+# set to 0 to disable (use random port) - this is the default behavior
+bind_port = 0

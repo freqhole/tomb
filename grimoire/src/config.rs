@@ -206,6 +206,12 @@ pub struct FederationConfig {
     /// requests are stored and can be approved/rejected via cli or tauri wizard
     #[serde(default)]
     pub knocking_enabled: bool,
+    /// optional: bind the iroh endpoint to a specific UDP port for port forwarding
+    /// when set: iroh binds to this local UDP port instead of a random one
+    /// useful for users without UPnP who manually forward a UDP port in their router
+    /// the same port should be forwarded on the router (UDP, external:same -> internal:same)
+    #[serde(default)]
+    pub bind_port: Option<u16>,
 }
 
 fn default_federation_role() -> String {

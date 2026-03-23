@@ -8,6 +8,7 @@
 //! - freqhole-blobz: iroh-blobs verified streaming (audio files)
 
 use crate::blobz::{get_blobs_store, BLOBS_ALPN};
+use crate::config::get_config;
 use crate::error::{GrimoireError, GrimoireResult};
 use crate::federation::identity;
 use crate::federation::transport::freqhole_protocol::FreqholeProtocol;
@@ -17,6 +18,7 @@ use iroh::protocol::Router;
 use iroh::{Endpoint, EndpointAddr, PublicKey, SecretKey};
 use iroh_blobs::provider::events::{EventMask, EventSender};
 use iroh_blobs::BlobsProtocol;
+use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use tracing::{info, warn};
 
 /// federation endpoint - manages iroh P2P connections
@@ -51,14 +53,43 @@ impl FederationEndpoint {
 
     /// build the iroh endpoint with our config
     async fn build_endpoint(secret_key: SecretKey) -> GrimoireResult<Endpoint> {
+        // check if a specific bind port is configured (for port forwarding)
+        // 0 means disabled (use random port), same as omitting the value
+        let bind_port = get_config()
+            .federation
+            .as_ref()
+            .and_then(|f| f.bind_port)
+            .filter(|&p| p != 0);
+
         // use N0 preset for relay + DNS discovery (peers can find each other)
-        let endpoint = Endpoint::builder(presets::N0)
-            .secret_key(secret_key)
-            .bind()
-            .await
-            .map_err(|e| GrimoireError::FederationApiError {
-                message: format!("failed to bind iroh endpoint: {}", e),
-            })?;
+        let builder = Endpoint::builder(presets::N0).secret_key(secret_key);
+
+        let endpoint = if let Some(port) = bind_port {
+            // bind to specific port (for users with manual router port forwarding)
+            let bind_addr = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, port));
+            info!(
+                "binding iroh endpoint to UDP port {} (port forwarding mode)",
+                port
+            );
+            builder
+                .bind_addr(bind_addr)
+                .map_err(|e| GrimoireError::FederationApiError {
+                    message: format!("invalid bind address for port {}: {}", port, e),
+                })?
+                .bind()
+                .await
+                .map_err(|e| GrimoireError::FederationApiError {
+                    message: format!("failed to bind iroh endpoint to port {}: {}", port, e),
+                })?
+        } else {
+            // bind to random available port (default)
+            builder
+                .bind()
+                .await
+                .map_err(|e| GrimoireError::FederationApiError {
+                    message: format!("failed to bind iroh endpoint: {}", e),
+                })?
+        };
 
         Ok(endpoint)
     }
