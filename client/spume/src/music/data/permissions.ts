@@ -13,6 +13,16 @@ function isLocalMode(): boolean {
   return getCurrentRemote() === null;
 }
 
+// helper: charnel-managed mode (tauri local server) permits all local operations
+function isCharnelManaged(): boolean {
+  return getCurrentRemote()?.is_charnel_managed === true;
+}
+
+// helper: local or charnel-managed mode permits all local operations
+function isLocalOrCharnelManaged(): boolean {
+  return isLocalMode() || isCharnelManaged();
+}
+
 // ============================================================================
 // role-based permission functions
 // ============================================================================
@@ -80,62 +90,72 @@ export function isAdmin(): boolean {
 // admin mutation permission functions
 // ============================================================================
 
-/** can user delete songs? requires Admin role */
+/** can user delete songs? requires Admin role (or charnel-managed mode) */
 export function canDeleteSong(): boolean {
+  if (isLocalOrCharnelManaged()) return true;
   const user = getCurrentUser();
   return user ? permissions.canDeleteSong(user.role) : false;
 }
 
-/** can user update songs? requires Admin role */
+/** can user update songs? requires Admin role (or charnel-managed mode) */
 export function canUpdateSong(): boolean {
+  if (isLocalOrCharnelManaged()) return true;
   const user = getCurrentUser();
   return user ? permissions.canUpdateSong(user.role) : false;
 }
 
-/** can user delete albums? requires Admin role */
+/** can user delete albums? requires Admin role (or charnel-managed mode) */
 export function canDeleteAlbum(): boolean {
+  if (isLocalOrCharnelManaged()) return true;
   const user = getCurrentUser();
   return user ? permissions.canDeleteAlbum(user.role) : false;
 }
 
-/** can user update albums? requires Admin role */
+/** can user update albums? requires Admin role (or charnel-managed mode) */
 export function canUpdateAlbum(): boolean {
+  if (isLocalOrCharnelManaged()) return true;
   const user = getCurrentUser();
   return user ? permissions.canUpdateAlbum(user.role) : false;
 }
 
-/** can user create artists? requires Admin role */
+/** can user create artists? requires Admin role (or charnel-managed mode) */
 export function canCreateArtist(): boolean {
+  if (isLocalOrCharnelManaged()) return true;
   const user = getCurrentUser();
   return user ? permissions.canCreateArtist(user.role) : false;
 }
 
-/** can user delete artists? requires Admin role */
+/** can user delete artists? requires Admin role (or charnel-managed mode) */
 export function canDeleteArtist(): boolean {
+  if (isLocalOrCharnelManaged()) return true;
   const user = getCurrentUser();
   return user ? permissions.canDeleteArtist(user.role) : false;
 }
 
-/** can user update artists? requires Admin role */
+/** can user update artists? requires Admin role (or charnel-managed mode) */
 export function canUpdateArtist(): boolean {
+  if (isLocalOrCharnelManaged()) return true;
   const user = getCurrentUser();
   return user ? permissions.canUpdateArtist(user.role) : false;
 }
 
-/** can user manage tags? requires Admin role */
+/** can user manage tags? requires Admin role (or charnel-managed mode) */
 export function canManageTags(): boolean {
+  if (isLocalOrCharnelManaged()) return true;
   const user = getCurrentUser();
   return user ? permissions.canManageTags(user.role) : false;
 }
 
-/** can user delete images? requires Admin role */
+/** can user delete images? requires Admin role (or charnel-managed mode) */
 export function canDeleteImage(): boolean {
+  if (isLocalOrCharnelManaged()) return true;
   const user = getCurrentUser();
   return user ? permissions.canDeleteImage(user.role) : false;
 }
 
-/** can user set primary image? requires Admin role */
+/** can user set primary image? requires Admin role (or charnel-managed mode) */
 export function canSetPrimaryImage(): boolean {
+  if (isLocalOrCharnelManaged()) return true;
   const user = getCurrentUser();
   return user ? permissions.canSetPrimaryImage(user.role) : false;
 }

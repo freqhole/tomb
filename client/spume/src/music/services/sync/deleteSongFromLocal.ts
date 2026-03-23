@@ -1,25 +1,53 @@
 // delete song from local storage
 // in browser mode: deletes from OPFS + IDB (hard delete)
-// in charnel/tauri mode: soft-deletes from grimoire via offal route
+// in charnel/tauri mode: depends on song source:
+//   - if song is from local charnel server → soft-delete from grimoire via offal
+//   - if song is from remote P2P peer (cached locally) → delete from browser storage
 
 import { isCharnelMode } from "../../../app/services/charnel";
 import { debug, warn } from "../../../utils/logger";
 import { deleteSongCascade } from "../storage/db/cascades";
 import { unmarkSongSynced } from "../download";
+import { getCurrentRemote } from "../../data";
 
 export interface DeleteSongResult {
   success: boolean;
   error?: string;
 }
 
+export interface DeleteSongOptions {
+  /** the song's remote_server_id (to determine if it's from local charnel or remote P2P) */
+  remoteServerId?: string | null;
+  /** the song's sha256 hash (for browser storage lookup - required for synced songs) */
+  sha256?: string | null;
+}
+
 /**
  * delete a song from local storage
- * @param songId - the song ID (sha256 for browser, uuid for tauri)
+ * @param songId - the song ID (grimoire UUID for tauri, sha256 for browser)
+ * @param options - context about the song source and lookup keys
  * @returns result with success status
  */
-export async function deleteSongFromLocal(songId: string): Promise<DeleteSongResult> {
+export async function deleteSongFromLocal(
+  songId: string,
+  options: DeleteSongOptions = {}
+): Promise<DeleteSongResult> {
   if (isCharnelMode()) {
-    return deleteSongViaOffal(songId);
+    // check if song is from the local charnel-managed server
+    const currentRemote = getCurrentRemote();
+    const isFromLocalCharnel =
+      currentRemote?.is_charnel_managed === true &&
+      options.remoteServerId === currentRemote.remote_id;
+
+    if (isFromLocalCharnel) {
+      // song is in local grimoire → soft-delete via offal
+      return deleteSongViaOffal(songId);
+    }
+    // song is from a remote P2P peer, cached in browser → delete from browser
+    // use sha256 as lookup key since that's how synced songs are stored in IDB
+    const browserKey = options.sha256 || songId;
+    debug("deleteSongFromLocal", `song ${browserKey.slice(0, 8)}... is from remote peer, deleting from browser storage`);
+    return deleteSongFromBrowser(browserKey);
   }
   return deleteSongFromBrowser(songId);
 }

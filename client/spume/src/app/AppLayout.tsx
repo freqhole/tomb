@@ -855,7 +855,10 @@ export function AppLayout(props: AppLayoutProps) {
               onClearBelow: () => void clearSongsBelow(index),
               showDeleteFromLocal: isSynced,
               onDeleteFromLocal: async () => {
-                const result = await deleteSongFromLocal(fullSong.id);
+                const result = await deleteSongFromLocal(fullSong.id, {
+                  remoteServerId: fullSong.remote_server_id,
+                  sha256: fullSong.sha256,
+                });
                 if (result.success) {
                   // also remove from queue after deletion
                   await removeFromQueue(index);

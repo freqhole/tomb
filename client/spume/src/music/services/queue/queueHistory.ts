@@ -23,8 +23,10 @@ function generateId(): string {
   return crypto.randomUUID();
 }
 
-// unwrap proxy arrays before storing songs in IndexedDB
-function unwrapSongs(songs: Song[]): Song[] {
+// unwrap proxy arrays before storing songs in IndexedDB or passing through IPC
+// SolidJS reactive wrappers (createMemo, query results) return proxy objects
+// that can't be structured-cloned for IDB or Tauri IPC
+export function unwrapSongs(songs: Song[]): Song[] {
   return songs.map((song) => {
     const plain: Song = { ...song };
     if (song.album_tags) plain.album_tags = [...song.album_tags];
@@ -32,6 +34,8 @@ function unwrapSongs(songs: Song[]): Song[] {
       plain.album_genres = song.album_genres.map((g) => ({ ...g }));
     if (song.album_images)
       plain.album_images = song.album_images.map((img) => ({ ...img }));
+    if (song.artist_images)
+      plain.artist_images = song.artist_images.map((img) => ({ ...img }));
     if (song.images) plain.images = song.images.map((img) => ({ ...img }));
     if (song.urls) plain.urls = song.urls.map((url) => ({ ...url }));
     return plain;

@@ -275,6 +275,10 @@ export function useSongContextMenu(
               queryClient.invalidateQueries({ queryKey: queryKeys.songs.all() });
               queryClient.invalidateQueries({ queryKey: queryKeys.albums.all() });
               queryClient.invalidateQueries({ queryKey: queryKeys.artists.all() });
+              // also remove from queue if in queue context
+              if (options.onRemoveFromQueue) {
+                options.onRemoveFromQueue();
+              }
             } else {
               toast.error("delete not supported for this data source");
             }

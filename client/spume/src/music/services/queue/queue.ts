@@ -12,7 +12,7 @@ import { evictCachedBlob } from "../cache/blobCache";
 import { evictP2PBlob, preCacheNextP2PSongs, cancelP2PDownload } from "../storage/blobResolver";
 import { clearPendingUpNext, pendingUpNextSha256, playSong, seek, stop } from "../audio/player";
 import { hasPlaybackEnded } from "./queueState";
-import { addHistoryEntry, updateHistoryEntrySongs } from "./queueHistory";
+import { addHistoryEntry, updateHistoryEntrySongs, unwrapSongs } from "./queueHistory";
 import { activeHistoryEntryId, resumeTracking, startTracking, stopTracking } from "./listenProgress";
 import { clearAllQueueProgress, clearQueueItemProgress } from "./queueProgress";
 import { createServerSession, stopServerSession, updateServerSessionSongs, activeServerSessionId, reconnectServerSession } from "./serverSession";
@@ -55,22 +55,64 @@ export async function playQueue(
 ): Promise<void> {
   if (songs.length === 0) return;
 
+  // DEBUG: check if songs array is a proxy
+  console.log("[playQueue] DEBUG: songs array type:", Object.prototype.toString.call(songs));
+  console.log("[playQueue] DEBUG: first song keys:", songs[0] ? Object.keys(songs[0]) : "no songs");
+  
+  // test if we can structured clone the raw input
+  try {
+    structuredClone(songs);
+    console.log("[playQueue] DEBUG: raw songs can be cloned ✓");
+  } catch (e) {
+    console.log("[playQueue] DEBUG: raw songs CANNOT be cloned:", e);
+    // try to find which property fails
+    if (songs[0]) {
+      for (const [key, value] of Object.entries(songs[0])) {
+        try {
+          structuredClone(value);
+        } catch {
+          console.log(`[playQueue] DEBUG: property "${key}" cannot be cloned, type:`, typeof value, value);
+        }
+      }
+    }
+  }
+
+  // unwrap SolidJS proxy objects before any IPC calls (Tauri structured clone)
+  const unwrappedSongs = unwrapSongs(songs);
+  
+  // DEBUG: check if unwrapped songs can be cloned
+  try {
+    structuredClone(unwrappedSongs);
+    console.log("[playQueue] DEBUG: unwrapped songs can be cloned ✓");
+  } catch (e) {
+    console.log("[playQueue] DEBUG: unwrapped songs CANNOT be cloned:", e);
+    if (unwrappedSongs[0]) {
+      for (const [key, value] of Object.entries(unwrappedSongs[0])) {
+        try {
+          structuredClone(value);
+        } catch {
+          console.log(`[playQueue] DEBUG: unwrapped property "${key}" cannot be cloned, type:`, typeof value, value);
+        }
+      }
+    }
+  }
+
   let startIndex = options?.startIndex ?? 0;
-  let finalSongs = songs;
+  let finalSongs = unwrappedSongs;
 
   // truncate incoming songs if they exceed the limit (before any queue logic)
-  if (songs.length > QUEUE_SIZE_LIMIT) {
+  if (unwrappedSongs.length > QUEUE_SIZE_LIMIT) {
     if (startIndex < QUEUE_SIZE_LIMIT) {
       // startIndex is within limit - take first N songs
-      finalSongs = songs.slice(0, QUEUE_SIZE_LIMIT);
+      finalSongs = unwrappedSongs.slice(0, QUEUE_SIZE_LIMIT);
     } else {
       // startIndex is beyond limit - center window around it
       const start = startIndex - Math.floor(QUEUE_SIZE_LIMIT / 2);
-      const adjustedStart = Math.max(0, Math.min(start, songs.length - QUEUE_SIZE_LIMIT));
-      finalSongs = songs.slice(adjustedStart, adjustedStart + QUEUE_SIZE_LIMIT);
+      const adjustedStart = Math.max(0, Math.min(start, unwrappedSongs.length - QUEUE_SIZE_LIMIT));
+      finalSongs = unwrappedSongs.slice(adjustedStart, adjustedStart + QUEUE_SIZE_LIMIT);
       startIndex = startIndex - adjustedStart;
     }
-    console.log(`[playQueue] truncated ${songs.length} songs to ${finalSongs.length} (limit: ${QUEUE_SIZE_LIMIT})`);
+    console.log(`[playQueue] truncated ${unwrappedSongs.length} songs to ${finalSongs.length} (limit: ${QUEUE_SIZE_LIMIT})`);
   }
 
   // mark songs from playlist source to skip album feed events when syncing
@@ -238,11 +280,40 @@ export async function addToQueue(
 ): Promise<void> {
   if (songs.length === 0) return;
 
+  // DEBUG: check if songs array can be cloned
+  console.log("[addToQueue] DEBUG: entering addToQueue with", songs.length, "songs");
+  try {
+    structuredClone(songs);
+    console.log("[addToQueue] DEBUG: raw songs can be cloned ✓");
+  } catch (e) {
+    console.log("[addToQueue] DEBUG: raw songs CANNOT be cloned:", e);
+    if (songs[0]) {
+      for (const [key, value] of Object.entries(songs[0])) {
+        try {
+          structuredClone(value);
+        } catch {
+          console.log(`[addToQueue] DEBUG: property "${key}" cannot be cloned, type:`, typeof value, value);
+        }
+      }
+    }
+  }
+
+  // unwrap SolidJS proxy objects before any IPC calls (Tauri structured clone)
+  const unwrappedSongs = unwrapSongs(songs);
+
+  console.log("[addToQueue] DEBUG: after unwrap");
+  try {
+    structuredClone(unwrappedSongs);
+    console.log("[addToQueue] DEBUG: unwrapped songs can be cloned ✓");
+  } catch (e) {
+    console.log("[addToQueue] DEBUG: unwrapped songs CANNOT be cloned:", e);
+  }
+
   // truncate incoming songs if they exceed the limit
-  let finalSongs = songs;
-  if (songs.length > QUEUE_SIZE_LIMIT) {
-    finalSongs = songs.slice(0, QUEUE_SIZE_LIMIT);
-    console.log(`[addToQueue] truncated ${songs.length} songs to ${finalSongs.length} (limit: ${QUEUE_SIZE_LIMIT})`);
+  let finalSongs = unwrappedSongs;
+  if (unwrappedSongs.length > QUEUE_SIZE_LIMIT) {
+    finalSongs = unwrappedSongs.slice(0, QUEUE_SIZE_LIMIT);
+    console.log(`[addToQueue] truncated ${unwrappedSongs.length} songs to ${finalSongs.length} (limit: ${QUEUE_SIZE_LIMIT})`);
   }
 
   // mark songs from playlist source to skip album feed events when syncing
