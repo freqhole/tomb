@@ -111,7 +111,7 @@ pub async fn init_p2p_client(config_path: &Path) -> Result<(), String> {
         .unwrap_or(false);
 
     if !federation_enabled {
-        // eprintln!("[p2p] federation not enabled in config, skipping P2P init");
+        // tracing::debug!("federation not enabled in config, skipping P2P init");
         return Ok(());
     }
 
@@ -122,23 +122,24 @@ pub async fn init_p2p_client(config_path: &Path) -> Result<(), String> {
         .map(|f| f.knocking_enabled)
         .unwrap_or(false);
 
-    eprintln!("[p2p] initializing P2P endpoint...");
+    tracing::info!("initializing P2P endpoint...");
 
     let mut endpoint = grimoire::federation::transport::FederationEndpoint::new()
         .await
         .map_err(|e| format!("failed to create P2P endpoint: {}", e))?;
 
     let node_id = endpoint.node_id();
-    eprintln!("[p2p] P2P endpoint ready, node_id: {}", node_id);
+    tracing::info!(node_id = %node_id, "P2P endpoint ready");
 
     // start router for incoming connections if knocking enabled or peers exist
     let service = grimoire::users::UserService::new();
     let has_peers = service.has_peer_nodes().await;
 
     if knocking_enabled || has_peers {
-        eprintln!(
-            "[p2p] starting router (knocking={}, has_peers={})",
-            knocking_enabled, has_peers
+        tracing::info!(
+            knocking = knocking_enabled,
+            has_peers = has_peers,
+            "starting router"
         );
         endpoint
             .start_router()
@@ -152,7 +153,7 @@ pub async fn init_p2p_client(config_path: &Path) -> Result<(), String> {
     // store the FederationEndpoint so the Router stays alive
     store_federation_endpoint(endpoint);
 
-    eprintln!("[p2p] P2P endpoint initialized successfully");
+    tracing::info!("P2P endpoint initialized successfully");
     Ok(())
 }
 

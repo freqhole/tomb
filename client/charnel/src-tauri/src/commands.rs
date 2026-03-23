@@ -150,7 +150,7 @@ pub async fn run_setup_core(
             match std::fs::copy(&src_path, &dest) {
                 Ok(_) => Some(dest.to_string_lossy().to_string()),
                 Err(e) => {
-                    eprintln!("failed to copy icon: {}", e);
+                    tracing::error!(error = %e, "failed to copy icon");
                     None
                 }
             }
@@ -215,10 +215,7 @@ pub async fn create_admin_user(app: tauri::AppHandle, username: String) -> Creat
         Some(user) => {
             // save admin user info to app config
             if let Err(e) = save_admin_user(&app, &user.id, &user.username) {
-                eprintln!(
-                    "[create_admin_user] failed to save admin user to app config: {}",
-                    e
-                );
+                tracing::error!(error = %e, "failed to save admin user to app config");
             }
 
             CreateAdminResult {
@@ -389,15 +386,12 @@ pub struct FreqholeConfig {
 /// reads fresh from disk each time to get latest values (e.g. after name change in settings)
 #[tauri::command]
 pub fn get_freqhole_config(app_handle: tauri::AppHandle) -> Option<FreqholeConfig> {
-    eprintln!("[get_freqhole_config] called");
+    tracing::debug!("get_freqhole_config called");
     let config_path = get_server_config_path_resolved(&app_handle)?;
-    eprintln!(
-        "[get_freqhole_config] config_path={}",
-        config_path.display()
-    );
+    tracing::debug!(config_path = %config_path.display(), "resolved config path");
 
     if !config_path.exists() {
-        eprintln!("[get_freqhole_config] config file does not exist");
+        tracing::debug!("config file does not exist");
         return None;
     }
 
@@ -416,9 +410,10 @@ pub fn get_freqhole_config(app_handle: tauri::AppHandle) -> Option<FreqholeConfi
         .map(|c| c.sync_queue_to_local)
         .unwrap_or(true);
 
-    eprintln!(
-        "[get_freqhole_config] returning: server_name={}, server_image_path={:?}",
-        server.name, server.image_path
+    tracing::debug!(
+        server_name = %server.name,
+        server_image_path = ?server.image_path,
+        "returning freqhole config"
     );
 
     Some(FreqholeConfig {
@@ -902,10 +897,7 @@ pub async fn scan_directory(
             grimoire::jobs::add_directory_tags(&path, tags.clone(), Some("tauri-scan".to_string()))
                 .await;
         if !tag_response.success {
-            eprintln!(
-                "[scan] warning: failed to set up directory tags: {}",
-                tag_response.message
-            );
+            tracing::warn!(error = %tag_response.message, "failed to set up directory tags");
         }
     }
 
@@ -1038,7 +1030,7 @@ async fn poll_rescan_job_until_complete(
     let baseline = match get_overview_stats().await.data {
         Some(stats) => (stats.total_songs, stats.total_albums, stats.total_artists),
         None => {
-            eprintln!("[rescan-poll] failed to get baseline stats");
+            tracing::warn!("rescan-poll: failed to get baseline stats");
             (0, 0, 0)
         }
     };
@@ -1052,7 +1044,7 @@ async fn poll_rescan_job_until_complete(
         tokio::select! {
             _ = tokio::time::sleep(poll_interval) => {}
             _ = shutdown_token.cancelled() => {
-                eprintln!("[rescan-poll] shutdown requested, stopping poll");
+                tracing::info!("rescan-poll: shutdown requested, stopping poll");
                 return;
             }
         }
@@ -1095,7 +1087,7 @@ async fn poll_rescan_job_until_complete(
                         pending,
                         jobs_total,
                     ) {
-                        eprintln!("[rescan-poll] failed to send progress: {}", e);
+                        tracing::error!(error = %e, "rescan-poll: failed to send progress");
                     }
                 }
 
@@ -1104,26 +1096,25 @@ async fn poll_rescan_job_until_complete(
                     if let Err(e) =
                         notify_scan_complete(&app_handle, songs_added, albums_added, artists_added)
                     {
-                        eprintln!("[rescan-poll] failed to notify spume: {}", e);
+                        tracing::error!(error = %e, "rescan-poll: failed to notify spume");
                     }
 
-                    eprintln!(
-                        "[rescan-poll] complete: {} songs, {} albums, {} artists added",
-                        songs_added, albums_added, artists_added
+                    tracing::info!(
+                        songs = songs_added,
+                        albums = albums_added,
+                        artists = artists_added,
+                        "rescan-poll: complete"
                     );
                     return;
                 }
             }
             None => {
-                eprintln!(
-                    "[rescan-poll] failed to get job list for rescan job {}",
-                    job_id
-                );
+                tracing::warn!(job_id = %job_id, "rescan-poll: failed to get job list");
             }
         }
     }
 
-    eprintln!("[rescan-poll] polling timed out after 60 minutes");
+    tracing::warn!("rescan-poll: polling timed out after 60 minutes");
 }
 
 /// poll for scan job completion and notify spume with progress updates
@@ -1144,7 +1135,7 @@ async fn poll_scan_jobs_until_complete(
     let baseline = match get_overview_stats().await.data {
         Some(stats) => (stats.total_songs, stats.total_albums, stats.total_artists),
         None => {
-            eprintln!("[scan-poll] failed to get baseline stats");
+            tracing::warn!("scan-poll: failed to get baseline stats");
             (0, 0, 0)
         }
     };
@@ -1158,7 +1149,7 @@ async fn poll_scan_jobs_until_complete(
         tokio::select! {
             _ = tokio::time::sleep(poll_interval) => {}
             _ = shutdown_token.cancelled() => {
-                eprintln!("[scan-poll] shutdown requested, stopping poll");
+                tracing::info!("scan-poll: shutdown requested, stopping poll");
                 return;
             }
         }
@@ -1201,7 +1192,7 @@ async fn poll_scan_jobs_until_complete(
                         pending,
                         jobs_total,
                     ) {
-                        eprintln!("[scan-poll] failed to send progress: {}", e);
+                        tracing::error!(error = %e, "scan-poll: failed to send progress");
                     }
                 }
 
@@ -1210,26 +1201,25 @@ async fn poll_scan_jobs_until_complete(
                     if let Err(e) =
                         notify_scan_complete(&app_handle, songs_added, albums_added, artists_added)
                     {
-                        eprintln!("[scan-poll] failed to notify spume: {}", e);
+                        tracing::error!(error = %e, "scan-poll: failed to notify spume");
                     }
 
-                    eprintln!(
-                        "[scan-poll] complete: {} songs, {} albums, {} artists added",
-                        songs_added, albums_added, artists_added
+                    tracing::info!(
+                        songs = songs_added,
+                        albums = albums_added,
+                        artists = artists_added,
+                        "scan-poll: complete"
                     );
                     return;
                 }
             }
             None => {
-                eprintln!(
-                    "[scan-poll] failed to get job list for session {}",
-                    session_id
-                );
+                tracing::warn!(session_id = %session_id, "scan-poll: failed to get job list");
             }
         }
     }
 
-    eprintln!("[scan-poll] polling timed out after 30 minutes");
+    tracing::warn!("scan-poll: polling timed out after 30 minutes");
 }
 
 /// check for pending jobs on startup and resume polling if needed
@@ -1259,11 +1249,11 @@ pub async fn resume_pending_jobs_polling(
     };
 
     if !has_pending {
-        eprintln!("[scan-poll] no pending jobs on startup");
+        tracing::debug!("scan-poll: no pending jobs on startup");
         return;
     }
 
-    eprintln!("[scan-poll] found pending jobs on startup, resuming polling...");
+    tracing::info!("scan-poll: found pending jobs on startup, resuming polling...");
 
     // get baseline counts
     let baseline = match get_overview_stats().await.data {
@@ -1279,7 +1269,7 @@ pub async fn resume_pending_jobs_polling(
         tokio::select! {
             _ = tokio::time::sleep(poll_interval) => {}
             _ = shutdown_token.cancelled() => {
-                eprintln!("[scan-poll] shutdown requested during resume poll");
+                tracing::info!("scan-poll: shutdown requested during resume poll");
                 return;
             }
         }
@@ -1324,9 +1314,11 @@ pub async fn resume_pending_jobs_polling(
                 if pending == 0 {
                     let _ =
                         notify_scan_complete(&app_handle, songs_added, albums_added, artists_added);
-                    eprintln!(
-                        "[scan-poll] resume complete: {} songs, {} albums, {} artists",
-                        songs_added, albums_added, artists_added
+                    tracing::info!(
+                        songs = songs_added,
+                        albums = albums_added,
+                        artists = artists_added,
+                        "scan-poll: resume complete"
                     );
                     return;
                 }
@@ -1335,7 +1327,7 @@ pub async fn resume_pending_jobs_polling(
         }
     }
 
-    eprintln!("[scan-poll] resume polling timed out");
+    tracing::warn!("scan-poll: resume polling timed out");
 }
 
 /// scanned directory info for UI
@@ -1628,7 +1620,7 @@ pub async fn toggle_federation_enabled(
         state.set_config_path(config_path);
         // start P2P
         if let Err(e) = state.start().await {
-            eprintln!("[toggle_federation_enabled] failed to start P2P: {}", e);
+            tracing::error!(error = %e, "toggle_federation_enabled: failed to start P2P");
         }
     } else {
         // stop P2P
@@ -2342,4 +2334,116 @@ pub fn update_server_info(
     let _ = notify_server_image_updated(&app_handle);
 
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// log management commands
+// ---------------------------------------------------------------------------
+
+/// a single log entry
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct LogEntry {
+    /// line content
+    pub line: String,
+    /// parsed timestamp (if available)
+    pub timestamp: Option<String>,
+    /// log level (INFO, WARN, ERROR, DEBUG, TRACE)
+    pub level: Option<String>,
+}
+
+/// read logs from the charnel log file
+#[tauri::command]
+pub fn read_logs(app_handle: tauri::AppHandle, max_lines: Option<usize>) -> Vec<LogEntry> {
+    use std::io::{BufRead, BufReader};
+
+    let max = max_lines.unwrap_or(500);
+
+    // get log file path from app data dir
+    let log_path = match crate::app_config::get_log_file_path(&app_handle) {
+        Some(p) => p,
+        None => return vec![],
+    };
+
+    // read the file
+    let file = match std::fs::File::open(&log_path) {
+        Ok(f) => f,
+        Err(_) => return vec![],
+    };
+
+    let reader = BufReader::new(file);
+    let lines: Vec<String> = reader.lines().filter_map(|l| l.ok()).collect();
+
+    // take at most max_lines from the end (newest)
+    let start = if lines.len() > max { lines.len() - max } else { 0 };
+
+    lines[start..]
+        .iter()
+        .map(|line| {
+            // try to parse tracing format: "2026-03-23T10:15:30.123Z  INFO charnel: message"
+            let (timestamp, level) = parse_log_line_metadata(line);
+            LogEntry {
+                line: line.clone(),
+                timestamp,
+                level,
+            }
+        })
+        .collect()
+}
+
+/// parse timestamp and level from a tracing-formatted log line
+fn parse_log_line_metadata(line: &str) -> (Option<String>, Option<String>) {
+    // tracing-subscriber format: "2026-03-23T10:15:30.123456Z  INFO target: message"
+    // or: "  2026-03-23T10:15:30.123456Z  INFO target: message" (with leading spaces)
+    let line = line.trim_start();
+
+    // check for ISO timestamp at start
+    if line.len() < 20 {
+        return (None, None);
+    }
+
+    // timestamp is roughly 27 chars (with microseconds and Z)
+    let parts: Vec<&str> = line.splitn(3, ' ').collect();
+    if parts.len() < 2 {
+        return (None, None);
+    }
+
+    // first part should look like a timestamp
+    let ts_candidate = parts[0];
+    let is_timestamp = ts_candidate.len() >= 20
+        && ts_candidate.chars().take(4).all(|c| c.is_ascii_digit())
+        && ts_candidate.chars().nth(4) == Some('-');
+
+    if !is_timestamp {
+        return (None, None);
+    }
+
+    let timestamp = Some(ts_candidate.to_string());
+
+    // second part might be empty (double space) or the level
+    let level_candidate = parts.get(1).unwrap_or(&"").trim();
+    let level = match level_candidate.to_uppercase().as_str() {
+        "INFO" | "WARN" | "DEBUG" | "ERROR" | "TRACE" => Some(level_candidate.to_uppercase()),
+        "" => {
+            // try the third part after double space
+            if let Some(third) = parts.get(2) {
+                let third_parts: Vec<&str> = third.splitn(2, ' ').collect();
+                let third_level = third_parts.first().unwrap_or(&"").trim().to_uppercase();
+                match third_level.as_str() {
+                    "INFO" | "WARN" | "DEBUG" | "ERROR" | "TRACE" => Some(third_level),
+                    _ => None,
+                }
+            } else {
+                None
+            }
+        }
+        _ => None,
+    };
+
+    (timestamp, level)
+}
+
+/// get the log file path
+#[tauri::command]
+pub fn get_log_file_path(app_handle: tauri::AppHandle) -> Option<String> {
+    crate::app_config::get_log_file_path(&app_handle).map(|p| p.display().to_string())
 }

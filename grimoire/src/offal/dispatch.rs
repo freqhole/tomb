@@ -73,22 +73,15 @@ mod tests {
     use crate::users::UserRole;
 
     #[tokio::test]
-    async fn test_dispatch_unknown_route() {
+    async fn test_dispatch_unknown_route_returns_rfc9457_error() {
         let caller = Caller::new("test", "test", UserRole::Member);
-        let response = dispatch("/api/nonexistent", &caller, JsonValue::Null).await;
-        assert!(!response.success);
-        // verify RFC 9457 style error is preserved
-        assert_eq!(response.errors.len(), 1);
-        assert_eq!(response.errors[0].error_type, "route_not_found");
-    }
+        let response = dispatch("/api/nonexistent", &caller, JsonValue::Null, None).await;
 
-    #[tokio::test]
-    async fn test_dispatch_errors_have_detail() {
-        let caller = Caller::new("test", "test", UserRole::Member);
-        let response = dispatch("/api/missing", &caller, JsonValue::Null).await;
-        // errors should have all three RFC 9457 fields
+        assert!(!response.success);
+        assert_eq!(response.errors.len(), 1);
+
         let err = &response.errors[0];
-        assert!(!err.error_type.is_empty());
+        assert_eq!(err.error_type, "route_not_found");
         assert!(!err.title.is_empty());
         assert!(!err.detail.is_empty());
     }

@@ -10,11 +10,10 @@ mod spume_bridge;
 mod tray;
 mod wizard;
 
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use app_config::{get_server_config_path_resolved, is_setup_complete, FreqholeAppConfig};
-#[cfg(not(debug_assertions))]
-use std::path::PathBuf;
 use tauri::webview::Color;
 use tauri::{Emitter, Manager, RunEvent, Theme, TitleBarStyle, WebviewUrl, WebviewWindowBuilder};
 use tokio_util::sync::CancellationToken;
@@ -43,17 +42,117 @@ impl ShutdownToken {
     }
 }
 
-#[cfg_attr(mobile, tauri::mobile_entry_point)]
-pub fn run() {
-    // set up tracing subscriber to see grimoire logs
+/// app identifier for computing data directory
+const APP_IDENTIFIER: &str = "net.freqhole.charnel";
+/// default log file name
+const DEFAULT_LOG_FILE: &str = "charnel.log";
+/// max log lines before truncation
+const DEFAULT_MAX_LOG_LINES: usize = 10000;
+
+/// get the app data directory path (without needing an AppHandle)
+/// this is needed because tracing setup happens before tauri::Builder is run
+fn get_app_data_dir() -> Option<PathBuf> {
+    #[cfg(target_os = "macos")]
+    {
+        std::env::var_os("HOME").map(|h| {
+            PathBuf::from(h)
+                .join("Library/Application Support")
+                .join(APP_IDENTIFIER)
+        })
+    }
+    #[cfg(target_os = "linux")]
+    {
+        std::env::var_os("XDG_DATA_HOME")
+            .map(PathBuf::from)
+            .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/share")))
+            .map(|p| p.join(APP_IDENTIFIER))
+    }
+    #[cfg(target_os = "windows")]
+    {
+        std::env::var_os("APPDATA").map(|a| PathBuf::from(a).join(APP_IDENTIFIER))
+    }
+}
+
+/// truncate log file if it exceeds max_lines (keeps the newest lines)
+fn truncate_log_file_if_needed(path: &std::path::Path, max_lines: usize) {
+    use std::io::{BufRead, BufReader, Write};
+
+    let file = match std::fs::File::open(path) {
+        Ok(f) => f,
+        Err(_) => return,
+    };
+
+    let reader = BufReader::new(file);
+    let lines: Vec<String> = reader.lines().filter_map(|l| l.ok()).collect();
+
+    if lines.len() <= max_lines {
+        return;
+    }
+
+    let keep_from = lines.len() - max_lines;
+    let truncated: Vec<&str> = lines[keep_from..].iter().map(|s| s.as_str()).collect();
+
+    if let Ok(mut file) = std::fs::File::create(path) {
+        for line in truncated {
+            let _ = writeln!(file, "{}", line);
+        }
+    }
+}
+
+/// set up tracing with file output
+fn setup_tracing() {
     use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
-    tracing_subscriber::registry()
-        .with(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("grimoire=info")),
+
+    let filter = tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| {
+        tracing_subscriber::EnvFilter::new(
+            "charnel=info,grimoire=info,iroh=error,iroh_relay=error,iroh_quinn=error",
         )
+    });
+
+    // try to set up file logging
+    if let Some(app_dir) = get_app_data_dir() {
+        // ensure app data dir exists
+        let _ = std::fs::create_dir_all(&app_dir);
+
+        let log_path = app_dir.join(DEFAULT_LOG_FILE);
+
+        // truncate if too large
+        truncate_log_file_if_needed(&log_path, DEFAULT_MAX_LOG_LINES);
+
+        // open log file
+        let file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&log_path);
+
+        if let Ok(file) = file {
+            // both file and stdout logging
+            let file_layer = tracing_subscriber::fmt::layer()
+                .with_writer(std::sync::Mutex::new(file))
+                .with_ansi(false);
+
+            let stdout_layer = tracing_subscriber::fmt::layer();
+
+            tracing_subscriber::registry()
+                .with(filter)
+                .with(file_layer)
+                .with(stdout_layer)
+                .init();
+
+            return;
+        }
+    }
+
+    // fallback: stdout only
+    tracing_subscriber::registry()
+        .with(filter)
         .with(tracing_subscriber::fmt::layer())
         .init();
+}
+
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
+pub fn run() {
+    setup_tracing();
 
     let p2p_state = Arc::new(P2pState::new());
 
@@ -71,15 +170,15 @@ pub fn run() {
             if !needs_setup && app_config::app_config_needs_upgrade(app.handle()) {
                 match app_config::upgrade_app_config(app.handle()) {
                     Ok(result) => {
-                        eprintln!(
-                            "[tauri] silently upgraded app config: {} → {} (backup: {})",
-                            result.old_version,
-                            result.new_version,
-                            result.backup_path.display()
+                        tracing::info!(
+                            old_version = %result.old_version,
+                            new_version = %result.new_version,
+                            backup = %result.backup_path.display(),
+                            "silently upgraded app config"
                         );
                     }
                     Err(e) => {
-                        eprintln!("[tauri] failed to upgrade app config: {}", e);
+                        tracing::error!(error = %e, "failed to upgrade app config");
                     }
                 }
             }
@@ -105,18 +204,18 @@ pub fn run() {
             } else {
                 // setup already complete - start server automatically
                 // try to use saved config path from app config, fall back to default location
-                eprintln!("[tauri] setup complete, starting server...");
+                tracing::info!("setup complete, starting server...");
                 let config_path = get_server_config_path_resolved(app.handle())
                     .ok_or_else(|| "failed to determine config path".to_string())?;
-                eprintln!("[tauri] config_path={}", config_path.display());
+                tracing::info!(config_path = %config_path.display(), "loaded config");
 
                 // initialize grimoire config and run migrations before starting server
                 grimoire::config::init_config(Some(config_path.clone()))
                     .map_err(|e| format!("failed to load config: {}", e))?;
-                eprintln!("[tauri] running migrations...");
+                tracing::info!("running migrations...");
                 tauri::async_runtime::block_on(async {
                     if let Err(e) = grimoire::database::run_migrations().await {
-                        eprintln!("[tauri] migration warning: {}", e);
+                        tracing::warn!(error = %e, "migration warning");
                     }
                 });
 
@@ -124,15 +223,15 @@ pub fn run() {
                 // SQLite handles concurrent access safely.
                 let job_runner_token = app.state::<ShutdownToken>().inner().clone();
                 tauri::async_runtime::spawn(async move {
-                    eprintln!("[tauri] starting job runner...");
+                    tracing::info!("starting job runner...");
                     let result = grimoire::jobs::run_job_processor_with_token(
                         job_runner_token.0.as_ref().clone(),
                     )
                     .await;
                     if result.success {
-                        eprintln!("[tauri] job runner stopped gracefully");
+                        tracing::info!("job runner stopped gracefully");
                     } else {
-                        eprintln!("[tauri] job runner error: {}", result.message);
+                        tracing::error!(error = %result.message, "job runner error");
                     }
                 });
 
@@ -140,7 +239,7 @@ pub fn run() {
                 let event_handle = app.handle().clone();
                 tauri::async_runtime::spawn(async move {
                     let mut rx = grimoire::events::subscribe();
-                    eprintln!("[tauri] grimoire event listener started");
+                    tracing::info!("grimoire event listener started");
                     while let Ok(event) = rx.recv().await {
                         // transform grimoire event to spume's expected format
                         let spume_event = match &event {
@@ -191,7 +290,7 @@ pub fn run() {
                         };
                         // emit to frontend as tauri event (matching spume's event channel)
                         if let Err(e) = event_handle.emit("freqhole:event", spume_event) {
-                            eprintln!("[tauri] failed to emit freqhole event: {}", e);
+                            tracing::error!(error = %e, "failed to emit freqhole event");
                         }
                     }
                 });
@@ -215,7 +314,7 @@ pub fn run() {
                     tauri::async_runtime::spawn(async move {
                         // start P2P endpoint via state manager
                         if let Err(e) = p2p_state_clone.start().await {
-                            eprintln!("[tauri] failed to init P2P client: {}", e);
+                            tracing::error!(error = %e, "failed to init P2P client");
                         }
                     });
 
@@ -229,7 +328,7 @@ pub fn run() {
                 });
 
                 // show main window (spume will call getConfig on startup)
-                eprintln!("[tauri] creating main window...");
+                tracing::info!("creating main window...");
                 let win_builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::default())
                     .title("freqhole")
                     .inner_size(800.0, 600.0)
@@ -267,8 +366,9 @@ pub fn run() {
                 if app_config.tray_enabled && federation_enabled {
                     #[cfg(target_os = "linux")]
                     if let Err(e) = tray::setup_tray(app.handle()) {
-                        eprintln!(
-                            "warning: system tray setup failed (install libayatana-appindicator3-dev): {e}"
+                        tracing::warn!(
+                            error = %e,
+                            "system tray setup failed (install libayatana-appindicator3-dev)"
                         );
                     }
                     #[cfg(not(target_os = "linux"))]
@@ -340,6 +440,9 @@ pub fn run() {
             commands::get_server_image_thumbnail,
             commands::update_server_image,
             commands::update_server_info,
+            // log management
+            commands::read_logs,
+            commands::get_log_file_path,
             // unified API dispatch (spike)
             commands::api_call,
             wizard::open_setup_wizard,
@@ -365,20 +468,20 @@ pub fn run() {
         .expect("error while building tauri application")
         .run(|app, event| {
             if let RunEvent::Exit = event {
-                eprintln!("[shutdown] RunEvent::Exit received");
+                tracing::info!("shutdown: RunEvent::Exit received");
 
                 // cancel all background tasks first
                 let shutdown_token = app.state::<ShutdownToken>().inner().clone();
                 shutdown_token.cancel();
-                eprintln!("[shutdown] shutdown token cancelled");
+                tracing::info!("shutdown: token cancelled");
 
                 // close all P2P client connections
                 p2p_commands::p2p_close_all_connections();
-                eprintln!("[shutdown] P2P connections closed");
+                tracing::info!("shutdown: P2P connections closed");
 
                 // brief pause to let poll tasks exit
                 std::thread::sleep(std::time::Duration::from_millis(100));
-                eprintln!("[shutdown] cleanup complete");
+                tracing::info!("shutdown: cleanup complete");
             }
         });
 }

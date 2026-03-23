@@ -78,61 +78,59 @@ pub async fn close_setup_wizard(
     config_path: Option<String>,
     route: Option<String>,
 ) -> Result<(), String> {
-    eprintln!(
-        "[close_setup_wizard] called with config_path={:?}, route={:?}",
-        config_path, route
+    tracing::info!(
+        config_path = ?config_path,
+        route = ?route,
+        "close_setup_wizard called"
     );
 
     let config_path_buf = config_path.clone().map(PathBuf::from);
 
     // save config path to app config for later use
     if let Some(path) = &config_path {
-        eprintln!("[close_setup_wizard] saving config path: {}", path);
+        tracing::info!(path = %path, "saving config path");
         if let Err(e) = save_server_config_path(&app, path) {
-            eprintln!(
-                "[close_setup_wizard] failed to save server config path: {}",
-                e
-            );
+            tracing::error!(error = %e, "failed to save server config path");
         }
     }
 
     // initialize grimoire config and database
     if let Some(ref config_path) = config_path_buf {
-        eprintln!("[close_setup_wizard] initializing grimoire config...");
+        tracing::info!("initializing grimoire config...");
 
         // init config from saved path
         if let Err(e) = grimoire::config::init_config(Some(config_path.clone())) {
-            eprintln!("[close_setup_wizard] failed to init config: {}", e);
+            tracing::error!(error = %e, "failed to init config");
             return Err(format!("failed to init config: {}", e));
         }
 
         // run migrations
-        eprintln!("[close_setup_wizard] running database migrations...");
+        tracing::info!("running database migrations...");
         if let Err(e) = grimoire::database::run_migrations().await {
-            eprintln!("[close_setup_wizard] failed to run migrations: {}", e);
+            tracing::error!(error = %e, "failed to run migrations");
             return Err(format!("failed to run migrations: {}", e));
         }
 
         // start job runner (same as lib.rs)
         let job_runner_token = app.state::<ShutdownToken>().inner().clone();
-        eprintln!("[close_setup_wizard] starting job runner...");
+        tracing::info!("starting job runner...");
         tauri::async_runtime::spawn(async move {
             let result =
                 grimoire::jobs::run_job_processor_with_token(job_runner_token.0.as_ref().clone())
                     .await;
             if result.success {
-                eprintln!("[close_setup_wizard] job runner stopped gracefully");
+                tracing::info!("job runner stopped gracefully");
             } else {
-                eprintln!("[close_setup_wizard] job runner error: {}", result.message);
+                tracing::error!(error = %result.message, "job runner error");
             }
         });
 
         // start event listener for frontend events (same as lib.rs)
         let event_handle = app.clone();
-        eprintln!("[close_setup_wizard] starting event listener...");
+        tracing::info!("starting event listener...");
         tauri::async_runtime::spawn(async move {
             let mut rx = grimoire::events::subscribe();
-            eprintln!("[close_setup_wizard] grimoire event listener started");
+            tracing::info!("grimoire event listener started");
             while let Ok(event) = rx.recv().await {
                 let spume_event = match &event {
                     grimoire::events::GrimoireEvent::KnockCreated {
@@ -201,7 +199,7 @@ pub async fn close_setup_wizard(
                     }
                 };
                 if let Err(e) = event_handle.emit("freqhole:event", spume_event) {
-                    eprintln!("[close_setup_wizard] failed to emit freqhole event: {}", e);
+                    tracing::error!(error = %e, "failed to emit freqhole event");
                 }
             }
         });
@@ -218,10 +216,10 @@ pub async fn close_setup_wizard(
             let p2p_state = app.state::<Arc<P2pState>>().inner().clone();
             p2p_state.set_config_path(config_path.clone());
 
-            eprintln!("[close_setup_wizard] starting P2P client...");
+            tracing::info!("starting P2P client...");
             tauri::async_runtime::spawn(async move {
                 if let Err(e) = p2p_state.start().await {
-                    eprintln!("[close_setup_wizard] failed to init P2P client: {}", e);
+                    tracing::error!(error = %e, "failed to init P2P client");
                 }
             });
 
@@ -233,13 +231,14 @@ pub async fn close_setup_wizard(
             if app_config.tray_enabled {
                 #[cfg(target_os = "linux")]
                 if let Err(e) = tray::setup_tray(&app) {
-                    eprintln!(
-                        "[close_setup_wizard] tray setup failed (install libayatana-appindicator3-dev): {e}"
+                    tracing::warn!(
+                        error = %e,
+                        "tray setup failed (install libayatana-appindicator3-dev)"
                     );
                 }
                 #[cfg(not(target_os = "linux"))]
                 if let Err(e) = tray::setup_tray(&app) {
-                    eprintln!("[close_setup_wizard] tray setup failed: {e}");
+                    tracing::warn!(error = %e, "tray setup failed");
                 }
             }
         }
@@ -254,7 +253,7 @@ pub async fn close_setup_wizard(
 
         // setup application menu (always, regardless of federation)
         if let Err(e) = menu::setup_app_menu(&app) {
-            eprintln!("[close_setup_wizard] menu setup failed: {e}");
+            tracing::warn!(error = %e, "menu setup failed");
         }
     }
 
@@ -268,10 +267,7 @@ pub async fn close_setup_wizard(
 
     // create main window if it doesn't exist
     if app.get_webview_window("main").is_none() {
-        eprintln!(
-            "[close_setup_wizard] creating main window at route: {}",
-            target_route
-        );
+        tracing::info!(route = %target_route, "creating main window");
 
         #[cfg(debug_assertions)]
         let url_str = format!("http://localhost:1420#{}", target_route);

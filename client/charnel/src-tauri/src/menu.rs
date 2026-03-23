@@ -68,7 +68,7 @@ fn start_p2p_status_watcher(app: &AppHandle<Wry>) {
 /// rebuild and set the app menu (call when federation config changes)
 pub fn refresh_app_menu(app: &AppHandle<Wry>) {
     if let Err(e) = build_and_set_menu(app) {
-        eprintln!("[menu] failed to refresh menu: {}", e);
+        tracing::error!(error = %e, "failed to refresh menu");
     }
     // restart status watcher if federation is now enabled
     start_p2p_status_watcher(app);
@@ -269,7 +269,7 @@ fn handle_menu_event(app: &AppHandle<Wry>, id: &str) {
             let state = app.state::<Arc<P2pState>>().inner().clone();
             tauri::async_runtime::spawn(async move {
                 if let Err(e) = state.start().await {
-                    eprintln!("[menu] failed to start P2P: {}", e);
+                    tracing::error!(error = %e, "failed to start P2P");
                 }
             });
         }
@@ -283,7 +283,7 @@ fn handle_menu_event(app: &AppHandle<Wry>, id: &str) {
             let state = app.state::<Arc<P2pState>>().inner().clone();
             tauri::async_runtime::spawn(async move {
                 if let Err(e) = state.restart().await {
-                    eprintln!("[menu] failed to restart P2P: {}", e);
+                    tracing::error!(error = %e, "failed to restart P2P");
                 }
             });
         }

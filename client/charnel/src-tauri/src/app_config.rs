@@ -11,6 +11,35 @@ use std::path::PathBuf;
 /// charnel app config filename
 const APP_CONFIG_FILENAME: &str = "charnel-config.toml";
 
+/// logging configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LoggingConfig {
+    /// log file name (relative to app data dir)
+    #[serde(default = "default_log_file")]
+    pub file: String,
+
+    /// max lines before auto-truncate (default: 10000)
+    #[serde(default = "default_max_lines")]
+    pub max_lines: usize,
+}
+
+impl Default for LoggingConfig {
+    fn default() -> Self {
+        Self {
+            file: default_log_file(),
+            max_lines: default_max_lines(),
+        }
+    }
+}
+
+fn default_log_file() -> String {
+    "charnel.log".to_string()
+}
+
+fn default_max_lines() -> usize {
+    10000
+}
+
 /// charnel app configuration
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct FreqholeAppConfig {
@@ -25,6 +54,10 @@ pub struct FreqholeAppConfig {
     /// admin user info for auto-generating invite codes
     #[serde(default)]
     pub admin_user: AdminUserConfig,
+
+    /// logging configuration
+    #[serde(default)]
+    pub logging: LoggingConfig,
 
     /// disable backdrop-filter blur effects (for linux/webkitgtk compatibility)
     #[serde(default)]
@@ -85,7 +118,7 @@ impl FreqholeAppConfig {
         std::fs::write(&config_path, content)
             .map_err(|e| format!("failed to write config: {}", e))?;
 
-        eprintln!("[app_config] saved config to {:?}", config_path);
+        tracing::info!(path = ?config_path, "saved config");
         Ok(())
     }
 
@@ -253,4 +286,15 @@ pub fn upgrade_app_config(app_handle: &tauri::AppHandle) -> Result<AppConfigUpgr
         old_version,
         new_version: get_binary_version().to_string(),
     })
+}
+
+/// get the path to the log file
+pub fn get_log_file_path(app_handle: &tauri::AppHandle) -> Option<PathBuf> {
+    use tauri::Manager;
+    let config = FreqholeAppConfig::load(app_handle).unwrap_or_default();
+    app_handle
+        .path()
+        .app_data_dir()
+        .ok()
+        .map(|p| p.join(&config.logging.file))
 }

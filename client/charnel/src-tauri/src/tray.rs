@@ -149,7 +149,7 @@ fn handle_menu_event(app: &AppHandle<Wry>, id: &str) {
             let state = app.state::<Arc<P2pState>>().inner().clone();
             tauri::async_runtime::spawn(async move {
                 if let Err(e) = state.start().await {
-                    eprintln!("[tray] failed to start P2P: {}", e);
+                    tracing::error!(error = %e, "failed to start P2P");
                 }
             });
         }
@@ -163,7 +163,7 @@ fn handle_menu_event(app: &AppHandle<Wry>, id: &str) {
             let state = app.state::<Arc<P2pState>>().inner().clone();
             tauri::async_runtime::spawn(async move {
                 if let Err(e) = state.restart().await {
-                    eprintln!("[tray] failed to restart P2P: {}", e);
+                    tracing::error!(error = %e, "failed to restart P2P");
                 }
             });
         }

@@ -1,9 +1,16 @@
 import { createSignal, onMount, onCleanup, For, Show } from "solid-js";
 import { invoke } from "@tauri-apps/api/core";
 
+interface LogEntry {
+  line: string;
+  timestamp: string | null;
+  level: string | null;
+}
+
 export default function LogsView() {
-  const [logs, setLogs] = createSignal<string[]>([]);
+  const [logs, setLogs] = createSignal<LogEntry[]>([]);
   const [autoRefresh, setAutoRefresh] = createSignal(true);
+  const [clearedAt, setClearedAt] = createSignal<string | null>(null);
   let logsInterval: number | undefined;
 
   onMount(() => {
@@ -29,27 +36,44 @@ export default function LogsView() {
 
   async function fetchLogs() {
     try {
-      const result = await invoke<string[]>("read_log_file", {
+      const result = await invoke<LogEntry[]>("read_logs", {
         maxLines: 500,
       });
+
+      // filter out logs before clearedAt timestamp
+      const cleared = clearedAt();
+      const filtered = cleared
+        ? result.filter((entry) => {
+            if (!entry.timestamp) return true; // keep entries without timestamp
+            return entry.timestamp > cleared;
+          })
+        : result;
+
       // reverse so newest is at top
-      setLogs([...result].reverse());
+      setLogs([...filtered].reverse());
     } catch (e) {
-      // fallback to sidecar buffer if log file isn't available yet
-      try {
-        const result = await invoke<string[]>("get_server_logs", {
-          maxLines: 500,
-        });
-        setLogs([...result].reverse());
-      } catch {
-        console.error("failed to fetch logs:", e);
-      }
+      console.error("failed to fetch logs:", e);
     }
   }
 
   function clearLogs() {
-    // just clear the UI view, don't truncate the file
+    // set the clear timestamp to now - logs after this will show
+    setClearedAt(new Date().toISOString());
     setLogs([]);
+  }
+
+  function getLevelClass(level: string | null): string {
+    switch (level?.toUpperCase()) {
+      case "ERROR":
+        return "error";
+      case "WARN":
+        return "warn";
+      case "DEBUG":
+      case "TRACE":
+        return "debug";
+      default:
+        return "";
+    }
   }
 
   return (
@@ -78,22 +102,12 @@ export default function LogsView() {
 
       <div class="logs-container">
         <Show when={logs().length === 0}>
-          <p class="empty">no logs yet - start the server to see output</p>
+          <p class="empty">no logs yet - waiting for activity</p>
         </Show>
         <For each={logs()}>
-          {(line) => (
-            <div
-              class={`log-line ${
-                line.startsWith("[stderr]")
-                  ? "stderr"
-                  : line.startsWith("[stdout]")
-                    ? "stdout"
-                    : line.startsWith("[sidecar]")
-                      ? "sidecar"
-                      : ""
-              }`}
-            >
-              {line}
+          {(entry) => (
+            <div class={`log-line ${getLevelClass(entry.level)}`}>
+              {entry.line}
             </div>
           )}
         </For>
