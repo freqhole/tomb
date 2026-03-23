@@ -676,13 +676,18 @@ export function AppLayout(props: AppLayoutProps) {
         currentSourceName={currentSourceName()}
         currentSourceId={getCurrentRemote()?.remote_id ?? null}
         remotes={remotes().map((r) => {
-          const url = isHttpRemote(r) ? r.base_url.toLowerCase() : "";
+          // charnel-managed remotes are always local (embedded grimoire)
+          const isCharnelManaged = r.is_charnel_managed === true;
+          const url = isHttpRemote(r) && r.base_url ? r.base_url.toLowerCase() : "";
           const isLocal =
-            url.includes("localhost") || url.includes("127.0.0.1") || url.includes("[::1]");
+            isCharnelManaged ||
+            url.includes("localhost") ||
+            url.includes("127.0.0.1") ||
+            url.includes("[::1]");
           return {
             id: r.remote_id,
             name: r.name,
-            url: isHttpRemote(r) ? r.base_url : r.peer_addr,
+            url: isHttpRemote(r) ? (r.base_url ?? "local") : r.peer_addr,
             imageUrl: r.image_url ?? undefined,
             imageBlobId: r.image_blob_id ?? undefined,
             peerAddr: isP2PRemote(r) ? r.peer_addr : undefined,

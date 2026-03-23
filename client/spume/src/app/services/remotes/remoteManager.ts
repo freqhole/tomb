@@ -126,8 +126,13 @@ export async function upsertTauriRemote(config: {
       // if no image path provided, clear the image_url (don't keep old HTTP path)
       image_url: imageUrl,
       updated_at: Date.now(),
-      // update base_url only for HTTP remotes
-      ...(isHttpRemote(existing) ? { base_url: config.base_url.replace(/\/$/, "") } : {}),
+      // clear base_url for charnel-managed remotes (they use IPC dispatch)
+      // keep it for regular HTTP remotes
+      ...(existing.is_charnel_managed
+        ? { base_url: undefined }
+        : isHttpRemote(existing)
+          ? { base_url: config.base_url.replace(/\/$/, "") }
+          : {}),
     };
     await db.put(STORE_REMOTES, updated);
     console.log("[upsertTauriRemote] updated existing remote:", {
@@ -146,7 +151,7 @@ export async function upsertTauriRemote(config: {
     transport: "http",
     remote_id: remoteId,
     name: config.name,
-    base_url: config.base_url.replace(/\/$/, ""),
+    // no base_url for charnel-managed - uses IPC dispatch
     is_active: false,
     last_connected_at: null,
     created_at: Date.now(),

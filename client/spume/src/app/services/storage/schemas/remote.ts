@@ -43,7 +43,9 @@ const RemoteCommonSchema = z.object({
 
 const HttpRemoteSchema = RemoteCommonSchema.extend({
   transport: z.literal("http"),
-  base_url: z.string().min(1),
+  // base_url is required for normal HTTP remotes, but optional for charnel-managed
+  // (charnel-managed remotes use IPC dispatch, not HTTP)
+  base_url: z.string().optional(),
   peer_addr: z.undefined().optional(), // not used for HTTP
 });
 

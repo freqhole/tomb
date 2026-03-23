@@ -239,14 +239,13 @@ export async function getClientForRemote(remote: RemoteLike): Promise<ApiClient>
       
     case 'http':
     default:
-      if (!baseUrl) {
-        throw new Error('base_url required for http transport');
-      }
-      // use CharnelLocalTransport for tauri-managed remotes (local server)
-      // tries dispatch first, falls back to HTTP for routes not yet in dispatch
+      // charnel-managed remotes use IPC (no base_url needed)
       if (isCharnelMode() && remote.is_charnel_managed) {
         console.log('[client] using CharnelLocalTransport for tauri-managed remote');
-        return new FreqholeClient(createCharnelLocalTransport(baseUrl));
+        return new FreqholeClient(createCharnelLocalTransport(""));
+      }
+      if (!baseUrl) {
+        throw new Error('base_url required for http transport');
       }
       return new FreqholeClient(new HttpTransport(baseUrl, remote.api_key));
   }
@@ -287,12 +286,12 @@ export async function getTransportForRemote(remote: RemoteLike): Promise<Transpo
       
     case 'http':
     default:
+      // charnel-managed remotes use IPC (no base_url needed)
+      if (isCharnelMode() && remote.is_charnel_managed) {
+        return createCharnelLocalTransport("");
+      }
       if (!baseUrl) {
         throw new Error('base_url required for http transport');
-      }
-      // use CharnelLocalTransport for tauri-managed remotes - supports blobs via IPC
-      if (isCharnelMode() && remote.is_charnel_managed) {
-        return createCharnelLocalTransport(baseUrl);
       }
       return new HttpTransport(baseUrl, remote.api_key);
   }

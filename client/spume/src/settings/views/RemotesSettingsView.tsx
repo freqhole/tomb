@@ -210,11 +210,20 @@ export function RemotesSettingsView() {
     }
     setAuthStatus(initial);
 
-    // check each remote in parallel (HTTP only - P2P remotes don't use auth)
+    // check each remote in parallel (HTTP only - P2P and charnel-managed remotes don't use auth)
     await Promise.all(
       remoteList.map(async (remote) => {
         // skip P2P remotes - they don't use HTTP auth
         if (!isHttpRemote(remote)) {
+          setAuthStatus((prev) => {
+            const next = new Map(prev);
+            next.set(remote.remote_id, { loggedIn: false });
+            return next;
+          });
+          return;
+        }
+        // skip charnel-managed remotes - they use embedded auth
+        if (remote.is_charnel_managed || !remote.base_url) {
           setAuthStatus((prev) => {
             const next = new Map(prev);
             next.set(remote.remote_id, { loggedIn: false });
@@ -248,6 +257,15 @@ export function RemotesSettingsView() {
   const checkSingleAuthStatus = async (remote: Remote) => {
     // skip P2P remotes - they don't use HTTP auth
     if (!isHttpRemote(remote)) {
+      setAuthStatus((prev) => {
+        const next = new Map(prev);
+        next.set(remote.remote_id, { loggedIn: false });
+        return next;
+      });
+      return;
+    }
+    // skip charnel-managed remotes - they use embedded auth
+    if (remote.is_charnel_managed || !remote.base_url) {
       setAuthStatus((prev) => {
         const next = new Map(prev);
         next.set(remote.remote_id, { loggedIn: false });
@@ -339,9 +357,9 @@ export function RemotesSettingsView() {
   };
 
   const handleLogout = async (remote: Remote) => {
-    // P2P remotes don't use HTTP auth
-    if (!isHttpRemote(remote)) {
-      toast.info("P2P remotes don't use HTTP auth");
+    // P2P and charnel-managed remotes don't use HTTP auth
+    if (!isHttpRemote(remote) || remote.is_charnel_managed || !remote.base_url) {
+      toast.info("this remote doesn't use HTTP auth");
       return;
     }
     setLoggingOut(remote.remote_id);
@@ -372,8 +390,8 @@ export function RemotesSettingsView() {
   };
 
   const handleLogin = (remote: Remote) => {
-    // P2P remotes don't use HTTP auth
-    if (!isHttpRemote(remote)) return;
+    // P2P and charnel-managed remotes don't use HTTP auth
+    if (!isHttpRemote(remote) || remote.is_charnel_managed || !remote.base_url) return;
     setReauthRemote(remote);
   };
 
@@ -442,7 +460,9 @@ export function RemotesSettingsView() {
             <For each={remotes()}>
               {(remote) => {
                 const isLocal = () => {
-                  if (!isHttpRemote(remote)) return false;
+                  // charnel-managed remotes are always local
+                  if (remote.is_charnel_managed) return true;
+                  if (!isHttpRemote(remote) || !remote.base_url) return false;
                   const url = remote.base_url.toLowerCase();
                   return (
                     url.includes("localhost") || url.includes("127.0.0.1") || url.includes("[::1]")
@@ -633,12 +653,14 @@ export function RemotesSettingsView() {
       <Show when={reauthRemote()}>
         {(remote) => {
           const r = remote();
+          // charnel-managed remotes don't use reauth
+          if (r.is_charnel_managed) return null;
           return (
             <ReauthModal
               isOpen={true}
               onClose={() => setReauthRemote(null)}
               onSuccess={handleReauthSuccess}
-              baseUrl={isHttpRemote(r) ? r.base_url : ""}
+              baseUrl={isHttpRemote(r) ? (r.base_url ?? "") : ""}
               remoteName={r.name}
             />
           );
