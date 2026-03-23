@@ -857,6 +857,8 @@ export function AppLayout(props: AppLayoutProps) {
               onDeleteFromLocal: async () => {
                 const result = await deleteSongFromLocal(fullSong.id);
                 if (result.success) {
+                  // also remove from queue after deletion
+                  await removeFromQueue(index);
                   const { toast } = await import("../components/feedback/Toast");
                   toast.success("removed from local library");
                 } else {

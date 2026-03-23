@@ -592,7 +592,7 @@ export function StorageSettingsView() {
                       </p>
                     </div>
                     <button
-                      class={`relative w-12 h-6 rounded-full transition-colors ${
+                      class={`relative w-11 h-6 rounded-full transition-colors ${
                         (appState()?.sync_queue_to_local ?? true)
                           ? "bg-[var(--color-accent-500)]"
                           : "bg-[var(--color-bg-tertiary)]"
@@ -602,9 +602,9 @@ export function StorageSettingsView() {
                       }
                     >
                       <span
-                        class={`absolute top-1 w-4 h-4 rounded-full bg-white transition-transform ${
+                        class={`absolute left-0 top-1 w-4 h-4 rounded-full bg-white transition-transform ${
                           (appState()?.sync_queue_to_local ?? true)
-                            ? "translate-x-7"
+                            ? "translate-x-6"
                             : "translate-x-1"
                         }`}
                       />

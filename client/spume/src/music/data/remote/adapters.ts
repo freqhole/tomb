@@ -69,6 +69,7 @@ export interface ApiSongQueryItem {
   artist: {
     id: string;
     name: string;
+    images: ApiImage[] | null;
   } | null;
   album: {
     id: string;
@@ -170,6 +171,7 @@ export function adaptSongFromAPI(item: ApiSongQueryItem, baseUrl: string, remote
     album_tags: item.album_tags ?? [],
     album_genres: album?.genres ?? [],
     album_images: album?.images?.map(img => adaptApiImage(img, baseUrl, remoteServerId)) ?? [],
+    artist_images: artist?.images?.map(img => adaptApiImage(img, baseUrl, remoteServerId)) ?? [],
 
     // entity URLs (convert null fields to undefined)
     urls: adaptApiUrls(song.urls) ?? [],

@@ -564,130 +564,8 @@ export default function FederationView() {
           </Show>
         </section>
 
-        {/* allowed peers - only show when federation is enabled */}
+        {/* access requests and allowed peers - only show when federation is enabled */}
         <Show when={isConfigured()}>
-          <section class="status-section">
-            <h2>allowed peers</h2>
-            <p class="help-text">
-              list of all P2P peers that can connect to this instance. peers can
-              be added manually below
-              {hasHaruspexConfig() ? " or synced from haruspex" : ""}.
-            </p>
-
-            {/* peer list */}
-            <Show when={peerNodes().length > 0}>
-              <div class="peer-list">
-                <For each={peerNodes()}>
-                  {(peer) => (
-                    <div class="peer-item">
-                      <div class="peer-info">
-                        <span class="peer-username">{peer.username}</span>
-                        <span class="peer-role">{peer.role}</span>
-                      </div>
-                      <div
-                        class="peer-node-id clickable"
-                        title="click to copy to clipboard"
-                        onClick={async () => {
-                          await navigator.clipboard.writeText(peer.node_id);
-                          setCopiedPeerNodeId(peer.node_id);
-                          setTimeout(() => setCopiedPeerNodeId(null), 3000);
-                        }}
-                      >
-                        {copiedPeerNodeId() === peer.node_id
-                          ? "copied!"
-                          : formatNodeId(peer.node_id)}
-                      </div>
-                      <div class="peer-meta">
-                        <span>added {formatTimestamp(peer.created_at)}</span>
-                        <Show when={peer.instance_name}>
-                          <span class="instance-name">
-                            {peer.instance_name}
-                          </span>
-                        </Show>
-                      </div>
-                      <button
-                        class="peer-remove"
-                        onClick={() => removePeer(peer.user_id, peer.node_id)}
-                        disabled={removingPeerId() === peer.node_id}
-                        title="remove peer"
-                      >
-                        {removingPeerId() === peer.node_id ? "..." : "×"}
-                      </button>
-                    </div>
-                  )}
-                </For>
-              </div>
-            </Show>
-
-            <Show when={peerNodes().length === 0 && !peersLoading()}>
-              <div class="status-message" style="margin-bottom: 1rem">
-                no peers allowed yet
-              </div>
-            </Show>
-
-            {/* add peer form */}
-            <details class="add-peer-form">
-              <summary>add peer manually</summary>
-              <form onSubmit={handleAllowPeer}>
-                <div class="form-row">
-                  <div class="form-group flex-1">
-                    <label for="peer-node-id">node_id</label>
-                    <input
-                      id="peer-node-id"
-                      type="text"
-                      value={peerNodeId()}
-                      onInput={(e) => setPeerNodeId(e.currentTarget.value)}
-                      placeholder="64-character hex node id"
-                      pattern="[0-9a-fA-F]{64}"
-                      required
-                    />
-                  </div>
-                </div>
-                <div class="form-row">
-                  <div class="form-group flex-1">
-                    <label for="peer-username">username (optional)</label>
-                    <UserAutocomplete
-                      initialValue={peerUsername()}
-                      placeholder="search or enter username..."
-                      defaultRole={peerRole()}
-                      onSelect={(selection) => {
-                        setPeerUserSelection(selection);
-                        if (selection) {
-                          setPeerUsername(selection.username);
-                          if (selection.isExisting) {
-                            setPeerRole(selection.role);
-                          }
-                        } else {
-                          setPeerUsername("");
-                        }
-                      }}
-                    />
-                  </div>
-                  <div class="form-group">
-                    <label for="peer-role">role</label>
-                    <select
-                      id="peer-role"
-                      value={
-                        peerUserSelection()?.isExisting
-                          ? peerUserSelection()!.role
-                          : peerRole()
-                      }
-                      onChange={(e) => setPeerRole(e.currentTarget.value)}
-                      disabled={peerUserSelection()?.isExisting}
-                    >
-                      <option value="viewer">viewer</option>
-                      <option value="member">member</option>
-                      <option value="admin">admin</option>
-                    </select>
-                  </div>
-                </div>
-                <button type="submit" disabled={allowPeerLoading()}>
-                  {allowPeerLoading() ? "adding..." : "add peer"}
-                </button>
-              </form>
-            </details>
-          </section>
-
           {/* access requests (knocks) - show pending knock requests */}
           <section class="status-section">
             <h2>access requests</h2>
@@ -861,6 +739,129 @@ export default function FederationView() {
                   </Show>
                 </div>
               </Show>
+            </Show>
+          </section>
+
+          {/* allowed peers */}
+          <section class="status-section">
+            <h2>allowed peers</h2>
+            <p class="help-text">
+              list of all P2P peers that can connect to this instance. peers can
+              be added manually below
+              {hasHaruspexConfig() ? " or synced from haruspex" : ""}.
+            </p>
+
+            {/* add peer form - at top for easy access */}
+            <details class="add-peer-form">
+              <summary>add peer manually</summary>
+              <form onSubmit={handleAllowPeer}>
+                <div class="form-row">
+                  <div class="form-group flex-1">
+                    <label for="peer-node-id">node_id</label>
+                    <input
+                      id="peer-node-id"
+                      type="text"
+                      value={peerNodeId()}
+                      onInput={(e) => setPeerNodeId(e.currentTarget.value)}
+                      placeholder="64-character hex node id"
+                      pattern="[0-9a-fA-F]{64}"
+                      required
+                    />
+                  </div>
+                </div>
+                <div class="form-row">
+                  <div class="form-group flex-1">
+                    <label for="peer-username">username (optional)</label>
+                    <UserAutocomplete
+                      initialValue={peerUsername()}
+                      placeholder="search or enter username..."
+                      defaultRole={peerRole()}
+                      onSelect={(selection) => {
+                        setPeerUserSelection(selection);
+                        if (selection) {
+                          setPeerUsername(selection.username);
+                          if (selection.isExisting) {
+                            setPeerRole(selection.role);
+                          }
+                        } else {
+                          setPeerUsername("");
+                        }
+                      }}
+                    />
+                  </div>
+                  <div class="form-group">
+                    <label for="peer-role">role</label>
+                    <select
+                      id="peer-role"
+                      value={
+                        peerUserSelection()?.isExisting
+                          ? peerUserSelection()!.role
+                          : peerRole()
+                      }
+                      onChange={(e) => setPeerRole(e.currentTarget.value)}
+                      disabled={peerUserSelection()?.isExisting}
+                    >
+                      <option value="viewer">viewer</option>
+                      <option value="member">member</option>
+                      <option value="admin">admin</option>
+                    </select>
+                  </div>
+                </div>
+                <button type="submit" disabled={allowPeerLoading()}>
+                  {allowPeerLoading() ? "adding..." : "add peer"}
+                </button>
+              </form>
+            </details>
+
+            {/* peer list */}
+            <Show when={peerNodes().length > 0}>
+              <div class="peer-list">
+                <For each={peerNodes()}>
+                  {(peer) => (
+                    <div class="peer-item">
+                      <div class="peer-info">
+                        <span class="peer-username">{peer.username}</span>
+                        <span class="peer-role">{peer.role}</span>
+                      </div>
+                      <div
+                        class="peer-node-id clickable"
+                        title="click to copy to clipboard"
+                        onClick={async () => {
+                          await navigator.clipboard.writeText(peer.node_id);
+                          setCopiedPeerNodeId(peer.node_id);
+                          setTimeout(() => setCopiedPeerNodeId(null), 3000);
+                        }}
+                      >
+                        {copiedPeerNodeId() === peer.node_id
+                          ? "copied!"
+                          : formatNodeId(peer.node_id)}
+                      </div>
+                      <div class="peer-meta">
+                        <span>added {formatTimestamp(peer.created_at)}</span>
+                        <Show when={peer.instance_name}>
+                          <span class="instance-name">
+                            {peer.instance_name}
+                          </span>
+                        </Show>
+                      </div>
+                      <button
+                        class="peer-remove"
+                        onClick={() => removePeer(peer.user_id, peer.node_id)}
+                        disabled={removingPeerId() === peer.node_id}
+                        title="remove peer"
+                      >
+                        {removingPeerId() === peer.node_id ? "..." : "×"}
+                      </button>
+                    </div>
+                  )}
+                </For>
+              </div>
+            </Show>
+
+            <Show when={peerNodes().length === 0 && !peersLoading()}>
+              <div class="status-message" style="margin-bottom: 1rem">
+                no peers allowed yet
+              </div>
             </Show>
           </section>
 

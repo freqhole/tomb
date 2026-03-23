@@ -21,6 +21,7 @@ import { isSongCachedReactive } from "../../music/services/cache/blobCache";
 import { isSongSyncedLocally, getLoadingProgress } from "../../music/services/download";
 import { isPlayingDirectURLReactive } from "../../music/services/storage/audioAccess";
 import { useResolvedP2PImageUrl } from "../../music/services/storage/blobResolver";
+import { getCachedBlobObjectURL } from "../../music/services/storage/blobs";
 import { getBackgroundConfig } from "../../app/services/backgroundImage";
 
 type QueueTab = "queue" | "history";
@@ -533,13 +534,30 @@ export function QueueSidebar(props: QueueSidebarProps) {
                     }
                   };
 
-                  // get waveform URL - hook handles P2P fetch and reactive tracking
-                  const waveformUrl = useResolvedP2PImageUrl(() => {
+                  // get waveform URL - check local blob first, then P2P/remote
+                  const waveformUrl = () => {
                     const s = song();
                     if (!s?.images) return undefined;
 
                     const waveformImg = getWaveformImage(s.images);
                     if (!waveformImg) return undefined;
+
+                    // local blob takes priority
+                    if (waveformImg.local_blob_id) {
+                      return getCachedBlobObjectURL(waveformImg.local_blob_id);
+                    }
+
+                    // fall back to remote/P2P resolution
+                    return resolvedP2PWaveformUrl();
+                  };
+
+                  // P2P waveform resolver (only used for remote songs)
+                  const resolvedP2PWaveformUrl = useResolvedP2PImageUrl(() => {
+                    const s = song();
+                    if (!s?.images) return undefined;
+
+                    const waveformImg = getWaveformImage(s.images);
+                    if (!waveformImg || waveformImg.local_blob_id) return undefined;
 
                     return {
                       blobId: waveformImg.remote_blob_id ?? undefined,
