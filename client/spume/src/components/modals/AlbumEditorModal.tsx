@@ -69,7 +69,6 @@ function DiscNumberBulkAction(props: { songs: Song[]; onUpdated: () => void }) {
         disc_number: num,
       });
 
-      toast.success(`set disc number to ${num} for ${props.songs.length} songs`);
       props.onUpdated();
       setEditing(false);
     } catch (err) {
@@ -491,7 +490,6 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
       setImages(updatedImages);
 
       setProcessingJob(null);
-      toast.success("image uploaded");
       albumQuery.refetch();
       // invalidate album and song queries to update all views
       // songs have album_images embedded, so they need refresh too
@@ -532,8 +530,6 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
         is_primary: i === index,
       }));
       setImages(updatedImages);
-
-      toast.success("primary image updated");
       albumQuery.refetch();
       // invalidate album queries to update all views
       queryClient.invalidateQueries({ queryKey: queryKeys.albums.all() });
@@ -576,7 +572,6 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
       }
 
       setImages(updatedImages);
-      toast.success("image removed");
       albumQuery.refetch();
     } catch (err) {
       console.error("failed to remove image:", err);

@@ -143,9 +143,6 @@ export function useToggleFavoriteMutation() {
 
     onSuccess: (isFavorite, variables) => {
       debug("favorites", "onSuccess:", { isFavorite, variables });
-      // show success toast
-      const action = isFavorite ? "added to" : "removed from";
-      toast.success(`${action} favorites`);
 
       // invalidate queries to trigger refetch with updated favorite status
       const queryKeysToInvalidate = getQueryKeysToInvalidate(

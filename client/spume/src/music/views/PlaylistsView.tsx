@@ -757,10 +757,6 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
 
         // enter edit mode
         setEditMode(true);
-
-        toast.success("created new playlist", {
-          title: "playlist created",
-        });
       }
     } catch (error) {
       errorLog("failed to create playlist:", error);

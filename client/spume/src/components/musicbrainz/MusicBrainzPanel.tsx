@@ -434,7 +434,6 @@ export function MusicBrainzPanel(props: MusicBrainzPanelProps) {
         next.add(fullUrl);
         return next;
       });
-      toast.success("image imported");
       props.onAlbumUpdated();
     } catch (err) {
       errorLog("failed to import image:", err);
@@ -582,7 +581,6 @@ export function MusicBrainzPanel(props: MusicBrainzPanelProps) {
           artist_id: props.artistId,
           name: field.mbValue,
         });
-        toast.success("artist name updated");
         props.onAlbumUpdated();
       } else {
         if (!dataSource.updateAlbum) {
@@ -604,7 +602,6 @@ export function MusicBrainzPanel(props: MusicBrainzPanelProps) {
           entity_urls: null,
           updated_by: null,
         });
-        toast.success(`${field.label} updated`);
         props.onAlbumUpdated();
       }
     } catch (err) {
@@ -667,7 +664,6 @@ export function MusicBrainzPanel(props: MusicBrainzPanelProps) {
         });
       }
 
-      toast.success("album metadata updated from musicbrainz");
       props.onAlbumUpdated();
     } catch (err) {
       errorLog("failed to import album metadata:", err);
@@ -708,7 +704,6 @@ export function MusicBrainzPanel(props: MusicBrainzPanelProps) {
         track_artist: trackArtistValue,
       });
 
-      toast.success(`updated "${mbTrack.title}"`);
       props.onAlbumUpdated();
     } catch (err) {
       errorLog("failed to update song:", err);
@@ -761,9 +756,7 @@ export function MusicBrainzPanel(props: MusicBrainzPanelProps) {
       }
     }
 
-    if (failed === 0) {
-      toast.success(`updated ${updated} ${updated === 1 ? "song" : "songs"} from musicbrainz`);
-    } else {
+    if (failed > 0) {
       toast.warning(`updated ${updated} ${updated === 1 ? "song" : "songs"}, ${failed} failed`);
     }
     props.onAlbumUpdated();

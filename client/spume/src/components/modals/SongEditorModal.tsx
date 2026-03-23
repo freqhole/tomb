@@ -392,8 +392,6 @@ export function SongEditorModal(props: SongEditorModalProps) {
         setImagePreview(null);
       }, 2000);
 
-      toast.success("image uploaded successfully");
-
       // invalidate queries to refresh UI
       songQuery.refetch();
       queryClient.invalidateQueries({ queryKey: queryKeys.songs.all() });
@@ -431,8 +429,6 @@ export function SongEditorModal(props: SongEditorModalProps) {
         is_primary: i === index,
       }));
       setSongImages(updated);
-
-      toast.success("primary image updated");
       songQuery.refetch();
     } catch (err) {
       errorLog("failed to update primary image:", err);
@@ -473,7 +469,6 @@ export function SongEditorModal(props: SongEditorModalProps) {
       }
 
       setSongImages(updated);
-      toast.success("image removed");
       songQuery.refetch();
     } catch (err) {
       errorLog("failed to remove image:", err);

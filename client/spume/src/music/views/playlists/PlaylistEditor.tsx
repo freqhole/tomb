@@ -114,8 +114,6 @@ export function PlaylistEditor(props: PlaylistEditorProps) {
       const updatedImages = [...currentImages, newImage];
       setPlaylistImages(updatedImages);
 
-      toast.success("image uploaded successfully");
-
       // invalidate and refetch all playlist queries to show updated images
       await queryClient.invalidateQueries({ queryKey: queryKeys.playlists.all() });
       await queryClient.refetchQueries({ queryKey: queryKeys.playlists.all() });
@@ -150,8 +148,6 @@ export function PlaylistEditor(props: PlaylistEditorProps) {
       }));
       setPlaylistImages(updated);
 
-      toast.success("primary image updated");
-
       // invalidate and refetch all playlist queries to show updated images
       await queryClient.invalidateQueries({ queryKey: queryKeys.playlists.all() });
       await queryClient.refetchQueries({ queryKey: queryKeys.playlists.all() });
@@ -185,7 +181,6 @@ export function PlaylistEditor(props: PlaylistEditorProps) {
       }
 
       setPlaylistImages(updated);
-      toast.success("image removed");
 
       // invalidate and refetch all playlist queries to show updated images
       await queryClient.invalidateQueries({ queryKey: queryKeys.playlists.all() });
@@ -223,10 +218,6 @@ export function PlaylistEditor(props: PlaylistEditorProps) {
               .filter((u) => !u.isDeleted)
               .map((u) => ({ id: u.id || null, name: u.name || null, url: u.url }))
           : undefined,
-      });
-
-      toast.success("playlist updated", {
-        title: "changes saved",
       });
 
       props.onSaved?.();

@@ -198,7 +198,6 @@ export function useSongContextMenu(
           await dataSource.removeSongsFromPlaylist(options.playlistId!, [
             song.id,
           ]);
-          toast.success("removed from playlist");
           // invalidate playlist queries to refresh song list
           queryClient.invalidateQueries({ queryKey: queryKeys.playlists.all() });
           queryClient.invalidateQueries({ queryKey: ["playlists", options.playlistId, "songs"] });

@@ -191,12 +191,6 @@ export function TagSelectorModal(props: TagSelectorModalProps) {
         }
       }
 
-      const albumText =
-        props.albumIds.length === 1
-          ? props.albumTitle || "album"
-          : `${props.albumIds.length} albums`;
-      toast.success(`updated tags for ${albumText}`);
-
       // call onSave callback to invalidate queries
       props.onSave?.();
 

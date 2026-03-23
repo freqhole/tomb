@@ -97,8 +97,6 @@ export function PlaylistImageManager(props: PlaylistImageManagerProps) {
       const updatedImages = [...props.images, newImage];
       props.onImagesChange(updatedImages);
 
-      toast.success("image uploaded successfully");
-
       await queryClient.invalidateQueries({
         queryKey: ["playlists"],
       });
@@ -121,8 +119,6 @@ export function PlaylistImageManager(props: PlaylistImageManagerProps) {
 
     // TODO: implement setPrimaryImage API endpoint
     try {
-      toast.success("primary image updated");
-
       await queryClient.invalidateQueries({ queryKey: ["playlists"] });
     } catch (err) {
       console.error("failed to update primary image:", err);
@@ -141,8 +137,6 @@ export function PlaylistImageManager(props: PlaylistImageManagerProps) {
 
     // TODO: implement removeImage API endpoint for playlists
     try {
-      toast.success("image removed");
-
       await queryClient.invalidateQueries({ queryKey: ["playlists"] });
     } catch (err) {
       console.error("failed to remove image:", err);

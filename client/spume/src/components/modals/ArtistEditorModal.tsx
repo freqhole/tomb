@@ -282,7 +282,6 @@ export function ArtistEditorModal(props: ArtistEditorModalProps) {
       setImages(updatedImages);
 
       setProcessingJob(null);
-      toast.success("image uploaded");
       artistQuery.refetch();
       // invalidate artist and song queries to update all views
       // songs display can include artist data
@@ -321,8 +320,6 @@ export function ArtistEditorModal(props: ArtistEditorModalProps) {
         is_primary: i === index,
       }));
       setImages(updatedImages);
-
-      toast.success("primary image updated");
       artistQuery.refetch();
       queryClient.invalidateQueries({ queryKey: queryKeys.artists.all() });
     } catch (err) {
@@ -363,7 +360,6 @@ export function ArtistEditorModal(props: ArtistEditorModalProps) {
       }
 
       setImages(updatedImages);
-      toast.success("image removed");
       artistQuery.refetch();
     } catch (err) {
       errorLog("failed to remove image:", err);
