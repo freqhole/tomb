@@ -100,6 +100,7 @@ export interface Song {
   album_tags?: string[]; // tags applied to the album this song belongs to
   album_genres?: GenreRef[]; // genres for the album this song belongs to (array with id+name)
   album_images?: ImageMetadata[]; // images associated with the album this song belongs to
+  artist_images?: ImageMetadata[]; // images associated with the artist this song belongs to
 
   // source information
   source_type: MusicSourceType;
