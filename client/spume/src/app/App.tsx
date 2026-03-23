@@ -86,6 +86,7 @@ export function App() {
   const queryClient = useQueryClient();
   const isAddMusicOpen = useAddMusicState();
   const [isAddRemoteOpen, setIsAddRemoteOpen] = createSignal(false);
+  const [addRemoteInitialValue, setAddRemoteInitialValue] = createSignal<string | undefined>();
   const [hasSongs, setHasSongs] = createSignal(false);
   const [hasRemotes, setHasRemotes] = createSignal(false);
   const [isInitializing, setIsInitializing] = createSignal(true);
@@ -103,6 +104,22 @@ export function App() {
     const handleHashChange = () => setCurrentHash(window.location.hash);
     window.addEventListener("hashchange", handleHashChange);
     onCleanup(() => window.removeEventListener("hashchange", handleHashChange));
+  });
+
+  // check for ?r= query param (remote node_id from QR code share link)
+  // if present, auto-open add remote modal with the value
+  onMount(() => {
+    const params = new URLSearchParams(window.location.search);
+    const remoteParam = params.get("r");
+    if (remoteParam) {
+      debug("App", `found ?r= param: ${remoteParam.slice(0, 16)}...`);
+      setAddRemoteInitialValue(remoteParam);
+      setIsAddRemoteOpen(true);
+      // clear the param from URL without triggering navigation
+      const url = new URL(window.location.href);
+      url.searchParams.delete("r");
+      window.history.replaceState({}, "", url.pathname + url.hash);
+    }
   });
 
   // global keyboard shortcuts
@@ -570,7 +587,10 @@ export function App() {
 
       <AddRemoteModal
         isOpen={isAddRemoteOpen()}
-        onClose={() => setIsAddRemoteOpen(false)}
+        onClose={() => {
+          setIsAddRemoteOpen(false);
+          setAddRemoteInitialValue(undefined);
+        }}
         onSuccess={(remote) => {
           debug("App", "remote added successfully:", remote.name);
           // show success toast
@@ -588,6 +608,7 @@ export function App() {
             window.location.hash = `/${remote.remote_id}/feed`;
           })();
         }}
+        initialValue={addRemoteInitialValue()}
       />
 
       <Show when={useSongEditorState()()}>

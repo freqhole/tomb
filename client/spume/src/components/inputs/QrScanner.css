@@ -1,0 +1,110 @@
+/* qr scanner overlay and container styles */
+
+.qr-scanner-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.8);
+  backdrop-filter: blur(4px);
+}
+
+.qr-scanner-container {
+  display: flex;
+  flex-direction: column;
+  width: min(400px, 90vw);
+  max-height: 90vh;
+  overflow: hidden;
+  background: var(--color-surface-1, #1a1a1a);
+  border-radius: 12px;
+}
+
+.qr-scanner-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--color-text, white);
+  border-bottom: 1px solid var(--color-border, #333);
+}
+
+.qr-scanner-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  font-size: 18px;
+  color: var(--color-text-secondary, #888);
+  cursor: pointer;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  transition: all 0.2s;
+}
+
+.qr-scanner-close:hover {
+  color: var(--color-text, white);
+  background: var(--color-surface-2, #2a2a2a);
+}
+
+.qr-scanner-reader {
+  width: 100%;
+  aspect-ratio: 1;
+  background: black;
+}
+
+/* override html5-qrcode styles */
+.qr-scanner-reader video {
+  object-fit: cover;
+}
+
+.qr-scanner-reader #qr-shaded-region {
+  border-width: 2px !important;
+  border-color: var(--color-primary, #6366f1) !important;
+}
+
+.qr-scanner-hint {
+  padding: 16px;
+  text-align: center;
+  color: var(--color-text-secondary, #888);
+  border-top: 1px solid var(--color-border, #333);
+}
+
+.qr-scanner-hint p {
+  margin: 0;
+  font-size: 14px;
+}
+
+.qr-scanner-error {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  align-items: center;
+  justify-content: center;
+  min-height: 200px;
+  padding: 24px;
+  text-align: center;
+}
+
+.qr-scanner-error p {
+  margin: 0;
+  color: var(--color-error, #ef4444);
+}
+
+.qr-scanner-error button {
+  padding: 8px 16px;
+  color: white;
+  cursor: pointer;
+  background: var(--color-primary, #6366f1);
+  border: none;
+  border-radius: 6px;
+}
+
+.qr-scanner-error button:hover {
+  background: var(--color-primary-hover, #4f46e5);
+}

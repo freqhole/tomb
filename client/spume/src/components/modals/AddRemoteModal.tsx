@@ -16,6 +16,7 @@ import type { PendingRemote } from "../../app/services/storage/types";
 import { AuthForm } from "../auth/AuthForm";
 import { Button } from "../buttons/Button";
 import { MediaImage } from "../media/MediaImage";
+import { QrScanner } from "../inputs/QrScanner";
 import { debug } from "../../utils/logger";
 
 // format error messages from API responses
@@ -94,6 +95,8 @@ export interface AddRemoteModalProps {
     base_url?: string;
     peer_addr?: string;
   }) => void;
+  /** initial value to pre-fill the input (e.g., from ?r= query param) */
+  initialValue?: string;
 }
 
 type Step = "url" | "testing" | "auth" | "complete" | "knock-sent";
@@ -135,6 +138,23 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
 
   // hint: if current origin is a valid remote server that's not already added
   const [originHint, setOriginHint] = createSignal<string | null>(null);
+
+  // QR scanner state (browser-only, not in tauri)
+  const [showScanner, setShowScanner] = createSignal(false);
+  const canScanQr = () => !isCharnelAvailable() && !!navigator.mediaDevices?.getUserMedia;
+
+  // set input value from initialValue prop when modal opens
+  createEffect(
+    on(
+      () => props.isOpen,
+      (isOpen) => {
+        if (isOpen && props.initialValue) {
+          setInputValue(props.initialValue);
+          debug("AddRemoteModal", `set initial value: ${props.initialValue.slice(0, 16)}...`);
+        }
+      }
+    )
+  );
 
   // load pending remotes when modal opens
   createEffect(
@@ -1133,6 +1153,21 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
 
   return (
     <Show when={props.isOpen}>
+      {/* QR scanner overlay */}
+      <Show when={showScanner()}>
+        <QrScanner
+          onResult={(text) => {
+            setInputValue(text);
+            setShowScanner(false);
+            debug("AddRemoteModal", `QR scanned: ${text.slice(0, 16)}...`);
+          }}
+          onError={(err) => {
+            debug("AddRemoteModal", `QR scan error: ${err}`);
+          }}
+          onClose={() => setShowScanner(false)}
+        />
+      </Show>
+
       {/* backdrop */}
       <div
         class="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
@@ -1217,18 +1252,43 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
                     >
                       server url or peer id
                     </label>
-                    <input
-                      id="remote-url"
-                      type="text"
-                      value={inputValue()}
-                      onInput={(e) => {
-                        setInputValue(e.currentTarget.value);
-                        setShowKnockOption(false); // reset knock option when input changes
-                      }}
-                      placeholder="https://music.example.com or node_id"
-                      class="w-full px-3 py-2 bg-[var(--color-bg-secondary)] border border-[var(--color-border-default)] rounded-md text-[var(--color-text-primary)] placeholder:text-[var(--color-text-tertiary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-accent-primary)] focus:border-transparent font-mono text-sm"
-                      disabled={isLoading() || showKnockOption()}
-                    />
+                    <div class="flex gap-2">
+                      <input
+                        id="remote-url"
+                        type="text"
+                        value={inputValue()}
+                        onInput={(e) => {
+                          setInputValue(e.currentTarget.value);
+                          setShowKnockOption(false); // reset knock option when input changes
+                        }}
+                        placeholder="https://music.example.com or node_id"
+                        class="flex-1 px-3 py-2 bg-[var(--color-bg-secondary)] border border-[var(--color-border-default)] rounded-md text-[var(--color-text-primary)] placeholder:text-[var(--color-text-tertiary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-accent-primary)] focus:border-transparent font-mono text-sm"
+                        disabled={isLoading() || showKnockOption()}
+                      />
+                      <Show when={canScanQr()}>
+                        <button
+                          type="button"
+                          onClick={() => setShowScanner(true)}
+                          disabled={isLoading() || showKnockOption()}
+                          class="px-3 py-2 bg-[var(--color-bg-secondary)] border border-[var(--color-border-default)] rounded-md text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:border-[var(--color-accent-primary)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                          title="scan QR code"
+                        >
+                          <svg
+                            class="w-5 h-5"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path
+                              stroke-linecap="round"
+                              stroke-linejoin="round"
+                              stroke-width="2"
+                              d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h2M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z"
+                            />
+                          </svg>
+                        </button>
+                      </Show>
+                    </div>
                     <p class="mt-1 text-xs text-[var(--color-text-tertiary)]">
                       enter a URL for HTTP, or paste a 64-char node_id for P2P
                     </p>

@@ -1435,6 +1435,16 @@ a:hover {
   word-break: break-all;
 }
 
+.node-id-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.node-id-actions button {
+  flex: 1;
+}
+
 .action-section {
   margin-bottom: 2rem;
 }

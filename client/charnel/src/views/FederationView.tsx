@@ -4,6 +4,7 @@ import {
   UserAutocomplete,
   type UserSelection,
 } from "../components/UserAutocomplete";
+import { QrCodeDisplay } from "../components/QrCodeDisplay";
 
 interface FederationConfigStatus {
   enabled: boolean;
@@ -536,19 +537,22 @@ export default function FederationView() {
                   <span class="value mono small">
                     {status()?.identity.node_id}
                   </span>
-                  <button
-                    class="secondary small copy-btn"
-                    onClick={async () => {
-                      const nodeId = status()?.identity.node_id;
-                      if (nodeId) {
-                        await navigator.clipboard.writeText(nodeId);
-                        setNodeIdCopied(true);
-                        setTimeout(() => setNodeIdCopied(false), 5000);
-                      }
-                    }}
-                  >
-                    {nodeIdCopied() ? "copied!" : "copy"}
-                  </button>
+                  <div class="node-id-actions">
+                    <button
+                      class="secondary small"
+                      onClick={async () => {
+                        const nodeId = status()?.identity.node_id;
+                        if (nodeId) {
+                          await navigator.clipboard.writeText(nodeId);
+                          setNodeIdCopied(true);
+                          setTimeout(() => setNodeIdCopied(false), 5000);
+                        }
+                      }}
+                    >
+                      {nodeIdCopied() ? "copied!" : "copy"}
+                    </button>
+                  </div>
+                  <QrCodeDisplay nodeId={status()?.identity.node_id || ""} />
                 </div>
               </Show>
             </div>

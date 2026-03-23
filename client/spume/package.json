@@ -45,6 +45,7 @@
     "autoprefixer": "^10.4.24",
     "eslint": "^9.0.0",
     "eslint-plugin-solid": "^0.14.5",
+    "html5-qrcode": "^2.3.8",
     "idb": "^8.0.3",
     "music-metadata": "^11.12.1",
     "playwright": "^1.58.2",

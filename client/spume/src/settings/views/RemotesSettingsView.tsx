@@ -557,7 +557,8 @@ export function RemotesSettingsView() {
                             <div class="flex items-center gap-3 mt-2 text-xs">
                               <span class="text-[var(--color-text-muted)]">
                                 cache: {formatBytes(stats.totalSize)}
-                                {stats.audioCount > 0 && ` (${stats.audioCount} audio`}
+                                {(stats.audioCount > 0 || stats.imageCount > 0) && " ("}
+                                {stats.audioCount > 0 && `${stats.audioCount} audio`}
                                 {stats.audioCount > 0 && stats.imageCount > 0 && ", "}
                                 {stats.imageCount > 0 && `${stats.imageCount} images`}
                                 {(stats.audioCount > 0 || stats.imageCount > 0) && ")"}
