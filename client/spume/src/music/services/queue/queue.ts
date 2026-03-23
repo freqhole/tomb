@@ -32,6 +32,32 @@ export {
 // re-export queue limit constant
 export { QUEUE_SIZE_LIMIT } from "./queueLimit";
 
+// check if songs can be structured-cloned (required for Tauri IPC and IndexedDB)
+// logs a warning with diagnostic info if cloning fails after unwrapping
+function assertCloneable(songs: Song[], context: string): void {
+  try {
+    structuredClone(songs);
+  } catch (e) {
+    // find which properties are causing the issue
+    const problemProps: string[] = [];
+    if (songs[0]) {
+      for (const [key, value] of Object.entries(songs[0])) {
+        try {
+          structuredClone(value);
+        } catch {
+          problemProps.push(`${key} (${typeof value})`);
+        }
+      }
+    }
+    console.error(
+      `[${context}] songs cannot be structured-cloned after unwrapping.`,
+      `\nProblematic properties: ${problemProps.join(", ") || "unknown"}`,
+      `\nThis will cause DataCloneError in Tauri IPC. Update unwrapSongs() to handle these properties.`,
+      e,
+    );
+  }
+}
+
 // --- queue manipulation ---
 
 // add songs to queue and play from a specific index
@@ -55,47 +81,9 @@ export async function playQueue(
 ): Promise<void> {
   if (songs.length === 0) return;
 
-  // DEBUG: check if songs array is a proxy
-  console.log("[playQueue] DEBUG: songs array type:", Object.prototype.toString.call(songs));
-  console.log("[playQueue] DEBUG: first song keys:", songs[0] ? Object.keys(songs[0]) : "no songs");
-  
-  // test if we can structured clone the raw input
-  try {
-    structuredClone(songs);
-    console.log("[playQueue] DEBUG: raw songs can be cloned ✓");
-  } catch (e) {
-    console.log("[playQueue] DEBUG: raw songs CANNOT be cloned:", e);
-    // try to find which property fails
-    if (songs[0]) {
-      for (const [key, value] of Object.entries(songs[0])) {
-        try {
-          structuredClone(value);
-        } catch {
-          console.log(`[playQueue] DEBUG: property "${key}" cannot be cloned, type:`, typeof value, value);
-        }
-      }
-    }
-  }
-
   // unwrap SolidJS proxy objects before any IPC calls (Tauri structured clone)
   const unwrappedSongs = unwrapSongs(songs);
-  
-  // DEBUG: check if unwrapped songs can be cloned
-  try {
-    structuredClone(unwrappedSongs);
-    console.log("[playQueue] DEBUG: unwrapped songs can be cloned ✓");
-  } catch (e) {
-    console.log("[playQueue] DEBUG: unwrapped songs CANNOT be cloned:", e);
-    if (unwrappedSongs[0]) {
-      for (const [key, value] of Object.entries(unwrappedSongs[0])) {
-        try {
-          structuredClone(value);
-        } catch {
-          console.log(`[playQueue] DEBUG: unwrapped property "${key}" cannot be cloned, type:`, typeof value, value);
-        }
-      }
-    }
-  }
+  assertCloneable(unwrappedSongs, "playQueue");
 
   let startIndex = options?.startIndex ?? 0;
   let finalSongs = unwrappedSongs;
@@ -280,34 +268,9 @@ export async function addToQueue(
 ): Promise<void> {
   if (songs.length === 0) return;
 
-  // DEBUG: check if songs array can be cloned
-  console.log("[addToQueue] DEBUG: entering addToQueue with", songs.length, "songs");
-  try {
-    structuredClone(songs);
-    console.log("[addToQueue] DEBUG: raw songs can be cloned ✓");
-  } catch (e) {
-    console.log("[addToQueue] DEBUG: raw songs CANNOT be cloned:", e);
-    if (songs[0]) {
-      for (const [key, value] of Object.entries(songs[0])) {
-        try {
-          structuredClone(value);
-        } catch {
-          console.log(`[addToQueue] DEBUG: property "${key}" cannot be cloned, type:`, typeof value, value);
-        }
-      }
-    }
-  }
-
   // unwrap SolidJS proxy objects before any IPC calls (Tauri structured clone)
   const unwrappedSongs = unwrapSongs(songs);
-
-  console.log("[addToQueue] DEBUG: after unwrap");
-  try {
-    structuredClone(unwrappedSongs);
-    console.log("[addToQueue] DEBUG: unwrapped songs can be cloned ✓");
-  } catch (e) {
-    console.log("[addToQueue] DEBUG: unwrapped songs CANNOT be cloned:", e);
-  }
+  assertCloneable(unwrappedSongs, "addToQueue");
 
   // truncate incoming songs if they exceed the limit
   let finalSongs = unwrappedSongs;
