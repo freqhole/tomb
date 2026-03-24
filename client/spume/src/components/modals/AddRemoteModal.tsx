@@ -156,6 +156,16 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
     )
   );
 
+  // helper to clear ?r= query param from URL after pending remote is persisted
+  const clearRemoteQueryParam = () => {
+    const url = new URL(window.location.href);
+    if (url.searchParams.has("r")) {
+      url.searchParams.delete("r");
+      window.history.replaceState({}, "", url.pathname + url.hash);
+      debug("AddRemoteModal", "cleared ?r= param from URL");
+    }
+  };
+
   // load pending remotes when modal opens
   createEffect(
     on(
@@ -262,6 +272,8 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
         // refresh the list to show testing state
         const remotes = await getAllPendingRemotes();
         setPendingRemotes(remotes);
+        // now that pending remote is persisted, safe to clear URL param
+        clearRemoteQueryParam();
       } catch (err) {
         console.warn("failed to create pending remote (will continue anyway):", err);
       }
@@ -642,6 +654,8 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
       // refresh the list to show testing state
       const remotes = await getAllPendingRemotes();
       setPendingRemotes(remotes);
+      // now that pending remote is persisted, safe to clear URL param
+      clearRemoteQueryParam();
     } catch (err) {
       console.warn("failed to create HTTP pending remote (will continue anyway):", err);
     }

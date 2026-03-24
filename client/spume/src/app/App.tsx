@@ -108,6 +108,7 @@ export function App() {
 
   // check for ?r= query param (remote node_id from QR code share link)
   // if present, auto-open add remote modal with the value
+  // NOTE: the ?r= param is cleared by AddRemoteModal after the pending remote is persisted
   onMount(() => {
     const params = new URLSearchParams(window.location.search);
     const remoteParam = params.get("r");
@@ -115,10 +116,6 @@ export function App() {
       debug("App", `found ?r= param: ${remoteParam.slice(0, 16)}...`);
       setAddRemoteInitialValue(remoteParam);
       setIsAddRemoteOpen(true);
-      // clear the param from URL without triggering navigation
-      const url = new URL(window.location.href);
-      url.searchParams.delete("r");
-      window.history.replaceState({}, "", url.pathname + url.hash);
     }
   });
 
