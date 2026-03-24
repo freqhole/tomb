@@ -15,11 +15,11 @@ export function EmptyState(props: EmptyStateProps) {
         </div>
 
         <h1 class="text-3xl font-bold text-[var(--color-text-primary)] mb-4">
-          welcome to freqhole!
+          welcome to freqhole
         </h1>
 
         <p class="text-[var(--color-text-secondary)] mb-2">
-          get started by adding music or connecting a remote server
+          get started by adding music or connecting to a remote server
         </p>
 
         <div class="flex gap-3 justify-center">
