@@ -7,7 +7,7 @@ import { debug, warn, error as errorLog } from "../../../utils/logger";
 import type { ImageMetadata } from "../storage/types";
 import { getWaveformImage } from "../../../utils/images";
 import { getRemoteById } from "../../../app/services/remotes/remoteManager";
-import { isP2PRemote, isCharnelManagedRemoteSync } from "../storage/blobResolver";
+import { isP2PRemote, isCharnelManagedRemoteSync } from "../storage/transportCache";
 import {
   addToLoadingSet,
   updateLoadingProgress,
@@ -15,32 +15,17 @@ import {
 } from "../download";
 
 // ===== per-remote cache naming =====
-// cache names follow pattern: freqhole-blobs-{remoteId}
-// this allows easy per-remote stats, clearing, and cleanup on remote deletion
+// import from cacheNames to avoid circular deps with client.ts
+import {
+  REMOTE_CACHE_PREFIX,
+  getRemoteCacheName,
+  isRemoteBlobCache,
+  getRemoteIdFromCacheName,
+  listRemoteBlobCaches,
+} from "./cacheNames";
 
-export const REMOTE_CACHE_PREFIX = "freqhole-blobs-";
-
-/** get cache name for a specific remote */
-export function getRemoteCacheName(remoteId: string): string {
-  return `${REMOTE_CACHE_PREFIX}${remoteId}`;
-}
-
-/** check if a cache name is a remote blob cache */
-export function isRemoteBlobCache(cacheName: string): boolean {
-  return cacheName.startsWith(REMOTE_CACHE_PREFIX);
-}
-
-/** extract remoteId from cache name */
-export function getRemoteIdFromCacheName(cacheName: string): string | null {
-  if (!isRemoteBlobCache(cacheName)) return null;
-  return cacheName.slice(REMOTE_CACHE_PREFIX.length);
-}
-
-/** list all remote blob cache names */
-export async function listRemoteBlobCaches(): Promise<string[]> {
-  const allCaches = await caches.keys();
-  return allCaches.filter(isRemoteBlobCache);
-}
+// re-export for backward compatibility
+export { REMOTE_CACHE_PREFIX, getRemoteCacheName, isRemoteBlobCache, getRemoteIdFromCacheName, listRemoteBlobCaches };
 
 /** check if remote should skip caching (localhost or tauri-managed) */
 export async function shouldSkipCaching(remoteId: string): Promise<boolean> {
@@ -191,8 +176,16 @@ let pendingCacheQueue: PendingCacheItem[] = [];
 let isOnline = typeof navigator !== "undefined" ? navigator.onLine : true;
 let processingPending = false;
 
-// in-progress cache fetches - tracks remoteId/blobId combos currently being fetched
-const inProgressFetches = new Set<string>();
+// in-progress cache fetches - use shared tracking module to avoid circular deps
+import {
+  hasInProgressFetch as inProgressFetchesHas,
+  addInProgressFetch as inProgressFetchesAdd,
+  deleteInProgressFetch as inProgressFetchesDelete,
+  clearInProgressTracking,
+} from "./inProgressTracking";
+
+// re-export for backward compatibility
+export { clearInProgressTracking };
 
 // dynamic cache size limits based on available storage
 // reserve 10% of total quota for cache, but respect minimum headroom
@@ -758,7 +751,7 @@ export async function preCacheBlob(
 
   // check if already in progress
   const progressKey = `${remoteId}/${blobId}`;
-  if (inProgressFetches.has(progressKey)) {
+  if (inProgressFetchesHas(progressKey)) {
     debug(`already in progress: ${blobId.slice(0, 8)}...`);
     return;
   }
@@ -773,7 +766,7 @@ export async function preCacheBlob(
   debug(`pre-caching blob: ${blobId.slice(0, 8)}...`);
 
   // mark as in progress
-  inProgressFetches.add(progressKey);
+  inProgressFetchesAdd(progressKey);
   
   // track sha256 in reactive loading set for UI feedback (audio only)
   if (sha256 && type === "audio") {
@@ -884,7 +877,7 @@ export async function preCacheBlob(
     addToPendingQueue(url, type, remoteId, blobId);
   } finally {
     // always remove from in-progress
-    inProgressFetches.delete(progressKey);
+    inProgressFetchesDelete(progressKey);
     // remove from loading set
     if (sha256 && type === "audio") {
       removeFromLoadingSet(sha256);
@@ -1347,7 +1340,7 @@ export async function preCacheNextSongs(
       // cache audio (pass sha256 for loading tracking)
       if (await isCached(song.remote_id, song.sha256)) {
         results.audio = "already_cached";
-      } else if (inProgressFetches.has(progressKey)) {
+      } else if (inProgressFetchesHas(progressKey)) {
         results.audio = "in_progress";
       } else {
         void preCacheBlob(song.source_url, "audio", song.remote_id, song.sha256, 3, song.sha256);
@@ -1359,7 +1352,7 @@ export async function preCacheNextSongs(
         const waveformProgressKey = `${song.remote_id}/${song.waveform_blob_id}`;
         if (await isCached(song.remote_id, song.waveform_blob_id)) {
           results.waveform = "already_cached";
-        } else if (inProgressFetches.has(waveformProgressKey)) {
+        } else if (inProgressFetchesHas(waveformProgressKey)) {
           results.waveform = "in_progress";
         } else {
           void preCacheBlob(song.waveform_url, "image", song.remote_id, song.waveform_blob_id);
@@ -1385,9 +1378,4 @@ export async function preCacheNextSongs(
   } catch (error) {
     errorLog("failed to pre-cache next songs:", error);
   }
-}
-
-// clear in-progress tracking (useful when queue changes)
-export function clearInProgressTracking(): void {
-  inProgressFetches.clear();
 }

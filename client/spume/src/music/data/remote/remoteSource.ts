@@ -29,7 +29,7 @@ import type {
 import { adaptSongFromAPI, adaptApiImage, adaptApiUrls, type RemoteSong } from "./adapters";
 import { setRemoteNeedsAuth } from "./authState";
 import { markRemoteOffline, markRemoteOnline, getRemoteById, triggerSwitchToLocal } from "../../../app/services/remotes/remoteManager";
-import { getCurrentUser } from "../index";
+import { getCurrentUser } from "../currentState";
 import { debug, error } from "../../../utils/logger";
 import { getRemoteMediaUrl } from "../../../utils/urls";
 import { toast } from "../../../components/feedback/Toast";

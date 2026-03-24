@@ -8,7 +8,7 @@ import { appState } from "../../../app/services/storage/db";
 import { queueHistory, updateHistoryProgress } from "./queueHistory";
 import { advanceServerProgress, reconnectServerSession } from "./serverSession";
 import { saveProgressToIDB } from "./queueProgress";
-import { isPlaying, setVisualPosition } from "../audio/player";
+import { isPlaying, setVisualPosition } from "../audio/playerState";
 import type { Song } from "../storage/types";
 
 // the currently active history entry id being tracked

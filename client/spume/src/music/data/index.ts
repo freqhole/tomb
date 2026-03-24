@@ -1,7 +1,7 @@
 // data source exports and active source management
 // integrates with remote management to auto-switch between local and remote sources
 
-import { getClientForRemote, type ApiClient, type RemoteRef, type UserRoleName, type TransportType } from "../../app/api/client";
+import { getClientForRemote, type ApiClient, type RemoteRef, type UserRoleName } from "../../app/api/client";
 import { createSignal } from "solid-js";
 import { appState, setActiveRemoteId } from "../../app/services/storage/db";
 import {
@@ -15,43 +15,24 @@ import { RemoteMusicDataSource, RemoteOfflineError } from "./remote/remoteSource
 import type { MusicDataSource } from "./types";
 import { debug, warn, error as errorLog } from "../../utils/logger";
 import { preCacheRemoteTransport } from "../services/storage/blobResolver";
+import {
+  getCurrentUser,
+  setCurrentUserState,
+  getCurrentRemote,
+  setCurrentRemoteState,
+  type CurrentUser,
+} from "./currentState";
+
+// re-export from currentState for backward compatibility
+export { getCurrentUser, getCurrentRemote, type CurrentUser };
 
 // active data source (default to local)
 const [activeSource, setActiveSource] =
   createSignal<MusicDataSource>(localDataSource);
 
-// current remote info (for display and client creation)
-const [currentRemote, setCurrentRemote] = createSignal<{
-  remote_id: string;
-  name: string;
-  base_url?: string; // empty for P2P remotes
-  api_key?: string;
-  transport_type?: TransportType;
-  peer_addr?: string; // for P2P remotes
-  is_charnel_managed?: boolean; // true if managed by tauri (use IPC dispatch)
-} | null>(null);
-
-// current authenticated user info (per remote)
-export interface CurrentUser {
-  userId: string;
-  username: string;
-  role: UserRoleName;
-}
-const [currentUser, setCurrentUser] = createSignal<CurrentUser | null>(null);
-
-// get the current authenticated user (null if not connected to remote or not authenticated)
-export function getCurrentUser(): CurrentUser | null {
-  return currentUser();
-}
-
 // get the currently active data source
 export function getDataSource(): MusicDataSource {
   return activeSource();
-}
-
-// get current remote info (null if using local)
-export function getCurrentRemote() {
-  return currentRemote();
 }
 
 /**
@@ -60,7 +41,7 @@ export function getCurrentRemote() {
  * this is the main entry point for making API calls - handles transport selection.
  */
 export async function getRemoteClient(): Promise<ApiClient | null> {
-  const remote = currentRemote();
+  const remote = getCurrentRemote();
   if (!remote) return null;
   return getClientForRemote(remote);
 }
@@ -69,8 +50,8 @@ export async function getRemoteClient(): Promise<ApiClient | null> {
 export async function useLocalSource(): Promise<void> {
   debug("switching to local data source");
   setActiveSource(localDataSource);
-  setCurrentRemote(null);
-  setCurrentUser(null);
+  setCurrentRemoteState(null);
+  setCurrentUserState(null);
 
   // persist to app state and deactivate all remotes
   await setActiveRemoteId(null);
@@ -93,11 +74,10 @@ export async function useRemoteSource(remote: RemoteRef): Promise<void> {
   debug(`switching to remote data source: ${resolvedName} (${resolvedAddress})`);
   const remoteSource = new RemoteMusicDataSource(remote);
   setActiveSource(remoteSource);
-  setCurrentRemote({
+  setCurrentRemoteState({
     remote_id: remoteId,
     name: resolvedName,
     base_url: remote.base_url,
-    api_key: remote.api_key,
     transport_type: remote.transport ?? remote.transport_type,
     peer_addr: remote.peer_addr,
     is_charnel_managed: remote.is_charnel_managed,
@@ -108,17 +88,17 @@ export async function useRemoteSource(remote: RemoteRef): Promise<void> {
     const client = await getClientForRemote(remote);
     const whoamiResult = await client.auth.whoami();
     if (whoamiResult.success && whoamiResult.data) {
-      setCurrentUser({
+      setCurrentUserState({
         userId: whoamiResult.data.user_id,
         username: whoamiResult.data.username,
         role: whoamiResult.data.role as UserRoleName,
       });
       debug(`authenticated as user: ${whoamiResult.data.username} (${whoamiResult.data.user_id}), role: ${whoamiResult.data.role}`);
     } else {
-      setCurrentUser(null);
+      setCurrentUserState(null);
     }
   } catch {
-    setCurrentUser(null);
+    setCurrentUserState(null);
   }
 
   // persist to app state and mark remote as active

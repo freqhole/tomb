@@ -8,7 +8,7 @@ import { isCharnelMode } from "../../../app/services/charnel";
 import { debug, warn } from "../../../utils/logger";
 import { deleteSongCascade } from "../storage/db/cascades";
 import { unmarkSongSynced } from "../download";
-import { getCurrentRemote } from "../../data";
+import { getCurrentRemote } from "../../data/currentState";
 
 export interface DeleteSongResult {
   success: boolean;

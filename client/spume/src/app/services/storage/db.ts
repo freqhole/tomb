@@ -1,7 +1,7 @@
 // application database service (domain-agnostic)
 import { openDB, type IDBPDatabase } from "idb";
 import { createSignal } from "solid-js";
-import { clearInProgressTracking } from "../../../music/services/cache/blobCache";
+import { clearInProgressTracking } from "../../../music/services/cache/inProgressTracking";
 import type { Song } from "../../../music/services/storage/types";
 import {
   APP_DB_NAME,

@@ -1,5 +1,4 @@
 // audio player service for music playback
-import { createSignal } from "solid-js";
 import {
   appState,
   setCurrentSong,
@@ -25,19 +24,22 @@ import { cleanupAudioURL, getAudioURL, isPlayingDirectURL, refreshBlobURL, trySw
 import type { Song } from "../storage/types";
 import { debug } from "../../../utils/logger";
 import { getMediaSessionArtwork } from "./mediaSessionArtwork";
-
-// player state signals
-const [isPlaying, setIsPlaying] = createSignal(false);
-const [currentTime, setCurrentTime] = createSignal(0);
-const [duration, setDuration] = createSignal(0);
-const [volume, setVolume] = createSignal(1.0);
-const [isLoading, setIsLoading] = createSignal(false);
-
-// pending "up next" song - the song that's downloading and will play when ready
-// this is separate from isLoading because:
-// - isLoading = current song is loading (blocks play button)
-// - pendingUpNextSha256 = a DIFFERENT song is downloading (shows spinner, current song stays)
-const [pendingUpNextSha256, setPendingUpNextSha256] = createSignal<string | null>(null);
+import {
+  isPlaying,
+  setIsPlaying,
+  currentTime,
+  setCurrentTime,
+  duration,
+  setDuration,
+  volume,
+  setVolume,
+  isLoading,
+  setIsLoading,
+  pendingUpNextSha256,
+  setPendingUpNextSha256,
+  setVisualPosition,
+  clearPendingUpNext,
+} from "./playerState";
 
 // track if user explicitly paused the player
 // when true, pending "up next" songs will load but not auto-play
@@ -816,20 +818,7 @@ export function cleanup(): void {
   setPendingUpNextSha256(null);
 }
 
-// clear pending up next state (e.g., when queue changes, song removed, etc.)
-export function clearPendingUpNext(): void {
-  setPendingUpNextSha256(null);
-}
-
-// set visual position without affecting audio (for restoring position on page load)
-export function setVisualPosition(position: number, dur?: number): void {
-  setCurrentTime(position);
-  if (dur !== undefined) {
-    setDuration(dur);
-  }
-}
-
-// re-export signals
+// re-export signals and functions from playerState for backward compatibility
 export {
   currentTime,
   duration,
@@ -837,4 +826,6 @@ export {
   isPlaying,
   pendingUpNextSha256,
   volume,
+  setVisualPosition,
+  clearPendingUpNext,
 };

@@ -63,7 +63,7 @@ export type ApiClient = ReturnType<typeof CreateHttpClientFn>;
 // re-export TransportType and Remote for consumers
 import type { TransportType, Remote, RemoteRef, HttpRemote, P2PRemote } from "../services/storage/types";
 import { isHttpRemote, isP2PRemote, toRemoteRef } from "../services/storage/types";
-import { getRemoteCacheName } from "../../music/services/cache/blobCache";
+import { getRemoteCacheName } from "../../music/services/cache/cacheNames";
 export type { TransportType, Remote, RemoteRef, HttpRemote, P2PRemote };
 export { isHttpRemote, isP2PRemote, toRemoteRef };
 

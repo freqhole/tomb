@@ -2,7 +2,7 @@
 // follows tanstack query best practices for hierarchical keys
 // all keys are scoped by data source (remote ID or 'local') to prevent cache collisions
 
-import { getCurrentRemote } from "../data";
+import { getCurrentRemote } from "../data/currentState";
 
 // get current data source identifier for query key scoping
 function getDataSourceKey(): string {
