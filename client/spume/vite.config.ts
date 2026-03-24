@@ -17,10 +17,15 @@ const dirname =
 const packageJson = JSON.parse(fs.readFileSync(path.join(dirname, "package.json"), "utf8"));
 const version = packageJson.version || "0.0.0";
 
-// get git commit SHA - env var first (for Docker builds), fallback to git command
+// get git commit SHA - env var first (for Docker/Cloudflare builds), fallback to git command
 function getGitSha(): string {
+  // local/Docker builds
   if (process.env.FREQHOLE_GIT_SHA) {
     return process.env.FREQHOLE_GIT_SHA;
+  }
+  // Cloudflare Pages (full SHA, take first 7 chars)
+  if (process.env.CF_PAGES_COMMIT_SHA) {
+    return process.env.CF_PAGES_COMMIT_SHA.slice(0, 7);
   }
   try {
     return execSync("git rev-parse --short HEAD", { encoding: "utf8" }).trim();
