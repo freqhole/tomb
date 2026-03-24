@@ -74,6 +74,8 @@ export default defineConfig({
     __IS_CHARNEL__: JSON.stringify(isCharnelBuild),
   },
   build: {
+    // generate sourcemaps for debugging prod errors
+    sourcemap: true,
     rollupOptions: {
       // exclude midden WASM from Tauri builds
       external: isCharnelBuild ? ["midden"] : [],
