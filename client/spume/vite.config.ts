@@ -37,6 +37,40 @@ function getGitSha(): string {
 const gitSha = getGitSha();
 const appVersion = `${version}-${gitSha}`;
 
+// plugin to ensure sourceMappingURL comments are added to JS files
+// (some plugins like vite-plugin-wasm can strip these)
+function sourcemapUrlPlugin(): Plugin {
+  return {
+    name: "sourcemap-url-fixer",
+    apply: "build",
+    writeBundle(options) {
+      const outDir = options.dir || "dist";
+      const assetsDir = path.join(outDir, "assets");
+
+      if (!fs.existsSync(assetsDir)) return;
+
+      for (const file of fs.readdirSync(assetsDir)) {
+        if (!file.endsWith(".js")) continue;
+
+        const jsPath = path.join(assetsDir, file);
+        const mapPath = jsPath + ".map";
+
+        // skip if no sourcemap exists
+        if (!fs.existsSync(mapPath)) continue;
+
+        const jsContent = fs.readFileSync(jsPath, "utf8");
+        const comment = `//# sourceMappingURL=${file}.map`;
+
+        // skip if already has sourcemap comment
+        if (jsContent.includes("sourceMappingURL=")) continue;
+
+        fs.writeFileSync(jsPath, jsContent + "\n" + comment + "\n");
+        console.log(`[sourcemap] added sourceMappingURL to ${file}`);
+      }
+    },
+  };
+}
+
 // plugin to inject version into service worker at build time
 function serviceWorkerPlugin(): Plugin {
   return {
@@ -66,6 +100,7 @@ export default defineConfig({
     ...(isCharnelBuild ? [] : [wasm(), topLevelAwait()]),
     solidPlugin(),
     serviceWorkerPlugin(),
+    sourcemapUrlPlugin(),
   ],
   // use relative paths so assets work in Tauri's tauri:// protocol
   base: isCharnelBuild ? "./" : "/",
