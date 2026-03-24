@@ -5,7 +5,8 @@ use crate::error::ErrorDetail;
 use crate::offal::caller::Caller;
 use crate::response::GrimoireResponse;
 use crate::users::{
-    CreateUserRequest, UpdateUserRequest, UserQueryParams, UserRole, UserService, WhoAmIResponse,
+    CreateUserRequest, InviteCodeType, RedeemInviteRequest, UpdateUserRequest, UserQueryParams,
+    UserRole, UserService, WhoAmIResponse,
 };
 use serde::Deserialize;
 use serde_json::Value as JsonValue;
@@ -426,4 +427,178 @@ pub async fn api_key_status(caller: &Caller, _body: JsonValue) -> GrimoireRespon
             vec![ErrorDetail::new("not_found", "not found", "user not found")],
         ),
     }
+}
+
+/// redeem invite code (public endpoint)
+///
+/// for regular invite codes: creates a new user with the given username
+/// for account-link codes: returns the existing linked user
+/// for P2P: links the peer node_id to the user
+///
+/// path: POST /api/auth/invite
+pub async fn redeem_invite(_caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
+    let req: RedeemInviteRequest = match serde_json::from_value(body) {
+        Ok(r) => r,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "bad request",
+                vec![ErrorDetail::new(
+                    "bad_request",
+                    "bad request",
+                    &e.to_string(),
+                )],
+            )
+        }
+    };
+
+    let service = UserService::new();
+
+    // check what type of invite code this is
+    let code_response = service.check_invite_code(&req.invite_code).await;
+    if !code_response.is_success() {
+        return GrimoireResponse::failure(
+            "invalid invite code",
+            vec![ErrorDetail::new(
+                "bad_request",
+                "invalid invite code",
+                "the invite code is invalid or has already been used",
+            )],
+        );
+    }
+
+    let invite_code = match code_response.data {
+        Some(c) => c,
+        None => {
+            return GrimoireResponse::failure(
+                "invalid invite code",
+                vec![ErrorDetail::new(
+                    "bad_request",
+                    "invalid invite code",
+                    "the invite code is invalid",
+                )],
+            )
+        }
+    };
+
+    // handle account-link codes: return linked user
+    if invite_code.code_type == InviteCodeType::AccountLink {
+        let linked_user_id = match invite_code.link_for_user_id {
+            Some(id) => id,
+            None => {
+                return GrimoireResponse::failure(
+                    "invalid account-link code",
+                    vec![ErrorDetail::new(
+                        "bad_request",
+                        "invalid code",
+                        "account-link code missing linked user",
+                    )],
+                )
+            }
+        };
+
+        // get the linked user
+        let user_response = service.get_user(&linked_user_id).await;
+        if !user_response.is_success() {
+            return GrimoireResponse::failure(
+                "linked user not found",
+                vec![ErrorDetail::new(
+                    "not_found",
+                    "user not found",
+                    "the linked user no longer exists",
+                )],
+            );
+        }
+
+        let user = match user_response.data {
+            Some(u) => u,
+            None => {
+                return GrimoireResponse::failure(
+                    "linked user not found",
+                    vec![ErrorDetail::new(
+                        "not_found",
+                        "user not found",
+                        "failed to get linked user",
+                    )],
+                )
+            }
+        };
+
+        // mark invite code as used
+        let _ = service.mark_invite_used(&req.invite_code, &user.id).await;
+
+        // link peer node_id if provided (for P2P auth)
+        if let Some(ref node_id) = req.node_id {
+            let _ = service.add_peer_node(&user.id, node_id, None).await;
+        }
+
+        return GrimoireResponse::success(
+            "logged in via account-link code",
+            serde_json::json!({
+                "message": "logged in via account-link code",
+                "user": {
+                    "id": user.id,
+                    "username": user.username,
+                    "role": user.role.to_string(),
+                }
+            }),
+        );
+    }
+
+    // handle regular invite codes: create new user
+    let username = match req.username {
+        Some(u) => u,
+        None => {
+            return GrimoireResponse::failure(
+                "username required",
+                vec![ErrorDetail::new(
+                    "bad_request",
+                    "username required",
+                    "username is required for invite codes",
+                )],
+            )
+        }
+    };
+
+    let create_request = CreateUserRequest {
+        username: username.clone(),
+        role: None, // let the invite code's grants_role be used
+        invite_code: Some(req.invite_code),
+    };
+
+    let user_response = service.register_user(&create_request).await;
+
+    if !user_response.is_success() {
+        return GrimoireResponse::failure(&user_response.message, user_response.errors);
+    }
+
+    let user = match user_response.data {
+        Some(u) => u,
+        None => {
+            return GrimoireResponse::failure(
+                "registration failed",
+                vec![ErrorDetail::new(
+                    "internal_error",
+                    "registration failed",
+                    "failed to get user data after registration",
+                )],
+            )
+        }
+    };
+
+    // link peer node_id if provided (for P2P auth)
+    if let Some(ref node_id) = req.node_id {
+        let _ = service.add_peer_node(&user.id, node_id, None).await;
+    }
+
+    GrimoireResponse::success(
+        "user created successfully",
+        serde_json::json!({
+            "message": "user created and logged in",
+            "user": {
+                "id": user.id,
+                "username": user.username,
+                "role": user.role.to_string(),
+            }
+        }),
+    )
 }

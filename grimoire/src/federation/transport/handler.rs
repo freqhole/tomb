@@ -237,8 +237,9 @@ async fn handle_stream(
                 .and_then(|b| serde_json::from_str(b).ok())
                 .unwrap_or(JsonValue::Null);
 
-            // inject node_id for public knock routes (they need to know who's knocking)
-            if path == "/api/knock" || path == "/api/knock/status" {
+            // inject node_id for public routes that need to know who's connecting
+            // (knock routes for pending requests, invite for linking peer to user)
+            if path == "/api/knock" || path == "/api/knock/status" || path == "/api/auth/invite" {
                 if let Some(obj) = json_body.as_object_mut() {
                     obj.insert(
                         "node_id".to_string(),

@@ -24,8 +24,11 @@ pub async fn dispatch(
         // user management - canonical paths from routes.ts
         "/api/auth/whoami" => Some(users::me(caller, body.clone()).await),
         "/api/auth/logout" => Some(users::logout(caller, body.clone()).await),
-        "/api/auth/api-key/regenerate" => Some(users::regenerate_api_key(caller, body.clone()).await),
+        "/api/auth/api-key/regenerate" => {
+            Some(users::regenerate_api_key(caller, body.clone()).await)
+        }
         "/api/auth/api-key/status" => Some(users::api_key_status(caller, body.clone()).await),
+        "/api/auth/invite" => Some(users::redeem_invite(caller, body.clone()).await),
 
         // admin user management (these aren't in routes.ts yet but keep for CLI)
         "/api/auth/users/list" => Some(users::list(caller, body.clone()).await),
