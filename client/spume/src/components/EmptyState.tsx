@@ -11,7 +11,7 @@ export function EmptyState(props: EmptyStateProps) {
     <div class="flex-1 flex items-center justify-center p-8">
       <div class="text-center max-w-md">
         <div class="mb-6 flex justify-center">
-          <Icon name="music" size={64} color="var(--color-accent-500)" />
+          <Icon name="freqhole" size={256} color="var(--color-accent-500)" />
         </div>
 
         <h1 class="text-3xl font-bold text-[var(--color-text-primary)] mb-4">
@@ -19,15 +19,15 @@ export function EmptyState(props: EmptyStateProps) {
         </h1>
 
         <p class="text-[var(--color-text-secondary)] mb-2">
-          get started by adding music (local files or urls) or connecting a remote server
+          get started by adding music or connecting a remote server
         </p>
 
         <div class="flex gap-3 justify-center">
-          <Button variant="primary" onClick={props.onAddMusic}>
+          <Button variant="secondary" onClick={props.onAddMusic}>
             add music
           </Button>
 
-          <Button variant="secondary" onClick={props.onAddRemote}>
+          <Button variant="primary" onClick={props.onAddRemote}>
             add remote
           </Button>
         </div>
