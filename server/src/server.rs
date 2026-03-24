@@ -16,7 +16,7 @@ use tower_http::{
 use tower_sessions::{cookie::SameSite, Expiry, SessionManagerLayer};
 use tracing::Level;
 
-use crate::auth::dual_cookie::{main_cookie_name, DualCookieLayer};
+use crate::auth::cookie::{sanitize_cookie_name, DynamicSameSiteLayer};
 use crate::{routes, state::AppState, ApiError};
 
 /// start the http server
@@ -74,38 +74,34 @@ pub async fn start_server(
 
     // configure CORS with origin reflection
     // uses predicate to check allowed origins, reflects matching origin back (not *)
+    // CORS is always enabled - allowed_origins controls what's allowed
     let cors = if let Some(server_config) = &state.config.server {
-        if server_config.cors.enabled {
-            let allowed_origins = server_config.auth.allowed_origins.clone();
-            let allow_any = server_config.auth.allows_any_origin();
+        let allowed_origins = server_config.auth.allowed_origins.clone();
+        let allow_any = server_config.auth.allows_any_origin();
 
-            CorsLayer::new()
-                .allow_origin(AllowOrigin::predicate(move |origin, _req| {
-                    let origin_str = origin.to_str().unwrap_or("");
-                    allow_any || allowed_origins.iter().any(|o| o == origin_str)
-                }))
-                .allow_methods([Method::GET, Method::POST, Method::PATCH, Method::OPTIONS])
-                .allow_headers([
-                    AUTHORIZATION,
-                    CONTENT_TYPE,
-                    ACCEPT,
-                    HeaderName::from_static("origin"),
-                    HeaderName::from_static("x-requested-with"),
-                ])
-                .expose_headers([
-                    HeaderName::from_static("content-length"),
-                    HeaderName::from_static("content-range"),
-                    HeaderName::from_static("accept-ranges"),
-                    CONTENT_TYPE,
-                    HeaderName::from_static("cache-control"),
-                    HeaderName::from_static("content-disposition"),
-                    HeaderName::from_static("etag"),
-                ])
-                .allow_credentials(true)
-        } else {
-            // CORS disabled - no cross-origin requests allowed
-            CorsLayer::new()
-        }
+        CorsLayer::new()
+            .allow_origin(AllowOrigin::predicate(move |origin, _req| {
+                let origin_str = origin.to_str().unwrap_or("");
+                allow_any || allowed_origins.iter().any(|o| o == origin_str)
+            }))
+            .allow_methods([Method::GET, Method::POST, Method::PATCH, Method::OPTIONS])
+            .allow_headers([
+                AUTHORIZATION,
+                CONTENT_TYPE,
+                ACCEPT,
+                HeaderName::from_static("origin"),
+                HeaderName::from_static("x-requested-with"),
+            ])
+            .expose_headers([
+                HeaderName::from_static("content-length"),
+                HeaderName::from_static("content-range"),
+                HeaderName::from_static("accept-ranges"),
+                CONTENT_TYPE,
+                HeaderName::from_static("cache-control"),
+                HeaderName::from_static("content-disposition"),
+                HeaderName::from_static("etag"),
+            ])
+            .allow_credentials(true)
     } else {
         // fallback to permissive if no config (shouldn't happen)
         CorsLayer::permissive()
@@ -126,9 +122,13 @@ pub async fn start_server(
         Expiry::OnInactivity(tower_sessions::cookie::time::Duration::hours(24))
     };
 
-    // use static cookie name - "freqhole" is sufficient since each server
-    // instance typically runs on its own port/host
-    let cookie_name = main_cookie_name();
+    // cookie name derived from server name: "{name}_session"
+    // sanitized to remove invalid chars (spaces, special chars, etc.)
+    let cookie_name = if let Some(server_config) = &state.config.server {
+        sanitize_cookie_name(&server_config.name)
+    } else {
+        "freqhole_session".to_string()
+    };
 
     // determine cookie mode from config
     let cookie_mode = if let Some(server_config) = &state.config.server {
@@ -139,10 +139,10 @@ pub async fn start_server(
     };
 
     // configure session layer based on cookie mode
-    // for "auto" mode, we use SameSite=Lax as the base and the dual cookie layer adds the secure variant
+    // for "auto" mode, we use SameSite=Lax as base; dynamic_samesite layer rewrites for HTTPS
     let (use_secure, same_site) = match cookie_mode {
         SessionCookieMode::Auto => {
-            // base cookie uses Lax; dual cookie layer adds the Secure variant
+            // base cookie uses Lax; dynamic layer rewrites to None+Secure for HTTPS origins
             (false, SameSite::Lax)
         }
         SessionCookieMode::Lax => {
@@ -174,16 +174,19 @@ pub async fn start_server(
     );
 
     // build router with state
-    // dual cookie layer wraps session layer so it sees Set-Cookie headers on response
-    // layer order: request flows session -> dual_cookie -> handler
-    //              response flows handler -> dual_cookie -> session
-    // we need dual_cookie to see the cookie AFTER session_layer sets it
-    let dual_cookie_enabled = cookie_mode == SessionCookieMode::Auto;
+    // dynamic_samesite layer wraps session layer so it sees Set-Cookie headers on response
+    // layer order: request flows session -> dynamic_samesite -> handler
+    //              response flows handler -> dynamic_samesite -> session
+    // we need dynamic_samesite to see the cookie AFTER session_layer sets it
+    let dynamic_samesite_enabled = cookie_mode == SessionCookieMode::Auto;
     let max_upload_bytes = state.config.media.max_fs_file_size;
     let app = routes::build_router(max_upload_bytes)
         .layer(Extension(state.clone()))
         .layer(session_layer)
-        .layer(DualCookieLayer::new(dual_cookie_enabled))
+        .layer(DynamicSameSiteLayer::new(
+            dynamic_samesite_enabled,
+            cookie_name.clone(),
+        ))
         .layer(
             TraceLayer::new_for_http()
                 .make_span_with(DefaultMakeSpan::new().level(Level::INFO))

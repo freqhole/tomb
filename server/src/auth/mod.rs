@@ -8,7 +8,7 @@
 //! **critical**: webauthn-rs types are isolated to the webauthn submodule only!
 //! no webauthn-rs types should leak into other modules.
 
-pub mod dual_cookie;
+pub mod cookie;
 pub mod handlers;
 pub mod helpers;
 pub mod middleware;

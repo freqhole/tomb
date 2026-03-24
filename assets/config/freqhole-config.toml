@@ -164,6 +164,7 @@ enabled = true
 # remote clients fetch this info when adding yr server to their remote list
 
 # REQUIRED: server display name
+# also used for session cookie name: "{name}_session" (sanitized: lowercase, no spaces/special chars)
 name = "freqhole"
 # REQUIRED: server version (you probably should never edit this)
 version = "0.1.12"
@@ -226,32 +227,16 @@ webauthn_enabled = true
 session_max_age_seconds = 0
 
 # OPTIONAL: session cookie mode (default: "auto")
-#
-# controls how session cookies behave for browser authentication.
-# choose based on yr deployment:
-#
-# "auto" (default): dual-cookie for maximum compatibility
-#   sets TWO session cookies on every response:
-#   - `freqhole_session` with SameSite=Lax (for HTTP same-site)
-#   - `__Secure-freqhole_session` with SameSite=None + Secure (for HTTPS cross-site)
-#   browser automatically sends whichever works for the request context.
-#   
-#   works with: HTTP localhost dev, same-origin static hosting, cross-site HTTPS
-#   does NOT work with: cross-site HTTP (impossible - browser security)
-#
-# "lax": single cookie, SameSite=Lax
-#   simpler, one cookie, smaller response headers.
-#   
-#   works with: same-site requests (including localhost different ports)
-#   does NOT work with: cross-site HTTPS
-#
-# "none": single cookie, SameSite=None + Secure=true
-#   for servers always behind HTTPS (reverse proxy, tailscale, cloudflare, etc.)
-#   
-#   works with: HTTPS cross-site
-#   does NOT work with: any HTTP (cookies never sent)
-#
+# - "auto": dynamic SameSite based on origin (recommended)
+#   - HTTPS origins → SameSite=None; Secure
+#   - all other origins (http, tauri, freqhole, etc.) → SameSite=Lax
+# - "lax": always SameSite=Lax — same-origin only
+# - "none": always SameSite=None; Secure — cross-origin HTTPS only
 session_cookie_mode = "auto"
+
+# session cookie name is automatically derived from [server].name: "{name}_session"
+# e.g. server.name = "freqhole" → cookie name = "freqhole_session"
+# this ensures multiple freqhole servers on same host have isolated sessions
 
 # OPTIONAL: allowed origins for CORS and WebAuthn (default: [] - same-origin only)
 #
@@ -308,14 +293,6 @@ enabled = false
 # this only works when enabled = true AND directory points to existing path
 #
 directory = ""
-
-# ============================================================================
-# CORS (Cross-Origin Resource Sharing) configuration
-# ============================================================================
-[server.cors]
-# REQUIRED: enable CORS headers
-# if enabled with no auth.allowed_origins, only same-origin requests work
-enabled = true
 
 # ============================================================================
 # OPTIONAL: media fetching from external sources

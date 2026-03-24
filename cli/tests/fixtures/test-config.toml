@@ -28,6 +28,3 @@ webauthn_enabled = false
 
 [server.static_files]
 enabled = false
-
-[server.cors]
-enabled = false

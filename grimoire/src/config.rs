@@ -274,8 +274,6 @@ pub struct ServerConfig {
     pub auth: AuthConfig,
     /// Static file serving configuration
     pub static_files: StaticFilesConfig,
-    /// CORS configuration
-    pub cors: CorsConfig,
     /// Fetch music configuration
     #[serde(default)]
     pub fetch_music: Option<FetchMusicConfig>,
@@ -374,14 +372,6 @@ pub struct StaticFilesConfig {
     pub enabled: bool,
     /// Directory to serve static files from (relative to data_dir or absolute)
     pub directory: Option<PathBuf>,
-}
-
-/// CORS configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CorsConfig {
-    /// Enable CORS headers
-    /// If enabled with no auth.allowed_origins, only same-origin requests work
-    pub enabled: bool,
 }
 
 /// Fetch music configuration
