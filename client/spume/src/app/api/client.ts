@@ -144,6 +144,14 @@ export async function getMiddenNode(): Promise<MiddenNodeLike> {
 }
 
 /**
+ * check if midden WASM is fully initialized and ready.
+ * use this to avoid calling P2P operations before midden is ready.
+ */
+export function isMiddenReady(): boolean {
+  return middenNode !== null;
+}
+
+/**
  * get our local node_id (for sharing with peers).
  * returns null if P2P not initialized yet.
  */

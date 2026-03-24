@@ -71,6 +71,8 @@ import {
 import { checkPendingKnocks, showKnockCreatedToast } from "./services/toastNotices";
 import { initMusicDB } from "../music/services/storage/db";
 import type { Song } from "../music/services/storage/types";
+import { isP2PRemote } from "./services/storage/types";
+import { isMiddenReady } from "./api/client";
 import { routes } from "./routes";
 import { initAppDB, setSyncQueueToLocal } from "./services/storage/db";
 import { debug } from "../utils/logger";
@@ -373,12 +375,23 @@ export function App() {
 
       // background health check of ALL remotes (non-blocking)
       // updates offline status in IDB so TopNav shows correct status
+      // skip P2P remotes until midden is initialized to avoid "Cannot access before initialization" errors
       void (async () => {
         const allRemotes = await getAllRemotes();
         if (allRemotes.length > 0) {
-          debug("App", `background: checking health of ${allRemotes.length} remotes`);
-          await Promise.all(allRemotes.map((r) => checkRemoteHealth(r)));
-          debug("App", "background: health check complete");
+          // filter out P2P remotes if midden isn't ready yet
+          const remotesToCheck = allRemotes.filter((r) => {
+            if (isP2PRemote(r) && !isMiddenReady()) {
+              debug("App", `skipping health check for P2P remote ${r.name} (midden not ready)`);
+              return false;
+            }
+            return true;
+          });
+          if (remotesToCheck.length > 0) {
+            debug("App", `background: checking health of ${remotesToCheck.length} remotes`);
+            await Promise.all(remotesToCheck.map((r) => checkRemoteHealth(r)));
+            debug("App", "background: health check complete");
+          }
         }
       })();
 
