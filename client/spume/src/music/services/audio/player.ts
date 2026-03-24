@@ -4,10 +4,9 @@ import {
   appState,
   setCurrentSong,
 } from "../../../app/services/storage/db";
-import { getSongDisplayImages, pickBestImage } from "../../../utils/images";
 import { getDataSource } from "../../data";
 import { preCacheNextSongs } from "../cache/blobCache";
-import { preCacheNextP2PSongs, resolveBlobUrl } from "../storage/blobResolver";
+import { preCacheNextP2PSongs } from "../storage/blobResolver";
 import {
   canGoNext,
   canGoPrevious,
@@ -23,9 +22,9 @@ import { updateQueueItemProgress } from "../queue/queueProgress";
 import { stopServerSession } from "../queue/serverSession";
 import { queueAnalyticsEvent } from "../analytics/analyticsQueue";
 import { cleanupAudioURL, getAudioURL, isPlayingDirectURL, refreshBlobURL, trySwapToCachedURL } from "../storage/audioAccess";
-import { getBlobObjectURL } from "../storage/blobs";
 import type { Song } from "../storage/types";
 import { debug } from "../../../utils/logger";
+import { getMediaSessionArtwork } from "./mediaSessionArtwork";
 
 // player state signals
 const [isPlaying, setIsPlaying] = createSignal(false);
@@ -230,52 +229,6 @@ if (typeof document !== 'undefined') {
       void trySwapCurrentSongToCached();
     }
   });
-}
-
-// get artwork URL for media session (async - may need to fetch from local storage or P2P)
-async function getMediaSessionArtwork(song: Song): Promise<MediaImage[]> {
-  const images = getSongDisplayImages(song);
-  const bestImage = pickBestImage(images);
-  if (!bestImage) return [];
-
-  // helper to create MediaImage array from a URL
-  const makeArtwork = (src: string): MediaImage[] => [
-    { src, sizes: "512x512", type: "image/jpeg" },
-    { src, sizes: "256x256", type: "image/jpeg" },
-    { src, sizes: "96x96", type: "image/jpeg" },
-  ];
-
-  // priority 1: local blob if available (OPFS/cache)
-  if (bestImage.local_blob_id) {
-    const objectUrl = await getBlobObjectURL(bestImage.local_blob_id);
-    if (objectUrl) {
-      return makeArtwork(objectUrl);
-    }
-  }
-
-  // priority 2: remote blob via P2P/Tauri transport (resolveBlobUrl handles caching)
-  if (bestImage.remote_blob_id && bestImage.remote_server_id) {
-    try {
-      const url = await resolveBlobUrl(
-        bestImage.remote_blob_id,
-        bestImage.remote_server_id,
-        "image"
-      );
-      if (url) {
-        return makeArtwork(url);
-      }
-    } catch (err) {
-      debug("mediaSession", "failed to resolve P2P artwork:", err);
-      // fall through to remote_url
-    }
-  }
-
-  // priority 3: remote URL (HTTP servers)
-  if (bestImage.remote_url) {
-    return makeArtwork(bestImage.remote_url);
-  }
-
-  return [];
 }
 
 // update media session metadata and action handlers
