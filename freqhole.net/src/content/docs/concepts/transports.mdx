@@ -1,0 +1,116 @@
+---
+title: HTTP vs P2P
+description: understanding freqhole's transport options
+---
+
+freqhole supports two ways to connect clients to servers: traditional HTTP and peer-to-peer (P2P).
+
+:::note[headsup]
+the desktop app accepts incoming connections over P2P only — it doesn't run an HTTP server. you can still connect to HTTP remotes as a client. to host an HTTP server, use the CLI.
+:::
+
+## HTTP transport
+
+the familiar client-server model.
+
+### how it works
+
+1. server runs on a machine with a known IP/hostname
+2. client connects via URL (e.g., `http://192.168.1.50:8080`)
+3. all requests go through standard HTTP
+4. streaming uses HTTP range requests
+
+### when to use HTTP
+
+- **home network**: client and server on same network
+- **VPN**: accessing server through VPN tunnel
+- **public server**: server has domain name and is internet-accessible
+- **reverse proxy**: behind nginx, caddy, cloudflare tunnel
+
+### requirements
+
+- network path between client and server
+- server must be reachable (no NAT issues)
+- port forwarding if accessing from internet
+
+---
+
+## P2P transport
+
+direct peer-to-peer connections using [iroh](https://iroh.computer).
+
+### how it works
+
+1. each server has a unique **node ID** (cryptographic identity)
+2. clients connect using node ID, not IP address
+3. connection established via iroh's relay infrastructure for NAT traversal
+4. once connected, data flows directly between peers using QUIC
+
+### requirements
+
+- federation enabled in config (`[federation] enabled = true`)
+- friend has your node ID
+
+### when to use P2P
+
+- **no public IP**: server behind NAT without port forwarding
+- **sharing with friends**: don't want to expose server to internet
+- **mobile connections**: both ends on cellular/changing IPs
+- **simplicity**: no DNS, certificates, or firewall config
+
+### how NAT traversal works
+
+1. iroh relays help establish the initial connection
+2. peers attempt direct connection (hole punching)
+3. if direct fails, data flows through iroh's relay network
+4. most home networks support direct connections
+
+### node ID
+
+your node ID looks like:
+
+```
+2bfzgvv4jqzhxqq5izn4k4u3whx7xh7c4qmdknhfhdyqbhnxlmaa
+```
+
+it's a permanent cryptographic identity. share it with friends to let them connect to your server.
+
+---
+
+## comparing transports
+
+| aspect            | HTTP                       | P2P                        |
+| ----------------- | -------------------------- | -------------------------- |
+| setup complexity  | higher (DNS, ports, certs) | lower (just share node ID) |
+| works behind NAT  | no (needs port forwarding) | yes                        |
+| latency           | lower                      | slightly higher            |
+| reliability       | high                       | high (with relay fallback) |
+| third-party relay | no                         | yes (for NAT traversal)    |
+
+---
+
+## using both
+
+you can enable both transports simultaneously:
+
+- local network clients use HTTP (faster)
+- remote friends use P2P (easier setup)
+
+the cli app can handle both, but the desktop app only let's other users connect via p2p.
+
+---
+
+## security
+
+### HTTP
+
+- use HTTPS in production (reverse proxy with TLS)
+- authentication via sessions/cookies
+- standard web security practices
+
+### P2P
+
+- all connections encrypted (QUIC/TLS)
+- node ID is cryptographic identity
+- authentication still required (invite codes)
+- relay sees connection metadata but not content

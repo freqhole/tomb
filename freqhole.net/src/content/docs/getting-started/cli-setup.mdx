@@ -1,0 +1,140 @@
+---
+title: CLI setup
+description: configure and run the freqhole command-line tool
+---
+
+the `freqhole` CLI lets you run an HTTP server, a P2P node, or both — plus manage your music library from the terminal. ideal for Raspberry Pi, NAS, or headless home servers.
+
+## dependencies
+
+freqhole needs `ffmpeg` for generating audio waveform images (and audio file metadata) and optionally [yt-dlp](https://github.com/yt-dlp/yt-dlp) for URL downloads. see the [prerequisites](/getting-started/prerequisites) page for install instructions.
+
+---
+
+## installation
+
+### quick install
+
+```sh
+curl -fsSL https://freqhole.net/install.sh | sh
+```
+
+this downloads the appropriate binary for your platform and adds it to your PATH.
+
+### manual install
+
+1. download the binary from [GitHub releases](https://github.com/freqhole/tomb/releases/latest)
+2. place in your PATH (e.g., `/usr/local/bin/` or `~/.local/bin/`)
+3. make executable: `chmod +x freqhole`
+
+---
+
+## configuration
+
+### interactive setup
+
+```bash
+freqhole init
+```
+
+this creates a config file with sensible defaults and prompts for key settings.
+
+### config file location
+
+freqhole looks for `freqhole-config.toml` in the current directory, or you can pass an explicit path:
+
+```bash
+freqhole serve --config /path/to/freqhole-config.toml
+```
+
+the generated config includes all required fields. see [configuration overview](/concepts/configuration/) for what each section does.
+
+---
+
+## running
+
+`freqhole serve` is the combined command — it starts whichever transports are enabled in your config:
+
+```bash
+freqhole serve          # start HTTP + P2P (based on config)
+freqhole http           # HTTP server only
+freqhole p2p            # P2P node only
+```
+
+see [HTTP vs P2P](/concepts/transports/) for when to use each.
+
+### run in background
+
+using systemd (Linux):
+
+```bash
+# create service file
+sudo nano /etc/systemd/system/freqhole.service
+```
+
+```ini
+[Unit]
+Description=freqhole
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/freqhole serve --config /home/youruser/freqhole/freqhole-config.toml
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```bash
+sudo systemctl enable freqhole
+sudo systemctl start freqhole
+```
+
+---
+
+## first scan
+
+once running, scan your music:
+
+```bash
+freqhole music scan --path ~/Music
+```
+
+or trigger via the web app once connected.
+
+---
+
+## creating your first user
+
+```bash
+freqhole auth create-invite
+```
+
+this generates an invite code. use it in the web app to create your admin account.
+
+---
+
+## accessing the web app
+
+if the HTTP server is running, open `http://localhost:8080` (or your machine's IP) in a browser.
+
+the web app is bundled with the HTTP server — no separate deployment needed.
+
+---
+
+## common commands
+
+```bash
+freqhole serve                          # start HTTP + P2P (based on config)
+freqhole http                           # HTTP server only
+freqhole p2p                            # P2P node only
+freqhole music scan --path ~/Music      # scan a directory
+freqhole music scan rescan              # rescan all tracked directories
+freqhole music list-songs               # list all songs
+freqhole auth list-users                # list users
+freqhole auth create-invite             # create invite code
+freqhole database info                  # show database stats
+```
+
+run `freqhole --help` for full command list.

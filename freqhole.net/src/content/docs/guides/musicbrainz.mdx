@@ -1,0 +1,71 @@
+---
+title: MusicBrainz integration
+description: looking up album metadata from MusicBrainz
+---
+
+when enabled, freqhole can query MusicBrainz to pull corrected metadata and cover art for albums. all lookups are initiated manually from the album editor — nothing is fetched automatically during scanning.
+
+## enabling MusicBrainz
+
+### in config file
+
+```toml
+[musicbrainz]
+enabled = true
+```
+
+### in desktop app
+
+settings → integrations → enable MusicBrainz
+
+---
+
+## what MusicBrainz provides
+
+- corrected artist names and album titles
+- accurate release dates
+- proper track ordering
+- cover art from the Cover Art Archive
+
+---
+
+## performing a lookup
+
+lookups happen from the album editor in the web app or desktop app.
+
+1. open an album page
+2. click "edit album" (member or admin role required)
+3. in the MusicBrainz section, click "search MusicBrainz"
+4. review the search results and select the correct release
+5. confirm to apply the metadata
+
+freqhole stores the fetched metadata in the database. your original audio files are never modified.
+
+### display priority
+
+when freqhole displays metadata, it uses this order:
+
+1. manual edits (made in freqhole)
+2. MusicBrainz data (from a confirmed lookup)
+3. embedded file tags
+
+---
+
+## fixing a bad match
+
+1. open the album page
+2. click "edit album"
+3. in the MusicBrainz section, click "disconnect" to remove the current match
+4. search again and select the correct release
+
+---
+
+## rate limiting
+
+MusicBrainz limits API requests to roughly 1 per second. freqhole respects this automatically.
+
+---
+
+## privacy notes
+
+queries sent to MusicBrainz include song/album/artist metadata. no account information or listening history is sent.

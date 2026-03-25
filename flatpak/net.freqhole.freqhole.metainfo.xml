@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>net.freqhole.freqhole</id>
+
+  <name>freqhole</name>
+  <summary>self-hosted music library with P2P streaming</summary>
+
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+
+  <developer id="net.freqhole">
+    <name>freqhole</name>
+  </developer>
+
+  <description>
+    <p>
+      freqhole is a self-hosted music server with peer-to-peer sharing.
+      run your own server, scan your music library, and stream anywhere.
+      share with friends using P2P connections — no port forwarding needed.
+    </p>
+    <p>features:</p>
+    <ul>
+      <li>self-hosted music library with SQLite backend</li>
+      <li>P2P streaming via iroh — works through NAT</li>
+      <li>offline support with local caching</li>
+      <li>MusicBrainz integration for metadata enrichment</li>
+      <li>web app for remote access</li>
+      <li>invite-based access control</li>
+    </ul>
+  </description>
+
+  <launchable type="desktop-id">net.freqhole.freqhole.desktop</launchable>
+
+  <url type="homepage">https://freqhole.net</url>
+  <url type="bugtracker">https://github.com/freqhole/tomb/issues</url>
+  <url type="vcs-browser">https://github.com/freqhole/tomb</url>
+
+  <content_rating type="oars-1.1" />
+
+  <branding>
+    <color type="primary" scheme_preference="light">#f5d0fe</color>
+    <color type="primary" scheme_preference="dark">#c026d3</color>
+  </branding>
+
+  <screenshots>
+    <screenshot type="default">
+      <caption>library view</caption>
+      <image>https://freqhole.net/screenshots/library.png</image>
+    </screenshot>
+  </screenshots>
+
+  <releases>
+    <release version="0.1.12" date="2026-03-24">
+      <description>
+        <p>P2P federation support and documentation site launch.</p>
+      </description>
+    </release>
+  </releases>
+
+  <categories>
+    <category>AudioVideo</category>
+    <category>Audio</category>
+    <category>Player</category>
+    <category>Music</category>
+  </categories>
+
+  <keywords>
+    <keyword>music</keyword>
+    <keyword>audio</keyword>
+    <keyword>library</keyword>
+    <keyword>server</keyword>
+    <keyword>streaming</keyword>
+    <keyword>p2p</keyword>
+    <keyword>self-hosted</keyword>
+  </keywords>
+
+  <provides>
+    <binary>freqhole</binary>
+  </provides>
+
+  <requires>
+    <display_length compare="ge">768</display_length>
+  </requires>
+
+  <supports>
+    <control>pointing</control>
+    <control>keyboard</control>
+  </supports>
+</component>

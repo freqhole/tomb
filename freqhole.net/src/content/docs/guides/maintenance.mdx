@@ -1,0 +1,201 @@
+---
+title: maintenance
+description: keeping your freqhole server healthy
+---
+
+regular maintenance keeps your library clean and the database efficient.
+
+## database health
+
+### check status
+
+```bash
+freqhole database info
+```
+
+shows:
+
+- database size
+- table counts (songs, albums, etc.)
+- blob storage usage
+
+### vacuum
+
+SQLite databases grow fragmented over time. vacuum reclaims space:
+
+```bash
+freqhole maintenance vacuum
+```
+
+run occasionally (monthly or after large deletions).
+
+### integrity check
+
+verify database isn't corrupted:
+
+```bash
+freqhole maintenance integrity-check
+```
+
+run if you experience crashes or suspect disk issues.
+
+---
+
+## cleaning up orphans
+
+### what are orphans?
+
+- **missing files**: database entries for files that no longer exist
+- **orphan blobs**: blob data not referenced by any entity
+- **orphan images**: album art with no album
+
+### finding orphans
+
+```bash
+freqhole maintenance find-orphans
+```
+
+shows summary without modifying anything.
+
+### cleaning orphans
+
+```bash
+freqhole maintenance cleanup-orphans
+```
+
+removes unreferenced data. run `find-orphans` first to see what will be deleted.
+
+---
+
+## backup
+
+### database backup
+
+the SQLite database contains all your metadata, accounts, and settings:
+
+```bash
+cp data/grimoire.db data/grimoire-backup.db
+```
+
+or use SQLite's backup command:
+
+```bash
+sqlite3 data/grimoire.db ".backup data/grimoire-backup.db"
+```
+
+### blob backup
+
+cover art and other blobs are in `data/blobs/`. copy this directory to back up artwork.
+
+### complete backup
+
+```bash
+tar -czf freqhole-backup.tar.gz data/
+```
+
+### restore
+
+stop server, replace data directory, start server.
+
+---
+
+## clearing caches
+
+### search index
+
+if search results seem stale:
+
+```bash
+freqhole maintenance rebuild-search-index
+```
+
+### cover art cache
+
+thumbnail regeneration (rarely needed):
+
+```bash
+freqhole maintenance regenerate-thumbnails
+```
+
+---
+
+## logs
+
+### log location
+
+depends on how you run freqhole:
+
+- CLI: stderr (redirect to file if needed)
+- desktop app: application logs directory
+
+### log levels
+
+set in environment:
+
+```bash
+RUST_LOG=info freqhole serve
+RUST_LOG=debug freqhole serve  # verbose
+RUST_LOG=warn freqhole serve   # quiet
+```
+
+---
+
+## updating
+
+### desktop app
+
+downloads updates automatically and prompts to restart.
+
+### CLI
+
+1. download new binary from releases
+2. replace old binary
+3. restart server
+
+migrations run automatically on startup.
+
+---
+
+## performance tuning
+
+### for large libraries (10k+ songs)
+
+- use SSD for data directory
+- increase OS file descriptor limits
+- consider dedicated machine (not shared server)
+
+### for many concurrent users
+
+- SSD essential
+- WAL mode (default) handles contention well
+- monitor memory usage
+
+### settings
+
+most tuning is automatic. SQLite is configured with:
+
+- WAL mode (write-ahead logging)
+- 100MB cache by default
+- proper locking for concurrency
+
+---
+
+## troubleshooting
+
+### server won't start
+
+1. check config file exists and is valid TOML
+2. check data directory writable
+3. check port not in use
+4. run `freqhole serve --verbose` for details
+
+### database locked
+
+SQLite can't handle too many concurrent writes. freqhole handles this automatically, but external tools accessing the database can cause issues.
+
+### out of disk space
+
+1. vacuum database: `freqhole maintenance vacuum`
+2. clean orphan blobs: `freqhole maintenance cleanup-orphans`
+3. delete old backups
+4. add disk space

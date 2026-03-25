@@ -1,0 +1,58 @@
+id: net.freqhole.freqhole
+runtime: org.gnome.Platform
+runtime-version: "46"
+sdk: org.gnome.Sdk
+command: freqhole
+
+finish-args:
+  # display access
+  - --share=ipc
+  - --socket=fallback-x11
+  - --socket=wayland
+  # GPU acceleration for WebKit
+  - --device=dri
+  # audio playback
+  - --socket=pulseaudio
+  # network access (for connecting to remotes)
+  - --share=network
+  # file access for music directories
+  - --filesystem=xdg-music:ro
+  - --filesystem=home:ro
+  # dconf access (for GTK settings)
+  - --filesystem=xdg-run/dconf
+  - --filesystem=~/.config/dconf:ro
+  - --talk-name=ca.desrt.dconf
+  - --env=DCONF_USER_CONFIG_DIR=.config/dconf
+  # system tray icon
+  - --talk-name=org.kde.StatusNotifierWatcher
+  - --talk-name=org.freedesktop.Notifications
+  # portal access
+  - --talk-name=org.freedesktop.portal.*
+  # secret service for credentials
+  - --talk-name=org.freedesktop.secrets
+  # persist app data
+  - --persist=.local/share/net.freqhole.charnel
+
+modules:
+  - name: freqhole
+    buildsystem: simple
+    build-commands:
+      # extract binary and resources from pre-built deb
+      - ar x freqhole.deb
+      - tar xf data.tar.*
+      - install -Dm755 usr/bin/freqhole ${FLATPAK_DEST}/bin/freqhole
+      - install -Dm644 usr/share/applications/freqhole.desktop ${FLATPAK_DEST}/share/applications/net.freqhole.freqhole.desktop
+      # fix desktop file for flatpak
+      - desktop-file-edit --set-key=Icon --set-value=net.freqhole.freqhole ${FLATPAK_DEST}/share/applications/net.freqhole.freqhole.desktop
+      - desktop-file-edit --set-key=Exec --set-value="freqhole %U" ${FLATPAK_DEST}/share/applications/net.freqhole.freqhole.desktop
+      # install icons
+      - install -Dm644 usr/share/icons/hicolor/32x32/apps/freqhole.png ${FLATPAK_DEST}/share/icons/hicolor/32x32/apps/net.freqhole.freqhole.png
+      - install -Dm644 usr/share/icons/hicolor/128x128/apps/freqhole.png ${FLATPAK_DEST}/share/icons/hicolor/128x128/apps/net.freqhole.freqhole.png
+      - install -Dm644 usr/share/icons/hicolor/256x256@2/apps/freqhole.png ${FLATPAK_DEST}/share/icons/hicolor/256x256/apps/net.freqhole.freqhole.png || true
+      # install metainfo
+      - install -Dm644 net.freqhole.freqhole.metainfo.xml ${FLATPAK_DEST}/share/metainfo/net.freqhole.freqhole.metainfo.xml
+    sources:
+      - type: file
+        path: freqhole.deb
+      - type: file
+        path: net.freqhole.freqhole.metainfo.xml

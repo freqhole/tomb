@@ -1,0 +1,6 @@
+# flatpak build artifacts
+build-dir/
+repo/
+.flatpak-builder/
+*.deb
+*.flatpak

@@ -1,0 +1,83 @@
+---
+title: freqhole
+description: self-hosted music library with p2p sharing
+template: splash
+hero:
+  tagline: self-hosted music library with peer-to-peer sharing
+  image:
+    file: ../../assets/freqhole.svg
+    alt: freqhole logo — a wonky magenta triangle
+  actions:
+    - text: quick start
+      link: /getting-started/download/
+      icon: right-arrow
+    - text: view on GitHub
+      link: https://github.com/freqhole/tomb
+      icon: github
+      variant: minimal
+---
+
+import { Card, CardGrid } from "@astrojs/starlight/components";
+
+## what is freqhole?
+
+a self-hosted music server and player: share your music library with yourself and your friends.
+
+<CardGrid>
+  <Card title="self-hosted" icon="laptop">
+    run on your own hardware (like a raspberry pi); D.I.Y. or D.I.E.
+  </Card>
+  <Card title="P2P streaming" icon="rocket">
+    share with friends without port forwarding or dynamic DNS.
+  </Card>
+  <Card title="works offline" icon="moon">
+    caches music locally, keep listening without internet. sync yr tunez to yr
+    mobile.
+  </Card>
+  <Card title="cross-platform" icon="puzzle">
+    desktop app for macOS and Linux. CLI for linux geekz && headless servers.
+    web app with offline support for mobile.
+  </Card>
+  <Card title="your files are read-only" icon="document">
+    freqhole reads your music but never writes, moves, renames, or deletes your
+    filez! everything is indexed in a sqlite database.
+  </Card>
+  <Card title="music brainz" icon="magnifier">
+    look up album info, track details, and cover art from MusicBrainz and Cover
+    Art Archive.
+  </Card>
+</CardGrid>
+
+## which client is right for you?
+
+<CardGrid>
+  <Card title="on your desktop or laptop" icon="laptop">
+    use the **[desktop app (charnel)](/getting-started/desktop-setup/)** — a GUI
+    player and server management wizard, or the
+    **[CLI](/getting-started/cli-setup/)** if you prefer the terminal or are
+    running a headless server.
+  </Card>
+  <Card title="on your phone" icon="phone">
+    use the **[web app](https://spume.freqhole.net)** in your mobile browser —
+    it caches your library and music offline, so it keeps working when your
+    connection drops.
+  </Card>
+</CardGrid>
+
+## getting started
+
+<CardGrid>
+  <Card title="download" icon="download">
+    get the [desktop app](/getting-started/download/) or
+    [CLI](/getting-started/cli-setup/) for your platform.
+  </Card>
+  <Card title="setup" icon="setting">
+    configure your [music directories](/guides/scanning/) and start scanning.
+  </Card>
+  <Card title="share" icon="external">
+    [share with friends](/guides/sharing/) using P2P — look ma! no cloud server!
+  </Card>
+  <Card title="reference" icon="open-book">
+    full [configuration overview](/concepts/configuration/) for power users.
+  </Card>
+</CardGrid>

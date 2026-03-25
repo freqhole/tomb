@@ -1,0 +1,141 @@
+---
+title: invite codes
+description: user registration and device linking via invite codes
+---
+
+freqhole uses invite codes to control who can access your server.
+
+## why invite codes?
+
+- **security**: only people you invite can access your music
+- **control**: you can decide who joins and with what role
+- **no passwords**: cuz they're awful
+
+---
+
+## code types
+
+### invite code
+
+creates a new user account.
+
+- user picks their username
+- user sets up optional WebAuthn credential (passkey)
+- assigned role specified when code was created (you can change users' role later)
+
+**creating (CLI):**
+
+```bash
+freqhole auth create-invite
+freqhole auth create-invite --role member
+```
+
+**creating (desktop app / web app, admin only):**
+
+settings → users → create invite code
+
+### account-link code
+
+links a new device to an existing account. only an admin can generate one.
+
+- no username needed (attaches to an existing account)
+- registers a new WebAuthn credential for that device
+- useful when a user gets a new phone or computer
+
+**creating (CLI, admin only):**
+
+```bash
+freqhole auth create-account-link --user-id <id>
+```
+
+**creating (desktop / web app, admin only):**
+
+settings → users → select user → generate device link code
+
+---
+
+## using invite codes
+
+### HTTP registration
+
+1. open the web app (or connect via desktop app)
+2. click "register with invite code"
+3. enter desired username
+4. enter the invite code
+5. optional WebAuthn setup (fingerprint/passkey)
+6. done — you're logged in
+
+### P2P registration
+
+1. add the server's node ID as a remote
+2. connection initiates
+3. enter invite code when prompted (or can request access if knocking is configured)
+4. enter desired username
+5. your device is now linked to the server
+
+---
+
+## code properties
+
+### role
+
+what permissions the new user gets:
+
+- `viewer` (default): read-only, can stream
+- `member`: can edit library
+- `admin`: full control
+
+### expiration
+
+codes can optionally expire:
+
+- by date: code invalid after specified date
+- single-use: most codes are one-time use
+
+### status
+
+codes have states:
+
+- **active**: can be used
+- **used**: already redeemed (shows who used it)
+- **expired**: past expiration date
+
+---
+
+## managing codes
+
+### listing codes
+
+```bash
+freqhole auth list-invite-codes
+```
+
+shows all codes with status, assignee, expiration.
+
+### revoking codes
+
+unused codes can be deleted:
+
+```bash
+freqhole auth delete-invite-code <code>
+```
+
+---
+
+## P2P knock requests
+
+an alternative to invite codes for P2P. requires `knocking_enabled = true` in the `[federation]` config.
+
+1. someone tries to connect without an invite code
+2. a knock request notification appears
+3. an admin can approve (grants viewer access) or deny
+4. approved users get linked automatically
+
+this is useful for casual sharing but less controlled than invite codes.
+
+---
+
+## best practices
+
+- revoke unused codes periodically
+- set expiration for time-limited invites

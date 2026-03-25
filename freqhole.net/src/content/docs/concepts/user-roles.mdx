@@ -1,0 +1,113 @@
+---
+title: user roles
+description: permissions and access control in freqhole
+---
+
+freqhole uses role-based access control to manage what users can do.
+
+## roles
+
+roles in order from most to least privileged: **root**, **admin**, **member**, **viewer**.
+
+### root
+
+the system owner. created automatically on first setup.
+
+- all admin permissions, plus:
+- cannot be deleted or demoted
+
+### admin
+
+full control over the server.
+
+- all member permissions, plus:
+- create and manage users
+- generate invite codes
+- generate account-link codes
+- access maintenance operations
+- view federation/P2P status
+
+### member
+
+standard user with editing rights.
+
+- all viewer permissions, plus:
+- edit song/album/artist metadata
+- delete songs and albums
+- create and edit playlists
+- trigger library scans
+- manage tags and genres
+
+### viewer
+
+read-only access.
+
+- browse songs, albums, artists
+- stream music
+- search the library
+- add favorites and ratings
+- view playback history
+
+---
+
+## permissions matrix
+
+| action                      | root | admin | member | viewer |
+| --------------------------- | :--: | :---: | :----: | :----: |
+| browse library              |  ✓   |   ✓   |   ✓    |   ✓    |
+| stream music                |  ✓   |   ✓   |   ✓    |   ✓    |
+| search                      |  ✓   |   ✓   |   ✓    |   ✓    |
+| add favorites / ratings     |  ✓   |   ✓   |   ✓    |   ✓    |
+| edit song/album metadata    |  ✓   |   ✓   |   ✓    |   ✗    |
+| delete songs/albums         |  ✓   |   ✓   |   ✓    |   ✗    |
+| trigger scan                |  ✓   |   ✓   |   ✓    |   ✗    |
+| manage tags/genres          |  ✓   |   ✓   |   ✓    |   ✗    |
+| create users / invite codes |  ✓   |   ✓   |   ✗    |   ✗    |
+| generate account-link codes |  ✓   |   ✓   |   ✗    |   ✗    |
+| approve knock requests      |  ✓   |   ✓   |   ✗    |   ✗    |
+| server maintenance          |  ✓   |   ✓   |   ✗    |   ✗    |
+
+---
+
+## role assignment
+
+### first user
+
+the first user created on a new server is automatically **root**.
+
+### invite codes
+
+invite codes specify the role of the new user:
+
+```bash
+freqhole auth create-invite --role viewer
+freqhole auth create-invite --role member
+freqhole auth create-invite --role admin
+```
+
+default is **viewer** if not specified.
+
+### changing roles
+
+admins can change user roles:
+
+- web app: settings → users
+- CLI: `freqhole auth update-user <id> --role member`
+
+---
+
+## personal vs shared data
+
+### personal (per-user)
+
+- favorites
+- ratings
+- playback history
+- listen sessions
+
+### shared (library-wide)
+
+- songs, albums, artists
+- album artwork
+- metadata edits
+- public playlists

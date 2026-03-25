@@ -1,0 +1,13 @@
+/* freqhole custom theme - magenta accent */
+
+:root {
+	--sl-color-accent-low: #3d1a4d;
+	--sl-color-accent: #c026d3;
+	--sl-color-accent-high: #f0abfc;
+}
+
+:root[data-theme='light'] {
+	--sl-color-accent-low: #f5d0fe;
+	--sl-color-accent: #a21caf;
+	--sl-color-accent-high: #4a044e;
+}

@@ -1,0 +1,100 @@
+---
+title: web app
+description: using the freqhole web app to connect to servers
+---
+
+the freqhole web app is a browser-based music player that connects to one or more freqhole servers.
+
+## accessing the web app
+
+### hosted version
+
+visit [spume.freqhole.net](https://spume.freqhole.net) — no installation required.
+
+### self-hosted
+
+when running `freqhole serve`, the web app is available at:
+
+```
+http://localhost:8080
+```
+
+or your server's IP address on port 8080 (or whatever port you configured).
+
+---
+
+## adding a remote
+
+a "remote" is a freqhole server you connect to. you can add multiple remotes and switch between them.
+
+### HTTP remote
+
+1. click the remotes menu (top right)
+2. click "add remote"
+3. enter the server URL: `http://192.168.1.50:8080`
+4. enter your credentials or invite code
+
+### P2P remote
+
+1. get the node ID from the server owner
+2. click "add remote"
+3. enter the node ID (looks like: `abc123...xyz`)
+4. enter invite code when prompted
+
+---
+
+## authentication
+
+### with invite code
+
+if you have an invite code:
+
+1. add the remote
+2. choose "register with invite code"
+3. enter your desired username
+4. enter the invite code
+5. account is created and you're logged in
+
+### with account-link code
+
+if a server admin generated a device-link code for your account:
+
+1. add the remote
+2. choose "link existing account"
+3. enter the account-link code
+4. your device is linked to your existing account
+
+### existing account
+
+if you already have an account:
+
+1. add the remote
+2. sign in with your username
+3. complete WebAuthn authentication (passkey/fingerprint)
+
+---
+
+## offline mode
+
+the web app works offline:
+
+- **cached music**: songs you've played are cached locally
+- **cached artwork**: album covers stored in browser
+- **synced library**: full library metadata stored in IndexedDB
+
+when offline:
+
+- browse your entire library
+- play cached songs (indicated by offline icon)
+- queue changes sync when back online
+
+---
+
+## multiple remotes
+
+you can connect to multiple servers:
+
+- each remote has its own library
+- switch between remotes in the menu
+- play from any connected remote
+- favorites and playlists are per-remote

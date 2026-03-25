@@ -1,0 +1,126 @@
+---
+title: web app architecture
+description: how the freqhole web app works
+---
+
+the freqhole web app is a browser-based music player with offline capabilities that connects to one or more freqhole servers ("remotes").
+
+---
+
+## remotes
+
+a **remote** is a freqhole server you connect to.
+
+### adding remotes
+
+you can add multiple remotes:
+
+- your home server (HTTP)
+- a friend's server (P2P)
+- demo server (HTTP)
+
+each remote has:
+
+- connection info (URL or node ID)
+- your account on that server
+- its own library of music
+
+### switching remotes
+
+the currently active remote is shown in the header. switch between remotes to browse different libraries.
+
+---
+
+## local storage
+
+the web app stores data in your browser — nothing is written to your file system.
+
+### what's stored
+
+- **library metadata**: all songs, albums, artists, playlists (IndexedDB)
+- **album artwork**: thumbnails and full-size covers (IndexedDB)
+- **audio files**: songs you've played, for offline use (OPFS — a private browser file system)
+- **user preferences**: volume, queue, view settings (IndexedDB)
+
+OPFS (Origin Private File System) is a sandboxed storage area provided by the browser — it's not visible in your file manager and other sites can't access it.
+
+see [where music lives](/concepts/storage/) for a full breakdown of storage across all client types.
+
+---
+
+## offline mode
+
+the web app works without a network connection.
+
+### what works offline
+
+- browse your entire library (metadata is cached)
+- view album artwork (cached on first view)
+- play cached songs
+- create/edit playlists (syncs when online)
+
+### offline indicators
+
+- status badge shows "offline"
+- uncached songs show a cloud icon
+- playback attempts on uncached songs show a message
+
+### syncing
+
+when the connection returns:
+
+- library changes sync automatically
+- queue changes apply
+- new artwork downloads
+- pending actions complete
+
+---
+
+## caching behavior
+
+### automatic caching
+
+- album artwork: cached when viewed
+- recently played songs: cached after playback
+- library metadata: synced periodically
+- queue items from remotes are saved locally as they play
+
+see [where music lives](/concepts/storage/) for details on how remote and P2P audio is saved.
+
+### manual caching
+
+download specific content for offline use:
+
+- download album: caches all songs + artwork
+- download playlist: caches all songs in playlist
+
+### cache management
+
+in settings:
+
+- view cache size per remote
+- clear cached audio (keeps artwork)
+- clear everything
+
+---
+
+## authentication
+
+### WebAuthn (passkeys)
+
+the web app uses WebAuthn for authentication:
+
+- no passwords to remember
+- uses device biometrics (fingerprint, Face ID)
+- secure against phishing
+- one passkey per device
+
+:::caution[HTTPS required]
+WebAuthn only works with remotes served over HTTPS (or `localhost`). it also doesn't work for P2P remotes. if your server is on a plain HTTP address (e.g. `http://192.168.1.50:8080`) or connected via P2P, passkey login won't be available — use an API key or invite code instead.
+:::
+
+### session persistence
+
+- sessions stored in browser
+- stay logged in until you log out
+- each remote has separate session

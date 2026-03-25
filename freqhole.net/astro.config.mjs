@@ -1,0 +1,63 @@
+// @ts-check
+import { defineConfig } from 'astro/config';
+import starlight from '@astrojs/starlight';
+import starlightBlog from 'starlight-blog';
+
+// https://astro.build/config
+export default defineConfig({
+	site: 'https://freqhole.net',
+	integrations: [
+		starlight({
+			title: 'freqhole',
+			tagline: 'your music, your network, your rules',
+			customCss: ['./src/styles/custom.css'],
+			head: [
+				{ tag: 'link', attrs: { rel: 'icon', href: '/favicon.ico', sizes: 'any' } },
+			],
+			plugins: [
+				starlightBlog({
+					title: 'blog',
+					authors: {
+						edward: {
+							name: 'edward',
+						},
+					},
+				}),
+			],
+			social: [{ icon: 'github', label: 'GitHub', href: 'https://github.com/freqhole/tomb' }],
+			sidebar: [
+				{
+					label: 'getting started',
+					items: [
+						{ label: 'download', slug: 'getting-started/download' },
+						{ label: 'prerequisites', slug: 'getting-started/prerequisites' },
+						{ label: 'desktop app setup', slug: 'getting-started/desktop-setup' },
+						{ label: 'CLI setup', slug: 'getting-started/cli-setup' },
+						{ label: 'web app', slug: 'getting-started/web-app' },
+					],
+				},
+				{
+					label: 'concepts',
+					items: [
+						{ label: 'configuration', slug: 'concepts/configuration' },
+						{ label: 'HTTP vs P2P', slug: 'concepts/transports' },
+						{ label: 'web app architecture', slug: 'concepts/web-app' },
+						{ label: 'where music lives', slug: 'concepts/storage' },
+						{ label: 'user roles', slug: 'concepts/user-roles' },
+						{ label: 'invite codes', slug: 'concepts/invite-codes' },
+					],
+				},
+				{
+					label: 'guides',
+					items: [
+						{ label: 'scanning music', slug: 'guides/scanning' },
+						{ label: 'MusicBrainz integration', slug: 'guides/musicbrainz' },
+						{ label: 'sharing with friends', slug: 'guides/sharing' },
+						{ label: 'maintenance', slug: 'guides/maintenance' },
+					],
+				},
+
+			],
+		}),
+	],
+});

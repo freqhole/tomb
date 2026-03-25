@@ -1,0 +1,131 @@
+---
+title: where music lives
+description: how freqhole stores music and metadata across different clients
+---
+
+freqhole reads your music collection — it never moves, renames, or deletes your files. here's where data lives depending on how you're running freqhole.
+
+---
+
+## the server (desktop app or CLI)
+
+the server holds two things:
+
+- **your music files** — wherever you already have them. freqhole scans a directory you point it at. it reads the files to extract metadata and artwork, then leaves them alone.
+- **a metadata database** — a single SQLite file (by default `data/grimoire.db`) that stores song titles, artists, albums, artwork, playlists, user accounts, and playback history. this is everything freqhole knows about your library.
+
+freqhole does **not** copy, move, or rename your audio files. if you delete a file from disk, freqhole will show it as missing — it won't clean it up on your behalf unless you explicitly run a maintenance command.
+
+### where the database lives
+
+| how you're running  | default location                                                      |
+| ------------------- | --------------------------------------------------------------------- |
+| desktop app (macOS) | `~/Library/Application Support/net.freqhole.charnel/data/grimoire.db` |
+| desktop app (Linux) | `~/.local/share/freqhole/data/grimoire.db`                            |
+| CLI                 | `./data/grimoire.db` (relative to config file, configurable)          |
+
+the `data_dir` setting in `freqhole-config.toml` controls this:
+
+```toml
+data_dir = "/home/user/freqhole-data"
+```
+
+### album artwork
+
+cover art extracted from your files — and art fetched from MusicBrainz — is stored as binary blobs inside `data/grimoire-blobdata.db`, not as separate files on disk. thumbnails at multiple sizes are pre-generated and stored the same way.
+
+---
+
+### uploaded files
+
+files uploaded via the web UI are saved to a date-based directory under `server.fetch_music.output_dir` (or `data/fetch/` if that config key isn't set):
+
+```
+{output_dir}/{YYYY}/{MM}/{blob_id}.{ext}
+# e.g. /path/to/fetch/2026/03/a1b2c3d4.mp3
+```
+
+the filename is the internal blob ID — the original filename is stored in the database.
+
+### yt-dlp fetched files
+
+when fetching music by URL, each job gets its own subdirectory so partial downloads don't collide. the filenames come from the yt-dlp `--output` template in your config (default: `uploader-title-[id].mp3`):
+
+```
+{output_dir}/{job_id}/Artist-Title-[youtube-id].mp3
+```
+
+`output_dir` must be an **absolute path** in `freqhole-config.toml`:
+
+```toml
+[server.fetch_music]
+output_dir = "/absolute/path/to/fetch"
+```
+
+### music synced from remotes
+
+when you save music from a remote server (P2P or HTTP), it's organized into artist/album folders under `server.fetch_music.output_dir` (or `data/synced/` if not set):
+
+```
+{output_dir}/{artist}/{album}/{track}-{title}.{ext}
+# e.g. data/synced/The Beatles/Abbey Road/01-Come Together.mp3
+
+# multi-disc albums include the disc number:
+# data/synced/Pink Floyd/The Wall/01-01-In the Flesh.mp3
+```
+
+special characters in artist, album, and title are stripped from directory and filenames. if a file already exists at that path, a numeric suffix is appended (`-1`, `-2`, etc.) — existing files are never overwritten.
+
+---
+
+## the web app
+
+the web app stores everything locally in your browser. nothing is written to your file system.
+
+### library metadata
+
+when you connect to a server, the web app syncs the library index to **IndexedDB** — a structured database built into every modern browser. this is what lets you browse your full library offline.
+
+### audio files
+
+played audio is cached using the **Origin Private File System (OPFS)** — a private, sandboxed storage area that browsers provide to web apps. OPFS is not accessible to other sites or visible in your regular file manager.
+
+cached audio lets you keep listening when you're offline or have a slow connection. you can control how much is cached and clear it at any time from the app's settings.
+
+### artwork
+
+album thumbnails and full-size artwork are stored in IndexedDB alongside the library metadata.
+
+### saving music from remotes
+
+when you play or queue music from a remote server, the audio is saved to OPFS by default — so it's available offline the next time. a few specifics:
+
+- **queue auto-save**: anything added to the queue from a remote is saved locally as it plays, ready for offline use.
+- **P2P remotes**: music fetched over P2P is also saved locally by default.
+
+both behaviors can be turned off in settings if you'd prefer not to keep local copies.
+
+:::danger[purge]
+to clear everything, use the app's settings or clear site data for `spume.freqhole.net` (or your self-hosted origin) in your browser's settings.
+:::
+
+---
+
+## the desktop app (charnel)
+
+charnel uses a local freqhole server embedded in the application. all storage follows the same rules as the CLI server above — the database and blob storage live on disk in the app's data directory, and your music files stay wherever you put them.
+
+the app also has a local web view (similar to the web app), but because it talks to the local embedded server over a private channel, audio and artwork are served directly — no OPFS caching needed.
+
+---
+
+## backing up
+
+to back up your freqhole setup you need:
+
+1. **`data/grimoire.db`** — main database: metadata, playlists, accounts
+2. **`data/grimoire-blobdata.db`** — blob binary data (artwork, thumbnails)
+3. **`data/blobs/`** — blob files on disk
+4. **`data/fetch/`** — any music downloaded via the fetch feature (if you use it)
+
+your original audio files are managed entirely by you.
