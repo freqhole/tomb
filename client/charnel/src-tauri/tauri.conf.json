@@ -15,7 +15,7 @@
       "csp": null,
       "assetProtocol": {
         "enable": true,
-        "scope": ["**"]
+        "scope": ["$HOME/**", "$APPDATA/**", "$APPLOCALDATA/**", "/home/**", "/var/home/**", "/run/flatpak/**", "/tmp/**"]
       }
     }
   },
