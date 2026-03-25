@@ -1,9 +1,9 @@
 ---
-title: freqhole.net site launch
+title: freqhole.net site
 date: 2026-03-24T12:00:00Z
 authors:
   - edward
-excerpt: launching freqhole.net — for documentation, guides, and project updatez.
+excerpt: freqhole.net — for documentation, guides, and project updatez.
 tags:
   - announcement
 ---
