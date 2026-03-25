@@ -22,3 +22,4 @@ data/dev.db
 /client/charnel/.vite
 /freqhole.net/dist
 /freqhole.net/.astro
+flatpak/freqhole.deb
