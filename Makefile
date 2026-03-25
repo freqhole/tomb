@@ -168,6 +168,10 @@ info:
 	@echo "  make build-tauri-linux-intel - Linux x86_64 .deb/.rpm (Docker)"
 	@echo "  make build-tauri-linux-arm64 - Linux aarch64 .deb/.rpm (Docker)"
 	@echo ""
+	@echo "Flatpak (via Docker, needs .deb first):"
+	@echo "  make build-flatpak-intel - Linux x86_64 .flatpak"
+	@echo "  make build-flatpak-arm64 - Linux aarch64 .flatpak"
+	@echo ""
 	@echo "Code signing env vars (set in .env):"
 	@echo "  APPLE_SIGNING_IDENTITY - signing identity (e.g. \"Developer ID Application: ...\")"
 	@echo "  APPLE_ID               - Apple ID email (for notarization)"
@@ -269,7 +273,32 @@ build-tauri-linux-arm64:
 		       cp /app/target/aarch64-unknown-linux-gnu/release/bundle/rpm/*.rpm /output/"
 	@echo "built: $(BUILD_DIR)/$(VERSION)/freqhole_$(VERSION)_arm64.deb"
 	@echo "built: $(BUILD_DIR)/$(VERSION)/freqhole-$(VERSION)-1.aarch64.rpm"
+# Flatpak builds (via Docker - no special privileges needed)
+.PHONY: build-flatpak-intel build-flatpak-arm64 build-flatpak-builder
 
+# build the flatpak builder image (includes GNOME runtime, ~1GB download first time)
+build-flatpak-builder:
+	@echo "building flatpak builder image (includes GNOME Platform runtime)..."
+	docker build -f Dockerfile.flatpak -t freqhole-flatpak-builder --platform linux/amd64 .
+
+build-flatpak-intel: $(BUILD_DIR)/$(VERSION)/freqhole_$(VERSION)_amd64.deb build-flatpak-builder
+	@echo "building Flatpak for x86_64..."
+	docker run --rm --privileged \
+		-v $(PWD)/$(BUILD_DIR)/$(VERSION):/debs:ro \
+		-v $(PWD)/$(BUILD_DIR)/$(VERSION):/output \
+		freqhole-flatpak-builder \
+		/debs/freqhole_$(VERSION)_amd64.deb /output/freqhole_$(VERSION)_x86_64.flatpak x86_64
+	@echo "built: $(BUILD_DIR)/$(VERSION)/freqhole_$(VERSION)_x86_64.flatpak"
+
+build-flatpak-arm64: $(BUILD_DIR)/$(VERSION)/freqhole_$(VERSION)_arm64.deb
+	@echo "building Flatpak for aarch64..."
+	docker build -f Dockerfile.flatpak -t freqhole-flatpak-builder-arm64 --platform linux/arm64 .
+	docker run --rm --privileged \
+		-v $(PWD)/$(BUILD_DIR)/$(VERSION):/debs:ro \
+		-v $(PWD)/$(BUILD_DIR)/$(VERSION):/output \
+		freqhole-flatpak-builder-arm64 \
+		/debs/freqhole_$(VERSION)_arm64.deb /output/freqhole_$(VERSION)_aarch64.flatpak aarch64
+	@echo "built: $(BUILD_DIR)/$(VERSION)/freqhole_$(VERSION)_aarch64.flatpak"
 # version management
 .PHONY: bump-version
 bump-version:

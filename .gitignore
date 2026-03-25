@@ -20,3 +20,5 @@ data/dev.db
 /freqhole-config.toml
 
 /client/charnel/.vite
+/freqhole.net/dist
+/freqhole.net/.astro

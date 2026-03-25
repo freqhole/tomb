@@ -1,0 +1,26 @@
+# Dockerfile for building Flatpak from pre-built .deb
+# Uses flatpak build-* commands directly, avoiding flatpak-builder's sandbox requirements
+#
+# Usage:
+#   docker build -f Dockerfile.flatpak -t freqhole-flatpak-builder .
+#   docker run --rm -v $(pwd)/build/0.1.12:/debs -v $(pwd)/build/0.1.12:/output \
+#       freqhole-flatpak-builder /debs/freqhole_0.1.12_amd64.deb /output/freqhole.flatpak x86_64
+
+FROM fedora:40
+
+# install flatpak (not flatpak-builder - we don't need it!)
+RUN dnf install -y \
+    flatpak \
+    binutils \
+    && dnf clean all
+
+# add flathub and install runtime (required for build-finish to validate)
+RUN flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo && \
+    flatpak install -y --noninteractive flathub org.gnome.Platform//50 org.gnome.Sdk//50
+
+WORKDIR /app
+COPY flatpak/build-flatpak.sh /app/build-flatpak.sh
+COPY flatpak/net.freqhole.freqhole.metainfo.xml /app/net.freqhole.freqhole.metainfo.xml
+RUN chmod +x /app/build-flatpak.sh
+
+ENTRYPOINT ["/app/build-flatpak.sh"]
