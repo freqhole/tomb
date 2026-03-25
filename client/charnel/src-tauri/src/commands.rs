@@ -16,6 +16,14 @@ use crate::spume_bridge::{
 };
 use crate::ShutdownToken;
 
+/// resolve a path to its canonical form, falling back to the original if resolution fails.
+/// this handles Flatpak document portal paths and symlinks.
+fn canonicalize_or_original(path: &str) -> String {
+    std::fs::canonicalize(path)
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_else(|_| path.to_string())
+}
+
 /// ensure config is initialized, returns Ok if already initialized or successfully initialized
 fn ensure_config_initialized(config_path: &PathBuf) -> Result<(), String> {
     if grimoire::is_config_initialized() {
@@ -126,6 +134,12 @@ pub async fn run_setup_core(
     federation_enabled: Option<bool>,
     knocking_enabled: Option<bool>,
 ) -> grimoire::setup::SetupResult {
+    // resolve paths to canonical form (safety net for Flatpak portal paths / symlinks)
+    let data_dir = canonicalize_or_original(&data_dir);
+    let config_path = canonicalize_or_original(&config_path);
+    let fetch_music_dir = fetch_music_dir.map(|p| canonicalize_or_original(&p));
+    let image_path = image_path.map(|p| canonicalize_or_original(&p));
+
     let deps = grimoire::setup::check_dependencies();
 
     // set allowed origins based on build type
@@ -309,6 +323,18 @@ async fn check_has_root_user() -> Result<bool, String> {
     let service = grimoire::users::UserService::new();
     let result = service.get_first_root_user().await;
     Ok(result.is_success())
+}
+
+/// resolve a file path to its canonical form (resolves symlinks, portal paths, etc.)
+///
+/// this is needed because Flatpak's file picker returns document portal paths
+/// like /run/user/1000/doc/9a798d25/Music/ which are ephemeral and break after restart.
+/// canonicalize resolves these to the real filesystem path.
+#[tauri::command]
+pub fn resolve_path(path: String) -> Result<String, String> {
+    std::fs::canonicalize(&path)
+        .map(|p| p.to_string_lossy().to_string())
+        .map_err(|e| format!("failed to resolve path '{}': {}", path, e))
 }
 
 /// get the default app data directory path
@@ -881,6 +907,9 @@ pub async fn scan_directory(
             message: format!("initialization failed: {}", e),
         };
     }
+
+    // resolve to canonical path (safety net for Flatpak portal paths / symlinks)
+    let path = canonicalize_or_original(&path);
 
     // check if path exists
     if !std::path::Path::new(&path).exists() {
@@ -2374,7 +2403,11 @@ pub fn read_logs(app_handle: tauri::AppHandle, max_lines: Option<usize>) -> Vec<
     let lines: Vec<String> = reader.lines().filter_map(|l| l.ok()).collect();
 
     // take at most max_lines from the end (newest)
-    let start = if lines.len() > max { lines.len() - max } else { 0 };
+    let start = if lines.len() > max {
+        lines.len() - max
+    } else {
+        0
+    };
 
     lines[start..]
         .iter()

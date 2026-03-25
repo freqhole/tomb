@@ -1,6 +1,7 @@
 import { createSignal, onMount, For, Show } from "solid-js";
 import { open } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
+import { resolvePath } from "../util/resolvePath";
 
 interface ScannedDir {
   id: string;
@@ -50,7 +51,7 @@ export default function LibraryView() {
         title: "choose music directory to scan",
       });
       if (selected) {
-        setPendingPath(selected as string);
+        setPendingPath(await resolvePath(selected as string));
         setPendingTags("");
         setShowAddModal(true);
       }

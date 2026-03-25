@@ -2,6 +2,7 @@ import { createSignal, Show, onMount, onCleanup, For } from "solid-js";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useNavigate } from "@solidjs/router";
+import { resolvePath } from "../util/resolvePath";
 import { listen } from "@tauri-apps/api/event";
 
 // step flow: welcome → config → running → admin → music → done
@@ -166,7 +167,7 @@ export default function SetupView() {
         defaultPath: dataDir() || appDataDir() || undefined,
       });
       if (selected) {
-        setDataDir(selected as string);
+        setDataDir(await resolvePath(selected as string));
       }
     } catch (e) {
       console.error("browse error:", e);
@@ -182,7 +183,7 @@ export default function SetupView() {
         defaultPath: fetchMusicDir() || dataDir() || undefined,
       });
       if (selected) {
-        setFetchMusicDir(selected as string);
+        setFetchMusicDir(await resolvePath(selected as string));
       }
     } catch (e) {
       console.error("browse fetch music dir error:", e);
@@ -200,7 +201,7 @@ export default function SetupView() {
         ],
       });
       if (selected) {
-        setServerImage(selected as string);
+        setServerImage(await resolvePath(selected as string));
       }
     } catch (e) {
       console.error("browse image error:", e);
@@ -273,9 +274,10 @@ export default function SetupView() {
         title: "choose music directory",
       });
       if (selected) {
+        const resolved = await resolvePath(selected as string);
         setMusicDirs([
           ...musicDirs(),
-          { path: selected as string, tags: [], scanned: false },
+          { path: resolved, tags: [], scanned: false },
         ]);
       }
     } catch (e) {

@@ -395,6 +395,7 @@ pub fn run() {
             commands::run_setup_core,
             commands::create_admin_user,
             commands::get_default_data_dir,
+            commands::resolve_path,
             commands::get_os_username,
             commands::get_app_version,
             commands::get_config_path,

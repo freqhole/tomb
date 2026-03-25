@@ -1,6 +1,7 @@
 import { createSignal, onMount, Show } from "solid-js";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
+import { resolvePath } from "../util/resolvePath";
 import ConfigView from "./ConfigView";
 
 interface ServerConfig {
@@ -133,10 +134,11 @@ export default function SettingsView() {
         setImageIsError(false);
 
         try {
+          const resolved = await resolvePath(selected as string);
           const result = await invoke<UpdateServerImageResult>(
             "update_server_image",
             {
-              imagePath: selected,
+              imagePath: resolved,
             },
           );
 
