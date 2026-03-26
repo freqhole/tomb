@@ -29,6 +29,32 @@ export class BlobResult {
     size(): number;
 }
 
+/**
+ * handle for a subscribed gossip topic
+ *
+ * holds sender and receiver halves. dropping this leaves the topic.
+ */
+export class GossipHandle {
+    private constructor();
+    free(): void;
+    [Symbol.dispose](): void;
+    /**
+     * broadcast a message to all peers in the topic
+     */
+    broadcast(message: Uint8Array): Promise<void>;
+    /**
+     * receive the next event from the topic
+     *
+     * returns a JSON string with the event:
+     * - {"type":"received","content":<base64>,"from":"<node_id>"}
+     * - {"type":"neighbor_up","node_id":"<node_id>"}
+     * - {"type":"neighbor_down","node_id":"<node_id>"}
+     * - {"type":"lagged"}
+     * - null if the topic is closed
+     */
+    recv(): Promise<any>;
+}
+
 export class IntoUnderlyingByteSource {
     private constructor();
     free(): void;
@@ -60,9 +86,10 @@ export class IntoUnderlyingSource {
 /**
  * browser P2P node for freqhole federation
  *
- * supports two protocols:
+ * supports three protocols:
  * - freqhole/1: API proxying and small blob streaming
  * - iroh-blobs: verified streaming for audio files
+ * - iroh-gossip: pub/sub messaging for channels
  */
 export class MiddenNode {
     private constructor();
@@ -143,6 +170,22 @@ export class MiddenNode {
      * peer_addr can be plain node_id or full endpoint JSON with relay/IP hints
      */
     fetch_hello_image(peer_addr: string): Promise<BlobResult>;
+    /**
+     * subscribe to a gossip topic and wait until joined (at least one peer connected)
+     *
+     * topic_hex: 32-byte topic id as 64 hex chars
+     * bootstrap_peers: JSON array of node_id strings (peers already in the topic)
+     *
+     * returns a GossipHandle for sending/receiving on this topic
+     */
+    gossip_join(topic_hex: string, bootstrap_peers_json: string): Promise<GossipHandle>;
+    /**
+     * subscribe to a gossip topic without waiting for peers
+     *
+     * useful when you're the first peer (no bootstrap needed).
+     * returns a GossipHandle immediately.
+     */
+    gossip_subscribe(topic_hex: string, bootstrap_peers_json: string): Promise<GossipHandle>;
     /**
      * get our node_id (iroh public key)
      */
