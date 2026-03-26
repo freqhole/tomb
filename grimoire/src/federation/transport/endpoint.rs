@@ -136,7 +136,9 @@ impl FederationEndpoint {
             .accept(iroh_gossip::ALPN, gossip.clone())
             .spawn();
 
-        info!("[p2p-endpoint] router started with ALPNs: freqhole/1, /iroh-bytes/4, /iroh-gossip/1");
+        info!(
+            "[p2p-endpoint] router started with ALPNs: freqhole/1, /iroh-bytes/4, /iroh-gossip/1"
+        );
 
         self.gossip = Some(gossip);
         self.router = Some(router);
