@@ -22,6 +22,7 @@ export interface FriendThreadViewProps {
   onAddToQueue?: (item: MusicReference) => void;
   onAddToPlaylist?: (item: MusicReference) => void;
   onBack?: () => void;
+  onUnfriend?: (nodeId: string) => void;
   resolveAvatar?: (name: string | null) => string | null;
   /** how many messages to show initially (load more on scroll up) */
   initialPageSize?: number;
@@ -31,8 +32,12 @@ export function FriendThreadView(props: FriendThreadViewProps) {
   let scrollRef: HTMLDivElement | undefined;
   const pageSize = () => props.initialPageSize ?? 20;
 
-  // sort messages oldest-first (newest at bottom, like a chat)
-  const sorted = createMemo(() => [...props.messages].sort((a, b) => a.timestamp - b.timestamp));
+  // sort messages oldest-first (newest at bottom, like a chat), exclude system messages
+  const sorted = createMemo(() =>
+    [...props.messages]
+      .filter((m) => m.msg_type !== "System")
+      .sort((a, b) => a.timestamp - b.timestamp)
+  );
 
   // pagination — show last N messages, load more on scroll up
   const [visibleCount, setVisibleCount] = createSignal(pageSize());
@@ -97,6 +102,7 @@ export function FriendThreadView(props: FriendThreadViewProps) {
                 src={props.friend.avatar_url!}
                 alt={props.friend.display_name}
                 class="w-full h-full object-cover"
+                loading="lazy"
               />
             </Show>
           </div>
@@ -112,6 +118,15 @@ export function FriendThreadView(props: FriendThreadViewProps) {
             {sorted().length} {sorted().length === 1 ? "message" : "messages"} across channels
           </p>
         </div>
+        <Show when={props.onUnfriend}>
+          <button
+            class="flex-shrink-0 text-[11px] text-[var(--color-text-tertiary)] hover:text-red-400 transition-colors"
+            onClick={() => props.onUnfriend?.(props.friend.node_id)}
+            title={`unfriend ${props.friend.display_name}`}
+          >
+            unfriend
+          </button>
+        </Show>
       </div>
 
       {/* message list — newest at bottom */}

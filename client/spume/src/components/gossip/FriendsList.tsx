@@ -208,7 +208,7 @@ export function FriendsList(props: FriendsListProps) {
 
       {/* add friend button */}
       <Show when={props.onAddFriend}>
-        <div class="px-3 py-2">
+        <div class="px-3 py-2 sticky bottom-0 bg-[var(--color-bg-primary)]">
           <button
             class="text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-accent-500)] transition-colors"
             onClick={() => props.onAddFriend?.()}

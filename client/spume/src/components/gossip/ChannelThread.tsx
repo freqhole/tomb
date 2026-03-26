@@ -20,6 +20,11 @@ import type {
 import { GossipMessageCard } from "./GossipMessageCard";
 import { ComposeBar } from "./ComposeBar";
 import { Badge } from "../badges/Badge";
+import { LoadingMoreIndicator } from "../feedback/LoadingMoreIndicator";
+import {
+  MessageReactionOverlay,
+  createMessageReaction,
+} from "./MessageReactionOverlay";
 
 export interface ChannelThreadProps {
   channel: GossipChannel;
@@ -52,6 +57,10 @@ export interface ChannelThreadProps {
   /** set of pending friend request node_ids */
   pendingFriendNodeIds?: Set<string>;
   onAddFriend?: (nodeId: string) => void;
+  /** show loading skeleton while messages arrive */
+  loading?: boolean;
+  /** show "loading more" indicator at top while fetching older messages */
+  loadingMore?: boolean;
 }
 
 const ESTIMATE_ROW_HEIGHT = 120;
@@ -161,6 +170,37 @@ export function ChannelThread(props: ChannelThreadProps) {
   // scroll to unread or bottom on channel switch
   // use createMemo for topicId — has equality check, prevents spurious fires
   const topicId = createMemo(() => props.channel.topic_id);
+
+  // helper: scroll to the right position (unread divider, saved position, or bottom)
+  const scrollToInitialPosition = () => {
+    requestAnimationFrame(() => {
+      const scroll = scrollRef
+        ? `scrollH=${scrollRef.scrollHeight} scrollT=${scrollRef.scrollTop} clientH=${scrollRef.clientHeight}`
+        : "no-ref";
+      if (props.savedScrollTop !== undefined && scrollRef) {
+        console.log(`[ct ${ts()}] restore scroll: ${props.savedScrollTop} (${scroll})`);
+        scrollRef.scrollTo({ top: props.savedScrollTop });
+      } else {
+        const unreadIdx = firstUnreadIndex();
+        if (unreadIdx > 0) {
+          console.log(`[ct ${ts()}] scroll to unread idx ${unreadIdx} (${scroll})`);
+          virtualizer.scrollToIndex(unreadIdx, { align: "start" });
+          requestAnimationFrame(() => {
+            virtualizer.scrollToIndex(unreadIdx, { align: "start" });
+          });
+        } else if (props.messages.length > 0) {
+          console.log(
+            `[ct ${ts()}] scroll to bottom idx ${props.messages.length - 1} (${scroll})`
+          );
+          virtualizer.scrollToIndex(props.messages.length - 1, { align: "end" });
+          requestAnimationFrame(() => {
+            virtualizer.scrollToIndex(props.messages.length - 1, { align: "end" });
+          });
+        }
+      }
+    });
+  };
+
   createEffect(
     on(topicId, (id) => {
       console.log(`[ct ${ts()}] channel switch: ${id}, msgs=${props.messages.length}`);
@@ -169,35 +209,25 @@ export function ChannelThread(props: ChannelThreadProps) {
       // real cache clear — different channel = different content
       console.log(`[ct ${ts()}] origMeasure() — real cache clear for channel switch`);
       origMeasure();
-      requestAnimationFrame(() => {
-        const scroll = scrollRef
-          ? `scrollH=${scrollRef.scrollHeight} scrollT=${scrollRef.scrollTop} clientH=${scrollRef.clientHeight}`
-          : "no-ref";
-        if (props.savedScrollTop !== undefined && scrollRef) {
-          console.log(`[ct ${ts()}] restore scroll: ${props.savedScrollTop} (${scroll})`);
-          scrollRef.scrollTo({ top: props.savedScrollTop });
-        } else {
-          const unreadIdx = firstUnreadIndex();
-          if (unreadIdx > 0) {
-            console.log(`[ct ${ts()}] scroll to unread idx ${unreadIdx} (${scroll})`);
-            virtualizer.scrollToIndex(unreadIdx, { align: "start" });
-            // second pass after measurements settle — estimated sizes shift positions
-            requestAnimationFrame(() => {
-              virtualizer.scrollToIndex(unreadIdx, { align: "start" });
-            });
-          } else if (props.messages.length > 0) {
-            console.log(
-              `[ct ${ts()}] scroll to bottom idx ${props.messages.length - 1} (${scroll})`
-            );
-            virtualizer.scrollToIndex(props.messages.length - 1, { align: "end" });
-            // second pass after measurements settle
-            requestAnimationFrame(() => {
-              virtualizer.scrollToIndex(props.messages.length - 1, { align: "end" });
-            });
-          }
-        }
-      });
+      // if not loading, scroll immediately; otherwise the loading→done effect handles it
+      if (!props.loading) {
+        scrollToInitialPosition();
+      }
     })
+  );
+
+  // scroll to correct position when loading finishes (loading transitions true→false)
+  createEffect(
+    on(
+      () => props.loading,
+      (loading, prevLoading) => {
+        if (prevLoading === true && loading === false) {
+          console.log(`[ct ${ts()}] loading finished, scrolling to position`);
+          origMeasure();
+          scrollToInitialPosition();
+        }
+      }
+    )
   );
 
   const handleScroll = () => {
@@ -208,8 +238,8 @@ export function ChannelThread(props: ChannelThreadProps) {
     const distFromBottom = scrollRef.scrollHeight - scrollRef.scrollTop - scrollRef.clientHeight;
     setShowBackToCurrent(distFromBottom > scrollRef.clientHeight * 2);
 
-    // load more on scroll near top
-    if (props.onLoadMore && scrollRef.scrollTop < 100) {
+    // load more on scroll near top (skip if already loading)
+    if (props.onLoadMore && !props.loadingMore && scrollRef.scrollTop < 100) {
       const prevHeight = scrollRef.scrollHeight;
       props.onLoadMore();
       requestAnimationFrame(() => {
@@ -237,6 +267,9 @@ export function ChannelThread(props: ChannelThreadProps) {
 
   const allowText = () => props.channel.allow_text !== false;
   const [showMembersFlyout, setShowMembersFlyout] = createSignal(false);
+
+  // reaction overlay — single instance shared across all messages
+  const reactions = createMessageReaction();
   const isCreator = () => props.channel.creator_node_id === props.currentNodeId;
 
   // sorted members: creator first, then alphabetical
@@ -278,7 +311,11 @@ export function ChannelThread(props: ChannelThreadProps) {
         <div class="flex items-center gap-2 flex-shrink-0">
           {/* inline member avatars (wide only) */}
           <Show when={props.members && props.members.length > 0}>
-            <div class="hidden wide:flex items-center -space-x-1.5">
+            <button
+              class="hidden wide:flex items-center -space-x-1.5"
+              onClick={() => setShowMembersFlyout((v) => !v)}
+              title="show members"
+            >
               <For each={shortMembers()}>
                 {(member) => (
                   <div
@@ -297,6 +334,7 @@ export function ChannelThread(props: ChannelThreadProps) {
                         src={props.resolveAvatar!(member.display_name)!}
                         alt={member.display_name}
                         class="w-full h-full object-cover"
+                        loading="lazy"
                       />
                     </Show>
                   </div>
@@ -309,7 +347,7 @@ export function ChannelThread(props: ChannelThreadProps) {
                   </span>
                 </div>
               </Show>
-            </div>
+            </button>
           </Show>
 
           {/* members count button — opens flyout */}
@@ -325,9 +363,9 @@ export function ChannelThread(props: ChannelThreadProps) {
 
             {/* members flyout */}
             <Show when={showMembersFlyout()}>
-              <div class="absolute right-0 top-full mt-1 w-64 bg-[var(--color-bg-elevated)] rounded-lg shadow-xl border border-[var(--color-border-primary)]/20 z-50 overflow-hidden">
+              <div class="absolute right-0 top-full mt-1 w-64 bg-[var(--color-bg-elevated)] rounded-lg shadow-xl z-50 overflow-hidden">
                 {/* flyout header */}
-                <div class="px-3 py-2 border-b border-[var(--color-border-primary)]/10">
+                <div class="px-3 py-2">
                   <span class="text-xs font-medium text-[var(--color-text-secondary)]">
                     members ({props.members?.length ?? 0})
                   </span>
@@ -351,6 +389,7 @@ export function ChannelThread(props: ChannelThreadProps) {
                               src={props.resolveAvatar!(member.display_name)!}
                               alt={member.display_name}
                               class="w-full h-full object-cover"
+                              loading="lazy"
                             />
                           </Show>
                         </div>
@@ -392,7 +431,7 @@ export function ChannelThread(props: ChannelThreadProps) {
                 </div>
 
                 {/* flyout actions */}
-                <div class="border-t border-[var(--color-border-primary)]/10 px-3 py-2 flex flex-col gap-1">
+                <div class="px-3 py-2 flex flex-col gap-1">
                   <Show when={props.onAddMember}>
                     <button
                       class="w-full text-left text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-accent-500)] transition-colors py-0.5 cursor-pointer"
@@ -443,96 +482,137 @@ export function ChannelThread(props: ChannelThreadProps) {
       {/* virtualized message list */}
       <div ref={scrollRef} class="flex-1 overflow-y-auto px-1 py-2" onScroll={handleScroll}>
         <Show
-          when={props.messages.length > 0}
+          when={!props.loading}
           fallback={
-            <div class="flex items-center justify-center h-full">
-              <p class="text-sm text-[var(--color-text-tertiary)]">
-                no messages yet — be the first to share something
-              </p>
+            <div class="flex flex-col gap-4 p-4 animate-pulse">
+              <For each={[1, 2, 3, 4]}>
+                {() => (
+                  <div class="flex gap-2.5">
+                    <div class="w-8 h-8 rounded-full bg-[var(--color-bg-tertiary)]" />
+                    <div class="flex-1 space-y-2">
+                      <div class="flex gap-2 items-center">
+                        <div class="h-3 w-16 rounded bg-[var(--color-bg-tertiary)]" />
+                        <div class="h-2 w-10 rounded bg-[var(--color-bg-tertiary)]" />
+                      </div>
+                      <div class="h-3 w-3/4 rounded bg-[var(--color-bg-tertiary)]" />
+                      <div class="h-3 w-1/2 rounded bg-[var(--color-bg-tertiary)]" />
+                    </div>
+                  </div>
+                )}
+              </For>
             </div>
           }
         >
-          <div
-            style={{
-              height: `${virtualizer.getTotalSize()}px`,
-              width: "100%",
-              position: "relative",
-            }}
+          <Show
+            when={props.messages.length > 0}
+            fallback={
+              <div class="flex items-center justify-center h-full">
+                <p class="text-sm text-[var(--color-text-tertiary)]">
+                  no messages yet — be the first to share something
+                </p>
+              </div>
+            }
           >
-            <For each={vItems}>
-              {(vRow) => {
-                const msg = () => props.messages[vRow.index];
-                return (
-                  <div
-                    ref={(el) => {
-                      if (!el) return;
-                      el.setAttribute("data-index", String(vRow.index));
-                      requestAnimationFrame(() => {
-                        if (!el.isConnected) return;
-                        const h = el.getBoundingClientRect().height;
-                        console.log(
-                          `[ct ${ts()}] ref idx=${vRow.index} key=${vRow.key} h=${h.toFixed(0)}`
-                        );
-                        virtualizer.measureElement(el);
-                      });
-                    }}
-                    style={{
-                      position: "absolute",
-                      top: 0,
-                      left: 0,
-                      width: "100%",
-                      transform: `translateY(${vRow.start}px)`,
-                    }}
-                  >
-                    {/* always-present divider slot — collapses to 0 when not the unread row */}
+            {/* loading-more indicator at top — debounced 1s to avoid flash */}
+            <LoadingMoreIndicator isLoading={props.loadingMore ?? false} debounceMs={1000} text="loading older messages..." />
+            <div
+              style={{
+                height: `${virtualizer.getTotalSize()}px`,
+                width: "100%",
+                position: "relative",
+              }}
+            >
+              <For each={vItems}>
+                {(vRow) => {
+                  const msg = () => props.messages[vRow.index];
+                  return (
                     <div
-                      class="flex items-center gap-3 px-3 py-1 my-1 transition-opacity"
+                      ref={(el) => {
+                        if (!el) return;
+                        el.setAttribute("data-index", String(vRow.index));
+                        requestAnimationFrame(() => {
+                          if (!el.isConnected) return;
+                          const h = el.getBoundingClientRect().height;
+                          console.log(
+                            `[ct ${ts()}] ref idx=${vRow.index} key=${vRow.key} h=${h.toFixed(0)}`
+                          );
+                          virtualizer.measureElement(el);
+                        });
+                      }}
                       style={{
-                        opacity:
-                          firstUnreadIndex() > 0 && vRow.index === firstUnreadIndex() ? 1 : 0,
-                        height:
-                          firstUnreadIndex() > 0 && vRow.index === firstUnreadIndex()
-                            ? undefined
-                            : "0px",
-                        overflow: "hidden",
+                        position: "absolute",
+                        top: 0,
+                        left: 0,
+                        width: "100%",
+                        transform: `translateY(${vRow.start}px)`,
                       }}
                     >
-                      <div class="flex-1 h-px bg-[var(--color-accent-500)]/40" />
-                      <span class="text-[10px] font-medium text-[var(--color-accent-500)] uppercase tracking-wider">
-                        new
-                      </span>
-                      <div class="flex-1 h-px bg-[var(--color-accent-500)]/40" />
-                    </div>
-                    <Show when={msg()}>
-                      <GossipMessageCard
-                        message={msg()!}
-                        currentNodeId={props.currentNodeId}
-                        avatarUrl={
-                          props.resolveAvatar?.(msg()!.sender_name) ?? msg()!.sender_avatar_url
-                        }
-                        isCreator={msg()!.sender_node_id === props.channel.creator_node_id}
-                        tick={tick()}
-                        onReact={props.onReact}
-                        onOpenReactionPicker={props.onOpenReactionPicker}
-                        onDelete={props.onDelete}
-                        onPlay={props.onPlay}
-                        onFavorite={props.onFavorite}
-                        onAddToQueue={props.onAddToQueue}
-                        onAddToPlaylist={props.onAddToPlaylist}
-                        checkFriendship={(nodeId) => {
-                          if (nodeId === props.currentNodeId) return "self";
-                          if (props.pendingFriendNodeIds?.has(nodeId)) return "pending";
-                          if (props.friendNodeIds?.has(nodeId)) return "friend";
-                          return "not-friend";
+                      {/* always-present divider slot — collapses to 0 when not the unread row */}
+                      <div
+                        class="flex items-center gap-3 px-3 py-1 my-1 transition-opacity"
+                        style={{
+                          opacity:
+                            firstUnreadIndex() > 0 && vRow.index === firstUnreadIndex() ? 1 : 0,
+                          height:
+                            firstUnreadIndex() > 0 && vRow.index === firstUnreadIndex()
+                              ? undefined
+                              : "0px",
+                          overflow: "hidden",
                         }}
-                        onAddFriend={props.onAddFriend}
-                      />
-                    </Show>
-                  </div>
-                );
-              }}
-            </For>
-          </div>
+                      >
+                        <div class="flex-1 h-px bg-[var(--color-accent-500)]/40" />
+                        <span class="text-[10px] font-medium text-[var(--color-accent-500)] uppercase tracking-wider">
+                          new
+                        </span>
+                        <div class="flex-1 h-px bg-[var(--color-accent-500)]/40" />
+                      </div>
+                      <Show when={msg()}>
+                        {(() => {
+                          let rowEl!: HTMLDivElement;
+                          const h = reactions.handlers(msg()!.message_id, rowEl);
+                          return (
+                            <div
+                              ref={rowEl}
+                              onTouchStart={h.onTouchStart}
+                              onTouchMove={h.onTouchMove}
+                              onTouchEnd={h.onTouchEnd}
+                              onContextMenu={h.onContextMenu}
+                            >
+                              <GossipMessageCard
+                                message={msg()!}
+                                currentNodeId={props.currentNodeId}
+                                avatarUrl={
+                                  props.resolveAvatar?.(msg()!.sender_name) ?? msg()!.sender_avatar_url
+                                }
+                                isCreator={msg()!.sender_node_id === props.channel.creator_node_id}
+                                tick={tick()}
+                                onReact={props.onReact}
+                                onOpenReactionPicker={(msgId) => {
+                                  reactions.open(msgId, rowEl);
+                                }}
+                                onDelete={props.onDelete}
+                                onPlay={props.onPlay}
+                                onFavorite={props.onFavorite}
+                                onAddToQueue={props.onAddToQueue}
+                                onAddToPlaylist={props.onAddToPlaylist}
+                                checkFriendship={(nodeId) => {
+                                  if (nodeId === props.currentNodeId) return "self";
+                                  if (props.pendingFriendNodeIds?.has(nodeId)) return "pending";
+                                  if (props.friendNodeIds?.has(nodeId)) return "friend";
+                                  return "not-friend";
+                                }}
+                                onAddFriend={props.onAddFriend}
+                              />
+                            </div>
+                          );
+                        })()}
+                      </Show>
+                    </div>
+                  );
+                }}
+              </For>
+            </div>
+          </Show>
         </Show>
       </div>
 
@@ -565,6 +645,16 @@ export function ChannelThread(props: ChannelThreadProps) {
           </svg>
         </button>
       </div>
+
+      {/* reaction overlay — rendered outside virtualizer, fixed positioning */}
+      <Show when={reactions.activeMessageId() && reactions.anchorEl()}>
+        <MessageReactionOverlay
+          messageId={reactions.activeMessageId()!}
+          anchorRef={reactions.anchorEl()!}
+          onReact={(msgId, emoji) => props.onReact?.(msgId, emoji)}
+          onClose={reactions.close}
+        />
+      </Show>
 
       {/* compose bar */}
       <ComposeBar

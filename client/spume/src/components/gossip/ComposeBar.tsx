@@ -152,7 +152,7 @@ export function ComposeBar(props: ComposeBarProps) {
       {/* input row */}
       <div class="flex items-end gap-2">
         <button
-          class="flex-shrink-0 w-8 h-8 rounded-lg flex items-center justify-center text-[var(--color-text-tertiary)] hover:text-[var(--color-accent-500)] hover:bg-[var(--color-bg-tertiary)] transition-colors text-sm"
+          class="flex-shrink-0 w-10 h-10 rounded-lg flex items-center justify-center text-[var(--color-text-tertiary)] hover:text-[var(--color-accent-500)] hover:bg-[var(--color-bg-tertiary)] transition-colors text-sm"
           onClick={() => setShowSearch((v) => !v)}
           title="attach music"
           classList={{ "text-[var(--color-accent-500)]": showSearch() }}
@@ -162,7 +162,7 @@ export function ComposeBar(props: ComposeBarProps) {
 
         <Show when={textAllowed()}>
           <textarea
-            class="flex-1 bg-[var(--color-bg-tertiary)] text-[var(--color-text-primary)] text-sm rounded-lg px-3 py-2 outline-none focus:ring-1 focus:ring-[var(--color-accent-500)] placeholder:text-[var(--color-text-tertiary)] resize-none min-h-[36px] max-h-[120px]"
+            class="flex-1 bg-[var(--color-bg-tertiary)] text-[var(--color-text-primary)] text-base rounded-lg px-3 py-2 outline-none focus:ring-1 focus:ring-[var(--color-accent-500)] placeholder:text-[var(--color-text-tertiary)] resize-none min-h-[44px] max-h-[120px]"
             placeholder={props.placeholder ?? "share something..."}
             value={text()}
             onInput={(e) => setText(e.currentTarget.value)}
@@ -179,7 +179,7 @@ export function ComposeBar(props: ComposeBarProps) {
         </Show>
 
         <button
-          class="flex-shrink-0 w-8 h-8 rounded-lg flex items-center justify-center transition-colors text-sm"
+          class="flex-shrink-0 w-10 h-10 rounded-lg flex items-center justify-center transition-colors text-sm"
           classList={{
             "bg-[var(--color-accent-500)] text-[var(--color-text-on-accent)] hover:bg-[var(--color-accent-400)]":
               canSend(),

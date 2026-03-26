@@ -122,6 +122,11 @@ function SuperGossipDemo() {
   // responsive: on narrow viewports, toggle between sidebar and thread
   const [showSidebar, setShowSidebar] = createSignal(true);
 
+  // simulate gossip network latency on channel switch
+  const [loadingChannel, setLoadingChannel] = createSignal(false);
+  // simulate latency for loading older message pages
+  const [loadingMore, setLoadingMore] = createSignal(false);
+
   const handleSelectChannel = (topicId: string) => {
     // clear friend thread view if showing
     setSelectedFriend(null);
@@ -142,6 +147,9 @@ function SuperGossipDemo() {
     });
     // on narrow, switch to thread view
     setShowSidebar(false);
+    // simulate network latency (1-5s)
+    setLoadingChannel(true);
+    setTimeout(() => setLoadingChannel(false), 1000 + Math.random() * 4000);
   };
 
   const handleSelectFriend = (nodeId: string) => {
@@ -308,6 +316,13 @@ function SuperGossipDemo() {
     setFriendRequests((prev) => prev.filter((r) => r.node_id !== nodeId));
   };
 
+  const handleUnfriend = (nodeId: string) => {
+    const friend = friends().find((f) => f.node_id === nodeId);
+    console.log(`[story] >>> UNFRIEND ${friend?.display_name ?? nodeId.slice(0, 8)}`);
+    setFriends((prev) => prev.filter((f) => f.node_id !== nodeId));
+    setSelectedFriend(null);
+  };
+
   const handleAddFriend = (nodeId: string) => {
     // check if already a friend or pending
     if (friendNodeIds().has(nodeId) || pendingFriendNodeIds().has(nodeId)) return;
@@ -352,13 +367,22 @@ function SuperGossipDemo() {
 
   const handleLoadMore = () => {
     if (activeTopicId() !== endlessTopicId) return;
+    if (loadingMore()) return; // already fetching
+    setLoadingMore(true);
     const page = endlessPage();
-    const older = generateEndlessMessages(page);
-    setMessagesByTopic((prev) => ({
-      ...prev,
-      [endlessTopicId]: [...older, ...(prev[endlessTopicId] ?? [])],
-    }));
-    setEndlessPage(page + 1);
+    // simulate network latency (1-4s)
+    setTimeout(
+      () => {
+        const older = generateEndlessMessages(page);
+        setMessagesByTopic((prev) => ({
+          ...prev,
+          [endlessTopicId]: [...older, ...(prev[endlessTopicId] ?? [])],
+        }));
+        setEndlessPage(page + 1);
+        setLoadingMore(false);
+      },
+      1000 + Math.random() * 3000
+    );
   };
 
   const handleScrollSave = (topicId: string, scrollTop: number) => {
@@ -382,7 +406,8 @@ function SuperGossipDemo() {
         class="flex-shrink-0 flex flex-col bg-[var(--color-bg-primary)] w-full wide:w-[220px]"
         classList={{ hidden: !showSidebar(), "wide:flex": !showSidebar() }}
       >
-        <div class="flex-1 overflow-y-auto min-h-[60px]">
+        {/* channels — shrink-0 so it takes natural height, pushed to top */}
+        <div class="flex-shrink-0 overflow-y-auto min-h-[60px] max-h-[50%]">
           <ChannelSidebar
             channels={channels()}
             activeTopicId={selectedFriend() ? undefined : activeTopicId()}
@@ -391,7 +416,7 @@ function SuperGossipDemo() {
           />
         </div>
 
-        <div class="flex items-center gap-2 px-3 py-2">
+        <div class="flex-shrink-0 flex items-center gap-2 px-3 py-2">
           <button
             class="flex-1 text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-accent-500)] transition-colors text-left"
             onClick={() => setShowCreateDialog(true)}
@@ -406,7 +431,11 @@ function SuperGossipDemo() {
           </button>
         </div>
 
-        <div class="flex-1 overflow-y-auto min-h-[54px]">
+        {/* spacer fills remaining space, pushing friends to bottom */}
+        <div class="flex-1" />
+
+        {/* friends — fills available space at bottom */}
+        <div class="flex-shrink-0 overflow-y-auto min-h-[54px] max-h-[60%]">
           <FriendsList
             friends={friends()}
             friendRequests={friendRequests()}
@@ -440,6 +469,8 @@ function SuperGossipDemo() {
                 messages={activeMessages()}
                 members={activeMembers()}
                 currentNodeId={currentNodeId}
+                loading={loadingChannel()}
+                loadingMore={loadingMore()}
                 searchResults={allSearchResults}
                 onSend={handleSend}
                 onReact={handleReact}
@@ -486,6 +517,7 @@ function SuperGossipDemo() {
               setSelectedFriend(null);
               setShowSidebar(true);
             }}
+            onUnfriend={handleUnfriend}
           />
         </Show>
       </div>

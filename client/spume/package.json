@@ -43,6 +43,7 @@
     "@vitest/browser-playwright": "^4.0.17",
     "@vitest/coverage-v8": "^4.0.17",
     "autoprefixer": "^10.4.24",
+    "emoji-picker-element": "^1.29.1",
     "eslint": "^9.0.0",
     "eslint-plugin-solid": "^0.14.5",
     "html5-qrcode": "^2.3.8",

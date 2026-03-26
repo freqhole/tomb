@@ -29,29 +29,6 @@ export interface GossipMessageCardProps {
   tick?: number;
 }
 
-const EMOJI_PALETTE = [
-  "\u{1F525}",
-  "\u{2764}\u{FE0F}",
-  "\u{1F44D}",
-  "\u{1F44F}",
-  "\u{1F64C}",
-  "\u{1F602}",
-  "\u{1F62D}",
-  "\u{1F92F}",
-  "\u{1F440}",
-  "\u{2728}",
-  "\u{1F480}",
-  "\u{1F49C}",
-  "\u{1F389}",
-  "\u{1F3B5}",
-  "\u{1F3B6}",
-  "\u{1F60D}",
-  "\u{1F914}",
-  "\u{1F612}",
-  "\u{1F4AF}",
-  "\u{1F917}",
-];
-
 /** group reactions by emoji */
 function groupReactions(
   reactions: GossipReaction[]
@@ -91,9 +68,6 @@ export function GossipMessageCard(props: GossipMessageCardProps) {
   };
   const fullDateTime = () => formatDateTime(props.message.timestamp * 1000);
   const initials = () => (props.message.sender_name ?? "?")[0].toUpperCase();
-
-  // emoji picker state
-  const [showEmojiPicker, setShowEmojiPicker] = createSignal(false);
 
   // three-dots menu state
   const [showMenu, setShowMenu] = createSignal(false);
@@ -269,7 +243,7 @@ export function GossipMessageCard(props: GossipMessageCardProps) {
             </div>
           </Show>
 
-          {/* reactions + emoji picker */}
+          {/* reactions + add reaction button */}
           <div class="flex flex-wrap items-center gap-1 mt-1">
             <For each={grouped()}>
               {(group) => (
@@ -283,36 +257,14 @@ export function GossipMessageCard(props: GossipMessageCardProps) {
                 </button>
               )}
             </For>
-            {/* add reaction — opens emoji picker */}
-            <div class="relative">
-              <button
-                class="flex items-center gap-0.5 px-2 py-0.5 rounded-full text-xs bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-bg-elevated)] transition-colors border border-dashed border-[var(--color-text-tertiary)]/20 hover:border-[var(--color-accent-500)]/30 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] cursor-pointer"
-                onClick={() => setShowEmojiPicker((v) => !v)}
-                title="add reaction"
-              >
-                <span>+</span>
-              </button>
-              <Show when={showEmojiPicker()}>
-                <div class="absolute bottom-full left-0 mb-1 bg-[var(--color-bg-elevated)] rounded-lg shadow-xl border border-[var(--color-border-primary)]/20 z-50 p-2">
-                  <div class="grid grid-cols-5 gap-1 w-[160px]">
-                    <For each={EMOJI_PALETTE}>
-                      {(emoji) => (
-                        <button
-                          class="w-7 h-7 flex items-center justify-center rounded hover:bg-[var(--color-bg-tertiary)] transition-colors text-base cursor-pointer"
-                          onClick={() => {
-                            props.onReact?.(props.message.message_id, emoji);
-                            setShowEmojiPicker(false);
-                          }}
-                        >
-                          {emoji}
-                        </button>
-                      )}
-                    </For>
-                  </div>
-                </div>
-                <div class="fixed inset-0 z-40" onClick={() => setShowEmojiPicker(false)} />
-              </Show>
-            </div>
+            {/* add reaction — opens the overlay picker */}
+            <button
+              class="flex items-center gap-0.5 px-2 py-0.5 rounded-full text-xs bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-bg-elevated)] transition-colors border border-dashed border-[var(--color-text-tertiary)]/20 hover:border-[var(--color-accent-500)]/30 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] cursor-pointer"
+              onClick={() => props.onOpenReactionPicker?.(props.message.message_id)}
+              title="add reaction"
+            >
+              <span>+</span>
+            </button>
           </div>
         </Show>
       </div>
