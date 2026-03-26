@@ -472,3 +472,8 @@ select option {
         color: var(--color-text-secondary);
     }
 }
+
+/* all buttons should show pointer cursor */
+button, [role="button"] {
+    cursor: pointer;
+}

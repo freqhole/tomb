@@ -3,6 +3,7 @@ import type { Meta, StoryObj } from "storybook-solidjs-vite";
 import { ChannelSidebar } from "../../src/components/gossip/ChannelSidebar";
 import { ChannelThread } from "../../src/components/gossip/ChannelThread";
 import { FriendsList } from "../../src/components/gossip/FriendsList";
+import { FriendThreadView } from "../../src/components/gossip/FriendThreadView";
 import { CreateChannelDialog } from "../../src/components/gossip/CreateChannelDialog";
 import { JoinChannelDialog } from "../../src/components/gossip/JoinChannelDialog";
 import {
@@ -10,6 +11,7 @@ import {
   mockMembers,
   mockNodeIds,
   mockFriends,
+  mockFriendRequests,
   mockMessagesByTopic,
   mockSongRef,
   mockAlbumRef,
@@ -20,6 +22,8 @@ import {
   avatarForName,
   type GossipChannel,
   type GossipMessage,
+  type GossipFriend,
+  type FriendRequest,
   type MusicReference,
 } from "./mockGossipData";
 
@@ -64,12 +68,10 @@ function SuperGossipDemo() {
   const progMsgs = mockMessagesByTopic[progTopicId] ?? [];
   const initialLastRead: Record<string, number> = {};
   if (progMsgs.length > 0) {
-    // set to mid-point so there are unread messages after the divider
     initialLastRead[progTopicId] = progMsgs[Math.floor(progMsgs.length / 2)].timestamp;
   }
   const endlessMsgs = mockMessagesByTopic[endlessTopicId] ?? [];
   if (endlessMsgs.length > 0) {
-    // set to ~70% so there are a handful of unread messages
     initialLastRead[endlessTopicId] = endlessMsgs[Math.floor(endlessMsgs.length * 0.7)].timestamp;
   }
   const [lastReadByTopic, setLastReadByTopic] =
@@ -79,10 +81,41 @@ function SuperGossipDemo() {
   const [showCreateDialog, setShowCreateDialog] = createSignal(false);
   const [showJoinDialog, setShowJoinDialog] = createSignal(false);
 
+  // friend thread view state
+  const [selectedFriend, setSelectedFriend] = createSignal<GossipFriend | null>(null);
+
+  // friends + friend requests state
+  const [friends, setFriends] = createSignal<GossipFriend[]>([...mockFriends]);
+  const [friendRequests, setFriendRequests] = createSignal<FriendRequest[]>([
+    ...mockFriendRequests,
+  ]);
+
   // derived
   const activeChannel = () => channels().find((c) => c.topic_id === activeTopicId())!;
   const activeMessages = () => messagesByTopic()[activeTopicId()] ?? [];
   const activeMembers = () => mockMembers[activeTopicId()] ?? [];
+  const channelsByTopic = () => {
+    const map: Record<string, GossipChannel> = {};
+    for (const ch of channels()) map[ch.topic_id] = ch;
+    return map;
+  };
+
+  // friend node id sets for quick lookup
+  const friendNodeIds = () => new Set(friends().map((f) => f.node_id));
+  const pendingFriendNodeIds = () => new Set(friendRequests().map((r) => r.node_id));
+
+  // all messages from a specific friend across all channels
+  const friendMessages = () => {
+    const f = selectedFriend();
+    if (!f) return [];
+    const all: GossipMessage[] = [];
+    for (const msgs of Object.values(messagesByTopic())) {
+      for (const m of msgs) {
+        if (m.sender_node_id === f.node_id && !m.deleted_at) all.push(m);
+      }
+    }
+    return all;
+  };
 
   // -- handlers --
 
@@ -90,6 +123,8 @@ function SuperGossipDemo() {
   const [showSidebar, setShowSidebar] = createSignal(true);
 
   const handleSelectChannel = (topicId: string) => {
+    // clear friend thread view if showing
+    setSelectedFriend(null);
     // mark current channel as fully read before switching
     const currentMsgs = messagesByTopic()[activeTopicId()] ?? [];
     if (currentMsgs.length > 0) {
@@ -107,6 +142,14 @@ function SuperGossipDemo() {
     });
     // on narrow, switch to thread view
     setShowSidebar(false);
+  };
+
+  const handleSelectFriend = (nodeId: string) => {
+    const f = friends().find((fr) => fr.node_id === nodeId);
+    if (f) {
+      setSelectedFriend(f);
+      setShowSidebar(false);
+    }
   };
 
   const handleSend = (text: string, attachments: MusicReference[]) => {
@@ -129,11 +172,9 @@ function SuperGossipDemo() {
       ...prev,
       [activeTopicId()]: [...(prev[activeTopicId()] ?? []), msg],
     }));
-    // update channel last_message_at
     setChannels((prev) =>
       prev.map((c) => (c.topic_id === activeTopicId() ? { ...c, last_message_at: now() } : c))
     );
-    // mark channel as read — we're actively viewing it
     setLastReadByTopic((prev) => ({ ...prev, [activeTopicId()]: msg.timestamp }));
   };
 
@@ -148,7 +189,6 @@ function SuperGossipDemo() {
         [activeTopicId()]: msgs.map((m) => {
           if (m.message_id !== messageId) return m;
           const existing = m.reactions ?? [];
-          // toggle: if alice already reacted with this emoji, remove it
           const alreadyReacted = existing.some(
             (r) => r.sender_node_id === currentNodeId && r.emoji === emoji
           );
@@ -193,7 +233,7 @@ function SuperGossipDemo() {
     });
   };
 
-  const handleCreateChannel = (name: string, description: string) => {
+  const handleCreateChannel = (name: string, description: string, musicOnly: boolean) => {
     const topicId = `new-${Date.now().toString(16)}`;
     const ch: GossipChannel = {
       topic_id: topicId,
@@ -201,21 +241,115 @@ function SuperGossipDemo() {
       description: description || null,
       creator_node_id: currentNodeId,
       settings: null,
+      allow_text: !musicOnly,
       created_at: now(),
       last_message_at: null,
     };
     setChannels((prev) => [ch, ...prev]);
     setMessagesByTopic((prev) => ({ ...prev, [topicId]: [] }));
+    setSelectedFriend(null);
     setActiveTopicId(topicId);
     setShowCreateDialog(false);
+    setShowSidebar(false);
   };
 
   const handleJoinChannel = (_inviteData: string) => {
-    // stub: pretend we joined "prog cave"
     setShowJoinDialog(false);
   };
 
-  /** load more messages for the endless stream (prepends older messages) */
+  const handleLeaveChannel = () => {
+    const topic = activeTopicId();
+    console.log(`[story] >>> LEAVE channel=${topic.slice(0, 8)}`);
+    // remove channel from list
+    setChannels((prev) => prev.filter((c) => c.topic_id !== topic));
+    // switch to first remaining channel
+    const remaining = channels();
+    if (remaining.length > 0) {
+      setActiveTopicId(remaining[0].topic_id);
+    }
+  };
+
+  const handleDestroyChannel = () => {
+    const topic = activeTopicId();
+    console.log(`[story] >>> DESTROY channel=${topic.slice(0, 8)}`);
+    // remove channel + its messages
+    setChannels((prev) => prev.filter((c) => c.topic_id !== topic));
+    setMessagesByTopic((prev) => {
+      const next = { ...prev };
+      delete next[topic];
+      return next;
+    });
+    const remaining = channels();
+    if (remaining.length > 0) {
+      setActiveTopicId(remaining[0].topic_id);
+    }
+  };
+
+  const handleAcceptRequest = (nodeId: string) => {
+    const req = friendRequests().find((r) => r.node_id === nodeId);
+    if (!req) return;
+    console.log(`[story] >>> ACCEPT friend request from ${req.display_name}`);
+    // move from requests to friends
+    setFriendRequests((prev) => prev.filter((r) => r.node_id !== nodeId));
+    setFriends((prev) => [
+      ...prev,
+      {
+        node_id: req.node_id,
+        display_name: req.display_name,
+        avatar_url: req.avatar_url,
+        last_seen: now(),
+        online: false,
+      },
+    ]);
+  };
+
+  const handleRejectRequest = (nodeId: string) => {
+    console.log(`[story] >>> REJECT friend request from ${nodeId.slice(0, 8)}`);
+    setFriendRequests((prev) => prev.filter((r) => r.node_id !== nodeId));
+  };
+
+  const handleAddFriend = (nodeId: string) => {
+    // check if already a friend or pending
+    if (friendNodeIds().has(nodeId) || pendingFriendNodeIds().has(nodeId)) return;
+    // find display name from members
+    let name = nodeId.slice(0, 8);
+    for (const members of Object.values(mockMembers)) {
+      const m = members.find((m) => m.node_id === nodeId);
+      if (m) {
+        name = m.display_name;
+        break;
+      }
+    }
+    console.log(`[story] >>> ADD FRIEND ${name}`);
+    // add as pending request (simulates sending a request)
+    setFriendRequests((prev) => [
+      ...prev,
+      {
+        node_id: nodeId,
+        display_name: name,
+        avatar_url: null,
+        requested_at: now(),
+      },
+    ]);
+    // simulate random acceptance after 1-4 seconds
+    const delay = 1000 + Math.random() * 3000;
+    setTimeout(() => {
+      const roll = Math.random();
+      if (roll < 0.6) {
+        // accepted!
+        console.log(`[story] <<< ${name} accepted your friend request!`);
+        handleAcceptRequest(nodeId);
+      } else if (roll < 0.85) {
+        // rejected
+        console.log(`[story] <<< ${name} rejected your friend request`);
+        handleRejectRequest(nodeId);
+      } else {
+        // no response (stays pending)
+        console.log(`[story] <<< ${name} hasn't responded yet`);
+      }
+    }, delay);
+  };
+
   const handleLoadMore = () => {
     if (activeTopicId() !== endlessTopicId) return;
     const page = endlessPage();
@@ -227,12 +361,10 @@ function SuperGossipDemo() {
     setEndlessPage(page + 1);
   };
 
-  /** save scroll position when switching away, restore when switching to */
   const handleScrollSave = (topicId: string, scrollTop: number) => {
     setScrollPositions((prev) => ({ ...prev, [topicId]: scrollTop }));
   };
 
-  /** mark current channel as fully read (dismiss unread divider) */
   const handleDismissUnread = () => {
     const msgs = messagesByTopic()[activeTopicId()] ?? [];
     if (msgs.length > 0) {
@@ -246,23 +378,19 @@ function SuperGossipDemo() {
   return (
     <div class="flex h-full bg-[var(--color-bg-primary)] rounded-lg overflow-hidden">
       {/* left sidebar: channels + friends */}
-      {/* narrow: full-width, hidden when viewing thread */}
-      {/* wide: fixed 220px, always visible */}
       <div
         class="flex-shrink-0 flex flex-col bg-[var(--color-bg-primary)] w-full wide:w-[220px]"
         classList={{ hidden: !showSidebar(), "wide:flex": !showSidebar() }}
       >
-        {/* channel header — keep top-left clear for topnav */}
         <div class="flex-1 overflow-y-auto min-h-[60px]">
           <ChannelSidebar
             channels={channels()}
-            activeTopicId={activeTopicId()}
+            activeTopicId={selectedFriend() ? undefined : activeTopicId()}
             unreadTopicIds={unread()}
             onSelectChannel={handleSelectChannel}
           />
         </div>
 
-        {/* bottom actions: create + join */}
         <div class="flex items-center gap-2 px-3 py-2">
           <button
             class="flex-1 text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-accent-500)] transition-colors text-left"
@@ -278,34 +406,74 @@ function SuperGossipDemo() {
           </button>
         </div>
 
-        {/* friends */}
         <div class="flex-1 overflow-y-auto min-h-[54px]">
-          <FriendsList friends={mockFriends} currentNodeId={currentNodeId} />
+          <FriendsList
+            friends={friends()}
+            friendRequests={friendRequests()}
+            currentNodeId={currentNodeId}
+            onSelectFriend={handleSelectFriend}
+            onAcceptRequest={handleAcceptRequest}
+            onRejectRequest={handleRejectRequest}
+            onAddFriend={() => console.log("[story] >>> ADD FRIEND")}
+          />
         </div>
       </div>
 
-      {/* main thread */}
-      {/* narrow: full-width, hidden when viewing sidebar */}
-      {/* wide: flex-1, always visible */}
+      {/* main content: channel thread or friend thread */}
       <div
         class="flex-1 min-w-0"
         classList={{ hidden: showSidebar(), "wide:block": showSidebar() }}
       >
         <Show
-          when={activeChannel()}
+          when={selectedFriend()}
           fallback={
-            <div class="flex items-center justify-center h-full text-sm text-[var(--color-text-tertiary)]">
-              select a channel
-            </div>
+            <Show
+              when={activeChannel()}
+              fallback={
+                <div class="flex items-center justify-center h-full text-sm text-[var(--color-text-tertiary)]">
+                  select a channel
+                </div>
+              }
+            >
+              <ChannelThread
+                channel={activeChannel()}
+                messages={activeMessages()}
+                members={activeMembers()}
+                currentNodeId={currentNodeId}
+                searchResults={allSearchResults}
+                onSend={handleSend}
+                onReact={handleReact}
+                onOpenReactionPicker={(msgId) => handleReact(msgId, "\u{1F525}")}
+                onDelete={handleDelete}
+                onPlay={(item) => console.log("play", item.title ?? item.name)}
+                onFavorite={(item) => console.log("favorite", item.title ?? item.name)}
+                onAddToQueue={(item) => console.log("add to queue", item.title ?? item.name)}
+                onAddToPlaylist={(item) => console.log("add to playlist", item.title ?? item.name)}
+                onSearchMusic={(q) => console.log("search:", q)}
+                onLoadMore={activeTopicId() === endlessTopicId ? handleLoadMore : undefined}
+                lastReadTimestamp={lastReadByTopic()[activeTopicId()]}
+                onDismissUnread={handleDismissUnread}
+                resolveAvatar={avatarForName}
+                savedScrollTop={scrollPositions()[activeTopicId()]}
+                onScrollChange={(pos) => handleScrollSave(activeTopicId(), pos)}
+                onBack={() => setShowSidebar(true)}
+                onLeaveChannel={handleLeaveChannel}
+                onDestroyChannel={handleDestroyChannel}
+                onAddMember={() =>
+                  console.log("[story] >>> ADD MEMBER to", activeTopicId().slice(0, 8))
+                }
+                friendNodeIds={friendNodeIds()}
+                pendingFriendNodeIds={pendingFriendNodeIds()}
+                onAddFriend={handleAddFriend}
+              />
+            </Show>
           }
         >
-          <ChannelThread
-            channel={activeChannel()}
-            messages={activeMessages()}
-            members={activeMembers()}
+          <FriendThreadView
+            friend={selectedFriend()!}
+            messages={friendMessages()}
+            channelsByTopic={channelsByTopic()}
             currentNodeId={currentNodeId}
-            searchResults={allSearchResults}
-            onSend={handleSend}
             onReact={handleReact}
             onOpenReactionPicker={(msgId) => handleReact(msgId, "\u{1F525}")}
             onDelete={handleDelete}
@@ -313,14 +481,11 @@ function SuperGossipDemo() {
             onFavorite={(item) => console.log("favorite", item.title ?? item.name)}
             onAddToQueue={(item) => console.log("add to queue", item.title ?? item.name)}
             onAddToPlaylist={(item) => console.log("add to playlist", item.title ?? item.name)}
-            onSearchMusic={(q) => console.log("search:", q)}
-            onLoadMore={activeTopicId() === endlessTopicId ? handleLoadMore : undefined}
-            lastReadTimestamp={lastReadByTopic()[activeTopicId()]}
-            onDismissUnread={handleDismissUnread}
             resolveAvatar={avatarForName}
-            savedScrollTop={scrollPositions()[activeTopicId()]}
-            onScrollChange={(pos) => handleScrollSave(activeTopicId(), pos)}
-            onBack={() => setShowSidebar(true)}
+            onBack={() => {
+              setSelectedFriend(null);
+              setShowSidebar(true);
+            }}
           />
         </Show>
       </div>
@@ -353,7 +518,7 @@ type Story = StoryObj<typeof meta>;
 
 export const Default: Story = {
   render: () => (
-    <div style={{ height: "100vh", width: "100vw" }}>
+    <div style={{ height: "100dvh", width: "100vw" }}>
       <SuperGossipDemo />
     </div>
   ),

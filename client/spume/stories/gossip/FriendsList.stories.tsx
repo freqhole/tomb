@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "storybook-solidjs-vite";
 import { FriendsList } from "../../src/components/gossip/FriendsList";
-import { mockFriends } from "./mockGossipData";
+import { mockFriends, mockFriendRequests } from "./mockGossipData";
 
 const meta = {
   title: "Gossip/FriendsList",
@@ -22,7 +22,7 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const Default: Story = {
-  args: { friends: mockFriends },
+  args: { friends: mockFriends, friendRequests: mockFriendRequests },
 };
 
 export const AllOnline: Story = {

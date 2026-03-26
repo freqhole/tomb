@@ -91,6 +91,15 @@ export interface GossipFriend {
     online: boolean;
 }
 
+/** a pending friend/knock request from someone not yet accepted */
+export interface FriendRequest {
+    node_id: string;
+    display_name: string;
+    avatar_url?: string | null;
+    message?: string;
+    requested_at: number;
+}
+
 // --- mock identities ---
 
 /** 50x50 placeholder avatar URLs keyed by character name */
@@ -161,7 +170,7 @@ export const mockChannels: GossipChannel[] = [
         topic_id: "ffeeddccbbaa99887766554433221100ffeeddccbbaa99887766554433221100",
         name: "electronic discoveries",
         description: null,
-        creator_node_id: mockNodeIds.fritzi,
+        creator_node_id: mockNodeIds.nancy,
         settings: null,
         created_at: now - 86400 * 3,
         last_message_at: now - 7200,
@@ -192,7 +201,8 @@ export const mockMembers: Record<string, GossipChannelMember[]> = {
         { topic_id: mockChannels[1].topic_id, node_id: mockNodeIds.butch, display_name: "butch", role: "member", joined_at: now - 86400 * 20 },
     ],
     [mockChannels[2].topic_id]: [
-        { topic_id: mockChannels[2].topic_id, node_id: mockNodeIds.fritzi, display_name: "fritzi", role: "creator", joined_at: now - 86400 * 3 },
+        { topic_id: mockChannels[2].topic_id, node_id: mockNodeIds.nancy, display_name: "nancy", role: "creator", joined_at: now - 86400 * 3 },
+        { topic_id: mockChannels[2].topic_id, node_id: mockNodeIds.fritzi, display_name: "fritzi", role: "member", joined_at: now - 86400 * 3 },
         { topic_id: mockChannels[2].topic_id, node_id: mockNodeIds.sluggo, display_name: "sluggo", role: "member", joined_at: now - 86400 * 2 },
         { topic_id: mockChannels[2].topic_id, node_id: mockNodeIds.rollo, display_name: "rollo", role: "member", joined_at: now - 86400 * 1 },
     ],
@@ -213,9 +223,13 @@ export const mockFriends: GossipFriend[] = [
     { node_id: mockNodeIds.fritzi, display_name: "fritzi", avatar_url: mockAvatars.fritzi, last_seen: now - 120, online: true },
     { node_id: mockNodeIds.irma, display_name: "irma", avatar_url: mockAvatars.irma, last_seen: now - 600, online: true },
     { node_id: mockNodeIds.rollo, display_name: "rollo", avatar_url: mockAvatars.rollo, last_seen: now - 86400 * 2, online: false },
-    { node_id: mockNodeIds.butch, display_name: "butch", avatar_url: mockAvatars.butch, last_seen: now - 3600, online: false },
-    { node_id: mockNodeIds.oona, display_name: "oona goosepimple", avatar_url: mockAvatars.oona, last_seen: now - 86400 * 5, online: false },
-    { node_id: mockNodeIds.phil, display_name: "phil fumble", avatar_url: mockAvatars.phil, last_seen: null, online: false },
+];
+
+/** pending friend/knock requests from non-friends */
+export const mockFriendRequests: FriendRequest[] = [
+    { node_id: mockNodeIds.butch, display_name: "butch", avatar_url: mockAvatars.butch, message: "hey nancy, it's butch! we met at the record swap last weekend", requested_at: now - 3600 },
+    { node_id: mockNodeIds.oona, display_name: "oona goosepimple", avatar_url: mockAvatars.oona, message: "i heard you have a great jazz collection", requested_at: now - 86400 * 2 },
+    { node_id: mockNodeIds.phil, display_name: "phil fumble", avatar_url: mockAvatars.phil, requested_at: now - 86400 * 5 },
 ];
 
 // --- mock music references ---
@@ -384,6 +398,54 @@ function makePayload(text: string | null, items: MusicReference[]): string {
 // -- jazzy stuff channel messages --
 export const mockJazzyMessages: GossipMessage[] = [
     {
+        message_id: "msg-sys-jazz-001",
+        topic_id: mockChannels[0].topic_id,
+        sender_node_id: mockNodeIds.nancy,
+        sender_name: "nancy",
+        msg_type: "System",
+        payload: JSON.stringify({ text: "nancy created the channel", system_type: "created" }),
+        timestamp: now - 86400 * 7,
+        received_at: now - 86400 * 7,
+        deleted_at: null,
+        reactions: [],
+    },
+    {
+        message_id: "msg-sys-jazz-002",
+        topic_id: mockChannels[0].topic_id,
+        sender_node_id: mockNodeIds.sluggo,
+        sender_name: "sluggo",
+        msg_type: "System",
+        payload: JSON.stringify({ text: "sluggo joined the channel", system_type: "join" }),
+        timestamp: now - 86400 * 6,
+        received_at: now - 86400 * 6,
+        deleted_at: null,
+        reactions: [],
+    },
+    {
+        message_id: "msg-sys-jazz-003",
+        topic_id: mockChannels[0].topic_id,
+        sender_node_id: mockNodeIds.fritzi,
+        sender_name: "fritzi",
+        msg_type: "System",
+        payload: JSON.stringify({ text: "fritzi joined the channel", system_type: "join" }),
+        timestamp: now - 86400 * 5,
+        received_at: now - 86400 * 5,
+        deleted_at: null,
+        reactions: [],
+    },
+    {
+        message_id: "msg-sys-jazz-004",
+        topic_id: mockChannels[0].topic_id,
+        sender_node_id: mockNodeIds.rollo,
+        sender_name: "rollo",
+        msg_type: "System",
+        payload: JSON.stringify({ text: "rollo joined the channel", system_type: "join" }),
+        timestamp: now - 86400 * 4,
+        received_at: now - 86400 * 4,
+        deleted_at: null,
+        reactions: [],
+    },
+    {
         message_id: "msg-001",
         topic_id: mockChannels[0].topic_id,
         sender_node_id: mockNodeIds.nancy,
@@ -522,6 +584,42 @@ export const mockJazzyMessages: GossipMessage[] = [
 // -- prog cave channel messages --
 export const mockProgMessages: GossipMessage[] = [
     {
+        message_id: "msg-sys-prog-001",
+        topic_id: mockChannels[1].topic_id,
+        sender_node_id: mockNodeIds.rollo,
+        sender_name: "rollo",
+        msg_type: "System",
+        payload: JSON.stringify({ text: "rollo created the channel", system_type: "created" }),
+        timestamp: now - 86400 * 30,
+        received_at: now - 86400 * 30,
+        deleted_at: null,
+        reactions: [],
+    },
+    {
+        message_id: "msg-sys-prog-002",
+        topic_id: mockChannels[1].topic_id,
+        sender_node_id: mockNodeIds.nancy,
+        sender_name: "nancy",
+        msg_type: "System",
+        payload: JSON.stringify({ text: "nancy joined the channel", system_type: "join" }),
+        timestamp: now - 86400 * 28,
+        received_at: now - 86400 * 28,
+        deleted_at: null,
+        reactions: [],
+    },
+    {
+        message_id: "msg-sys-prog-003",
+        topic_id: mockChannels[1].topic_id,
+        sender_node_id: mockNodeIds.butch,
+        sender_name: "butch",
+        msg_type: "System",
+        payload: JSON.stringify({ text: "butch joined the channel", system_type: "join" }),
+        timestamp: now - 86400 * 20,
+        received_at: now - 86400 * 20,
+        deleted_at: null,
+        reactions: [],
+    },
+    {
         message_id: "msg-prog-001",
         topic_id: mockChannels[1].topic_id,
         sender_node_id: mockNodeIds.rollo,
@@ -614,6 +712,18 @@ export const mockProgMessages: GossipMessage[] = [
         reactions: [
             { message_id: "react-prog-006", topic_id: mockChannels[1].topic_id, target_message_id: "msg-prog-007", sender_node_id: mockNodeIds.nancy, sender_name: "nancy", emoji: "\u{1F602}", timestamp: now - 3500 },
         ],
+    },
+    {
+        message_id: "msg-sys-prog-leave-001",
+        topic_id: mockChannels[1].topic_id,
+        sender_node_id: mockNodeIds.butch,
+        sender_name: "butch",
+        msg_type: "System",
+        payload: JSON.stringify({ text: "butch left the channel", system_type: "leave" }),
+        timestamp: now - 1800,
+        received_at: now - 1800,
+        deleted_at: null,
+        reactions: [],
     },
 ];
 

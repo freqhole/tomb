@@ -1,4 +1,4 @@
-import { For, Show } from "solid-js";
+import { createSignal, For, Show } from "solid-js";
 import type {
   GossipMessage,
   GossipReaction,
@@ -13,6 +13,8 @@ export interface GossipMessageCardProps {
   currentNodeId?: string;
   /** avatar image url for the sender */
   avatarUrl?: string | null;
+  /** whether the sender is the channel creator */
+  isCreator?: boolean;
   onReact?: (messageId: string, emoji: string) => void;
   onOpenReactionPicker?: (messageId: string) => void;
   onDelete?: (messageId: string) => void;
@@ -20,9 +22,35 @@ export interface GossipMessageCardProps {
   onFavorite?: (item: MusicReference) => void;
   onAddToQueue?: (item: MusicReference) => void;
   onAddToPlaylist?: (item: MusicReference) => void;
+  /** lazy friendship checker — called when the three-dots menu opens */
+  checkFriendship?: (nodeId: string) => "friend" | "not-friend" | "self" | "pending";
+  onAddFriend?: (nodeId: string) => void;
   /** read this signal to trigger periodic re-render of relative timestamps */
   tick?: number;
 }
+
+const EMOJI_PALETTE = [
+  "\u{1F525}",
+  "\u{2764}\u{FE0F}",
+  "\u{1F44D}",
+  "\u{1F44F}",
+  "\u{1F64C}",
+  "\u{1F602}",
+  "\u{1F62D}",
+  "\u{1F92F}",
+  "\u{1F440}",
+  "\u{2728}",
+  "\u{1F480}",
+  "\u{1F49C}",
+  "\u{1F389}",
+  "\u{1F3B5}",
+  "\u{1F3B6}",
+  "\u{1F60D}",
+  "\u{1F914}",
+  "\u{1F612}",
+  "\u{1F4AF}",
+  "\u{1F917}",
+];
 
 /** group reactions by emoji */
 function groupReactions(
@@ -44,7 +72,8 @@ function groupReactions(
 /** parse message payload */
 function parsePayload(msg: GossipMessage): { text: string | null; items: MusicReference[] } {
   try {
-    return JSON.parse(msg.payload);
+    const parsed = JSON.parse(msg.payload);
+    return { text: parsed.text ?? null, items: Array.isArray(parsed.items) ? parsed.items : [] };
   } catch {
     return { text: null, items: [] };
   }
@@ -53,6 +82,7 @@ function parsePayload(msg: GossipMessage): { text: string | null; items: MusicRe
 export function GossipMessageCard(props: GossipMessageCardProps) {
   const isOwn = () => props.currentNodeId === props.message.sender_node_id;
   const isDeleted = () => props.message.deleted_at !== null;
+  const isSystem = () => props.message.msg_type === "System";
   const payload = () => parsePayload(props.message);
   const grouped = () => groupReactions(props.message.reactions ?? []);
   const relativeTime = () => {
@@ -61,6 +91,43 @@ export function GossipMessageCard(props: GossipMessageCardProps) {
   };
   const fullDateTime = () => formatDateTime(props.message.timestamp * 1000);
   const initials = () => (props.message.sender_name ?? "?")[0].toUpperCase();
+
+  // emoji picker state
+  const [showEmojiPicker, setShowEmojiPicker] = createSignal(false);
+
+  // three-dots menu state
+  const [showMenu, setShowMenu] = createSignal(false);
+  const [menuFriendStatus, setMenuFriendStatus] = createSignal<
+    "friend" | "not-friend" | "self" | "pending" | null
+  >(null);
+
+  const openMenu = () => {
+    setShowMenu(true);
+    // lazy resolve friendship status
+    if (props.checkFriendship) {
+      setMenuFriendStatus(props.checkFriendship(props.message.sender_node_id));
+    }
+  };
+
+  // system message rendering
+  if (isSystem()) {
+    const systemText = () => {
+      try {
+        return JSON.parse(props.message.payload).text ?? "";
+      } catch {
+        return "";
+      }
+    };
+    return (
+      <div class="flex items-center gap-3 px-3 py-1.5 my-0.5">
+        <div class="flex-1 h-px bg-[var(--color-text-tertiary)]/15" />
+        <span class="text-[10px] text-[var(--color-text-tertiary)]/60 whitespace-nowrap">
+          {systemText()}
+        </span>
+        <div class="flex-1 h-px bg-[var(--color-text-tertiary)]/15" />
+      </div>
+    );
+  }
 
   return (
     <div
@@ -102,20 +169,72 @@ export function GossipMessageCard(props: GossipMessageCardProps) {
 
         {/* normal message */}
         <Show when={!isDeleted()}>
-          {/* header: sender + timestamp + actions */}
+          {/* header: sender + creator badge + timestamp + actions */}
           <div class="flex items-baseline gap-2 mb-1">
             <span class="text-sm font-semibold text-[var(--color-text-primary)]">
               {props.message.sender_name ?? "unknown"}
             </span>
+            <Show when={props.isCreator}>
+              <span class="text-[9px] font-medium text-[var(--color-accent-500)] bg-[var(--color-accent-500)]/10 px-1.5 py-0.5 rounded-full leading-none relative -top-px">
+                creator
+              </span>
+            </Show>
             <span class="text-[10px] text-[var(--color-text-tertiary)]" title={fullDateTime()}>
               {relativeTime()}
             </span>
 
             {/* hover actions */}
             <div class="ml-auto flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+              {/* three-dots menu */}
+              <div class="relative">
+                <button
+                  class="text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] px-1.5 py-0.5 rounded hover:bg-[var(--color-bg-tertiary)] transition-colors cursor-pointer"
+                  onClick={openMenu}
+                  title="more options"
+                >
+                  ···
+                </button>
+                <Show when={showMenu()}>
+                  <div class="absolute right-0 top-full mt-1 w-40 bg-[var(--color-bg-elevated)] rounded-lg shadow-xl border border-[var(--color-border-primary)]/20 z-50 overflow-hidden py-1">
+                    <Show when={menuFriendStatus() === "friend"}>
+                      <div class="px-3 py-1.5 text-xs text-[var(--color-text-tertiary)]">
+                        friends ✓
+                      </div>
+                    </Show>
+                    <Show when={menuFriendStatus() === "pending"}>
+                      <div class="px-3 py-1.5 text-xs text-[var(--color-text-tertiary)]">
+                        request pending
+                      </div>
+                    </Show>
+                    <Show when={menuFriendStatus() === "not-friend"}>
+                      <button
+                        class="w-full text-left px-3 py-1.5 text-xs text-[var(--color-text-secondary)] hover:text-[var(--color-accent-500)] hover:bg-[var(--color-bg-secondary)] transition-colors cursor-pointer"
+                        onClick={() => {
+                          props.onAddFriend?.(props.message.sender_node_id);
+                          setMenuFriendStatus("pending");
+                        }}
+                      >
+                        add friend
+                      </button>
+                    </Show>
+                    <Show when={isOwn()}>
+                      <button
+                        class="w-full text-left px-3 py-1.5 text-xs text-red-400 hover:text-red-300 hover:bg-[var(--color-bg-secondary)] transition-colors cursor-pointer"
+                        onClick={() => {
+                          props.onDelete?.(props.message.message_id);
+                          setShowMenu(false);
+                        }}
+                      >
+                        delete message
+                      </button>
+                    </Show>
+                  </div>
+                  <div class="fixed inset-0 z-40" onClick={() => setShowMenu(false)} />
+                </Show>
+              </div>
               <Show when={isOwn()}>
                 <button
-                  class="text-xs text-[var(--color-text-tertiary)] hover:text-red-400 px-1.5 py-0.5 rounded hover:bg-[var(--color-bg-tertiary)] transition-colors"
+                  class="text-xs text-[var(--color-text-tertiary)] hover:text-red-400 px-1.5 py-0.5 rounded hover:bg-[var(--color-bg-tertiary)] transition-colors cursor-pointer"
                   onClick={() => props.onDelete?.(props.message.message_id)}
                   title="delete message"
                 >
@@ -150,12 +269,12 @@ export function GossipMessageCard(props: GossipMessageCardProps) {
             </div>
           </Show>
 
-          {/* reactions + add reaction button */}
+          {/* reactions + emoji picker */}
           <div class="flex flex-wrap items-center gap-1 mt-1">
             <For each={grouped()}>
               {(group) => (
                 <button
-                  class="flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-bg-elevated)] transition-colors border border-transparent hover:border-[var(--color-accent-500)]/30"
+                  class="flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-bg-elevated)] transition-colors border border-transparent hover:border-[var(--color-accent-500)]/30 cursor-pointer"
                   onClick={() => props.onReact?.(props.message.message_id, group.emoji)}
                   title={group.senders.join(", ")}
                 >
@@ -164,14 +283,36 @@ export function GossipMessageCard(props: GossipMessageCardProps) {
                 </button>
               )}
             </For>
-            {/* add reaction — always visible as a placeholder pill at the end of reactions */}
-            <button
-              class="flex items-center gap-0.5 px-2 py-0.5 rounded-full text-xs bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-bg-elevated)] transition-colors border border-dashed border-[var(--color-text-tertiary)]/20 hover:border-[var(--color-accent-500)]/30 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]"
-              onClick={() => props.onOpenReactionPicker?.(props.message.message_id)}
-              title="add reaction"
-            >
-              <span>+</span>
-            </button>
+            {/* add reaction — opens emoji picker */}
+            <div class="relative">
+              <button
+                class="flex items-center gap-0.5 px-2 py-0.5 rounded-full text-xs bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-bg-elevated)] transition-colors border border-dashed border-[var(--color-text-tertiary)]/20 hover:border-[var(--color-accent-500)]/30 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] cursor-pointer"
+                onClick={() => setShowEmojiPicker((v) => !v)}
+                title="add reaction"
+              >
+                <span>+</span>
+              </button>
+              <Show when={showEmojiPicker()}>
+                <div class="absolute bottom-full left-0 mb-1 bg-[var(--color-bg-elevated)] rounded-lg shadow-xl border border-[var(--color-border-primary)]/20 z-50 p-2">
+                  <div class="grid grid-cols-5 gap-1 w-[160px]">
+                    <For each={EMOJI_PALETTE}>
+                      {(emoji) => (
+                        <button
+                          class="w-7 h-7 flex items-center justify-center rounded hover:bg-[var(--color-bg-tertiary)] transition-colors text-base cursor-pointer"
+                          onClick={() => {
+                            props.onReact?.(props.message.message_id, emoji);
+                            setShowEmojiPicker(false);
+                          }}
+                        >
+                          {emoji}
+                        </button>
+                      )}
+                    </For>
+                  </div>
+                </div>
+                <div class="fixed inset-0 z-40" onClick={() => setShowEmojiPicker(false)} />
+              </Show>
+            </div>
           </div>
         </Show>
       </div>

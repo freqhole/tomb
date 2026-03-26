@@ -1,19 +1,20 @@
 import { createSignal } from "solid-js";
 
 export interface CreateChannelDialogProps {
-  onSubmit: (name: string, description: string) => void;
+  onSubmit: (name: string, description: string, musicOnly: boolean) => void;
   onCancel: () => void;
 }
 
 export function CreateChannelDialog(props: CreateChannelDialogProps) {
   const [name, setName] = createSignal("");
   const [desc, setDesc] = createSignal("");
+  const [musicOnly, setMusicOnly] = createSignal(false);
   const canSubmit = () => name().trim().length > 0;
 
   const handleSubmit = (e: Event) => {
     e.preventDefault();
     if (!canSubmit()) return;
-    props.onSubmit(name().trim(), desc().trim());
+    props.onSubmit(name().trim(), desc().trim(), musicOnly());
   };
 
   return (
@@ -51,6 +52,21 @@ export function CreateChannelDialog(props: CreateChannelDialogProps) {
             rows={2}
             maxLength={256}
           />
+        </label>
+
+        <label class="flex items-start gap-3 mb-5 cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={musicOnly()}
+            onChange={(e) => setMusicOnly(e.currentTarget.checked)}
+            class="mt-0.5 accent-[var(--color-accent-500)]"
+          />
+          <div>
+            <span class="text-sm text-[var(--color-text-primary)]">music only</span>
+            <p class="text-xs text-[var(--color-text-tertiary)] mt-0.5">
+              members can only share music — no text messages. great for curated listening channels.
+            </p>
+          </div>
         </label>
 
         <div class="flex justify-end gap-2">
