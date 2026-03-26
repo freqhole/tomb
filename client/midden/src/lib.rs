@@ -3,17 +3,23 @@
 //! uses iroh to connect to freqhole peers from the browser.
 //! accepts either plain node_id or full endpoint address JSON with relay/IP hints.
 //!
-//! supports two protocols:
+//! supports three protocols:
 //! - freqhole/1: custom protocol for API proxying and small blob streaming
 //! - freqhole-blobz: iroh-blobs protocol for verified streaming of audio files
+//! - /iroh-gossip/1: iroh-gossip for pub/sub messaging channels
 
+use bytes::Bytes;
 use iroh::endpoint::presets;
 use iroh::endpoint::{Connection, RecvStream, SendStream};
+use iroh::protocol::Router;
 use iroh::{Endpoint, EndpointAddr, PublicKey, SecretKey};
 use iroh_blobs::api::downloader::Downloader;
 use iroh_blobs::api::Store;
 use iroh_blobs::{Hash, HashAndFormat};
+use iroh_gossip::Gossip;
+use iroh_gossip::TopicId;
 use js_sys::Uint8Array;
+use n0_future::StreamExt;
 use serde::{Deserialize, Serialize};
 use tracing::level_filters::LevelFilter;
 use tracing::{info, warn};
@@ -190,9 +196,10 @@ fn parse_peer_addr(peer_addr: &str) -> Result<EndpointAddr, String> {
 
 /// browser P2P node for freqhole federation
 ///
-/// supports two protocols:
+/// supports three protocols:
 /// - freqhole/1: API proxying and small blob streaming
 /// - iroh-blobs: verified streaming for audio files
+/// - iroh-gossip: pub/sub messaging for channels
 #[wasm_bindgen]
 pub struct MiddenNode {
     endpoint: Endpoint,
@@ -200,6 +207,10 @@ pub struct MiddenNode {
     // iroh-blobs components
     blobs_store: Store,
     blobs_downloader: Downloader,
+    // iroh-gossip + router
+    gossip: Gossip,
+    #[allow(dead_code)]
+    router: Router,
 }
 
 #[wasm_bindgen]
@@ -232,6 +243,7 @@ impl MiddenNode {
         let secret_key = SecretKey::from_bytes(&bytes);
 
         // use N0 preset for relay + DNS discovery (peers can find each other)
+        // don't set .alpns() — the Router manages accepted ALPNs
         let endpoint = Endpoint::builder(presets::N0)
             .secret_key(secret_key)
             .alpns(vec![FREQHOLE_ALPN.to_vec()])
@@ -244,17 +256,27 @@ impl MiddenNode {
         let blobs_downloader = Downloader::new(&mem_store, &endpoint);
         let blobs_store = mem_store.as_ref().clone();
 
+        // setup iroh-gossip (spawns background protocol tasks)
+        let gossip = Gossip::builder().spawn(endpoint.clone());
+
+        // router accepts incoming gossip connections from other peers
+        let router = Router::builder(endpoint.clone())
+            .accept(iroh_gossip::ALPN, gossip.clone())
+            .spawn();
+
         // wait for relay connection
         endpoint.online().await;
 
         let node_id = endpoint.secret_key().public().to_string();
-        info!("midden node ready: {}", &node_id[..16]);
+        info!("midden node ready: {} (gossip enabled)", &node_id[..16]);
 
         Ok(MiddenNode {
             endpoint,
             secret_key_bytes: bytes,
             blobs_store,
             blobs_downloader,
+            gossip,
+            router,
         })
     }
 
@@ -612,7 +634,6 @@ impl MiddenNode {
 
         // get progress stream and log events
         use iroh_blobs::api::downloader::DownloadProgressItem;
-        use n0_future::StreamExt;
 
         let mut stream = progress
             .stream()
@@ -814,8 +835,182 @@ impl MiddenNode {
         result.push(&JsValue::from_str(&blake3));
         Ok(result)
     }
+
+    // --- gossip methods ---
+
+    /// subscribe to a gossip topic and wait until joined (at least one peer connected)
+    ///
+    /// topic_hex: 32-byte topic id as 64 hex chars
+    /// bootstrap_peers: JSON array of node_id strings (peers already in the topic)
+    ///
+    /// returns a GossipHandle for sending/receiving on this topic
+    pub async fn gossip_join(
+        &self,
+        topic_hex: &str,
+        bootstrap_peers_json: &str,
+    ) -> Result<GossipHandle, JsError> {
+        let topic_id = parse_topic_id(topic_hex)?;
+
+        // parse bootstrap peer node_ids
+        let peer_strs: Vec<String> =
+            serde_json::from_str(bootstrap_peers_json).map_err(to_js_err)?;
+        let bootstrap: Vec<iroh::EndpointId> = peer_strs
+            .iter()
+            .map(|s| s.parse::<PublicKey>().map(iroh::EndpointId::from))
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(to_js_err)?;
+
+        let topic = self
+            .gossip
+            .subscribe_and_join(topic_id, bootstrap)
+            .await
+            .map_err(to_js_err)?;
+
+        let (sender, receiver) = topic.split();
+
+        info!(
+            "joined gossip topic {}",
+            &topic_hex[..16.min(topic_hex.len())]
+        );
+
+        Ok(GossipHandle { sender, receiver })
+    }
+
+    /// subscribe to a gossip topic without waiting for peers
+    ///
+    /// useful when you're the first peer (no bootstrap needed).
+    /// returns a GossipHandle immediately.
+    pub async fn gossip_subscribe(
+        &self,
+        topic_hex: &str,
+        bootstrap_peers_json: &str,
+    ) -> Result<GossipHandle, JsError> {
+        let topic_id = parse_topic_id(topic_hex)?;
+
+        let peer_strs: Vec<String> =
+            serde_json::from_str(bootstrap_peers_json).map_err(to_js_err)?;
+        let bootstrap: Vec<iroh::EndpointId> = peer_strs
+            .iter()
+            .map(|s| s.parse::<PublicKey>().map(iroh::EndpointId::from))
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(to_js_err)?;
+
+        let topic = self
+            .gossip
+            .subscribe(topic_id, bootstrap)
+            .await
+            .map_err(to_js_err)?;
+
+        let (sender, receiver) = topic.split();
+
+        info!(
+            "subscribed to gossip topic {}",
+            &topic_hex[..16.min(topic_hex.len())]
+        );
+
+        Ok(GossipHandle { sender, receiver })
+    }
+}
+
+/// handle for a subscribed gossip topic
+///
+/// holds sender and receiver halves. dropping this leaves the topic.
+#[wasm_bindgen]
+pub struct GossipHandle {
+    sender: iroh_gossip::api::GossipSender,
+    receiver: iroh_gossip::api::GossipReceiver,
+}
+
+#[wasm_bindgen]
+impl GossipHandle {
+    /// broadcast a message to all peers in the topic
+    pub async fn broadcast(&self, message: &[u8]) -> Result<(), JsError> {
+        self.sender
+            .broadcast(Bytes::copy_from_slice(message))
+            .await
+            .map_err(to_js_err)
+    }
+
+    /// receive the next event from the topic
+    ///
+    /// returns a JSON string with the event:
+    /// - {"type":"received","content":<base64>,"from":"<node_id>"}
+    /// - {"type":"neighbor_up","node_id":"<node_id>"}
+    /// - {"type":"neighbor_down","node_id":"<node_id>"}
+    /// - {"type":"lagged"}
+    /// - null if the topic is closed
+    pub async fn recv(&mut self) -> Result<JsValue, JsError> {
+        use iroh_gossip::api::Event;
+
+        match self.receiver.next().await {
+            Some(Ok(event)) => {
+                let json = match event {
+                    Event::Received(msg) => {
+                        let content_b64 =
+                            base64_encode(&msg.content);
+                        let from = msg.delivered_from.to_string();
+                        serde_json::json!({
+                            "type": "received",
+                            "content": content_b64,
+                            "from": from
+                        })
+                    }
+                    Event::NeighborUp(id) => {
+                        serde_json::json!({
+                            "type": "neighbor_up",
+                            "node_id": id.to_string()
+                        })
+                    }
+                    Event::NeighborDown(id) => {
+                        serde_json::json!({
+                            "type": "neighbor_down",
+                            "node_id": id.to_string()
+                        })
+                    }
+                    Event::Lagged => {
+                        serde_json::json!({ "type": "lagged" })
+                    }
+                };
+                Ok(serde_wasm_bindgen::to_value(&json).map_err(to_js_err)?)
+            }
+            Some(Err(e)) => Err(to_js_err(e)),
+            None => Ok(JsValue::NULL),
+        }
+    }
 }
 
 fn to_js_err<E: std::fmt::Display>(e: E) -> JsError {
     JsError::new(&e.to_string())
+}
+
+/// parse a 64-char hex string into a TopicId (32 bytes)
+fn parse_topic_id(hex: &str) -> Result<TopicId, JsError> {
+    let bytes = hex::decode(hex).map_err(|e| JsError::new(&format!("invalid topic hex: {}", e)))?;
+    if bytes.len() != 32 {
+        return Err(JsError::new("topic id must be 32 bytes (64 hex chars)"));
+    }
+    let mut arr = [0u8; 32];
+    arr.copy_from_slice(&bytes);
+    Ok(TopicId::from(arr))
+}
+
+/// simple base64 encoding (no padding) for gossip message content
+fn base64_encode(data: &[u8]) -> String {
+    const CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut result = String::with_capacity((data.len() + 2) / 3 * 4);
+    for chunk in data.chunks(3) {
+        let b0 = chunk[0] as u32;
+        let b1 = if chunk.len() > 1 { chunk[1] as u32 } else { 0 };
+        let b2 = if chunk.len() > 2 { chunk[2] as u32 } else { 0 };
+        let n = (b0 << 16) | (b1 << 8) | b2;
+        result.push(CHARS[((n >> 18) & 63) as usize] as char);
+        result.push(CHARS[((n >> 12) & 63) as usize] as char);
+        if chunk.len() > 1 {
+            result.push(CHARS[((n >> 6) & 63) as usize] as char);
+        }
+        if chunk.len() > 2 {
+            result.push(CHARS[(n & 63) as usize] as char);
+        }
+    }
+    result
 }
