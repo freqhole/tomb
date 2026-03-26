@@ -68,8 +68,6 @@ const OVERSCAN = 5;
 
 export function ChannelThread(props: ChannelThreadProps) {
   let scrollRef: HTMLDivElement | undefined;
-  const t0 = performance.now();
-  const ts = () => `+${(performance.now() - t0).toFixed(0)}ms`;
 
   // -- virtualizer --
   const count = createMemo(() => props.messages.length);
@@ -91,20 +89,26 @@ export function ChannelThread(props: ChannelThreadProps) {
   const origMeasure = (virtualizer as any).measure.bind(virtualizer);
   const origNotify = (virtualizer as any).notify.bind(virtualizer);
   (virtualizer as any).measure = function () {
-    const sizeCache = (this as any).itemSizeCache;
-    const cached = sizeCache instanceof Map ? sizeCache.size : "?";
-    console.log(`[ct ${ts()}] measure() intercepted — notify only (cached=${cached})`);
     origNotify(false);
   };
 
-  // trap resizeItem() to see when ResizeObserver fires real measurements
+  // trap resizeItem() — re-scroll during settlement so positions converge
   const origResizeItem = (virtualizer as any).resizeItem;
+  let measureCount = 0;
+  let settling = false;
+  let settleTimer: ReturnType<typeof setTimeout> | null = null;
+  let loadMoreCooldown = false;
   (virtualizer as any).resizeItem = function (index: number, size: number) {
-    const sizeCache = (this as any).itemSizeCache;
-    const oldSize =
-      sizeCache instanceof Map ? sizeCache.get((this as any).measurementsCache?.[index]?.key) : "?";
-    console.log(`[ct ${ts()}] resizeItem idx=${index} ${oldSize} -> ${size}`);
-    return origResizeItem.call(this, index, size);
+    measureCount++;
+    if (measureCount <= 20 || measureCount % 50 === 0) {
+      console.log(`[virt] resizeItem #${measureCount} idx=${index} size=${size} total=${virtualizer.getTotalSize()}`);
+    }
+    const result = origResizeItem.call(this, index, size);
+    if (settling) {
+      scrollToTarget();
+      resetSettleTimer();
+    }
+    return result;
   };
 
   // reconcile virtual items into a store so <For> can diff by key
@@ -112,12 +116,10 @@ export function ChannelThread(props: ChannelThreadProps) {
   const [vItems, setVItems] = createStore<VirtualItem[]>([]);
   createEffect(() => {
     const items = virtualizer.getVirtualItems();
-    const range = items.length > 0 ? `[${items[0].index}..${items[items.length - 1].index}]` : "[]";
-    const sizeCache = (virtualizer as any).itemSizeCache;
-    const cached = sizeCache instanceof Map ? sizeCache.size : "?";
-    console.log(
-      `[ct ${ts()}] reconcile: ${items.length} items ${range}, totalSize=${virtualizer.getTotalSize()}, cached=${cached}`
-    );
+    if (items.length > 0 && settling) {
+      const range = `[${items[0].index}..${items[items.length - 1].index}]`;
+      console.log(`[virt] reconcile: ${items.length} items ${range}`);
+    }
     setVItems(reconcile(items, { key: "key", merge: false }));
   });
 
@@ -135,6 +137,7 @@ export function ChannelThread(props: ChannelThreadProps) {
   let dismissTimer: ReturnType<typeof setTimeout> | null = null;
   onCleanup(() => {
     if (dismissTimer) clearTimeout(dismissTimer);
+    if (settleTimer) clearTimeout(settleTimer);
   });
 
   // -- scroll helpers --
@@ -154,11 +157,7 @@ export function ChannelThread(props: ChannelThreadProps) {
       const prev = prevCount;
       prevCount = len;
       const atBottom = isAtBottom();
-      console.log(
-        `[ct ${ts()}] count: ${prev} -> ${len}, atBottom=${atBottom}, totalSize=${virtualizer.getTotalSize()}`
-      );
       if (len > prev && (atBottom || len - prev === 1)) {
-        console.log(`[ct ${ts()}] auto-scroll to idx ${len - 1}`);
         requestAnimationFrame(() => {
           virtualizer.scrollToIndex(len - 1, { align: "end" });
         });
@@ -171,82 +170,104 @@ export function ChannelThread(props: ChannelThreadProps) {
   // use createMemo for topicId — has equality check, prevents spurious fires
   const topicId = createMemo(() => props.channel.topic_id);
 
-  // helper: scroll to the right position (unread divider, saved position, or bottom)
-  const scrollToInitialPosition = () => {
-    requestAnimationFrame(() => {
-      const scroll = scrollRef
-        ? `scrollH=${scrollRef.scrollHeight} scrollT=${scrollRef.scrollTop} clientH=${scrollRef.clientHeight}`
-        : "no-ref";
-      if (props.savedScrollTop !== undefined && scrollRef) {
-        console.log(`[ct ${ts()}] restore scroll: ${props.savedScrollTop} (${scroll})`);
-        scrollRef.scrollTo({ top: props.savedScrollTop });
-      } else {
-        const unreadIdx = firstUnreadIndex();
-        if (unreadIdx > 0) {
-          console.log(`[ct ${ts()}] scroll to unread idx ${unreadIdx} (${scroll})`);
-          virtualizer.scrollToIndex(unreadIdx, { align: "start" });
-          requestAnimationFrame(() => {
-            virtualizer.scrollToIndex(unreadIdx, { align: "start" });
-          });
-        } else if (props.messages.length > 0) {
-          console.log(
-            `[ct ${ts()}] scroll to bottom idx ${props.messages.length - 1} (${scroll})`
-          );
-          virtualizer.scrollToIndex(props.messages.length - 1, { align: "end" });
-          requestAnimationFrame(() => {
-            virtualizer.scrollToIndex(props.messages.length - 1, { align: "end" });
-          });
-        }
+  // scroll to unread divider, saved position, or bottom
+  function scrollToTarget() {
+    if (props.savedScrollTop !== undefined && scrollRef) {
+      scrollRef.scrollTo({ top: props.savedScrollTop });
+    } else {
+      const unreadIdx = firstUnreadIndex();
+      if (unreadIdx > 0) {
+        virtualizer.scrollToIndex(unreadIdx, { align: "start" });
+      } else if (props.messages.length > 0) {
+        virtualizer.scrollToIndex(props.messages.length - 1, { align: "end" });
       }
+    }
+  }
+
+  // settle timer: 300ms without a measurement → scroll is stable
+  function resetSettleTimer() {
+    if (settleTimer) clearTimeout(settleTimer);
+    settleTimer = setTimeout(() => {
+      settling = false;
+      loadMoreCooldown = false;
+      console.log(`[scroll] settle complete`, {
+        scrollTop: scrollRef?.scrollTop,
+        scrollH: scrollRef?.scrollHeight,
+        totalSize: virtualizer.getTotalSize(),
+      });
+    }, 300);
+  }
+
+  // begin scroll settlement: one initial scroll, then resizeItem re-scrolls on each measurement
+  function beginSettle() {
+    settling = true;
+    loadMoreCooldown = true;
+    measureCount = 0;
+    console.log(`[scroll] beginSettle`, {
+      msgs: props.messages.length,
+      totalSize: virtualizer.getTotalSize(),
     });
-  };
+    requestAnimationFrame(() => {
+      scrollToTarget();
+      resetSettleTimer();
+    });
+  }
 
   createEffect(
     on(topicId, (id) => {
-      console.log(`[ct ${ts()}] channel switch: ${id}, msgs=${props.messages.length}`);
+      console.log(`[channel] switch to ${id?.slice(0, 8)}, msgs=${props.messages.length}`);
       prevCount = props.messages.length;
       setShowMembersFlyout(false);
-      // real cache clear — different channel = different content
-      console.log(`[ct ${ts()}] origMeasure() — real cache clear for channel switch`);
       origMeasure();
-      // if not loading, scroll immediately; otherwise the loading→done effect handles it
-      if (!props.loading) {
-        scrollToInitialPosition();
-      }
+      beginSettle();
     })
   );
 
-  // scroll to correct position when loading finishes (loading transitions true→false)
-  createEffect(
-    on(
-      () => props.loading,
-      (loading, prevLoading) => {
-        if (prevLoading === true && loading === false) {
-          console.log(`[ct ${ts()}] loading finished, scrolling to position`);
-          origMeasure();
-          scrollToInitialPosition();
-        }
-      }
-    )
-  );
+  // load-more: debounce and defer to avoid blocking scroll momentum
+  let loadMorePending = false;
 
   const handleScroll = () => {
     if (!scrollRef) return;
-    props.onScrollChange?.(scrollRef.scrollTop);
+    // don't save scroll position during loading — skeleton gives scrollTop=0
+    // which contaminates savedScrollTop and breaks scroll restoration
+    if (!props.loading) {
+      props.onScrollChange?.(scrollRef.scrollTop);
+    }
 
     // show/hide "back to current" based on distance from bottom
     const distFromBottom = scrollRef.scrollHeight - scrollRef.scrollTop - scrollRef.clientHeight;
     setShowBackToCurrent(distFromBottom > scrollRef.clientHeight * 2);
 
-    // load more on scroll near top (skip if already loading)
-    if (props.onLoadMore && !props.loadingMore && scrollRef.scrollTop < 100) {
-      const prevHeight = scrollRef.scrollHeight;
-      props.onLoadMore();
-      requestAnimationFrame(() => {
-        if (scrollRef) {
-          scrollRef.scrollTop += scrollRef.scrollHeight - prevHeight;
-        }
+    // load more on scroll near top — deferred to not block scroll momentum
+    // loadMoreCooldown prevents false triggers right after initial scroll-to-bottom
+    if (props.onLoadMore && !props.loadingMore && !loadMorePending && !loadMoreCooldown && scrollRef.scrollTop < 100) {
+      console.log(`[scroll] loadMore triggered`, {
+        scrollTop: scrollRef.scrollTop,
+        scrollH: scrollRef.scrollHeight,
+        clientH: scrollRef.clientHeight,
+        totalSize: virtualizer.getTotalSize(),
       });
+      loadMorePending = true;
+      // snapshot scroll position relative to content before load
+      const prevScrollHeight = scrollRef.scrollHeight;
+      const prevScrollTop = scrollRef.scrollTop;
+      // defer the actual load so we don't trigger re-renders mid-scroll
+      setTimeout(() => {
+        props.onLoadMore?.();
+        loadMorePending = false;
+        // after messages prepend, restore scroll position so user doesn't lose their place
+        const checkAndRestore = () => {
+          if (!scrollRef) return;
+          const delta = scrollRef.scrollHeight - prevScrollHeight;
+          if (delta > 0) {
+            scrollRef.scrollTop = prevScrollTop + delta;
+          } else {
+            // data hasn't arrived yet, retry
+            requestAnimationFrame(checkAndRestore);
+          }
+        };
+        requestAnimationFrame(checkAndRestore);
+      }, 0);
     }
 
     // auto-dismiss unread divider after 5s at bottom
@@ -291,7 +312,7 @@ export function ChannelThread(props: ChannelThreadProps) {
       <div class="flex items-center gap-3 px-4 py-3 flex-shrink-0">
         <Show when={props.onBack}>
           <button
-            class="wide:hidden flex-shrink-0 text-sm text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] transition-colors -ml-1 mr--1 cursor-pointer"
+            class="wide:hidden flex-shrink-0 text-sm text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] transition-colors -ml-1 mr--1 cursor-pointer min-w-[44px] min-h-[44px] flex items-center justify-center"
             onClick={() => props.onBack?.()}
             title="back to channels"
           >
@@ -312,7 +333,7 @@ export function ChannelThread(props: ChannelThreadProps) {
           {/* inline member avatars (wide only) */}
           <Show when={props.members && props.members.length > 0}>
             <button
-              class="hidden wide:flex items-center -space-x-1.5"
+              class="hidden wide:flex items-center -space-x-1.5 min-h-[44px]"
               onClick={() => setShowMembersFlyout((v) => !v)}
               title="show members"
             >
@@ -353,7 +374,7 @@ export function ChannelThread(props: ChannelThreadProps) {
           {/* members count button — opens flyout */}
           <div class="relative">
             <button
-              class="text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)] transition-colors cursor-pointer"
+              class="text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)] transition-colors cursor-pointer min-h-[44px] flex items-center"
               onClick={() => setShowMembersFlyout((v) => !v)}
               title="show members"
             >
@@ -375,7 +396,7 @@ export function ChannelThread(props: ChannelThreadProps) {
                 <div class="max-h-72 overflow-y-auto py-1">
                   <For each={sortedMembers()}>
                     {(member) => (
-                      <div class="flex items-center gap-2 px-3 py-1.5">
+                      <div class="flex items-center gap-2 px-3 py-1.5 min-h-[44px]">
                         <div class="w-6 h-6 rounded-full overflow-hidden flex-shrink-0 bg-[var(--color-bg-tertiary)]">
                           <Show
                             when={props.resolveAvatar?.(member.display_name)}
@@ -434,7 +455,7 @@ export function ChannelThread(props: ChannelThreadProps) {
                 <div class="px-3 py-2 flex flex-col gap-1">
                   <Show when={props.onAddMember}>
                     <button
-                      class="w-full text-left text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-accent-500)] transition-colors py-0.5 cursor-pointer"
+                      class="w-full text-left text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-accent-500)] transition-colors py-0.5 cursor-pointer min-h-[44px] flex items-center"
                       onClick={() => {
                         setShowMembersFlyout(false);
                         props.onAddMember?.();
@@ -445,7 +466,7 @@ export function ChannelThread(props: ChannelThreadProps) {
                   </Show>
                   <Show when={isCreator() && props.onDestroyChannel}>
                     <button
-                      class="w-full text-left text-xs text-red-400 hover:text-red-300 transition-colors py-0.5 cursor-pointer"
+                      class="w-full text-left text-xs text-red-400 hover:text-red-300 transition-colors py-0.5 cursor-pointer min-h-[44px] flex items-center"
                       onClick={() => {
                         setShowMembersFlyout(false);
                         props.onDestroyChannel?.();
@@ -456,7 +477,7 @@ export function ChannelThread(props: ChannelThreadProps) {
                   </Show>
                   <Show when={!isCreator() && props.onLeaveChannel}>
                     <button
-                      class="w-full text-left text-xs text-red-400 hover:text-red-300 transition-colors py-0.5 cursor-pointer"
+                      class="w-full text-left text-xs text-red-400 hover:text-red-300 transition-colors py-0.5 cursor-pointer min-h-[44px] flex items-center"
                       onClick={() => {
                         setShowMembersFlyout(false);
                         props.onLeaveChannel?.();
@@ -479,11 +500,11 @@ export function ChannelThread(props: ChannelThreadProps) {
         </div>
       </div>
 
-      {/* virtualized message list */}
-      <div ref={scrollRef} class="flex-1 overflow-y-auto px-1 py-2" onScroll={handleScroll}>
-        <Show
-          when={!props.loading}
-          fallback={
+      {/* virtualized message list — virtualizer always mounted, skeleton overlays on top */}
+      <div class="flex-1 relative overflow-hidden">
+        {/* loading skeleton overlay */}
+        <Show when={props.loading}>
+          <div class="absolute inset-0 z-10 bg-[var(--color-bg-primary)] overflow-hidden">
             <div class="flex flex-col gap-4 p-4 animate-pulse">
               <For each={[1, 2, 3, 4]}>
                 {() => (
@@ -501,8 +522,10 @@ export function ChannelThread(props: ChannelThreadProps) {
                 )}
               </For>
             </div>
-          }
-        >
+          </div>
+        </Show>
+        {/* scrollable virtualizer — always mounted, never destroyed */}
+        <div ref={scrollRef} class="h-full overflow-y-auto px-1 py-2" onScroll={handleScroll}>
           <Show
             when={props.messages.length > 0}
             fallback={
@@ -514,7 +537,7 @@ export function ChannelThread(props: ChannelThreadProps) {
             }
           >
             {/* loading-more indicator at top — debounced 1s to avoid flash */}
-            <LoadingMoreIndicator isLoading={props.loadingMore ?? false} debounceMs={1000} text="loading older messages..." />
+            <LoadingMoreIndicator isLoading={props.loadingMore ?? false} debounceMs={1000} text="loading older messages..." position="top" />
             <div
               style={{
                 height: `${virtualizer.getTotalSize()}px`,
@@ -532,10 +555,6 @@ export function ChannelThread(props: ChannelThreadProps) {
                         el.setAttribute("data-index", String(vRow.index));
                         requestAnimationFrame(() => {
                           if (!el.isConnected) return;
-                          const h = el.getBoundingClientRect().height;
-                          console.log(
-                            `[ct ${ts()}] ref idx=${vRow.index} key=${vRow.key} h=${h.toFixed(0)}`
-                          );
                           virtualizer.measureElement(el);
                         });
                       }}
@@ -613,19 +632,19 @@ export function ChannelThread(props: ChannelThreadProps) {
               </For>
             </div>
           </Show>
-        </Show>
+        </div>
       </div>
 
       {/* back to current button — fades in when scrolled far from bottom */}
       <div
-        class="flex justify-center transition-all duration-300 overflow-hidden"
+        class="flex justify-center transition-all duration-300 overflow-hidden pointer-events-none"
         style={{
-          "max-height": showBackToCurrent() ? "40px" : "0px",
+          "max-height": showBackToCurrent() ? "52px" : "0px",
           opacity: showBackToCurrent() ? 1 : 0,
         }}
       >
         <button
-          class="flex items-center gap-1 px-3 py-1 mb-1 text-xs text-[var(--color-text-secondary)] bg-[var(--color-bg-elevated)] hover:bg-[var(--color-bg-tertiary)] rounded-full shadow-md transition-colors cursor-pointer"
+          class="pointer-events-auto flex items-center gap-1.5 px-4 min-h-[44px] text-sm text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] rounded-full transition-colors cursor-pointer"
           onClick={() => {
             if (props.messages.length > 0) {
               virtualizer.scrollToIndex(props.messages.length - 1, { align: "end" });
@@ -634,7 +653,7 @@ export function ChannelThread(props: ChannelThreadProps) {
           title="back to current"
         >
           <span>back to current</span>
-          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" class="opacity-70">
+          <svg width="14" height="14" viewBox="0 0 12 12" fill="none" class="opacity-70">
             <path
               d="M6 3L6 9M6 9L3 6.5M6 9L9 6.5"
               stroke="currentColor"

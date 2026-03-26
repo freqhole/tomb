@@ -81,7 +81,7 @@ export function FriendThreadView(props: FriendThreadViewProps) {
       <div class="flex items-center gap-3 px-4 py-3 flex-shrink-0">
         <Show when={props.onBack}>
           <button
-            class="flex-shrink-0 text-sm text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] transition-colors -ml-1"
+            class="flex-shrink-0 text-sm text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] transition-colors -ml-1 min-w-[44px] min-h-[44px] flex items-center justify-center"
             onClick={() => props.onBack?.()}
             title="back"
           >
@@ -120,7 +120,7 @@ export function FriendThreadView(props: FriendThreadViewProps) {
         </div>
         <Show when={props.onUnfriend}>
           <button
-            class="flex-shrink-0 text-[11px] text-[var(--color-text-tertiary)] hover:text-red-400 transition-colors"
+            class="flex-shrink-0 text-[11px] text-[var(--color-text-tertiary)] hover:text-red-400 transition-colors min-h-[44px] flex items-center"
             onClick={() => props.onUnfriend?.(props.friend.node_id)}
             title={`unfriend ${props.friend.display_name}`}
           >

@@ -162,7 +162,7 @@ export function GossipMessageCard(props: GossipMessageCardProps) {
               {/* three-dots menu */}
               <div class="relative">
                 <button
-                  class="text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] px-1.5 py-0.5 rounded hover:bg-[var(--color-bg-tertiary)] transition-colors cursor-pointer"
+                  class="text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] min-w-[44px] min-h-[44px] flex items-center justify-center rounded hover:bg-[var(--color-bg-tertiary)] transition-colors cursor-pointer"
                   onClick={openMenu}
                   title="more options"
                 >
@@ -171,18 +171,18 @@ export function GossipMessageCard(props: GossipMessageCardProps) {
                 <Show when={showMenu()}>
                   <div class="absolute right-0 top-full mt-1 w-40 bg-[var(--color-bg-elevated)] rounded-lg shadow-xl border border-[var(--color-border-primary)]/20 z-50 overflow-hidden py-1">
                     <Show when={menuFriendStatus() === "friend"}>
-                      <div class="px-3 py-1.5 text-xs text-[var(--color-text-tertiary)]">
+                      <div class="px-3 py-2 min-h-[44px] flex items-center text-xs text-[var(--color-text-tertiary)]">
                         friends ✓
                       </div>
                     </Show>
                     <Show when={menuFriendStatus() === "pending"}>
-                      <div class="px-3 py-1.5 text-xs text-[var(--color-text-tertiary)]">
+                      <div class="px-3 py-2 min-h-[44px] flex items-center text-xs text-[var(--color-text-tertiary)]">
                         request pending
                       </div>
                     </Show>
                     <Show when={menuFriendStatus() === "not-friend"}>
                       <button
-                        class="w-full text-left px-3 py-1.5 text-xs text-[var(--color-text-secondary)] hover:text-[var(--color-accent-500)] hover:bg-[var(--color-bg-secondary)] transition-colors cursor-pointer"
+                        class="w-full text-left px-3 py-2 min-h-[44px] flex items-center text-xs text-[var(--color-text-secondary)] hover:text-[var(--color-accent-500)] hover:bg-[var(--color-bg-secondary)] transition-colors cursor-pointer"
                         onClick={() => {
                           props.onAddFriend?.(props.message.sender_node_id);
                           setMenuFriendStatus("pending");
@@ -193,7 +193,7 @@ export function GossipMessageCard(props: GossipMessageCardProps) {
                     </Show>
                     <Show when={isOwn()}>
                       <button
-                        class="w-full text-left px-3 py-1.5 text-xs text-red-400 hover:text-red-300 hover:bg-[var(--color-bg-secondary)] transition-colors cursor-pointer"
+                        class="w-full text-left px-3 py-2 min-h-[44px] flex items-center text-xs text-red-400 hover:text-red-300 hover:bg-[var(--color-bg-secondary)] transition-colors cursor-pointer"
                         onClick={() => {
                           props.onDelete?.(props.message.message_id);
                           setShowMenu(false);
@@ -208,7 +208,7 @@ export function GossipMessageCard(props: GossipMessageCardProps) {
               </div>
               <Show when={isOwn()}>
                 <button
-                  class="text-xs text-[var(--color-text-tertiary)] hover:text-red-400 px-1.5 py-0.5 rounded hover:bg-[var(--color-bg-tertiary)] transition-colors cursor-pointer"
+                  class="text-xs text-[var(--color-text-tertiary)] hover:text-red-400 min-w-[44px] min-h-[44px] flex items-center justify-center rounded hover:bg-[var(--color-bg-tertiary)] transition-colors cursor-pointer"
                   onClick={() => props.onDelete?.(props.message.message_id)}
                   title="delete message"
                 >
@@ -248,7 +248,7 @@ export function GossipMessageCard(props: GossipMessageCardProps) {
             <For each={grouped()}>
               {(group) => (
                 <button
-                  class="flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-bg-elevated)] transition-colors border border-transparent hover:border-[var(--color-accent-500)]/30 cursor-pointer"
+                  class="flex items-center gap-1 px-2.5 min-h-[44px] rounded-full text-xs bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-bg-elevated)] transition-colors border border-transparent hover:border-[var(--color-accent-500)]/30 cursor-pointer"
                   onClick={() => props.onReact?.(props.message.message_id, group.emoji)}
                   title={group.senders.join(", ")}
                 >
@@ -259,7 +259,7 @@ export function GossipMessageCard(props: GossipMessageCardProps) {
             </For>
             {/* add reaction — opens the overlay picker */}
             <button
-              class="flex items-center gap-0.5 px-2 py-0.5 rounded-full text-xs bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-bg-elevated)] transition-colors border border-dashed border-[var(--color-text-tertiary)]/20 hover:border-[var(--color-accent-500)]/30 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] cursor-pointer"
+              class="flex items-center justify-center w-[44px] min-h-[44px] rounded-full text-xs bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-bg-elevated)] transition-colors border border-dashed border-[var(--color-text-tertiary)]/20 hover:border-[var(--color-accent-500)]/30 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] cursor-pointer"
               onClick={() => props.onOpenReactionPicker?.(props.message.message_id)}
               title="add reaction"
             >

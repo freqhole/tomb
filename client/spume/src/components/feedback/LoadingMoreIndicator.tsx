@@ -11,6 +11,8 @@ export interface LoadingMoreIndicatorProps {
   debounceMs?: number;
   /** text to display (default: "loading more...") */
   text?: string;
+  /** position on screen: "bottom" (default) or "top" */
+  position?: "top" | "bottom";
 }
 
 /**
@@ -67,17 +69,19 @@ export function LoadingMoreIndicator(props: LoadingMoreIndicatorProps) {
     if (hideTimeoutId) clearTimeout(hideTimeoutId);
   });
 
+  const isTop = () => props.position === "top";
+
   return (
     <Show when={shouldShow()}>
       <div
         class="loading-more-indicator"
         style={{
           position: "fixed",
-          bottom: "96px", // above player bar
+          ...(isTop() ? { top: "72px" } : { bottom: "96px" }),
           left: "50%",
           transform: isVisible()
             ? "translateX(-50%) translateY(0)"
-            : "translateX(-50%) translateY(20px)",
+            : `translateX(-50%) translateY(${isTop() ? "-20px" : "20px"})`,
           opacity: isVisible() ? 1 : 0,
           transition: "opacity 300ms ease-out, transform 300ms ease-out",
           "z-index": 40,

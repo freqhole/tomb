@@ -432,10 +432,10 @@ function SuperGossipDemo() {
         </div>
 
         {/* spacer fills remaining space, pushing friends to bottom */}
-        <div class="flex-1" />
+        <div class="flex-1 min-h-0" />
 
         {/* friends — fills available space at bottom */}
-        <div class="flex-shrink-0 overflow-y-auto min-h-[54px] max-h-[60%]">
+        <div class="flex-shrink min-h-[54px] max-h-[60%] flex flex-col overflow-hidden">
           <FriendsList
             friends={friends()}
             friendRequests={friendRequests()}

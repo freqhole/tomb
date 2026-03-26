@@ -35,7 +35,7 @@ export function ChannelSidebar(props: ChannelSidebarProps) {
         <For each={props.channels}>
           {(channel) => (
             <button
-              class="w-full flex items-center gap-2.5 px-3 py-2 text-left transition-colors"
+              class="w-full flex items-center gap-2.5 px-3 py-2 min-h-[44px] text-left transition-colors"
               classList={{
                 "bg-[var(--color-bg-secondary)]": isActive(channel.topic_id),
                 "hover:bg-[var(--color-bg-secondary)]/50": !isActive(channel.topic_id),

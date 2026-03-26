@@ -152,10 +152,13 @@ export function ComposeBar(props: ComposeBarProps) {
       {/* input row */}
       <div class="flex items-end gap-2">
         <button
-          class="flex-shrink-0 w-10 h-10 rounded-lg flex items-center justify-center text-[var(--color-text-tertiary)] hover:text-[var(--color-accent-500)] hover:bg-[var(--color-bg-tertiary)] transition-colors text-sm"
+          class="flex-shrink-0 w-10 h-10 rounded-lg flex items-center justify-center hover:bg-[var(--color-bg-tertiary)] transition-colors text-sm"
           onClick={() => setShowSearch((v) => !v)}
           title="attach music"
-          classList={{ "text-[var(--color-accent-500)]": showSearch() }}
+          classList={{
+            "text-[var(--color-accent-500)] bg-[var(--color-accent-500)]/10": showSearch(),
+            "text-[var(--color-text-tertiary)] hover:text-[var(--color-accent-500)]": !showSearch(),
+          }}
         >
           <MusicIcon size={16} />
         </button>
