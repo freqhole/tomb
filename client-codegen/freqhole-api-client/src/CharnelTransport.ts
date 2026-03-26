@@ -8,6 +8,12 @@ import type { Transport, TransportResponse, BlobData } from "./transport.js";
 // tauri invoke function type
 type InvokeFn = (cmd: string, args?: unknown) => Promise<unknown>;
 
+// webkitgtk (linux) requires HTTP/HTTPS URLs for Cache API keys.
+// wrap bare blobIds with a synthetic URL prefix.
+function cacheKey(blobId: string): string {
+  return `https://blob.local/${blobId}`;
+}
+
 // tauri invoke is dynamically imported to avoid bundling in browser builds
 let invoke: InvokeFn | null = null;
 
@@ -257,9 +263,9 @@ export class CharnelTransport implements Transport {
       return cached;
     }
 
-    // check Cache API - use blobId as key (cache name already partitions by remote)
+    // check Cache API (use HTTP URL key for webkitgtk compatibility)
     const cache = await caches.open(this.cacheName);
-    const cachedResponse = await cache.match(blobId);
+    const cachedResponse = await cache.match(cacheKey(blobId));
 
     if (cachedResponse) {
       const blob = await cachedResponse.blob();
@@ -272,11 +278,11 @@ export class CharnelTransport implements Transport {
     const blobData = await this.fetchBlob(blobId, blake3);
     const blob = new Blob([blobData.data.slice().buffer], { type: blobData.contentType });
 
-    // store in Cache API using blobId as key
+    // store in Cache API (HTTP URL key for webkitgtk compatibility)
     const response = new Response(blob, {
       headers: { "Content-Type": blobData.contentType },
     });
-    await cache.put(blobId, response);
+    await cache.put(cacheKey(blobId), response);
 
     // create object URL
     const url = URL.createObjectURL(blob);

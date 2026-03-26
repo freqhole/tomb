@@ -196,11 +196,9 @@ async function resolveP2PBlob(
 
   // Tauri-managed remotes don't need Cache API - files are local
   if (isCharnelAvailable() && remote.is_charnel_managed) {
-    debug("blobResolver", `resolving local blob via Tauri IPC: ${blobId.slice(0, 8)}...`);
     const transport = await getTransportForRemote(remote);
     const url = await transport.getBlobUrl(blobId, blake3);
     addActiveBlobUrl(cacheKey, url);
-    debug("blobResolver", `resolved local blob: ${blobId.slice(0, 8)}... -> ${url.slice(0, 30)}...`);
     return url;
   }
   

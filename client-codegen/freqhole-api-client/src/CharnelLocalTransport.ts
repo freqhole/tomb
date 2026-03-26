@@ -13,6 +13,10 @@ type InvokeFn = (cmd: string, args?: unknown) => Promise<unknown>;
 let invoke: InvokeFn | null = null;
 let convertFileSrc: ((path: string) => string) | null = null;
 
+// webkitgtk (linux) can't play asset:// URLs in <audio> elements.
+// detect once at module level so we can use blob: URLs as a workaround.
+const isLinuxWebKit = typeof navigator !== "undefined" && navigator.userAgent.includes("Linux");
+
 /**
  * initialize tauri invoke function
  */
@@ -51,6 +55,8 @@ export class CharnelLocalTransport implements Transport {
   private blobPathCache = new Map<string, { path: string; mime?: string }>();
   // cache object URLs for db-stored blobs (no local path)
   private blobObjectUrlCache = new Map<string, string>();
+  // single audio blob URL for linux workaround (revoke-on-replace to avoid memory leak)
+  private audioBlobUrl: { blobId: string; url: string } | null = null;
 
   constructor(_baseUrl: string) {
     // baseUrl no longer needed - all requests go through IPC
@@ -276,6 +282,10 @@ export class CharnelLocalTransport implements Transport {
   /**
    * get blob URL - returns Tauri asset:// URL for direct <audio>/<img> src usage
    * for db-stored blobs, returns object URL from cached data
+   *
+   * on linux (webkitgtk), asset:// doesn't work for <audio> elements,
+   * so we fetch via asset:// and return a blob: object URL instead.
+   * only one audio blob URL is kept at a time to avoid memory bloat.
    */
   getBlobUrl(blobId: string, _blake3?: string): string | Promise<string> {
     // check object URL cache first (db-stored blobs)
@@ -283,10 +293,19 @@ export class CharnelLocalTransport implements Transport {
     if (cachedObjectUrl) {
       return cachedObjectUrl;
     }
+
+    // linux audio workaround: return cached audio blob URL if same song
+    if (isLinuxWebKit && this.audioBlobUrl?.blobId === blobId) {
+      return this.audioBlobUrl.url;
+    }
     
     // check path cache (filesystem blobs)
     const cached = this.blobPathCache.get(blobId);
     if (cached && convertFileSrc) {
+      // on linux, always go async to create blob: URL for <audio> compatibility
+      if (isLinuxWebKit) {
+        return this.createAudioBlobUrl(blobId, cached.path, cached.mime);
+      }
       return convertFileSrc(cached.path);
     }
 
@@ -306,11 +325,16 @@ export class CharnelLocalTransport implements Transport {
     if (response.status === 200) {
       const parsed = JSON.parse(response.body);
       if (parsed.data?.path) {
-        // cache it
+        // cache path for future use
         this.blobPathCache.set(blobId, { path: parsed.data.path, mime: parsed.data.mime });
 
         if (!convertFileSrc) {
           throw new Error("convertFileSrc not available");
+        }
+
+        // on linux, create blob: URL instead of asset:// for <audio> compat
+        if (isLinuxWebKit) {
+          return this.createAudioBlobUrl(blobId, parsed.data.path, parsed.data.mime);
         }
 
         return convertFileSrc(parsed.data.path);
@@ -331,6 +355,31 @@ export class CharnelLocalTransport implements Transport {
     }
     
     throw new Error(`failed to get blob path: ${response.body}`);
+  }
+
+  /**
+   * create a blob: object URL by fetching via asset:// protocol.
+   * used on linux where webkitgtk can't play asset:// in <audio> elements.
+   * only keeps one audio blob URL at a time — revokes the previous one.
+   */
+  private async createAudioBlobUrl(blobId: string, localPath: string, mime?: string): Promise<string> {
+    if (!convertFileSrc) {
+      throw new Error("convertFileSrc not available");
+    }
+
+    // revoke previous audio blob URL to free memory
+    if (this.audioBlobUrl) {
+      URL.revokeObjectURL(this.audioBlobUrl.url);
+    }
+
+    const assetUrl = convertFileSrc(localPath);
+    const resp = await fetch(assetUrl);
+    const arrayBuffer = await resp.arrayBuffer();
+    const blob = new Blob([arrayBuffer], { type: mime ?? "audio/mpeg" });
+    const objectUrl = URL.createObjectURL(blob);
+
+    this.audioBlobUrl = { blobId, url: objectUrl };
+    return objectUrl;
   }
 }
 

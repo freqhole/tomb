@@ -17,49 +17,11 @@ use crate::spume_bridge::{
 use crate::ShutdownToken;
 
 /// resolve a path to its canonical form, falling back to the original if resolution fails.
-/// handles Flatpak document portal paths and symlinks.
+/// useful for resolving symlinks (e.g. /home -> /var/home on Fedora Silverblue).
 fn canonicalize_or_original(path: &str) -> String {
-    resolve_flatpak_portal_path(path)
-        .or_else(|| {
-            std::fs::canonicalize(path)
-                .ok()
-                .map(|p| p.to_string_lossy().to_string())
-        })
-        .unwrap_or_else(|| path.to_string())
-}
-
-/// detect and resolve Flatpak document portal paths.
-///
-/// inside a Flatpak sandbox, the file picker returns paths like
-/// /run/flatpak/doc/<id>/Music or /run/user/1000/doc/<id>/Music.
-/// these are FUSE mounts that become inaccessible after the picker closes.
-///
-/// we resolve them by opening the path and reading /proc/self/fd/<fd> which
-/// gives us the real host filesystem path that the app can access directly
-/// (since the Flatpak manifest grants --filesystem=home:ro).
-#[cfg(target_os = "linux")]
-fn resolve_flatpak_portal_path(path: &str) -> Option<String> {
-    if !path.starts_with("/run/flatpak/doc/") && !path.contains("/doc/") {
-        return None;
-    }
-    // open the path and use /proc/self/fd to get real path
-    use std::os::unix::io::AsRawFd;
-    let file = std::fs::File::open(path).ok()?;
-    let fd = file.as_raw_fd();
-    let proc_path = format!("/proc/self/fd/{}", fd);
-    let real_path = std::fs::read_link(&proc_path).ok()?;
-    let real_str = real_path.to_string_lossy().to_string();
-    // only return if we got a different, non-portal path
-    if real_str != path && !real_str.starts_with("/run/flatpak/doc/") {
-        Some(real_str)
-    } else {
-        None
-    }
-}
-
-#[cfg(not(target_os = "linux"))]
-fn resolve_flatpak_portal_path(_path: &str) -> Option<String> {
-    None
+    std::fs::canonicalize(path)
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_else(|_| path.to_string())
 }
 
 /// ensure config is initialized, returns Ok if already initialized or successfully initialized
@@ -363,16 +325,9 @@ async fn check_has_root_user() -> Result<bool, String> {
     Ok(result.is_success())
 }
 
-/// resolve a file path to its canonical form (resolves symlinks, portal paths, etc.)
-///
-/// this is needed because Flatpak's file picker returns document portal paths
-/// like /run/user/1000/doc/9a798d25/Music/ which are ephemeral and break after restart.
+/// resolve a file path to its canonical form (resolves symlinks, etc.)
 #[tauri::command]
 pub fn resolve_path(path: String) -> Result<String, String> {
-    // try Flatpak portal resolution first, then canonicalize
-    if let Some(resolved) = resolve_flatpak_portal_path(&path) {
-        return Ok(resolved);
-    }
     std::fs::canonicalize(&path)
         .map(|p| p.to_string_lossy().to_string())
         .map_err(|e| format!("failed to resolve path '{}': {}", path, e))

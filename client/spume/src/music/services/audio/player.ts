@@ -200,7 +200,7 @@ function initAudio(): HTMLAudioElement {
     const error = audioElement!.error;
     if (error) {
       console.error(
-        `media error code: ${error.code}, message: ${error.message}`,
+        `media error code: ${error.code}, message: ${error.message}, src: ${audioElement!.src?.slice(0, 120)}`,
       );
     }
     // skip to next song on error
