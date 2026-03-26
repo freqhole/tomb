@@ -98,6 +98,12 @@ enum Commands {
         action: plumbing::BlobzAction,
     },
 
+    /// Gossip channel operations
+    Gossip {
+        #[command(subcommand)]
+        action: plumbing::GossipAction,
+    },
+
     /// Start HTTP server and/or P2P endpoint based on config
     Serve {
         /// Path to configuration file (overrides --config global flag)
@@ -219,6 +225,9 @@ async fn main() -> Result<()> {
         }
         Commands::Blobz { action } => {
             plumbing::handle_blobz(action, json_output).await?;
+        }
+        Commands::Gossip { action } => {
+            plumbing::handle_gossip(action, json_output).await?;
         }
         Commands::Serve { .. } | Commands::Http { .. } | Commands::P2p { .. } => {
             // handled above with early return

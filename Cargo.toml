@@ -90,6 +90,7 @@ bigdecimal = { version = "0.4", features = ["serde"] }
 image = "0.24"
 iroh = "0.97"
 iroh-blobs = "0.99"
+iroh-gossip = "0.97"
 blake3 = "1.5"
 
 # release profile optimizations for smaller binaries

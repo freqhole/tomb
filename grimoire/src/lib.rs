@@ -15,6 +15,7 @@ pub mod dbinfo;
 pub mod error;
 pub mod events;
 pub mod federation;
+pub mod gossip;
 pub mod health;
 pub mod jobs;
 pub mod maintenance;

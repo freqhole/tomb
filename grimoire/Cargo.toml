@@ -50,6 +50,7 @@ include_dir = "0.7"
 dialoguer = "0.11"
 iroh = { workspace = true }
 iroh-blobs = { workspace = true }
+iroh-gossip = { workspace = true }
 blake3 = { workspace = true }
 getrandom = "0.2"
 

@@ -6,6 +6,7 @@
 //! uses iroh's Router pattern to handle multiple protocols:
 //! - freqhole/1: existing P2P proxy protocol
 //! - freqhole-blobz: iroh-blobs verified streaming (audio files)
+//! - /iroh-gossip/1: iroh-gossip for pub/sub messaging channels
 
 use crate::blobz::{get_blobs_store, BLOBS_ALPN};
 use crate::config::get_config;
@@ -18,6 +19,7 @@ use iroh::protocol::Router;
 use iroh::{Endpoint, EndpointAddr, PublicKey, SecretKey};
 use iroh_blobs::provider::events::{EventMask, EventSender};
 use iroh_blobs::BlobsProtocol;
+use iroh_gossip::Gossip;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use tracing::{info, warn};
 
@@ -27,6 +29,8 @@ pub struct FederationEndpoint {
     node_id: PublicKey,
     /// router handle for protocol dispatch
     router: Option<Router>,
+    /// gossip protocol instance (created with router)
+    gossip: Option<Gossip>,
 }
 
 impl FederationEndpoint {
@@ -48,6 +52,7 @@ impl FederationEndpoint {
             endpoint,
             node_id,
             router: None,
+            gossip: None,
         })
     }
 
@@ -104,13 +109,14 @@ impl FederationEndpoint {
         &self.endpoint
     }
 
-    /// start the router with both protocol handlers
+    /// start the router with all protocol handlers
     ///
     /// sets up:
     /// - freqhole/1: existing P2P proxy protocol
     /// - freqhole-blobz: iroh-blobs verified streaming
+    /// - /iroh-gossip/1: gossip pub/sub messaging
     pub async fn start_router(&mut self) -> GrimoireResult<()> {
-        info!("[p2p-endpoint] starting router with dual protocol support");
+        info!("[p2p-endpoint] starting router with triple protocol support");
 
         // create freqhole/1 protocol handler
         let freqhole_handler = FreqholeProtocol::new();
@@ -120,16 +126,26 @@ impl FederationEndpoint {
         let event_sender = EventSender::DEFAULT.tracing(EventMask::default());
         let blobs_handler = BlobsProtocol::new(blobs_store, Some(event_sender));
 
-        // build router with both protocols
+        // create gossip protocol handler (must be created before router)
+        let gossip = Gossip::builder().spawn(self.endpoint.clone());
+
+        // build router with all three protocols
         let router = Router::builder(self.endpoint.clone())
             .accept(FREQHOLE_ALPN, freqhole_handler)
             .accept(BLOBS_ALPN, blobs_handler)
+            .accept(iroh_gossip::ALPN, gossip.clone())
             .spawn();
 
-        info!("[p2p-endpoint] router started with ALPNs: freqhole/1, /iroh-bytes/4");
+        info!("[p2p-endpoint] router started with ALPNs: freqhole/1, /iroh-bytes/4, /iroh-gossip/1");
 
+        self.gossip = Some(gossip);
         self.router = Some(router);
         Ok(())
+    }
+
+    /// get the Gossip instance (only available after start_router)
+    pub fn gossip(&self) -> Option<&Gossip> {
+        self.gossip.as_ref()
     }
 
     /// connect to a peer by node_id

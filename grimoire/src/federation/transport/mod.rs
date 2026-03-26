@@ -20,6 +20,7 @@ pub use protocol::{PeerMessage, FREQHOLE_ALPN};
 
 use crate::config::get_config;
 use crate::error::GrimoireResult;
+use crate::gossip::GossipManager;
 use crate::users::UserService;
 use tracing::info;
 
@@ -54,20 +55,35 @@ async fn should_accept_incoming() -> bool {
 ///
 /// this is the main entry point for P2P networking. it creates the
 /// endpoint, generates/loads the keypair, and starts the router
-/// with dual protocol support (freqhole/1 + freqhole-blobz).
+/// with triple protocol support (freqhole/1 + freqhole-blobz + iroh-gossip).
+///
+/// returns the endpoint and an optional GossipManager (if router was started).
 ///
 /// optimization: if knocking is disabled AND no peer nodes exist,
 /// skips the accept loop since no one can connect anyway.
-pub async fn start_federation_endpoint() -> GrimoireResult<FederationEndpoint> {
+pub async fn start_federation_endpoint(
+) -> GrimoireResult<(FederationEndpoint, Option<GossipManager>)> {
     let mut endpoint = FederationEndpoint::new().await?;
 
     // check if should accept incoming connections
     if should_accept_incoming().await {
         info!("starting P2P router (knocking enabled or peers registered)");
         endpoint.start_router().await?;
+
+        // create gossip manager and resubscribe to persisted channels
+        let gossip_manager = if let Some(gossip) = endpoint.gossip().cloned() {
+            let manager = GossipManager::new(gossip);
+            if let Err(e) = manager.resubscribe_all().await {
+                tracing::warn!("[gossip] resubscribe failed (non-fatal): {}", e);
+            }
+            Some(manager)
+        } else {
+            None
+        };
+
+        Ok((endpoint, gossip_manager))
     } else {
         info!("skipping P2P router (no knocking, no peers - outbound only)");
+        Ok((endpoint, None))
     }
-
-    Ok(endpoint)
 }

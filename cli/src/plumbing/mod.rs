@@ -20,6 +20,7 @@ mod database;
 mod dir_tags;
 pub mod dispatch;
 mod federation;
+mod gossip;
 mod jobs;
 mod maintenance;
 mod music;
@@ -34,6 +35,7 @@ pub use config::ConfigAction;
 pub use database::DatabaseAction;
 pub use dir_tags::DirTagsAction;
 pub use federation::FederationAction;
+pub use gossip::GossipAction;
 pub use jobs::JobAction;
 pub use maintenance::MaintenanceAction;
 pub use music::MusicAction;
@@ -137,6 +139,14 @@ pub enum Commands {
         #[arg(long, global = true)]
         json_output: bool,
     },
+    /// Gossip channel operations
+    Gossip {
+        #[command(subcommand)]
+        action: GossipAction,
+        /// Output as JSON
+        #[arg(long, global = true)]
+        json_output: bool,
+    },
 }
 
 // Public handler functions for use in main.rs
@@ -213,6 +223,12 @@ pub async fn handle_federation(action: FederationAction, json_output: bool) -> a
 pub async fn handle_blobz(action: BlobzAction, json_output: bool) -> anyhow::Result<()> {
     let format = OutputFormat::from_json_flag(json_output);
     let output = blobz::handle_command(action).await;
+    utils::print_and_exit(output, format);
+}
+
+pub async fn handle_gossip(action: GossipAction, json_output: bool) -> anyhow::Result<()> {
+    let format = OutputFormat::from_json_flag(json_output);
+    let output = gossip::handle_command(action).await;
     utils::print_and_exit(output, format);
 }
 

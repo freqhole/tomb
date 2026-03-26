@@ -32,6 +32,7 @@ pub enum Domain {
     Auth,
     Music,
     Admin,
+    Gossip,
 }
 
 impl Domain {
@@ -41,6 +42,7 @@ impl Domain {
             Domain::Auth => "auth",
             Domain::Music => "music",
             Domain::Admin => "admin",
+            Domain::Gossip => "gossip",
         }
     }
 }
@@ -214,6 +216,20 @@ pub mod type_registry {
 
     // blob metadata request type
     use crate::offal::media_blobz::GetBlobMetadataRequest;
+
+    // gossip types
+    use crate::gossip::models::{
+        ChannelDetailResponse, ChannelInvite, CreateChannelRequest, GossipChannel,
+        GossipChannelMember, GossipKnockRequest as GossipKnockReq, GossipMessage, GossipReaction,
+        JoinChannelRequest, MessagesResponse,
+    };
+    use crate::gossip::protocol::{
+        GossipEnvelope, GossipMessageType, MusicReference, MusicSharePayload, ReactionPayload,
+    };
+    use crate::offal::gossip::{
+        DeleteMessageRequest, EmptyRequest, GetChannelRequest, GetMessagesWithChannelRequest,
+        ReactWithChannelRequest, SendMessageWithChannelRequest,
+    };
 
     pub fn register_all_types(gen: &mut ZodGenerator, registered: &mut HashSet<String>) {
         // auth types
@@ -744,5 +760,70 @@ pub mod type_registry {
         // blob metadata request type
         gen.add_schema::<GetBlobMetadataRequest>("GetBlobMetadataRequest");
         registered.insert("GetBlobMetadataRequest".to_string());
+
+        // gossip types
+        gen.add_schema::<GossipChannel>("GossipChannel");
+        registered.insert("GossipChannel".to_string());
+
+        gen.add_schema::<GossipChannelMember>("GossipChannelMember");
+        registered.insert("GossipChannelMember".to_string());
+
+        gen.add_schema::<GossipMessage>("GossipMessage");
+        registered.insert("GossipMessage".to_string());
+
+        gen.add_schema::<GossipReaction>("GossipReaction");
+        registered.insert("GossipReaction".to_string());
+
+        gen.add_schema::<GossipKnockReq>("GossipKnockRequest");
+        registered.insert("GossipKnockRequest".to_string());
+
+        gen.add_schema::<CreateChannelRequest>("CreateChannelRequest");
+        registered.insert("CreateChannelRequest".to_string());
+
+        gen.add_schema::<ChannelDetailResponse>("ChannelDetailResponse");
+        registered.insert("ChannelDetailResponse".to_string());
+
+        gen.add_schema::<JoinChannelRequest>("JoinChannelRequest");
+        registered.insert("JoinChannelRequest".to_string());
+
+        gen.add_schema::<MessagesResponse>("MessagesResponse");
+        registered.insert("MessagesResponse".to_string());
+
+        gen.add_schema::<ChannelInvite>("ChannelInvite");
+        registered.insert("ChannelInvite".to_string());
+
+        gen.add_schema::<GossipEnvelope>("GossipEnvelope");
+        registered.insert("GossipEnvelope".to_string());
+
+        gen.add_schema::<GossipMessageType>("GossipMessageType");
+        registered.insert("GossipMessageType".to_string());
+
+        gen.add_schema::<MusicReference>("MusicReference");
+        registered.insert("MusicReference".to_string());
+
+        gen.add_schema::<MusicSharePayload>("MusicSharePayload");
+        registered.insert("MusicSharePayload".to_string());
+
+        gen.add_schema::<ReactionPayload>("ReactionPayload");
+        registered.insert("ReactionPayload".to_string());
+
+        // gossip offal request types
+        gen.add_schema::<GetChannelRequest>("GetChannelRequest");
+        registered.insert("GetChannelRequest".to_string());
+
+        gen.add_schema::<GetMessagesWithChannelRequest>("GetMessagesWithChannelRequest");
+        registered.insert("GetMessagesWithChannelRequest".to_string());
+
+        gen.add_schema::<SendMessageWithChannelRequest>("SendMessageWithChannelRequest");
+        registered.insert("SendMessageWithChannelRequest".to_string());
+
+        gen.add_schema::<ReactWithChannelRequest>("ReactWithChannelRequest");
+        registered.insert("ReactWithChannelRequest".to_string());
+
+        gen.add_schema::<DeleteMessageRequest>("DeleteMessageRequest");
+        registered.insert("DeleteMessageRequest".to_string());
+
+        gen.add_schema::<EmptyRequest>("EmptyRequest");
+        registered.insert("EmptyRequest".to_string());
     }
 }
