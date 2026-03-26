@@ -1,5 +1,16 @@
-import { createEffect, createSignal, For, on, onCleanup, Show } from "solid-js";
+import {
+  createEffect,
+  createMemo,
+  createSignal,
+  For,
+  on,
+  onCleanup,
+  Show,
+  untrack,
+} from "solid-js";
+import { createStore, reconcile } from "solid-js/store";
 import { createVirtualizer } from "@tanstack/solid-virtual";
+import type { VirtualItem } from "@tanstack/virtual-core";
 import type {
   GossipChannel,
   GossipChannelMember,
@@ -26,125 +37,149 @@ export interface ChannelThreadProps {
   onAddToQueue?: (item: MusicReference) => void;
   onAddToPlaylist?: (item: MusicReference) => void;
   onSearchMusic?: (query: string) => void;
-  /** callback to load older messages (infinite scroll) */
   onLoadMore?: () => void;
-  /** unix seconds — messages after this timestamp are "unread" */
   lastReadTimestamp?: number;
-  /** callback to dismiss the unread divider (mark as read) */
   onDismissUnread?: () => void;
-  /** resolve avatar url for a sender name */
   resolveAvatar?: (name: string | null) => string | null;
-  /** saved scroll position to restore */
   savedScrollTop?: number;
-  /** fires when scroll position changes (for persistence) */
   onScrollChange?: (scrollTop: number) => void;
-  /** callback to navigate back to sidebar (narrow layout) */
   onBack?: () => void;
 }
 
-const MSG_ESTIMATE_HEIGHT = 100;
+const ESTIMATE_ROW_HEIGHT = 120;
 const OVERSCAN = 5;
 
 export function ChannelThread(props: ChannelThreadProps) {
   let scrollRef: HTMLDivElement | undefined;
-  // eslint-disable-next-line solid/reactivity -- initial value, tracked via effect below
-  const [prevMsgCount, setPrevMsgCount] = createSignal(props.messages.length);
+  const t0 = performance.now();
+  const ts = () => `+${(performance.now() - t0).toFixed(0)}ms`;
 
-  // track message count in a dedicated signal so the virtualizer's count getter
-  // doesn't create a reactive dependency on props.messages (which would trigger
-  // the solid-virtual adapter's createComputed → measure() → invalidate ALL
-  // cached sizes every time any message content changes)
-  // eslint-disable-next-line solid/reactivity -- initial value, tracked via effect below
-  const [msgCount, setMsgCount] = createSignal(props.messages.length);
-  createEffect(() => setMsgCount(props.messages.length));
+  // -- virtualizer --
+  const count = createMemo(() => props.messages.length);
 
-  // single timer for all relative timestamps — ticks every 30s
+  const virtualizer = createVirtualizer({
+    get count() {
+      return count();
+    },
+    getScrollElement: () => scrollRef ?? null,
+    estimateSize: () => ESTIMATE_ROW_HEIGHT,
+    overscan: OVERSCAN,
+    getItemKey: (index) => untrack(() => props.messages[index]?.message_id ?? index),
+  });
+
+  // patch measure() — the adapter calls it on every reactive change, which
+  // wipes ALL cached sizes. we replace it with notify-only (preserves cache,
+  // still triggers recomputation for new count). for channel switch we call
+  // origMeasure directly to do a real cache clear.
+  const origMeasure = (virtualizer as any).measure.bind(virtualizer);
+  const origNotify = (virtualizer as any).notify.bind(virtualizer);
+  (virtualizer as any).measure = function () {
+    const sizeCache = (this as any).itemSizeCache;
+    const cached = sizeCache instanceof Map ? sizeCache.size : "?";
+    console.log(`[ct ${ts()}] measure() intercepted — notify only (cached=${cached})`);
+    origNotify(false);
+  };
+
+  // trap resizeItem() to see when ResizeObserver fires real measurements
+  const origResizeItem = (virtualizer as any).resizeItem;
+  (virtualizer as any).resizeItem = function (index: number, size: number) {
+    const sizeCache = (this as any).itemSizeCache;
+    const oldSize =
+      sizeCache instanceof Map ? sizeCache.get((this as any).measurementsCache?.[index]?.key) : "?";
+    console.log(`[ct ${ts()}] resizeItem idx=${index} ${oldSize} -> ${size}`);
+    return origResizeItem.call(this, index, size);
+  };
+
+  // reconcile virtual items into a store so <For> can diff by key
+  // and reuse DOM nodes — prevents the measureElement cascade
+  const [vItems, setVItems] = createStore<VirtualItem[]>([]);
+  createEffect(() => {
+    const items = virtualizer.getVirtualItems();
+    const range = items.length > 0 ? `[${items[0].index}..${items[items.length - 1].index}]` : "[]";
+    const sizeCache = (virtualizer as any).itemSizeCache;
+    const cached = sizeCache instanceof Map ? sizeCache.size : "?";
+    console.log(
+      `[ct ${ts()}] reconcile: ${items.length} items ${range}, totalSize=${virtualizer.getTotalSize()}, cached=${cached}`
+    );
+    setVItems(reconcile(items, { key: "key", merge: false }));
+  });
+
+  // -- timestamps --
   const [tick, setTick] = createSignal(0);
   const tickInterval = setInterval(() => setTick((t) => t + 1), 30_000);
   onCleanup(() => clearInterval(tickInterval));
 
-  // auto-dismiss unread divider after 5s at bottom
+  // -- unread divider --
+  const firstUnreadIndex = createMemo(() => {
+    if (props.lastReadTimestamp == null) return -1;
+    return props.messages.findIndex((m) => m.timestamp > props.lastReadTimestamp!);
+  });
+
   let dismissTimer: ReturnType<typeof setTimeout> | null = null;
   onCleanup(() => {
     if (dismissTimer) clearTimeout(dismissTimer);
   });
 
-  // first unread message index (for divider)
-  const firstUnreadIndex = () => {
-    if (props.lastReadTimestamp == null) return -1;
-    return props.messages.findIndex((m) => m.timestamp > props.lastReadTimestamp!);
-  };
-
-  const virtualizer = createVirtualizer({
-    get count() {
-      return msgCount();
-    },
-    getScrollElement: () => scrollRef ?? null,
-    estimateSize: () => MSG_ESTIMATE_HEIGHT,
-    overscan: OVERSCAN,
-  });
-
+  // -- scroll helpers --
   const isAtBottom = () => {
     if (!scrollRef) return false;
     return scrollRef.scrollHeight - scrollRef.scrollTop - scrollRef.clientHeight < 100;
   };
 
-  // auto-scroll to bottom when new messages arrive (user sent or received)
+  // auto-scroll when new messages arrive
+  // eslint-disable-next-line solid/reactivity -- initial snapshot, updated inside effect
+  let prevCount = props.messages.length;
   createEffect(
-    on(
-      () => props.messages.length,
-      (len) => {
-        const prev = prevMsgCount();
-        setPrevMsgCount(len);
-        // only auto-scroll if messages were appended (not prepended via load-more)
-        if (len > prev) {
-          if (isAtBottom() || len - prev === 1) {
-            virtualizer.scrollToIndex(len - 1, { align: "end", behavior: "smooth" });
-          }
-        }
-      }
-    )
-  );
-
-  // scroll to bottom (or unread divider) when switching channels
-  createEffect(
-    on(
-      () => props.channel.topic_id,
-      () => {
+    on(count, (len) => {
+      const prev = prevCount;
+      prevCount = len;
+      const atBottom = isAtBottom();
+      console.log(
+        `[ct ${ts()}] count: ${prev} -> ${len}, atBottom=${atBottom}, totalSize=${virtualizer.getTotalSize()}`
+      );
+      if (len > prev && (atBottom || len - prev === 1)) {
+        console.log(`[ct ${ts()}] auto-scroll to idx ${len - 1}`);
         requestAnimationFrame(() => {
-          if (props.savedScrollTop !== undefined && scrollRef) {
-            scrollRef.scrollTo({ top: props.savedScrollTop });
-          } else {
-            const unreadIdx = firstUnreadIndex();
-            if (unreadIdx > 0) {
-              virtualizer.scrollToIndex(unreadIdx, { align: "start" });
-            } else if (props.messages.length > 0) {
-              virtualizer.scrollToIndex(props.messages.length - 1, { align: "end" });
-            }
-          }
+          virtualizer.scrollToIndex(len - 1, { align: "end" });
         });
+        props.onDismissUnread?.();
       }
-    )
+    })
   );
 
-  // re-measure row(s) when unread divider appears/moves/disappears
+  // scroll to unread or bottom on channel switch
+  // use createMemo for topicId — has equality check, prevents spurious fires
+  const topicId = createMemo(() => props.channel.topic_id);
   createEffect(
-    on(firstUnreadIndex, (idx, prevIdx) => {
+    on(topicId, (id) => {
+      console.log(`[ct ${ts()}] channel switch: ${id}, msgs=${props.messages.length}`);
+      prevCount = props.messages.length;
+      // real cache clear — different channel = different content
+      console.log(`[ct ${ts()}] origMeasure() — real cache clear for channel switch`);
+      origMeasure();
       requestAnimationFrame(() => {
-        if (!scrollRef) return;
-        for (const i of [idx, prevIdx]) {
-          if (i != null && i >= 0) {
-            const el = scrollRef.querySelector(`[data-index="${i}"]`);
-            if (el) {
-              virtualizer.measureElement(el as HTMLElement);
-            }
+        const scroll = scrollRef
+          ? `scrollH=${scrollRef.scrollHeight} scrollT=${scrollRef.scrollTop} clientH=${scrollRef.clientHeight}`
+          : "no-ref";
+        if (props.savedScrollTop !== undefined && scrollRef) {
+          console.log(`[ct ${ts()}] restore scroll: ${props.savedScrollTop} (${scroll})`);
+          scrollRef.scrollTo({ top: props.savedScrollTop });
+        } else {
+          const unreadIdx = firstUnreadIndex();
+          if (unreadIdx > 0) {
+            console.log(`[ct ${ts()}] scroll to unread idx ${unreadIdx} (${scroll})`);
+            virtualizer.scrollToIndex(unreadIdx, { align: "start" });
+          } else if (props.messages.length > 0) {
+            console.log(
+              `[ct ${ts()}] scroll to bottom idx ${props.messages.length - 1} (${scroll})`
+            );
+            virtualizer.scrollToIndex(props.messages.length - 1, { align: "end" });
           }
         }
       });
     })
   );
 
-  // infinite scroll: load more when scrolled near top
   const handleScroll = () => {
     if (!scrollRef) return;
     props.onScrollChange?.(scrollRef.scrollTop);
@@ -155,13 +190,12 @@ export function ChannelThread(props: ChannelThreadProps) {
       props.onLoadMore();
       requestAnimationFrame(() => {
         if (scrollRef) {
-          const newHeight = scrollRef.scrollHeight;
-          scrollRef.scrollTop += newHeight - prevHeight;
+          scrollRef.scrollTop += scrollRef.scrollHeight - prevHeight;
         }
       });
     }
 
-    // auto-dismiss unread divider after staying at bottom for 5s
+    // auto-dismiss unread divider after 5s at bottom
     if (firstUnreadIndex() > 0 && props.onDismissUnread) {
       if (isAtBottom()) {
         if (!dismissTimer) {
@@ -170,11 +204,9 @@ export function ChannelThread(props: ChannelThreadProps) {
             dismissTimer = null;
           }, 5000);
         }
-      } else {
-        if (dismissTimer) {
-          clearTimeout(dismissTimer);
-          dismissTimer = null;
-        }
+      } else if (dismissTimer) {
+        clearTimeout(dismissTimer);
+        dismissTimer = null;
       }
     }
   };
@@ -235,17 +267,21 @@ export function ChannelThread(props: ChannelThreadProps) {
               position: "relative",
             }}
           >
-            <For each={virtualizer.getVirtualItems()}>
-              {(virtualItem) => {
-                const msg = () => props.messages[virtualItem.index];
+            <For each={vItems}>
+              {(vRow) => {
+                const msg = () => props.messages[vRow.index];
                 return (
                   <div
-                    data-index={virtualItem.index}
                     ref={(el) => {
+                      if (!el) return;
+                      el.setAttribute("data-index", String(vRow.index));
                       requestAnimationFrame(() => {
-                        if (el.isConnected) {
-                          virtualizer.measureElement(el);
-                        }
+                        if (!el.isConnected) return;
+                        const h = el.getBoundingClientRect().height;
+                        console.log(
+                          `[ct ${ts()}] ref idx=${vRow.index} key=${vRow.key} h=${h.toFixed(0)}`
+                        );
+                        virtualizer.measureElement(el);
                       });
                     }}
                     style={{
@@ -253,24 +289,29 @@ export function ChannelThread(props: ChannelThreadProps) {
                       top: 0,
                       left: 0,
                       width: "100%",
-                      transform: `translateY(${virtualItem.start}px)`,
-                      display: "flex",
-                      "flex-direction": "column",
+                      transform: `translateY(${vRow.start}px)`,
                     }}
                   >
+                    {/* always-present divider slot — collapses to 0 when not the unread row */}
+                    <div
+                      class="flex items-center gap-3 px-3 py-1 my-1 transition-opacity"
+                      style={{
+                        opacity:
+                          firstUnreadIndex() > 0 && vRow.index === firstUnreadIndex() ? 1 : 0,
+                        height:
+                          firstUnreadIndex() > 0 && vRow.index === firstUnreadIndex()
+                            ? undefined
+                            : "0px",
+                        overflow: "hidden",
+                      }}
+                    >
+                      <div class="flex-1 h-px bg-[var(--color-accent-500)]/40" />
+                      <span class="text-[10px] font-medium text-[var(--color-accent-500)] uppercase tracking-wider">
+                        new
+                      </span>
+                      <div class="flex-1 h-px bg-[var(--color-accent-500)]/40" />
+                    </div>
                     <Show when={msg()}>
-                      {/* unread divider */}
-                      <Show
-                        when={firstUnreadIndex() > 0 && virtualItem.index === firstUnreadIndex()}
-                      >
-                        <div class="flex items-center gap-3 px-3 py-1 my-1">
-                          <div class="flex-1 h-px bg-[var(--color-accent-500)]/40" />
-                          <span class="text-[10px] font-medium text-[var(--color-accent-500)] uppercase tracking-wider">
-                            new
-                          </span>
-                          <div class="flex-1 h-px bg-[var(--color-accent-500)]/40" />
-                        </div>
-                      </Show>
                       <GossipMessageCard
                         message={msg()!}
                         currentNodeId={props.currentNodeId}

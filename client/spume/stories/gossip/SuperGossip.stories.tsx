@@ -110,6 +110,9 @@ function SuperGossipDemo() {
   };
 
   const handleSend = (text: string, attachments: MusicReference[]) => {
+    console.log(
+      `[story] >>> SEND text="${text}" attachments=${attachments.length} channel=${activeTopicId().slice(0, 8)}`
+    );
     const msg: GossipMessage = {
       message_id: nextMsgId(),
       topic_id: activeTopicId(),
@@ -130,9 +133,14 @@ function SuperGossipDemo() {
     setChannels((prev) =>
       prev.map((c) => (c.topic_id === activeTopicId() ? { ...c, last_message_at: now() } : c))
     );
+    // mark channel as read — we're actively viewing it
+    setLastReadByTopic((prev) => ({ ...prev, [activeTopicId()]: msg.timestamp }));
   };
 
   const handleReact = (messageId: string, emoji: string) => {
+    console.log(
+      `[story] >>> REACT msg=${messageId} emoji=${emoji} channel=${activeTopicId().slice(0, 8)}`
+    );
     setMessagesByTopic((prev) => {
       const msgs = prev[activeTopicId()] ?? [];
       return {
@@ -173,6 +181,7 @@ function SuperGossipDemo() {
   };
 
   const handleDelete = (messageId: string) => {
+    console.log(`[story] >>> DELETE msg=${messageId} channel=${activeTopicId().slice(0, 8)}`);
     setMessagesByTopic((prev) => {
       const msgs = prev[activeTopicId()] ?? [];
       return {
