@@ -169,11 +169,19 @@ export function ChannelThread(props: ChannelThreadProps) {
           if (unreadIdx > 0) {
             console.log(`[ct ${ts()}] scroll to unread idx ${unreadIdx} (${scroll})`);
             virtualizer.scrollToIndex(unreadIdx, { align: "start" });
+            // second pass after measurements settle — estimated sizes shift positions
+            requestAnimationFrame(() => {
+              virtualizer.scrollToIndex(unreadIdx, { align: "start" });
+            });
           } else if (props.messages.length > 0) {
             console.log(
               `[ct ${ts()}] scroll to bottom idx ${props.messages.length - 1} (${scroll})`
             );
             virtualizer.scrollToIndex(props.messages.length - 1, { align: "end" });
+            // second pass after measurements settle
+            requestAnimationFrame(() => {
+              virtualizer.scrollToIndex(props.messages.length - 1, { align: "end" });
+            });
           }
         }
       });
