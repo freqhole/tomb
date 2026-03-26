@@ -204,28 +204,20 @@ pub async fn create_channel(caller: &Caller, body: JsonValue) -> GrimoireRespons
     )
     .await
     {
-        Ok(channel) => GrimoireResponse::success(
-            "channel created",
-            serde_json::to_value(channel).unwrap(),
-        ),
-        Err(e) => GrimoireResponse::failure(
-            "failed to create channel",
-            vec![ErrorDetail::from(e)],
-        ),
+        Ok(channel) => {
+            GrimoireResponse::success("channel created", serde_json::to_value(channel).unwrap())
+        }
+        Err(e) => GrimoireResponse::failure("failed to create channel", vec![ErrorDetail::from(e)]),
     }
 }
 
 /// list all channels
 pub async fn list_channels(_caller: &Caller, _body: JsonValue) -> GrimoireResponse<JsonValue> {
     match repository::list_channels().await {
-        Ok(channels) => GrimoireResponse::success(
-            "channels listed",
-            serde_json::to_value(channels).unwrap(),
-        ),
-        Err(e) => GrimoireResponse::failure(
-            "failed to list channels",
-            vec![ErrorDetail::from(e)],
-        ),
+        Ok(channels) => {
+            GrimoireResponse::success("channels listed", serde_json::to_value(channels).unwrap())
+        }
+        Err(e) => GrimoireResponse::failure("failed to list channels", vec![ErrorDetail::from(e)]),
     }
 }
 
@@ -249,20 +241,14 @@ pub async fn get_channel(_caller: &Caller, body: JsonValue) -> GrimoireResponse<
             )
         }
         Err(e) => {
-            return GrimoireResponse::failure(
-                "failed to get channel",
-                vec![ErrorDetail::from(e)],
-            )
+            return GrimoireResponse::failure("failed to get channel", vec![ErrorDetail::from(e)])
         }
     };
 
     let members = match repository::list_members(&req.topic_id).await {
         Ok(m) => m,
         Err(e) => {
-            return GrimoireResponse::failure(
-                "failed to get members",
-                vec![ErrorDetail::from(e)],
-            )
+            return GrimoireResponse::failure("failed to get members", vec![ErrorDetail::from(e)])
         }
     };
 
@@ -279,10 +265,7 @@ pub async fn leave_channel(_caller: &Caller, body: JsonValue) -> GrimoireRespons
 
     match GossipService::leave_channel(&req.topic_id).await {
         Ok(()) => GrimoireResponse::success("left channel", serde_json::to_value(()).unwrap()),
-        Err(e) => GrimoireResponse::failure(
-            "failed to leave channel",
-            vec![ErrorDetail::from(e)],
-        ),
+        Err(e) => GrimoireResponse::failure("failed to leave channel", vec![ErrorDetail::from(e)]),
     }
 }
 
@@ -294,14 +277,10 @@ pub async fn join_channel(caller: &Caller, body: JsonValue) -> GrimoireResponse<
     };
 
     match GossipService::join_channel(&caller.user_id, &caller.username, &req).await {
-        Ok(channel) => GrimoireResponse::success(
-            "joined channel",
-            serde_json::to_value(channel).unwrap(),
-        ),
-        Err(e) => GrimoireResponse::failure(
-            "failed to join channel",
-            vec![ErrorDetail::from(e)],
-        ),
+        Ok(channel) => {
+            GrimoireResponse::success("joined channel", serde_json::to_value(channel).unwrap())
+        }
+        Err(e) => GrimoireResponse::failure("failed to join channel", vec![ErrorDetail::from(e)]),
     }
 }
 
@@ -316,10 +295,9 @@ pub async fn get_invite(_caller: &Caller, body: JsonValue) -> GrimoireResponse<J
         Ok(invite) => {
             GrimoireResponse::success("invite generated", serde_json::to_value(invite).unwrap())
         }
-        Err(e) => GrimoireResponse::failure(
-            "failed to generate invite",
-            vec![ErrorDetail::from(e)],
-        ),
+        Err(e) => {
+            GrimoireResponse::failure("failed to generate invite", vec![ErrorDetail::from(e)])
+        }
     }
 }
 
@@ -335,10 +313,7 @@ pub async fn get_messages(_caller: &Caller, body: JsonValue) -> GrimoireResponse
             "messages retrieved",
             serde_json::to_value(response).unwrap(),
         ),
-        Err(e) => GrimoireResponse::failure(
-            "failed to get messages",
-            vec![ErrorDetail::from(e)],
-        ),
+        Err(e) => GrimoireResponse::failure("failed to get messages", vec![ErrorDetail::from(e)]),
     }
 }
 
@@ -372,10 +347,7 @@ pub async fn send_message(caller: &Caller, body: JsonValue) -> GrimoireResponse<
     ) {
         Ok(env) => env,
         Err(e) => {
-            return GrimoireResponse::failure(
-                "failed to build message",
-                vec![ErrorDetail::from(e)],
-            )
+            return GrimoireResponse::failure("failed to build message", vec![ErrorDetail::from(e)])
         }
     };
 
@@ -398,18 +370,19 @@ pub async fn send_message(caller: &Caller, body: JsonValue) -> GrimoireResponse<
     };
 
     if let Err(e) = repository::insert_message(&msg).await {
-        return GrimoireResponse::failure(
-            "failed to persist message",
-            vec![ErrorDetail::from(e)],
-        );
+        return GrimoireResponse::failure("failed to persist message", vec![ErrorDetail::from(e)]);
     }
 
     if let Err(e) = repository::update_last_message_at(&req.topic_id, envelope.timestamp).await {
         tracing::warn!("failed to update last_message_at: {}", e);
     }
 
-    // TODO: broadcast via GossipManager when wired up
-    // gossip_manager.broadcast(&req.topic_id, &envelope).await?;
+    // broadcast to gossip peers (best-effort — no error if federation isn't running)
+    if let Some(manager) = crate::gossip::manager::get_gossip_manager() {
+        if let Err(e) = manager.broadcast(&req.topic_id, &envelope).await {
+            tracing::warn!("gossip broadcast failed (non-fatal): {}", e);
+        }
+    }
 
     GrimoireResponse::success("message sent", serde_json::to_value(msg).unwrap())
 }
@@ -426,8 +399,11 @@ pub async fn react_message(caller: &Caller, body: JsonValue) -> GrimoireResponse
         emoji: req.emoji.clone(),
     };
 
-    let envelope =
-        GossipService::build_reaction_envelope(&caller.user_id, &caller.username, &reaction_payload);
+    let envelope = GossipService::build_reaction_envelope(
+        &caller.user_id,
+        &caller.username,
+        &reaction_payload,
+    );
 
     let reaction = GossipReaction {
         message_id: envelope.message_id.clone(),
@@ -439,13 +415,18 @@ pub async fn react_message(caller: &Caller, body: JsonValue) -> GrimoireResponse
         timestamp: envelope.timestamp,
     };
 
-    match repository::insert_reaction(&reaction).await {
-        Ok(()) => GrimoireResponse::success("reaction added", serde_json::to_value(()).unwrap()),
-        Err(e) => GrimoireResponse::failure(
-            "failed to add reaction",
-            vec![ErrorDetail::from(e)],
-        ),
+    if let Err(e) = repository::insert_reaction(&reaction).await {
+        return GrimoireResponse::failure("failed to add reaction", vec![ErrorDetail::from(e)]);
     }
+
+    // broadcast reaction to gossip peers
+    if let Some(manager) = crate::gossip::manager::get_gossip_manager() {
+        if let Err(e) = manager.broadcast(&req.topic_id, &envelope).await {
+            tracing::warn!("gossip reaction broadcast failed (non-fatal): {}", e);
+        }
+    }
+
+    GrimoireResponse::success("reaction added", serde_json::to_value(()).unwrap())
 }
 
 /// delete own message
@@ -457,6 +438,17 @@ pub async fn delete_message(caller: &Caller, body: JsonValue) -> GrimoireRespons
 
     match repository::soft_delete_message(&req.message_id, &caller.user_id).await {
         Ok(true) => {
+            // broadcast deletion to gossip peers
+            let envelope = GossipService::build_delete_envelope(
+                &caller.user_id,
+                &caller.username,
+                &req.message_id,
+            );
+            if let Some(manager) = crate::gossip::manager::get_gossip_manager() {
+                if let Err(e) = manager.broadcast(&req.topic_id, &envelope).await {
+                    tracing::warn!("gossip delete broadcast failed (non-fatal): {}", e);
+                }
+            }
             GrimoireResponse::success("message deleted", serde_json::to_value(()).unwrap())
         }
         Ok(false) => GrimoireResponse::failure(
@@ -467,10 +459,7 @@ pub async fn delete_message(caller: &Caller, body: JsonValue) -> GrimoireRespons
                 "no matching message found (you can only delete your own messages)",
             )],
         ),
-        Err(e) => GrimoireResponse::failure(
-            "failed to delete message",
-            vec![ErrorDetail::from(e)],
-        ),
+        Err(e) => GrimoireResponse::failure("failed to delete message", vec![ErrorDetail::from(e)]),
     }
 }
 
@@ -482,13 +471,9 @@ pub async fn list_members(_caller: &Caller, body: JsonValue) -> GrimoireResponse
     };
 
     match repository::list_members(&req.topic_id).await {
-        Ok(members) => GrimoireResponse::success(
-            "members listed",
-            serde_json::to_value(members).unwrap(),
-        ),
-        Err(e) => GrimoireResponse::failure(
-            "failed to list members",
-            vec![ErrorDetail::from(e)],
-        ),
+        Ok(members) => {
+            GrimoireResponse::success("members listed", serde_json::to_value(members).unwrap())
+        }
+        Err(e) => GrimoireResponse::failure("failed to list members", vec![ErrorDetail::from(e)]),
     }
 }

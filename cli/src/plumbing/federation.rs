@@ -581,17 +581,16 @@ async fn serve_p2p() -> CommandOutput<serde_json::Value> {
     eprintln!("starting P2P server...");
 
     // start the federation endpoint
-    let (endpoint, _gossip_manager) =
-        match grimoire::federation::transport::start_federation_endpoint().await {
-            Ok(result) => result,
-            Err(e) => {
-                return CommandOutput::failure(
-                    format!("failed to start P2P endpoint: {}", e),
-                    vec![ErrorDetail::from(e)],
-                    (),
-                );
-            }
-        };
+    let endpoint = match grimoire::federation::transport::start_federation_endpoint().await {
+        Ok(result) => result,
+        Err(e) => {
+            return CommandOutput::failure(
+                format!("failed to start P2P endpoint: {}", e),
+                vec![ErrorDetail::from(e)],
+                (),
+            );
+        }
+    };
 
     let node_id = endpoint.node_id().to_string();
     info!("P2P server ready, node_id: {}", node_id);

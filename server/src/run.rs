@@ -326,7 +326,7 @@ pub async fn run_server(options: ServerOptions) -> anyhow::Result<()> {
     let federation_endpoint = if start_p2p {
         tracing::info!("starting federation P2P endpoint...");
         match grimoire::federation::transport::start_federation_endpoint().await {
-            Ok((endpoint, _gossip_manager)) => {
+            Ok(endpoint) => {
                 tracing::info!(
                     "federation endpoint started, node_id: {}",
                     endpoint.node_id()

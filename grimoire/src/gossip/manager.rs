@@ -12,11 +12,34 @@ use futures_util::StreamExt;
 use iroh_gossip::api::{GossipReceiver, GossipSender};
 use iroh_gossip::{Gossip, TopicId};
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex as StdMutex};
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 use tokio_util::bytes::Bytes;
 use tracing::{info, warn};
+
+// --- global accessor (same pattern as p2p_client.rs) ---
+
+static GOSSIP_MANAGER: StdMutex<Option<Arc<GossipManager>>> = StdMutex::new(None);
+
+/// store the gossip manager for access from offal handlers.
+/// can be called multiple times (e.g. after endpoint restart).
+pub fn set_gossip_manager(manager: GossipManager) {
+    let mut guard = GOSSIP_MANAGER.lock().unwrap();
+    *guard = Some(Arc::new(manager));
+}
+
+/// get the gossip manager (returns None if federation isn't running)
+pub fn get_gossip_manager() -> Option<Arc<GossipManager>> {
+    let guard = GOSSIP_MANAGER.lock().unwrap();
+    guard.clone()
+}
+
+/// clear the gossip manager (call on endpoint shutdown)
+pub fn clear_gossip_manager() {
+    let mut guard = GOSSIP_MANAGER.lock().unwrap();
+    *guard = None;
+}
 
 /// active subscription for a gossip topic
 struct ActiveSubscription {
@@ -47,10 +70,7 @@ impl GossipManager {
             return Ok(());
         }
 
-        info!(
-            "[gossip] resubscribing to {} channel(s)",
-            channels.len()
-        );
+        info!("[gossip] resubscribing to {} channel(s)", channels.len());
 
         for channel in &channels {
             // get bootstrap peers from channel members
@@ -65,10 +85,7 @@ impl GossipManager {
                 })
                 .collect();
 
-            match self
-                .subscribe(&channel.topic_id, bootstrap)
-                .await
-            {
+            match self.subscribe(&channel.topic_id, bootstrap).await {
                 Ok(()) => {
                     info!(
                         "[gossip] resubscribed to '{}' ({})",
@@ -124,10 +141,7 @@ impl GossipManager {
         let mut subs = self.subscriptions.lock().await;
         if let Some(sub) = subs.remove(topic_id_hex) {
             sub.recv_task.abort();
-            info!(
-                "[gossip] unsubscribed from topic {}",
-                &topic_id_hex[..16]
-            );
+            info!("[gossip] unsubscribed from topic {}", &topic_id_hex[..16]);
         }
         Ok(())
     }
@@ -146,12 +160,11 @@ impl GossipManager {
         })?;
 
         let data = serde_json::to_vec(envelope)?;
-        sub.sender
-            .broadcast(Bytes::from(data))
-            .await
-            .map_err(|e| crate::error::GrimoireError::ProcessingFailed {
+        sub.sender.broadcast(Bytes::from(data)).await.map_err(|e| {
+            crate::error::GrimoireError::ProcessingFailed {
                 message: format!("gossip broadcast failed: {}", e),
-            })?;
+            }
+        })?;
 
         Ok(())
     }
@@ -194,11 +207,7 @@ impl GossipManager {
                     warn!("[gossip] lagged in topic {}", &topic_id[..16]);
                 }
                 Some(Err(e)) => {
-                    warn!(
-                        "[gossip] recv error in {}: {}",
-                        &topic_id[..16],
-                        e
-                    );
+                    warn!("[gossip] recv error in {}: {}", &topic_id[..16], e);
                     break;
                 }
                 None => {
@@ -218,9 +227,10 @@ impl GossipManager {
 
 /// parse a hex-encoded topic ID
 fn parse_topic_id(hex_str: &str) -> GrimoireResult<TopicId> {
-    let bytes = hex::decode(hex_str).map_err(|e| crate::error::GrimoireError::ProcessingFailed {
-        message: format!("invalid topic id hex: {}", e),
-    })?;
+    let bytes =
+        hex::decode(hex_str).map_err(|e| crate::error::GrimoireError::ProcessingFailed {
+            message: format!("invalid topic id hex: {}", e),
+        })?;
     if bytes.len() != 32 {
         return Err(crate::error::GrimoireError::ProcessingFailed {
             message: "topic id must be 32 bytes (64 hex chars)".to_string(),
