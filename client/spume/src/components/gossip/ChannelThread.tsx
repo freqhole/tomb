@@ -38,6 +38,8 @@ export interface ChannelThreadProps {
   savedScrollTop?: number;
   /** fires when scroll position changes (for persistence) */
   onScrollChange?: (scrollTop: number) => void;
+  /** callback to navigate back to sidebar (narrow layout) */
+  onBack?: () => void;
 }
 
 const MSG_ESTIMATE_HEIGHT = 100;
@@ -183,6 +185,15 @@ export function ChannelThread(props: ChannelThreadProps) {
     <div class="flex flex-col h-full bg-[var(--color-bg-primary)]">
       {/* channel header */}
       <div class="flex items-center gap-3 px-4 py-3 flex-shrink-0">
+        <Show when={props.onBack}>
+          <button
+            class="wide:hidden flex-shrink-0 text-sm text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] transition-colors -ml-1 mr--1"
+            onClick={() => props.onBack?.()}
+            title="back to channels"
+          >
+            &larr;
+          </button>
+        </Show>
         <div class="flex-1 min-w-0">
           <h2 class="text-sm font-semibold text-[var(--color-text-primary)] truncate">
             #{props.channel.name}

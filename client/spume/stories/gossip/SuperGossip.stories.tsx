@@ -86,6 +86,9 @@ function SuperGossipDemo() {
 
   // -- handlers --
 
+  // responsive: on narrow viewports, toggle between sidebar and thread
+  const [showSidebar, setShowSidebar] = createSignal(true);
+
   const handleSelectChannel = (topicId: string) => {
     // mark current channel as fully read before switching
     const currentMsgs = messagesByTopic()[activeTopicId()] ?? [];
@@ -102,6 +105,8 @@ function SuperGossipDemo() {
       next.delete(topicId);
       return next;
     });
+    // on narrow, switch to thread view
+    setShowSidebar(false);
   };
 
   const handleSend = (text: string, attachments: MusicReference[]) => {
@@ -232,7 +237,12 @@ function SuperGossipDemo() {
   return (
     <div class="flex h-full bg-[var(--color-bg-primary)] rounded-lg overflow-hidden">
       {/* left sidebar: channels + friends */}
-      <div class="w-[220px] flex-shrink-0 flex flex-col bg-[var(--color-bg-primary)]">
+      {/* narrow: full-width, hidden when viewing thread */}
+      {/* wide: fixed 220px, always visible */}
+      <div
+        class="flex-shrink-0 flex flex-col bg-[var(--color-bg-primary)] w-full wide:w-[220px]"
+        classList={{ hidden: !showSidebar(), "wide:flex": !showSidebar() }}
+      >
         {/* channel header — keep top-left clear for topnav */}
         <div class="flex-1 overflow-y-auto min-h-[60px]">
           <ChannelSidebar
@@ -266,7 +276,12 @@ function SuperGossipDemo() {
       </div>
 
       {/* main thread */}
-      <div class="flex-1 min-w-0">
+      {/* narrow: full-width, hidden when viewing sidebar */}
+      {/* wide: flex-1, always visible */}
+      <div
+        class="flex-1 min-w-0"
+        classList={{ hidden: showSidebar(), "wide:block": showSidebar() }}
+      >
         <Show
           when={activeChannel()}
           fallback={
@@ -296,6 +311,7 @@ function SuperGossipDemo() {
             resolveAvatar={avatarForName}
             savedScrollTop={scrollPositions()[activeTopicId()]}
             onScrollChange={(pos) => handleScrollSave(activeTopicId(), pos)}
+            onBack={() => setShowSidebar(true)}
           />
         </Show>
       </div>
