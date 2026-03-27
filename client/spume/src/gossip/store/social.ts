@@ -10,6 +10,7 @@ import {
   friends, setFriends,
   channels,
   membersByTopic, setMembersByTopic,
+  messagesByTopic,
   nowUnix, generateId, stringifyPayload,
 } from "./state";
 import { debug, info, warn } from "../../utils/logger";
@@ -171,6 +172,65 @@ export async function onNeighborChange(topicId: string, nodeId: string, isUp: bo
       } catch {
         // not critical
       }
+    }
+
+    // --- outbox flush: re-broadcast messages that were sent while offline ---
+    try {
+      const undelivered = await db.getUndeliveredMessages(topicId);
+      if (undelivered.length > 0) {
+        info("gossip-store", `flushing ${undelivered.length} undelivered messages on ${topicId.slice(0, 16)}`);
+        const deliveredIds: string[] = [];
+        for (const m of undelivered) {
+          try {
+            await transport.broadcast(topicId, {
+              msg_type: m.msg_type,
+              sender_node_id: m.sender_node_id,
+              sender_name: m.sender_name ?? "anonymous",
+              timestamp: m.timestamp,
+              message_id: m.message_id,
+              payload: m.payload,
+            });
+            deliveredIds.push(m.message_id);
+          } catch {
+            warn("gossip-store", `failed to flush message ${m.message_id.slice(0, 8)}`);
+          }
+        }
+        if (deliveredIds.length > 0) {
+          await db.markMessagesDelivered(deliveredIds);
+          info("gossip-store", `marked ${deliveredIds.length} messages as delivered`);
+        }
+      }
+    } catch (e) {
+      warn("gossip-store", "outbox flush failed:", e);
+    }
+
+    // --- sync request: ask the connecting peer for messages we may have missed ---
+    try {
+      const p2 = profile();
+      const myId = p2?.node_id ?? "local";
+      // find the latest message timestamp we have for this topic
+      const topicMsgs = messagesByTopic[topicId] ?? [];
+      const latestTs = topicMsgs.length > 0
+        ? Math.max(...topicMsgs.map((m) => m.timestamp))
+        : 0;
+
+      if (latestTs > 0) {
+        await transport.broadcast(topicId, {
+          msg_type: "SyncRequest" as any,
+          sender_node_id: myId,
+          sender_name: p2?.display_name ?? "anonymous",
+          timestamp: now,
+          message_id: generateId(),
+          payload: JSON.stringify({
+            since: latestTs,
+            limit: 50,
+            to: nodeId, // direct to the connecting peer
+          }),
+        });
+        debug("gossip-store", `sent SyncRequest to ${nodeId.slice(0, 16)} since ${latestTs}`);
+      }
+    } catch (e) {
+      warn("gossip-store", "sync request failed:", e);
     }
   }
 

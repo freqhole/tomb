@@ -227,7 +227,8 @@ pub mod type_registry {
         AlbumReference, ArtistReference, ChannelDestroyedPayload, ChannelMetaPayload,
         GenreReference, GossipEnvelope, GossipMessageType, MemberPayload, MessageDeletedPayload,
         MusicReference, MusicSharePayload, PlaylistReference, ProfileUpdatePayload,
-        ReactionPayload, SongReference,
+        ReactionPayload, ReadReceiptPayload, SongReference, SyncRequestPayload,
+        SyncResponsePayload,
     };
     use crate::offal::gossip::{
         DeleteMessageRequest, EmptyRequest, GetChannelRequest, GetMessagesWithChannelRequest,
@@ -842,6 +843,15 @@ pub mod type_registry {
 
         gen.add_schema::<MessageDeletedPayload>("MessageDeletedPayload");
         registered.insert("MessageDeletedPayload".to_string());
+
+        gen.add_schema::<SyncRequestPayload>("SyncRequestPayload");
+        registered.insert("SyncRequestPayload".to_string());
+
+        gen.add_schema::<SyncResponsePayload>("SyncResponsePayload");
+        registered.insert("SyncResponsePayload".to_string());
+
+        gen.add_schema::<ReadReceiptPayload>("ReadReceiptPayload");
+        registered.insert("ReadReceiptPayload".to_string());
 
         gen.add_schema::<GossipProfile>("GossipProfile");
         registered.insert("GossipProfile".to_string());

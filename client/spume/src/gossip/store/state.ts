@@ -15,6 +15,7 @@ import type {
 } from "freqhole-api-client";
 import { schema } from "freqhole-api-client";
 import { MusicSharePayloadSchema } from "freqhole-api-client";
+import { z } from "zod";
 import type { GossipFriend } from "../gossipTypes";
 import { warn } from "../../utils/logger";
 
@@ -124,6 +125,23 @@ export function safeJsonParse(str: string): unknown {
 }
 
 /** map of msg_type → Zod payload schema for outgoing validation */
+const SyncRequestPayloadSchema = z.object({
+  since: z.number(),
+  limit: z.number().optional(),
+  before: z.number().optional(),
+  to: z.string().optional(),
+});
+
+const SyncResponsePayloadSchema = z.object({
+  messages: z.array(z.string()),
+  has_more: z.boolean(),
+});
+
+const ReadReceiptPayloadSchema = z.object({
+  latest_message_id: z.string(),
+  latest_timestamp: z.number(),
+});
+
 const payloadSchemas: Record<string, { safeParse: (data: unknown) => { success: boolean; data?: any; error?: any } }> = {
   ChannelMeta: schema.ChannelMetaPayloadSchema,
   ChannelDestroyed: schema.ChannelDestroyedPayloadSchema,
@@ -134,6 +152,9 @@ const payloadSchemas: Record<string, { safeParse: (data: unknown) => { success: 
   ReactionRemoved: schema.ReactionPayloadSchema,
   ProfileUpdate: schema.ProfileUpdatePayloadSchema,
   MusicShare: MusicSharePayloadSchema, // hand-rolled discriminated union, not broken codegen
+  SyncRequest: SyncRequestPayloadSchema,
+  SyncResponse: SyncResponsePayloadSchema,
+  ReadReceipt: ReadReceiptPayloadSchema,
 };
 
 /** validate outgoing payload against the matching Zod schema, then stringify.

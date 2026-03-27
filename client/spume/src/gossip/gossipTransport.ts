@@ -6,10 +6,33 @@
 
 import type { GossipSenderLike, GossipReceiverLike } from "freqhole-api-client";
 import { schema } from "freqhole-api-client";
+import { z } from "zod";
 import { getMiddenNode } from "../app/api/client";
 import { debug, info, warn, error as logError } from "../utils/logger";
 
 const TAG = "gossip-transport";
+
+// ============================================================================
+// extended envelope schema — adds SyncRequest, SyncResponse, ReadReceipt
+// to the generated GossipMessageType (codegen hasn't been regenerated yet)
+// ============================================================================
+
+const ExtendedGossipMessageTypeSchema = z.union([
+  z.literal("ChannelMeta"), z.literal("ChannelDestroyed"), z.literal("MusicShare"),
+  z.literal("Reaction"), z.literal("ReactionRemoved"), z.literal("MessageDeleted"),
+  z.literal("MemberAdded"), z.literal("MemberRemoved"), z.literal("Knock"),
+  z.literal("KnockResponse"), z.literal("ProfileUpdate"),
+  z.literal("SyncRequest"), z.literal("SyncResponse"), z.literal("ReadReceipt"),
+]);
+
+const ExtendedGossipEnvelopeSchema = z.object({
+  msg_type: ExtendedGossipMessageTypeSchema,
+  sender_node_id: z.string(),
+  sender_name: z.string(),
+  timestamp: z.number(),
+  message_id: z.string(),
+  payload: z.string(),
+});
 
 // ============================================================================
 // WASM call serialization queue
@@ -201,7 +224,7 @@ export async function broadcast(
   }
 
   // validate outgoing envelope at the boundary
-  const result = schema.GossipEnvelopeSchema.safeParse(envelope);
+  const result = ExtendedGossipEnvelopeSchema.safeParse(envelope);
   if (!result.success) {
     warn(TAG, `refusing to broadcast invalid envelope`, result.error.issues);
     return;
@@ -394,7 +417,7 @@ function startRecvLoop(topicId: string, receiver: GossipReceiverLike, bootstrapP
           continue;
         }
 
-        const result = schema.GossipEnvelopeSchema.safeParse(parsed);
+        const result = ExtendedGossipEnvelopeSchema.safeParse(parsed);
         if (!result.success) {
           warn(TAG, `invalid envelope from ${event.from?.slice(0, 16)}...`, result.error.issues);
           continue;
@@ -402,7 +425,7 @@ function startRecvLoop(topicId: string, receiver: GossipReceiverLike, bootstrapP
 
         if (onMessage) {
           debug(TAG, `delivering ${result.data.msg_type} from ${result.data.sender_node_id?.slice(0, 16)} to store`);
-          await onMessage(result.data, topicId);
+          await onMessage(result.data as schema.GossipEnvelope, topicId);
         } else {
           console.warn(`[gossip-transport] NO onMessage callback registered! dropping envelope`);
         }

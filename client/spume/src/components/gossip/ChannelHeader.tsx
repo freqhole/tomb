@@ -1,6 +1,7 @@
 // channel header — name, topic (editable for creator), member avatars, flyout, actions
 import { createMemo, createSignal, For, Show } from "solid-js";
 import type { GossipChannel, GossipChannelMember } from "../../gossip/gossipTypes";
+import { MemberAvatarStack } from "./MemberAvatarStack";
 import { Badge } from "../badges/Badge";
 
 export interface ChannelHeaderProps {
@@ -120,38 +121,19 @@ export function ChannelHeader(props: ChannelHeaderProps) {
         {/* inline member avatars (wide only) */}
         <Show when={props.members && props.members.length > 0}>
           <button
-            class="hidden wide:flex items-center -space-x-1.5 min-h-[44px]"
+            class="hidden wide:flex items-center min-h-[44px]"
             onClick={() => setShowMembersFlyout((v) => !v)}
             title="show members"
           >
-            <For each={shortMembers()}>
-              {(member) => (
-                <div class="relative" title={member.display_name ?? undefined}>
-                  <div class="w-5 h-5 rounded-full overflow-hidden ring-2 ring-[var(--color-bg-primary)] bg-[var(--color-bg-tertiary)]">
-                    <Show
-                      when={props.resolveAvatar?.(member.display_name)}
-                      fallback={
-                        <div class="w-full h-full flex items-center justify-center text-[8px] font-semibold text-[var(--color-text-tertiary)]">
-                          {(member.display_name ?? "?")[0].toUpperCase()}
-                        </div>
-                      }
-                    >
-                      <img
-                        src={props.resolveAvatar!(member.display_name)!}
-                        alt={member.display_name ?? undefined}
-                        class="w-full h-full object-cover"
-                        loading="lazy"
-                      />
-                    </Show>
-                  </div>
-                  <Show when={props.onlineFriendNodeIds?.has(member.node_id)}>
-                    <div class="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full bg-green-500 border border-[var(--color-bg-primary)]" />
-                  </Show>
-                </div>
-              )}
-            </For>
+            <MemberAvatarStack
+              members={shortMembers()}
+              max={3}
+              size="5"
+              resolveAvatar={props.resolveAvatar}
+              onlineNodeIds={props.onlineFriendNodeIds}
+            />
             <Show when={props.members!.length > 3}>
-              <div class="w-5 h-5 rounded-full ring-2 ring-[var(--color-bg-primary)] bg-[var(--color-bg-tertiary)] flex items-center justify-center">
+              <div class="w-5 h-5 rounded-full ring-2 ring-[var(--color-bg-primary)] bg-[var(--color-bg-tertiary)] flex items-center justify-center -ml-1.5">
                 <span class="text-[8px] text-[var(--color-text-tertiary)]">
                   +{props.members!.length - 3}
                 </span>

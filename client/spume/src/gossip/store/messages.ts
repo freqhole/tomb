@@ -54,8 +54,10 @@ export async function sendMessage(
     deleted_at: null,
   };
 
+  // persist with delivered=0 (will be marked delivered on successful broadcast)
+  const msgWithDelivered = { ...msg, delivered: 0 };
   try {
-    await db.putMessages([msg]);
+    await db.putMessages([msgWithDelivered]);
     info("gossip-store", `persisted message ${msg.message_id.slice(0, 8)} to IDB`);
   } catch (e) {
     console.error("[gossip-store] IDB putMessages failed:", e);
@@ -71,6 +73,7 @@ export async function sendMessage(
   if (updated) await db.putChannel(updated);
 
   try {
+    const hasPeers = transport.getTopicPeerCount(tid) > 0;
     await transport.broadcast(tid, {
       msg_type: "MusicShare",
       sender_node_id: msg.sender_node_id,
@@ -79,6 +82,10 @@ export async function sendMessage(
       message_id: msg.message_id,
       payload: msg.payload,
     });
+    // mark delivered if peers were connected when we broadcast
+    if (hasPeers) {
+      await db.markMessagesDelivered([msg.message_id]);
+    }
   } catch (e) {
     warn("gossip-store", "broadcast failed (message saved locally):", e);
   }
@@ -179,6 +186,88 @@ export async function react(targetMessageId: string, emoji: string): Promise<voi
 }
 
 // ============================================================================
+// read receipts — debounced outbound + per-message reader tracking
+// ============================================================================
+
+/** per-topic: map of message_id → list of members who have read up to that message */
+export type ReadReceiptMap = Record<string, { node_id: string; display_name: string | null }[]>;
+
+/** compute read receipt positions for the active topic.
+ *  returns a map: message_id → list of members whose "last read" is that message.
+ *  only includes other members (not self). */
+export function readReceiptsForTopic(topicId: string | null, currentNodeId: string): ReadReceiptMap {
+  if (!topicId) return {};
+  const members = membersByTopic[topicId] ?? [];
+  const result: ReadReceiptMap = {};
+  for (const m of members) {
+    if (m.node_id === currentNodeId) continue;
+    const msgId = (m as any).last_read_message_id as string | undefined;
+    if (!msgId) continue;
+    if (!result[msgId]) result[msgId] = [];
+    result[msgId].push({ node_id: m.node_id, display_name: m.display_name });
+  }
+  return result;
+}
+
+let _readReceiptTimer: ReturnType<typeof setTimeout> | null = null;
+
+/** send a read receipt for the latest message in the active topic (debounced 500ms) */
+export function sendReadReceipt(): void {
+  if (_readReceiptTimer) clearTimeout(_readReceiptTimer);
+  _readReceiptTimer = setTimeout(() => {
+    _readReceiptTimer = null;
+    _sendReadReceiptNow();
+  }, 500);
+}
+
+async function _sendReadReceiptNow(): Promise<void> {
+  const tid = activeTopicId();
+  if (!tid) return;
+
+  const msgs = messagesByTopic[tid] ?? [];
+  if (!msgs.length) return;
+
+  // find the latest non-system message
+  const latest = [...msgs].reverse().find((m) => m.msg_type !== "System" && !m.deleted_at);
+  if (!latest) return;
+
+  const p = profile();
+  const myNodeId = p?.node_id ?? "local";
+  if (myNodeId === "local") return;
+
+  // skip if we already sent a receipt for this message (avoid redundant broadcasts)
+  const myMember = (membersByTopic[tid] ?? []).find((m) => m.node_id === myNodeId);
+  if ((myMember as any)?.last_read_message_id === latest.message_id) return;
+
+  // update our own member record locally
+  const members = membersByTopic[tid] ?? [];
+  const idx = members.findIndex((m) => m.node_id === myNodeId);
+  if (idx >= 0) {
+    const updated = members.map((m, i) =>
+      i === idx ? { ...m, last_read_message_id: latest.message_id, last_read_at: latest.timestamp } : m,
+    );
+    setMembersByTopic(tid, updated);
+  }
+
+  try {
+    await transport.broadcast(tid, {
+      msg_type: "ReadReceipt" as GossipEnvelope["msg_type"],
+      sender_node_id: myNodeId,
+      sender_name: p?.display_name ?? "anonymous",
+      timestamp: nowUnix(),
+      message_id: generateId(),
+      payload: JSON.stringify({
+        latest_message_id: latest.message_id,
+        latest_timestamp: latest.timestamp,
+      }),
+    });
+    debug("gossip-store", `sent read receipt for ${latest.message_id.slice(0, 8)}`);
+  } catch {
+    // not critical
+  }
+}
+
+// ============================================================================
 // incoming message handler (called by transport layer)
 // ============================================================================
 
@@ -186,7 +275,10 @@ export async function onIncomingMessage(envelope: GossipEnvelope, topicId: strin
   debug("gossip-store", `incoming ${envelope.msg_type} from ${envelope.sender_node_id?.slice(0, 16)} on ${topicId.slice(0, 16)}`);
   const now = nowUnix();
 
-  switch (envelope.msg_type) {
+  // widen msg_type — codegen hasn't been regenerated with new sync types yet
+  const msgType = envelope.msg_type as string;
+
+  switch (msgType) {
     case "MusicShare": {
       if ((messagesByTopic[topicId] ?? []).some((m) => m.message_id === envelope.message_id)) {
         debug("gossip-store", `dedup: skipping ${envelope.msg_type} ${envelope.message_id.slice(0, 8)}`);
@@ -220,6 +312,9 @@ export async function onIncomingMessage(envelope: GossipEnvelope, topicId: strin
           next.add(topicId);
           return next;
         });
+      } else {
+        // user is viewing this channel — auto-send read receipt (debounced)
+        sendReadReceipt();
       }
       break;
     }
@@ -504,6 +599,106 @@ export async function onIncomingMessage(envelope: GossipEnvelope, topicId: strin
       };
       await db.putMessages([leftMsg]);
       setMessagesByTopic(topicId, [...(messagesByTopic[topicId] ?? []), leftMsg]);
+      break;
+    }
+
+    case "SyncRequest": {
+      // peer is asking us for messages since a timestamp
+      const reqPayload = safeJsonParse(envelope.payload) as {
+        since?: number; limit?: number; before?: number; to?: string;
+      } | undefined;
+      if (!reqPayload?.since) {
+        warn("gossip-store", "invalid SyncRequest payload", envelope.payload);
+        break;
+      }
+
+      // only respond if addressed to us (or no `to` field = broadcast request)
+      const myNodeId = profile()?.node_id;
+      if (reqPayload.to && myNodeId && reqPayload.to !== myNodeId) {
+        debug("gossip-store", `ignoring SyncRequest addressed to ${reqPayload.to.slice(0, 16)}, not us`);
+        break;
+      }
+
+      // query our local messages since the requested timestamp (with 30s overlap for clock skew)
+      const sinceSafe = Math.max(0, reqPayload.since - 30);
+      const limit = Math.min(reqPayload.limit ?? 50, 100);
+      const localMsgs = await db.getMessagesByTopicSince(topicId, sinceSafe, limit);
+
+      // filter out system messages and build envelope strings for response
+      const envelopes: string[] = localMsgs
+        .filter((m: any) => m.msg_type !== "System" && !m.deleted_at)
+        .map((m: any) => JSON.stringify({
+          msg_type: m.msg_type,
+          sender_node_id: m.sender_node_id,
+          sender_name: m.sender_name ?? "anonymous",
+          timestamp: m.timestamp,
+          message_id: m.message_id,
+          payload: m.payload,
+        }));
+
+      if (envelopes.length > 0) {
+        const p = profile();
+        try {
+          await transport.broadcast(topicId, {
+            msg_type: "SyncResponse" as GossipEnvelope["msg_type"],
+            sender_node_id: p?.node_id ?? "local",
+            sender_name: p?.display_name ?? "anonymous",
+            timestamp: nowUnix(),
+            message_id: generateId(),
+            payload: JSON.stringify({
+              messages: envelopes,
+              has_more: localMsgs.length >= limit,
+            }),
+          });
+          debug("gossip-store", `responded to SyncRequest with ${envelopes.length} messages`);
+        } catch {
+          warn("gossip-store", "failed to send SyncResponse");
+        }
+      }
+      break;
+    }
+
+    case "SyncResponse": {
+      // peer is sending us messages we may have missed
+      const respPayload = safeJsonParse(envelope.payload) as {
+        messages?: string[]; has_more?: boolean;
+      } | undefined;
+      if (!respPayload?.messages?.length) break;
+
+      debug("gossip-store", `received SyncResponse with ${respPayload.messages.length} messages (has_more=${respPayload.has_more})`);
+
+      for (const envStr of respPayload.messages) {
+        const parsed = safeJsonParse(envStr);
+        if (!parsed || typeof parsed !== "object") continue;
+
+        // feed each envelope back through onIncomingMessage for dedup + storage
+        // cast to GossipEnvelope — the handler will validate individual fields
+        const syncEnv = parsed as GossipEnvelope;
+        if (!syncEnv.msg_type || !syncEnv.message_id) continue;
+
+        await onIncomingMessage(syncEnv, topicId);
+      }
+      break;
+    }
+
+    case "ReadReceipt": {
+      // peer is telling us their latest read position
+      const receiptPayload = safeJsonParse(envelope.payload) as {
+        latest_message_id?: string; latest_timestamp?: number;
+      } | undefined;
+      if (!receiptPayload?.latest_message_id) break;
+
+      debug("gossip-store", `ReadReceipt from ${envelope.sender_node_id.slice(0, 16)}: ${receiptPayload.latest_message_id.slice(0, 8)} @ ${receiptPayload.latest_timestamp}`);
+
+      // update the member's last-read position in our member list
+      const members = membersByTopic[topicId] ?? [];
+      const memberIdx = members.findIndex((m) => m.node_id === envelope.sender_node_id);
+      if (memberIdx >= 0) {
+        const updated = members.map((m, i) =>
+          i === memberIdx ? { ...m, last_read_message_id: receiptPayload.latest_message_id, last_read_at: receiptPayload.latest_timestamp } : m,
+        );
+        setMembersByTopic(topicId, updated);
+      }
       break;
     }
 

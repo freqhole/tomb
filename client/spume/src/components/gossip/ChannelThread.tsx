@@ -12,7 +12,9 @@ import { createStore, reconcile } from "solid-js/store";
 import { createVirtualizer } from "@tanstack/solid-virtual";
 import type { VirtualItem } from "@tanstack/virtual-core";
 import type { GossipChannel, GossipMessage, MusicReference } from "../../gossip/gossipTypes";
+import type { ReadReceiptMap } from "../../gossip/store/messages";
 import { GossipMessageCard } from "./GossipMessageCard";
+import { MemberAvatarStack } from "./MemberAvatarStack";
 import { LoadingMoreIndicator } from "../feedback/LoadingMoreIndicator";
 import { MessageReactionOverlay, createMessageReaction } from "./MessageReactionOverlay";
 
@@ -42,6 +44,10 @@ export interface ChannelThreadProps {
   loading?: boolean;
   /** show "loading more" indicator at top while fetching older messages */
   loadingMore?: boolean;
+  /** per-message read receipt positions (message_id → readers) */
+  readReceipts?: ReadReceiptMap;
+  /** number of other members (excluding self) — used for "everyone" tooltip */
+  otherMemberCount?: number;
 }
 
 const ESTIMATE_ROW_HEIGHT = 120;
@@ -409,6 +415,34 @@ export function ChannelThread(props: ChannelThreadProps) {
                                 }}
                                 onAddFriend={props.onAddFriend}
                               />
+                              {/* read receipt avatars */}
+                              <Show when={props.readReceipts?.[msg()!.message_id]?.length}>
+                                {(() => {
+                                  const readers = () => props.readReceipts![msg()!.message_id];
+                                  const label = () => {
+                                    const r = readers();
+                                    if (!r?.length) return "";
+                                    const otherCount = props.otherMemberCount ?? 0;
+                                    if (otherCount > 0 && r.length >= otherCount) return "read by everyone";
+                                    const names = r.map((m) => m.display_name ?? "someone");
+                                    return `read by ${names.join(", ")}`;
+                                  };
+                                  return (
+                                    <div class="flex items-center justify-end gap-1.5 px-3 -mt-0.5 mb-0.5" title={label()}>
+                                      <span class="text-[10px] text-[var(--color-text-tertiary)]/60">
+                                        {label()}
+                                      </span>
+                                      <MemberAvatarStack
+                                        members={readers()}
+                                        size="5"
+                                        max={5}
+                                        ring={false}
+                                        resolveAvatar={props.resolveAvatar}
+                                      />
+                                    </div>
+                                  );
+                                })()}
+                              </Show>
                             </div>
                           );
                         })()}

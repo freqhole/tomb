@@ -20,6 +20,7 @@ import {
   generateId, generateTopicId, nowUnix, stringifyPayload,
 } from "./state";
 import { addFriend } from "./social";
+import { sendReadReceipt } from "./messages";
 import { debug, info, warn } from "../../utils/logger";
 
 export async function selectChannel(topicId: string): Promise<void> {
@@ -54,6 +55,9 @@ export async function selectChannel(topicId: string): Promise<void> {
   } finally {
     setLoadingChannel(false);
   }
+
+  // send a read receipt now that we're viewing this channel
+  sendReadReceipt();
 }
 
 export async function createChannel(

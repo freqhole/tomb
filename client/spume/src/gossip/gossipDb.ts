@@ -8,7 +8,7 @@ import { openDB, type IDBPDatabase } from "idb";
 import { debug } from "../utils/logger";
 
 const GOSSIP_DB_NAME = "freqhole-gossip";
-const GOSSIP_DB_VERSION = 2;
+const GOSSIP_DB_VERSION = 3;
 
 // store names
 export const STORE_CHANNELS = "channels";
@@ -24,7 +24,7 @@ export async function initGossipDB(): Promise<IDBPDatabase> {
   if (dbInstance) return dbInstance;
 
   dbInstance = await openDB(GOSSIP_DB_NAME, GOSSIP_DB_VERSION, {
-    upgrade(db, oldVersion) {
+    upgrade(db, oldVersion, _newVersion, transaction) {
       if (oldVersion < 1) {
         // channels
         const channels = db.createObjectStore(STORE_CHANNELS, { keyPath: "topic_id" });
@@ -51,6 +51,14 @@ export async function initGossipDB(): Promise<IDBPDatabase> {
       if (oldVersion < 2) {
         // friends
         db.createObjectStore(STORE_FRIENDS, { keyPath: "node_id" });
+      }
+
+      if (oldVersion < 3) {
+        // add outbox index for undelivered messages
+        const msgStore = transaction.objectStore(STORE_MESSAGES);
+        if (!msgStore.indexNames.contains("by_topic_delivered")) {
+          msgStore.createIndex("by_topic_delivered", ["topic_id", "delivered"]);
+        }
       }
     },
     blocked() {
@@ -123,6 +131,50 @@ export async function deleteMessagesByTopic(topicId: string): Promise<void> {
   while (cursor) {
     await cursor.delete();
     cursor = await cursor.continue();
+  }
+  await tx.done;
+}
+
+/** get messages for a topic that haven't been delivered to any peer yet */
+export async function getUndeliveredMessages(topicId: string): Promise<any[]> {
+  const d = await db();
+  // use the compound index [topic_id, delivered] — query for delivered=0 (false)
+  try {
+    return await d.getAllFromIndex(STORE_MESSAGES, "by_topic_delivered", [topicId, 0]);
+  } catch {
+    // fallback if index doesn't exist yet (pre-v3 DB still upgrading)
+    const all = await d.getAllFromIndex(STORE_MESSAGES, "by_topic_id", topicId);
+    return all.filter((m) => !m.delivered);
+  }
+}
+
+/** get messages for a topic since a given timestamp (for sync responses) */
+export async function getMessagesByTopicSince(topicId: string, since: number, limit = 50): Promise<any[]> {
+  const d = await db();
+  const tx = d.transaction(STORE_MESSAGES, "readonly");
+  const idx = tx.store.index("by_topic_ts");
+  // IDBKeyRange for [topicId, since] to [topicId, Infinity]
+  const range = IDBKeyRange.bound([topicId, since], [topicId, Infinity]);
+  const results: any[] = [];
+  let cursor = await idx.openCursor(range);
+  while (cursor && results.length < limit) {
+    results.push(cursor.value);
+    cursor = await cursor.continue();
+  }
+  return results;
+}
+
+/** mark messages as delivered */
+export async function markMessagesDelivered(messageIds: string[]): Promise<void> {
+  if (!messageIds.length) return;
+  const d = await db();
+  const tx = d.transaction(STORE_MESSAGES, "readwrite");
+  for (const id of messageIds) {
+    const msg = await tx.store.get(id);
+    if (msg) {
+      msg.delivered = 1;
+      tx.store.put(msg);
+    }
   }
   await tx.done;
 }

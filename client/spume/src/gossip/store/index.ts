@@ -78,7 +78,10 @@ export {
   sendMessage,
   deleteMessage,
   react,
+  sendReadReceipt,
+  readReceiptsForTopic,
 } from "./messages";
+export type { ReadReceiptMap } from "./messages";
 
 // social actions
 export {

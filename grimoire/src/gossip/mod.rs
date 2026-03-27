@@ -17,6 +17,6 @@ pub use models::{
 };
 pub use protocol::{
     GossipEnvelope, GossipMessageType, MusicReference, MusicSharePayload, ProfileUpdatePayload,
-    ReactionPayload,
+    ReactionPayload, ReadReceiptPayload, SyncRequestPayload, SyncResponsePayload,
 };
 pub use service::GossipService;

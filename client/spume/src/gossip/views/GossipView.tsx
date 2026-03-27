@@ -33,6 +33,11 @@ export function GossipView() {
   const currentNodeId = () => store.profile()?.node_id ?? "unknown";
   const needsProfile = () => store.initialized() && !store.profile();
 
+  // read receipts — derived from member data (last_read_message_id)
+  const readReceipts = createMemo(() =>
+    store.readReceiptsForTopic(store.activeTopicId(), currentNodeId())
+  );
+
   onMount(() => {
     store.init();
   });
@@ -370,6 +375,8 @@ export function GossipView() {
                     onLoadMore={handleLoadMore}
                     friendNodeIds={friendNodeIds()}
                     onAddFriend={handleAddFriend}
+                    readReceipts={readReceipts()}
+                    otherMemberCount={Math.max(0, (store.activeMembers()?.length ?? 0) - 1)}
                   />
                   {/* connection status bar */}
                   <Show when={store.initialized()}>

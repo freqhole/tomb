@@ -248,7 +248,7 @@ export function GossipMessageCard(props: GossipMessageCardProps) {
             <For each={grouped()}>
               {(group) => (
                 <button
-                  class="flex items-center gap-1 px-2.5 min-h-[44px] rounded-full text-xs bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-bg-elevated)] transition-colors border border-transparent hover:border-[var(--color-accent-500)]/30 cursor-pointer"
+                  class="flex items-center gap-1 px-2.5 min-h-[44px] md:min-h-[28px] rounded-full text-xs bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-bg-elevated)] transition-colors border border-transparent hover:border-[var(--color-accent-500)]/30 cursor-pointer"
                   onClick={() => props.onReact?.(props.message.message_id, group.emoji)}
                   title={group.senders.join(", ")}
                 >
@@ -259,7 +259,7 @@ export function GossipMessageCard(props: GossipMessageCardProps) {
             </For>
             {/* add reaction — opens the overlay picker */}
             <button
-              class="flex items-center justify-center w-[44px] min-h-[44px] rounded-full text-xs bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-bg-elevated)] transition-colors border border-dashed border-[var(--color-text-tertiary)]/20 hover:border-[var(--color-accent-500)]/30 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] cursor-pointer"
+              class="flex items-center justify-center w-[44px] min-h-[44px] md:w-[28px] md:min-h-[28px] rounded-full text-xs bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-bg-elevated)] transition-colors border border-dashed border-[var(--color-text-tertiary)]/20 hover:border-[var(--color-accent-500)]/30 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] cursor-pointer"
               onClick={() => props.onOpenReactionPicker?.(props.message.message_id)}
               title="add reaction"
             >

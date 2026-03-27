@@ -33,6 +33,9 @@ pub enum GossipMessageType {
     Knock,
     KnockResponse,
     ProfileUpdate,
+    SyncRequest,
+    SyncResponse,
+    ReadReceipt,
 }
 
 impl std::fmt::Display for GossipMessageType {
@@ -49,6 +52,9 @@ impl std::fmt::Display for GossipMessageType {
             Self::Knock => write!(f, "knock"),
             Self::KnockResponse => write!(f, "knock_response"),
             Self::ProfileUpdate => write!(f, "profile_update"),
+            Self::SyncRequest => write!(f, "sync_request"),
+            Self::SyncResponse => write!(f, "sync_response"),
+            Self::ReadReceipt => write!(f, "read_receipt"),
         }
     }
 }
@@ -68,6 +74,9 @@ impl std::str::FromStr for GossipMessageType {
             "knock" => Ok(Self::Knock),
             "knock_response" => Ok(Self::KnockResponse),
             "profile_update" => Ok(Self::ProfileUpdate),
+            "sync_request" => Ok(Self::SyncRequest),
+            "sync_response" => Ok(Self::SyncResponse),
+            "read_receipt" => Ok(Self::ReadReceipt),
             _ => Err(format!("unknown gossip message type: {}", s)),
         }
     }
@@ -197,4 +206,35 @@ pub struct ProfileUpdatePayload {
 pub struct ChannelDestroyedPayload {
     /// reason for closing, shown in the tombstone message
     pub reason: Option<String>,
+}
+
+/// sync request — pull-based: reconnecting peer asks a specific peer for messages it missed
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct SyncRequestPayload {
+    /// unix timestamp of the requester's most recent message for this topic
+    pub since: i64,
+    /// max number of messages to return (pagination)
+    pub limit: Option<i64>,
+    /// if set, request messages *before* this timestamp (backward pagination)
+    pub before: Option<i64>,
+    /// node_id of the specific peer being asked (direct addressing)
+    pub to: Option<String>,
+}
+
+/// sync response — the requested messages (all event types, not just MusicShare)
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct SyncResponsePayload {
+    /// the original envelopes, JSON-encoded as strings
+    pub messages: Vec<String>,
+    /// true if more messages exist before the returned range
+    pub has_more: bool,
+}
+
+/// read receipt — high-water mark per peer per topic
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct ReadReceiptPayload {
+    /// message_id of the latest message the sender has seen
+    pub latest_message_id: String,
+    /// timestamp of the latest message the sender has seen
+    pub latest_timestamp: i64,
 }

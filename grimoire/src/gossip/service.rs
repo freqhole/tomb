@@ -363,6 +363,12 @@ impl GossipService {
                     repository::upsert_profile(&profile).await?;
                 }
             }
+
+            // sync and read receipt messages are handled by the transport layer,
+            // not persisted as regular messages
+            GossipMessageType::SyncRequest
+            | GossipMessageType::SyncResponse
+            | GossipMessageType::ReadReceipt => {}
         }
 
         Ok(())
