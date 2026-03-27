@@ -6,6 +6,7 @@ CREATE TABLE gossip_channelz (
     name TEXT NOT NULL,
     description TEXT,
     creator_node_id TEXT NOT NULL,
+    music_only INTEGER NOT NULL DEFAULT 1, -- 1 = music shares only, 0 = text + music
     created_at INTEGER NOT NULL DEFAULT (unixepoch()),
     settings TEXT,                       -- JSON: future settings
     last_message_at INTEGER
@@ -61,4 +62,13 @@ CREATE TABLE gossip_knock_requestz (
     created_at INTEGER NOT NULL DEFAULT (unixepoch()),
     processed_at INTEGER,
     UNIQUE(topic_id, node_id)
+);
+
+-- gossip profiles: display name + avatar for any node_id seen in gossip
+-- populated from gossip messages and profile update broadcasts
+CREATE TABLE gossip_profilez (
+    node_id TEXT PRIMARY KEY,
+    display_name TEXT NOT NULL,
+    avatar_blob TEXT,                    -- base64-encoded small WebP (~5-10KB)
+    updated_at INTEGER NOT NULL DEFAULT (unixepoch())
 );

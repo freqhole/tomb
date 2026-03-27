@@ -873,7 +873,10 @@ impl MiddenNode {
             &topic_hex[..16.min(topic_hex.len())]
         );
 
-        Ok(GossipHandle { sender, receiver })
+        Ok(GossipHandle {
+            sender: Some(GossipSender { inner: sender }),
+            receiver: Some(GossipReceiver { inner: receiver }),
+        })
     }
 
     /// subscribe to a gossip topic without waiting for peers
@@ -908,32 +911,69 @@ impl MiddenNode {
             &topic_hex[..16.min(topic_hex.len())]
         );
 
-        Ok(GossipHandle { sender, receiver })
+        Ok(GossipHandle {
+            sender: Some(GossipSender { inner: sender }),
+            receiver: Some(GossipReceiver { inner: receiver }),
+        })
     }
 }
 
-/// handle for a subscribed gossip topic
+/// container returned by gossip_join / gossip_subscribe.
 ///
-/// holds sender and receiver halves. dropping this leaves the topic.
+/// holds separate sender and receiver as independent wasm-bindgen objects
+/// so they each get their own RefCell — no borrow conflict when recv()
+/// is awaiting and broadcast() is called concurrently.
 #[wasm_bindgen]
 pub struct GossipHandle {
-    sender: iroh_gossip::api::GossipSender,
-    receiver: iroh_gossip::api::GossipReceiver,
+    sender: Option<GossipSender>,
+    receiver: Option<GossipReceiver>,
 }
 
 #[wasm_bindgen]
 impl GossipHandle {
+    /// take the sender half (can only be called once)
+    pub fn take_sender(&mut self) -> Result<GossipSender, JsError> {
+        self.sender
+            .take()
+            .ok_or_else(|| JsError::new("sender already taken"))
+    }
+
+    /// take the receiver half (can only be called once)
+    pub fn take_receiver(&mut self) -> Result<GossipReceiver, JsError> {
+        self.receiver
+            .take()
+            .ok_or_else(|| JsError::new("receiver already taken"))
+    }
+}
+
+/// sender half of a gossip topic — call broadcast() to send messages
+#[wasm_bindgen]
+pub struct GossipSender {
+    inner: iroh_gossip::api::GossipSender,
+}
+
+#[wasm_bindgen]
+impl GossipSender {
     /// broadcast a message to all peers in the topic
     pub async fn broadcast(&self, message: &[u8]) -> Result<(), JsError> {
-        self.sender
+        self.inner
             .broadcast(Bytes::copy_from_slice(message))
             .await
             .map_err(to_js_err)
     }
+}
 
+/// receiver half of a gossip topic — call recv() to get events
+#[wasm_bindgen]
+pub struct GossipReceiver {
+    inner: iroh_gossip::api::GossipReceiver,
+}
+
+#[wasm_bindgen]
+impl GossipReceiver {
     /// receive the next event from the topic
     ///
-    /// returns a JSON string with the event:
+    /// returns a JSON value with the event:
     /// - {"type":"received","content":<base64>,"from":"<node_id>"}
     /// - {"type":"neighbor_up","node_id":"<node_id>"}
     /// - {"type":"neighbor_down","node_id":"<node_id>"}
@@ -942,12 +982,11 @@ impl GossipHandle {
     pub async fn recv(&mut self) -> Result<JsValue, JsError> {
         use iroh_gossip::api::Event;
 
-        match self.receiver.next().await {
+        match self.inner.next().await {
             Some(Ok(event)) => {
                 let json = match event {
                     Event::Received(msg) => {
-                        let content_b64 =
-                            base64_encode(&msg.content);
+                        let content_b64 = base64_encode(&msg.content);
                         let from = msg.delivered_from.to_string();
                         serde_json::json!({
                             "type": "received",

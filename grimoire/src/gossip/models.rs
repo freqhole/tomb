@@ -14,6 +14,8 @@ pub struct GossipChannel {
     pub created_at: i64,
     pub settings: Option<String>,
     pub last_message_at: Option<i64>,
+    /// if true, only music shares allowed (no text-only messages)
+    pub music_only: bool,
 }
 
 /// a member of a gossip channel
@@ -65,11 +67,22 @@ pub struct GossipKnockRequest {
     pub processed_at: Option<i64>,
 }
 
+/// a gossip participant's profile (display name + avatar)
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema, FromRow)]
+pub struct GossipProfile {
+    pub node_id: String,
+    pub display_name: String,
+    /// base64-encoded small WebP avatar (~5-10KB)
+    pub avatar_blob: Option<String>,
+    pub updated_at: i64,
+}
+
 /// request to create a gossip channel
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct CreateChannelRequest {
     pub name: String,
     pub description: Option<String>,
+    pub music_only: Option<bool>,
 }
 
 /// response with channel details + members

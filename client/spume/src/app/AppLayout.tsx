@@ -775,6 +775,12 @@ export function AppLayout(props: AppLayoutProps) {
                   navigate(`${prefix}/favorites`);
                 },
               },
+              {
+                label: "gossip",
+                onClick: () => {
+                  navigate("/gossip");
+                },
+              },
             ],
           },
         ]}

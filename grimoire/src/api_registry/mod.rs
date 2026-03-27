@@ -220,15 +220,20 @@ pub mod type_registry {
     // gossip types
     use crate::gossip::models::{
         ChannelDetailResponse, ChannelInvite, CreateChannelRequest, GossipChannel,
-        GossipChannelMember, GossipKnockRequest as GossipKnockReq, GossipMessage, GossipReaction,
-        JoinChannelRequest, MessagesResponse,
+        GossipChannelMember, GossipKnockRequest as GossipKnockReq, GossipMessage, GossipProfile,
+        GossipReaction, JoinChannelRequest, MessagesResponse,
     };
     use crate::gossip::protocol::{
-        GossipEnvelope, GossipMessageType, MusicReference, MusicSharePayload, ReactionPayload,
+        AlbumReference, ArtistReference, GenreReference, GossipEnvelope, GossipMessageType,
+        MusicReference, MusicSharePayload, PlaylistReference, ProfileUpdatePayload,
+        ReactionPayload, SongReference,
     };
     use crate::offal::gossip::{
         DeleteMessageRequest, EmptyRequest, GetChannelRequest, GetMessagesWithChannelRequest,
-        ReactWithChannelRequest, SendMessageWithChannelRequest,
+        ReactWithChannelRequest, SendMessageWithChannelRequest, UpdateProfileRequest,
+    };
+    use crate::offal::sync::{
+        SyncPlaylistRequest, SyncPlaylistResponse, SyncSongRequest, SyncSongResponse,
     };
 
     pub fn register_all_types(gen: &mut ZodGenerator, registered: &mut HashSet<String>) {
@@ -801,11 +806,32 @@ pub mod type_registry {
         gen.add_schema::<MusicReference>("MusicReference");
         registered.insert("MusicReference".to_string());
 
+        gen.add_schema::<SongReference>("SongReference");
+        registered.insert("SongReference".to_string());
+
+        gen.add_schema::<AlbumReference>("AlbumReference");
+        registered.insert("AlbumReference".to_string());
+
+        gen.add_schema::<ArtistReference>("ArtistReference");
+        registered.insert("ArtistReference".to_string());
+
+        gen.add_schema::<PlaylistReference>("PlaylistReference");
+        registered.insert("PlaylistReference".to_string());
+
+        gen.add_schema::<GenreReference>("GenreReference");
+        registered.insert("GenreReference".to_string());
+
         gen.add_schema::<MusicSharePayload>("MusicSharePayload");
         registered.insert("MusicSharePayload".to_string());
 
         gen.add_schema::<ReactionPayload>("ReactionPayload");
         registered.insert("ReactionPayload".to_string());
+
+        gen.add_schema::<ProfileUpdatePayload>("ProfileUpdatePayload");
+        registered.insert("ProfileUpdatePayload".to_string());
+
+        gen.add_schema::<GossipProfile>("GossipProfile");
+        registered.insert("GossipProfile".to_string());
 
         // gossip offal request types
         gen.add_schema::<GetChannelRequest>("GetChannelRequest");
@@ -825,5 +851,21 @@ pub mod type_registry {
 
         gen.add_schema::<EmptyRequest>("EmptyRequest");
         registered.insert("EmptyRequest".to_string());
+
+        gen.add_schema::<UpdateProfileRequest>("UpdateProfileRequest");
+        registered.insert("UpdateProfileRequest".to_string());
+
+        // sync types
+        gen.add_schema::<SyncSongRequest>("SyncSongRequest");
+        registered.insert("SyncSongRequest".to_string());
+
+        gen.add_schema::<SyncSongResponse>("SyncSongResponse");
+        registered.insert("SyncSongResponse".to_string());
+
+        gen.add_schema::<SyncPlaylistRequest>("SyncPlaylistRequest");
+        registered.insert("SyncPlaylistRequest".to_string());
+
+        gen.add_schema::<SyncPlaylistResponse>("SyncPlaylistResponse");
+        registered.insert("SyncPlaylistResponse".to_string());
     }
 }

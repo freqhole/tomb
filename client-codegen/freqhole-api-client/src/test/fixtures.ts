@@ -118,6 +118,7 @@ export const deleteSongRequest: s.DeleteSongRequest = {
 
 // Playlists
 export const createPlaylistRequest: s.CreatePlaylistRequest = {
+  id: null,
   title: "Test Playlist",
   description: null,
   is_public: false,

@@ -21,10 +21,7 @@ import { GossipMessageCard } from "./GossipMessageCard";
 import { ComposeBar } from "./ComposeBar";
 import { Badge } from "../badges/Badge";
 import { LoadingMoreIndicator } from "../feedback/LoadingMoreIndicator";
-import {
-  MessageReactionOverlay,
-  createMessageReaction,
-} from "./MessageReactionOverlay";
+import { MessageReactionOverlay, createMessageReaction } from "./MessageReactionOverlay";
 
 export interface ChannelThreadProps {
   channel: GossipChannel;
@@ -51,6 +48,9 @@ export interface ChannelThreadProps {
   onBack?: () => void;
   onLeaveChannel?: () => void;
   onDestroyChannel?: () => void;
+  onCopyInvite?: () => void;
+  /** label to show on the invite button (e.g. "copied!" feedback) */
+  copyInviteLabel?: string;
   onAddMember?: () => void;
   /** set of friend node_ids for friend status checks */
   friendNodeIds?: Set<string>;
@@ -101,7 +101,9 @@ export function ChannelThread(props: ChannelThreadProps) {
   (virtualizer as any).resizeItem = function (index: number, size: number) {
     measureCount++;
     if (measureCount <= 20 || measureCount % 50 === 0) {
-      console.log(`[virt] resizeItem #${measureCount} idx=${index} size=${size} total=${virtualizer.getTotalSize()}`);
+      console.log(
+        `[virt] resizeItem #${measureCount} idx=${index} size=${size} total=${virtualizer.getTotalSize()}`
+      );
     }
     const result = origResizeItem.call(this, index, size);
     if (settling) {
@@ -159,6 +161,7 @@ export function ChannelThread(props: ChannelThreadProps) {
       const atBottom = isAtBottom();
       if (len > prev && (atBottom || len - prev === 1)) {
         requestAnimationFrame(() => {
+          if (!scrollRef) return;
           virtualizer.scrollToIndex(len - 1, { align: "end" });
         });
         props.onDismissUnread?.();
@@ -172,7 +175,8 @@ export function ChannelThread(props: ChannelThreadProps) {
 
   // scroll to unread divider, saved position, or bottom
   function scrollToTarget() {
-    if (props.savedScrollTop !== undefined && scrollRef) {
+    if (!scrollRef) return;
+    if (props.savedScrollTop !== undefined) {
       scrollRef.scrollTo({ top: props.savedScrollTop });
     } else {
       const unreadIdx = firstUnreadIndex();
@@ -240,7 +244,13 @@ export function ChannelThread(props: ChannelThreadProps) {
 
     // load more on scroll near top — deferred to not block scroll momentum
     // loadMoreCooldown prevents false triggers right after initial scroll-to-bottom
-    if (props.onLoadMore && !props.loadingMore && !loadMorePending && !loadMoreCooldown && scrollRef.scrollTop < 100) {
+    if (
+      props.onLoadMore &&
+      !props.loadingMore &&
+      !loadMorePending &&
+      !loadMoreCooldown &&
+      scrollRef.scrollTop < 100
+    ) {
       console.log(`[scroll] loadMore triggered`, {
         scrollTop: scrollRef.scrollTop,
         scrollH: scrollRef.scrollHeight,
@@ -453,6 +463,14 @@ export function ChannelThread(props: ChannelThreadProps) {
 
                 {/* flyout actions */}
                 <div class="px-3 py-2 flex flex-col gap-1">
+                  <Show when={props.onCopyInvite}>
+                    <button
+                      class="w-full text-left text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-accent-500)] transition-colors py-0.5 cursor-pointer min-h-[44px] flex items-center"
+                      onClick={() => props.onCopyInvite?.()}
+                    >
+                      {props.copyInviteLabel ?? "copy invite"}
+                    </button>
+                  </Show>
                   <Show when={props.onAddMember}>
                     <button
                       class="w-full text-left text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-accent-500)] transition-colors py-0.5 cursor-pointer min-h-[44px] flex items-center"
@@ -537,7 +555,12 @@ export function ChannelThread(props: ChannelThreadProps) {
             }
           >
             {/* loading-more indicator at top — debounced 1s to avoid flash */}
-            <LoadingMoreIndicator isLoading={props.loadingMore ?? false} debounceMs={1000} text="loading older messages..." position="top" />
+            <LoadingMoreIndicator
+              isLoading={props.loadingMore ?? false}
+              debounceMs={1000}
+              text="loading older messages..."
+              position="top"
+            />
             <div
               style={{
                 height: `${virtualizer.getTotalSize()}px`,
@@ -601,7 +624,8 @@ export function ChannelThread(props: ChannelThreadProps) {
                                 message={msg()!}
                                 currentNodeId={props.currentNodeId}
                                 avatarUrl={
-                                  props.resolveAvatar?.(msg()!.sender_name) ?? msg()!.sender_avatar_url
+                                  props.resolveAvatar?.(msg()!.sender_name) ??
+                                  msg()!.sender_avatar_url
                                 }
                                 isCreator={msg()!.sender_node_id === props.channel.creator_node_id}
                                 tick={tick()}

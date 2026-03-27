@@ -15,6 +15,30 @@ export interface BlobResultLike {
 }
 
 /**
+ * interface matching midden's GossipHandle WASM class.
+ * call take_sender() and take_receiver() to get independent halves
+ * (avoids RefCell borrow conflicts between concurrent recv and broadcast).
+ */
+export interface GossipHandleLike {
+  take_sender(): GossipSenderLike;
+  take_receiver(): GossipReceiverLike;
+}
+
+/**
+ * sender half of a gossip topic handle
+ */
+export interface GossipSenderLike {
+  broadcast(message: Uint8Array): Promise<void>;
+}
+
+/**
+ * receiver half of a gossip topic handle
+ */
+export interface GossipReceiverLike {
+  recv(): Promise<any>;
+}
+
+/**
  * upload result from midden
  */
 export interface UploadResultLike {
@@ -65,6 +89,9 @@ export interface MiddenNodeLike {
   // download blob by ID with on-demand blake3 computation - optional
   // returns [Uint8Array, string] but typed as any[] for wasm-bindgen compatibility
   download_verified_by_id?(peer_addr: string, blob_id: string): Promise<any[]>;
+  // gossip methods - optional (only available when midden has iroh-gossip)
+  gossip_join?(topic_hex: string, bootstrap_peers_json: string): Promise<GossipHandleLike>;
+  gossip_subscribe?(topic_hex: string, bootstrap_peers_json: string): Promise<GossipHandleLike>;
 }
 
 /**

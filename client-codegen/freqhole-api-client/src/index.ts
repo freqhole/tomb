@@ -9,7 +9,7 @@ export { HttpTransport } from "./transport.js";
 export { WasmTransport } from "./WasmTransport.js";
 export { CharnelTransport, createCharnelTransport, getCharnelTransport, getCharnelNodeId, isCharnelAvailable, isCharnelP2PAvailable } from "./CharnelTransport.js";
 export { CharnelLocalTransport, createCharnelLocalTransport } from "./CharnelLocalTransport.js";
-export type { MiddenNodeLike, BlobResultLike, BlobProgressCallback } from "./WasmTransport.js";
+export type { MiddenNodeLike, GossipHandleLike, GossipSenderLike, GossipReceiverLike, BlobResultLike, BlobProgressCallback } from "./WasmTransport.js";
 export type { Transport, TransportResponse, BlobData } from "./transport.js";
 
 // export utilities (url helpers, uploads, etc)
@@ -23,6 +23,21 @@ export * as permissions from "./permissions.js";
 
 // export hand-rolled favorites types (codegen doesn't handle discriminated unions)
 export type { FavoriteItem, ListFavoritesResponse } from "./domains/favorites.types.js";
+
+// export hand-rolled gossip types (discriminated union for MusicReference)
+export {
+  MusicReferenceSchema,
+  MusicSharePayloadSchema,
+} from "./domains/gossip.types.js";
+export type {
+  MusicReference,
+  MusicSharePayload,
+  SongReference,
+  AlbumReference,
+  ArtistReference,
+  PlaylistReference,
+  GenreReference,
+} from "./domains/gossip.types.js";
 
 // export schemas and types
 export type * from "./codegen/schema.js";

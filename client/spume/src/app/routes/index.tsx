@@ -23,6 +23,7 @@ import { FeedView } from "../../music/views/FeedView";
 import { GenresView } from "../../music/views/GenresView";
 import { PlaylistsView } from "../../music/views/PlaylistsView";
 import { SongsView } from "../../music/views/SongsView";
+import { GossipView } from "../../gossip/views/GossipView";
 import { AppLayout } from "../AppLayout";
 import {
   SettingsLayout,
@@ -137,6 +138,9 @@ export function routes(props: RoutesProps) {
             />
           </Route>
         )}
+
+        {/* gossip — top-level, not tied to any remote */}
+        <Route path="/gossip" component={GossipView} />
 
         {/* remote context routes */}
         <Route path="/:remoteId" component={RemoteContextHandler}>

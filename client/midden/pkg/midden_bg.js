@@ -63,9 +63,11 @@ export class BlobResult {
 if (Symbol.dispose) BlobResult.prototype[Symbol.dispose] = BlobResult.prototype.free;
 
 /**
- * handle for a subscribed gossip topic
+ * container returned by gossip_join / gossip_subscribe.
  *
- * holds sender and receiver halves. dropping this leaves the topic.
+ * holds separate sender and receiver as independent wasm-bindgen objects
+ * so they each get their own RefCell — no borrow conflict when recv()
+ * is awaiting and broadcast() is called concurrently.
  */
 export class GossipHandle {
     constructor() {
@@ -89,22 +91,62 @@ export class GossipHandle {
         wasm.__wbg_gossiphandle_free(ptr, 0);
     }
     /**
-     * broadcast a message to all peers in the topic
-     * @param {Uint8Array} message
-     * @returns {Promise<void>}
+     * take the receiver half (can only be called once)
+     * @returns {GossipReceiver}
      */
-    broadcast(message) {
+    take_receiver() {
         if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
         _assertNum(this.__wbg_ptr);
-        const ptr0 = passArray8ToWasm0(message, wasm.__wbindgen_malloc);
-        const len0 = WASM_VECTOR_LEN;
-        const ret = wasm.gossiphandle_broadcast(this.__wbg_ptr, ptr0, len0);
-        return ret;
+        const ret = wasm.gossiphandle_take_receiver(this.__wbg_ptr);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return GossipReceiver.__wrap(ret[0]);
+    }
+    /**
+     * take the sender half (can only be called once)
+     * @returns {GossipSender}
+     */
+    take_sender() {
+        if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
+        _assertNum(this.__wbg_ptr);
+        const ret = wasm.gossiphandle_take_sender(this.__wbg_ptr);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return GossipSender.__wrap(ret[0]);
+    }
+}
+if (Symbol.dispose) GossipHandle.prototype[Symbol.dispose] = GossipHandle.prototype.free;
+
+/**
+ * receiver half of a gossip topic — call recv() to get events
+ */
+export class GossipReceiver {
+    constructor() {
+        throw new Error('cannot invoke `new` directly');
+    }
+    static __wrap(ptr) {
+        ptr = ptr >>> 0;
+        const obj = Object.create(GossipReceiver.prototype);
+        obj.__wbg_ptr = ptr;
+        GossipReceiverFinalization.register(obj, obj.__wbg_ptr, obj);
+        return obj;
+    }
+    __destroy_into_raw() {
+        const ptr = this.__wbg_ptr;
+        this.__wbg_ptr = 0;
+        GossipReceiverFinalization.unregister(this);
+        return ptr;
+    }
+    free() {
+        const ptr = this.__destroy_into_raw();
+        wasm.__wbg_gossipreceiver_free(ptr, 0);
     }
     /**
      * receive the next event from the topic
      *
-     * returns a JSON string with the event:
+     * returns a JSON value with the event:
      * - {"type":"received","content":<base64>,"from":"<node_id>"}
      * - {"type":"neighbor_up","node_id":"<node_id>"}
      * - {"type":"neighbor_down","node_id":"<node_id>"}
@@ -115,11 +157,51 @@ export class GossipHandle {
     recv() {
         if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
         _assertNum(this.__wbg_ptr);
-        const ret = wasm.gossiphandle_recv(this.__wbg_ptr);
+        const ret = wasm.gossipreceiver_recv(this.__wbg_ptr);
         return ret;
     }
 }
-if (Symbol.dispose) GossipHandle.prototype[Symbol.dispose] = GossipHandle.prototype.free;
+if (Symbol.dispose) GossipReceiver.prototype[Symbol.dispose] = GossipReceiver.prototype.free;
+
+/**
+ * sender half of a gossip topic — call broadcast() to send messages
+ */
+export class GossipSender {
+    constructor() {
+        throw new Error('cannot invoke `new` directly');
+    }
+    static __wrap(ptr) {
+        ptr = ptr >>> 0;
+        const obj = Object.create(GossipSender.prototype);
+        obj.__wbg_ptr = ptr;
+        GossipSenderFinalization.register(obj, obj.__wbg_ptr, obj);
+        return obj;
+    }
+    __destroy_into_raw() {
+        const ptr = this.__wbg_ptr;
+        this.__wbg_ptr = 0;
+        GossipSenderFinalization.unregister(this);
+        return ptr;
+    }
+    free() {
+        const ptr = this.__destroy_into_raw();
+        wasm.__wbg_gossipsender_free(ptr, 0);
+    }
+    /**
+     * broadcast a message to all peers in the topic
+     * @param {Uint8Array} message
+     * @returns {Promise<void>}
+     */
+    broadcast(message) {
+        if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
+        _assertNum(this.__wbg_ptr);
+        const ptr0 = passArray8ToWasm0(message, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.gossipsender_broadcast(this.__wbg_ptr, ptr0, len0);
+        return ret;
+    }
+}
+if (Symbol.dispose) GossipSender.prototype[Symbol.dispose] = GossipSender.prototype.free;
 
 export class IntoUnderlyingByteSource {
     constructor() {
@@ -1460,6 +1542,12 @@ const BlobResultFinalization = (typeof FinalizationRegistry === 'undefined')
 const GossipHandleFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_gossiphandle_free(ptr >>> 0, 1));
+const GossipReceiverFinalization = (typeof FinalizationRegistry === 'undefined')
+    ? { register: () => {}, unregister: () => {} }
+    : new FinalizationRegistry(ptr => wasm.__wbg_gossipreceiver_free(ptr >>> 0, 1));
+const GossipSenderFinalization = (typeof FinalizationRegistry === 'undefined')
+    ? { register: () => {}, unregister: () => {} }
+    : new FinalizationRegistry(ptr => wasm.__wbg_gossipsender_free(ptr >>> 0, 1));
 const IntoUnderlyingByteSourceFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_intounderlyingbytesource_free(ptr >>> 0, 1));

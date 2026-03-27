@@ -21,6 +21,9 @@ pub enum GossipAction {
         /// Creator display name
         #[arg(long)]
         display_name: String,
+        /// Music-only channel (no text-only messages)
+        #[arg(long, default_value_t = false)]
+        music_only: bool,
     },
 
     /// List all gossip channels
@@ -79,8 +82,9 @@ pub async fn handle_command(action: GossipAction) -> CommandOutput<serde_json::V
             description,
             node_id,
             display_name,
+            music_only,
         } => {
-            match GossipService::create_channel(&node_id, &display_name, &name, description.as_deref())
+            match GossipService::create_channel(&node_id, &display_name, &name, description.as_deref(), music_only)
                 .await
             {
                 Ok(channel) => CommandOutput::success("channel created", channel),

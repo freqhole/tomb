@@ -576,6 +576,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     is_public?: boolean;
   }): Promise<PlaylistSummary> {
     const result = await (await this.getClient()).music.createPlaylist({
+      id: null, // server will assign
       title: params.title,
       description: params.description || null,
       is_public: params.is_public ?? false,

@@ -4,6 +4,27 @@
 // this stub exists so dynamic imports of "midden" don't fail during dev/build
 // when VITE_CHARNEL_MODE=true
 
+export class GossipSender {
+  async broadcast(_message: Uint8Array): Promise<void> {
+    throw new Error("midden WASM not available in Tauri - use CharnelTransport");
+  }
+}
+
+export class GossipReceiver {
+  async recv(): Promise<any> {
+    throw new Error("midden WASM not available in Tauri - use CharnelTransport");
+  }
+}
+
+export class GossipHandle {
+  take_sender(): GossipSender {
+    throw new Error("midden WASM not available in Tauri - use CharnelTransport");
+  }
+  take_receiver(): GossipReceiver {
+    throw new Error("midden WASM not available in Tauri - use CharnelTransport");
+  }
+}
+
 export class MiddenNode {
   static async create(): Promise<MiddenNode> {
     throw new Error("midden WASM not available in Tauri - use CharnelTransport");
@@ -18,6 +39,14 @@ export class MiddenNode {
   }
 
   secret_key(): Uint8Array {
+    throw new Error("midden WASM not available in Tauri - use CharnelTransport");
+  }
+
+  async gossip_join(_topic_hex: string, _bootstrap_peers_json: string): Promise<GossipHandle> {
+    throw new Error("midden WASM not available in Tauri - use CharnelTransport");
+  }
+
+  async gossip_subscribe(_topic_hex: string, _bootstrap_peers_json: string): Promise<GossipHandle> {
     throw new Error("midden WASM not available in Tauri - use CharnelTransport");
   }
 }

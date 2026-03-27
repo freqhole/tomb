@@ -31,6 +31,7 @@ pub enum GossipMessageType {
     MemberRemoved,
     Knock,
     KnockResponse,
+    ProfileUpdate,
 }
 
 impl std::fmt::Display for GossipMessageType {
@@ -45,6 +46,7 @@ impl std::fmt::Display for GossipMessageType {
             Self::MemberRemoved => write!(f, "member_removed"),
             Self::Knock => write!(f, "knock"),
             Self::KnockResponse => write!(f, "knock_response"),
+            Self::ProfileUpdate => write!(f, "profile_update"),
         }
     }
 }
@@ -62,6 +64,7 @@ impl std::str::FromStr for GossipMessageType {
             "member_removed" => Ok(Self::MemberRemoved),
             "knock" => Ok(Self::Knock),
             "knock_response" => Ok(Self::KnockResponse),
+            "profile_update" => Ok(Self::ProfileUpdate),
             _ => Err(format!("unknown gossip message type: {}", s)),
         }
     }
@@ -89,6 +92,8 @@ pub enum MusicReference {
 pub struct SongReference {
     pub remote_id: String,
     pub source_node_id: String,
+    /// display name of the source node (resolved at share-time)
+    pub source_name: Option<String>,
     pub title: String,
     pub track_artist: Option<String>,
     pub album_title: Option<String>,
@@ -104,6 +109,7 @@ pub struct SongReference {
 pub struct AlbumReference {
     pub remote_id: String,
     pub source_node_id: String,
+    pub source_name: Option<String>,
     pub title: String,
     pub artist_name: Option<String>,
     pub album_type: String,
@@ -118,6 +124,7 @@ pub struct AlbumReference {
 pub struct ArtistReference {
     pub remote_id: String,
     pub source_node_id: String,
+    pub source_name: Option<String>,
     pub name: String,
     pub bio: Option<String>,
     pub thumbnails: Vec<String>,
@@ -127,6 +134,7 @@ pub struct ArtistReference {
 pub struct PlaylistReference {
     pub remote_id: String,
     pub source_node_id: String,
+    pub source_name: Option<String>,
     pub title: String,
     pub description: Option<String>,
     pub song_count: i64,
@@ -138,7 +146,9 @@ pub struct PlaylistReference {
 pub struct GenreReference {
     pub remote_id: String,
     pub source_node_id: String,
+    pub source_name: Option<String>,
     pub name: String,
+    pub thumbnails: Vec<String>,
 }
 
 /// reaction to a message
@@ -166,4 +176,12 @@ pub struct ChannelMetaPayload {
 pub struct MemberPayload {
     pub node_id: String,
     pub display_name: Option<String>,
+}
+
+/// profile update broadcast (display name and/or avatar changed)
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct ProfileUpdatePayload {
+    pub display_name: String,
+    /// base64-encoded small WebP avatar (~5-10KB)
+    pub avatar_blob: Option<String>,
 }

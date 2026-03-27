@@ -30,22 +30,37 @@ export class BlobResult {
 }
 
 /**
- * handle for a subscribed gossip topic
+ * container returned by gossip_join / gossip_subscribe.
  *
- * holds sender and receiver halves. dropping this leaves the topic.
+ * holds separate sender and receiver as independent wasm-bindgen objects
+ * so they each get their own RefCell — no borrow conflict when recv()
+ * is awaiting and broadcast() is called concurrently.
  */
 export class GossipHandle {
     private constructor();
     free(): void;
     [Symbol.dispose](): void;
     /**
-     * broadcast a message to all peers in the topic
+     * take the receiver half (can only be called once)
      */
-    broadcast(message: Uint8Array): Promise<void>;
+    take_receiver(): GossipReceiver;
+    /**
+     * take the sender half (can only be called once)
+     */
+    take_sender(): GossipSender;
+}
+
+/**
+ * receiver half of a gossip topic — call recv() to get events
+ */
+export class GossipReceiver {
+    private constructor();
+    free(): void;
+    [Symbol.dispose](): void;
     /**
      * receive the next event from the topic
      *
-     * returns a JSON string with the event:
+     * returns a JSON value with the event:
      * - {"type":"received","content":<base64>,"from":"<node_id>"}
      * - {"type":"neighbor_up","node_id":"<node_id>"}
      * - {"type":"neighbor_down","node_id":"<node_id>"}
@@ -53,6 +68,19 @@ export class GossipHandle {
      * - null if the topic is closed
      */
     recv(): Promise<any>;
+}
+
+/**
+ * sender half of a gossip topic — call broadcast() to send messages
+ */
+export class GossipSender {
+    private constructor();
+    free(): void;
+    [Symbol.dispose](): void;
+    /**
+     * broadcast a message to all peers in the topic
+     */
+    broadcast(message: Uint8Array): Promise<void>;
 }
 
 export class IntoUnderlyingByteSource {

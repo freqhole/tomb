@@ -8,10 +8,21 @@ export interface FriendsListProps {
   friendRequests?: FriendRequest[];
   /** node id of the current user — shown at top with "(you)" label */
   currentNodeId?: string;
+  /** display name of the current user */
+  currentDisplayName?: string;
+  /** callback to copy a node_id to clipboard */
+  onCopyNodeId?: (nodeId: string) => void;
+  /** which node_id was just copied (for "copied" feedback) */
+  copiedNodeId?: string | null;
   onSelectFriend?: (nodeId: string) => void;
   onAcceptRequest?: (nodeId: string) => void;
   onRejectRequest?: (nodeId: string) => void;
   onAddFriend?: () => void;
+}
+
+function truncateNodeId(id: string): string {
+  if (id.length <= 16) return id;
+  return `${id.slice(0, 8)}...${id.slice(-8)}`;
 }
 
 function lastSeenLabel(friend: GossipFriend): string {
@@ -43,6 +54,42 @@ export function FriendsList(props: FriendsListProps) {
 
       {/* scrollable content */}
       <div class="flex-1 min-h-0 overflow-y-auto">
+        {/* you */}
+        <Show when={props.currentNodeId && props.currentNodeId !== "unknown"}>
+          <div class="py-0.5">
+            <div class="w-full flex items-center gap-2 px-3 py-1.5 min-h-[44px]">
+              <div class="relative flex-shrink-0">
+                <div class="w-6 h-6 rounded-full overflow-hidden bg-[var(--color-bg-tertiary)]">
+                  <div class="w-full h-full flex items-center justify-center text-[10px] font-semibold text-[var(--color-text-tertiary)]">
+                    {(props.currentDisplayName ?? "?")[0].toUpperCase()}
+                  </div>
+                </div>
+                <div class="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-green-500 border-2 border-[var(--color-bg-primary)]" />
+              </div>
+              <div class="flex flex-col min-w-0 flex-1">
+                <div class="flex items-center gap-1.5">
+                  <span class="text-sm text-[var(--color-text-primary)] truncate">
+                    {props.currentDisplayName ?? "you"}
+                  </span>
+                  <span class="text-[10px] text-[var(--color-text-tertiary)] flex-shrink-0">
+                    you
+                  </span>
+                </div>
+                <span class="text-[10px] text-[var(--color-text-tertiary)]/60 font-mono truncate">
+                  {truncateNodeId(props.currentNodeId!)}
+                </span>
+              </div>
+              <button
+                class="text-[10px] text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)] transition-colors flex-shrink-0 cursor-pointer min-w-[44px] min-h-[44px] flex items-center justify-center"
+                onClick={() => props.onCopyNodeId?.(props.currentNodeId!)}
+                title="copy your node id"
+              >
+                {props.copiedNodeId === props.currentNodeId ? "copied!" : "copy"}
+              </button>
+            </div>
+          </div>
+        </Show>
+
         {/* online */}
         <Show when={online().length > 0}>
           <div class="py-0.5">
@@ -73,13 +120,25 @@ export function FriendsList(props: FriendsListProps) {
                     </div>
                     <div class="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-green-500 border-2 border-[var(--color-bg-primary)]" />
                   </div>
-                  <span class="text-sm text-[var(--color-text-primary)] truncate">
-                    {friend.display_name}
-                  </span>
-                  <Show when={isMe(friend)}>
-                    <span class="text-[10px] text-[var(--color-text-tertiary)] ml-auto flex-shrink-0">
-                      you
+                  <div class="flex flex-col min-w-0 flex-1">
+                    <span class="text-sm text-[var(--color-text-primary)] truncate">
+                      {friend.display_name}
                     </span>
+                    <span class="text-[10px] text-[var(--color-text-tertiary)]/60 font-mono truncate">
+                      {truncateNodeId(friend.node_id)}
+                    </span>
+                  </div>
+                  <Show when={props.onCopyNodeId}>
+                    <button
+                      class="text-[10px] text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)] transition-colors flex-shrink-0 cursor-pointer min-w-[44px] min-h-[44px] flex items-center justify-center"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        props.onCopyNodeId!(friend.node_id);
+                      }}
+                      title={`copy ${friend.display_name}'s node id`}
+                    >
+                      {props.copiedNodeId === friend.node_id ? "copied!" : "copy"}
+                    </button>
                   </Show>
                 </button>
               )}
@@ -127,10 +186,27 @@ export function FriendsList(props: FriendsListProps) {
                       </div>
                       <div class="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-[var(--color-text-tertiary)]/40 border-2 border-[var(--color-bg-primary)]" />
                     </div>
-                    <span class="text-sm text-[var(--color-text-tertiary)] truncate">
-                      {friend.display_name}
-                    </span>
-                    <span class="text-[10px] text-[var(--color-text-tertiary)]/60 ml-auto flex-shrink-0">
+                    <div class="flex flex-col min-w-0 flex-1">
+                      <span class="text-sm text-[var(--color-text-tertiary)] truncate">
+                        {friend.display_name}
+                      </span>
+                      <span class="text-[10px] text-[var(--color-text-tertiary)]/40 font-mono truncate">
+                        {truncateNodeId(friend.node_id)}
+                      </span>
+                    </div>
+                    <Show when={props.onCopyNodeId}>
+                      <button
+                        class="text-[10px] text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)] transition-colors flex-shrink-0 cursor-pointer min-w-[44px] min-h-[44px] flex items-center justify-center"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          props.onCopyNodeId!(friend.node_id);
+                        }}
+                        title={`copy ${friend.display_name}'s node id`}
+                      >
+                        {props.copiedNodeId === friend.node_id ? "copied!" : "copy"}
+                      </button>
+                    </Show>
+                    <span class="text-[10px] text-[var(--color-text-tertiary)]/60 flex-shrink-0">
                       {lastSeenLabel(friend)}
                     </span>
                   </button>
@@ -211,7 +287,7 @@ export function FriendsList(props: FriendsListProps) {
 
       {/* add friend button — pinned at bottom */}
       <Show when={props.onAddFriend}>
-        <div class="flex-shrink-0 px-3 py-2 bg-[var(--color-bg-primary)] border-t border-[var(--color-border-subtle)]/30">
+        <div class="flex-shrink-0 px-3 py-2 bg-[var(--color-bg-primary)]">
           <button
             class="w-full text-sm text-[var(--color-accent-500)] hover:text-[var(--color-accent-400)] transition-colors min-h-[44px] flex items-center justify-center gap-1 cursor-pointer"
             onClick={() => props.onAddFriend?.()}

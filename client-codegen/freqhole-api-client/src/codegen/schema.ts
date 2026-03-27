@@ -126,6 +126,21 @@ export const AlbumQueryResultSchema = z.object({
 });
 export type AlbumQueryResult = z.infer<typeof AlbumQueryResultSchema>;
 
+export const AlbumReferenceSchema = z.object({
+  remote_id: z.string(),
+  source_node_id: z.string(),
+  source_name: z.string().nullable(),
+  title: z.string(),
+  artist_name: z.string().nullable(),
+  album_type: z.string(),
+  release_date: z.string().nullable(),
+  song_count: z.number(),
+  total_duration: z.number(),
+  genres: z.array(z.string()),
+  thumbnails: z.array(z.string())
+});
+export type AlbumReference = z.infer<typeof AlbumReferenceSchema>;
+
 export const AlbumSearchResultSchema = z.object({
   id: z.string(),
   title: z.string(),
@@ -290,6 +305,16 @@ export const ArtistQueryResultSchema = z.object({
 });
 export type ArtistQueryResult = z.infer<typeof ArtistQueryResultSchema>;
 
+export const ArtistReferenceSchema = z.object({
+  remote_id: z.string(),
+  source_node_id: z.string(),
+  source_name: z.string().nullable(),
+  name: z.string(),
+  bio: z.string().nullable(),
+  thumbnails: z.array(z.string())
+});
+export type ArtistReference = z.infer<typeof ArtistReferenceSchema>;
+
 export const ArtistSearchResultSchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -398,11 +423,46 @@ export const BulkDeleteSongsResponseSchema = z.object({
 });
 export type BulkDeleteSongsResponse = z.infer<typeof BulkDeleteSongsResponseSchema>;
 
+export const ChannelDetailResponseSchema = z.object({
+  channel: z.object({
+  topic_id: z.string(),
+  name: z.string(),
+  description: z.string().nullable(),
+  creator_node_id: z.string(),
+  created_at: z.number(),
+  settings: z.string().nullable(),
+  last_message_at: z.number().nullable(),
+  music_only: z.boolean()
+}),
+  members: z.array(z.object({
+  topic_id: z.string(),
+  node_id: z.string(),
+  display_name: z.string().nullable(),
+  role: z.string(),
+  joined_at: z.number()
+}))
+});
+export type ChannelDetailResponse = z.infer<typeof ChannelDetailResponseSchema>;
+
+export const ChannelInviteSchema = z.object({
+  topic_id: z.string(),
+  creator_node_id: z.string(),
+  channel_name: z.string()
+});
+export type ChannelInvite = z.infer<typeof ChannelInviteSchema>;
+
 export const CreateArtistRequestSchema = z.object({
   name: z.string(),
   created_by: z.string().nullable()
 });
 export type CreateArtistRequest = z.infer<typeof CreateArtistRequestSchema>;
+
+export const CreateChannelRequestSchema = z.object({
+  name: z.string(),
+  description: z.string().nullable(),
+  music_only: z.boolean().nullable()
+});
+export type CreateChannelRequest = z.infer<typeof CreateChannelRequestSchema>;
 
 export const CreateJobRequestSchema = z.object({
   job_type: z.union([z.literal('ScanDirectory'), z.literal('RescanDirectories'), z.literal('ProcessFile'), z.literal('FetchMedia'), z.literal('ConvertWebp'), z.literal('ImportMusic')]),
@@ -431,6 +491,7 @@ export const CreateListenSessionRequestSchema = z.object({
 export type CreateListenSessionRequest = z.infer<typeof CreateListenSessionRequestSchema>;
 
 export const CreatePlaylistRequestSchema = z.object({
+  id: z.string().nullable(),
   title: z.string().nullable(),
   description: z.string().nullable(),
   is_public: z.boolean().nullable(),
@@ -484,6 +545,12 @@ export const DeleteListenSessionRequestSchema = z.object({
 });
 export type DeleteListenSessionRequest = z.infer<typeof DeleteListenSessionRequestSchema>;
 
+export const DeleteMessageRequestSchema = z.object({
+  topic_id: z.string(),
+  message_id: z.string()
+});
+export type DeleteMessageRequest = z.infer<typeof DeleteMessageRequestSchema>;
+
 export const DeletePlaylistRequestSchema = z.object({
   playlist_id: z.string()
 });
@@ -506,6 +573,11 @@ export const DeleteTagRequestSchema = z.object({
   deleted_by: z.string().nullable()
 });
 export type DeleteTagRequest = z.infer<typeof DeleteTagRequestSchema>;
+
+export const EmptyRequestSchema = z.object({
+
+});
+export type EmptyRequest = z.infer<typeof EmptyRequestSchema>;
 
 export const EmptyResponseSchema = z.object({
   success: z.boolean()
@@ -969,6 +1041,15 @@ export const GenreRefSchema = z.object({
 });
 export type GenreRef = z.infer<typeof GenreRefSchema>;
 
+export const GenreReferenceSchema = z.object({
+  remote_id: z.string(),
+  source_node_id: z.string(),
+  source_name: z.string().nullable(),
+  name: z.string(),
+  thumbnails: z.array(z.string())
+});
+export type GenreReference = z.infer<typeof GenreReferenceSchema>;
+
 export const GenreSearchResultSchema = z.object({
   genre: z.string(),
   genre_id: z.string(),
@@ -1020,6 +1101,11 @@ export const GetBlobMetadataRequestSchema = z.object({
   id: z.string()
 });
 export type GetBlobMetadataRequest = z.infer<typeof GetBlobMetadataRequestSchema>;
+
+export const GetChannelRequestSchema = z.object({
+  topic_id: z.string()
+});
+export type GetChannelRequest = z.infer<typeof GetChannelRequestSchema>;
 
 export const GetCoverArtRequestSchema = z.object({
   mbid: z.string()
@@ -1075,6 +1161,13 @@ export const GetListenSessionRequestSchema = z.object({
 });
 export type GetListenSessionRequest = z.infer<typeof GetListenSessionRequestSchema>;
 
+export const GetMessagesWithChannelRequestSchema = z.object({
+  topic_id: z.string(),
+  before_timestamp: z.number().nullable(),
+  limit: z.number().nullable()
+});
+export type GetMessagesWithChannelRequest = z.infer<typeof GetMessagesWithChannelRequestSchema>;
+
 export const GetPlaylistRequestSchema = z.object({
   id: z.string()
 });
@@ -1100,6 +1193,84 @@ export const GetTagRequestSchema = z.object({
   tag_id: z.string()
 });
 export type GetTagRequest = z.infer<typeof GetTagRequestSchema>;
+
+export const GossipChannelSchema = z.object({
+  topic_id: z.string(),
+  name: z.string(),
+  description: z.string().nullable(),
+  creator_node_id: z.string(),
+  created_at: z.number(),
+  settings: z.string().nullable(),
+  last_message_at: z.number().nullable(),
+  music_only: z.boolean()
+});
+export type GossipChannel = z.infer<typeof GossipChannelSchema>;
+
+export const GossipChannelMemberSchema = z.object({
+  topic_id: z.string(),
+  node_id: z.string(),
+  display_name: z.string().nullable(),
+  role: z.string(),
+  joined_at: z.number()
+});
+export type GossipChannelMember = z.infer<typeof GossipChannelMemberSchema>;
+
+export const GossipEnvelopeSchema = z.object({
+  msg_type: z.union([z.literal('ChannelMeta'), z.literal('MusicShare'), z.literal('Reaction'), z.literal('ReactionRemoved'), z.literal('MessageDeleted'), z.literal('MemberAdded'), z.literal('MemberRemoved'), z.literal('Knock'), z.literal('KnockResponse'), z.literal('ProfileUpdate')]),
+  sender_node_id: z.string(),
+  sender_name: z.string(),
+  timestamp: z.number(),
+  message_id: z.string(),
+  payload: z.string()
+});
+export type GossipEnvelope = z.infer<typeof GossipEnvelopeSchema>;
+
+export const GossipKnockRequestSchema = z.object({
+  id: z.string(),
+  topic_id: z.string(),
+  node_id: z.string(),
+  display_name: z.string().nullable(),
+  message: z.string().nullable(),
+  status: z.string(),
+  created_at: z.number(),
+  processed_at: z.number().nullable()
+});
+export type GossipKnockRequest = z.infer<typeof GossipKnockRequestSchema>;
+
+export const GossipMessageSchema = z.object({
+  message_id: z.string(),
+  topic_id: z.string(),
+  sender_node_id: z.string(),
+  sender_name: z.string().nullable(),
+  msg_type: z.string(),
+  payload: z.string(),
+  timestamp: z.number(),
+  received_at: z.number(),
+  deleted_at: z.number().nullable()
+});
+export type GossipMessage = z.infer<typeof GossipMessageSchema>;
+
+export const GossipMessageTypeSchema = z.union([z.literal('ChannelMeta'), z.literal('MusicShare'), z.literal('Reaction'), z.literal('ReactionRemoved'), z.literal('MessageDeleted'), z.literal('MemberAdded'), z.literal('MemberRemoved'), z.literal('Knock'), z.literal('KnockResponse'), z.literal('ProfileUpdate')]);
+export type GossipMessageType = z.infer<typeof GossipMessageTypeSchema>;
+
+export const GossipProfileSchema = z.object({
+  node_id: z.string(),
+  display_name: z.string(),
+  avatar_blob: z.string().nullable(),
+  updated_at: z.number()
+});
+export type GossipProfile = z.infer<typeof GossipProfileSchema>;
+
+export const GossipReactionSchema = z.object({
+  message_id: z.string(),
+  topic_id: z.string(),
+  target_message_id: z.string(),
+  sender_node_id: z.string(),
+  sender_name: z.string().nullable(),
+  emoji: z.string(),
+  timestamp: z.number()
+});
+export type GossipReaction = z.infer<typeof GossipReactionSchema>;
 
 export const HealthResponseSchema = z.object({
   status: z.string(),
@@ -1143,6 +1314,13 @@ export const JobResponseSchema = z.object({
   created_by: z.string().nullable()
 });
 export type JobResponse = z.infer<typeof JobResponseSchema>;
+
+export const JoinChannelRequestSchema = z.object({
+  topic_id: z.string(),
+  channel_name: z.string(),
+  creator_node_id: z.string()
+});
+export type JoinChannelRequest = z.infer<typeof JoinChannelRequestSchema>;
 
 export const KnockRequestSchema = z.object({
   id: z.string(),
@@ -1480,6 +1658,30 @@ export const MediaBlobSchema = z.object({
 });
 export type MediaBlob = z.infer<typeof MediaBlobSchema>;
 
+export const MessagesResponseSchema = z.object({
+  messages: z.array(z.object({
+  message_id: z.string(),
+  topic_id: z.string(),
+  sender_node_id: z.string(),
+  sender_name: z.string().nullable(),
+  msg_type: z.string(),
+  payload: z.string(),
+  timestamp: z.number(),
+  received_at: z.number(),
+  deleted_at: z.number().nullable()
+})),
+  reactions: z.array(z.object({
+  message_id: z.string(),
+  topic_id: z.string(),
+  target_message_id: z.string(),
+  sender_node_id: z.string(),
+  sender_name: z.string().nullable(),
+  emoji: z.string(),
+  timestamp: z.number()
+}))
+});
+export type MessagesResponse = z.infer<typeof MessagesResponseSchema>;
+
 export const MusicImportResponseSchema = z.object({
   session_id: z.string(),
   jobs_created: z.number(),
@@ -1499,6 +1701,15 @@ export const MusicMetadataHintsSchema = z.object({
   genre: z.string().nullable()
 });
 export type MusicMetadataHints = z.infer<typeof MusicMetadataHintsSchema>;
+
+export const MusicReferenceSchema = z.union([z.literal('Song'), z.literal('Album'), z.literal('Artist'), z.literal('Playlist'), z.literal('Genre')]);
+export type MusicReference = z.infer<typeof MusicReferenceSchema>;
+
+export const MusicSharePayloadSchema = z.object({
+  text: z.string().nullable(),
+  items: z.array(z.union([z.literal('Song'), z.literal('Album'), z.literal('Artist'), z.literal('Playlist'), z.literal('Genre')]))
+});
+export type MusicSharePayload = z.infer<typeof MusicSharePayloadSchema>;
 
 export const MusicUploadResponseSchema = z.object({
   blob_id: z.string(),
@@ -1594,6 +1805,18 @@ export const PlaylistQueryResultSchema = z.object({
   is_favorite: z.boolean().nullable()
 });
 export type PlaylistQueryResult = z.infer<typeof PlaylistQueryResultSchema>;
+
+export const PlaylistReferenceSchema = z.object({
+  remote_id: z.string(),
+  source_node_id: z.string(),
+  source_name: z.string().nullable(),
+  title: z.string(),
+  description: z.string().nullable(),
+  song_count: z.number(),
+  duration: z.number().nullable(),
+  thumbnails: z.array(z.string())
+});
+export type PlaylistReference = z.infer<typeof PlaylistReferenceSchema>;
 
 export const PlaylistSearchResultSchema = z.object({
   id: z.string(),
@@ -1924,6 +2147,12 @@ export const ProcessKnockRequestSchema = z.object({
 });
 export type ProcessKnockRequest = z.infer<typeof ProcessKnockRequestSchema>;
 
+export const ProfileUpdatePayloadSchema = z.object({
+  display_name: z.string(),
+  avatar_blob: z.string().nullable()
+});
+export type ProfileUpdatePayload = z.infer<typeof ProfileUpdatePayloadSchema>;
+
 export const QueryContextSchema = z.object({
   tags: z.object({
   include: z.array(z.string()),
@@ -1969,6 +2198,19 @@ export const RatingStatsSchema = z.object({
   total_ratings: z.number()
 });
 export type RatingStats = z.infer<typeof RatingStatsSchema>;
+
+export const ReactWithChannelRequestSchema = z.object({
+  topic_id: z.string(),
+  target_message_id: z.string(),
+  emoji: z.string()
+});
+export type ReactWithChannelRequest = z.infer<typeof ReactWithChannelRequestSchema>;
+
+export const ReactionPayloadSchema = z.object({
+  target_message_id: z.string(),
+  emoji: z.string()
+});
+export type ReactionPayload = z.infer<typeof ReactionPayloadSchema>;
 
 export const RecentSongsRequestSchema = z.object({
   limit: z.number().nullable()
@@ -2153,6 +2395,13 @@ export const SearchResponseSchema = z.object({
   sort_applied: z.string().nullable()
 });
 export type SearchResponse = z.infer<typeof SearchResponseSchema>;
+
+export const SendMessageWithChannelRequestSchema = z.object({
+  topic_id: z.string(),
+  text: z.string().nullable(),
+  items: z.array(z.union([z.literal('Song'), z.literal('Album'), z.literal('Artist'), z.literal('Playlist'), z.literal('Genre')]))
+});
+export type SendMessageWithChannelRequest = z.infer<typeof SendMessageWithChannelRequestSchema>;
 
 export const ServerInfoResponseSchema = z.object({
   name: z.string(),
@@ -2401,6 +2650,21 @@ export const SongQueryResultSchema = z.object({
 });
 export type SongQueryResult = z.infer<typeof SongQueryResultSchema>;
 
+export const SongReferenceSchema = z.object({
+  remote_id: z.string(),
+  source_node_id: z.string(),
+  source_name: z.string().nullable(),
+  title: z.string(),
+  track_artist: z.string().nullable(),
+  album_title: z.string().nullable(),
+  duration: z.number().nullable(),
+  track_number: z.number(),
+  disc_number: z.number(),
+  bpm: z.number().nullable(),
+  thumbnails: z.array(z.string())
+});
+export type SongReference = z.infer<typeof SongReferenceSchema>;
+
 export const SongSearchResultSchema = z.object({
   id: z.string(),
   title: z.string(),
@@ -2618,6 +2882,77 @@ export const SuggestionsResponseSchema = z.object({
 });
 export type SuggestionsResponse = z.infer<typeof SuggestionsResponseSchema>;
 
+export const SyncPlaylistRequestSchema = z.object({
+  remote_playlist_id: z.string(),
+  title: z.string(),
+  description: z.string().nullable(),
+  song_sha256s: z.array(z.string()),
+  images: z.array(z.object({
+  data: z.string(),
+  mime_type: z.string(),
+  is_primary: z.boolean(),
+  blob_type: z.string().nullable()
+})),
+  remote_name: z.string()
+});
+export type SyncPlaylistRequest = z.infer<typeof SyncPlaylistRequestSchema>;
+
+export const SyncPlaylistResponseSchema = z.object({
+  playlist_id: z.string(),
+  songs_added: z.number(),
+  songs_missing: z.number()
+});
+export type SyncPlaylistResponse = z.infer<typeof SyncPlaylistResponseSchema>;
+
+export const SyncSongRequestSchema = z.object({
+  sha256: z.string(),
+  blake3: z.string().nullable(),
+  title: z.string(),
+  artist_name: z.string(),
+  album_title: z.string(),
+  track_number: z.number(),
+  disc_number: z.number(),
+  duration_ms: z.number().nullable(),
+  year: z.number().nullable(),
+  bpm: z.number().nullable(),
+  track_artist: z.string().nullable(),
+  lyrics: z.string().nullable(),
+  metadata: z.string().nullable(),
+  audio_data: z.string(),
+  audio_mime_type: z.string(),
+  song_images: z.array(z.object({
+  data: z.string(),
+  mime_type: z.string(),
+  is_primary: z.boolean(),
+  blob_type: z.string().nullable()
+})),
+  album_images: z.array(z.object({
+  data: z.string(),
+  mime_type: z.string(),
+  is_primary: z.boolean(),
+  blob_type: z.string().nullable()
+})),
+  artist_images: z.array(z.object({
+  data: z.string(),
+  mime_type: z.string(),
+  is_primary: z.boolean(),
+  blob_type: z.string().nullable()
+})),
+  remote_name: z.string(),
+  album_tags: z.array(z.string()),
+  genre_name: z.string().nullable(),
+  skip_feed_events: z.boolean()
+});
+export type SyncSongRequest = z.infer<typeof SyncSongRequestSchema>;
+
+export const SyncSongResponseSchema = z.object({
+  already_existed: z.boolean(),
+  song_id: z.string(),
+  file_path: z.string(),
+  media_blob_id: z.string()
+});
+export type SyncSongResponse = z.infer<typeof SyncSongResponseSchema>;
+
 export const TagSchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -2751,6 +3086,12 @@ export const UpdatePlaylistRequestSchema = z.object({
   updated_by: z.string().nullable()
 });
 export type UpdatePlaylistRequest = z.infer<typeof UpdatePlaylistRequestSchema>;
+
+export const UpdateProfileRequestSchema = z.object({
+  display_name: z.string(),
+  avatar_blob: z.string().nullable()
+});
+export type UpdateProfileRequest = z.infer<typeof UpdateProfileRequestSchema>;
 
 export const UpdateSongsRequestSchema = z.object({
   song_ids: z.array(z.string()),

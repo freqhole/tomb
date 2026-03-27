@@ -129,6 +129,7 @@ export async function runStatefulTests() {
 
   await test("create playlist", async () => {
     const result = await client.music.createPlaylist({
+      id: null,
       title: `Test Playlist ${Date.now()}`,
       description: "Created by integration tests",
       is_public: false,

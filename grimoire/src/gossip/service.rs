@@ -36,6 +36,7 @@ impl GossipService {
         creator_name: &str,
         name: &str,
         description: Option<&str>,
+        music_only: bool,
     ) -> GrimoireResult<GossipChannel> {
         let topic_id = Self::derive_topic_id(creator_node_id, name);
         let now = Self::now();
@@ -48,6 +49,7 @@ impl GossipService {
             created_at: now,
             settings: None,
             last_message_at: None,
+            music_only,
         };
 
         repository::create_channel(&channel).await?;
@@ -88,6 +90,7 @@ impl GossipService {
             created_at: now,
             settings: None,
             last_message_at: None,
+            music_only: true,
         };
 
         repository::create_channel(&channel).await?;
@@ -245,9 +248,7 @@ impl GossipService {
                 // payload is a ReactionPayload with the reaction's message_id
                 // for now, use message_id from the envelope to identify
                 // the original reaction to remove
-                if let Ok(_payload) =
-                    serde_json::from_str::<ReactionPayload>(&envelope.payload)
-                {
+                if let Ok(_payload) = serde_json::from_str::<ReactionPayload>(&envelope.payload) {
                     // find and delete the matching reaction
                     // (we'd need the original reaction message_id — for now store a deletion record)
                     let msg = GossipMessage {
@@ -290,8 +291,7 @@ impl GossipService {
             }
 
             GossipMessageType::MemberAdded | GossipMessageType::MemberRemoved => {
-                if let Ok(member_payload) =
-                    serde_json::from_str::<MemberPayload>(&envelope.payload)
+                if let Ok(member_payload) = serde_json::from_str::<MemberPayload>(&envelope.payload)
                 {
                     if envelope.msg_type == GossipMessageType::MemberAdded {
                         let member = GossipChannelMember {
@@ -323,6 +323,21 @@ impl GossipService {
                 };
                 repository::insert_message(&msg).await?;
             }
+
+            GossipMessageType::ProfileUpdate => {
+                // update the sender's gossip profile in local cache
+                if let Ok(profile_payload) =
+                    serde_json::from_str::<ProfileUpdatePayload>(&envelope.payload)
+                {
+                    let profile = GossipProfile {
+                        node_id: envelope.sender_node_id.clone(),
+                        display_name: profile_payload.display_name,
+                        avatar_blob: profile_payload.avatar_blob,
+                        updated_at: envelope.timestamp,
+                    };
+                    repository::upsert_profile(&profile).await?;
+                }
+            }
         }
 
         Ok(())
@@ -348,11 +363,11 @@ impl GossipService {
 
     /// generate an invite payload for a channel
     pub async fn generate_invite(topic_id: &str) -> GrimoireResult<ChannelInvite> {
-        let channel = repository::get_channel(topic_id)
-            .await?
-            .ok_or_else(|| GrimoireError::ProcessingFailed {
+        let channel = repository::get_channel(topic_id).await?.ok_or_else(|| {
+            GrimoireError::ProcessingFailed {
                 message: format!("channel not found: {}", topic_id),
-            })?;
+            }
+        })?;
 
         Ok(ChannelInvite {
             topic_id: channel.topic_id,

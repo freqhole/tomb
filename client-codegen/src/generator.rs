@@ -156,6 +156,9 @@ fn schema_ref(rust_type: &str) -> String {
     if rust_type == "String" {
         return "null".to_string();
     }
+    if rust_type == "()" {
+        return "null".to_string();
+    }
 
     // handle primitives and json types
     match rust_type {

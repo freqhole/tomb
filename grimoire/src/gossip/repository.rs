@@ -8,8 +8,8 @@ use crate::gossip::models::*;
 pub async fn create_channel(channel: &GossipChannel) -> GrimoireResult<()> {
     let pool = connect().await?;
     sqlx::query(
-        "INSERT INTO gossip_channelz (topic_id, name, description, creator_node_id, created_at, settings)
-         VALUES (?, ?, ?, ?, ?, ?)",
+        "INSERT INTO gossip_channelz (topic_id, name, description, creator_node_id, created_at, settings, music_only)
+         VALUES (?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(&channel.topic_id)
     .bind(&channel.name)
@@ -17,6 +17,7 @@ pub async fn create_channel(channel: &GossipChannel) -> GrimoireResult<()> {
     .bind(&channel.creator_node_id)
     .bind(channel.created_at)
     .bind(&channel.settings)
+    .bind(channel.music_only)
     .execute(&pool)
     .await?;
     Ok(())
@@ -313,4 +314,49 @@ pub async fn update_knock_status(
     .execute(&pool)
     .await?;
     Ok(result.rows_affected() > 0)
+}
+
+// -- gossip profiles --
+
+/// upsert a gossip profile (insert or update display name + avatar)
+pub async fn upsert_profile(profile: &super::models::GossipProfile) -> GrimoireResult<()> {
+    let pool = connect().await?;
+    sqlx::query(
+        "INSERT INTO gossip_profilez (node_id, display_name, avatar_blob, updated_at)
+         VALUES (?, ?, ?, ?)
+         ON CONFLICT(node_id) DO UPDATE SET
+           display_name = excluded.display_name,
+           avatar_blob = excluded.avatar_blob,
+           updated_at = excluded.updated_at",
+    )
+    .bind(&profile.node_id)
+    .bind(&profile.display_name)
+    .bind(&profile.avatar_blob)
+    .bind(profile.updated_at)
+    .execute(&pool)
+    .await?;
+    Ok(())
+}
+
+/// get a gossip profile by node_id
+pub async fn get_profile(node_id: &str) -> GrimoireResult<Option<super::models::GossipProfile>> {
+    let pool = connect().await?;
+    let profile = sqlx::query_as::<_, super::models::GossipProfile>(
+        "SELECT * FROM gossip_profilez WHERE node_id = ?",
+    )
+    .bind(node_id)
+    .fetch_optional(&pool)
+    .await?;
+    Ok(profile)
+}
+
+/// get all known gossip profiles
+pub async fn get_all_profiles() -> GrimoireResult<Vec<super::models::GossipProfile>> {
+    let pool = connect().await?;
+    let profiles = sqlx::query_as::<_, super::models::GossipProfile>(
+        "SELECT * FROM gossip_profilez ORDER BY display_name",
+    )
+    .fetch_all(&pool)
+    .await?;
+    Ok(profiles)
 }

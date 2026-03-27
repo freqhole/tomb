@@ -112,6 +112,24 @@ pub const ROUTES: &[RouteInfo] = &[
         response_type: "Vec<GossipChannelMember>",
         auth: RouteAuth::Authenticated,
     },
+    RouteInfo {
+        name: "get_gossip_profile",
+        path: "/api/gossip/profile",
+        method: Method::POST,
+        domain: Domain::Gossip,
+        request_type: "EmptyRequest",
+        response_type: "GossipProfile",
+        auth: RouteAuth::Authenticated,
+    },
+    RouteInfo {
+        name: "update_gossip_profile",
+        path: "/api/gossip/profile/update",
+        method: Method::POST,
+        domain: Domain::Gossip,
+        request_type: "UpdateProfileRequest",
+        response_type: "GossipProfile",
+        auth: RouteAuth::Authenticated,
+    },
 ];
 
 /// request that only needs a topic_id
@@ -155,6 +173,13 @@ pub struct DeleteMessageRequest {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, zod_gen_derive::ZodSchema)]
 pub struct EmptyRequest {}
 
+/// request to update gossip profile
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, zod_gen_derive::ZodSchema)]
+pub struct UpdateProfileRequest {
+    pub display_name: String,
+    pub avatar_blob: Option<String>,
+}
+
 /// collect gossip route metadata
 pub fn routes() -> Vec<RouteInfo> {
     ROUTES.to_vec()
@@ -178,6 +203,8 @@ pub async fn dispatch(
         "/api/gossip/messages/react" => Some(react_message(caller, body.clone()).await),
         "/api/gossip/messages/delete" => Some(delete_message(caller, body.clone()).await),
         "/api/gossip/members/list" => Some(list_members(caller, body.clone()).await),
+        "/api/gossip/profile" => Some(get_profile(caller, body.clone()).await),
+        "/api/gossip/profile/update" => Some(update_profile(caller, body.clone()).await),
         _ => None,
     }
 }
@@ -201,6 +228,7 @@ pub async fn create_channel(caller: &Caller, body: JsonValue) -> GrimoireRespons
         creator_name,
         &req.name,
         req.description.as_deref(),
+        req.music_only.unwrap_or(true),
     )
     .await
     {
@@ -475,5 +503,42 @@ pub async fn list_members(_caller: &Caller, body: JsonValue) -> GrimoireResponse
             GrimoireResponse::success("members listed", serde_json::to_value(members).unwrap())
         }
         Err(e) => GrimoireResponse::failure("failed to list members", vec![ErrorDetail::from(e)]),
+    }
+}
+
+/// get the caller's gossip profile
+pub async fn get_profile(caller: &Caller, _body: JsonValue) -> GrimoireResponse<JsonValue> {
+    match repository::get_profile(&caller.user_id).await {
+        Ok(profile) => {
+            GrimoireResponse::success("profile retrieved", serde_json::to_value(profile).unwrap())
+        }
+        Err(e) => GrimoireResponse::failure("failed to get profile", vec![ErrorDetail::from(e)]),
+    }
+}
+
+/// update (or create) the caller's gossip profile
+pub async fn update_profile(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
+    let req: UpdateProfileRequest = match parse_body(body) {
+        Ok(r) => r,
+        Err(e) => return e,
+    };
+
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64;
+
+    let profile = GossipProfile {
+        node_id: caller.user_id.clone(),
+        display_name: req.display_name.clone(),
+        avatar_blob: req.avatar_blob.clone(),
+        updated_at: now,
+    };
+
+    match repository::upsert_profile(&profile).await {
+        Ok(()) => {
+            GrimoireResponse::success("profile updated", serde_json::to_value(profile).unwrap())
+        }
+        Err(e) => GrimoireResponse::failure("failed to update profile", vec![ErrorDetail::from(e)]),
     }
 }
