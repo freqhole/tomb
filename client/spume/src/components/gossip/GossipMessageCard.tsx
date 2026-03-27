@@ -1,9 +1,5 @@
 import { createSignal, For, Show } from "solid-js";
-import type {
-  GossipMessage,
-  GossipReaction,
-  MusicReference,
-} from "../../gossip/gossipTypes";
+import type { GossipMessage, GossipReaction, MusicReference } from "../../gossip/gossipTypes";
 import { formatRelativeTime, formatDateTime } from "../../utils/dateTime";
 import { MusicRefCard } from "./MusicRefCard";
 

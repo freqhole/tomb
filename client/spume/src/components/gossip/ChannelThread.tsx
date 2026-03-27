@@ -423,12 +423,16 @@ export function ChannelThread(props: ChannelThreadProps) {
                                     const r = readers();
                                     if (!r?.length) return "";
                                     const otherCount = props.otherMemberCount ?? 0;
-                                    if (otherCount > 0 && r.length >= otherCount) return "read by everyone";
+                                    if (otherCount > 0 && r.length >= otherCount)
+                                      return "read by everyone";
                                     const names = r.map((m) => m.display_name ?? "someone");
                                     return `read by ${names.join(", ")}`;
                                   };
                                   return (
-                                    <div class="flex items-center justify-end gap-1.5 px-3 -mt-0.5 mb-0.5" title={label()}>
+                                    <div
+                                      class="flex items-center justify-end gap-1.5 px-3 -mt-0.5 mb-0.5"
+                                      title={label()}
+                                    >
                                       <span class="text-[10px] text-[var(--color-text-tertiary)]/60">
                                         {label()}
                                       </span>
