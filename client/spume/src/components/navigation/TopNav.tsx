@@ -1,13 +1,5 @@
 import { NavigationMenu as KobalteNav } from "@kobalte/core/navigation-menu";
-import {
-  createResource,
-  createSignal,
-  For,
-  onCleanup,
-  onMount,
-  Show,
-  type JSX,
-} from "solid-js";
+import { createResource, createSignal, For, onCleanup, onMount, Show, type JSX } from "solid-js";
 import { Icon } from "../icons/registry";
 import { toast } from "../feedback/Toast";
 import { TopNavSearchContainer } from "../../utils/TopNavSearchContainer";
@@ -16,7 +8,7 @@ import { ViewSelector, type ViewOption } from "./ViewSelector";
 import { getPageInfo } from "../../app/services/pageInfo";
 import { Badge } from "../badges/Badge";
 import type { ImageMetadata } from "../../music/services/storage/types";
-import { routes } from "../../music/utils/routing";
+import { routes, matchRoute } from "../../music/utils/routing";
 import { canUploadMusic, canCreatePlaylist } from "../../music/data/permissions";
 import { formatRelativeTime } from "../../utils/dateTime";
 import { isCharnelMode } from "../../app/services/charnel";
@@ -250,6 +242,9 @@ export function TopNav(props: TopNavProps) {
   let tagCloseTimeout: ReturnType<typeof setTimeout> | undefined;
   let feedFilterCloseTimeout: ReturnType<typeof setTimeout> | undefined;
 
+  // hide view selector, search, and sort when on gossip route
+  const isGossipRoute = () => matchRoute(props.currentPath ?? "") === "gossip";
+
   // derived state from pageInfo store
   const info = () => getPageInfo();
   const isNonDefaultSort = () => {
@@ -420,6 +415,21 @@ export function TopNav(props: TopNavProps) {
                           </button>
                         </Show>
                       </div>
+
+                      {/* gossip channels link */}
+                      <button
+                        class="w-full flex items-center gap-2 px-3 py-2 mb-4 rounded transition-colors border-none bg-transparent cursor-pointer"
+                        classList={{
+                          "text-[var(--color-accent-500)] bg-[var(--color-accent-500)]/10":
+                            matchRoute(props.currentPath ?? "") === "gossip",
+                          "text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]":
+                            matchRoute(props.currentPath ?? "") !== "gossip",
+                        }}
+                        onClick={() => props.onNavigate?.(routes.gossip())}
+                      >
+                        <Icon name="chat" size={14} />
+                        <span class="text-sm">gossip channels</span>
+                      </button>
 
                       {/* source selector */}
                       <div class="mb-4">
@@ -685,8 +695,12 @@ export function TopNav(props: TopNavProps) {
             <KobalteNav.Viewport />
           </KobalteNav>
 
-          {/* view selector flyout - hidden when search is expanded on small screens */}
-          <Show when={props.viewOptions?.length && (!isSmall() || !searchExpanded())}>
+          {/* view selector flyout - hidden when search is expanded on small screens, hidden on gossip */}
+          <Show
+            when={
+              !isGossipRoute() && props.viewOptions?.length && (!isSmall() || !searchExpanded())
+            }
+          >
             <div class="order-1">
               <ViewSelector
                 views={props.viewOptions!}
@@ -697,26 +711,32 @@ export function TopNav(props: TopNavProps) {
             </div>
           </Show>
 
-          {/* search - last item on right, grows to fill remaining space */}
-          <div class="flex-1 order-last">
-            <Show
-              when={props.searchComponent !== undefined}
-              fallback={
-                <TopNavSearchContainer
-                  placeholder={props.searchPlaceholder}
-                  onNavigate={props.onNavigate}
-                  currentPath={props.currentPath}
-                  onExpandedChange={setSearchExpanded}
-                  navHovered={navHovered()}
-                />
-              }
-            >
-              {props.searchComponent}
-            </Show>
-          </div>
+          {/* search - last item on right, grows to fill remaining space (hidden on gossip) */}
+          <Show when={!isGossipRoute()}>
+            <div class="flex-1 order-last">
+              <Show
+                when={props.searchComponent !== undefined}
+                fallback={
+                  <TopNavSearchContainer
+                    placeholder={props.searchPlaceholder}
+                    onNavigate={props.onNavigate}
+                    currentPath={props.currentPath}
+                    onExpandedChange={setSearchExpanded}
+                    navHovered={navHovered()}
+                  />
+                }
+              >
+                {props.searchComponent}
+              </Show>
+            </div>
+          </Show>
 
-          {/* sort controls - when view has sorting, hidden when search expanded on small */}
-          <Show when={info().sortFields?.length && (!isSmall() || !searchExpanded())}>
+          {/* sort controls - when view has sorting, hidden when search expanded on small, hidden on gossip */}
+          <Show
+            when={
+              !isGossipRoute() && info().sortFields?.length && (!isSmall() || !searchExpanded())
+            }
+          >
             <div
               class="relative flex-shrink-0 order-2"
               onMouseEnter={() => {

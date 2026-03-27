@@ -26,12 +26,11 @@ pub async fn create_channel(channel: &GossipChannel) -> GrimoireResult<()> {
 /// get a channel by topic_id
 pub async fn get_channel(topic_id: &str) -> GrimoireResult<Option<GossipChannel>> {
     let pool = connect().await?;
-    let channel = sqlx::query_as::<_, GossipChannel>(
-        "SELECT * FROM gossip_channelz WHERE topic_id = ?",
-    )
-    .bind(topic_id)
-    .fetch_optional(&pool)
-    .await?;
+    let channel =
+        sqlx::query_as::<_, GossipChannel>("SELECT * FROM gossip_channelz WHERE topic_id = ?")
+            .bind(topic_id)
+            .fetch_optional(&pool)
+            .await?;
     Ok(channel)
 }
 
@@ -61,6 +60,17 @@ pub async fn update_last_message_at(topic_id: &str, timestamp: i64) -> GrimoireR
     let pool = connect().await?;
     sqlx::query("UPDATE gossip_channelz SET last_message_at = ? WHERE topic_id = ?")
         .bind(timestamp)
+        .bind(topic_id)
+        .execute(&pool)
+        .await?;
+    Ok(())
+}
+
+/// mark a channel as destroyed (tombstone — read-only for members)
+pub async fn mark_channel_destroyed(topic_id: &str, destroyed_at: i64) -> GrimoireResult<()> {
+    let pool = connect().await?;
+    sqlx::query("UPDATE gossip_channelz SET destroyed_at = ? WHERE topic_id = ?")
+        .bind(destroyed_at)
         .bind(topic_id)
         .execute(&pool)
         .await?;
@@ -114,11 +124,10 @@ pub async fn remove_member(topic_id: &str, node_id: &str) -> GrimoireResult<()> 
 /// check if a message already exists (deduplication)
 pub async fn message_exists(message_id: &str) -> GrimoireResult<bool> {
     let pool = connect().await?;
-    let row: (i64,) =
-        sqlx::query_as("SELECT COUNT(*) FROM gossip_messagez WHERE message_id = ?")
-            .bind(message_id)
-            .fetch_one(&pool)
-            .await?;
+    let row: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM gossip_messagez WHERE message_id = ?")
+        .bind(message_id)
+        .fetch_one(&pool)
+        .await?;
     Ok(row.0 > 0)
 }
 
@@ -178,10 +187,7 @@ pub async fn get_messages(
 }
 
 /// soft-delete a message (set deleted_at)
-pub async fn soft_delete_message(
-    message_id: &str,
-    sender_node_id: &str,
-) -> GrimoireResult<bool> {
+pub async fn soft_delete_message(message_id: &str, sender_node_id: &str) -> GrimoireResult<bool> {
     let pool = connect().await?;
     let result = sqlx::query(
         "UPDATE gossip_messagez SET deleted_at = unixepoch()
@@ -197,12 +203,10 @@ pub async fn soft_delete_message(
 /// mark a message as deleted (from MessageDeleted gossip event)
 pub async fn mark_message_deleted(message_id: &str) -> GrimoireResult<()> {
     let pool = connect().await?;
-    sqlx::query(
-        "UPDATE gossip_messagez SET deleted_at = unixepoch() WHERE message_id = ?",
-    )
-    .bind(message_id)
-    .execute(&pool)
-    .await?;
+    sqlx::query("UPDATE gossip_messagez SET deleted_at = unixepoch() WHERE message_id = ?")
+        .bind(message_id)
+        .execute(&pool)
+        .await?;
     Ok(())
 }
 
@@ -238,7 +242,11 @@ pub async fn get_reactions_for_messages(
     }
 
     let pool = connect().await?;
-    let placeholders = message_ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+    let placeholders = message_ids
+        .iter()
+        .map(|_| "?")
+        .collect::<Vec<_>>()
+        .join(",");
     let query = format!(
         "SELECT * FROM gossip_reactionz WHERE topic_id = ? AND target_message_id IN ({}) ORDER BY timestamp",
         placeholders

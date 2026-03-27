@@ -224,7 +224,8 @@ pub mod type_registry {
         GossipReaction, JoinChannelRequest, MessagesResponse,
     };
     use crate::gossip::protocol::{
-        AlbumReference, ArtistReference, GenreReference, GossipEnvelope, GossipMessageType,
+        AlbumReference, ArtistReference, ChannelDestroyedPayload, ChannelMetaPayload,
+        GenreReference, GossipEnvelope, GossipMessageType, MemberPayload, MessageDeletedPayload,
         MusicReference, MusicSharePayload, PlaylistReference, ProfileUpdatePayload,
         ReactionPayload, SongReference,
     };
@@ -829,6 +830,18 @@ pub mod type_registry {
 
         gen.add_schema::<ProfileUpdatePayload>("ProfileUpdatePayload");
         registered.insert("ProfileUpdatePayload".to_string());
+
+        gen.add_schema::<ChannelDestroyedPayload>("ChannelDestroyedPayload");
+        registered.insert("ChannelDestroyedPayload".to_string());
+
+        gen.add_schema::<ChannelMetaPayload>("ChannelMetaPayload");
+        registered.insert("ChannelMetaPayload".to_string());
+
+        gen.add_schema::<MemberPayload>("MemberPayload");
+        registered.insert("MemberPayload".to_string());
+
+        gen.add_schema::<MessageDeletedPayload>("MessageDeletedPayload");
+        registered.insert("MessageDeletedPayload".to_string());
 
         gen.add_schema::<GossipProfile>("GossipProfile");
         registered.insert("GossipProfile".to_string());

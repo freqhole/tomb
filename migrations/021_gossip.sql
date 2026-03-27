@@ -9,7 +9,8 @@ CREATE TABLE gossip_channelz (
     music_only INTEGER NOT NULL DEFAULT 1, -- 1 = music shares only, 0 = text + music
     created_at INTEGER NOT NULL DEFAULT (unixepoch()),
     settings TEXT,                       -- JSON: future settings
-    last_message_at INTEGER
+    last_message_at INTEGER,
+    destroyed_at INTEGER                 -- set when creator broadcasts ChannelDestroyed (tombstone)
 );
 
 -- channel membership

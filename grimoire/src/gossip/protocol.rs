@@ -23,6 +23,7 @@ pub struct GossipEnvelope {
 #[serde(rename_all = "snake_case")]
 pub enum GossipMessageType {
     ChannelMeta,
+    ChannelDestroyed,
     MusicShare,
     Reaction,
     ReactionRemoved,
@@ -38,6 +39,7 @@ impl std::fmt::Display for GossipMessageType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::ChannelMeta => write!(f, "channel_meta"),
+            Self::ChannelDestroyed => write!(f, "channel_destroyed"),
             Self::MusicShare => write!(f, "music_share"),
             Self::Reaction => write!(f, "reaction"),
             Self::ReactionRemoved => write!(f, "reaction_removed"),
@@ -56,6 +58,7 @@ impl std::str::FromStr for GossipMessageType {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "channel_meta" => Ok(Self::ChannelMeta),
+            "channel_destroyed" => Ok(Self::ChannelDestroyed),
             "music_share" => Ok(Self::MusicShare),
             "reaction" => Ok(Self::Reaction),
             "reaction_removed" => Ok(Self::ReactionRemoved),
@@ -169,6 +172,8 @@ pub struct MessageDeletedPayload {
 pub struct ChannelMetaPayload {
     pub name: String,
     pub description: Option<String>,
+    pub music_only: Option<bool>,
+    pub creator_node_id: Option<String>,
 }
 
 /// member added/removed notification
@@ -176,6 +181,7 @@ pub struct ChannelMetaPayload {
 pub struct MemberPayload {
     pub node_id: String,
     pub display_name: Option<String>,
+    pub role: Option<String>,
 }
 
 /// profile update broadcast (display name and/or avatar changed)
@@ -184,4 +190,11 @@ pub struct ProfileUpdatePayload {
     pub display_name: String,
     /// base64-encoded small WebP avatar (~5-10KB)
     pub avatar_blob: Option<String>,
+}
+
+/// channel destroyed by creator (tombstone — channel becomes read-only for members)
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct ChannelDestroyedPayload {
+    /// reason for closing, shown in the tombstone message
+    pub reason: Option<String>,
 }

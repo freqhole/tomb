@@ -67,6 +67,9 @@ export const routes = {
   settingsStorage: () => "/settings/storage",
   remotes: () => buildRoute("/remotes"),
   favorites: () => buildRoute("/favorites"),
+
+  // gossip (top-level, not context-aware)
+  gossip: () => "/gossip",
 };
 
 /**
@@ -93,7 +96,7 @@ export function getDefaultRoute(remoteId?: string): string {
 }
 
 /** parameterless view route keys */
-const VIEW_KEYS = ["feed", "songs", "albums", "artists", "playlists", "genres", "favorites", "search", "remotes", "settings"] as const;
+const VIEW_KEYS = ["feed", "songs", "albums", "artists", "playlists", "genres", "favorites", "search", "remotes", "settings", "gossip"] as const;
 
 export type RouteKey = (typeof VIEW_KEYS)[number];
 
@@ -106,8 +109,9 @@ export type RouteKey = (typeof VIEW_KEYS)[number];
 export function matchRoute(path: string): RouteKey | null {
   const pathname = path.split("?")[0].replace(/\/+$/, "");
   
-  // check settings first (top-level route)
+  // check top-level routes first
   if (pathname.startsWith("/settings")) return "settings";
+  if (pathname.startsWith("/gossip")) return "gossip";
   
   // check each view key - exact match or detail view (starts with route + /)
   for (const key of VIEW_KEYS) {

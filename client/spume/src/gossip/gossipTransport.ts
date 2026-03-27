@@ -35,13 +35,13 @@ const topicStatuses = new Map<string, TopicStatus>();
 
 // callbacks for status changes — store registers these
 let onStatusChange: (() => void) | null = null;
-let onNeighborChange: ((nodeId: string, isUp: boolean) => void) | null = null;
+let onNeighborChange: ((topicId: string, nodeId: string, isUp: boolean) => void) | null = null;
 
 export function setOnStatusChange(cb: () => void): void {
   onStatusChange = cb;
 }
 
-export function setOnNeighborChange(cb: (nodeId: string, isUp: boolean) => void): void {
+export function setOnNeighborChange(cb: (topicId: string, nodeId: string, isUp: boolean) => void): void {
   onNeighborChange = cb;
 }
 
@@ -161,6 +161,7 @@ export async function subscribeTopic(
 
 /**
  * broadcast a GossipEnvelope to all peers in a topic.
+ * validates the envelope against the Zod schema before sending.
  */
 export async function broadcast(
   topicId: string,
@@ -172,10 +173,17 @@ export async function broadcast(
     return;
   }
 
-  const json = JSON.stringify(envelope);
+  // validate outgoing envelope at the boundary
+  const result = schema.GossipEnvelopeSchema.safeParse(envelope);
+  if (!result.success) {
+    warn(TAG, `refusing to broadcast invalid envelope`, result.error.issues);
+    return;
+  }
+
+  const json = JSON.stringify(result.data);
   const bytes = new TextEncoder().encode(json);
   await sender.broadcast(bytes);
-  debug(TAG, `broadcast ${envelope.msg_type} to ${topicId.slice(0, 16)}... (${bytes.length} bytes)`);
+  debug(TAG, `broadcast ${result.data.msg_type} to ${topicId.slice(0, 16)}... (${bytes.length} bytes)`);
 }
 
 /**
@@ -267,13 +275,13 @@ function startRecvLoop(topicId: string, receiver: GossipReceiverLike): void {
         if (event.type === "neighbor_up") {
           debug(TAG, `topic ${topicId.slice(0, 16)}... peer connected: ${event.node_id?.slice(0, 16)}...`);
           updateTopicPeerCount(topicId, +1);
-          if (event.node_id) onNeighborChange?.(event.node_id, true);
+          if (event.node_id) onNeighborChange?.(topicId, event.node_id, true);
           continue;
         }
         if (event.type === "neighbor_down") {
           debug(TAG, `topic ${topicId.slice(0, 16)}... peer disconnected: ${event.node_id?.slice(0, 16)}...`);
           updateTopicPeerCount(topicId, -1);
-          if (event.node_id) onNeighborChange?.(event.node_id, false);
+          if (event.node_id) onNeighborChange?.(topicId, event.node_id, false);
           continue;
         }
         if (event.type === "lagged") {

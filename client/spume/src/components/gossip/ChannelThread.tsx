@@ -11,21 +11,14 @@ import {
 import { createStore, reconcile } from "solid-js/store";
 import { createVirtualizer } from "@tanstack/solid-virtual";
 import type { VirtualItem } from "@tanstack/virtual-core";
-import type {
-  GossipChannel,
-  GossipChannelMember,
-  GossipMessage,
-  MusicReference,
-} from "../../gossip/gossipTypes";
+import type { GossipChannel, GossipMessage, MusicReference } from "../../gossip/gossipTypes";
 import { GossipMessageCard } from "./GossipMessageCard";
-import { Badge } from "../badges/Badge";
 import { LoadingMoreIndicator } from "../feedback/LoadingMoreIndicator";
 import { MessageReactionOverlay, createMessageReaction } from "./MessageReactionOverlay";
 
 export interface ChannelThreadProps {
   channel: GossipChannel;
   messages: GossipMessage[];
-  members?: GossipChannelMember[];
   currentNodeId: string;
   onReact?: (messageId: string, emoji: string) => void;
   onOpenReactionPicker?: (messageId: string) => void;
@@ -40,13 +33,6 @@ export interface ChannelThreadProps {
   resolveAvatar?: (name: string | null) => string | null;
   savedScrollTop?: number;
   onScrollChange?: (scrollTop: number) => void;
-  onBack?: () => void;
-  onLeaveChannel?: () => void;
-  onDestroyChannel?: () => void;
-  onCopyInvite?: () => void;
-  /** label to show on the invite button (e.g. "copied!" feedback) */
-  copyInviteLabel?: string;
-  onAddMember?: () => void;
   /** set of friend node_ids for friend status checks */
   friendNodeIds?: Set<string>;
   /** set of pending friend request node_ids */
@@ -95,11 +81,11 @@ export function ChannelThread(props: ChannelThreadProps) {
   let loadMoreCooldown = false;
   (virtualizer as any).resizeItem = function (index: number, size: number) {
     measureCount++;
-    if (measureCount <= 20 || measureCount % 50 === 0) {
-      console.log(
-        `[virt] resizeItem #${measureCount} idx=${index} size=${size} total=${virtualizer.getTotalSize()}`
-      );
-    }
+    // if (measureCount <= 20 || measureCount % 50 === 0) {
+    //   console.log(
+    //     `[virt] resizeItem #${measureCount} idx=${index} size=${size} total=${virtualizer.getTotalSize()}`
+    //   );
+    // }
     const result = origResizeItem.call(this, index, size);
     if (settling) {
       scrollToTarget();
@@ -189,11 +175,11 @@ export function ChannelThread(props: ChannelThreadProps) {
     settleTimer = setTimeout(() => {
       settling = false;
       loadMoreCooldown = false;
-      console.log(`[scroll] settle complete`, {
-        scrollTop: scrollRef?.scrollTop,
-        scrollH: scrollRef?.scrollHeight,
-        totalSize: virtualizer.getTotalSize(),
-      });
+      // console.log(`[scroll] settle complete`, {
+      //   scrollTop: scrollRef?.scrollTop,
+      //   scrollH: scrollRef?.scrollHeight,
+      //   totalSize: virtualizer.getTotalSize(),
+      // });
     }, 300);
   }
 
@@ -202,10 +188,10 @@ export function ChannelThread(props: ChannelThreadProps) {
     settling = true;
     loadMoreCooldown = true;
     measureCount = 0;
-    console.log(`[scroll] beginSettle`, {
-      msgs: props.messages.length,
-      totalSize: virtualizer.getTotalSize(),
-    });
+    // console.log(`[scroll] beginSettle`, {
+    //   msgs: props.messages.length,
+    //   totalSize: virtualizer.getTotalSize(),
+    // });
     requestAnimationFrame(() => {
       scrollToTarget();
       resetSettleTimer();
@@ -216,7 +202,6 @@ export function ChannelThread(props: ChannelThreadProps) {
     on(topicId, (id) => {
       console.log(`[channel] switch to ${id?.slice(0, 8)}, msgs=${props.messages.length}`);
       prevCount = props.messages.length;
-      setShowMembersFlyout(false);
       origMeasure();
       beginSettle();
     })
@@ -246,12 +231,12 @@ export function ChannelThread(props: ChannelThreadProps) {
       !loadMoreCooldown &&
       scrollRef.scrollTop < 100
     ) {
-      console.log(`[scroll] loadMore triggered`, {
-        scrollTop: scrollRef.scrollTop,
-        scrollH: scrollRef.scrollHeight,
-        clientH: scrollRef.clientHeight,
-        totalSize: virtualizer.getTotalSize(),
-      });
+      // console.log(`[scroll] loadMore triggered`, {
+      //   scrollTop: scrollRef.scrollTop,
+      //   scrollH: scrollRef.scrollHeight,
+      //   clientH: scrollRef.clientHeight,
+      //   totalSize: virtualizer.getTotalSize(),
+      // });
       loadMorePending = true;
       // snapshot scroll position relative to content before load
       const prevScrollHeight = scrollRef.scrollHeight;
@@ -291,228 +276,11 @@ export function ChannelThread(props: ChannelThreadProps) {
     }
   };
 
-  const allowText = () => props.channel.allow_text !== false;
-  const [showMembersFlyout, setShowMembersFlyout] = createSignal(false);
-
   // reaction overlay — single instance shared across all messages
   const reactions = createMessageReaction();
-  const isCreator = () => props.channel.creator_node_id === props.currentNodeId;
-
-  // sorted members: creator first, then alphabetical
-  const sortedMembers = () => {
-    const m = props.members ?? [];
-    return [...m].sort((a, b) => {
-      if (a.role === "creator") return -1;
-      if (b.role === "creator") return 1;
-      return (a.display_name ?? "").localeCompare(b.display_name ?? "");
-    });
-  };
-
-  // short list: up to 3 recent members (for inline display where there's room)
-  const shortMembers = () => sortedMembers().slice(0, 3);
 
   return (
     <div class="flex flex-col flex-1 min-h-0 bg-[var(--color-bg-primary)]">
-      {/* channel header */}
-      <div class="flex items-center gap-3 px-4 py-3 flex-shrink-0">
-        <Show when={props.onBack}>
-          <button
-            class="wide:hidden flex-shrink-0 text-sm text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] transition-colors -ml-1 mr--1 cursor-pointer min-w-[44px] min-h-[44px] flex items-center justify-center"
-            onClick={() => props.onBack?.()}
-            title="back to channels"
-          >
-            &larr;
-          </button>
-        </Show>
-        <div class="flex-1 min-w-0">
-          <h2 class="text-sm font-semibold text-[var(--color-text-primary)] truncate">
-            #{props.channel.name}
-          </h2>
-          <Show when={props.channel.description}>
-            <p class="text-xs text-[var(--color-text-tertiary)] truncate">
-              {props.channel.description}
-            </p>
-          </Show>
-        </div>
-        <div class="flex items-center gap-2 flex-shrink-0">
-          {/* inline member avatars (wide only) */}
-          <Show when={props.members && props.members.length > 0}>
-            <button
-              class="hidden wide:flex items-center -space-x-1.5 min-h-[44px]"
-              onClick={() => setShowMembersFlyout((v) => !v)}
-              title="show members"
-            >
-              <For each={shortMembers()}>
-                {(member) => (
-                  <div
-                    class="w-5 h-5 rounded-full overflow-hidden ring-2 ring-[var(--color-bg-primary)] bg-[var(--color-bg-tertiary)]"
-                    title={member.display_name ?? undefined}
-                  >
-                    <Show
-                      when={props.resolveAvatar?.(member.display_name)}
-                      fallback={
-                        <div class="w-full h-full flex items-center justify-center text-[8px] font-semibold text-[var(--color-text-tertiary)]">
-                          {(member.display_name ?? "?")[0].toUpperCase()}
-                        </div>
-                      }
-                    >
-                      <img
-                        src={props.resolveAvatar!(member.display_name)!}
-                        alt={member.display_name ?? undefined}
-                        class="w-full h-full object-cover"
-                        loading="lazy"
-                      />
-                    </Show>
-                  </div>
-                )}
-              </For>
-              <Show when={props.members!.length > 3}>
-                <div class="w-5 h-5 rounded-full ring-2 ring-[var(--color-bg-primary)] bg-[var(--color-bg-tertiary)] flex items-center justify-center">
-                  <span class="text-[8px] text-[var(--color-text-tertiary)]">
-                    +{props.members!.length - 3}
-                  </span>
-                </div>
-              </Show>
-            </button>
-          </Show>
-
-          {/* members count button — opens flyout */}
-          <div class="relative">
-            <button
-              class="text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)] transition-colors cursor-pointer min-h-[44px] flex items-center"
-              onClick={() => setShowMembersFlyout((v) => !v)}
-              title="show members"
-            >
-              {props.members?.length ?? 0}{" "}
-              {(props.members?.length ?? 0) === 1 ? "member" : "members"}
-            </button>
-
-            {/* members flyout */}
-            <Show when={showMembersFlyout()}>
-              <div class="absolute right-0 top-full mt-1 w-64 bg-[var(--color-bg-elevated)] rounded-lg shadow-xl z-50 overflow-hidden">
-                {/* flyout header */}
-                <div class="px-3 py-2">
-                  <span class="text-xs font-medium text-[var(--color-text-secondary)]">
-                    members ({props.members?.length ?? 0})
-                  </span>
-                </div>
-
-                {/* member list */}
-                <div class="max-h-72 overflow-y-auto py-1">
-                  <For each={sortedMembers()}>
-                    {(member) => (
-                      <div class="flex items-center gap-2 px-3 py-1.5 min-h-[44px]">
-                        <div class="w-6 h-6 rounded-full overflow-hidden flex-shrink-0 bg-[var(--color-bg-tertiary)]">
-                          <Show
-                            when={props.resolveAvatar?.(member.display_name)}
-                            fallback={
-                              <div class="w-full h-full flex items-center justify-center text-[10px] font-semibold text-[var(--color-text-tertiary)]">
-                                {(member.display_name ?? "?")[0].toUpperCase()}
-                              </div>
-                            }
-                          >
-                            <img
-                              src={props.resolveAvatar!(member.display_name)!}
-                              alt={member.display_name ?? undefined}
-                              class="w-full h-full object-cover"
-                              loading="lazy"
-                            />
-                          </Show>
-                        </div>
-                        <span class="text-sm text-[var(--color-text-primary)] truncate flex-1">
-                          {member.display_name}
-                        </span>
-                        <Show when={member.role === "creator"}>
-                          <span class="text-[10px] text-[var(--color-accent-500)] flex-shrink-0">
-                            creator
-                          </span>
-                        </Show>
-                        <Show
-                          when={member.node_id === props.currentNodeId && member.role !== "creator"}
-                        >
-                          <span class="text-[10px] text-[var(--color-text-tertiary)] flex-shrink-0">
-                            you
-                          </span>
-                        </Show>
-                        <Show when={member.node_id !== props.currentNodeId && props.friendNodeIds}>
-                          <Show
-                            when={props.friendNodeIds!.has(member.node_id)}
-                            fallback={
-                              <button
-                                class="text-[10px] text-[var(--color-text-tertiary)] hover:text-[var(--color-accent-500)] transition-colors flex-shrink-0 cursor-pointer"
-                                onClick={() => props.onAddFriend?.(member.node_id)}
-                              >
-                                + add
-                              </button>
-                            }
-                          >
-                            <span class="text-[10px] text-[var(--color-text-tertiary)]/60 flex-shrink-0">
-                              friend
-                            </span>
-                          </Show>
-                        </Show>
-                      </div>
-                    )}
-                  </For>
-                </div>
-
-                {/* flyout actions */}
-                <div class="px-3 py-2 flex flex-col gap-1">
-                  <Show when={props.onCopyInvite}>
-                    <button
-                      class="w-full text-left text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-accent-500)] transition-colors py-0.5 cursor-pointer min-h-[44px] flex items-center"
-                      onClick={() => props.onCopyInvite?.()}
-                    >
-                      {props.copyInviteLabel ?? "copy invite"}
-                    </button>
-                  </Show>
-                  <Show when={props.onAddMember}>
-                    <button
-                      class="w-full text-left text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-accent-500)] transition-colors py-0.5 cursor-pointer min-h-[44px] flex items-center"
-                      onClick={() => {
-                        setShowMembersFlyout(false);
-                        props.onAddMember?.();
-                      }}
-                    >
-                      + add member
-                    </button>
-                  </Show>
-                  <Show when={isCreator() && props.onDestroyChannel}>
-                    <button
-                      class="w-full text-left text-xs text-red-400 hover:text-red-300 transition-colors py-0.5 cursor-pointer min-h-[44px] flex items-center"
-                      onClick={() => {
-                        setShowMembersFlyout(false);
-                        props.onDestroyChannel?.();
-                      }}
-                    >
-                      destroy channel
-                    </button>
-                  </Show>
-                  <Show when={!isCreator() && props.onLeaveChannel}>
-                    <button
-                      class="w-full text-left text-xs text-red-400 hover:text-red-300 transition-colors py-0.5 cursor-pointer min-h-[44px] flex items-center"
-                      onClick={() => {
-                        setShowMembersFlyout(false);
-                        props.onLeaveChannel?.();
-                      }}
-                    >
-                      leave channel
-                    </button>
-                  </Show>
-                </div>
-              </div>
-
-              {/* click-away backdrop */}
-              <div class="fixed inset-0 z-40" onClick={() => setShowMembersFlyout(false)} />
-            </Show>
-          </div>
-
-          <Badge variant="default" size="sm">
-            {allowText() ? "text" : "music only"}
-          </Badge>
-        </div>
-      </div>
-
       {/* virtualized message list — virtualizer always mounted, skeleton overlays on top */}
       <div class="flex-1 relative overflow-hidden">
         {/* loading skeleton overlay */}

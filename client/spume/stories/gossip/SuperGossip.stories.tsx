@@ -1,6 +1,7 @@
 import { createSignal, Show } from "solid-js";
 import type { Meta, StoryObj } from "storybook-solidjs-vite";
 import { ChannelSidebar } from "../../src/components/gossip/ChannelSidebar";
+import { ChannelHeader } from "../../src/components/gossip/ChannelHeader";
 import { ChannelThread } from "../../src/components/gossip/ChannelThread";
 import { ComposeBar } from "../../src/components/gossip/ComposeBar";
 import { FriendsList } from "../../src/components/gossip/FriendsList";
@@ -25,8 +26,8 @@ import {
   type GossipMessage,
   type GossipFriend,
   type FriendRequest,
-  type MusicReference,
 } from "./mockGossipData";
+import type { MusicReference } from "../../src/gossip/gossipTypes";
 
 const allSearchResults = [mockSongRef, mockAlbumRef, mockArtistRef, mockPlaylistRef, mockGenreRef];
 
@@ -104,6 +105,12 @@ function SuperGossipDemo() {
   // friend node id sets for quick lookup
   const friendNodeIds = () => new Set(friends().map((f) => f.node_id));
   const pendingFriendNodeIds = () => new Set(friendRequests().map((r) => r.node_id));
+  const onlineFriendNodeIds = () =>
+    new Set(
+      friends()
+        .filter((f) => f.online)
+        .map((f) => f.node_id)
+    );
 
   // all messages from a specific friend across all channels
   const friendMessages = () => {
@@ -253,6 +260,8 @@ function SuperGossipDemo() {
       allow_text: !musicOnly,
       created_at: now(),
       last_message_at: null,
+      music_only: musicOnly,
+      destroyed_at: null,
     };
     setChannels((prev) => [ch, ...prev]);
     setMessagesByTopic((prev) => ({ ...prev, [topicId]: [] }));
@@ -466,10 +475,28 @@ function SuperGossipDemo() {
               }
             >
               <>
+                <ChannelHeader
+                  channel={activeChannel()}
+                  members={activeMembers()}
+                  currentNodeId={currentNodeId}
+                  resolveAvatar={avatarForName}
+                  onBack={() => setShowSidebar(true)}
+                  onLeaveChannel={handleLeaveChannel}
+                  onDestroyChannel={handleDestroyChannel}
+                  onAddMember={() =>
+                    console.log("[story] >>> ADD MEMBER to", activeTopicId().slice(0, 8))
+                  }
+                  friendNodeIds={friendNodeIds()}
+                  pendingFriendNodeIds={pendingFriendNodeIds()}
+                  onlineFriendNodeIds={onlineFriendNodeIds()}
+                  onAddFriend={handleAddFriend}
+                  onUpdateDescription={(desc) =>
+                    console.log("[story] >>> UPDATE DESCRIPTION:", desc)
+                  }
+                />
                 <ChannelThread
                   channel={activeChannel()}
                   messages={activeMessages()}
-                  members={activeMembers()}
                   currentNodeId={currentNodeId}
                   loading={loadingChannel()}
                   loadingMore={loadingMore()}
@@ -488,12 +515,6 @@ function SuperGossipDemo() {
                   resolveAvatar={avatarForName}
                   savedScrollTop={scrollPositions()[activeTopicId()]}
                   onScrollChange={(pos) => handleScrollSave(activeTopicId(), pos)}
-                  onBack={() => setShowSidebar(true)}
-                  onLeaveChannel={handleLeaveChannel}
-                  onDestroyChannel={handleDestroyChannel}
-                  onAddMember={() =>
-                    console.log("[story] >>> ADD MEMBER to", activeTopicId().slice(0, 8))
-                  }
                   friendNodeIds={friendNodeIds()}
                   pendingFriendNodeIds={pendingFriendNodeIds()}
                   onAddFriend={handleAddFriend}

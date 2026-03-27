@@ -10,27 +10,27 @@ export interface MusicReference {
     ref_type: "Song" | "Album" | "Artist" | "Playlist" | "Genre";
     remote_id: string;
     source_node_id: string;
-    /** display name of the remote this music comes from */
-    source_name?: string;
+    source_name?: string | null;
     // song fields
     title?: string;
-    track_artist?: string;
-    album_title?: string;
-    duration?: number;
+    track_artist?: string | null;
+    album_title?: string | null;
+    duration?: number | null;
     track_number?: number;
     disc_number?: number;
+    bpm?: number | null;
     // album fields
-    artist_name?: string;
+    artist_name?: string | null;
     album_type?: string;
-    release_date?: string;
+    release_date?: string | null;
     song_count?: number;
     total_duration?: number;
     genres?: string[];
     // artist fields
     name?: string;
-    bio?: string;
+    bio?: string | null;
     // playlist fields
-    description?: string;
+    description?: string | null;
     // shared
     thumbnails: string[];
     thumbnail_url?: string;
@@ -71,6 +71,8 @@ export interface GossipChannel {
     allow_text?: boolean;
     created_at: number;
     last_message_at: number | null;
+    music_only: boolean;
+    destroyed_at: number | null;
 }
 
 export interface GossipChannelMember {
@@ -95,7 +97,7 @@ export interface GossipFriend {
 export interface FriendRequest {
     node_id: string;
     display_name: string;
-    avatar_url?: string | null;
+    avatar_url: string | null;
     message?: string;
     requested_at: number;
 }
@@ -156,6 +158,8 @@ export const mockChannels: GossipChannel[] = [
         allow_text: false,
         created_at: now - 86400 * 7,
         last_message_at: now - 120,
+        music_only: true,
+        destroyed_at: null,
     },
     {
         topic_id: "1122334455667788990011223344556677889900112233445566778899001122",
@@ -165,6 +169,8 @@ export const mockChannels: GossipChannel[] = [
         settings: null,
         created_at: now - 86400 * 30,
         last_message_at: now - 3600,
+        music_only: false,
+        destroyed_at: null,
     },
     {
         topic_id: "ffeeddccbbaa99887766554433221100ffeeddccbbaa99887766554433221100",
@@ -174,6 +180,8 @@ export const mockChannels: GossipChannel[] = [
         settings: null,
         created_at: now - 86400 * 3,
         last_message_at: now - 7200,
+        music_only: false,
+        destroyed_at: null,
     },
     {
         topic_id: "0000111122223333444455556666777788889999aaaabbbbccccddddeeeeffff",
@@ -183,6 +191,8 @@ export const mockChannels: GossipChannel[] = [
         settings: null,
         created_at: now - 86400 * 60,
         last_message_at: now - 10,
+        music_only: false,
+        destroyed_at: null,
     },
 ];
 

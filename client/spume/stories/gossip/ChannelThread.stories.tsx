@@ -1,12 +1,6 @@
 import type { Meta, StoryObj } from "storybook-solidjs-vite";
 import { ChannelThread } from "../../src/components/gossip/ChannelThread";
-import {
-  mockChannels,
-  mockMessages,
-  mockDeletedMessage,
-  mockMembers,
-  mockNodeIds,
-} from "./mockGossipData";
+import { mockChannels, mockMessages, mockDeletedMessage, mockNodeIds } from "./mockGossipData";
 
 const meta = {
   title: "Gossip/ChannelThread",
@@ -34,7 +28,6 @@ export const Default: Story = {
   args: {
     channel: mockChannels[0],
     messages: mockMessages,
-    members: mockMembers[mockChannels[0].topic_id],
     currentNodeId: mockNodeIds.nancy,
   },
 };
@@ -44,7 +37,6 @@ export const WithDeletedMessage: Story = {
   args: {
     channel: mockChannels[0],
     messages: [...mockMessages.slice(0, 2), mockDeletedMessage, ...mockMessages.slice(2)],
-    members: mockMembers[mockChannels[0].topic_id],
     currentNodeId: mockNodeIds.nancy,
   },
 };
@@ -54,7 +46,6 @@ export const EmptyChannel: Story = {
   args: {
     channel: mockChannels[3],
     messages: [],
-    members: [],
     currentNodeId: mockNodeIds.nancy,
   },
 };
@@ -64,7 +55,6 @@ export const AsNonCreator: Story = {
   args: {
     channel: mockChannels[0],
     messages: mockMessages,
-    members: mockMembers[mockChannels[0].topic_id],
     currentNodeId: mockNodeIds.sluggo,
   },
 };

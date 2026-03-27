@@ -50,6 +50,7 @@ impl GossipService {
             settings: None,
             last_message_at: None,
             music_only,
+            destroyed_at: None,
         };
 
         repository::create_channel(&channel).await?;
@@ -91,6 +92,7 @@ impl GossipService {
             settings: None,
             last_message_at: None,
             music_only: true,
+            destroyed_at: None,
         };
 
         repository::create_channel(&channel).await?;
@@ -288,6 +290,29 @@ impl GossipService {
                     deleted_at: None,
                 };
                 repository::insert_message(&msg).await?;
+            }
+
+            GossipMessageType::ChannelDestroyed => {
+                // verify sender is the channel creator
+                if let Some(channel) = repository::get_channel(topic_id).await? {
+                    if channel.creator_node_id == envelope.sender_node_id {
+                        repository::mark_channel_destroyed(topic_id, envelope.timestamp).await?;
+
+                        // store as a message so it shows in history
+                        let msg = GossipMessage {
+                            message_id: envelope.message_id.clone(),
+                            topic_id: topic_id.to_string(),
+                            sender_node_id: envelope.sender_node_id.clone(),
+                            sender_name: Some(envelope.sender_name.clone()),
+                            msg_type: envelope.msg_type.to_string(),
+                            payload: envelope.payload.clone(),
+                            timestamp: envelope.timestamp,
+                            received_at: now,
+                            deleted_at: None,
+                        };
+                        repository::insert_message(&msg).await?;
+                    }
+                }
             }
 
             GossipMessageType::MemberAdded | GossipMessageType::MemberRemoved => {

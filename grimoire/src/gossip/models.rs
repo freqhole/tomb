@@ -16,6 +16,8 @@ pub struct GossipChannel {
     pub last_message_at: Option<i64>,
     /// if true, only music shares allowed (no text-only messages)
     pub music_only: bool,
+    /// set when the creator broadcasts ChannelDestroyed — channel becomes read-only
+    pub destroyed_at: Option<i64>,
 }
 
 /// a member of a gossip channel

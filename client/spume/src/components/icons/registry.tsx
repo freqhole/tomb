@@ -409,6 +409,19 @@ export const FreqholeIcon = (props: IconProps & { class?: string }) => (
   </svg>
 );
 
+export const ChatIcon = (props: IconProps) => (
+  <BaseIcon {...props} defaultSize={16} aria-label={props["aria-label"] ?? "Chat"}>
+    <path
+      d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="2"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    />
+  </BaseIcon>
+);
+
 // Icon registry for dynamic icon usage (organized by category)
 export const IconRegistry = {
   // Player controls
@@ -500,6 +513,9 @@ export const IconRegistry = {
 
   // Brand
   freqhole: FreqholeIcon,
+
+  // Communication
+  chat: ChatIcon,
 } as const;
 
 export type IconName = keyof typeof IconRegistry;
@@ -596,6 +612,7 @@ export const IconNames = {
 
   // Brand
   freqhole: "freqhole",
+  chat: "chat",
 } as const satisfies Record<IconName, IconName>;
 
 // Dynamic icon component

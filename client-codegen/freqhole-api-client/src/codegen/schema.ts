@@ -423,6 +423,11 @@ export const BulkDeleteSongsResponseSchema = z.object({
 });
 export type BulkDeleteSongsResponse = z.infer<typeof BulkDeleteSongsResponseSchema>;
 
+export const ChannelDestroyedPayloadSchema = z.object({
+  reason: z.string().nullable()
+});
+export type ChannelDestroyedPayload = z.infer<typeof ChannelDestroyedPayloadSchema>;
+
 export const ChannelDetailResponseSchema = z.object({
   channel: z.object({
   topic_id: z.string(),
@@ -432,7 +437,8 @@ export const ChannelDetailResponseSchema = z.object({
   created_at: z.number(),
   settings: z.string().nullable(),
   last_message_at: z.number().nullable(),
-  music_only: z.boolean()
+  music_only: z.boolean(),
+  destroyed_at: z.number().nullable()
 }),
   members: z.array(z.object({
   topic_id: z.string(),
@@ -450,6 +456,14 @@ export const ChannelInviteSchema = z.object({
   channel_name: z.string()
 });
 export type ChannelInvite = z.infer<typeof ChannelInviteSchema>;
+
+export const ChannelMetaPayloadSchema = z.object({
+  name: z.string(),
+  description: z.string().nullable(),
+  music_only: z.boolean().nullable(),
+  creator_node_id: z.string().nullable()
+});
+export type ChannelMetaPayload = z.infer<typeof ChannelMetaPayloadSchema>;
 
 export const CreateArtistRequestSchema = z.object({
   name: z.string(),
@@ -1202,7 +1216,8 @@ export const GossipChannelSchema = z.object({
   created_at: z.number(),
   settings: z.string().nullable(),
   last_message_at: z.number().nullable(),
-  music_only: z.boolean()
+  music_only: z.boolean(),
+  destroyed_at: z.number().nullable()
 });
 export type GossipChannel = z.infer<typeof GossipChannelSchema>;
 
@@ -1216,7 +1231,7 @@ export const GossipChannelMemberSchema = z.object({
 export type GossipChannelMember = z.infer<typeof GossipChannelMemberSchema>;
 
 export const GossipEnvelopeSchema = z.object({
-  msg_type: z.union([z.literal('ChannelMeta'), z.literal('MusicShare'), z.literal('Reaction'), z.literal('ReactionRemoved'), z.literal('MessageDeleted'), z.literal('MemberAdded'), z.literal('MemberRemoved'), z.literal('Knock'), z.literal('KnockResponse'), z.literal('ProfileUpdate')]),
+  msg_type: z.union([z.literal('ChannelMeta'), z.literal('ChannelDestroyed'), z.literal('MusicShare'), z.literal('Reaction'), z.literal('ReactionRemoved'), z.literal('MessageDeleted'), z.literal('MemberAdded'), z.literal('MemberRemoved'), z.literal('Knock'), z.literal('KnockResponse'), z.literal('ProfileUpdate')]),
   sender_node_id: z.string(),
   sender_name: z.string(),
   timestamp: z.number(),
@@ -1250,7 +1265,7 @@ export const GossipMessageSchema = z.object({
 });
 export type GossipMessage = z.infer<typeof GossipMessageSchema>;
 
-export const GossipMessageTypeSchema = z.union([z.literal('ChannelMeta'), z.literal('MusicShare'), z.literal('Reaction'), z.literal('ReactionRemoved'), z.literal('MessageDeleted'), z.literal('MemberAdded'), z.literal('MemberRemoved'), z.literal('Knock'), z.literal('KnockResponse'), z.literal('ProfileUpdate')]);
+export const GossipMessageTypeSchema = z.union([z.literal('ChannelMeta'), z.literal('ChannelDestroyed'), z.literal('MusicShare'), z.literal('Reaction'), z.literal('ReactionRemoved'), z.literal('MessageDeleted'), z.literal('MemberAdded'), z.literal('MemberRemoved'), z.literal('Knock'), z.literal('KnockResponse'), z.literal('ProfileUpdate')]);
 export type GossipMessageType = z.infer<typeof GossipMessageTypeSchema>;
 
 export const GossipProfileSchema = z.object({
@@ -1657,6 +1672,18 @@ export const MediaBlobSchema = z.object({
   blake3: z.string().nullable()
 });
 export type MediaBlob = z.infer<typeof MediaBlobSchema>;
+
+export const MemberPayloadSchema = z.object({
+  node_id: z.string(),
+  display_name: z.string().nullable(),
+  role: z.string().nullable()
+});
+export type MemberPayload = z.infer<typeof MemberPayloadSchema>;
+
+export const MessageDeletedPayloadSchema = z.object({
+  target_message_id: z.string()
+});
+export type MessageDeletedPayload = z.infer<typeof MessageDeletedPayloadSchema>;
 
 export const MessagesResponseSchema = z.object({
   messages: z.array(z.object({
