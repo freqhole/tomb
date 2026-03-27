@@ -18,7 +18,6 @@ import type {
   MusicReference,
 } from "../../../stories/gossip/mockGossipData";
 import { GossipMessageCard } from "./GossipMessageCard";
-import { ComposeBar } from "./ComposeBar";
 import { Badge } from "../badges/Badge";
 import { LoadingMoreIndicator } from "../feedback/LoadingMoreIndicator";
 import { MessageReactionOverlay, createMessageReaction } from "./MessageReactionOverlay";
@@ -28,9 +27,6 @@ export interface ChannelThreadProps {
   messages: GossipMessage[];
   members?: GossipChannelMember[];
   currentNodeId: string;
-  /** stubbed music search results for compose bar */
-  searchResults?: MusicReference[];
-  onSend?: (text: string, attachments: MusicReference[]) => void;
   onReact?: (messageId: string, emoji: string) => void;
   onOpenReactionPicker?: (messageId: string) => void;
   onDelete?: (messageId: string) => void;
@@ -38,7 +34,6 @@ export interface ChannelThreadProps {
   onFavorite?: (item: MusicReference) => void;
   onAddToQueue?: (item: MusicReference) => void;
   onAddToPlaylist?: (item: MusicReference) => void;
-  onSearchMusic?: (query: string) => void;
   onLoadMore?: () => void;
   lastReadTimestamp?: number;
   onDismissUnread?: () => void;
@@ -317,7 +312,7 @@ export function ChannelThread(props: ChannelThreadProps) {
   const shortMembers = () => sortedMembers().slice(0, 3);
 
   return (
-    <div class="flex flex-col h-full bg-[var(--color-bg-primary)]">
+    <div class="flex flex-col flex-1 min-h-0 bg-[var(--color-bg-primary)]">
       {/* channel header */}
       <div class="flex items-center gap-3 px-4 py-3 flex-shrink-0">
         <Show when={props.onBack}>
@@ -698,19 +693,6 @@ export function ChannelThread(props: ChannelThreadProps) {
           onClose={reactions.close}
         />
       </Show>
-
-      {/* compose bar */}
-      <ComposeBar
-        onSend={(text, attachments) => props.onSend?.(text, attachments)}
-        onSearchMusic={props.onSearchMusic}
-        searchResults={props.searchResults}
-        placeholder={
-          allowText()
-            ? `share in ${props.channel.name}...`
-            : `share music in ${props.channel.name}...`
-        }
-        allowText={allowText()}
-      />
     </div>
   );
 }

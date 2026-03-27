@@ -6,9 +6,6 @@ import {
   mockDeletedMessage,
   mockMembers,
   mockNodeIds,
-  mockSongRef,
-  mockAlbumRef,
-  mockArtistRef,
 } from "./mockGossipData";
 
 const meta = {
@@ -16,12 +13,10 @@ const meta = {
   component: ChannelThread,
   tags: ["autodocs"],
   argTypes: {
-    onSend: { action: "send" },
     onReact: { action: "react" },
     onOpenReactionPicker: { action: "openReactionPicker" },
     onDelete: { action: "delete" },
     onPlay: { action: "play" },
-    onSearchMusic: { action: "searchMusic" },
   },
   decorators: [
     (Story) => (
@@ -41,7 +36,6 @@ export const Default: Story = {
     messages: mockMessages,
     members: mockMembers[mockChannels[0].topic_id],
     currentNodeId: mockNodeIds.nancy,
-    searchResults: [mockSongRef, mockAlbumRef, mockArtistRef],
   },
 };
 

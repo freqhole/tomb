@@ -2,6 +2,7 @@ import { createSignal, Show } from "solid-js";
 import type { Meta, StoryObj } from "storybook-solidjs-vite";
 import { ChannelSidebar } from "../../src/components/gossip/ChannelSidebar";
 import { ChannelThread } from "../../src/components/gossip/ChannelThread";
+import { ComposeBar } from "../../src/components/gossip/ComposeBar";
 import { FriendsList } from "../../src/components/gossip/FriendsList";
 import { FriendThreadView } from "../../src/components/gossip/FriendThreadView";
 import { CreateChannelDialog } from "../../src/components/gossip/CreateChannelDialog";
@@ -450,8 +451,8 @@ function SuperGossipDemo() {
 
       {/* main content: channel thread or friend thread */}
       <div
-        class="flex-1 min-w-0"
-        classList={{ hidden: showSidebar(), "wide:block": showSidebar() }}
+        class="flex-1 min-w-0 flex flex-col"
+        classList={{ hidden: showSidebar(), "wide:flex": showSidebar() }}
       >
         <Show
           when={selectedFriend()}
@@ -464,39 +465,51 @@ function SuperGossipDemo() {
                 </div>
               }
             >
-              <ChannelThread
-                channel={activeChannel()}
-                messages={activeMessages()}
-                members={activeMembers()}
-                currentNodeId={currentNodeId}
-                loading={loadingChannel()}
-                loadingMore={loadingMore()}
-                searchResults={allSearchResults}
-                onSend={handleSend}
-                onReact={handleReact}
-                onOpenReactionPicker={(msgId) => handleReact(msgId, "\u{1F525}")}
-                onDelete={handleDelete}
-                onPlay={(item) => console.log("play", item.title ?? item.name)}
-                onFavorite={(item) => console.log("favorite", item.title ?? item.name)}
-                onAddToQueue={(item) => console.log("add to queue", item.title ?? item.name)}
-                onAddToPlaylist={(item) => console.log("add to playlist", item.title ?? item.name)}
-                onSearchMusic={(q) => console.log("search:", q)}
-                onLoadMore={activeTopicId() === endlessTopicId ? handleLoadMore : undefined}
-                lastReadTimestamp={lastReadByTopic()[activeTopicId()]}
-                onDismissUnread={handleDismissUnread}
-                resolveAvatar={avatarForName}
-                savedScrollTop={scrollPositions()[activeTopicId()]}
-                onScrollChange={(pos) => handleScrollSave(activeTopicId(), pos)}
-                onBack={() => setShowSidebar(true)}
-                onLeaveChannel={handleLeaveChannel}
-                onDestroyChannel={handleDestroyChannel}
-                onAddMember={() =>
-                  console.log("[story] >>> ADD MEMBER to", activeTopicId().slice(0, 8))
-                }
-                friendNodeIds={friendNodeIds()}
-                pendingFriendNodeIds={pendingFriendNodeIds()}
-                onAddFriend={handleAddFriend}
-              />
+              <>
+                <ChannelThread
+                  channel={activeChannel()}
+                  messages={activeMessages()}
+                  members={activeMembers()}
+                  currentNodeId={currentNodeId}
+                  loading={loadingChannel()}
+                  loadingMore={loadingMore()}
+                  onReact={handleReact}
+                  onOpenReactionPicker={(msgId) => handleReact(msgId, "\u{1F525}")}
+                  onDelete={handleDelete}
+                  onPlay={(item) => console.log("play", item.title ?? item.name)}
+                  onFavorite={(item) => console.log("favorite", item.title ?? item.name)}
+                  onAddToQueue={(item) => console.log("add to queue", item.title ?? item.name)}
+                  onAddToPlaylist={(item) =>
+                    console.log("add to playlist", item.title ?? item.name)
+                  }
+                  onLoadMore={activeTopicId() === endlessTopicId ? handleLoadMore : undefined}
+                  lastReadTimestamp={lastReadByTopic()[activeTopicId()]}
+                  onDismissUnread={handleDismissUnread}
+                  resolveAvatar={avatarForName}
+                  savedScrollTop={scrollPositions()[activeTopicId()]}
+                  onScrollChange={(pos) => handleScrollSave(activeTopicId(), pos)}
+                  onBack={() => setShowSidebar(true)}
+                  onLeaveChannel={handleLeaveChannel}
+                  onDestroyChannel={handleDestroyChannel}
+                  onAddMember={() =>
+                    console.log("[story] >>> ADD MEMBER to", activeTopicId().slice(0, 8))
+                  }
+                  friendNodeIds={friendNodeIds()}
+                  pendingFriendNodeIds={pendingFriendNodeIds()}
+                  onAddFriend={handleAddFriend}
+                />
+                <ComposeBar
+                  onSend={handleSend}
+                  onSearchMusic={(q) => console.log("search:", q)}
+                  searchResults={allSearchResults}
+                  placeholder={
+                    activeChannel()?.allow_text !== false
+                      ? `share in ${activeChannel()?.name}...`
+                      : `share music in ${activeChannel()?.name}...`
+                  }
+                  allowText={activeChannel()?.allow_text !== false}
+                />
+              </>
             </Show>
           }
         >

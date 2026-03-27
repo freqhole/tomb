@@ -4,6 +4,7 @@
 import { createEffect, createSignal, on, onMount, Show } from "solid-js";
 import { ChannelSidebar } from "../../components/gossip/ChannelSidebar";
 import { ChannelThread } from "../../components/gossip/ChannelThread";
+import { ComposeBar } from "../../components/gossip/ComposeBar";
 import { CreateChannelDialog } from "../../components/gossip/CreateChannelDialog";
 import { JoinChannelDialog } from "../../components/gossip/JoinChannelDialog";
 import { GossipProfileSetup } from "../../components/gossip/GossipProfileSetup";
@@ -219,24 +220,34 @@ export function GossipView() {
           }
         >
           {(channel) => (
-            <ChannelThread
-              channel={channel() as any}
-              messages={store.activeMessages() as any}
-              members={store.activeMembers() as any}
-              currentNodeId={currentNodeId()}
-              loading={store.loadingChannel()}
-              loadingMore={false}
-              onSend={handleSend}
-              onReact={handleReact}
-              onDelete={handleDelete}
-              onLoadMore={handleLoadMore}
-              onLeaveChannel={handleLeaveChannel}
-              onCopyInvite={handleCopyInvite}
-              copyInviteLabel={copiedInvite() ? "copied!" : "copy invite"}
-              friendNodeIds={friendNodeIds()}
-              onAddFriend={handleAddFriend}
-              onBack={() => setShowSidebar(true)}
-            />
+            <>
+              <ChannelThread
+                channel={channel() as any}
+                messages={store.activeMessages() as any}
+                members={store.activeMembers() as any}
+                currentNodeId={currentNodeId()}
+                loading={store.loadingChannel()}
+                loadingMore={false}
+                onReact={handleReact}
+                onDelete={handleDelete}
+                onLoadMore={handleLoadMore}
+                onLeaveChannel={handleLeaveChannel}
+                onCopyInvite={handleCopyInvite}
+                copyInviteLabel={copiedInvite() ? "copied!" : "copy invite"}
+                friendNodeIds={friendNodeIds()}
+                onAddFriend={handleAddFriend}
+                onBack={() => setShowSidebar(true)}
+              />
+              <ComposeBar
+                onSend={(text, attachments) => handleSend(text, attachments)}
+                placeholder={
+                  channel().music_only
+                    ? `share music in ${channel().name}...`
+                    : `share in ${channel().name}...`
+                }
+                allowText={!channel().music_only}
+              />
+            </>
           )}
         </Show>
 
