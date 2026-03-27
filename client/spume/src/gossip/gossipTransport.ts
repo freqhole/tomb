@@ -7,15 +7,38 @@
 import type { GossipSenderLike, GossipReceiverLike } from "freqhole-api-client";
 import { schema } from "freqhole-api-client";
 import { getMiddenNode } from "../app/api/client";
-import { debug, warn, error as logError } from "../utils/logger";
+import { debug, info, warn, error as logError } from "../utils/logger";
 
 const TAG = "gossip-transport";
+
+// ============================================================================
+// WASM call serialization queue
+// ============================================================================
+// all WASM gossip calls (recv, broadcast, subscribe) share a single-threaded
+// wasm-bindgen-futures executor. when multiple calls are in-flight, microtask
+// interleaving can cause RefCell reentrancy panics inside n0-future's JoinSet.
+// this queue ensures only one WASM call is active at a time.
+//
+// recv loops opt out of the queue (they'd block all broadcasts while waiting)
+// but broadcasts and subscribes are serialized through it.
+
+let wasmQueue: Promise<void> = Promise.resolve();
+
+function enqueueWasm<T>(fn: () => Promise<T>): Promise<T> {
+  const result = wasmQueue.then(fn, fn); // run even if previous failed
+  // update queue tail (discard result type for the chain)
+  wasmQueue = result.then(() => {}, () => {});
+  return result;
+}
 
 // active topic senders keyed by topic_id hex
 const senders = new Map<string, GossipSenderLike>();
 
 // abort controllers for recv loops
 const abortControllers = new Map<string, AbortController>();
+
+// bootstrap peers per topic (needed for resubscription)
+const topicBootstrapPeers = new Map<string, string[]>();
 
 // callback for validated incoming envelopes
 let onMessage: ((envelope: schema.GossipEnvelope, topicId: string) => Promise<void>) | null = null;
@@ -35,13 +58,13 @@ const topicStatuses = new Map<string, TopicStatus>();
 
 // callbacks for status changes — store registers these
 let onStatusChange: (() => void) | null = null;
-let onNeighborChange: ((topicId: string, nodeId: string, isUp: boolean) => void) | null = null;
+let onNeighborChange: ((topicId: string, nodeId: string, isUp: boolean) => void | Promise<void>) | null = null;
 
 export function setOnStatusChange(cb: () => void): void {
   onStatusChange = cb;
 }
 
-export function setOnNeighborChange(cb: (topicId: string, nodeId: string, isUp: boolean) => void): void {
+export function setOnNeighborChange(cb: (topicId: string, nodeId: string, isUp: boolean) => void | Promise<void>): void {
   onNeighborChange = cb;
 }
 
@@ -114,16 +137,18 @@ export async function joinTopic(
     throw new Error("midden node does not support gossip — upgrade midden WASM");
   }
 
-  const handle = await node.gossip_join(topicId, JSON.stringify(bootstrapPeers));
+  // serialize the WASM subscribe call to avoid overlapping with other WASM ops
+  const handle = await enqueueWasm(() => node.gossip_join!(topicId, JSON.stringify(bootstrapPeers)));
   debug(TAG, `gossip_join returned handle for ${topicId.slice(0, 16)}...`);
   const sender = handle.take_sender();
   const receiver = handle.take_receiver();
   debug(TAG, `split handle into sender + receiver for ${topicId.slice(0, 16)}...`);
   senders.set(topicId, sender);
+  topicBootstrapPeers.set(topicId, bootstrapPeers);
   setTopicStatus(topicId, "connected");
   debug(TAG, `joined topic ${topicId.slice(0, 16)}...`);
 
-  startRecvLoop(topicId, receiver);
+  startRecvLoop(topicId, receiver, bootstrapPeers);
 }
 
 /**
@@ -147,16 +172,18 @@ export async function subscribeTopic(
     throw new Error("midden node does not support gossip — upgrade midden WASM");
   }
 
-  const handle = await node.gossip_subscribe(topicId, JSON.stringify(bootstrapPeers));
+  // serialize the WASM subscribe call to avoid overlapping with other WASM ops
+  const handle = await enqueueWasm(() => node.gossip_subscribe!(topicId, JSON.stringify(bootstrapPeers)));
   debug(TAG, `gossip_subscribe returned handle for ${topicId.slice(0, 16)}... (bootstrap: ${bootstrapPeers.length} peers)`);
   const sender = handle.take_sender();
   const receiver = handle.take_receiver();
   debug(TAG, `split handle into sender + receiver for ${topicId.slice(0, 16)}...`);
   senders.set(topicId, sender);
+  topicBootstrapPeers.set(topicId, bootstrapPeers.length > 0 ? bootstrapPeers : []);
   setTopicStatus(topicId, bootstrapPeers.length > 0 ? "waiting_for_peers" : "connected");
   debug(TAG, `subscribed to topic ${topicId.slice(0, 16)}...`);
 
-  startRecvLoop(topicId, receiver);
+  startRecvLoop(topicId, receiver, bootstrapPeers);
 }
 
 /**
@@ -182,8 +209,20 @@ export async function broadcast(
 
   const json = JSON.stringify(result.data);
   const bytes = new TextEncoder().encode(json);
-  await sender.broadcast(bytes);
-  debug(TAG, `broadcast ${result.data.msg_type} to ${topicId.slice(0, 16)}... (${bytes.length} bytes)`);
+
+  // serialize through WASM queue to avoid RefCell reentrancy with recv()
+  return enqueueWasm(async () => {
+    try {
+      await sender.broadcast(bytes);
+      debug(TAG, `broadcast ${result.data.msg_type} to ${topicId.slice(0, 16)}... (${bytes.length} bytes)`);
+    } catch (e) {
+      warn(TAG, `broadcast failed on ${topicId.slice(0, 16)}... (${result.data.msg_type}):`, e);
+      // sender may be dead — trigger resubscribe
+      const peers = topicBootstrapPeers.get(topicId) ?? [];
+      senders.delete(topicId);
+      scheduleResubscribe(topicId, peers);
+    }
+  });
 }
 
 /**
@@ -198,6 +237,7 @@ export function leaveTopic(topicId: string): void {
   senders.delete(topicId);
   topicStatuses.delete(topicId);
   topicPeerCounts.delete(topicId);
+  topicBootstrapPeers.delete(topicId);
   onStatusChange?.();
   debug(TAG, `left topic ${topicId.slice(0, 16)}...`);
 }
@@ -242,26 +282,72 @@ async function ensureNode() {
 }
 
 // ============================================================================
+// resubscription after recv loop failure
+// ============================================================================
+
+const MAX_RESUBSCRIBE_ATTEMPTS = 3;
+const resubscribeAttempts = new Map<string, number>();
+
+function scheduleResubscribe(topicId: string, bootstrapPeers: string[]): void {
+  const attempt = (resubscribeAttempts.get(topicId) ?? 0) + 1;
+  if (attempt > MAX_RESUBSCRIBE_ATTEMPTS) {
+    warn(TAG, `gave up resubscribing to ${topicId.slice(0, 16)}... after ${MAX_RESUBSCRIBE_ATTEMPTS} attempts`);
+    setTopicStatus(topicId, "error");
+    senders.delete(topicId);
+    abortControllers.delete(topicId);
+    return;
+  }
+  resubscribeAttempts.set(topicId, attempt);
+
+  // backoff: 5s, 15s, 30s
+  const delay = attempt * 5000 + (attempt - 1) * 10000;
+  warn(TAG, `resubscribing to ${topicId.slice(0, 16)}... attempt ${attempt}/${MAX_RESUBSCRIBE_ATTEMPTS} in ${delay / 1000}s`);
+
+  setTimeout(async () => {
+    // clean up old state before resubscribing
+    const oldAc = abortControllers.get(topicId);
+    if (oldAc) oldAc.abort();
+    senders.delete(topicId);
+    abortControllers.delete(topicId);
+    topicPeerCounts.delete(topicId);
+
+    try {
+      await subscribeTopic(topicId, bootstrapPeers);
+      warn(TAG, `resubscribed to ${topicId.slice(0, 16)}... successfully`);
+      resubscribeAttempts.delete(topicId);
+    } catch (e) {
+      warn(TAG, `resubscribe to ${topicId.slice(0, 16)}... failed:`, e);
+      scheduleResubscribe(topicId, bootstrapPeers);
+    }
+  }, delay);
+}
+
+// ============================================================================
 // recv loop
 // ============================================================================
 
-function startRecvLoop(topicId: string, receiver: GossipReceiverLike): void {
+function startRecvLoop(topicId: string, receiver: GossipReceiverLike, bootstrapPeers: string[]): void {
   const ac = new AbortController();
   abortControllers.set(topicId, ac);
 
   // fire and forget — loop runs until topic is left or stream closes
   (async () => {
-    debug(TAG, `recv loop started for ${topicId.slice(0, 16)}...`);
+    info(TAG, `recv loop started for ${topicId.slice(0, 16)}...`);
     let consecutiveErrors = 0;
     const MAX_CONSECUTIVE_ERRORS = 5;
     while (!ac.signal.aborted) {
+      // yield to let queued broadcasts drain before next recv()
+      // this prevents recv() from blocking the WASM executor while broadcasts wait
+      await new Promise((r) => setTimeout(r, 0));
+      if (ac.signal.aborted) break;
       try {
         const raw = await receiver.recv();
         debug(TAG, `recv raw on ${topicId.slice(0, 16)}:`, raw);
 
         // null = topic closed
         if (raw === null || raw === undefined) {
-          debug(TAG, `topic ${topicId.slice(0, 16)}... closed`);
+          warn(TAG, `topic ${topicId.slice(0, 16)}... stream closed by WASM`);
+          scheduleResubscribe(topicId, bootstrapPeers);
           break;
         }
 
@@ -273,15 +359,16 @@ function startRecvLoop(topicId: string, receiver: GossipReceiverLike): void {
 
         // track neighbor events for connection status
         if (event.type === "neighbor_up") {
-          debug(TAG, `topic ${topicId.slice(0, 16)}... peer connected: ${event.node_id?.slice(0, 16)}...`);
+          info(TAG, `topic ${topicId.slice(0, 16)}... peer connected: ${event.node_id?.slice(0, 16)}...`);
           updateTopicPeerCount(topicId, +1);
-          if (event.node_id) onNeighborChange?.(topicId, event.node_id, true);
+          // await to prevent WASM RefCell reentrancy — don't let broadcast() interleave with recv()
+          if (event.node_id) await onNeighborChange?.(topicId, event.node_id, true);
           continue;
         }
         if (event.type === "neighbor_down") {
-          debug(TAG, `topic ${topicId.slice(0, 16)}... peer disconnected: ${event.node_id?.slice(0, 16)}...`);
+          info(TAG, `topic ${topicId.slice(0, 16)}... peer disconnected: ${event.node_id?.slice(0, 16)}...`);
           updateTopicPeerCount(topicId, -1);
-          if (event.node_id) onNeighborChange?.(topicId, event.node_id, false);
+          if (event.node_id) await onNeighborChange?.(topicId, event.node_id, false);
           continue;
         }
         if (event.type === "lagged") {
@@ -325,17 +412,22 @@ function startRecvLoop(topicId: string, receiver: GossipReceiverLike): void {
         consecutiveErrors++;
         logError(TAG, `recv error on ${topicId.slice(0, 16)}... (${consecutiveErrors}/${MAX_CONSECUTIVE_ERRORS})`, e);
         if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
-          logError(TAG, `too many consecutive errors on ${topicId.slice(0, 16)}..., stopping recv loop`);
+          warn(TAG, `too many consecutive errors on ${topicId.slice(0, 16)}..., will attempt resubscribe`);
           setTopicStatus(topicId, "error");
+          scheduleResubscribe(topicId, bootstrapPeers);
           break;
         }
         // exponential backoff: 1s, 2s, 4s, 8s, 16s
         await new Promise((r) => setTimeout(r, 1000 * Math.pow(2, consecutiveErrors - 1)));
       }
     }
-    debug(TAG, `recv loop ended for ${topicId.slice(0, 16)}...`);
-    senders.delete(topicId);
-    abortControllers.delete(topicId);
+    info(TAG, `recv loop ended for ${topicId.slice(0, 16)}...`);
+    // only clean up sender if this was an intentional leave (aborted),
+    // otherwise the sender might still be usable for broadcast
+    if (ac.signal.aborted) {
+      senders.delete(topicId);
+      abortControllers.delete(topicId);
+    }
   })();
 }
 

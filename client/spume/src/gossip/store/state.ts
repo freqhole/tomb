@@ -128,6 +128,7 @@ const payloadSchemas: Record<string, { safeParse: (data: unknown) => { success: 
   ChannelMeta: schema.ChannelMetaPayloadSchema,
   ChannelDestroyed: schema.ChannelDestroyedPayloadSchema,
   MemberAdded: schema.MemberPayloadSchema,
+  MemberRemoved: schema.MemberPayloadSchema,
   MessageDeleted: schema.MessageDeletedPayloadSchema,
   Reaction: schema.ReactionPayloadSchema,
   ReactionRemoved: schema.ReactionPayloadSchema,

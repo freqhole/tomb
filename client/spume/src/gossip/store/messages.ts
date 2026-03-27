@@ -18,6 +18,7 @@ import {
   membersByTopic, setMembersByTopic,
   setUnread,
   profile,
+  friends, setFriends,
   generateId, nowUnix, safeJsonParse, stringifyPayload,
 } from "./state";
 import { debug, info, warn } from "../../utils/logger";
@@ -338,6 +339,18 @@ export async function onIncomingMessage(envelope: GossipEnvelope, topicId: strin
         break;
       }
       const targetId = delResult.data.target_message_id;
+      const targetMsg = (messagesByTopic[topicId] ?? []).find((m) => m.message_id === targetId);
+      if (!targetMsg) break;
+
+      // only the original sender or the channel creator can delete a message
+      const ch = channels().find((c) => c.topic_id === topicId);
+      const isOriginalSender = envelope.sender_node_id === targetMsg.sender_node_id;
+      const isCreator = ch && ch.creator_node_id === envelope.sender_node_id;
+      if (!isOriginalSender && !isCreator) {
+        warn("gossip-store", `rejecting MessageDeleted from ${envelope.sender_node_id.slice(0, 16)} — not sender or creator`);
+        break;
+      }
+
       setMessagesByTopic(
         topicId,
         (messagesByTopic[topicId] ?? []).map((m) =>
@@ -366,7 +379,17 @@ export async function onIncomingMessage(envelope: GossipEnvelope, topicId: strin
         };
 
         const existing = (membersByTopic[topicId] ?? []);
-        if (existing.some((m) => m.node_id === member.node_id)) break;
+        const existingIdx = existing.findIndex((m) => m.node_id === member.node_id);
+        if (existingIdx >= 0) {
+          // member already known (e.g. from neighbor_up) — update display_name if we have a better one
+          const prev = existing[existingIdx];
+          if (member.display_name && member.display_name !== prev.display_name) {
+            const updated = existing.map((m, i) => i === existingIdx ? { ...m, display_name: member.display_name } : m);
+            setMembersByTopic(topicId, updated);
+            await db.putMembers(topicId, [{ ...prev, display_name: member.display_name }]);
+          }
+          break;
+        }
 
         await db.putMembers(topicId, [member]);
         setMembersByTopic(topicId, [...existing, member]);
@@ -420,13 +443,67 @@ export async function onIncomingMessage(envelope: GossipEnvelope, topicId: strin
         warn("gossip-store", "invalid profile-update payload", profResult.error.issues);
         break;
       }
+      const newName = profResult.data.display_name ?? envelope.sender_name;
       const peerProfile: GossipProfile = {
         node_id: envelope.sender_node_id,
-        display_name: profResult.data.display_name ?? envelope.sender_name,
+        display_name: newName,
         avatar_blob: profResult.data.avatar_blob ?? null,
         updated_at: envelope.timestamp,
       };
       await db.putProfile(peerProfile);
+
+      // update display name in all channel member lists
+      for (const ch of channels()) {
+        const members = membersByTopic[ch.topic_id] ?? [];
+        const idx = members.findIndex((m) => m.node_id === envelope.sender_node_id);
+        if (idx >= 0 && members[idx].display_name !== newName) {
+          const updated = members.map((m) =>
+            m.node_id === envelope.sender_node_id ? { ...m, display_name: newName } : m,
+          );
+          setMembersByTopic(ch.topic_id, updated);
+          await db.putMembers(ch.topic_id, [{ ...members[idx], display_name: newName }]);
+        }
+      }
+
+      // update friend display name if known
+      const friend = friends().find((f) => f.node_id === envelope.sender_node_id);
+      if (friend && friend.display_name !== newName) {
+        const updatedFriend = { ...friend, display_name: newName };
+        await db.putFriend(updatedFriend);
+        setFriends((prev) => prev.map((f) => f.node_id === envelope.sender_node_id ? updatedFriend : f));
+      }
+      break;
+    }
+
+    case "MemberRemoved": {
+      const memberResult = schema.MemberPayloadSchema.safeParse(safeJsonParse(envelope.payload));
+      if (!memberResult.success) {
+        warn("gossip-store", "invalid MemberRemoved payload", memberResult.error.issues);
+        break;
+      }
+      const removedNodeId = memberResult.data.node_id ?? envelope.sender_node_id;
+      const removedName = memberResult.data.display_name ?? envelope.sender_name;
+
+      // remove from member list
+      const currentMembers = membersByTopic[topicId] ?? [];
+      if (currentMembers.some((m) => m.node_id === removedNodeId)) {
+        setMembersByTopic(topicId, currentMembers.filter((m) => m.node_id !== removedNodeId));
+      }
+
+      // show system message
+      const leftMsg: GossipMessage = {
+        message_id: generateId(),
+        topic_id: topicId,
+        sender_node_id: envelope.sender_node_id,
+        sender_name: envelope.sender_name,
+        msg_type: "System",
+        payload: JSON.stringify({ text: `${removedName ?? "someone"} left the channel` }),
+        timestamp: envelope.timestamp,
+        received_at: now,
+        deleted_at: null,
+      };
+      await db.putMessages([leftMsg]);
+      setMessagesByTopic(topicId, [...(messagesByTopic[topicId] ?? []), leftMsg]);
       break;
     }
 

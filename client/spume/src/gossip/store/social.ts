@@ -8,10 +8,11 @@ import type { GossipChannelMember } from "freqhole-api-client";
 import {
   profile, setProfile,
   friends, setFriends,
+  channels,
   membersByTopic, setMembersByTopic,
-  nowUnix,
+  nowUnix, generateId, stringifyPayload,
 } from "./state";
-import { debug, warn } from "../../utils/logger";
+import { debug, info, warn } from "../../utils/logger";
 
 // ============================================================================
 // profile actions
@@ -43,15 +44,36 @@ export async function saveProfile(displayName: string, avatarBlob: string | null
     // midden not available yet — use existing node_id
   }
 
+  const now = nowUnix();
   const p: GossipProfile = {
     node_id: nodeId,
     display_name: displayName,
     avatar_blob: avatarBlob,
-    updated_at: nowUnix(),
+    updated_at: now,
   };
   await db.putProfile(p);
   setProfile(p);
-  debug("gossip-store", `profile saved: ${displayName} (node: ${nodeId.slice(0, 16)}...)`);
+  info("gossip-store", `profile saved: ${displayName} (node: ${nodeId.slice(0, 16)}...)`);
+
+  // broadcast ProfileUpdate to all subscribed topics so peers learn the new name
+  const topicIds = transport.getSubscribedTopicIds();
+  for (const tid of topicIds) {
+    try {
+      await transport.broadcast(tid, {
+        msg_type: "ProfileUpdate",
+        sender_node_id: nodeId,
+        sender_name: displayName,
+        timestamp: now,
+        message_id: generateId(),
+        payload: stringifyPayload("ProfileUpdate", {
+          display_name: displayName,
+          avatar_blob: avatarBlob,
+        }),
+      });
+    } catch {
+      // not critical — peers will learn on next message
+    }
+  }
 }
 
 // ============================================================================
@@ -98,22 +120,57 @@ export async function updateFriend(nodeId: string, updates: Partial<GossipFriend
 // ============================================================================
 
 /** called by transport when a peer connects or disconnects on a topic */
-export function onNeighborChange(topicId: string, nodeId: string, isUp: boolean): void {
+export async function onNeighborChange(topicId: string, nodeId: string, isUp: boolean): Promise<void> {
   const now = nowUnix();
 
   // auto-add peer as channel member on connect
   if (isUp) {
     const existing = membersByTopic[topicId] ?? [];
     if (!existing.some((m) => m.node_id === nodeId)) {
+      // try to resolve a display name from known profiles or friends
+      let displayName: string | null = null;
+      try {
+        const knownProfile = await db.getProfile(nodeId);
+        if (knownProfile?.display_name) displayName = knownProfile.display_name;
+      } catch { /* ignore */ }
+      if (!displayName) {
+        const friend = friends().find((f) => f.node_id === nodeId);
+        if (friend?.display_name) displayName = friend.display_name;
+      }
+
       const member: GossipChannelMember = {
         topic_id: topicId,
         node_id: nodeId,
-        display_name: nodeId.slice(0, 12),
+        display_name: displayName ?? nodeId.slice(0, 12),
         role: "member",
         joined_at: now,
       };
       db.putMembers(topicId, [member]);
       setMembersByTopic(topicId, [...existing, member]);
+    }
+
+    // if we are the channel creator, broadcast ChannelMeta so the new peer gets current state
+    const p = profile();
+    const myNodeId = p?.node_id ?? "local";
+    const ch = channels().find((c) => c.topic_id === topicId);
+    if (ch && ch.creator_node_id === myNodeId) {
+      try {
+        await transport.broadcast(topicId, {
+          msg_type: "ChannelMeta",
+          sender_node_id: myNodeId,
+          sender_name: p?.display_name ?? "anonymous",
+          timestamp: now,
+          message_id: generateId(),
+          payload: stringifyPayload("ChannelMeta", {
+            name: ch.name,
+            description: ch.description,
+            music_only: ch.music_only,
+            creator_node_id: ch.creator_node_id,
+          }),
+        });
+      } catch {
+        // not critical
+      }
     }
   }
 

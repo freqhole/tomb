@@ -186,6 +186,26 @@ export async function joinChannel(
 }
 
 export async function leaveChannel(topicId: string): Promise<void> {
+  // broadcast MemberRemoved so peers know we left
+  const p = profile();
+  const nodeId = p?.node_id ?? "local";
+  try {
+    await transport.broadcast(topicId, {
+      msg_type: "MemberRemoved",
+      sender_node_id: nodeId,
+      sender_name: p?.display_name ?? "anonymous",
+      timestamp: nowUnix(),
+      message_id: generateId(),
+      payload: stringifyPayload("MemberRemoved", {
+        node_id: nodeId,
+        display_name: p?.display_name ?? null,
+        role: null,
+      }),
+    });
+  } catch {
+    // best-effort — we're leaving anyway
+  }
+
   transport.leaveTopic(topicId);
   setChannels((prev) => prev.filter((c) => c.topic_id !== topicId));
   if (activeTopicId() === topicId) setActiveTopicId(null);
