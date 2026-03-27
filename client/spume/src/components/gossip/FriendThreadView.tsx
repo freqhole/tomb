@@ -4,7 +4,7 @@ import type {
   GossipFriend,
   GossipMessage,
   MusicReference,
-} from "../../../stories/gossip/mockGossipData";
+} from "../../gossip/gossipTypes";
 import { GossipMessageCard } from "./GossipMessageCard";
 
 export interface FriendThreadViewProps {

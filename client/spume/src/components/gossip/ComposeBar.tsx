@@ -1,5 +1,5 @@
 import { createSignal, For, Show, type JSX } from "solid-js";
-import type { MusicReference } from "../../../stories/gossip/mockGossipData";
+import type { MusicReference } from "../../gossip/gossipTypes";
 import { MusicIcon } from "../icons/registry";
 import { AlbumIcon, ArtistIcon, PlaylistIcon, GenreIcon, ArrowUpIcon } from "../icons/navigation";
 
@@ -37,6 +37,9 @@ function refTitle(item: MusicReference): string {
   return item.title ?? item.name ?? "untitled";
 }
 
+export const MAX_TEXT_LENGTH = 1024;
+export const MAX_ATTACHMENTS = 10;
+
 export function ComposeBar(props: ComposeBarProps) {
   const [text, setText] = createSignal("");
   const [attachments, setAttachments] = createSignal<MusicReference[]>([]);
@@ -69,6 +72,8 @@ export function ComposeBar(props: ComposeBarProps) {
       )
     )
       return;
+    // enforce max attachments
+    if (attachments().length >= MAX_ATTACHMENTS) return;
     setAttachments((prev) => [...prev, item]);
     setShowSearch(false);
     setSearchQuery("");
@@ -168,9 +173,10 @@ export function ComposeBar(props: ComposeBarProps) {
             class="flex-1 bg-[var(--color-bg-tertiary)] text-[var(--color-text-primary)] text-base rounded-lg px-3 py-2 outline-none focus:ring-1 focus:ring-[var(--color-accent-500)] placeholder:text-[var(--color-text-tertiary)] resize-none min-h-[44px] max-h-[120px]"
             placeholder={props.placeholder ?? "share something..."}
             value={text()}
-            onInput={(e) => setText(e.currentTarget.value)}
+            onInput={(e) => setText(e.currentTarget.value.slice(0, MAX_TEXT_LENGTH))}
             onKeyDown={handleKeyDown}
             disabled={props.disabled}
+            maxLength={MAX_TEXT_LENGTH}
             rows={1}
           />
         </Show>

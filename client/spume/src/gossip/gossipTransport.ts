@@ -35,9 +35,14 @@ const topicStatuses = new Map<string, TopicStatus>();
 
 // callbacks for status changes — store registers these
 let onStatusChange: (() => void) | null = null;
+let onNeighborChange: ((nodeId: string, isUp: boolean) => void) | null = null;
 
 export function setOnStatusChange(cb: () => void): void {
   onStatusChange = cb;
+}
+
+export function setOnNeighborChange(cb: (nodeId: string, isUp: boolean) => void): void {
+  onNeighborChange = cb;
 }
 
 export function getNodeStatus(): { status: NodeStatus; error: string | null } {
@@ -110,10 +115,10 @@ export async function joinTopic(
   }
 
   const handle = await node.gossip_join(topicId, JSON.stringify(bootstrapPeers));
-  console.log(`[gossip-transport] gossip_join returned handle for ${topicId.slice(0, 16)}...`);
+  debug(TAG, `gossip_join returned handle for ${topicId.slice(0, 16)}...`);
   const sender = handle.take_sender();
   const receiver = handle.take_receiver();
-  console.log(`[gossip-transport] split handle into sender + receiver for ${topicId.slice(0, 16)}...`);
+  debug(TAG, `split handle into sender + receiver for ${topicId.slice(0, 16)}...`);
   senders.set(topicId, sender);
   setTopicStatus(topicId, "connected");
   debug(TAG, `joined topic ${topicId.slice(0, 16)}...`);
@@ -143,10 +148,10 @@ export async function subscribeTopic(
   }
 
   const handle = await node.gossip_subscribe(topicId, JSON.stringify(bootstrapPeers));
-  console.log(`[gossip-transport] gossip_subscribe returned handle for ${topicId.slice(0, 16)}... (bootstrap: ${bootstrapPeers.length} peers)`);
+  debug(TAG, `gossip_subscribe returned handle for ${topicId.slice(0, 16)}... (bootstrap: ${bootstrapPeers.length} peers)`);
   const sender = handle.take_sender();
   const receiver = handle.take_receiver();
-  console.log(`[gossip-transport] split handle into sender + receiver for ${topicId.slice(0, 16)}...`);
+  debug(TAG, `split handle into sender + receiver for ${topicId.slice(0, 16)}...`);
   senders.set(topicId, sender);
   setTopicStatus(topicId, bootstrapPeers.length > 0 ? "waiting_for_peers" : "connected");
   debug(TAG, `subscribed to topic ${topicId.slice(0, 16)}...`);
@@ -170,8 +175,7 @@ export async function broadcast(
   const json = JSON.stringify(envelope);
   const bytes = new TextEncoder().encode(json);
   await sender.broadcast(bytes);
-  console.log(`[gossip-transport] BROADCAST ${envelope.msg_type} to ${topicId.slice(0, 16)}... (${bytes.length} bytes)`);
-  debug(TAG, `broadcast ${envelope.msg_type} to ${topicId.slice(0, 16)}...`);
+  debug(TAG, `broadcast ${envelope.msg_type} to ${topicId.slice(0, 16)}... (${bytes.length} bytes)`);
 }
 
 /**
@@ -239,14 +243,13 @@ function startRecvLoop(topicId: string, receiver: GossipReceiverLike): void {
 
   // fire and forget — loop runs until topic is left or stream closes
   (async () => {
-    console.log(`[gossip-transport] RECV LOOP STARTED for ${topicId.slice(0, 16)}...`);
     debug(TAG, `recv loop started for ${topicId.slice(0, 16)}...`);
     let consecutiveErrors = 0;
     const MAX_CONSECUTIVE_ERRORS = 5;
     while (!ac.signal.aborted) {
       try {
         const raw = await receiver.recv();
-        console.log(`[gossip-transport] RECV RAW on ${topicId.slice(0, 16)}:`, raw);
+        debug(TAG, `recv raw on ${topicId.slice(0, 16)}:`, raw);
 
         // null = topic closed
         if (raw === null || raw === undefined) {
@@ -258,17 +261,19 @@ function startRecvLoop(topicId: string, receiver: GossipReceiverLike): void {
         const event: Record<string, any> =
           raw instanceof Map ? Object.fromEntries(raw) : raw;
 
-        console.log(`[gossip-transport] RECV EVENT on ${topicId.slice(0, 16)}:`, event);
+        debug(TAG, `recv event on ${topicId.slice(0, 16)}:`, event);
 
         // track neighbor events for connection status
         if (event.type === "neighbor_up") {
           debug(TAG, `topic ${topicId.slice(0, 16)}... peer connected: ${event.node_id?.slice(0, 16)}...`);
           updateTopicPeerCount(topicId, +1);
+          if (event.node_id) onNeighborChange?.(event.node_id, true);
           continue;
         }
         if (event.type === "neighbor_down") {
           debug(TAG, `topic ${topicId.slice(0, 16)}... peer disconnected: ${event.node_id?.slice(0, 16)}...`);
           updateTopicPeerCount(topicId, -1);
+          if (event.node_id) onNeighborChange?.(event.node_id, false);
           continue;
         }
         if (event.type === "lagged") {
@@ -301,7 +306,7 @@ function startRecvLoop(topicId: string, receiver: GossipReceiverLike): void {
         }
 
         if (onMessage) {
-          console.log(`[gossip-transport] DELIVERING ${result.data.msg_type} from ${result.data.sender_node_id?.slice(0, 16)} to store`);
+          debug(TAG, `delivering ${result.data.msg_type} from ${result.data.sender_node_id?.slice(0, 16)} to store`);
           await onMessage(result.data, topicId);
         } else {
           console.warn(`[gossip-transport] NO onMessage callback registered! dropping envelope`);

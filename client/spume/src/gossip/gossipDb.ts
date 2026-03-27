@@ -148,6 +148,11 @@ export async function getReactionsByTopic(topicId: string): Promise<any[]> {
   return d.getAllFromIndex(STORE_REACTIONS, "by_topic_id", topicId);
 }
 
+export async function deleteReaction(messageId: string): Promise<void> {
+  const d = await db();
+  await d.delete(STORE_REACTIONS, messageId);
+}
+
 // ============================================================================
 // members
 // ============================================================================

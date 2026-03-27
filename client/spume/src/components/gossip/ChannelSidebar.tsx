@@ -1,5 +1,5 @@
 import { For, Show } from "solid-js";
-import type { GossipChannel } from "../../../stories/gossip/mockGossipData";
+import type { GossipChannel } from "../../gossip/gossipTypes";
 
 export interface ChannelSidebarProps {
   channels: GossipChannel[];

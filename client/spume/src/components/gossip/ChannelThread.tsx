@@ -16,7 +16,7 @@ import type {
   GossipChannelMember,
   GossipMessage,
   MusicReference,
-} from "../../../stories/gossip/mockGossipData";
+} from "../../gossip/gossipTypes";
 import { GossipMessageCard } from "./GossipMessageCard";
 import { Badge } from "../badges/Badge";
 import { LoadingMoreIndicator } from "../feedback/LoadingMoreIndicator";
@@ -304,7 +304,7 @@ export function ChannelThread(props: ChannelThreadProps) {
     return [...m].sort((a, b) => {
       if (a.role === "creator") return -1;
       if (b.role === "creator") return 1;
-      return a.display_name.localeCompare(b.display_name);
+      return (a.display_name ?? "").localeCompare(b.display_name ?? "");
     });
   };
 
@@ -346,19 +346,19 @@ export function ChannelThread(props: ChannelThreadProps) {
                 {(member) => (
                   <div
                     class="w-5 h-5 rounded-full overflow-hidden ring-2 ring-[var(--color-bg-primary)] bg-[var(--color-bg-tertiary)]"
-                    title={member.display_name}
+                    title={member.display_name ?? undefined}
                   >
                     <Show
                       when={props.resolveAvatar?.(member.display_name)}
                       fallback={
                         <div class="w-full h-full flex items-center justify-center text-[8px] font-semibold text-[var(--color-text-tertiary)]">
-                          {member.display_name[0].toUpperCase()}
+                          {(member.display_name ?? "?")[0].toUpperCase()}
                         </div>
                       }
                     >
                       <img
                         src={props.resolveAvatar!(member.display_name)!}
-                        alt={member.display_name}
+                        alt={member.display_name ?? undefined}
                         class="w-full h-full object-cover"
                         loading="lazy"
                       />
@@ -407,13 +407,13 @@ export function ChannelThread(props: ChannelThreadProps) {
                             when={props.resolveAvatar?.(member.display_name)}
                             fallback={
                               <div class="w-full h-full flex items-center justify-center text-[10px] font-semibold text-[var(--color-text-tertiary)]">
-                                {member.display_name[0].toUpperCase()}
+                                {(member.display_name ?? "?")[0].toUpperCase()}
                               </div>
                             }
                           >
                             <img
                               src={props.resolveAvatar!(member.display_name)!}
-                              alt={member.display_name}
+                              alt={member.display_name ?? undefined}
                               class="w-full h-full object-cover"
                               loading="lazy"
                             />

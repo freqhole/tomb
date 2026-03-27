@@ -16,6 +16,8 @@ import type {
   GossipProfile,
   GossipEnvelope,
 } from "freqhole-api-client";
+import type { GossipFriend } from "./gossipTypes";
+export type { GossipFriend } from "./gossipTypes";
 import { debug, warn } from "../utils/logger";
 
 // ============================================================================
@@ -35,13 +37,6 @@ const [initialized, setInitialized] = createSignal(false);
 const [profile, setProfile] = createSignal<GossipProfile | null>(null);
 
 // friends list
-export interface GossipFriend {
-  node_id: string;
-  display_name: string;
-  avatar_url?: string | null;
-  last_seen: number | null;
-  online: boolean;
-}
 const [friends, setFriends] = createSignal<GossipFriend[]>([]);
 
 // transport / connection status (reactive — re-read from transport on change)
@@ -143,6 +138,7 @@ export async function init(): Promise<void> {
     // register transport callbacks
     transport.setOnMessage(onIncomingMessage);
     transport.setOnStatusChange(() => setStatusTick((n) => n + 1));
+    transport.setOnNeighborChange(onNeighborChange);
 
     // load profile from IndexedDB
     await loadProfile();
@@ -192,7 +188,7 @@ function initTransportAndRejoin(cachedChannels: GossipChannel[]): void {
       // rejoin all cached channels
       for (const ch of cachedChannels) {
         try {
-          console.log(`[gossip-store] rejoining channel "${ch.name}" (${ch.topic_id.slice(0, 16)}...) creator=${ch.creator_node_id.slice(0, 16)}... me=${nodeId.slice(0, 16)}...`);
+          debug("gossip-store", `rejoining channel "${ch.name}" (${ch.topic_id.slice(0, 16)}...) creator=${ch.creator_node_id.slice(0, 16)}... me=${nodeId.slice(0, 16)}...`);
           // if we created it, subscribe (no waiting for peers)
           // otherwise join with creator as bootstrap
           if (ch.creator_node_id === nodeId || ch.creator_node_id === "local") {
@@ -302,6 +298,25 @@ export async function createChannel(
     warn("gossip-store", "failed to subscribe to new channel topic:", e);
   }
 
+  // broadcast channel metadata so peers learn name/description
+  try {
+    await transport.broadcast(channel.topic_id, {
+      msg_type: "ChannelMeta",
+      sender_node_id: nodeId,
+      sender_name: p?.display_name ?? "anonymous",
+      timestamp: now,
+      message_id: generateId(),
+      payload: JSON.stringify({
+        name,
+        description,
+        music_only: musicOnly,
+        creator_node_id: nodeId,
+      }),
+    });
+  } catch {
+    // not critical — peers may not be connected yet
+  }
+
   debug("gossip-store", `created channel: ${name}`);
   return channel;
 }
@@ -340,7 +355,7 @@ export async function joinChannel(
 
   // join the gossip topic with the creator as bootstrap peer
   try {
-    console.log(`[gossip-store] joinChannel: joining topic ${topicId.slice(0, 16)}... with bootstrap peer ${creatorNodeId.slice(0, 16)}...`);
+    debug("gossip-store", `joinChannel: joining topic ${topicId.slice(0, 16)}... with bootstrap peer ${creatorNodeId.slice(0, 16)}...`);
     await transport.joinTopic(topicId, [creatorNodeId]);
   } catch (e) {
     warn("gossip-store", "failed to join channel topic:", e);
@@ -404,7 +419,12 @@ export async function sendMessage(
 ): Promise<void> {
   const tid = activeTopicId();
   if (!tid) return;
-  console.log(`[gossip-store] SEND MESSAGE on ${tid.slice(0, 16)}, text=${text?.slice(0, 30)}, items=${items.length}`);
+
+  // enforce limits
+  if (text && text.length > 1024) text = text.slice(0, 1024);
+  if (items.length > 10) items = items.slice(0, 10);
+
+  debug("gossip-store", `send message on ${tid.slice(0, 16)}, text=${text?.slice(0, 30)}, items=${items.length}`);
 
   const p = profile();
   const now = nowUnix();
@@ -486,13 +506,43 @@ export async function react(targetMessageId: string, emoji: string): Promise<voi
   if (!tid) return;
 
   const p = profile();
+  const senderNodeId = p?.node_id ?? "local";
   const now = nowUnix();
+
+  // check if we already reacted with this emoji on this message (toggle)
+  const existing = (reactionsByTopic[tid] ?? []).find(
+    (r) => r.target_message_id === targetMessageId && r.emoji === emoji && r.sender_node_id === senderNodeId
+  );
+
+  if (existing) {
+    // remove the reaction
+    await db.deleteReaction(existing.message_id);
+    setReactionsByTopic(tid, (reactionsByTopic[tid] ?? []).filter((r) => r.message_id !== existing.message_id));
+
+    // broadcast removal to peers
+    try {
+      await transport.broadcast(tid, {
+        msg_type: "ReactionRemoved",
+        sender_node_id: senderNodeId,
+        sender_name: p?.display_name ?? "anonymous",
+        timestamp: now,
+        message_id: existing.message_id,
+        payload: JSON.stringify({
+          target_message_id: targetMessageId,
+          emoji,
+        }),
+      });
+    } catch {
+      // not critical
+    }
+    return;
+  }
 
   const reaction: GossipReaction = {
     message_id: generateId(),
     topic_id: tid,
     target_message_id: targetMessageId,
-    sender_node_id: p?.node_id ?? "local",
+    sender_node_id: senderNodeId,
     sender_name: p?.display_name ?? null,
     emoji,
     timestamp: now,
@@ -600,17 +650,36 @@ export async function updateFriend(nodeId: string, updates: Partial<GossipFriend
 }
 
 // ============================================================================
+// neighbor events (peer connect / disconnect)
+// ============================================================================
+
+/** called by transport when a peer connects or disconnects on any topic */
+function onNeighborChange(nodeId: string, isUp: boolean): void {
+  const now = nowUnix();
+  const friend = friends().find((f) => f.node_id === nodeId);
+  if (!friend) return;
+
+  const updated = { ...friend, online: isUp, last_seen: isUp ? now : friend.last_seen ?? now };
+  db.putFriend(updated);
+  setFriends((prev) => prev.map((f) => f.node_id === nodeId ? updated : f));
+}
+
+// ============================================================================
 // incoming message handler (for midden / tauri transport)
 // ============================================================================
 
 /** called by transport layer when a validated GossipEnvelope arrives */
 export async function onIncomingMessage(envelope: GossipEnvelope, topicId: string): Promise<void> {
-  console.log(`[gossip-store] INCOMING ${envelope.msg_type} from ${envelope.sender_node_id?.slice(0, 16)} on ${topicId.slice(0, 16)}`);
+  debug("gossip-store", `incoming ${envelope.msg_type} from ${envelope.sender_node_id?.slice(0, 16)} on ${topicId.slice(0, 16)}`);
   const now = nowUnix();
 
   switch (envelope.msg_type) {
-    case "MusicShare":
-    case "ChannelMeta": {
+    case "MusicShare": {
+      // dedup: skip if we already have this message
+      if ((messagesByTopic[topicId] ?? []).some((m) => m.message_id === envelope.message_id)) {
+        debug("gossip-store", `dedup: skipping ${envelope.msg_type} ${envelope.message_id.slice(0, 8)}`);
+        break;
+      }
       const msg: GossipMessage = {
         message_id: envelope.message_id,
         topic_id: topicId,
@@ -645,7 +714,36 @@ export async function onIncomingMessage(envelope: GossipEnvelope, topicId: strin
       break;
     }
 
+    case "ChannelMeta": {
+      // update channel metadata from the broadcast
+      try {
+        const parsed = JSON.parse(envelope.payload);
+        setChannels((prev) =>
+          prev.map((c) =>
+            c.topic_id === topicId
+              ? {
+                  ...c,
+                  name: parsed.name ?? c.name,
+                  description: parsed.description ?? c.description,
+                  music_only: parsed.music_only ?? c.music_only,
+                }
+              : c,
+          ),
+        );
+        const ch = channels().find((c) => c.topic_id === topicId);
+        if (ch) await db.putChannel(ch);
+      } catch {
+        warn("gossip-store", "invalid channel-meta payload", envelope.payload);
+      }
+      break;
+    }
+
     case "Reaction": {
+      // dedup: skip if we already have this reaction
+      if ((reactionsByTopic[topicId] ?? []).some((r) => r.message_id === envelope.message_id)) {
+        debug("gossip-store", `dedup: skipping reaction ${envelope.message_id.slice(0, 8)}`);
+        break;
+      }
       const reaction: GossipReaction = {
         message_id: envelope.message_id,
         topic_id: topicId,
@@ -665,6 +763,17 @@ export async function onIncomingMessage(envelope: GossipEnvelope, topicId: strin
       }
       await db.putReactions([reaction]);
       setReactionsByTopic(topicId, [...(reactionsByTopic[topicId] ?? []), reaction]);
+      break;
+    }
+
+    case "ReactionRemoved": {
+      // remove the reaction identified by message_id (the reaction's own id)
+      const reactionId = envelope.message_id;
+      const existingReaction = (reactionsByTopic[topicId] ?? []).find((r) => r.message_id === reactionId);
+      if (existingReaction) {
+        await db.deleteReaction(reactionId);
+        setReactionsByTopic(topicId, (reactionsByTopic[topicId] ?? []).filter((r) => r.message_id !== reactionId));
+      }
       break;
     }
 
@@ -698,6 +807,21 @@ export async function onIncomingMessage(envelope: GossipEnvelope, topicId: strin
         };
         await db.putMembers(topicId, [member]);
         setMembersByTopic(topicId, [...(membersByTopic[topicId] ?? []), member]);
+
+        // insert a system message so the join shows in the timeline
+        const sysMsg: GossipMessage = {
+          message_id: generateId(),
+          topic_id: topicId,
+          sender_node_id: envelope.sender_node_id,
+          sender_name: envelope.sender_name,
+          msg_type: "System",
+          payload: JSON.stringify({ text: `${member.display_name ?? "someone"} joined the channel` }),
+          timestamp: envelope.timestamp,
+          received_at: now,
+          deleted_at: null,
+        };
+        await db.putMessages([sysMsg]);
+        setMessagesByTopic(topicId, [...(messagesByTopic[topicId] ?? []), sysMsg]);
       } catch {
         warn("gossip-store", "invalid member-added payload", envelope.payload);
       }
@@ -740,3 +864,8 @@ export {
   setProfile,
   setActiveTopicId,
 };
+
+/** raw messages-by-topic store for cross-channel queries (e.g. friend thread view) */
+export function messagesByTopicRaw(): Record<string, GossipMessage[]> {
+  return messagesByTopic;
+}

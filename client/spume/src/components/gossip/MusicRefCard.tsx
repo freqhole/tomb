@@ -1,5 +1,5 @@
 import { createSignal, For, Show, Switch, Match } from "solid-js";
-import type { MusicReference } from "../../../stories/gossip/mockGossipData";
+import type { MusicReference } from "../../gossip/gossipTypes";
 import { MusicIcon, PlayIcon } from "../icons/registry";
 import { AlbumIcon, ArtistIcon, PlaylistIcon, GenreIcon } from "../icons/navigation";
 import { entityColors } from "../../design-system/colors";

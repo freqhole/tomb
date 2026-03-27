@@ -1,7 +1,7 @@
 // gossip view — main gossip page composing sidebar, thread, and dialogs.
 // wires gossipStore actions to the storybook-developed components.
 
-import { createEffect, createSignal, on, onMount, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, on, onMount, Show } from "solid-js";
 import { ChannelSidebar } from "../../components/gossip/ChannelSidebar";
 import { ChannelThread } from "../../components/gossip/ChannelThread";
 import { ComposeBar } from "../../components/gossip/ComposeBar";
@@ -9,6 +9,7 @@ import { CreateChannelDialog } from "../../components/gossip/CreateChannelDialog
 import { JoinChannelDialog } from "../../components/gossip/JoinChannelDialog";
 import { GossipProfileSetup } from "../../components/gossip/GossipProfileSetup";
 import { FriendsList } from "../../components/gossip/FriendsList";
+import { FriendThreadView } from "../../components/gossip/FriendThreadView";
 import * as store from "../gossipStore";
 import { warn } from "../../utils/logger";
 
@@ -21,6 +22,7 @@ export function GossipView() {
   const [profileError, setProfileError] = createSignal<string | undefined>();
   const [copiedNodeId, setCopiedNodeId] = createSignal<string | null>(null);
   const [copiedInvite, setCopiedInvite] = createSignal(false);
+  const [selectedFriend, setSelectedFriend] = createSignal<store.GossipFriend | null>(null);
 
   const currentNodeId = () => store.profile()?.node_id ?? "unknown";
   const needsProfile = () => store.initialized() && !store.profile();
@@ -44,6 +46,7 @@ export function GossipView() {
   // ---- channel actions ----
 
   const handleSelectChannel = (topicId: string) => {
+    setSelectedFriend(null);
     store.selectChannel(topicId);
   };
 
@@ -141,6 +144,36 @@ export function GossipView() {
     store.addFriend(nodeId, member?.display_name ?? undefined);
   };
 
+  const handleSelectFriend = (nodeId: string) => {
+    const f = store.friends().find((fr) => fr.node_id === nodeId);
+    if (f) setSelectedFriend(f);
+  };
+
+  const handleUnfriend = (nodeId: string) => {
+    store.removeFriend(nodeId);
+    if (selectedFriend()?.node_id === nodeId) setSelectedFriend(null);
+  };
+
+  // all messages from the selected friend across all loaded channels
+  const friendMessages = createMemo(() => {
+    const f = selectedFriend();
+    if (!f) return [];
+    const all: any[] = [];
+    for (const ch of store.channels()) {
+      const msgs = store.messagesByTopicRaw()[ch.topic_id] ?? [];
+      for (const m of msgs) {
+        if (m.sender_node_id === f.node_id && !m.deleted_at) all.push(m);
+      }
+    }
+    return all.sort((a, b) => a.timestamp - b.timestamp);
+  });
+
+  const channelsByTopic = createMemo(() => {
+    const map: Record<string, any> = {};
+    for (const ch of store.channels()) map[ch.topic_id] = ch;
+    return map;
+  });
+
   // ---- render ----
 
   return (
@@ -190,6 +223,7 @@ export function GossipView() {
             currentDisplayName={store.profile()?.display_name}
             onCopyNodeId={handleCopyNodeId}
             copiedNodeId={copiedNodeId()}
+            onSelectFriend={handleSelectFriend}
           />
         </div>
       </div>
@@ -197,105 +231,125 @@ export function GossipView() {
       {/* main content */}
       <div class="flex-1 min-w-0 flex flex-col">
         <Show
-          when={store.activeChannel()}
+          when={selectedFriend()}
           fallback={
-            <div class="flex-1 flex items-center justify-center text-[var(--color-text-tertiary)]">
-              <Show
-                when={store.channels().length}
-                fallback={
-                  <div class="text-center">
-                    <p class="text-sm mb-2">no channels yet</p>
-                    <button
-                      class="text-xs text-[var(--color-accent)] hover:underline"
-                      onClick={() => setShowCreateDialog(true)}
-                    >
-                      create one
-                    </button>
-                  </div>
-                }
-              >
-                <p class="text-sm">select a channel</p>
-              </Show>
-            </div>
+            <Show
+              when={store.activeChannel()}
+              fallback={
+                <div class="flex-1 flex items-center justify-center text-[var(--color-text-tertiary)]">
+                  <Show
+                    when={store.channels().length}
+                    fallback={
+                      <div class="text-center">
+                        <p class="text-sm mb-2">no channels yet</p>
+                        <button
+                          class="text-xs text-[var(--color-accent)] hover:underline"
+                          onClick={() => setShowCreateDialog(true)}
+                        >
+                          create one
+                        </button>
+                      </div>
+                    }
+                  >
+                    <p class="text-sm">select a channel</p>
+                  </Show>
+                </div>
+              }
+            >
+              {(channel) => (
+                <>
+                  <ChannelThread
+                    channel={channel() as any}
+                    messages={store.activeMessages() as any}
+                    members={store.activeMembers() as any}
+                    currentNodeId={currentNodeId()}
+                    loading={store.loadingChannel()}
+                    loadingMore={false}
+                    onReact={handleReact}
+                    onDelete={handleDelete}
+                    onLoadMore={handleLoadMore}
+                    onLeaveChannel={handleLeaveChannel}
+                    onCopyInvite={handleCopyInvite}
+                    copyInviteLabel={copiedInvite() ? "copied!" : "copy invite"}
+                    friendNodeIds={friendNodeIds()}
+                    onAddFriend={handleAddFriend}
+                    onBack={() => setShowSidebar(true)}
+                  />
+                  {/* connection status bar */}
+                  <Show when={store.initialized()}>
+                    <div class="flex items-center gap-3 px-4 py-1.5 text-[10px] text-[var(--color-text-tertiary)] flex-shrink-0">
+                      {/* node status */}
+                      <div class="flex items-center gap-1.5">
+                        <div
+                          class="w-1.5 h-1.5 rounded-full"
+                          classList={{
+                            "bg-green-500": store.nodeStatus().status === "online",
+                            "bg-yellow-500 animate-pulse": store.nodeStatus().status === "connecting",
+                            "bg-red-500": store.nodeStatus().status === "error",
+                            "bg-[var(--color-text-tertiary)]/30": store.nodeStatus().status === "idle",
+                          }}
+                        />
+                        <span>
+                          {store.nodeStatus().status === "online"
+                            ? "p2p online"
+                            : store.nodeStatus().status === "connecting"
+                              ? "connecting..."
+                              : store.nodeStatus().status === "error"
+                                ? `error: ${store.nodeStatus().error?.slice(0, 50)}`
+                                : "p2p idle"}
+                        </span>
+                      </div>
+
+                      {/* topic status */}
+                      <Show when={store.activeTopicId()}>
+                        <span class="text-[var(--color-text-tertiary)]/40">|</span>
+                        <div class="flex items-center gap-1.5">
+                          <span>
+                            {store.activeTopicStatus() === "connected"
+                              ? `${store.activeTopicPeerCount()} ${store.activeTopicPeerCount() === 1 ? "peer" : "peers"}`
+                              : store.activeTopicStatus() === "waiting_for_peers"
+                                ? "waiting for peers..."
+                                : store.activeTopicStatus() === "subscribing"
+                                  ? "subscribing..."
+                                  : store.activeTopicStatus() === "error"
+                                    ? "topic error"
+                                    : "not subscribed"}
+                          </span>
+                        </div>
+                        <span class="text-[var(--color-text-tertiary)]/40">|</span>
+                        <span>{store.subscribedTopicCount()} topics active</span>
+                      </Show>
+                    </div>
+                  </Show>
+                  <ComposeBar
+                    onSend={(text, attachments) => handleSend(text, attachments)}
+                    placeholder={
+                      channel().music_only
+                        ? `share music in ${channel().name}...`
+                        : `share in ${channel().name}...`
+                    }
+                    allowText={!channel().music_only}
+                  />
+                </>
+              )}
+            </Show>
           }
         >
-          {(channel) => (
-            <>
-              <ChannelThread
-                channel={channel() as any}
-                messages={store.activeMessages() as any}
-                members={store.activeMembers() as any}
-                currentNodeId={currentNodeId()}
-                loading={store.loadingChannel()}
-                loadingMore={false}
-                onReact={handleReact}
-                onDelete={handleDelete}
-                onLoadMore={handleLoadMore}
-                onLeaveChannel={handleLeaveChannel}
-                onCopyInvite={handleCopyInvite}
-                copyInviteLabel={copiedInvite() ? "copied!" : "copy invite"}
-                friendNodeIds={friendNodeIds()}
-                onAddFriend={handleAddFriend}
-                onBack={() => setShowSidebar(true)}
-              />
-              <ComposeBar
-                onSend={(text, attachments) => handleSend(text, attachments)}
-                placeholder={
-                  channel().music_only
-                    ? `share music in ${channel().name}...`
-                    : `share in ${channel().name}...`
-                }
-                allowText={!channel().music_only}
-              />
-            </>
+          {(friend) => (
+            <FriendThreadView
+              friend={friend() as any}
+              messages={friendMessages() as any}
+              channelsByTopic={channelsByTopic()}
+              currentNodeId={currentNodeId()}
+              onReact={handleReact}
+              onDelete={handleDelete}
+              onUnfriend={handleUnfriend}
+              onBack={() => {
+                setSelectedFriend(null);
+                setShowSidebar(true);
+              }}
+            />
           )}
-        </Show>
-
-        {/* connection status bar */}
-        <Show when={store.initialized()}>
-          <div class="flex items-center gap-3 px-4 py-1.5 text-[10px] text-[var(--color-text-tertiary)] flex-shrink-0">
-            {/* node status */}
-            <div class="flex items-center gap-1.5">
-              <div
-                class="w-1.5 h-1.5 rounded-full"
-                classList={{
-                  "bg-green-500": store.nodeStatus().status === "online",
-                  "bg-yellow-500 animate-pulse": store.nodeStatus().status === "connecting",
-                  "bg-red-500": store.nodeStatus().status === "error",
-                  "bg-[var(--color-text-tertiary)]/30": store.nodeStatus().status === "idle",
-                }}
-              />
-              <span>
-                {store.nodeStatus().status === "online"
-                  ? "p2p online"
-                  : store.nodeStatus().status === "connecting"
-                    ? "connecting..."
-                    : store.nodeStatus().status === "error"
-                      ? `error: ${store.nodeStatus().error?.slice(0, 50)}`
-                      : "p2p idle"}
-              </span>
-            </div>
-
-            {/* topic status — only when viewing a channel */}
-            <Show when={store.activeTopicId()}>
-              <span class="text-[var(--color-text-tertiary)]/40">|</span>
-              <div class="flex items-center gap-1.5">
-                <span>
-                  {store.activeTopicStatus() === "connected"
-                    ? `${store.activeTopicPeerCount()} ${store.activeTopicPeerCount() === 1 ? "peer" : "peers"}`
-                    : store.activeTopicStatus() === "waiting_for_peers"
-                      ? "waiting for peers..."
-                      : store.activeTopicStatus() === "subscribing"
-                        ? "subscribing..."
-                        : store.activeTopicStatus() === "error"
-                          ? "topic error"
-                          : "not subscribed"}
-                </span>
-              </div>
-              <span class="text-[var(--color-text-tertiary)]/40">|</span>
-              <span>{store.subscribedTopicCount()} topics active</span>
-            </Show>
-          </div>
         </Show>
       </div>
 

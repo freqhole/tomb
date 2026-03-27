@@ -3,7 +3,7 @@ import type {
   GossipMessage,
   GossipReaction,
   MusicReference,
-} from "../../../stories/gossip/mockGossipData";
+} from "../../gossip/gossipTypes";
 import { formatRelativeTime, formatDateTime } from "../../utils/dateTime";
 import { MusicRefCard } from "./MusicRefCard";
 

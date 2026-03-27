@@ -1,5 +1,5 @@
 import { createSignal, For, Show } from "solid-js";
-import type { GossipFriend, FriendRequest } from "../../../stories/gossip/mockGossipData";
+import type { GossipFriend, FriendRequest } from "../../gossip/gossipTypes";
 import { formatRelativeTime } from "../../utils/dateTime";
 
 export interface FriendsListProps {
