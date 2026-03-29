@@ -36,6 +36,7 @@ pub enum GossipMessageType {
     SyncRequest,
     SyncResponse,
     ReadReceipt,
+    Heartbeat,
 }
 
 impl std::fmt::Display for GossipMessageType {
@@ -55,6 +56,7 @@ impl std::fmt::Display for GossipMessageType {
             Self::SyncRequest => write!(f, "sync_request"),
             Self::SyncResponse => write!(f, "sync_response"),
             Self::ReadReceipt => write!(f, "read_receipt"),
+            Self::Heartbeat => write!(f, "heartbeat"),
         }
     }
 }
@@ -77,6 +79,7 @@ impl std::str::FromStr for GossipMessageType {
             "sync_request" => Ok(Self::SyncRequest),
             "sync_response" => Ok(Self::SyncResponse),
             "read_receipt" => Ok(Self::ReadReceipt),
+            "heartbeat" => Ok(Self::Heartbeat),
             _ => Err(format!("unknown gossip message type: {}", s)),
         }
     }
@@ -237,4 +240,11 @@ pub struct ReadReceiptPayload {
     pub latest_message_id: String,
     /// timestamp of the latest message the sender has seen
     pub latest_timestamp: i64,
+}
+
+/// heartbeat — lightweight presence ping broadcast to topics for online/offline detection
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct HeartbeatPayload {
+    /// unix timestamp when this node came online (stable within a session)
+    pub online_since: i64,
 }

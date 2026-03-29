@@ -1231,7 +1231,7 @@ export const GossipChannelMemberSchema = z.object({
 export type GossipChannelMember = z.infer<typeof GossipChannelMemberSchema>;
 
 export const GossipEnvelopeSchema = z.object({
-  msg_type: z.union([z.literal('ChannelMeta'), z.literal('ChannelDestroyed'), z.literal('MusicShare'), z.literal('Reaction'), z.literal('ReactionRemoved'), z.literal('MessageDeleted'), z.literal('MemberAdded'), z.literal('MemberRemoved'), z.literal('Knock'), z.literal('KnockResponse'), z.literal('ProfileUpdate')]),
+  msg_type: z.union([z.literal('ChannelMeta'), z.literal('ChannelDestroyed'), z.literal('MusicShare'), z.literal('Reaction'), z.literal('ReactionRemoved'), z.literal('MessageDeleted'), z.literal('MemberAdded'), z.literal('MemberRemoved'), z.literal('Knock'), z.literal('KnockResponse'), z.literal('ProfileUpdate'), z.literal('SyncRequest'), z.literal('SyncResponse'), z.literal('ReadReceipt'), z.literal('Heartbeat')]),
   sender_node_id: z.string(),
   sender_name: z.string(),
   timestamp: z.number(),
@@ -1265,7 +1265,7 @@ export const GossipMessageSchema = z.object({
 });
 export type GossipMessage = z.infer<typeof GossipMessageSchema>;
 
-export const GossipMessageTypeSchema = z.union([z.literal('ChannelMeta'), z.literal('ChannelDestroyed'), z.literal('MusicShare'), z.literal('Reaction'), z.literal('ReactionRemoved'), z.literal('MessageDeleted'), z.literal('MemberAdded'), z.literal('MemberRemoved'), z.literal('Knock'), z.literal('KnockResponse'), z.literal('ProfileUpdate')]);
+export const GossipMessageTypeSchema = z.union([z.literal('ChannelMeta'), z.literal('ChannelDestroyed'), z.literal('MusicShare'), z.literal('Reaction'), z.literal('ReactionRemoved'), z.literal('MessageDeleted'), z.literal('MemberAdded'), z.literal('MemberRemoved'), z.literal('Knock'), z.literal('KnockResponse'), z.literal('ProfileUpdate'), z.literal('SyncRequest'), z.literal('SyncResponse'), z.literal('ReadReceipt'), z.literal('Heartbeat')]);
 export type GossipMessageType = z.infer<typeof GossipMessageTypeSchema>;
 
 export const GossipProfileSchema = z.object({
@@ -1292,6 +1292,11 @@ export const HealthResponseSchema = z.object({
   database: z.string()
 });
 export type HealthResponse = z.infer<typeof HealthResponseSchema>;
+
+export const HeartbeatPayloadSchema = z.object({
+  online_since: z.number()
+});
+export type HeartbeatPayload = z.infer<typeof HeartbeatPayloadSchema>;
 
 export const ImageUploadResponseSchema = z.object({
   blob_id: z.string(),
@@ -2239,6 +2244,12 @@ export const ReactionPayloadSchema = z.object({
 });
 export type ReactionPayload = z.infer<typeof ReactionPayloadSchema>;
 
+export const ReadReceiptPayloadSchema = z.object({
+  latest_message_id: z.string(),
+  latest_timestamp: z.number()
+});
+export type ReadReceiptPayload = z.infer<typeof ReadReceiptPayloadSchema>;
+
 export const RecentSongsRequestSchema = z.object({
   limit: z.number().nullable()
 });
@@ -2930,6 +2941,20 @@ export const SyncPlaylistResponseSchema = z.object({
   songs_missing: z.number()
 });
 export type SyncPlaylistResponse = z.infer<typeof SyncPlaylistResponseSchema>;
+
+export const SyncRequestPayloadSchema = z.object({
+  since: z.number(),
+  limit: z.number().nullable(),
+  before: z.number().nullable(),
+  to: z.string().nullable()
+});
+export type SyncRequestPayload = z.infer<typeof SyncRequestPayloadSchema>;
+
+export const SyncResponsePayloadSchema = z.object({
+  messages: z.array(z.string()),
+  has_more: z.boolean()
+});
+export type SyncResponsePayload = z.infer<typeof SyncResponsePayloadSchema>;
 
 export const SyncSongRequestSchema = z.object({
   sha256: z.string(),

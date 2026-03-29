@@ -364,11 +364,12 @@ impl GossipService {
                 }
             }
 
-            // sync and read receipt messages are handled by the transport layer,
+            // sync, read receipt, and heartbeat messages are handled by the transport layer,
             // not persisted as regular messages
             GossipMessageType::SyncRequest
             | GossipMessageType::SyncResponse
-            | GossipMessageType::ReadReceipt => {}
+            | GossipMessageType::ReadReceipt
+            | GossipMessageType::Heartbeat => {}
         }
 
         Ok(())

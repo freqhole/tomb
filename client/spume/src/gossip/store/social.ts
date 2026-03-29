@@ -216,7 +216,7 @@ export async function onNeighborChange(topicId: string, nodeId: string, isUp: bo
 
       if (latestTs > 0) {
         await transport.broadcast(topicId, {
-          msg_type: "SyncRequest" as any,
+          msg_type: "SyncRequest",
           sender_node_id: myId,
           sender_name: p2?.display_name ?? "anonymous",
           timestamp: now,

@@ -28,11 +28,18 @@ import {
   setFriends,
   setStatusTick,
   batch, reconcile,
+  generateId,
+  nowUnix,
+  stringifyPayload,
 } from "./state";
 import { onIncomingMessage } from "./messages";
 import { loadProfile } from "./social";
 import { onNeighborChange } from "./social";
 import { debug, info, warn } from "../../utils/logger";
+
+// module-level state for heartbeat interval
+let heartbeatInterval: ReturnType<typeof setInterval> | null = null;
+const heartbeatOnlineSince = Math.floor(Date.now() / 1000);
 
 // ============================================================================
 // re-export everything from sub-modules so consumers use a single import
@@ -111,6 +118,11 @@ export async function init(): Promise<void> {
     transport.setOnStatusChange(() => setStatusTick((n) => n + 1));
     transport.setOnNeighborChange(onNeighborChange);
 
+    // broadcast MemberRemoved to all topics on page unload (best-effort)
+    if (typeof window !== "undefined") {
+      window.addEventListener("beforeunload", broadcastPresenceLeave);
+    }
+
     // load profile from IndexedDB
     await loadProfile();
 
@@ -173,6 +185,51 @@ function initTransportAndRejoin(cachedChannels: GossipChannel[]): void {
       if (cachedChannels.length > 0) {
         info("gossip-store", `rejoined ${cachedChannels.length} channels`);
       }
+
+      // re-announce presence on all topics so peers know we're back
+      const p2 = profile();
+      const displayName = p2?.display_name ?? "anonymous";
+      for (const ch of cachedChannels) {
+        try {
+          await transport.broadcast(ch.topic_id, {
+            msg_type: "MemberAdded",
+            sender_node_id: nodeId,
+            sender_name: displayName,
+            timestamp: Math.floor(Date.now() / 1000),
+            message_id: crypto.randomUUID(),
+            payload: JSON.stringify({
+              node_id: nodeId,
+              display_name: displayName,
+              role: ch.creator_node_id === nodeId ? "creator" : "member",
+            }),
+          });
+        } catch {
+          // not critical — peers will learn via neighbor events
+        }
+      }
+
+      // start heartbeat: broadcast presence to all topics every 60s
+      if (heartbeatInterval) clearInterval(heartbeatInterval);
+      heartbeatInterval = setInterval(async () => {
+        const p3 = profile();
+        const hbNodeId = p3?.node_id ?? "local";
+        if (hbNodeId === "local") return;
+        const topicIds = transport.getSubscribedTopicIds();
+        for (const tid of topicIds) {
+          try {
+            await transport.broadcast(tid, {
+              msg_type: "Heartbeat",
+              sender_node_id: hbNodeId,
+              sender_name: p3?.display_name ?? "anonymous",
+              timestamp: Math.floor(Date.now() / 1000),
+              message_id: crypto.randomUUID(),
+              payload: JSON.stringify({ online_since: heartbeatOnlineSince }),
+            });
+          } catch {
+            // best-effort
+          }
+        }
+      }, 60_000);
     } catch (e) {
       warn("gossip-store", "midden init / rejoin failed:", e);
     }
@@ -180,7 +237,17 @@ function initTransportAndRejoin(cachedChannels: GossipChannel[]): void {
 }
 
 export async function teardown(): Promise<void> {
+  // stop heartbeat
+  if (heartbeatInterval) {
+    clearInterval(heartbeatInterval);
+    heartbeatInterval = null;
+  }
+  // broadcast MemberRemoved to all topics before disconnecting
+  await broadcastPresenceLeave();
   transport.leaveAll();
+  if (typeof window !== "undefined") {
+    window.removeEventListener("beforeunload", broadcastPresenceLeave);
+  }
   batch(() => {
     setChannels([]);
     setActiveTopicId(null);
@@ -192,4 +259,35 @@ export async function teardown(): Promise<void> {
     setProfile(null);
   });
   await db.clearAllGossipData();
+}
+
+// ============================================================================
+// graceful close — broadcast MemberRemoved to all subscribed topics
+// ============================================================================
+
+async function broadcastPresenceLeave(): Promise<void> {
+  const p = profile();
+  const nodeId = p?.node_id ?? "local";
+  if (nodeId === "local") return;
+  const displayName = p?.display_name ?? "anonymous";
+
+  const topicIds = transport.getSubscribedTopicIds();
+  for (const topicId of topicIds) {
+    try {
+      await transport.broadcast(topicId, {
+        msg_type: "MemberRemoved",
+        sender_node_id: nodeId,
+        sender_name: displayName,
+        timestamp: nowUnix(),
+        message_id: generateId(),
+        payload: stringifyPayload("MemberRemoved", {
+          node_id: nodeId,
+          display_name: displayName,
+          role: null,
+        }),
+      });
+    } catch {
+      // best-effort — we're leaving anyway
+    }
+  }
 }

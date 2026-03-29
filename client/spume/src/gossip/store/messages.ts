@@ -239,19 +239,19 @@ async function _sendReadReceiptNow(): Promise<void> {
   const myMember = (membersByTopic[tid] ?? []).find((m) => m.node_id === myNodeId);
   if ((myMember as any)?.last_read_message_id === latest.message_id) return;
 
-  // update our own member record locally
+  // update our own member record locally + persist to IDB
   const members = membersByTopic[tid] ?? [];
   const idx = members.findIndex((m) => m.node_id === myNodeId);
   if (idx >= 0) {
-    const updated = members.map((m, i) =>
-      i === idx ? { ...m, last_read_message_id: latest.message_id, last_read_at: latest.timestamp } : m,
-    );
+    const updatedMember = { ...members[idx], last_read_message_id: latest.message_id, last_read_at: latest.timestamp };
+    const updated = members.map((m, i) => i === idx ? updatedMember : m);
     setMembersByTopic(tid, updated);
+    await db.putMembers(tid, [updatedMember]);
   }
 
   try {
     await transport.broadcast(tid, {
-      msg_type: "ReadReceipt" as GossipEnvelope["msg_type"],
+      msg_type: "ReadReceipt",
       sender_node_id: myNodeId,
       sender_name: p?.display_name ?? "anonymous",
       timestamp: nowUnix(),
@@ -271,14 +271,26 @@ async function _sendReadReceiptNow(): Promise<void> {
 // incoming message handler (called by transport layer)
 // ============================================================================
 
+/** convert a raw envelope into a GossipMessage for IDB storage (sync-only, not displayed) */
+function envelopeToSyncMsg(envelope: GossipEnvelope, topicId: string, now: number): GossipMessage {
+  return {
+    message_id: envelope.message_id,
+    topic_id: topicId,
+    sender_node_id: envelope.sender_node_id,
+    sender_name: envelope.sender_name,
+    msg_type: envelope.msg_type,
+    payload: envelope.payload,
+    timestamp: envelope.timestamp,
+    received_at: now,
+    deleted_at: null,
+  };
+}
+
 export async function onIncomingMessage(envelope: GossipEnvelope, topicId: string): Promise<void> {
   debug("gossip-store", `incoming ${envelope.msg_type} from ${envelope.sender_node_id?.slice(0, 16)} on ${topicId.slice(0, 16)}`);
   const now = nowUnix();
 
-  // widen msg_type — codegen hasn't been regenerated with new sync types yet
-  const msgType = envelope.msg_type as string;
-
-  switch (msgType) {
+  switch (envelope.msg_type) {
     case "MusicShare": {
       if ((messagesByTopic[topicId] ?? []).some((m) => m.message_id === envelope.message_id)) {
         debug("gossip-store", `dedup: skipping ${envelope.msg_type} ${envelope.message_id.slice(0, 8)}`);
@@ -347,6 +359,8 @@ export async function onIncomingMessage(envelope: GossipEnvelope, topicId: strin
         const ch = channels().find((c) => c.topic_id === topicId);
         if (ch) await db.putChannel(ch);
       }
+      // store envelope in IDB for sync (not displayed)
+      await db.putMessages([envelopeToSyncMsg(envelope, topicId, now)]);
       break;
     }
 
@@ -354,6 +368,11 @@ export async function onIncomingMessage(envelope: GossipEnvelope, topicId: strin
       const ch = channels().find((c) => c.topic_id === topicId);
       if (!ch || ch.creator_node_id !== envelope.sender_node_id) {
         warn("gossip-store", `ignoring ChannelDestroyed from non-creator ${envelope.sender_node_id.slice(0, 16)}`);
+        break;
+      }
+      // idempotent: skip if already destroyed (e.g. received via sync)
+      if (ch.destroyed_at) {
+        debug("gossip-store", `channel already destroyed, skipping duplicate ChannelDestroyed`);
         break;
       }
 
@@ -370,7 +389,7 @@ export async function onIncomingMessage(envelope: GossipEnvelope, topicId: strin
       }
 
       const sysMsg: GossipMessage = {
-        message_id: generateId(),
+        message_id: `sys-${envelope.message_id}`,
         topic_id: topicId,
         sender_node_id: envelope.sender_node_id,
         sender_name: envelope.sender_name,
@@ -386,6 +405,8 @@ export async function onIncomingMessage(envelope: GossipEnvelope, topicId: strin
       };
       await db.putMessages([sysMsg]);
       setMessagesByTopic(topicId, [...(messagesByTopic[topicId] ?? []), sysMsg]);
+      // store envelope in IDB for sync (not displayed)
+      await db.putMessages([envelopeToSyncMsg(envelope, topicId, now)]);
       break;
     }
 
@@ -435,6 +456,10 @@ export async function onIncomingMessage(envelope: GossipEnvelope, topicId: strin
       }
       const targetId = delResult.data.target_message_id;
       const targetMsg = (messagesByTopic[topicId] ?? []).find((m) => m.message_id === targetId);
+
+      // store envelope in IDB for sync even if target not found in-memory
+      await db.putMessages([envelopeToSyncMsg(envelope, topicId, now)]);
+
       if (!targetMsg) break;
 
       // only the original sender or the channel creator can delete a message
@@ -490,7 +515,7 @@ export async function onIncomingMessage(envelope: GossipEnvelope, topicId: strin
         setMembersByTopic(topicId, [...existing, member]);
 
         const sysMsg: GossipMessage = {
-          message_id: generateId(),
+          message_id: `sys-${envelope.message_id}`,
           topic_id: topicId,
           sender_node_id: envelope.sender_node_id,
           sender_name: envelope.sender_name,
@@ -502,6 +527,9 @@ export async function onIncomingMessage(envelope: GossipEnvelope, topicId: strin
         };
         await db.putMessages([sysMsg]);
         setMessagesByTopic(topicId, [...(messagesByTopic[topicId] ?? []), sysMsg]);
+
+        // store envelope in IDB for sync (not displayed)
+        await db.putMessages([envelopeToSyncMsg(envelope, topicId, now)]);
 
         // if we are the creator, broadcast authoritative ChannelMeta so the joiner gets latest state
         const metaProfile = profile();
@@ -585,9 +613,14 @@ export async function onIncomingMessage(envelope: GossipEnvelope, topicId: strin
         setMembersByTopic(topicId, currentMembers.filter((m) => m.node_id !== removedNodeId));
       }
 
-      // show system message
+      // store envelope in IDB for sync (not displayed)
+      await db.putMessages([envelopeToSyncMsg(envelope, topicId, now)]);
+
+      // show system message (deterministic ID for dedup)
+      const leftMsgId = `sys-${envelope.message_id}`;
+      if ((messagesByTopic[topicId] ?? []).some((m) => m.message_id === leftMsgId)) break;
       const leftMsg: GossipMessage = {
-        message_id: generateId(),
+        message_id: leftMsgId,
         topic_id: topicId,
         sender_node_id: envelope.sender_node_id,
         sender_name: envelope.sender_name,
@@ -619,10 +652,16 @@ export async function onIncomingMessage(envelope: GossipEnvelope, topicId: strin
         break;
       }
 
-      // query our local messages since the requested timestamp (with 30s overlap for clock skew)
-      const sinceSafe = Math.max(0, reqPayload.since - 30);
       const limit = Math.min(reqPayload.limit ?? 50, 100);
-      const localMsgs = await db.getMessagesByTopicSince(topicId, sinceSafe, limit);
+      let localMsgs: any[];
+      if (reqPayload.before) {
+        // backward pagination: get messages before this timestamp
+        localMsgs = await db.getMessagesByTopicBefore(topicId, reqPayload.before, limit);
+      } else {
+        // forward: get messages since the requested timestamp (with 30s overlap for clock skew)
+        const sinceSafe = Math.max(0, reqPayload.since - 30);
+        localMsgs = await db.getMessagesByTopicSince(topicId, sinceSafe, limit);
+      }
 
       // filter out system messages and build envelope strings for response
       const envelopes: string[] = localMsgs
@@ -640,7 +679,7 @@ export async function onIncomingMessage(envelope: GossipEnvelope, topicId: strin
         const p = profile();
         try {
           await transport.broadcast(topicId, {
-            msg_type: "SyncResponse" as GossipEnvelope["msg_type"],
+            msg_type: "SyncResponse",
             sender_node_id: p?.node_id ?? "local",
             sender_name: p?.display_name ?? "anonymous",
             timestamp: nowUnix(),
@@ -667,16 +706,41 @@ export async function onIncomingMessage(envelope: GossipEnvelope, topicId: strin
 
       debug("gossip-store", `received SyncResponse with ${respPayload.messages.length} messages (has_more=${respPayload.has_more})`);
 
+      let oldestTimestamp = Infinity;
       for (const envStr of respPayload.messages) {
         const parsed = safeJsonParse(envStr);
         if (!parsed || typeof parsed !== "object") continue;
 
         // feed each envelope back through onIncomingMessage for dedup + storage
-        // cast to GossipEnvelope — the handler will validate individual fields
         const syncEnv = parsed as GossipEnvelope;
         if (!syncEnv.msg_type || !syncEnv.message_id) continue;
 
+        if (syncEnv.timestamp < oldestTimestamp) oldestTimestamp = syncEnv.timestamp;
         await onIncomingMessage(syncEnv, topicId);
+      }
+
+      // if more messages exist, send a follow-up SyncRequest for the next page
+      if (respPayload.has_more && oldestTimestamp < Infinity) {
+        const p = profile();
+        const myId = p?.node_id ?? "local";
+        try {
+          await transport.broadcast(topicId, {
+            msg_type: "SyncRequest",
+            sender_node_id: myId,
+            sender_name: p?.display_name ?? "anonymous",
+            timestamp: nowUnix(),
+            message_id: generateId(),
+            payload: stringifyPayload("SyncRequest", {
+              since: 0,
+              before: oldestTimestamp,
+              limit: 50,
+              to: envelope.sender_node_id, // ask the same peer for the next page
+            }),
+          });
+          debug("gossip-store", `sent follow-up SyncRequest (before=${oldestTimestamp}) to ${envelope.sender_node_id.slice(0, 16)}`);
+        } catch {
+          warn("gossip-store", "follow-up SyncRequest failed");
+        }
       }
       break;
     }
@@ -690,14 +754,32 @@ export async function onIncomingMessage(envelope: GossipEnvelope, topicId: strin
 
       debug("gossip-store", `ReadReceipt from ${envelope.sender_node_id.slice(0, 16)}: ${receiptPayload.latest_message_id.slice(0, 8)} @ ${receiptPayload.latest_timestamp}`);
 
-      // update the member's last-read position in our member list
+      // update the member's last-read position in our member list + persist to IDB
       const members = membersByTopic[topicId] ?? [];
       const memberIdx = members.findIndex((m) => m.node_id === envelope.sender_node_id);
       if (memberIdx >= 0) {
-        const updated = members.map((m, i) =>
-          i === memberIdx ? { ...m, last_read_message_id: receiptPayload.latest_message_id, last_read_at: receiptPayload.latest_timestamp } : m,
-        );
+        const updatedMember = { ...members[memberIdx], last_read_message_id: receiptPayload.latest_message_id, last_read_at: receiptPayload.latest_timestamp };
+        const updated = members.map((m, i) => i === memberIdx ? updatedMember : m);
         setMembersByTopic(topicId, updated);
+        await db.putMembers(topicId, [updatedMember]);
+      }
+      break;
+    }
+
+    case "Heartbeat": {
+      // peer is announcing they're still online
+      const hbPayload = safeJsonParse(envelope.payload) as { online_since?: number } | undefined;
+      const hbMembers = membersByTopic[topicId] ?? [];
+      const hbIdx = hbMembers.findIndex((m) => m.node_id === envelope.sender_node_id);
+      if (hbIdx >= 0) {
+        const updatedMember = {
+          ...hbMembers[hbIdx],
+          last_heartbeat: envelope.timestamp,
+          online_since: hbPayload?.online_since ?? null,
+        };
+        const updated = hbMembers.map((m, i) => i === hbIdx ? updatedMember : m);
+        setMembersByTopic(topicId, updated);
+        await db.putMembers(topicId, [updatedMember]);
       }
       break;
     }

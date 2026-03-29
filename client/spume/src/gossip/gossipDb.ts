@@ -164,6 +164,25 @@ export async function getMessagesByTopicSince(topicId: string, since: number, li
   return results;
 }
 
+/** get messages for a topic before a given timestamp (for backward sync pagination) */
+export async function getMessagesByTopicBefore(topicId: string, before: number, limit = 50): Promise<any[]> {
+  const d = await db();
+  const tx = d.transaction(STORE_MESSAGES, "readonly");
+  const idx = tx.store.index("by_topic_ts");
+  // IDBKeyRange for [topicId, 0] to [topicId, before) — exclusive upper bound
+  const range = IDBKeyRange.bound([topicId, 0], [topicId, before], false, true);
+  const results: any[] = [];
+  // walk backward from the end to get the most recent messages before the cutoff
+  let cursor = await idx.openCursor(range, "prev");
+  while (cursor && results.length < limit) {
+    results.push(cursor.value);
+    cursor = await cursor.continue();
+  }
+  // reverse so they're in chronological order
+  results.reverse();
+  return results;
+}
+
 /** mark messages as delivered */
 export async function markMessagesDelivered(messageIds: string[]): Promise<void> {
   if (!messageIds.length) return;
