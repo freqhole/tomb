@@ -18,7 +18,18 @@ import type {
 export type { ApiGossipReaction as GossipReaction };
 export type { ApiGossipProfile as GossipProfile };
 export type { ApiGossipEnvelope as GossipEnvelope };
-export type { ApiGossipChannelMember as GossipChannelMember };
+
+/** extends generated GossipChannelMember with client-side tracking fields */
+export type GossipChannelMember = ApiGossipChannelMember & {
+  /** message_id of the last message this member has read (from ReadReceipt) */
+  last_read_message_id?: string;
+  /** timestamp of the last read receipt */
+  last_read_at?: number;
+  /** last heartbeat timestamp from this member */
+  last_heartbeat?: number;
+  /** unix timestamp when this member came online (from Heartbeat payload) */
+  online_since?: number | null;
+};
 
 /** extends generated GossipMessage with client-side fields */
 export type GossipMessage = ApiGossipMessage & {

@@ -4,9 +4,9 @@ import * as db from "../gossipDb";
 import * as transport from "../gossipTransport";
 import type {
   GossipChannel,
-  GossipChannelMember,
   GossipMessage,
 } from "freqhole-api-client";
+import type { GossipChannelMember } from "../gossipTypes";
 import {
   channels, setChannels,
   activeTopicId, setActiveTopicId,
@@ -36,18 +36,23 @@ export async function selectChannel(topicId: string): Promise<void> {
 
   try {
     const members = await db.getMembersByTopic(topicId);
-    setMembersByTopic(topicId, members as GossipChannelMember[]);
+    setMembersByTopic(topicId, members);
 
     if (!alreadyActive) {
       setLoadingChannel(true);
-      const messages = await db.getMessagesByTopic(topicId);
+      const allMessages = await db.getMessagesByTopic(topicId);
       const reactions = await db.getReactionsByTopic(topicId);
-      messages.sort((a: any, b: any) => a.timestamp - b.timestamp);
+      // only load displayable types — ChannelMeta, MessageDeleted, etc. are
+      // stored in the messages table for sync but aren't user-visible content
+      const DISPLAYABLE_TYPES = new Set(["MusicShare", "System"]);
+      const messages = allMessages
+        .filter((m) => DISPLAYABLE_TYPES.has(m.msg_type))
+        .sort((a, b) => a.timestamp - b.timestamp);
       info("gossip-store", `selectChannel ${topicId.slice(0, 16)}: loaded ${messages.length} messages, ${reactions.length} reactions from IDB`);
 
       batch(() => {
         setMessagesByTopic(topicId, messages as GossipMessage[]);
-        setReactionsByTopic(topicId, reactions as any[]);
+        setReactionsByTopic(topicId, reactions);
       });
     }
   } catch (e) {

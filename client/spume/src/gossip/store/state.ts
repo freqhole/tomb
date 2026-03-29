@@ -8,11 +8,11 @@ import { createStore, reconcile } from "solid-js/store";
 import * as transport from "../gossipTransport";
 import type {
   GossipChannel,
-  GossipChannelMember,
   GossipMessage,
   GossipReaction,
   GossipProfile,
 } from "freqhole-api-client";
+import type { GossipChannelMember } from "../gossipTypes";
 import { schema } from "freqhole-api-client";
 import { MusicSharePayloadSchema } from "freqhole-api-client";
 import type { GossipFriend } from "../gossipTypes";

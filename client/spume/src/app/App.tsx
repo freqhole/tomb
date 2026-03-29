@@ -119,6 +119,14 @@ export function App() {
       setAddRemoteInitialValue(remoteParam);
       setIsAddRemoteOpen(true);
     }
+
+    // check for ?g= query param (gossip channel invite)
+    // navigate to gossip view which will pick up the param
+    const gossipParam = params.get("g");
+    if (gossipParam) {
+      debug("App", "found ?g= param, navigating to gossip view");
+      window.location.hash = "#/gossip";
+    }
   });
 
   // global keyboard shortcuts

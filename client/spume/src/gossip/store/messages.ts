@@ -3,12 +3,12 @@
 import * as db from "../gossipDb";
 import * as transport from "../gossipTransport";
 import type {
-  GossipChannelMember,
   GossipMessage,
   GossipReaction,
   GossipProfile,
   GossipEnvelope,
 } from "freqhole-api-client";
+import type { GossipChannelMember } from "../gossipTypes";
 import { schema } from "freqhole-api-client";
 import {
   channels, setChannels,
@@ -55,14 +55,15 @@ export async function sendMessage(
   };
 
   // persist with delivered=0 (will be marked delivered on successful broadcast)
-  const msgWithDelivered = { ...msg, delivered: 0 };
+  const msgWithDelivered: db.StoredMessage = { ...msg, delivered: 0 };
   try {
     await db.putMessages([msgWithDelivered]);
     info("gossip-store", `persisted message ${msg.message_id.slice(0, 8)} to IDB`);
   } catch (e) {
     console.error("[gossip-store] IDB putMessages failed:", e);
   }
-  setMessagesByTopic(tid, [...(messagesByTopic[tid] ?? []), msg]);
+  // use msgWithDelivered so in-memory and IDB stay consistent
+  setMessagesByTopic(tid, [...(messagesByTopic[tid] ?? []), msgWithDelivered]);
 
   setChannels((prev) =>
     prev.map((c) =>
@@ -201,7 +202,7 @@ export function readReceiptsForTopic(topicId: string | null, currentNodeId: stri
   const result: ReadReceiptMap = {};
   for (const m of members) {
     if (m.node_id === currentNodeId) continue;
-    const msgId = (m as any).last_read_message_id as string | undefined;
+    const msgId = m.last_read_message_id;
     if (!msgId) continue;
     if (!result[msgId]) result[msgId] = [];
     result[msgId].push({ node_id: m.node_id, display_name: m.display_name });
@@ -237,7 +238,7 @@ async function _sendReadReceiptNow(): Promise<void> {
 
   // skip if we already sent a receipt for this message (avoid redundant broadcasts)
   const myMember = (membersByTopic[tid] ?? []).find((m) => m.node_id === myNodeId);
-  if ((myMember as any)?.last_read_message_id === latest.message_id) return;
+  if (myMember?.last_read_message_id === latest.message_id) return;
 
   // update our own member record locally + persist to IDB
   const members = membersByTopic[tid] ?? [];
@@ -294,6 +295,18 @@ export async function onIncomingMessage(envelope: GossipEnvelope, topicId: strin
     case "MusicShare": {
       if ((messagesByTopic[topicId] ?? []).some((m) => m.message_id === envelope.message_id)) {
         debug("gossip-store", `dedup: skipping ${envelope.msg_type} ${envelope.message_id.slice(0, 8)}`);
+        break;
+      }
+      // IDB-level dedup: after page reload in-memory is empty, but IDB may
+      // already have this message. check before writing to avoid overwriting
+      // our authoritative local copy (which may have extra fields like delivered).
+      const existing = await db.getMessageById(envelope.message_id);
+      if (existing) {
+        debug("gossip-store", `dedup (IDB): skipping ${envelope.msg_type} ${envelope.message_id.slice(0, 8)}`);
+        // still add to in-memory store if not already there (channel was just selected)
+        if (!(messagesByTopic[topicId] ?? []).some((m) => m.message_id === envelope.message_id)) {
+          setMessagesByTopic(topicId, [...(messagesByTopic[topicId] ?? []), existing as GossipMessage]);
+        }
         break;
       }
       const msg: GossipMessage = {
@@ -501,35 +514,38 @@ export async function onIncomingMessage(envelope: GossipEnvelope, topicId: strin
         const existing = (membersByTopic[topicId] ?? []);
         const existingIdx = existing.findIndex((m) => m.node_id === member.node_id);
         if (existingIdx >= 0) {
-          // member already known (e.g. from neighbor_up) — update display_name if we have a better one
+          // member already known (e.g. from neighbor_up or previous join) — update display_name
           const prev = existing[existingIdx];
           if (member.display_name && member.display_name !== prev.display_name) {
             const updated = existing.map((m, i) => i === existingIdx ? { ...m, display_name: member.display_name } : m);
             setMembersByTopic(topicId, updated);
             await db.putMembers(topicId, [{ ...prev, display_name: member.display_name }]);
           }
-          break;
+        } else {
+          await db.putMembers(topicId, [member]);
+          setMembersByTopic(topicId, [...existing, member]);
         }
 
-        await db.putMembers(topicId, [member]);
-        setMembersByTopic(topicId, [...existing, member]);
+        // show system message for join/rejoin (dedup by message_id)
+        const joinMsgId = `sys-${envelope.message_id}`;
+        if (!(messagesByTopic[topicId] ?? []).some((m) => m.message_id === joinMsgId)) {
+          const sysMsg: GossipMessage = {
+            message_id: joinMsgId,
+            topic_id: topicId,
+            sender_node_id: envelope.sender_node_id,
+            sender_name: envelope.sender_name,
+            msg_type: "System",
+            payload: JSON.stringify({ text: `${member.display_name ?? "someone"} joined the channel` }),
+            timestamp: envelope.timestamp,
+            received_at: now,
+            deleted_at: null,
+          };
+          await db.putMessages([sysMsg]);
+          setMessagesByTopic(topicId, [...(messagesByTopic[topicId] ?? []), sysMsg]);
+        }
 
-        const sysMsg: GossipMessage = {
-          message_id: `sys-${envelope.message_id}`,
-          topic_id: topicId,
-          sender_node_id: envelope.sender_node_id,
-          sender_name: envelope.sender_name,
-          msg_type: "System",
-          payload: JSON.stringify({ text: `${member.display_name ?? "someone"} joined the channel` }),
-          timestamp: envelope.timestamp,
-          received_at: now,
-          deleted_at: null,
-        };
-        await db.putMessages([sysMsg]);
-        setMessagesByTopic(topicId, [...(messagesByTopic[topicId] ?? []), sysMsg]);
-
-        // store envelope in IDB for sync (not displayed)
-        await db.putMessages([envelopeToSyncMsg(envelope, topicId, now)]);
+        // NOTE: ephemeral presence — NOT stored to IDB for sync.
+        // member state is maintained via neighbor_up/down events and heartbeat sweep.
 
         // if we are the creator, broadcast authoritative ChannelMeta so the joiner gets latest state
         const metaProfile = profile();
@@ -613,8 +629,9 @@ export async function onIncomingMessage(envelope: GossipEnvelope, topicId: strin
         setMembersByTopic(topicId, currentMembers.filter((m) => m.node_id !== removedNodeId));
       }
 
-      // store envelope in IDB for sync (not displayed)
-      await db.putMessages([envelopeToSyncMsg(envelope, topicId, now)]);
+      // NOTE: ephemeral presence — NOT stored to IDB for sync.
+      // storing MemberRemoved caused false "left the channel" system messages
+      // when synced to peers who then process them via onIncomingMessage.
 
       // show system message (deterministic ID for dedup)
       const leftMsgId = `sys-${envelope.message_id}`;
@@ -637,13 +654,12 @@ export async function onIncomingMessage(envelope: GossipEnvelope, topicId: strin
 
     case "SyncRequest": {
       // peer is asking us for messages since a timestamp
-      const reqPayload = safeJsonParse(envelope.payload) as {
-        since?: number; limit?: number; before?: number; to?: string;
-      } | undefined;
-      if (!reqPayload?.since) {
-        warn("gossip-store", "invalid SyncRequest payload", envelope.payload);
+      const reqResult = schema.SyncRequestPayloadSchema.safeParse(safeJsonParse(envelope.payload));
+      if (!reqResult.success) {
+        warn("gossip-store", "invalid SyncRequest payload", reqResult.error.issues, envelope.payload);
         break;
       }
+      const reqPayload = reqResult.data;
 
       // only respond if addressed to us (or no `to` field = broadcast request)
       const myNodeId = profile()?.node_id;
@@ -653,7 +669,7 @@ export async function onIncomingMessage(envelope: GossipEnvelope, topicId: strin
       }
 
       const limit = Math.min(reqPayload.limit ?? 50, 100);
-      let localMsgs: any[];
+      let localMsgs: db.StoredMessage[];
       if (reqPayload.before) {
         // backward pagination: get messages before this timestamp
         localMsgs = await db.getMessagesByTopicBefore(topicId, reqPayload.before, limit);
@@ -663,10 +679,12 @@ export async function onIncomingMessage(envelope: GossipEnvelope, topicId: strin
         localMsgs = await db.getMessagesByTopicSince(topicId, sinceSafe, limit);
       }
 
-      // filter out system messages and build envelope strings for response
+      // only sync content types — ephemeral presence (MemberAdded, MemberRemoved,
+      // Heartbeat, ReadReceipt) is handled by live transport events
+      const SYNCABLE_TYPES = new Set(["MusicShare", "ChannelMeta", "ChannelDestroyed", "MessageDeleted", "Reaction", "ReactionRemoved", "ProfileUpdate"]);
       const envelopes: string[] = localMsgs
-        .filter((m: any) => m.msg_type !== "System" && !m.deleted_at)
-        .map((m: any) => JSON.stringify({
+        .filter((m) => SYNCABLE_TYPES.has(m.msg_type) && !m.deleted_at)
+        .map((m) => JSON.stringify({
           msg_type: m.msg_type,
           sender_node_id: m.sender_node_id,
           sender_name: m.sender_name ?? "anonymous",
@@ -699,13 +717,17 @@ export async function onIncomingMessage(envelope: GossipEnvelope, topicId: strin
 
     case "SyncResponse": {
       // peer is sending us messages we may have missed
-      const respPayload = safeJsonParse(envelope.payload) as {
-        messages?: string[]; has_more?: boolean;
-      } | undefined;
-      if (!respPayload?.messages?.length) break;
+      const respResult = schema.SyncResponsePayloadSchema.safeParse(safeJsonParse(envelope.payload));
+      if (!respResult.success) {
+        warn("gossip-store", "invalid SyncResponse payload", respResult.error.issues, envelope.payload);
+        break;
+      }
+      const respPayload = respResult.data;
+      if (!respPayload.messages.length) break;
 
       debug("gossip-store", `received SyncResponse with ${respPayload.messages.length} messages (has_more=${respPayload.has_more})`);
 
+      const myId = profile()?.node_id;
       let oldestTimestamp = Infinity;
       for (const envStr of respPayload.messages) {
         const parsed = safeJsonParse(envStr);
@@ -714,6 +736,13 @@ export async function onIncomingMessage(envelope: GossipEnvelope, topicId: strin
         // feed each envelope back through onIncomingMessage for dedup + storage
         const syncEnv = parsed as GossipEnvelope;
         if (!syncEnv.msg_type || !syncEnv.message_id) continue;
+
+        // skip our own messages — our local copy is authoritative
+        if (myId && syncEnv.sender_node_id === myId) {
+          debug("gossip-store", `sync: skipping own ${syncEnv.msg_type} ${syncEnv.message_id.slice(0, 8)}`);
+          if (syncEnv.timestamp < oldestTimestamp) oldestTimestamp = syncEnv.timestamp;
+          continue;
+        }
 
         if (syncEnv.timestamp < oldestTimestamp) oldestTimestamp = syncEnv.timestamp;
         await onIncomingMessage(syncEnv, topicId);
@@ -747,10 +776,12 @@ export async function onIncomingMessage(envelope: GossipEnvelope, topicId: strin
 
     case "ReadReceipt": {
       // peer is telling us their latest read position
-      const receiptPayload = safeJsonParse(envelope.payload) as {
-        latest_message_id?: string; latest_timestamp?: number;
-      } | undefined;
-      if (!receiptPayload?.latest_message_id) break;
+      const receiptResult = schema.ReadReceiptPayloadSchema.safeParse(safeJsonParse(envelope.payload));
+      if (!receiptResult.success) {
+        warn("gossip-store", "invalid ReadReceipt payload", receiptResult.error.issues);
+        break;
+      }
+      const receiptPayload = receiptResult.data;
 
       debug("gossip-store", `ReadReceipt from ${envelope.sender_node_id.slice(0, 16)}: ${receiptPayload.latest_message_id.slice(0, 8)} @ ${receiptPayload.latest_timestamp}`);
 
@@ -768,14 +799,14 @@ export async function onIncomingMessage(envelope: GossipEnvelope, topicId: strin
 
     case "Heartbeat": {
       // peer is announcing they're still online
-      const hbPayload = safeJsonParse(envelope.payload) as { online_since?: number } | undefined;
+      const hbResult = schema.HeartbeatPayloadSchema.safeParse(safeJsonParse(envelope.payload));
       const hbMembers = membersByTopic[topicId] ?? [];
       const hbIdx = hbMembers.findIndex((m) => m.node_id === envelope.sender_node_id);
       if (hbIdx >= 0) {
         const updatedMember = {
           ...hbMembers[hbIdx],
           last_heartbeat: envelope.timestamp,
-          online_since: hbPayload?.online_since ?? null,
+          online_since: hbResult.success ? hbResult.data.online_since : null,
         };
         const updated = hbMembers.map((m, i) => i === hbIdx ? updatedMember : m);
         setMembersByTopic(topicId, updated);

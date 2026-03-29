@@ -54,6 +54,8 @@ let _nodeStatus: NodeStatus = "idle";
 let _nodeError: string | null = null;
 // per-topic: peer count (from neighbor_up / neighbor_down)
 const topicPeerCounts = new Map<string, number>();
+// per-topic: set of connected peer node_ids (for periodic sync targeting)
+const topicPeerIds = new Map<string, Set<string>>();
 const topicStatuses = new Map<string, TopicStatus>();
 
 // callbacks for status changes — store registers these
@@ -82,6 +84,11 @@ export function getTopicPeerCount(topicId: string): number {
 
 export function getSubscribedTopicIds(): string[] {
   return [...senders.keys()];
+}
+
+/** returns connected peer node_ids for a topic (tracked via neighbor_up/down) */
+export function getTopicPeerIds(topicId: string): string[] {
+  return [...(topicPeerIds.get(topicId) ?? [])];
 }
 
 function setNodeStatus(status: NodeStatus, error?: string): void {
@@ -237,6 +244,7 @@ export function leaveTopic(topicId: string): void {
   senders.delete(topicId);
   topicStatuses.delete(topicId);
   topicPeerCounts.delete(topicId);
+  topicPeerIds.delete(topicId);
   topicBootstrapPeers.delete(topicId);
   onStatusChange?.();
   debug(TAG, `left topic ${topicId.slice(0, 16)}...`);
@@ -310,6 +318,7 @@ function scheduleResubscribe(topicId: string, bootstrapPeers: string[]): void {
     senders.delete(topicId);
     abortControllers.delete(topicId);
     topicPeerCounts.delete(topicId);
+    topicPeerIds.delete(topicId);
 
     try {
       await subscribeTopic(topicId, bootstrapPeers);
@@ -361,6 +370,10 @@ function startRecvLoop(topicId: string, receiver: GossipReceiverLike, bootstrapP
         if (event.type === "neighbor_up") {
           info(TAG, `topic ${topicId.slice(0, 16)}... peer connected: ${event.node_id?.slice(0, 16)}...`);
           updateTopicPeerCount(topicId, +1);
+          if (event.node_id) {
+            if (!topicPeerIds.has(topicId)) topicPeerIds.set(topicId, new Set());
+            topicPeerIds.get(topicId)!.add(event.node_id);
+          }
           // await to prevent WASM RefCell reentrancy — don't let broadcast() interleave with recv()
           if (event.node_id) await onNeighborChange?.(topicId, event.node_id, true);
           continue;
@@ -368,6 +381,7 @@ function startRecvLoop(topicId: string, receiver: GossipReceiverLike, bootstrapP
         if (event.type === "neighbor_down") {
           info(TAG, `topic ${topicId.slice(0, 16)}... peer disconnected: ${event.node_id?.slice(0, 16)}...`);
           updateTopicPeerCount(topicId, -1);
+          topicPeerIds.get(topicId)?.delete(event.node_id);
           if (event.node_id) await onNeighborChange?.(topicId, event.node_id, false);
           continue;
         }

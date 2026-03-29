@@ -6,6 +6,10 @@
 use serde::{Deserialize, Serialize};
 use zod_gen_derive::ZodSchema;
 
+fn default_one() -> i64 {
+    1
+}
+
 /// outer envelope for all gossip messages
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct GossipEnvelope {
@@ -107,13 +111,15 @@ pub enum MusicReference {
 pub struct SongReference {
     pub remote_id: String,
     pub source_node_id: String,
-    /// display name of the source node (resolved at share-time)
-    pub source_name: Option<String>,
+    /// display name of the source (remote name at share-time)
+    pub source_name: String,
     pub title: String,
     pub track_artist: Option<String>,
     pub album_title: Option<String>,
     pub duration: Option<i64>,
+    #[serde(default = "default_one")]
     pub track_number: i64,
+    #[serde(default = "default_one")]
     pub disc_number: i64,
     pub bpm: Option<i64>,
     /// small WebP thumbnails (~10-20KB each, base64-encoded)
@@ -124,7 +130,7 @@ pub struct SongReference {
 pub struct AlbumReference {
     pub remote_id: String,
     pub source_node_id: String,
-    pub source_name: Option<String>,
+    pub source_name: String,
     pub title: String,
     pub artist_name: Option<String>,
     pub album_type: String,
@@ -139,7 +145,7 @@ pub struct AlbumReference {
 pub struct ArtistReference {
     pub remote_id: String,
     pub source_node_id: String,
-    pub source_name: Option<String>,
+    pub source_name: String,
     pub name: String,
     pub bio: Option<String>,
     pub thumbnails: Vec<String>,
@@ -149,7 +155,7 @@ pub struct ArtistReference {
 pub struct PlaylistReference {
     pub remote_id: String,
     pub source_node_id: String,
-    pub source_name: Option<String>,
+    pub source_name: String,
     pub title: String,
     pub description: Option<String>,
     pub song_count: i64,
@@ -161,7 +167,7 @@ pub struct PlaylistReference {
 pub struct GenreReference {
     pub remote_id: String,
     pub source_node_id: String,
-    pub source_name: Option<String>,
+    pub source_name: String,
     pub name: String,
     pub thumbnails: Vec<String>,
 }

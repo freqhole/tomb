@@ -5,7 +5,24 @@
 // fast rendering. eventual consistency: server is source of truth.
 
 import { openDB, type IDBPDatabase } from "idb";
+import type {
+  GossipChannel,
+  GossipMessage,
+  GossipReaction,
+  GossipProfile,
+} from "freqhole-api-client";
+import type { GossipChannelMember, GossipFriend } from "./gossipTypes";
 import { debug } from "../utils/logger";
+
+// ============================================================================
+// IDB-specific types (extend API types with storage fields)
+// ============================================================================
+
+/** GossipMessage with delivery tracking for the outbox pattern */
+export type StoredMessage = GossipMessage & {
+  /** 0 = not yet delivered to any peer, 1 = at least one peer received it */
+  delivered?: number;
+};
 
 const GOSSIP_DB_NAME = "freqhole-gossip";
 const GOSSIP_DB_VERSION = 3;
@@ -80,24 +97,24 @@ async function db(): Promise<IDBPDatabase> {
 // channels
 // ============================================================================
 
-export async function putChannel(channel: any): Promise<void> {
+export async function putChannel(channel: GossipChannel): Promise<void> {
   const d = await db();
   await d.put(STORE_CHANNELS, channel);
 }
 
-export async function putChannels(channels: any[]): Promise<void> {
+export async function putChannels(channels: GossipChannel[]): Promise<void> {
   const d = await db();
   const tx = d.transaction(STORE_CHANNELS, "readwrite");
   for (const c of channels) tx.store.put(c);
   await tx.done;
 }
 
-export async function getChannel(topicId: string): Promise<any | undefined> {
+export async function getChannel(topicId: string): Promise<GossipChannel | undefined> {
   const d = await db();
   return d.get(STORE_CHANNELS, topicId);
 }
 
-export async function getAllChannels(): Promise<any[]> {
+export async function getAllChannels(): Promise<GossipChannel[]> {
   const d = await db();
   return d.getAll(STORE_CHANNELS);
 }
@@ -111,14 +128,19 @@ export async function deleteChannel(topicId: string): Promise<void> {
 // messages
 // ============================================================================
 
-export async function putMessages(messages: any[]): Promise<void> {
+export async function putMessages(messages: StoredMessage[]): Promise<void> {
   const d = await db();
   const tx = d.transaction(STORE_MESSAGES, "readwrite");
   for (const m of messages) tx.store.put(m);
   await tx.done;
 }
 
-export async function getMessagesByTopic(topicId: string): Promise<any[]> {
+export async function getMessageById(messageId: string): Promise<StoredMessage | undefined> {
+  const d = await db();
+  return d.get(STORE_MESSAGES, messageId);
+}
+
+export async function getMessagesByTopic(topicId: string): Promise<StoredMessage[]> {
   const d = await db();
   return d.getAllFromIndex(STORE_MESSAGES, "by_topic_id", topicId);
 }
@@ -136,26 +158,26 @@ export async function deleteMessagesByTopic(topicId: string): Promise<void> {
 }
 
 /** get messages for a topic that haven't been delivered to any peer yet */
-export async function getUndeliveredMessages(topicId: string): Promise<any[]> {
+export async function getUndeliveredMessages(topicId: string): Promise<StoredMessage[]> {
   const d = await db();
   // use the compound index [topic_id, delivered] — query for delivered=0 (false)
   try {
     return await d.getAllFromIndex(STORE_MESSAGES, "by_topic_delivered", [topicId, 0]);
   } catch {
     // fallback if index doesn't exist yet (pre-v3 DB still upgrading)
-    const all = await d.getAllFromIndex(STORE_MESSAGES, "by_topic_id", topicId);
+    const all: StoredMessage[] = await d.getAllFromIndex(STORE_MESSAGES, "by_topic_id", topicId);
     return all.filter((m) => !m.delivered);
   }
 }
 
 /** get messages for a topic since a given timestamp (for sync responses) */
-export async function getMessagesByTopicSince(topicId: string, since: number, limit = 50): Promise<any[]> {
+export async function getMessagesByTopicSince(topicId: string, since: number, limit = 50): Promise<StoredMessage[]> {
   const d = await db();
   const tx = d.transaction(STORE_MESSAGES, "readonly");
   const idx = tx.store.index("by_topic_ts");
   // IDBKeyRange for [topicId, since] to [topicId, Infinity]
   const range = IDBKeyRange.bound([topicId, since], [topicId, Infinity]);
-  const results: any[] = [];
+  const results: StoredMessage[] = [];
   let cursor = await idx.openCursor(range);
   while (cursor && results.length < limit) {
     results.push(cursor.value);
@@ -165,13 +187,13 @@ export async function getMessagesByTopicSince(topicId: string, since: number, li
 }
 
 /** get messages for a topic before a given timestamp (for backward sync pagination) */
-export async function getMessagesByTopicBefore(topicId: string, before: number, limit = 50): Promise<any[]> {
+export async function getMessagesByTopicBefore(topicId: string, before: number, limit = 50): Promise<StoredMessage[]> {
   const d = await db();
   const tx = d.transaction(STORE_MESSAGES, "readonly");
   const idx = tx.store.index("by_topic_ts");
   // IDBKeyRange for [topicId, 0] to [topicId, before) — exclusive upper bound
   const range = IDBKeyRange.bound([topicId, 0], [topicId, before], false, true);
-  const results: any[] = [];
+  const results: StoredMessage[] = [];
   // walk backward from the end to get the most recent messages before the cutoff
   let cursor = await idx.openCursor(range, "prev");
   while (cursor && results.length < limit) {
@@ -202,19 +224,19 @@ export async function markMessagesDelivered(messageIds: string[]): Promise<void>
 // reactions
 // ============================================================================
 
-export async function putReactions(reactions: any[]): Promise<void> {
+export async function putReactions(reactions: GossipReaction[]): Promise<void> {
   const d = await db();
   const tx = d.transaction(STORE_REACTIONS, "readwrite");
   for (const r of reactions) tx.store.put(r);
   await tx.done;
 }
 
-export async function getReactionsByTarget(targetMessageId: string): Promise<any[]> {
+export async function getReactionsByTarget(targetMessageId: string): Promise<GossipReaction[]> {
   const d = await db();
   return d.getAllFromIndex(STORE_REACTIONS, "by_target", targetMessageId);
 }
 
-export async function getReactionsByTopic(topicId: string): Promise<any[]> {
+export async function getReactionsByTopic(topicId: string): Promise<GossipReaction[]> {
   const d = await db();
   return d.getAllFromIndex(STORE_REACTIONS, "by_topic_id", topicId);
 }
@@ -228,14 +250,14 @@ export async function deleteReaction(messageId: string): Promise<void> {
 // members
 // ============================================================================
 
-export async function putMembers(topicId: string, members: any[]): Promise<void> {
+export async function putMembers(topicId: string, members: GossipChannelMember[]): Promise<void> {
   const d = await db();
   const tx = d.transaction(STORE_MEMBERS, "readwrite");
   for (const m of members) tx.store.put({ ...m, topic_id: topicId });
   await tx.done;
 }
 
-export async function getMembersByTopic(topicId: string): Promise<any[]> {
+export async function getMembersByTopic(topicId: string): Promise<GossipChannelMember[]> {
   const d = await db();
   return d.getAllFromIndex(STORE_MEMBERS, "by_topic_id", topicId);
 }
@@ -244,17 +266,17 @@ export async function getMembersByTopic(topicId: string): Promise<any[]> {
 // profiles
 // ============================================================================
 
-export async function putProfile(profile: any): Promise<void> {
+export async function putProfile(profile: GossipProfile): Promise<void> {
   const d = await db();
   await d.put(STORE_PROFILES, profile);
 }
 
-export async function getProfile(nodeId: string): Promise<any | undefined> {
+export async function getProfile(nodeId: string): Promise<GossipProfile | undefined> {
   const d = await db();
   return d.get(STORE_PROFILES, nodeId);
 }
 
-export async function getAllProfiles(): Promise<any[]> {
+export async function getAllProfiles(): Promise<GossipProfile[]> {
   const d = await db();
   return d.getAll(STORE_PROFILES);
 }
@@ -291,17 +313,17 @@ export async function clearAllGossipData(): Promise<void> {
 // friends
 // ============================================================================
 
-export async function putFriend(friend: any): Promise<void> {
+export async function putFriend(friend: GossipFriend): Promise<void> {
   const d = await db();
   await d.put(STORE_FRIENDS, friend);
 }
 
-export async function getFriend(nodeId: string): Promise<any | undefined> {
+export async function getFriend(nodeId: string): Promise<GossipFriend | undefined> {
   const d = await db();
   return d.get(STORE_FRIENDS, nodeId);
 }
 
-export async function getAllFriends(): Promise<any[]> {
+export async function getAllFriends(): Promise<GossipFriend[]> {
   const d = await db();
   return d.getAll(STORE_FRIENDS);
 }

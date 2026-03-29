@@ -20,6 +20,7 @@
   "dependencies": {
     "freqhole-api-client": "file:../../client-codegen/freqhole-api-client",
     "midden": "file:../midden/pkg"
+    
   },
   "devDependencies": {
     "@chromatic-com/storybook": "^5.0.1",
@@ -37,6 +38,7 @@
     "@tauri-apps/api": "^2.10.1",
     "@tauri-apps/plugin-dialog": "^2.6.0",
     "@types/node": "^25.3.0",
+    "@types/qrcode": "^1.5.6",
     "@typescript-eslint/eslint-plugin": "^8.56.0",
     "@typescript-eslint/parser": "^8.56.0",
     "@vitest/browser": "^4.0.17",
@@ -52,6 +54,7 @@
     "playwright": "^1.58.2",
     "postcss": "^8.5.6",
     "prettier": "^3.8.1",
+    "qrcode": "^1.5.4",
     "solid-js": "^1.9.11",
     "storybook": "^10.2.10",
     "storybook-solidjs-vite": "^10.0.9",

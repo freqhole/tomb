@@ -14,6 +14,7 @@ export interface ChannelHeaderProps {
   onDestroyChannel?: () => void;
   onCopyInvite?: () => void;
   copyInviteLabel?: string;
+  onShowQr?: () => void;
   onAddMember?: () => void;
   friendNodeIds?: Set<string>;
   pendingFriendNodeIds?: Set<string>;
@@ -234,6 +235,17 @@ export function ChannelHeader(props: ChannelHeaderProps) {
                     onClick={() => props.onCopyInvite?.()}
                   >
                     {props.copyInviteLabel ?? "copy invite"}
+                  </button>
+                </Show>
+                <Show when={props.onShowQr}>
+                  <button
+                    class="w-full text-left text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-accent-500)] transition-colors py-0.5 cursor-pointer min-h-[44px] flex items-center"
+                    onClick={() => {
+                      setShowMembersFlyout(false);
+                      props.onShowQr?.();
+                    }}
+                  >
+                    show invite QR
                   </button>
                 </Show>
                 <Show when={props.onAddMember}>

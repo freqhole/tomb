@@ -12,9 +12,15 @@ import { GossipProfileSetup } from "../../components/gossip/GossipProfileSetup";
 import { FriendsList } from "../../components/gossip/FriendsList";
 import { FriendThreadView } from "../../components/gossip/FriendThreadView";
 import { AddFriendDialog } from "../../components/gossip/AddFriendDialog";
+import { InviteQrModal } from "../../components/gossip/InviteQrModal";
 import * as store from "../store";
 import { warn } from "../../utils/logger";
-import { getDataSource } from "../../music/data";
+import { getDataSource, RemoteMusicDataSource } from "../../music/data";
+import { getAllRemotes } from "../../app/services/remotes/remoteManager";
+import { toRemoteRef } from "../../app/services/storage/schemas/remote";
+import type { Remote } from "../../app/services/storage/schemas/remote";
+import type { MusicDataSource } from "../../music/data/types";
+import { parseInviteInput, inviteToUrl } from "../gossipInvite";
 import type { MusicReference } from "../../gossip/gossipTypes";
 
 export function GossipView() {
@@ -28,7 +34,11 @@ export function GossipView() {
   const [copiedInvite, setCopiedInvite] = createSignal(false);
   const [selectedFriend, setSelectedFriend] = createSignal<store.GossipFriend | null>(null);
   const [showAddFriendDialog, setShowAddFriendDialog] = createSignal(false);
+  const [pendingInvite, setPendingInvite] = createSignal<string | undefined>();
+  const [inviteQrUrl, setInviteQrUrl] = createSignal<string | undefined>();
   const [musicSearchResults, setMusicSearchResults] = createSignal<MusicReference[]>([]);
+  const [remotes, setRemotes] = createSignal<Remote[]>([]);
+  const [selectedRemoteId, setSelectedRemoteId] = createSignal<string | null>(null);
 
   const currentNodeId = () => store.profile()?.node_id ?? "unknown";
   const needsProfile = () => store.initialized() && !store.profile();
@@ -40,6 +50,36 @@ export function GossipView() {
 
   onMount(() => {
     store.init();
+
+    // load available remotes for music search source picker
+    // default to tauri-managed remote (charnel) or first available remote
+    getAllRemotes().then((all) => {
+      setRemotes(all);
+      const charnel = all.find((r) => r.is_charnel_managed);
+      if (charnel) {
+        setSelectedRemoteId(charnel.remote_id);
+      } else if (all.length) {
+        setSelectedRemoteId(all[0].remote_id);
+      }
+    });
+
+    // detect ?g= invite param in URL
+    const params = new URLSearchParams(window.location.search);
+    const gParam = params.get("g");
+    if (gParam) {
+      try {
+        const invite = parseInviteInput(gParam);
+        setPendingInvite(JSON.stringify(invite));
+        setShowJoinDialog(true);
+      } catch {
+        warn("gossip-view", "invalid ?g= invite param");
+      }
+      // clear ?g= from URL without reload
+      params.delete("g");
+      const qs = params.toString();
+      const newUrl = window.location.pathname + (qs ? `?${qs}` : "") + window.location.hash;
+      window.history.replaceState(null, "", newUrl);
+    }
   });
 
   // auto-select first channel when channels load and none is active
@@ -58,6 +98,16 @@ export function GossipView() {
 
   let searchDebounce: ReturnType<typeof setTimeout> | null = null;
 
+  // resolve the data source for music search based on selected remote
+  const getSearchDataSource = (): MusicDataSource => {
+    const rid = selectedRemoteId();
+    if (rid) {
+      const remote = remotes().find((r) => r.remote_id === rid);
+      if (remote) return new RemoteMusicDataSource(toRemoteRef(remote));
+    }
+    return getDataSource();
+  };
+
   const handleSearchMusic = (query: string) => {
     if (searchDebounce) clearTimeout(searchDebounce);
     if (!query || query.length < 2) {
@@ -66,23 +116,29 @@ export function GossipView() {
     }
     searchDebounce = setTimeout(async () => {
       try {
-        const ds = getDataSource();
+        const ds = getSearchDataSource();
         if (!ds.search) {
           setMusicSearchResults([]);
           return;
         }
         const resp = await ds.search({ query, field: "all", page: 1, page_size: 10 });
         const nodeId = store.profile()?.node_id ?? "local";
+        const sourceName =
+          remotes().find((r) => r.remote_id === selectedRemoteId())?.name ?? "unknown";
         const results: MusicReference[] = [];
         for (const s of resp.songs ?? []) {
           results.push({
             ref_type: "Song",
             remote_id: s.id,
             source_node_id: nodeId,
+            source_name: sourceName,
             title: s.title,
             track_artist: s.artist_names.join(", ") || null,
             album_title: s.album_title,
             duration: s.duration,
+            track_number: 1,
+            disc_number: 1,
+            bpm: null,
             thumbnail_url: s.thumbnail_url ?? undefined,
             thumbnails: s.thumbnail_url ? [s.thumbnail_url] : [],
           });
@@ -92,6 +148,7 @@ export function GossipView() {
             ref_type: "Album",
             remote_id: a.id,
             source_node_id: nodeId,
+            source_name: sourceName,
             title: a.title,
             artist_name: a.artist_names.join(", ") || null,
             genres: a.genres,
@@ -104,6 +161,7 @@ export function GossipView() {
             ref_type: "Artist",
             remote_id: a.id,
             source_node_id: nodeId,
+            source_name: sourceName,
             name: a.name,
             thumbnails: [],
           });
@@ -133,8 +191,7 @@ export function GossipView() {
 
   const handleJoinChannel = async (inviteData: string) => {
     try {
-      // invite data is JSON: { topic_id, channel_name, creator_node_id }
-      const parsed = JSON.parse(inviteData);
+      const parsed = parseInviteInput(inviteData);
       const ch = await store.joinChannel(
         parsed.topic_id,
         parsed.channel_name,
@@ -143,6 +200,7 @@ export function GossipView() {
       );
       setShowJoinDialog(false);
       setJoinError(undefined);
+      setPendingInvite(undefined);
       store.selectChannel(ch.topic_id);
     } catch (e: any) {
       setJoinError(e?.message ?? "failed to join channel");
@@ -206,11 +264,23 @@ export function GossipView() {
     if (!tid) return;
     try {
       const invite = await store.getInvite(tid);
-      await navigator.clipboard.writeText(JSON.stringify(invite));
+      const url = inviteToUrl(invite);
+      await navigator.clipboard.writeText(url);
       setCopiedInvite(true);
       setTimeout(() => setCopiedInvite(false), 2000);
     } catch (e) {
       warn("gossip-view", "copy invite failed:", e);
+    }
+  };
+
+  const handleShowInviteQr = async () => {
+    const tid = store.activeTopicId();
+    if (!tid) return;
+    try {
+      const invite = await store.getInvite(tid);
+      setInviteQrUrl(inviteToUrl(invite));
+    } catch (e) {
+      warn("gossip-view", "show invite QR failed:", e);
     }
   };
 
@@ -359,6 +429,7 @@ export function GossipView() {
                     onDestroyChannel={handleDestroyChannel}
                     onCopyInvite={handleCopyInvite}
                     copyInviteLabel={copiedInvite() ? "copied!" : "copy invite"}
+                    onShowQr={handleShowInviteQr}
                     friendNodeIds={friendNodeIds()}
                     onlineFriendNodeIds={onlineFriendNodeIds()}
                     onAddFriend={handleAddFriend}
@@ -490,8 +561,10 @@ export function GossipView() {
           onCancel={() => {
             setShowJoinDialog(false);
             setJoinError(undefined);
+            setPendingInvite(undefined);
           }}
           error={joinError()}
+          initialInvite={pendingInvite()}
         />
       </Show>
       <Show when={needsProfile()}>
@@ -509,6 +582,13 @@ export function GossipView() {
             setShowAddFriendDialog(false);
           }}
           onCancel={() => setShowAddFriendDialog(false)}
+        />
+      </Show>
+      <Show when={inviteQrUrl()}>
+        <InviteQrModal
+          url={inviteQrUrl()!}
+          channelName={store.activeChannel()?.name ?? "channel"}
+          onClose={() => setInviteQrUrl(undefined)}
         />
       </Show>
     </div>

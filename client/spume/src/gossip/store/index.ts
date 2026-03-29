@@ -12,25 +12,24 @@
 
 import * as db from "../gossipDb";
 import * as transport from "../gossipTransport";
-import type { GossipChannel, GossipProfile } from "freqhole-api-client";
-import type { GossipFriend } from "../gossipTypes";
+import type { GossipChannel, GossipMessage, GossipProfile } from "freqhole-api-client";
 import {
   setChannels,
   setActiveTopicId,
   messagesByTopic,
   setMessagesByTopic,
   setReactionsByTopic,
+  membersByTopic,
   setMembersByTopic,
   setUnread,
   setInitialized,
   initialized,
   profile, setProfile,
-  setFriends,
+  friends, setFriends,
   setStatusTick,
   batch, reconcile,
   generateId,
   nowUnix,
-  stringifyPayload,
 } from "./state";
 import { onIncomingMessage } from "./messages";
 import { loadProfile } from "./social";
@@ -99,7 +98,7 @@ export {
 } from "./social";
 
 /** raw messages-by-topic store for cross-channel queries (e.g. friend thread view) */
-export function messagesByTopicRaw(): Record<string, any[]> {
+export function messagesByTopicRaw(): Record<string, GossipMessage[]> {
   return messagesByTopic;
 }
 
@@ -118,11 +117,6 @@ export async function init(): Promise<void> {
     transport.setOnStatusChange(() => setStatusTick((n) => n + 1));
     transport.setOnNeighborChange(onNeighborChange);
 
-    // broadcast MemberRemoved to all topics on page unload (best-effort)
-    if (typeof window !== "undefined") {
-      window.addEventListener("beforeunload", broadcastPresenceLeave);
-    }
-
     // load profile from IndexedDB
     await loadProfile();
 
@@ -130,8 +124,8 @@ export async function init(): Promise<void> {
     const cached = await db.getAllChannels();
     const cachedFriends = await db.getAllFriends();
     batch(() => {
-      setChannels(cached as GossipChannel[]);
-      setFriends(cachedFriends as GossipFriend[]);
+      setChannels(cached);
+      setFriends(cachedFriends);
       setInitialized(true);
     });
 
@@ -139,7 +133,7 @@ export async function init(): Promise<void> {
 
     // if we have a profile, eagerly init midden and rejoin channels
     if (profile()) {
-      initTransportAndRejoin(cached as GossipChannel[]);
+      initTransportAndRejoin(cached);
     }
   } catch (e) {
     warn("gossip-store", "init failed:", e);
@@ -186,34 +180,14 @@ function initTransportAndRejoin(cachedChannels: GossipChannel[]): void {
         info("gossip-store", `rejoined ${cachedChannels.length} channels`);
       }
 
-      // re-announce presence on all topics so peers know we're back
-      const p2 = profile();
-      const displayName = p2?.display_name ?? "anonymous";
-      for (const ch of cachedChannels) {
-        try {
-          await transport.broadcast(ch.topic_id, {
-            msg_type: "MemberAdded",
-            sender_node_id: nodeId,
-            sender_name: displayName,
-            timestamp: Math.floor(Date.now() / 1000),
-            message_id: crypto.randomUUID(),
-            payload: JSON.stringify({
-              node_id: nodeId,
-              display_name: displayName,
-              role: ch.creator_node_id === nodeId ? "creator" : "member",
-            }),
-          });
-        } catch {
-          // not critical — peers will learn via neighbor events
-        }
-      }
-
-      // start heartbeat: broadcast presence to all topics every 60s
+      // start heartbeat: broadcast presence to all topics every 60s + sweep stale peers
       if (heartbeatInterval) clearInterval(heartbeatInterval);
+      let heartbeatCycle = 0;
       heartbeatInterval = setInterval(async () => {
         const p3 = profile();
         const hbNodeId = p3?.node_id ?? "local";
         if (hbNodeId === "local") return;
+        heartbeatCycle++;
         const topicIds = transport.getSubscribedTopicIds();
         for (const tid of topicIds) {
           try {
@@ -229,6 +203,15 @@ function initTransportAndRejoin(cachedChannels: GossipChannel[]): void {
             // best-effort
           }
         }
+
+        // periodic catch-up sync: every 2nd heartbeat (2 min), request missed messages
+        // from connected peers. works around unreliable gossip live-delivery.
+        if (heartbeatCycle % 2 === 0) {
+          await periodicSync(hbNodeId, topicIds);
+        }
+
+        // sweep: mark friends offline if no heartbeat received for 120s
+        sweepStaleMembers();
       }, 60_000);
     } catch (e) {
       warn("gossip-store", "midden init / rejoin failed:", e);
@@ -242,12 +225,7 @@ export async function teardown(): Promise<void> {
     clearInterval(heartbeatInterval);
     heartbeatInterval = null;
   }
-  // broadcast MemberRemoved to all topics before disconnecting
-  await broadcastPresenceLeave();
   transport.leaveAll();
-  if (typeof window !== "undefined") {
-    window.removeEventListener("beforeunload", broadcastPresenceLeave);
-  }
   batch(() => {
     setChannels([]);
     setActiveTopicId(null);
@@ -262,32 +240,111 @@ export async function teardown(): Promise<void> {
 }
 
 // ============================================================================
-// graceful close — broadcast MemberRemoved to all subscribed topics
+// periodic catch-up sync — request missed messages from connected peers
+// ============================================================================
+// iroh-gossip live delivery can be unreliable (one-directional transport
+// issues, relay path failures). this periodic sync ensures we catch any
+// messages that the gossip protocol failed to deliver live.
+
+async function periodicSync(myNodeId: string, topicIds: string[]): Promise<void> {
+  const p = profile();
+  const displayName = p?.display_name ?? "anonymous";
+  const now = nowUnix();
+
+  for (const tid of topicIds) {
+    const peerIds = transport.getTopicPeerIds(tid);
+    if (peerIds.length === 0) continue;
+
+    // find latest message timestamp for this topic
+    let latestTs = 0;
+    const topicMsgs = messagesByTopic[tid] ?? [];
+    if (topicMsgs.length > 0) {
+      latestTs = Math.max(...topicMsgs.map((m) => m.timestamp));
+    } else {
+      try {
+        const idbMsgs = await db.getMessagesByTopic(tid);
+        if (idbMsgs.length > 0) {
+          latestTs = Math.max(...idbMsgs.map((m) => m.timestamp ?? 0));
+        }
+      } catch { /* ignore */ }
+    }
+
+    // send a SyncRequest to each connected peer
+    for (const peerId of peerIds) {
+      if (peerId === myNodeId) continue;
+      try {
+        await transport.broadcast(tid, {
+          msg_type: "SyncRequest",
+          sender_node_id: myNodeId,
+          sender_name: displayName,
+          timestamp: now,
+          message_id: generateId(),
+          payload: JSON.stringify({
+            since: latestTs,
+            limit: 50,
+            before: null,
+            to: peerId,
+          }),
+        });
+        debug("gossip-store", `periodic sync: sent SyncRequest to ${peerId.slice(0, 16)} on ${tid.slice(0, 16)} since ${latestTs}`);
+      } catch {
+        // best-effort
+      }
+    }
+  }
+}
+
+// ============================================================================
+// heartbeat sweep — mark friends offline if no heartbeat for 120s
 // ============================================================================
 
-async function broadcastPresenceLeave(): Promise<void> {
-  const p = profile();
-  const nodeId = p?.node_id ?? "local";
-  if (nodeId === "local") return;
-  const displayName = p?.display_name ?? "anonymous";
+const HEARTBEAT_STALE_THRESHOLD = 120; // seconds
 
-  const topicIds = transport.getSubscribedTopicIds();
-  for (const topicId of topicIds) {
-    try {
-      await transport.broadcast(topicId, {
-        msg_type: "MemberRemoved",
-        sender_node_id: nodeId,
-        sender_name: displayName,
-        timestamp: nowUnix(),
-        message_id: generateId(),
-        payload: stringifyPayload("MemberRemoved", {
-          node_id: nodeId,
-          display_name: displayName,
-          role: null,
-        }),
-      });
-    } catch {
-      // best-effort — we're leaving anyway
+function sweepStaleMembers(): void {
+  const now = Math.floor(Date.now() / 1000);
+  const myNodeId = profile()?.node_id;
+  if (!myNodeId) return;
+
+  // collect all node_ids that have a fresh heartbeat across any topic
+  const freshNodeIds = new Set<string>();
+  for (const topicId of transport.getSubscribedTopicIds()) {
+    const members = membersByTopic[topicId] ?? [];
+    for (const m of members) {
+      if (m.node_id === myNodeId) continue;
+      const lastHb = (m as any).last_heartbeat as number | undefined;
+      if (lastHb && now - lastHb < HEARTBEAT_STALE_THRESHOLD) {
+        freshNodeIds.add(m.node_id);
+      }
     }
+  }
+
+  // mark friends offline if they were online but have no fresh heartbeat
+  const currentFriends = friends();
+  let changed = false;
+  const updatedFriends = currentFriends.map((f) => {
+    if (f.online && f.node_id !== myNodeId && !freshNodeIds.has(f.node_id)) {
+      // check if this friend has ANY heartbeat at all (only sweep those who should be heartbeating)
+      let hasAnyHeartbeat = false;
+      for (const topicId of transport.getSubscribedTopicIds()) {
+        const members = membersByTopic[topicId] ?? [];
+        const member = members.find((m) => m.node_id === f.node_id);
+        if (member && (member as any).last_heartbeat) {
+          hasAnyHeartbeat = true;
+          break;
+        }
+      }
+      if (hasAnyHeartbeat) {
+        changed = true;
+        const updated = { ...f, online: false, last_seen: now };
+        db.putFriend(updated);
+        return updated;
+      }
+    }
+    return f;
+  });
+
+  if (changed) {
+    setFriends(updatedFriends);
+    debug("gossip-store", `heartbeat sweep: marked ${updatedFriends.filter((f, i) => f !== currentFriends[i]).length} friend(s) offline`);
   }
 }

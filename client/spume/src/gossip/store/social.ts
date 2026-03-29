@@ -2,9 +2,9 @@
 
 import * as db from "../gossipDb";
 import * as transport from "../gossipTransport";
-import type { GossipProfile } from "freqhole-api-client";
+import type { GossipProfile, GossipEnvelope } from "freqhole-api-client";
 import type { GossipFriend } from "../gossipTypes";
-import type { GossipChannelMember } from "freqhole-api-client";
+import type { GossipChannelMember } from "../gossipTypes";
 import {
   profile, setProfile,
   friends, setFriends,
@@ -183,7 +183,7 @@ export async function onNeighborChange(topicId: string, nodeId: string, isUp: bo
         for (const m of undelivered) {
           try {
             await transport.broadcast(topicId, {
-              msg_type: m.msg_type,
+              msg_type: m.msg_type as GossipEnvelope["msg_type"],
               sender_node_id: m.sender_node_id,
               sender_name: m.sender_name ?? "anonymous",
               timestamp: m.timestamp,
@@ -208,27 +208,34 @@ export async function onNeighborChange(topicId: string, nodeId: string, isUp: bo
     try {
       const p2 = profile();
       const myId = p2?.node_id ?? "local";
-      // find the latest message timestamp we have for this topic
+      // find the latest message timestamp — check IDB first since in-memory
+      // may be empty after page reload (messages are loaded lazily on selectChannel)
+      let latestTs = 0;
       const topicMsgs = messagesByTopic[topicId] ?? [];
-      const latestTs = topicMsgs.length > 0
-        ? Math.max(...topicMsgs.map((m) => m.timestamp))
-        : 0;
-
-      if (latestTs > 0) {
-        await transport.broadcast(topicId, {
-          msg_type: "SyncRequest",
-          sender_node_id: myId,
-          sender_name: p2?.display_name ?? "anonymous",
-          timestamp: now,
-          message_id: generateId(),
-          payload: JSON.stringify({
-            since: latestTs,
-            limit: 50,
-            to: nodeId, // direct to the connecting peer
-          }),
-        });
-        debug("gossip-store", `sent SyncRequest to ${nodeId.slice(0, 16)} since ${latestTs}`);
+      if (topicMsgs.length > 0) {
+        latestTs = Math.max(...topicMsgs.map((m) => m.timestamp));
+      } else {
+        // in-memory is empty — query IDB for the latest message timestamp
+        const idbMsgs = await db.getMessagesByTopic(topicId);
+        if (idbMsgs.length > 0) {
+          latestTs = Math.max(...idbMsgs.map((m) => m.timestamp ?? 0));
+        }
       }
+
+      await transport.broadcast(topicId, {
+        msg_type: "SyncRequest",
+        sender_node_id: myId,
+        sender_name: p2?.display_name ?? "anonymous",
+        timestamp: now,
+        message_id: generateId(),
+        payload: JSON.stringify({
+          since: latestTs,
+          limit: 50,
+          before: null,
+          to: nodeId, // direct to the connecting peer
+        }),
+      });
+      debug("gossip-store", `sent SyncRequest to ${nodeId.slice(0, 16)} since ${latestTs}`);
     } catch (e) {
       warn("gossip-store", "sync request failed:", e);
     }

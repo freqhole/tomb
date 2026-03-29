@@ -129,7 +129,7 @@ export type AlbumQueryResult = z.infer<typeof AlbumQueryResultSchema>;
 export const AlbumReferenceSchema = z.object({
   remote_id: z.string(),
   source_node_id: z.string(),
-  source_name: z.string().nullable(),
+  source_name: z.string(),
   title: z.string(),
   artist_name: z.string().nullable(),
   album_type: z.string(),
@@ -308,7 +308,7 @@ export type ArtistQueryResult = z.infer<typeof ArtistQueryResultSchema>;
 export const ArtistReferenceSchema = z.object({
   remote_id: z.string(),
   source_node_id: z.string(),
-  source_name: z.string().nullable(),
+  source_name: z.string(),
   name: z.string(),
   bio: z.string().nullable(),
   thumbnails: z.array(z.string())
@@ -1058,7 +1058,7 @@ export type GenreRef = z.infer<typeof GenreRefSchema>;
 export const GenreReferenceSchema = z.object({
   remote_id: z.string(),
   source_node_id: z.string(),
-  source_name: z.string().nullable(),
+  source_name: z.string(),
   name: z.string(),
   thumbnails: z.array(z.string())
 });
@@ -1841,7 +1841,7 @@ export type PlaylistQueryResult = z.infer<typeof PlaylistQueryResultSchema>;
 export const PlaylistReferenceSchema = z.object({
   remote_id: z.string(),
   source_node_id: z.string(),
-  source_name: z.string().nullable(),
+  source_name: z.string(),
   title: z.string(),
   description: z.string().nullable(),
   song_count: z.number(),
@@ -2691,7 +2691,7 @@ export type SongQueryResult = z.infer<typeof SongQueryResultSchema>;
 export const SongReferenceSchema = z.object({
   remote_id: z.string(),
   source_node_id: z.string(),
-  source_name: z.string().nullable(),
+  source_name: z.string(),
   title: z.string(),
   track_artist: z.string().nullable(),
   album_title: z.string().nullable(),
