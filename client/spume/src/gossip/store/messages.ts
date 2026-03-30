@@ -528,6 +528,17 @@ export async function onIncomingMessage(envelope: GossipEnvelope, topicId: strin
 
         // show system message for join/rejoin (dedup by message_id)
         const joinMsgId = `sys-${envelope.message_id}`;
+
+        // update friend display name if this member has a real name and the friend entry is still a truncated node_id
+        if (member.display_name && !/^[0-9a-f]{6,16}$/.test(member.display_name)) {
+          const friend = friends().find((f) => f.node_id === member.node_id);
+          if (friend && /^[0-9a-f]{6,16}$/.test(friend.display_name)) {
+            const updatedFriend = { ...friend, display_name: member.display_name };
+            await db.putFriend(updatedFriend);
+            setFriends((prev) => prev.map((f) => f.node_id === member.node_id ? updatedFriend : f));
+          }
+        }
+
         if (!(messagesByTopic[topicId] ?? []).some((m) => m.message_id === joinMsgId)) {
           const sysMsg: GossipMessage = {
             message_id: joinMsgId,

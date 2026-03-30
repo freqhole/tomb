@@ -16,12 +16,16 @@ import { InviteQrModal } from "../../components/gossip/InviteQrModal";
 import * as store from "../store";
 import { warn } from "../../utils/logger";
 import { getDataSource, RemoteMusicDataSource } from "../../music/data";
-import { getAllRemotes } from "../../app/services/remotes/remoteManager";
+import { getAllRemotes, getRemoteByPeerAddr } from "../../app/services/remotes/remoteManager";
 import { toRemoteRef } from "../../app/services/storage/schemas/remote";
 import type { Remote } from "../../app/services/storage/schemas/remote";
 import type { MusicDataSource } from "../../music/data/types";
 import { parseInviteInput, inviteToUrl } from "../gossipInvite";
 import type { MusicReference } from "../../gossip/gossipTypes";
+import { addToQueue } from "../../music/services/queue/queue";
+import { getClientForRemote } from "../../app/api/client";
+import { createPendingRemote, getPendingRemoteByPeerAddr } from "../../app/services/storage/db";
+import { toast } from "../../components/feedback/Toast";
 
 export function GossipView() {
   const [showSidebar, setShowSidebar] = createSignal(true);
@@ -108,6 +112,19 @@ export function GossipView() {
     return getDataSource();
   };
 
+  // extract the remote server identity for use as source_node_id in music references.
+  // this is the key the receiver uses to look up whether they have the same remote configured.
+  const getRemoteServerId = (remote: Remote): string => {
+    if ("peer_addr" in remote && remote.peer_addr) {
+      // for P2P remotes, extract the 64-char hex node_id from peer_addr
+      // (peer_addr may be plain hex or JSON endpoint blob)
+      const hexMatch = remote.peer_addr.match(/([a-f0-9]{64})/i);
+      return hexMatch ? hexMatch[1] : remote.peer_addr;
+    }
+    if ("base_url" in remote && remote.base_url) return remote.base_url;
+    return remote.remote_id;
+  };
+
   const handleSearchMusic = (query: string) => {
     if (searchDebounce) clearTimeout(searchDebounce);
     if (!query || query.length < 2) {
@@ -122,15 +139,19 @@ export function GossipView() {
           return;
         }
         const resp = await ds.search({ query, field: "all", page: 1, page_size: 10 });
-        const nodeId = store.profile()?.node_id ?? "local";
-        const sourceName =
-          remotes().find((r) => r.remote_id === selectedRemoteId())?.name ?? "unknown";
+        // use the remote server's identity (not the gossip node_id) so receivers
+        // can match it against their own configured remotes
+        const searchRemote = remotes().find((r) => r.remote_id === selectedRemoteId());
+        const sourceId = searchRemote
+          ? getRemoteServerId(searchRemote)
+          : (store.profile()?.node_id ?? "local");
+        const sourceName = searchRemote?.name ?? "unknown";
         const results: MusicReference[] = [];
         for (const s of resp.songs ?? []) {
           results.push({
             ref_type: "Song",
             remote_id: s.id,
-            source_node_id: nodeId,
+            source_node_id: sourceId,
             source_name: sourceName,
             title: s.title,
             track_artist: s.artist_names.join(", ") || null,
@@ -147,7 +168,7 @@ export function GossipView() {
           results.push({
             ref_type: "Album",
             remote_id: a.id,
-            source_node_id: nodeId,
+            source_node_id: sourceId,
             source_name: sourceName,
             title: a.title,
             artist_name: a.artist_names.join(", ") || null,
@@ -160,7 +181,7 @@ export function GossipView() {
           results.push({
             ref_type: "Artist",
             remote_id: a.id,
-            source_node_id: nodeId,
+            source_node_id: sourceId,
             source_name: sourceName,
             name: a.name,
             thumbnails: [],
@@ -238,6 +259,140 @@ export function GossipView() {
   const handleLoadMore = () => {
     // all messages loaded from IndexedDB at once for now.
     // midden transport will deliver new messages in real-time.
+  };
+
+  // ---- music playback from gossip ----
+
+  // map source_node_id → Remote for access checks + playback.
+  // indexes P2P remotes by peer_addr (and extracted hex node_id)
+  // and HTTP remotes by base_url so both transport types are matchable.
+  const remotesByNodeId = createMemo(() => {
+    const map = new Map<string, Remote>();
+    for (const r of remotes()) {
+      if ("peer_addr" in r && r.peer_addr) {
+        // P2P remotes — peer_addr may be a plain node_id or JSON containing one
+        map.set(r.peer_addr, r);
+        // also index by the 64-char node_id extracted from endpoint JSON
+        const hexMatch = r.peer_addr.match(/([a-f0-9]{64})/i);
+        if (hexMatch && hexMatch[1] !== r.peer_addr) {
+          map.set(hexMatch[1], r);
+        }
+      }
+      if ("base_url" in r && r.base_url) {
+        // HTTP remotes — index by base_url so music shared via HTTP remotes
+        // can be recognized by receivers who have the same server configured
+        map.set(r.base_url, r);
+      }
+    }
+    return map;
+  });
+
+  const checkAccess = (sourceNodeId: string): boolean => {
+    // own node always has access
+    if (sourceNodeId === currentNodeId()) return true;
+    return remotesByNodeId().has(sourceNodeId);
+  };
+
+  // resolve a MusicReference to a Song from the source remote and play it
+  const resolveRemoteDataSource = (ref: MusicReference): RemoteMusicDataSource | null => {
+    // look up by source_node_id (the server's peer_addr or base_url)
+    const remote = remotesByNodeId().get(ref.source_node_id);
+    if (remote) return new RemoteMusicDataSource(toRemoteRef(remote));
+    // fallback: if source is own gossip node_id (legacy messages), use selected remote
+    if (ref.source_node_id === currentNodeId()) {
+      const rid = selectedRemoteId();
+      const r = remotes().find((r) => r.remote_id === rid);
+      if (r) return new RemoteMusicDataSource(toRemoteRef(r));
+    }
+    return null;
+  };
+
+  const handlePlayFromGossip = async (ref: MusicReference) => {
+    if (ref.ref_type !== "Song") {
+      warn("gossip-view", `cannot play ref_type=${ref.ref_type} directly`);
+      return;
+    }
+    const ds = resolveRemoteDataSource(ref);
+    if (!ds) {
+      warn("gossip-view", `no remote for source_node_id=${ref.source_node_id}`);
+      return;
+    }
+    try {
+      const song = await ds.getSongById(ref.remote_id);
+      if (!song) {
+        warn("gossip-view", `song not found: ${ref.remote_id}`);
+        return;
+      }
+      // add to queue — auto-plays if nothing is currently playing
+      await addToQueue([song], {
+        startPlaying: true,
+        position: "end",
+        source: { type: "song", label: ref.title ?? "gossip" },
+      });
+    } catch (e) {
+      warn("gossip-view", "play from gossip failed:", e);
+    }
+  };
+
+  const handleAddToQueueFromGossip = async (ref: MusicReference) => {
+    if (ref.ref_type !== "Song") return;
+    const ds = resolveRemoteDataSource(ref);
+    if (!ds) return;
+    try {
+      const song = await ds.getSongById(ref.remote_id);
+      if (!song) return;
+      await addToQueue([song], { position: "end" });
+    } catch (e) {
+      warn("gossip-view", "add to queue from gossip failed:", e);
+    }
+  };
+
+  const handleKnockFromGossip = async (ref: MusicReference) => {
+    const nodeId = ref.source_node_id;
+    const sourceName = ref.source_name ?? nodeId.slice(0, 8);
+    try {
+      // check if already have this remote
+      const existing = await getRemoteByPeerAddr(nodeId);
+      if (existing) {
+        toast.info(`you already have access to ${sourceName}`);
+        return;
+      }
+      // check if knock is already pending
+      const pending = await getPendingRemoteByPeerAddr(nodeId);
+      if (pending?.stage === "knock_pending") {
+        toast.info(`knock already pending for ${sourceName}`);
+        return;
+      }
+      // connect to peer and send knock request
+      const displayName = store.profile()?.display_name ?? "someone";
+      const client = await getClientForRemote({ peer_addr: nodeId });
+      const result = await client.admin.createKnockPublic({
+        username: displayName,
+        message: `hi, i'd like access to your music! (from gossip)`,
+      });
+      if (!result.success) {
+        toast.error("knock request failed");
+        return;
+      }
+      // persist as pending remote so we can track the knock lifecycle
+      await createPendingRemote({
+        peer_addr: nodeId,
+        transport: "wasm",
+        stage: "knock_pending",
+        server_name: sourceName,
+        server_description: null,
+        server_version: null,
+        server_image_data: null,
+        server_image_type: null,
+        knock_username: displayName,
+        knock_message: null,
+        error_message: null,
+      });
+      toast.success(`knock sent to ${sourceName}`);
+    } catch (e) {
+      warn("gossip-view", "knock from gossip failed:", e);
+      toast.error(`could not reach ${sourceName}`);
+    }
   };
 
   const handleProfileSubmit = async (displayName: string) => {
@@ -444,6 +599,10 @@ export function GossipView() {
                     onReact={handleReact}
                     onDelete={handleDelete}
                     onLoadMore={handleLoadMore}
+                    onPlay={handlePlayFromGossip}
+                    onAddToQueue={handleAddToQueueFromGossip}
+                    onKnock={handleKnockFromGossip}
+                    checkAccess={checkAccess}
                     friendNodeIds={friendNodeIds()}
                     onAddFriend={handleAddFriend}
                     readReceipts={readReceipts()}
@@ -523,6 +682,13 @@ export function GossipView() {
                           : `share in ${channel().name}...`
                       }
                       allowText={!channel().music_only}
+                      remotes={remotes().map((r) => ({
+                        id: r.remote_id,
+                        name: r.name,
+                        transport: r.is_charnel_managed ? "local" as const : r.transport,
+                      }))}
+                      selectedRemoteId={selectedRemoteId()}
+                      onSelectRemote={(id) => setSelectedRemoteId(id)}
                     />
                   </Show>
                 </>

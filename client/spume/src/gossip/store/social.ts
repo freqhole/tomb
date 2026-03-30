@@ -81,6 +81,23 @@ export async function saveProfile(displayName: string, avatarBlob: string | null
 // friends actions
 // ============================================================================
 
+/** check if a display name looks like a truncated node_id (hex chars only, 12 chars or less) */
+function looksLikeTruncatedNodeId(name: string): boolean {
+  return /^[0-9a-f]{6,16}$/.test(name);
+}
+
+/** try to resolve a display name for a node_id from channel members across all channels */
+function resolveNameFromMembers(nodeId: string): string | undefined {
+  for (const topicId of Object.keys(membersByTopic)) {
+    const members = membersByTopic[topicId] ?? [];
+    const member = members.find((m) => m.node_id === nodeId);
+    if (member?.display_name && !looksLikeTruncatedNodeId(member.display_name)) {
+      return member.display_name;
+    }
+  }
+  return undefined;
+}
+
 /** add a friend if not already known and not self */
 export async function addFriend(nodeId: string, displayName?: string): Promise<void> {
   const self = profile()?.node_id;
@@ -88,11 +105,31 @@ export async function addFriend(nodeId: string, displayName?: string): Promise<v
 
   // skip if already a friend
   const existing = friends().find((f) => f.node_id === nodeId);
-  if (existing) return;
+  if (existing) {
+    // if existing friend has a truncated node_id as name and we now have a real name, update it
+    if (displayName && !looksLikeTruncatedNodeId(displayName) && looksLikeTruncatedNodeId(existing.display_name)) {
+      await updateFriend(nodeId, { display_name: displayName });
+    }
+    return;
+  }
+
+  // resolve display name: provided > channel members > profile db > truncated node_id
+  let resolvedName = displayName;
+  if (!resolvedName || looksLikeTruncatedNodeId(resolvedName)) {
+    resolvedName = resolveNameFromMembers(nodeId) ?? resolvedName;
+  }
+  if (!resolvedName || looksLikeTruncatedNodeId(resolvedName)) {
+    try {
+      const knownProfile = await db.getProfile(nodeId);
+      if (knownProfile?.display_name && !looksLikeTruncatedNodeId(knownProfile.display_name)) {
+        resolvedName = knownProfile.display_name;
+      }
+    } catch { /* ignore */ }
+  }
 
   const friend: GossipFriend = {
     node_id: nodeId,
-    display_name: displayName ?? nodeId.slice(0, 12),
+    display_name: resolvedName ?? nodeId.slice(0, 12),
     avatar_url: null,
     last_seen: nowUnix(),
     online: false,

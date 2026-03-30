@@ -15,9 +15,12 @@ export interface GossipMessageCardProps {
   onOpenReactionPicker?: (messageId: string) => void;
   onDelete?: (messageId: string) => void;
   onPlay?: (item: MusicReference) => void;
+  onKnock?: (item: MusicReference) => void;
   onFavorite?: (item: MusicReference) => void;
   onAddToQueue?: (item: MusicReference) => void;
   onAddToPlaylist?: (item: MusicReference) => void;
+  /** check whether current user has access to a remote by source_node_id */
+  checkAccess?: (sourceNodeId: string) => boolean;
   /** lazy friendship checker — called when the three-dots menu opens */
   checkFriendship?: (nodeId: string) => "friend" | "not-friend" | "self" | "pending";
   onAddFriend?: (nodeId: string) => void;
@@ -228,8 +231,9 @@ export function GossipMessageCard(props: GossipMessageCardProps) {
                 {(item) => (
                   <MusicRefCard
                     item={item}
-                    hasAccess={true}
+                    hasAccess={props.checkAccess?.(item.source_node_id) ?? true}
                     onPlay={props.onPlay}
+                    onKnock={props.onKnock}
                     onFavorite={props.onFavorite}
                     onAddToQueue={props.onAddToQueue}
                     onAddToPlaylist={props.onAddToPlaylist}

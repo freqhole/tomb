@@ -26,9 +26,12 @@ export interface ChannelThreadProps {
   onOpenReactionPicker?: (messageId: string) => void;
   onDelete?: (messageId: string) => void;
   onPlay?: (item: MusicReference) => void;
+  onKnock?: (item: MusicReference) => void;
   onFavorite?: (item: MusicReference) => void;
   onAddToQueue?: (item: MusicReference) => void;
   onAddToPlaylist?: (item: MusicReference) => void;
+  /** check whether current user has access to a remote by node_id */
+  checkAccess?: (sourceNodeId: string) => boolean;
   onLoadMore?: () => void;
   lastReadTimestamp?: number;
   onDismissUnread?: () => void;
@@ -404,9 +407,11 @@ export function ChannelThread(props: ChannelThreadProps) {
                                 }}
                                 onDelete={props.onDelete}
                                 onPlay={props.onPlay}
+                                onKnock={props.onKnock}
                                 onFavorite={props.onFavorite}
                                 onAddToQueue={props.onAddToQueue}
                                 onAddToPlaylist={props.onAddToPlaylist}
+                                checkAccess={props.checkAccess}
                                 checkFriendship={(nodeId) => {
                                   if (nodeId === props.currentNodeId) return "self";
                                   if (props.pendingFriendNodeIds?.has(nodeId)) return "pending";

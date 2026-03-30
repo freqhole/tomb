@@ -3,6 +3,12 @@ import type { MusicReference } from "../../gossip/gossipTypes";
 import { MusicIcon } from "../icons/registry";
 import { AlbumIcon, ArtistIcon, PlaylistIcon, GenreIcon, ArrowUpIcon } from "../icons/navigation";
 
+export interface ComposeBarRemote {
+  id: string;
+  name: string;
+  transport: "http" | "wasm" | "app" | "local";
+}
+
 export interface ComposeBarProps {
   onSend: (text: string, attachments: MusicReference[]) => void;
   onSearchMusic?: (query: string) => void;
@@ -12,6 +18,12 @@ export interface ComposeBarProps {
   disabled?: boolean;
   /** whether text input is allowed (default true) — if false, only music attachments */
   allowText?: boolean;
+  /** available remotes for music search source picker */
+  remotes?: ComposeBarRemote[];
+  /** currently selected remote id for search */
+  selectedRemoteId?: string | null;
+  /** callback when user picks a different remote */
+  onSelectRemote?: (remoteId: string) => void;
 }
 
 /** format ref type icon */
@@ -113,17 +125,35 @@ export function ComposeBar(props: ComposeBarProps) {
       {/* search dropdown */}
       <Show when={showSearch()}>
         <div class="mb-2 bg-[var(--color-bg-elevated)] rounded-lg p-2">
-          <input
-            type="text"
-            class="w-full bg-[var(--color-bg-tertiary)] text-[var(--color-text-primary)] text-sm rounded px-2.5 py-1.5 outline-none focus:ring-1 focus:ring-[var(--color-accent-500)] placeholder:text-[var(--color-text-tertiary)]"
-            placeholder="search music to attach..."
-            value={searchQuery()}
-            onInput={(e) => handleSearchInput(e.currentTarget.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Escape") setShowSearch(false);
-            }}
-            autofocus
-          />
+          {/* remote source picker + search input on same row */}
+          <div class="flex items-center gap-1.5">
+            <Show when={props.remotes && props.remotes.length > 1}>
+              <select
+                class="flex-shrink-0 max-w-[45%] px-2 py-1.5 bg-[var(--color-bg-tertiary)] text-[var(--color-text-primary)] text-xs rounded border border-[var(--color-border-default)] focus:outline-none focus:ring-1 focus:ring-[var(--color-accent-500)]"
+                value={props.selectedRemoteId ?? ""}
+                onChange={(e) => props.onSelectRemote?.(e.target.value)}
+              >
+                <For each={props.remotes}>
+                  {(remote) => (
+                    <option value={remote.id}>
+                      {remote.name} ({remote.transport === "app" ? "local" : remote.transport})
+                    </option>
+                  )}
+                </For>
+              </select>
+            </Show>
+            <input
+              type="text"
+              class="flex-1 min-w-0 bg-[var(--color-bg-tertiary)] text-[var(--color-text-primary)] text-sm rounded px-2.5 py-1.5 outline-none focus:ring-1 focus:ring-[var(--color-accent-500)] placeholder:text-[var(--color-text-tertiary)]"
+              placeholder="search music to attach..."
+              value={searchQuery()}
+              onInput={(e) => handleSearchInput(e.currentTarget.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") setShowSearch(false);
+              }}
+              autofocus
+            />
+          </div>
           <Show when={props.searchResults && props.searchResults.length > 0}>
             <div class="mt-1.5 flex flex-col gap-0.5 max-h-40 overflow-y-auto">
               <For each={props.searchResults}>

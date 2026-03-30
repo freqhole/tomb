@@ -427,7 +427,12 @@ export function TopNav(props: TopNavProps) {
                         }}
                         onClick={() => props.onNavigate?.(routes.gossip())}
                       >
-                        <Icon name="chat" size={14} />
+                        <Show
+                          when={matchRoute(props.currentPath ?? "") === "gossip"}
+                          fallback={<Icon name="chat" size={14} />}
+                        >
+                          <Icon name="check" size={14} color="var(--color-accent-500)" />
+                        </Show>
                         <span class="text-sm">gossip channels</span>
                       </button>
 
@@ -443,24 +448,31 @@ export function TopNav(props: TopNavProps) {
                               class="w-full px-3 py-2 text-left text-sm flex items-center gap-2 rounded transition-colors border-none bg-transparent"
                               classList={{
                                 "text-[var(--color-text-primary)] bg-[var(--color-accent-500)]/10 cursor-default":
-                                  props.currentSourceName === "local library" ||
-                                  !props.currentSourceName,
+                                  !isGossipRoute() &&
+                                  (props.currentSourceName === "local library" ||
+                                  !props.currentSourceName),
                                 "text-[var(--color-text-secondary)] cursor-pointer hover:bg-[var(--color-accent-500)]/10":
-                                  !!props.currentSourceName &&
-                                  props.currentSourceName !== "local library",
+                                  isGossipRoute() ||
+                                  (!!props.currentSourceName &&
+                                  props.currentSourceName !== "local library"),
                               }}
                               disabled={
-                                !!(
-                                  props.currentSourceName === "local library" ||
-                                  !props.currentSourceName
-                                )
+                                !isGossipRoute() &&
+                                !!(props.currentSourceName === "local library" ||
+                                  !props.currentSourceName)
                               }
-                              onClick={() => props.onSwitchToLocal?.()}
+                              onClick={() => {
+                                if (isGossipRoute()) {
+                                  props.onNavigate?.(routes.songs());
+                                }
+                                props.onSwitchToLocal?.();
+                              }}
                             >
                               <Show
                                 when={
-                                  props.currentSourceName === "local library" ||
-                                  !props.currentSourceName
+                                  !isGossipRoute() &&
+                                  (props.currentSourceName === "local library" ||
+                                  !props.currentSourceName)
                                 }
                                 fallback={
                                   <span class="w-2 h-2 rounded-full bg-[var(--color-accent-primary)]" />
