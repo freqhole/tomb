@@ -100,6 +100,7 @@ export function App() {
   // track current hash reactively (allows settings in empty state)
   const [currentHash, setCurrentHash] = createSignal(window.location.hash);
   const isSettingsRoute = () => currentHash().startsWith("#/settings");
+  const isGossipRoute = () => currentHash().startsWith("#/gossip");
 
   // listen for hash changes to update reactive state
   onMount(() => {
@@ -572,12 +573,18 @@ export function App() {
         }
       >
         <Show
-          when={hasSongs() || hasRemotes() || isSettingsRoute()}
+          when={hasSongs() || hasRemotes() || isSettingsRoute() || isGossipRoute()}
           fallback={
             <div class="h-screen flex items-center justify-center bg-[var(--color-bg-primary)]">
               <EmptyState
                 onAddMusic={() => openAddMusic()}
                 onAddRemote={() => setIsAddRemoteOpen(true)}
+                onGossip={() => {
+                  window.location.hash = "#/gossip";
+                }}
+                onSettings={() => {
+                  window.location.hash = "#/settings";
+                }}
               />
             </div>
           }

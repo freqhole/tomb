@@ -4,6 +4,8 @@ import { Icon } from "./icons/registry";
 export interface EmptyStateProps {
   onAddMusic: () => void;
   onAddRemote: () => void;
+  onGossip: () => void;
+  onSettings: () => void;
 }
 
 export function EmptyState(props: EmptyStateProps) {
@@ -27,10 +29,21 @@ export function EmptyState(props: EmptyStateProps) {
             add music
           </Button>
 
+          <Button variant="secondary" onClick={props.onGossip}>
+            gossip
+          </Button>
+
           <Button variant="primary" onClick={props.onAddRemote}>
             add remote
           </Button>
         </div>
+
+        <button
+          onClick={props.onSettings}
+          class="inline-block mt-4 text-sm text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)] transition-colors cursor-pointer"
+        >
+          settings
+        </button>
       </div>
     </div>
   );

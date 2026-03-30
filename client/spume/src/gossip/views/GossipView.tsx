@@ -685,7 +685,7 @@ export function GossipView() {
                       remotes={remotes().map((r) => ({
                         id: r.remote_id,
                         name: r.name,
-                        transport: r.is_charnel_managed ? "local" as const : r.transport,
+                        transport: r.is_charnel_managed ? ("local" as const) : r.transport,
                       }))}
                       selectedRemoteId={selectedRemoteId()}
                       onSelectRemote={(id) => setSelectedRemoteId(id)}

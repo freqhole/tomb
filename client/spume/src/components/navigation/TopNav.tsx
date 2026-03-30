@@ -450,16 +450,18 @@ export function TopNav(props: TopNavProps) {
                                 "text-[var(--color-text-primary)] bg-[var(--color-accent-500)]/10 cursor-default":
                                   !isGossipRoute() &&
                                   (props.currentSourceName === "local library" ||
-                                  !props.currentSourceName),
+                                    !props.currentSourceName),
                                 "text-[var(--color-text-secondary)] cursor-pointer hover:bg-[var(--color-accent-500)]/10":
                                   isGossipRoute() ||
                                   (!!props.currentSourceName &&
-                                  props.currentSourceName !== "local library"),
+                                    props.currentSourceName !== "local library"),
                               }}
                               disabled={
                                 !isGossipRoute() &&
-                                !!(props.currentSourceName === "local library" ||
-                                  !props.currentSourceName)
+                                !!(
+                                  props.currentSourceName === "local library" ||
+                                  !props.currentSourceName
+                                )
                               }
                               onClick={() => {
                                 if (isGossipRoute()) {
@@ -472,7 +474,7 @@ export function TopNav(props: TopNavProps) {
                                 when={
                                   !isGossipRoute() &&
                                   (props.currentSourceName === "local library" ||
-                                  !props.currentSourceName)
+                                    !props.currentSourceName)
                                 }
                                 fallback={
                                   <span class="w-2 h-2 rounded-full bg-[var(--color-accent-primary)]" />
