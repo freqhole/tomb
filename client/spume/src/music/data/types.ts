@@ -512,6 +512,9 @@ export interface FeedItem {
   collage_images: ImageMetadata[] | null;
   // when the entity was originally created (for playlists - to distinguish create vs update)
   entity_created_at: number | null;
+  // which remote this item came from (for aggregate feed view)
+  remote_id?: string | null;
+  remote_name?: string | null;
 }
 
 // paginated feed response

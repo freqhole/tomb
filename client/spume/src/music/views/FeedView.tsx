@@ -791,6 +791,7 @@ export function FeedView() {
                 onAddToQueue={handleAddToQueue}
                 getContextMenuActions={getContextMenuActions}
                 onNearEnd={loadMore}
+                onGenreClick={(genreId) => navigate(routes.genre(genreId))}
                 scrollKey="feed-view"
                 onScroll={handleScroll}
               />
