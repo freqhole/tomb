@@ -205,7 +205,7 @@ export function VirtualFeedList(props: VirtualFeedListProps) {
           virtualizer.scrollToOffset(scrollRef.scrollTop, { align: "start" });
         });
       }
-    }),
+    })
   );
 
   // near-end detection for infinite scroll
@@ -215,7 +215,9 @@ export function VirtualFeedList(props: VirtualFeedListProps) {
     const items = virtualizer.getVirtualItems();
     if (items.length === 0) return;
     const lastItem = items[items.length - 1];
-    console.log(`[feed-virt] checkNearEnd: lastVisible=${lastItem.index}, total=${count()}, threshold=${count() - 20}`);
+    console.log(
+      `[feed-virt] checkNearEnd: lastVisible=${lastItem.index}, total=${count()}, threshold=${count() - 20}`
+    );
     if (lastItem && lastItem.index >= count() - 20) {
       loadMorePending = true;
       setTimeout(() => {

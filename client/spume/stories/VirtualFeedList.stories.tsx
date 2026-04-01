@@ -10,7 +10,16 @@ function seededRand(seed: number): number {
   return x - Math.floor(x);
 }
 
-const userNames = ["nancy", "sluggo", "fritzi", "rollo", "butch", "irma", "oona goosepimple", "phil fumble"];
+const userNames = [
+  "nancy",
+  "sluggo",
+  "fritzi",
+  "rollo",
+  "butch",
+  "irma",
+  "oona goosepimple",
+  "phil fumble",
+];
 const songTitles = [
   "midnight sun",
   "blue in green",
@@ -62,13 +71,15 @@ const feedTypes: FeedItemType[] = [
 function generateFeedItems(
   page: number,
   pageSize = 30,
-  remote?: { id: string; name: string },
+  remote?: { id: string; name: string }
 ): FeedItem[] {
   const items: FeedItem[] = [];
   const baseTs = Date.now() - page * pageSize * 120000;
 
   // mix remote identity into seed so each remote gets different data
-  const remoteSalt = remote ? remote.id.split("").reduce((a, c) => a + c.charCodeAt(0), 0) * 1000 : 0;
+  const remoteSalt = remote
+    ? remote.id.split("").reduce((a, c) => a + c.charCodeAt(0), 0) * 1000
+    : 0;
 
   for (let i = 0; i < pageSize; i++) {
     const globalIdx = page * pageSize + i;
@@ -239,10 +250,10 @@ const mockRemotes = [
 // aggregate feed — multiple remotes with toggle buttons
 function AggregateFeedDemo() {
   const [activeRemotes, setActiveRemotes] = createSignal<Set<string>>(
-    new Set(mockRemotes.map((r) => r.id)),
+    new Set(mockRemotes.map((r) => r.id))
   );
   const [pages, setPages] = createSignal<Record<string, number>>(
-    Object.fromEntries(mockRemotes.map((r) => [r.id, 0])),
+    Object.fromEntries(mockRemotes.map((r) => [r.id, 0]))
   );
   const [allItems, setAllItems] = createSignal<FeedItem[]>([]);
   const [loadingMore, setLoadingMore] = createSignal(false);
@@ -287,9 +298,7 @@ function AggregateFeedDemo() {
         newItems.push(...generateFeedItems(newPages[remote.id], 15, remote));
       }
       setPages(newPages);
-      setAllItems((prev) =>
-        [...prev, ...newItems].sort((a, b) => b.created_at - a.created_at),
-      );
+      setAllItems((prev) => [...prev, ...newItems].sort((a, b) => b.created_at - a.created_at));
       setLoadingMore(false);
     }, 600);
   };
@@ -309,8 +318,7 @@ function AggregateFeedDemo() {
         <For each={mockRemotes}>
           {(remote) => {
             const isActive = () => activeRemotes().has(remote.id);
-            const count = () =>
-              allItems().filter((i) => i.remote_id === remote.id).length;
+            const count = () => allItems().filter((i) => i.remote_id === remote.id).length;
             return (
               <button
                 style={{
@@ -320,7 +328,9 @@ function AggregateFeedDemo() {
                   border: "none",
                   cursor: "pointer",
                   transition: "all 0.15s",
-                  background: isActive() ? "var(--color-accent-500, #6366f1)" : "rgba(255,255,255,0.08)",
+                  background: isActive()
+                    ? "var(--color-accent-500, #6366f1)"
+                    : "rgba(255,255,255,0.08)",
                   color: isActive() ? "#fff" : "rgba(255,255,255,0.4)",
                 }}
                 onClick={() => toggleRemote(remote.id)}
@@ -372,4 +382,3 @@ function AggregateFeedDemo() {
     </div>
   );
 }
-
