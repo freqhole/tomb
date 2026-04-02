@@ -1,7 +1,7 @@
 export { default as PixieCanvas } from "./PixieCanvas";
 export { Card, CARD_SIZE, SPINE_WIDTH, SPINE_HEIGHT } from "./Card";
 export type { CardOptions, CardState, DropZoneChecker, CardSceneCallbacks, AlbumData } from "./Card";
-export { Grid } from "./Grid";
+export { Grid, GRID_CELL_SIZE } from "./Grid";
 export type { GridOptions } from "./Grid";
 export { Shelf, SHELF_SLOT_W, SHELF_SLOT_H } from "./Shelf";
 export type { ShelfOptions } from "./Shelf";
@@ -13,5 +13,5 @@ export { FloatingLabel } from "./FloatingLabel";
 export { AlbumDetail } from "./AlbumDetail";
 export { Viewport } from "./Viewport";
 export type { ViewportOptions } from "./Viewport";
-export { PixieTheme } from "./PixieTheme";
+export { PixieTheme, snapToGrid } from "./PixieTheme";
 export type { ToolMode, AddAction } from "./ToolMode";

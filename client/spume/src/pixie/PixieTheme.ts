@@ -48,4 +48,12 @@ export const PixieTheme = {
   fontFamily: "'Atkinson Hyperlegible Next', sans-serif",
   // render text at 2x for retina sharpness (pixi defaults to 1x)
   textResolution: typeof window !== "undefined" ? Math.max(window.devicePixelRatio, 2) : 2,
+
+  // snap grid for container positioning (all container sizes should be multiples of this)
+  snapGrid: 8,
 } as const;
+
+// snap a value to the nearest multiple of PixieTheme.snapGrid
+export function snapToGrid(v: number): number {
+  return Math.round(v / PixieTheme.snapGrid) * PixieTheme.snapGrid;
+}

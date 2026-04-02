@@ -12,8 +12,8 @@ export interface ShelfOptions {
   borderColor?: number;
 }
 
-export const SHELF_SLOT_W = 30;
-export const SHELF_SLOT_H = 110;
+export const SHELF_SLOT_W = 32;
+export const SHELF_SLOT_H = 104;
 
 // a shelf with narrow vertical spine-width slots.
 // cards dropped in here switch to "spine" view (standing upright).

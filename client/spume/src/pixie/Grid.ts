@@ -2,6 +2,8 @@ import { Container, Graphics } from "pixi.js";
 import type { DropZoneChecker } from "./Card";
 import { PixieTheme } from "./PixieTheme";
 
+export const GRID_CELL_SIZE = 104;
+
 export interface GridOptions {
   x: number;
   y: number;

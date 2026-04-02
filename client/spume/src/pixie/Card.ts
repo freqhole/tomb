@@ -8,6 +8,7 @@ import {
   Texture,
 } from "pixi.js";
 import { PixieTheme } from "./PixieTheme";
+import { drawAlbumFallback } from "./AlbumDetail";
 import type { Viewport } from "./Viewport";
 
 // shared font config for crisp text
@@ -42,6 +43,7 @@ export interface AlbumData {
   duration: number;
   rating: number;
   thumbnailUrl: string;
+  imageUrls?: string[];
   tracks?: { title: string; durationSeconds: number; rating: number }[];
 }
 
@@ -111,9 +113,9 @@ function makeSpineHorizontalTexture(
   return app.renderer.generateTexture({ target: c, resolution: TEXT_RES });
 }
 
-export const CARD_SIZE = 100;
-export const SPINE_WIDTH = 20;
-export const SPINE_HEIGHT = 100;
+export const CARD_SIZE = 96;
+export const SPINE_WIDTH = 24;
+export const SPINE_HEIGHT = 96;
 
 export type DropZoneChecker = {
   getSlot: (x: number, y: number) => { x: number; y: number } | null;
@@ -152,6 +154,7 @@ export class Card extends Container {
   private sceneCallbacks: CardSceneCallbacks | null = null;
   private viewport: Viewport | null = null;
   private lastPointerDown = 0;
+  private longPressTimer: ReturnType<typeof setTimeout> | null = null;
 
   private dropZones: DropZoneChecker[] = [];
 
@@ -184,9 +187,11 @@ export class Card extends Container {
     this.cursor = "pointer";
     this.on("pointerdown", this.onDown, this);
 
-    // load image if provided
+    // load image if provided, otherwise show fallback disc icon
     if (opts.imageUrl) {
       this.loadImage(opts.imageUrl, opts.label);
+    } else {
+      this.applyFallbackIcon(opts.color, opts.label);
     }
   }
 
@@ -310,6 +315,43 @@ export class Card extends Container {
     this.dropZones = zones;
   }
 
+  // draw a fallback disc icon on the front texture when no image is available
+  private applyFallbackIcon(color: number, label: string) {
+    const c = new Container();
+    const bg = new Graphics();
+    bg.rect(0, 0, CARD_SIZE, CARD_SIZE).fill(color);
+    c.addChild(bg);
+    const disc = new Graphics();
+    drawAlbumFallback(disc, CARD_SIZE);
+    c.addChild(disc);
+    const labelBg = new Graphics();
+    labelBg.rect(0, CARD_SIZE - 22, CARD_SIZE, 22).fill({ color: 0x000000, alpha: 0.6 });
+    c.addChild(labelBg);
+    const text = new Text({ text: label, resolution: TEXT_RES, style: {
+      fill: "#ffffff", fontSize: 10,
+      wordWrap: true, wordWrapWidth: CARD_SIZE - 6,
+      ...FONT_STYLE,
+    } });
+    text.anchor.set(0.5, 0.5);
+    text.x = CARD_SIZE / 2;
+    text.y = CARD_SIZE - 11;
+    c.addChild(text);
+    const mask = new Graphics();
+    mask.rect(0, 0, CARD_SIZE, CARD_SIZE).fill(0xffffff);
+    c.addChild(mask);
+    c.mask = mask;
+    this.frontTex = this.app.renderer.generateTexture({ target: c, resolution: TEXT_RES });
+    this.sprite.texture = this.frontTex;
+    this.redrawSelectionBorder();
+  }
+
+  private clearLongPress() {
+    if (this.longPressTimer) {
+      clearTimeout(this.longPressTimer);
+      this.longPressTimer = null;
+    }
+  }
+
   private onDown(e: FederatedPointerEvent) {
     if (!this.parent) return;
 
@@ -322,11 +364,27 @@ export class Card extends Container {
     // double-click detection (300ms threshold)
     const now = Date.now();
     if (now - this.lastPointerDown < 300) {
+      this.clearLongPress();
       this.sceneCallbacks?.onCardDoubleClicked?.(this);
       this.lastPointerDown = 0;
       return;
     }
     this.lastPointerDown = now;
+
+    // long press detection (500ms) — opens detail + vibrate on mobile
+    this.clearLongPress();
+    this.longPressTimer = setTimeout(() => {
+      this.longPressTimer = null;
+      if (this.dragging) {
+        this.dragging = false;
+        const stage = this.app.stage;
+        stage.off("pointermove", onMove);
+        stage.off("pointerup", onUp);
+        stage.off("pointerupoutside", onUp);
+      }
+      if (navigator.vibrate) navigator.vibrate(50);
+      this.sceneCallbacks?.onCardDoubleClicked?.(this);
+    }, 500);
 
     // notify scene for click/selection handling
     this.sceneCallbacks?.onCardClicked(this, e);
@@ -362,6 +420,9 @@ export class Card extends Container {
     const stage = this.app.stage;
     const onMove = (ev: FederatedPointerEvent) => {
       if (!this.dragging || !this.parent) return;
+
+      // cancel long press once user starts dragging
+      this.clearLongPress();
 
       const p = ev.getLocalPosition(this.parent);
       let nx = p.x - this.dragOffset.x;
@@ -400,6 +461,7 @@ export class Card extends Container {
     };
 
     const onUp = () => {
+      this.clearLongPress();
       if (!this.dragging) return;
       this.dragging = false;
 

@@ -12,8 +12,8 @@ export interface BinOptions {
   borderColor?: number;
 }
 
-export const BIN_SLOT_W = 110;
-export const BIN_SLOT_H = 30;
+export const BIN_SLOT_W = 104;
+export const BIN_SLOT_H = 32;
 
 // a bin (record crate) with horizontal stacking slots.
 // cards dropped in here switch to "spine-horizontal" view,

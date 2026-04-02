@@ -1,7 +1,17 @@
 import type { Meta, StoryObj } from "storybook-solidjs-vite";
 import type { Application } from "pixi.js";
 import { Container as PixiContainer, Graphics, Text, FederatedPointerEvent } from "pixi.js";
-import { PixieCanvas, Card, Grid, Shelf, Bin, Toolbar, PixieTheme } from "../src/pixie";
+import {
+  PixieCanvas,
+  Card,
+  Grid,
+  Shelf,
+  Bin,
+  Toolbar,
+  PixieTheme,
+  FloatingLabel,
+} from "../src/pixie";
+import { GRID_CELL_SIZE } from "../src/pixie/Grid";
 import type { PixieCanvasProps } from "../src/pixie/PixieCanvas";
 import type { DropZoneChecker, AlbumData } from "../src/pixie/Card";
 import { AlbumDetail } from "../src/pixie/AlbumDetail";
@@ -25,6 +35,7 @@ function albumDataFromMock(album: (typeof mockAlbums)[0]): AlbumData {
     duration: album.duration,
     rating: album.rating,
     thumbnailUrl: album.thumbnailUrl,
+    imageUrls: album.thumbnailUrl ? [album.thumbnailUrl] : undefined,
     tracks,
   };
 }
@@ -42,25 +53,25 @@ function setupDemoScene(app: Application) {
 
   // initial containers (added to world, not stage)
   const grid = new Grid({
-    x: 50,
-    y: 50,
+    x: 48,
+    y: 48,
     cols: 4,
     rows: 3,
-    cellSize: 110,
+    cellSize: GRID_CELL_SIZE,
   });
   world.addChild(grid);
 
   const shelf = new Shelf({
-    x: 550,
-    y: 50,
+    x: 472,
+    y: 48,
     cols: 6,
     rows: 4,
   });
   world.addChild(shelf);
 
   const bin = new Bin({
-    x: 50,
-    y: 420,
+    x: 48,
+    y: 416,
     cols: 4,
     rows: 4,
   });
@@ -100,6 +111,16 @@ function setupDemoScene(app: Application) {
   toolbar.registerContainer(shelf);
   toolbar.registerContainer(bin);
 
+  // default hint label
+  const hintLabel = new FloatingLabel(
+    64,
+    372,
+    "#hottip: double click (or long press) album to see detailz"
+  );
+  hintLabel.setLabelSize(372, 32);
+  world.addChild(hintLabel);
+  toolbar.registerLabel(hintLabel);
+
   // toolbar stays on stage (UI overlay, doesn't scroll with world)
   app.stage.addChild(toolbar);
 
@@ -136,7 +157,7 @@ function setupDemoScene(app: Application) {
         id: albumIdx,
         label: album.title,
         color: randColor(),
-        imageUrl: album.thumbnailUrl,
+        imageUrl: albumIdx % 5 === 0 ? undefined : album.thumbnailUrl,
         albumData: albumDataFromMock(album),
       });
       card.registerDropZones(dropZones);
@@ -159,7 +180,7 @@ function setupDemoScene(app: Application) {
     .fill({ color: PixieTheme.accent600, alpha: 0.2 })
     .stroke({ width: 1, color: PixieTheme.accent500 });
   const addText = new Text({
-    text: "+ add albums",
+    text: "+ add albumz",
     resolution: PixieTheme.textResolution,
     style: { fill: PixieTheme.css.textPrimary, fontSize: 11, fontFamily: PixieTheme.fontFamily },
   });
