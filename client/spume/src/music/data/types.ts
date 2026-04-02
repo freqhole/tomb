@@ -443,6 +443,9 @@ export interface MusicDataSource {
   getListenSession?(sessionId: string): Promise<ListenSession | null>;
   deleteListenSession?(sessionId: string): Promise<void>;
 
+  // feed event deletion (admin can delete any feed event)
+  deleteFeedEvent?(feedEventId: string): Promise<void>;
+
   // musicbrainz operations (remote only — returns undefined for local)
   searchMusicbrainzReleases?(params: {
     artist: string | null;

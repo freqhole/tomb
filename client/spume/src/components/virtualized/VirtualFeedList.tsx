@@ -29,6 +29,7 @@ import { isTouchDevice } from "../../utils/isMobile";
 import type { FavoriteTarget } from "../../music/queries/favorites";
 import { getCurrentUser } from "../../music/data";
 import { EntityLinks } from "../media/EntityLinks";
+import { RelativeTime } from "../text/RelativeTime";
 
 const ESTIMATE_ROW_HEIGHT = 120;
 const IMAGE_SIZE = 88;
@@ -36,21 +37,6 @@ const OVERSCAN = 8;
 
 // scroll position cache
 const scrollCache = new Map<string, number>();
-
-// relative time formatting
-function timeAgo(timestamp: number): string {
-  const seconds = Math.floor((Date.now() - timestamp) / 1000);
-  if (seconds < 60) return "just now";
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  if (days < 7) return `${days}d ago`;
-  const weeks = Math.floor(days / 7);
-  if (weeks < 30) return `${weeks}w ago`;
-  return new Date(timestamp).toLocaleDateString();
-}
 
 // feed type display info
 function feedTypeInfo(type: FeedItemType): { color: string; icon: IconName } {
@@ -545,21 +531,26 @@ function FeedRow(props: {
       {/* content area */}
       <div class="flex-1 min-w-0 py-3 flex flex-col justify-center gap-0.5">
         {/* line 1: action text — "edward ♥ a song" or "new album" */}
-        <div
-          class="flex items-center gap-1 text-xs wide:text-sm"
-          style={{ color: typeInfo().color }}
-        >
+        <div class="text-xs wide:text-sm leading-snug" style={{ color: typeInfo().color }}>
           <Show when={actionText().user}>
-            <span class="font-bold">{actionText().user}</span>
+            <span class="font-bold">{actionText().user} </span>
           </Show>
           <Show when={actionText().verb}>
-            <Show when={actionText().verb === "\u2665"} fallback={<span>{actionText().verb}</span>}>
-              <Icon name="favorite" size={14} color={entityColors.favorite} />
+            <Show
+              when={actionText().verb === "\u2665"}
+              fallback={<span>{actionText().verb} </span>}
+            >
+              <Icon
+                name="favorite"
+                size={14}
+                color={entityColors.favorite}
+                className="inline align-text-bottom"
+              />{" "}
             </Show>
           </Show>
           <span>{actionText().entity}</span>
           <Show when={props.item.rating != null}>
-            <span class="ml-1 flex items-center gap-0.5">
+            <span class="ml-1 inline-flex items-center gap-0.5 align-text-bottom">
               <Icon name="star" size={11} color={entityColors.rating} />
               {props.item.rating}/5
             </span>
@@ -681,7 +672,7 @@ function FeedRow(props: {
 
       {/* right side: timestamp + remote badge + actions */}
       <div class="flex flex-col items-end flex-shrink-0 gap-1 py-3 justify-start">
-        <span class="text-[11px] text-[var(--color-text-muted)]">{timeAgo(createdAt())}</span>
+        <RelativeTime timestamp={createdAt()} class="text-[11px] text-[var(--color-text-muted)]" />
         <Show when={props.item.remote_name}>
           <span class="text-[10px] px-1.5 py-px rounded-full bg-[var(--color-bg-elevated)] text-[var(--color-text-secondary)] truncate max-w-[80px]">
             {props.item.remote_name}

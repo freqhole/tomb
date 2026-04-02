@@ -109,6 +109,7 @@ pub async fn dispatch(
 ) -> Option<GrimoireResponse<JsonValue>> {
     match path {
         "/api/upload/image" => Some(upload_image(caller, body.clone()).await),
+        "/api/upload/music" => Some(upload_music(caller, body.clone()).await),
         "/api/upload/music-paths" => Some(import_music_paths(caller, body.clone()).await),
         _ => None,
     }
@@ -418,6 +419,408 @@ pub async fn upload_image(caller: &Caller, body: JsonValue) -> GrimoireResponse<
     };
 
     GrimoireResponse::success("image uploaded", serde_json::to_value(response).unwrap())
+}
+
+/// request for music upload (supports base64 data or file paths)
+#[derive(Debug, Deserialize)]
+pub struct UploadMusicRequest {
+    /// base64-encoded audio data (use this OR file_path, not both)
+    #[serde(default)]
+    pub data: Option<String>,
+    /// local filesystem path to audio file (tauri-local optimization)
+    #[serde(default)]
+    pub file_path: Option<String>,
+    /// original filename (for mime detection)
+    #[serde(default)]
+    pub filename: Option<String>,
+    /// optional metadata hints for processing
+    #[serde(default)]
+    pub metadata: Option<serde_json::Value>,
+    /// if true, wait for job to complete before returning
+    #[serde(default)]
+    pub wait_for_completion: bool,
+}
+
+/// upload music from base64 data or file path
+///
+/// path: POST /api/upload/music
+pub async fn upload_music(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
+    if !matches!(caller.role, UserRole::Admin | UserRole::Member) {
+        return GrimoireResponse::failure(
+            "forbidden",
+            vec![ErrorDetail::new(
+                "forbidden",
+                "forbidden",
+                "only members can upload music",
+            )],
+        );
+    }
+
+    let req: UploadMusicRequest = match serde_json::from_value(body) {
+        Ok(r) => r,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "bad request",
+                vec![ErrorDetail::new(
+                    "bad_request",
+                    "bad request",
+                    &e.to_string(),
+                )],
+            )
+        }
+    };
+
+    // get data from either base64 or file_path
+    let (data, filename) = match (&req.data, &req.file_path) {
+        (Some(base64_data), None) => {
+            let decoded = match base64::engine::general_purpose::STANDARD.decode(base64_data) {
+                Ok(d) => d,
+                Err(e) => {
+                    return GrimoireResponse::failure(
+                        "invalid base64 data",
+                        vec![ErrorDetail::new(
+                            "bad_request",
+                            "invalid data",
+                            &format!("failed to decode base64: {}", e),
+                        )],
+                    )
+                }
+            };
+            let name = req.filename.unwrap_or_else(|| "music.bin".to_string());
+            (decoded, name)
+        }
+        (None, Some(file_path)) => {
+            let path = Path::new(file_path);
+            if !path.exists() {
+                return GrimoireResponse::failure(
+                    "file not found",
+                    vec![ErrorDetail::new(
+                        "bad_request",
+                        "file not found",
+                        &format!("file does not exist: {}", file_path),
+                    )],
+                );
+            }
+            let file_data = match std::fs::read(path) {
+                Ok(d) => d,
+                Err(e) => {
+                    return GrimoireResponse::failure(
+                        "failed to read file",
+                        vec![ErrorDetail::new(
+                            "internal_error",
+                            "failed to read file",
+                            &e.to_string(),
+                        )],
+                    )
+                }
+            };
+            let name = req
+                .filename
+                .or_else(|| path.file_name().map(|n| n.to_string_lossy().to_string()))
+                .unwrap_or_else(|| "music.bin".to_string());
+            (file_data, name)
+        }
+        (Some(_), Some(_)) => {
+            return GrimoireResponse::failure(
+                "bad request",
+                vec![ErrorDetail::new(
+                    "bad_request",
+                    "invalid request",
+                    "provide either 'data' or 'file_path', not both",
+                )],
+            )
+        }
+        (None, None) => {
+            return GrimoireResponse::failure(
+                "bad request",
+                vec![ErrorDetail::new(
+                    "bad_request",
+                    "invalid request",
+                    "must provide 'data' (base64) or 'file_path'",
+                )],
+            )
+        }
+    };
+
+    // check file size against config
+    let config = crate::config::get_config();
+    let max_size = config.media.max_fs_file_size;
+    if data.len() as u64 > max_size {
+        return GrimoireResponse::failure(
+            "file too large",
+            vec![ErrorDetail::new(
+                "bad_request",
+                "file too large",
+                &format!("max size is {} bytes", max_size),
+            )],
+        );
+    }
+
+    // calculate sha256 hash
+    let mut hasher = Sha256::new();
+    hasher.update(&data);
+    let hash = format!("{:x}", hasher.finalize());
+
+    // compute blake3 hash for P2P verified streaming
+    let blake3_hash = crate::blobz::compute_blake3_from_bytes(&data);
+
+    // detect mime type from filename extension
+    let mime_type = detect_audio_mime_type(&filename, &data);
+    if !mime_type.starts_with("audio/") {
+        return GrimoireResponse::failure(
+            "invalid audio file",
+            vec![ErrorDetail::new(
+                "bad_request",
+                "invalid audio file",
+                "file is not a valid audio file",
+            )],
+        );
+    }
+
+    let size = data.len() as i64;
+    let ext = detect_audio_extension(&mime_type, &filename);
+
+    // create media blob (with deduplication via sha256)
+    let blob = match create_media_blob(CreateMediaBlobRequest {
+        sha256: hash.clone(),
+        size: Some(size),
+        mime: Some(mime_type.clone()),
+        source_client_id: None,
+        local_path: None,
+        filename: Some(filename.clone()),
+        parent_blob_id: None,
+        blob_type: Some(BlobType::Original),
+        metadata: json!({
+            "original_filename": filename,
+        }),
+        created_by: Some(caller.user_id.clone()),
+        data: None,
+        width: None,
+        height: None,
+        blake3: Some(blake3_hash),
+    })
+    .await
+    {
+        Ok(b) => b,
+        Err(e) => {
+            return GrimoireResponse::failure("failed to create blob", vec![ErrorDetail::from(e)])
+        }
+    };
+
+    let existing = blob.created_at < (time::OffsetDateTime::now_utc().unix_timestamp() - 1);
+
+    // determine output directory
+    let output_dir = config
+        .server
+        .as_ref()
+        .and_then(|s| s.fetch_music.as_ref())
+        .and_then(|f| f.output_dir.as_ref())
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| config.data_dir.join("fetch"));
+
+    // generate date-based path
+    let now = time::OffsetDateTime::now_utc();
+    let year = now.year();
+    let month = now.month() as u8;
+    let rel_path = format!("{:04}/{:02}/{}.{}", year, month, blob.id, ext);
+    let full_path = output_dir.join(&rel_path);
+
+    // ensure directory exists and write file
+    if let Some(parent) = full_path.parent() {
+        if let Err(e) = tokio::fs::create_dir_all(parent).await {
+            return GrimoireResponse::failure(
+                "failed to create directory",
+                vec![ErrorDetail::new(
+                    "internal_error",
+                    "failed to create directory",
+                    &e.to_string(),
+                )],
+            );
+        }
+    }
+
+    if let Err(e) = tokio::fs::write(&full_path, &data).await {
+        return GrimoireResponse::failure(
+            "failed to write file",
+            vec![ErrorDetail::new(
+                "internal_error",
+                "failed to write file",
+                &e.to_string(),
+            )],
+        );
+    }
+
+    // create import job
+    let job_payload = json!({
+        "blob_id": blob.id,
+        "local_path": full_path.to_string_lossy(),
+        "mime_type": mime_type,
+        "filename": filename,
+        "user_hints": req.metadata,
+    });
+
+    let job_response = create_job(CreateJobRequest {
+        job_type: JobType::ImportMusic,
+        session_id: None,
+        parameters: job_payload,
+        max_retries: Some(3),
+        scheduled_at: None,
+        created_by: Some(caller.user_id.clone()),
+    })
+    .await;
+
+    let job = match job_response.data {
+        Some(j) => j,
+        None => {
+            return GrimoireResponse::failure(
+                "failed to create job",
+                job_response
+                    .errors
+                    .into_iter()
+                    .map(ErrorDetail::from)
+                    .collect(),
+            )
+        }
+    };
+
+    let message = if existing {
+        "existing music file found (deduplicated), import job scheduled".to_string()
+    } else {
+        "music file uploaded, import job scheduled".to_string()
+    };
+
+    // if wait_for_completion is set, poll until job completes
+    if req.wait_for_completion {
+        let job_id = job.id.clone();
+        let start = std::time::Instant::now();
+
+        loop {
+            if start.elapsed() > MAX_WAIT_DURATION {
+                return GrimoireResponse::failure(
+                    "job timed out",
+                    vec![ErrorDetail::new(
+                        "timeout",
+                        "job timed out",
+                        "job did not complete within 30 seconds",
+                    )],
+                );
+            }
+
+            let job_response = get_job(&job_id).await;
+            if let Some(job_status) = job_response.data {
+                let status = job_status.status.as_str();
+                if status == "Completed" {
+                    let response = crate::upload::MusicUploadResponse {
+                        blob_id: blob.id,
+                        job_id,
+                        sha256: hash,
+                        size,
+                        mime: mime_type,
+                        existing,
+                        message: "music uploaded and processed".to_string(),
+                    };
+                    return GrimoireResponse::success(
+                        "music uploaded",
+                        serde_json::to_value(response).unwrap(),
+                    );
+                } else if status == "Failed" || status == "Cancelled" {
+                    return GrimoireResponse::failure(
+                        "job failed",
+                        vec![ErrorDetail::new(
+                            "job_failed",
+                            "job failed",
+                            job_status
+                                .error_message
+                                .as_deref()
+                                .unwrap_or("unknown error"),
+                        )],
+                    );
+                }
+            } else if !job_response.errors.is_empty() {
+                return GrimoireResponse::failure(
+                    "failed to check job status",
+                    job_response
+                        .errors
+                        .into_iter()
+                        .map(ErrorDetail::from)
+                        .collect(),
+                );
+            }
+
+            sleep(POLL_INTERVAL).await;
+        }
+    }
+
+    let response = crate::upload::MusicUploadResponse {
+        blob_id: blob.id,
+        job_id: job.id,
+        sha256: hash,
+        size,
+        mime: mime_type,
+        existing,
+        message,
+    };
+
+    GrimoireResponse::success("music uploaded", serde_json::to_value(response).unwrap())
+}
+
+/// detect audio mime type from filename and magic bytes
+fn detect_audio_mime_type(filename: &str, data: &[u8]) -> String {
+    // try filename extension first
+    let ext = filename.rsplit('.').next().unwrap_or("").to_lowercase();
+    match ext.as_str() {
+        "mp3" => return "audio/mpeg".to_string(),
+        "flac" => return "audio/flac".to_string(),
+        "ogg" | "oga" => return "audio/ogg".to_string(),
+        "opus" => return "audio/opus".to_string(),
+        "wav" | "wave" => return "audio/wav".to_string(),
+        "aac" => return "audio/aac".to_string(),
+        "m4a" => return "audio/mp4".to_string(),
+        "aif" | "aiff" => return "audio/aiff".to_string(),
+        _ => {}
+    }
+
+    // fallback to magic bytes
+    if data.len() >= 12 {
+        if data.starts_with(b"ID3") || (data[0] == 0xFF && (data[1] & 0xE0) == 0xE0) {
+            return "audio/mpeg".to_string();
+        }
+        if data.starts_with(b"fLaC") {
+            return "audio/flac".to_string();
+        }
+        if data.starts_with(b"OggS") {
+            return "audio/ogg".to_string();
+        }
+        if data.starts_with(b"RIFF") && &data[8..12] == b"WAVE" {
+            return "audio/wav".to_string();
+        }
+        if &data[4..8] == b"ftyp" {
+            return "audio/mp4".to_string();
+        }
+    }
+
+    "application/octet-stream".to_string()
+}
+
+/// detect file extension from mime type or filename
+fn detect_audio_extension(mime_type: &str, filename: &str) -> String {
+    if let Some(ext) = filename.rsplit('.').next() {
+        if ext.len() <= 5 && !ext.is_empty() && ext != filename {
+            return ext.to_lowercase();
+        }
+    }
+    match mime_type {
+        "audio/mpeg" => "mp3",
+        "audio/flac" => "flac",
+        "audio/ogg" | "audio/vorbis" => "ogg",
+        "audio/opus" => "opus",
+        "audio/wav" | "audio/wave" => "wav",
+        "audio/aac" => "aac",
+        "audio/mp4" | "audio/m4a" => "m4a",
+        "audio/aiff" => "aiff",
+        _ => "bin",
+    }
+    .to_string()
 }
 
 /// request for music import by paths (tauri-local optimization)

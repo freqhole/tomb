@@ -1,13 +1,5 @@
 import { NavigationMenu as KobalteNav } from "@kobalte/core/navigation-menu";
-import {
-  createResource,
-  createSignal,
-  For,
-  onCleanup,
-  onMount,
-  Show,
-  type JSX,
-} from "solid-js";
+import { createResource, createSignal, For, onCleanup, onMount, Show, type JSX } from "solid-js";
 import { Icon } from "../icons/registry";
 import { toast } from "../feedback/Toast";
 import { TopNavSearchContainer } from "../../utils/TopNavSearchContainer";
@@ -246,6 +238,9 @@ export function TopNav(props: TopNavProps) {
   const [feedFilterLocked, setFeedFilterLocked] = createSignal(false);
   const [navHovered, setNavHovered] = createSignal(false);
   const [recheckingRemoteIds, setRecheckingRemoteIds] = createSignal<Set<string>>(new Set());
+
+  // hide view selector, search, sort, and source selector on aggregate feed route
+  const isAggregateFeedRoute = () => (props.currentPath ?? "").startsWith("/feed");
   let sortCloseTimeout: ReturnType<typeof setTimeout> | undefined;
   let tagCloseTimeout: ReturnType<typeof setTimeout> | undefined;
   let feedFilterCloseTimeout: ReturnType<typeof setTimeout> | undefined;
@@ -421,6 +416,26 @@ export function TopNav(props: TopNavProps) {
                         </Show>
                       </div>
 
+                      {/* aggregate feed link */}
+                      <button
+                        class="w-full flex items-center gap-2 px-3 py-2 mb-4 rounded transition-colors border-none bg-transparent cursor-pointer"
+                        classList={{
+                          "text-[var(--color-accent-500)] bg-[var(--color-accent-500)]/10":
+                            props.currentPath === "/feed",
+                          "text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]":
+                            props.currentPath !== "/feed",
+                        }}
+                        onClick={() => props.onNavigate?.("/feed")}
+                      >
+                        <Show
+                          when={props.currentPath === "/feed"}
+                          fallback={<Icon name="recent" size={14} />}
+                        >
+                          <Icon name="check" size={14} color="var(--color-accent-500)" />
+                        </Show>
+                        <span class="text-sm">all feeds</span>
+                      </button>
+
                       {/* source selector */}
                       <div class="mb-4">
                         <h4 class="text-xs text-[var(--color-text-muted)] uppercase tracking-wide font-medium m-0 mb-2">
@@ -433,24 +448,28 @@ export function TopNav(props: TopNavProps) {
                               class="w-full px-3 py-2 text-left text-sm flex items-center gap-2 rounded transition-colors border-none bg-transparent"
                               classList={{
                                 "text-[var(--color-text-primary)] bg-[var(--color-accent-500)]/10 cursor-default":
-                                  props.currentSourceName === "local library" ||
-                                  !props.currentSourceName,
+                                  !isAggregateFeedRoute() &&
+                                  (props.currentSourceName === "local library" ||
+                                    !props.currentSourceName),
                                 "text-[var(--color-text-secondary)] cursor-pointer hover:bg-[var(--color-accent-500)]/10":
-                                  !!props.currentSourceName &&
-                                  props.currentSourceName !== "local library",
+                                  isAggregateFeedRoute() ||
+                                  (!!props.currentSourceName &&
+                                    props.currentSourceName !== "local library"),
                               }}
                               disabled={
                                 !!(
-                                  props.currentSourceName === "local library" ||
-                                  !props.currentSourceName
+                                  !isAggregateFeedRoute() &&
+                                  (props.currentSourceName === "local library" ||
+                                    !props.currentSourceName)
                                 )
                               }
                               onClick={() => props.onSwitchToLocal?.()}
                             >
                               <Show
                                 when={
-                                  props.currentSourceName === "local library" ||
-                                  !props.currentSourceName
+                                  !isAggregateFeedRoute() &&
+                                  (props.currentSourceName === "local library" ||
+                                    !props.currentSourceName)
                                 }
                                 fallback={
                                   <span class="w-2 h-2 rounded-full bg-[var(--color-accent-primary)]" />
@@ -468,7 +487,8 @@ export function TopNav(props: TopNavProps) {
                               <For each={props.remotes}>
                                 {(remote) => {
                                   const isRechecking = () => recheckingRemoteIds().has(remote.id);
-                                  const isCurrentSource = () => props.currentSourceId === remote.id;
+                                  const isCurrentSource = () =>
+                                    !isAggregateFeedRoute() && props.currentSourceId === remote.id;
                                   const offlineTitle = () => {
                                     if (!remote.isOffline) return undefined;
                                     const lastChecked = remote.lastChecked
@@ -685,8 +705,14 @@ export function TopNav(props: TopNavProps) {
             <KobalteNav.Viewport />
           </KobalteNav>
 
-          {/* view selector flyout - hidden when search is expanded on small screens */}
-          <Show when={props.viewOptions?.length && (!isSmall() || !searchExpanded())}>
+          {/* view selector flyout - hidden when search is expanded on small screens, hidden on aggregate feed */}
+          <Show
+            when={
+              !isAggregateFeedRoute() &&
+              props.viewOptions?.length &&
+              (!isSmall() || !searchExpanded())
+            }
+          >
             <div class="order-1">
               <ViewSelector
                 views={props.viewOptions!}
@@ -697,26 +723,34 @@ export function TopNav(props: TopNavProps) {
             </div>
           </Show>
 
-          {/* search - last item on right, grows to fill remaining space */}
-          <div class="flex-1 order-last">
-            <Show
-              when={props.searchComponent !== undefined}
-              fallback={
-                <TopNavSearchContainer
-                  placeholder={props.searchPlaceholder}
-                  onNavigate={props.onNavigate}
-                  currentPath={props.currentPath}
-                  onExpandedChange={setSearchExpanded}
-                  navHovered={navHovered()}
-                />
-              }
-            >
-              {props.searchComponent}
-            </Show>
-          </div>
+          {/* search - last item on right, grows to fill remaining space (hidden on aggregate feed) */}
+          <Show when={!isAggregateFeedRoute()}>
+            <div class="flex-1 order-last">
+              <Show
+                when={props.searchComponent !== undefined}
+                fallback={
+                  <TopNavSearchContainer
+                    placeholder={props.searchPlaceholder}
+                    onNavigate={props.onNavigate}
+                    currentPath={props.currentPath}
+                    onExpandedChange={setSearchExpanded}
+                    navHovered={navHovered()}
+                  />
+                }
+              >
+                {props.searchComponent}
+              </Show>
+            </div>
+          </Show>
 
-          {/* sort controls - when view has sorting, hidden when search expanded on small */}
-          <Show when={info().sortFields?.length && (!isSmall() || !searchExpanded())}>
+          {/* sort controls - when view has sorting, hidden when search expanded on small, hidden on aggregate feed */}
+          <Show
+            when={
+              !isAggregateFeedRoute() &&
+              info().sortFields?.length &&
+              (!isSmall() || !searchExpanded())
+            }
+          >
             <div
               class="relative flex-shrink-0 order-2"
               onMouseEnter={() => {
@@ -904,7 +938,7 @@ export function TopNav(props: TopNavProps) {
                 <Icon name="filter" size={16} />
               </button>
               <Show when={feedFilterOpen()}>
-                <div class="absolute top-full right-0 mt-1 bg-[var(--color-bg-elevated)] border border-[var(--color-border-default)] rounded-lg shadow-xl z-[1001] min-w-[180px]">
+                <div class="absolute top-full left-0 mt-1 bg-[var(--color-bg-elevated)] border border-[var(--color-border-default)] rounded-lg shadow-xl z-[1001] min-w-[180px]">
                   <div class="p-2">
                     <Show when={hasActiveFeedFilters()}>
                       <div class="border-b border-[var(--color-border-subtle)] pb-2 mb-2">

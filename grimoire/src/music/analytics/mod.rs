@@ -62,8 +62,8 @@ pub use feed::{get_combined_feed, FeedItem, FeedItemType};
 pub use feed_events::{
     create_favorite_feed_event, delete_favorite_feed_event, get_feed_events,
     should_skip_feed_event, upsert_album_feed_event, upsert_artist_feed_event,
-    upsert_playlist_feed_event, upsert_rating_feed_event, upsert_session_feed_event, FeedEvent,
-    FeedEventResult, FeedEventType, GenreRef, TagRef,
+    upsert_playlist_feed_event, upsert_rating_feed_event, upsert_session_feed_event,
+    DeleteFeedEventRequest, FeedEvent, FeedEventResult, FeedEventType, GenreRef, TagRef,
 };
 
 // Re-export admin types and functions
