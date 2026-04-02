@@ -138,7 +138,8 @@ function setupDemoScene(app: Application) {
     .stroke({ width: 1, color: PixieTheme.accent500 });
   const addText = new Text({
     text: "+ add albums",
-    style: { fill: PixieTheme.css.textPrimary, fontSize: 11 },
+    resolution: PixieTheme.textResolution,
+    style: { fill: PixieTheme.css.textPrimary, fontSize: 11, fontFamily: PixieTheme.fontFamily },
   });
   addText.anchor.set(0.5);
   addText.x = 50;

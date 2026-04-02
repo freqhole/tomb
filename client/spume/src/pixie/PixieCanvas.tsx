@@ -1,5 +1,7 @@
 import { Component, onCleanup, onMount } from "solid-js";
 import { Application } from "pixi.js";
+import "@fontsource/atkinson-hyperlegible-next/400.css";
+import "@fontsource/atkinson-hyperlegible-next/700.css";
 
 export interface PixieCanvasProps {
   setup: (app: Application) => void | (() => void);
@@ -28,6 +30,8 @@ const PixieCanvas: Component<PixieCanvasProps> = (props) => {
     await app.init({
       background: 0x000000,
       antialias: true,
+      resolution: window.devicePixelRatio || 2,
+      autoDensity: true,
       resizeTo: container,
     });
     container.appendChild(app.canvas);

@@ -43,4 +43,9 @@ export const PixieTheme = {
     accent600: "#e6007a",
     error: "#ff3355",
   },
+
+  // font config for crisp text rendering
+  fontFamily: "'Atkinson Hyperlegible Next', sans-serif",
+  // render text at 2x for retina sharpness (pixi defaults to 1x)
+  textResolution: typeof window !== "undefined" ? Math.max(window.devicePixelRatio, 2) : 2,
 } as const;

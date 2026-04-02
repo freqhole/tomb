@@ -9,6 +9,10 @@ import {
 } from "pixi.js";
 import { PixieTheme } from "./PixieTheme";
 
+// shared font config for crisp text
+const FONT_STYLE = { fontFamily: PixieTheme.fontFamily };
+const TEXT_RES = PixieTheme.textResolution;
+
 // pick black or white text based on background luminance
 function contrastTextColor(color: number): string {
   const r = (color >> 16) & 0xff;
@@ -43,9 +47,10 @@ export interface AlbumData {
 function makeCardTexture(app: Application, color: number, label: string, size: number): Texture {
   const g = new Graphics();
   g.rect(0, 0, size, size).fill(color);
-  const text = new Text({ text: label, style: {
+  const text = new Text({ text: label, resolution: TEXT_RES, style: {
     fill: contrastTextColor(color), fontSize: 14,
     wordWrap: true, wordWrapWidth: size - 8,
+    ...FONT_STYLE,
   } });
   text.anchor.set(0.5);
   text.x = size / 2;
@@ -57,7 +62,7 @@ function makeCardTexture(app: Application, color: number, label: string, size: n
   mask.rect(0, 0, size, size).fill(0xffffff);
   c.addChild(mask);
   c.mask = mask;
-  return app.renderer.generateTexture(c);
+  return app.renderer.generateTexture({ target: c, resolution: TEXT_RES });
 }
 
 function makeSpineTexture(
@@ -68,7 +73,7 @@ function makeSpineTexture(
   // semi-transparent bg behind text for readability
   const textBg = new Graphics();
   textBg.rect(0, 0, width, height).fill({ color: 0x000000, alpha: 0.45 });
-  const text = new Text({ text: label, style: { fill: "#ffffff", fontSize: 10 } });
+  const text = new Text({ text: label, resolution: TEXT_RES, style: { fill: "#ffffff", fontSize: 10, ...FONT_STYLE } });
   text.anchor.set(0.5);
   text.rotation = Math.PI / 2;
   text.x = width / 2;
@@ -80,7 +85,7 @@ function makeSpineTexture(
   mask.rect(0, 0, width, height).fill(0xffffff);
   c.addChild(mask);
   c.mask = mask;
-  return app.renderer.generateTexture(c);
+  return app.renderer.generateTexture({ target: c, resolution: TEXT_RES });
 }
 
 function makeSpineHorizontalTexture(
@@ -91,7 +96,7 @@ function makeSpineHorizontalTexture(
   // semi-transparent bg behind text for readability
   const textBg = new Graphics();
   textBg.rect(0, 0, width, height).fill({ color: 0x000000, alpha: 0.45 });
-  const text = new Text({ text: label, style: { fill: "#ffffff", fontSize: 10 } });
+  const text = new Text({ text: label, resolution: TEXT_RES, style: { fill: "#ffffff", fontSize: 10, ...FONT_STYLE } });
   text.anchor.set(0.5);
   text.x = width / 2;
   text.y = height / 2;
@@ -102,7 +107,7 @@ function makeSpineHorizontalTexture(
   mask.rect(0, 0, width, height).fill(0xffffff);
   c.addChild(mask);
   c.mask = mask;
-  return app.renderer.generateTexture(c);
+  return app.renderer.generateTexture({ target: c, resolution: TEXT_RES });
 }
 
 export const CARD_SIZE = 100;
@@ -206,9 +211,10 @@ export class Card extends Container {
       // overlay label at bottom
       const labelBg = new Graphics();
       labelBg.rect(0, CARD_SIZE - 22, CARD_SIZE, 22).fill({ color: 0x000000, alpha: 0.6 });
-      const text = new Text({ text: label, style: {
+      const text = new Text({ text: label, resolution: TEXT_RES, style: {
         fill: "#ffffff", fontSize: 10,
         wordWrap: true, wordWrapWidth: CARD_SIZE - 6,
+        ...FONT_STYLE,
       } });
       text.anchor.set(0.5, 0.5);
       text.x = CARD_SIZE / 2;
@@ -221,7 +227,7 @@ export class Card extends Container {
       frontMask.rect(0, 0, CARD_SIZE, CARD_SIZE).fill(0xffffff);
       c.addChild(frontMask);
       c.mask = frontMask;
-      this.frontTex = this.app.renderer.generateTexture(c);
+      this.frontTex = this.app.renderer.generateTexture({ target: c, resolution: TEXT_RES });
 
       // rebuild spine with image strip
       const spineC = new Container();
@@ -232,7 +238,7 @@ export class Card extends Container {
       const spineOverlay = new Graphics();
       spineOverlay.rect(0, 0, SPINE_WIDTH, SPINE_HEIGHT).fill({ color: 0x000000, alpha: 0.45 });
       spineC.addChild(spineOverlay);
-      const spineText = new Text({ text: label, style: { fill: "#ffffff", fontSize: 8 } });
+      const spineText = new Text({ text: label, resolution: TEXT_RES, style: { fill: "#ffffff", fontSize: 8, ...FONT_STYLE } });
       spineText.anchor.set(0.5);
       spineText.rotation = Math.PI / 2;
       spineText.x = SPINE_WIDTH / 2;
@@ -242,7 +248,7 @@ export class Card extends Container {
       spineMask.rect(0, 0, SPINE_WIDTH, SPINE_HEIGHT).fill(0xffffff);
       spineC.addChild(spineMask);
       spineC.mask = spineMask;
-      this.spineTex = this.app.renderer.generateTexture(spineC);
+      this.spineTex = this.app.renderer.generateTexture({ target: spineC, resolution: TEXT_RES });
 
       // horizontal spine
       const hSpineC = new Container();
@@ -253,7 +259,7 @@ export class Card extends Container {
       const hOverlay = new Graphics();
       hOverlay.rect(0, 0, SPINE_HEIGHT, SPINE_WIDTH).fill({ color: 0x000000, alpha: 0.45 });
       hSpineC.addChild(hOverlay);
-      const hText = new Text({ text: label, style: { fill: "#ffffff", fontSize: 8 } });
+      const hText = new Text({ text: label, resolution: TEXT_RES, style: { fill: "#ffffff", fontSize: 8, ...FONT_STYLE } });
       hText.anchor.set(0.5);
       hText.x = SPINE_HEIGHT / 2;
       hText.y = SPINE_WIDTH / 2;
@@ -262,7 +268,7 @@ export class Card extends Container {
       hMask.rect(0, 0, SPINE_HEIGHT, SPINE_WIDTH).fill(0xffffff);
       hSpineC.addChild(hMask);
       hSpineC.mask = hMask;
-      this.spineHorizontalTex = this.app.renderer.generateTexture(hSpineC);
+      this.spineHorizontalTex = this.app.renderer.generateTexture({ target: hSpineC, resolution: TEXT_RES });
 
       // apply if currently showing front
       this.sprite.texture = this.frontTex;

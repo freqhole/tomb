@@ -266,7 +266,7 @@ export class Toolbar extends Container {
         .stroke({ width: 1, color: PixieTheme.borderDefault });
       btn.addChild(btnBg);
 
-      const text = new Text({ text: label, style: { fill: PixieTheme.css.textPrimary, fontSize: 11 } });
+      const text = new Text({ text: label, resolution: PixieTheme.textResolution, style: { fill: PixieTheme.css.textPrimary, fontSize: 11, fontFamily: PixieTheme.fontFamily } });
       text.anchor.set(0.5);
       text.x = FLYOUT_W / 2;
       text.y = FLYOUT_H / 2;
@@ -691,7 +691,7 @@ export class Toolbar extends Container {
       .stroke({ width: 1, color });
     btn.addChild(bg);
 
-    const text = new Text({ text: label, style: { fill: PixieTheme.css.textPrimary, fontSize: 10 } });
+    const text = new Text({ text: label, resolution: PixieTheme.textResolution, style: { fill: PixieTheme.css.textPrimary, fontSize: 10, fontFamily: PixieTheme.fontFamily } });
     text.anchor.set(0.5);
     text.x = 25;
     text.y = FLYOUT_H / 2;

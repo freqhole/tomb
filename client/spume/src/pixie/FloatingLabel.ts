@@ -1,4 +1,5 @@
 import { Container, Graphics, Text } from "pixi.js";
+import { PixieTheme } from "./PixieTheme";
 
 // a floating text label that can be placed anywhere on the canvas.
 // locked (non-draggable) by default — only movable via the toolbar's move mode.
@@ -17,7 +18,8 @@ export class FloatingLabel extends Container {
 
     this.textObj = new Text({
       text,
-      style: { fill: "#ffffff", fontSize: 14 },
+      style: { fill: "#ffffff", fontSize: 14, fontFamily: PixieTheme.fontFamily },
+      resolution: PixieTheme.textResolution,
     });
 
     this.bg = new Graphics();

@@ -10,6 +10,14 @@ import {
 import { PixieTheme } from "./PixieTheme";
 import type { AlbumData } from "./Card";
 
+const FONT = { fontFamily: PixieTheme.fontFamily };
+const TEXT_RES = PixieTheme.textResolution;
+
+// helper to create sharp text with consistent font
+function txt(text: string, style: Record<string, unknown>): Text {
+  return new Text({ text, resolution: TEXT_RES, style: { ...FONT, ...style } });
+}
+
 const PANEL_W = 520;
 const PANEL_H = 480;
 const ART_SIZE = 200;
@@ -76,7 +84,7 @@ export class AlbumDetail extends Container {
     const closeBg = new Graphics();
     closeBg.circle(0, 0, 14).fill(PixieTheme.bgHover).stroke({ width: 1, color: PixieTheme.borderDefault });
     closeBtn.addChild(closeBg);
-    const closeX = new Text({ text: "x", style: { fill: PixieTheme.css.textPrimary, fontSize: 14 } });
+    const closeX = txt("x", { fill: PixieTheme.css.textPrimary, fontSize: 14 });
     closeX.anchor.set(0.5);
     closeBtn.addChild(closeX);
     closeBtn.x = PANEL_W - PAD;
@@ -96,35 +104,32 @@ export class AlbumDetail extends Container {
 
     // metadata (right of art)
     const metaX = PAD + ART_SIZE + PAD;
-    const title = new Text({
-      text: data.title,
-      style: { fill: PixieTheme.css.textPrimary, fontSize: 18, fontWeight: "bold", wordWrap: true, wordWrapWidth: PANEL_W - metaX - PAD },
+    const title = txt(data.title, {
+      fill: PixieTheme.css.textPrimary, fontSize: 18, fontWeight: "bold",
+      wordWrap: true, wordWrapWidth: PANEL_W - metaX - PAD,
     });
     title.x = metaX;
     title.y = PAD;
     panel.addChild(title);
 
-    const artist = new Text({
-      text: data.artist,
-      style: { fill: PixieTheme.css.accent500, fontSize: 14 },
-    });
+    const artist = txt(data.artist, { fill: PixieTheme.css.accent500, fontSize: 14 });
     artist.x = metaX;
     artist.y = PAD + 26;
     panel.addChild(artist);
 
-    const info = new Text({
-      text: `${data.year}  --  ${data.trackCount} tracks  --  ${formatDuration(data.duration)}`,
-      style: { fill: PixieTheme.css.textTertiary, fontSize: 11 },
-    });
+    const info = txt(
+      `${data.year}  --  ${data.trackCount} tracks  --  ${formatDuration(data.duration)}`,
+      { fill: PixieTheme.css.textTertiary, fontSize: 11 },
+    );
     info.x = metaX;
     info.y = PAD + 48;
     panel.addChild(info);
 
     // star rating
-    const stars = new Text({
-      text: "★".repeat(Math.round(data.rating)) + "☆".repeat(5 - Math.round(data.rating)),
-      style: { fill: PixieTheme.css.accent500, fontSize: 14 },
-    });
+    const stars = txt(
+      "★".repeat(Math.round(data.rating)) + "☆".repeat(5 - Math.round(data.rating)),
+      { fill: PixieTheme.css.accent500, fontSize: 14 },
+    );
     stars.x = metaX;
     stars.y = PAD + 68;
     panel.addChild(stars);
@@ -141,9 +146,8 @@ export class AlbumDetail extends Container {
 
     // track list (below art, scrollable area placeholder)
     const trackY = PAD + ART_SIZE + PAD;
-    const trackHeader = new Text({
-      text: "tracklist",
-      style: { fill: PixieTheme.css.textTertiary, fontSize: 11, fontWeight: "bold" },
+    const trackHeader = txt("tracklist", {
+      fill: PixieTheme.css.textTertiary, fontSize: 11, fontWeight: "bold",
     });
     trackHeader.x = PAD;
     trackHeader.y = trackY;
@@ -155,45 +159,36 @@ export class AlbumDetail extends Container {
         const track = data.tracks[i];
         const rowY = trackY + 20 + i * TRACK_ROW_H;
 
-        const num = new Text({
-          text: `${i + 1}.`,
-          style: { fill: PixieTheme.css.textMuted, fontSize: 11 },
-        });
+        const num = txt(`${i + 1}.`, { fill: PixieTheme.css.textMuted, fontSize: 11 });
         num.x = PAD;
         num.y = rowY;
         panel.addChild(num);
 
-        const trackTitle = new Text({
-          text: track.title,
-          style: { fill: PixieTheme.css.textPrimary, fontSize: 11 },
-        });
+        const trackTitle = txt(track.title, { fill: PixieTheme.css.textPrimary, fontSize: 11 });
         trackTitle.x = PAD + 28;
         trackTitle.y = rowY;
         panel.addChild(trackTitle);
 
-        const dur = new Text({
-          text: formatDuration(track.durationSeconds),
-          style: { fill: PixieTheme.css.textMuted, fontSize: 11 },
-        });
+        const dur = txt(formatDuration(track.durationSeconds), { fill: PixieTheme.css.textMuted, fontSize: 11 });
         dur.x = PANEL_W - PAD - 40;
         dur.y = rowY;
         panel.addChild(dur);
       }
 
       if (data.tracks.length > maxVisible) {
-        const more = new Text({
-          text: `+ ${data.tracks.length - maxVisible} more tracks`,
-          style: { fill: PixieTheme.css.textMuted, fontSize: 10 },
-        });
+        const more = txt(
+          `+ ${data.tracks.length - maxVisible} more tracks`,
+          { fill: PixieTheme.css.textMuted, fontSize: 10 },
+        );
         more.x = PAD + 28;
         more.y = trackY + 20 + maxVisible * TRACK_ROW_H;
         panel.addChild(more);
       }
     } else {
-      const noTracks = new Text({
-        text: `${data.trackCount} tracks (not loaded)`,
-        style: { fill: PixieTheme.css.textMuted, fontSize: 11 },
-      });
+      const noTracks = txt(
+        `${data.trackCount} tracks (not loaded)`,
+        { fill: PixieTheme.css.textMuted, fontSize: 11 },
+      );
       noTracks.x = PAD + 28;
       noTracks.y = trackY + 20;
       panel.addChild(noTracks);
@@ -235,7 +230,7 @@ export class AlbumDetail extends Container {
       .stroke({ width: 1, color });
     btn.addChild(bg);
 
-    const text = new Text({ text: label, style: { fill: PixieTheme.css.textPrimary, fontSize: 10 } });
+    const text = txt(label, { fill: PixieTheme.css.textPrimary, fontSize: 10 });
     text.anchor.set(0.5);
     text.x = BTN_W / 2;
     text.y = BTN_H / 2;
