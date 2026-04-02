@@ -281,6 +281,7 @@ export function AggregateFeedView() {
         // render whatever we have so far
         if (results.length > 0) {
           flushResults(results);
+          setIsLoading(false);
         }
         resolve();
       }, SETTLE_WINDOW_MS);
@@ -788,7 +789,7 @@ export function AggregateFeedView() {
                   onTouchEnd={longPress.onTouchEnd}
                   onClick={longPress.onClick}
                   onContextMenu={longPress.onContextMenu}
-                  title={`${remote.name}${isP2P() ? "" : " (http)"}\nlong press to solo`}
+                  title={`${remote.name}${remote.is_charnel_managed ? "" : isP2P() ? "" : " (http)"}\nlong press to solo`}
                   style={{ height: "32px" }}
                 >
                   <Show
@@ -804,7 +805,14 @@ export function AggregateFeedView() {
                     />
                   </Show>
                   <span>{remote.name}</span>
-                  <Show when={!isP2P()}>
+                  <Show when={remote.is_charnel_managed}>
+                    <Icon
+                      name="home"
+                      size={12}
+                      color={isActive() ? "var(--color-text-on-accent)" : "var(--color-text-muted)"}
+                    />
+                  </Show>
+                  <Show when={!isP2P() && !remote.is_charnel_managed}>
                     <span
                       class={`px-1.5 py-0.5 text-[10px] font-medium rounded ${
                         isActive()

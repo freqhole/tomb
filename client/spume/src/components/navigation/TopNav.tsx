@@ -297,8 +297,8 @@ export function TopNav(props: TopNavProps) {
 
   // handle remote click - recheck if offline, otherwise switch
   const handleRemoteClick = async (remote: NonNullable<typeof props.remotes>[number]) => {
-    // if it's the current source, do nothing
-    if (props.currentSourceId === remote.id) return;
+    // if it's the current source and not on aggregate feed, do nothing
+    if (!isAggregateFeedRoute() && props.currentSourceId === remote.id) return;
 
     // if offline, try to recheck
     if (remote.isOffline && props.onRecheckRemote) {
@@ -350,7 +350,7 @@ export function TopNav(props: TopNavProps) {
                 aria-label="menu"
               >
                 <Show
-                  when={currentRemote()}
+                  when={!isAggregateFeedRoute() && currentRemote()}
                   fallback={<Icon name="freqhole" size={24} color="var(--color-accent-500)" />}
                 >
                   {(remote) => (
