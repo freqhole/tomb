@@ -5,6 +5,7 @@ import { PixieCanvas, Card, Grid, Shelf, Bin, Toolbar, PixieTheme } from "../src
 import type { PixieCanvasProps } from "../src/pixie/PixieCanvas";
 import type { DropZoneChecker, AlbumData } from "../src/pixie/Card";
 import { AlbumDetail } from "../src/pixie/AlbumDetail";
+import { Viewport } from "../src/pixie/Viewport";
 import { mockAlbums, mockSongs } from "./mockData";
 
 function randColor(): number {
@@ -31,10 +32,15 @@ function albumDataFromMock(album: (typeof mockAlbums)[0]): AlbumData {
 // -- helper to set up the demo scene --
 
 function setupDemoScene(app: Application) {
-  const stage = app.stage;
+  // viewport: world is larger than the visible area, two-finger pan to scroll
+  const viewport = new Viewport(app, {
+    worldWidth: 2000,
+    worldHeight: 1200,
+  });
+  const world = viewport.world;
   let albumIdx = 0;
 
-  // initial containers
+  // initial containers (added to world, not stage)
   const grid = new Grid({
     x: 50,
     y: 50,
@@ -42,7 +48,7 @@ function setupDemoScene(app: Application) {
     rows: 3,
     cellSize: 110,
   });
-  stage.addChild(grid);
+  world.addChild(grid);
 
   const shelf = new Shelf({
     x: 550,
@@ -50,7 +56,7 @@ function setupDemoScene(app: Application) {
     cols: 6,
     rows: 4,
   });
-  stage.addChild(shelf);
+  world.addChild(shelf);
 
   const bin = new Bin({
     x: 50,
@@ -58,7 +64,7 @@ function setupDemoScene(app: Application) {
     cols: 4,
     rows: 4,
   });
-  stage.addChild(bin);
+  world.addChild(bin);
 
   const dropZones: (PixiContainer & DropZoneChecker)[] = [grid, shelf, bin];
   const cards: Card[] = [];
@@ -66,35 +72,50 @@ function setupDemoScene(app: Application) {
   // album detail overlay state
   let detailOverlay: AlbumDetail | null = null;
 
-  // toolbar — wires up container/label lifecycle
-  const toolbar = new Toolbar(app, {
-    onContainerAdded: (c) => {
-      dropZones.push(c);
-      for (const card of cards) {
-        card.registerDropZones(dropZones);
-      }
+  // toolbar — wires up container/label lifecycle (stays on stage, not world)
+  const toolbar = new Toolbar(
+    app,
+    {
+      onContainerAdded: (c) => {
+        dropZones.push(c);
+        for (const card of cards) {
+          card.registerDropZones(dropZones);
+        }
+      },
+      onContainerRemoved: (c) => {
+        const idx = dropZones.indexOf(c);
+        if (idx >= 0) dropZones.splice(idx, 1);
+        for (const card of cards) {
+          card.registerDropZones(dropZones);
+        }
+      },
+      onLabelAdded: () => {},
+      onLabelRemoved: () => {},
     },
-    onContainerRemoved: (c) => {
-      const idx = dropZones.indexOf(c);
-      if (idx >= 0) dropZones.splice(idx, 1);
-      for (const card of cards) {
-        card.registerDropZones(dropZones);
-      }
-    },
-    onLabelAdded: () => {},
-    onLabelRemoved: () => {},
-  });
+    viewport
+  );
 
   // register initial containers with toolbar so edit mode works on them
   toolbar.registerContainer(grid);
   toolbar.registerContainer(shelf);
   toolbar.registerContainer(bin);
 
-  stage.addChild(toolbar);
+  // toolbar stays on stage (UI overlay, doesn't scroll with world)
+  app.stage.addChild(toolbar);
+
+  // ensure toolbar is always rendered on top of world content
+  app.ticker.add(() => {
+    const stage = app.stage;
+    const toolbarIdx = stage.children.indexOf(toolbar);
+    if (toolbarIdx >= 0 && toolbarIdx < stage.children.length - 1) {
+      stage.setChildIndex(toolbar, stage.children.length - 1);
+    }
+  });
 
   // scene callbacks for card selection / edit mode / double-click
   const sceneCallbacks = {
     isEditMode: () => toolbar.isEditMode(),
+    isPanning: () => viewport.panning,
     getSelectedCards: () => toolbar.getSelectedCards(),
     onCardClicked: (_card: Card, _e: unknown) => {},
     onCardDoubleClicked: (card: Card) => {
@@ -103,7 +124,7 @@ function setupDemoScene(app: Application) {
       detailOverlay = new AlbumDetail(app, card.albumData, () => {
         detailOverlay = null;
       });
-      stage.addChild(detailOverlay);
+      app.stage.addChild(detailOverlay);
     },
   };
 
@@ -120,9 +141,10 @@ function setupDemoScene(app: Application) {
       });
       card.registerDropZones(dropZones);
       card.setSceneCallbacks(sceneCallbacks);
+      card.setViewport(viewport);
       card.x = 150 + Math.random() * 250;
       card.y = 560 + Math.random() * 60;
-      stage.addChild(card);
+      world.addChild(card);
       cards.push(card);
       toolbar.registerCard(card);
     }
@@ -154,9 +176,22 @@ function setupDemoScene(app: Application) {
     e.stopPropagation();
     addCards(4);
   });
-  stage.addChild(addBtnContainer);
+  app.stage.addChild(addBtnContainer);
 
-  return undefined;
+  // keep add button + toolbar on top and add button pinned to bottom
+  app.ticker.add(() => {
+    const stage = app.stage;
+    // pin add button to visual bottom
+    addBtnContainer.y = app.screen.height - 42;
+    // ensure add button is on top (but below toolbar)
+    const addIdx = stage.children.indexOf(addBtnContainer);
+    const toolbarIdx = stage.children.indexOf(toolbar);
+    if (addIdx >= 0 && addIdx < toolbarIdx - 1) {
+      stage.setChildIndex(addBtnContainer, toolbarIdx - 1);
+    }
+  });
+
+  return () => viewport.destroy();
 }
 
 // -- storybook meta --
@@ -185,7 +220,7 @@ export const Default: Story = {
     setup: setupDemoScene,
   },
   render: (props: PixieCanvasProps) => (
-    <div style={{ width: "100vw", height: "100vh", background: "#000000" }}>
+    <div style={{ width: "100vw", height: "100dvh", background: "#000000" }}>
       <PixieCanvas {...props} />
     </div>
   ),

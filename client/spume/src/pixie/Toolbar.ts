@@ -12,6 +12,7 @@ import { Bin, BIN_SLOT_W, BIN_SLOT_H } from "./Bin";
 import { FloatingLabel } from "./FloatingLabel";
 import type { Card, DropZoneChecker } from "./Card";
 import { PixieTheme } from "./PixieTheme";
+import type { Viewport } from "./Viewport";
 
 export interface ToolbarCallbacks {
   onContainerAdded: (container: Container & DropZoneChecker) => void;
@@ -73,6 +74,7 @@ export class Toolbar extends Container {
   private app: Application;
   private currentMode: ToolMode = "navigate";
   private callbacks: ToolbarCallbacks;
+  private viewport: Viewport | null = null;
 
   // tracked scene objects
   private containers: ContainerLike[] = [];
@@ -111,18 +113,21 @@ export class Toolbar extends Container {
   private lassoPoints: { x: number; y: number }[] = [];
   private lassoGraphics: Graphics | null = null;
 
-  constructor(app: Application, callbacks: ToolbarCallbacks) {
+  constructor(app: Application, callbacks: ToolbarCallbacks, viewport?: Viewport) {
     super();
     this.app = app;
     this.callbacks = callbacks;
+    this.viewport = viewport ?? null;
 
     this.buildButtons();
     this.positionToolbar();
     this.highlightActiveMode();
 
-    app.stage.on("pointerdown", this.onStageDown, this);
-    app.stage.on("pointermove", this.onStageMove, this);
-    app.stage.on("pointerup", this.onStageUp, this);
+    // listen on the world container if we have a viewport, otherwise stage
+    const eventTarget = this.viewport?.world ?? app.stage;
+    eventTarget.on("pointerdown", this.onStageDown, this);
+    eventTarget.on("pointermove", this.onStageMove, this);
+    eventTarget.on("pointerup", this.onStageUp, this);
   }
 
   registerContainer(c: ContainerLike) {
@@ -147,6 +152,11 @@ export class Toolbar extends Container {
 
   getSelectedCards(): Card[] {
     return this.cards.filter((c) => c.selected);
+  }
+
+  // container to add content into (world if viewport exists, stage otherwise)
+  private get contentParent(): Container {
+    return (this.viewport?.world ?? this.app.stage) as Container;
   }
 
   // -- button construction --
@@ -351,14 +361,14 @@ export class Toolbar extends Container {
   // -- stage interaction --
 
   private onStageDown(e: FederatedPointerEvent) {
-    const pos = e.getLocalPosition(this.app.stage);
+    const pos = e.getLocalPosition(this.contentParent);
     if (this.containsPoint(pos)) return;
 
     // draw action from flyout (container creation)
     if (this.drawAction && this.drawAction !== "label") {
       this.drawStart = { x: pos.x, y: pos.y };
       this.drawPreview = new Graphics();
-      this.app.stage.addChild(this.drawPreview);
+      this.contentParent.addChild(this.drawPreview);
       return;
     }
 
@@ -374,6 +384,8 @@ export class Toolbar extends Container {
     }
 
     if (this.currentMode === "navigate") {
+      // don't lasso during two-finger pan
+      if (this.viewport?.panning) return;
       // start lasso if clicking empty space
       this.startLasso(pos.x, pos.y);
       return;
@@ -381,7 +393,7 @@ export class Toolbar extends Container {
   }
 
   private onStageMove(e: FederatedPointerEvent) {
-    const pos = e.getLocalPosition(this.app.stage);
+    const pos = e.getLocalPosition(this.contentParent);
 
     // draw preview with snapped slot grid
     if (this.drawStart && this.drawPreview) {
@@ -430,21 +442,25 @@ export class Toolbar extends Container {
       let dx = pos.x - this.editDragOffset.x;
       let dy = pos.y - this.editDragOffset.y;
 
-      // constrain to canvas bounds (can't go above or left, expands right)
+      // constrain to world bounds (can't go above or left, expands right)
       dx = Math.max(0, dx);
       dy = Math.max(0, dy);
       const cb = this.selectedContainer.getGlobalBounds?.() ?? this.selectedContainer.getBounds();
       const cw = cb.width;
       const ch = cb.height;
-      const screenH = this.app.screen.height;
-      dy = Math.min(screenH - ch, dy);
+      const worldH = this.viewport ? this.viewport.worldHeight : this.app.screen.height;
+      dy = Math.min(worldH - ch, dy);
 
-      // expand canvas rightward if needed
-      const screenW = this.app.screen.width;
-      if (dx + cw > screenW) {
+      // expand world rightward if needed
+      const worldW = this.viewport ? this.viewport.worldWidth : this.app.screen.width;
+      if (dx + cw > worldW) {
         const needed = dx + cw + 50;
-        this.app.renderer.resize(needed, screenH);
-        this.app.stage.hitArea = this.app.screen;
+        if (this.viewport) {
+          this.viewport.expandWorld(needed, this.viewport.worldHeight);
+        } else {
+          this.app.renderer.resize(needed, worldH);
+          this.app.stage.hitArea = this.app.screen;
+        }
       }
 
       this.selectedContainer.x = dx;
@@ -467,11 +483,17 @@ export class Toolbar extends Container {
       lx = Math.max(0, lx);
       ly = Math.max(0, ly);
       const lb = this.selectedLabel.getBounds();
-      ly = Math.min(this.app.screen.height - lb.height, ly);
-      if (lx + lb.width > this.app.screen.width) {
+      const worldH = this.viewport ? this.viewport.worldHeight : this.app.screen.height;
+      ly = Math.min(worldH - lb.height, ly);
+      const worldW = this.viewport ? this.viewport.worldWidth : this.app.screen.width;
+      if (lx + lb.width > worldW) {
         const needed = lx + lb.width + 50;
-        this.app.renderer.resize(needed, this.app.screen.height);
-        this.app.stage.hitArea = this.app.screen;
+        if (this.viewport) {
+          this.viewport.expandWorld(needed, this.viewport.worldHeight);
+        } else {
+          this.app.renderer.resize(needed, this.app.screen.height);
+          this.app.stage.hitArea = this.app.screen;
+        }
       }
       this.selectedLabel.x = lx;
       this.selectedLabel.y = ly;
@@ -479,14 +501,19 @@ export class Toolbar extends Container {
 
     // lasso
     if (this.lassoActive && this.lassoGraphics) {
-      this.lassoPoints.push({ x: pos.x, y: pos.y });
-      this.redrawLasso();
-      this.updateLassoSelection();
+      // cancel lasso if a second finger touches
+      if (this.viewport?.panning) {
+        this.endLasso();
+      } else {
+        this.lassoPoints.push({ x: pos.x, y: pos.y });
+        this.redrawLasso();
+        this.updateLassoSelection();
+      }
     }
   }
 
   private onStageUp(e: FederatedPointerEvent) {
-    const pos = e.getLocalPosition(this.app.stage);
+    const pos = e.getLocalPosition(this.contentParent);
 
     // finish draw
     if (this.drawStart && this.drawPreview) {
@@ -801,7 +828,7 @@ btn.on("pointerdown", (ev: FederatedPointerEvent) => {
 
     if (container) {
       (container as any).eventMode = "static";
-      this.app.stage.addChildAt(container, 0);
+      this.contentParent.addChildAt(container, 0);
       this.containers.push(container);
       this.callbacks.onContainerAdded(container as Container & DropZoneChecker);
     }
@@ -809,7 +836,7 @@ btn.on("pointerdown", (ev: FederatedPointerEvent) => {
 
   private placeLabel(px: number, py: number) {
     const label = new FloatingLabel(px, py, "label", true);
-    this.app.stage.addChild(label);
+    this.contentParent.addChild(label);
     this.labels.push(label);
     this.callbacks.onLabelAdded(label);
   }
@@ -825,10 +852,11 @@ btn.on("pointerdown", (ev: FederatedPointerEvent) => {
   // -- lasso (navigate mode multi-select) --
 
   private startLasso(px: number, py: number) {
-    // don't lasso if clicking on a card
+    // don't lasso if clicking on a card (use world-space position)
     for (const card of this.cards) {
-      const b = card.getBounds();
-      if (px >= b.x && px <= b.x + b.width && py >= b.y && py <= b.y + b.height) {
+      const hw = card.width / 2;
+      const hh = card.height / 2;
+      if (px >= card.x - hw && px <= card.x + hw && py >= card.y - hh && py <= card.y + hh) {
         return;
       }
     }
@@ -841,7 +869,7 @@ btn.on("pointerdown", (ev: FederatedPointerEvent) => {
     this.lassoActive = true;
     this.lassoPoints = [{ x: px, y: py }];
     this.lassoGraphics = new Graphics();
-    this.app.stage.addChild(this.lassoGraphics);
+    this.contentParent.addChild(this.lassoGraphics);
   }
 
   private redrawLasso() {
@@ -858,7 +886,7 @@ btn.on("pointerdown", (ev: FederatedPointerEvent) => {
   private updateLassoSelection() {
     if (this.lassoPoints.length < 2) return;
 
-    // compute bounding box of lasso trail
+    // compute bounding box of lasso trail (world coords)
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
     for (const p of this.lassoPoints) {
       if (p.x < minX) minX = p.x;
@@ -867,12 +895,15 @@ btn.on("pointerdown", (ev: FederatedPointerEvent) => {
       if (p.y > maxY) maxY = p.y;
     }
 
+    // select any card whose bounds overlap the lasso bounding box
+    // (card x/y is center, width/height from sprite)
     for (const card of this.cards) {
-      const b = card.getBounds();
-      const cx = b.x + b.width / 2;
-      const cy = b.y + b.height / 2;
-      const inside = cx >= minX && cx <= maxX && cy >= minY && cy <= maxY;
-      card.setSelected(inside);
+      const hw = card.width / 2;
+      const hh = card.height / 2;
+      const overlaps =
+        card.x + hw >= minX && card.x - hw <= maxX &&
+        card.y + hh >= minY && card.y - hh <= maxY;
+      card.setSelected(overlaps);
     }
   }
 
@@ -893,17 +924,22 @@ btn.on("pointerdown", (ev: FederatedPointerEvent) => {
   }
 
   private containsPoint(pos: { x: number; y: number }): boolean {
+    // pos is in world coords; toolbar bounds are in screen/global coords
+    // convert world pos to screen by subtracting camera offset
+    const sx = pos.x - (this.viewport?.scrollX ?? 0);
+    const sy = pos.y - (this.viewport?.scrollY ?? 0);
     const bounds = this.getBounds();
     return (
-      pos.x >= bounds.x && pos.x <= bounds.x + bounds.width &&
-      pos.y >= bounds.y && pos.y <= bounds.y + bounds.height
+      sx >= bounds.x && sx <= bounds.x + bounds.width &&
+      sy >= bounds.y && sy <= bounds.y + bounds.height
     );
   }
 
   destroy() {
-    this.app.stage.off("pointerdown", this.onStageDown, this);
-    this.app.stage.off("pointermove", this.onStageMove, this);
-    this.app.stage.off("pointerup", this.onStageUp, this);
+    const eventTarget = this.viewport?.world ?? this.app.stage;
+    eventTarget.off("pointerdown", this.onStageDown, this);
+    eventTarget.off("pointermove", this.onStageMove, this);
+    eventTarget.off("pointerup", this.onStageUp, this);
     this.removeActionBar();
     this.closeFlyout();
     super.destroy();

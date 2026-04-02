@@ -8,6 +8,7 @@ import {
   Texture,
 } from "pixi.js";
 import { PixieTheme } from "./PixieTheme";
+import type { Viewport } from "./Viewport";
 
 // shared font config for crisp text
 const FONT_STYLE = { fontFamily: PixieTheme.fontFamily };
@@ -126,6 +127,7 @@ export type DropZoneChecker = {
 // callback interface so cards can query scene state
 export interface CardSceneCallbacks {
   isEditMode: () => boolean;
+  isPanning?: () => boolean;
   getSelectedCards: () => Card[];
   onCardClicked: (card: Card, e: FederatedPointerEvent) => void;
   onCardDoubleClicked?: (card: Card) => void;
@@ -148,6 +150,7 @@ export class Card extends Container {
   private dragOffset = { x: 0, y: 0 };
   private app: Application;
   private sceneCallbacks: CardSceneCallbacks | null = null;
+  private viewport: Viewport | null = null;
   private lastPointerDown = 0;
 
   private dropZones: DropZoneChecker[] = [];
@@ -189,6 +192,10 @@ export class Card extends Container {
 
   setSceneCallbacks(callbacks: CardSceneCallbacks) {
     this.sceneCallbacks = callbacks;
+  }
+
+  setViewport(vp: Viewport) {
+    this.viewport = vp;
   }
 
   // load an image from url and replace the front texture
@@ -309,6 +316,9 @@ export class Card extends Container {
     // in edit mode cards are not interactive — containers move instead
     if (this.sceneCallbacks?.isEditMode()) return;
 
+    // suppress during two-finger pan
+    if (this.sceneCallbacks?.isPanning?.()) return;
+
     // double-click detection (300ms threshold)
     const now = Date.now();
     if (now - this.lastPointerDown < 300) {
@@ -359,17 +369,21 @@ export class Card extends Container {
 
       const halfW = this.sprite.width / 2;
       const halfH = this.sprite.height / 2;
-      const screenW = this.app.screen.width;
-      const screenH = this.app.screen.height;
+      const worldW = this.viewport ? this.viewport.worldWidth : this.app.screen.width;
+      const worldH = this.viewport ? this.viewport.worldHeight : this.app.screen.height;
 
       nx = Math.max(halfW, nx);
       ny = Math.max(halfH, ny);
-      ny = Math.min(screenH - halfH, ny);
+      ny = Math.min(worldH - halfH, ny);
 
-      if (nx + halfW > screenW) {
+      if (nx + halfW > worldW) {
         const needed = nx + halfW + 50;
-        this.app.renderer.resize(needed, screenH);
-        this.app.stage.hitArea = this.app.screen;
+        if (this.viewport) {
+          this.viewport.expandWorld(needed, this.viewport.worldHeight);
+        } else {
+          this.app.renderer.resize(needed, worldH);
+          this.app.stage.hitArea = this.app.screen;
+        }
       }
 
       this.x = nx;

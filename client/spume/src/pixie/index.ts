@@ -11,5 +11,7 @@ export { Toolbar } from "./Toolbar";
 export type { ToolbarCallbacks } from "./Toolbar";
 export { FloatingLabel } from "./FloatingLabel";
 export { AlbumDetail } from "./AlbumDetail";
+export { Viewport } from "./Viewport";
+export type { ViewportOptions } from "./Viewport";
 export { PixieTheme } from "./PixieTheme";
 export type { ToolMode, AddAction } from "./ToolMode";

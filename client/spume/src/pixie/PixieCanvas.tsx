@@ -48,7 +48,7 @@ const PixieCanvas: Component<PixieCanvasProps> = (props) => {
     <div
       ref={container}
       class={props.class}
-      style={{ width: "100%", height: "100%", overflow: "auto" }}
+      style={{ width: "100%", height: "100%", overflow: "hidden" }}
     />
   );
 };
