@@ -20,9 +20,8 @@ export class PresenceRenderer {
   private readonly cursors: Map<string, Container> = new Map();
 
   /** stash the previous callback so we can restore it on destroy */
-  private previousOnPeerPresenceChanged:
-    | ((peerId: string, presence: PeerPresence) => void)
-    | null = null;
+  private previousOnPeerPresenceChanged: ((peerId: string, presence: PeerPresence) => void) | null =
+    null;
 
   constructor(world: Container, presenceManager: PresenceManager, theme: SkeinTheme) {
     this.world = world;
@@ -104,6 +103,7 @@ export class PresenceRenderer {
     // truncated peer id label
     const label = new Text({
       text: peerId.slice(0, 8),
+      resolution: this.theme.textResolution,
       style: {
         fontFamily: this.theme.fontFamily,
         fontSize: 10,

@@ -39,7 +39,7 @@ export interface SkeinCanvas {
   widgetManager: WidgetManager;
   /** the input router for mode switching and selection */
   inputRouter: InputRouter;
-  /** the toolbar (pixi-rendered, top-center of stage) */
+  /** the toolbar (pixi-rendered, top-right of stage) */
   toolbar: Toolbar;
   /** the keyboard driver for text input / IME (hidden textarea proxy) */
   keyboard: KeyboardDriver;
@@ -147,7 +147,7 @@ export async function initCanvas(options: InitCanvasOptions): Promise<SkeinCanva
   );
   widgetManager.start();
 
-  // step 10: create the toolbar (pixi-rendered, top-center of stage).
+  // step 10: create the toolbar (pixi-rendered, top-right of stage).
   // added directly to app.stage by the Toolbar constructor so it stays fixed.
   const toolbar = new Toolbar(app, inputRouter, store, registry, theme);
 
@@ -164,10 +164,11 @@ export async function initCanvas(options: InitCanvasOptions): Promise<SkeinCanva
   const presenceRenderer = new PresenceRenderer(world, presenceManager, theme);
 
   // step 13b: create the connection status indicator.
-  // lives on app.stage (fixed position, top-right) so it doesn't pan/zoom.
+  // lives on app.stage (fixed position, bottom-left) so it doesn't pan/zoom.
+  // layout() reads visual viewport internally for correct sizing on mobile safari.
   const connectionStatus = new ConnectionStatus(presenceManager, theme);
   app.stage.addChild(connectionStatus.root);
-  connectionStatus.layout(app.screen.width);
+  connectionStatus.layout();
 
   // step 14: track local cursor movement and broadcast via presence manager.
   // we listen on the canvas element for pointermove and convert screen

@@ -25,10 +25,11 @@ type HandlePosition = "nw" | "n" | "ne" | "e" | "se" | "s" | "sw" | "w";
  * the widget frame wraps each widget with canvas-managed chrome.
  *
  * in edit mode: full header with name + collapse + close buttons,
- * 8 resize handles, selection border, draggable header.
+ * 8 resize handles (visible on hover/select), selection border,
+ * draggable header, rounded corners.
  *
- * in view mode: minimal semi-transparent header (just the name),
- * no resize handles, events pass through to the widget content.
+ * in view mode: header is hidden, no resize handles, no rounded corners,
+ * no border. events pass through to the widget content.
  *
  * when collapsed: content container is hidden, frame shows only the header.
  */
@@ -47,12 +48,14 @@ export class WidgetFrame {
   private readonly headerText: Text;
   private readonly collapseBtn: Container;
   private readonly closeBtn: Container;
+  private readonly contentMask: Graphics;
   private readonly resizeHandles: Map<HandlePosition, Graphics> = new Map();
 
   // state
   private _editing = false;
   private _selected = false;
   private _collapsed = false;
+  private _hovered = false;
   private _width: number;
   private _height: number;
 
@@ -88,6 +91,19 @@ export class WidgetFrame {
     this.root.x = entry.x;
     this.root.y = entry.y;
     this.root.zIndex = entry.zIndex;
+    this.root.eventMode = "static";
+
+    // track hover state for resize handle and border visibility
+    this.root.on("pointerenter", () => {
+      this._hovered = true;
+      this.updateHandleVisibility();
+      this.drawBorder();
+    });
+    this.root.on("pointerleave", () => {
+      this._hovered = false;
+      this.updateHandleVisibility();
+      this.drawBorder();
+    });
 
     // border/selection overlay (drawn behind everything)
     this.border = new Graphics();
@@ -103,6 +119,7 @@ export class WidgetFrame {
 
     this.headerText = new Text({
       text: this.widgetName,
+      resolution: theme.textResolution,
       style: {
         fontFamily: theme.fontFamily,
         fontSize: theme.fontSizeSmall,
@@ -127,6 +144,14 @@ export class WidgetFrame {
     this.contentContainer.y = theme.frameHeaderHeight;
     this.root.addChild(this.contentContainer);
 
+    // rectangular mask for the content container — clips widget-drawn
+    // rounded corners so they don't show against the canvas background
+    // in view mode. in edit mode the frame chrome provides visual framing
+    // so the mask uses a matching corner radius.
+    this.contentMask = new Graphics();
+    this.root.addChild(this.contentMask);
+    this.contentContainer.mask = this.contentMask;
+
     // create resize handles
     this.createResizeHandles();
 
@@ -147,13 +172,16 @@ export class WidgetFrame {
       this._selected = false;
     }
     this.applyMode();
-    this.drawBorder();
+    // full redraw — header needs to be redrawn so its hit area exists
+    // when switching from view to edit mode (it was cleared in view mode)
+    this.draw();
   }
 
   /** set whether this frame is selected */
   setSelected(selected: boolean): void {
     if (this._selected === selected) return;
     this._selected = selected;
+    this.updateHandleVisibility();
     this.drawBorder();
   }
 
@@ -194,6 +222,7 @@ export class WidgetFrame {
   private draw(): void {
     this.drawHeader();
     this.drawBorder();
+    this.drawContentMask();
     this.positionResizeHandles();
     this.positionButtons();
   }
@@ -201,9 +230,13 @@ export class WidgetFrame {
   private drawHeader(): void {
     const w = this._width;
     const h = this.theme.frameHeaderHeight;
-    const r = this.theme.frameCornerRadius;
+    const r = this._editing ? this.theme.frameCornerRadius : 0;
 
     this.headerBg.clear();
+    if (!this._editing) {
+      // no header drawn in view mode
+      return;
+    }
     // rounded top corners, flat bottom
     this.headerBg.moveTo(r, 0);
     this.headerBg.lineTo(w - r, 0);
@@ -219,15 +252,48 @@ export class WidgetFrame {
   private drawBorder(): void {
     const w = this._width;
     const hdr = this.theme.frameHeaderHeight;
-    const totalH = this._collapsed ? hdr : hdr + this._height;
-    const r = this.theme.frameCornerRadius;
+    const r = this._editing ? this.theme.frameCornerRadius : 0;
 
     this.border.clear();
 
-    const borderColor = this._selected ? this.theme.frameBorderSelected : this.theme.frameBorder;
+    if (!this._editing) {
+      // no border in view mode — widgets render edge-to-edge
+      return;
+    }
+
+    const totalH = this._collapsed ? hdr : hdr + this._height;
+
+    const borderColor = this._selected
+      ? this.theme.frameBorderSelected
+      : this._hovered && this._editing
+        ? this.theme.frameBorderHover
+        : this.theme.frameBorder;
 
     this.border.roundRect(0, 0, w, totalH, r);
     this.border.stroke({ color: borderColor, width: this._selected ? 2 : 1 });
+  }
+
+  /** redraw the content mask to match current dimensions and mode. */
+  private drawContentMask(): void {
+    const y = this._editing ? this.theme.frameHeaderHeight : 0;
+    const r = this._editing ? this.theme.frameCornerRadius : 0;
+    this.contentMask.clear();
+    if (r > 0) {
+      // in edit mode, use rounded bottom corners matching the frame
+      this.contentMask.moveTo(0, y);
+      this.contentMask.lineTo(this._width, y);
+      this.contentMask.lineTo(this._width, y + this._height - r);
+      this.contentMask.arcTo(this._width, y + this._height, this._width - r, y + this._height, r);
+      this.contentMask.lineTo(r, y + this._height);
+      this.contentMask.arcTo(0, y + this._height, 0, y + this._height - r, r);
+      this.contentMask.lineTo(0, y);
+      this.contentMask.closePath();
+      this.contentMask.fill({ color: 0xffffff });
+    } else {
+      // in view mode, sharp rectangle — clips any widget-drawn rounded corners
+      this.contentMask.rect(0, y, this._width, this._height);
+      this.contentMask.fill({ color: 0xffffff });
+    }
   }
 
   private positionButtons(): void {
@@ -456,6 +522,7 @@ export class WidgetFrame {
 
     const text = new Text({
       text: label,
+      resolution: theme.textResolution,
       style: {
         fontFamily: theme.fontFamily,
         fontSize: theme.fontSizeSmall,
@@ -472,11 +539,19 @@ export class WidgetFrame {
 
   // --- mode management ---
 
-  private applyMode(): void {
-    // resize handles: visible only in edit mode and not collapsed
+  private updateHandleVisibility(): void {
+    const show = this._editing && !this._collapsed && (this._selected || this._hovered);
     for (const handle of this.resizeHandles.values()) {
-      handle.visible = this._editing && !this._collapsed;
+      handle.visible = show;
     }
+  }
+
+  private applyMode(): void {
+    // resize handles: visible only in edit mode, not collapsed, and hovered or selected
+    this.updateHandleVisibility();
+
+    // header: entirely hidden in view mode, fully visible in edit mode
+    this.header.visible = this._editing;
 
     // header buttons: visible only in edit mode
     this.collapseBtn.visible = this._editing;
@@ -486,8 +561,9 @@ export class WidgetFrame {
     this.headerBg.eventMode = this._editing ? "static" : "none";
     this.headerBg.cursor = this._editing ? "grab" : "default";
 
-    // header opacity (semi-transparent in view mode)
-    this.header.alpha = this._editing ? 1.0 : 0.4;
+    // content container position: sits below header in edit mode,
+    // flush to top in view mode (no header taking up space)
+    this.contentContainer.y = this._editing ? this.theme.frameHeaderHeight : 0;
 
     // content container interactivity
     // in edit mode: widgets are inert (canvas intercepts events)

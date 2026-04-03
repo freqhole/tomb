@@ -11,7 +11,7 @@ export function createCrashedPlaceholder(
   width: number,
   height: number,
   reason: string,
-  theme: SkeinTheme,
+  theme: SkeinTheme
 ): WidgetController {
   const container = new Container();
 
@@ -27,6 +27,7 @@ export function createCrashedPlaceholder(
 
   const icon = new Text({
     text: "!",
+    resolution: theme.textResolution,
     style: {
       fontFamily: theme.fontFamily,
       fontSize: 20,
@@ -41,6 +42,7 @@ export function createCrashedPlaceholder(
 
   const msg = new Text({
     text: reason.length > 40 ? reason.slice(0, 37) + "..." : reason,
+    resolution: theme.textResolution,
     style: {
       fontFamily: theme.fontFamily,
       fontSize: theme.fontSizeSmall,

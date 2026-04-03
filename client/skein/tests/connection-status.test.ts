@@ -156,24 +156,24 @@ test("connection status shows correct plural for multiple peers", async ({ canva
     .toBe("2 peers");
 });
 
-test("connection status is positioned in the top-right area", async ({ canvasPage }) => {
+test("connection status is positioned in the bottom-left area", async ({ canvasPage }) => {
   const { page } = await canvasPage();
 
   const position = await page.evaluate(() => {
     const skein = (window as any).__skein;
     const root = skein.connectionStatus.root;
-    const screenWidth = skein.app.screen.width;
+    const screenHeight = skein.app.screen.height;
     return {
       x: root.x,
       y: root.y,
-      screenWidth,
+      screenHeight,
     };
   });
 
-  // should be near the top (y around 8)
-  expect(position.y).toBeLessThanOrEqual(16);
-  // should be in the right half of the screen
-  expect(position.x).toBeGreaterThan(position.screenWidth / 2);
+  // should be near the left (x around 8)
+  expect(position.x).toBeLessThanOrEqual(16);
+  // should be in the bottom half of the screen
+  expect(position.y).toBeGreaterThan(position.screenHeight / 2);
 });
 
 test("connection status survives canvas destroy without errors", async ({ canvasPage }) => {

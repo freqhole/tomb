@@ -8,13 +8,15 @@ const COLOR_SOLO = 0x6b7280;
 
 /**
  * compact pill-shaped connection status indicator rendered in the
- * top-right of the stage. shows a colored dot and peer count label.
+ * bottom-left of the stage. shows a colored dot and peer count label.
  *
  * green dot + "N peers" when at least one remote peer is online,
  * gray dot + "solo" when no remote peers are present.
  *
  * added directly to app.stage (not the world container) so it stays
- * fixed regardless of pan/zoom.
+ * fixed regardless of pan/zoom. uses visual viewport dimensions for
+ * correct positioning on mobile safari where the visual viewport
+ * can differ from the layout viewport.
  */
 export class ConnectionStatus {
   readonly root: Container;
@@ -53,6 +55,7 @@ export class ConnectionStatus {
     // peer count label
     this.label = new Text({
       text: "solo",
+      resolution: theme.textResolution,
       style: {
         fontFamily: theme.fontFamily,
         fontSize: theme.fontSizeSmall,
@@ -87,13 +90,18 @@ export class ConnectionStatus {
   }
 
   /**
-   * reposition the pill to the top-right of the screen.
+   * reposition the pill to the bottom-left of the screen.
+   * uses visual viewport when available (mobile safari reports correct
+   * dimensions there, unlike window.innerHeight which includes the
+   * offscreen area behind the on-screen keyboard and address bar).
    * call this after creation and on window resize.
    */
-  layout(screenWidth: number): void {
+  layout(): void {
+    const vv = window.visualViewport;
+    const screenHeight = vv ? vv.height : window.innerHeight;
     const margin = 8;
-    this.root.x = Math.round(screenWidth - this.root.width - margin);
-    this.root.y = margin;
+    this.root.x = margin;
+    this.root.y = Math.round(screenHeight - this.root.height - margin);
   }
 
   /** unsubscribe from presence callbacks, remove from parent, and clean up. */
