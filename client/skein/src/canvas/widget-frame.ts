@@ -9,10 +9,18 @@ import type { WidgetEntry } from "./canvas-doc";
  */
 export interface WidgetFrameCallbacks {
   onSelect: () => void;
+  /** shift-click: toggle this widget in the multi-selection */
+  onShiftSelect?: () => void;
   onMove: (x: number, y: number) => void;
   onResize: (width: number, height: number) => void;
   onClose: () => void;
   onCollapse: (collapsed: boolean) => void;
+  /** batch drag: emitted when a drag starts (so manager can snapshot positions) */
+  onDragStart?: () => void;
+  /** batch drag: emitted on every move with the delta from drag start (world coords) */
+  onDragDelta?: (dx: number, dy: number) => void;
+  /** batch drag: emitted when the drag finishes */
+  onDragEnd?: () => void;
 }
 
 /**
@@ -54,15 +62,19 @@ export class WidgetFrame {
   // state
   private _editing = false;
   private _selected = false;
+  private _multiSelected = false;
   private _collapsed = false;
   private _hovered = false;
   private _width: number;
   private _height: number;
 
-  // drag state
+  // drag state (shared between header drag and body drag)
   private dragging = false;
   private dragStartGlobal = { x: 0, y: 0 };
   private dragStartLocal = { x: 0, y: 0 };
+
+  // invisible hit area covering the full frame for body-drag in multi-select
+  private readonly bodyHitArea: Graphics;
 
   // resize state
   private resizing = false;
@@ -139,6 +151,13 @@ export class WidgetFrame {
     this.closeBtn = this.createHeaderButton("x", theme);
     this.header.addChild(this.closeBtn);
 
+    // invisible hit area for body-drag when multi-selected.
+    // sits behind the content container so it catches clicks on the
+    // widget body area. only interactive when _multiSelected is true.
+    this.bodyHitArea = new Graphics();
+    this.bodyHitArea.eventMode = "none";
+    this.root.addChild(this.bodyHitArea);
+
     // content container (below the header)
     this.contentContainer = new Container();
     this.contentContainer.y = theme.frameHeaderHeight;
@@ -157,6 +176,7 @@ export class WidgetFrame {
 
     // set up interaction events
     this.setupHeaderInteraction();
+    this.setupBodyDragInteraction();
     this.setupButtonInteraction();
 
     // initial draw
@@ -177,12 +197,24 @@ export class WidgetFrame {
     this.draw();
   }
 
-  /** set whether this frame is selected */
+  /** set whether this frame is selected (single or multi) */
   setSelected(selected: boolean): void {
     if (this._selected === selected) return;
     this._selected = selected;
     this.updateHandleVisibility();
     this.drawBorder();
+  }
+
+  /**
+   * set whether this frame is part of a multi-widget selection.
+   * when multi-selected, the entire frame body becomes draggable
+   * (not just the header), and resize handles are hidden.
+   */
+  setMultiSelected(multi: boolean): void {
+    if (this._multiSelected === multi) return;
+    this._multiSelected = multi;
+    this.updateHandleVisibility();
+    this.updateBodyHitArea();
   }
 
   /** update position on the stage */
@@ -225,6 +257,7 @@ export class WidgetFrame {
     this.drawContentMask();
     this.positionResizeHandles();
     this.positionButtons();
+    this.updateBodyHitArea();
   }
 
   private drawHeader(): void {
@@ -453,23 +486,19 @@ export class WidgetFrame {
       if (!this._editing) return;
       e.stopPropagation();
 
-      // select on click
-      this.callbacks.onSelect();
+      // shift-click toggles multi-selection; regular click does single-select
+      if (e.shiftKey && this.callbacks.onShiftSelect) {
+        this.callbacks.onShiftSelect();
+      } else {
+        this.callbacks.onSelect();
+      }
 
-      // start drag
-      this.dragging = true;
-      this.dragStartGlobal = { x: e.global.x, y: e.global.y };
-      this.dragStartLocal = { x: this.root.x, y: this.root.y };
-      this.headerBg.cursor = "grabbing";
+      this.startDrag(e);
     });
 
     this.headerBg.on("globalpointermove", (e: FederatedPointerEvent) => {
       if (!this.dragging) return;
-      const zoom = this.root.parent?.scale.x ?? 1;
-      const dx = (e.global.x - this.dragStartGlobal.x) / zoom;
-      const dy = (e.global.y - this.dragStartGlobal.y) / zoom;
-      this.root.x = this.dragStartLocal.x + dx;
-      this.root.y = this.dragStartLocal.y + dy;
+      this.updateDrag(e);
     });
 
     this.headerBg.on("pointerup", () => {
@@ -483,9 +512,82 @@ export class WidgetFrame {
     });
   }
 
+  /**
+   * set up an invisible body-level hit area for dragging multi-selected
+   * widgets from anywhere on the widget, not just the header. the hit
+   * area is only interactive when _multiSelected is true.
+   */
+  private setupBodyDragInteraction(): void {
+    this.bodyHitArea.on("pointerdown", (e: FederatedPointerEvent) => {
+      if (!this._editing || !this._multiSelected) return;
+      e.stopPropagation();
+      this.startDrag(e);
+    });
+
+    this.bodyHitArea.on("globalpointermove", (e: FederatedPointerEvent) => {
+      if (!this.dragging) return;
+      this.updateDrag(e);
+    });
+
+    this.bodyHitArea.on("pointerup", () => {
+      if (!this.dragging) return;
+      this.finishDrag();
+    });
+
+    this.bodyHitArea.on("pointerupoutside", () => {
+      if (!this.dragging) return;
+      this.finishDrag();
+    });
+  }
+
+  /** redraw the body hit area to match current frame dimensions */
+  private updateBodyHitArea(): void {
+    this.bodyHitArea.clear();
+
+    if (!this._multiSelected || !this._editing || this._collapsed) {
+      this.bodyHitArea.eventMode = "none";
+      this.bodyHitArea.cursor = "default";
+      return;
+    }
+
+    const hdr = this.theme.frameHeaderHeight;
+    const totalH = hdr + this._height;
+    // draw an invisible rect covering the full frame area
+    this.bodyHitArea.rect(0, 0, this._width, totalH);
+    this.bodyHitArea.fill({ color: 0x000000, alpha: 0 });
+    this.bodyHitArea.eventMode = "static";
+    this.bodyHitArea.cursor = "grab";
+  }
+
+  // --- shared drag helpers (used by both header drag and body drag) ---
+
+  private startDrag(e: FederatedPointerEvent): void {
+    this.dragging = true;
+    this.dragStartGlobal = { x: e.global.x, y: e.global.y };
+    this.dragStartLocal = { x: this.root.x, y: this.root.y };
+    this.headerBg.cursor = "grabbing";
+    this.bodyHitArea.cursor = "grabbing";
+
+    // notify manager so it can snapshot positions for batch drag
+    this.callbacks.onDragStart?.();
+  }
+
+  private updateDrag(e: FederatedPointerEvent): void {
+    const zoom = this.root.parent?.scale.x ?? 1;
+    const dx = (e.global.x - this.dragStartGlobal.x) / zoom;
+    const dy = (e.global.y - this.dragStartGlobal.y) / zoom;
+    this.root.x = this.dragStartLocal.x + dx;
+    this.root.y = this.dragStartLocal.y + dy;
+
+    // emit delta for batch drag of other selected widgets
+    this.callbacks.onDragDelta?.(dx, dy);
+  }
+
   private finishDrag(): void {
     this.dragging = false;
     this.headerBg.cursor = "grab";
+    this.bodyHitArea.cursor = this._multiSelected ? "grab" : "default";
+    this.callbacks.onDragEnd?.();
     this.callbacks.onMove(this.root.x, this.root.y);
   }
 
@@ -540,14 +642,16 @@ export class WidgetFrame {
   // --- mode management ---
 
   private updateHandleVisibility(): void {
-    const show = this._editing && !this._collapsed && (this._selected || this._hovered);
+    // resize handles visible only when selected (not just hovered) and
+    // not during multi-select (multi-select is for moving, not resizing)
+    const show = this._editing && !this._collapsed && this._selected && !this._multiSelected;
     for (const handle of this.resizeHandles.values()) {
       handle.visible = show;
     }
   }
 
   private applyMode(): void {
-    // resize handles: visible only in edit mode, not collapsed, and hovered or selected
+    // resize handles: visible only in edit mode, selected, and not multi-selected
     this.updateHandleVisibility();
 
     // header: entirely hidden in view mode, fully visible in edit mode
@@ -570,5 +674,8 @@ export class WidgetFrame {
     // in view mode: widgets receive events
     this.contentContainer.eventMode = this._editing ? "none" : "auto";
     this.contentContainer.interactiveChildren = !this._editing;
+
+    // update body hit area for multi-select drag
+    this.updateBodyHitArea();
   }
 }

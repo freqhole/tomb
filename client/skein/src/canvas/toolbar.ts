@@ -41,6 +41,7 @@ export class Toolbar {
 
   private unsubs: (() => void)[] = [];
   private widgetCounter = 0;
+  private pendingPlacement: { x: number; y: number } | null = null;
 
   constructor(
     app: Application,
@@ -98,10 +99,12 @@ export class Toolbar {
     this.deleteBtn = del.btn;
     this.deleteBtn.visible = false;
     this.deleteBtn.onPress.connect(() => {
-      const id = this.inputRouter.selectedWidgetId;
-      if (id) {
+      const ids = [...this.inputRouter.selectedWidgetIds];
+      if (ids.length > 0) {
         this.inputRouter.selectWidget(null);
-        this.store.removeWidget(id);
+        for (const id of ids) {
+          this.store.removeWidget(id);
+        }
       }
     });
     this.root.addChild(this.deleteBtn);
@@ -124,6 +127,14 @@ export class Toolbar {
     // subscribe to mode and selection changes
     this.unsubs.push(this.inputRouter.onModeChange((m) => this.updateMode(m)));
     this.unsubs.push(this.inputRouter.onSelectionChange((id) => this.updateSelection(id)));
+    // also listen to multi-selection so delete button shows for lasso selections
+    this.unsubs.push(
+      this.inputRouter.onMultiSelectionChange(() => {
+        this.deleteBtn.visible =
+          this.inputRouter.selectedWidgetIds.size > 0 && this.inputRouter.isEditMode;
+        this.layout();
+      })
+    );
 
     // set initial state then lay out
     this.updateMode(this.inputRouter.mode);
@@ -282,6 +293,78 @@ export class Toolbar {
     this.flyoutBg.stroke({ color: this.theme.toolbarBorder, width: 1 });
   }
 
+  /**
+   * open the widget type flyout at a specific screen position.
+   * when the user picks a widget type, it will be placed at (worldX, worldY)
+   * instead of the default stagger position.
+   * used by the double-click-on-canvas handler.
+   */
+  openFlyoutAtPosition(screenX: number, screenY: number, worldX: number, worldY: number): void {
+    this.pendingPlacement = { x: worldX, y: worldY };
+
+    // enter edit mode if not already in it
+    if (!this.inputRouter.isEditMode) {
+      this.inputRouter.toggleMode();
+    }
+
+    // open the flyout (reuse openFlyout logic but position at screen coords)
+    if (this.flyoutOpen) {
+      this.closeFlyout();
+    }
+    this.flyoutOpen = true;
+    this.flyout.visible = true;
+
+    this.positionFlyoutAtScreen(screenX, screenY);
+
+    // dismiss when clicking outside — same logic as openFlyout
+    requestAnimationFrame(() => {
+      this.stageDismissHandler = (e: any) => {
+        let target = e.target;
+        while (target) {
+          if (target === this.flyout || target === this.addBtn) return;
+          target = target.parent;
+        }
+        this.closeFlyout();
+      };
+      this.app.stage.on("pointerdown", this.stageDismissHandler);
+    });
+  }
+
+  /** position the flyout near given screen coordinates, clamped to viewport. */
+  private positionFlyoutAtScreen(screenX: number, screenY: number): void {
+    const margin = 8;
+    const vv = window.visualViewport;
+    const screenW = vv ? vv.width : window.innerWidth;
+    const screenH = vv ? vv.height : window.innerHeight;
+    const flyoutW = this.flyoutBg.width;
+    const flyoutH = this.flyoutBg.height;
+
+    // position flyout with its top-left near the click, but offset slightly
+    // so the cursor isn't covering the first item
+    let x = screenX + 8 - this.root.x;
+    let y = screenY - 4 - this.root.y;
+
+    // clamp right edge
+    if (this.root.x + x + flyoutW > screenW - margin) {
+      x = screenW - margin - this.root.x - flyoutW;
+    }
+    // clamp left edge
+    if (this.root.x + x < margin) {
+      x = margin - this.root.x;
+    }
+    // clamp bottom edge
+    if (this.root.y + y + flyoutH > screenH - margin) {
+      y = screenH - margin - this.root.y - flyoutH;
+    }
+    // clamp top edge
+    if (this.root.y + y < margin) {
+      y = margin - this.root.y;
+    }
+
+    this.flyout.x = Math.round(x);
+    this.flyout.y = Math.round(y);
+  }
+
   /** position the flyout so it stays fully within the visible viewport. */
   private positionFlyout(): void {
     const margin = 8;
@@ -363,6 +446,7 @@ export class Toolbar {
     if (!this.flyoutOpen) return;
     this.flyoutOpen = false;
     this.flyout.visible = false;
+    this.pendingPlacement = null;
 
     if (this.stageDismissHandler) {
       this.app.stage.off("pointerdown", this.stageDismissHandler);
@@ -453,8 +537,9 @@ export class Toolbar {
     this.layout();
   }
 
-  private updateSelection(id: string | null): void {
-    this.deleteBtn.visible = id !== null && this.inputRouter.isEditMode;
+  private updateSelection(_id: string | null): void {
+    this.deleteBtn.visible =
+      this.inputRouter.selectedWidgetIds.size > 0 && this.inputRouter.isEditMode;
     this.layout();
   }
 
@@ -464,11 +549,16 @@ export class Toolbar {
   private addWidget(type: string): void {
     this.widgetCounter++;
     const id = crypto.randomUUID();
+    const pos = this.pendingPlacement ?? {
+      x: 100 + this.widgetCounter * 20,
+      y: 100 + this.widgetCounter * 20,
+    };
+    this.pendingPlacement = null;
     this.store.addWidget({
       id,
       type,
-      x: 100 + this.widgetCounter * 20,
-      y: 100 + this.widgetCounter * 20,
+      x: pos.x,
+      y: pos.y,
       width: 200,
       height: 150,
       zIndex: this.widgetCounter,

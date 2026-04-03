@@ -9,16 +9,17 @@ import type {
 
 export const labelSchema = z.object({
   text: z.string().default("label"),
+  bgColor: z.number().default(0xf8fafc),
+  textColor: z.number().default(0x1e293b),
+  borderColor: z.number().default(0xcbd5e1),
+  fontFamily: z.string().default("system-ui, sans-serif"),
 });
 
 export type LabelState = z.infer<typeof labelSchema>;
 
-// colors
-const BG_COLOR = 0xf8fafc;
+// colors (editing-only visual states, not configurable)
 const BG_EDITING_COLOR = 0xfefce8;
-const BORDER_COLOR = 0xcbd5e1;
 const BORDER_EDITING_COLOR = 0xfbbf24;
-const TEXT_COLOR = 0x1e293b;
 
 function computeFontSize(height: number): number {
   return Math.max(12, Math.min(height * 0.5, 120));
@@ -33,7 +34,18 @@ export const labelWidget: WidgetFactory<typeof labelSchema> = {
     category: "basics",
   },
   schema: labelSchema,
-  editableProps: [{ key: "text", label: "text", type: "string" as const, default: "label" }],
+  editableProps: [
+    { key: "bgColor", label: "background", type: "color" as const, default: 0xf8fafc },
+    { key: "textColor", label: "text color", type: "color" as const, default: 0x1e293b },
+    { key: "borderColor", label: "border", type: "color" as const, default: 0xcbd5e1 },
+    {
+      key: "fontFamily",
+      label: "font",
+      type: "select" as const,
+      options: ["system-ui, sans-serif", "Georgia, serif", "Courier New, monospace", "cursive"],
+      default: "system-ui, sans-serif",
+    },
+  ],
 
   create(ctx: WidgetMountContext<typeof labelSchema>): WidgetController {
     const container = new Container();
@@ -45,11 +57,12 @@ export const labelWidget: WidgetFactory<typeof labelSchema> = {
     // background
     const bg = new Graphics();
     const drawBg = (w: number, h: number, isEditing: boolean) => {
+      const state = ctx.doc.current;
       bg.clear();
       bg.roundRect(0, 0, w, h, 8);
-      bg.fill({ color: isEditing ? BG_EDITING_COLOR : BG_COLOR });
+      bg.fill({ color: isEditing ? BG_EDITING_COLOR : state.bgColor });
       bg.stroke({
-        color: isEditing ? BORDER_EDITING_COLOR : BORDER_COLOR,
+        color: isEditing ? BORDER_EDITING_COLOR : state.borderColor,
         width: isEditing ? 2 : 1,
       });
     };
@@ -60,9 +73,9 @@ export const labelWidget: WidgetFactory<typeof labelSchema> = {
     const textDisplay = new Text({
       text: ctx.doc.current.text,
       style: {
-        fontFamily: "system-ui, sans-serif",
+        fontFamily: ctx.doc.current.fontFamily,
         fontSize: computeFontSize(currentHeight),
-        fill: TEXT_COLOR,
+        fill: ctx.doc.current.textColor,
         wordWrap: true,
         wordWrapWidth: currentWidth - 16,
         align: "center",
@@ -173,6 +186,10 @@ export const labelWidget: WidgetFactory<typeof labelSchema> = {
           textDisplay.text = state.text;
         }
       }
+      // apply style changes (always, whether editing text or not)
+      textDisplay.style.fill = state.textColor;
+      textDisplay.style.fontFamily = state.fontFamily;
+      drawBg(currentWidth, currentHeight, editing);
     });
 
     return {

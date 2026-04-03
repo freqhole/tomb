@@ -9,8 +9,10 @@ import type { WidgetRegistry } from "../widgets/widget-registry";
 import { CanvasStore } from "./canvas-store";
 import { ConnectionStatus } from "./connection-status";
 import { InputRouter } from "./input-router";
+import { LassoTool } from "./lasso-tool";
 import { PresenceManager } from "./presence-manager";
 import { PresenceRenderer } from "./presence-renderer";
+import { PropertyTray } from "./property-tray";
 import { Toolbar } from "./toolbar";
 import { Viewport } from "./viewport";
 import { WidgetManager } from "./widget-manager";
@@ -53,6 +55,10 @@ export interface SkeinCanvas {
   presenceRenderer: PresenceRenderer;
   /** the connection status indicator (peer count pill) */
   connectionStatus: ConnectionStatus;
+  /** the property editing tray (appears next to selected widget in edit mode) */
+  propertyTray: PropertyTray;
+  /** the lasso tool for multi-select, click-deselect, and double-click-to-add */
+  lassoTool: LassoTool;
   /** the PixiJS application instance */
   app: Application;
   /** the resolved theme */
@@ -134,6 +140,12 @@ export async function initCanvas(options: InitCanvasOptions): Promise<SkeinCanva
   // step 8: create input router (mode switching, selection, keyboard shortcuts)
   const inputRouter = new InputRouter();
 
+  // make the stage background interactive so the lasso tool can attach to it.
+  // the stageBg is the lowest zIndex element in the world container, so
+  // pointer events only reach it when they don't hit any widget frame or
+  // other interactive element (they all stopPropagation on pointerdown).
+  stageBg.eventMode = "static";
+
   // step 9: create and start the widget manager.
   // widget frames are added to the world container so they participate in pan/zoom.
   const widgetManager = new WidgetManager(
@@ -150,6 +162,20 @@ export async function initCanvas(options: InitCanvasOptions): Promise<SkeinCanva
   // step 10: create the toolbar (pixi-rendered, top-right of stage).
   // added directly to app.stage by the Toolbar constructor so it stays fixed.
   const toolbar = new Toolbar(app, inputRouter, store, registry, theme);
+
+  // step 10b: create the lasso tool for multi-select, click-deselect, and
+  // double-click-to-add. it attaches pointer handlers to the stage background
+  // and manages freeform lasso selection drawing in the world container.
+  const lassoTool = new LassoTool({
+    target: stageBg,
+    world,
+    inputRouter,
+    widgetManager,
+    theme,
+    onDoubleClick: (screenX, screenY, worldX, worldY) => {
+      toolbar.openFlyoutAtPosition(screenX, screenY, worldX, worldY);
+    },
+  });
 
   // step 11: create viewport for pan/zoom control over the world container
   const viewport = new Viewport(world, app.canvas as HTMLCanvasElement);
@@ -169,6 +195,19 @@ export async function initCanvas(options: InitCanvasOptions): Promise<SkeinCanva
   const connectionStatus = new ConnectionStatus(presenceManager, theme);
   app.stage.addChild(connectionStatus.root);
   connectionStatus.layout();
+
+  // step 13c: create the property tray for editing widget props.
+  // lives in the world container so it pans/zooms with widgets.
+  // subscribes to selection/mode/store changes internally.
+  const propertyTray = new PropertyTray(
+    world,
+    theme,
+    keyboard,
+    inputRouter,
+    widgetManager,
+    store,
+    registry
+  );
 
   // step 14: track local cursor movement and broadcast via presence manager.
   // we listen on the canvas element for pointermove and convert screen
@@ -206,6 +245,8 @@ export async function initCanvas(options: InitCanvasOptions): Promise<SkeinCanva
     presenceManager,
     presenceRenderer,
     connectionStatus,
+    propertyTray,
+    lassoTool,
     app,
     theme,
     repo,
@@ -218,6 +259,8 @@ export async function initCanvas(options: InitCanvasOptions): Promise<SkeinCanva
       connectionStatus.destroy();
       presenceRenderer.destroy();
       presenceManager.destroy();
+      lassoTool.destroy();
+      propertyTray.destroy();
       toolbar.destroy();
       keyboard.destroy();
       viewport.destroy();

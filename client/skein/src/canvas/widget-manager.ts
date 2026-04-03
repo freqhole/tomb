@@ -11,6 +11,14 @@ import { createCrashedPlaceholder } from "./crashed-placeholder";
 import type { InputRouter } from "./input-router";
 import { WidgetFrame } from "./widget-frame";
 
+/** snapshot of positions at the start of a batch drag */
+interface BatchDragState {
+  /** the widget that initiated the drag */
+  draggedId: string;
+  /** starting positions of all other selected widgets (keyed by widget id) */
+  startPositions: Map<string, { x: number; y: number }>;
+}
+
 /**
  * a live widget tracked by the widget manager.
  * contains everything needed to update or tear down a mounted widget.
@@ -45,6 +53,9 @@ export class WidgetManager {
 
   private readonly liveWidgets = new Map<string, LiveWidget>();
   private unsubs: (() => void)[] = [];
+
+  /** batch drag state — non-null while a multi-widget drag is in progress */
+  private batchDrag: BatchDragState | null = null;
 
   constructor(
     store: CanvasStore,
@@ -91,13 +102,22 @@ export class WidgetManager {
     });
     this.unsubs.push(unsubMode);
 
-    // subscribe to selection changes — update frame selection state
-    const unsubSelection = this.inputRouter.onSelectionChange((selectedId) => {
-      for (const [id, live] of this.liveWidgets) {
-        live.frame.setSelected(id === selectedId);
-      }
+    // subscribe to single-selection changes (backward compat for property tray etc.)
+    const unsubSelection = this.inputRouter.onSelectionChange((_selectedId) => {
+      // frame highlighting is driven by multi-selection below;
+      // this listener kept for any future single-selection-only consumers.
     });
     this.unsubs.push(unsubSelection);
+
+    // subscribe to multi-selection changes — update frame selection and multi-select state
+    const unsubMultiSelection = this.inputRouter.onMultiSelectionChange((ids) => {
+      const isMulti = ids.size > 1;
+      for (const [id, live] of this.liveWidgets) {
+        live.frame.setSelected(ids.has(id));
+        live.frame.setMultiSelected(isMulti && ids.has(id));
+      }
+    });
+    this.unsubs.push(unsubMultiSelection);
 
     // wire up the delete handler on the input router
     this.inputRouter.setDeleteHandler((id) => {
@@ -252,6 +272,9 @@ export class WidgetManager {
       onSelect: () => {
         this.inputRouter.selectWidget(widgetId);
       },
+      onShiftSelect: () => {
+        this.inputRouter.toggleWidgetInSelection(widgetId);
+      },
       onMove: (x: number, y: number) => {
         this.store.moveWidget(widgetId, x, y);
       },
@@ -269,7 +292,7 @@ export class WidgetManager {
       },
       onClose: () => {
         // deselect if this widget is selected
-        if (this.inputRouter.selectedWidgetId === widgetId) {
+        if (this.inputRouter.selectedWidgetIds.has(widgetId)) {
           this.inputRouter.selectWidget(null);
         }
         this.store.removeWidget(widgetId);
@@ -281,7 +304,75 @@ export class WidgetManager {
           live.frame.setCollapsed(collapsed);
         }
       },
+
+      // batch drag support — only activates when multiple widgets are selected
+      onDragStart: () => {
+        this.handleBatchDragStart(widgetId);
+      },
+      onDragDelta: (dx: number, dy: number) => {
+        this.handleBatchDragDelta(widgetId, dx, dy);
+      },
+      onDragEnd: () => {
+        this.handleBatchDragEnd(widgetId);
+      },
     };
+  }
+
+  // --- batch drag support ---
+
+  /**
+   * when a drag starts on a selected widget and multiple widgets are selected,
+   * snapshot the starting positions of all other selected widgets so we can
+   * move them in sync during the drag.
+   */
+  private handleBatchDragStart(draggedId: string): void {
+    const selectedIds = this.inputRouter.selectedWidgetIds;
+    if (selectedIds.size <= 1) {
+      this.batchDrag = null;
+      return;
+    }
+
+    const startPositions = new Map<string, { x: number; y: number }>();
+    for (const id of selectedIds) {
+      if (id === draggedId) continue;
+      const live = this.liveWidgets.get(id);
+      if (live) {
+        startPositions.set(id, { x: live.frame.root.x, y: live.frame.root.y });
+      }
+    }
+
+    this.batchDrag = { draggedId, startPositions };
+  }
+
+  /**
+   * move all other selected widgets by the same delta as the dragged widget.
+   * the dragged widget's frame moves itself — we only handle the others.
+   */
+  private handleBatchDragDelta(_draggedId: string, dx: number, dy: number): void {
+    if (!this.batchDrag) return;
+
+    for (const [id, startPos] of this.batchDrag.startPositions) {
+      const live = this.liveWidgets.get(id);
+      if (live) {
+        live.frame.setPosition(startPos.x + dx, startPos.y + dy);
+      }
+    }
+  }
+
+  /**
+   * commit final positions of all batch-dragged widgets to the store.
+   */
+  private handleBatchDragEnd(_draggedId: string): void {
+    if (!this.batchDrag) return;
+
+    for (const [id] of this.batchDrag.startPositions) {
+      const live = this.liveWidgets.get(id);
+      if (live) {
+        this.store.moveWidget(id, live.frame.root.x, live.frame.root.y);
+      }
+    }
+
+    this.batchDrag = null;
   }
 
   /**

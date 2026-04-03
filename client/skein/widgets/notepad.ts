@@ -8,17 +8,17 @@ import type {
 } from "../src/widgets/widget-types";
 
 const PADDING = 10;
-const FONT_SIZE = 13;
-const BG_COLOR = 0xfefefe;
 const BG_EDITING_COLOR = 0xfff9e6;
-const BORDER_COLOR = 0xcbd5e1;
 const BORDER_EDITING_COLOR = 0x93c5fd;
-const TEXT_COLOR = 0x1e293b;
 const PLACEHOLDER_COLOR = 0x94a3b8;
-const FONT_FAMILY = "system-ui, sans-serif";
 
 export const notepadSchema = z.object({
   text: z.string().default(""),
+  bgColor: z.number().default(0xfefefe),
+  textColor: z.number().default(0x1e293b),
+  borderColor: z.number().default(0xcbd5e1),
+  fontSize: z.number().default(13),
+  fontFamily: z.string().default("system-ui, sans-serif"),
 });
 
 export type NotepadState = z.infer<typeof notepadSchema>;
@@ -32,7 +32,19 @@ export const notepadWidget: WidgetFactory<typeof notepadSchema> = {
     category: "text",
   },
   schema: notepadSchema,
-  editableProps: [{ key: "text", label: "text", type: "string" as const, default: "" }],
+  editableProps: [
+    { key: "bgColor", label: "background", type: "color" as const, default: 0xfefefe },
+    { key: "textColor", label: "text color", type: "color" as const, default: 0x1e293b },
+    { key: "borderColor", label: "border", type: "color" as const, default: 0xcbd5e1 },
+    { key: "fontSize", label: "font size", type: "number" as const, default: 13 },
+    {
+      key: "fontFamily",
+      label: "font",
+      type: "select" as const,
+      options: ["system-ui, sans-serif", "Georgia, serif", "Courier New, monospace", "cursive"],
+      default: "system-ui, sans-serif",
+    },
+  ],
 
   create(ctx: WidgetMountContext<typeof notepadSchema>): WidgetController {
     const container = new Container();
@@ -43,10 +55,11 @@ export const notepadWidget: WidgetFactory<typeof notepadSchema> = {
     // background
     const bg = new Graphics();
     const drawBg = (w: number, h: number, isEditing: boolean) => {
+      const state = ctx.doc.current;
       bg.clear();
       bg.roundRect(0, 0, w, h, 6);
-      bg.fill({ color: isEditing ? BG_EDITING_COLOR : BG_COLOR });
-      bg.stroke({ color: isEditing ? BORDER_EDITING_COLOR : BORDER_COLOR, width: 1 });
+      bg.fill({ color: isEditing ? BG_EDITING_COLOR : state.bgColor });
+      bg.stroke({ color: isEditing ? BORDER_EDITING_COLOR : state.borderColor, width: 1 });
     };
     drawBg(currentWidth, currentHeight, false);
     container.addChild(bg);
@@ -74,9 +87,9 @@ export const notepadWidget: WidgetFactory<typeof notepadSchema> = {
     const textDisplay = new Text({
       text: ctx.doc.current.text,
       style: {
-        fontFamily: FONT_FAMILY,
-        fontSize: FONT_SIZE,
-        fill: TEXT_COLOR,
+        fontFamily: ctx.doc.current.fontFamily,
+        fontSize: ctx.doc.current.fontSize,
+        fill: ctx.doc.current.textColor,
         wordWrap: true,
         wordWrapWidth: contentWidth(),
       },
@@ -87,8 +100,8 @@ export const notepadWidget: WidgetFactory<typeof notepadSchema> = {
     const placeholder = new Text({
       text: "click to type...",
       style: {
-        fontFamily: FONT_FAMILY,
-        fontSize: FONT_SIZE,
+        fontFamily: ctx.doc.current.fontFamily,
+        fontSize: ctx.doc.current.fontSize,
         fontStyle: "italic",
         fill: PLACEHOLDER_COLOR,
       },
@@ -117,9 +130,15 @@ export const notepadWidget: WidgetFactory<typeof notepadSchema> = {
       const textBounds = textDisplay.getBounds();
       const localRight =
         textDisplay.text.length > 0 ? Math.min(textBounds.width, contentWidth()) : 0;
-      const localBottom = textDisplay.text.length > 0 ? textBounds.height : FONT_SIZE;
-      cursor.rect(localRight + 1, localBottom - FONT_SIZE, 1.5, FONT_SIZE);
-      cursor.fill({ color: TEXT_COLOR });
+      const localBottom =
+        textDisplay.text.length > 0 ? textBounds.height : ctx.doc.current.fontSize;
+      cursor.rect(
+        localRight + 1,
+        localBottom - ctx.doc.current.fontSize,
+        1.5,
+        ctx.doc.current.fontSize
+      );
+      cursor.fill({ color: ctx.doc.current.textColor });
       cursor.visible = true;
     };
 
@@ -208,13 +227,17 @@ export const notepadWidget: WidgetFactory<typeof notepadSchema> = {
     // subscribe to remote doc changes
     const unsub = ctx.doc.on("change", (state) => {
       if (!editing) {
-        // not editing — just update the display
         textDisplay.text = state.text;
       } else {
-        // editing — update display but don't overwrite the textarea,
-        // the local user's typing takes priority
         textDisplay.text = state.text;
       }
+      // apply style changes
+      textDisplay.style.fill = state.textColor;
+      textDisplay.style.fontFamily = state.fontFamily;
+      textDisplay.style.fontSize = state.fontSize;
+      placeholder.style.fontFamily = state.fontFamily;
+      placeholder.style.fontSize = state.fontSize;
+      drawBg(currentWidth, currentHeight, editing);
       updatePlaceholderVisibility();
     });
 
