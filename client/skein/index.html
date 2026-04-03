@@ -1,0 +1,87 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>skein dev</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      body {
+        background: #1a1a2e;
+        color: #c8c8d8;
+        font-family:
+          system-ui,
+          -apple-system,
+          sans-serif;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 100vh;
+      }
+      .container {
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
+        max-width: 360px;
+      }
+      h1 {
+        font-size: 20px;
+        font-weight: 500;
+        color: #e8e8f0;
+      }
+      p {
+        font-size: 13px;
+        color: #888;
+        line-height: 1.5;
+      }
+      .links {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+      a {
+        display: block;
+        background: #252540;
+        border: 1px solid #3a3a50;
+        border-radius: 6px;
+        padding: 12px 16px;
+        color: #c8c8d8;
+        text-decoration: none;
+        font-size: 14px;
+        transition: border-color 0.15s;
+      }
+      a:hover {
+        border-color: #6366f1;
+      }
+      a span {
+        display: block;
+        font-size: 11px;
+        color: #666;
+        margin-top: 4px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>skein dev</h1>
+      <p>the widget canvas system. pick a page:</p>
+      <div class="links">
+        <a href="/canvas.html">
+          canvas
+          <span>interactive playground — toolbar, widgets, pan/zoom, edit mode</span>
+        </a>
+        <a href="/test-harness.html">
+          test harness
+          <span>blank canvas for playwright tests and manual poking</span>
+        </a>
+        <a href="/widget-gallery.html">
+          widget gallery
+          <span>all registered widgets rendered side by side</span>
+        </a>
+      </div>
+    </div>
+  </body>
+</html>
