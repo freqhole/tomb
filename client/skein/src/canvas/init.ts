@@ -6,7 +6,10 @@ import type { SkeinTheme } from "../theme/skein-theme";
 import { defaultTheme } from "../theme/skein-theme";
 import type { WidgetRegistry } from "../widgets/widget-registry";
 import { CanvasStore } from "./canvas-store";
+import { ConnectionStatus } from "./connection-status";
 import { InputRouter } from "./input-router";
+import { PresenceManager } from "./presence-manager";
+import { PresenceRenderer } from "./presence-renderer";
 import { Toolbar } from "./toolbar";
 import { Viewport } from "./viewport";
 import { WidgetManager } from "./widget-manager";
@@ -41,13 +44,21 @@ export interface SkeinCanvas {
   viewport: Viewport;
   /** the world container that holds all widgets (affected by pan/zoom) */
   world: Container;
+  /** the presence manager for multiplayer cursor/lock/selection state */
+  presenceManager: PresenceManager;
+  /** the presence renderer for remote peer cursors */
+  presenceRenderer: PresenceRenderer;
+  /** the connection status indicator (peer count pill) */
+  connectionStatus: ConnectionStatus;
   /** the PixiJS application instance */
   app: Application;
   /** the resolved theme */
   theme: SkeinTheme;
   /** the automerge repo */
   repo: Repo;
-  /** tear down the canvas (cleanup pixi, widgets, toolbar, viewport, input router) */
+  /** this peer's unique id (from the automerge repo) */
+  peerId: string;
+  /** tear down the canvas (cleanup pixi, widgets, toolbar, viewport, presence, input router) */
   destroy: () => void;
 }
 
@@ -128,10 +139,45 @@ export async function initCanvas(options: InitCanvasOptions): Promise<SkeinCanva
   // step 11: create viewport for pan/zoom control over the world container
   const viewport = new Viewport(world, app.canvas as HTMLCanvasElement);
 
+  // step 12: create the presence manager for multiplayer awareness.
+  // uses the repo's peer id so ephemeral message sender ids match.
+  const peerId = repo.peerId as string;
+  const presenceManager = new PresenceManager(store, peerId);
+
+  // step 13: create the presence renderer for remote peer cursors.
+  // lives in the world container so cursors pan/zoom with widgets.
+  const presenceRenderer = new PresenceRenderer(world, presenceManager, theme);
+
+  // step 13b: create the connection status indicator.
+  // lives on app.stage (fixed position, top-right) so it doesn't pan/zoom.
+  const connectionStatus = new ConnectionStatus(presenceManager, theme);
+  app.stage.addChild(connectionStatus.root);
+  connectionStatus.layout(app.screen.width);
+
+  // step 14: track local cursor movement and broadcast via presence manager.
+  // we listen on the canvas element for pointermove and convert screen
+  // coordinates to world coordinates so remote peers see the correct position.
+  const canvasEl = app.canvas as HTMLCanvasElement;
+  const onPointerMove = (e: PointerEvent) => {
+    const rect = canvasEl.getBoundingClientRect();
+    const screenX = e.clientX - rect.left;
+    const screenY = e.clientY - rect.top;
+
+    // convert screen coordinates to world coordinates (accounting for pan/zoom)
+    const worldX = (screenX - world.x) / (world.scale.x || 1);
+    const worldY = (screenY - world.y) / (world.scale.y || 1);
+
+    presenceManager.broadcastCursor(worldX, worldY);
+  };
+  canvasEl.addEventListener("pointermove", onPointerMove);
+
+  // step 15: announce that we're online
+  presenceManager.broadcastOnline();
+
   // capture the canvas element before destroy nulls out pixi internals
   const canvasElement = app.canvas;
 
-  // step 12: return the handle
+  // step 16: return the handle
   return {
     store,
     registry,
@@ -140,10 +186,21 @@ export async function initCanvas(options: InitCanvasOptions): Promise<SkeinCanva
     toolbar,
     viewport,
     world,
+    presenceManager,
+    presenceRenderer,
+    connectionStatus,
     app,
     theme,
     repo,
+    peerId,
     destroy() {
+      // best-effort offline broadcast before teardown
+      presenceManager.broadcastOffline();
+
+      canvasEl.removeEventListener("pointermove", onPointerMove);
+      connectionStatus.destroy();
+      presenceRenderer.destroy();
+      presenceManager.destroy();
       toolbar.destroy();
       viewport.destroy();
       inputRouter.destroy();

@@ -7,7 +7,11 @@ interface CanvasTestHandle {
   close: () => Promise<void>;
 }
 
-type CanvasPageFactory = (options?: { canvasDocId?: string }) => Promise<CanvasTestHandle>;
+type CanvasPageFactory = (options?: {
+  canvasDocId?: string;
+  /** pass an existing browser context so pages share BroadcastChannel */
+  context?: BrowserContext;
+}) => Promise<CanvasTestHandle>;
 
 /**
  * custom playwright fixture that provides a factory for creating
@@ -20,16 +24,28 @@ type CanvasPageFactory = (options?: { canvasDocId?: string }) => Promise<CanvasT
  *
  * usage:
  *   const peer = await canvasPage();           // new canvas
- *   const peer2 = await canvasPage({ canvasDocId: peer.canvasDocId }); // join existing
+ *   const peer2 = await canvasPage({ canvasDocId: peer.canvasDocId }); // join existing (isolated context)
+ *
+ * for multi-peer sync tests, share the browser context so
+ * BroadcastChannel works between pages:
+ *   const peerA = await canvasPage();
+ *   const peerB = await canvasPage({ canvasDocId: peerA.canvasDocId, context: peerA.context });
  */
 export const test = base.extend<{
   canvasPage: CanvasPageFactory;
 }>({
   canvasPage: async ({ browser }, use) => {
     const handles: CanvasTestHandle[] = [];
+    // track contexts we created ourselves so we only close those
+    const ownedContexts = new Set<BrowserContext>();
 
     const factory: CanvasPageFactory = async (options) => {
-      const context = await browser.newContext();
+      const isSharedContext = !!options?.context;
+      const context = options?.context ?? (await browser.newContext());
+      if (!isSharedContext) {
+        ownedContexts.add(context);
+      }
+
       const page = await context.newPage();
       await page.goto("/test-harness.html");
 
@@ -38,19 +54,22 @@ export const test = base.extend<{
         timeout: 10000,
       });
 
-      // initialize skein inside the browser page
+      // initialize skein inside the browser page.
+      // only pass serializable fields — the context object can't cross into the browser.
+      const initOpts = { canvasDocId: options?.canvasDocId ?? null };
       const result = await page.evaluate(async (opts) => {
         return (window as any).__initSkeinForTest({
           canvasDocId: opts?.canvasDocId ?? null,
         });
-      }, options ?? {});
+      }, initOpts);
 
       const handle: CanvasTestHandle = {
         page,
         context,
         canvasDocId: result.canvasDocId,
         close: async () => {
-          await context.close();
+          // only close the page; context cleanup happens in teardown
+          await page.close().catch(() => {});
         },
       };
 
@@ -60,9 +79,12 @@ export const test = base.extend<{
 
     await use(factory);
 
-    // auto-cleanup all handles created during the test
+    // auto-cleanup: close all pages, then close contexts we own
     for (const handle of handles) {
       await handle.close().catch(() => {});
+    }
+    for (const ctx of ownedContexts) {
+      await ctx.close().catch(() => {});
     }
   },
 });

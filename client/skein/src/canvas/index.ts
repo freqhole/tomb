@@ -1,11 +1,15 @@
 export { emptyCanvasDoc } from "./canvas-doc";
 export type { CanvasDocument, WidgetEntry } from "./canvas-doc";
 export { CanvasStore } from "./canvas-store";
+export { ConnectionStatus } from "./connection-status";
 export { createCrashedPlaceholder } from "./crashed-placeholder";
 export { initCanvas } from "./init";
 export type { InitCanvasOptions, SkeinCanvas } from "./init";
 export { InputRouter } from "./input-router";
 export type { CanvasMode } from "./input-router";
+export { PresenceManager } from "./presence-manager";
+export type { PeerPresence, PresenceMessage } from "./presence-manager";
+export { PresenceRenderer } from "./presence-renderer";
 export { Toolbar } from "./toolbar";
 export { Viewport } from "./viewport";
 export { WidgetFrame } from "./widget-frame";

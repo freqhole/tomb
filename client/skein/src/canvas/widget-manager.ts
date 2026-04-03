@@ -1,4 +1,4 @@
-import type { DocHandle, Repo } from "@automerge/automerge-repo";
+import type { DocHandle, DocumentId, Repo } from "@automerge/automerge-repo";
 import { Container } from "pixi.js";
 import type { SkeinTheme } from "../theme/skein-theme";
 import { createWidgetDoc } from "../widgets/widget-doc";
@@ -19,6 +19,8 @@ export interface LiveWidget {
   ctrl: WidgetController;
   frame: WidgetFrame;
   crashed: boolean;
+  /** the zod-validated doc facade, or null for stateless/crashed widgets */
+  widgetDoc: WidgetDoc<any> | null;
 }
 
 /**
@@ -101,6 +103,12 @@ export class WidgetManager {
 
   /**
    * mount a single widget onto the stage.
+   *
+   * handles two scenarios:
+   * - new widget (no docId): creates a fresh automerge doc and stores the
+   *   docId back into the canvas document so other peers can find it.
+   * - synced widget (has docId): uses repo.find() to locate the existing
+   *   per-widget document and waits for it to be ready before mounting.
    */
   private async mountWidget(entry: WidgetEntry): Promise<void> {
     const factory = this.registry.get(entry.type);
@@ -115,14 +123,29 @@ export class WidgetManager {
     let doc: WidgetDoc<any>;
 
     if (factory.schema) {
-      // stateful widget: create a per-widget automerge document
-      // and initialize it with schema defaults
-      const defaults = factory.schema.parse({});
-      const widgetDocHandle: DocHandle<any> = this.repo.create(defaults);
+      let widgetDocHandle: DocHandle<any>;
 
-      // store the doc id on the widget entry if it doesn't have one yet
-      if (!entry.docId) {
-        entry.docId = widgetDocHandle.documentId;
+      if (entry.docId) {
+        // this widget already has a per-widget document (synced from another
+        // peer, or restored from persistence). find it in the repo and wait
+        // for it to be available.
+        try {
+          widgetDocHandle = await this.repo.find<any>(entry.docId as DocumentId);
+          await widgetDocHandle.whenReady();
+        } catch (err) {
+          console.warn(`failed to find widget doc ${entry.docId} for widget ${entry.id}:`, err);
+          this.mountCrashed(
+            entry,
+            `widget doc not available: ${err instanceof Error ? err.message : String(err)}`
+          );
+          return;
+        }
+      } else {
+        // new widget with no existing document — create one and persist the
+        // docId back into the canvas document so other peers can sync it.
+        const defaults = factory.schema.parse({});
+        widgetDocHandle = this.repo.create(defaults);
+        this.store.setDocId(entry.id, widgetDocHandle.documentId);
       }
 
       doc = createWidgetDoc(factory.schema, widgetDocHandle);
@@ -190,6 +213,7 @@ export class WidgetManager {
       ctrl,
       frame,
       crashed: false,
+      widgetDoc: factory.schema ? doc : null,
     });
   }
 
@@ -210,6 +234,7 @@ export class WidgetManager {
       ctrl,
       frame,
       crashed: true,
+      widgetDoc: null,
     });
   }
 

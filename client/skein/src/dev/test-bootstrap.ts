@@ -3,6 +3,7 @@ import { counterSchema } from "../../widgets/counter";
 import { createTestRegistry } from "../../widgets/index";
 import type { SkeinCanvas } from "../canvas/init";
 import { initCanvas } from "../canvas/init";
+import { PresenceManager } from "../canvas/presence-manager";
 import { Viewport } from "../canvas/viewport";
 import { createWidgetDoc } from "../widgets/widget-doc";
 
@@ -41,4 +42,4 @@ async function initSkeinForTest(options: TestInitOptions = {}): Promise<TestInit
 (window as any).__initSkeinForTest = initSkeinForTest;
 
 // expose internals for detailed playwright tests
-(window as any).__skeinHelpers = { createWidgetDoc, counterSchema, Viewport };
+(window as any).__skeinHelpers = { createWidgetDoc, counterSchema, Viewport, PresenceManager };

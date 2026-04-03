@@ -1,6 +1,9 @@
-import type { DocHandle, DocumentId, Repo } from "@automerge/automerge-repo";
+import type { DocHandle, DocumentId, PeerId, Repo } from "@automerge/automerge-repo";
 import type { CanvasDocument, WidgetEntry } from "./canvas-doc";
 import { emptyCanvasDoc } from "./canvas-doc";
+
+/** handler signature for ephemeral message listeners */
+export type EphemeralHandler = (senderId: string, data: Uint8Array) => void;
 
 /**
  * wraps the canvas automerge document with typed mutation methods.
@@ -110,6 +113,16 @@ export class CanvasStore {
     });
   }
 
+  /** set the docId for a widget's per-widget automerge document. */
+  setDocId(widgetId: string, docId: string): void {
+    this.handle.change((doc) => {
+      const widget = doc.widgets[widgetId];
+      if (widget) {
+        widget.docId = docId;
+      }
+    });
+  }
+
   /** subscribe to document changes. returns an unsubscribe function. */
   onChange(handler: (doc: CanvasDocument) => void): () => void {
     const listener = () => {
@@ -118,6 +131,30 @@ export class CanvasStore {
     this.handle.on("change", listener);
     return () => {
       this.handle.off("change", listener);
+    };
+  }
+
+  /**
+   * broadcast an ephemeral message to all connected peers.
+   * used by the presence manager for cursors, locks, and online status.
+   * ephemeral messages are not persisted — they exist only in transit.
+   */
+  broadcastEphemeral(data: Uint8Array): void {
+    this.handle.broadcast(data);
+  }
+
+  /**
+   * subscribe to ephemeral messages from other peers.
+   * the senderId is the automerge-repo peerId of the sender.
+   * returns an unsubscribe function.
+   */
+  onEphemeral(handler: EphemeralHandler): () => void {
+    const listener = (event: { senderId: PeerId; message: unknown }) => {
+      handler(event.senderId as string, event.message as Uint8Array);
+    };
+    this.handle.on("ephemeral-message", listener);
+    return () => {
+      this.handle.off("ephemeral-message", listener);
     };
   }
 }
