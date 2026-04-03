@@ -1,6 +1,7 @@
 import type { DocHandle, DocumentId, Repo } from "@automerge/automerge-repo";
 import { Container } from "pixi.js";
 import type { SkeinTheme } from "../theme/skein-theme";
+import type { KeyboardDriver } from "../widgets/keyboard-driver";
 import { createWidgetDoc } from "../widgets/widget-doc";
 import type { WidgetRegistry } from "../widgets/widget-registry";
 import type { WidgetController, WidgetDoc, WidgetMountContext } from "../widgets/widget-types";
@@ -40,6 +41,7 @@ export class WidgetManager {
   private readonly stage: Container;
   private readonly theme: SkeinTheme;
   private readonly inputRouter: InputRouter;
+  private readonly keyboard: KeyboardDriver;
 
   private readonly liveWidgets = new Map<string, LiveWidget>();
   private unsubs: (() => void)[] = [];
@@ -50,7 +52,8 @@ export class WidgetManager {
     repo: Repo,
     stage: Container,
     theme: SkeinTheme,
-    inputRouter: InputRouter
+    inputRouter: InputRouter,
+    keyboard: KeyboardDriver
   ) {
     this.store = store;
     this.registry = registry;
@@ -58,6 +61,7 @@ export class WidgetManager {
     this.stage = stage;
     this.theme = theme;
     this.inputRouter = inputRouter;
+    this.keyboard = keyboard;
   }
 
   /**
@@ -182,6 +186,7 @@ export class WidgetManager {
       doc,
       width: entry.width,
       height: entry.height,
+      keyboard: this.keyboard,
     };
 
     let ctrl: WidgetController;

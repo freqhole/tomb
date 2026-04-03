@@ -1,5 +1,6 @@
 import type { Container } from "pixi.js";
 import { z } from "zod";
+import type { KeyboardDriver } from "./keyboard-driver";
 
 /**
  * a validated, Automerge-backed document facade for widget state.
@@ -26,6 +27,8 @@ export interface WidgetMountContext<S extends z.ZodType = z.ZodType> {
   width: number;
   /** the height allocated by the canvas frame */
   height: number;
+  /** the keyboard driver for text input / IME. call acquire() to claim focus. */
+  keyboard: KeyboardDriver;
 }
 
 /**

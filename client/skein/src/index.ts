@@ -14,6 +14,8 @@ export { WidgetManager } from "./canvas/widget-manager";
 export type { LiveWidget } from "./canvas/widget-manager";
 
 // widgets
+export { KeyboardDriver } from "./widgets/keyboard-driver";
+export type { KeyboardHandler } from "./widgets/keyboard-driver";
 export { createWidgetDoc } from "./widgets/widget-doc";
 export { WidgetRegistry } from "./widgets/widget-registry";
 export type {

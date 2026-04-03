@@ -1,6 +1,7 @@
 import { Repo } from "@automerge/automerge-repo";
 import { Application } from "pixi.js";
 import { createTestRegistry } from "../../widgets/index";
+import { KeyboardDriver } from "../widgets/keyboard-driver";
 import { createWidgetDoc } from "../widgets/widget-doc";
 import type { WidgetDoc, WidgetFactory } from "../widgets/widget-types";
 
@@ -55,7 +56,9 @@ async function mountGallery(): Promise<void> {
 
     // mount the widget
     try {
-      const ctrl = factory.create({ doc, width: defaultWidth, height: defaultHeight });
+      // create a keyboard driver for this widget's pixi app
+      const keyboard = new KeyboardDriver(app.canvas as HTMLCanvasElement);
+      const ctrl = factory.create({ doc, width: defaultWidth, height: defaultHeight, keyboard });
       app.stage.addChild(ctrl.container);
     } catch (err) {
       console.error(`failed to create widget "${factory.type}":`, err);
