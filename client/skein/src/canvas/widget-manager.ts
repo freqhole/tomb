@@ -1,5 +1,5 @@
 import type { DocHandle, DocumentId, Repo } from "@automerge/automerge-repo";
-import { Container } from "pixi.js";
+import { Container, Graphics } from "pixi.js";
 import type { SkeinTheme } from "../theme/skein-theme";
 import type { KeyboardDriver } from "../widgets/keyboard-driver";
 import { createWidgetDoc } from "../widgets/widget-doc";
@@ -50,12 +50,16 @@ export class WidgetManager {
   private readonly theme: SkeinTheme;
   private readonly inputRouter: InputRouter;
   private readonly keyboard: KeyboardDriver;
+  private readonly stageBg: Graphics;
 
   private readonly liveWidgets = new Map<string, LiveWidget>();
   private unsubs: (() => void)[] = [];
 
   /** batch drag state — non-null while a multi-widget drag is in progress */
   private batchDrag: BatchDragState | null = null;
+
+  /** cached stage background bounds to avoid unnecessary redraws */
+  private lastStageBounds = { x: 0, y: 0, w: 0, h: 0 };
 
   constructor(
     store: CanvasStore,
@@ -64,7 +68,8 @@ export class WidgetManager {
     stage: Container,
     theme: SkeinTheme,
     inputRouter: InputRouter,
-    keyboard: KeyboardDriver
+    keyboard: KeyboardDriver,
+    stageBg: Graphics
   ) {
     this.store = store;
     this.registry = registry;
@@ -73,6 +78,7 @@ export class WidgetManager {
     this.theme = theme;
     this.inputRouter = inputRouter;
     this.keyboard = keyboard;
+    this.stageBg = stageBg;
   }
 
   /**
@@ -122,6 +128,17 @@ export class WidgetManager {
     // wire up the delete handler on the input router
     this.inputRouter.setDeleteHandler((id) => {
       this.store.removeWidget(id);
+    });
+
+    // wire up z-order handlers on the input router
+    // ] = bring to front, [ = send to back
+    this.inputRouter.setBringForwardHandler((id) => {
+      this.store.bringToFront(id);
+      this.updateLayerInfo();
+    });
+    this.inputRouter.setSendBackwardHandler((id) => {
+      this.store.sendToBack(id);
+      this.updateLayerInfo();
     });
   }
 
@@ -277,6 +294,7 @@ export class WidgetManager {
       },
       onMove: (x: number, y: number) => {
         this.store.moveWidget(widgetId, x, y);
+        this.updateStageBounds();
       },
       onResize: (width: number, height: number) => {
         this.store.resizeWidget(widgetId, width, height);
@@ -289,6 +307,7 @@ export class WidgetManager {
             console.warn(`widget ${widgetId} threw during resize callback:`, err);
           }
         }
+        this.updateStageBounds();
       },
       onClose: () => {
         // deselect if this widget is selected
@@ -314,6 +333,24 @@ export class WidgetManager {
       },
       onDragEnd: () => {
         this.handleBatchDragEnd(widgetId);
+      },
+
+      // z-order controls (from the layers flyout)
+      onBringToFront: () => {
+        this.store.bringToFront(widgetId);
+        this.updateLayerInfo();
+      },
+      onBringForward: () => {
+        this.store.bringForward(widgetId);
+        this.updateLayerInfo();
+      },
+      onSendBackward: () => {
+        this.store.sendBackward(widgetId);
+        this.updateLayerInfo();
+      },
+      onSendToBack: () => {
+        this.store.sendToBack(widgetId);
+        this.updateLayerInfo();
       },
     };
   }
@@ -373,6 +410,7 @@ export class WidgetManager {
     }
 
     this.batchDrag = null;
+    this.updateStageBounds();
   }
 
   /**
@@ -389,6 +427,14 @@ export class WidgetManager {
     }
 
     live.frame.destroy();
+
+    // clean up the per-widget automerge doc from the repo / IndexedDB.
+    // without this, removing a widget from the canvas leaves an orphaned
+    // document in storage that is never referenced again.
+    if (live.entry.docId) {
+      this.repo.delete(live.entry.docId as DocumentId);
+    }
+
     this.liveWidgets.delete(id);
   }
 
@@ -449,11 +495,55 @@ export class WidgetManager {
         live.entry = { ...entry };
       }
     }
+
+    this.updateStageBounds();
+    this.updateLayerInfo();
+  }
+
+  /** update layer position info on all live widget frames */
+  private updateLayerInfo(): void {
+    for (const [id, live] of this.liveWidgets) {
+      const info = this.store.getLayerInfo(id);
+      live.frame.setLayerInfo(info.position, info.total);
+    }
   }
 
   /** return the map of all currently mounted widgets. */
   getLiveWidgets(): Map<string, LiveWidget> {
     return this.liveWidgets;
+  }
+
+  /** expand the stage background to encompass all widgets with padding */
+  private updateStageBounds(): void {
+    if (this.liveWidgets.size === 0) return;
+
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+
+    for (const live of this.liveWidgets.values()) {
+      const e = live.entry;
+      minX = Math.min(minX, e.x);
+      minY = Math.min(minY, e.y);
+      maxX = Math.max(maxX, e.x + e.width);
+      maxY = Math.max(maxY, e.y + e.height);
+    }
+
+    const pad = 500;
+    const bgX = minX - pad;
+    const bgY = minY - pad;
+    const bgW = maxX - minX + pad * 2;
+    const bgH = maxY - minY + pad * 2;
+
+    // only redraw if the bounds actually changed (avoid thrashing the graphics object)
+    const last = this.lastStageBounds;
+    if (last.x === bgX && last.y === bgY && last.w === bgW && last.h === bgH) return;
+    this.lastStageBounds = { x: bgX, y: bgY, w: bgW, h: bgH };
+
+    this.stageBg.clear();
+    this.stageBg.rect(bgX, bgY, bgW, bgH);
+    this.stageBg.fill({ color: this.theme.stageBg });
   }
 
   /** unmount all widgets and unsubscribe from all listeners. */

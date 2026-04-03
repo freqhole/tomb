@@ -3,6 +3,29 @@ import { z } from "zod";
 import type { KeyboardDriver } from "./keyboard-driver";
 
 /**
+ * sentinel value representing a transparent color in color props.
+ * widgets should check for this value and use alpha: 0 when drawing.
+ */
+export const TRANSPARENT_COLOR = -1;
+
+/**
+ * convert a color value to a safe PixiJS-compatible number.
+ * returns 0x000000 for the transparent sentinel (-1), otherwise passes through.
+ * use this anywhere a color flows into PixiJS Text style `fill` or other APIs
+ * that go through the Color class (which rejects -1).
+ */
+export function safeColor(color: number): number {
+  return color === TRANSPARENT_COLOR ? 0x000000 : color;
+}
+
+/**
+ * check whether a color value represents transparent.
+ */
+export function isTransparent(color: number): boolean {
+  return color === TRANSPARENT_COLOR;
+}
+
+/**
  * a validated, Automerge-backed document facade for widget state.
  * widgets interact with their state exclusively through this interface.
  * they never see Automerge directly.
@@ -42,8 +65,8 @@ export interface WidgetController {
   destroy: () => void;
   /** called when the canvas frame resizes. optional. */
   resize?: (width: number, height: number) => void;
-  /** future: declare input/output ports for wiring */
-  ports?: () => void;
+  /** declare input/output ports for dataflow wiring between widgets (future) */
+  ports?: () => WidgetPortDeclaration;
 }
 
 /**
@@ -84,4 +107,25 @@ export interface WidgetPropDef {
   type: "string" | "number" | "boolean" | "color" | "select";
   options?: string[];
   default?: unknown;
+}
+
+/**
+ * declares the input and output ports for a widget.
+ * ports enable dataflow connections between widgets on the canvas.
+ */
+export interface WidgetPortDeclaration {
+  inputs?: PortDef[];
+  outputs?: PortDef[];
+}
+
+/**
+ * definition of a single port on a widget.
+ */
+export interface PortDef {
+  /** unique name within the widget (e.g., "album_list", "query_result") */
+  name: string;
+  /** human-readable label shown in the UI */
+  label: string;
+  /** type tag for compatibility checking between connected ports */
+  dataType: string;
 }

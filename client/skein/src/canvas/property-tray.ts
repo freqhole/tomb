@@ -3,6 +3,7 @@ import type { SkeinTheme } from "../theme/skein-theme";
 import type { KeyboardDriver, KeyboardHandler } from "../widgets/keyboard-driver";
 import type { WidgetRegistry } from "../widgets/widget-registry";
 import type { WidgetDoc, WidgetPropDef } from "../widgets/widget-types";
+import { TRANSPARENT_COLOR } from "../widgets/widget-types";
 import type { CanvasStore } from "./canvas-store";
 import type { InputRouter } from "./input-router";
 import type { WidgetManager } from "./widget-manager";
@@ -21,12 +22,14 @@ const RESIZE_HANDLE_WIDTH = 6;
 
 // preset color palette for the color picker
 const COLOR_PALETTE = [
-  // neutrals
-  0x000000, 0x374151, 0x6b7280, 0xd1d5db, 0xf3f4f6, 0xffffff,
+  // transparent + neutrals
+  -1, 0x000000, 0x374151, 0x6b7280, 0xd1d5db, 0xffffff,
   // vivid
   0xef4444, 0xf97316, 0xeab308, 0x22c55e, 0x3b82f6, 0x8b5cf6,
   // pastel
   0xfca5a5, 0xfdba74, 0xfde047, 0x86efac, 0x93c5fd, 0xc4b5fd,
+  // dark tones
+  0x7f1d1d, 0x78350f, 0x713f12, 0x14532d, 0x1e3a5f, 0x3b0764,
 ];
 const PALETTE_COLS = 6;
 const SWATCH_SIZE = 20;
@@ -146,6 +149,7 @@ export class PropertyTray {
     });
     this.header.x = TRAY_PAD_H;
     this.header.y = TRAY_PAD_V;
+    this.header.eventMode = "none";
     this.root.addChild(this.header);
 
     // container for prop control rows
@@ -453,7 +457,7 @@ export class PropertyTray {
    * create a label Text for a prop row.
    */
   private createLabel(text: string): Text {
-    return new Text({
+    const label = new Text({
       text,
       resolution: this.theme.textResolution,
       style: {
@@ -462,6 +466,8 @@ export class PropertyTray {
         fill: 0x808080,
       },
     });
+    label.eventMode = "none";
+    return label;
   }
 
   /**
@@ -516,6 +522,7 @@ export class PropertyTray {
     fieldText.x = 6;
     fieldText.y = fieldY + Math.round((FIELD_HEIGHT - fieldText.height) / 2);
     fieldText.mask = fieldTextMask;
+    fieldText.eventMode = "none";
     container.addChild(fieldText);
 
     let editing = false;
@@ -636,6 +643,7 @@ export class PropertyTray {
       },
     });
     valueText.anchor.set(0.5, 0);
+    valueText.eventMode = "none";
     container.addChild(valueText);
 
     const btnWidth = FIELD_HEIGHT;
@@ -724,6 +732,8 @@ export class PropertyTray {
       },
     });
     text.anchor.set(0.5);
+    // transparent to pointer events so clicks reach the button bg
+    text.eventMode = "none";
     btnContainer.addChild(text);
 
     let currentW = 0;
@@ -861,6 +871,7 @@ export class PropertyTray {
         fill: this.theme.frameHeaderText,
       },
     });
+    hexText.eventMode = "none";
     container.addChild(hexText);
 
     // palette popup container (hidden by default)
@@ -868,9 +879,29 @@ export class PropertyTray {
 
     const drawSwatch = () => {
       swatch.clear();
-      swatch.roundRect(4, fieldY + 3, swatchSize, swatchSize, 3);
-      swatch.fill({ color: currentColor });
-      swatch.stroke({ color: 0x555555, width: 1 });
+      const x0 = 4,
+        y0 = fieldY + 3;
+      if (currentColor === TRANSPARENT_COLOR) {
+        // checkerboard pattern for transparent
+        const half = Math.floor(swatchSize / 2);
+        // light squares
+        swatch.rect(x0, y0, half, half);
+        swatch.fill({ color: 0xcccccc });
+        swatch.rect(x0 + half, y0 + half, swatchSize - half, swatchSize - half);
+        swatch.fill({ color: 0xcccccc });
+        // dark squares
+        swatch.rect(x0 + half, y0, swatchSize - half, half);
+        swatch.fill({ color: 0x888888 });
+        swatch.rect(x0, y0 + half, half, swatchSize - half);
+        swatch.fill({ color: 0x888888 });
+        // border
+        swatch.roundRect(x0, y0, swatchSize, swatchSize, 3);
+        swatch.stroke({ color: 0x555555, width: 1 });
+      } else {
+        swatch.roundRect(x0, y0, swatchSize, swatchSize, 3);
+        swatch.fill({ color: currentColor });
+        swatch.stroke({ color: 0x555555, width: 1 });
+      }
     };
 
     const drawFieldLayout = () => {
@@ -906,8 +937,15 @@ export class PropertyTray {
       paletteContainer.eventMode = "static";
       paletteContainer.zIndex = 100000;
 
+      // hide transparent option for text-related color props (text, heading, accent, etc.)
+      const propKey = prop.key.toLowerCase();
+      const allowTransparent = propKey.includes("bg") || propKey.includes("border");
+      const palette = allowTransparent
+        ? COLOR_PALETTE
+        : COLOR_PALETTE.filter((c) => c !== TRANSPARENT_COLOR);
+
       const palettePad = 6;
-      const rows = Math.ceil(COLOR_PALETTE.length / PALETTE_COLS);
+      const rows = Math.ceil(palette.length / PALETTE_COLS);
       const paletteW = PALETTE_COLS * (SWATCH_SIZE + SWATCH_GAP) - SWATCH_GAP + palettePad * 2;
       const paletteH = rows * (SWATCH_SIZE + SWATCH_GAP) - SWATCH_GAP + palettePad * 2;
 
@@ -921,39 +959,50 @@ export class PropertyTray {
       paletteContainer.addChild(palBg);
 
       // color swatches
-      for (let i = 0; i < COLOR_PALETTE.length; i++) {
+      for (let i = 0; i < palette.length; i++) {
         const col = i % PALETTE_COLS;
         const row = Math.floor(i / PALETTE_COLS);
-        const color = COLOR_PALETTE[i];
+        const color = palette[i];
 
         const sw = new Graphics();
         const sx = palettePad + col * (SWATCH_SIZE + SWATCH_GAP);
         const sy = palettePad + row * (SWATCH_SIZE + SWATCH_GAP);
-        sw.roundRect(sx, sy, SWATCH_SIZE, SWATCH_SIZE, 3);
-        sw.fill({ color });
-        // border for very light colors
-        if (color >= 0xd0d0d0) {
-          sw.stroke({ color: 0x555555, width: 1 });
-        }
+
+        const drawPaletteSwatch = (g: Graphics, active: boolean) => {
+          g.clear();
+          if (color === TRANSPARENT_COLOR) {
+            const half = Math.floor(SWATCH_SIZE / 2);
+            // light squares
+            g.rect(sx, sy, half, half);
+            g.fill({ color: 0xcccccc });
+            g.rect(sx + half, sy + half, SWATCH_SIZE - half, SWATCH_SIZE - half);
+            g.fill({ color: 0xcccccc });
+            // dark squares
+            g.rect(sx + half, sy, SWATCH_SIZE - half, half);
+            g.fill({ color: 0x888888 });
+            g.rect(sx, sy + half, half, SWATCH_SIZE - half);
+            g.fill({ color: 0x888888 });
+            // border
+            g.roundRect(sx, sy, SWATCH_SIZE, SWATCH_SIZE, 3);
+            g.stroke({ color: active ? this.theme.accent : 0x555555, width: active ? 2 : 1 });
+          } else {
+            g.roundRect(sx, sy, SWATCH_SIZE, SWATCH_SIZE, 3);
+            g.fill({ color });
+            if (active) {
+              g.stroke({ color: this.theme.accent, width: 2 });
+            } else if (color >= 0xd0d0d0) {
+              g.stroke({ color: 0x555555, width: 1 });
+            }
+          }
+        };
+        drawPaletteSwatch(sw, false);
 
         sw.eventMode = "static";
         sw.cursor = "pointer";
 
         // highlight on hover
-        sw.on("pointerover", () => {
-          sw.clear();
-          sw.roundRect(sx, sy, SWATCH_SIZE, SWATCH_SIZE, 3);
-          sw.fill({ color });
-          sw.stroke({ color: this.theme.accent, width: 2 });
-        });
-        sw.on("pointerout", () => {
-          sw.clear();
-          sw.roundRect(sx, sy, SWATCH_SIZE, SWATCH_SIZE, 3);
-          sw.fill({ color });
-          if (color >= 0xd0d0d0) {
-            sw.stroke({ color: 0x555555, width: 1 });
-          }
-        });
+        sw.on("pointerover", () => drawPaletteSwatch(sw, true));
+        sw.on("pointerout", () => drawPaletteSwatch(sw, false));
 
         sw.on("pointerdown", (e: FederatedPointerEvent) => {
           e.stopPropagation();
@@ -1051,6 +1100,7 @@ export class PropertyTray {
     displayText.x = 6;
     displayText.y = fieldY + Math.round((FIELD_HEIGHT - displayText.height) / 2);
     displayText.mask = fieldTextMask;
+    displayText.eventMode = "none";
     container.addChild(displayText);
 
     // dropdown arrow
@@ -1063,6 +1113,7 @@ export class PropertyTray {
         fill: 0x808080,
       },
     });
+    arrow.eventMode = "none";
     container.addChild(arrow);
 
     let dropdownContainer: Container | null = null;
@@ -1143,6 +1194,7 @@ export class PropertyTray {
         });
         itemText.x = ddPad + itemPadH;
         itemText.y = itemY + Math.round((itemHeight - itemText.height) / 2);
+        itemText.eventMode = "none";
         dropdownContainer.addChild(itemText);
 
         itemBg.on("pointerover", () => {
@@ -1216,6 +1268,7 @@ export class PropertyTray {
  * format a number as a hex color string: #rrggbb
  */
 function formatHex(color: number): string {
+  if (color === TRANSPARENT_COLOR) return "none";
   return "#" + (color & 0xffffff).toString(16).padStart(6, "0");
 }
 

@@ -2,6 +2,11 @@ import { Container, Graphics, Text, type FederatedPointerEvent } from "pixi.js";
 import type { SkeinTheme } from "../theme/skein-theme";
 import type { WidgetEntry } from "./canvas-doc";
 
+/** snap a value to the nearest grid line */
+function snapToGrid(value: number, gridSize: number): number {
+  return Math.round(value / gridSize) * gridSize;
+}
+
 /**
  * callbacks from the frame to the widget manager.
  * the frame handles interaction (drag, resize, click)
@@ -15,6 +20,14 @@ export interface WidgetFrameCallbacks {
   onResize: (width: number, height: number) => void;
   onClose: () => void;
   onCollapse: (collapsed: boolean) => void;
+  /** z-order: bring this widget to the front of all others */
+  onBringToFront?: () => void;
+  /** z-order: move this widget one layer forward */
+  onBringForward?: () => void;
+  /** z-order: move this widget one layer backward */
+  onSendBackward?: () => void;
+  /** z-order: send this widget to the back of all others */
+  onSendToBack?: () => void;
   /** batch drag: emitted when a drag starts (so manager can snapshot positions) */
   onDragStart?: () => void;
   /** batch drag: emitted on every move with the delta from drag start (world coords) */
@@ -54,6 +67,10 @@ export class WidgetFrame {
   private readonly header: Container;
   private readonly headerBg: Graphics;
   private readonly headerText: Text;
+  private readonly layersBtn: Container;
+  private layersFlyout: Container | null = null;
+  private _layerPosition = 0;
+  private _layerTotal = 0;
   private readonly collapseBtn: Container;
   private readonly closeBtn: Container;
   private readonly contentMask: Graphics;
@@ -104,6 +121,7 @@ export class WidgetFrame {
     this.root.y = entry.y;
     this.root.zIndex = entry.zIndex;
     this.root.eventMode = "static";
+    this.root.sortableChildren = true;
 
     // track hover state for resize handle and border visibility
     this.root.on("pointerenter", () => {
@@ -141,7 +159,12 @@ export class WidgetFrame {
     this.headerText.x = 8;
     this.headerText.anchor.set(0, 0.5);
     this.headerText.y = theme.frameHeaderHeight / 2;
+    this.headerText.eventMode = "none";
     this.header.addChild(this.headerText);
+
+    // layers button — opens a flyout with z-order controls
+    this.layersBtn = this.createHeaderButton("\u2261", theme);
+    this.header.addChild(this.layersBtn);
 
     // collapse button
     this.collapseBtn = this.createHeaderButton(this._collapsed ? "+" : "-", theme);
@@ -246,6 +269,7 @@ export class WidgetFrame {
 
   /** clean up all pixi objects */
   destroy(): void {
+    this.hideLayersFlyout();
     this.root.destroy({ children: true });
   }
 
@@ -336,6 +360,8 @@ export class WidgetFrame {
     this.closeBtn.y = 4;
     this.collapseBtn.x = w - (btnSize + 4) * 2;
     this.collapseBtn.y = 4;
+    this.layersBtn.x = w - (btnSize + 4) * 3;
+    this.layersBtn.y = 4;
   }
 
   private updateCollapseButton(): void {
@@ -471,6 +497,15 @@ export class WidgetFrame {
   private finishResize(): void {
     this.resizing = false;
     this.resizeHandle = null;
+
+    // snap size and position to grid
+    const g = this.theme.gridSize;
+    this._width = snapToGrid(this._width, g);
+    this._height = snapToGrid(this._height, g);
+    this.root.x = snapToGrid(this.root.x, g);
+    this.root.y = snapToGrid(this.root.y, g);
+    this.draw();
+
     this.callbacks.onResize(this._width, this._height);
     // also commit position if it changed (nw, n, ne, w, sw handles move origin)
     this.callbacks.onMove(this.root.x, this.root.y);
@@ -587,6 +622,12 @@ export class WidgetFrame {
     this.dragging = false;
     this.headerBg.cursor = "grab";
     this.bodyHitArea.cursor = this._multiSelected ? "grab" : "default";
+
+    // snap final position to grid
+    const g = this.theme.gridSize;
+    this.root.x = snapToGrid(this.root.x, g);
+    this.root.y = snapToGrid(this.root.y, g);
+
     this.callbacks.onDragEnd?.();
     this.callbacks.onMove(this.root.x, this.root.y);
   }
@@ -594,6 +635,19 @@ export class WidgetFrame {
   // --- button interaction ---
 
   private setupButtonInteraction(): void {
+    // layers button — toggle flyout
+    const layersBg = this.layersBtn.getChildAt(0) as Graphics;
+    layersBg.eventMode = "static";
+    layersBg.cursor = "pointer";
+    layersBg.on("pointertap", (e: FederatedPointerEvent) => {
+      e.stopPropagation();
+      if (this.layersFlyout) {
+        this.hideLayersFlyout();
+      } else {
+        this.showLayersFlyout();
+      }
+    });
+
     // collapse button
     const collapseBg = this.collapseBtn.getChildAt(0) as Graphics;
     collapseBg.eventMode = "static";
@@ -634,9 +688,165 @@ export class WidgetFrame {
     text.anchor.set(0.5);
     text.x = btnSize / 2;
     text.y = btnSize / 2;
+    text.eventMode = "none"; // transparent to pointer events so clicks reach the button bg
     container.addChild(text);
 
     return container;
+  }
+
+  // --- layer flyout ---
+
+  /** update the layer position info (called by widget manager on reconcile) */
+  setLayerInfo(position: number, total: number): void {
+    this._layerPosition = position;
+    this._layerTotal = total;
+  }
+
+  /** show the layers flyout menu below the layers button */
+  private showLayersFlyout(): void {
+    if (this.layersFlyout) return;
+
+    const panelWidth = 180;
+    const rowHeight = 24;
+    const items = [
+      { label: "bring to front", shortcut: "]", action: () => this.callbacks.onBringToFront?.() },
+      { label: "bring forward", shortcut: "", action: () => this.callbacks.onBringForward?.() },
+      { label: "send backward", shortcut: "", action: () => this.callbacks.onSendBackward?.() },
+      { label: "send to back", shortcut: "[", action: () => this.callbacks.onSendToBack?.() },
+    ];
+
+    const flyout = new Container();
+    flyout.zIndex = 1000;
+
+    // large invisible blocker to dismiss on outside click
+    const blocker = new Graphics();
+    blocker.rect(-5000, -5000, 10000, 10000);
+    blocker.fill({ color: 0x000000, alpha: 0.01 });
+    blocker.eventMode = "static";
+    blocker.on("pointertap", (e: FederatedPointerEvent) => {
+      e.stopPropagation();
+      this.hideLayersFlyout();
+    });
+    flyout.addChild(blocker);
+
+    // panel container positioned below the layers button
+    const panel = new Container();
+    panel.x = this.layersBtn.x;
+    panel.y = this.theme.frameHeaderHeight + 2;
+    flyout.addChild(panel);
+
+    // separator + status row height
+    const separatorY = items.length * rowHeight;
+    const statusRowHeight = rowHeight;
+    const panelHeight = separatorY + 1 + statusRowHeight;
+
+    // background
+    const bg = new Graphics();
+    bg.roundRect(0, 0, panelWidth, panelHeight, 4);
+    bg.fill({ color: this.theme.toolbarBg });
+    bg.stroke({ color: this.theme.toolbarBorder, width: 1 });
+    bg.eventMode = "static";
+    panel.addChild(bg);
+
+    // action rows
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      const rowY = i * rowHeight;
+
+      // hit area for the row
+      const rowHit = new Graphics();
+      rowHit.rect(1, rowY + 1, panelWidth - 2, rowHeight - 1);
+      rowHit.fill({ color: 0x000000, alpha: 0.01 });
+      rowHit.eventMode = "static";
+      rowHit.cursor = "pointer";
+      panel.addChild(rowHit);
+
+      // hover effect
+      rowHit.on("pointerenter", () => {
+        rowHit.clear();
+        rowHit.rect(1, rowY + 1, panelWidth - 2, rowHeight - 1);
+        rowHit.fill({ color: this.theme.frameBorderHover });
+      });
+      rowHit.on("pointerleave", () => {
+        rowHit.clear();
+        rowHit.rect(1, rowY + 1, panelWidth - 2, rowHeight - 1);
+        rowHit.fill({ color: 0x000000, alpha: 0.01 });
+      });
+
+      // click handler
+      rowHit.on("pointertap", (e: FederatedPointerEvent) => {
+        e.stopPropagation();
+        item.action();
+        this.hideLayersFlyout();
+      });
+
+      // label
+      const label = new Text({
+        text: item.label,
+        resolution: this.theme.textResolution,
+        style: {
+          fontFamily: this.theme.fontFamily,
+          fontSize: this.theme.fontSizeSmall,
+          fill: this.theme.frameHeaderText,
+        },
+      });
+      label.x = 8;
+      label.y = rowY + rowHeight / 2;
+      label.anchor.set(0, 0.5);
+      label.eventMode = "none";
+      panel.addChild(label);
+
+      // shortcut hint (if present)
+      if (item.shortcut) {
+        const hint = new Text({
+          text: item.shortcut,
+          resolution: this.theme.textResolution,
+          style: {
+            fontFamily: this.theme.fontFamily,
+            fontSize: this.theme.fontSizeSmall,
+            fill: 0x666666,
+          },
+        });
+        hint.x = panelWidth - 8;
+        hint.y = rowY + rowHeight / 2;
+        hint.anchor.set(1, 0.5);
+        hint.eventMode = "none";
+        panel.addChild(hint);
+      }
+    }
+
+    // separator line
+    const sep = new Graphics();
+    sep.rect(4, separatorY, panelWidth - 8, 1);
+    sep.fill({ color: this.theme.toolbarBorder });
+    panel.addChild(sep);
+
+    // status row: "layer N / M"
+    const statusText = new Text({
+      text: `layer ${this._layerPosition + 1} / ${this._layerTotal}`,
+      resolution: this.theme.textResolution,
+      style: {
+        fontFamily: this.theme.fontFamily,
+        fontSize: this.theme.fontSizeSmall,
+        fill: 0x666666,
+      },
+    });
+    statusText.x = 8;
+    statusText.y = separatorY + 1 + statusRowHeight / 2;
+    statusText.anchor.set(0, 0.5);
+    statusText.eventMode = "none";
+    panel.addChild(statusText);
+
+    this.layersFlyout = flyout;
+    this.root.addChild(flyout);
+  }
+
+  /** hide and destroy the layers flyout */
+  private hideLayersFlyout(): void {
+    if (!this.layersFlyout) return;
+    this.root.removeChild(this.layersFlyout);
+    this.layersFlyout.destroy({ children: true });
+    this.layersFlyout = null;
   }
 
   // --- mode management ---
@@ -658,8 +868,14 @@ export class WidgetFrame {
     this.header.visible = this._editing;
 
     // header buttons: visible only in edit mode
+    this.layersBtn.visible = this._editing;
     this.collapseBtn.visible = this._editing;
     this.closeBtn.visible = this._editing;
+
+    // hide layers flyout when leaving edit mode
+    if (!this._editing) {
+      this.hideLayersFlyout();
+    }
 
     // header interactivity
     this.headerBg.eventMode = this._editing ? "static" : "none";

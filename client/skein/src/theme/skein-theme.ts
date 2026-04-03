@@ -24,6 +24,9 @@ export interface SkeinTheme {
 
   /** resolution multiplier for Text objects — ensures crisp rendering on HiDPI displays */
   textResolution: number;
+
+  /** snap-to-grid size in pixels — widgets snap to this interval when dragged or resized */
+  gridSize: number;
 }
 
 // black canvas with magenta/fuchsia accents
@@ -51,4 +54,5 @@ export const defaultTheme: SkeinTheme = {
   resizeHandleSize: 8,
   frameCornerRadius: 6,
   textResolution: 2,
+  gridSize: 20,
 };

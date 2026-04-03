@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+    <title>skein</title>
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body {
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: #000;
+      }
+      #canvas-root {
+        width: 100vw;
+        height: 100vh;
+        touch-action: none;
+      }
+      .boot-error {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        height: 100vh;
+        color: #ef4444;
+        font-family: system-ui, sans-serif;
+        font-size: 14px;
+        padding: 20px;
+        text-align: center;
+      }
+      noscript {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        height: 100vh;
+        color: #888;
+        font-family: system-ui, sans-serif;
+        font-size: 14px;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="canvas-root"></div>
+    <noscript>skein requires javascript to run.</noscript>
+    <script type="module" src="/src/standalone/boot.ts"></script>
+  </body>
+</html>

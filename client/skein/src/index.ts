@@ -20,11 +20,13 @@ export type { KeyboardHandler } from "./widgets/keyboard-driver";
 export { createWidgetDoc } from "./widgets/widget-doc";
 export { WidgetRegistry } from "./widgets/widget-registry";
 export type {
+  PortDef,
   WidgetController,
   WidgetDoc,
   WidgetFactory,
   WidgetMetadata,
   WidgetMountContext,
+  WidgetPortDeclaration,
   WidgetPropDef,
 } from "./widgets/widget-types";
 

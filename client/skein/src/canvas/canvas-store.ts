@@ -113,6 +113,100 @@ export class CanvasStore {
     });
   }
 
+  /** bring a widget to the front of all others */
+  bringToFront(id: string): void {
+    this.handle.change((doc) => {
+      if (!doc.widgets[id]) return;
+      const order = this.sortedWidgetIds(doc);
+      const idx = order.indexOf(id);
+      if (idx === -1 || idx === order.length - 1) return;
+      order.splice(idx, 1);
+      order.push(id);
+      this.applyZOrder(doc, order);
+    });
+  }
+
+  /** move a widget one layer forward (swap with the one above) */
+  bringForward(id: string): void {
+    this.handle.change((doc) => {
+      if (!doc.widgets[id]) return;
+      const order = this.sortedWidgetIds(doc);
+      const idx = order.indexOf(id);
+      if (idx === -1 || idx === order.length - 1) return;
+      [order[idx], order[idx + 1]] = [order[idx + 1], order[idx]];
+      this.applyZOrder(doc, order);
+    });
+  }
+
+  /** move a widget one layer backward (swap with the one below) */
+  sendBackward(id: string): void {
+    this.handle.change((doc) => {
+      if (!doc.widgets[id]) return;
+      const order = this.sortedWidgetIds(doc);
+      const idx = order.indexOf(id);
+      if (idx <= 0) return;
+      [order[idx], order[idx - 1]] = [order[idx - 1], order[idx]];
+      this.applyZOrder(doc, order);
+    });
+  }
+
+  /** send a widget to the back (behind all others) */
+  sendToBack(id: string): void {
+    this.handle.change((doc) => {
+      if (!doc.widgets[id]) return;
+      const order = this.sortedWidgetIds(doc);
+      const idx = order.indexOf(id);
+      if (idx <= 0) return;
+      order.splice(idx, 1);
+      order.unshift(id);
+      this.applyZOrder(doc, order);
+    });
+  }
+
+  /**
+   * get the z-order position (0-based, ascending) of a widget and the total count.
+   * returns { position: 0, total: 0 } if the widget doesn't exist.
+   */
+  getLayerInfo(id: string): { position: number; total: number } {
+    const doc = this.doc();
+    const order = this.sortedWidgetIdsFromDoc(doc);
+    const total = order.length;
+    const position = order.indexOf(id);
+    return { position: position === -1 ? 0 : position, total };
+  }
+
+  /** return widget ids sorted ascending by zIndex, with id as stable tiebreaker */
+  private sortedWidgetIds(doc: CanvasDocument): string[] {
+    return Object.values(doc.widgets)
+      .sort((a, b) => {
+        const zA = a.zIndex || 0;
+        const zB = b.zIndex || 0;
+        if (zA !== zB) return zA - zB;
+        return a.id < b.id ? -1 : 1;
+      })
+      .map((w) => w.id);
+  }
+
+  /** same as sortedWidgetIds but works on a plain (non-draft) doc for getLayerInfo */
+  private sortedWidgetIdsFromDoc(doc: CanvasDocument): string[] {
+    return Object.values(doc.widgets)
+      .sort((a, b) => {
+        const zA = a.zIndex || 0;
+        const zB = b.zIndex || 0;
+        if (zA !== zB) return zA - zB;
+        return a.id < b.id ? -1 : 1;
+      })
+      .map((w) => w.id);
+  }
+
+  /** reassign zIndexes 0, 1, 2, ... according to the given id order */
+  private applyZOrder(doc: CanvasDocument, orderedIds: string[]): void {
+    for (let i = 0; i < orderedIds.length; i++) {
+      const widget = doc.widgets[orderedIds[i]];
+      if (widget) widget.zIndex = i;
+    }
+  }
+
   /** set the docId for a widget's per-widget automerge document. */
   setDocId(widgetId: string, docId: string): void {
     this.handle.change((doc) => {

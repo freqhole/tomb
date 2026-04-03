@@ -159,6 +159,8 @@ export class Toolbar {
       },
       resolution: this.theme.textResolution,
     });
+    // transparent to pointer events so clicks reach the button
+    text.eventMode = "none";
 
     const bg = new Graphics();
     const width = text.width + padding.h * 2;
@@ -208,6 +210,8 @@ export class Toolbar {
       });
       nameText.x = Math.round(itemPadH);
       nameText.y = Math.round(itemPadV);
+      // transparent to pointer events so clicks reach the item container
+      nameText.eventMode = "none";
 
       let itemHeight = nameText.height + itemPadV * 2;
 
@@ -225,6 +229,8 @@ export class Toolbar {
         });
         descText.x = Math.round(itemPadH);
         descText.y = Math.round(nameText.y + nameText.height + 2);
+        // transparent to pointer events so clicks reach the item container
+        descText.eventMode = "none";
         itemHeight = descText.y + descText.height + itemPadV;
       }
 

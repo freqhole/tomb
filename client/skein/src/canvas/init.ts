@@ -137,6 +137,27 @@ export async function initCanvas(options: InitCanvasOptions): Promise<SkeinCanva
   stageBg.zIndex = -1;
   world.addChild(stageBg);
 
+  // step 7b: draw a subtle grid over the stage background.
+  // covers a fixed region (-1000,-1000) to (1000,1000) — enough for
+  // typical canvas use. the grid lives in the world container so it
+  // pans and zooms with everything else.
+  const stageGrid = new Graphics();
+  const gridSize = theme.gridSize;
+  const gridMin = -1000;
+  const gridMax = 1000;
+  stageGrid.setStrokeStyle({ width: 1, color: theme.stageGrid, alpha: 0.3 });
+  for (let gx = gridMin; gx <= gridMax; gx += gridSize) {
+    stageGrid.moveTo(gx, gridMin);
+    stageGrid.lineTo(gx, gridMax);
+  }
+  for (let gy = gridMin; gy <= gridMax; gy += gridSize) {
+    stageGrid.moveTo(gridMin, gy);
+    stageGrid.lineTo(gridMax, gy);
+  }
+  stageGrid.stroke();
+  stageGrid.zIndex = -1;
+  world.addChild(stageGrid);
+
   // step 8: create input router (mode switching, selection, keyboard shortcuts)
   const inputRouter = new InputRouter();
 
@@ -155,7 +176,8 @@ export async function initCanvas(options: InitCanvasOptions): Promise<SkeinCanva
     world,
     theme,
     inputRouter,
-    keyboard
+    keyboard,
+    stageBg
   );
   widgetManager.start();
 

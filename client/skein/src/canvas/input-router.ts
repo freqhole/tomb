@@ -39,6 +39,8 @@ export class InputRouter {
   private selectionListeners: SelectionListener[] = [];
   private multiSelectionListeners: MultiSelectionListener[] = [];
   private onDeleteWidget: ((id: string) => void) | null = null;
+  private bringForwardHandler: ((id: string) => void) | null = null;
+  private sendBackwardHandler: ((id: string) => void) | null = null;
   private keydownHandler: ((e: KeyboardEvent) => void) | null = null;
 
   constructor() {
@@ -75,6 +77,16 @@ export class InputRouter {
   /** set the callback for when a widget should be deleted */
   setDeleteHandler(handler: (id: string) => void): void {
     this.onDeleteWidget = handler;
+  }
+
+  /** set the callback for bringing a widget forward in z-order */
+  setBringForwardHandler(handler: (id: string) => void): void {
+    this.bringForwardHandler = handler;
+  }
+
+  /** set the callback for sending a widget backward in z-order */
+  setSendBackwardHandler(handler: (id: string) => void): void {
+    this.sendBackwardHandler = handler;
   }
 
   /** toggle between view and edit mode */
@@ -229,6 +241,34 @@ export class InputRouter {
       return;
     }
 
+    // ] brings selected widget(s) forward in z-order (edit mode only)
+    if (
+      e.key === "]" &&
+      this._mode === "edit" &&
+      this._selectedWidgetIds.size > 0 &&
+      this.bringForwardHandler
+    ) {
+      for (const id of this._selectedWidgetIds) {
+        this.bringForwardHandler(id);
+      }
+      e.preventDefault();
+      return;
+    }
+
+    // [ sends selected widget(s) backward in z-order (edit mode only)
+    if (
+      e.key === "[" &&
+      this._mode === "edit" &&
+      this._selectedWidgetIds.size > 0 &&
+      this.sendBackwardHandler
+    ) {
+      for (const id of this._selectedWidgetIds) {
+        this.sendBackwardHandler(id);
+      }
+      e.preventDefault();
+      return;
+    }
+
     // escape deselects in edit mode
     if (e.key === "Escape" && this._mode === "edit") {
       if (this._selectedWidgetIds.size > 0) {
@@ -256,5 +296,7 @@ export class InputRouter {
     this.selectionListeners = [];
     this.multiSelectionListeners = [];
     this.onDeleteWidget = null;
+    this.bringForwardHandler = null;
+    this.sendBackwardHandler = null;
   }
 }

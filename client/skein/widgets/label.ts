@@ -1,10 +1,12 @@
 import { Container, Graphics, Text } from "pixi.js";
 import { z } from "zod";
 import type { KeyboardHandler } from "../src/widgets/keyboard-driver";
-import type {
-  WidgetController,
-  WidgetFactory,
-  WidgetMountContext,
+import {
+  isTransparent,
+  safeColor,
+  type WidgetController,
+  type WidgetFactory,
+  type WidgetMountContext,
 } from "../src/widgets/widget-types";
 
 export const labelSchema = z.object({
@@ -60,11 +62,15 @@ export const labelWidget: WidgetFactory<typeof labelSchema> = {
       const state = ctx.doc.current;
       bg.clear();
       bg.roundRect(0, 0, w, h, 8);
-      bg.fill({ color: isEditing ? BG_EDITING_COLOR : state.bgColor });
-      bg.stroke({
-        color: isEditing ? BORDER_EDITING_COLOR : state.borderColor,
-        width: isEditing ? 2 : 1,
-      });
+      const fillColor = isEditing ? BG_EDITING_COLOR : state.bgColor;
+      const strokeColor = isEditing ? BORDER_EDITING_COLOR : state.borderColor;
+      const strokeWidth = isEditing ? 2 : 1;
+      bg.fill(fillColor === -1 ? { color: 0, alpha: 0 } : { color: fillColor });
+      bg.stroke(
+        strokeColor === -1
+          ? { color: 0, alpha: 0, width: strokeWidth }
+          : { color: strokeColor, width: strokeWidth }
+      );
     };
     drawBg(currentWidth, currentHeight, false);
     container.addChild(bg);
@@ -75,7 +81,7 @@ export const labelWidget: WidgetFactory<typeof labelSchema> = {
       style: {
         fontFamily: ctx.doc.current.fontFamily,
         fontSize: computeFontSize(currentHeight),
-        fill: ctx.doc.current.textColor,
+        fill: safeColor(ctx.doc.current.textColor),
         wordWrap: true,
         wordWrapWidth: currentWidth - 16,
         align: "center",
@@ -85,6 +91,7 @@ export const labelWidget: WidgetFactory<typeof labelSchema> = {
     textDisplay.x = currentWidth / 2;
     textDisplay.y = currentHeight / 2;
     container.addChild(textDisplay);
+    textDisplay.alpha = isTransparent(ctx.doc.current.textColor) ? 0 : 1;
 
     // reposition text and clamp word wrap after resize or font change
     const relayout = (w: number, h: number) => {
@@ -187,7 +194,8 @@ export const labelWidget: WidgetFactory<typeof labelSchema> = {
         }
       }
       // apply style changes (always, whether editing text or not)
-      textDisplay.style.fill = state.textColor;
+      textDisplay.style.fill = safeColor(state.textColor);
+      textDisplay.alpha = isTransparent(state.textColor) ? 0 : 1;
       textDisplay.style.fontFamily = state.fontFamily;
       drawBg(currentWidth, currentHeight, editing);
     });
