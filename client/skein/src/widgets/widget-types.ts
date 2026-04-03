@@ -69,6 +69,8 @@ export interface WidgetFactory<S extends z.ZodType = z.ZodType> {
   metadata: WidgetMetadata;
   /** Zod schema for the widget's internal state. omit for stateless widgets. */
   schema?: S;
+  /** editable properties shown in the property editor panel when this widget is selected in edit mode */
+  editableProps?: WidgetPropDef[];
   /** create a widget instance given a mount context */
   create(ctx: WidgetMountContext<S>): WidgetController;
 }

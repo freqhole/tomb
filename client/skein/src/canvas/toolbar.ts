@@ -463,7 +463,7 @@ export class Toolbar {
   /** add a widget of the given type at a default staggered position. */
   private addWidget(type: string): void {
     this.widgetCounter++;
-    const id = `widget-${Date.now()}-${this.widgetCounter}`;
+    const id = crypto.randomUUID();
     this.store.addWidget({
       id,
       type,

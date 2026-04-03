@@ -19,9 +19,7 @@ export class PresenceRenderer {
   private readonly root: Container;
   private readonly cursors: Map<string, Container> = new Map();
 
-  /** stash the previous callback so we can restore it on destroy */
-  private previousOnPeerPresenceChanged: ((peerId: string, presence: PeerPresence) => void) | null =
-    null;
+  private readonly unsubs: (() => void)[] = [];
 
   constructor(world: Container, presenceManager: PresenceManager, theme: SkeinTheme) {
     this.world = world;
@@ -34,13 +32,11 @@ export class PresenceRenderer {
     this.root.interactiveChildren = false;
     this.world.addChild(this.root);
 
-    // chain onto any existing callback so we don't clobber it
-    this.previousOnPeerPresenceChanged = presenceManager.onPeerPresenceChanged;
-
-    presenceManager.onPeerPresenceChanged = (peerId: string, presence: PeerPresence) => {
-      this.previousOnPeerPresenceChanged?.(peerId, presence);
-      this.updatePeer(peerId, presence);
-    };
+    this.unsubs.push(
+      presenceManager.onPeerPresenceChanged((peerId, presence) => {
+        this.updatePeer(peerId, presence);
+      })
+    );
 
     // hydrate any peers that already exist
     for (const [peerId, presence] of presenceManager.getPeers()) {
@@ -119,8 +115,9 @@ export class PresenceRenderer {
 
   /** remove all cursor visuals and unsubscribe from the presence manager. */
   destroy(): void {
-    // restore the previous callback
-    this.presenceManager.onPeerPresenceChanged = this.previousOnPeerPresenceChanged;
+    for (const unsub of this.unsubs) {
+      unsub();
+    }
 
     for (const [, cursor] of this.cursors) {
       cursor.destroy({ children: true });

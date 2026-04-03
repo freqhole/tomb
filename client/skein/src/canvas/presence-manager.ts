@@ -2,8 +2,7 @@ import type { CanvasStore } from "./canvas-store";
 
 // palette for assigning distinct colors to each peer
 const PEER_COLORS = [
-  0x22c55e, 0xeab308, 0xef4444, 0x3b82f6,
-  0xa855f7, 0xf97316, 0x06b6d4, 0xec4899,
+  0x22c55e, 0xeab308, 0xef4444, 0x3b82f6, 0xa855f7, 0xf97316, 0x06b6d4, 0xec4899,
 ];
 
 export type PresenceMessage =
@@ -37,14 +36,11 @@ const CURSOR_THROTTLE_MS = 50;
 export class PresenceManager {
   readonly localPeerId: string;
 
-  /** called whenever a peer's presence data changes */
-  onPeerPresenceChanged: ((peerId: string, presence: PeerPresence) => void) | null = null;
-
-  /** called the first time we hear from a new peer */
-  onPeerJoined: ((peerId: string) => void) | null = null;
-
-  /** called when a peer is pruned or goes offline */
-  onPeerLeft: ((peerId: string) => void) | null = null;
+  private readonly _presenceChangedListeners: Array<
+    (peerId: string, presence: PeerPresence) => void
+  > = [];
+  private readonly _peerJoinedListeners: Array<(peerId: string) => void> = [];
+  private readonly _peerLeftListeners: Array<(peerId: string) => void> = [];
 
   private readonly store: CanvasStore;
   private readonly peers: Map<string, PeerPresence> = new Map();
@@ -63,11 +59,40 @@ export class PresenceManager {
     this.localPeerId = localPeerId;
 
     // subscribe to incoming ephemeral messages from other peers
-    this.unsubscribe = this.store.onEphemeral(
-      (senderId: string, data: Uint8Array) => {
-        this.handleEphemeralMessage(senderId, data);
-      },
-    );
+    this.unsubscribe = this.store.onEphemeral((senderId: string, data: Uint8Array) => {
+      this.handleEphemeralMessage(senderId, data);
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // subscribe methods
+  // ---------------------------------------------------------------------------
+
+  /** subscribe to peer presence changes. returns an unsubscribe function. */
+  onPeerPresenceChanged(handler: (peerId: string, presence: PeerPresence) => void): () => void {
+    this._presenceChangedListeners.push(handler);
+    return () => {
+      const idx = this._presenceChangedListeners.indexOf(handler);
+      if (idx >= 0) this._presenceChangedListeners.splice(idx, 1);
+    };
+  }
+
+  /** subscribe to new peer joined events. returns an unsubscribe function. */
+  onPeerJoined(handler: (peerId: string) => void): () => void {
+    this._peerJoinedListeners.push(handler);
+    return () => {
+      const idx = this._peerJoinedListeners.indexOf(handler);
+      if (idx >= 0) this._peerJoinedListeners.splice(idx, 1);
+    };
+  }
+
+  /** subscribe to peer left events. returns an unsubscribe function. */
+  onPeerLeft(handler: (peerId: string) => void): () => void {
+    this._peerLeftListeners.push(handler);
+    return () => {
+      const idx = this._peerLeftListeners.indexOf(handler);
+      if (idx >= 0) this._peerLeftListeners.splice(idx, 1);
+    };
   }
 
   // ---------------------------------------------------------------------------
@@ -186,8 +211,8 @@ export class PresenceManager {
         peer.lockedWidgets.clear();
         peer.selectedWidgets = [];
 
-        this.onPeerPresenceChanged?.(peer.peerId, peer);
-        this.onPeerLeft?.(peer.peerId);
+        this.emitPresenceChanged(peer.peerId, peer);
+        this.emitPeerLeft(peer.peerId);
       }
     }
   }
@@ -204,6 +229,9 @@ export class PresenceManager {
     }
     this.unsubscribe();
     this.peers.clear();
+    this._presenceChangedListeners.length = 0;
+    this._peerJoinedListeners.length = 0;
+    this._peerLeftListeners.length = 0;
   }
 
   // ---------------------------------------------------------------------------
@@ -234,7 +262,7 @@ export class PresenceManager {
     };
 
     this.peers.set(peerId, peer);
-    this.onPeerJoined?.(peerId);
+    this.emitPeerJoined(peerId);
     return peer;
   }
 
@@ -301,6 +329,28 @@ export class PresenceManager {
         return;
     }
 
-    this.onPeerPresenceChanged?.(senderId, peer);
+    this.emitPresenceChanged(senderId, peer);
+  }
+
+  // ---------------------------------------------------------------------------
+  // emit helpers
+  // ---------------------------------------------------------------------------
+
+  private emitPresenceChanged(peerId: string, presence: PeerPresence): void {
+    for (const handler of this._presenceChangedListeners) {
+      handler(peerId, presence);
+    }
+  }
+
+  private emitPeerJoined(peerId: string): void {
+    for (const handler of this._peerJoinedListeners) {
+      handler(peerId);
+    }
+  }
+
+  private emitPeerLeft(peerId: string): void {
+    for (const handler of this._peerLeftListeners) {
+      handler(peerId);
+    }
   }
 }

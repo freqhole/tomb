@@ -2,9 +2,9 @@ import { Container, Graphics, Text } from "pixi.js";
 import { z } from "zod";
 import type { KeyboardHandler } from "../src/widgets/keyboard-driver";
 import type {
-    WidgetController,
-    WidgetFactory,
-    WidgetMountContext,
+  WidgetController,
+  WidgetFactory,
+  WidgetMountContext,
 } from "../src/widgets/widget-types";
 
 export const labelSchema = z.object({
@@ -33,6 +33,7 @@ export const labelWidget: WidgetFactory<typeof labelSchema> = {
     category: "basics",
   },
   schema: labelSchema,
+  editableProps: [{ key: "text", label: "text", type: "string" as const, default: "label" }],
 
   create(ctx: WidgetMountContext<typeof labelSchema>): WidgetController {
     const container = new Container();
@@ -47,7 +48,10 @@ export const labelWidget: WidgetFactory<typeof labelSchema> = {
       bg.clear();
       bg.roundRect(0, 0, w, h, 8);
       bg.fill({ color: isEditing ? BG_EDITING_COLOR : BG_COLOR });
-      bg.stroke({ color: isEditing ? BORDER_EDITING_COLOR : BORDER_COLOR, width: isEditing ? 2 : 1 });
+      bg.stroke({
+        color: isEditing ? BORDER_EDITING_COLOR : BORDER_COLOR,
+        width: isEditing ? 2 : 1,
+      });
     };
     drawBg(currentWidth, currentHeight, false);
     container.addChild(bg);

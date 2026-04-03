@@ -28,12 +28,7 @@ export class ConnectionStatus {
   private readonly dot: Graphics;
   private readonly label: Text;
 
-  // stash previous callbacks so we can chain and restore on destroy
-  private previousOnPeerJoined: ((peerId: string) => void) | null = null;
-  private previousOnPeerLeft: ((peerId: string) => void) | null = null;
-  private previousOnPeerPresenceChanged:
-    | ((peerId: string, presence: import("./presence-manager").PeerPresence) => void)
-    | null = null;
+  private readonly unsubs: (() => void)[] = [];
 
   constructor(presenceManager: PresenceManager, theme: SkeinTheme) {
     this.presenceManager = presenceManager;
@@ -64,26 +59,10 @@ export class ConnectionStatus {
     });
     this.root.addChild(this.label);
 
-    // chain onto existing callbacks without clobbering them
-    this.previousOnPeerJoined = presenceManager.onPeerJoined;
-    presenceManager.onPeerJoined = (peerId: string) => {
-      this.previousOnPeerJoined?.(peerId);
-      this.refresh();
-    };
-
-    this.previousOnPeerLeft = presenceManager.onPeerLeft;
-    presenceManager.onPeerLeft = (peerId: string) => {
-      this.previousOnPeerLeft?.(peerId);
-      this.refresh();
-    };
-
-    // also react to any presence change (e.g. offline broadcast sets
-    // peer.online = false without firing onPeerLeft)
-    this.previousOnPeerPresenceChanged = presenceManager.onPeerPresenceChanged;
-    presenceManager.onPeerPresenceChanged = (peerId, presence) => {
-      this.previousOnPeerPresenceChanged?.(peerId, presence);
-      this.refresh();
-    };
+    // subscribe to presence events
+    this.unsubs.push(presenceManager.onPeerJoined(() => this.refresh()));
+    this.unsubs.push(presenceManager.onPeerLeft(() => this.refresh()));
+    this.unsubs.push(presenceManager.onPeerPresenceChanged(() => this.refresh()));
 
     // draw initial state
     this.refresh();
@@ -106,11 +85,9 @@ export class ConnectionStatus {
 
   /** unsubscribe from presence callbacks, remove from parent, and clean up. */
   destroy(): void {
-    // restore the previous callbacks
-    this.presenceManager.onPeerPresenceChanged = this.previousOnPeerPresenceChanged;
-    this.presenceManager.onPeerJoined = this.previousOnPeerJoined;
-    this.presenceManager.onPeerLeft = this.previousOnPeerLeft;
-
+    for (const unsub of this.unsubs) {
+      unsub();
+    }
     this.root.destroy({ children: true });
   }
 

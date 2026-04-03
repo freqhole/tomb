@@ -2,9 +2,9 @@ import { Container, Graphics, Text } from "pixi.js";
 import { z } from "zod";
 import type { KeyboardHandler } from "../src/widgets/keyboard-driver";
 import type {
-    WidgetController,
-    WidgetFactory,
-    WidgetMountContext,
+  WidgetController,
+  WidgetFactory,
+  WidgetMountContext,
 } from "../src/widgets/widget-types";
 
 const PADDING = 10;
@@ -32,6 +32,7 @@ export const notepadWidget: WidgetFactory<typeof notepadSchema> = {
     category: "text",
   },
   schema: notepadSchema,
+  editableProps: [{ key: "text", label: "text", type: "string" as const, default: "" }],
 
   create(ctx: WidgetMountContext<typeof notepadSchema>): WidgetController {
     const container = new Container();
@@ -114,12 +115,9 @@ export const notepadWidget: WidgetFactory<typeof notepadSchema> = {
       }
       // draw a thin blinking line at the end of text
       const textBounds = textDisplay.getBounds();
-      const localRight = textDisplay.text.length > 0
-        ? Math.min(textBounds.width, contentWidth())
-        : 0;
-      const localBottom = textDisplay.text.length > 0
-        ? textBounds.height
-        : FONT_SIZE;
+      const localRight =
+        textDisplay.text.length > 0 ? Math.min(textBounds.width, contentWidth()) : 0;
+      const localBottom = textDisplay.text.length > 0 ? textBounds.height : FONT_SIZE;
       cursor.rect(localRight + 1, localBottom - FONT_SIZE, 1.5, FONT_SIZE);
       cursor.fill({ color: TEXT_COLOR });
       cursor.visible = true;

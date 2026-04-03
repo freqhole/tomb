@@ -32,6 +32,10 @@ export const counterWidget: WidgetFactory<typeof counterSchema> = {
     category: "examples",
   },
   schema: counterSchema,
+  editableProps: [
+    { key: "label", label: "label", type: "string" as const, default: "counter" },
+    { key: "step", label: "step size", type: "number" as const, default: 1 },
+  ],
 
   create(ctx: WidgetMountContext<typeof counterSchema>): WidgetController {
     const container = new Container();
