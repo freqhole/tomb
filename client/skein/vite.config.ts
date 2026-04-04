@@ -4,6 +4,8 @@ import { defineConfig } from "vite";
 import topLevelAwait from "vite-plugin-top-level-await";
 import wasm from "vite-plugin-wasm";
 
+const isTauriBuild = !!process.env.VITE_TAURI;
+
 export default defineConfig({
   plugins: [wasm(), topLevelAwait()],
   build: {
@@ -13,10 +15,20 @@ export default defineConfig({
       fileName: "skein",
     },
     rollupOptions: {
-      external: ["pixi.js", "@pixi/ui"],
+      external: isTauriBuild ? ["pixi.js", "@pixi/ui", "midden"] : ["pixi.js", "@pixi/ui"],
     },
     sourcemap: true,
   },
+  // when building for Tauri, alias midden to a stub that throws on use
+  ...(isTauriBuild
+    ? {
+        resolve: {
+          alias: {
+            midden: path.resolve(__dirname, "src/stubs/midden-stub.ts"),
+          },
+        },
+      }
+    : {}),
   // dev server serves test-harness.html for playwright tests
   server: {
     port: 5177,

@@ -1,5 +1,6 @@
 import { Assets, Circle, Container, Graphics, Sprite, Text, Texture } from "pixi.js";
 import { z } from "zod";
+import { ensureIdentity, getStoredIdentity, onIdentityChange } from "../../src/p2p/identity";
 import { pickImageAsDataUrl } from "../../src/widgets/image-utils";
 import { createSkeinInput, type SkeinInputHandle } from "../../src/widgets/skein-input";
 import type {
@@ -455,6 +456,52 @@ export const profileWidget: WidgetFactory<typeof profileSchema> = {
       }
     });
 
+    // "generate" button — shown when no identity exists yet.
+    // clicking it lazily starts midden to create a keypair.
+    const generateBtn = new Container();
+    generateBtn.eventMode = "static";
+    generateBtn.cursor = "pointer";
+    generateBtn.visible = false;
+    const generateBg = new Graphics();
+    generateBtn.addChild(generateBg);
+    const generateText = new Text({
+      text: "generate",
+      style: {
+        fontFamily: FONT,
+        fontSize: 9,
+        fill: 0x10b981,
+      },
+      resolution: RESOLUTION,
+    });
+    generateText.eventMode = "none";
+    generateBtn.addChild(generateText);
+    container.addChild(generateBtn);
+
+    let generating = false;
+    generateBtn.on("pointertap", (e) => {
+      e.stopPropagation();
+      if (generating) return;
+      generating = true;
+      generateText.text = "generating...";
+      layout(currentWidth, currentHeight);
+
+      ensureIdentity()
+        .then((identity) => {
+          syncNodeIdToDoc(identity.node_id);
+          layout(currentWidth, currentHeight);
+        })
+        .catch((err) => {
+          console.error("[skein:profile] identity generation failed:", err);
+          generateText.text = "failed";
+          setTimeout(() => {
+            generateText.text = "generate";
+          }, 3000);
+        })
+        .finally(() => {
+          generating = false;
+        });
+    });
+
     // ---------------------------------------------------------------------------
     // layout
     // ---------------------------------------------------------------------------
@@ -548,34 +595,83 @@ export const profileWidget: WidgetFactory<typeof profileSchema> = {
       if (nid.length > 20) {
         nodeIdText.text = nid.slice(0, 8) + "..." + nid.slice(-8);
       } else {
-        nodeIdText.text = nid || "(generating...)";
+        nodeIdText.text = nid || "(none)";
       }
       nodeIdText.x = PADDING_X;
       nodeIdText.y = y;
 
+      // show "copy" when we have an ID, "generate" when we don't
+      if (nid) {
+        copyText.text = copyText.text === "copied!" ? "copied!" : "copy";
+        copyBtn.visible = true;
+        generateBtn.visible = false;
+      } else {
+        copyBtn.visible = false;
+        generateBtn.visible = true;
+      }
+
       // position copy button to the right of the node id text
       copyBtn.x = PADDING_X + nodeIdText.width + 8;
       copyBtn.y = y;
+
+      // position generate button to the right of the node id text
+      generateBtn.x = PADDING_X + nodeIdText.width + 8;
+      generateBtn.y = y;
 
       // draw a subtle background for the copy button hit area
       copyBg.clear();
       const cbPad = 4;
       copyBg.roundRect(-cbPad, -1, copyText.width + cbPad * 2, copyText.height + 2, 2);
       copyBg.fill({ color: 0x6366f1, alpha: 0.1 });
+
+      // draw a subtle background for the generate button hit area
+      generateBg.clear();
+      const gbPad = 4;
+      generateBg.roundRect(-gbPad, -1, generateText.width + gbPad * 2, generateText.height + 2, 2);
+      generateBg.fill({ color: 0x10b981, alpha: 0.15 });
     };
 
-    // generate a node ID on first mount if none exists
-    const initialState = ctx.doc.current;
-    if (!initialState.nodeId) {
-      const bytes = new Uint8Array(32);
-      crypto.getRandomValues(bytes);
-      const nodeId = Array.from(bytes)
-        .map((b) => b.toString(16).padStart(2, "0"))
-        .join("");
-      ctx.doc.change((d) => {
-        d.nodeId = nodeId;
+    // ---------------------------------------------------------------------------
+    // identity: try to load the real iroh node ID from IndexedDB.
+    // if one exists, write it into the automerge doc so it displays immediately.
+    // if not, leave the field empty — the user can click "generate" to create one.
+    // ---------------------------------------------------------------------------
+
+    let identityUnsub: (() => void) | null = null;
+
+    const syncNodeIdToDoc = (nodeId: string) => {
+      if (nodeId && ctx.doc.current.nodeId !== nodeId) {
+        ctx.doc.change((d) => {
+          d.nodeId = nodeId;
+        });
+      }
+    };
+
+    // check for a persisted identity (cheap IndexedDB read, no midden startup)
+    getStoredIdentity()
+      .then((identity) => {
+        if (identity) {
+          syncNodeIdToDoc(identity.node_id);
+          layout(currentWidth, currentHeight);
+        }
+      })
+      .catch((err) => {
+        console.warn("[skein:profile] failed to read stored identity:", err);
       });
-    }
+
+    // subscribe to identity changes so the widget updates when the user
+    // generates an identity (either from this widget or elsewhere)
+    identityUnsub = onIdentityChange((identity) => {
+      if (identity) {
+        syncNodeIdToDoc(identity.node_id);
+      } else {
+        // identity was deleted — clear the node ID
+        ctx.doc.change((d) => {
+          d.nodeId = "";
+        });
+      }
+      layout(currentWidth, currentHeight);
+    });
 
     // initial draw
     layout(currentWidth, currentHeight);
@@ -600,6 +696,7 @@ export const profileWidget: WidgetFactory<typeof profileSchema> = {
       destroy() {
         for (const f of fields) f.handle.destroy();
         unsub();
+        if (identityUnsub) identityUnsub();
         if (avatarSprite) {
           avatarContainer.removeChild(avatarSprite);
           avatarSprite.mask = null;

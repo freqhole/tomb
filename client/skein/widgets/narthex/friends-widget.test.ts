@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { friendsSchema, friendsWidget } from "./friends-widget";
+import { friendsSchema, friendsWidget, isValidNodeId } from "./friends-widget";
 
 describe("friendsSchema", () => {
   it("parses empty object with defaults", () => {
@@ -12,7 +12,13 @@ describe("friendsSchema", () => {
   it("parses object with friends array", () => {
     const result = friendsSchema.parse({
       friends: [
-        { id: "f1", name: "alice", description: "cool person", nodeId: "node-1", createdAt: "2025-01-01" },
+        {
+          id: "f1",
+          name: "alice",
+          description: "cool person",
+          nodeId: "node-1",
+          createdAt: "2025-01-01",
+        },
         { id: "f2", name: "bob" },
       ],
     });
@@ -112,5 +118,32 @@ describe("friendsWidget", () => {
 
   it("has empty editableProps", () => {
     expect(friendsWidget.editableProps).toEqual([]);
+  });
+});
+
+describe("isValidNodeId", () => {
+  it("accepts valid 64-char hex string", () => {
+    expect(isValidNodeId("a".repeat(64))).toBe(true);
+    expect(isValidNodeId("0123456789abcdef".repeat(4))).toBe(true);
+  });
+
+  it("rejects strings that are too short", () => {
+    expect(isValidNodeId("abc123")).toBe(false);
+  });
+
+  it("rejects strings that are too long", () => {
+    expect(isValidNodeId("a".repeat(65))).toBe(false);
+  });
+
+  it("rejects uppercase hex", () => {
+    expect(isValidNodeId("A".repeat(64))).toBe(false);
+  });
+
+  it("rejects non-hex characters", () => {
+    expect(isValidNodeId("g" + "a".repeat(63))).toBe(false);
+  });
+
+  it("rejects empty string", () => {
+    expect(isValidNodeId("")).toBe(false);
   });
 });

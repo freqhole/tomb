@@ -90,6 +90,14 @@ function truncate(value: string, maxChars: number): string {
   return value.slice(0, maxChars - 1).trimEnd() + "\u2026";
 }
 
+/**
+ * check if a string looks like a valid iroh node ID.
+ * iroh node IDs are 64-character lowercase hex strings (32-byte ed25519 public key).
+ */
+export function isValidNodeId(value: string): boolean {
+  return /^[a-f0-9]{64}$/.test(value);
+}
+
 // ---------------------------------------------------------------------------
 // factory
 // ---------------------------------------------------------------------------
@@ -455,7 +463,7 @@ export const friendsWidget: WidgetFactory<typeof friendsSchema> = {
     }
 
     const nameField = createAddField("name", addModeContainer, "friend's name...");
-    const nodeIdField = createAddField("node id", addModeContainer, "iroh node id...");
+    const nodeIdField = createAddField("node id", addModeContainer, "64-char hex node ID");
 
     // add-mode buttons: cancel and add
     const addCancelBtn = new Container();
@@ -516,6 +524,12 @@ export const friendsWidget: WidgetFactory<typeof friendsSchema> = {
         nameField.handle.value = "";
         nodeIdField.handle.value = "";
         layout(currentWidth, currentHeight);
+        return;
+      }
+
+      // validate node ID format if provided
+      if (nodeId && !isValidNodeId(nodeId)) {
+        console.warn("[friends] invalid node ID format — expected 64-char hex string");
         return;
       }
 

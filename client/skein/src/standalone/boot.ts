@@ -5,6 +5,7 @@ import { createTestRegistry } from "../../widgets/index";
 import { createNarthexRegistry } from "../../widgets/narthex/index";
 import { CanvasStore } from "../canvas/canvas-store";
 import { initCanvas, type SkeinCanvas } from "../canvas/init";
+import { getMetaValue, setMetaValue } from "../storage/meta-db";
 
 // well-known singleton widget IDs — must match the singletonId in each factory's metadata
 const PROFILE_WIDGET_ID = "skein-profile";
@@ -12,56 +13,6 @@ const FRIENDS_WIDGET_ID = "skein-friends";
 
 // indexeddb key for the well-known narthex document id
 const NARTHEX_DOC_KEY = "skein-narthex-doc-id";
-const NARTHEX_DB_NAME = "skein-meta";
-const NARTHEX_STORE_NAME = "kv";
-
-// ---------------------------------------------------------------------------
-// simple key-value persistence for the narthex doc id (separate from
-// automerge's indexeddb storage so we don't couple to its schema)
-// ---------------------------------------------------------------------------
-
-async function openMetaDb(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.open(NARTHEX_DB_NAME, 1);
-    req.onupgradeneeded = () => {
-      const db = req.result;
-      if (!db.objectStoreNames.contains(NARTHEX_STORE_NAME)) {
-        db.createObjectStore(NARTHEX_STORE_NAME);
-      }
-    };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  });
-}
-
-async function getMetaValue(key: string): Promise<string | null> {
-  const db = await openMetaDb();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(NARTHEX_STORE_NAME, "readonly");
-    const store = tx.objectStore(NARTHEX_STORE_NAME);
-    const req = store.get(key);
-    req.onsuccess = () => resolve((req.result as string) ?? null);
-    req.onerror = () => reject(req.error);
-    tx.oncomplete = () => db.close();
-  });
-}
-
-async function setMetaValue(key: string, value: string): Promise<void> {
-  const db = await openMetaDb();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(NARTHEX_STORE_NAME, "readwrite");
-    const store = tx.objectStore(NARTHEX_STORE_NAME);
-    store.put(value, key);
-    tx.oncomplete = () => {
-      db.close();
-      resolve();
-    };
-    tx.onerror = () => {
-      db.close();
-      reject(tx.error);
-    };
-  });
-}
 
 // ---------------------------------------------------------------------------
 // router — manages navigation between the narthex and individual canvases
