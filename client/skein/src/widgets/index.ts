@@ -1,3 +1,5 @@
+export { createDomOverlay } from "./dom-overlay";
+export type { DomOverlayHandle, DomOverlayOptions } from "./dom-overlay";
 export { KeyboardDriver } from "./keyboard-driver";
 export type { KeyboardHandler } from "./keyboard-driver";
 export { createSkeinInput } from "./skein-input";

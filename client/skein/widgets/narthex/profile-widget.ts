@@ -290,7 +290,7 @@ export const profileWidget: WidgetFactory<typeof profileSchema> = {
       container.addChild(label);
 
       const handle = createSkeinInput({
-        keyboard: ctx.keyboard,
+        canvasElement: ctx.canvasElement,
         width: currentWidth - PADDING_X * 2,
         height: FIELD_HEIGHT,
         placeholder,

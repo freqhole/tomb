@@ -1,14 +1,18 @@
 /**
- * skein-input — a themed text input backed by the shared KeyboardDriver.
+ * skein-input — a themed text input backed by a DOM <input> overlay.
  *
- * renders a dark-themed input field with a blinking cursor, placeholder text,
- * click-to-focus, and a visible focus ring. uses the project's existing
- * hidden-textarea KeyboardDriver for text input, giving us native browser
- * text selection, Ctrl/Cmd+A, clipboard, and IME support for free.
+ * renders a dark-themed input field with placeholder text, click-to-focus,
+ * and a visible focus ring. when clicked, a real DOM <input> element is
+ * positioned over the PixiJS field, giving us native browser text selection,
+ * Ctrl/Cmd+A, clipboard, IME, and undo support for free.
+ *
+ * replaces the previous KeyboardDriver-based approach with the same DOM
+ * overlay pattern used by label, markdown, and notepad widgets.
  */
 
 import { Container, Graphics, Text } from "pixi.js";
-import type { KeyboardDriver, KeyboardHandler } from "./keyboard-driver";
+import { createDomOverlay, type DomOverlayHandle } from "./dom-overlay";
+import { colorToCss } from "./format";
 
 const FIELD_BG = 0x12121a;
 const FIELD_BORDER = 0x333348;
@@ -19,11 +23,11 @@ const FONT = "system-ui, sans-serif";
 const FONT_SIZE = 12;
 const CORNER_RADIUS = 4;
 const PAD_H = 8;
-const CURSOR_BLINK_MS = 530;
 const TEXT_RESOLUTION = 2;
 
 export interface SkeinInputOptions {
-  keyboard: KeyboardDriver;
+  /** the canvas DOM element — needed for positioning the DOM overlay */
+  canvasElement: HTMLCanvasElement;
   width: number;
   height?: number;
   placeholder?: string;
@@ -56,11 +60,11 @@ export interface SkeinInputHandle {
 }
 
 export function createSkeinInput(options: SkeinInputOptions): SkeinInputHandle {
-  const keyboard = options.keyboard;
   const height = options.height ?? 28;
   let currentWidth = options.width;
   let currentValue = options.value ?? "";
   let editing = false;
+  let activeOverlay: DomOverlayHandle | null = null;
 
   const styleFontSize = options.fontSize ?? FONT_SIZE;
   const styleFontFamily = options.fontFamily ?? FONT;
@@ -131,51 +135,18 @@ export function createSkeinInput(options: SkeinInputOptions): SkeinInputHandle {
   placeholderText.mask = textMask;
   root.addChild(placeholderText);
 
-  // cursor (thin vertical line)
-  const cursor = new Graphics();
-  cursor.visible = false;
-  cursor.eventMode = "none";
-  root.addChild(cursor);
-
-  let cursorInterval: ReturnType<typeof setInterval> | null = null;
-
   const syncDisplay = () => {
     displayText.text = currentValue;
     placeholderText.visible = currentValue.length === 0 && !editing;
-
-    // position cursor after text
-    if (editing) {
-      const textRight = PAD_H + displayText.width;
-      cursor.clear();
-      cursor.rect(textRight + 1, Math.round((height - styleFontSize) / 2), 1.5, styleFontSize);
-      cursor.fill({ color: styleTextColor });
-    }
   };
 
-  const startCursorBlink = () => {
-    cursor.visible = true;
-    syncDisplay();
-    if (cursorInterval) clearInterval(cursorInterval);
-    cursorInterval = setInterval(() => {
-      cursor.visible = !cursor.visible;
-    }, CURSOR_BLINK_MS);
-  };
-
-  const stopCursorBlink = () => {
-    if (cursorInterval) {
-      clearInterval(cursorInterval);
-      cursorInterval = null;
-    }
-    cursor.visible = false;
-  };
-
-  const stopEditing = () => {
-    if (!editing) return;
+  const finishEditing = (value: string) => {
     editing = false;
-    keyboard.release();
-    stopCursorBlink();
-    drawBg(false);
+    activeOverlay = null;
+    currentValue = value;
+    displayText.visible = true;
     syncDisplay();
+    drawBg(false);
     options.onEnter?.(currentValue);
   };
 
@@ -184,35 +155,41 @@ export function createSkeinInput(options: SkeinInputOptions): SkeinInputHandle {
     editing = true;
     drawBg(true);
     placeholderText.visible = false;
+    displayText.visible = false;
 
-    const handler: KeyboardHandler = {
-      onInput(value: string) {
+    activeOverlay = createDomOverlay({
+      container: root,
+      canvasElement: options.canvasElement,
+      width: currentWidth,
+      height,
+      value: currentValue,
+      placeholder: options.placeholder,
+      maxLength: options.maxLength,
+      enterCommits: true,
+      selectAll: false,
+      onInput: (value: string) => {
         if (options.maxLength && value.length > options.maxLength) {
           value = value.substring(0, options.maxLength);
-          keyboard.setValue(value);
+          if (activeOverlay) {
+            activeOverlay.element.value = value;
+          }
         }
         currentValue = value;
-        syncDisplay();
         options.onChange?.(currentValue);
       },
-      onKeyDown(event: KeyboardEvent) {
-        if (event.key === "Escape") {
-          stopEditing();
-          return;
-        }
-        if (event.key === "Enter") {
-          event.preventDefault();
-          stopEditing();
-          return;
-        }
+      onCommit: (value: string) => {
+        finishEditing(value);
       },
-      onBlur() {
-        stopEditing();
+      // no onRevert — Escape commits current value (matches previous behavior)
+      css: {
+        fontFamily: styleFontFamily,
+        fontSize: `${styleFontSize}px`,
+        color: colorToCss(styleTextColor),
+        padding: `0 ${PAD_H}px`,
+        lineHeight: `${height}px`,
+        textAlign: options.align ?? "left",
       },
-    };
-
-    keyboard.acquire(handler, currentValue);
-    startCursorBlink();
+    });
   };
 
   // click to focus
@@ -239,8 +216,8 @@ export function createSkeinInput(options: SkeinInputOptions): SkeinInputHandle {
 
     set value(v: string) {
       currentValue = v;
-      if (editing) {
-        keyboard.setValue(v);
+      if (editing && activeOverlay && !activeOverlay.removed) {
+        activeOverlay.element.value = v;
       }
       syncDisplay();
     },
@@ -250,7 +227,10 @@ export function createSkeinInput(options: SkeinInputOptions): SkeinInputHandle {
     },
 
     blur(): void {
-      stopEditing();
+      if (activeOverlay && !activeOverlay.removed) {
+        // triggering blur on the DOM element fires the blur handler → onCommit
+        activeOverlay.element.blur();
+      }
     },
 
     setWidth(w: number): void {
@@ -261,11 +241,11 @@ export function createSkeinInput(options: SkeinInputOptions): SkeinInputHandle {
     },
 
     destroy(): void {
-      if (editing) {
-        editing = false;
-        keyboard.release();
+      if (activeOverlay) {
+        activeOverlay.remove();
+        activeOverlay = null;
       }
-      stopCursorBlink();
+      editing = false;
       root.destroy({ children: true });
     },
   };

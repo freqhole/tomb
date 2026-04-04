@@ -239,7 +239,7 @@ export async function initCanvas(options: InitCanvasOptions): Promise<SkeinCanva
   const propertyTray = new PropertyTray(
     world,
     theme,
-    keyboard,
+    app.canvas as HTMLCanvasElement,
     inputRouter,
     widgetManager,
     store,

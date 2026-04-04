@@ -433,7 +433,7 @@ export const friendsWidget: WidgetFactory<typeof friendsSchema> = {
       parentContainer.addChild(label);
 
       const handle = createSkeinInput({
-        keyboard: ctx.keyboard,
+        canvasElement: ctx.canvasElement,
         width: currentWidth - PADDING_X * 2,
         height: FIELD_HEIGHT,
         placeholder,

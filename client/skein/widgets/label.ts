@@ -1,6 +1,7 @@
 import { Container, Graphics, Text } from "pixi.js";
 import { z } from "zod";
 import { colorToCss } from "../src/widgets/format";
+import { createDomOverlay, type DomOverlayHandle } from "../src/widgets/dom-overlay";
 import {
   isTransparent,
   safeColor,
@@ -102,24 +103,8 @@ export const labelWidget: WidgetFactory<typeof labelSchema> = {
       textDisplay.y = h / 2;
     };
 
-    // textarea overlay for inline editing
-    let activeTextarea: HTMLTextAreaElement | null = null;
-
-    const exitEditing = () => {
-      if (!editing || !activeTextarea) return;
-      editing = false;
-      const value = activeTextarea.value;
-      if (value !== ctx.doc.current.text) {
-        ctx.doc.change((draft) => {
-          draft.text = value;
-        });
-      }
-      activeTextarea.remove();
-      activeTextarea = null;
-      textDisplay.text = ctx.doc.current.text;
-      textDisplay.visible = true;
-      drawBg(currentWidth, currentHeight, false);
-    };
+    // DOM overlay for inline editing
+    let activeOverlay: DomOverlayHandle | null = null;
 
     const startEditing = () => {
       if (editing) return;
@@ -127,68 +112,48 @@ export const labelWidget: WidgetFactory<typeof labelSchema> = {
       drawBg(currentWidth, currentHeight, true);
       textDisplay.visible = false;
 
-      // calculate screen position of the widget
-      const globalPos = container.toGlobal({ x: 0, y: 0 });
-      const globalEnd = container.toGlobal({ x: currentWidth, y: currentHeight });
-      const canvasRect = ctx.canvasElement.getBoundingClientRect();
-
-      const screenX = canvasRect.left + globalPos.x;
-      const screenY = canvasRect.top + globalPos.y;
-      const screenW = globalEnd.x - globalPos.x;
-      const screenH = globalEnd.y - globalPos.y;
-
       const state = ctx.doc.current;
       const fontSize = computeFontSize(currentHeight);
 
-      const ta = document.createElement("textarea");
-      ta.value = state.text;
-      const s = ta.style;
-      s.position = "fixed";
-      s.left = `${screenX}px`;
-      s.top = `${screenY}px`;
-      s.width = `${screenW}px`;
-      s.height = `${screenH}px`;
-      s.fontFamily = state.fontFamily;
-      s.fontSize = `${fontSize}px`;
-      s.color = colorToCss(state.textColor);
-      s.background = "transparent";
-      s.border = "none";
-      s.outline = "none";
-      s.resize = "none";
-      s.padding = "8px";
-      s.textAlign = "center";
-      s.overflow = "hidden";
-      s.zIndex = "10000";
-      s.boxSizing = "border-box";
-      s.lineHeight = "1.3";
-      // match word wrap behavior
-      s.wordWrap = "break-word";
-      s.whiteSpace = "pre-wrap";
-
-      document.body.appendChild(ta);
-      activeTextarea = ta;
-      ta.focus();
-      ta.select();
-
-      ta.addEventListener("blur", () => {
-        exitEditing();
-      });
-
-      ta.addEventListener("keydown", (e) => {
-        if (e.key === "Escape") {
-          // revert — don't commit
+      activeOverlay = createDomOverlay({
+        container,
+        canvasElement: ctx.canvasElement,
+        width: currentWidth,
+        height: currentHeight,
+        multiline: true, // label uses textarea for centering/wrapping
+        value: state.text,
+        enterCommits: true, // Enter commits for label (single-line semantics)
+        selectAll: true,
+        onCommit: (value: string) => {
           editing = false;
-          ta.remove();
-          activeTextarea = null;
+          activeOverlay = null;
+          if (value !== ctx.doc.current.text) {
+            ctx.doc.change((draft) => {
+              draft.text = value;
+            });
+          }
           textDisplay.text = ctx.doc.current.text;
           textDisplay.visible = true;
           drawBg(currentWidth, currentHeight, false);
-          return;
-        }
-        if (e.key === "Enter" && !e.shiftKey) {
-          e.preventDefault();
-          exitEditing();
-        }
+        },
+        onRevert: () => {
+          editing = false;
+          activeOverlay = null;
+          textDisplay.text = ctx.doc.current.text;
+          textDisplay.visible = true;
+          drawBg(currentWidth, currentHeight, false);
+        },
+        css: {
+          fontFamily: state.fontFamily,
+          fontSize: `${fontSize}px`,
+          color: colorToCss(state.textColor),
+          padding: "8px",
+          textAlign: "center",
+          overflow: "hidden",
+          lineHeight: "1.3",
+          wordWrap: "break-word",
+          whiteSpace: "pre-wrap",
+        },
       });
     };
 
@@ -222,9 +187,9 @@ export const labelWidget: WidgetFactory<typeof labelSchema> = {
     return {
       container,
       destroy() {
-        if (activeTextarea) {
-          activeTextarea.remove();
-          activeTextarea = null;
+        if (activeOverlay) {
+          activeOverlay.remove();
+          activeOverlay = null;
         }
         unsub();
         container.destroy({ children: true });

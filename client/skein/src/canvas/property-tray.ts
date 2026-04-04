@@ -9,7 +9,7 @@ import {
 } from "pixi.js";
 import type { SkeinTheme } from "../theme/skein-theme";
 import { pickImageAsDataUrl } from "../widgets/image-utils";
-import type { KeyboardDriver } from "../widgets/keyboard-driver";
+
 import { createSkeinInput } from "../widgets/skein-input";
 import type { WidgetRegistry } from "../widgets/widget-registry";
 import type { WidgetDoc, WidgetPropDef } from "../widgets/widget-types";
@@ -79,7 +79,7 @@ export class PropertyTray {
   readonly root: Container;
 
   private readonly theme: SkeinTheme;
-  private readonly keyboard: KeyboardDriver;
+  private readonly canvasElement: HTMLCanvasElement;
   private readonly inputRouter: InputRouter;
   private readonly widgetManager: WidgetManager;
   private readonly registry: WidgetRegistry;
@@ -115,14 +115,14 @@ export class PropertyTray {
   constructor(
     world: Container,
     theme: SkeinTheme,
-    keyboard: KeyboardDriver,
+    canvasElement: HTMLCanvasElement,
     inputRouter: InputRouter,
     widgetManager: WidgetManager,
     store: CanvasStore,
     registry: WidgetRegistry
   ) {
     this.theme = theme;
-    this.keyboard = keyboard;
+    this.canvasElement = canvasElement;
     this.inputRouter = inputRouter;
     this.widgetManager = widgetManager;
     this.registry = registry;
@@ -519,7 +519,7 @@ export class PropertyTray {
     const fieldY = Math.round(label.height + LABEL_FIELD_GAP);
 
     const handle = createSkeinInput({
-      keyboard: this.keyboard,
+      canvasElement: this.canvasElement,
       width: fieldWidth,
       height: FIELD_HEIGHT,
       value: initialValue,

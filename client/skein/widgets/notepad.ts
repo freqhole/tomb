@@ -1,5 +1,6 @@
 import { Container, Graphics, Text } from "pixi.js";
 import { z } from "zod";
+import { createDomOverlay, type DomOverlayHandle } from "../src/widgets/dom-overlay";
 import { colorToCss } from "../src/widgets/format";
 import {
   isTransparent,
@@ -127,25 +128,8 @@ export const notepadWidget: WidgetFactory<typeof notepadSchema> = {
 
     updatePlaceholderVisibility();
 
-    // DOM textarea overlay for inline editing
-    let activeTextarea: HTMLTextAreaElement | null = null;
-
-    const exitEditing = () => {
-      if (!editing || !activeTextarea) return;
-      editing = false;
-      const value = activeTextarea.value;
-      if (value !== ctx.doc.current.text) {
-        ctx.doc.change((draft) => {
-          draft.text = value;
-        });
-      }
-      activeTextarea.remove();
-      activeTextarea = null;
-      textDisplay.text = ctx.doc.current.text;
-      textDisplay.visible = true;
-      drawBg(currentWidth, currentHeight, false);
-      updatePlaceholderVisibility();
-    };
+    // DOM overlay for inline editing
+    let activeOverlay: DomOverlayHandle | null = null;
 
     const startEditing = () => {
       if (editing) return;
@@ -154,61 +138,47 @@ export const notepadWidget: WidgetFactory<typeof notepadSchema> = {
       textDisplay.visible = false;
       placeholder.visible = false;
 
-      // calculate screen position of the widget
-      const globalPos = container.toGlobal({ x: 0, y: 0 });
-      const globalEnd = container.toGlobal({ x: currentWidth, y: currentHeight });
-      const canvasRect = ctx.canvasElement.getBoundingClientRect();
-
-      const screenX = canvasRect.left + globalPos.x;
-      const screenY = canvasRect.top + globalPos.y;
-      const screenW = globalEnd.x - globalPos.x;
-      const screenH = globalEnd.y - globalPos.y;
-
       const state = ctx.doc.current;
 
-      const ta = document.createElement("textarea");
-      ta.value = state.text;
-      const s = ta.style;
-      s.position = "fixed";
-      s.left = `${screenX}px`;
-      s.top = `${screenY}px`;
-      s.width = `${screenW}px`;
-      s.height = `${screenH}px`;
-      s.fontFamily = state.fontFamily;
-      s.fontSize = `${state.fontSize}px`;
-      s.color = colorToCss(state.textColor);
-      s.background = "transparent";
-      s.border = "none";
-      s.outline = "none";
-      s.resize = "none";
-      s.padding = `${PADDING}px`;
-      s.overflow = "auto";
-      s.zIndex = "10000";
-      s.boxSizing = "border-box";
-      s.lineHeight = "1.4";
-      s.whiteSpace = "pre-wrap";
-      s.wordWrap = "break-word";
-
-      document.body.appendChild(ta);
-      activeTextarea = ta;
-      ta.focus();
-
-      ta.addEventListener("blur", () => {
-        exitEditing();
-      });
-
-      ta.addEventListener("keydown", (e) => {
-        if (e.key === "Escape") {
-          // revert without committing
+      activeOverlay = createDomOverlay({
+        container,
+        canvasElement: ctx.canvasElement,
+        width: currentWidth,
+        height: currentHeight,
+        multiline: true,
+        value: state.text,
+        enterCommits: false, // Enter inserts newlines in notepad
+        onCommit: (value: string) => {
           editing = false;
-          ta.remove();
-          activeTextarea = null;
+          activeOverlay = null;
+          if (value !== ctx.doc.current.text) {
+            ctx.doc.change((draft) => {
+              draft.text = value;
+            });
+          }
           textDisplay.text = ctx.doc.current.text;
           textDisplay.visible = true;
           drawBg(currentWidth, currentHeight, false);
           updatePlaceholderVisibility();
-        }
-        // enter inserts newlines naturally (multiline notepad)
+        },
+        onRevert: () => {
+          editing = false;
+          activeOverlay = null;
+          textDisplay.text = ctx.doc.current.text;
+          textDisplay.visible = true;
+          drawBg(currentWidth, currentHeight, false);
+          updatePlaceholderVisibility();
+        },
+        css: {
+          fontFamily: state.fontFamily,
+          fontSize: `${state.fontSize}px`,
+          color: colorToCss(state.textColor),
+          padding: `${PADDING}px`,
+          overflow: "auto",
+          lineHeight: "1.4",
+          whiteSpace: "pre-wrap",
+          wordWrap: "break-word",
+        },
       });
     };
 
@@ -247,17 +217,17 @@ export const notepadWidget: WidgetFactory<typeof notepadSchema> = {
       container,
 
       destroy() {
-        if (activeTextarea) {
-          activeTextarea.remove();
-          activeTextarea = null;
+        if (activeOverlay) {
+          activeOverlay.remove();
+          activeOverlay = null;
         }
         unsub();
         container.destroy({ children: true });
       },
 
       resize(width: number, height: number) {
-        if (editing && activeTextarea) {
-          exitEditing();
+        if (editing && activeOverlay) {
+          activeOverlay.element.blur();
         }
         currentWidth = width;
         currentHeight = height;
