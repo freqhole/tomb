@@ -53,6 +53,7 @@ export class WidgetManager {
   private readonly stageBg: Graphics;
 
   private readonly liveWidgets = new Map<string, LiveWidget>();
+  private readonly mountingIds = new Set<string>();
   private unsubs: (() => void)[] = [];
 
   /** batch drag state — non-null while a multi-widget drag is in progress */
@@ -152,10 +153,18 @@ export class WidgetManager {
    *   per-widget document and waits for it to be ready before mounting.
    */
   private async mountWidget(entry: WidgetEntry): Promise<void> {
+    // guard against re-entrant mounts. setDocId() inside this method
+    // triggers a synchronous reconcile() callback which sees the widget
+    // as "new" (not yet in liveWidgets) and calls mountWidget() again.
+    // the Set is checked here and in reconcile() to prevent duplicates.
+    if (this.mountingIds.has(entry.id)) return;
+    this.mountingIds.add(entry.id);
+
     const factory = this.registry.get(entry.type);
 
     // if the factory is not found, mount a crashed placeholder
     if (!factory) {
+      this.mountingIds.delete(entry.id);
       this.mountCrashed(entry, `unknown widget type: "${entry.type}"`);
       return;
     }
@@ -175,6 +184,7 @@ export class WidgetManager {
           await widgetDocHandle.whenReady();
         } catch (err) {
           console.warn(`failed to find widget doc ${entry.docId} for widget ${entry.id}:`, err);
+          this.mountingIds.delete(entry.id);
           this.mountCrashed(
             entry,
             `widget doc not available: ${err instanceof Error ? err.message : String(err)}`
@@ -226,6 +236,7 @@ export class WidgetManager {
       width: entry.width,
       height: entry.height,
       keyboard: this.keyboard,
+      widgetId: entry.id,
     };
 
     let ctrl: WidgetController;
@@ -238,6 +249,7 @@ export class WidgetManager {
       );
       // tear down the frame we already created
       frame.destroy();
+      this.mountingIds.delete(entry.id);
       this.mountCrashed(
         entry,
         `factory threw: ${err instanceof Error ? err.message : String(err)}`
@@ -259,6 +271,7 @@ export class WidgetManager {
       crashed: false,
       widgetDoc: factory.schema ? doc : null,
     });
+    this.mountingIds.delete(entry.id);
   }
 
   /**
@@ -417,8 +430,15 @@ export class WidgetManager {
 
   /**
    * unmount a single widget from the stage and clean up.
+   *
+   * when `permanent` is true (the default), the per-widget automerge doc is
+   * also deleted from the repo / IndexedDB. this is the right behaviour when
+   * a widget is removed from the canvas document (reconcile path).
+   *
+   * when `permanent` is false, the doc is left intact — used during navigation
+   * teardown so that docs are still available when the canvas is re-opened.
    */
-  private unmountWidget(id: string): void {
+  private unmountWidget(id: string, permanent = true): void {
     const live = this.liveWidgets.get(id);
     if (!live) return;
 
@@ -430,10 +450,10 @@ export class WidgetManager {
 
     live.frame.destroy();
 
-    // clean up the per-widget automerge doc from the repo / IndexedDB.
-    // without this, removing a widget from the canvas leaves an orphaned
-    // document in storage that is never referenced again.
-    if (live.entry.docId) {
+    // only delete the per-widget automerge doc when the widget was permanently
+    // removed from the canvas. during navigation teardown we keep the doc so
+    // it can be found again when the canvas is re-mounted.
+    if (permanent && live.entry.docId) {
       this.repo.delete(live.entry.docId as DocumentId);
     }
 
@@ -458,7 +478,7 @@ export class WidgetManager {
 
     // find new widgets and update existing ones
     for (const [id, entry] of Object.entries(doc.widgets)) {
-      if (!liveWidgetIds.has(id)) {
+      if (!liveWidgetIds.has(id) && !this.mountingIds.has(id)) {
         // new widget — mount it
         this.mountWidget(entry);
       } else {
@@ -548,7 +568,11 @@ export class WidgetManager {
     this.stageBg.fill({ color: this.theme.stageBg });
   }
 
-  /** unmount all widgets and unsubscribe from all listeners. */
+  /**
+   * unmount all widgets and unsubscribe from all listeners.
+   * called during navigation teardown — per-widget docs are intentionally
+   * kept alive so they're still available when the canvas is re-opened.
+   */
   destroyAll(): void {
     for (const unsub of this.unsubs) {
       unsub();
@@ -556,7 +580,7 @@ export class WidgetManager {
     this.unsubs = [];
 
     for (const id of [...this.liveWidgets.keys()]) {
-      this.unmountWidget(id);
+      this.unmountWidget(id, false);
     }
   }
 }

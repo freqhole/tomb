@@ -207,7 +207,7 @@ export class Toolbar {
 
   /** build the vertical list of widget type entries inside the flyout. */
   private buildFlyoutItems(): void {
-    const factories = this.registry.all();
+    const factories = this.registry.all().filter((f) => !f.metadata.hidden);
     const itemPadH = 10;
     const itemPadV = 6;
     const itemGap = 2;
@@ -592,13 +592,16 @@ export class Toolbar {
       y: 100 + this.widgetCounter * 20,
     };
     this.pendingPlacement = null;
+    const factory = this.registry.get(type);
+    const width = factory?.metadata.defaultWidth ?? 200;
+    const height = factory?.metadata.defaultHeight ?? 150;
     this.store.addWidget({
       id,
       type,
       x: pos.x,
       y: pos.y,
-      width: 200,
-      height: 150,
+      width,
+      height,
       zIndex: this.widgetCounter,
       props: {},
       collapsed: false,

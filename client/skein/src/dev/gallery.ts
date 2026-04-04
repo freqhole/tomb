@@ -58,7 +58,13 @@ async function mountGallery(): Promise<void> {
     try {
       // create a keyboard driver for this widget's pixi app
       const keyboard = new KeyboardDriver(app.canvas as HTMLCanvasElement);
-      const ctrl = factory.create({ doc, width: defaultWidth, height: defaultHeight, keyboard });
+      const ctrl = factory.create({
+        doc,
+        width: defaultWidth,
+        height: defaultHeight,
+        keyboard,
+        widgetId: `gallery-${factory.type}`,
+      });
       app.stage.addChild(ctrl.container);
     } catch (err) {
       console.error(`failed to create widget "${factory.type}":`, err);

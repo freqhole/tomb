@@ -111,6 +111,20 @@ class SkeinRouter {
         collapsed: false,
         docId: null,
       });
+
+      // seed with a profile widget in the top-right area
+      narthexStore.addWidget({
+        id: crypto.randomUUID(),
+        type: "profile",
+        x: 700,
+        y: 30,
+        width: 280,
+        height: 360,
+        zIndex: 1,
+        props: {},
+        collapsed: false,
+        docId: null,
+      });
     } else {
       console.log("[skein] found existing narthex doc:", this.narthexDocId);
     }
@@ -120,10 +134,19 @@ class SkeinRouter {
       this.onHashChange();
     });
 
-    // listen for the custom create-canvas event dispatched from the narthex
-    window.addEventListener("skein:create-canvas", () => {
-      this.createCanvasFromNarthex();
-    });
+    // listen for the custom create-canvas event dispatched from the canvas wizard
+    window.addEventListener("skein:create-canvas", ((e: CustomEvent) => {
+      this.createCanvasFromNarthex(e.detail);
+    }) as EventListener);
+
+    // listen for widget self-removal (e.g. wizard cancel button)
+    window.addEventListener("skein:remove-widget", ((e: CustomEvent) => {
+      const widgetId = e.detail?.widgetId;
+      if (widgetId && this.currentCanvas) {
+        console.log("[skein] removing widget:", widgetId);
+        this.currentCanvas.store.removeWidget(widgetId);
+      }
+    }) as EventListener);
 
     // initial navigation based on current hash
     console.log("[skein] router booted, initial hash:", JSON.stringify(window.location.hash));
@@ -230,16 +253,29 @@ class SkeinRouter {
 
   /**
    * create a new canvas and add a canvas-card widget to the narthex.
+   * accepts optional detail from the canvas wizard with pre-filled metadata.
    * then navigate to the newly created canvas.
    */
-  private async createCanvasFromNarthex(): Promise<void> {
+  private async createCanvasFromNarthex(detail?: {
+    title?: string;
+    description?: string;
+    authorName?: string;
+    color?: number;
+    wizardWidgetId?: string;
+  }): Promise<void> {
     if (!this.currentCanvas || !this.narthexDocId) return;
 
     // create a new empty canvas document in the shared repo
     const newStore = CanvasStore.create(this.repo);
     const newDocId = newStore.handle.documentId;
 
-    console.log("[skein] creating new canvas, doc:", newDocId);
+    const title = detail?.title || "untitled canvas";
+    console.log("[skein] creating new canvas:", JSON.stringify(title), "doc:", newDocId);
+
+    // if the wizard widget is still on the narthex, remove it
+    if (detail?.wizardWidgetId) {
+      this.currentCanvas.store.removeWidget(detail.wizardWidgetId);
+    }
 
     // add a canvas-card widget to the narthex doc pointing to the new canvas.
     // props are merged into the widget's schema defaults when the per-widget
@@ -258,7 +294,10 @@ class SkeinRouter {
       zIndex: existingCount + 1,
       props: {
         canvasDocId: newDocId,
-        title: "untitled canvas",
+        title,
+        description: detail?.description || "",
+        authorName: detail?.authorName || "",
+        color: detail?.color ?? 0xd946ef,
         createdAt: now,
         modifiedAt: now,
       },

@@ -71,6 +71,7 @@ export const canvasCardWidget: WidgetFactory<typeof canvasCardSchema> = {
     description: "a card linking to another canvas \u2014 used in the narthex",
     version: "0.1.0",
     category: "narthex",
+    hidden: true,
   },
   schema: canvasCardSchema,
   editableProps: [

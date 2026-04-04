@@ -52,6 +52,8 @@ export interface WidgetMountContext<S extends z.ZodType = z.ZodType> {
   height: number;
   /** the keyboard driver for text input / IME. call acquire() to claim focus. */
   keyboard: KeyboardDriver;
+  /** the widget's unique ID in the canvas store */
+  widgetId: string;
 }
 
 /**
@@ -78,6 +80,12 @@ export interface WidgetMetadata {
   version: string;
   icon?: string;
   category?: string;
+  /** hide this widget from the palette (e.g. programmatically-spawned widgets) */
+  hidden?: boolean;
+  /** default width when placing the widget on the canvas */
+  defaultWidth?: number;
+  /** default height when placing the widget on the canvas */
+  defaultHeight?: number;
 }
 
 /**
