@@ -59,10 +59,10 @@ export interface SkeinCanvas {
   world: Container;
   /** the presence manager for multiplayer cursor/lock/selection state */
   presenceManager: PresenceManager;
-  /** the presence renderer for remote peer cursors */
-  presenceRenderer: PresenceRenderer;
-  /** the connection status indicator (peer count pill) */
-  connectionStatus: ConnectionStatus;
+  /** the presence renderer for remote peer cursors (null on narthex) */
+  presenceRenderer: PresenceRenderer | null;
+  /** the connection status indicator (peer count pill, null on narthex) */
+  connectionStatus: ConnectionStatus | null;
   /** the property editing tray (appears next to selected widget in edit mode) */
   propertyTray: PropertyTray;
   /** the lasso tool for multi-select, click-deselect, and double-click-to-add */
@@ -227,14 +227,20 @@ export async function initCanvas(options: InitCanvasOptions): Promise<SkeinCanva
 
   // step 13: create the presence renderer for remote peer cursors.
   // lives in the world container so cursors pan/zoom with widgets.
-  const presenceRenderer = new PresenceRenderer(world, presenceManager, theme);
+  // skipped on the narthex — no remote cursors needed on the home screen.
+  let presenceRenderer: PresenceRenderer | null = null;
+  let connectionStatus: ConnectionStatus | null = null;
 
-  // step 13b: create the connection status indicator.
-  // lives on app.stage (fixed position, bottom-left) so it doesn't pan/zoom.
-  // layout() reads visual viewport internally for correct sizing on mobile safari.
-  const connectionStatus = new ConnectionStatus(presenceManager, theme);
-  app.stage.addChild(connectionStatus.root);
-  connectionStatus.layout();
+  if (!options.isNarthex) {
+    presenceRenderer = new PresenceRenderer(world, presenceManager, theme);
+
+    // step 13b: create the connection status indicator.
+    // lives on app.stage (fixed position, bottom-left) so it doesn't pan/zoom.
+    // layout() reads visual viewport internally for correct sizing on mobile safari.
+    connectionStatus = new ConnectionStatus(presenceManager, theme);
+    app.stage.addChild(connectionStatus.root);
+    connectionStatus.layout();
+  }
 
   // step 13c: create the property tray for editing widget props.
   // lives in the world container so it pans/zooms with widgets.
@@ -250,24 +256,29 @@ export async function initCanvas(options: InitCanvasOptions): Promise<SkeinCanva
   );
 
   // step 14: track local cursor movement and broadcast via presence manager.
-  // we listen on the canvas element for pointermove and convert screen
-  // coordinates to world coordinates so remote peers see the correct position.
+  // skipped on the narthex — no cursor broadcasting needed on the home screen.
   const canvasEl = app.canvas as HTMLCanvasElement;
-  const onPointerMove = (e: PointerEvent) => {
-    const rect = canvasEl.getBoundingClientRect();
-    const screenX = e.clientX - rect.left;
-    const screenY = e.clientY - rect.top;
+  let onPointerMove: ((e: PointerEvent) => void) | null = null;
 
-    // convert screen coordinates to world coordinates (accounting for pan/zoom)
-    const worldX = (screenX - world.x) / (world.scale.x || 1);
-    const worldY = (screenY - world.y) / (world.scale.y || 1);
+  if (!options.isNarthex) {
+    // we listen on the canvas element for pointermove and convert screen
+    // coordinates to world coordinates so remote peers see the correct position.
+    onPointerMove = (e: PointerEvent) => {
+      const rect = canvasEl.getBoundingClientRect();
+      const screenX = e.clientX - rect.left;
+      const screenY = e.clientY - rect.top;
 
-    presenceManager.broadcastCursor(worldX, worldY);
-  };
-  canvasEl.addEventListener("pointermove", onPointerMove);
+      // convert screen coordinates to world coordinates (accounting for pan/zoom)
+      const worldX = (screenX - world.x) / (world.scale.x || 1);
+      const worldY = (screenY - world.y) / (world.scale.y || 1);
 
-  // step 15: announce that we're online
-  presenceManager.broadcastOnline();
+      presenceManager.broadcastCursor(worldX, worldY);
+    };
+    canvasEl.addEventListener("pointermove", onPointerMove);
+
+    // step 15: announce that we're online
+    presenceManager.broadcastOnline();
+  }
 
   // capture the canvas element before destroy nulls out pixi internals
   const canvasElement = app.canvas;
@@ -295,9 +306,11 @@ export async function initCanvas(options: InitCanvasOptions): Promise<SkeinCanva
       // best-effort offline broadcast before teardown
       presenceManager.broadcastOffline();
 
-      canvasEl.removeEventListener("pointermove", onPointerMove);
-      connectionStatus.destroy();
-      presenceRenderer.destroy();
+      if (onPointerMove) {
+        canvasEl.removeEventListener("pointermove", onPointerMove);
+      }
+      connectionStatus?.destroy();
+      presenceRenderer?.destroy();
       presenceManager.destroy();
       lassoTool.destroy();
       propertyTray.destroy();

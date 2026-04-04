@@ -111,7 +111,7 @@ export const friendsWidget: WidgetFactory<typeof friendsSchema> = {
     category: "narthex",
     singleton: true,
     singletonId: "skein-friends",
-    defaultWidth: 260,
+    defaultWidth: 280,
     defaultHeight: 400,
   },
   schema: friendsSchema,
