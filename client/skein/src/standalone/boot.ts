@@ -29,6 +29,8 @@ class SkeinRouter {
   private currentCanvas: SkeinCanvas | null = null;
   private narthexDocId: string | null = null;
   private navigating = false;
+  /** stashed by joinCanvasFromNarthex so navigateToCanvas can write it into the doc */
+  private pendingPeerNodeId: string | null = null;
 
   constructor(mountElement: HTMLElement) {
     this.mountElement = mountElement;
@@ -331,6 +333,13 @@ class SkeinRouter {
         "| registry:",
         canvas.registry.types().join(", ")
       );
+
+      // write self (and any pending join peer) into the canvas doc so
+      // connections can be re-established after page reload.
+      // then reconnect to all known peers in the doc.
+      this.registerAndReconnectPeers(canvas).catch((err) => {
+        console.warn("[skein] peer registration/reconnection failed:", err);
+      });
     } finally {
       this.navigating = false;
     }
@@ -461,8 +470,49 @@ class SkeinRouter {
       }
     }
 
-    // navigate to the canvas — automerge-repo will sync it from the peer
+    // stash the remote peer's nodeId so navigateToCanvas can write it
+    // into the canvas doc reliably (no RAF race).
+    this.pendingPeerNodeId = decoded.nodeId;
+
+    // navigate to the canvas — automerge-repo will sync it from the peer.
+    // navigateToCanvas will pick up pendingPeerNodeId and write both
+    // self + remote into the canvas doc's peers field.
     window.location.hash = decoded.docId;
+  }
+
+  /**
+   * write self (and any pending join peer) into the canvas doc, then
+   * reconnect to all known peers. this covers:
+   * - first open after creating a canvas (writes self)
+   * - first open after joining via share string (writes self + remote)
+   * - page reload (writes self if missing, reconnects to all known peers)
+   */
+  private async registerAndReconnectPeers(canvas: SkeinCanvas): Promise<void> {
+    const identity = await getStoredIdentity();
+    if (!identity) return;
+
+    // always write self — idempotent, ensures we're in the peer list
+    canvas.store.addPeer(identity.node_id);
+
+    // write the remote peer from a pending join (stashed by joinCanvasFromNarthex)
+    if (this.pendingPeerNodeId) {
+      canvas.store.addPeer(this.pendingPeerNodeId);
+      this.pendingPeerNodeId = null;
+    }
+
+    // reconnect to every peer that isn't us
+    const peers = canvas.store.peers();
+    const peerNodeIds = Object.keys(peers).filter((id) => id !== identity.node_id);
+
+    if (peerNodeIds.length === 0) return;
+
+    console.log("[skein] reconnecting to", peerNodeIds.length, "known peer(s)");
+
+    for (const nodeId of peerNodeIds) {
+      this.irohAdapter.addPeer(nodeId).catch((err) => {
+        console.warn("[skein] failed to reconnect to peer:", nodeId.slice(0, 16) + "...", err);
+      });
+    }
   }
 
   /**

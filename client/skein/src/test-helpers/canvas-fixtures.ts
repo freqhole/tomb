@@ -54,5 +54,6 @@ export function canvasDoc(
     description: "",
     createdAt: "",
     lastModified: "",
+    peers: {},
   };
 }

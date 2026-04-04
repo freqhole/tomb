@@ -1,5 +1,5 @@
 import type { DocHandle, DocumentId, PeerId, Repo } from "@automerge/automerge-repo";
-import type { CanvasDocument, WidgetEntry } from "./canvas-doc";
+import type { CanvasDocument, CanvasPeer, WidgetEntry } from "./canvas-doc";
 import { emptyCanvasDoc } from "./canvas-doc";
 
 /** handler signature for ephemeral message listeners */
@@ -52,6 +52,25 @@ export class CanvasStore {
   allWidgets(): WidgetEntry[] {
     return Object.values(this.doc().widgets);
   }
+
+  // -- peer tracking ---------------------------------------------------------
+
+  /** get all known peers for this canvas. */
+  peers(): Record<string, CanvasPeer> {
+    return this.doc().peers ?? {};
+  }
+
+  /** register a peer's node ID in the canvas document for reconnection on reload. */
+  addPeer(nodeId: string): void {
+    this.handle.change((doc) => {
+      if (!doc.peers) doc.peers = {} as Record<string, CanvasPeer>;
+      if (!doc.peers[nodeId]) {
+        doc.peers[nodeId] = { nodeId, joinedAt: new Date().toISOString() };
+      }
+    });
+  }
+
+  // -- metadata --------------------------------------------------------------
 
   /** get the canvas metadata (title, description, timestamps). */
   metadata(): { title: string; description: string; createdAt: string; lastModified: string } {

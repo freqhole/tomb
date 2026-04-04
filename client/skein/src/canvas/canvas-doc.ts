@@ -20,6 +20,12 @@ export interface WidgetEntry {
   docId: string | null;
 }
 
+/** a peer that has connected to this canvas via P2P. */
+export interface CanvasPeer {
+  nodeId: string;
+  joinedAt: string;
+}
+
 /**
  * the top-level canvas document stored in Automerge.
  * contains the layout of all widgets on the canvas.
@@ -35,6 +41,8 @@ export interface CanvasDocument {
   createdAt: string;
   /** ISO date string when the canvas was last modified */
   lastModified: string;
+  /** peers that have connected to this canvas — used to re-establish P2P on reload */
+  peers: Record<string, CanvasPeer>;
 }
 
 /**
@@ -48,5 +56,6 @@ export function emptyCanvasDoc(): CanvasDocument {
     description: "",
     createdAt: "",
     lastModified: "",
+    peers: {},
   };
 }
