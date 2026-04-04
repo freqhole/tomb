@@ -141,7 +141,6 @@ export class Toolbar {
     this.flyoutBg = new Graphics();
     this.flyout.addChild(this.flyoutBg);
 
-    this.buildFlyoutItems();
     this.root.addChild(this.flyout);
 
     // add root to stage
@@ -207,7 +206,15 @@ export class Toolbar {
 
   /** build the vertical list of widget type entries inside the flyout. */
   private buildFlyoutItems(): void {
-    const factories = this.registry.all().filter((f) => !f.metadata.hidden);
+    // collect widget types already on the canvas so we can hide singletons
+    const typesOnCanvas = new Set(this.store.allWidgets().map((w) => w.type));
+
+    const factories = this.registry.all().filter((f) => {
+      if (f.metadata.hidden) return false;
+      // hide singleton types that are already placed on the canvas
+      if (f.metadata.singleton && typesOnCanvas.has(f.type)) return false;
+      return true;
+    });
     const itemPadH = 10;
     const itemPadV = 6;
     const itemGap = 2;
@@ -280,9 +287,10 @@ export class Toolbar {
 
       // click handler: add widget and close flyout
       const widgetType = factory.type;
+      const singletonId = factory.metadata.singletonId;
       item.on("pointerdown", (e: any) => {
         e.stopPropagation();
-        this.addWidget(widgetType);
+        this.addWidget(widgetType, singletonId);
         this.closeFlyout();
       });
 
@@ -324,6 +332,15 @@ export class Toolbar {
     this.flyoutBg.stroke({ color: this.theme.toolbarBorder, width: 1 });
   }
 
+  /** clear and rebuild flyout items so singleton filtering is up to date. */
+  private rebuildFlyout(): void {
+    // remove all children except the background
+    while (this.flyout.children.length > 1) {
+      this.flyout.removeChildAt(1).destroy({ children: true });
+    }
+    this.buildFlyoutItems();
+  }
+
   /**
    * open the widget type flyout at a specific screen position.
    * when the user picks a widget type, it will be placed at (worldX, worldY)
@@ -342,6 +359,7 @@ export class Toolbar {
     if (this.flyoutOpen) {
       this.closeFlyout();
     }
+    this.rebuildFlyout();
     this.flyoutOpen = true;
     this.flyout.visible = true;
 
@@ -449,6 +467,7 @@ export class Toolbar {
   /** open the flyout and attach a stage dismiss listener. */
   private openFlyout(): void {
     if (this.flyoutOpen) return;
+    this.rebuildFlyout();
     this.flyoutOpen = true;
     this.flyout.visible = true;
 
@@ -584,9 +603,9 @@ export class Toolbar {
   // -- widget creation -------------------------------------------------------
 
   /** add a widget of the given type at a default staggered position. */
-  private addWidget(type: string): void {
+  private addWidget(type: string, singletonId?: string): void {
     this.widgetCounter++;
-    const id = crypto.randomUUID();
+    const id = singletonId ?? crypto.randomUUID();
     const pos = this.pendingPlacement ?? {
       x: 100 + this.widgetCounter * 20,
       y: 100 + this.widgetCounter * 20,

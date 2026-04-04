@@ -21,9 +21,16 @@ describe("createNarthexRegistry", () => {
     expect(registry.get("canvas-card")!.metadata.hidden).toBe(true);
   });
 
-  it("profile is hidden", () => {
+  it("profile is a singleton", () => {
     const registry = createNarthexRegistry();
-    expect(registry.get("profile")!.metadata.hidden).toBe(true);
+    expect(registry.get("profile")!.metadata.singleton).toBe(true);
+    expect(registry.get("profile")!.metadata.singletonId).toBe("skein-profile");
+  });
+
+  it("friends is a singleton", () => {
+    const registry = createNarthexRegistry();
+    expect(registry.get("friends")!.metadata.singleton).toBe(true);
+    expect(registry.get("friends")!.metadata.singletonId).toBe("skein-friends");
   });
 
   it("canvas-wizard is not hidden", () => {
@@ -44,10 +51,11 @@ describe("createNarthexRegistry", () => {
   it("non-hidden widgets for palette", () => {
     const registry = createNarthexRegistry();
     const visible = registry.all().filter((f) => !f.metadata.hidden);
-    expect(visible.length).toBe(3);
+    expect(visible.length).toBe(4);
     const types = visible.map((f) => f.type);
     expect(types).toContain("canvas-wizard");
     expect(types).toContain("friends");
+    expect(types).toContain("profile");
     expect(types).toContain("label");
   });
 });

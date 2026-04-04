@@ -82,6 +82,14 @@ export interface WidgetMetadata {
   category?: string;
   /** hide this widget from the palette (e.g. programmatically-spawned widgets) */
   hidden?: boolean;
+  /** singleton widgets have a well-known ID and cannot be deleted via the
+   *  frame close button. the flyout hides them when already on the canvas.
+   *  use for persistent narthex widgets like profile and friends. */
+  singleton?: boolean;
+  /** well-known widget ID used when `singleton` is true. the toolbar uses
+   *  this instead of a random UUID so the per-widget automerge doc persists
+   *  across close/reopen cycles. */
+  singletonId?: string;
   /** default width when placing the widget on the canvas */
   defaultWidth?: number;
   /** default height when placing the widget on the canvas */

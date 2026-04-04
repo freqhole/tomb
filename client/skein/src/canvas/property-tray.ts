@@ -1,6 +1,7 @@
 import { Container, Graphics, Text, type FederatedPointerEvent } from "pixi.js";
 import type { SkeinTheme } from "../theme/skein-theme";
-import type { KeyboardDriver, KeyboardHandler } from "../widgets/keyboard-driver";
+import type { KeyboardDriver } from "../widgets/keyboard-driver";
+import { createSkeinInput } from "../widgets/skein-input";
 import type { WidgetRegistry } from "../widgets/widget-registry";
 import type { WidgetDoc, WidgetPropDef } from "../widgets/widget-types";
 import { TRANSPARENT_COLOR } from "../widgets/widget-types";
@@ -69,6 +70,9 @@ export class PropertyTray {
   readonly root: Container;
 
   private readonly theme: SkeinTheme;
+  // kept in constructor signature for backward compatibility; string controls
+  // now use SkeinInput which manages its own DOM input internally.
+  // @ts-expect-error — retained for API compat, no longer referenced
   private readonly keyboard: KeyboardDriver;
   private readonly inputRouter: InputRouter;
   private readonly widgetManager: WidgetManager;
@@ -500,90 +504,28 @@ export class PropertyTray {
     container.addChild(label);
 
     const fieldY = Math.round(label.height + LABEL_FIELD_GAP);
-    let currentFieldWidth = fieldWidth;
 
-    // field background
-    const fieldBg = new Graphics();
-    container.addChild(fieldBg);
-
-    // field text clipped to field width
-    const fieldTextMask = new Graphics();
-    container.addChild(fieldTextMask);
-
-    const fieldText = new Text({
-      text: initialValue,
-      resolution: this.theme.textResolution,
-      style: {
-        fontFamily: this.theme.fontFamily,
-        fontSize: this.theme.fontSizeSmall,
-        fill: this.theme.frameHeaderText,
-      },
+    const handle = createSkeinInput({
+      width: fieldWidth,
+      height: FIELD_HEIGHT,
+      value: initialValue,
+      onChange,
+      // theme overrides to match property tray styling
+      fontSize: this.theme.fontSizeSmall,
+      fontFamily: this.theme.fontFamily,
+      textColor: this.theme.frameHeaderText,
+      bgColor: 0x141414,
+      borderColor: this.theme.frameBorder,
+      borderActiveColor: this.theme.accent,
+      cornerRadius: 4,
     });
-    fieldText.x = 6;
-    fieldText.y = fieldY + Math.round((FIELD_HEIGHT - fieldText.height) / 2);
-    fieldText.mask = fieldTextMask;
-    fieldText.eventMode = "none";
-    container.addChild(fieldText);
 
-    let editing = false;
+    handle.input.y = fieldY;
+    container.addChild(handle.input);
 
-    const drawField = (isEditing: boolean) => {
-      this.drawFieldBg(fieldBg, fieldY, currentFieldWidth, isEditing);
-      fieldTextMask.clear();
-      fieldTextMask.rect(4, fieldY + 1, currentFieldWidth - 8, FIELD_HEIGHT - 2);
-      fieldTextMask.fill({ color: 0xffffff });
-    };
-    drawField(false);
-
-    const stopEditing = () => {
-      if (!editing) return;
-      editing = false;
-      drawField(false);
-      this.keyboard.release();
-      if (this.activeStopEditing === stopEditing) {
-        this.activeStopEditing = null;
-      }
-    };
-
-    const startEditing = () => {
-      if (this.activeStopEditing && this.activeStopEditing !== stopEditing) {
-        this.activeStopEditing();
-      }
+    // close any active popup when the input is clicked/focused
+    handle.input.on("pointertap", () => {
       this.closeActivePopup();
-
-      editing = true;
-      drawField(true);
-
-      const handler: KeyboardHandler = {
-        onInput: (value: string) => {
-          fieldText.text = value;
-          onChange(value);
-        },
-        onKeyDown: (event: KeyboardEvent) => {
-          if (event.key === "Enter" && !event.shiftKey) {
-            event.preventDefault();
-            stopEditing();
-          }
-          if (event.key === "Escape") {
-            stopEditing();
-          }
-        },
-        onBlur: () => {
-          stopEditing();
-        },
-      };
-
-      this.keyboard.acquire(handler, fieldText.text);
-      this.activeStopEditing = stopEditing;
-    };
-
-    fieldBg.eventMode = "static";
-    fieldBg.cursor = "text";
-    fieldBg.on("pointertap", (e: FederatedPointerEvent) => {
-      e.stopPropagation();
-      if (!editing) {
-        startEditing();
-      }
     });
 
     const totalHeight = fieldY + FIELD_HEIGHT;
@@ -593,16 +535,16 @@ export class PropertyTray {
       height: totalHeight,
       container,
       update(value: unknown) {
-        if (!editing) {
-          fieldText.text = String(value ?? "");
+        if (!(handle.input as any).editing) {
+          handle.value = String(value ?? "");
         }
       },
       setWidth(fw: number) {
-        currentFieldWidth = fw;
-        drawField(editing);
+        handle.setWidth(fw);
       },
       destroy() {
-        if (editing) stopEditing();
+        handle.blur();
+        handle.destroy();
         container.destroy({ children: true });
       },
     };

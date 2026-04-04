@@ -1,6 +1,6 @@
 import { Container, Graphics, Sprite, Text, Texture } from "pixi.js";
 import { z } from "zod";
-import type { KeyboardHandler } from "../../src/widgets/keyboard-driver";
+import { createSkeinInput, type SkeinInputHandle } from "../../src/widgets/skein-input";
 import type {
   WidgetController,
   WidgetFactory,
@@ -26,9 +26,6 @@ export type ProfileState = z.infer<typeof profileSchema>;
 
 const BG = 0x1a1a24;
 const BORDER = 0x2a2a3e;
-const FIELD_BG = 0x12121a;
-const FIELD_BORDER = 0x333348;
-const FIELD_BORDER_ACTIVE = 0x6366f1;
 const LABEL_COLOR = 0x888898;
 const TEXT_COLOR = 0xf0f0ff;
 const MUTED_TEXT = 0x666678;
@@ -38,12 +35,10 @@ const COLOR_PALETTE = [
 ];
 
 const CARD_RADIUS = 6;
-const FIELD_RADIUS = 4;
 const PADDING_X = 16;
 const PADDING_Y = 14;
 const FIELD_HEIGHT = 28;
 const LABEL_SIZE = 10;
-const TEXT_SIZE = 12;
 const HEADER_SIZE = 14;
 const FIELD_GAP = 10;
 const COLOR_DOT_RADIUS = 7;
@@ -65,7 +60,8 @@ export const profileWidget: WidgetFactory<typeof profileSchema> = {
     description: "set up your local identity — username, bio, and avatar",
     version: "0.1.0",
     category: "narthex",
-    hidden: true,
+    singleton: true,
+    singletonId: "skein-profile",
     defaultWidth: 280,
     defaultHeight: 360,
   },
@@ -78,12 +74,6 @@ export const profileWidget: WidgetFactory<typeof profileSchema> = {
 
     let currentWidth = ctx.width;
     let currentHeight = ctx.height;
-
-    // track the currently-active field's stop-editing closure
-    let activeStopEditing: (() => void) | null = null;
-
-    // ordered list of field stop/start helpers for tab navigation
-    const fieldStarters: (() => void)[] = [];
 
     // ---------------------------------------------------------------------------
     // background card
@@ -293,34 +283,22 @@ export const profileWidget: WidgetFactory<typeof profileSchema> = {
       input.click();
     };
 
-    avatarContainer.on("pointertap", (e) => {
-      e.stopPropagation();
-      activeStopEditing?.();
-      pickAvatarFile();
-    });
-
     // ---------------------------------------------------------------------------
-    // text field builder (same pattern as canvas-wizard)
+    // text fields using SkeinInput
     // ---------------------------------------------------------------------------
 
-    interface FieldGroup {
+    interface FieldEntry {
       label: Text;
-      fieldBg: Graphics;
-      fieldText: Text;
-      fieldMask: Graphics;
-      startEditing: () => void;
-      stopEditing: () => void;
+      handle: SkeinInputHandle;
+      docKey: "username" | "bio";
       layoutAt: (x: number, y: number, w: number) => void;
-      isEditing: () => boolean;
     }
 
-    function createTextField(
+    function createField(
       labelStr: string,
       docKey: "username" | "bio",
-      fieldIndex: number
-    ): FieldGroup {
-      let editing = false;
-
+      placeholder: string
+    ): FieldEntry {
       const label = new Text({
         text: labelStr,
         style: { fontFamily: FONT, fontSize: LABEL_SIZE, fill: LABEL_COLOR },
@@ -329,122 +307,45 @@ export const profileWidget: WidgetFactory<typeof profileSchema> = {
       label.eventMode = "none";
       container.addChild(label);
 
-      const fieldBg = new Graphics();
-      fieldBg.eventMode = "static";
-      fieldBg.cursor = "text";
-      container.addChild(fieldBg);
-
-      const fieldMask = new Graphics();
-      container.addChild(fieldMask);
-
-      const fieldText = new Text({
-        text: ctx.doc.current[docKey] || "",
-        style: { fontFamily: FONT, fontSize: TEXT_SIZE, fill: TEXT_COLOR },
-        resolution: RESOLUTION,
+      const handle = createSkeinInput({
+        width: currentWidth - PADDING_X * 2,
+        height: FIELD_HEIGHT,
+        placeholder,
+        value: ctx.doc.current[docKey] || "",
+        onChange: (value: string) => {
+          ctx.doc.change((draft) => {
+            (draft as Record<string, unknown>)[docKey] = value;
+          });
+        },
       });
-      fieldText.eventMode = "none";
-      fieldText.mask = fieldMask;
-      container.addChild(fieldText);
 
-      let fieldX = 0;
-      let fieldY = 0;
-      let fieldW = 100;
-
-      const drawFieldBg = () => {
-        const borderColor = editing ? FIELD_BORDER_ACTIVE : FIELD_BORDER;
-        fieldBg.clear();
-        fieldBg.roundRect(fieldX, fieldY, fieldW, FIELD_HEIGHT, FIELD_RADIUS);
-        fieldBg.fill({ color: FIELD_BG });
-        fieldBg.stroke({ color: borderColor, width: 1 });
-      };
-
-      const drawFieldMask = () => {
-        fieldMask.clear();
-        fieldMask.rect(fieldX + 6, fieldY, fieldW - 12, FIELD_HEIGHT);
-        fieldMask.fill({ color: 0xffffff });
-      };
-
-      const stopEditing = () => {
-        if (!editing) return;
-        editing = false;
-        if (activeStopEditing === stopEditing) {
-          activeStopEditing = null;
-        }
-        ctx.keyboard.release();
-        drawFieldBg();
-      };
-
-      const startEditing = () => {
-        if (editing) return;
-        // stop any other active field first
-        activeStopEditing?.();
-
-        editing = true;
-        activeStopEditing = stopEditing;
-        drawFieldBg();
-
-        const handler: KeyboardHandler = {
-          onInput(value: string) {
-            fieldText.text = value;
-            ctx.doc.change((draft) => {
-              (draft as Record<string, unknown>)[docKey] = value;
-            });
-          },
-          onKeyDown(event: KeyboardEvent) {
-            if (event.key === "Enter" || event.key === "Escape") {
-              event.preventDefault();
-              stopEditing();
-            } else if (event.key === "Tab") {
-              event.preventDefault();
-              stopEditing();
-              // move to next field
-              const nextIndex =
-                (fieldIndex + (event.shiftKey ? -1 : 1) + fieldStarters.length) %
-                fieldStarters.length;
-              fieldStarters[nextIndex]();
-            }
-          },
-          onBlur() {
-            stopEditing();
-          },
-        };
-
-        ctx.keyboard.acquire(handler, ctx.doc.current[docKey]);
-      };
-
-      fieldBg.on("pointertap", (e) => {
-        e.stopPropagation();
-        startEditing();
-      });
+      container.addChild(handle.input);
 
       const layoutAt = (x: number, y: number, w: number) => {
         label.x = x;
         label.y = y;
-        fieldX = x;
-        fieldY = y + LABEL_SIZE + 4;
-        fieldW = w;
-        drawFieldBg();
-        drawFieldMask();
-        fieldText.x = fieldX + 8;
-        fieldText.y = fieldY + (FIELD_HEIGHT - TEXT_SIZE) / 2;
+        handle.input.x = x;
+        handle.input.y = y + LABEL_SIZE + 4;
+        handle.setWidth(w);
       };
 
-      return {
-        label,
-        fieldBg,
-        fieldText,
-        fieldMask,
-        startEditing,
-        stopEditing,
-        layoutAt,
-        isEditing: () => editing,
-      };
+      return { label, handle, docKey, layoutAt };
     }
 
-    const usernameField = createTextField("username", "username", 0);
-    const bioField = createTextField("bio", "bio", 1);
+    const usernameField = createField("username", "username", "your name...");
+    const bioField = createField("bio", "bio", "about you...");
 
-    fieldStarters.push(usernameField.startEditing, bioField.startEditing);
+    const fields = [usernameField, bioField];
+
+    // ---------------------------------------------------------------------------
+    // avatar pointertap (defined after fields so blur works)
+    // ---------------------------------------------------------------------------
+
+    avatarContainer.on("pointertap", (e) => {
+      e.stopPropagation();
+      for (const f of fields) f.handle.blur();
+      pickAvatarFile();
+    });
 
     // ---------------------------------------------------------------------------
     // accent color picker
@@ -479,7 +380,7 @@ export const profileWidget: WidgetFactory<typeof profileSchema> = {
 
       dot.on("pointertap", (e) => {
         e.stopPropagation();
-        activeStopEditing?.();
+        for (const f of fields) f.handle.blur();
         ctx.doc.change((draft) => {
           draft.accentColor = COLOR_PALETTE[i];
         });
@@ -574,12 +475,16 @@ export const profileWidget: WidgetFactory<typeof profileSchema> = {
 
       // username field
       usernameField.layoutAt(PADDING_X, y, contentW);
-      if (!usernameField.isEditing()) usernameField.fieldText.text = state.username;
+      if (!(usernameField.handle as any).input?.editing) {
+        usernameField.handle.value = state.username;
+      }
       y += LABEL_SIZE + 4 + FIELD_HEIGHT + FIELD_GAP;
 
       // bio field
       bioField.layoutAt(PADDING_X, y, contentW);
-      if (!bioField.isEditing()) bioField.fieldText.text = state.bio;
+      if (!(bioField.handle as any).input?.editing) {
+        bioField.handle.value = state.bio;
+      }
       y += LABEL_SIZE + 4 + FIELD_HEIGHT + FIELD_GAP;
 
       // accent color picker
@@ -611,7 +516,7 @@ export const profileWidget: WidgetFactory<typeof profileSchema> = {
       container,
 
       destroy() {
-        activeStopEditing?.();
+        for (const f of fields) f.handle.destroy();
         unsub();
         if (avatarSprite) {
           avatarSprite.destroy();

@@ -73,6 +73,7 @@ export class WidgetFrame {
   private _layerTotal = 0;
   private readonly collapseBtn: Container;
   private readonly closeBtn: Container;
+  private readonly closeable: boolean;
   private readonly contentMask: Graphics;
   private readonly resizeHandles: Map<HandlePosition, Graphics> = new Map();
 
@@ -105,11 +106,13 @@ export class WidgetFrame {
     widgetName: string,
     theme: SkeinTheme,
     editing: boolean,
-    callbacks: WidgetFrameCallbacks
+    callbacks: WidgetFrameCallbacks,
+    closeable = true
   ) {
     this.theme = theme;
     this.callbacks = callbacks;
     this.widgetName = widgetName;
+    this.closeable = closeable;
     this._width = entry.width;
     this._height = entry.height;
     this._editing = editing;
@@ -870,7 +873,7 @@ export class WidgetFrame {
     // header buttons: visible only in edit mode
     this.layersBtn.visible = this._editing;
     this.collapseBtn.visible = this._editing;
-    this.closeBtn.visible = this._editing;
+    this.closeBtn.visible = this._editing && this.closeable;
 
     // hide layers flyout when leaving edit mode
     if (!this._editing) {

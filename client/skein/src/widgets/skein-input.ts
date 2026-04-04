@@ -65,6 +65,25 @@ export interface SkeinInputOptions {
   onChange?: (value: string) => void;
   /** called when input is committed (Enter / Escape / blur) */
   onEnter?: (value: string) => void;
+
+  // -- optional style overrides (fall back to dark-theme defaults) ----------
+
+  /** font size in pixels (default: 12) */
+  fontSize?: number;
+  /** font family string (default: "system-ui, sans-serif") */
+  fontFamily?: string;
+  /** text fill color (default: 0xf0f0ff) */
+  textColor?: number;
+  /** field background color (default: 0x12121a) */
+  bgColor?: number;
+  /** border color when unfocused (default: 0x333348) */
+  borderColor?: number;
+  /** border color when focused (default: 0x6366f1) */
+  borderActiveColor?: number;
+  /** placeholder text color (default: 0x666678) */
+  placeholderColor?: number;
+  /** corner radius in pixels (default: 4) */
+  cornerRadius?: number;
 }
 
 export interface SkeinInputHandle {
@@ -99,16 +118,26 @@ export function createSkeinInput(options: SkeinInputOptions): SkeinInputHandle {
   const height = options.height ?? 28;
   let currentWidth = options.width;
 
+  // resolve style overrides with defaults
+  const styleFontSize = options.fontSize ?? FONT_SIZE;
+  const styleFontFamily = options.fontFamily ?? FONT;
+  const styleTextColor = options.textColor ?? TEXT_COLOR;
+  const styleBgColor = options.bgColor ?? FIELD_BG;
+  const styleBorderColor = options.borderColor ?? FIELD_BORDER;
+  const styleBorderActive = options.borderActiveColor ?? FIELD_BORDER_ACTIVE;
+  const stylePlaceholderColor = options.placeholderColor ?? MUTED_TEXT;
+  const styleCornerRadius = options.cornerRadius ?? CORNER_RADIUS;
+
   // -- background graphic --------------------------------------------------
 
   const bg = new Graphics();
 
   const drawBg = (active: boolean): void => {
-    const borderColor = active ? FIELD_BORDER_ACTIVE : FIELD_BORDER;
+    const border = active ? styleBorderActive : styleBorderColor;
     bg.clear();
-    bg.roundRect(0, 0, currentWidth, height, CORNER_RADIUS);
-    bg.fill({ color: FIELD_BG });
-    bg.stroke({ color: borderColor, width: 1 });
+    bg.roundRect(0, 0, currentWidth, height, styleCornerRadius);
+    bg.fill({ color: styleBgColor });
+    bg.stroke({ color: border, width: 1 });
   };
 
   // draw the initial (unfocused) state
@@ -119,9 +148,9 @@ export function createSkeinInput(options: SkeinInputOptions): SkeinInputHandle {
   const input = new Input({
     bg,
     textStyle: {
-      fontFamily: FONT,
-      fontSize: FONT_SIZE,
-      fill: TEXT_COLOR,
+      fontFamily: styleFontFamily,
+      fontSize: styleFontSize,
+      fill: styleTextColor,
     },
     placeholder: options.placeholder ?? "",
     value: options.value ?? "",
@@ -135,7 +164,7 @@ export function createSkeinInput(options: SkeinInputOptions): SkeinInputHandle {
   // main textStyle to the placeholder too, so we override just the fill
   // to get the muted color.
   if ((input as any).placeholder && (input as any).placeholder.style) {
-    (input as any).placeholder.style.fill = MUTED_TEXT;
+    (input as any).placeholder.style.fill = stylePlaceholderColor;
   }
 
   // -- wire up user callbacks ---------------------------------------------

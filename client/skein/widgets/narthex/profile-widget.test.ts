@@ -68,8 +68,9 @@ describe("profileWidget", () => {
     expect(profileWidget.metadata.category).toBe("narthex");
   });
 
-  it("is hidden from palette", () => {
-    expect(profileWidget.metadata.hidden).toBe(true);
+  it("is a singleton widget", () => {
+    expect(profileWidget.metadata.singleton).toBe(true);
+    expect(profileWidget.metadata.singletonId).toBe("skein-profile");
   });
 
   it("has correct defaultWidth", () => {

@@ -1,6 +1,6 @@
 import { Container, Graphics, Text } from "pixi.js";
 import { z } from "zod";
-import type { KeyboardHandler } from "../../src/widgets/keyboard-driver";
+import { createSkeinInput, type SkeinInputHandle } from "../../src/widgets/skein-input";
 import type {
   WidgetController,
   WidgetFactory,
@@ -34,7 +34,7 @@ const BG = 0x1a1a24;
 const BORDER = 0x2a2a3e;
 const FIELD_BG = 0x12121a;
 const FIELD_BORDER = 0x333348;
-const FIELD_BORDER_ACTIVE = 0x6366f1;
+
 const LABEL_COLOR = 0x888898;
 const TEXT_COLOR = 0xf0f0ff;
 const MUTED_TEXT = 0x666678;
@@ -45,7 +45,7 @@ const COLOR_PALETTE = [
 ];
 
 const CARD_RADIUS = 6;
-const FIELD_RADIUS = 4;
+
 const BUTTON_RADIUS = 4;
 const PADDING_X = 16;
 const PADDING_Y = 14;
@@ -101,6 +101,8 @@ export const friendsWidget: WidgetFactory<typeof friendsSchema> = {
     description: "peer identity directory — add and manage friends",
     version: "0.1.0",
     category: "narthex",
+    singleton: true,
+    singletonId: "skein-friends",
     defaultWidth: 260,
     defaultHeight: 400,
   },
@@ -114,17 +116,11 @@ export const friendsWidget: WidgetFactory<typeof friendsSchema> = {
     let currentWidth = ctx.width;
     let currentHeight = ctx.height;
 
-    // track the currently-active field's stop-editing closure
-    let activeStopEditing: (() => void) | null = null;
-
     // whether we're in "add friend" mode
     let addMode = false;
 
     // scroll state
     let scrollY = 0;
-
-    // ordered list of field stop/start helpers for tab navigation
-    const fieldStarters: (() => void)[] = [];
 
     // ---------------------------------------------------------------------------
     // background card
@@ -381,7 +377,6 @@ export const friendsWidget: WidgetFactory<typeof friendsSchema> = {
         const friendId = friend.id;
         removeBtn.on("pointertap", (e) => {
           e.stopPropagation();
-          activeStopEditing?.();
           ctx.doc.change((draft) => {
             const idx = draft.friends.findIndex((f: FriendEntry) => f.id === friendId);
             if (idx !== -1) {
@@ -418,31 +413,17 @@ export const friendsWidget: WidgetFactory<typeof friendsSchema> = {
     addModeBg.eventMode = "none";
     addModeContainer.addChild(addModeBg);
 
-    interface FieldGroup {
+    interface AddFieldEntry {
       label: Text;
-      fieldBg: Graphics;
-      fieldText: Text;
-      fieldMask: Graphics;
-      startEditing: () => void;
-      stopEditing: () => void;
+      handle: SkeinInputHandle;
       layoutAt: (x: number, y: number, w: number) => void;
-      isEditing: () => boolean;
-      getValue: () => string;
-      reset: () => void;
     }
-
-    let addNameValue = "";
-    let addNodeIdValue = "";
 
     function createAddField(
       labelStr: string,
       parentContainer: Container,
-      fieldIndex: number,
-      getValueFn: () => string,
-      setValueFn: (v: string) => void
-    ): FieldGroup {
-      let editing = false;
-
+      placeholder: string
+    ): AddFieldEntry {
       const label = new Text({
         text: labelStr,
         style: { fontFamily: FONT, fontSize: LABEL_SIZE, fill: LABEL_COLOR },
@@ -451,143 +432,29 @@ export const friendsWidget: WidgetFactory<typeof friendsSchema> = {
       label.eventMode = "none";
       parentContainer.addChild(label);
 
-      const fieldBg = new Graphics();
-      fieldBg.eventMode = "static";
-      fieldBg.cursor = "text";
-      parentContainer.addChild(fieldBg);
-
-      const fieldMask = new Graphics();
-      parentContainer.addChild(fieldMask);
-
-      const fieldText = new Text({
-        text: "",
-        style: { fontFamily: FONT, fontSize: TEXT_SIZE, fill: TEXT_COLOR },
-        resolution: RESOLUTION,
+      const handle = createSkeinInput({
+        width: currentWidth - PADDING_X * 2,
+        height: FIELD_HEIGHT,
+        placeholder,
+        value: "",
+        onChange: () => {}, // we read .value directly when needed
       });
-      fieldText.eventMode = "none";
-      fieldText.mask = fieldMask;
-      parentContainer.addChild(fieldText);
 
-      let fieldX = 0;
-      let fieldY = 0;
-      let fieldW = 100;
-
-      const drawFieldBg = () => {
-        const borderColor = editing ? FIELD_BORDER_ACTIVE : FIELD_BORDER;
-        fieldBg.clear();
-        fieldBg.roundRect(fieldX, fieldY, fieldW, FIELD_HEIGHT, FIELD_RADIUS);
-        fieldBg.fill({ color: FIELD_BG });
-        fieldBg.stroke({ color: borderColor, width: 1 });
-      };
-
-      const drawFieldMask = () => {
-        fieldMask.clear();
-        fieldMask.rect(fieldX + 6, fieldY, fieldW - 12, FIELD_HEIGHT);
-        fieldMask.fill({ color: 0xffffff });
-      };
-
-      const stopEditing = () => {
-        if (!editing) return;
-        editing = false;
-        if (activeStopEditing === stopEditing) {
-          activeStopEditing = null;
-        }
-        ctx.keyboard.release();
-        drawFieldBg();
-      };
-
-      const startEditing = () => {
-        if (editing) return;
-        activeStopEditing?.();
-
-        editing = true;
-        activeStopEditing = stopEditing;
-        drawFieldBg();
-
-        const handler: KeyboardHandler = {
-          onInput(value: string) {
-            fieldText.text = value;
-            setValueFn(value);
-          },
-          onKeyDown(event: KeyboardEvent) {
-            if (event.key === "Escape") {
-              event.preventDefault();
-              stopEditing();
-            } else if (event.key === "Tab") {
-              event.preventDefault();
-              stopEditing();
-              const nextIndex =
-                (fieldIndex + (event.shiftKey ? -1 : 1) + fieldStarters.length) %
-                fieldStarters.length;
-              fieldStarters[nextIndex]();
-            } else if (event.key === "Enter") {
-              event.preventDefault();
-              stopEditing();
-            }
-          },
-          onBlur() {
-            stopEditing();
-          },
-        };
-
-        ctx.keyboard.acquire(handler, getValueFn());
-      };
-
-      fieldBg.on("pointertap", (e) => {
-        e.stopPropagation();
-        startEditing();
-      });
+      parentContainer.addChild(handle.input);
 
       const layoutAt = (x: number, y: number, w: number) => {
         label.x = x;
         label.y = y;
-        fieldX = x;
-        fieldY = y + LABEL_SIZE + 4;
-        fieldW = w;
-        drawFieldBg();
-        drawFieldMask();
-        fieldText.x = fieldX + 8;
-        fieldText.y = fieldY + (FIELD_HEIGHT - TEXT_SIZE) / 2;
+        handle.input.x = x;
+        handle.input.y = y + LABEL_SIZE + 4;
+        handle.setWidth(w);
       };
 
-      return {
-        label,
-        fieldBg,
-        fieldText,
-        fieldMask,
-        startEditing,
-        stopEditing,
-        layoutAt,
-        isEditing: () => editing,
-        getValue: getValueFn,
-        reset: () => {
-          setValueFn("");
-          fieldText.text = "";
-        },
-      };
+      return { label, handle, layoutAt };
     }
 
-    const nameField = createAddField(
-      "name",
-      addModeContainer,
-      0,
-      () => addNameValue,
-      (v) => {
-        addNameValue = v;
-      }
-    );
-
-    const nodeIdField = createAddField(
-      "node id",
-      addModeContainer,
-      1,
-      () => addNodeIdValue,
-      (v) => {
-        addNodeIdValue = v;
-      }
-    );
-
-    fieldStarters.push(nameField.startEditing, nodeIdField.startEditing);
+    const nameField = createAddField("name", addModeContainer, "friend's name...");
+    const nodeIdField = createAddField("node id", addModeContainer, "iroh node id...");
 
     // add-mode buttons: cancel and add
     const addCancelBtn = new Container();
@@ -608,11 +475,12 @@ export const friendsWidget: WidgetFactory<typeof friendsSchema> = {
 
     addCancelBtn.on("pointertap", (e) => {
       e.stopPropagation();
-      activeStopEditing?.();
+      nameField.handle.blur();
+      nodeIdField.handle.blur();
       addMode = false;
       addModeContainer.visible = false;
-      nameField.reset();
-      nodeIdField.reset();
+      nameField.handle.value = "";
+      nodeIdField.handle.value = "";
       layout(currentWidth, currentHeight);
     });
 
@@ -634,17 +502,18 @@ export const friendsWidget: WidgetFactory<typeof friendsSchema> = {
 
     addConfirmBtn.on("pointertap", (e) => {
       e.stopPropagation();
-      activeStopEditing?.();
+      nameField.handle.blur();
+      nodeIdField.handle.blur();
 
-      const name = addNameValue.trim();
-      const nodeId = addNodeIdValue.trim();
+      const name = nameField.handle.value.trim();
+      const nodeId = nodeIdField.handle.value.trim();
 
       if (!name && !nodeId) {
         // nothing to add — just close
         addMode = false;
         addModeContainer.visible = false;
-        nameField.reset();
-        nodeIdField.reset();
+        nameField.handle.value = "";
+        nodeIdField.handle.value = "";
         layout(currentWidth, currentHeight);
         return;
       }
@@ -661,8 +530,8 @@ export const friendsWidget: WidgetFactory<typeof friendsSchema> = {
 
       addMode = false;
       addModeContainer.visible = false;
-      nameField.reset();
-      nodeIdField.reset();
+      nameField.handle.value = "";
+      nodeIdField.handle.value = "";
 
       // scroll to bottom to show the new friend
       // (will be clamped in next layout)
@@ -691,13 +560,12 @@ export const friendsWidget: WidgetFactory<typeof friendsSchema> = {
 
     addBtn.on("pointertap", (e) => {
       e.stopPropagation();
-      activeStopEditing?.();
       addMode = true;
       addModeContainer.visible = true;
       addBtn.visible = false;
       layout(currentWidth, currentHeight);
       // auto-focus the name field
-      nameField.startEditing();
+      nameField.handle.focus();
     });
 
     // ---------------------------------------------------------------------------
@@ -752,12 +620,10 @@ export const friendsWidget: WidgetFactory<typeof friendsSchema> = {
 
         // name field
         nameField.layoutAt(PADDING_X, addY, contentW);
-        if (!nameField.isEditing()) nameField.fieldText.text = addNameValue;
         addY += LABEL_SIZE + 4 + FIELD_HEIGHT + FIELD_GAP;
 
         // node id field
         nodeIdField.layoutAt(PADDING_X, addY, contentW);
-        if (!nodeIdField.isEditing()) nodeIdField.fieldText.text = addNodeIdValue;
         addY += LABEL_SIZE + 4 + FIELD_HEIGHT + FIELD_GAP;
 
         // buttons — anchored to the bottom of the card
@@ -846,7 +712,8 @@ export const friendsWidget: WidgetFactory<typeof friendsSchema> = {
       container,
 
       destroy() {
-        activeStopEditing?.();
+        nameField.handle.destroy();
+        nodeIdField.handle.destroy();
         unsub();
         container.destroy({ children: true });
       },

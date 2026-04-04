@@ -222,8 +222,9 @@ export class WidgetManager {
     // build callbacks that close over this entry's id
     const callbacks = this.createFrameCallbacks(entry.id);
 
-    // create the pixi frame
-    const frame = new WidgetFrame(entry, widgetName, this.theme, editing, callbacks);
+    // create the pixi frame — singleton widgets cannot be closed
+    const closeable = !factory.metadata.singleton;
+    const frame = new WidgetFrame(entry, widgetName, this.theme, editing, callbacks, closeable);
 
     // if this widget is the currently selected one, mark it
     if (this.inputRouter.selectedWidgetId === entry.id) {

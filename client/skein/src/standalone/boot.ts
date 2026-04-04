@@ -1,10 +1,14 @@
-import { Repo } from "@automerge/automerge-repo";
+import { Repo, type DocumentId } from "@automerge/automerge-repo";
 import { BroadcastChannelNetworkAdapter } from "@automerge/automerge-repo-network-broadcastchannel";
 import { IndexedDBStorageAdapter } from "@automerge/automerge-repo-storage-indexeddb";
 import { createTestRegistry } from "../../widgets/index";
 import { createNarthexRegistry } from "../../widgets/narthex/index";
 import { CanvasStore } from "../canvas/canvas-store";
 import { initCanvas, type SkeinCanvas } from "../canvas/init";
+
+// well-known singleton widget IDs — must match the singletonId in each factory's metadata
+const PROFILE_WIDGET_ID = "skein-profile";
+const FRIENDS_WIDGET_ID = "skein-friends";
 
 // indexeddb key for the well-known narthex document id
 const NARTHEX_DOC_KEY = "skein-narthex-doc-id";
@@ -114,7 +118,7 @@ class SkeinRouter {
 
       // seed with a profile widget in the top-right area
       narthexStore.addWidget({
-        id: crypto.randomUUID(),
+        id: PROFILE_WIDGET_ID,
         type: "profile",
         x: 700,
         y: 30,
@@ -125,8 +129,59 @@ class SkeinRouter {
         collapsed: false,
         docId: null,
       });
+
+      // seed with a friends widget below the profile
+      narthexStore.addWidget({
+        id: FRIENDS_WIDGET_ID,
+        type: "friends",
+        x: 700,
+        y: 410,
+        width: 260,
+        height: 400,
+        zIndex: 2,
+        props: {},
+        collapsed: false,
+        docId: null,
+      });
     } else {
       console.log("[skein] found existing narthex doc:", this.narthexDocId);
+
+      // ensure singleton widgets exist — they may have been lost due to a
+      // bug or schema migration. re-seed with fresh docs if missing.
+      const existingStore = await CanvasStore.open(this.repo, this.narthexDocId as DocumentId);
+      const widgets = existingStore.doc().widgets;
+
+      if (!widgets[PROFILE_WIDGET_ID]) {
+        console.log("[skein] re-seeding missing profile widget");
+        existingStore.addWidget({
+          id: PROFILE_WIDGET_ID,
+          type: "profile",
+          x: 700,
+          y: 30,
+          width: 280,
+          height: 360,
+          zIndex: Object.keys(widgets).length + 1,
+          props: {},
+          collapsed: false,
+          docId: null,
+        });
+      }
+
+      if (!widgets[FRIENDS_WIDGET_ID]) {
+        console.log("[skein] re-seeding missing friends widget");
+        existingStore.addWidget({
+          id: FRIENDS_WIDGET_ID,
+          type: "friends",
+          x: 700,
+          y: 410,
+          width: 260,
+          height: 400,
+          zIndex: Object.keys(widgets).length + 2,
+          props: {},
+          collapsed: false,
+          docId: null,
+        });
+      }
     }
 
     // listen for hash changes (browser back/forward, programmatic navigation)
