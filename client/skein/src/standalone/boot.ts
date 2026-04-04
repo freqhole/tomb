@@ -320,12 +320,36 @@ class SkeinRouter {
   }): Promise<void> {
     if (!this.currentCanvas || !this.narthexDocId) return;
 
+    // read the profile username for the canvas author
+    let authorName = "";
+    try {
+      const profileEntry = this.currentCanvas?.store.getWidget(PROFILE_WIDGET_ID);
+      if (profileEntry?.docId) {
+        const profileHandle = await this.repo.find(profileEntry.docId as DocumentId);
+        await profileHandle.whenReady();
+        const profileDoc = profileHandle.doc() as Record<string, unknown> | undefined;
+        if (profileDoc?.username && typeof profileDoc.username === "string") {
+          authorName = profileDoc.username;
+        }
+      }
+    } catch {
+      // if profile reading fails, fall back to empty author
+      console.warn("[skein] failed to read profile for canvas author");
+    }
+
     // create a new empty canvas document in the shared repo
     const newStore = CanvasStore.create(this.repo);
     const newDocId = newStore.handle.documentId;
 
     const title = detail?.title || "untitled canvas";
-    console.log("[skein] creating new canvas:", JSON.stringify(title), "doc:", newDocId);
+    console.log(
+      "[skein] creating new canvas:",
+      JSON.stringify(title),
+      "author:",
+      JSON.stringify(authorName),
+      "doc:",
+      newDocId
+    );
 
     // if the wizard widget is still on the narthex, remove it
     if (detail?.wizardWidgetId) {
@@ -351,7 +375,7 @@ class SkeinRouter {
         canvasDocId: newDocId,
         title,
         description: detail?.description || "",
-        authorName: detail?.authorName || "",
+        authorName: authorName || detail?.authorName || "",
         color: detail?.color ?? 0xd946ef,
         createdAt: now,
         modifiedAt: now,

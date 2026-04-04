@@ -1,4 +1,4 @@
-import { Container, Graphics, Text } from "pixi.js";
+import { Assets, Container, Graphics, Sprite, Text, Texture } from "pixi.js";
 import { z } from "zod";
 import {
   isTransparent,
@@ -78,7 +78,14 @@ export const canvasCardWidget: WidgetFactory<typeof canvasCardSchema> = {
     { key: "title", label: "title", type: "string" as const, default: "untitled canvas" },
     { key: "description", label: "description", type: "string" as const, default: "" },
     { key: "color", label: "color tag", type: "color" as const, default: 0xd946ef },
-    { key: "authorName", label: "author", type: "string" as const, default: "" },
+    {
+      key: "previewUrl",
+      label: "preview",
+      type: "image" as const,
+      default: "",
+      imageMaxWidth: 320,
+      imageMaxHeight: 200,
+    },
   ],
 
   create(ctx: WidgetMountContext<typeof canvasCardSchema>): WidgetController {
@@ -105,7 +112,13 @@ export const canvasCardWidget: WidgetFactory<typeof canvasCardSchema> = {
     container.addChild(previewGrid);
 
     const previewIcon = new Graphics();
+    previewIcon.visible = false;
     container.addChild(previewIcon);
+
+    let previewSprite: Sprite | null = null;
+    let lastRequestedPreviewUrl = "";
+    const previewMask = new Graphics();
+    container.addChild(previewMask);
 
     const hintText = new Text({
       text: "click to open",
@@ -118,6 +131,7 @@ export const canvasCardWidget: WidgetFactory<typeof canvasCardSchema> = {
     });
     hintText.anchor.set(0.5, 0);
     hintText.eventMode = "none";
+    hintText.visible = false;
     container.addChild(hintText);
 
     // --- text elements ---
@@ -209,42 +223,100 @@ export const canvasCardWidget: WidgetFactory<typeof canvasCardSchema> = {
       accentStripe.fill({ color: col });
     };
 
-    const drawPreview = (w: number, h: number) => {
+    const drawPreview = (w: number, h: number, state: CanvasCardState) => {
       const previewH = Math.floor(h * PREVIEW_RATIO);
       const top = ACCENT_HEIGHT;
+      const hasPreview = !!state.previewUrl;
 
-      // background fill
+      // background fill — use a dimmed version of the card color when no preview image
       previewBg.clear();
       previewBg.rect(1, top, w - 2, previewH);
-      previewBg.fill({ color: PREVIEW_BG });
-
-      // faint grid pattern
-      previewGrid.clear();
-      for (let x = GRID_STEP; x < w - 2; x += GRID_STEP) {
-        previewGrid.moveTo(x, top);
-        previewGrid.lineTo(x, top + previewH);
+      if (hasPreview) {
+        previewBg.fill({ color: PREVIEW_BG });
+      } else {
+        previewBg.fill({ color: PREVIEW_BG });
+        // overlay the card color at low opacity for a tinted background
+        previewBg.rect(1, top, w - 2, previewH);
+        previewBg.fill({ color: safeColor(state.color), alpha: 0.15 });
       }
-      for (let y = top + GRID_STEP; y < top + previewH; y += GRID_STEP) {
-        previewGrid.moveTo(1, y);
-        previewGrid.lineTo(w - 1, y);
-      }
-      previewGrid.stroke({ color: GRID_LINE_COLOR, width: 0.5, alpha: 0.5 });
 
-      // small canvas-like icon in the center of the preview
+      if (!hasPreview) {
+        // faint grid pattern
+        previewGrid.clear();
+        for (let x = GRID_STEP; x < w - 2; x += GRID_STEP) {
+          previewGrid.moveTo(x, top);
+          previewGrid.lineTo(x, top + previewH);
+        }
+        for (let y = top + GRID_STEP; y < top + previewH; y += GRID_STEP) {
+          previewGrid.moveTo(1, y);
+          previewGrid.lineTo(w - 1, y);
+        }
+        previewGrid.stroke({ color: GRID_LINE_COLOR, width: 0.5, alpha: 0.5 });
+        previewGrid.visible = true;
+        // icon and hint are controlled by hover
+      } else {
+        previewGrid.visible = false;
+        // icon and hint are controlled by hover
+      }
+
+      // icon — always drawn (visibility controlled by hover)
       const iconSize = Math.min(28, previewH * 0.35);
       const iconX = w / 2 - iconSize / 2;
       const iconY = top + previewH / 2 - iconSize / 2;
       previewIcon.clear();
-      // outer frame
       previewIcon.roundRect(iconX, iconY, iconSize, iconSize, 3);
       previewIcon.stroke({ color: ICON_COLOR, width: 1.5 });
-      // inner grid lines (2x2)
       previewIcon.moveTo(iconX + iconSize / 2, iconY + 3);
       previewIcon.lineTo(iconX + iconSize / 2, iconY + iconSize - 3);
       previewIcon.stroke({ color: ICON_COLOR, width: 1 });
       previewIcon.moveTo(iconX + 3, iconY + iconSize / 2);
       previewIcon.lineTo(iconX + iconSize - 3, iconY + iconSize / 2);
       previewIcon.stroke({ color: ICON_COLOR, width: 1 });
+      // visibility is toggled by pointerover/pointerout on the container
+    };
+
+    const updatePreviewSprite = async (dataUrl: string, w: number, h: number) => {
+      lastRequestedPreviewUrl = dataUrl;
+
+      // clean up existing sprite
+      if (previewSprite) {
+        container.removeChild(previewSprite);
+        previewSprite.destroy();
+        previewSprite = null;
+      }
+
+      if (!dataUrl) return;
+
+      try {
+        const texture = await Assets.load<Texture>(dataUrl);
+        // race check — another load may have started while we were loading
+        if (lastRequestedPreviewUrl !== dataUrl) return;
+
+        const previewH = Math.floor(h * PREVIEW_RATIO);
+        const top = ACCENT_HEIGHT;
+
+        previewSprite = new Sprite(texture);
+        previewSprite.eventMode = "none";
+
+        // fit within the preview area
+        const maxW = w - 2;
+        const maxH = previewH;
+        const scale = Math.min(maxW / texture.width, maxH / texture.height, 1);
+        previewSprite.width = texture.width * scale;
+        previewSprite.height = texture.height * scale;
+        previewSprite.x = 1 + (maxW - previewSprite.width) / 2;
+        previewSprite.y = top + (maxH - previewSprite.height) / 2;
+
+        // clip to preview area
+        previewMask.clear();
+        previewMask.rect(1, top, w - 2, previewH);
+        previewMask.fill({ color: 0xffffff });
+        previewSprite.mask = previewMask;
+
+        container.addChild(previewSprite);
+      } catch {
+        // silently ignore load failures
+      }
     };
 
     const drawAuthorBadge = (w: number, h: number, state: CanvasCardState) => {
@@ -282,7 +354,11 @@ export const canvasCardWidget: WidgetFactory<typeof canvasCardSchema> = {
 
       drawCardBg(w, h);
       drawAccent(w, state.color);
-      drawPreview(w, h);
+      drawPreview(w, h, state);
+      // only reload the sprite when the URL changes
+      if (state.previewUrl !== lastRequestedPreviewUrl) {
+        updatePreviewSprite(state.previewUrl, w, h);
+      }
 
       // hint text below preview icon
       const previewH2 = Math.floor(h * PREVIEW_RATIO);
@@ -338,11 +414,15 @@ export const canvasCardWidget: WidgetFactory<typeof canvasCardSchema> = {
     container.on("pointerover", () => {
       hovered = true;
       drawCardBg(currentWidth, currentHeight);
+      hintText.visible = true;
+      previewIcon.visible = true;
     });
 
     container.on("pointerout", () => {
       hovered = false;
       drawCardBg(currentWidth, currentHeight);
+      hintText.visible = false;
+      previewIcon.visible = false;
     });
 
     // --- click navigation ---
@@ -364,6 +444,10 @@ export const canvasCardWidget: WidgetFactory<typeof canvasCardSchema> = {
       container,
       destroy() {
         unsub();
+        if (previewSprite) {
+          previewSprite.destroy();
+          previewSprite = null;
+        }
         container.destroy({ children: true });
       },
       resize(width: number, height: number) {

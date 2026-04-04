@@ -1,5 +1,6 @@
-import { Container, Graphics, Sprite, Text, Texture } from "pixi.js";
+import { Assets, Circle, Container, Graphics, Sprite, Text, Texture } from "pixi.js";
 import { z } from "zod";
+import { pickImageAsDataUrl } from "../../src/widgets/image-utils";
 import { createSkeinInput, type SkeinInputHandle } from "../../src/widgets/skein-input";
 import type {
   WidgetController,
@@ -16,6 +17,7 @@ export const profileSchema = z.object({
   bio: z.string().default(""),
   avatarDataUrl: z.string().default(""),
   accentColor: z.number().default(0x6366f1),
+  nodeId: z.string().default(""),
 });
 
 export type ProfileState = z.infer<typeof profileSchema>;
@@ -56,14 +58,14 @@ const AVATAR_EXPORT_SIZE = 100;
 export const profileWidget: WidgetFactory<typeof profileSchema> = {
   type: "profile",
   metadata: {
-    name: "my profile",
+    name: "profile",
     description: "set up your local identity — username, bio, and avatar",
     version: "0.1.0",
     category: "narthex",
     singleton: true,
     singletonId: "skein-profile",
     defaultWidth: 280,
-    defaultHeight: 360,
+    defaultHeight: 420,
   },
   schema: profileSchema,
   editableProps: [], // the widget IS the editor
@@ -94,7 +96,7 @@ export const profileWidget: WidgetFactory<typeof profileSchema> = {
     // ---------------------------------------------------------------------------
 
     const headerText = new Text({
-      text: "my profile",
+      text: "profile",
       style: {
         fontFamily: FONT,
         fontSize: HEADER_SIZE,
@@ -155,7 +157,15 @@ export const profileWidget: WidgetFactory<typeof profileSchema> = {
       resolution: RESOLUTION,
     });
     avatarHint.eventMode = "none";
+    avatarHint.visible = false;
     container.addChild(avatarHint);
+
+    avatarContainer.on("pointerover", () => {
+      avatarHint.visible = true;
+    });
+    avatarContainer.on("pointerout", () => {
+      avatarHint.visible = false;
+    });
 
     // track avatar center for layout
     let avatarCx = 0;
@@ -182,7 +192,11 @@ export const profileWidget: WidgetFactory<typeof profileSchema> = {
       avatarMask.fill({ color: 0xffffff });
     };
 
-    const updateAvatarSprite = (dataUrl: string) => {
+    let lastRequestedAvatarUrl = "";
+
+    const updateAvatarSprite = async (dataUrl: string) => {
+      lastRequestedAvatarUrl = dataUrl;
+
       // destroy previous sprite if any
       if (avatarSprite) {
         avatarContainer.removeChild(avatarSprite);
@@ -199,16 +213,25 @@ export const profileWidget: WidgetFactory<typeof profileSchema> = {
       avatarPlaceholder.visible = false;
       avatarInitial.visible = false;
 
-      const texture = Texture.from(dataUrl);
-      avatarSprite = new Sprite(texture);
-      avatarSprite.eventMode = "none";
-      avatarSprite.anchor.set(0.5, 0.5);
-      avatarSprite.x = avatarCx;
-      avatarSprite.y = avatarCy;
-      avatarSprite.width = AVATAR_RADIUS * 2;
-      avatarSprite.height = AVATAR_RADIUS * 2;
-      avatarSprite.mask = avatarMask;
-      avatarContainer.addChild(avatarSprite);
+      try {
+        const texture = await Assets.load<Texture>(dataUrl);
+        // race check
+        if (lastRequestedAvatarUrl !== dataUrl) return;
+
+        avatarSprite = new Sprite(texture);
+        avatarSprite.eventMode = "none";
+        avatarSprite.anchor.set(0.5, 0.5);
+        avatarSprite.x = avatarCx;
+        avatarSprite.y = avatarCy;
+        avatarSprite.width = AVATAR_RADIUS * 2;
+        avatarSprite.height = AVATAR_RADIUS * 2;
+        avatarSprite.mask = avatarMask;
+        avatarContainer.addChild(avatarSprite);
+      } catch {
+        // failed to load — show placeholder instead
+        avatarPlaceholder.visible = true;
+        avatarInitial.visible = true;
+      }
     };
 
     const repositionAvatarSprite = () => {
@@ -221,66 +244,19 @@ export const profileWidget: WidgetFactory<typeof profileSchema> = {
     // avatar file picker
     // ---------------------------------------------------------------------------
 
-    const pickAvatarFile = () => {
-      const input = document.createElement("input");
-      input.type = "file";
-      input.accept = "image/*";
-      input.style.display = "none";
-      document.body.appendChild(input);
-
-      input.addEventListener("change", async () => {
-        const file = input.files?.[0];
-        if (!file) {
-          input.remove();
-          return;
-        }
-
-        try {
-          const bitmap = await createImageBitmap(file);
-
-          // center-crop to a square using the minimum dimension
-          const minDim = Math.min(bitmap.width, bitmap.height);
-          const sx = (bitmap.width - minDim) / 2;
-          const sy = (bitmap.height - minDim) / 2;
-
-          const offscreen = new OffscreenCanvas(AVATAR_EXPORT_SIZE, AVATAR_EXPORT_SIZE);
-          const offCtx = offscreen.getContext("2d")!;
-          offCtx.drawImage(
-            bitmap,
-            sx,
-            sy,
-            minDim,
-            minDim,
-            0,
-            0,
-            AVATAR_EXPORT_SIZE,
-            AVATAR_EXPORT_SIZE
-          );
-          bitmap.close();
-
-          const blob = await offscreen.convertToBlob({ type: "image/webp", quality: 0.8 });
-
-          // convert blob to data url via FileReader
-          const dataUrl = await new Promise<string>((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = () => resolve(reader.result as string);
-            reader.onerror = () => reject(reader.error);
-            reader.readAsDataURL(blob);
-          });
-
-          ctx.doc.change((d) => {
-            d.avatarDataUrl = dataUrl;
-          });
-
-          updateAvatarSprite(dataUrl);
-        } catch {
-          // silently ignore — user may have cancelled or file was unreadable
-        } finally {
-          input.remove();
-        }
+    const pickAvatarFile = async () => {
+      const dataUrl = await pickImageAsDataUrl({
+        maxWidth: AVATAR_EXPORT_SIZE,
+        maxHeight: AVATAR_EXPORT_SIZE,
+        quality: 0.8,
+        cropSquare: true,
       });
-
-      input.click();
+      if (dataUrl) {
+        ctx.doc.change((d) => {
+          d.avatarDataUrl = dataUrl;
+        });
+        updateAvatarSprite(dataUrl);
+      }
     };
 
     // ---------------------------------------------------------------------------
@@ -417,6 +393,62 @@ export const profileWidget: WidgetFactory<typeof profileSchema> = {
     };
 
     // ---------------------------------------------------------------------------
+    // node id display (read-only)
+    // ---------------------------------------------------------------------------
+
+    const nodeIdLabel = new Text({
+      text: "node id",
+      style: { fontFamily: FONT, fontSize: LABEL_SIZE, fill: LABEL_COLOR },
+      resolution: RESOLUTION,
+    });
+    nodeIdLabel.eventMode = "none";
+    container.addChild(nodeIdLabel);
+
+    const nodeIdText = new Text({
+      text: "",
+      style: {
+        fontFamily: "monospace",
+        fontSize: 9,
+        fill: MUTED_TEXT,
+      },
+      resolution: RESOLUTION,
+    });
+    nodeIdText.eventMode = "none";
+    container.addChild(nodeIdText);
+
+    // copy button — small "copy" text button next to the node id
+    const copyBtn = new Container();
+    copyBtn.eventMode = "static";
+    copyBtn.cursor = "pointer";
+    const copyBg = new Graphics();
+    copyBtn.addChild(copyBg);
+    const copyText = new Text({
+      text: "copy",
+      style: {
+        fontFamily: FONT,
+        fontSize: 9,
+        fill: 0x6366f1,
+      },
+      resolution: RESOLUTION,
+    });
+    copyText.eventMode = "none";
+    copyBtn.addChild(copyText);
+    container.addChild(copyBtn);
+
+    copyBtn.on("pointertap", (e) => {
+      e.stopPropagation();
+      const nid = ctx.doc.current.nodeId;
+      if (nid) {
+        navigator.clipboard.writeText(nid).catch(() => {});
+        // brief visual feedback
+        copyText.text = "copied!";
+        setTimeout(() => {
+          copyText.text = "copy";
+        }, 5000);
+      }
+    });
+
+    // ---------------------------------------------------------------------------
     // layout
     // ---------------------------------------------------------------------------
 
@@ -444,18 +476,19 @@ export const profileWidget: WidgetFactory<typeof profileSchema> = {
       avatarCx = w / 2;
       avatarCy = y + AVATAR_RADIUS;
 
+      // update hit area for avatar interaction (children are all eventMode="none"
+      // so the container needs an explicit hit area for pointer events)
+      avatarContainer.hitArea = new Circle(avatarCx, avatarCy, AVATAR_RADIUS);
+
       drawAvatarMask();
 
-      if (state.avatarDataUrl) {
+      if (state.avatarDataUrl && state.avatarDataUrl !== lastRequestedAvatarUrl) {
+        updateAvatarSprite(state.avatarDataUrl);
+      } else if (state.avatarDataUrl) {
         avatarPlaceholder.visible = false;
         avatarInitial.visible = false;
-        // only create sprite if we don't have one yet or the data url changed
-        if (!avatarSprite) {
-          updateAvatarSprite(state.avatarDataUrl);
-        } else {
-          repositionAvatarSprite();
-        }
-      } else {
+        repositionAvatarSprite();
+      } else if (!state.avatarDataUrl) {
         drawAvatarPlaceholder();
         if (avatarSprite) {
           avatarContainer.removeChild(avatarSprite);
@@ -492,7 +525,46 @@ export const profileWidget: WidgetFactory<typeof profileSchema> = {
       colorLabel.y = y;
       y += LABEL_SIZE + 6;
       layoutColorDots(PADDING_X, y);
+
+      // node id (read-only)
+      y += COLOR_DOT_RADIUS * 2 + FIELD_GAP;
+      nodeIdLabel.x = PADDING_X;
+      nodeIdLabel.y = y;
+      y += LABEL_SIZE + 4;
+
+      const nid = state.nodeId;
+      // truncate to fit — show first 8 and last 8 chars with "..." in the middle
+      if (nid.length > 20) {
+        nodeIdText.text = nid.slice(0, 8) + "..." + nid.slice(-8);
+      } else {
+        nodeIdText.text = nid || "(generating...)";
+      }
+      nodeIdText.x = PADDING_X;
+      nodeIdText.y = y;
+
+      // position copy button to the right of the node id text
+      copyBtn.x = PADDING_X + nodeIdText.width + 8;
+      copyBtn.y = y;
+
+      // draw a subtle background for the copy button hit area
+      copyBg.clear();
+      const cbPad = 4;
+      copyBg.roundRect(-cbPad, -1, copyText.width + cbPad * 2, copyText.height + 2, 2);
+      copyBg.fill({ color: 0x6366f1, alpha: 0.1 });
     };
+
+    // generate a node ID on first mount if none exists
+    const initialState = ctx.doc.current;
+    if (!initialState.nodeId) {
+      const bytes = new Uint8Array(32);
+      crypto.getRandomValues(bytes);
+      const nodeId = Array.from(bytes)
+        .map((b) => b.toString(16).padStart(2, "0"))
+        .join("");
+      ctx.doc.change((d) => {
+        d.nodeId = nodeId;
+      });
+    }
 
     // initial draw
     layout(currentWidth, currentHeight);
@@ -501,8 +573,7 @@ export const profileWidget: WidgetFactory<typeof profileSchema> = {
     const unsub = ctx.doc.on("change", () => {
       // check if avatar data url changed — need to rebuild sprite
       const state = ctx.doc.current;
-      const currentDataUrl = avatarSprite ? state.avatarDataUrl : "";
-      if (state.avatarDataUrl && state.avatarDataUrl !== currentDataUrl) {
+      if (state.avatarDataUrl && state.avatarDataUrl !== lastRequestedAvatarUrl) {
         updateAvatarSprite(state.avatarDataUrl);
       }
       layout(currentWidth, currentHeight);

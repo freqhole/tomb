@@ -124,7 +124,15 @@ describe("canvasCardWidget", () => {
   it("has editableProps", () => {
     expect(canvasCardWidget.editableProps).toHaveLength(4);
     const keys = canvasCardWidget.editableProps.map((p) => p.key);
-    expect(keys).toEqual(["title", "description", "color", "authorName"]);
+    expect(keys).toEqual(["title", "description", "color", "previewUrl"]);
+  });
+
+  it("previewUrl prop is an image type", () => {
+    const previewProp = canvasCardWidget.editableProps!.find((p) => p.key === "previewUrl");
+    expect(previewProp).toBeDefined();
+    expect(previewProp!.type).toBe("image");
+    expect(previewProp!.imageMaxWidth).toBe(320);
+    expect(previewProp!.imageMaxHeight).toBe(200);
   });
 
   it("has a schema", () => {

@@ -9,6 +9,7 @@ describe("profileSchema", () => {
       bio: "",
       avatarDataUrl: "",
       accentColor: 0x6366f1,
+      nodeId: "",
     });
   });
 
@@ -18,12 +19,14 @@ describe("profileSchema", () => {
       bio: "hello world",
       avatarDataUrl: "data:image/png;base64,abc123",
       accentColor: 0xd946ef,
+      nodeId: "abc123",
     });
     expect(result).toEqual({
       username: "alice",
       bio: "hello world",
       avatarDataUrl: "data:image/png;base64,abc123",
       accentColor: 0xd946ef,
+      nodeId: "abc123",
     });
   });
 
@@ -53,6 +56,16 @@ describe("profileSchema", () => {
     const result = profileSchema.parse({});
     expect(result.accentColor).toBe(0x6366f1);
   });
+
+  it("includes nodeId in schema with empty default", () => {
+    const result = profileSchema.parse({});
+    expect(result.nodeId).toBe("");
+  });
+
+  it("preserves nodeId when provided", () => {
+    const result = profileSchema.parse({ nodeId: "abc123def456" });
+    expect(result.nodeId).toBe("abc123def456");
+  });
 });
 
 describe("profileWidget", () => {
@@ -61,7 +74,7 @@ describe("profileWidget", () => {
   });
 
   it("has correct metadata name", () => {
-    expect(profileWidget.metadata.name).toBe("my profile");
+    expect(profileWidget.metadata.name).toBe("profile");
   });
 
   it("has correct metadata category", () => {
@@ -78,7 +91,7 @@ describe("profileWidget", () => {
   });
 
   it("has correct defaultHeight", () => {
-    expect(profileWidget.metadata.defaultHeight).toBe(360);
+    expect(profileWidget.metadata.defaultHeight).toBe(420);
   });
 
   it("has a schema", () => {

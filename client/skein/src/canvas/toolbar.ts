@@ -177,7 +177,7 @@ export class Toolbar {
       style: {
         fontFamily: this.theme.fontFamily,
         fontSize: this.theme.fontSizeSmall,
-        fill: options?.textColor ?? this.theme.frameHeaderText,
+        fill: options?.textColor ?? 0xffffff,
       },
       resolution: this.theme.textResolution,
     });

@@ -1,5 +1,14 @@
-import { Container, Graphics, Text, type FederatedPointerEvent } from "pixi.js";
+import {
+  Assets,
+  Container,
+  Graphics,
+  Sprite,
+  Text,
+  Texture,
+  type FederatedPointerEvent,
+} from "pixi.js";
 import type { SkeinTheme } from "../theme/skein-theme";
+import { pickImageAsDataUrl } from "../widgets/image-utils";
 import type { KeyboardDriver } from "../widgets/keyboard-driver";
 import { createSkeinInput } from "../widgets/skein-input";
 import type { WidgetRegistry } from "../widgets/widget-registry";
@@ -445,6 +454,13 @@ export class PropertyTray {
         );
       case "select":
         return this.createSelectControl(
+          prop,
+          String(currentValue ?? prop.default ?? ""),
+          onChange as (v: string) => void,
+          fieldWidth
+        );
+      case "image":
+        return this.createImageControl(
           prop,
           String(currentValue ?? prop.default ?? ""),
           onChange as (v: string) => void,
@@ -1196,6 +1212,214 @@ export class PropertyTray {
       },
       destroy() {
         closeDropdown();
+        container.destroy({ children: true });
+      },
+    };
+  }
+
+  // ---------------------------------------------------------------------------
+  // image control
+  // ---------------------------------------------------------------------------
+
+  private createImageControl(
+    prop: WidgetPropDef,
+    initialValue: string,
+    onChange: (value: string) => void,
+    fieldWidth: number
+  ): PropControl {
+    const container = new Container();
+    container.eventMode = "static";
+
+    const label = this.createLabel(prop.label);
+    container.addChild(label);
+
+    const fieldY = Math.round(label.height + LABEL_FIELD_GAP);
+
+    // preview area — shows the current image or a placeholder
+    const PREVIEW_HEIGHT = 60;
+    const previewBg = new Graphics();
+    container.addChild(previewBg);
+
+    let previewSprite: Sprite | null = null;
+    let currentDataUrl = initialValue;
+
+    const drawPreview = (fw: number) => {
+      previewBg.clear();
+      previewBg.roundRect(0, fieldY, fw, PREVIEW_HEIGHT, 4);
+      previewBg.fill({ color: 0x141414 });
+      previewBg.stroke({ color: this.theme.frameBorder, width: 1 });
+
+      if (previewSprite) {
+        // fit the sprite within the preview area with padding
+        const pad = 4;
+        const maxW = fw - pad * 2;
+        const maxH = PREVIEW_HEIGHT - pad * 2;
+        const scale = Math.min(
+          maxW / previewSprite.texture.width,
+          maxH / previewSprite.texture.height,
+          1
+        );
+        previewSprite.width = previewSprite.texture.width * scale;
+        previewSprite.height = previewSprite.texture.height * scale;
+        previewSprite.x = pad + (maxW - previewSprite.width) / 2;
+        previewSprite.y = fieldY + pad + (maxH - previewSprite.height) / 2;
+      }
+    };
+
+    const updateSprite = async (dataUrl: string) => {
+      if (previewSprite) {
+        container.removeChild(previewSprite);
+        previewSprite.destroy();
+        previewSprite = null;
+      }
+      if (!dataUrl) {
+        drawPreview(fieldWidth);
+        return;
+      }
+      try {
+        const texture = await Assets.load<Texture>(dataUrl);
+        // race check: if another load started while we were loading, bail out
+        if (currentDataUrl !== dataUrl) return;
+        previewSprite = new Sprite(texture);
+        previewSprite.eventMode = "none";
+        container.addChild(previewSprite);
+        drawPreview(fieldWidth);
+      } catch {
+        // silently ignore load failures
+      }
+    };
+
+    if (initialValue) {
+      updateSprite(initialValue);
+    }
+
+    // buttons row below the preview
+    const BTN_HEIGHT = 22;
+    const BTN_GAP = 4;
+    const btnY = fieldY + PREVIEW_HEIGHT + BTN_GAP;
+
+    const uploadBtn = new Container();
+    uploadBtn.eventMode = "static";
+    uploadBtn.cursor = "pointer";
+    const uploadBg = new Graphics();
+    uploadBtn.addChild(uploadBg);
+    const uploadText = new Text({
+      text: currentDataUrl ? "change" : "upload",
+      resolution: this.theme.textResolution,
+      style: {
+        fontFamily: this.theme.fontFamily,
+        fontSize: this.theme.fontSizeSmall - 1,
+        fill: 0xffffff,
+      },
+    });
+    uploadText.eventMode = "none";
+    uploadBtn.addChild(uploadText);
+    container.addChild(uploadBtn);
+
+    // optional clear button (only shown when there's an image)
+    const clearBtn = new Container();
+    clearBtn.eventMode = "static";
+    clearBtn.cursor = "pointer";
+    const clearBg = new Graphics();
+    clearBtn.addChild(clearBg);
+    const clearText = new Text({
+      text: "clear",
+      resolution: this.theme.textResolution,
+      style: {
+        fontFamily: this.theme.fontFamily,
+        fontSize: this.theme.fontSizeSmall - 1,
+        fill: 0xef4444,
+      },
+    });
+    clearText.eventMode = "none";
+    clearBtn.addChild(clearText);
+    container.addChild(clearBtn);
+
+    const layoutButtons = (fw: number) => {
+      const hasImage = !!currentDataUrl;
+      clearBtn.visible = hasImage;
+      uploadText.text = hasImage ? "change" : "upload";
+
+      // upload button
+      const uploadW = hasImage ? Math.floor((fw - BTN_GAP) / 2) : fw;
+      uploadBg.clear();
+      uploadBg.roundRect(0, 0, uploadW, BTN_HEIGHT, 3);
+      uploadBg.fill({ color: 0x1a1a2e });
+      uploadBg.stroke({ color: this.theme.frameBorder, width: 1 });
+      uploadText.x = Math.round((uploadW - uploadText.width) / 2);
+      uploadText.y = Math.round((BTN_HEIGHT - uploadText.height) / 2);
+      uploadBtn.x = 0;
+      uploadBtn.y = btnY;
+
+      // clear button
+      if (hasImage) {
+        const clearW = fw - uploadW - BTN_GAP;
+        clearBg.clear();
+        clearBg.roundRect(0, 0, clearW, BTN_HEIGHT, 3);
+        clearBg.fill({ color: 0x1a1a2e });
+        clearBg.stroke({ color: 0x4a2020, width: 1 });
+        clearText.x = Math.round((clearW - clearText.width) / 2);
+        clearText.y = Math.round((BTN_HEIGHT - clearText.height) / 2);
+        clearBtn.x = uploadW + BTN_GAP;
+        clearBtn.y = btnY;
+      }
+    };
+
+    layoutButtons(fieldWidth);
+    drawPreview(fieldWidth);
+
+    // upload click handler
+    uploadBtn.on("pointertap", async (e: any) => {
+      e.stopPropagation();
+      this.closeActivePopup();
+      const dataUrl = await pickImageAsDataUrl({
+        maxWidth: prop.imageMaxWidth ?? 320,
+        maxHeight: prop.imageMaxHeight ?? 200,
+        quality: 0.8,
+        cropSquare: prop.imageCropSquare ?? false,
+      });
+      if (dataUrl) {
+        currentDataUrl = dataUrl;
+        onChange(dataUrl);
+        updateSprite(dataUrl);
+        layoutButtons(fieldWidth);
+      }
+    });
+
+    // clear click handler
+    clearBtn.on("pointertap", (e: any) => {
+      e.stopPropagation();
+      this.closeActivePopup();
+      currentDataUrl = "";
+      onChange("");
+      updateSprite("");
+      layoutButtons(fieldWidth);
+    });
+
+    const totalHeight = btnY + BTN_HEIGHT;
+
+    return {
+      key: prop.key,
+      height: totalHeight,
+      container,
+      update(value: unknown) {
+        const v = String(value ?? "");
+        if (v !== currentDataUrl) {
+          currentDataUrl = v;
+          updateSprite(v);
+          layoutButtons(fieldWidth);
+        }
+      },
+      setWidth(fw: number) {
+        fieldWidth = fw;
+        drawPreview(fw);
+        layoutButtons(fw);
+      },
+      destroy() {
+        if (previewSprite) {
+          previewSprite.destroy();
+          previewSprite = null;
+        }
         container.destroy({ children: true });
       },
     };

@@ -120,9 +120,15 @@ export interface WidgetFactory<S extends z.ZodType = z.ZodType> {
 export interface WidgetPropDef {
   key: string;
   label: string;
-  type: "string" | "number" | "boolean" | "color" | "select";
+  type: "string" | "number" | "boolean" | "color" | "select" | "image";
   options?: string[];
   default?: unknown;
+  /** for image props: maximum output width in pixels */
+  imageMaxWidth?: number;
+  /** for image props: maximum output height in pixels */
+  imageMaxHeight?: number;
+  /** for image props: center-crop to square before resizing */
+  imageCropSquare?: boolean;
 }
 
 /**
