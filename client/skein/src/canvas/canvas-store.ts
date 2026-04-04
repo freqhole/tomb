@@ -53,6 +53,41 @@ export class CanvasStore {
     return Object.values(this.doc().widgets);
   }
 
+  /** get the canvas metadata (title, description, timestamps). */
+  metadata(): { title: string; description: string; createdAt: string; lastModified: string } {
+    const doc = this.doc();
+    return {
+      title: doc.title ?? "",
+      description: doc.description ?? "",
+      createdAt: doc.createdAt ?? "",
+      lastModified: doc.lastModified ?? "",
+    };
+  }
+
+  /** set the canvas title. */
+  setTitle(title: string): void {
+    this.handle.change((doc) => {
+      doc.title = title;
+      doc.lastModified = new Date().toISOString();
+    });
+  }
+
+  /** set the canvas description. */
+  setDescription(description: string): void {
+    this.handle.change((doc) => {
+      doc.description = description;
+      doc.lastModified = new Date().toISOString();
+    });
+  }
+
+  /** set both createdAt and lastModified (used on initial creation). */
+  setCreatedAt(isoDate: string): void {
+    this.handle.change((doc) => {
+      doc.createdAt = isoDate;
+      doc.lastModified = isoDate;
+    });
+  }
+
   /**
    * add a widget to the canvas. returns the widget's ID.
    * the entry must include an `id` field.
@@ -60,6 +95,7 @@ export class CanvasStore {
   addWidget(entry: WidgetEntry): string {
     this.handle.change((doc) => {
       doc.widgets[entry.id] = { ...entry };
+      this.touchModified(doc);
     });
     return entry.id;
   }
@@ -68,6 +104,7 @@ export class CanvasStore {
   removeWidget(id: string): void {
     this.handle.change((doc) => {
       delete doc.widgets[id];
+      this.touchModified(doc);
     });
   }
 
@@ -78,6 +115,7 @@ export class CanvasStore {
       if (widget) {
         widget.x = x;
         widget.y = y;
+        this.touchModified(doc);
       }
     });
   }
@@ -89,6 +127,7 @@ export class CanvasStore {
       if (widget) {
         widget.width = width;
         widget.height = height;
+        this.touchModified(doc);
       }
     });
   }
@@ -197,6 +236,11 @@ export class CanvasStore {
         return a.id < b.id ? -1 : 1;
       })
       .map((w) => w.id);
+  }
+
+  /** update the lastModified timestamp on the document. */
+  private touchModified(doc: CanvasDocument): void {
+    doc.lastModified = new Date().toISOString();
   }
 
   /** reassign zIndexes 0, 1, 2, ... according to the given id order */

@@ -1,6 +1,6 @@
 import { Container, Graphics, Text } from "pixi.js";
 import { z } from "zod";
-import type { KeyboardHandler } from "../src/widgets/keyboard-driver";
+import { colorToCss } from "../src/widgets/format";
 import {
   isTransparent,
   safeColor,
@@ -10,8 +10,7 @@ import {
 } from "../src/widgets/widget-types";
 
 const PADDING = 10;
-const BG_EDITING_COLOR = 0xfff9e6;
-const BORDER_EDITING_COLOR = 0x93c5fd;
+const BORDER_EDITING_COLOR = 0xd946ef;
 const PLACEHOLDER_COLOR = 0x94a3b8;
 
 export const notepadSchema = z.object({
@@ -60,11 +59,13 @@ export const notepadWidget: WidgetFactory<typeof notepadSchema> = {
       const state = ctx.doc.current;
       bg.clear();
       bg.roundRect(0, 0, w, h, 6);
-      const fillColor = isEditing ? BG_EDITING_COLOR : state.bgColor;
+      bg.fill(state.bgColor === -1 ? { color: 0, alpha: 0 } : { color: state.bgColor });
       const strokeColor = isEditing ? BORDER_EDITING_COLOR : state.borderColor;
-      bg.fill(fillColor === -1 ? { color: 0, alpha: 0 } : { color: fillColor });
+      const strokeWidth = isEditing ? 3 : 1;
       bg.stroke(
-        strokeColor === -1 ? { color: 0, alpha: 0, width: 1 } : { color: strokeColor, width: 1 }
+        strokeColor === -1
+          ? { color: 0, alpha: 0, width: strokeWidth }
+          : { color: strokeColor, width: strokeWidth }
       );
     };
     drawBg(currentWidth, currentHeight, false);
@@ -105,7 +106,7 @@ export const notepadWidget: WidgetFactory<typeof notepadSchema> = {
 
     // placeholder text
     const placeholder = new Text({
-      text: "click to type...",
+      text: "double-click to type...",
       style: {
         fontFamily: ctx.doc.current.fontFamily,
         fontSize: ctx.doc.current.fontSize,
@@ -115,62 +116,9 @@ export const notepadWidget: WidgetFactory<typeof notepadSchema> = {
     });
     content.addChild(placeholder);
 
-    // cursor indicator (thin line shown during editing)
-    const cursor = new Graphics();
-    cursor.visible = false;
-    content.addChild(cursor);
-
-    let cursorBlinkInterval: ReturnType<typeof setInterval> | null = null;
-
     const updatePlaceholderVisibility = () => {
       const hasText = textDisplay.text.length > 0;
       placeholder.visible = !hasText && !editing;
-    };
-
-    const updateCursorPosition = () => {
-      cursor.clear();
-      if (!editing) {
-        cursor.visible = false;
-        return;
-      }
-      // draw a thin blinking line at the end of text
-      const textBounds = textDisplay.getBounds();
-      const localRight =
-        textDisplay.text.length > 0 ? Math.min(textBounds.width, contentWidth()) : 0;
-      const localBottom =
-        textDisplay.text.length > 0 ? textBounds.height : ctx.doc.current.fontSize;
-      cursor.rect(
-        localRight + 1,
-        localBottom - ctx.doc.current.fontSize,
-        1.5,
-        ctx.doc.current.fontSize
-      );
-      cursor.fill(
-        isTransparent(ctx.doc.current.textColor)
-          ? { color: 0, alpha: 0 }
-          : { color: ctx.doc.current.textColor }
-      );
-      cursor.visible = true;
-    };
-
-    const startCursorBlink = () => {
-      updateCursorPosition();
-      if (cursorBlinkInterval) clearInterval(cursorBlinkInterval);
-      cursorBlinkInterval = setInterval(() => {
-        if (cursor.visible) {
-          cursor.visible = !cursor.visible;
-        } else {
-          updateCursorPosition();
-        }
-      }, 530);
-    };
-
-    const stopCursorBlink = () => {
-      if (cursorBlinkInterval) {
-        clearInterval(cursorBlinkInterval);
-        cursorBlinkInterval = null;
-      }
-      cursor.visible = false;
     };
 
     const updateWordWrap = () => {
@@ -179,67 +127,109 @@ export const notepadWidget: WidgetFactory<typeof notepadSchema> = {
 
     updatePlaceholderVisibility();
 
-    // keyboard handler for text editing
-    const keyboardHandler: KeyboardHandler = {
-      onInput(value: string) {
-        textDisplay.text = value;
+    // DOM textarea overlay for inline editing
+    let activeTextarea: HTMLTextAreaElement | null = null;
+
+    const exitEditing = () => {
+      if (!editing || !activeTextarea) return;
+      editing = false;
+      const value = activeTextarea.value;
+      if (value !== ctx.doc.current.text) {
         ctx.doc.change((draft) => {
           draft.text = value;
         });
-        updatePlaceholderVisibility();
-        updateCursorPosition();
-      },
-
-      onKeyDown(event: KeyboardEvent) {
-        if (event.key === "Escape") {
-          stopEditing();
-        }
-        // enter is not intercepted — textarea naturally inserts newlines
-      },
-
-      onBlur() {
-        stopEditing();
-      },
+      }
+      activeTextarea.remove();
+      activeTextarea = null;
+      textDisplay.text = ctx.doc.current.text;
+      textDisplay.visible = true;
+      drawBg(currentWidth, currentHeight, false);
+      updatePlaceholderVisibility();
     };
 
     const startEditing = () => {
       if (editing) return;
       editing = true;
       drawBg(currentWidth, currentHeight, true);
-      ctx.keyboard.acquire(keyboardHandler, ctx.doc.current.text);
-      updatePlaceholderVisibility();
-      startCursorBlink();
+      textDisplay.visible = false;
+      placeholder.visible = false;
+
+      // calculate screen position of the widget
+      const globalPos = container.toGlobal({ x: 0, y: 0 });
+      const globalEnd = container.toGlobal({ x: currentWidth, y: currentHeight });
+      const canvasRect = ctx.canvasElement.getBoundingClientRect();
+
+      const screenX = canvasRect.left + globalPos.x;
+      const screenY = canvasRect.top + globalPos.y;
+      const screenW = globalEnd.x - globalPos.x;
+      const screenH = globalEnd.y - globalPos.y;
+
+      const state = ctx.doc.current;
+
+      const ta = document.createElement("textarea");
+      ta.value = state.text;
+      const s = ta.style;
+      s.position = "fixed";
+      s.left = `${screenX}px`;
+      s.top = `${screenY}px`;
+      s.width = `${screenW}px`;
+      s.height = `${screenH}px`;
+      s.fontFamily = state.fontFamily;
+      s.fontSize = `${state.fontSize}px`;
+      s.color = colorToCss(state.textColor);
+      s.background = "transparent";
+      s.border = "none";
+      s.outline = "none";
+      s.resize = "none";
+      s.padding = `${PADDING}px`;
+      s.overflow = "auto";
+      s.zIndex = "10000";
+      s.boxSizing = "border-box";
+      s.lineHeight = "1.4";
+      s.whiteSpace = "pre-wrap";
+      s.wordWrap = "break-word";
+
+      document.body.appendChild(ta);
+      activeTextarea = ta;
+      ta.focus();
+
+      ta.addEventListener("blur", () => {
+        exitEditing();
+      });
+
+      ta.addEventListener("keydown", (e) => {
+        if (e.key === "Escape") {
+          // revert without committing
+          editing = false;
+          ta.remove();
+          activeTextarea = null;
+          textDisplay.text = ctx.doc.current.text;
+          textDisplay.visible = true;
+          drawBg(currentWidth, currentHeight, false);
+          updatePlaceholderVisibility();
+        }
+        // enter inserts newlines naturally (multiline notepad)
+      });
     };
 
-    const stopEditing = () => {
-      if (!editing) return;
-      editing = false;
-      // commit final value from the keyboard driver before releasing
-      const finalValue = ctx.keyboard.value;
-      if (finalValue !== ctx.doc.current.text) {
-        ctx.doc.change((draft) => {
-          draft.text = finalValue;
-        });
-        textDisplay.text = finalValue;
-      }
-      ctx.keyboard.release();
-      drawBg(currentWidth, currentHeight, false);
-      stopCursorBlink();
-      updatePlaceholderVisibility();
-    };
-
-    // click to start editing (pointer events are active in view mode)
+    // double-click to enter edit mode
+    let lastTapTime = 0;
     bg.eventMode = "static";
     bg.cursor = "text";
     bg.on("pointertap", () => {
-      startEditing();
+      if (editing) return;
+      const now = Date.now();
+      if (now - lastTapTime < 400) {
+        startEditing();
+        lastTapTime = 0;
+      } else {
+        lastTapTime = now;
+      }
     });
 
     // subscribe to remote doc changes
     const unsub = ctx.doc.on("change", (state) => {
       if (!editing) {
-        textDisplay.text = state.text;
-      } else {
         textDisplay.text = state.text;
       }
       // apply style changes
@@ -257,21 +247,23 @@ export const notepadWidget: WidgetFactory<typeof notepadSchema> = {
       container,
 
       destroy() {
-        stopCursorBlink();
-        if (editing) {
-          ctx.keyboard.release();
+        if (activeTextarea) {
+          activeTextarea.remove();
+          activeTextarea = null;
         }
         unsub();
         container.destroy({ children: true });
       },
 
       resize(width: number, height: number) {
+        if (editing && activeTextarea) {
+          exitEditing();
+        }
         currentWidth = width;
         currentHeight = height;
-        drawBg(width, height, editing);
+        drawBg(width, height, false);
         drawClipMask(width, height);
         updateWordWrap();
-        updateCursorPosition();
       },
     };
   },

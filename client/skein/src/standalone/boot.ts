@@ -260,6 +260,12 @@ class SkeinRouter {
         "| registry:",
         canvas.registry.types().join(", ")
       );
+
+      // sync fresh metadata from canvas documents into their narthex cards.
+      // runs asynchronously after the narthex is mounted so it doesn't block render.
+      this.syncCanvasMetadataToCards(canvas.store).catch((err) => {
+        console.warn("[skein] metadata sync failed:", err);
+      });
     } finally {
       this.navigating = false;
     }
@@ -307,6 +313,57 @@ class SkeinRouter {
   }
 
   /**
+   * sync canvas metadata back to narthex canvas-card widgets.
+   * called when navigating back to the narthex — iterates all canvas-card
+   * widgets, opens their linked canvas documents, and copies fresh metadata
+   * (title, description, lastModified) into the card's per-widget doc.
+   */
+  private async syncCanvasMetadataToCards(narthexStore: CanvasStore): Promise<void> {
+    const widgets = narthexStore.allWidgets();
+
+    for (const entry of widgets) {
+      if (entry.type !== "canvas-card" || !entry.docId) continue;
+
+      try {
+        // read the card's per-widget doc to get the canvasDocId
+        const cardHandle = await this.repo.find(entry.docId as DocumentId);
+        await cardHandle.whenReady();
+        const cardDoc = cardHandle.doc() as Record<string, unknown> | undefined;
+        if (!cardDoc?.canvasDocId || typeof cardDoc.canvasDocId !== "string") continue;
+
+        // open the linked canvas document and read its metadata
+        const canvasStore = await CanvasStore.open(this.repo, cardDoc.canvasDocId as DocumentId);
+        const meta = canvasStore.metadata();
+
+        // sync metadata from the canvas doc into the card's widget doc.
+        // only update fields that have changed to avoid unnecessary automerge patches.
+        const updates: Record<string, string> = {};
+        if (meta.title && meta.title !== (cardDoc.title ?? "")) {
+          updates.title = meta.title;
+        }
+        if (meta.description !== undefined && meta.description !== (cardDoc.description ?? "")) {
+          updates.description = meta.description;
+        }
+        if (meta.lastModified && meta.lastModified !== (cardDoc.modifiedAt ?? "")) {
+          updates.modifiedAt = meta.lastModified;
+        }
+
+        if (Object.keys(updates).length > 0) {
+          cardHandle.change((d: any) => {
+            for (const [key, value] of Object.entries(updates)) {
+              d[key] = value;
+            }
+          });
+          console.log("[skein] synced metadata to canvas-card:", entry.id, updates);
+        }
+      } catch (err) {
+        // if a canvas doc isn't reachable, skip silently
+        console.warn("[skein] failed to sync metadata for card:", entry.id, err);
+      }
+    }
+  }
+
+  /**
    * create a new canvas and add a canvas-card widget to the narthex.
    * accepts optional detail from the canvas wizard with pre-filled metadata.
    * then navigate to the newly created canvas.
@@ -342,6 +399,7 @@ class SkeinRouter {
     const newDocId = newStore.handle.documentId;
 
     const title = detail?.title || "untitled canvas";
+    const now = new Date().toISOString();
     console.log(
       "[skein] creating new canvas:",
       JSON.stringify(title),
@@ -351,6 +409,14 @@ class SkeinRouter {
       newDocId
     );
 
+    // seed the canvas document with metadata so it's available to
+    // other peers and for navigate-back sync
+    newStore.setTitle(title);
+    if (detail?.description) {
+      newStore.setDescription(detail.description);
+    }
+    newStore.setCreatedAt(now);
+
     // if the wizard widget is still on the narthex, remove it
     if (detail?.wizardWidgetId) {
       this.currentCanvas.store.removeWidget(detail.wizardWidgetId);
@@ -359,7 +425,7 @@ class SkeinRouter {
     // add a canvas-card widget to the narthex doc pointing to the new canvas.
     // props are merged into the widget's schema defaults when the per-widget
     // automerge doc is created (see widget-manager.ts mountWidget).
-    const now = new Date().toISOString().slice(0, 10);
+    const shortDate = now.slice(0, 10);
     const cardId = crypto.randomUUID();
     const existingCount = this.currentCanvas.store.widgetCount();
 
@@ -377,7 +443,7 @@ class SkeinRouter {
         description: detail?.description || "",
         authorName: authorName || detail?.authorName || "",
         color: detail?.color ?? 0xd946ef,
-        createdAt: now,
+        createdAt: shortDate,
         modifiedAt: now,
       },
       collapsed: false,

@@ -36,7 +36,7 @@ export function resetEntryCounter(): void {
  */
 export function canvasDoc(
   widgetCount: number = 0,
-  widgetOverrides?: (index: number) => Partial<WidgetEntry>,
+  widgetOverrides?: (index: number) => Partial<WidgetEntry>
 ): CanvasDocument {
   const widgets: Record<string, WidgetEntry> = {};
   for (let i = 0; i < widgetCount; i++) {
@@ -50,5 +50,9 @@ export function canvasDoc(
   return {
     version: 1,
     widgets,
+    title: "",
+    description: "",
+    createdAt: "",
+    lastModified: "",
   };
 }

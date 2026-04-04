@@ -4,6 +4,59 @@
 import { expect, test } from "@playwright/test";
 import path from "path";
 
+/**
+ * get the screen coordinates of the profile avatar circle by querying
+ * the PixiJS display tree. this is much more reliable than guessing
+ * pixel offsets from the widget entry's world-space position.
+ */
+async function getAvatarScreenCoords(
+  page: import("@playwright/test").Page
+): Promise<{ x: number; y: number } | null> {
+  return page.evaluate(() => {
+    const skein = (window as any).__skein;
+    if (!skein) return null;
+    const live = skein.widgetManager.getLiveWidgets();
+    const widget = live.get("skein-profile");
+    if (!widget) return null;
+
+    // the avatar container is the child of the widget's container that
+    // has the circle hitArea. walk the display tree to find it.
+    const ctrl = widget.ctrl;
+    if (!ctrl?.container) return null;
+
+    // the profile widget exposes the avatar center position indirectly —
+    // the avatarContainer has a hitArea (Circle) whose center gives us
+    // the local coords. fall back to a heuristic if we can't find it.
+    const container = ctrl.container;
+
+    // look for a child container that has a Circle hitArea
+    for (let i = 0; i < container.children.length; i++) {
+      const child = container.children[i] as any;
+      if (child.hitArea && typeof child.hitArea.radius === "number") {
+        const cx = child.hitArea.x ?? 0;
+        const cy = child.hitArea.y ?? 0;
+        // convert local coords within the child to global (screen) coords
+        const global = child.toGlobal({ x: cx, y: cy });
+        const canvas = skein.app.canvas as HTMLCanvasElement;
+        const rect = canvas.getBoundingClientRect();
+        return { x: rect.left + global.x, y: rect.top + global.y };
+      }
+    }
+
+    // fallback: use the widget entry position + heuristic offset
+    const entry = (widget as any).entry;
+    const frame = widget.frame;
+    if (frame?.root) {
+      const globalPos = frame.contentContainer.toGlobal({ x: entry.width / 2, y: 95 });
+      const canvas = skein.app.canvas as HTMLCanvasElement;
+      const rect = canvas.getBoundingClientRect();
+      return { x: rect.left + globalPos.x, y: rect.top + globalPos.y };
+    }
+
+    return null;
+  });
+}
+
 // ---------------------------------------------------------------------------
 // helpers (same pattern as narthex.test.ts)
 // ---------------------------------------------------------------------------
@@ -210,34 +263,32 @@ test.describe("profile and image features", () => {
   // -------------------------------------------------------------------------
 
   test("profile avatar upload via file chooser stores a WebP data URL", async ({ page }) => {
-    await page.waitForTimeout(1000);
+    await page.waitForTimeout(1500);
 
-    // find the profile widget's position on the narthex
-    const pos = await page.evaluate(() => {
-      const skein = (window as any).__skein;
-      const live = skein.widgetManager.getLiveWidgets();
-      const widget = live.get("skein-profile");
-      if (!widget) return null;
-      const entry = (widget as any).entry;
-      return { x: entry.x, y: entry.y, width: entry.width, height: entry.height };
-    });
-    expect(pos).not.toBeNull();
-
-    // the avatar circle is centered horizontally, roughly 80–100px from the
-    // widget top (after header + separator). click in the center of that area.
-    const clickX = pos!.x + pos!.width / 2;
-    const clickY = pos!.y + 95;
+    // get the avatar circle's screen coordinates from the PixiJS display tree
+    const coords = await getAvatarScreenCoords(page);
+    expect(coords).not.toBeNull();
 
     // set up file chooser listener BEFORE clicking
-    const fileChooserPromise = page.waitForEvent("filechooser");
+    const fileChooserPromise = page.waitForEvent("filechooser", { timeout: 5000 });
 
-    await page.mouse.click(clickX, clickY);
+    await page.mouse.click(coords!.x, coords!.y);
 
     const fileChooser = await fileChooserPromise;
     await fileChooser.setFiles(path.join(__dirname, "fixtures", "freqhole.png"));
 
     // wait for the image to be processed (resize + WebP encode + Automerge write)
-    await page.waitForTimeout(3000);
+    // poll instead of fixed timeout for more reliable detection
+    await page.waitForFunction(
+      () => {
+        const skein = (window as any).__skein;
+        const live = skein?.widgetManager?.getLiveWidgets();
+        const widget = live?.get("skein-profile");
+        const url = widget?.widgetDoc?.current?.avatarDataUrl ?? "";
+        return url.startsWith("data:image/");
+      },
+      { timeout: 10_000 }
+    );
 
     // verify the avatar data URL was set
     const avatarDataUrl = await page.evaluate(() => {
@@ -252,25 +303,29 @@ test.describe("profile and image features", () => {
   });
 
   test("profile avatar persists across page reload", async ({ page }) => {
-    await page.waitForTimeout(1000);
+    await page.waitForTimeout(1500);
 
-    // find profile widget position
-    const pos = await page.evaluate(() => {
-      const skein = (window as any).__skein;
-      const live = skein.widgetManager.getLiveWidgets();
-      const widget = live.get("skein-profile");
-      if (!widget) return null;
-      const entry = (widget as any).entry;
-      return { x: entry.x, y: entry.y, width: entry.width, height: entry.height };
-    });
-    expect(pos).not.toBeNull();
+    // get the avatar circle's screen coordinates from the PixiJS display tree
+    const coords = await getAvatarScreenCoords(page);
+    expect(coords).not.toBeNull();
 
     // upload an avatar
-    const fileChooserPromise = page.waitForEvent("filechooser");
-    await page.mouse.click(pos!.x + pos!.width / 2, pos!.y + 95);
+    const fileChooserPromise = page.waitForEvent("filechooser", { timeout: 5000 });
+    await page.mouse.click(coords!.x, coords!.y);
     const fileChooser = await fileChooserPromise;
     await fileChooser.setFiles(path.join(__dirname, "fixtures", "freqhole.png"));
-    await page.waitForTimeout(3000);
+
+    // poll until the avatar is stored
+    await page.waitForFunction(
+      () => {
+        const skein = (window as any).__skein;
+        const live = skein?.widgetManager?.getLiveWidgets();
+        const widget = live?.get("skein-profile");
+        const url = widget?.widgetDoc?.current?.avatarDataUrl ?? "";
+        return url.startsWith("data:image/");
+      },
+      { timeout: 10_000 }
+    );
 
     // capture the data URL before reload
     const avatarBefore = await page.evaluate(() => {

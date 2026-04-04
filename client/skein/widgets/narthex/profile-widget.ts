@@ -601,6 +601,8 @@ export const profileWidget: WidgetFactory<typeof profileSchema> = {
         for (const f of fields) f.handle.destroy();
         unsub();
         if (avatarSprite) {
+          avatarContainer.removeChild(avatarSprite);
+          avatarSprite.mask = null;
           avatarSprite.destroy();
           avatarSprite = null;
         }

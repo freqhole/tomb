@@ -460,6 +460,8 @@ export const canvasCardWidget: WidgetFactory<typeof canvasCardSchema> = {
       destroy() {
         unsub();
         if (previewSprite) {
+          container.removeChild(previewSprite);
+          previewSprite.mask = null;
           previewSprite.destroy();
           previewSprite = null;
         }

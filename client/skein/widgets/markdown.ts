@@ -30,6 +30,7 @@ export const markdownSchema = z.object({
   accentColor: z.number().default(0xd946ef),
   fontFamily: z.string().default("system-ui, sans-serif"),
   fontSize: z.number().default(13),
+  borderWidth: z.number().default(1),
 });
 
 export type MarkdownState = z.infer<typeof markdownSchema>;
@@ -56,6 +57,7 @@ export const markdownWidget: WidgetFactory<typeof markdownSchema> = {
     { key: "headingColor", label: "heading color", type: "color" as const, default: 0xf0f0ff },
     { key: "accentColor", label: "accent color", type: "color" as const, default: 0xd946ef },
     { key: "fontSize", label: "font size", type: "number" as const, default: 13 },
+    { key: "borderWidth", label: "border width", type: "number" as const, default: 1 },
     {
       key: "fontFamily",
       label: "font",
@@ -80,7 +82,7 @@ export const markdownWidget: WidgetFactory<typeof markdownSchema> = {
       bg.fill(state.bgColor === -1 ? { color: 0, alpha: 0 } : { color: state.bgColor });
       bg.stroke({
         color: isEditing ? BORDER_EDITING_COLOR : 0x2a2a3a,
-        width: isEditing ? 3 : 1,
+        width: isEditing ? 3 : state.borderWidth,
       });
     };
     drawBg(currentWidth, currentHeight, false);

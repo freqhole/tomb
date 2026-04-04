@@ -19,4 +19,12 @@ describe("emptyCanvasDoc", () => {
     expect(a).not.toBe(b);
     expect(a).toEqual(b);
   });
+
+  it("returns empty metadata strings", () => {
+    const doc = emptyCanvasDoc();
+    expect(doc.title).toBe("");
+    expect(doc.description).toBe("");
+    expect(doc.createdAt).toBe("");
+    expect(doc.lastModified).toBe("");
+  });
 });

@@ -1240,7 +1240,6 @@ export class PropertyTray {
 
     let previewSprite: Sprite | null = null;
     let currentDataUrl = initialValue;
-    let loadedImageAssetKey = "";
 
     const drawPreview = (fw: number) => {
       previewBg.clear();
@@ -1271,10 +1270,10 @@ export class PropertyTray {
         previewSprite.destroy();
         previewSprite = null;
       }
-      if (loadedImageAssetKey) {
-        Assets.unload(loadedImageAssetKey);
-        loadedImageAssetKey = "";
-      }
+      // NOTE: do NOT call Assets.unload() here. the property tray is a consumer
+      // of textures, not an owner. the widget that loaded this texture still
+      // references it — unloading here would destroy a shared asset and crash
+      // the renderer (alphaMode null error in StencilMaskPipe).
       if (!dataUrl) {
         drawPreview(fieldWidth);
         return;
@@ -1284,7 +1283,6 @@ export class PropertyTray {
         // race check: if another load started while we were loading, bail out
         if (currentDataUrl !== dataUrl) return;
         previewSprite = new Sprite(texture);
-        loadedImageAssetKey = dataUrl;
         previewSprite.eventMode = "none";
         container.addChild(previewSprite);
         drawPreview(fieldWidth);
@@ -1421,13 +1419,14 @@ export class PropertyTray {
       },
       destroy() {
         if (previewSprite) {
+          container.removeChild(previewSprite);
           previewSprite.destroy();
           previewSprite = null;
         }
-        if (loadedImageAssetKey) {
-          Assets.unload(loadedImageAssetKey);
-          loadedImageAssetKey = "";
-        }
+        // NOTE: do NOT call Assets.unload() here. the property tray is a consumer
+        // of textures, not an owner. the widget that loaded this texture still
+        // references it — unloading here would destroy a shared asset and crash
+        // the renderer (alphaMode null error in StencilMaskPipe).
         container.destroy({ children: true });
       },
     };

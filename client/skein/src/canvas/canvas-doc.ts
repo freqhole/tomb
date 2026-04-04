@@ -27,6 +27,14 @@ export interface WidgetEntry {
 export interface CanvasDocument {
   version: number;
   widgets: Record<string, WidgetEntry>;
+  /** display title of the canvas */
+  title: string;
+  /** short description of the canvas */
+  description: string;
+  /** ISO date string when the canvas was created */
+  createdAt: string;
+  /** ISO date string when the canvas was last modified */
+  lastModified: string;
 }
 
 /**
@@ -36,5 +44,9 @@ export function emptyCanvasDoc(): CanvasDocument {
   return {
     version: 1,
     widgets: {},
+    title: "",
+    description: "",
+    createdAt: "",
+    lastModified: "",
   };
 }
