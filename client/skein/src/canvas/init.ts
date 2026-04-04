@@ -36,6 +36,8 @@ export interface InitCanvasOptions {
   isNarthex?: boolean;
   /** callback to navigate back to the narthex — toolbar shows a home button when set */
   onNavigateHome?: () => void;
+  /** callback to share the current canvas — toolbar shows a share button when set */
+  onShare?: () => void;
 }
 
 export interface SkeinCanvas {
@@ -198,6 +200,7 @@ export async function initCanvas(options: InitCanvasOptions): Promise<SkeinCanva
   const toolbar = new Toolbar(app, inputRouter, store, registry, theme, {
     isNarthex: options.isNarthex,
     onNavigateHome: options.onNavigateHome,
+    onShare: options.onShare,
   });
 
   // step 10b: create the lasso tool for multi-select, click-deselect, and

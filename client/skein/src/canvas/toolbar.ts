@@ -10,6 +10,8 @@ export interface ToolbarOptions {
   isNarthex?: boolean;
   /** callback to navigate to the narthex — shows a home button when set */
   onNavigateHome?: () => void;
+  /** callback to share the current canvas — shows a share button when set */
+  onShare?: () => void;
 }
 
 /**
@@ -40,6 +42,7 @@ export class Toolbar {
   private readonly addBtn: ButtonContainer;
   private readonly deleteBtn: ButtonContainer;
   private readonly homeBtn: ButtonContainer | null;
+  private readonly shareBtn: ButtonContainer | null;
   private readonly options: ToolbarOptions;
 
   // flyout menu state
@@ -130,6 +133,18 @@ export class Toolbar {
       this.root.addChild(this.homeBtn);
     } else {
       this.homeBtn = null;
+    }
+
+    // share button — visible when onShare is provided
+    if (this.options.onShare) {
+      const share = this.createButton("share");
+      this.shareBtn = share.btn;
+      this.shareBtn.onPress.connect(() => {
+        this.options.onShare?.();
+      });
+      this.root.addChild(this.shareBtn);
+    } else {
+      this.shareBtn = null;
     }
 
     // flyout menu container (hidden by default)
@@ -517,6 +532,13 @@ export class Toolbar {
       this.homeBtn.x = x;
       this.homeBtn.y = pad.v;
       x += this.homeBtn.width + gap;
+    }
+
+    // share button (always visible when it exists)
+    if (this.shareBtn) {
+      this.shareBtn.x = x;
+      this.shareBtn.y = pad.v;
+      x += this.shareBtn.width + gap;
     }
 
     // mode button is always visible

@@ -5,6 +5,7 @@ import { createTestRegistry } from "../../widgets/index";
 import { createNarthexRegistry } from "../../widgets/narthex/index";
 import { CanvasStore } from "../canvas/canvas-store";
 import { initCanvas, type SkeinCanvas } from "../canvas/init";
+import { showShareDialog } from "../canvas/share-dialog";
 import { ensureIdentity, getMiddenNode, getStoredIdentity } from "../p2p/identity";
 import { IrohNetworkAdapter, type MiddenStreamNode } from "../p2p/iroh-network-adapter";
 import { decodeShareString, encodeShareString } from "../p2p/share-string";
@@ -280,6 +281,22 @@ class SkeinRouter {
         onNavigateHome: () => {
           console.log("[skein] home button clicked, navigating to narthex");
           window.location.hash = "";
+        },
+        onShare: async () => {
+          if (!this.currentCanvas) return;
+          const identity = await getStoredIdentity();
+          if (!identity) {
+            console.log("[skein] no identity — generate one first (profile widget)");
+            return;
+          }
+          const shareStr = encodeShareString(identity.node_id, docId);
+          const shareUrl = window.location.origin + window.location.pathname + "#share/" + shareStr;
+          showShareDialog({
+            app: this.currentCanvas.app,
+            theme: this.currentCanvas.theme,
+            shareString: shareStr,
+            shareUrl,
+          });
         },
       });
 
