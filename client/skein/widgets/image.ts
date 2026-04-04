@@ -1,5 +1,6 @@
-import { Container, Graphics, Sprite, Text, Texture } from "pixi.js";
+import { Assets, Container, Graphics, Sprite, Text, Texture } from "pixi.js";
 import { z } from "zod";
+import { pickImageAsDataUrl } from "../src/widgets/image-utils";
 import type {
   WidgetController,
   WidgetFactory,
@@ -28,7 +29,14 @@ export const imageWidget: WidgetFactory<typeof imageSchema> = {
   },
   schema: imageSchema,
   editableProps: [
-    { key: "url", label: "image URL", type: "string" as const, default: "" },
+    {
+      key: "url",
+      label: "image",
+      type: "image" as const,
+      default: "",
+      imageMaxWidth: 800,
+      imageMaxHeight: 800,
+    },
     {
       key: "fit",
       label: "fit mode",
@@ -50,6 +58,7 @@ export const imageWidget: WidgetFactory<typeof imageSchema> = {
     let loadingAbort: AbortController | null = null;
     // track the URL we last started loading so we can skip stale completions
     let lastRequestedUrl = "";
+    let loadedAssetKey = "";
 
     // background graphics
     const bg = new Graphics();
@@ -70,7 +79,7 @@ export const imageWidget: WidgetFactory<typeof imageSchema> = {
 
     // placeholder text — shown when no URL is set
     const placeholderText = new Text({
-      text: "drop image URL",
+      text: "click to add image",
       style: {
         fontFamily: "system-ui, sans-serif",
         fontSize: 13,
@@ -82,6 +91,8 @@ export const imageWidget: WidgetFactory<typeof imageSchema> = {
     placeholderText.anchor.set(0.5);
     placeholderText.x = currentWidth / 2;
     placeholderText.y = currentHeight / 2;
+    placeholderText.eventMode = "static";
+    placeholderText.cursor = "pointer";
     container.addChild(placeholderText);
 
     // placeholder dashed border overlay
@@ -93,7 +104,25 @@ export const imageWidget: WidgetFactory<typeof imageSchema> = {
       placeholderBorder.stroke({ color: 0x444460, width: 1 });
     };
     drawPlaceholderBorder(currentWidth, currentHeight);
+    placeholderBorder.eventMode = "static";
+    placeholderBorder.cursor = "pointer";
     container.addChild(placeholderBorder);
+
+    // click placeholder to upload an image
+    const handlePlaceholderClick = async () => {
+      if (loadState !== "empty") return;
+      const dataUrl = await pickImageAsDataUrl({
+        maxWidth: 800,
+        maxHeight: 800,
+      });
+      if (dataUrl) {
+        ctx.doc.change((draft) => {
+          draft.url = dataUrl;
+        });
+      }
+    };
+    placeholderText.on("pointertap", handlePlaceholderClick);
+    placeholderBorder.on("pointertap", handlePlaceholderClick);
 
     // loading text
     const loadingText = new Text({
@@ -166,10 +195,15 @@ export const imageWidget: WidgetFactory<typeof imageSchema> = {
         sprite.destroy();
         sprite = null;
       }
-      if (currentTexture) {
-        currentTexture.destroy(true);
-        currentTexture = null;
+      if (loadedAssetKey) {
+        Assets.unload(loadedAssetKey);
+        // if it was a blob URL, revoke it to free blob memory
+        if (loadedAssetKey.startsWith("blob:")) {
+          URL.revokeObjectURL(loadedAssetKey);
+        }
+        loadedAssetKey = "";
       }
+      currentTexture = null;
     };
 
     // load an image from a URL, creating a texture and sprite
@@ -196,24 +230,39 @@ export const imageWidget: WidgetFactory<typeof imageSchema> = {
       loadingAbort = abort;
 
       try {
-        const response = await fetch(url, { signal: abort.signal });
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}`);
+        let texture: Texture;
+        let assetKey: string;
+
+        if (url.startsWith("data:")) {
+          // data URL — use Assets.load (PixiJS v8 compatible)
+          texture = await Assets.load<Texture>(url);
+          assetKey = url;
+        } else {
+          // remote URL — fetch, create bitmap, then load via Assets
+          const response = await fetch(url, { signal: abort.signal });
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+          }
+          const blob = await response.blob();
+          const blobUrl = URL.createObjectURL(blob);
+          texture = await Assets.load<Texture>(blobUrl);
+          assetKey = blobUrl;
         }
 
-        const blob = await response.blob();
-        const bitmap = await createImageBitmap(blob);
-
-        // check if this request is still current (URL may have changed while loading)
+        // check if this request is still current
         if (abort.signal.aborted || lastRequestedUrl !== url) {
-          bitmap.close();
+          Assets.unload(assetKey);
+          if (assetKey.startsWith("blob:")) {
+            URL.revokeObjectURL(assetKey);
+          }
           return;
         }
 
         // tear down previous sprite/texture before creating new ones
         destroySprite();
 
-        currentTexture = Texture.from(bitmap);
+        currentTexture = texture;
+        loadedAssetKey = assetKey;
         sprite = new Sprite(currentTexture);
         // insert sprite above bg but below overlay texts
         container.addChildAt(sprite, 1);
@@ -222,7 +271,6 @@ export const imageWidget: WidgetFactory<typeof imageSchema> = {
         syncOverlayVisibility();
         fitSprite(currentWidth, currentHeight);
       } catch (err: unknown) {
-        // ignore aborted fetches
         if (err instanceof DOMException && err.name === "AbortError") return;
         if (lastRequestedUrl !== url) return;
 

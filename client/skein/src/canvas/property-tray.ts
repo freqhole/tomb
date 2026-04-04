@@ -79,9 +79,6 @@ export class PropertyTray {
   readonly root: Container;
 
   private readonly theme: SkeinTheme;
-  // kept in constructor signature for backward compatibility; string controls
-  // now use SkeinInput which manages its own DOM input internally.
-  // @ts-expect-error — retained for API compat, no longer referenced
   private readonly keyboard: KeyboardDriver;
   private readonly inputRouter: InputRouter;
   private readonly widgetManager: WidgetManager;
@@ -522,6 +519,7 @@ export class PropertyTray {
     const fieldY = Math.round(label.height + LABEL_FIELD_GAP);
 
     const handle = createSkeinInput({
+      keyboard: this.keyboard,
       width: fieldWidth,
       height: FIELD_HEIGHT,
       value: initialValue,
@@ -551,7 +549,7 @@ export class PropertyTray {
       height: totalHeight,
       container,
       update(value: unknown) {
-        if (!(handle.input as any).editing) {
+        if (!handle.isEditing) {
           handle.value = String(value ?? "");
         }
       },
@@ -1242,6 +1240,7 @@ export class PropertyTray {
 
     let previewSprite: Sprite | null = null;
     let currentDataUrl = initialValue;
+    let loadedImageAssetKey = "";
 
     const drawPreview = (fw: number) => {
       previewBg.clear();
@@ -1272,6 +1271,10 @@ export class PropertyTray {
         previewSprite.destroy();
         previewSprite = null;
       }
+      if (loadedImageAssetKey) {
+        Assets.unload(loadedImageAssetKey);
+        loadedImageAssetKey = "";
+      }
       if (!dataUrl) {
         drawPreview(fieldWidth);
         return;
@@ -1281,6 +1284,7 @@ export class PropertyTray {
         // race check: if another load started while we were loading, bail out
         if (currentDataUrl !== dataUrl) return;
         previewSprite = new Sprite(texture);
+        loadedImageAssetKey = dataUrl;
         previewSprite.eventMode = "none";
         container.addChild(previewSprite);
         drawPreview(fieldWidth);
@@ -1419,6 +1423,10 @@ export class PropertyTray {
         if (previewSprite) {
           previewSprite.destroy();
           previewSprite = null;
+        }
+        if (loadedImageAssetKey) {
+          Assets.unload(loadedImageAssetKey);
+          loadedImageAssetKey = "";
         }
         container.destroy({ children: true });
       },

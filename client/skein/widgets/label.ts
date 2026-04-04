@@ -1,6 +1,6 @@
 import { Container, Graphics, Text } from "pixi.js";
 import { z } from "zod";
-import type { KeyboardHandler } from "../src/widgets/keyboard-driver";
+import { colorToCss } from "../src/widgets/format";
 import {
   isTransparent,
   safeColor,
@@ -20,8 +20,7 @@ export const labelSchema = z.object({
 export type LabelState = z.infer<typeof labelSchema>;
 
 // colors (editing-only visual states, not configurable)
-const BG_EDITING_COLOR = 0xfefce8;
-const BORDER_EDITING_COLOR = 0xfbbf24;
+const BORDER_EDITING_COLOR = 0xd946ef;
 
 function computeFontSize(height: number): number {
   return Math.max(12, Math.min(height * 0.5, 120));
@@ -54,7 +53,6 @@ export const labelWidget: WidgetFactory<typeof labelSchema> = {
     let editing = false;
     let currentWidth = ctx.width;
     let currentHeight = ctx.height;
-    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 
     // background
     const bg = new Graphics();
@@ -62,10 +60,9 @@ export const labelWidget: WidgetFactory<typeof labelSchema> = {
       const state = ctx.doc.current;
       bg.clear();
       bg.roundRect(0, 0, w, h, 8);
-      const fillColor = isEditing ? BG_EDITING_COLOR : state.bgColor;
+      bg.fill(state.bgColor === -1 ? { color: 0, alpha: 0 } : { color: state.bgColor });
       const strokeColor = isEditing ? BORDER_EDITING_COLOR : state.borderColor;
-      const strokeWidth = isEditing ? 2 : 1;
-      bg.fill(fillColor === -1 ? { color: 0, alpha: 0 } : { color: fillColor });
+      const strokeWidth = isEditing ? 3 : 1;
       bg.stroke(
         strokeColor === -1
           ? { color: 0, alpha: 0, width: strokeWidth }
@@ -78,6 +75,7 @@ export const labelWidget: WidgetFactory<typeof labelSchema> = {
     // text display
     const textDisplay = new Text({
       text: ctx.doc.current.text,
+      resolution: 2,
       style: {
         fontFamily: ctx.doc.current.fontFamily,
         fontSize: computeFontSize(currentHeight),
@@ -102,64 +100,94 @@ export const labelWidget: WidgetFactory<typeof labelSchema> = {
       textDisplay.y = h / 2;
     };
 
-    // commit current text to the doc (debounced during editing)
-    const commitText = (value: string) => {
-      if (debounceTimer !== null) clearTimeout(debounceTimer);
-      ctx.doc.change((draft) => {
-        draft.text = value;
-      });
-    };
+    // textarea overlay for inline editing
+    let activeTextarea: HTMLTextAreaElement | null = null;
 
-    const debouncedCommit = (value: string) => {
-      if (debounceTimer !== null) clearTimeout(debounceTimer);
-      debounceTimer = setTimeout(() => commitText(value), 150);
-    };
-
-    // exit edit mode, flush pending changes
     const exitEditing = () => {
-      if (!editing) return;
+      if (!editing || !activeTextarea) return;
       editing = false;
-      if (debounceTimer !== null) {
-        clearTimeout(debounceTimer);
-        debounceTimer = null;
+      const value = activeTextarea.value;
+      if (value !== ctx.doc.current.text) {
+        ctx.doc.change((draft) => {
+          draft.text = value;
+        });
       }
-      // commit the final value from the keyboard driver before releasing
-      const finalValue = ctx.keyboard.value;
-      if (finalValue !== ctx.doc.current.text) {
-        commitText(finalValue);
-      }
-      ctx.keyboard.release();
+      activeTextarea.remove();
+      activeTextarea = null;
       textDisplay.text = ctx.doc.current.text;
+      textDisplay.visible = true;
       drawBg(currentWidth, currentHeight, false);
     };
 
-    // keyboard handler for the hidden textarea
-    const handler: KeyboardHandler = {
-      onInput(value: string) {
-        textDisplay.text = value;
-        debouncedCommit(value);
-      },
-      onKeyDown(event: KeyboardEvent) {
-        if (event.key === "Escape") {
-          // discard in-flight debounce — revert to last committed value
-          if (debounceTimer !== null) {
-            clearTimeout(debounceTimer);
-            debounceTimer = null;
-          }
-          textDisplay.text = ctx.doc.current.text;
+    const startEditing = () => {
+      if (editing) return;
+      editing = true;
+      drawBg(currentWidth, currentHeight, true);
+      textDisplay.visible = false;
+
+      // calculate screen position of the widget
+      const globalPos = container.toGlobal({ x: 0, y: 0 });
+      const globalEnd = container.toGlobal({ x: currentWidth, y: currentHeight });
+      const canvasRect = ctx.canvasElement.getBoundingClientRect();
+
+      const screenX = canvasRect.left + globalPos.x;
+      const screenY = canvasRect.top + globalPos.y;
+      const screenW = globalEnd.x - globalPos.x;
+      const screenH = globalEnd.y - globalPos.y;
+
+      const state = ctx.doc.current;
+      const fontSize = computeFontSize(currentHeight);
+
+      const ta = document.createElement("textarea");
+      ta.value = state.text;
+      const s = ta.style;
+      s.position = "fixed";
+      s.left = `${screenX}px`;
+      s.top = `${screenY}px`;
+      s.width = `${screenW}px`;
+      s.height = `${screenH}px`;
+      s.fontFamily = state.fontFamily;
+      s.fontSize = `${fontSize}px`;
+      s.color = colorToCss(state.textColor);
+      s.background = "transparent";
+      s.border = "none";
+      s.outline = "none";
+      s.resize = "none";
+      s.padding = "8px";
+      s.textAlign = "center";
+      s.overflow = "hidden";
+      s.zIndex = "10000";
+      s.boxSizing = "border-box";
+      s.lineHeight = "1.3";
+      // match word wrap behavior
+      s.wordWrap = "break-word";
+      s.whiteSpace = "pre-wrap";
+
+      document.body.appendChild(ta);
+      activeTextarea = ta;
+      ta.focus();
+      ta.select();
+
+      ta.addEventListener("blur", () => {
+        exitEditing();
+      });
+
+      ta.addEventListener("keydown", (e) => {
+        if (e.key === "Escape") {
+          // revert — don't commit
           editing = false;
-          ctx.keyboard.release();
+          ta.remove();
+          activeTextarea = null;
+          textDisplay.text = ctx.doc.current.text;
+          textDisplay.visible = true;
           drawBg(currentWidth, currentHeight, false);
           return;
         }
-        if (event.key === "Enter" && !event.shiftKey) {
-          event.preventDefault();
+        if (e.key === "Enter" && !e.shiftKey) {
+          e.preventDefault();
           exitEditing();
         }
-      },
-      onBlur() {
-        exitEditing();
-      },
+      });
     };
 
     // double-click to enter edit mode
@@ -167,14 +195,10 @@ export const labelWidget: WidgetFactory<typeof labelSchema> = {
     container.eventMode = "static";
     container.cursor = "default";
     container.on("pointertap", () => {
+      if (editing) return; // don't re-trigger while textarea is active
       const now = Date.now();
       if (now - lastTapTime < 400) {
-        // double-click detected
-        if (!editing) {
-          editing = true;
-          drawBg(currentWidth, currentHeight, true);
-          ctx.keyboard.acquire(handler, ctx.doc.current.text);
-        }
+        startEditing();
         lastTapTime = 0;
       } else {
         lastTapTime = now;
@@ -185,13 +209,6 @@ export const labelWidget: WidgetFactory<typeof labelSchema> = {
     const unsub = ctx.doc.on("change", (state) => {
       if (!editing) {
         textDisplay.text = state.text;
-      } else {
-        // if we're editing and a remote change arrives, sync the textarea
-        // only if the remote value differs from what's in the textarea
-        if (state.text !== ctx.keyboard.value) {
-          ctx.keyboard.setValue(state.text);
-          textDisplay.text = state.text;
-        }
       }
       // apply style changes (always, whether editing text or not)
       textDisplay.style.fill = safeColor(state.textColor);
@@ -203,8 +220,10 @@ export const labelWidget: WidgetFactory<typeof labelSchema> = {
     return {
       container,
       destroy() {
-        if (debounceTimer !== null) clearTimeout(debounceTimer);
-        if (editing) ctx.keyboard.release();
+        if (activeTextarea) {
+          activeTextarea.remove();
+          activeTextarea = null;
+        }
         unsub();
         container.destroy({ children: true });
       },

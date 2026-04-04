@@ -193,6 +193,7 @@ export const profileWidget: WidgetFactory<typeof profileSchema> = {
     };
 
     let lastRequestedAvatarUrl = "";
+    let loadedAvatarAssetKey = "";
 
     const updateAvatarSprite = async (dataUrl: string) => {
       lastRequestedAvatarUrl = dataUrl;
@@ -202,6 +203,10 @@ export const profileWidget: WidgetFactory<typeof profileSchema> = {
         avatarContainer.removeChild(avatarSprite);
         avatarSprite.destroy();
         avatarSprite = null;
+      }
+      if (loadedAvatarAssetKey) {
+        Assets.unload(loadedAvatarAssetKey);
+        loadedAvatarAssetKey = "";
       }
 
       if (!dataUrl) {
@@ -219,6 +224,7 @@ export const profileWidget: WidgetFactory<typeof profileSchema> = {
         if (lastRequestedAvatarUrl !== dataUrl) return;
 
         avatarSprite = new Sprite(texture);
+        loadedAvatarAssetKey = dataUrl;
         avatarSprite.eventMode = "none";
         avatarSprite.anchor.set(0.5, 0.5);
         avatarSprite.x = avatarCx;
@@ -284,6 +290,7 @@ export const profileWidget: WidgetFactory<typeof profileSchema> = {
       container.addChild(label);
 
       const handle = createSkeinInput({
+        keyboard: ctx.keyboard,
         width: currentWidth - PADDING_X * 2,
         height: FIELD_HEIGHT,
         placeholder,
@@ -495,6 +502,10 @@ export const profileWidget: WidgetFactory<typeof profileSchema> = {
           avatarSprite.destroy();
           avatarSprite = null;
         }
+        if (loadedAvatarAssetKey) {
+          Assets.unload(loadedAvatarAssetKey);
+          loadedAvatarAssetKey = "";
+        }
         avatarPlaceholder.visible = true;
         avatarInitial.visible = true;
       }
@@ -592,6 +603,10 @@ export const profileWidget: WidgetFactory<typeof profileSchema> = {
         if (avatarSprite) {
           avatarSprite.destroy();
           avatarSprite = null;
+        }
+        if (loadedAvatarAssetKey) {
+          Assets.unload(loadedAvatarAssetKey);
+          loadedAvatarAssetKey = "";
         }
         container.destroy({ children: true });
       },

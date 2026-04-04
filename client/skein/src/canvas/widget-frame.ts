@@ -142,9 +142,11 @@ export class WidgetFrame {
     this.border = new Graphics();
     this.root.addChild(this.border);
 
-    // header bar
+    // header bar — positioned above the content area so it doesn't
+    // cover widget content. sits at negative y so the content stays
+    // at y=0 in both edit and view modes (no position shift).
     this.header = new Container();
-    this.header.y = 0;
+    this.header.y = -theme.frameHeaderHeight;
     this.root.addChild(this.header);
 
     this.headerBg = new Graphics();
@@ -186,7 +188,7 @@ export class WidgetFrame {
 
     // content container (below the header)
     this.contentContainer = new Container();
-    this.contentContainer.y = theme.frameHeaderHeight;
+    this.contentContainer.y = 0;
     this.root.addChild(this.contentContainer);
 
     // rectangular mask for the content container — clips widget-drawn
@@ -329,13 +331,13 @@ export class WidgetFrame {
         ? this.theme.frameBorderHover
         : this.theme.frameBorder;
 
-    this.border.roundRect(0, 0, w, totalH, r);
+    this.border.roundRect(0, -hdr, w, totalH, r);
     this.border.stroke({ color: borderColor, width: this._selected ? 2 : 1 });
   }
 
   /** redraw the content mask to match current dimensions and mode. */
   private drawContentMask(): void {
-    const y = this._editing ? this.theme.frameHeaderHeight : 0;
+    const y = 0;
     const r = this._editing ? this.theme.frameCornerRadius : 0;
     this.contentMask.clear();
     if (r > 0) {
@@ -416,16 +418,17 @@ export class WidgetFrame {
     const w = this._width;
     const hdr = this.theme.frameHeaderHeight;
     const totalH = this._collapsed ? hdr : hdr + this._height;
+    const top = -hdr;
 
     const positions: Record<HandlePosition, { x: number; y: number }> = {
-      nw: { x: -s / 2, y: -s / 2 },
-      n: { x: w / 2 - s / 2, y: -s / 2 },
-      ne: { x: w - s / 2, y: -s / 2 },
-      e: { x: w - s / 2, y: totalH / 2 - s / 2 },
-      se: { x: w - s / 2, y: totalH - s / 2 },
-      s: { x: w / 2 - s / 2, y: totalH - s / 2 },
-      sw: { x: -s / 2, y: totalH - s / 2 },
-      w: { x: -s / 2, y: totalH / 2 - s / 2 },
+      nw: { x: -s / 2, y: top - s / 2 },
+      n: { x: w / 2 - s / 2, y: top - s / 2 },
+      ne: { x: w - s / 2, y: top - s / 2 },
+      e: { x: w - s / 2, y: top + totalH / 2 - s / 2 },
+      se: { x: w - s / 2, y: top + totalH - s / 2 },
+      s: { x: w / 2 - s / 2, y: top + totalH - s / 2 },
+      sw: { x: -s / 2, y: top + totalH - s / 2 },
+      w: { x: -s / 2, y: top + totalH / 2 - s / 2 },
     };
 
     for (const [pos, handle] of this.resizeHandles) {
@@ -589,9 +592,9 @@ export class WidgetFrame {
     }
 
     const hdr = this.theme.frameHeaderHeight;
-    const totalH = hdr + this._height;
-    // draw an invisible rect covering the full frame area
-    this.bodyHitArea.rect(0, 0, this._width, totalH);
+    const totalH = this._collapsed ? hdr : hdr + this._height;
+    // draw an invisible rect covering the full frame area (including header above)
+    this.bodyHitArea.rect(0, -hdr, this._width, totalH);
     this.bodyHitArea.fill({ color: 0x000000, alpha: 0 });
     this.bodyHitArea.eventMode = "static";
     this.bodyHitArea.cursor = "grab";
@@ -886,7 +889,7 @@ export class WidgetFrame {
 
     // content container position: sits below header in edit mode,
     // flush to top in view mode (no header taking up space)
-    this.contentContainer.y = this._editing ? this.theme.frameHeaderHeight : 0;
+    this.contentContainer.y = 0;
 
     // content container interactivity
     // in edit mode: widgets are inert (canvas intercepts events)

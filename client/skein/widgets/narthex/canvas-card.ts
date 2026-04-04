@@ -1,5 +1,6 @@
 import { Assets, Container, Graphics, Sprite, Text, Texture } from "pixi.js";
 import { z } from "zod";
+import { formatRelativeTime, formatShortDate } from "../../src/widgets/format";
 import {
   isTransparent,
   safeColor,
@@ -117,6 +118,7 @@ export const canvasCardWidget: WidgetFactory<typeof canvasCardSchema> = {
 
     let previewSprite: Sprite | null = null;
     let lastRequestedPreviewUrl = "";
+    let loadedPreviewAssetKey = "";
     const previewMask = new Graphics();
     container.addChild(previewMask);
 
@@ -284,6 +286,10 @@ export const canvasCardWidget: WidgetFactory<typeof canvasCardSchema> = {
         previewSprite.destroy();
         previewSprite = null;
       }
+      if (loadedPreviewAssetKey) {
+        Assets.unload(loadedPreviewAssetKey);
+        loadedPreviewAssetKey = "";
+      }
 
       if (!dataUrl) return;
 
@@ -296,12 +302,13 @@ export const canvasCardWidget: WidgetFactory<typeof canvasCardSchema> = {
         const top = ACCENT_HEIGHT;
 
         previewSprite = new Sprite(texture);
+        loadedPreviewAssetKey = dataUrl;
         previewSprite.eventMode = "none";
 
-        // fit within the preview area
+        // cover/fill the preview area — scale up to fill, center-crop overflow
         const maxW = w - 2;
         const maxH = previewH;
-        const scale = Math.min(maxW / texture.width, maxH / texture.height, 1);
+        const scale = Math.max(maxW / texture.width, maxH / texture.height);
         previewSprite.width = texture.width * scale;
         previewSprite.height = texture.height * scale;
         previewSprite.x = 1 + (maxW - previewSprite.width) / 2;
@@ -390,10 +397,18 @@ export const canvasCardWidget: WidgetFactory<typeof canvasCardSchema> = {
       descText.x = PADDING_X;
       descText.y = textTop + TITLE_FONT_SIZE + 4;
 
-      // footer: date on the left
+      // footer: timestamps
       const footerY = h - FOOTER_HEIGHT;
-      if (state.modifiedAt) {
-        dateText.text = state.modifiedAt;
+      const hasModified = !!state.modifiedAt;
+      const hasCreated = !!state.createdAt;
+
+      if (hasModified && state.modifiedAt !== state.createdAt) {
+        dateText.text = "edited " + formatRelativeTime(state.modifiedAt);
+        dateText.style.fontStyle = "italic";
+        dateText.visible = true;
+      } else if (hasCreated) {
+        dateText.text = formatShortDate(state.createdAt);
+        dateText.style.fontStyle = "normal";
         dateText.visible = true;
       } else {
         dateText.text = "";
@@ -447,6 +462,10 @@ export const canvasCardWidget: WidgetFactory<typeof canvasCardSchema> = {
         if (previewSprite) {
           previewSprite.destroy();
           previewSprite = null;
+        }
+        if (loadedPreviewAssetKey) {
+          Assets.unload(loadedPreviewAssetKey);
+          loadedPreviewAssetKey = "";
         }
         container.destroy({ children: true });
       },

@@ -137,6 +137,7 @@ export const canvasWizardWidget: WidgetFactory<typeof canvasWizardSchema> = {
       container.addChild(label);
 
       const handle = createSkeinInput({
+        keyboard: ctx.keyboard,
         width: currentWidth - PADDING_X * 2,
         height: FIELD_HEIGHT,
         placeholder,

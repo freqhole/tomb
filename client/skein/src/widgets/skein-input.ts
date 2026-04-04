@@ -1,34 +1,14 @@
 /**
- * skein-input — a themed text input wrapper around @pixi/ui's Input component.
+ * skein-input — a themed text input backed by the shared KeyboardDriver.
  *
- * provides a dark-themed input field with a blinking cursor, placeholder text,
- * click-to-focus, and a visible focus ring. this replaces the manual
- * KeyboardDriver + hidden textarea approach for simple single-line text fields.
- *
- * usage:
- *
- *   import { createSkeinInput } from "../widgets/skein-input";
- *
- *   const handle = createSkeinInput({
- *     width: 200,
- *     placeholder: "enter a name...",
- *     onChange: (value) => console.log("typing:", value),
- *     onEnter: (value) => console.log("committed:", value),
- *   });
- *
- *   parentContainer.addChild(handle.input);
- *
- *   // later, to clean up:
- *   handle.destroy();
+ * renders a dark-themed input field with a blinking cursor, placeholder text,
+ * click-to-focus, and a visible focus ring. uses the project's existing
+ * hidden-textarea KeyboardDriver for text input, giving us native browser
+ * text selection, Ctrl/Cmd+A, clipboard, and IME support for free.
  */
 
-import { Input } from "@pixi/ui";
-import { Graphics } from "pixi.js";
-
-// ---------------------------------------------------------------------------
-// theme constants — matches the dark theme used across skein widgets
-// (canvas-wizard, friends-widget, profile-widget, etc.)
-// ---------------------------------------------------------------------------
+import { Container, Graphics, Text } from "pixi.js";
+import type { KeyboardDriver, KeyboardHandler } from "./keyboard-driver";
 
 const FIELD_BG = 0x12121a;
 const FIELD_BORDER = 0x333348;
@@ -38,87 +18,50 @@ const MUTED_TEXT = 0x666678;
 const FONT = "system-ui, sans-serif";
 const FONT_SIZE = 12;
 const CORNER_RADIUS = 4;
-const PADDING = { top: 0, right: 8, bottom: 0, left: 8 };
-
-// how often (ms) we poll the editing state to update the focus ring.
-// 100ms is imperceptible but avoids patching internal methods.
-const EDITING_POLL_MS = 100;
-
-// ---------------------------------------------------------------------------
-// public types
-// ---------------------------------------------------------------------------
+const PAD_H = 8;
+const CURSOR_BLINK_MS = 530;
+const TEXT_RESOLUTION = 2;
 
 export interface SkeinInputOptions {
-  /** width of the input field in pixels */
+  keyboard: KeyboardDriver;
   width: number;
-  /** height of the input field (default: 28) */
   height?: number;
-  /** placeholder text shown when the field is empty */
   placeholder?: string;
-  /** initial value */
   value?: string;
-  /** maximum character length */
   maxLength?: number;
-  /** text alignment (default: "left") */
   align?: "left" | "center" | "right";
-  /** called on every keystroke with the current value */
   onChange?: (value: string) => void;
-  /** called when input is committed (Enter / Escape / blur) */
   onEnter?: (value: string) => void;
-
-  // -- optional style overrides (fall back to dark-theme defaults) ----------
-
-  /** font size in pixels (default: 12) */
   fontSize?: number;
-  /** font family string (default: "system-ui, sans-serif") */
   fontFamily?: string;
-  /** text fill color (default: 0xf0f0ff) */
   textColor?: number;
-  /** field background color (default: 0x12121a) */
   bgColor?: number;
-  /** border color when unfocused (default: 0x333348) */
   borderColor?: number;
-  /** border color when focused (default: 0x6366f1) */
   borderActiveColor?: number;
-  /** placeholder text color (default: 0x666678) */
   placeholderColor?: number;
-  /** corner radius in pixels (default: 4) */
   cornerRadius?: number;
 }
 
 export interface SkeinInputHandle {
-  /** the @pixi/ui Input container — add this to your display list */
-  input: Input;
-  /** get the current text value */
+  /** the PixiJS container — add this to your display list */
+  input: Container;
+  /** true while the field is actively being edited */
+  get isEditing(): boolean;
   get value(): string;
-  /** set the current text value programmatically */
   set value(v: string);
-  /** programmatically focus the input */
   focus(): void;
-  /** programmatically blur the input */
   blur(): void;
-  /** update the input width (e.g. on resize) */
   setWidth(w: number): void;
-  /** tear down the input and stop the editing-state poll */
   destroy(): void;
 }
 
-// ---------------------------------------------------------------------------
-// factory
-// ---------------------------------------------------------------------------
-
-/**
- * create a themed text input backed by @pixi/ui's Input class.
- *
- * returns a handle with the pixi container, value accessors, and
- * focus/blur/resize/destroy helpers. add `handle.input` to your
- * display list and call `handle.destroy()` when done.
- */
 export function createSkeinInput(options: SkeinInputOptions): SkeinInputHandle {
+  const keyboard = options.keyboard;
   const height = options.height ?? 28;
   let currentWidth = options.width;
+  let currentValue = options.value ?? "";
+  let editing = false;
 
-  // resolve style overrides with defaults
   const styleFontSize = options.fontSize ?? FONT_SIZE;
   const styleFontFamily = options.fontFamily ?? FONT;
   const styleTextColor = options.textColor ?? TEXT_COLOR;
@@ -128,122 +71,202 @@ export function createSkeinInput(options: SkeinInputOptions): SkeinInputHandle {
   const stylePlaceholderColor = options.placeholderColor ?? MUTED_TEXT;
   const styleCornerRadius = options.cornerRadius ?? CORNER_RADIUS;
 
-  // -- background graphic --------------------------------------------------
+  // root container
+  const root = new Container();
+  root.eventMode = "static";
+  root.cursor = "text";
 
+  // background
   const bg = new Graphics();
+  root.addChild(bg);
 
-  const drawBg = (active: boolean): void => {
+  const drawBg = (active: boolean) => {
     const border = active ? styleBorderActive : styleBorderColor;
     bg.clear();
     bg.roundRect(0, 0, currentWidth, height, styleCornerRadius);
     bg.fill({ color: styleBgColor });
     bg.stroke({ color: border, width: 1 });
   };
-
-  // draw the initial (unfocused) state
   drawBg(false);
 
-  // -- create the @pixi/ui Input ------------------------------------------
+  // text mask — clips text to the field area
+  const textMask = new Graphics();
+  const drawTextMask = () => {
+    textMask.clear();
+    textMask.rect(PAD_H - 1, 0, currentWidth - PAD_H * 2 + 2, height);
+    textMask.fill({ color: 0xffffff });
+  };
+  root.addChild(textMask);
+  drawTextMask();
 
-  const input = new Input({
-    bg,
-    textStyle: {
+  // display text
+  const displayText = new Text({
+    text: currentValue,
+    style: {
       fontFamily: styleFontFamily,
       fontSize: styleFontSize,
       fill: styleTextColor,
     },
-    placeholder: options.placeholder ?? "",
-    value: options.value ?? "",
-    maxLength: options.maxLength,
-    align: options.align ?? "left",
-    padding: PADDING,
-    addMask: true,
+    resolution: TEXT_RESOLUTION,
   });
+  displayText.eventMode = "none";
+  displayText.x = PAD_H;
+  displayText.y = Math.round((height - styleFontSize) / 2);
+  displayText.mask = textMask;
+  root.addChild(displayText);
 
-  // the placeholder text style is set separately — @pixi/ui applies the
-  // main textStyle to the placeholder too, so we override just the fill
-  // to get the muted color.
-  if ((input as any).placeholder && (input as any).placeholder.style) {
-    (input as any).placeholder.style.fill = stylePlaceholderColor;
-  }
+  // placeholder text
+  const placeholderText = new Text({
+    text: options.placeholder ?? "",
+    style: {
+      fontFamily: styleFontFamily,
+      fontSize: styleFontSize,
+      fill: stylePlaceholderColor,
+    },
+    resolution: TEXT_RESOLUTION,
+  });
+  placeholderText.eventMode = "none";
+  placeholderText.x = PAD_H;
+  placeholderText.y = Math.round((height - styleFontSize) / 2);
+  placeholderText.mask = textMask;
+  root.addChild(placeholderText);
 
-  // -- wire up user callbacks ---------------------------------------------
+  // cursor (thin vertical line)
+  const cursor = new Graphics();
+  cursor.visible = false;
+  cursor.eventMode = "none";
+  root.addChild(cursor);
 
-  if (options.onChange) {
-    input.onChange.connect(options.onChange);
-  }
-  if (options.onEnter) {
-    input.onEnter.connect(options.onEnter);
-  }
+  let cursorInterval: ReturnType<typeof setInterval> | null = null;
 
-  // -- editing state poll for focus ring -----------------------------------
-  // @pixi/ui Input doesn't emit focus/blur events, so we poll the
-  // internal `editing` flag at a low frequency to toggle the border color.
+  const syncDisplay = () => {
+    displayText.text = currentValue;
+    placeholderText.visible = currentValue.length === 0 && !editing;
 
-  let wasEditing = false;
-
-  const checkEditing = (): void => {
-    const isEditing = (input as any).editing === true;
-    if (isEditing !== wasEditing) {
-      wasEditing = isEditing;
-      drawBg(isEditing);
+    // position cursor after text
+    if (editing) {
+      const textRight = PAD_H + displayText.width;
+      cursor.clear();
+      cursor.rect(textRight + 1, Math.round((height - styleFontSize) / 2), 1.5, styleFontSize);
+      cursor.fill({ color: styleTextColor });
     }
   };
 
-  const pollInterval = setInterval(checkEditing, EDITING_POLL_MS);
+  const startCursorBlink = () => {
+    cursor.visible = true;
+    syncDisplay();
+    if (cursorInterval) clearInterval(cursorInterval);
+    cursorInterval = setInterval(() => {
+      cursor.visible = !cursor.visible;
+    }, CURSOR_BLINK_MS);
+  };
 
-  // -- build the handle ----------------------------------------------------
+  const stopCursorBlink = () => {
+    if (cursorInterval) {
+      clearInterval(cursorInterval);
+      cursorInterval = null;
+    }
+    cursor.visible = false;
+  };
+
+  const stopEditing = () => {
+    if (!editing) return;
+    editing = false;
+    keyboard.release();
+    stopCursorBlink();
+    drawBg(false);
+    syncDisplay();
+    options.onEnter?.(currentValue);
+  };
+
+  const startEditing = () => {
+    if (editing) return;
+    editing = true;
+    drawBg(true);
+    placeholderText.visible = false;
+
+    const handler: KeyboardHandler = {
+      onInput(value: string) {
+        if (options.maxLength && value.length > options.maxLength) {
+          value = value.substring(0, options.maxLength);
+          keyboard.setValue(value);
+        }
+        currentValue = value;
+        syncDisplay();
+        options.onChange?.(currentValue);
+      },
+      onKeyDown(event: KeyboardEvent) {
+        if (event.key === "Escape") {
+          stopEditing();
+          return;
+        }
+        if (event.key === "Enter") {
+          event.preventDefault();
+          stopEditing();
+          return;
+        }
+      },
+      onBlur() {
+        stopEditing();
+      },
+    };
+
+    keyboard.acquire(handler, currentValue);
+    startCursorBlink();
+  };
+
+  // click to focus
+  root.on("pointertap", (e: any) => {
+    e.stopPropagation();
+    if (!editing) {
+      startEditing();
+    }
+  });
+
+  // initial display sync
+  syncDisplay();
 
   const handle: SkeinInputHandle = {
-    input,
+    input: root,
+
+    get isEditing(): boolean {
+      return editing;
+    },
 
     get value(): string {
-      return input.value;
+      return currentValue;
     },
 
     set value(v: string) {
-      input.value = v;
+      currentValue = v;
+      if (editing) {
+        keyboard.setValue(v);
+      }
+      syncDisplay();
     },
 
     focus(): void {
-      // @pixi/ui Input begins editing on pointer activation.
-      // we replicate that by toggling the internal activation flag
-      // and calling the handler, which focuses the hidden DOM input.
-      try {
-        if (typeof (input as any)._activateInput === "function") {
-          (input as any)._activateInput();
-        } else if (typeof (input as any).handleActivation === "function") {
-          (input as any).activation = true;
-          (input as any).handleActivation();
-        }
-      } catch {
-        // if the internal API changed, fail silently — the user can
-        // still click to focus
-      }
-      // make sure the border reflects the new state
-      checkEditing();
+      if (!editing) startEditing();
     },
 
     blur(): void {
-      try {
-        if (typeof (input as any).stopEditing === "function") {
-          (input as any).stopEditing();
-        }
-      } catch {
-        // same graceful fallback
-      }
-      checkEditing();
+      stopEditing();
     },
 
     setWidth(w: number): void {
       currentWidth = w;
-      drawBg(wasEditing);
-      input.width = w;
+      drawBg(editing);
+      drawTextMask();
+      syncDisplay();
     },
 
     destroy(): void {
-      clearInterval(pollInterval);
-      input.destroy({ children: true });
+      if (editing) {
+        editing = false;
+        keyboard.release();
+      }
+      stopCursorBlink();
+      root.destroy({ children: true });
     },
   };
 

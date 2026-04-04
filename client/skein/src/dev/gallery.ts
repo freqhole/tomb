@@ -63,6 +63,7 @@ async function mountGallery(): Promise<void> {
         width: defaultWidth,
         height: defaultHeight,
         keyboard,
+        canvasElement: app.canvas as HTMLCanvasElement,
         widgetId: `gallery-${factory.type}`,
       });
       app.stage.addChild(ctrl.container);

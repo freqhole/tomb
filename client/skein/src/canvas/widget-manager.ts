@@ -50,6 +50,7 @@ export class WidgetManager {
   private readonly theme: SkeinTheme;
   private readonly inputRouter: InputRouter;
   private readonly keyboard: KeyboardDriver;
+  private readonly canvasElement: HTMLCanvasElement;
   private readonly stageBg: Graphics;
 
   private readonly liveWidgets = new Map<string, LiveWidget>();
@@ -70,6 +71,7 @@ export class WidgetManager {
     theme: SkeinTheme,
     inputRouter: InputRouter,
     keyboard: KeyboardDriver,
+    canvasElement: HTMLCanvasElement,
     stageBg: Graphics
   ) {
     this.store = store;
@@ -79,6 +81,7 @@ export class WidgetManager {
     this.theme = theme;
     this.inputRouter = inputRouter;
     this.keyboard = keyboard;
+    this.canvasElement = canvasElement;
     this.stageBg = stageBg;
   }
 
@@ -237,6 +240,7 @@ export class WidgetManager {
       width: entry.width,
       height: entry.height,
       keyboard: this.keyboard,
+      canvasElement: this.canvasElement,
       widgetId: entry.id,
     };
 

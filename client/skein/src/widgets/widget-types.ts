@@ -54,6 +54,8 @@ export interface WidgetMountContext<S extends z.ZodType = z.ZodType> {
   keyboard: KeyboardDriver;
   /** the widget's unique ID in the canvas store */
   widgetId: string;
+  /** the canvas DOM element — used for positioning DOM overlays (e.g. textarea editing) */
+  canvasElement: HTMLCanvasElement;
 }
 
 /**

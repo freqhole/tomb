@@ -188,6 +188,7 @@ export async function initCanvas(options: InitCanvasOptions): Promise<SkeinCanva
     theme,
     inputRouter,
     keyboard,
+    app.canvas as HTMLCanvasElement,
     stageBg
   );
   widgetManager.start();

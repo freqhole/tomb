@@ -6,7 +6,7 @@ import {
   type TextStyleFontWeight,
 } from "pixi.js";
 import { z } from "zod";
-import type { KeyboardHandler } from "../src/widgets/keyboard-driver";
+import { colorToCss } from "../src/widgets/format";
 import {
   isTransparent,
   safeColor,
@@ -16,7 +16,6 @@ import {
 } from "../src/widgets/widget-types";
 
 const PADDING = 12;
-const BG_EDITING_COLOR = 0x1a1a2e;
 const BORDER_EDITING_COLOR = 0xd946ef;
 
 export const markdownSchema = z.object({
@@ -71,7 +70,6 @@ export const markdownWidget: WidgetFactory<typeof markdownSchema> = {
     let editing = false;
     let currentWidth = ctx.width;
     let currentHeight = ctx.height;
-    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 
     // background
     const bg = new Graphics();
@@ -79,11 +77,10 @@ export const markdownWidget: WidgetFactory<typeof markdownSchema> = {
       const state = ctx.doc.current;
       bg.clear();
       bg.roundRect(0, 0, w, h, 6);
-      const fillColor = isEditing ? BG_EDITING_COLOR : state.bgColor;
-      bg.fill(fillColor === -1 ? { color: 0, alpha: 0 } : { color: fillColor });
+      bg.fill(state.bgColor === -1 ? { color: 0, alpha: 0 } : { color: state.bgColor });
       bg.stroke({
         color: isEditing ? BORDER_EDITING_COLOR : 0x2a2a3a,
-        width: isEditing ? 2 : 1,
+        width: isEditing ? 3 : 1,
       });
     };
     drawBg(currentWidth, currentHeight, false);
@@ -110,28 +107,6 @@ export const markdownWidget: WidgetFactory<typeof markdownSchema> = {
 
     // rendered elements for the parsed markdown output
     let renderedElements: (Text | Graphics)[] = [];
-
-    // raw text display shown during editing (like notepad)
-    const rawText = new Text({
-      text: ctx.doc.current.text,
-      style: {
-        fontFamily: ctx.doc.current.fontFamily,
-        fontSize: ctx.doc.current.fontSize,
-        fill: safeColor(ctx.doc.current.textColor),
-        wordWrap: true,
-        wordWrapWidth: contentWidth(),
-      },
-    });
-    rawText.visible = false;
-    rawText.alpha = isTransparent(ctx.doc.current.textColor) ? 0 : 1;
-    content.addChild(rawText);
-
-    // cursor indicator (thin line shown during editing)
-    const cursor = new Graphics();
-    cursor.visible = false;
-    content.addChild(cursor);
-
-    let cursorBlinkInterval: ReturnType<typeof setInterval> | null = null;
 
     // parse and render markdown source into PixiJS display objects
     function renderMarkdown(source: string, state: MarkdownState) {
@@ -169,7 +144,7 @@ export const markdownWidget: WidgetFactory<typeof markdownSchema> = {
         let text: string;
         let fontSize: number;
         let fontWeight: TextStyleFontWeight = "normal";
-        let fontStyle: TextStyleFontStyle = "normal";
+        const fontStyle: TextStyleFontStyle = "normal";
         let fill: number;
         let prefix = "";
 
@@ -201,6 +176,7 @@ export const markdownWidget: WidgetFactory<typeof markdownSchema> = {
 
         const textObj = new Text({
           text: prefix + text,
+          resolution: 2,
           style: {
             fontFamily: state.fontFamily,
             fontSize,
@@ -222,145 +198,98 @@ export const markdownWidget: WidgetFactory<typeof markdownSchema> = {
     // initial render
     renderMarkdown(ctx.doc.current.text, ctx.doc.current);
 
-    const updateCursorPosition = () => {
-      cursor.clear();
-      if (!editing) {
-        cursor.visible = false;
-        return;
+    // DOM textarea overlay for inline editing
+    let activeTextarea: HTMLTextAreaElement | null = null;
+
+    const exitEditing = () => {
+      if (!editing || !activeTextarea) return;
+      editing = false;
+      const value = activeTextarea.value;
+      if (value !== ctx.doc.current.text) {
+        ctx.doc.change((draft) => {
+          draft.text = value;
+        });
       }
-      const textBounds = rawText.getBounds();
-      const localRight = rawText.text.length > 0 ? Math.min(textBounds.width, contentWidth()) : 0;
-      const localBottom = rawText.text.length > 0 ? textBounds.height : ctx.doc.current.fontSize;
-      cursor.rect(
-        localRight + 1,
-        localBottom - ctx.doc.current.fontSize,
-        1.5,
-        ctx.doc.current.fontSize
-      );
-      cursor.fill(
-        isTransparent(ctx.doc.current.textColor)
-          ? { color: 0, alpha: 0 }
-          : { color: ctx.doc.current.textColor }
-      );
-      cursor.visible = true;
+      activeTextarea.remove();
+      activeTextarea = null;
+      renderMarkdown(ctx.doc.current.text, ctx.doc.current);
+      drawBg(currentWidth, currentHeight, false);
     };
 
-    const startCursorBlink = () => {
-      updateCursorPosition();
-      if (cursorBlinkInterval) clearInterval(cursorBlinkInterval);
-      cursorBlinkInterval = setInterval(() => {
-        if (cursor.visible) {
-          cursor.visible = !cursor.visible;
-        } else {
-          updateCursorPosition();
-        }
-      }, 530);
-    };
+    const startEditing = () => {
+      if (editing) return;
+      editing = true;
+      drawBg(currentWidth, currentHeight, true);
 
-    const stopCursorBlink = () => {
-      if (cursorBlinkInterval) {
-        clearInterval(cursorBlinkInterval);
-        cursorBlinkInterval = null;
-      }
-      cursor.visible = false;
-    };
-
-    // commit current text to the doc (debounced during editing)
-    const commitText = (value: string) => {
-      if (debounceTimer !== null) clearTimeout(debounceTimer);
-      ctx.doc.change((draft) => {
-        draft.text = value;
-      });
-    };
-
-    const debouncedCommit = (value: string) => {
-      if (debounceTimer !== null) clearTimeout(debounceTimer);
-      debounceTimer = setTimeout(() => commitText(value), 150);
-    };
-
-    // switch from rendered markdown to raw editing mode
-    const showEditingView = () => {
+      // hide rendered markdown elements while editing
       for (const el of renderedElements) {
         el.visible = false;
       }
-      rawText.visible = true;
-    };
 
-    // switch from raw editing mode back to rendered markdown
-    const showRenderedView = () => {
-      rawText.visible = false;
+      // calculate screen position of the widget
+      const globalPos = container.toGlobal({ x: 0, y: 0 });
+      const globalEnd = container.toGlobal({ x: currentWidth, y: currentHeight });
+      const canvasRect = ctx.canvasElement.getBoundingClientRect();
+
+      const screenX = canvasRect.left + globalPos.x;
+      const screenY = canvasRect.top + globalPos.y;
+      const screenW = globalEnd.x - globalPos.x;
+      const screenH = globalEnd.y - globalPos.y;
+
       const state = ctx.doc.current;
-      renderMarkdown(state.text, state);
-    };
 
-    // exit edit mode, flush pending changes, re-render markdown
-    const exitEditing = () => {
-      if (!editing) return;
-      editing = false;
-      if (debounceTimer !== null) {
-        clearTimeout(debounceTimer);
-        debounceTimer = null;
-      }
-      // commit the final value from the keyboard driver before releasing
-      const finalValue = ctx.keyboard.value;
-      if (finalValue !== ctx.doc.current.text) {
-        commitText(finalValue);
-      }
-      ctx.keyboard.release();
-      stopCursorBlink();
-      drawBg(currentWidth, currentHeight, false);
-      showRenderedView();
-    };
+      const ta = document.createElement("textarea");
+      ta.value = state.text;
+      const s = ta.style;
+      s.position = "fixed";
+      s.left = `${screenX}px`;
+      s.top = `${screenY}px`;
+      s.width = `${screenW}px`;
+      s.height = `${screenH}px`;
+      s.fontFamily = state.fontFamily;
+      s.fontSize = `${state.fontSize}px`;
+      s.color = colorToCss(state.textColor);
+      s.background = "transparent";
+      s.border = "none";
+      s.outline = "none";
+      s.resize = "none";
+      s.padding = `${PADDING}px`;
+      s.overflow = "auto";
+      s.zIndex = "10000";
+      s.boxSizing = "border-box";
+      s.lineHeight = "1.4";
+      s.whiteSpace = "pre-wrap";
+      s.wordWrap = "break-word";
 
-    // keyboard handler for the hidden textarea
-    const handler: KeyboardHandler = {
-      onInput(value: string) {
-        rawText.text = value;
-        debouncedCommit(value);
-        updateCursorPosition();
-      },
-      onKeyDown(event: KeyboardEvent) {
-        if (event.key === "Escape") {
-          // discard in-flight debounce — revert to last committed value
-          if (debounceTimer !== null) {
-            clearTimeout(debounceTimer);
-            debounceTimer = null;
-          }
-          rawText.text = ctx.doc.current.text;
-          editing = false;
-          ctx.keyboard.release();
-          stopCursorBlink();
-          drawBg(currentWidth, currentHeight, false);
-          showRenderedView();
-          return;
-        }
-        // enter without shift exits editing and commits
-        if (event.key === "Enter" && !event.shiftKey) {
-          event.preventDefault();
-          exitEditing();
-        }
-      },
-      onBlur() {
+      document.body.appendChild(ta);
+      activeTextarea = ta;
+      ta.focus();
+
+      ta.addEventListener("blur", () => {
         exitEditing();
-      },
+      });
+
+      ta.addEventListener("keydown", (e) => {
+        if (e.key === "Escape") {
+          // revert without committing
+          editing = false;
+          ta.remove();
+          activeTextarea = null;
+          renderMarkdown(ctx.doc.current.text, ctx.doc.current);
+          drawBg(currentWidth, currentHeight, false);
+        }
+      });
     };
 
-    // double-click to enter edit mode (same pattern as label widget)
+    // double-click to enter edit mode
     let lastTapTime = 0;
     bg.eventMode = "static";
     bg.cursor = "default";
     bg.on("pointertap", () => {
+      if (editing) return;
       const now = Date.now();
       if (now - lastTapTime < 400) {
-        // double-click detected
-        if (!editing) {
-          editing = true;
-          drawBg(currentWidth, currentHeight, true);
-          rawText.text = ctx.doc.current.text;
-          showEditingView();
-          ctx.keyboard.acquire(handler, ctx.doc.current.text);
-          startCursorBlink();
-        }
+        startEditing();
         lastTapTime = 0;
       } else {
         lastTapTime = now;
@@ -371,19 +300,7 @@ export const markdownWidget: WidgetFactory<typeof markdownSchema> = {
     const unsub = ctx.doc.on("change", (state) => {
       if (!editing) {
         renderMarkdown(state.text, state);
-      } else {
-        // if a remote change arrives while editing, sync the textarea
-        if (state.text !== ctx.keyboard.value) {
-          ctx.keyboard.setValue(state.text);
-          rawText.text = state.text;
-        }
       }
-      // apply style changes to raw text display (always)
-      rawText.style.fill = safeColor(state.textColor);
-      rawText.alpha = isTransparent(state.textColor) ? 0 : 1;
-      rawText.style.fontFamily = state.fontFamily;
-      rawText.style.fontSize = state.fontSize;
-      rawText.style.wordWrapWidth = contentWidth();
       drawBg(currentWidth, currentHeight, editing);
     });
 
@@ -391,23 +308,23 @@ export const markdownWidget: WidgetFactory<typeof markdownSchema> = {
       container,
 
       destroy() {
-        stopCursorBlink();
-        if (debounceTimer !== null) clearTimeout(debounceTimer);
-        if (editing) ctx.keyboard.release();
+        if (activeTextarea) {
+          activeTextarea.remove();
+          activeTextarea = null;
+        }
         unsub();
         container.destroy({ children: true });
       },
 
       resize(width: number, height: number) {
+        if (editing && activeTextarea) {
+          exitEditing();
+        }
         currentWidth = width;
         currentHeight = height;
-        drawBg(width, height, editing);
+        drawBg(width, height, false);
         drawClipMask(width, height);
-        rawText.style.wordWrapWidth = contentWidth();
-        if (!editing) {
-          renderMarkdown(ctx.doc.current.text, ctx.doc.current);
-        }
-        updateCursorPosition();
+        renderMarkdown(ctx.doc.current.text, ctx.doc.current);
       },
     };
   },
