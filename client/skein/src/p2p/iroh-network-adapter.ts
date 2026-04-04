@@ -45,6 +45,19 @@ const RECONNECT_JITTER_MS = 1000;
 /** ALPN protocol identifier for automerge-repo sync over iroh. */
 export const SYNC_ALPN = "iroh/automerge-repo/1";
 
+/** ALPN protocol identifier for friend requests, profile sharing, and presence heartbeat. */
+export const FRIENDZ_ALPN = "freqhole-friendz/1";
+
+/** summary of the adapter's connection state for UI display */
+export interface ConnectionSummary {
+  /** number of peers we're actively connected to (stream is open) */
+  connected: number;
+  /** number of peers we're trying to reconnect to (in backoff) */
+  reconnecting: number;
+  /** number of peers where reconnection gave up (max attempts exceeded) */
+  failed: number;
+}
+
 /** console log prefix. */
 const TAG = "[skein:iroh-adapter]";
 
@@ -105,6 +118,15 @@ export class IrohNetworkAdapter extends NetworkAdapter {
     string,
     { attempt: number; timer: ReturnType<typeof setTimeout> | null }
   >();
+
+  /** listeners for connection state changes */
+  private connectionStateListeners: Array<() => void> = [];
+
+  /** peers that exceeded max reconnection attempts */
+  private failedPeers = new Set<string>();
+
+  /** external handlers registered for non-sync ALPNs via registerAlpnHandler(). */
+  private alpnHandlers = new Map<string, (stream: BiStreamLike) => void>();
 
   constructor(getMidden: () => Promise<MiddenStreamNode>) {
     super();
@@ -184,6 +206,8 @@ export class IrohNetworkAdapter extends NetworkAdapter {
     this.streams.clear();
     this.readLoops.clear();
     this.intendedPeers.clear();
+    this.failedPeers.clear();
+    this.alpnHandlers.clear();
 
     // cancel all pending reconnection timers
     for (const [, state] of this.reconnectState) {
@@ -192,6 +216,7 @@ export class IrohNetworkAdapter extends NetworkAdapter {
       }
     }
     this.reconnectState.clear();
+    this.connectionStateListeners.length = 0;
 
     if (this.identityUnsub) {
       this.identityUnsub();
@@ -217,6 +242,8 @@ export class IrohNetworkAdapter extends NetworkAdapter {
 
     // track this peer as one we intend to stay connected to
     this.intendedPeers.add(nodeId);
+    this.failedPeers.delete(nodeId);
+    this.emitConnectionStateChange();
 
     // clear any pending reconnection state — this is a fresh attempt
     this.clearReconnectState(nodeId);
@@ -243,9 +270,77 @@ export class IrohNetworkAdapter extends NetworkAdapter {
   forgetPeer(nodeId: string): void {
     // remove from intended set first so removePeer() won't schedule a reconnect
     this.intendedPeers.delete(nodeId);
+    this.failedPeers.delete(nodeId);
     this.clearReconnectState(nodeId);
     // delegate stream cleanup and peer-disconnected emission to removePeer
     this.removePeer(nodeId);
+    this.emitConnectionStateChange();
+  }
+
+  /**
+   * get a summary of the current connection state.
+   * used by the UI to show stoplight-style indicators.
+   */
+  getConnectionSummary(): ConnectionSummary {
+    let connected = 0;
+    let reconnecting = 0;
+
+    for (const peerId of this.intendedPeers) {
+      if (this.streams.has(peerId)) {
+        connected++;
+      } else if (this.reconnectState.has(peerId)) {
+        reconnecting++;
+      }
+    }
+
+    return { connected, reconnecting, failed: this.failedPeers.size };
+  }
+
+  /**
+   * subscribe to connection state changes.
+   * fires whenever a peer connects, disconnects, starts reconnecting,
+   * or gives up. returns an unsubscribe function.
+   */
+  onConnectionStateChange(handler: () => void): () => void {
+    this.connectionStateListeners.push(handler);
+    return () => {
+      const idx = this.connectionStateListeners.indexOf(handler);
+      if (idx >= 0) this.connectionStateListeners.splice(idx, 1);
+    };
+  }
+
+  /**
+   * retry connection to all failed peers.
+   * re-adds them to intendedPeers and starts fresh reconnection attempts.
+   */
+  retryFailedPeers(): void {
+    if (this._disconnected) return;
+    const failed = [...this.failedPeers];
+    this.failedPeers.clear();
+    for (const peerId of failed) {
+      this.intendedPeers.add(peerId);
+      this.scheduleReconnect(peerId);
+    }
+    this.emitConnectionStateChange();
+  }
+
+  /**
+   * register a handler for incoming streams with a specific ALPN.
+   * the accept loop will dispatch matching streams to this handler
+   * instead of closing them. used to support additional protocols
+   * (e.g. freqhole-friendz/1) alongside automerge sync.
+   */
+  registerAlpnHandler(alpn: string, handler: (stream: BiStreamLike) => void): void {
+    this.alpnHandlers.set(alpn, handler);
+  }
+
+  /**
+   * get the midden stream node, initializing it lazily if needed.
+   * exposed for use by protocol handlers that need to open outbound
+   * streams (e.g. friends protocol handler calling open_bi with FRIENDZ_ALPN).
+   */
+  async getNode(): Promise<MiddenStreamNode> {
+    return this.ensureMidden();
   }
 
   // --- internals ---
@@ -307,17 +402,23 @@ export class IrohNetworkAdapter extends NetworkAdapter {
           }
 
           const alpn = stream.alpn();
-          if (alpn !== SYNC_ALPN) {
-            // not our protocol — close the stream
-            console.log(TAG, "ignoring stream with ALPN:", alpn);
-            stream.close();
-            continue;
-          }
-
           const peerId = stream.peer_node_id();
-          console.log(TAG, "accepted connection from:", peerId.slice(0, 16) + "...");
 
-          this.registerStream(peerId, stream);
+          if (alpn === SYNC_ALPN) {
+            // automerge-repo sync — handle internally
+            console.log(TAG, "accepted sync connection from:", peerId.slice(0, 16) + "...");
+            this.registerStream(peerId, stream);
+          } else {
+            const handler = this.alpnHandlers.get(alpn);
+            if (handler) {
+              console.log(TAG, "dispatching", alpn, "stream from:", peerId.slice(0, 16) + "...");
+              handler(stream);
+            } else {
+              // no handler registered — close the stream
+              console.log(TAG, "ignoring stream with ALPN:", alpn);
+              stream.close();
+            }
+          }
         } catch (err) {
           if (this._disconnected) break;
           console.error(TAG, "accept loop error:", err);
@@ -346,6 +447,7 @@ export class IrohNetworkAdapter extends NetworkAdapter {
 
     // connection established — clear any reconnection backoff state
     this.clearReconnectState(peerId);
+    this.emitConnectionStateChange();
 
     // emit peer-candidate so automerge-repo starts syncing
     this.emit("peer-candidate", {
@@ -400,6 +502,7 @@ export class IrohNetworkAdapter extends NetworkAdapter {
     if (stream) {
       stream.close();
       this.streams.delete(peerId);
+      this.emitConnectionStateChange();
     }
 
     this.readLoops.delete(peerId);
@@ -443,7 +546,9 @@ export class IrohNetworkAdapter extends NetworkAdapter {
         peerId.slice(0, 16) + "..."
       );
       this.intendedPeers.delete(peerId);
+      this.failedPeers.add(peerId);
       this.clearReconnectState(peerId);
+      this.emitConnectionStateChange();
       return;
     }
 
@@ -509,6 +614,13 @@ export class IrohNetworkAdapter extends NetworkAdapter {
   /**
    * clear reconnection state and cancel any pending timer for a peer.
    */
+  /** notify all connection state listeners */
+  private emitConnectionStateChange(): void {
+    for (const handler of this.connectionStateListeners) {
+      handler();
+    }
+  }
+
   private clearReconnectState(peerId: string): void {
     const state = this.reconnectState.get(peerId);
     if (state) {

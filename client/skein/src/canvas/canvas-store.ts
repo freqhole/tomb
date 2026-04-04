@@ -70,6 +70,15 @@ export class CanvasStore {
     });
   }
 
+  /** remove a peer from the canvas document. used to revoke access from the share dialog. */
+  removePeer(nodeId: string): void {
+    this.handle.change((doc) => {
+      if (doc.peers && doc.peers[nodeId]) {
+        delete doc.peers[nodeId];
+      }
+    });
+  }
+
   // -- metadata --------------------------------------------------------------
 
   /** get the canvas metadata (title, description, timestamps). */

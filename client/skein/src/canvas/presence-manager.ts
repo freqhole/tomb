@@ -26,6 +26,12 @@ export interface PeerPresence {
 // minimum interval between cursor broadcasts (~20fps)
 const CURSOR_THROTTLE_MS = 50;
 
+// how often to broadcast "online" to keep presence alive
+const HEARTBEAT_INTERVAL_MS = 30_000;
+
+// how often to check for stale peers and mark them offline
+const PRUNE_INTERVAL_MS = 60_000;
+
 /**
  * manages ephemeral presence state for all peers on a shared canvas.
  * broadcasts local cursor position, online status, widget locks, and
@@ -54,6 +60,9 @@ export class PresenceManager {
   private lastCursorBroadcast = 0;
   private pendingCursorTimer: ReturnType<typeof setTimeout> | null = null;
 
+  private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+  private pruneTimer: ReturnType<typeof setInterval> | null = null;
+
   constructor(store: CanvasStore, localPeerId: string) {
     this.store = store;
     this.localPeerId = localPeerId;
@@ -62,6 +71,16 @@ export class PresenceManager {
     this.unsubscribe = this.store.onEphemeral((senderId: string, data: Uint8Array) => {
       this.handleEphemeralMessage(senderId, data);
     });
+
+    // periodic heartbeat: re-announce online status so peers can detect if we crash
+    this.heartbeatTimer = setInterval(() => {
+      this.broadcastOnline();
+    }, HEARTBEAT_INTERVAL_MS);
+
+    // periodic stale pruning: mark peers offline if no message received in 30s
+    this.pruneTimer = setInterval(() => {
+      this.pruneStale();
+    }, PRUNE_INTERVAL_MS);
   }
 
   // ---------------------------------------------------------------------------
@@ -226,6 +245,14 @@ export class PresenceManager {
     if (this.pendingCursorTimer !== null) {
       clearTimeout(this.pendingCursorTimer);
       this.pendingCursorTimer = null;
+    }
+    if (this.heartbeatTimer !== null) {
+      clearInterval(this.heartbeatTimer);
+      this.heartbeatTimer = null;
+    }
+    if (this.pruneTimer !== null) {
+      clearInterval(this.pruneTimer);
+      this.pruneTimer = null;
     }
     this.unsubscribe();
     this.peers.clear();

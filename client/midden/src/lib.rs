@@ -27,6 +27,9 @@ const FREQHOLE_ALPN: &[u8] = b"freqhole/1";
 /// ALPN for automerge-repo document sync (used by skein canvas P2P)
 const AUTOMERGE_ALPN: &[u8] = b"iroh/automerge-repo/1";
 
+/// ALPN for friend requests, profile sharing, and presence heartbeat (used by skein social layer)
+const FRIENDZ_ALPN: &[u8] = b"freqhole-friendz/1";
+
 /// protocol messages (must match grimoire's PeerMessage)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -364,7 +367,11 @@ impl MiddenNode {
         // use N0 preset for relay + DNS discovery (peers can find each other)
         let endpoint = Endpoint::builder(presets::N0)
             .secret_key(secret_key)
-            .alpns(vec![FREQHOLE_ALPN.to_vec(), AUTOMERGE_ALPN.to_vec()])
+            .alpns(vec![
+                FREQHOLE_ALPN.to_vec(),
+                AUTOMERGE_ALPN.to_vec(),
+                FRIENDZ_ALPN.to_vec(),
+            ])
             .bind()
             .await
             .map_err(to_js_err)?;
@@ -415,7 +422,11 @@ impl MiddenNode {
         bytes.copy_from_slice(key_bytes);
 
         // collect extra ALPNs from JS array
-        let mut alpns = vec![FREQHOLE_ALPN.to_vec(), AUTOMERGE_ALPN.to_vec()];
+        let mut alpns = vec![
+            FREQHOLE_ALPN.to_vec(),
+            AUTOMERGE_ALPN.to_vec(),
+            FRIENDZ_ALPN.to_vec(),
+        ];
         for i in 0..extra_alpns.length() {
             let alpn_str = extra_alpns
                 .get(i)

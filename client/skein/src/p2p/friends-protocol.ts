@@ -1,0 +1,540 @@
+// ---------------------------------------------------------------------------
+// friends protocol handler — freqhole-friendz/1
+//
+// handles P2P communication for friend requests, profile sharing, and
+// presence heartbeat over the freqhole-friendz/1 ALPN. runs alongside
+// the automerge sync adapter, sharing the same midden WASM transport.
+// ---------------------------------------------------------------------------
+
+import type { BiStreamLike, MiddenStreamNode } from "./iroh-network-adapter";
+import { FRIENDZ_ALPN } from "./iroh-network-adapter";
+
+// ---------------------------------------------------------------------------
+// constants
+// ---------------------------------------------------------------------------
+
+const TAG = "[skein:friendz]";
+
+/** how often to send heartbeat pings to friends (ms). */
+export const HEARTBEAT_INTERVAL_MS = 30_000;
+
+/** time after last heartbeat before marking a friend offline (ms). */
+export const HEARTBEAT_TIMEOUT_MS = 90_000;
+
+// ---------------------------------------------------------------------------
+// protocol message types
+// ---------------------------------------------------------------------------
+
+/** request the peer's profile. */
+export interface ProfileRequestMessage {
+  type: "profile-request";
+}
+
+/** response with profile data. */
+export interface ProfileResponseMessage {
+  type: "profile-response";
+  username: string;
+  bio: string;
+  avatarDataUrl: string;
+}
+
+/** send a friend request to a peer. */
+export interface FriendRequestMessage {
+  type: "friend-request";
+  fromNodeId: string;
+  fromUsername: string;
+}
+
+/** accept an incoming friend request. */
+export interface FriendAcceptMessage {
+  type: "friend-accept";
+  fromNodeId: string;
+  fromUsername: string;
+}
+
+/** reject an incoming friend request. */
+export interface FriendRejectMessage {
+  type: "friend-reject";
+  fromNodeId: string;
+}
+
+/** periodic presence ping. */
+export interface HeartbeatMessage {
+  type: "heartbeat";
+  nodeId: string;
+  username: string;
+}
+
+/** union of all protocol messages. */
+export type FriendzMessage =
+  | ProfileRequestMessage
+  | ProfileResponseMessage
+  | FriendRequestMessage
+  | FriendAcceptMessage
+  | FriendRejectMessage
+  | HeartbeatMessage;
+
+// ---------------------------------------------------------------------------
+// message encoding / decoding
+//
+// messages are JSON-encoded and written as UTF-8 over the BiStream.
+// the midden BiStream's write_message/read_message handles
+// length-delimited framing, so we just need JSON serialization.
+// ---------------------------------------------------------------------------
+
+const encoder = new TextEncoder();
+const decoder = new TextDecoder();
+
+/** encode a protocol message to bytes for sending over a BiStream. */
+export function encodeMessage(msg: FriendzMessage): Uint8Array {
+  return encoder.encode(JSON.stringify(msg));
+}
+
+/** decode bytes from a BiStream into a protocol message. */
+export function decodeMessage(data: Uint8Array): FriendzMessage {
+  const text = decoder.decode(data);
+  return JSON.parse(text) as FriendzMessage;
+}
+
+// ---------------------------------------------------------------------------
+// event types for the protocol handler
+// ---------------------------------------------------------------------------
+
+/** callback for when a friend request is received from a remote peer. */
+export type OnFriendRequest = (request: FriendRequestMessage, fromNodeId: string) => void;
+
+/** callback for when a friend request is accepted by a remote peer. */
+export type OnFriendAccept = (accept: FriendAcceptMessage, fromNodeId: string) => void;
+
+/** callback for when a friend request is rejected by a remote peer. */
+export type OnFriendReject = (reject: FriendRejectMessage, fromNodeId: string) => void;
+
+/** callback for when a profile response is received from a remote peer. */
+export type OnProfileResponse = (profile: ProfileResponseMessage, fromNodeId: string) => void;
+
+/** callback for when a heartbeat is received from a remote peer. */
+export type OnHeartbeat = (heartbeat: HeartbeatMessage, fromNodeId: string) => void;
+
+// ---------------------------------------------------------------------------
+// FriendzProtocol
+// ---------------------------------------------------------------------------
+
+export interface FriendzProtocolOptions {
+  /** factory to get the midden node for outbound connections. */
+  getMidden: () => Promise<MiddenStreamNode>;
+
+  /** local node ID (from identity). */
+  localNodeId: string;
+
+  /** local username (from profile). */
+  localUsername: string;
+
+  /** callback to get the local profile for responding to profile requests. */
+  getLocalProfile: () => { username: string; bio: string; avatarDataUrl: string };
+
+  /** callback to check if a node ID is a known friend. */
+  isFriend: (nodeId: string) => boolean;
+
+  /** privacy: who can see our profile ("friends" | "everyone" | "nobody"). */
+  profileVisibility?: "friends" | "everyone" | "nobody";
+
+  /** privacy: who can send us friend requests ("everyone" | "nobody"). */
+  friendRequestsFrom?: "everyone" | "nobody";
+}
+
+/**
+ * handles the freqhole-friendz/1 protocol for friend requests,
+ * profile sharing, and presence heartbeat.
+ *
+ * usage:
+ *   const friendz = new FriendzProtocol({ getMidden, localNodeId, ... });
+ *   adapter.registerAlpnHandler(FRIENDZ_ALPN, (stream) => friendz.handleStream(stream));
+ *
+ *   // send a friend request
+ *   await friendz.sendFriendRequest(peerNodeId);
+ *
+ *   // listen for incoming requests
+ *   friendz.onFriendRequest = (req, fromNodeId) => { ... };
+ */
+export class FriendzProtocol {
+  private getMidden: () => Promise<MiddenStreamNode>;
+  private localNodeId: string;
+  private localUsername: string;
+  private getLocalProfile: () => { username: string; bio: string; avatarDataUrl: string };
+  private isFriend: (nodeId: string) => boolean;
+  private profileVisibility: "friends" | "everyone" | "nobody";
+  private friendRequestsFrom: "everyone" | "nobody";
+
+  /** active BiStreams to peers, keyed by node ID. */
+  private streams = new Map<string, BiStreamLike>();
+
+  /** in-flight stream opens to deduplicate concurrent sendMessage calls. */
+  private pendingConnections = new Map<string, Promise<BiStreamLike>>();
+
+  /** last seen timestamps for heartbeat tracking, keyed by node ID. */
+  private lastSeen = new Map<string, number>();
+
+  /** heartbeat interval timer. */
+  private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+
+  /** online/offline change listeners. */
+  private onlineChangeListeners: Array<() => void> = [];
+
+  private _destroyed = false;
+
+  // --- event handlers (set by the consumer) ---
+
+  /** called when a friend request is received. */
+  onFriendRequest: OnFriendRequest | null = null;
+
+  /** called when a friend accept is received. */
+  onFriendAccept: OnFriendAccept | null = null;
+
+  /** called when a friend reject is received. */
+  onFriendReject: OnFriendReject | null = null;
+
+  /** called when a profile response is received. */
+  onProfileResponse: OnProfileResponse | null = null;
+
+  /** called when a heartbeat is received. */
+  onHeartbeat: OnHeartbeat | null = null;
+
+  constructor(options: FriendzProtocolOptions) {
+    this.getMidden = options.getMidden;
+    this.localNodeId = options.localNodeId;
+    this.localUsername = options.localUsername;
+    this.getLocalProfile = options.getLocalProfile;
+    this.isFriend = options.isFriend;
+    this.profileVisibility = options.profileVisibility ?? "friends";
+    this.friendRequestsFrom = options.friendRequestsFrom ?? "everyone";
+  }
+
+  // --- incoming stream handling (called by the ALPN router) ---
+
+  /**
+   * handle an incoming freqhole-friendz/1 stream.
+   * this is registered as the ALPN handler with the iroh adapter.
+   */
+  handleStream(stream: BiStreamLike): void {
+    const peerId = stream.peer_node_id();
+    console.log(TAG, "incoming stream from:", peerId.slice(0, 16) + "...");
+
+    // store the stream for potential replies
+    const existing = this.streams.get(peerId);
+    if (existing) {
+      existing.close();
+    }
+    this.streams.set(peerId, stream);
+
+    // start reading messages
+    this.readLoop(peerId, stream);
+  }
+
+  private async readLoop(peerId: string, stream: BiStreamLike): Promise<void> {
+    try {
+      while (!this._destroyed) {
+        const data = await stream.read_message();
+        if (!data) {
+          // stream closed
+          console.log(TAG, "stream closed by peer:", peerId.slice(0, 16) + "...");
+          break;
+        }
+
+        try {
+          const msg = decodeMessage(data);
+          this.handleMessage(msg, peerId, stream);
+        } catch (err) {
+          console.warn(TAG, "failed to decode message from:", peerId.slice(0, 16) + "...", err);
+        }
+      }
+    } catch (err) {
+      if (!this._destroyed) {
+        console.error(TAG, "read loop error from:", peerId.slice(0, 16) + "...", err);
+      }
+    } finally {
+      // clean up stream reference if it's still the current one
+      if (this.streams.get(peerId) === stream) {
+        this.streams.delete(peerId);
+      }
+    }
+  }
+
+  private handleMessage(msg: FriendzMessage, fromNodeId: string, stream: BiStreamLike): void {
+    switch (msg.type) {
+      case "profile-request":
+        this.handleProfileRequest(fromNodeId, stream);
+        break;
+
+      case "profile-response":
+        this.onProfileResponse?.(msg, fromNodeId);
+        break;
+
+      case "friend-request":
+        this.handleFriendRequest(msg, fromNodeId);
+        break;
+
+      case "friend-accept":
+        this.onFriendAccept?.(msg, fromNodeId);
+        break;
+
+      case "friend-reject":
+        this.onFriendReject?.(msg, fromNodeId);
+        break;
+
+      case "heartbeat":
+        this.lastSeen.set(fromNodeId, Date.now());
+        this.emitOnlineChange();
+        this.onHeartbeat?.(msg, fromNodeId);
+        break;
+
+      default:
+        console.warn(TAG, "unknown message type from:", fromNodeId.slice(0, 16) + "...", msg);
+    }
+  }
+
+  private handleProfileRequest(fromNodeId: string, stream: BiStreamLike): void {
+    // check privacy settings
+    if (this.profileVisibility === "nobody") {
+      console.log(TAG, "ignoring profile request (visibility: nobody)");
+      return;
+    }
+    if (this.profileVisibility === "friends" && !this.isFriend(fromNodeId)) {
+      console.log(
+        TAG,
+        "ignoring profile request from non-friend:",
+        fromNodeId.slice(0, 16) + "..."
+      );
+      return;
+    }
+
+    const profile = this.getLocalProfile();
+    const response: ProfileResponseMessage = {
+      type: "profile-response",
+      username: profile.username,
+      bio: profile.bio,
+      avatarDataUrl: profile.avatarDataUrl,
+    };
+
+    stream.write_message(encodeMessage(response)).catch((err) => {
+      console.warn(TAG, "failed to send profile response:", err);
+    });
+  }
+
+  private handleFriendRequest(msg: FriendRequestMessage, fromNodeId: string): void {
+    // check privacy settings
+    if (this.friendRequestsFrom === "nobody") {
+      console.log(TAG, "ignoring friend request (requests disabled)");
+      return;
+    }
+
+    this.onFriendRequest?.(msg, fromNodeId);
+  }
+
+  // --- outbound protocol actions ---
+
+  /**
+   * send a friend request to a peer.
+   * opens a new stream if we don't have one, sends the request message.
+   */
+  async sendFriendRequest(peerNodeId: string): Promise<void> {
+    const msg: FriendRequestMessage = {
+      type: "friend-request",
+      fromNodeId: this.localNodeId,
+      fromUsername: this.localUsername,
+    };
+    await this.sendMessage(peerNodeId, msg);
+  }
+
+  /**
+   * accept a friend request from a peer.
+   */
+  async sendFriendAccept(peerNodeId: string): Promise<void> {
+    const msg: FriendAcceptMessage = {
+      type: "friend-accept",
+      fromNodeId: this.localNodeId,
+      fromUsername: this.localUsername,
+    };
+    await this.sendMessage(peerNodeId, msg);
+  }
+
+  /**
+   * reject a friend request from a peer.
+   */
+  async sendFriendReject(peerNodeId: string): Promise<void> {
+    const msg: FriendRejectMessage = {
+      type: "friend-reject",
+      fromNodeId: this.localNodeId,
+    };
+    await this.sendMessage(peerNodeId, msg);
+  }
+
+  /**
+   * request a peer's profile.
+   */
+  async requestProfile(peerNodeId: string): Promise<void> {
+    const msg: ProfileRequestMessage = { type: "profile-request" };
+    await this.sendMessage(peerNodeId, msg);
+  }
+
+  // --- heartbeat ---
+
+  /**
+   * start the periodic heartbeat to all connected friend peers.
+   * call this after the protocol handler is set up and friends are loaded.
+   */
+  startHeartbeat(getFriendNodeIds: () => string[]): void {
+    this.stopHeartbeat();
+
+    const sendHeartbeats = async () => {
+      const msg: HeartbeatMessage = {
+        type: "heartbeat",
+        nodeId: this.localNodeId,
+        username: this.localUsername,
+      };
+
+      for (const peerId of getFriendNodeIds()) {
+        this.sendMessage(peerId, msg).catch((err) => {
+          console.warn(TAG, "heartbeat failed for:", peerId.slice(0, 16) + "...", err);
+        });
+      }
+    };
+
+    // send immediately, then on interval
+    sendHeartbeats();
+    this.heartbeatTimer = setInterval(sendHeartbeats, HEARTBEAT_INTERVAL_MS);
+  }
+
+  /** stop the heartbeat interval. */
+  stopHeartbeat(): void {
+    if (this.heartbeatTimer) {
+      clearInterval(this.heartbeatTimer);
+      this.heartbeatTimer = null;
+    }
+  }
+
+  // --- online/offline status ---
+
+  /**
+   * check if a friend peer is considered online based on heartbeat.
+   * a peer is online if we received a heartbeat within the timeout window.
+   */
+  isOnline(nodeId: string): boolean {
+    const lastSeenAt = this.lastSeen.get(nodeId);
+    if (!lastSeenAt) return false;
+    return Date.now() - lastSeenAt < HEARTBEAT_TIMEOUT_MS;
+  }
+
+  /**
+   * get all peer node IDs that are currently considered online.
+   */
+  getOnlinePeers(): string[] {
+    const now = Date.now();
+    const online: string[] = [];
+    for (const [nodeId, lastSeenAt] of this.lastSeen) {
+      if (now - lastSeenAt < HEARTBEAT_TIMEOUT_MS) {
+        online.push(nodeId);
+      }
+    }
+    return online;
+  }
+
+  /**
+   * subscribe to online/offline state changes.
+   * returns an unsubscribe function.
+   */
+  onOnlineChange(handler: () => void): () => void {
+    this.onlineChangeListeners.push(handler);
+    return () => {
+      const idx = this.onlineChangeListeners.indexOf(handler);
+      if (idx !== -1) this.onlineChangeListeners.splice(idx, 1);
+    };
+  }
+
+  private emitOnlineChange(): void {
+    for (const handler of this.onlineChangeListeners) {
+      handler();
+    }
+  }
+
+  // --- internal helpers ---
+
+  /**
+   * send a message to a peer, opening a new stream if needed.
+   */
+  private async sendMessage(peerNodeId: string, msg: FriendzMessage): Promise<void> {
+    let stream = this.streams.get(peerNodeId);
+
+    if (!stream) {
+      // check if there's an in-flight connection attempt
+      let pending = this.pendingConnections.get(peerNodeId);
+      if (!pending) {
+        // start a new connection
+        pending = this.openStream(peerNodeId);
+        this.pendingConnections.set(peerNodeId, pending);
+      }
+
+      try {
+        stream = await pending;
+      } finally {
+        this.pendingConnections.delete(peerNodeId);
+      }
+    }
+
+    await stream.write_message(encodeMessage(msg));
+  }
+
+  private async openStream(peerNodeId: string): Promise<BiStreamLike> {
+    try {
+      const midden = await this.getMidden();
+      const stream = await midden.open_bi(peerNodeId, FRIENDZ_ALPN);
+      this.streams.set(peerNodeId, stream);
+      // start reading responses on this stream
+      this.readLoop(peerNodeId, stream);
+      return stream;
+    } catch (err) {
+      console.error(TAG, "failed to open stream to:", peerNodeId.slice(0, 16) + "...", err);
+      throw err;
+    }
+  }
+
+  /** update the local username (e.g. when profile changes). */
+  setLocalUsername(username: string): void {
+    this.localUsername = username;
+  }
+
+  /** update the local node ID (e.g. after identity creation). */
+  setLocalNodeId(nodeId: string): void {
+    this.localNodeId = nodeId;
+  }
+
+  /** update privacy settings. */
+  setProfileVisibility(visibility: "friends" | "everyone" | "nobody"): void {
+    this.profileVisibility = visibility;
+  }
+
+  /** update privacy settings. */
+  setFriendRequestsFrom(from: "everyone" | "nobody"): void {
+    this.friendRequestsFrom = from;
+  }
+
+  /**
+   * clean up all streams, timers, and listeners.
+   */
+  destroy(): void {
+    this._destroyed = true;
+    this.stopHeartbeat();
+
+    for (const [, stream] of this.streams) {
+      stream.close();
+    }
+    this.streams.clear();
+    this.pendingConnections.clear();
+    this.lastSeen.clear();
+    this.onlineChangeListeners = [];
+    this.onFriendRequest = null;
+    this.onFriendAccept = null;
+    this.onFriendReject = null;
+    this.onProfileResponse = null;
+    this.onHeartbeat = null;
+  }
+}

@@ -21,6 +21,10 @@ export interface ShareDialogOptions {
   theme: SkeinTheme;
   shareString: string;
   shareUrl: string;
+  /** list of peer node IDs this canvas is shared with (from canvas doc) */
+  peers?: Array<{ nodeId: string; joinedAt: string }>;
+  /** called when user clicks "remove" on a peer */
+  onRemovePeer?: (nodeId: string) => void;
   onClose?: () => void;
 }
 
@@ -134,6 +138,82 @@ function wireCopy(
 }
 
 // ---------------------------------------------------------------------------
+// helpers — peer row
+// ---------------------------------------------------------------------------
+
+function buildPeerRow(
+  nodeId: string,
+  _joinedAt: string,
+  theme: SkeinTheme,
+  scrollBoxWidth: number,
+  copyBtnH: number,
+  isRemoved: () => boolean,
+  onRemovePeer?: (nodeId: string) => void
+): Container {
+  const row = new Container();
+
+  // truncated node ID text
+  const truncated = nodeId.slice(0, 8) + "..." + nodeId.slice(-8);
+  const idText = new Text({
+    text: truncated,
+    style: {
+      fontFamily: theme.fontFamily,
+      fontSize: theme.fontSizeSmall,
+      fill: theme.frameHeaderText,
+    },
+    resolution: theme.textResolution,
+  });
+  idText.eventMode = "none";
+  idText.y = (copyBtnH - idText.height) / 2;
+  row.addChild(idText);
+
+  // copy button — copies full node ID
+  const copyBtn = makeCopyButton(theme);
+  copyBtn.btn.x = scrollBoxWidth - copyBtn.width - (onRemovePeer ? 70 : 0) - 8;
+  copyBtn.btn.y = 0;
+  row.addChild(copyBtn.btn);
+  wireCopy(copyBtn.btn, copyBtn.bg, copyBtn.text, copyBtnH, nodeId, theme, isRemoved);
+
+  // remove button (if handler provided)
+  if (onRemovePeer) {
+    const removeBtnText = new Text({
+      text: "remove",
+      style: {
+        fontFamily: theme.fontFamily,
+        fontSize: theme.fontSizeSmall,
+        fill: 0xef4444,
+      },
+      resolution: theme.textResolution,
+    });
+    removeBtnText.eventMode = "none";
+
+    const removeBtnBg = new Graphics();
+    const removeW = removeBtnText.width + 14 * 2;
+    const removeH = removeBtnText.height + 6 * 2;
+    removeBtnBg.roundRect(0, 0, removeW, removeH, 4);
+    removeBtnBg.fill({ color: 0x7f1d1d });
+
+    const removeView = new Container();
+    removeView.addChild(removeBtnBg);
+    removeBtnText.x = 14;
+    removeBtnText.y = 6;
+    removeView.addChild(removeBtnText);
+
+    const removeBtn = new ButtonContainer(removeView);
+    removeBtn.cursor = "pointer";
+    removeBtn.x = scrollBoxWidth - removeW;
+    removeBtn.y = 0;
+    row.addChild(removeBtn);
+
+    removeBtn.onPress.connect(() => {
+      onRemovePeer(nodeId);
+    });
+  }
+
+  return row;
+}
+
+// ---------------------------------------------------------------------------
 // helpers — DOM input overlays
 // ---------------------------------------------------------------------------
 
@@ -197,6 +277,7 @@ function createReadOnlyInput(
  */
 export function showShareDialog(options: ShareDialogOptions): ShareDialogHandle {
   const { app, theme, shareString, shareUrl, onClose } = options;
+  const peerList = options.peers ?? [];
 
   let removed = false;
   const isRemoved = () => removed;
@@ -253,6 +334,44 @@ export function showShareDialog(options: ShareDialogOptions): ShareDialogHandle 
   const row2 = buildRow("share URL", shareUrl);
 
   // -------------------------------------------------------------------------
+  // peer list section
+  // -------------------------------------------------------------------------
+
+  const peerSection = new Container();
+  const peerLabel = makeLabel("shared with", theme);
+  peerSection.addChild(peerLabel);
+
+  if (peerList.length === 0) {
+    const emptyText = new Text({
+      text: "no peers yet",
+      style: {
+        fontFamily: theme.fontFamily,
+        fontSize: theme.fontSizeSmall,
+        fill: 0x6b7280,
+      },
+      resolution: theme.textResolution,
+    });
+    emptyText.y = peerLabel.height + LABEL_GAP;
+    peerSection.addChild(emptyText);
+  } else {
+    let peerY = peerLabel.height + LABEL_GAP;
+    for (const peer of peerList) {
+      const peerRow = buildPeerRow(
+        peer.nodeId,
+        peer.joinedAt,
+        theme,
+        scrollBoxWidth,
+        copyBtnH,
+        isRemoved,
+        options.onRemovePeer
+      );
+      peerRow.y = peerY;
+      peerSection.addChild(peerRow);
+      peerY += copyBtnH + 4;
+    }
+  }
+
+  // -------------------------------------------------------------------------
   // close button (FancyButton — required by Dialog's button API)
   // -------------------------------------------------------------------------
 
@@ -306,7 +425,9 @@ export function showShareDialog(options: ShareDialogOptions): ShareDialogHandle 
   // -------------------------------------------------------------------------
 
   const rowHeight = titleText.height + LABEL_GAP + INPUT_HEIGHT; // approximate single row
-  const contentNeeded = rowHeight * 2 + SECTION_GAP;
+  const peerSectionHeight =
+    peerLabel.height + LABEL_GAP + Math.max(1, peerList.length) * (copyBtnH + 4);
+  const contentNeeded = rowHeight * 2 + SECTION_GAP * 2 + peerSectionHeight;
   const DIALOG_HEIGHT =
     DIALOG_PADDING * 2 + titleText.height + contentNeeded + closeBtnHeight + DIALOG_PADDING;
 
@@ -329,7 +450,7 @@ export function showShareDialog(options: ShareDialogOptions): ShareDialogHandle 
     width: DIALOG_WIDTH,
     height: DIALOG_HEIGHT,
     padding: DIALOG_PADDING,
-    content: [row1.container, row2.container],
+    content: [row1.container, row2.container, peerSection],
     buttons: [closeButton],
     scrollBox: {
       background: 0x141414,

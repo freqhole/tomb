@@ -1,13 +1,20 @@
-import { Repo, type DocumentId } from "@automerge/automerge-repo";
+import { Repo, type DocHandle, type DocumentId } from "@automerge/automerge-repo";
 import { BroadcastChannelNetworkAdapter } from "@automerge/automerge-repo-network-broadcastchannel";
 import { IndexedDBStorageAdapter } from "@automerge/automerge-repo-storage-indexeddb";
 import { createTestRegistry } from "../../widgets/index";
 import { createNarthexRegistry } from "../../widgets/narthex/index";
 import { CanvasStore } from "../canvas/canvas-store";
+import type { ConnectionStateSource } from "../canvas/connection-status";
 import { initCanvas, type SkeinCanvas } from "../canvas/init";
 import { showShareDialog } from "../canvas/share-dialog";
+import { FriendzProtocol } from "../p2p/friends-protocol";
+import { destroyBridge, initBridge } from "../p2p/friendz-bridge";
 import { ensureIdentity, getMiddenNode, getStoredIdentity } from "../p2p/identity";
-import { IrohNetworkAdapter, type MiddenStreamNode } from "../p2p/iroh-network-adapter";
+import {
+  FRIENDZ_ALPN,
+  IrohNetworkAdapter,
+  type MiddenStreamNode,
+} from "../p2p/iroh-network-adapter";
 import { decodeShareString, encodeShareString } from "../p2p/share-string";
 import { getMetaValue, setMetaValue } from "../storage/meta-db";
 
@@ -32,6 +39,12 @@ class SkeinRouter {
   /** stashed by joinCanvasFromNarthex so navigateToCanvas can write it into the doc */
   private pendingPeerNodeId: string | null = null;
 
+  private friendzProtocol: FriendzProtocol | null = null;
+  private friendzDocUnsubs: Array<() => void> = [];
+
+  /** adapter connection state source for the ConnectionStatus widget */
+  private readonly connectionStateSource: ConnectionStateSource;
+
   constructor(mountElement: HTMLElement) {
     this.mountElement = mountElement;
 
@@ -43,6 +56,13 @@ class SkeinRouter {
     );
     const network = [new BroadcastChannelNetworkAdapter(), this.irohAdapter];
     this.repo = new Repo({ storage, network });
+
+    // wrap the adapter's connection state API for the ConnectionStatus widget
+    this.connectionStateSource = {
+      getConnectionSummary: () => this.irohAdapter.getConnectionSummary(),
+      onStateChange: (handler: () => void) => this.irohAdapter.onConnectionStateChange(handler),
+      retryFailed: () => this.irohAdapter.retryFailedPeers(),
+    };
   }
 
   /** initial boot — resolve narthex doc id then navigate to the right place */
@@ -238,6 +258,11 @@ class SkeinRouter {
       this.currentCanvas = canvas;
       (window as any).__skein = canvas;
 
+      // initialize the friends protocol (reads friends/profile docs)
+      this.initFriendzProtocol().catch((err) => {
+        console.warn("[skein] failed to initialize friendz protocol:", err);
+      });
+
       // narthex share helper isn't applicable but clear any stale one
       (window as any).__skein.share = () => {
         console.log("[skein] share is only available when viewing a canvas (not the narthex)");
@@ -260,6 +285,215 @@ class SkeinRouter {
     }
   }
 
+  /**
+   * initialize the friends protocol after the narthex is loaded.
+   * reads the friends and profile widget docs to wire up callbacks.
+   * safe to call multiple times — no-ops if already initialized.
+   */
+  private async initFriendzProtocol(): Promise<void> {
+    if (this.friendzProtocol) return;
+
+    const identity = await getStoredIdentity();
+    if (!identity) return;
+
+    const store = this.currentCanvas?.store;
+    if (!store) return;
+
+    // look up the friends widget's automerge doc
+    const friendsEntry = store.getWidget(FRIENDS_WIDGET_ID);
+    if (!friendsEntry?.docId) {
+      console.log("[skein] friends widget doc not ready yet — deferring protocol init");
+      return;
+    }
+
+    const friendsHandle = await this.repo.find<any>(friendsEntry.docId as DocumentId);
+    await friendsHandle.whenReady();
+
+    // look up the profile widget's automerge doc
+    const profileEntry = store.getWidget(PROFILE_WIDGET_ID);
+    let profileHandle: DocHandle<any> | null = null;
+    if (profileEntry?.docId) {
+      profileHandle = await this.repo.find<any>(profileEntry.docId as DocumentId);
+      await profileHandle.whenReady();
+    }
+
+    // read initial privacy settings from friends doc
+    const friendsDoc = friendsHandle.doc() as Record<string, unknown> | undefined;
+    const profileVisibility = (friendsDoc?.profileVisibility as string) ?? "friends";
+    const friendRequestsFrom = (friendsDoc?.friendRequestsFrom as string) ?? "everyone";
+
+    this.friendzProtocol = new FriendzProtocol({
+      getMidden: async () => (await getMiddenNode()) as unknown as MiddenStreamNode,
+      localNodeId: identity.node_id,
+      localUsername:
+        ((profileHandle?.doc() as Record<string, unknown> | undefined)?.username as string) ?? "",
+      getLocalProfile: () => {
+        const doc = profileHandle?.doc() as Record<string, unknown> | undefined;
+        return {
+          username: (doc?.username as string) ?? "",
+          bio: (doc?.bio as string) ?? "",
+          avatarDataUrl: (doc?.avatarDataUrl as string) ?? "",
+        };
+      },
+      isFriend: (nodeId: string) => {
+        const doc = friendsHandle.doc() as
+          | { friends?: Array<{ nodeIds?: Array<{ nodeId: string }> }> }
+          | undefined;
+        return doc?.friends?.some((f) => f.nodeIds?.some((n) => n.nodeId === nodeId)) ?? false;
+      },
+      profileVisibility: profileVisibility as "friends" | "everyone" | "nobody",
+      friendRequestsFrom: friendRequestsFrom as "everyone" | "nobody",
+    });
+
+    // register ALPN handler for incoming friendz streams
+    this.irohAdapter.registerAlpnHandler(FRIENDZ_ALPN, (stream) => {
+      this.friendzProtocol!.handleStream(stream);
+    });
+
+    // --- wire event callbacks ---
+
+    // incoming friend request → write to friends doc
+    this.friendzProtocol.onFriendRequest = (msg, fromNodeId) => {
+      friendsHandle.change((draft: any) => {
+        if (!draft.pendingRequests) draft.pendingRequests = [];
+        // don't add duplicate pending requests from the same node
+        const exists = draft.pendingRequests.some(
+          (r: any) => r.fromNodeId === fromNodeId && r.status === "pending"
+        );
+        if (!exists) {
+          draft.pendingRequests.push({
+            fromNodeId,
+            fromUsername: msg.fromUsername,
+            receivedAt: new Date().toISOString(),
+            status: "pending",
+          });
+        }
+      });
+      console.log("[skein] received friend request from:", fromNodeId.slice(0, 16) + "...");
+    };
+
+    // friend accept → remote peer accepted our outgoing request, add them as friend
+    this.friendzProtocol.onFriendAccept = (msg, fromNodeId) => {
+      friendsHandle.change((draft: any) => {
+        if (!draft.friends) draft.friends = [];
+        // check if we already have this friend
+        const existingFriend = draft.friends.find((f: any) =>
+          f.nodeIds?.some((n: any) => n.nodeId === fromNodeId)
+        );
+        if (!existingFriend) {
+          draft.friends.push({
+            id: crypto.randomUUID(),
+            alias: "",
+            username: msg.fromUsername,
+            group: "",
+            nodeIds: [
+              {
+                nodeId: fromNodeId,
+                addedAt: new Date().toISOString(),
+                lastSeenAt: "",
+                username: msg.fromUsername,
+                bio: "",
+                avatarDataUrl: "",
+              },
+            ],
+            createdAt: new Date().toISOString(),
+          });
+        }
+      });
+      console.log("[skein] friend request accepted by:", fromNodeId.slice(0, 16) + "...");
+    };
+
+    // friend reject → update request status (informational)
+    this.friendzProtocol.onFriendReject = (_msg, fromNodeId) => {
+      console.log("[skein] friend request rejected by:", fromNodeId.slice(0, 16) + "...");
+    };
+
+    // profile response → update the friend's nodeId entry with profile data
+    this.friendzProtocol.onProfileResponse = (profile, fromNodeId) => {
+      friendsHandle.change((draft: any) => {
+        if (!draft.friends) return;
+        for (const friend of draft.friends) {
+          if (!friend.nodeIds) continue;
+          for (const nodeEntry of friend.nodeIds) {
+            if (nodeEntry.nodeId === fromNodeId) {
+              nodeEntry.username = profile.username;
+              nodeEntry.bio = profile.bio;
+              nodeEntry.avatarDataUrl = profile.avatarDataUrl;
+              // also update the friend-level username from the most recent profile
+              friend.username = profile.username;
+              return;
+            }
+          }
+        }
+      });
+    };
+
+    // heartbeat → update lastSeenAt on the friend's nodeId entry
+    this.friendzProtocol.onHeartbeat = (heartbeat, fromNodeId) => {
+      friendsHandle.change((draft: any) => {
+        if (!draft.friends) return;
+        for (const friend of draft.friends) {
+          if (!friend.nodeIds) continue;
+          for (const nodeEntry of friend.nodeIds) {
+            if (nodeEntry.nodeId === fromNodeId) {
+              nodeEntry.lastSeenAt = new Date().toISOString();
+              if (heartbeat.username) {
+                nodeEntry.username = heartbeat.username;
+              }
+              return;
+            }
+          }
+        }
+      });
+    };
+
+    // watch friends doc for privacy setting changes
+    const onFriendsChange = () => {
+      const doc = friendsHandle.doc() as Record<string, unknown> | undefined;
+      if (!doc || !this.friendzProtocol) return;
+      const pv = (doc.profileVisibility as string) ?? "friends";
+      const frf = (doc.friendRequestsFrom as string) ?? "everyone";
+      this.friendzProtocol.setProfileVisibility(pv as "friends" | "everyone" | "nobody");
+      this.friendzProtocol.setFriendRequestsFrom(frf as "everyone" | "nobody");
+    };
+    friendsHandle.on("change", onFriendsChange);
+    this.friendzDocUnsubs.push(() => friendsHandle.off("change", onFriendsChange));
+
+    // watch profile doc for username changes
+    if (profileHandle) {
+      const onProfileChange = () => {
+        const doc = profileHandle!.doc() as Record<string, unknown> | undefined;
+        if (doc?.username && typeof doc.username === "string") {
+          this.friendzProtocol?.setLocalUsername(doc.username);
+        }
+      };
+      profileHandle.on("change", onProfileChange);
+      this.friendzDocUnsubs.push(() => profileHandle!.off("change", onProfileChange));
+    }
+
+    // start heartbeat — getter reads the current friends list from the doc
+    this.friendzProtocol.startHeartbeat(() => {
+      const doc = friendsHandle.doc() as
+        | { friends?: Array<{ nodeIds?: Array<{ nodeId: string }> }> }
+        | undefined;
+      if (!doc?.friends) return [];
+      const nodeIds: string[] = [];
+      for (const friend of doc.friends) {
+        if (friend.nodeIds) {
+          for (const n of friend.nodeIds) {
+            if (n.nodeId) nodeIds.push(n.nodeId);
+          }
+        }
+      }
+      return nodeIds;
+    });
+
+    // initialize the bridge so widgets can use the protocol
+    initBridge(this.friendzProtocol);
+
+    console.log("[skein] friendz protocol initialized");
+  }
+
   /** navigate to a specific canvas by document id */
   private async navigateToCanvas(docId: string): Promise<void> {
     if (this.navigating) return;
@@ -280,6 +514,7 @@ class SkeinRouter {
         canvasDocId: docId,
         registry: createTestRegistry(),
         repo: this.repo,
+        connectionStateSource: this.connectionStateSource,
         onNavigateHome: () => {
           console.log("[skein] home button clicked, navigating to narthex");
           window.location.hash = "";
@@ -293,11 +528,26 @@ class SkeinRouter {
           }
           const shareStr = encodeShareString(identity.node_id, docId);
           const shareUrl = window.location.origin + window.location.pathname + "#share/" + shareStr;
+
+          // build peer list from canvas doc (exclude self)
+          const peersRecord = this.currentCanvas.store.peers();
+          const peerList = Object.values(peersRecord)
+            .filter((p) => p.nodeId !== identity.node_id)
+            .map((p) => ({ nodeId: p.nodeId, joinedAt: p.joinedAt }));
+
           showShareDialog({
             app: this.currentCanvas.app,
             theme: this.currentCanvas.theme,
             shareString: shareStr,
             shareUrl,
+            peers: peerList,
+            onRemovePeer: (nodeId: string) => {
+              // remove from canvas doc
+              this.currentCanvas?.store.removePeer(nodeId);
+              // tell the adapter to stop reconnecting to this peer
+              this.irohAdapter.forgetPeer(nodeId);
+              console.log("[skein] revoked access for peer:", nodeId.slice(0, 16) + "...");
+            },
           });
         },
       });
@@ -604,6 +854,20 @@ class SkeinRouter {
 
     // navigate to the new canvas
     window.location.hash = newDocId;
+  }
+
+  /** tear down the router — destroys canvas, friendz protocol, and bridge. */
+  destroy(): void {
+    this.destroyCurrent();
+    for (const unsub of this.friendzDocUnsubs) {
+      unsub();
+    }
+    this.friendzDocUnsubs = [];
+    if (this.friendzProtocol) {
+      destroyBridge();
+      this.friendzProtocol.destroy();
+      this.friendzProtocol = null;
+    }
   }
 }
 

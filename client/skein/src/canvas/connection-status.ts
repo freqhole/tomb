@@ -2,26 +2,39 @@ import { Container, Graphics, Text } from "pixi.js";
 import type { SkeinTheme } from "../theme/skein-theme";
 import type { PresenceManager } from "./presence-manager";
 
-// colors for the status dot
-const COLOR_ONLINE = 0x22c55e;
+// stoplight colors
+const COLOR_CONNECTED = 0x22c55e;
+const COLOR_CONNECTING = 0xeab308;
+const COLOR_ERROR = 0xef4444;
 const COLOR_SOLO = 0x6b7280;
 
 /**
+ * source of transport-level connection state.
+ * implemented by the IrohNetworkAdapter wrapper in boot.ts.
+ */
+export interface ConnectionStateSource {
+  getConnectionSummary(): { connected: number; reconnecting: number; failed: number };
+  onStateChange(handler: () => void): () => void;
+  retryFailed(): void;
+}
+
+/**
  * compact pill-shaped connection status indicator rendered in the
- * bottom-left of the stage. shows a colored dot and peer count label.
+ * bottom-left of the stage. shows a stoplight-colored dot and status label.
  *
- * green dot + "N peers" when at least one remote peer is online,
- * gray dot + "solo" when no remote peers are present.
+ * - green dot + "N peers" when peers are online
+ * - yellow dot + "connecting..." when reconnection is in progress
+ * - red dot + "N disconnected" when reconnection gave up (click to retry)
+ * - gray dot + "solo" when no peers are known
  *
  * added directly to app.stage (not the world container) so it stays
- * fixed regardless of pan/zoom. uses visual viewport dimensions for
- * correct positioning on mobile safari where the visual viewport
- * can differ from the layout viewport.
+ * fixed regardless of pan/zoom.
  */
 export class ConnectionStatus {
   readonly root: Container;
 
   private readonly presenceManager: PresenceManager;
+  private readonly connectionState: ConnectionStateSource | null;
   private readonly theme: SkeinTheme;
 
   private readonly background: Graphics;
@@ -29,15 +42,19 @@ export class ConnectionStatus {
   private readonly label: Text;
 
   private readonly unsubs: (() => void)[] = [];
+  private isErrorState = false;
 
-  constructor(presenceManager: PresenceManager, theme: SkeinTheme) {
+  constructor(
+    presenceManager: PresenceManager,
+    theme: SkeinTheme,
+    connectionState?: ConnectionStateSource | null
+  ) {
     this.presenceManager = presenceManager;
+    this.connectionState = connectionState ?? null;
     this.theme = theme;
 
     this.root = new Container();
     this.root.zIndex = 10000;
-    this.root.eventMode = "none";
-    this.root.interactiveChildren = false;
 
     // semi-transparent pill background
     this.background = new Graphics();
@@ -47,7 +64,7 @@ export class ConnectionStatus {
     this.dot = new Graphics();
     this.root.addChild(this.dot);
 
-    // peer count label
+    // status label
     this.label = new Text({
       text: "solo",
       resolution: theme.textResolution,
@@ -64,16 +81,25 @@ export class ConnectionStatus {
     this.unsubs.push(presenceManager.onPeerLeft(() => this.refresh()));
     this.unsubs.push(presenceManager.onPeerPresenceChanged(() => this.refresh()));
 
+    // subscribe to transport-level connection state changes
+    if (this.connectionState) {
+      this.unsubs.push(this.connectionState.onStateChange(() => this.refresh()));
+    }
+
+    // handle click (only active in error state)
+    this.root.on("pointertap", () => {
+      if (this.isErrorState && this.connectionState) {
+        console.log("[skein:connection-status] retrying failed connections");
+        this.connectionState.retryFailed();
+      }
+    });
+
     // draw initial state
     this.refresh();
   }
 
   /**
    * reposition the pill to the bottom-left of the screen.
-   * uses visual viewport when available (mobile safari reports correct
-   * dimensions there, unlike window.innerHeight which includes the
-   * offscreen area behind the on-screen keyboard and address bar).
-   * call this after creation and on window resize.
    */
   layout(): void {
     const vv = window.visualViewport;
@@ -83,7 +109,7 @@ export class ConnectionStatus {
     this.root.y = Math.round(screenHeight - this.root.height - margin);
   }
 
-  /** unsubscribe from presence callbacks, remove from parent, and clean up. */
+  /** unsubscribe from callbacks, remove from parent, and clean up. */
   destroy(): void {
     for (const unsub of this.unsubs) {
       unsub();
@@ -95,18 +121,54 @@ export class ConnectionStatus {
   // internals
   // ---------------------------------------------------------------------------
 
-  /** count online remote peers and redraw the indicator */
   private refresh(): void {
+    // get transport-level state
+    const summary = this.connectionState?.getConnectionSummary() ?? {
+      connected: 0,
+      reconnecting: 0,
+      failed: 0,
+    };
+
+    // get presence-level state (how many peers are actually sending messages)
     const onlineCount = this.countOnlinePeers();
-    const isConnected = onlineCount > 0;
 
-    this.drawDot(isConnected ? COLOR_ONLINE : COLOR_SOLO);
-    this.label.text = isConnected ? `${onlineCount} peer${onlineCount !== 1 ? "s" : ""}` : "solo";
+    // determine display state (priority: error > connecting > connected > solo)
+    let dotColor: number;
+    let labelText: string;
+    let interactive: boolean;
 
+    if (summary.failed > 0) {
+      // error state — some peers gave up reconnecting
+      dotColor = COLOR_ERROR;
+      labelText = `${summary.failed} disconnected`;
+      interactive = true;
+    } else if (summary.reconnecting > 0) {
+      // connecting state — actively trying to reconnect
+      dotColor = COLOR_CONNECTING;
+      labelText = "connecting...";
+      interactive = false;
+    } else if (onlineCount > 0) {
+      // connected state — peers are online and chatting
+      dotColor = COLOR_CONNECTED;
+      labelText = `${onlineCount} peer${onlineCount !== 1 ? "s" : ""}`;
+      interactive = false;
+    } else {
+      // solo — no peers at all
+      dotColor = COLOR_SOLO;
+      labelText = "solo";
+      interactive = false;
+    }
+
+    this.isErrorState = interactive;
+    this.root.eventMode = interactive ? "static" : "none";
+    this.root.interactiveChildren = interactive;
+    this.root.cursor = interactive ? "pointer" : "default";
+
+    this.drawDot(dotColor);
+    this.label.text = labelText;
     this.drawPill();
   }
 
-  /** count remote peers that are currently online */
   private countOnlinePeers(): number {
     let count = 0;
     for (const peer of this.presenceManager.getPeers().values()) {
@@ -117,7 +179,6 @@ export class ConnectionStatus {
     return count;
   }
 
-  /** redraw the status dot at its fixed position inside the pill */
   private drawDot(color: number): void {
     const radius = 3;
     this.dot.clear();
@@ -125,17 +186,12 @@ export class ConnectionStatus {
     this.dot.fill({ color });
   }
 
-  /**
-   * redraw the pill background and reposition the dot and label
-   * to fit the current label text width.
-   */
   private drawPill(): void {
     const padH = 8;
     const padV = 3;
     const gap = 6;
     const dotRadius = 3;
 
-    // position the dot vertically centered with the text
     const textHeight = this.label.height;
     const contentHeight = textHeight;
     const pillHeight = contentHeight + padV * 2;

@@ -38,6 +38,8 @@ export interface InitCanvasOptions {
   onNavigateHome?: () => void;
   /** callback to share the current canvas — toolbar shows a share button when set */
   onShare?: () => void;
+  /** optional transport-level connection state source for the status indicator */
+  connectionStateSource?: import("./connection-status").ConnectionStateSource | null;
 }
 
 export interface SkeinCanvas {
@@ -237,7 +239,7 @@ export async function initCanvas(options: InitCanvasOptions): Promise<SkeinCanva
     // step 13b: create the connection status indicator.
     // lives on app.stage (fixed position, bottom-left) so it doesn't pan/zoom.
     // layout() reads visual viewport internally for correct sizing on mobile safari.
-    connectionStatus = new ConnectionStatus(presenceManager, theme);
+    connectionStatus = new ConnectionStatus(presenceManager, theme, options.connectionStateSource);
     app.stage.addChild(connectionStatus.root);
     connectionStatus.layout();
   }
