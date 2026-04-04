@@ -3,6 +3,7 @@ import { labelWidget } from "../label";
 import { canvasCardWidget } from "./canvas-card";
 import { canvasWizardWidget } from "./canvas-wizard";
 import { friendsWidget } from "./friends-widget";
+import { joinCanvasWidget } from "./join-canvas";
 import { profileWidget } from "./profile-widget";
 
 /**
@@ -14,6 +15,7 @@ export function createNarthexRegistry(): WidgetRegistry {
   const registry = new WidgetRegistry();
   registry.register(canvasCardWidget);
   registry.register(canvasWizardWidget);
+  registry.register(joinCanvasWidget);
   registry.register(profileWidget);
   registry.register(friendsWidget);
   registry.register(labelWidget);
@@ -23,4 +25,5 @@ export function createNarthexRegistry(): WidgetRegistry {
 export { canvasCardSchema, canvasCardWidget } from "./canvas-card";
 export { canvasWizardSchema, canvasWizardWidget } from "./canvas-wizard";
 export { friendsSchema, friendsWidget } from "./friends-widget";
+export { joinCanvasSchema, joinCanvasWidget } from "./join-canvas";
 export { profileSchema, profileWidget } from "./profile-widget";

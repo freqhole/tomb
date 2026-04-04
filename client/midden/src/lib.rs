@@ -15,6 +15,7 @@ use iroh_blobs::api::Store;
 use iroh_blobs::{Hash, HashAndFormat};
 use js_sys::Uint8Array;
 use serde::{Deserialize, Serialize};
+use std::cell::RefCell;
 use tracing::level_filters::LevelFilter;
 use tracing::{info, warn};
 use tracing_subscriber_wasm::MakeConsoleWriter;
@@ -22,6 +23,9 @@ use wasm_bindgen::{prelude::wasm_bindgen, JsError, JsValue};
 
 /// ALPN protocol identifier (must match grimoire's FREQHOLE_ALPN)
 const FREQHOLE_ALPN: &[u8] = b"freqhole/1";
+
+/// ALPN for automerge-repo document sync (used by skein canvas P2P)
+const AUTOMERGE_ALPN: &[u8] = b"iroh/automerge-repo/1";
 
 /// protocol messages (must match grimoire's PeerMessage)
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -153,6 +157,132 @@ impl BlobResult {
     }
 }
 
+/// a bidirectional QUIC stream for length-delimited message exchange.
+///
+/// wraps an iroh (SendStream, RecvStream) pair. messages are framed with
+/// a 4-byte big-endian u32 length prefix, matching `LengthDelimitedCodec`
+/// from tokio-util.
+///
+/// the send and recv halves use RefCell<Option<...>> so that async read
+/// and write operations can proceed concurrently (safe because WASM is
+/// single-threaded).
+#[wasm_bindgen]
+pub struct BiStream {
+    send: RefCell<Option<SendStream>>,
+    recv: RefCell<Option<RecvStream>>,
+    peer_node_id: String,
+    alpn: String,
+}
+
+#[wasm_bindgen]
+impl BiStream {
+    /// the remote peer's node ID (iroh public key as hex string).
+    pub fn peer_node_id(&self) -> String {
+        self.peer_node_id.clone()
+    }
+
+    /// the ALPN protocol this stream was established on.
+    pub fn alpn(&self) -> String {
+        self.alpn.clone()
+    }
+
+    /// write a length-delimited message.
+    ///
+    /// writes a 4-byte big-endian u32 length prefix followed by the payload.
+    /// this matches the `LengthDelimitedCodec` framing used by the
+    /// iroh-automerge-repo example.
+    pub async fn write_message(&self, data: &[u8]) -> Result<(), JsError> {
+        let mut send = self
+            .send
+            .borrow_mut()
+            .take()
+            .ok_or_else(|| JsError::new("send stream busy or closed"))?;
+
+        let len = data.len() as u32;
+        let result = async {
+            send.write_all(&len.to_be_bytes())
+                .await
+                .map_err(to_js_err)?;
+            send.write_all(data).await.map_err(to_js_err)?;
+            Ok::<(), JsError>(())
+        }
+        .await;
+
+        // always put the send stream back (unless it errored fatally)
+        *self.send.borrow_mut() = Some(send);
+
+        result
+    }
+
+    /// read a length-delimited message.
+    ///
+    /// reads a 4-byte big-endian u32 length prefix, then reads that many
+    /// bytes of payload. returns the payload as a Uint8Array.
+    ///
+    /// returns null (JsValue::NULL) if the stream has been closed cleanly
+    /// by the remote peer (EOF on the length prefix read).
+    pub async fn read_message(&self) -> Result<JsValue, JsError> {
+        let mut recv = self
+            .recv
+            .borrow_mut()
+            .take()
+            .ok_or_else(|| JsError::new("recv stream busy or closed"))?;
+
+        // read 4-byte length prefix
+        let mut len_buf = [0u8; 4];
+        let read_result = recv.read_exact(&mut len_buf).await;
+
+        match read_result {
+            Ok(()) => {}
+            Err(e) => {
+                // put stream back before returning
+                *self.recv.borrow_mut() = Some(recv);
+
+                // check if this is a clean stream close (FinishedEarly with 0 bytes)
+                let err_str = e.to_string();
+                if err_str.contains("finished")
+                    || err_str.contains("closed")
+                    || err_str.contains("eof")
+                {
+                    return Ok(JsValue::NULL);
+                }
+                return Err(to_js_err(e));
+            }
+        }
+
+        let len = u32::from_be_bytes(len_buf) as usize;
+
+        // sanity check: reject absurdly large messages (256 MB)
+        if len > 256 * 1024 * 1024 {
+            *self.recv.borrow_mut() = Some(recv);
+            return Err(JsError::new(&format!("message too large: {} bytes", len)));
+        }
+
+        let mut buf = vec![0u8; len];
+        let payload_result = recv.read_exact(&mut buf).await;
+
+        // put stream back
+        *self.recv.borrow_mut() = Some(recv);
+
+        match payload_result {
+            Ok(()) => Ok(Uint8Array::from(&buf[..]).into()),
+            Err(e) => Err(to_js_err(e)),
+        }
+    }
+
+    /// close the stream.
+    ///
+    /// finishes the send half and drops both halves.
+    pub fn close(&self) {
+        if let Some(mut send) = self.send.borrow_mut().take() {
+            // finish() signals intent to close — returns Result which we discard
+            let _ = send.finish();
+        }
+        // drop the recv half
+        self.recv.borrow_mut().take();
+    }
+}
+
 #[wasm_bindgen(start)]
 fn start() {
     console_error_panic_hook::set_once();
@@ -234,7 +364,7 @@ impl MiddenNode {
         // use N0 preset for relay + DNS discovery (peers can find each other)
         let endpoint = Endpoint::builder(presets::N0)
             .secret_key(secret_key)
-            .alpns(vec![FREQHOLE_ALPN.to_vec()])
+            .alpns(vec![FREQHOLE_ALPN.to_vec(), AUTOMERGE_ALPN.to_vec()])
             .bind()
             .await
             .map_err(to_js_err)?;
@@ -267,6 +397,139 @@ impl MiddenNode {
     /// get our node_id (iroh public key)
     pub fn node_id(&self) -> String {
         self.endpoint.secret_key().public().to_string()
+    }
+
+    /// create a node from existing secret key with additional ALPN protocols.
+    ///
+    /// `extra_alpns` is a JS array of strings (e.g. ["iroh/automerge-repo/1"]).
+    /// the node always registers "freqhole/1" plus whatever extra ALPNs are given.
+    pub async fn create_with_alpns(
+        key_bytes: &[u8],
+        extra_alpns: &js_sys::Array,
+    ) -> Result<MiddenNode, JsError> {
+        if key_bytes.len() != 32 {
+            return Err(JsError::new("secret key must be exactly 32 bytes"));
+        }
+
+        let mut bytes = [0u8; 32];
+        bytes.copy_from_slice(key_bytes);
+
+        // collect extra ALPNs from JS array
+        let mut alpns = vec![FREQHOLE_ALPN.to_vec(), AUTOMERGE_ALPN.to_vec()];
+        for i in 0..extra_alpns.length() {
+            let alpn_str = extra_alpns
+                .get(i)
+                .as_string()
+                .ok_or_else(|| JsError::new("each ALPN must be a string"))?;
+            alpns.push(alpn_str.into_bytes());
+        }
+
+        let secret_key = SecretKey::from_bytes(&bytes);
+
+        let endpoint = Endpoint::builder(presets::N0)
+            .secret_key(secret_key)
+            .alpns(alpns)
+            .bind()
+            .await
+            .map_err(to_js_err)?;
+
+        let mem_store = iroh_blobs::store::mem::MemStore::default();
+        let blobs_downloader = Downloader::new(&mem_store, &endpoint);
+        let blobs_store = mem_store.as_ref().clone();
+
+        endpoint.online().await;
+
+        let node_id = endpoint.secret_key().public().to_string();
+        info!("midden node ready (with extra ALPNs): {}", &node_id[..16]);
+
+        Ok(MiddenNode {
+            endpoint,
+            secret_key_bytes: bytes,
+            blobs_store,
+            blobs_downloader,
+        })
+    }
+
+    /// open a bidirectional stream to a peer on a specific ALPN.
+    ///
+    /// `peer_addr` can be a plain node_id hex string or a full endpoint
+    /// address JSON (same format as proxy_request). `alpn` is the protocol
+    /// to negotiate (e.g. "iroh/automerge-repo/1").
+    ///
+    /// returns a BiStream for length-delimited message exchange.
+    pub async fn open_bi(&self, peer_addr: &str, alpn: &str) -> Result<BiStream, JsError> {
+        let addr = parse_peer_addr(peer_addr).map_err(|e| JsError::new(&e))?;
+        let alpn_bytes = alpn.as_bytes();
+
+        let conn = self
+            .endpoint
+            .connect(addr.clone(), alpn_bytes)
+            .await
+            .map_err(to_js_err)?;
+
+        let (send, recv) = conn.open_bi().await.map_err(to_js_err)?;
+
+        // iroh 0.97: Connection::remote_id() returns EndpointId (= PublicKey)
+        let peer_node_id = conn.remote_id().to_string();
+
+        info!(
+            "opened bi stream to {} on ALPN {}",
+            &peer_node_id[..std::cmp::min(16, peer_node_id.len())],
+            alpn
+        );
+
+        Ok(BiStream {
+            send: RefCell::new(Some(send)),
+            recv: RefCell::new(Some(recv)),
+            peer_node_id,
+            alpn: alpn.to_string(),
+        })
+    }
+
+    /// accept the next incoming connection and bidirectional stream.
+    ///
+    /// blocks until an incoming connection arrives on any registered ALPN.
+    /// returns a BiStream with the peer's node ID and the negotiated ALPN.
+    ///
+    /// returns null (JsValue::NULL) if the endpoint has been closed.
+    ///
+    /// the caller should check `stream.alpn()` to route the connection
+    /// to the appropriate handler.
+    pub async fn accept(&self) -> Result<JsValue, JsError> {
+        // wait for the next incoming connection
+        let incoming = match self.endpoint.accept().await {
+            Some(incoming) => incoming,
+            None => return Ok(JsValue::NULL), // endpoint closed
+        };
+
+        // accept the connection (completes TLS handshake).
+        // iroh 0.97: Incoming implements IntoFuture, so .await directly
+        // yields Result<Connection, ConnectingError>.
+        let conn = incoming.await.map_err(to_js_err)?;
+
+        // extract connection metadata
+        // iroh 0.97: Connection::alpn() returns &[u8]
+        let alpn = String::from_utf8_lossy(conn.alpn()).to_string();
+        // iroh 0.97: Connection::remote_id() returns EndpointId (= PublicKey)
+        let peer_node_id = conn.remote_id().to_string();
+
+        // accept one bidirectional stream from this connection
+        let (send, recv) = conn.accept_bi().await.map_err(to_js_err)?;
+
+        info!(
+            "accepted bi stream from {} on ALPN {}",
+            &peer_node_id[..std::cmp::min(16, peer_node_id.len())],
+            &alpn
+        );
+
+        let stream = BiStream {
+            send: RefCell::new(Some(send)),
+            recv: RefCell::new(Some(recv)),
+            peer_node_id,
+            alpn,
+        };
+
+        Ok(stream.into())
     }
 
     /// connect to a peer

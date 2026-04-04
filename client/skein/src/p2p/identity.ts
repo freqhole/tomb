@@ -9,11 +9,7 @@
 // user clicking "generate" in the profile widget).
 // ---------------------------------------------------------------------------
 
-import {
-    deleteMetaRecord,
-    getMetaRecord,
-    setMetaRecord,
-} from "../storage/meta-db";
+import { deleteMetaRecord, getMetaRecord, setMetaRecord } from "../storage/meta-db";
 
 // ---------------------------------------------------------------------------
 // types
@@ -37,6 +33,9 @@ export interface P2PIdentity {
 export interface MiddenNodeLike {
   node_id(): string;
   secret_key(): Uint8Array;
+  // raw stream APIs (added for phase B — P2P sync)
+  open_bi?(peer_addr: string, alpn: string): Promise<unknown>;
+  accept?(): Promise<unknown>;
 }
 
 // ---------------------------------------------------------------------------
@@ -81,9 +80,7 @@ function notifyListeners(identity: P2PIdentity | null): void {
  * the callback fires whenever `ensureIdentity` creates a new identity or
  * `deleteIdentity` removes one. returns an unsubscribe function.
  */
-export function onIdentityChange(
-  callback: IdentityChangeCallback,
-): () => void {
+export function onIdentityChange(callback: IdentityChangeCallback): () => void {
   changeListeners.add(callback);
   return () => {
     changeListeners.delete(callback);
@@ -133,7 +130,7 @@ export async function getMiddenNode(): Promise<MiddenNodeLike> {
   }
 
   middenNodePromise = (async (): Promise<MiddenNodeLike> => {
-    // dynamic import keeps the midden WASM out of the initial bundle
+    // dynamic import keeps the midden WASM out of the initial bundle.
     const { MiddenNode } = await import("midden");
 
     const existing = await getStoredIdentity();

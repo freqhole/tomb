@@ -9,6 +9,55 @@
 type ReadableStreamType = "bytes";
 
 /**
+ * a bidirectional QUIC stream for length-delimited message exchange.
+ *
+ * wraps an iroh (SendStream, RecvStream) pair. messages are framed with
+ * a 4-byte big-endian u32 length prefix, matching `LengthDelimitedCodec`
+ * from tokio-util.
+ *
+ * the send and recv halves use RefCell<Option<...>> so that async read
+ * and write operations can proceed concurrently (safe because WASM is
+ * single-threaded).
+ */
+export class BiStream {
+    private constructor();
+    free(): void;
+    [Symbol.dispose](): void;
+    /**
+     * the ALPN protocol this stream was established on.
+     */
+    alpn(): string;
+    /**
+     * close the stream.
+     *
+     * finishes the send half and drops both halves.
+     */
+    close(): void;
+    /**
+     * the remote peer's node ID (iroh public key as hex string).
+     */
+    peer_node_id(): string;
+    /**
+     * read a length-delimited message.
+     *
+     * reads a 4-byte big-endian u32 length prefix, then reads that many
+     * bytes of payload. returns the payload as a Uint8Array.
+     *
+     * returns null (JsValue::NULL) if the stream has been closed cleanly
+     * by the remote peer (EOF on the length prefix read).
+     */
+    read_message(): Promise<any>;
+    /**
+     * write a length-delimited message.
+     *
+     * writes a 4-byte big-endian u32 length prefix followed by the payload.
+     * this matches the `LengthDelimitedCodec` framing used by the
+     * iroh-automerge-repo example.
+     */
+    write_message(data: Uint8Array): Promise<void>;
+}
+
+/**
  * blob fetch result
  */
 export class BlobResult {
@@ -69,6 +118,18 @@ export class MiddenNode {
     free(): void;
     [Symbol.dispose](): void;
     /**
+     * accept the next incoming connection and bidirectional stream.
+     *
+     * blocks until an incoming connection arrives on any registered ALPN.
+     * returns a BiStream with the peer's node ID and the negotiated ALPN.
+     *
+     * returns null (JsValue::NULL) if the endpoint has been closed.
+     *
+     * the caller should check `stream.alpn()` to route the connection
+     * to the appropriate handler.
+     */
+    accept(): Promise<any>;
+    /**
      * compute blake3 hash for a blob on demand
      *
      * use this when the client doesn't have the blake3 hash yet (not in API response).
@@ -88,6 +149,13 @@ export class MiddenNode {
      * key_bytes must be exactly 32 bytes
      */
     static create_from_key(key_bytes: Uint8Array): Promise<MiddenNode>;
+    /**
+     * create a node from existing secret key with additional ALPN protocols.
+     *
+     * `extra_alpns` is a JS array of strings (e.g. ["iroh/automerge-repo/1"]).
+     * the node always registers "freqhole/1" plus whatever extra ALPNs are given.
+     */
+    static create_with_alpns(key_bytes: Uint8Array, extra_alpns: Array<any>): Promise<MiddenNode>;
     /**
      * download a blob using iroh-blobs verified streaming
      *
@@ -147,6 +215,16 @@ export class MiddenNode {
      * get our node_id (iroh public key)
      */
     node_id(): string;
+    /**
+     * open a bidirectional stream to a peer on a specific ALPN.
+     *
+     * `peer_addr` can be a plain node_id hex string or a full endpoint
+     * address JSON (same format as proxy_request). `alpn` is the protocol
+     * to negotiate (e.g. "iroh/automerge-repo/1").
+     *
+     * returns a BiStream for length-delimited message exchange.
+     */
+    open_bi(peer_addr: string, alpn: string): Promise<BiStream>;
     /**
      * send an API request to a peer
      * peer_addr can be plain node_id or full endpoint JSON with relay/IP hints

@@ -1,15 +1,23 @@
 /* tslint:disable */
 /* eslint-disable */
 export const memory: WebAssembly.Memory;
+export const __wbg_bistream_free: (a: number, b: number) => void;
 export const __wbg_blobresult_free: (a: number, b: number) => void;
 export const __wbg_middennode_free: (a: number, b: number) => void;
 export const __wbg_uploadresult_free: (a: number, b: number) => void;
+export const bistream_alpn: (a: number) => [number, number];
+export const bistream_close: (a: number) => void;
+export const bistream_peer_node_id: (a: number) => [number, number];
+export const bistream_read_message: (a: number) => any;
+export const bistream_write_message: (a: number, b: number, c: number) => any;
 export const blobresult_content_type: (a: number) => [number, number];
 export const blobresult_data: (a: number) => any;
 export const blobresult_size: (a: number) => number;
+export const middennode_accept: (a: number) => any;
 export const middennode_compute_blake3: (a: number, b: number, c: number, d: number, e: number) => any;
 export const middennode_create: () => any;
 export const middennode_create_from_key: (a: number, b: number) => any;
+export const middennode_create_with_alpns: (a: number, b: number, c: any) => any;
 export const middennode_download_verified: (a: number, b: number, c: number, d: number, e: number) => any;
 export const middennode_download_verified_by_id: (a: number, b: number, c: number, d: number, e: number) => any;
 export const middennode_download_verified_with_ensure: (a: number, b: number, c: number, d: number, e: number) => any;
@@ -18,6 +26,7 @@ export const middennode_fetch_blob: (a: number, b: number, c: number, d: number,
 export const middennode_fetch_blob_with_progress: (a: number, b: number, c: number, d: number, e: number, f: any) => any;
 export const middennode_fetch_hello_image: (a: number, b: number, c: number) => any;
 export const middennode_node_id: (a: number) => [number, number];
+export const middennode_open_bi: (a: number, b: number, c: number, d: number, e: number) => any;
 export const middennode_proxy_request: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => any;
 export const middennode_secret_key: (a: number) => any;
 export const middennode_upload_blob: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: number) => any;

@@ -2,18 +2,19 @@ import { describe, expect, it } from "vitest";
 import { createNarthexRegistry } from "./index";
 
 describe("createNarthexRegistry", () => {
-  it("registers canvas-card, canvas-wizard, profile, friends, and label", () => {
+  it("registers canvas-card, canvas-wizard, profile, friends, label, and join-canvas", () => {
     const registry = createNarthexRegistry();
     expect(registry.has("canvas-card")).toBe(true);
     expect(registry.has("canvas-wizard")).toBe(true);
     expect(registry.has("profile")).toBe(true);
     expect(registry.has("friends")).toBe(true);
     expect(registry.has("label")).toBe(true);
+    expect(registry.has("join-canvas")).toBe(true);
   });
 
-  it("has exactly 5 widget types", () => {
+  it("has exactly 6 widget types", () => {
     const registry = createNarthexRegistry();
-    expect(registry.types().length).toBe(5);
+    expect(registry.types().length).toBe(6);
   });
 
   it("canvas-card is hidden", () => {
@@ -48,14 +49,20 @@ describe("createNarthexRegistry", () => {
     expect(registry.get("friends")!.metadata.hidden).toBeFalsy();
   });
 
+  it("join-canvas is not hidden", () => {
+    const registry = createNarthexRegistry();
+    expect(registry.get("join-canvas")!.metadata.hidden).toBeFalsy();
+  });
+
   it("non-hidden widgets for palette", () => {
     const registry = createNarthexRegistry();
     const visible = registry.all().filter((f) => !f.metadata.hidden);
-    expect(visible.length).toBe(4);
+    expect(visible.length).toBe(5);
     const types = visible.map((f) => f.type);
     expect(types).toContain("canvas-wizard");
     expect(types).toContain("friends");
     expect(types).toContain("profile");
     expect(types).toContain("label");
+    expect(types).toContain("join-canvas");
   });
 });

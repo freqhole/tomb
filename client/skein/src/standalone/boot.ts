@@ -5,6 +5,9 @@ import { createTestRegistry } from "../../widgets/index";
 import { createNarthexRegistry } from "../../widgets/narthex/index";
 import { CanvasStore } from "../canvas/canvas-store";
 import { initCanvas, type SkeinCanvas } from "../canvas/init";
+import { ensureIdentity, getMiddenNode, getStoredIdentity } from "../p2p/identity";
+import { IrohNetworkAdapter, type MiddenStreamNode } from "../p2p/iroh-network-adapter";
+import { decodeShareString, encodeShareString } from "../p2p/share-string";
 import { getMetaValue, setMetaValue } from "../storage/meta-db";
 
 // well-known singleton widget IDs — must match the singletonId in each factory's metadata
@@ -21,6 +24,7 @@ const NARTHEX_DOC_KEY = "skein-narthex-doc-id";
 class SkeinRouter {
   private readonly mountElement: HTMLElement;
   private readonly repo: Repo;
+  private readonly irohAdapter: IrohNetworkAdapter;
   private currentCanvas: SkeinCanvas | null = null;
   private narthexDocId: string | null = null;
   private navigating = false;
@@ -29,9 +33,12 @@ class SkeinRouter {
     this.mountElement = mountElement;
 
     // shared automerge repo — one repo for all canvases and the narthex.
-    // this lets cross-tab broadcast channel sync work across all docs.
+    // cross-tab sync via BroadcastChannel, cross-device sync via iroh QUIC.
     const storage = new IndexedDBStorageAdapter();
-    const network = [new BroadcastChannelNetworkAdapter()];
+    this.irohAdapter = new IrohNetworkAdapter(
+      async () => (await getMiddenNode()) as unknown as MiddenStreamNode
+    );
+    const network = [new BroadcastChannelNetworkAdapter(), this.irohAdapter];
     this.repo = new Repo({ storage, network });
   }
 
@@ -145,6 +152,13 @@ class SkeinRouter {
       this.createCanvasFromNarthex(e.detail);
     }) as EventListener);
 
+    // listen for the join-canvas event dispatched from the join-canvas wizard
+    window.addEventListener("skein:join-canvas", ((e: CustomEvent) => {
+      this.joinCanvasFromNarthex(e.detail).catch((err) => {
+        console.error("[skein] join failed:", err);
+      });
+    }) as EventListener);
+
     // listen for widget self-removal (e.g. wizard cancel button)
     window.addEventListener("skein:remove-widget", ((e: CustomEvent) => {
       const widgetId = e.detail?.widgetId;
@@ -166,6 +180,21 @@ class SkeinRouter {
     if (!hash || hash === this.narthexDocId) {
       // empty hash or explicit narthex hash → go to narthex
       await this.navigateToNarthex();
+    } else if (hash.startsWith("share/")) {
+      // share URL — decode and join
+      const decoded = decodeShareString(hash);
+      if (decoded) {
+        console.log(
+          "[skein] share URL detected, joining canvas from:",
+          decoded.nodeId.slice(0, 16) + "..."
+        );
+        // navigate to narthex first, then trigger join
+        await this.navigateToNarthex();
+        await this.joinCanvasFromNarthex({ shareString: hash });
+      } else {
+        console.warn("[skein] invalid share URL:", hash.slice(0, 32) + "...");
+        await this.navigateToNarthex();
+      }
     } else {
       // non-empty hash → open that canvas
       await this.navigateToCanvas(hash);
@@ -205,6 +234,12 @@ class SkeinRouter {
 
       this.currentCanvas = canvas;
       (window as any).__skein = canvas;
+
+      // narthex share helper isn't applicable but clear any stale one
+      (window as any).__skein.share = () => {
+        console.log("[skein] share is only available when viewing a canvas (not the narthex)");
+      };
+
       console.log(
         "[skein] narthex ready — widgets:",
         canvas.store.widgetCount(),
@@ -250,6 +285,27 @@ class SkeinRouter {
 
       this.currentCanvas = canvas;
       (window as any).__skein = canvas;
+
+      // expose a share helper for quick testing via browser console
+      (window as any).__skein.share = async () => {
+        const identity = await getStoredIdentity();
+        if (!identity) {
+          console.log("[skein] no identity — generate one first (profile widget)");
+          return;
+        }
+        const shareStr = encodeShareString(identity.node_id, docId);
+        try {
+          await navigator.clipboard.writeText(shareStr);
+          console.log("[skein] share string copied to clipboard:", shareStr);
+        } catch {
+          console.log("[skein] share string (copy manually):", shareStr);
+        }
+        console.log(
+          "[skein] share URL:",
+          window.location.origin + window.location.pathname + "#share/" + shareStr
+        );
+      };
+
       console.log(
         "[skein] canvas ready — doc:",
         docId,
@@ -312,6 +368,84 @@ class SkeinRouter {
         console.warn("[skein] failed to sync metadata for card:", entry.id, err);
       }
     }
+  }
+
+  /**
+   * join a remote canvas via share string.
+   * connects to the peer, creates a canvas-card in the narthex, and navigates.
+   */
+  private async joinCanvasFromNarthex(detail: {
+    shareString: string;
+    wizardWidgetId?: string;
+  }): Promise<void> {
+    const decoded = decodeShareString(detail.shareString);
+    if (!decoded) {
+      console.warn("[skein] invalid share string");
+      return;
+    }
+
+    console.log(
+      "[skein] joining canvas:",
+      decoded.docId,
+      "from peer:",
+      decoded.nodeId.slice(0, 16) + "..."
+    );
+
+    // ensure we have an identity (generates one if needed, starts midden)
+    await ensureIdentity();
+
+    // connect to the peer via the iroh adapter
+    try {
+      await this.irohAdapter.addPeer(decoded.nodeId);
+    } catch (err) {
+      console.error("[skein] failed to connect to peer:", err);
+      // continue anyway — the peer might become reachable later
+    }
+
+    // remove the join wizard widget if it was used
+    if (detail.wizardWidgetId && this.currentCanvas) {
+      this.currentCanvas.store.removeWidget(detail.wizardWidgetId);
+    }
+
+    // check if a canvas-card already exists for this docId
+    if (this.currentCanvas) {
+      const existing = this.currentCanvas.store.allWidgets();
+      const alreadyExists = existing.some((w) => {
+        if (w.type !== "canvas-card") return false;
+        // check if the card's props have this docId
+        return (w.props as Record<string, unknown>)?.canvasDocId === decoded.docId;
+      });
+
+      if (!alreadyExists) {
+        // add a canvas-card widget to the narthex
+        const existingCount = this.currentCanvas.store.widgetCount();
+        const shortDate = new Date().toISOString().slice(0, 10);
+
+        this.currentCanvas.store.addWidget({
+          id: crypto.randomUUID(),
+          type: "canvas-card",
+          x: 60 + (existingCount % 4) * 300,
+          y: 60 + Math.floor(existingCount / 4) * 220,
+          width: 280,
+          height: 200,
+          zIndex: existingCount + 1,
+          props: {
+            canvasDocId: decoded.docId,
+            title: "syncing...",
+            description: "connecting to peer",
+            authorName: "",
+            color: 0x06b6d4, // cyan accent for remote canvases
+            createdAt: shortDate,
+            modifiedAt: new Date().toISOString(),
+          },
+          collapsed: false,
+          docId: null,
+        });
+      }
+    }
+
+    // navigate to the canvas — automerge-repo will sync it from the peer
+    window.location.hash = decoded.docId;
   }
 
   /**
