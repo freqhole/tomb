@@ -711,4 +711,309 @@ describe("IrohNetworkAdapter", () => {
       expect(firstStream.close).toHaveBeenCalled();
     });
   });
+
+  // -----------------------------------------------------------------------
+  // reconnection
+  // -----------------------------------------------------------------------
+
+  describe("reconnection", () => {
+    beforeEach(async () => {
+      __setStoredIdentity(makeIdentity());
+      adapter = new IrohNetworkAdapter(factory);
+      adapter.connect("our-id" as PeerId);
+      await flush(50);
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it("schedules reconnection when an intended peer disconnects", async () => {
+      const peerId = "b".repeat(64);
+      const stream = createMockBiStream(peerId);
+      mockMidden.open_bi.mockResolvedValueOnce(stream as unknown as BiStreamLike);
+      await adapter.addPeer(peerId);
+      await flush(50);
+
+      const consoleSpy = vi.spyOn(console, "log");
+
+      vi.useFakeTimers();
+      stream.pushMessage(null); // close the stream -> removePeer -> scheduleReconnect
+      await vi.advanceTimersByTimeAsync(0);
+
+      const reconnectCalls = consoleSpy.mock.calls.filter(
+        (args) => typeof args[1] === "string" && args[1].includes("scheduling reconnect")
+      );
+      expect(reconnectCalls).toHaveLength(1);
+      expect(reconnectCalls[0][3]).toMatch(/\(attempt 1\/8, delay \d+ms\)/);
+      consoleSpy.mockRestore();
+    });
+
+    it("does not schedule reconnection for peers connected via accept loop only", async () => {
+      // peer connects to us (not via addPeer) — should not be in intendedPeers
+      const peerId = "c".repeat(64);
+      const stream = createMockBiStream(peerId);
+      mockMidden.pushIncoming(stream as unknown as BiStreamLike);
+      await flush(50);
+
+      const consoleSpy = vi.spyOn(console, "log");
+
+      vi.useFakeTimers();
+      stream.pushMessage(null);
+      await vi.advanceTimersByTimeAsync(0);
+
+      const reconnectCalls = consoleSpy.mock.calls.filter(
+        (args) => typeof args[1] === "string" && args[1].includes("scheduling reconnect")
+      );
+      expect(reconnectCalls).toHaveLength(0);
+      consoleSpy.mockRestore();
+    });
+
+    it("reconnects successfully after a transient connection drop", async () => {
+      const peerId = "b".repeat(64);
+      const firstStream = createMockBiStream(peerId);
+      const reconnectedStream = createMockBiStream(peerId);
+
+      mockMidden.open_bi.mockResolvedValueOnce(firstStream as unknown as BiStreamLike);
+      await adapter.addPeer(peerId);
+      await flush(50);
+
+      // set up mock for the reconnect attempt
+      mockMidden.open_bi.mockResolvedValueOnce(reconnectedStream as unknown as BiStreamLike);
+
+      const peerCandidates: string[] = [];
+      adapter.on("peer-candidate", (ev: { peerId: PeerId }) => {
+        peerCandidates.push(ev.peerId);
+      });
+
+      vi.useFakeTimers();
+      firstStream.pushMessage(null); // disconnect
+      await vi.advanceTimersByTimeAsync(0); // process microtasks (removePeer + schedule)
+
+      // advance past max first-attempt delay (1000 base + 1000 jitter = 2000ms)
+      await vi.advanceTimersByTimeAsync(2100);
+
+      // open_bi called twice: initial addPeer + reconnect
+      expect(mockMidden.open_bi).toHaveBeenCalledTimes(2);
+      // peer-candidate emitted again for the reconnected stream
+      expect(peerCandidates).toContain(peerId);
+    });
+
+    it("retries with increasing backoff on repeated failures", async () => {
+      const peerId = "b".repeat(64);
+      const initialStream = createMockBiStream(peerId);
+      mockMidden.open_bi.mockResolvedValueOnce(initialStream as unknown as BiStreamLike);
+      await adapter.addPeer(peerId);
+      await flush(50);
+
+      // make reconnect attempts fail
+      mockMidden.open_bi
+        .mockRejectedValueOnce(new Error("fail 1"))
+        .mockRejectedValueOnce(new Error("fail 2"));
+
+      const warnSpy = vi.spyOn(console, "warn");
+
+      vi.useFakeTimers();
+      initialStream.pushMessage(null);
+      await vi.advanceTimersByTimeAsync(0);
+
+      // attempt 1: base delay = 1000ms + up to 1000ms jitter
+      await vi.advanceTimersByTimeAsync(2100);
+      // attempt 1 fires and fails, schedules attempt 2
+
+      // attempt 2: base delay = 2000ms + up to 1000ms jitter
+      await vi.advanceTimersByTimeAsync(3100);
+      // attempt 2 fires and fails
+
+      const failCalls = warnSpy.mock.calls.filter(
+        (args) => typeof args[1] === "string" && args[1].includes("reconnect attempt failed")
+      );
+      expect(failCalls.length).toBeGreaterThanOrEqual(2);
+      warnSpy.mockRestore();
+    });
+
+    it("gives up after maximum reconnection attempts", async () => {
+      const peerId = "b".repeat(64);
+      const initialStream = createMockBiStream(peerId);
+      mockMidden.open_bi.mockResolvedValueOnce(initialStream as unknown as BiStreamLike);
+      await adapter.addPeer(peerId);
+      await flush(50);
+
+      // make all reconnect attempts fail
+      for (let i = 0; i < 10; i++) {
+        mockMidden.open_bi.mockRejectedValueOnce(new Error(`fail ${i}`));
+      }
+
+      const warnSpy = vi.spyOn(console, "warn");
+
+      vi.useFakeTimers();
+      initialStream.pushMessage(null);
+
+      // advance through all 8 attempts with generous time:
+      // sum of min(1000*2^i, 30000) + 1000 for i=0..7 is ~129s, use 200s
+      await vi.advanceTimersByTimeAsync(200_000);
+
+      const gaveUpCalls = warnSpy.mock.calls.filter(
+        (args) => typeof args[1] === "string" && args[1].includes("giving up reconnection")
+      );
+      expect(gaveUpCalls).toHaveLength(1);
+      warnSpy.mockRestore();
+    });
+
+    it("clears reconnect state when peer reconnects via accept loop", async () => {
+      const peerId = "b".repeat(64);
+      const firstStream = createMockBiStream(peerId);
+      mockMidden.open_bi.mockResolvedValueOnce(firstStream as unknown as BiStreamLike);
+      await adapter.addPeer(peerId);
+      await flush(50);
+
+      // make outbound reconnect attempts fail so it stays in backoff
+      mockMidden.open_bi.mockRejectedValue(new Error("still failing"));
+
+      vi.useFakeTimers();
+      firstStream.pushMessage(null);
+      await vi.advanceTimersByTimeAsync(0);
+
+      // peer connects to us via accept loop while we're in backoff
+      const incomingStream = createMockBiStream(peerId);
+      mockMidden.pushIncoming(incomingStream as unknown as BiStreamLike);
+      await vi.advanceTimersByTimeAsync(0);
+
+      // advance well past any scheduled reconnect timer
+      const openBiCallsBefore = mockMidden.open_bi.mock.calls.length;
+      await vi.advanceTimersByTimeAsync(10_000);
+      const openBiCallsAfter = mockMidden.open_bi.mock.calls.length;
+
+      // no additional open_bi calls — the incoming connection satisfied the intent
+      expect(openBiCallsAfter).toBe(openBiCallsBefore);
+    });
+
+    it("disconnect() cancels all pending reconnection timers", async () => {
+      const peerId = "b".repeat(64);
+      const stream = createMockBiStream(peerId);
+      mockMidden.open_bi.mockResolvedValueOnce(stream as unknown as BiStreamLike);
+      await adapter.addPeer(peerId);
+      await flush(50);
+
+      mockMidden.open_bi.mockResolvedValue(createMockBiStream(peerId) as unknown as BiStreamLike);
+
+      vi.useFakeTimers();
+      stream.pushMessage(null); // trigger disconnect -> scheduleReconnect
+      await vi.advanceTimersByTimeAsync(0);
+
+      // disconnect before the reconnect timer fires
+      adapter.disconnect();
+
+      const openBiCallsBefore = mockMidden.open_bi.mock.calls.length;
+      await vi.advanceTimersByTimeAsync(10_000);
+      const openBiCallsAfter = mockMidden.open_bi.mock.calls.length;
+
+      // no reconnect attempt was made
+      expect(openBiCallsAfter).toBe(openBiCallsBefore);
+    });
+
+    it("addPeer() resets reconnect backoff for that peer", async () => {
+      const peerId = "b".repeat(64);
+      const firstStream = createMockBiStream(peerId);
+      mockMidden.open_bi.mockResolvedValueOnce(firstStream as unknown as BiStreamLike);
+      await adapter.addPeer(peerId);
+      await flush(50);
+
+      // make the first reconnect attempt fail so backoff count increments
+      mockMidden.open_bi.mockRejectedValueOnce(new Error("transient"));
+
+      vi.useFakeTimers();
+      firstStream.pushMessage(null);
+      await vi.advanceTimersByTimeAsync(2100); // first reconnect fires and fails
+      vi.useRealTimers();
+
+      // call addPeer again — this resets backoff and makes a fresh connection
+      const freshStream = createMockBiStream(peerId);
+      mockMidden.open_bi.mockResolvedValueOnce(freshStream as unknown as BiStreamLike);
+      await adapter.addPeer(peerId);
+      await flush(50);
+
+      // verify open_bi was called with the peerId for the fresh attempt
+      const lastCall = mockMidden.open_bi.mock.calls[mockMidden.open_bi.mock.calls.length - 1];
+      expect(lastCall[0]).toBe(peerId);
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // forgetPeer()
+  // -----------------------------------------------------------------------
+
+  describe("forgetPeer()", () => {
+    beforeEach(async () => {
+      __setStoredIdentity(makeIdentity());
+      adapter = new IrohNetworkAdapter(factory);
+      adapter.connect("our-id" as PeerId);
+      await flush(50);
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it("closes the stream and emits peer-disconnected", async () => {
+      const peerId = "b".repeat(64);
+      const stream = createMockBiStream(peerId);
+      mockMidden.open_bi.mockResolvedValueOnce(stream as unknown as BiStreamLike);
+      await adapter.addPeer(peerId);
+      await flush(50);
+
+      const disconnected: string[] = [];
+      adapter.on("peer-disconnected", (ev: { peerId: PeerId }) => {
+        disconnected.push(ev.peerId);
+      });
+
+      adapter.forgetPeer(peerId);
+
+      expect(stream.close).toHaveBeenCalled();
+      expect(disconnected).toContain(peerId);
+    });
+
+    it("does not schedule reconnection for a forgotten peer", async () => {
+      const peerId = "b".repeat(64);
+      const stream = createMockBiStream(peerId);
+      mockMidden.open_bi.mockResolvedValueOnce(stream as unknown as BiStreamLike);
+      await adapter.addPeer(peerId);
+      await flush(50);
+
+      const consoleSpy = vi.spyOn(console, "log");
+
+      adapter.forgetPeer(peerId);
+      await flush(50);
+
+      const reconnectCalls = consoleSpy.mock.calls.filter(
+        (args) => typeof args[1] === "string" && args[1].includes("scheduling reconnect")
+      );
+      expect(reconnectCalls).toHaveLength(0);
+      consoleSpy.mockRestore();
+    });
+
+    it("cancels a pending reconnection timer", async () => {
+      const peerId = "b".repeat(64);
+      const stream = createMockBiStream(peerId);
+      mockMidden.open_bi.mockResolvedValueOnce(stream as unknown as BiStreamLike);
+      await adapter.addPeer(peerId);
+      await flush(50);
+
+      mockMidden.open_bi.mockResolvedValue(createMockBiStream(peerId) as unknown as BiStreamLike);
+
+      vi.useFakeTimers();
+      stream.pushMessage(null); // disconnect -> scheduleReconnect
+      await vi.advanceTimersByTimeAsync(0);
+
+      // forget the peer while a reconnect timer is pending
+      adapter.forgetPeer(peerId);
+
+      const openBiCallsBefore = mockMidden.open_bi.mock.calls.length;
+      await vi.advanceTimersByTimeAsync(10_000);
+      const openBiCallsAfter = mockMidden.open_bi.mock.calls.length;
+
+      // no reconnect attempts should have been made
+      expect(openBiCallsAfter).toBe(openBiCallsBefore);
+    });
+  });
 });

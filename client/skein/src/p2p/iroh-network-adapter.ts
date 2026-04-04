@@ -23,6 +23,22 @@ import {
 import { getStoredIdentity, onIdentityChange } from "./identity";
 
 // ---------------------------------------------------------------------------
+// constants
+// ---------------------------------------------------------------------------
+
+/** base delay for reconnection backoff (ms). */
+const RECONNECT_BASE_DELAY_MS = 1000;
+
+/** maximum delay between reconnection attempts (ms). */
+const RECONNECT_MAX_DELAY_MS = 30_000;
+
+/** maximum number of reconnection attempts before giving up. */
+const RECONNECT_MAX_ATTEMPTS = 8;
+
+/** upper bound of random jitter added to each reconnect delay (ms). */
+const RECONNECT_JITTER_MS = 1000;
+
+// ---------------------------------------------------------------------------
 // types
 // ---------------------------------------------------------------------------
 
@@ -80,6 +96,15 @@ export class IrohNetworkAdapter extends NetworkAdapter {
   private _disconnected = false;
   private _acceptLoopRunning = false;
   private identityUnsub: (() => void) | null = null;
+
+  /** peers explicitly added via addPeer() that we should stay connected to. */
+  private intendedPeers = new Set<string>();
+
+  /** per-peer reconnection state tracking attempt count and pending timer. */
+  private reconnectState = new Map<
+    string,
+    { attempt: number; timer: ReturnType<typeof setTimeout> | null }
+  >();
 
   constructor(getMidden: () => Promise<MiddenStreamNode>) {
     super();
@@ -158,6 +183,15 @@ export class IrohNetworkAdapter extends NetworkAdapter {
 
     this.streams.clear();
     this.readLoops.clear();
+    this.intendedPeers.clear();
+
+    // cancel all pending reconnection timers
+    for (const [, state] of this.reconnectState) {
+      if (state.timer !== null) {
+        clearTimeout(state.timer);
+      }
+    }
+    this.reconnectState.clear();
 
     if (this.identityUnsub) {
       this.identityUnsub();
@@ -181,6 +215,12 @@ export class IrohNetworkAdapter extends NetworkAdapter {
       throw new Error("adapter is disconnected");
     }
 
+    // track this peer as one we intend to stay connected to
+    this.intendedPeers.add(nodeId);
+
+    // clear any pending reconnection state — this is a fresh attempt
+    this.clearReconnectState(nodeId);
+
     // skip if already connected
     if (this.streams.has(nodeId)) {
       console.log(TAG, "already connected to:", nodeId.slice(0, 16) + "...");
@@ -191,6 +231,21 @@ export class IrohNetworkAdapter extends NetworkAdapter {
     const stream = await midden.open_bi(nodeId, SYNC_ALPN);
 
     this.registerStream(nodeId, stream);
+  }
+
+  /**
+   * stop maintaining a connection to a peer.
+   *
+   * removes the peer from intendedPeers, cancels any pending reconnection,
+   * and closes any existing stream. use this when you intentionally want to
+   * stop connecting to a peer (as opposed to a transient failure).
+   */
+  forgetPeer(nodeId: string): void {
+    // remove from intended set first so removePeer() won't schedule a reconnect
+    this.intendedPeers.delete(nodeId);
+    this.clearReconnectState(nodeId);
+    // delegate stream cleanup and peer-disconnected emission to removePeer
+    this.removePeer(nodeId);
   }
 
   // --- internals ---
@@ -289,6 +344,9 @@ export class IrohNetworkAdapter extends NetworkAdapter {
 
     this.streams.set(peerId, stream);
 
+    // connection established — clear any reconnection backoff state
+    this.clearReconnectState(peerId);
+
     // emit peer-candidate so automerge-repo starts syncing
     this.emit("peer-candidate", {
       peerId: peerId as PeerId,
@@ -348,6 +406,116 @@ export class IrohNetworkAdapter extends NetworkAdapter {
 
     if (!this._disconnected) {
       this.emit("peer-disconnected", { peerId: peerId as PeerId });
+
+      // if this was an intended peer, schedule a reconnection attempt
+      if (this.intendedPeers.has(peerId)) {
+        this.scheduleReconnect(peerId);
+      }
+    }
+  }
+
+  // --- reconnection logic ---
+
+  /**
+   * schedule a reconnection attempt for a peer using exponential backoff
+   * with random jitter.
+   */
+  private scheduleReconnect(peerId: string): void {
+    if (this._disconnected) return;
+
+    // already reconnected while we were setting up
+    if (this.streams.has(peerId)) return;
+
+    // get or create reconnect state for this peer
+    let state = this.reconnectState.get(peerId);
+    if (!state) {
+      state = { attempt: 0, timer: null };
+      this.reconnectState.set(peerId, state);
+    }
+
+    // give up after max attempts
+    if (state.attempt >= RECONNECT_MAX_ATTEMPTS) {
+      console.warn(
+        TAG,
+        "giving up reconnection to peer after",
+        RECONNECT_MAX_ATTEMPTS,
+        "attempts:",
+        peerId.slice(0, 16) + "..."
+      );
+      this.intendedPeers.delete(peerId);
+      this.clearReconnectState(peerId);
+      return;
+    }
+
+    // exponential backoff: baseDelay * 2^attempt, capped at maxDelay
+    const exponentialDelay = RECONNECT_BASE_DELAY_MS * Math.pow(2, state.attempt);
+    const cappedDelay = Math.min(exponentialDelay, RECONNECT_MAX_DELAY_MS);
+    // add random jitter to avoid simultaneous-open races
+    const jitter = Math.floor(Math.random() * RECONNECT_JITTER_MS);
+    const delay = cappedDelay + jitter;
+
+    console.log(
+      TAG,
+      "scheduling reconnect to peer:",
+      peerId.slice(0, 16) + "...",
+      `(attempt ${state.attempt + 1}/${RECONNECT_MAX_ATTEMPTS}, delay ${delay}ms)`
+    );
+
+    // clear any existing timer (shouldn't happen, but be safe)
+    if (state.timer !== null) {
+      clearTimeout(state.timer);
+    }
+
+    state.timer = setTimeout(() => {
+      state!.timer = null;
+      this.attemptReconnect(peerId);
+    }, delay);
+  }
+
+  /**
+   * attempt to reconnect to a peer. called by the scheduled timer from
+   * scheduleReconnect(). on failure, schedules the next attempt.
+   */
+  private async attemptReconnect(peerId: string): Promise<void> {
+    if (this._disconnected) return;
+
+    // already reconnected (e.g. peer connected to us via accept loop)
+    if (this.streams.has(peerId)) {
+      this.clearReconnectState(peerId);
+      return;
+    }
+
+    // peer was removed from intended set while we were waiting
+    if (!this.intendedPeers.has(peerId)) return;
+
+    const state = this.reconnectState.get(peerId);
+    if (state) {
+      state.attempt += 1;
+    }
+
+    try {
+      const midden = await this.ensureMidden();
+      const stream = await midden.open_bi(peerId, SYNC_ALPN);
+      console.log(TAG, "reconnected to peer:", peerId.slice(0, 16) + "...");
+      this.registerStream(peerId, stream);
+      // registerStream calls clearReconnectState, so no need to do it here
+    } catch (err) {
+      console.warn(TAG, "reconnect attempt failed for peer:", peerId.slice(0, 16) + "...", err);
+      // schedule next attempt with increased backoff
+      this.scheduleReconnect(peerId);
+    }
+  }
+
+  /**
+   * clear reconnection state and cancel any pending timer for a peer.
+   */
+  private clearReconnectState(peerId: string): void {
+    const state = this.reconnectState.get(peerId);
+    if (state) {
+      if (state.timer !== null) {
+        clearTimeout(state.timer);
+      }
+      this.reconnectState.delete(peerId);
     }
   }
 }
