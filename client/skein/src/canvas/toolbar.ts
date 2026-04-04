@@ -1,9 +1,16 @@
 import { ButtonContainer } from "@pixi/ui";
-import { Container, Graphics, Text, type Application } from "pixi.js";
+import { Container, Graphics, Rectangle, Text, type Application } from "pixi.js";
 import type { SkeinTheme } from "../theme/skein-theme";
 import type { WidgetRegistry } from "../widgets/widget-registry";
 import type { CanvasStore } from "./canvas-store";
 import type { CanvasMode, InputRouter } from "./input-router";
+
+export interface ToolbarOptions {
+  /** if true, this toolbar is in the narthex (home screen) */
+  isNarthex?: boolean;
+  /** callback to navigate to the narthex — shows a home button when set */
+  onNavigateHome?: () => void;
+}
 
 /**
  * pure PixiJS toolbar rendered at the top-right of the stage.
@@ -32,6 +39,8 @@ export class Toolbar {
   private readonly separator: Graphics;
   private readonly addBtn: ButtonContainer;
   private readonly deleteBtn: ButtonContainer;
+  private readonly homeBtn: ButtonContainer | null;
+  private readonly options: ToolbarOptions;
 
   // flyout menu state
   private readonly flyout: Container;
@@ -48,13 +57,15 @@ export class Toolbar {
     inputRouter: InputRouter,
     store: CanvasStore,
     registry: WidgetRegistry,
-    theme: SkeinTheme
+    theme: SkeinTheme,
+    options?: ToolbarOptions
   ) {
     this.app = app;
     this.inputRouter = inputRouter;
     this.store = store;
     this.registry = registry;
     this.theme = theme;
+    this.options = options ?? {};
 
     // root container lives on the stage at a high zIndex
     this.root = new Container();
@@ -108,6 +119,18 @@ export class Toolbar {
       }
     });
     this.root.addChild(this.deleteBtn);
+
+    // home button — visible when onNavigateHome is provided (i.e., inside a canvas, not the narthex)
+    if (this.options.onNavigateHome) {
+      const home = this.createButton("home", { color: theme.accent });
+      this.homeBtn = home.btn;
+      this.homeBtn.onPress.connect(() => {
+        this.options.onNavigateHome?.();
+      });
+      this.root.addChild(this.homeBtn);
+    } else {
+      this.homeBtn = null;
+    }
 
     // flyout menu container (hidden by default)
     this.flyout = new Container();
@@ -285,12 +308,14 @@ export class Toolbar {
     // offset items horizontally for flyout padding
     for (const item of items) {
       item.x = flyoutPad;
-      // update the stored maxItemWidth for hover bg drawing
       const hoverBg = (item as any)._hoverBg as Graphics;
       const h = (item as any)._itemHeight as number;
       // pre-draw transparent so the hit area is correct
       hoverBg.roundRect(0, 0, maxItemWidth, h, 4);
       hoverBg.fill({ color: 0x000000, alpha: 0 });
+      // explicit hitArea so PixiJS hit-testing doesn't depend on the
+      // alpha-0 fill (which some versions skip during picking)
+      item.hitArea = new Rectangle(0, 0, maxItemWidth, h);
     }
 
     this.flyoutBg.clear();
@@ -467,6 +492,13 @@ export class Toolbar {
     const gap = 6;
     const pad = { h: 8, v: 4 };
     let x = pad.h;
+
+    // home button (visible when navigating back is possible)
+    if (this.homeBtn) {
+      this.homeBtn.x = x;
+      this.homeBtn.y = pad.v;
+      x += this.homeBtn.width + gap;
+    }
 
     // mode button is always visible
     this.modeBtn.x = x;

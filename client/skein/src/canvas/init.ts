@@ -30,6 +30,12 @@ export interface InitCanvasOptions {
   storageAdapter?: StorageAdapter;
   /** optional theme overrides */
   theme?: Partial<SkeinTheme>;
+  /** optional pre-existing automerge repo — when provided, storage/network options are ignored */
+  repo?: Repo;
+  /** if true, this canvas is the narthex (home screen) — affects toolbar behavior */
+  isNarthex?: boolean;
+  /** callback to navigate back to the narthex — toolbar shows a home button when set */
+  onNavigateHome?: () => void;
 }
 
 export interface SkeinCanvas {
@@ -91,10 +97,15 @@ export async function initCanvas(options: InitCanvasOptions): Promise<SkeinCanva
   // step 1: resolve theme by merging overrides onto defaults
   const theme: SkeinTheme = { ...defaultTheme, ...themeOverrides };
 
-  // step 2: create automerge repo
-  const storage = storageAdapter ?? new IndexedDBStorageAdapter();
-  const network = networkAdapter ? [networkAdapter] : [];
-  const repo = new Repo({ storage, network });
+  // step 2: use the provided repo or create a new one
+  let repo: Repo;
+  if (options.repo) {
+    repo = options.repo;
+  } else {
+    const storage = storageAdapter ?? new IndexedDBStorageAdapter();
+    const network = networkAdapter ? [networkAdapter] : [];
+    repo = new Repo({ storage, network });
+  }
 
   // step 3: load or create canvas document
   let store: CanvasStore;
@@ -183,7 +194,10 @@ export async function initCanvas(options: InitCanvasOptions): Promise<SkeinCanva
 
   // step 10: create the toolbar (pixi-rendered, top-right of stage).
   // added directly to app.stage by the Toolbar constructor so it stays fixed.
-  const toolbar = new Toolbar(app, inputRouter, store, registry, theme);
+  const toolbar = new Toolbar(app, inputRouter, store, registry, theme, {
+    isNarthex: options.isNarthex,
+    onNavigateHome: options.onNavigateHome,
+  });
 
   // step 10b: create the lasso tool for multi-select, click-deselect, and
   // double-click-to-add. it attaches pointer handlers to the stage background

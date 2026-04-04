@@ -579,7 +579,7 @@ export class PropertyTray {
 
     fieldBg.eventMode = "static";
     fieldBg.cursor = "text";
-    fieldBg.on("pointerdown", (e: FederatedPointerEvent) => {
+    fieldBg.on("pointertap", (e: FederatedPointerEvent) => {
       e.stopPropagation();
       if (!editing) {
         startEditing();

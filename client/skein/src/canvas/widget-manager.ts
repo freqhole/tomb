@@ -184,7 +184,9 @@ export class WidgetManager {
       } else {
         // new widget with no existing document — create one and persist the
         // docId back into the canvas document so other peers can sync it.
-        const defaults = factory.schema.parse({});
+        // merge entry.props into schema defaults so callers can seed initial
+        // state (e.g., canvasDocId for narthex canvas-card widgets).
+        const defaults = factory.schema.parse(entry.props ?? {});
         widgetDocHandle = this.repo.create(defaults);
         this.store.setDocId(entry.id, widgetDocHandle.documentId);
       }
