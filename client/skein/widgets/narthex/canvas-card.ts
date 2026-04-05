@@ -18,6 +18,14 @@ export const canvasCardSchema = z.object({
   modifiedAt: z.string().default(""),
   authorName: z.string().default(""),
   color: z.number().default(0xd946ef),
+  isRemote: z.boolean().default(false),
+  ownerNodeId: z.string().default(""),
+  ownerUsername: z.string().default(""),
+  role: z.enum(["owner", "editor", "viewer"]).default("owner"),
+  accessRevoked: z.boolean().default(false),
+  lastVisitedAt: z.string().default(""),
+  hasUpdates: z.boolean().default(false),
+  lastKnownModifiedAt: z.string().default(""),
 });
 
 export type CanvasCardState = z.infer<typeof canvasCardSchema>;
@@ -35,6 +43,9 @@ const AUTHOR_BADGE_SIZE = 12;
 const AUTHOR_LETTER_SIZE = 9;
 const FOOTER_HEIGHT = 24;
 const GRID_STEP = 16;
+const ROLE_PILL_FONT_SIZE = 8;
+const ROLE_PILL_PAD_X = 6;
+const ROLE_PILL_PAD_Y = 2;
 
 // theme colors
 const BG_COLOR = 0x141418;
@@ -46,6 +57,14 @@ const TITLE_COLOR = 0xf0f0ff;
 const DESC_COLOR = 0x888898;
 const DATE_COLOR = 0x666678;
 const ICON_COLOR = 0x444460;
+
+// remote card theme colors
+const REMOTE_BORDER_COLOR = 0x3a7ca5;
+const REMOTE_BORDER_HOVER_COLOR = 0x5a9cc5;
+const ROLE_EDITOR_COLOR = 0x22c55e;
+const ROLE_VIEWER_COLOR = 0xf59e0b;
+const REVOKED_OVERLAY_ALPHA = 0.7;
+const REVOKED_TEXT_COLOR = 0xff6b6b;
 
 /**
  * truncate a string so it fits within a rough character budget.
@@ -63,6 +82,59 @@ function truncate(value: string, maxChars: number): string {
 function estimateMaxChars(width: number, fontSize: number): number {
   const avgCharWidth = fontSize * 0.55;
   return Math.max(4, Math.floor(width / avgCharWidth));
+}
+
+/**
+ * draw a dashed border along a rounded rectangle path.
+ * straight edges use a dash pattern; corner arcs are drawn solid
+ * (they're small enough that dashing looks noisy).
+ */
+function drawDashedRoundRect(
+  g: Graphics,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  r: number,
+  color: number,
+  lineWidth: number
+): void {
+  const dashLen = 6;
+  const gapLen = 4;
+
+  const dashLine = (x1: number, y1: number, x2: number, y2: number) => {
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const len = Math.sqrt(dx * dx + dy * dy);
+    if (len === 0) return;
+    const nx = dx / len;
+    const ny = dy / len;
+    let pos = 0;
+    while (pos < len) {
+      const end = Math.min(pos + dashLen, len);
+      g.moveTo(x1 + nx * pos, y1 + ny * pos);
+      g.lineTo(x1 + nx * end, y1 + ny * end);
+      pos = end + gapLen;
+    }
+  };
+
+  // dashed straight edges
+  dashLine(x + r, y, x + w - r, y); // top
+  dashLine(x + w, y + r, x + w, y + h - r); // right
+  dashLine(x + w - r, y + h, x + r, y + h); // bottom
+  dashLine(x, y + h - r, x, y + r); // left
+
+  // solid corner arcs
+  g.moveTo(x + w - r, y);
+  g.arc(x + w - r, y + r, r, -Math.PI / 2, 0);
+  g.moveTo(x + w, y + h - r);
+  g.arc(x + w - r, y + h - r, r, 0, Math.PI / 2);
+  g.moveTo(x + r, y + h);
+  g.arc(x + r, y + h - r, r, Math.PI / 2, Math.PI);
+  g.moveTo(x, y + r);
+  g.arc(x + r, y + r, r, Math.PI, Math.PI * 1.5);
+
+  g.stroke({ color, width: lineWidth });
 }
 
 export const canvasCardWidget: WidgetFactory<typeof canvasCardSchema> = {
@@ -93,6 +165,7 @@ export const canvasCardWidget: WidgetFactory<typeof canvasCardSchema> = {
     const container = new Container();
     container.eventMode = "static";
     container.cursor = "pointer";
+    container.sortableChildren = true;
 
     let currentWidth = ctx.width;
     let currentHeight = ctx.height;
@@ -152,6 +225,29 @@ export const canvasCardWidget: WidgetFactory<typeof canvasCardSchema> = {
     titleText.eventMode = "none";
     container.addChild(titleText);
 
+    // --- remote: role pill ---
+
+    const rolePill = new Graphics();
+    rolePill.eventMode = "none";
+    rolePill.visible = false;
+    container.addChild(rolePill);
+
+    const rolePillText = new Text({
+      text: "",
+      style: {
+        fontFamily: "system-ui, sans-serif",
+        fontSize: ROLE_PILL_FONT_SIZE,
+        fontWeight: "bold",
+        fill: 0xffffff,
+      },
+      resolution: 3,
+    });
+    rolePillText.eventMode = "none";
+    rolePillText.visible = false;
+    container.addChild(rolePillText);
+
+    // --- description ---
+
     const descText = new Text({
       text: "",
       style: {
@@ -200,29 +296,103 @@ export const canvasCardWidget: WidgetFactory<typeof canvasCardSchema> = {
     authorLetter.eventMode = "none";
     container.addChild(authorLetter);
 
+    // --- remote: corner badge ---
+
+    const remoteBadge = new Text({
+      text: "\u2197",
+      style: {
+        fontFamily: "system-ui, sans-serif",
+        fontSize: 11,
+        fill: REMOTE_BORDER_COLOR,
+      },
+      resolution: 3,
+    });
+    remoteBadge.anchor.set(1, 0);
+    remoteBadge.eventMode = "none";
+    remoteBadge.visible = false;
+    container.addChild(remoteBadge);
+
+    // --- remote: access revoked overlay (must render on top of everything) ---
+
+    const revokedOverlay = new Graphics();
+    revokedOverlay.eventMode = "none";
+    revokedOverlay.visible = false;
+    revokedOverlay.zIndex = 100;
+    container.addChild(revokedOverlay);
+
+    const revokedText = new Text({
+      text: "access revoked",
+      style: {
+        fontFamily: "system-ui, sans-serif",
+        fontSize: 12,
+        fontWeight: "bold",
+        fill: REVOKED_TEXT_COLOR,
+      },
+      resolution: 3,
+    });
+    revokedText.anchor.set(0.5);
+    revokedText.eventMode = "none";
+    revokedText.visible = false;
+    revokedText.zIndex = 101;
+    container.addChild(revokedText);
+
+    // --- update dot (shows when a shared canvas has new activity) ---
+
+    const updateDot = new Graphics();
+    updateDot.eventMode = "none";
+    updateDot.visible = false;
+    updateDot.zIndex = 50;
+    container.addChild(updateDot);
+
     // --- drawing helpers ---
 
-    const drawCardBg = (w: number, h: number) => {
-      const borderColor = hovered ? BORDER_HOVER_COLOR : BORDER_COLOR;
+    const drawCardBg = (w: number, h: number, remote: boolean) => {
       cardBg.clear();
       cardBg.roundRect(0, 0, w, h, CARD_RADIUS);
       cardBg.fill({ color: BG_COLOR });
-      cardBg.stroke({ color: borderColor, width: 1 });
+
+      if (remote) {
+        const borderColor = hovered ? REMOTE_BORDER_HOVER_COLOR : REMOTE_BORDER_COLOR;
+        drawDashedRoundRect(cardBg, 0, 0, w, h, CARD_RADIUS, borderColor, 1);
+      } else {
+        const borderColor = hovered ? BORDER_HOVER_COLOR : BORDER_COLOR;
+        cardBg.roundRect(0, 0, w, h, CARD_RADIUS);
+        cardBg.stroke({ color: borderColor, width: 1 });
+      }
     };
 
-    const drawAccent = (w: number, color: number) => {
+    const drawAccent = (w: number, color: number, remote: boolean) => {
       const col = isTransparent(color) ? 0x444460 : safeColor(color);
       accentStripe.clear();
-      // draw the accent bar clipped to the top rounded corners
-      // use a rounded rect for the top, then cover the bottom rounding with a flat rect
-      accentStripe.roundRect(1, 1, w - 2, ACCENT_HEIGHT + CARD_RADIUS, CARD_RADIUS);
-      accentStripe.fill({ color: col });
-      // mask out the bottom part so it's flat
-      accentStripe.rect(1, ACCENT_HEIGHT, w - 2, CARD_RADIUS);
-      accentStripe.fill({ color: BG_COLOR });
-      // redraw just the accent portion
-      accentStripe.rect(1, 1, w - 2, ACCENT_HEIGHT);
-      accentStripe.fill({ color: col });
+
+      if (remote) {
+        // striped accent — faint tinted base with alternating color stripes
+        accentStripe.roundRect(1, 1, w - 2, ACCENT_HEIGHT + CARD_RADIUS, CARD_RADIUS);
+        accentStripe.fill({ color: col, alpha: 0.15 });
+        accentStripe.rect(1, ACCENT_HEIGHT, w - 2, CARD_RADIUS);
+        accentStripe.fill({ color: BG_COLOR });
+        // draw alternating stripes over the accent area
+        const stripeW = 6;
+        const gapW = 4;
+        let x = 1;
+        while (x < w - 1) {
+          const sw = Math.min(stripeW, w - 1 - x);
+          accentStripe.rect(x, 1, sw, ACCENT_HEIGHT);
+          accentStripe.fill({ color: col });
+          x += stripeW + gapW;
+        }
+      } else {
+        // solid accent bar clipped to the top rounded corners
+        // use a rounded rect for the top, then cover the bottom rounding with a flat rect
+        accentStripe.roundRect(1, 1, w - 2, ACCENT_HEIGHT + CARD_RADIUS, CARD_RADIUS);
+        accentStripe.fill({ color: col });
+        // mask out the bottom part so it's flat
+        accentStripe.rect(1, ACCENT_HEIGHT, w - 2, CARD_RADIUS);
+        accentStripe.fill({ color: BG_COLOR });
+        // redraw just the accent portion
+        accentStripe.rect(1, 1, w - 2, ACCENT_HEIGHT);
+        accentStripe.fill({ color: col });
+      }
     };
 
     const drawPreview = (w: number, h: number, state: CanvasCardState) => {
@@ -327,10 +497,15 @@ export const canvasCardWidget: WidgetFactory<typeof canvasCardSchema> = {
     };
 
     const drawAuthorBadge = (w: number, h: number, state: CanvasCardState) => {
-      const hasAuthor = state.authorName.trim().length > 0;
+      // for remote cards, show owner info instead of local author
+      const displayName = state.isRemote
+        ? state.ownerUsername.trim() || state.ownerNodeId.slice(0, 8)
+        : state.authorName.trim();
+
+      const hasName = displayName.length > 0;
       authorBadge.clear();
 
-      if (!hasAuthor) {
+      if (!hasName) {
         authorBadge.visible = false;
         authorLetter.visible = false;
         return;
@@ -344,11 +519,86 @@ export const canvasCardWidget: WidgetFactory<typeof canvasCardSchema> = {
       const col = isTransparent(state.color) ? 0x666678 : safeColor(state.color);
 
       authorBadge.circle(badgeX, badgeY, AUTHOR_BADGE_SIZE / 2);
-      authorBadge.fill({ color: col });
+      authorBadge.fill({ color: state.isRemote ? REMOTE_BORDER_COLOR : col });
 
-      authorLetter.text = state.authorName.trim().charAt(0).toUpperCase();
+      authorLetter.text = displayName.charAt(0).toUpperCase();
       authorLetter.x = badgeX;
       authorLetter.y = badgeY;
+    };
+
+    const drawRemoteBadge = (w: number, remote: boolean) => {
+      if (remote) {
+        remoteBadge.x = w - PADDING_X + 2;
+        remoteBadge.y = ACCENT_HEIGHT + 4;
+        remoteBadge.visible = true;
+      } else {
+        remoteBadge.visible = false;
+      }
+    };
+
+    const drawRolePill = (state: CanvasCardState, pillX: number, pillY: number): number => {
+      if (!state.isRemote || state.role === "owner") {
+        rolePill.visible = false;
+        rolePillText.visible = false;
+        return 0;
+      }
+
+      const pillColor = state.role === "editor" ? ROLE_EDITOR_COLOR : ROLE_VIEWER_COLOR;
+      rolePillText.text = state.role;
+      rolePillText.style.fill = pillColor;
+
+      // measure text to size the pill
+      const tw = rolePillText.width;
+      const th = rolePillText.height;
+      const pw = tw + ROLE_PILL_PAD_X * 2;
+      const ph = th + ROLE_PILL_PAD_Y * 2;
+
+      rolePill.clear();
+      rolePill.roundRect(pillX, pillY, pw, ph, ph / 2);
+      rolePill.fill({ color: pillColor, alpha: 0.15 });
+      rolePill.roundRect(pillX, pillY, pw, ph, ph / 2);
+      rolePill.stroke({ color: pillColor, width: 0.5, alpha: 0.5 });
+
+      rolePillText.x = pillX + ROLE_PILL_PAD_X;
+      rolePillText.y = pillY + ROLE_PILL_PAD_Y;
+
+      rolePill.visible = true;
+      rolePillText.visible = true;
+
+      return ph + 4; // total height offset for content below the pill
+    };
+
+    const drawRevokedOverlay = (w: number, h: number, revoked: boolean) => {
+      revokedOverlay.clear();
+      if (revoked) {
+        revokedOverlay.roundRect(0, 0, w, h, CARD_RADIUS);
+        revokedOverlay.fill({ color: 0x000000, alpha: REVOKED_OVERLAY_ALPHA });
+        revokedOverlay.visible = true;
+        revokedText.x = w / 2;
+        revokedText.y = h / 2;
+        revokedText.visible = true;
+      } else {
+        revokedOverlay.visible = false;
+        revokedText.visible = false;
+      }
+    };
+
+    const drawUpdateDot = (w: number, state: CanvasCardState) => {
+      updateDot.clear();
+      if (state.hasUpdates) {
+        const cx = w - PADDING_X;
+        const cy = ACCENT_HEIGHT + 10;
+        const col = isTransparent(state.color) ? 0x444460 : safeColor(state.color);
+        // bright outline for contrast on dark backgrounds
+        updateDot.circle(cx, cy, 6);
+        updateDot.fill({ color: 0xffffff });
+        // filled dot in card accent color
+        updateDot.circle(cx, cy, 5);
+        updateDot.fill({ color: col });
+        updateDot.visible = true;
+      } else {
+        updateDot.visible = false;
+      }
     };
 
     // --- full layout ---
@@ -359,8 +609,8 @@ export const canvasCardWidget: WidgetFactory<typeof canvasCardSchema> = {
       const previewH = Math.floor(h * PREVIEW_RATIO);
       const textTop = ACCENT_HEIGHT + previewH + PADDING_Y;
 
-      drawCardBg(w, h);
-      drawAccent(w, state.color);
+      drawCardBg(w, h, state.isRemote);
+      drawAccent(w, state.color, state.isRemote);
       drawPreview(w, h, state);
       // only reload the sprite when the URL changes
       if (state.previewUrl !== lastRequestedPreviewUrl) {
@@ -379,10 +629,15 @@ export const canvasCardWidget: WidgetFactory<typeof canvasCardSchema> = {
       titleText.x = PADDING_X;
       titleText.y = textTop;
 
+      // role pill (remote cards only, below title)
+      const pillY = textTop + TITLE_FONT_SIZE + 2;
+      const pillOffset = drawRolePill(state, PADDING_X, pillY);
+
       // description — allow two lines, then truncate
       const descMaxWidth = contentWidth;
       descText.style.wordWrapWidth = descMaxWidth;
-      const descAvailH = h - textTop - TITLE_FONT_SIZE - PADDING_Y - FOOTER_HEIGHT - PADDING_Y;
+      const descTopY = textTop + TITLE_FONT_SIZE + 4 + pillOffset;
+      const descAvailH = h - descTopY - FOOTER_HEIGHT - PADDING_Y;
       const maxDescLines = Math.max(1, Math.floor(descAvailH / (DESC_FONT_SIZE * 1.35)));
       const descMaxCharsPerLine = estimateMaxChars(descMaxWidth, DESC_FONT_SIZE);
       const descMaxChars = descMaxCharsPerLine * Math.min(maxDescLines, 2);
@@ -395,7 +650,7 @@ export const canvasCardWidget: WidgetFactory<typeof canvasCardSchema> = {
         descText.visible = false;
       }
       descText.x = PADDING_X;
-      descText.y = textTop + TITLE_FONT_SIZE + 4;
+      descText.y = descTopY;
 
       // footer: timestamps
       const footerY = h - FOOTER_HEIGHT;
@@ -417,8 +672,18 @@ export const canvasCardWidget: WidgetFactory<typeof canvasCardSchema> = {
       dateText.x = PADDING_X;
       dateText.y = footerY + (FOOTER_HEIGHT - DATE_FONT_SIZE) / 2;
 
-      // footer: author badge on the right
+      // footer: author badge on the right (shows owner info for remote cards)
       drawAuthorBadge(w, h, state);
+
+      // remote card extras
+      drawRemoteBadge(w, state.isRemote);
+      drawRevokedOverlay(w, h, state.isRemote && state.accessRevoked);
+
+      // update dot indicator for new activity on shared canvases
+      drawUpdateDot(w, state);
+
+      // cursor style — revoked cards shouldn't look clickable
+      container.cursor = state.isRemote && state.accessRevoked ? "not-allowed" : "pointer";
     };
 
     // --- initial draw ---
@@ -428,14 +693,14 @@ export const canvasCardWidget: WidgetFactory<typeof canvasCardSchema> = {
 
     container.on("pointerover", () => {
       hovered = true;
-      drawCardBg(currentWidth, currentHeight);
+      drawCardBg(currentWidth, currentHeight, ctx.doc.current.isRemote);
       hintText.visible = true;
       previewIcon.visible = true;
     });
 
     container.on("pointerout", () => {
       hovered = false;
-      drawCardBg(currentWidth, currentHeight);
+      drawCardBg(currentWidth, currentHeight, ctx.doc.current.isRemote);
       hintText.visible = false;
       previewIcon.visible = false;
     });
@@ -444,6 +709,7 @@ export const canvasCardWidget: WidgetFactory<typeof canvasCardSchema> = {
 
     container.on("pointertap", () => {
       const state = ctx.doc.current;
+      if (state.accessRevoked) return;
       if (state.canvasDocId) {
         window.location.hash = state.canvasDocId;
       }

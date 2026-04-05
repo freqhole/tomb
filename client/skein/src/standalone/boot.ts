@@ -8,7 +8,7 @@ import { CanvasStore } from "../canvas/canvas-store";
 import type { ConnectionStateSource } from "../canvas/connection-status";
 import { initCanvas, type SkeinCanvas } from "../canvas/init";
 import { showShareDialog, type FriendInfo } from "../canvas/share-dialog";
-import { FriendzProtocol } from "../p2p/friends-protocol";
+import { FriendzProtocol, type CanvasActivityEntry } from "../p2p/friends-protocol";
 import {
   destroyBridge,
   initBridge,
@@ -256,6 +256,13 @@ class SkeinRouter {
       });
     }) as EventListener);
 
+    // listen for accept-canvas-invite event dispatched from the inbox widget
+    window.addEventListener("skein:accept-canvas-invite", ((e: CustomEvent) => {
+      this.acceptCanvasInvite(e.detail).catch((err) => {
+        console.warn("[skein] failed to accept canvas invite:", err);
+      });
+    }) as EventListener);
+
     // listen for widget self-removal (e.g. wizard cancel button)
     window.addEventListener("skein:remove-widget", ((e: CustomEvent) => {
       const widgetId = e.detail?.widgetId;
@@ -442,6 +449,34 @@ class SkeinRouter {
       profileVisibility: profileVisibility as "friends" | "everyone" | "nobody",
       friendRequestsFrom: friendRequestsFrom as "everyone" | "nobody",
       canvasInvitesFrom: canvasInvitesFrom as "everyone" | "friends" | "nobody",
+      getCanvasActivity: () => {
+        // collect activity from narthex canvas cards
+        // this runs synchronously during heartbeat sends
+        if (!this.narthexDocId) return [];
+        try {
+          const narthexHandle = this.repo.find<CanvasDocument>(this.narthexDocId as DocumentId);
+          // find returns a handle immediately (it may not be ready yet)
+          const narthexDoc = (narthexHandle as any).doc?.() as CanvasDocument | undefined;
+          if (!narthexDoc?.widgets) return [];
+
+          const entries: CanvasActivityEntry[] = [];
+          for (const w of Object.values(narthexDoc.widgets)) {
+            if (w.type !== "canvas-card") continue;
+            const props = w.props as any;
+            if (!props?.canvasDocId) continue;
+            // include cards that are shared (remote or have been shared via invite)
+            entries.push({
+              canvasDocId: props.canvasDocId,
+              lastModifiedAt: props.lastKnownModifiedAt || props.modifiedAt || "",
+              widgetCount: 0, // we don't have easy access to the canvas store here
+            });
+            if (entries.length >= 20) break;
+          }
+          return entries;
+        } catch {
+          return [];
+        }
+      },
     });
 
     // register ALPN handler for incoming friendz streams
@@ -727,6 +762,38 @@ class SkeinRouter {
         );
       };
     }
+
+    // canvas activity from heartbeats — mark cards with new updates
+    this.friendzProtocol.onCanvasActivity = (entries, _fromNodeId) => {
+      if (!this.narthexDocId) return;
+      try {
+        const narthexHandle = this.repo.find<CanvasDocument>(this.narthexDocId as DocumentId);
+        const narthexDoc = (narthexHandle as any).doc?.() as CanvasDocument | undefined;
+        if (!narthexDoc?.widgets) return;
+
+        for (const activity of entries) {
+          for (const w of Object.values(narthexDoc.widgets)) {
+            if (w.type !== "canvas-card") continue;
+            const props = w.props as any;
+            if (props?.canvasDocId !== activity.canvasDocId) continue;
+            if (!w.docId) continue;
+
+            // compare against lastVisitedAt
+            const lastVisited = props.lastVisitedAt || "";
+            if (activity.lastModifiedAt > lastVisited) {
+              const cardHandle = this.repo.find<any>(w.docId as DocumentId);
+              (cardHandle as any).change?.((draft: any) => {
+                draft.hasUpdates = true;
+                draft.lastKnownModifiedAt = activity.lastModifiedAt;
+              });
+            }
+            break;
+          }
+        }
+      } catch {
+        // best-effort
+      }
+    };
 
     // watch friends doc for privacy setting changes
     const onFriendsChange = () => {
@@ -1045,7 +1112,7 @@ class SkeinRouter {
                 canvasColor,
                 canvasPreviewUrl,
                 originNodeId: localIdentity.node_id,
-                originUsername: "",
+                originUsername: this.friendzProtocol?.getLocalUsername() ?? "",
                 role: "editor",
                 targets: allTargets,
                 acked: [],
@@ -1094,6 +1161,36 @@ class SkeinRouter {
       });
 
       this.currentCanvas = canvas;
+
+      // update lastVisitedAt on the canvas card
+      if (this.narthexDocId) {
+        try {
+          const narthexHandle = await this.repo.find<CanvasDocument>(
+            this.narthexDocId as DocumentId
+          );
+          await narthexHandle.whenReady();
+          const narthexDoc = narthexHandle.doc();
+          if (narthexDoc?.widgets) {
+            for (const entry of Object.values(narthexDoc.widgets)) {
+              if (
+                entry.type === "canvas-card" &&
+                (entry.props as any)?.canvasDocId === docId &&
+                entry.docId
+              ) {
+                const cardHandle = await this.repo.find<any>(entry.docId as DocumentId);
+                await cardHandle.whenReady();
+                cardHandle.change((draft: any) => {
+                  draft.lastVisitedAt = new Date().toISOString();
+                  draft.hasUpdates = false;
+                });
+                break;
+              }
+            }
+          }
+        } catch {
+          // best-effort — don't block navigation
+        }
+      }
 
       // wire transport disconnect → immediate presence offline
       const unsubDisconnect = this.irohAdapter.onPeerDisconnect((nodeId) => {
@@ -1231,6 +1328,89 @@ class SkeinRouter {
    * join a remote canvas via share string.
    * connects to the peer, creates a canvas-card in the narthex, and navigates.
    */
+  /**
+   * handle an accepted canvas invite from the inbox widget.
+   * connects to the inviter's peer node, creates a remote canvas-card
+   * on the narthex if one doesn't already exist, and navigates to the canvas.
+   */
+  private async acceptCanvasInvite(detail: {
+    canvasDocId: string;
+    fromNodeId: string;
+    canvasTitle: string;
+    canvasDescription: string;
+    canvasColor: number;
+    canvasPreviewUrl: string;
+    fromUsername: string;
+  }): Promise<void> {
+    console.log(
+      "[skein] accepting canvas invite:",
+      detail.canvasDocId,
+      "from peer:",
+      detail.fromNodeId.slice(0, 16) + "..."
+    );
+
+    // ensure we have an identity (generates one if needed, starts midden)
+    await ensureIdentity();
+
+    // connect to the inviter's peer via the iroh adapter
+    try {
+      await this.irohAdapter.addPeer(detail.fromNodeId);
+    } catch (err) {
+      console.error("[skein] failed to connect to invite peer:", err);
+      // continue anyway — the peer might become reachable later
+    }
+
+    // check if a canvas-card already exists for this docId on the narthex
+    if (this.currentCanvas) {
+      const existing = this.currentCanvas.store.allWidgets();
+      const alreadyExists = existing.some((w) => {
+        if (w.type !== "canvas-card") return false;
+        return (w.props as Record<string, unknown>)?.canvasDocId === detail.canvasDocId;
+      });
+
+      if (!alreadyExists) {
+        // add a remote canvas-card widget to the narthex
+        const existingCount = this.currentCanvas.store.widgetCount();
+        const shortDate = new Date().toISOString().slice(0, 10);
+
+        this.currentCanvas.store.addWidget({
+          id: crypto.randomUUID(),
+          type: "canvas-card",
+          x: 60 + (existingCount % 4) * 300,
+          y: 60 + Math.floor(existingCount / 4) * 220,
+          width: 280,
+          height: 200,
+          zIndex: existingCount + 1,
+          props: {
+            canvasDocId: detail.canvasDocId,
+            title: detail.canvasTitle || "shared canvas",
+            description: detail.canvasDescription || "",
+            authorName: "",
+            color: detail.canvasColor || 0x06b6d4,
+            createdAt: shortDate,
+            modifiedAt: new Date().toISOString(),
+            // remote card fields
+            isRemote: true,
+            ownerNodeId: detail.fromNodeId,
+            ownerUsername: detail.fromUsername || "",
+            role: "editor", // invited users default to editor
+            accessRevoked: false,
+            lastVisitedAt: "",
+          },
+          collapsed: false,
+          docId: null,
+        });
+      }
+    }
+
+    // stash the remote peer's nodeId so navigateToCanvas can write it
+    // into the canvas doc reliably (no RAF race).
+    this.pendingPeerNodeId = detail.fromNodeId;
+
+    // navigate to the canvas — automerge-repo will sync it from the peer.
+    window.location.hash = detail.canvasDocId;
+  }
+
   private async joinCanvasFromNarthex(detail: {
     shareString: string;
     wizardWidgetId?: string;

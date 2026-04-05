@@ -9,6 +9,7 @@ import {
   FriendzProtocol,
   HEARTBEAT_TIMEOUT_MS,
   type AclChangeMessage,
+  type CanvasActivityEntry,
   type CanvasInviteAcceptMessage,
   type CanvasInviteAckMessage,
   type CanvasInviteDeclineMessage,
@@ -251,6 +252,32 @@ describe("encodeMessage / decodeMessage", () => {
     const decoded = decodeMessage(encoded);
     expect(decoded).toEqual(msg);
   });
+
+  it("roundtrips a heartbeat message with canvasActivity", () => {
+    const msg: FriendzMessage = {
+      type: "heartbeat",
+      nodeId: "a".repeat(64),
+      username: "alice",
+      canvasActivity: [
+        { canvasDocId: "doc-1", lastModifiedAt: "2025-01-15T00:00:00Z", widgetCount: 5 },
+        { canvasDocId: "doc-2", lastModifiedAt: "2025-01-14T12:00:00Z", widgetCount: 12 },
+      ],
+    };
+    const encoded = encodeMessage(msg);
+    const decoded = decodeMessage(encoded);
+    expect(decoded).toEqual(msg);
+  });
+
+  it("roundtrips a heartbeat message without canvasActivity", () => {
+    const msg: FriendzMessage = {
+      type: "heartbeat",
+      nodeId: "b".repeat(64),
+      username: "bob",
+    };
+    const encoded = encodeMessage(msg);
+    const decoded = decodeMessage(encoded);
+    expect(decoded).toEqual(msg);
+  });
 });
 
 describe("FriendzProtocol", () => {
@@ -347,6 +374,55 @@ describe("FriendzProtocol", () => {
       await flush();
 
       expect(protocol.isOnline(peerId)).toBe(true);
+    });
+
+    it("incoming heartbeat with canvasActivity fires onCanvasActivity callback", async () => {
+      const peerId = "b".repeat(64);
+      const stream = createMockBiStream(peerId);
+      protocol.handleStream(stream as unknown as BiStreamLike);
+
+      const received: { entries: CanvasActivityEntry[]; from: string }[] = [];
+      protocol.onCanvasActivity = (entries, fromNodeId) => {
+        received.push({ entries, from: fromNodeId });
+      };
+
+      const msg: FriendzMessage = {
+        type: "heartbeat",
+        nodeId: peerId,
+        username: "bob",
+        canvasActivity: [
+          { canvasDocId: "doc-1", lastModifiedAt: "2025-01-15T00:00:00Z", widgetCount: 3 },
+        ],
+      };
+      stream.pushMessage(encodeMessage(msg));
+      await flush();
+
+      expect(received).toHaveLength(1);
+      expect(received[0].from).toBe(peerId);
+      expect(received[0].entries).toHaveLength(1);
+      expect(received[0].entries[0].canvasDocId).toBe("doc-1");
+      expect(received[0].entries[0].widgetCount).toBe(3);
+    });
+
+    it("incoming heartbeat without canvasActivity does not fire onCanvasActivity callback", async () => {
+      const peerId = "b".repeat(64);
+      const stream = createMockBiStream(peerId);
+      protocol.handleStream(stream as unknown as BiStreamLike);
+
+      const received: { entries: CanvasActivityEntry[]; from: string }[] = [];
+      protocol.onCanvasActivity = (entries, fromNodeId) => {
+        received.push({ entries, from: fromNodeId });
+      };
+
+      const msg: FriendzMessage = {
+        type: "heartbeat",
+        nodeId: peerId,
+        username: "bob",
+      };
+      stream.pushMessage(encodeMessage(msg));
+      await flush();
+
+      expect(received).toHaveLength(0);
     });
 
     it("cleans up stream reference when stream closes", async () => {
@@ -1187,6 +1263,7 @@ describe("FriendzProtocol", () => {
       protocol.onCanvasInviteAccept = () => {};
       protocol.onCanvasInviteDecline = () => {};
       protocol.onAclChange = () => {};
+      protocol.onCanvasActivity = () => {};
 
       protocol.destroy();
 
@@ -1199,6 +1276,7 @@ describe("FriendzProtocol", () => {
       expect(protocol.onCanvasInviteAccept).toBeNull();
       expect(protocol.onCanvasInviteDecline).toBeNull();
       expect(protocol.onAclChange).toBeNull();
+      expect(protocol.onCanvasActivity).toBeNull();
     });
   });
 });

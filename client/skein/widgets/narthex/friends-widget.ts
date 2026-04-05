@@ -2326,6 +2326,7 @@ export const friendsWidget: WidgetFactory<typeof friendsSchema> = {
           // position list container
           listContainer.x = PADDING_X;
           listContainer.y = listAreaY;
+          listContainer.hitArea = new Rectangle(0, 0, contentW, listAreaHeight);
 
           // rebuild rows
           rebuildRows(friends, contentW);
@@ -2358,6 +2359,7 @@ export const friendsWidget: WidgetFactory<typeof friendsSchema> = {
           // position requests container
           requestsContainer.x = PADDING_X;
           requestsContainer.y = requestsAreaY;
+          requestsContainer.hitArea = new Rectangle(0, 0, contentW, requestsAreaHeight);
 
           // rebuild request rows
           rebuildRequestRows(pendingRequests, contentW);

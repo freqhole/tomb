@@ -537,6 +537,21 @@ export const inboxWidget: WidgetFactory<typeof inboxSchema> = {
               );
               if (inv) inv.status = "accepted";
             });
+
+            // notify boot.ts to create a remote card and navigate to the canvas
+            window.dispatchEvent(
+              new CustomEvent("skein:accept-canvas-invite", {
+                detail: {
+                  canvasDocId: invite.canvasDocId,
+                  fromNodeId: invite.fromNodeId,
+                  canvasTitle: invite.canvasTitle,
+                  canvasDescription: invite.canvasDescription ?? "",
+                  canvasColor: invite.canvasColor ?? 0,
+                  canvasPreviewUrl: invite.canvasPreviewUrl ?? "",
+                  fromUsername: invite.fromUsername ?? "",
+                },
+              })
+            );
           });
           rowContainer.addChild(acceptBtn);
 
@@ -939,6 +954,7 @@ export const inboxWidget: WidgetFactory<typeof inboxSchema> = {
         // position list container
         inboxListContainer.x = PADDING_X;
         inboxListContainer.y = inboxAreaY;
+        inboxListContainer.hitArea = new Rectangle(0, 0, contentW, inboxAreaHeight);
 
         // rebuild rows
         rebuildInboxRows(invites, contentW);
@@ -967,6 +983,7 @@ export const inboxWidget: WidgetFactory<typeof inboxSchema> = {
         // position list container
         outboxListContainer.x = PADDING_X;
         outboxListContainer.y = outboxAreaY;
+        outboxListContainer.hitArea = new Rectangle(0, 0, contentW, outboxAreaHeight);
 
         // rebuild rows
         rebuildOutboxRows(shares, contentW);

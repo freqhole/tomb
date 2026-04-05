@@ -13,6 +13,14 @@ describe("canvasCardSchema", () => {
       modifiedAt: "",
       authorName: "",
       color: 0xd946ef,
+      isRemote: false,
+      ownerNodeId: "",
+      ownerUsername: "",
+      role: "owner",
+      accessRevoked: false,
+      lastVisitedAt: "",
+      hasUpdates: false,
+      lastKnownModifiedAt: "",
     });
   });
 
@@ -52,6 +60,15 @@ describe("canvasCardSchema", () => {
 
   it("rejects non-number color", () => {
     expect(() => canvasCardSchema.parse({ color: "red" })).toThrow();
+  });
+
+  it("accepts hasUpdates and lastKnownModifiedAt fields", () => {
+    const result = canvasCardSchema.parse({
+      hasUpdates: true,
+      lastKnownModifiedAt: "2025-01-15T12:00:00Z",
+    });
+    expect(result.hasUpdates).toBe(true);
+    expect(result.lastKnownModifiedAt).toBe("2025-01-15T12:00:00Z");
   });
 });
 
@@ -109,6 +126,68 @@ describe("canvasCardSchema props seeding", () => {
     expect(fromNull.canvasDocId).toBe("");
     expect(fromNull.title).toBe("untitled canvas");
     expect(fromNull.color).toBe(0xd946ef);
+  });
+});
+
+describe("remote canvas card schema", () => {
+  it("parses remote card with all new fields", () => {
+    const result = canvasCardSchema.parse({
+      canvasDocId: "remote-doc-123",
+      title: "shared canvas",
+      isRemote: true,
+      ownerNodeId: "node-abc123def456",
+      ownerUsername: "alice",
+      role: "editor",
+      accessRevoked: false,
+      lastVisitedAt: "2025-06-01T12:00:00Z",
+    });
+    expect(result.isRemote).toBe(true);
+    expect(result.ownerNodeId).toBe("node-abc123def456");
+    expect(result.ownerUsername).toBe("alice");
+    expect(result.role).toBe("editor");
+    expect(result.accessRevoked).toBe(false);
+    expect(result.lastVisitedAt).toBe("2025-06-01T12:00:00Z");
+  });
+
+  it("defaults for new fields when omitted", () => {
+    const result = canvasCardSchema.parse({ title: "test" });
+    expect(result.isRemote).toBe(false);
+    expect(result.ownerNodeId).toBe("");
+    expect(result.ownerUsername).toBe("");
+    expect(result.role).toBe("owner");
+    expect(result.accessRevoked).toBe(false);
+    expect(result.lastVisitedAt).toBe("");
+  });
+
+  it("rejects invalid role values", () => {
+    expect(() => canvasCardSchema.parse({ role: "admin" })).toThrow();
+    expect(() => canvasCardSchema.parse({ role: 42 })).toThrow();
+  });
+
+  it("backwards compatibility — old-style object gets correct defaults", () => {
+    const oldStyleProps = {
+      canvasDocId: "doc-old-123",
+      title: "legacy canvas",
+      description: "created before P2P",
+      previewUrl: "",
+      createdAt: "2024-01-01",
+      modifiedAt: "2024-06-15",
+      authorName: "bob",
+      color: 0x06b6d4,
+    };
+    const result = canvasCardSchema.parse(oldStyleProps);
+    // old fields preserved
+    expect(result.canvasDocId).toBe("doc-old-123");
+    expect(result.title).toBe("legacy canvas");
+    expect(result.authorName).toBe("bob");
+    expect(result.color).toBe(0x06b6d4);
+    // new fields get defaults
+    expect(result.isRemote).toBe(false);
+    expect(result.ownerNodeId).toBe("");
+    expect(result.ownerUsername).toBe("");
+    expect(result.role).toBe("owner");
+    expect(result.accessRevoked).toBe(false);
+    expect(result.lastVisitedAt).toBe("");
   });
 });
 

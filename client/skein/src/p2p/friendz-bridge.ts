@@ -47,6 +47,7 @@ export function destroyBridge(): void {
   protocol = null;
   bridgeReadyListeners = [];
   outboundRequestHook = null;
+  acceptAndJoinHandler = null;
 }
 
 // ---------------------------------------------------------------------------
@@ -289,4 +290,37 @@ export function setFriendRequestsFrom(from: "everyone" | "nobody"): void {
  */
 export function setCanvasInvitesFrom(from: "everyone" | "friends" | "nobody"): void {
   protocol?.setCanvasInvitesFrom(from);
+}
+
+// ---------------------------------------------------------------------------
+// canvas accept-and-join action (wired by boot.ts)
+// ---------------------------------------------------------------------------
+
+let acceptAndJoinHandler:
+  | ((detail: {
+      canvasDocId: string;
+      fromNodeId: string;
+      canvasTitle: string;
+      canvasDescription: string;
+      canvasColor: number;
+      canvasPreviewUrl: string;
+      fromUsername: string;
+    }) => Promise<void>)
+  | null = null;
+
+export function setAcceptAndJoinHandler(handler: typeof acceptAndJoinHandler): void {
+  acceptAndJoinHandler = handler;
+}
+
+export async function acceptAndJoinCanvas(detail: {
+  canvasDocId: string;
+  fromNodeId: string;
+  canvasTitle: string;
+  canvasDescription: string;
+  canvasColor: number;
+  canvasPreviewUrl: string;
+  fromUsername: string;
+}): Promise<void> {
+  if (!acceptAndJoinHandler) throw new Error("accept-and-join handler not registered");
+  return acceptAndJoinHandler(detail);
 }

@@ -58,11 +58,19 @@ export interface FriendRejectMessage {
   fromNodeId: string;
 }
 
+/** lightweight activity summary for a shared canvas, piggybacked on heartbeat. */
+export interface CanvasActivityEntry {
+  canvasDocId: string;
+  lastModifiedAt: string; // ISO timestamp of most recent change
+  widgetCount: number; // cheap proxy for "how much stuff is there"
+}
+
 /** periodic presence ping. */
 export interface HeartbeatMessage {
   type: "heartbeat";
   nodeId: string;
   username: string;
+  canvasActivity?: CanvasActivityEntry[];
 }
 
 /** acknowledge a friend-accept (two-phase handshake). */
@@ -227,6 +235,9 @@ export interface FriendzProtocolOptions {
 
   /** privacy: who can send us canvas invites ("everyone" | "friends" | "nobody"). */
   canvasInvitesFrom?: "everyone" | "friends" | "nobody";
+
+  /** callback that returns canvas activity entries to piggyback on heartbeats. */
+  getCanvasActivity?: () => CanvasActivityEntry[];
 }
 
 /**
@@ -252,6 +263,7 @@ export class FriendzProtocol {
   private profileVisibility: "friends" | "everyone" | "nobody";
   private friendRequestsFrom: "everyone" | "nobody";
   private canvasInvitesFrom: "everyone" | "friends" | "nobody";
+  private getCanvasActivity: (() => CanvasActivityEntry[]) | null;
 
   /** active BiStreams to peers, keyed by node ID. */
   private streams = new Map<string, BiStreamLike>();
@@ -305,6 +317,9 @@ export class FriendzProtocol {
   /** called when an ACL change notification is received. */
   onAclChange: OnAclChange | null = null;
 
+  /** called when canvas activity entries arrive in a heartbeat. */
+  onCanvasActivity: ((entries: CanvasActivityEntry[], fromNodeId: string) => void) | null = null;
+
   constructor(options: FriendzProtocolOptions) {
     this.getMidden = options.getMidden;
     this.localNodeId = options.localNodeId;
@@ -314,6 +329,7 @@ export class FriendzProtocol {
     this.profileVisibility = options.profileVisibility ?? "friends";
     this.friendRequestsFrom = options.friendRequestsFrom ?? "everyone";
     this.canvasInvitesFrom = options.canvasInvitesFrom ?? "everyone";
+    this.getCanvasActivity = options.getCanvasActivity ?? null;
   }
 
   // --- incoming stream handling (called by the ALPN router) ---
@@ -395,6 +411,9 @@ export class FriendzProtocol {
         this.lastSeen.set(fromNodeId, Date.now());
         this.emitOnlineChange();
         this.onHeartbeat?.(msg, fromNodeId);
+        if (msg.canvasActivity && msg.canvasActivity.length > 0) {
+          this.onCanvasActivity?.(msg.canvasActivity, fromNodeId);
+        }
         break;
 
       case "friend-accept-ack":
@@ -583,10 +602,12 @@ export class FriendzProtocol {
     this.stopHeartbeat();
 
     const sendHeartbeats = async () => {
+      const activity = this.getCanvasActivity?.() ?? [];
       const msg: HeartbeatMessage = {
         type: "heartbeat",
         nodeId: this.localNodeId,
         username: this.localUsername,
+        canvasActivity: activity.length > 0 ? activity : undefined,
       };
 
       for (const peerId of getFriendNodeIds()) {
@@ -610,10 +631,12 @@ export class FriendzProtocol {
       this.streams.delete(peerNodeId);
     }
 
+    const activity = this.getCanvasActivity?.() ?? [];
     const msg: HeartbeatMessage = {
       type: "heartbeat",
       nodeId: this.localNodeId,
       username: this.localUsername,
+      canvasActivity: activity.length > 0 ? activity : undefined,
     };
     await this.sendMessage(peerNodeId, msg);
   }
@@ -711,6 +734,11 @@ export class FriendzProtocol {
     }
   }
 
+  /** get the current local username. */
+  getLocalUsername(): string {
+    return this.localUsername;
+  }
+
   /** update the local username (e.g. when profile changes). */
   setLocalUsername(username: string): void {
     this.localUsername = username;
@@ -761,5 +789,6 @@ export class FriendzProtocol {
     this.onCanvasInviteAccept = null;
     this.onCanvasInviteDecline = null;
     this.onAclChange = null;
+    this.onCanvasActivity = null;
   }
 }
