@@ -5,19 +5,20 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { FriendzProtocol } from "./friends-protocol";
 import {
-    acceptFriendRequest,
-    destroyBridge,
-    getOnlinePeers,
-    initBridge,
-    isOnline,
-    isProtocolReady,
-    onBridgeReady,
-    onOnlineChange,
-    rejectFriendRequest,
-    requestProfile,
-    sendFriendRequest,
-    setFriendRequestsFrom,
-    setProfileVisibility,
+  acceptFriendRequest,
+  destroyBridge,
+  getOnlinePeers,
+  initBridge,
+  isOnline,
+  isProtocolReady,
+  onBridgeReady,
+  onOnlineChange,
+  rejectFriendRequest,
+  requestProfile,
+  sendFriendRequest,
+  setFriendRequestsFrom,
+  setOutboundRequestHook,
+  setProfileVisibility,
 } from "./friendz-bridge";
 
 // ---------------------------------------------------------------------------
@@ -128,27 +129,19 @@ describe("friendz-bridge", () => {
 
   describe("actions throw when not ready", () => {
     it("sendFriendRequest() throws", async () => {
-      await expect(sendFriendRequest("peer-1")).rejects.toThrow(
-        "friendz bridge not initialized",
-      );
+      await expect(sendFriendRequest("peer-1")).rejects.toThrow("friendz bridge not initialized");
     });
 
     it("acceptFriendRequest() throws", async () => {
-      await expect(acceptFriendRequest("peer-1")).rejects.toThrow(
-        "friendz bridge not initialized",
-      );
+      await expect(acceptFriendRequest("peer-1")).rejects.toThrow("friendz bridge not initialized");
     });
 
     it("rejectFriendRequest() throws", async () => {
-      await expect(rejectFriendRequest("peer-1")).rejects.toThrow(
-        "friendz bridge not initialized",
-      );
+      await expect(rejectFriendRequest("peer-1")).rejects.toThrow("friendz bridge not initialized");
     });
 
     it("requestProfile() throws", async () => {
-      await expect(requestProfile("peer-1")).rejects.toThrow(
-        "friendz bridge not initialized",
-      );
+      await expect(requestProfile("peer-1")).rejects.toThrow("friendz bridge not initialized");
     });
   });
 
@@ -297,6 +290,88 @@ describe("friendz-bridge", () => {
 
       setFriendRequestsFrom("everyone");
       expect(mock.setFriendRequestsFrom).toHaveBeenCalledWith("everyone");
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // 11. outbound request hook
+  // -------------------------------------------------------------------------
+
+  describe("outbound request hook", () => {
+    it("fires the hook after sendFriendRequest succeeds", async () => {
+      const mock = createMockProtocol();
+      initBridge(asFriendzProtocol(mock));
+
+      const hook = vi.fn();
+      setOutboundRequestHook(hook);
+
+      await sendFriendRequest("peer-42");
+      expect(hook).toHaveBeenCalledWith("peer-42");
+      expect(mock.sendFriendRequest).toHaveBeenCalledWith("peer-42");
+    });
+
+    it("does not fire the hook if protocol.sendFriendRequest rejects", async () => {
+      const mock = createMockProtocol();
+      mock.sendFriendRequest.mockRejectedValue(new Error("connection failed"));
+      initBridge(asFriendzProtocol(mock));
+
+      const hook = vi.fn();
+      setOutboundRequestHook(hook);
+
+      await expect(sendFriendRequest("peer-42")).rejects.toThrow("connection failed");
+      expect(hook).not.toHaveBeenCalled();
+    });
+
+    it("does not fire the hook when none is registered", async () => {
+      const mock = createMockProtocol();
+      initBridge(asFriendzProtocol(mock));
+
+      // no hook set — should not throw
+      await sendFriendRequest("peer-42");
+      expect(mock.sendFriendRequest).toHaveBeenCalledWith("peer-42");
+    });
+
+    it("clears the hook on destroyBridge", async () => {
+      const mock = createMockProtocol();
+      initBridge(asFriendzProtocol(mock));
+
+      const hook = vi.fn();
+      setOutboundRequestHook(hook);
+
+      destroyBridge();
+
+      // re-init without hook
+      const mock2 = createMockProtocol();
+      initBridge(asFriendzProtocol(mock2));
+
+      await sendFriendRequest("peer-99");
+      expect(hook).not.toHaveBeenCalled();
+    });
+
+    it("can replace the hook by calling setOutboundRequestHook again", async () => {
+      const mock = createMockProtocol();
+      initBridge(asFriendzProtocol(mock));
+
+      const hook1 = vi.fn();
+      const hook2 = vi.fn();
+      setOutboundRequestHook(hook1);
+      setOutboundRequestHook(hook2);
+
+      await sendFriendRequest("peer-42");
+      expect(hook1).not.toHaveBeenCalled();
+      expect(hook2).toHaveBeenCalledWith("peer-42");
+    });
+
+    it("can unregister the hook by passing null", async () => {
+      const mock = createMockProtocol();
+      initBridge(asFriendzProtocol(mock));
+
+      const hook = vi.fn();
+      setOutboundRequestHook(hook);
+      setOutboundRequestHook(null);
+
+      await sendFriendRequest("peer-42");
+      expect(hook).not.toHaveBeenCalled();
     });
   });
 });

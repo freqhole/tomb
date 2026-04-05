@@ -25,6 +25,8 @@ export interface ShareDialogOptions {
   peers?: Array<{ nodeId: string; joinedAt: string }>;
   /** called when user clicks "remove" on a peer */
   onRemovePeer?: (nodeId: string) => void;
+  /** called when user clicks "add friend" on a peer — sends a friend request */
+  onAddFriend?: (nodeId: string) => void | Promise<void>;
   onClose?: () => void;
 }
 
@@ -148,7 +150,8 @@ function buildPeerRow(
   scrollBoxWidth: number,
   copyBtnH: number,
   isRemoved: () => boolean,
-  onRemovePeer?: (nodeId: string) => void
+  onRemovePeer?: (nodeId: string) => void,
+  onAddFriend?: (nodeId: string) => void | Promise<void>
 ): Container {
   const row = new Container();
 
@@ -169,7 +172,10 @@ function buildPeerRow(
 
   // copy button — copies full node ID
   const copyBtn = makeCopyButton(theme);
-  copyBtn.btn.x = scrollBoxWidth - copyBtn.width - (onRemovePeer ? 70 : 0) - 8;
+  let rightOffset = 8;
+  if (onRemovePeer) rightOffset += 70;
+  if (onAddFriend) rightOffset += 70;
+  copyBtn.btn.x = scrollBoxWidth - copyBtn.width - rightOffset;
   copyBtn.btn.y = 0;
   row.addChild(copyBtn.btn);
   wireCopy(copyBtn.btn, copyBtn.bg, copyBtn.text, copyBtnH, nodeId, theme, isRemoved);
@@ -207,6 +213,72 @@ function buildPeerRow(
 
     removeBtn.onPress.connect(() => {
       onRemovePeer(nodeId);
+    });
+  }
+
+  // add friend button (if handler provided)
+  if (onAddFriend) {
+    const friendBtnText = new Text({
+      text: "friend",
+      style: {
+        fontFamily: theme.fontFamily,
+        fontSize: theme.fontSizeSmall,
+        fill: 0xa78bfa,
+      },
+      resolution: theme.textResolution,
+    });
+    friendBtnText.eventMode = "none";
+
+    const friendBtnBg = new Graphics();
+    const friendW = friendBtnText.width + 14 * 2;
+    const friendH = friendBtnText.height + 6 * 2;
+    friendBtnBg.roundRect(0, 0, friendW, friendH, 4);
+    friendBtnBg.fill({ color: 0x2e1065 });
+
+    const friendView = new Container();
+    friendView.addChild(friendBtnBg);
+    friendBtnText.x = 14;
+    friendBtnText.y = 6;
+    friendView.addChild(friendBtnText);
+
+    const friendBtn = new ButtonContainer(friendView);
+    friendBtn.cursor = "pointer";
+
+    let friendRightOffset = 8;
+    if (onRemovePeer) friendRightOffset += 70;
+    friendBtn.x = scrollBoxWidth - friendW - friendRightOffset;
+    friendBtn.y = 0;
+    row.addChild(friendBtn);
+
+    friendBtn.onPress.connect(async () => {
+      // show immediate feedback
+      friendBtnText.text = "sending...";
+      friendBtnBg.clear();
+      const sendingW = friendBtnText.width + 14 * 2;
+      friendBtnBg.roundRect(0, 0, sendingW, friendH, 4);
+      friendBtnBg.fill({ color: 0x1e1b4b });
+
+      try {
+        await onAddFriend(nodeId);
+        if (isRemoved()) return;
+        friendBtnText.text = "sent!";
+      } catch {
+        if (isRemoved()) return;
+        friendBtnText.text = "failed";
+      }
+
+      friendBtnBg.clear();
+      const feedbackW = friendBtnText.width + 14 * 2;
+      friendBtnBg.roundRect(0, 0, feedbackW, friendH, 4);
+      friendBtnBg.fill({ color: 0x1e1b4b });
+
+      setTimeout(() => {
+        if (isRemoved()) return;
+        friendBtnText.text = "friend";
+        friendBtnBg.clear();
+        friendBtnBg.roundRect(0, 0, friendW, friendH, 4);
+        friendBtnBg.fill({ color: 0x2e1065 });
+      }, 1500);
     });
   }
 
@@ -363,7 +435,8 @@ export function showShareDialog(options: ShareDialogOptions): ShareDialogHandle 
         scrollBoxWidth,
         copyBtnH,
         isRemoved,
-        options.onRemovePeer
+        options.onRemovePeer,
+        options.onAddFriend
       );
       peerRow.y = peerY;
       peerSection.addChild(peerRow);

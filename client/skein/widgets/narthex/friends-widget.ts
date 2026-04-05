@@ -1,12 +1,14 @@
-import { Container, Graphics, Text } from "pixi.js";
+import { Assets, Container, Graphics, Rectangle, Sprite, Text, Texture } from "pixi.js";
 import { z } from "zod";
 import {
   acceptFriendRequest,
   isOnline as bridgeIsOnline,
+  isProtocolReady as bridgeIsProtocolReady,
   setFriendRequestsFrom as bridgeSetFriendRequestsFrom,
   setProfileVisibility as bridgeSetProfileVisibility,
   onOnlineChange,
   rejectFriendRequest,
+  sendFriendRequest,
 } from "../../src/p2p/friendz-bridge";
 import { createSkeinInput, type SkeinInputHandle } from "../../src/widgets/skein-input";
 import type {
@@ -50,10 +52,18 @@ const pendingFriendRequestSchema = z.object({
   status: z.enum(["pending", "accepted", "rejected"]).default("pending"),
 });
 
+const outboundFriendRequestSchema = z.object({
+  toNodeId: z.string(),
+  toUsername: z.string().default(""),
+  sentAt: z.string().default(""),
+  status: z.enum(["pending", "accepted", "rejected"]).default("pending"),
+});
+
 export const friendsSchema = z.object({
   friends: z.array(friendEntrySchema).default([]),
   groups: z.array(friendGroupSchema).default([]),
   pendingRequests: z.array(pendingFriendRequestSchema).default([]),
+  outboundRequests: z.array(outboundFriendRequestSchema).default([]),
   profileVisibility: z.enum(["friends", "everyone", "nobody"]).default("friends"),
   friendRequestsFrom: z.enum(["everyone", "nobody"]).default("everyone"),
 });
@@ -62,6 +72,7 @@ export type FriendNodeId = z.infer<typeof friendNodeIdSchema>;
 export type FriendEntry = z.infer<typeof friendEntrySchema>;
 export type FriendGroup = z.infer<typeof friendGroupSchema>;
 export type PendingFriendRequest = z.infer<typeof pendingFriendRequestSchema>;
+export type OutboundFriendRequest = z.infer<typeof outboundFriendRequestSchema>;
 export type FriendsState = z.infer<typeof friendsSchema>;
 
 // ---------------------------------------------------------------------------
@@ -99,14 +110,14 @@ const RESOLUTION = 3;
 
 const ROW_HEIGHT = 44;
 const ROW_PADDING_X = 10;
-const ROW_AVATAR_SIZE = 16;
+const ROW_AVATAR_SIZE = 24;
 const ROW_NAME_SIZE = 12;
 const ROW_SUB_SIZE = 10;
 const ROW_ALT_BG = 0x1e1e2a;
-const REMOVE_BTN_SIZE = 16;
 const SCROLL_SPEED = 20;
 
-const ONLINE_DOT_SIZE = 6;
+const ONLINE_DOT_SIZE = 7;
+const ONLINE_DOT_BORDER = 2;
 const ONLINE_COLOR = 0x22c55e;
 const OFFLINE_COLOR = 0x444455;
 const TAB_HEIGHT = 28;
@@ -189,6 +200,7 @@ export function migrateV1ToV2(v1Data: {
     friends,
     groups: [],
     pendingRequests: [],
+    outboundRequests: [],
     profileVisibility: "friends" as const,
     friendRequestsFrom: "everyone" as const,
   };
@@ -246,8 +258,11 @@ export const friendsWidget: WidgetFactory<typeof friendsSchema> = {
     let currentWidth = ctx.width;
     let currentHeight = ctx.height;
 
-    // whether we're in "add friend" mode
-    let viewMode: "list" | "requests" | "settings" | "add" = "list";
+    // current view mode
+    let viewMode: "list" | "requests" | "settings" | "add" | "detail" = "list";
+
+    // selected friend for detail view
+    let selectedFriendId: string | null = null;
 
     // scroll state
     let scrollY = 0;
@@ -443,20 +458,9 @@ export const friendsWidget: WidgetFactory<typeof friendsSchema> = {
         listInner.removeChildAt(0).destroy({ children: true });
       }
 
-      const dotOffset = 10;
       const maxNameChars = Math.max(
         6,
-        Math.floor(
-          (contentW - dotOffset - ROW_AVATAR_SIZE - ROW_PADDING_X * 3 - REMOVE_BTN_SIZE) /
-            (ROW_NAME_SIZE * 0.55)
-        )
-      );
-      const maxSubChars = Math.max(
-        6,
-        Math.floor(
-          (contentW - dotOffset - ROW_AVATAR_SIZE - ROW_PADDING_X * 3 - REMOVE_BTN_SIZE) /
-            (ROW_SUB_SIZE * 0.55)
-        )
+        Math.floor((contentW - ROW_AVATAR_SIZE - ROW_PADDING_X * 4) / (ROW_NAME_SIZE * 0.55))
       );
 
       for (let i = 0; i < friends.length; i++) {
@@ -465,33 +469,29 @@ export const friendsWidget: WidgetFactory<typeof friendsSchema> = {
 
         const rowContainer = new Container();
         rowContainer.eventMode = "static";
+        rowContainer.cursor = "pointer";
+        rowContainer.hitArea = new Rectangle(0, 0, contentW, ROW_HEIGHT);
         rowContainer.y = rowY;
         listInner.addChild(rowContainer);
 
         // alternating row background
         const rowBg = new Graphics();
         rowBg.eventMode = "none";
+        rowBg.rect(0, 0, contentW, ROW_HEIGHT);
         if (i % 2 === 1) {
-          rowBg.rect(0, 0, contentW, ROW_HEIGHT);
           rowBg.fill({ color: ROW_ALT_BG, alpha: 0.5 });
+        } else {
+          rowBg.fill({ color: BG, alpha: 0.01 });
         }
         rowContainer.addChild(rowBg);
-
-        // online/offline dot
-        const isAnyNodeOnline = friend.nodeIds.some((n) => bridgeIsOnline(n.nodeId));
-        const dotColor = isAnyNodeOnline ? ONLINE_COLOR : OFFLINE_COLOR;
-
-        const onlineDot = new Graphics();
-        onlineDot.eventMode = "none";
-        onlineDot.circle(ROW_PADDING_X / 2 + 2, ROW_HEIGHT / 2, ONLINE_DOT_SIZE / 2);
-        onlineDot.fill({ color: dotColor });
-        rowContainer.addChild(onlineDot);
 
         // avatar circle with initial letter
         const displayName = friendDisplayName(friend);
         const avatarColor = colorForName(displayName, i);
-        const avatarX = ROW_PADDING_X + dotOffset + ROW_AVATAR_SIZE / 2;
+        const avatarX = ROW_PADDING_X + ROW_AVATAR_SIZE / 2;
         const avatarY = ROW_HEIGHT / 2;
+
+        const avatarUrl = friend.nodeIds.find((n) => n.avatarDataUrl)?.avatarDataUrl;
 
         const avatar = new Graphics();
         avatar.eventMode = "none";
@@ -504,7 +504,7 @@ export const friendsWidget: WidgetFactory<typeof friendsSchema> = {
           text: initial,
           style: {
             fontFamily: FONT,
-            fontSize: 9,
+            fontSize: 11,
             fontWeight: "bold",
             fill: 0xffffff,
             align: "center",
@@ -517,8 +517,50 @@ export const friendsWidget: WidgetFactory<typeof friendsSchema> = {
         avatarLetter.y = avatarY;
         rowContainer.addChild(avatarLetter);
 
-        // name text
-        const textX = ROW_PADDING_X + dotOffset + ROW_AVATAR_SIZE + ROW_PADDING_X;
+        // async avatar image overlay
+        if (avatarUrl) {
+          const cacheKey = `friend-avatar-${friend.id}`;
+          Assets.load({ src: avatarUrl, alias: cacheKey })
+            .then((texture) => {
+              if (rowContainer.destroyed) return;
+              const avatarSprite = new Sprite(texture);
+              avatarSprite.eventMode = "none";
+              avatarSprite.width = ROW_AVATAR_SIZE;
+              avatarSprite.height = ROW_AVATAR_SIZE;
+              avatarSprite.x = avatarX - ROW_AVATAR_SIZE / 2;
+              avatarSprite.y = avatarY - ROW_AVATAR_SIZE / 2;
+
+              const spriteMask = new Graphics();
+              spriteMask.circle(avatarX, avatarY, ROW_AVATAR_SIZE / 2);
+              spriteMask.fill({ color: 0xffffff });
+              rowContainer.addChild(spriteMask);
+              avatarSprite.mask = spriteMask;
+              rowContainer.addChild(avatarSprite);
+
+              avatar.visible = false;
+              avatarLetter.visible = false;
+            })
+            .catch(() => {});
+        }
+
+        // online/offline dot — overlaid on avatar bottom-right with border ring
+        const isAnyNodeOnline = friend.nodeIds.some((n) => bridgeIsOnline(n.nodeId));
+        const dotColor = isAnyNodeOnline ? ONLINE_COLOR : OFFLINE_COLOR;
+        const dotCx = avatarX + ROW_AVATAR_SIZE / 2 - ONLINE_DOT_SIZE / 2 + 1;
+        const dotCy = avatarY + ROW_AVATAR_SIZE / 2 - ONLINE_DOT_SIZE / 2 + 1;
+
+        const onlineDot = new Graphics();
+        onlineDot.eventMode = "none";
+        // border ring (matches card background)
+        onlineDot.circle(dotCx, dotCy, ONLINE_DOT_SIZE / 2 + ONLINE_DOT_BORDER);
+        onlineDot.fill({ color: BG });
+        // inner dot
+        onlineDot.circle(dotCx, dotCy, ONLINE_DOT_SIZE / 2);
+        onlineDot.fill({ color: dotColor });
+        rowContainer.addChild(onlineDot);
+
+        // name text — vertically centered
+        const textX = ROW_PADDING_X + ROW_AVATAR_SIZE + ROW_PADDING_X;
         const nameText = new Text({
           text: truncate(displayName || "unnamed", maxNameChars),
           style: {
@@ -531,79 +573,441 @@ export const friendsWidget: WidgetFactory<typeof friendsSchema> = {
         });
         nameText.eventMode = "none";
         nameText.x = textX;
-        nameText.y = 6;
+        nameText.y = (ROW_HEIGHT - ROW_NAME_SIZE) / 2;
         rowContainer.addChild(nameText);
 
-        // subtitle: group or first nodeId
-        const firstNodeId = friend.nodeIds[0]?.nodeId ?? "";
-        const subtitle = friend.group || firstNodeId;
-        if (subtitle) {
-          const subText = new Text({
-            text: truncate(subtitle, maxSubChars),
-            style: {
-              fontFamily: FONT,
-              fontSize: ROW_SUB_SIZE,
-              fill: MUTED_TEXT,
-            },
-            resolution: RESOLUTION,
-          });
-          subText.eventMode = "none";
-          subText.x = textX;
-          subText.y = 24;
-          rowContainer.addChild(subText);
+        // chevron hint on the right
+        const chevron = new Text({
+          text: "\u203a",
+          style: { fontFamily: FONT, fontSize: 16, fill: MUTED_TEXT },
+          resolution: RESOLUTION,
+        });
+        chevron.eventMode = "none";
+        chevron.x = contentW - ROW_PADDING_X - chevron.width;
+        chevron.y = (ROW_HEIGHT - 16) / 2;
+        rowContainer.addChild(chevron);
+
+        // click row → open detail view
+        const friendId = friend.id;
+        rowContainer.on("pointertap", (e) => {
+          e.stopPropagation();
+          selectedFriendId = friendId;
+          viewMode = "detail";
+          scrollY = 0;
+          layout(currentWidth, currentHeight);
+        });
+
+        // hover effect
+        rowContainer.on("pointerover", () => {
+          rowBg.clear();
+          rowBg.rect(0, 0, contentW, ROW_HEIGHT);
+          rowBg.fill({ color: 0x252536, alpha: 0.8 });
+        });
+        rowContainer.on("pointerout", () => {
+          rowBg.clear();
+          rowBg.rect(0, 0, contentW, ROW_HEIGHT);
+          if (i % 2 === 1) {
+            rowBg.fill({ color: ROW_ALT_BG, alpha: 0.5 });
+          } else {
+            rowBg.fill({ color: BG, alpha: 0.01 });
+          }
+        });
+      }
+
+      totalListHeight = friends.length * ROW_HEIGHT;
+    };
+
+    // ---------------------------------------------------------------------------
+    // detail view — friend profile card
+    // ---------------------------------------------------------------------------
+
+    const DETAIL_AVATAR_SIZE = 48;
+    const DETAIL_NAME_SIZE = 16;
+    const DETAIL_BIO_SIZE = 11;
+    const DETAIL_NODEID_SIZE = 10;
+    const DETAIL_BTN_HEIGHT = 32;
+    const DETAIL_BTN_RADIUS = 4;
+    const COPY_FEEDBACK_MS = 1500;
+
+    const detailContainer = new Container();
+    detailContainer.eventMode = "static";
+    detailContainer.visible = false;
+    container.addChild(detailContainer);
+
+    const rebuildDetailView = (friend: FriendEntry, contentW: number, areaHeight: number) => {
+      while (detailContainer.children.length > 0) {
+        detailContainer.removeChildAt(0).destroy({ children: true });
+      }
+
+      let dy = 0;
+
+      // back button
+      const backBtn = new Container();
+      backBtn.eventMode = "static";
+      backBtn.cursor = "pointer";
+      const backText = new Text({
+        text: "\u2039 friends",
+        style: { fontFamily: FONT, fontSize: TAB_FONT_SIZE, fill: ACCENT },
+        resolution: RESOLUTION,
+      });
+      backText.eventMode = "none";
+      backBtn.addChild(backText);
+      backBtn.hitArea = new Rectangle(0, 0, backText.width + 8, backText.height + 4);
+      backBtn.on("pointertap", (e) => {
+        e.stopPropagation();
+        selectedFriendId = null;
+        viewMode = "list";
+        scrollY = 0;
+        layout(currentWidth, currentHeight);
+      });
+      detailContainer.addChild(backBtn);
+      dy += backText.height + 12;
+
+      // avatar — large centered circle
+      const displayName = friendDisplayName(friend);
+      const avatarColor = colorForName(displayName, 0);
+      const avatarCx = contentW / 2;
+      const avatarCy = dy + DETAIL_AVATAR_SIZE / 2;
+
+      const avatarUrl = friend.nodeIds.find((n) => n.avatarDataUrl)?.avatarDataUrl;
+
+      const avatarCircle = new Graphics();
+      avatarCircle.eventMode = "none";
+      avatarCircle.circle(avatarCx, avatarCy, DETAIL_AVATAR_SIZE / 2);
+      avatarCircle.fill({ color: avatarColor });
+      detailContainer.addChild(avatarCircle);
+
+      const initial = displayName.charAt(0).toUpperCase() || "?";
+      const avatarInitial = new Text({
+        text: initial,
+        style: {
+          fontFamily: FONT,
+          fontSize: 20,
+          fontWeight: "bold",
+          fill: 0xffffff,
+          align: "center",
+        },
+        resolution: RESOLUTION,
+      });
+      avatarInitial.eventMode = "none";
+      avatarInitial.anchor.set(0.5);
+      avatarInitial.x = avatarCx;
+      avatarInitial.y = avatarCy;
+      detailContainer.addChild(avatarInitial);
+
+      if (avatarUrl) {
+        // helper to overlay the avatar sprite once we have a texture
+        const applyAvatarTexture = (texture: Texture) => {
+          if (avatarCircle.destroyed) return;
+          const avatarSprite = new Sprite(texture);
+          avatarSprite.eventMode = "none";
+          avatarSprite.width = DETAIL_AVATAR_SIZE;
+          avatarSprite.height = DETAIL_AVATAR_SIZE;
+          avatarSprite.x = avatarCx - DETAIL_AVATAR_SIZE / 2;
+          avatarSprite.y = avatarCy - DETAIL_AVATAR_SIZE / 2;
+
+          const spriteMask = new Graphics();
+          spriteMask.circle(avatarCx, avatarCy, DETAIL_AVATAR_SIZE / 2);
+          spriteMask.fill({ color: 0xffffff });
+          detailContainer.addChild(spriteMask);
+          avatarSprite.mask = spriteMask;
+          detailContainer.addChild(avatarSprite);
+
+          avatarCircle.visible = false;
+          avatarInitial.visible = false;
+        };
+
+        // try synchronous cache first (list view may have loaded it already)
+        const cacheKey = `friend-avatar-${friend.id}`;
+        const cached = Assets.get<Texture>(cacheKey);
+        if (cached) {
+          applyAvatarTexture(cached);
+        } else {
+          // fallback: load via an Image element (data URLs resolve ~instantly)
+          const img = new Image();
+          img.onload = () => {
+            try {
+              const texture = Texture.from({ resource: img, label: cacheKey });
+              applyAvatarTexture(texture);
+            } catch {
+              // texture creation failed — keep the fallback circle
+            }
+          };
+          img.src = avatarUrl;
         }
+      }
 
-        // remove button
-        const removeBtn = new Container();
-        removeBtn.eventMode = "static";
-        removeBtn.cursor = "pointer";
-        removeBtn.x = contentW - REMOVE_BTN_SIZE - ROW_PADDING_X;
-        removeBtn.y = (ROW_HEIGHT - REMOVE_BTN_SIZE) / 2;
+      dy += DETAIL_AVATAR_SIZE + 10;
 
-        const removeBg = new Graphics();
-        removeBg.eventMode = "none";
-        removeBg.roundRect(0, 0, REMOVE_BTN_SIZE, REMOVE_BTN_SIZE, 3);
-        removeBg.fill({ color: BG, alpha: 0 });
-        removeBtn.addChild(removeBg);
+      // online status dot + text
+      const isOnline = friend.nodeIds.some((n) => bridgeIsOnline(n.nodeId));
+      const statusDot = new Graphics();
+      statusDot.eventMode = "none";
+      const statusColor = isOnline ? ONLINE_COLOR : OFFLINE_COLOR;
+      const statusLabel = isOnline ? "online" : "offline";
+      const statusText = new Text({
+        text: statusLabel,
+        style: { fontFamily: FONT, fontSize: ROW_SUB_SIZE, fill: MUTED_TEXT },
+        resolution: RESOLUTION,
+      });
+      statusText.eventMode = "none";
+      const statusTotalW = ONLINE_DOT_SIZE + 4 + statusText.width;
+      const statusStartX = (contentW - statusTotalW) / 2;
+      statusDot.circle(
+        statusStartX + ONLINE_DOT_SIZE / 2,
+        dy + statusText.height / 2,
+        ONLINE_DOT_SIZE / 2
+      );
+      statusDot.fill({ color: statusColor });
+      detailContainer.addChild(statusDot);
+      statusText.x = statusStartX + ONLINE_DOT_SIZE + 4;
+      statusText.y = dy;
+      detailContainer.addChild(statusText);
+      dy += statusText.height + 8;
 
-        const removeX = new Text({
-          text: "\u00d7",
+      // display name — centered
+      const nameText = new Text({
+        text: friendDisplayNameFull(friend),
+        style: {
+          fontFamily: FONT,
+          fontSize: DETAIL_NAME_SIZE,
+          fontWeight: "bold",
+          fill: TEXT_COLOR,
+        },
+        resolution: RESOLUTION,
+      });
+      nameText.eventMode = "none";
+      nameText.x = Math.max(0, (contentW - nameText.width) / 2);
+      nameText.y = dy;
+      detailContainer.addChild(nameText);
+      dy += DETAIL_NAME_SIZE + 6;
+
+      // bio (if any nodeId has one)
+      const bio = friend.nodeIds.find((n) => n.bio)?.bio;
+      if (bio) {
+        const bioText = new Text({
+          text: truncate(bio, 80),
           style: {
             fontFamily: FONT,
-            fontSize: 14,
+            fontSize: DETAIL_BIO_SIZE,
             fill: MUTED_TEXT,
+            wordWrap: true,
+            wordWrapWidth: contentW,
           },
           resolution: RESOLUTION,
         });
-        removeX.eventMode = "none";
-        removeX.x = (REMOVE_BTN_SIZE - removeX.width) / 2;
-        removeX.y = (REMOVE_BTN_SIZE - 14) / 2 - 1;
-        removeBtn.addChild(removeX);
+        bioText.eventMode = "none";
+        bioText.x = Math.max(0, (contentW - bioText.width) / 2);
+        bioText.y = dy;
+        detailContainer.addChild(bioText);
+        dy += bioText.height + 10;
+      } else {
+        dy += 4;
+      }
 
-        // capture friend id for the closure
-        const friendId = friend.id;
-        removeBtn.on("pointertap", (e) => {
+      // separator
+      const sep = new Graphics();
+      sep.moveTo(0, dy);
+      sep.lineTo(contentW, dy);
+      sep.stroke({ color: BORDER, width: 1, alpha: 0.5 });
+      detailContainer.addChild(sep);
+      dy += 10;
+
+      // node IDs section
+      for (const nodeEntry of friend.nodeIds) {
+        if (!nodeEntry.nodeId) continue;
+
+        const nodeIdLabel = new Text({
+          text: "node id",
+          style: { fontFamily: FONT, fontSize: LABEL_SIZE, fill: LABEL_COLOR },
+          resolution: RESOLUTION,
+        });
+        nodeIdLabel.eventMode = "none";
+        nodeIdLabel.x = 0;
+        nodeIdLabel.y = dy;
+        detailContainer.addChild(nodeIdLabel);
+        dy += LABEL_SIZE + 4;
+
+        // abbreviated node ID + copy button in a row
+        const nodeIdRow = new Container();
+        nodeIdRow.eventMode = "static";
+        nodeIdRow.y = dy;
+        detailContainer.addChild(nodeIdRow);
+
+        const abbreviated = nodeEntry.nodeId.slice(0, 8) + "\u2026" + nodeEntry.nodeId.slice(-8);
+        const nodeIdText = new Text({
+          text: abbreviated,
+          style: {
+            fontFamily: FONT,
+            fontSize: DETAIL_NODEID_SIZE,
+            fill: TEXT_COLOR,
+          },
+          resolution: RESOLUTION,
+        });
+        nodeIdText.eventMode = "none";
+        nodeIdText.y = 2;
+        nodeIdRow.addChild(nodeIdText);
+
+        // copy button
+        const copyBtn = new Container();
+        copyBtn.eventMode = "static";
+        copyBtn.cursor = "pointer";
+        copyBtn.x = nodeIdText.width + 8;
+        // hitArea set after measuring below
+
+        const copyBtnBg = new Graphics();
+        copyBtnBg.eventMode = "none";
+        const copyLabel = new Text({
+          text: "copy",
+          style: { fontFamily: FONT, fontSize: 9, fill: ACCENT },
+          resolution: RESOLUTION,
+        });
+        copyLabel.eventMode = "none";
+        const copyPadX = 8;
+        const copyPadY = 3;
+        const copyW = copyLabel.width + copyPadX * 2;
+        const copyH = copyLabel.height + copyPadY * 2;
+        copyBtnBg.roundRect(0, 0, copyW, copyH, 3);
+        copyBtnBg.fill({ color: FIELD_BG });
+        copyBtnBg.stroke({ color: FIELD_BORDER, width: 1 });
+        copyBtn.addChild(copyBtnBg);
+        copyLabel.x = copyPadX;
+        copyLabel.y = copyPadY;
+        copyBtn.addChild(copyLabel);
+        copyBtn.hitArea = new Rectangle(0, 0, copyW, copyH);
+
+        const fullNodeId = nodeEntry.nodeId;
+        copyBtn.on("pointertap", (e) => {
           e.stopPropagation();
+          navigator.clipboard.writeText(fullNodeId).then(
+            () => {
+              copyLabel.text = "copied!";
+              setTimeout(() => {
+                if (detailContainer.destroyed) return;
+                copyLabel.text = "copy";
+              }, COPY_FEEDBACK_MS);
+            },
+            () => {}
+          );
+        });
+
+        nodeIdRow.addChild(copyBtn);
+        dy += copyH + 8;
+      }
+
+      // group (if any)
+      if (friend.group) {
+        const groupLabel = new Text({
+          text: "group",
+          style: { fontFamily: FONT, fontSize: LABEL_SIZE, fill: LABEL_COLOR },
+          resolution: RESOLUTION,
+        });
+        groupLabel.eventMode = "none";
+        groupLabel.y = dy;
+        detailContainer.addChild(groupLabel);
+        dy += LABEL_SIZE + 4;
+
+        const groupText = new Text({
+          text: friend.group,
+          style: { fontFamily: FONT, fontSize: DETAIL_NODEID_SIZE, fill: TEXT_COLOR },
+          resolution: RESOLUTION,
+        });
+        groupText.eventMode = "none";
+        groupText.y = dy;
+        detailContainer.addChild(groupText);
+        dy += groupText.height + 8;
+      }
+
+      // added date
+      if (friend.createdAt) {
+        const addedLabel = new Text({
+          text: "added",
+          style: { fontFamily: FONT, fontSize: LABEL_SIZE, fill: LABEL_COLOR },
+          resolution: RESOLUTION,
+        });
+        addedLabel.eventMode = "none";
+        addedLabel.y = dy;
+        detailContainer.addChild(addedLabel);
+        dy += LABEL_SIZE + 4;
+
+        const addedText = new Text({
+          text: new Date(friend.createdAt).toLocaleDateString(),
+          style: { fontFamily: FONT, fontSize: DETAIL_NODEID_SIZE, fill: TEXT_COLOR },
+          resolution: RESOLUTION,
+        });
+        addedText.eventMode = "none";
+        addedText.y = dy;
+        detailContainer.addChild(addedText);
+        dy += addedText.height + 10;
+      }
+
+      // delete button — anchored to bottom
+      const deleteBtnY = areaHeight - DETAIL_BTN_HEIGHT;
+      const deleteBtn = new Container();
+      deleteBtn.eventMode = "static";
+      deleteBtn.cursor = "pointer";
+      deleteBtn.hitArea = new Rectangle(0, 0, contentW, DETAIL_BTN_HEIGHT);
+      deleteBtn.y = deleteBtnY;
+      detailContainer.addChild(deleteBtn);
+
+      const deleteBg = new Graphics();
+      deleteBg.eventMode = "none";
+      deleteBg.roundRect(0, 0, contentW, DETAIL_BTN_HEIGHT, DETAIL_BTN_RADIUS);
+      deleteBg.fill({ color: FIELD_BG });
+      deleteBg.stroke({ color: 0x7f1d1d, width: 1 });
+      deleteBtn.addChild(deleteBg);
+
+      const deleteText = new Text({
+        text: "remove friend",
+        style: { fontFamily: FONT, fontSize: TEXT_SIZE, fill: REJECT_COLOR },
+        resolution: RESOLUTION,
+      });
+      deleteText.eventMode = "none";
+      deleteText.x = (contentW - deleteText.width) / 2;
+      deleteText.y = (DETAIL_BTN_HEIGHT - TEXT_SIZE) / 2;
+      deleteBtn.addChild(deleteText);
+
+      let deleteConfirmPending = false;
+      let deleteConfirmTimer: ReturnType<typeof setTimeout> | null = null;
+      const friendId = friend.id;
+
+      deleteBtn.on("pointertap", (e) => {
+        e.stopPropagation();
+        if (!deleteConfirmPending) {
+          // first click — switch to confirm state
+          deleteConfirmPending = true;
+          deleteText.text = "confirm remove?";
+          deleteText.style.fill = 0xffffff;
+          deleteText.x = (contentW - deleteText.width) / 2;
+          deleteBg.clear();
+          deleteBg.roundRect(0, 0, contentW, DETAIL_BTN_HEIGHT, DETAIL_BTN_RADIUS);
+          deleteBg.fill({ color: REJECT_COLOR });
+          // auto-reset after 3 seconds
+          deleteConfirmTimer = setTimeout(() => {
+            deleteConfirmPending = false;
+            deleteText.text = "remove friend";
+            deleteText.style.fill = REJECT_COLOR;
+            deleteText.x = (contentW - deleteText.width) / 2;
+            deleteBg.clear();
+            deleteBg.roundRect(0, 0, contentW, DETAIL_BTN_HEIGHT, DETAIL_BTN_RADIUS);
+            deleteBg.fill({ color: FIELD_BG });
+            deleteBg.stroke({ color: 0x7f1d1d, width: 1 });
+            deleteConfirmTimer = null;
+          }, 3000);
+        } else {
+          // second click — actually remove
+          if (deleteConfirmTimer) clearTimeout(deleteConfirmTimer);
+          selectedFriendId = null;
+          viewMode = "list";
+          scrollY = 0;
           ctx.doc.change((draft) => {
             const idx = draft.friends.findIndex((f: FriendEntry) => f.id === friendId);
             if (idx !== -1) {
               draft.friends.splice(idx, 1);
             }
           });
-        });
-
-        // hover effect on remove button
-        removeBtn.on("pointerover", () => {
-          removeX.style.fill = 0xef4444;
-        });
-        removeBtn.on("pointerout", () => {
-          removeX.style.fill = MUTED_TEXT;
-        });
-
-        rowContainer.addChild(removeBtn);
-      }
-
-      totalListHeight = friends.length * ROW_HEIGHT;
+        }
+      });
     };
 
     // ---------------------------------------------------------------------------
@@ -750,6 +1154,7 @@ export const friendsWidget: WidgetFactory<typeof friendsSchema> = {
         const acceptBtn = new Container();
         acceptBtn.eventMode = "static";
         acceptBtn.cursor = "pointer";
+        acceptBtn.hitArea = new Rectangle(0, 0, ACTION_BTN_SIZE, ACTION_BTN_SIZE);
         acceptBtn.x = contentW - ACTION_BTN_SIZE * 2 - ROW_PADDING_X - 4;
         acceptBtn.y = (REQUEST_ROW_HEIGHT - ACTION_BTN_SIZE) / 2;
 
@@ -811,6 +1216,7 @@ export const friendsWidget: WidgetFactory<typeof friendsSchema> = {
         const rejectBtn = new Container();
         rejectBtn.eventMode = "static";
         rejectBtn.cursor = "pointer";
+        rejectBtn.hitArea = new Rectangle(0, 0, ACTION_BTN_SIZE, ACTION_BTN_SIZE);
         rejectBtn.x = contentW - ACTION_BTN_SIZE - ROW_PADDING_X;
         rejectBtn.y = (REQUEST_ROW_HEIGHT - ACTION_BTN_SIZE) / 2;
 
@@ -847,7 +1253,147 @@ export const friendsWidget: WidgetFactory<typeof friendsSchema> = {
         rowContainer.addChild(rejectBtn);
       }
 
-      totalRequestsHeight = pending.length * REQUEST_ROW_HEIGHT;
+      // --- outbound requests section (shown below incoming) ---
+      const outbound = ((ctx.doc.current as any).outboundRequests ?? []) as OutboundFriendRequest[];
+      const pendingOutbound = outbound.filter((r) => r.status === "pending");
+
+      if (pendingOutbound.length > 0) {
+        const sectionY = pending.length * REQUEST_ROW_HEIGHT;
+
+        // "sent requests" label
+        const sentLabel = new Text({
+          text: "sent requests",
+          style: { fontFamily: FONT, fontSize: LABEL_SIZE, fill: MUTED_TEXT },
+          resolution: RESOLUTION,
+        });
+        sentLabel.eventMode = "none";
+        sentLabel.x = ROW_PADDING_X;
+        sentLabel.y = sectionY + 4;
+        requestsInner.addChild(sentLabel);
+
+        const labelHeight = 20;
+
+        for (let i = 0; i < pendingOutbound.length; i++) {
+          const outReq = pendingOutbound[i];
+          const rowY = sectionY + labelHeight + i * REQUEST_ROW_HEIGHT;
+
+          const rowContainer = new Container();
+          rowContainer.eventMode = "static";
+          rowContainer.y = rowY;
+          requestsInner.addChild(rowContainer);
+
+          // alternating row bg
+          const rowBg = new Graphics();
+          rowBg.eventMode = "none";
+          if (i % 2 === 1) {
+            rowBg.rect(0, 0, contentW, REQUEST_ROW_HEIGHT);
+            rowBg.fill({ color: ROW_ALT_BG, alpha: 0.5 });
+          }
+          rowContainer.addChild(rowBg);
+
+          // avatar
+          const displayName = outReq.toUsername || outReq.toNodeId.slice(0, 8);
+          const avatarColor = colorForName(displayName, pending.length + i);
+          const avatarX = ROW_PADDING_X + ROW_AVATAR_SIZE / 2;
+          const avatarY = REQUEST_ROW_HEIGHT / 2;
+
+          const avatar = new Graphics();
+          avatar.eventMode = "none";
+          avatar.circle(avatarX, avatarY, ROW_AVATAR_SIZE / 2);
+          avatar.fill({ color: avatarColor });
+          rowContainer.addChild(avatar);
+
+          const initial = (outReq.toUsername || "?").charAt(0).toUpperCase();
+          const avatarLetter = new Text({
+            text: initial,
+            style: {
+              fontFamily: FONT,
+              fontSize: 9,
+              fontWeight: "bold",
+              fill: 0xffffff,
+              align: "center",
+            },
+            resolution: RESOLUTION,
+          });
+          avatarLetter.eventMode = "none";
+          avatarLetter.anchor.set(0.5);
+          avatarLetter.x = avatarX;
+          avatarLetter.y = avatarY;
+          rowContainer.addChild(avatarLetter);
+
+          // name + status
+          const textX = ROW_PADDING_X + ROW_AVATAR_SIZE + ROW_PADDING_X;
+          const nameText = new Text({
+            text: truncate(outReq.toUsername || truncate(outReq.toNodeId, 19), 20),
+            style: {
+              fontFamily: FONT,
+              fontSize: ROW_NAME_SIZE,
+              fontWeight: "bold",
+              fill: TEXT_COLOR,
+            },
+            resolution: RESOLUTION,
+          });
+          nameText.eventMode = "none";
+          nameText.x = textX;
+          nameText.y = 8;
+          rowContainer.addChild(nameText);
+
+          // status label
+          const statusText = new Text({
+            text: "pending\u2026",
+            style: { fontFamily: FONT, fontSize: ROW_SUB_SIZE, fill: MUTED_TEXT },
+            resolution: RESOLUTION,
+          });
+          statusText.eventMode = "none";
+          statusText.x = textX;
+          statusText.y = 28;
+          rowContainer.addChild(statusText);
+
+          // cancel button (withdraw the request)
+          const cancelBtn = new Container();
+          cancelBtn.eventMode = "static";
+          cancelBtn.cursor = "pointer";
+          cancelBtn.hitArea = new Rectangle(0, 0, ACTION_BTN_SIZE, ACTION_BTN_SIZE);
+          cancelBtn.x = contentW - ACTION_BTN_SIZE - ROW_PADDING_X;
+          cancelBtn.y = (REQUEST_ROW_HEIGHT - ACTION_BTN_SIZE) / 2;
+
+          const cancelBg = new Graphics();
+          cancelBg.eventMode = "none";
+          cancelBg.circle(ACTION_BTN_SIZE / 2, ACTION_BTN_SIZE / 2, ACTION_BTN_SIZE / 2);
+          cancelBg.fill({ color: MUTED_TEXT });
+          cancelBtn.addChild(cancelBg);
+
+          const cancelIcon = new Text({
+            text: "\u00d7",
+            style: { fontFamily: FONT, fontSize: 14, fontWeight: "bold", fill: 0xffffff },
+            resolution: RESOLUTION,
+          });
+          cancelIcon.eventMode = "none";
+          cancelIcon.anchor.set(0.5);
+          cancelIcon.x = ACTION_BTN_SIZE / 2;
+          cancelIcon.y = ACTION_BTN_SIZE / 2;
+          cancelBtn.addChild(cancelIcon);
+
+          const outReqNodeId = outReq.toNodeId;
+          cancelBtn.on("pointertap", (e: any) => {
+            e.stopPropagation();
+            ctx.doc.change((draft: any) => {
+              const idx = draft.outboundRequests.findIndex(
+                (r: any) => r.toNodeId === outReqNodeId && r.status === "pending"
+              );
+              if (idx !== -1) {
+                draft.outboundRequests.splice(idx, 1);
+              }
+            });
+          });
+
+          rowContainer.addChild(cancelBtn);
+        }
+
+        totalRequestsHeight = sectionY + labelHeight + pendingOutbound.length * REQUEST_ROW_HEIGHT;
+      } else {
+        totalRequestsHeight = pending.length * REQUEST_ROW_HEIGHT;
+      }
     };
 
     // ---------------------------------------------------------------------------
@@ -892,6 +1438,7 @@ export const friendsWidget: WidgetFactory<typeof friendsSchema> = {
         const pill = new Container();
         pill.eventMode = "static";
         pill.cursor = "pointer";
+        pill.hitArea = new Rectangle(0, 0, pillW, OPTION_PILL_HEIGHT);
         pill.x = vx;
         pill.y = sy;
 
@@ -954,6 +1501,7 @@ export const friendsWidget: WidgetFactory<typeof friendsSchema> = {
         const pill = new Container();
         pill.eventMode = "static";
         pill.cursor = "pointer";
+        pill.hitArea = new Rectangle(0, 0, pillW, OPTION_PILL_HEIGHT);
         pill.x = rx;
         pill.y = sy;
 
@@ -1057,6 +1605,7 @@ export const friendsWidget: WidgetFactory<typeof friendsSchema> = {
     const addCancelBtn = new Container();
     addCancelBtn.eventMode = "static";
     addCancelBtn.cursor = "pointer";
+    // hitArea set dynamically in layout()
 
     const addCancelBg = new Graphics();
     addCancelBtn.addChild(addCancelBg);
@@ -1084,6 +1633,7 @@ export const friendsWidget: WidgetFactory<typeof friendsSchema> = {
     const addConfirmBtn = new Container();
     addConfirmBtn.eventMode = "static";
     addConfirmBtn.cursor = "pointer";
+    // hitArea set dynamically in layout()
 
     const addConfirmBg = new Graphics();
     addConfirmBtn.addChild(addConfirmBg);
@@ -1121,6 +1671,14 @@ export const friendsWidget: WidgetFactory<typeof friendsSchema> = {
         return;
       }
 
+      // switch view state BEFORE the doc change so that the on("change")
+      // listener's layout() call renders the list view (not the add view)
+      viewMode = "list";
+      addModeContainer.visible = false;
+      nameField.handle.value = "";
+      nodeIdField.handle.value = "";
+      scrollY = Infinity;
+
       ctx.doc.change((draft) => {
         draft.friends.push({
           id: crypto.randomUUID(),
@@ -1143,14 +1701,13 @@ export const friendsWidget: WidgetFactory<typeof friendsSchema> = {
         });
       });
 
-      viewMode = "list";
-      addModeContainer.visible = false;
-      nameField.handle.value = "";
-      nodeIdField.handle.value = "";
-
-      // scroll to bottom to show the new friend
-      // (will be clamped in next layout)
-      scrollY = Infinity;
+      // if a node ID was provided and the protocol is ready, also send
+      // a friend request so the remote peer gets notified
+      if (nodeId && bridgeIsProtocolReady()) {
+        sendFriendRequest(nodeId).catch((err) => {
+          console.warn("[friends] failed to send friend request after add:", err);
+        });
+      }
     });
 
     // ---------------------------------------------------------------------------
@@ -1160,6 +1717,7 @@ export const friendsWidget: WidgetFactory<typeof friendsSchema> = {
     const addBtn = new Container();
     addBtn.eventMode = "static";
     addBtn.cursor = "pointer";
+    // hitArea set dynamically in layout()
 
     const addBtnBg = new Graphics();
     addBtn.addChild(addBtnBg);
@@ -1193,6 +1751,10 @@ export const friendsWidget: WidgetFactory<typeof friendsSchema> = {
       const pendingRequests = (state.pendingRequests ?? []).filter(
         (r: PendingFriendRequest) => r.status === "pending"
       );
+      const outboundRequests = ((state as any).outboundRequests ?? []).filter(
+        (r: OutboundFriendRequest) => r.status === "pending"
+      );
+      const totalRequestCount = pendingRequests.length + outboundRequests.length;
       const contentW = w - PADDING_X * 2;
       let y = PADDING_Y;
 
@@ -1211,9 +1773,9 @@ export const friendsWidget: WidgetFactory<typeof friendsSchema> = {
       headerSep.stroke({ color: BORDER, width: 1, alpha: 0.6 });
       y += 6;
 
-      // tab bar (hidden in add mode)
-      if (viewMode !== "add") {
-        drawTabBar(y, contentW, pendingRequests.length);
+      // tab bar (hidden in add mode and detail mode)
+      if (viewMode !== "add" && viewMode !== "detail") {
+        drawTabBar(y, contentW, totalRequestCount);
         y += TAB_HEIGHT + 4;
       } else {
         tabFriendsText.visible = false;
@@ -1228,6 +1790,7 @@ export const friendsWidget: WidgetFactory<typeof friendsSchema> = {
       requestsEmptyText.visible = false;
       settingsContainer.visible = false;
       addModeContainer.visible = false;
+      detailContainer.visible = false;
       addBtn.visible = false;
       emptyText.visible = false;
 
@@ -1240,6 +1803,7 @@ export const friendsWidget: WidgetFactory<typeof friendsSchema> = {
           addBtnBg.clear();
           addBtnBg.roundRect(0, 0, contentW, BUTTON_HEIGHT, BUTTON_RADIUS);
           addBtnBg.fill({ color: ACCENT });
+          addBtn.hitArea = new Rectangle(0, 0, contentW, BUTTON_HEIGHT);
           addBtn.x = PADDING_X;
           addBtn.y = addBtnY;
           addBtnText.x = (contentW - addBtnText.width) / 2;
@@ -1296,7 +1860,7 @@ export const friendsWidget: WidgetFactory<typeof friendsSchema> = {
           positionRequestsInner();
 
           // empty state
-          if (pendingRequests.length === 0) {
+          if (totalRequestCount === 0) {
             requestsEmptyText.visible = true;
             requestsEmptyText.x = PADDING_X + (contentW - requestsEmptyText.width) / 2;
             requestsEmptyText.y = requestsAreaY + requestsAreaHeight / 2 - 6;
@@ -1309,6 +1873,22 @@ export const friendsWidget: WidgetFactory<typeof friendsSchema> = {
           settingsContainer.x = PADDING_X;
           settingsContainer.y = y;
           rebuildSettingsView(contentW, h - y - PADDING_Y);
+          break;
+        }
+
+        case "detail": {
+          const selectedFriend = friends.find((f) => f.id === selectedFriendId);
+          if (!selectedFriend) {
+            // friend was deleted or not found — go back to list
+            viewMode = "list";
+            selectedFriendId = null;
+            layout(w, h);
+            return;
+          }
+          detailContainer.visible = true;
+          detailContainer.x = PADDING_X;
+          detailContainer.y = y;
+          rebuildDetailView(selectedFriend, contentW, h - y - PADDING_Y);
           break;
         }
 
@@ -1342,6 +1922,7 @@ export const friendsWidget: WidgetFactory<typeof friendsSchema> = {
           addCancelBg.roundRect(0, 0, buttonW, BUTTON_HEIGHT, BUTTON_RADIUS);
           addCancelBg.fill({ color: FIELD_BG });
           addCancelBg.stroke({ color: FIELD_BORDER, width: 1 });
+          addCancelBtn.hitArea = new Rectangle(0, 0, buttonW, BUTTON_HEIGHT);
           addCancelBtn.x = PADDING_X;
           addCancelBtn.y = buttonY;
           addCancelText.x = (buttonW - addCancelText.width) / 2;
@@ -1351,6 +1932,7 @@ export const friendsWidget: WidgetFactory<typeof friendsSchema> = {
           addConfirmBg.clear();
           addConfirmBg.roundRect(0, 0, buttonW, BUTTON_HEIGHT, BUTTON_RADIUS);
           addConfirmBg.fill({ color: ACCENT });
+          addConfirmBtn.hitArea = new Rectangle(0, 0, buttonW, BUTTON_HEIGHT);
           addConfirmBtn.x = PADDING_X + buttonW + BUTTON_GAP;
           addConfirmBtn.y = buttonY;
           addConfirmText.x = (buttonW - addConfirmText.width) / 2;
@@ -1368,9 +1950,9 @@ export const friendsWidget: WidgetFactory<typeof friendsSchema> = {
       layout(currentWidth, currentHeight);
     });
 
-    // subscribe to online status changes for re-rendering friend dots
+    // subscribe to online status changes for re-rendering friend dots and detail view
     const unsubOnline = onOnlineChange(() => {
-      if (viewMode === "list") {
+      if (viewMode === "list" || viewMode === "detail") {
         layout(currentWidth, currentHeight);
       }
     });

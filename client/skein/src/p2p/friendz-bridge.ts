@@ -20,6 +20,7 @@ import type { FriendzProtocol } from "./friends-protocol";
 
 let protocol: FriendzProtocol | null = null;
 let bridgeReadyListeners: Array<() => void> = [];
+let outboundRequestHook: ((toNodeId: string) => void) | null = null;
 
 // ---------------------------------------------------------------------------
 // initialization (called by boot.ts)
@@ -45,6 +46,7 @@ export function initBridge(p: FriendzProtocol): void {
 export function destroyBridge(): void {
   protocol = null;
   bridgeReadyListeners = [];
+  outboundRequestHook = null;
 }
 
 // ---------------------------------------------------------------------------
@@ -129,7 +131,17 @@ export function onBridgeReady(handler: () => void): () => void {
  */
 export async function sendFriendRequest(peerNodeId: string): Promise<void> {
   if (!protocol) throw new Error("friendz bridge not initialized");
-  return protocol.sendFriendRequest(peerNodeId);
+  await protocol.sendFriendRequest(peerNodeId);
+  outboundRequestHook?.(peerNodeId);
+}
+
+/**
+ * register a callback that fires whenever an outbound friend request is sent.
+ * boot.ts uses this to track outbound requests in the friends doc.
+ * call with null to unregister.
+ */
+export function setOutboundRequestHook(hook: ((toNodeId: string) => void) | null): void {
+  outboundRequestHook = hook;
 }
 
 /**

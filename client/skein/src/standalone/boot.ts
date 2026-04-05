@@ -8,7 +8,12 @@ import type { ConnectionStateSource } from "../canvas/connection-status";
 import { initCanvas, type SkeinCanvas } from "../canvas/init";
 import { showShareDialog } from "../canvas/share-dialog";
 import { FriendzProtocol } from "../p2p/friends-protocol";
-import { destroyBridge, initBridge } from "../p2p/friendz-bridge";
+import {
+  destroyBridge,
+  initBridge,
+  sendFriendRequest,
+  setOutboundRequestHook,
+} from "../p2p/friendz-bridge";
 import { ensureIdentity, getMiddenNode, getStoredIdentity } from "../p2p/identity";
 import {
   FRIENDZ_ALPN,
@@ -400,11 +405,31 @@ class SkeinRouter {
           });
         }
       });
+      // also update outbound request status if we had one pending
+      friendsHandle.change((draft: any) => {
+        if (!draft.outboundRequests) return;
+        for (const req of draft.outboundRequests) {
+          if (req.toNodeId === fromNodeId && req.status === "pending") {
+            req.status = "accepted";
+            if (msg.fromUsername) req.toUsername = msg.fromUsername;
+            break;
+          }
+        }
+      });
       console.log("[skein] friend request accepted by:", fromNodeId.slice(0, 16) + "...");
     };
 
     // friend reject → update request status (informational)
     this.friendzProtocol.onFriendReject = (_msg, fromNodeId) => {
+      friendsHandle.change((draft: any) => {
+        if (!draft.outboundRequests) return;
+        for (const req of draft.outboundRequests) {
+          if (req.toNodeId === fromNodeId && req.status === "pending") {
+            req.status = "rejected";
+            break;
+          }
+        }
+      });
       console.log("[skein] friend request rejected by:", fromNodeId.slice(0, 16) + "...");
     };
 
@@ -445,6 +470,22 @@ class SkeinRouter {
           }
         }
       });
+      // if we don't have profile data for this peer, request it
+      const currentDoc = friendsHandle.doc() as
+        | { friends?: Array<{ nodeIds?: Array<{ nodeId: string; avatarDataUrl?: string }> }> }
+        | undefined;
+      if (currentDoc?.friends) {
+        for (const friend of currentDoc.friends) {
+          if (friend.nodeIds) {
+            for (const n of friend.nodeIds) {
+              if (n.nodeId === fromNodeId && !n.avatarDataUrl) {
+                this.friendzProtocol!.requestProfile(fromNodeId).catch(() => {});
+                return;
+              }
+            }
+          }
+        }
+      }
     };
 
     // watch friends doc for privacy setting changes
@@ -490,6 +531,44 @@ class SkeinRouter {
 
     // initialize the bridge so widgets can use the protocol
     initBridge(this.friendzProtocol);
+
+    // track outbound friend requests in the friends doc
+    setOutboundRequestHook((toNodeId: string) => {
+      friendsHandle.change((draft: any) => {
+        if (!draft.outboundRequests) draft.outboundRequests = [];
+        // don't duplicate pending requests to the same node
+        const exists = draft.outboundRequests.some(
+          (r: any) => r.toNodeId === toNodeId && r.status === "pending"
+        );
+        if (!exists) {
+          draft.outboundRequests.push({
+            toNodeId,
+            toUsername: "", // we don't know their username yet
+            sentAt: new Date().toISOString(),
+            status: "pending",
+          });
+        }
+      });
+    });
+
+    // request profiles from all friend node IDs (fire-and-forget)
+    // this populates avatar, bio, and username data from friends who are online
+    const friendsDocForProfiles = friendsHandle.doc() as
+      | { friends?: Array<{ nodeIds?: Array<{ nodeId: string; avatarDataUrl?: string }> }> }
+      | undefined;
+    if (friendsDocForProfiles?.friends) {
+      for (const friend of friendsDocForProfiles.friends) {
+        if (friend.nodeIds) {
+          for (const n of friend.nodeIds) {
+            if (n.nodeId) {
+              this.friendzProtocol.requestProfile(n.nodeId).catch(() => {
+                // silently ignore — peer may be offline
+              });
+            }
+          }
+        }
+      }
+    }
 
     console.log("[skein] friendz protocol initialized");
   }
@@ -547,6 +626,14 @@ class SkeinRouter {
               // tell the adapter to stop reconnecting to this peer
               this.irohAdapter.forgetPeer(nodeId);
               console.log("[skein] revoked access for peer:", nodeId.slice(0, 16) + "...");
+            },
+            onAddFriend: async (nodeId: string) => {
+              try {
+                await sendFriendRequest(nodeId);
+                console.log("[skein] friend request sent to:", nodeId.slice(0, 16) + "...");
+              } catch (err) {
+                console.warn("[skein] failed to send friend request:", err);
+              }
             },
           });
         },
@@ -864,6 +951,7 @@ class SkeinRouter {
     }
     this.friendzDocUnsubs = [];
     if (this.friendzProtocol) {
+      setOutboundRequestHook(null);
       destroyBridge();
       this.friendzProtocol.destroy();
       this.friendzProtocol = null;

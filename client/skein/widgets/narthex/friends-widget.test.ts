@@ -7,6 +7,7 @@ import {
   isValidNodeId,
   migrateV1ToV2,
   type FriendEntry,
+  type OutboundFriendRequest,
 } from "./friends-widget";
 
 describe("friendsSchema", () => {
@@ -16,6 +17,7 @@ describe("friendsSchema", () => {
       friends: [],
       groups: [],
       pendingRequests: [],
+      outboundRequests: [],
       profileVisibility: "friends",
       friendRequestsFrom: "everyone",
     });
@@ -246,6 +248,53 @@ describe("friendsSchema pendingRequests", () => {
   });
 });
 
+describe("friendsSchema outboundRequests", () => {
+  it("defaults outboundRequests to empty array", () => {
+    const result = friendsSchema.parse({});
+    expect(result.outboundRequests).toEqual([]);
+  });
+
+  it("parses outbound requests with all fields", () => {
+    const result = friendsSchema.parse({
+      outboundRequests: [
+        {
+          toNodeId: "a".repeat(64),
+          toUsername: "alice",
+          sentAt: "2025-06-15",
+          status: "pending",
+        },
+      ],
+    });
+    expect(result.outboundRequests).toHaveLength(1);
+    expect(result.outboundRequests[0].toNodeId).toBe("a".repeat(64));
+    expect(result.outboundRequests[0].toUsername).toBe("alice");
+    expect(result.outboundRequests[0].sentAt).toBe("2025-06-15");
+    expect(result.outboundRequests[0].status).toBe("pending");
+  });
+
+  it("provides defaults for optional outbound request fields", () => {
+    const result = friendsSchema.parse({
+      outboundRequests: [{ toNodeId: "b".repeat(64) }],
+    });
+    const req = result.outboundRequests[0];
+    expect(req.toNodeId).toBe("b".repeat(64));
+    expect(req.toUsername).toBe("");
+    expect(req.sentAt).toBe("");
+    expect(req.status).toBe("pending");
+  });
+
+  it("accepts accepted and rejected status", () => {
+    const result = friendsSchema.parse({
+      outboundRequests: [
+        { toNodeId: "a".repeat(64), status: "accepted" },
+        { toNodeId: "b".repeat(64), status: "rejected" },
+      ],
+    });
+    expect(result.outboundRequests[0].status).toBe("accepted");
+    expect(result.outboundRequests[1].status).toBe("rejected");
+  });
+});
+
 describe("migrateV1ToV2", () => {
   it("migrates empty v1 data", () => {
     const result = migrateV1ToV2({});
@@ -253,6 +302,7 @@ describe("migrateV1ToV2", () => {
       friends: [],
       groups: [],
       pendingRequests: [],
+      outboundRequests: [],
       profileVisibility: "friends",
       friendRequestsFrom: "everyone",
     });
@@ -318,6 +368,7 @@ describe("migrateV1ToV2", () => {
     expect(result.friends[2].nodeIds).toHaveLength(1);
     expect(result.groups).toEqual([]);
     expect(result.pendingRequests).toEqual([]);
+    expect(result.outboundRequests).toEqual([]);
     expect(result.profileVisibility).toBe("friends");
     expect(result.friendRequestsFrom).toBe("everyone");
   });
