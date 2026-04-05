@@ -55,6 +55,7 @@ class SkeinRouter {
   private inboxDocHandle: DocHandle<any> | null = null;
   private gossipTracker: GossipTracker = new GossipTracker();
   private transportPresenceUnsubs: Array<() => void> = [];
+  private canvasWatcherUnsubs: Array<() => void> = [];
 
   /** adapter connection state source for the ConnectionStatus widget */
   private readonly connectionStateSource: ConnectionStateSource;
@@ -309,6 +310,8 @@ class SkeinRouter {
   private destroyCurrent(): void {
     for (const unsub of this.transportPresenceUnsubs) unsub();
     this.transportPresenceUnsubs = [];
+    for (const unsub of this.canvasWatcherUnsubs) unsub();
+    this.canvasWatcherUnsubs = [];
     if (this.currentCanvas) {
       this.currentCanvas.destroy();
       this.currentCanvas = null;
@@ -358,11 +361,22 @@ class SkeinRouter {
         canvas.registry.types().join(", ")
       );
 
-      // sync fresh metadata from canvas documents into their narthex cards.
+      // sync fresh metadata first, then start real-time watchers.
+      // sequential order prevents the watcher from re-setting hasUpdates
+      // that sync just cleared (bug: race condition when concurrent).
       // runs asynchronously after the narthex is mounted so it doesn't block render.
-      this.syncCanvasMetadataToCards(canvas.store).catch((err) => {
-        console.warn("[skein] metadata sync failed:", err);
-      });
+      (async () => {
+        try {
+          await this.syncCanvasMetadataToCards(canvas.store);
+        } catch (err) {
+          console.warn("[skein] metadata sync failed:", err);
+        }
+        try {
+          await this.watchCanvasDocsForUpdates(canvas.store);
+        } catch (err) {
+          console.warn("[skein] canvas watcher setup failed:", err);
+        }
+      })();
     } finally {
       this.navigating = false;
     }
@@ -450,12 +464,12 @@ class SkeinRouter {
       friendRequestsFrom: friendRequestsFrom as "everyone" | "nobody",
       canvasInvitesFrom: canvasInvitesFrom as "everyone" | "friends" | "nobody",
       getCanvasActivity: () => {
-        // collect activity from narthex canvas cards
-        // this runs synchronously during heartbeat sends
+        // collect activity from narthex canvas cards.
+        // reads live state from per-widget docs and canvas docs instead of
+        // stale entry.props snapshots. runs synchronously during heartbeat.
         if (!this.narthexDocId) return [];
         try {
           const narthexHandle = this.repo.find<CanvasDocument>(this.narthexDocId as DocumentId);
-          // find returns a handle immediately (it may not be ready yet)
           const narthexDoc = (narthexHandle as any).doc?.() as CanvasDocument | undefined;
           if (!narthexDoc?.widgets) return [];
 
@@ -464,11 +478,37 @@ class SkeinRouter {
             if (w.type !== "canvas-card") continue;
             const props = w.props as any;
             if (!props?.canvasDocId) continue;
-            // include cards that are shared (remote or have been shared via invite)
+
+            // try to read the actual canvas doc's lastModified (authoritative)
+            let lastMod = "";
+            try {
+              const canvasHandle = this.repo.find<CanvasDocument>(props.canvasDocId as DocumentId);
+              const canvasDoc = (canvasHandle as any).doc?.() as CanvasDocument | undefined;
+              if (canvasDoc?.lastModified) {
+                lastMod = canvasDoc.lastModified;
+              }
+            } catch {
+              /* not available yet */
+            }
+
+            // fallback: read from per-widget doc
+            if (!lastMod && w.docId) {
+              try {
+                const cardHandle = this.repo.find<any>(w.docId as DocumentId);
+                const cardDoc = (cardHandle as any).doc?.() as Record<string, unknown> | undefined;
+                lastMod =
+                  (cardDoc?.lastKnownModifiedAt as string) || (cardDoc?.modifiedAt as string) || "";
+              } catch {
+                /* not available yet */
+              }
+            }
+
+            if (!lastMod) continue; // skip cards with no known activity
+
             entries.push({
               canvasDocId: props.canvasDocId,
-              lastModifiedAt: props.lastKnownModifiedAt || props.modifiedAt || "",
-              widgetCount: 0, // we don't have easy access to the canvas store here
+              lastModifiedAt: lastMod,
+              widgetCount: 0,
             });
             if (entries.length >= 20) break;
           }
@@ -763,29 +803,47 @@ class SkeinRouter {
       };
     }
 
-    // canvas activity from heartbeats — mark cards with new updates
-    this.friendzProtocol.onCanvasActivity = (entries, _fromNodeId) => {
+    // canvas activity from heartbeats — mark cards with new updates.
+    // reads lastVisitedAt from the per-widget doc (live state) instead of
+    // stale entry.props snapshots.
+    this.friendzProtocol.onCanvasActivity = (activityEntries, _fromNodeId) => {
       if (!this.narthexDocId) return;
       try {
         const narthexHandle = this.repo.find<CanvasDocument>(this.narthexDocId as DocumentId);
         const narthexDoc = (narthexHandle as any).doc?.() as CanvasDocument | undefined;
         if (!narthexDoc?.widgets) return;
 
-        for (const activity of entries) {
+        for (const activity of activityEntries) {
+          if (!activity.lastModifiedAt) continue;
+
           for (const w of Object.values(narthexDoc.widgets)) {
             if (w.type !== "canvas-card") continue;
             const props = w.props as any;
             if (props?.canvasDocId !== activity.canvasDocId) continue;
             if (!w.docId) continue;
 
-            // compare against lastVisitedAt
-            const lastVisited = props.lastVisitedAt || "";
-            if (activity.lastModifiedAt > lastVisited) {
+            try {
               const cardHandle = this.repo.find<any>(w.docId as DocumentId);
-              (cardHandle as any).change?.((draft: any) => {
-                draft.hasUpdates = true;
-                draft.lastKnownModifiedAt = activity.lastModifiedAt;
-              });
+              const cardDoc = (cardHandle as any).doc?.() as Record<string, unknown> | undefined;
+              if (!cardDoc) break;
+
+              // read lastVisitedAt from the per-widget doc (the live state)
+              const lastVisited = (cardDoc.lastVisitedAt as string) || "";
+              const currentKnown = (cardDoc.lastKnownModifiedAt as string) || "";
+
+              // guard: if lastVisitedAt was never set (pre-migration card), skip.
+              // without this, any lastModifiedAt > "" is always true, causing stuck pills.
+              if (!lastVisited) break;
+
+              // only update if this activity is newer than what we already know
+              if (activity.lastModifiedAt > lastVisited && activity.lastModifiedAt > currentKnown) {
+                (cardHandle as any).change?.((draft: any) => {
+                  draft.hasUpdates = true;
+                  draft.lastKnownModifiedAt = activity.lastModifiedAt;
+                });
+              }
+            } catch {
+              /* best-effort */
             }
             break;
           }
@@ -1296,30 +1354,131 @@ class SkeinRouter {
         const canvasStore = await CanvasStore.open(this.repo, cardDoc.canvasDocId as DocumentId);
         const meta = canvasStore.metadata();
 
-        // sync metadata from the canvas doc into the card's widget doc.
-        // only update fields that have changed to avoid unnecessary automerge patches.
-        const updates: Record<string, string> = {};
-        if (meta.title && meta.title !== (cardDoc.title ?? "")) {
-          updates.title = meta.title;
-        }
-        if (meta.description !== undefined && meta.description !== (cardDoc.description ?? "")) {
-          updates.description = meta.description;
-        }
-        if (meta.lastModified && meta.lastModified !== (cardDoc.modifiedAt ?? "")) {
-          updates.modifiedAt = meta.lastModified;
-        }
+        // perform all updates in a single change() to avoid stale-snapshot bugs.
+        // reading from the draft (d) instead of a pre-read cardDoc means the
+        // hasUpdates decision sees the freshly-written metadata values.
+        let changed = false;
+        cardHandle.change((d: any) => {
+          // sync metadata fields from the canvas doc
+          if (meta.title && meta.title !== (d.title ?? "")) {
+            d.title = meta.title;
+            changed = true;
+          }
+          if (meta.description !== undefined && meta.description !== (d.description ?? "")) {
+            d.description = meta.description;
+            changed = true;
+          }
+          if (meta.lastModified && meta.lastModified !== (d.modifiedAt ?? "")) {
+            d.modifiedAt = meta.lastModified;
+            changed = true;
+          }
 
-        if (Object.keys(updates).length > 0) {
-          cardHandle.change((d: any) => {
-            for (const [key, value] of Object.entries(updates)) {
-              d[key] = value;
+          // seed lastVisitedAt for pre-migration cards (one-time migration).
+          // without this, cards created before the schema migration have
+          // lastVisitedAt = "" which causes:
+          //   - stuck update pills on shared canvases (any lastModified > "")
+          //   - missing pills on owned canvases (sync skips empty lastVisitedAt)
+          const lastVisited = (d.lastVisitedAt as string) || "";
+          if (!lastVisited && meta.lastModified) {
+            d.lastVisitedAt = meta.lastModified;
+            changed = true;
+            // after seeding, this canvas is "caught up" — no update pill
+            if (d.hasUpdates) {
+              d.hasUpdates = false;
             }
-          });
-          console.log("[skein] synced metadata to canvas-card:", entry.id, updates);
+            return;
+          }
+
+          // set or clear hasUpdates using the live draft values
+          if (meta.lastModified && lastVisited && meta.lastModified > lastVisited) {
+            d.hasUpdates = true;
+            d.lastKnownModifiedAt = meta.lastModified;
+            changed = true;
+          } else if (meta.lastModified && lastVisited && meta.lastModified <= lastVisited) {
+            if (d.hasUpdates) {
+              d.hasUpdates = false;
+              changed = true;
+            }
+          }
+        });
+
+        if (changed) {
+          console.log("[skein] synced metadata to canvas-card:", entry.id);
         }
       } catch (err) {
         // if a canvas doc isn't reachable, skip silently
         console.warn("[skein] failed to sync metadata for card:", entry.id, err);
+      }
+    }
+  }
+
+  /**
+   * watch all canvas docs linked from narthex cards for remote changes.
+   * when a canvas doc's lastModified changes (via automerge sync), mark
+   * the card with hasUpdates so the update dot appears.
+   */
+  private async watchCanvasDocsForUpdates(narthexStore: CanvasStore): Promise<void> {
+    // clean up previous watchers
+    for (const unsub of this.canvasWatcherUnsubs) unsub();
+    this.canvasWatcherUnsubs = [];
+
+    const widgets = narthexStore.allWidgets();
+
+    for (const entry of widgets) {
+      if (entry.type !== "canvas-card" || !entry.docId) continue;
+      const cardDocId = entry.docId;
+
+      try {
+        const cardHandle = await this.repo.find<any>(cardDocId as DocumentId);
+        await cardHandle.whenReady();
+        const cardDoc = cardHandle.doc() as Record<string, unknown> | undefined;
+        if (!cardDoc?.canvasDocId || typeof cardDoc.canvasDocId !== "string") continue;
+
+        const canvasDocId = cardDoc.canvasDocId as string;
+
+        // open the canvas doc and watch for changes
+        let canvasHandle: any;
+        try {
+          canvasHandle = this.repo.find<CanvasDocument>(canvasDocId as DocumentId);
+        } catch {
+          continue; // canvas not available
+        }
+
+        let lastSeenModified = (cardDoc.modifiedAt as string) || "";
+
+        const onChange = () => {
+          const canvasDoc = canvasHandle.doc() as CanvasDocument | undefined;
+          if (!canvasDoc?.lastModified) return;
+          if (canvasDoc.lastModified === lastSeenModified) return;
+          lastSeenModified = canvasDoc.lastModified;
+
+          // don't mark as updated if user is currently viewing this canvas
+          const currentHash = window.location.hash.slice(1);
+          if (currentHash === canvasDocId) return;
+
+          // read the card's lastVisitedAt from the per-widget doc
+          const currentCardDoc = cardHandle.doc() as Record<string, unknown> | undefined;
+          const lastVisited = (currentCardDoc?.lastVisitedAt as string) || "";
+
+          // guard: if lastVisitedAt was never set (pre-migration card), skip.
+          // without this, any lastModified > "" is always true, causing stuck pills.
+          if (!lastVisited) return;
+
+          if (canvasDoc.lastModified > lastVisited) {
+            cardHandle.change((draft: any) => {
+              draft.hasUpdates = true;
+              draft.lastKnownModifiedAt = canvasDoc.lastModified;
+              draft.modifiedAt = canvasDoc.lastModified;
+            });
+          }
+        };
+
+        canvasHandle.on("change", onChange);
+        this.canvasWatcherUnsubs.push(() => {
+          canvasHandle.off("change", onChange);
+        });
+      } catch {
+        // skip unavailable docs
       }
     }
   }
@@ -1629,6 +1788,8 @@ class SkeinRouter {
   /** tear down the router — destroys canvas, friendz protocol, and bridge. */
   destroy(): void {
     this.destroyCurrent();
+    for (const unsub of this.canvasWatcherUnsubs) unsub();
+    this.canvasWatcherUnsubs = [];
     this.friendsDocHandle = null;
     this.inboxDocHandle = null;
     this.gossipTracker.clear();

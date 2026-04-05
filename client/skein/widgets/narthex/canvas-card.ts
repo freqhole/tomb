@@ -336,13 +336,28 @@ export const canvasCardWidget: WidgetFactory<typeof canvasCardSchema> = {
     revokedText.zIndex = 101;
     container.addChild(revokedText);
 
-    // --- update dot (shows when a shared canvas has new activity) ---
+    // --- update pill (shows when a shared canvas has new activity) ---
 
-    const updateDot = new Graphics();
-    updateDot.eventMode = "none";
-    updateDot.visible = false;
-    updateDot.zIndex = 50;
-    container.addChild(updateDot);
+    const updatePill = new Graphics();
+    updatePill.eventMode = "none";
+    updatePill.visible = false;
+    updatePill.zIndex = 50;
+    container.addChild(updatePill);
+
+    const updatePillText = new Text({
+      text: "updated",
+      style: {
+        fontFamily: "system-ui, sans-serif",
+        fontSize: 8,
+        fontWeight: "bold",
+        fill: 0xffffff,
+      },
+      resolution: 3,
+    });
+    updatePillText.eventMode = "none";
+    updatePillText.visible = false;
+    updatePillText.zIndex = 50;
+    container.addChild(updatePillText);
 
     // --- drawing helpers ---
 
@@ -583,21 +598,49 @@ export const canvasCardWidget: WidgetFactory<typeof canvasCardSchema> = {
       }
     };
 
-    const drawUpdateDot = (w: number, state: CanvasCardState) => {
-      updateDot.clear();
+    const drawUpdatePill = (w: number, state: CanvasCardState) => {
+      updatePill.clear();
       if (state.hasUpdates) {
-        const cx = w - PADDING_X;
-        const cy = ACCENT_HEIGHT + 10;
         const col = isTransparent(state.color) ? 0x444460 : safeColor(state.color);
-        // bright outline for contrast on dark backgrounds
-        updateDot.circle(cx, cy, 6);
-        updateDot.fill({ color: 0xffffff });
-        // filled dot in card accent color
-        updateDot.circle(cx, cy, 5);
-        updateDot.fill({ color: col });
-        updateDot.visible = true;
+
+        // measure text to size the pill
+        updatePillText.text = "updated";
+        const tw = updatePillText.width;
+        const th = updatePillText.height;
+        const dotR = 3;
+        const dotGap = 4;
+        const padX = 6;
+        const padY = 3;
+        const pillW = padX + dotR * 2 + dotGap + tw + padX;
+        const pillH = th + padY * 2;
+        const pillX = w - PADDING_X - pillW;
+        const pillY = ACCENT_HEIGHT + 5;
+        const pillR = pillH / 2;
+
+        // pill background — dark base with accent tint for readability
+        updatePill.roundRect(pillX, pillY, pillW, pillH, pillR);
+        updatePill.fill({ color: 0x000000, alpha: 0.7 });
+        updatePill.roundRect(pillX, pillY, pillW, pillH, pillR);
+        updatePill.fill({ color: col, alpha: 0.15 });
+        updatePill.roundRect(pillX, pillY, pillW, pillH, pillR);
+        updatePill.stroke({ color: col, width: 0.5, alpha: 0.6 });
+
+        // dot inside the pill
+        const dotCx = pillX + padX + dotR;
+        const dotCy = pillY + pillH / 2;
+        updatePill.circle(dotCx, dotCy, dotR);
+        updatePill.fill({ color: col });
+
+        // position text after the dot
+        updatePillText.style.fill = col;
+        updatePillText.x = dotCx + dotR + dotGap;
+        updatePillText.y = pillY + padY;
+        updatePillText.visible = true;
+
+        updatePill.visible = true;
       } else {
-        updateDot.visible = false;
+        updatePill.visible = false;
+        updatePillText.visible = false;
       }
     };
 
@@ -679,8 +722,8 @@ export const canvasCardWidget: WidgetFactory<typeof canvasCardSchema> = {
       drawRemoteBadge(w, state.isRemote);
       drawRevokedOverlay(w, h, state.isRemote && state.accessRevoked);
 
-      // update dot indicator for new activity on shared canvases
-      drawUpdateDot(w, state);
+      // update pill indicator for new activity on shared canvases
+      drawUpdatePill(w, state);
 
       // cursor style — revoked cards shouldn't look clickable
       container.cursor = state.isRemote && state.accessRevoked ? "not-allowed" : "pointer";
