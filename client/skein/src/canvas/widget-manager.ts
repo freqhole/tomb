@@ -57,6 +57,12 @@ export class WidgetManager {
   private readonly mountingIds = new Set<string>();
   private unsubs: (() => void)[] = [];
 
+  /** optional hook called before a widget is permanently removed.
+   *  receives the widget entry and the repo so callers can clean up
+   *  linked documents (e.g. deleting a canvas-card's linked canvas). */
+  private beforeRemoveHook: ((entry: WidgetEntry, repo: Repo) => void | Promise<void>) | null =
+    null;
+
   /** batch drag state — non-null while a multi-widget drag is in progress */
   private batchDrag: BatchDragState | null = null;
 
@@ -83,6 +89,13 @@ export class WidgetManager {
     this.keyboard = keyboard;
     this.canvasElement = canvasElement;
     this.stageBg = stageBg;
+  }
+
+  /** register a hook that fires before a widget is permanently removed.
+   *  the hook receives the widget entry (with docId, type, props) and the
+   *  repo instance so it can open and delete linked documents. */
+  setBeforeRemoveHook(hook: (entry: WidgetEntry, repo: Repo) => void | Promise<void>): void {
+    this.beforeRemoveHook = hook;
   }
 
   /**
@@ -459,8 +472,25 @@ export class WidgetManager {
     // only delete the per-widget automerge doc when the widget was permanently
     // removed from the canvas. during navigation teardown we keep the doc so
     // it can be found again when the canvas is re-mounted.
-    if (permanent && live.entry.docId) {
-      this.repo.delete(live.entry.docId as DocumentId);
+    if (permanent) {
+      // fire the before-remove hook so callers can clean up linked docs
+      if (this.beforeRemoveHook) {
+        try {
+          const result = this.beforeRemoveHook(live.entry, this.repo);
+          // if the hook returns a promise, let it run but don't block teardown
+          if (result && typeof (result as Promise<void>).catch === "function") {
+            (result as Promise<void>).catch((err) => {
+              console.warn(`beforeRemoveHook failed for widget ${id}:`, err);
+            });
+          }
+        } catch (err) {
+          console.warn(`beforeRemoveHook threw for widget ${id}:`, err);
+        }
+      }
+
+      if (live.entry.docId) {
+        this.repo.delete(live.entry.docId as DocumentId);
+      }
     }
 
     this.liveWidgets.delete(id);

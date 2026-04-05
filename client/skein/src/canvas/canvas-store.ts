@@ -12,8 +12,11 @@ export type EphemeralHandler = (senderId: string, data: Uint8Array) => void;
 export class CanvasStore {
   /** the underlying automerge document handle. exposed for initCanvas and sync. */
   readonly handle: DocHandle<CanvasDocument>;
+  /** the automerge repo this document belongs to. */
+  readonly repo: Repo;
 
-  private constructor(handle: DocHandle<CanvasDocument>) {
+  private constructor(repo: Repo, handle: DocHandle<CanvasDocument>) {
+    this.repo = repo;
     this.handle = handle;
   }
 
@@ -22,7 +25,7 @@ export class CanvasStore {
    */
   static create(repo: Repo): CanvasStore {
     const handle = repo.create<CanvasDocument>(emptyCanvasDoc());
-    return new CanvasStore(handle);
+    return new CanvasStore(repo, handle);
   }
 
   /**
@@ -30,7 +33,7 @@ export class CanvasStore {
    */
   static async open(repo: Repo, docId: DocumentId): Promise<CanvasStore> {
     const handle = await repo.find<CanvasDocument>(docId);
-    return new CanvasStore(handle);
+    return new CanvasStore(repo, handle);
   }
 
   /** get the current document state. */

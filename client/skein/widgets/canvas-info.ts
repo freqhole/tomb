@@ -1,3 +1,4 @@
+import { type DocumentId } from "@automerge/automerge-repo";
 import { Assets, Container, Graphics, Sprite, Text, Texture } from "pixi.js";
 import { z } from "zod";
 import type { CanvasStore } from "../src/canvas/canvas-store";
@@ -25,7 +26,6 @@ const TEXT_SECONDARY = 0x94a3b8;
 const TEXT_DIM = 0x666680;
 const TEXT_ACTIVE = 0xffffff;
 const TEXT_INACTIVE = 0x888899;
-const BUTTON_BG = 0x2a2a3e;
 
 const SWATCH_COLORS = [
   0xd946ef, 0x06b6d4, 0x22c55e, 0xeab308, 0xf97316, 0xef4444, 0x8b5cf6, 0x64748b,
@@ -594,34 +594,18 @@ export const canvasInfoWidget: WidgetFactory<typeof canvasInfoSchema> = {
     const modifiedText = new Text({ text: "", style: { ...DIM_FONT } });
     historyContainer.addChild(modifiedText);
 
+    const opsText = new Text({ text: "", style: { ...DIM_FONT } });
+    historyContainer.addChild(opsText);
+
     const changesText = new Text({ text: "", style: { ...DIM_FONT } });
     historyContainer.addChild(changesText);
 
-    const docSizeText = new Text({ text: "", style: { ...DIM_FONT } });
-    historyContainer.addChild(docSizeText);
+    const totalSizeText = new Text({ text: "", style: { ...STAT_FONT } });
+    historyContainer.addChild(totalSizeText);
 
-    // compact button (disabled placeholder)
-    const compactContainer = new Container();
-    historyContainer.addChild(compactContainer);
-
-    const compactBg = new Graphics();
-    compactContainer.addChild(compactBg);
-
-    const compactText = new Text({
-      text: "compact (coming soon)",
-      style: { fontFamily: "system-ui, sans-serif", fontSize: 11, fill: TEXT_DIM },
-    });
-    compactContainer.addChild(compactText);
-
-    const drawCompactButton = () => {
-      const bw = compactText.width + 16;
-      const bh = compactText.height + 8;
-      compactBg.clear();
-      compactBg.roundRect(0, 0, bw, bh, 4);
-      compactBg.fill({ color: BUTTON_BG, alpha: 0.5 });
-      compactText.x = 8;
-      compactText.y = 4;
-    };
+    // per-widget size breakdown (built dynamically)
+    const breakdownContainer = new Container();
+    historyContainer.addChild(breakdownContainer);
 
     const layoutHistory = () => {
       let y = 0;
@@ -635,14 +619,16 @@ export const canvasInfoWidget: WidgetFactory<typeof canvasInfoSchema> = {
       modifiedText.y = y;
       y += modifiedText.height + 10;
 
+      opsText.y = y;
+      y += opsText.height + 4;
+
       changesText.y = y;
-      y += changesText.height + 4;
+      y += changesText.height + 10;
 
-      docSizeText.y = y;
-      y += docSizeText.height + 14;
+      totalSizeText.y = y;
+      y += totalSizeText.height + 6;
 
-      compactContainer.y = y;
-      drawCompactButton();
+      breakdownContainer.y = y;
     };
 
     const refreshHistory = () => {
@@ -653,46 +639,92 @@ export const canvasInfoWidget: WidgetFactory<typeof canvasInfoSchema> = {
       createdText.text = `created: ${shortDate(m.createdAt)}`;
       modifiedText.text = `modified: ${shortDateTime(m.lastModified)}`;
 
-      // show placeholders while async stats load
-      changesText.text = "changes: ...";
-      docSizeText.text = "doc size: ...";
+      // use handle.metrics() — cheap, synchronous, no dynamic import needed
+      try {
+        const { numOps, numChanges } = canvasStore.handle.metrics();
+        opsText.text = `ops: ${numOps.toLocaleString()}`;
+        changesText.text = `changes: ${numChanges.toLocaleString()}`;
+      } catch {
+        opsText.text = "ops: unknown";
+        changesText.text = "changes: unknown";
+      }
 
+      // total size across canvas doc + all widget docs — async
+      totalSizeText.text = "total size: ...";
+      breakdownContainer.removeChildren();
       layoutHistory();
-
-      // load automerge stats asynchronously (dynamic import)
-      loadAutomergeStats();
+      loadAllDocSizes();
     };
 
-    const loadAutomergeStats = async () => {
+    /** format byte count as B / KB / MB / GB */
+    const formatSize = (bytes: number): string => {
+      if (bytes < 1024) return `${bytes} B`;
+      const kb = bytes / 1024;
+      if (kb < 1024) return `${kb.toFixed(1)} KB`;
+      const mb = kb / 1024;
+      if (mb < 1024) return `${mb.toFixed(1)} MB`;
+      const gb = mb / 1024;
+      return `${gb.toFixed(2)} GB`;
+    };
+
+    interface SizeEntry {
+      label: string;
+      bytes: number;
+    }
+
+    const loadAllDocSizes = async () => {
       try {
         const Automerge = await import("@automerge/automerge");
-        const doc = canvasStore.handle.doc();
-        if (!doc) {
-          changesText.text = "changes: unknown";
-          docSizeText.text = "doc size: unknown";
-          layoutHistory();
-          return;
+        const entries: SizeEntry[] = [];
+
+        // measure the canvas document itself
+        const canvasDoc = canvasStore.handle.doc();
+        if (canvasDoc) {
+          const bytes = Automerge.save(canvasDoc);
+          entries.push({ label: "canvas doc", bytes: bytes.byteLength });
         }
 
-        try {
-          const changes = Automerge.getAllChanges(doc);
-          changesText.text = `changes: ${changes.length}`;
-        } catch {
-          changesText.text = "changes: unknown";
+        // measure each widget's per-widget doc
+        const widgets = canvasStore.allWidgets();
+        for (const w of widgets) {
+          if (!w.docId) continue;
+          try {
+            const handle = await canvasStore.repo.find(w.docId as DocumentId);
+            await handle.whenReady();
+            const wDoc = handle.doc();
+            if (wDoc) {
+              const bytes = Automerge.save(wDoc);
+              const name = (wDoc as any).title || (wDoc as any).label || w.type;
+              const label = typeof name === "string" && name ? `${w.type}: ${name}` : w.type;
+              entries.push({ label, bytes: bytes.byteLength });
+            }
+          } catch {
+            // widget doc not available — skip
+          }
         }
 
-        try {
-          const bytes = Automerge.save(doc);
-          const kb = (bytes.byteLength / 1024).toFixed(1);
-          docSizeText.text = `doc size: ${kb} KB`;
-        } catch {
-          docSizeText.text = "doc size: unknown";
+        // compute total
+        const totalBytes = entries.reduce((sum, e) => sum + e.bytes, 0);
+        totalSizeText.text = `total size: ${formatSize(totalBytes)}`;
+
+        // build breakdown — sort by size descending
+        breakdownContainer.removeChildren();
+        entries.sort((a, b) => b.bytes - a.bytes);
+
+        let by = 0;
+        for (const entry of entries) {
+          const line = new Text({
+            text: `  ${entry.label}: ${formatSize(entry.bytes)}`,
+            style: { fontFamily: "monospace", fontSize: 9, fill: TEXT_DIM },
+          });
+          line.y = by;
+          breakdownContainer.addChild(line);
+          by += line.height + 2;
         }
 
         layoutHistory();
       } catch {
-        changesText.text = "changes: unavailable";
-        docSizeText.text = "doc size: unavailable";
+        totalSizeText.text = "total size: unknown";
         layoutHistory();
       }
     };

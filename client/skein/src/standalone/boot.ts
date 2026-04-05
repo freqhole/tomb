@@ -344,6 +344,44 @@ class SkeinRouter {
       this.currentCanvas = canvas;
       (window as any).__skein = canvas;
 
+      // when a canvas-card is deleted from the narthex, clean up the linked
+      // canvas document and all its per-widget docs from IndexedDB.
+      canvas.widgetManager.setBeforeRemoveHook(async (entry, repo) => {
+        if (entry.type !== "canvas-card" || !entry.docId) return;
+        try {
+          const cardHandle = await repo.find(entry.docId as DocumentId);
+          await cardHandle.whenReady();
+          const cardDoc = cardHandle.doc() as Record<string, unknown> | undefined;
+          const canvasDocId = cardDoc?.canvasDocId;
+          if (!canvasDocId || typeof canvasDocId !== "string") return;
+
+          // open the linked canvas and delete all its widget docs
+          const canvasHandle = await repo.find<CanvasDocument>(canvasDocId as DocumentId);
+          await canvasHandle.whenReady();
+          const canvasDoc = canvasHandle.doc();
+          if (canvasDoc?.widgets) {
+            for (const w of Object.values(canvasDoc.widgets)) {
+              if (w.docId) {
+                try {
+                  repo.delete(w.docId as DocumentId);
+                } catch {
+                  // best-effort
+                }
+              }
+            }
+          }
+
+          // delete the canvas document itself
+          repo.delete(canvasDocId as DocumentId);
+          console.log(
+            "[skein] cleaned up canvas and widget docs for:",
+            canvasDocId.slice(0, 16) + "..."
+          );
+        } catch (err) {
+          console.warn("[skein] failed to clean up linked canvas docs:", err);
+        }
+      });
+
       // initialize the friends protocol (reads friends/profile docs)
       this.initFriendzProtocol().catch((err) => {
         console.warn("[skein] failed to initialize friendz protocol:", err);
