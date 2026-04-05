@@ -376,6 +376,7 @@ export function createFriendsTab(ctx: TabContext): TabController {
 
         // name text — vertically centered
         const textX = ROW_PADDING_X + ROW_AVATAR_SIZE + ROW_PADDING_X;
+        // primary name label (bold) — username or alias
         const nameText = new Text({
           text: truncate(displayName || "unnamed", maxNameChars),
           style: {
@@ -390,6 +391,25 @@ export function createFriendsTab(ctx: TabContext): TabController {
         nameText.x = textX;
         nameText.y = (ROW_HEIGHT - ROW_NAME_SIZE) / 2;
         rowContainer.addChild(nameText);
+
+        // if the friend has both a username and an alias, show the alias
+        // after the name in italic parentheses: "bob (bestie)"
+        if (friend.username && friend.alias) {
+          const aliasText = new Text({
+            text: ` (${truncate(friend.alias, 12)})`,
+            style: {
+              fontFamily: FONT,
+              fontSize: ROW_NAME_SIZE,
+              fontStyle: "italic",
+              fill: MUTED_TEXT,
+            },
+            resolution: RESOLUTION,
+          });
+          aliasText.eventMode = "none";
+          aliasText.x = textX + nameText.width;
+          aliasText.y = (ROW_HEIGHT - ROW_NAME_SIZE) / 2;
+          rowContainer.addChild(aliasText);
+        }
 
         // chevron hint on the right
         const chevron = new Text({
@@ -1219,7 +1239,11 @@ export function createFriendsTab(ctx: TabContext): TabController {
     return { label, handle, layoutAt };
   }
 
-  const nameField = createAddField("name", addModeContainer, "friend's name...");
+  const nameField = createAddField(
+    "alias (optional)",
+    addModeContainer,
+    "nickname for this friend..."
+  );
   const nodeIdField = createAddField("node id", addModeContainer, "64-char hex node ID");
 
   // add-mode buttons: cancel and add
@@ -1301,8 +1325,8 @@ export function createFriendsTab(ctx: TabContext): TabController {
     ctx.doc.change((draft) => {
       draft.friends.push({
         id: crypto.randomUUID(),
-        alias: "",
-        username: name,
+        alias: name,
+        username: "",
         group: "",
         nodeIds: nodeId
           ? [

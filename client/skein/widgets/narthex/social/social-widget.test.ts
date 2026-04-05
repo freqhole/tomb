@@ -1,20 +1,20 @@
 import { describe, expect, it } from "vitest";
 import {
-    colorForName,
-    friendDisplayName,
-    friendDisplayNameFull,
-    isValidNodeId,
-    truncate,
+  colorForName,
+  friendDisplayName,
+  friendDisplayNameFull,
+  isValidNodeId,
+  truncate,
 } from "./helpers";
 import {
-    friendEntrySchema,
-    friendGroupSchema,
-    friendNodeIdSchema,
-    outboundFriendRequestSchema,
-    pendingFriendRequestSchema,
-    profileSchema,
-    socialSchema,
-    type FriendEntry,
+  friendEntrySchema,
+  friendGroupSchema,
+  friendNodeIdSchema,
+  outboundFriendRequestSchema,
+  pendingFriendRequestSchema,
+  profileSchema,
+  socialSchema,
+  type FriendEntry,
 } from "./schema";
 import { socialWidget } from "./social-widget";
 
@@ -57,16 +57,35 @@ describe("socialSchema", () => {
           alias: "bestie",
           username: "bob",
           group: "close",
-          nodeIds: [{ nodeId: "b".repeat(64), addedAt: "2025-01-01", lastSeenAt: "2025-06-01", username: "bob", bio: "hi", avatarDataUrl: "" }],
+          nodeIds: [
+            {
+              nodeId: "b".repeat(64),
+              addedAt: "2025-01-01",
+              lastSeenAt: "2025-06-01",
+              username: "bob",
+              bio: "hi",
+              avatarDataUrl: "",
+            },
+          ],
           createdAt: "2025-01-01",
         },
       ],
       groups: [{ name: "close", createdAt: "2025-01-01" }],
       pendingRequests: [
-        { fromNodeId: "c".repeat(64), fromUsername: "charlie", receivedAt: "2025-06-01", status: "pending" as const },
+        {
+          fromNodeId: "c".repeat(64),
+          fromUsername: "charlie",
+          receivedAt: "2025-06-01",
+          status: "pending" as const,
+        },
       ],
       outboundRequests: [
-        { toNodeId: "d".repeat(64), toUsername: "dave", sentAt: "2025-06-01", status: "pending" as const },
+        {
+          toNodeId: "d".repeat(64),
+          toUsername: "dave",
+          sentAt: "2025-06-01",
+          status: "pending" as const,
+        },
       ],
       profileVisibility: "everyone" as const,
       friendRequestsFrom: "nobody" as const,
@@ -82,7 +101,14 @@ describe("socialSchema", () => {
       username: "bob",
       group: "work",
       nodeIds: [
-        { nodeId: "a".repeat(64), addedAt: "2025-01-01", lastSeenAt: "2025-06-15", username: "bob", bio: "", avatarDataUrl: "" },
+        {
+          nodeId: "a".repeat(64),
+          addedAt: "2025-01-01",
+          lastSeenAt: "2025-06-15",
+          username: "bob",
+          bio: "",
+          avatarDataUrl: "",
+        },
       ],
       createdAt: "2025-01-01",
     };
@@ -112,11 +138,7 @@ describe("socialSchema", () => {
   it("parses friend with multiple nodeIds", () => {
     const friend = {
       id: "multi-node",
-      nodeIds: [
-        { nodeId: "a".repeat(64) },
-        { nodeId: "b".repeat(64) },
-        { nodeId: "c".repeat(64) },
-      ],
+      nodeIds: [{ nodeId: "a".repeat(64) }, { nodeId: "b".repeat(64) }, { nodeId: "c".repeat(64) }],
     };
     const result = friendEntrySchema.parse(friend);
     expect(result.nodeIds).toHaveLength(3);
@@ -360,19 +382,21 @@ describe("friendDisplayName", () => {
     ...overrides,
   });
 
-  it("returns alias when set", () => {
+  it("returns username over alias when both are set", () => {
     const friend = makeFriend({ alias: "bestie", username: "bob" });
-    expect(friendDisplayName(friend)).toBe("bestie");
+    expect(friendDisplayName(friend)).toBe("bob");
   });
 
-  it("returns username when alias is empty", () => {
+  it("returns username when set", () => {
     const friend = makeFriend({ username: "bob" });
     expect(friendDisplayName(friend)).toBe("bob");
   });
 
   it("returns truncated nodeId when alias and username are empty", () => {
     const nodeId = "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789";
-    const friend = makeFriend({ nodeIds: [{ nodeId, addedAt: "", lastSeenAt: "", username: "", bio: "", avatarDataUrl: "" }] });
+    const friend = makeFriend({
+      nodeIds: [{ nodeId, addedAt: "", lastSeenAt: "", username: "", bio: "", avatarDataUrl: "" }],
+    });
     const result = friendDisplayName(friend);
     expect(result).toBe("abcdef01...23456789");
     expect(result).toHaveLength(19); // 8 + 3 + 8
@@ -383,14 +407,19 @@ describe("friendDisplayName", () => {
     expect(friendDisplayName(friend)).toBe("unknown");
   });
 
-  it("prefers alias over everything else", () => {
+  it("prefers username over everything else", () => {
     const nodeId = "a".repeat(64);
     const friend = makeFriend({
       alias: "my-alias",
       username: "bob",
       nodeIds: [{ nodeId, addedAt: "", lastSeenAt: "", username: "", bio: "", avatarDataUrl: "" }],
     });
-    expect(friendDisplayName(friend)).toBe("my-alias");
+    expect(friendDisplayName(friend)).toBe("bob");
+  });
+
+  it("returns alias when username is empty", () => {
+    const friend = makeFriend({ alias: "bestie" });
+    expect(friendDisplayName(friend)).toBe("bestie");
   });
 });
 
@@ -426,7 +455,9 @@ describe("friendDisplayNameFull", () => {
 
   it("returns truncated nodeId when alias and username are empty", () => {
     const nodeId = "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789";
-    const friend = makeFriend({ nodeIds: [{ nodeId, addedAt: "", lastSeenAt: "", username: "", bio: "", avatarDataUrl: "" }] });
+    const friend = makeFriend({
+      nodeIds: [{ nodeId, addedAt: "", lastSeenAt: "", username: "", bio: "", avatarDataUrl: "" }],
+    });
     expect(friendDisplayNameFull(friend)).toBe("abcdef01...23456789");
   });
 

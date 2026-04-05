@@ -38,11 +38,11 @@ export function isValidNodeId(value: string): boolean {
 
 /**
  * resolve the best display name for a friend.
- * priority: alias > username > truncated first nodeId > "unknown"
+ * priority: username > alias > truncated first nodeId > "unknown"
  */
 export function friendDisplayName(friend: FriendEntry): string {
-  if (friend.alias) return friend.alias;
   if (friend.username) return friend.username;
+  if (friend.alias) return friend.alias;
   if (friend.nodeIds.length > 0 && friend.nodeIds[0].nodeId) {
     const id = friend.nodeIds[0].nodeId;
     return id.slice(0, 8) + "..." + id.slice(-8);
@@ -52,8 +52,8 @@ export function friendDisplayName(friend: FriendEntry): string {
 
 /**
  * format the display name with alias annotation.
- * if alias is set and username exists: "username (alias)"
- * otherwise: just the display name
+ * if both username and alias exist: "username (alias)"
+ * otherwise: just the display name (username > alias > nodeId > "unknown")
  */
 export function friendDisplayNameFull(friend: FriendEntry): string {
   if (friend.alias && friend.username) {

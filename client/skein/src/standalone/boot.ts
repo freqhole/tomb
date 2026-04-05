@@ -598,9 +598,9 @@ class SkeinRouter {
           if (!doc?.friends) return null;
           for (const friend of doc.friends) {
             if (friend.nodeIds?.some((n) => n.nodeId === peerId)) {
-              // prefer alias, then username, then null (fallback to hex)
-              if (friend.alias) return friend.alias;
+              // prefer username, then alias, then null (fallback to hex)
               if (friend.username) return friend.username;
+              if (friend.alias) return friend.alias;
               // try node-level username
               const node = friend.nodeIds.find((n) => n.nodeId === peerId);
               if (node?.username) return node.username;
