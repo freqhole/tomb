@@ -75,6 +75,7 @@ export class WidgetFrame {
   private readonly closeBtn: Container;
   private readonly closeable: boolean;
   private readonly contentMask: Graphics;
+  private readonly editOverlay: Graphics;
   private readonly resizeHandles: Map<HandlePosition, Graphics> = new Map();
 
   // state
@@ -199,6 +200,13 @@ export class WidgetFrame {
     this.root.addChild(this.contentMask);
     this.contentContainer.mask = this.contentMask;
 
+    // dark semi-transparent overlay drawn on top of widget content in edit
+    // mode so it's visually obvious that content is non-interactive.
+    this.editOverlay = new Graphics();
+    this.editOverlay.eventMode = "none";
+    this.editOverlay.visible = false;
+    this.root.addChild(this.editOverlay);
+
     // create resize handles
     this.createResizeHandles();
 
@@ -284,6 +292,7 @@ export class WidgetFrame {
     this.drawHeader();
     this.drawBorder();
     this.drawContentMask();
+    this.drawEditOverlay();
     this.positionResizeHandles();
     this.positionButtons();
     this.updateBodyHitArea();
@@ -333,6 +342,19 @@ export class WidgetFrame {
 
     this.border.roundRect(0, -hdr, w, totalH, r);
     this.border.stroke({ color: borderColor, width: this._selected ? 2 : 1 });
+  }
+
+  /** redraw the dark overlay shown on top of content in edit mode. */
+  private drawEditOverlay(): void {
+    this.editOverlay.clear();
+    if (!this._editing || this._collapsed) {
+      this.editOverlay.visible = false;
+      return;
+    }
+    const r = this.theme.frameCornerRadius;
+    this.editOverlay.roundRect(0, 0, this._width, this._height, r);
+    this.editOverlay.fill({ color: 0x000000, alpha: 0.8 });
+    this.editOverlay.visible = true;
   }
 
   /** redraw the content mask to match current dimensions and mode. */
