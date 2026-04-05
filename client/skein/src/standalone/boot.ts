@@ -1387,6 +1387,7 @@ class SkeinRouter {
             description: detail.canvasDescription || "",
             authorName: "",
             color: detail.canvasColor || 0x06b6d4,
+            previewUrl: detail.canvasPreviewUrl || "",
             createdAt: shortDate,
             modifiedAt: new Date().toISOString(),
             // remote card fields
@@ -1472,8 +1473,16 @@ class SkeinRouter {
             description: "connecting to peer",
             authorName: "",
             color: 0x06b6d4, // cyan accent for remote canvases
+            previewUrl: "",
             createdAt: shortDate,
             modifiedAt: new Date().toISOString(),
+            // remote card fields — joining via share string
+            isRemote: true,
+            ownerNodeId: decoded.nodeId,
+            ownerUsername: "",
+            role: "viewer", // share-string joiners default to viewer
+            accessRevoked: false,
+            lastVisitedAt: "",
           },
           collapsed: false,
           docId: null,

@@ -442,6 +442,8 @@ export const friendsWidget: WidgetFactory<typeof friendsSchema> = {
     listContainer.on("wheel", (e: WheelEvent) => {
       e.preventDefault();
       e.stopPropagation();
+      // claim the native event so the viewport doesn't also pan
+      if ((e as any).nativeEvent) (e as any).nativeEvent._skeinWidgetScroll = true;
       scrollY += e.deltaY > 0 ? SCROLL_SPEED : -SCROLL_SPEED;
       clampScroll();
       positionListInner();
@@ -1490,6 +1492,8 @@ export const friendsWidget: WidgetFactory<typeof friendsSchema> = {
     requestsContainer.on("wheel", (e: WheelEvent) => {
       e.preventDefault();
       e.stopPropagation();
+      // claim the native event so the viewport doesn't also pan
+      if ((e as any).nativeEvent) (e as any).nativeEvent._skeinWidgetScroll = true;
       scrollY += e.deltaY > 0 ? SCROLL_SPEED : -SCROLL_SPEED;
       clampRequestsScroll();
       positionRequestsInner();

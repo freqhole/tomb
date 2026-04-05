@@ -155,6 +155,9 @@ export class Viewport {
   }
 
   private onWheel = (e: WheelEvent): void => {
+    // if a widget's internal scroll handler already claimed this event, don't pan/zoom
+    if ((e as any)._skeinWidgetScroll) return;
+
     e.preventDefault();
 
     if (e.ctrlKey || e.metaKey) {

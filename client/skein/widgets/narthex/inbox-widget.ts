@@ -275,6 +275,8 @@ export const inboxWidget: WidgetFactory<typeof inboxSchema> = {
     inboxListContainer.on("wheel", (e: WheelEvent) => {
       e.preventDefault();
       e.stopPropagation();
+      // claim the native event so the viewport doesn't also pan
+      if ((e as any).nativeEvent) (e as any).nativeEvent._skeinWidgetScroll = true;
       scrollY += e.deltaY > 0 ? SCROLL_SPEED : -SCROLL_SPEED;
       clampInboxScroll();
       inboxListInner.y = -scrollY;
@@ -316,6 +318,8 @@ export const inboxWidget: WidgetFactory<typeof inboxSchema> = {
     outboxListContainer.on("wheel", (e: WheelEvent) => {
       e.preventDefault();
       e.stopPropagation();
+      // claim the native event so the viewport doesn't also pan
+      if ((e as any).nativeEvent) (e as any).nativeEvent._skeinWidgetScroll = true;
       scrollY += e.deltaY > 0 ? SCROLL_SPEED : -SCROLL_SPEED;
       clampOutboxScroll();
       outboxListInner.y = -scrollY;
