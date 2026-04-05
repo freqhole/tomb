@@ -6,6 +6,8 @@ mod menu;
 mod p2p_commands;
 mod p2p_state;
 mod server_controls;
+mod skein_transport;
+mod skein_window;
 mod spume_bridge;
 mod tray;
 mod wizard;
@@ -159,6 +161,7 @@ pub fn run() {
     tauri::Builder::default()
         .manage(ShutdownToken::new())
         .manage(p2p_state.clone())
+        .manage(skein_transport::SkeinTransportState::new())
         .setup(|app| {
             // load app config
             let app_config = FreqholeAppConfig::load(app.handle()).unwrap_or_default();
@@ -464,6 +467,8 @@ pub fn run() {
             p2p_state::p2p_start,
             p2p_state::p2p_stop,
             p2p_state::p2p_restart,
+            // skein transport bridge
+            skein_transport::skein_dispatch,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

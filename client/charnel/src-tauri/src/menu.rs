@@ -29,6 +29,8 @@ const MENU_USERS: &str = "users";
 const MENU_FEDERATION: &str = "federation";
 const MENU_SETTINGS: &str = "settings";
 const MENU_CONFIG: &str = "config";
+const MENU_SHOW_CANVAS: &str = "show_canvas";
+const MENU_SHOW_MUSIC: &str = "show_music";
 const MENU_DEVTOOLS: &str = "devtools";
 const MENU_QUIT: &str = "quit";
 
@@ -92,7 +94,17 @@ fn build_and_set_menu(app: &AppHandle<Wry>) -> tauri::Result<()> {
         .accelerator("CmdOrCtrl+Shift+I")
         .build(app)?;
 
+    let show_music_item = MenuItemBuilder::with_id(MENU_SHOW_MUSIC, "spume")
+        .accelerator("CmdOrCtrl+1")
+        .build(app)?;
+    let show_canvas_item = MenuItemBuilder::with_id(MENU_SHOW_CANVAS, "skein")
+        .accelerator("CmdOrCtrl+2")
+        .build(app)?;
+
     let view_submenu = SubmenuBuilder::with_id(app, "view", "view")
+        .item(&show_music_item)
+        .item(&show_canvas_item)
+        .separator()
         .item(&logs_item)
         .item(&library_item)
         .item(&users_item)
@@ -294,6 +306,16 @@ fn handle_menu_event(app: &AppHandle<Wry>, id: &str) {
                 let _ = open_config_dir(app_clone);
             });
         }
+        MENU_SHOW_CANVAS => {
+            if let Err(e) = crate::skein_window::show_skein_window(app) {
+                tracing::error!(error = %e, "failed to show skein window");
+            }
+        }
+        MENU_SHOW_MUSIC => {
+            if let Err(e) = crate::skein_window::show_main_window(app) {
+                tracing::error!(error = %e, "failed to show main window");
+            }
+        }
         MENU_DEVTOOLS => {
             // open devtools for the focused window
             if let Some(window) = app.get_webview_window("main") {
@@ -301,6 +323,9 @@ fn handle_menu_event(app: &AppHandle<Wry>, id: &str) {
             }
             if let Some(wizard) = app.get_webview_window("setup-wizard") {
                 wizard.open_devtools();
+            }
+            if let Some(skein) = app.get_webview_window("skein") {
+                skein.open_devtools();
             }
         }
         MENU_LOGS | MENU_LIBRARY | MENU_USERS | MENU_FEDERATION | MENU_SETTINGS | MENU_CONFIG => {

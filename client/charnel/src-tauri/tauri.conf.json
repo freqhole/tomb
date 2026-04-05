@@ -6,7 +6,7 @@
   "build": {
     "beforeDevCommand": "npm run dev:all",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "npm run build:wizard && cd ../spume && VITE_CHARNEL_MODE=true npm run build && cp -r ../charnel/dist/wizard dist/ && cp ../charnel/public/about.html dist/",
+    "beforeBuildCommand": "npm run build:wizard && cd ../skein && VITE_TAURI=true npx vite build --config vite.standalone.config.ts && cd ../spume && VITE_CHARNEL_MODE=true npm run build && cp -r ../charnel/dist/wizard dist/ && cp -r ../skein/dist dist/skein && cp ../charnel/public/about.html dist/",
     "frontendDist": "../../spume/dist"
   },
   "app": {

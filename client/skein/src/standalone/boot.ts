@@ -33,6 +33,7 @@ import {
   MESSAGEZ_WIDGET_ID,
   SOCIAL_WIDGET_ID,
 } from "./narthex-seed";
+import { isTauriMode, TauriStreamNode } from "../p2p/tauri-transport";
 
 // indexeddb key for the well-known narthex document id
 const NARTHEX_DOC_KEY = "skein-narthex-doc-id";
@@ -68,9 +69,12 @@ class SkeinRouter {
     // shared automerge repo — one repo for all canvases and the narthex.
     // cross-tab sync via BroadcastChannel, cross-device sync via iroh QUIC.
     const storage = new IndexedDBStorageAdapter();
-    this.irohAdapter = new IrohNetworkAdapter(
-      async () => (await getMiddenNode()) as unknown as MiddenStreamNode
-    );
+    // in tauri mode, P2P goes through the rust backend's iroh endpoint.
+    // in standalone browser mode, P2P goes through midden WASM.
+    const getMidden = isTauriMode()
+      ? async () => (await TauriStreamNode.create()) as MiddenStreamNode
+      : async () => (await getMiddenNode()) as unknown as MiddenStreamNode;
+    this.irohAdapter = new IrohNetworkAdapter(getMidden);
     const network = [new BroadcastChannelNetworkAdapter(), this.irohAdapter];
     this.repo = new Repo({ storage, network });
 

@@ -10,6 +10,7 @@
 // ---------------------------------------------------------------------------
 
 import { deleteMetaRecord, getMetaRecord, setMetaRecord } from "../storage/meta-db";
+import { isTauriMode, TauriStreamNode } from "./tauri-transport";
 
 // ---------------------------------------------------------------------------
 // types
@@ -99,6 +100,18 @@ export function onIdentityChange(callback: IdentityChangeCallback): () => void {
  * safe to call on boot (e.g. to display the node_id in a profile widget).
  */
 export async function getStoredIdentity(): Promise<P2PIdentity | null> {
+  if (isTauriMode()) {
+    try {
+      const node = await TauriStreamNode.create();
+      return {
+        secret_key: new Uint8Array(), // not exposed in tauri mode
+        node_id: node.node_id(),
+        created_at: 0,
+      };
+    } catch {
+      return null; // P2P endpoint not ready yet
+    }
+  }
   return getMetaRecord<P2PIdentity>(IDENTITY_KEY);
 }
 
@@ -118,6 +131,16 @@ export async function getStoredIdentity(): Promise<P2PIdentity | null> {
  * never initialized twice.
  */
 export async function getMiddenNode(): Promise<MiddenNodeLike> {
+  // in tauri mode, return a TauriStreamNode backed by the rust endpoint
+  if (isTauriMode()) {
+    if (!middenNode) {
+      const tauriNode = await TauriStreamNode.create();
+      middenNode = tauriNode as unknown as MiddenNodeLike;
+      console.log(TAG, "using tauri transport, node_id:", tauriNode.node_id().slice(0, 16) + "...");
+    }
+    return middenNode;
+  }
+
   // fast path: already running
   if (middenNode) {
     return middenNode;
@@ -184,6 +207,13 @@ export async function getMiddenNode(): Promise<MiddenNodeLike> {
  * to generate a keypair, persists it, and returns the new identity.
  */
 export async function ensureIdentity(): Promise<P2PIdentity> {
+  // in tauri mode, identity always exists (from the running endpoint)
+  if (isTauriMode()) {
+    const identity = await getStoredIdentity();
+    if (identity) return identity;
+    throw new Error(TAG + " P2P endpoint not available in tauri mode");
+  }
+
   // cheap check first — avoids starting midden when we already have one
   const existing = await getStoredIdentity();
   if (existing) {

@@ -10,6 +10,7 @@ import {
   type IrohNetworkAdapter,
   type MiddenStreamNode,
 } from "../p2p/iroh-network-adapter";
+import { isTauriMode, TauriStreamNode } from "../p2p/tauri-transport";
 
 export interface FriendzWiringDeps {
   repo: Repo;
@@ -45,8 +46,21 @@ export async function initFriendzWiring(
     messagezWidgetId,
   } = deps;
 
-  const identity = await getStoredIdentity();
-  if (!identity) return null;
+  // in tauri mode, identity comes from the running iroh endpoint
+  // in standalone mode, identity is stored in IndexedDB
+  let localNodeId: string;
+  if (isTauriMode()) {
+    try {
+      const node = await TauriStreamNode.create();
+      localNodeId = node.node_id();
+    } catch {
+      return null; // P2P endpoint not ready
+    }
+  } else {
+    const identity = await getStoredIdentity();
+    if (!identity) return null;
+    localNodeId = identity.node_id;
+  }
 
   // look up the social widget's automerge doc
   const socialEntry = store.getWidget(socialWidgetId);
@@ -75,9 +89,13 @@ export async function initFriendzWiring(
   const messagezDoc = messagezHandle?.doc() as Record<string, unknown> | undefined;
   const canvasInvitesFrom = (messagezDoc?.canvasInvitesFrom as string) ?? "everyone";
 
+  const getMidden = isTauriMode()
+    ? async () => (await TauriStreamNode.create()) as MiddenStreamNode
+    : async () => (await getMiddenNode()) as unknown as MiddenStreamNode;
+
   const protocol = new FriendzProtocol({
-    getMidden: async () => (await getMiddenNode()) as unknown as MiddenStreamNode,
-    localNodeId: identity.node_id,
+    getMidden,
+    localNodeId,
     localUsername: ((socialHandle.doc() as any)?.profile?.username as string) ?? "",
     getLocalProfile: () => {
       const doc = socialHandle.doc() as Record<string, any> | undefined;
@@ -308,8 +326,6 @@ export async function initFriendzWiring(
 
   // --- canvas invite callbacks (require messagez doc) ---
   if (messagezHandle) {
-    const localNodeId = identity.node_id;
-
     // incoming canvas invite
     protocol.onCanvasInvite = (msg, fromNodeId) => {
       // dedup by canvasDocId — a canvas can only appear once in inbox
@@ -555,8 +571,6 @@ export async function initFriendzWiring(
   // presence-driven gossip delivery — when a peer comes online, check
   // if we have undelivered invites or gossip relay tasks for them
   if (messagezHandle) {
-    const localNodeId = identity.node_id;
-
     protocol.onOnlineChange(() => {
       // check gossip tracker for entries that have un-ACK'd targets now online
       for (const entry of gossipTracker.allEntries()) {
