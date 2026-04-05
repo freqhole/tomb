@@ -184,6 +184,9 @@ describe("encodeMessage / decodeMessage", () => {
       inviteId: "inv-123",
       canvasDocId: "doc-456",
       canvasTitle: "my canvas",
+      canvasDescription: "a test canvas",
+      canvasColor: 0xd946ef,
+      canvasPreviewUrl: "data:image/png;base64,abc123",
       originNodeId: "a".repeat(64),
       originUsername: "alice",
       role: "editor",
@@ -193,6 +196,9 @@ describe("encodeMessage / decodeMessage", () => {
     const encoded = encodeMessage(msg);
     const decoded = decodeMessage(encoded);
     expect(decoded).toEqual(msg);
+    expect((decoded as any).canvasDescription).toBe("a test canvas");
+    expect((decoded as any).canvasColor).toBe(0xd946ef);
+    expect((decoded as any).canvasPreviewUrl).toBe("data:image/png;base64,abc123");
   });
 
   it("roundtrips a canvas-invite-ack message", () => {
@@ -1034,6 +1040,98 @@ describe("FriendzProtocol", () => {
       protocol.stopHeartbeat();
 
       // no error — the timer was cleared
+    });
+  });
+
+  describe("sendHeartbeatTo", () => {
+    it("sendHeartbeatTo invalidates stale stream and sends heartbeat", async () => {
+      const peerId = "peer-aaa".padEnd(64, "0");
+      const stream = createMockBiStream(peerId);
+      protocol.handleStream(stream as unknown as BiStreamLike);
+      await flush();
+
+      // verify the stream is registered (readLoop has started reading)
+      expect(stream.read_message).toHaveBeenCalled();
+
+      await protocol.sendHeartbeatTo(peerId);
+      await flush();
+
+      // the old stream should have been closed
+      expect(stream._closed).toBe(true);
+
+      // open_bi should have been called to create a fresh stream
+      expect(mockMidden.open_bi).toHaveBeenCalledWith(peerId, FRIENDZ_ALPN);
+
+      // check the message written to the new stream is a heartbeat
+      const newStream = await mockMidden.open_bi.mock.results[0].value;
+      expect(newStream._written).toHaveLength(1);
+      const msg = JSON.parse(new TextDecoder().decode(newStream._written[0]));
+      expect(msg.type).toBe("heartbeat");
+      expect(msg.nodeId).toBe("a".repeat(64));
+      expect(msg.username).toBe("alice");
+    });
+
+    it("sendHeartbeatTo works when no existing stream", async () => {
+      const peerId = "peer-bbb".padEnd(64, "0");
+
+      // do NOT handleStream — no existing stream for this peer
+      await protocol.sendHeartbeatTo(peerId);
+      await flush();
+
+      // open_bi should have been called
+      expect(mockMidden.open_bi).toHaveBeenCalledWith(peerId, FRIENDZ_ALPN);
+
+      // a heartbeat should have been sent on the new stream
+      const newStream = await mockMidden.open_bi.mock.results[0].value;
+      expect(newStream._written).toHaveLength(1);
+      const msg = JSON.parse(new TextDecoder().decode(newStream._written[0]));
+      expect(msg.type).toBe("heartbeat");
+    });
+
+    it("readLoop error clears lastSeen and emits online change", async () => {
+      const peerId = "peer-ccc".padEnd(64, "0");
+      const stream = createMockBiStream(peerId);
+      protocol.handleStream(stream as unknown as BiStreamLike);
+
+      // deliver a heartbeat so the peer is considered online
+      const hb: FriendzMessage = { type: "heartbeat", nodeId: peerId, username: "charlie" };
+      stream.pushMessage(encodeMessage(hb));
+      await flush();
+
+      expect(protocol.isOnline(peerId)).toBe(true);
+
+      // register an onOnlineChange listener to track calls
+      const changeCalls: number[] = [];
+      protocol.onOnlineChange(() => changeCalls.push(Date.now()));
+
+      // simulate a stream read error by replacing read_message with a rejecting function.
+      // the readLoop is currently awaiting the next read_message call, so we resolve
+      // the pending reader with an error by overwriting and triggering it.
+      // simplest approach: resolve the pending reader, then make the next read throw.
+      // but we can also just reject the pending reader directly.
+      // the mock has _readResolvers — there should be one waiting. we can't reject via
+      // the resolve function, so instead we override read_message to reject, then
+      // push a value to unblock the current awaiter (which will loop and call the new fn).
+
+      // first, unblock the currently waiting read with a valid heartbeat (so the loop iterates)
+      // but override read_message before that heartbeat is processed so the NEXT call rejects.
+      stream.read_message = vi.fn(async () => {
+        throw new Error("connection lost");
+      });
+
+      // resolve the currently pending reader to let the loop iterate
+      // (the loop will process this data, then call read_message again which now throws)
+      if (stream._readResolvers.length > 0) {
+        const hb2: FriendzMessage = { type: "heartbeat", nodeId: peerId, username: "charlie" };
+        stream._readResolvers.shift()!(encodeMessage(hb2));
+      }
+      await flush();
+
+      // isOnline should now be false because the readLoop catch cleared lastSeen
+      expect(protocol.isOnline(peerId)).toBe(false);
+
+      // the onOnlineChange listener should have been called
+      expect(changeCalls.length).toBeGreaterThan(0);
     });
   });
 

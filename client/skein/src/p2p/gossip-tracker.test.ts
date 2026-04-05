@@ -33,7 +33,19 @@ describe("GossipTracker", () => {
     it("creates a new entry", () => {
       const tracker = new GossipTracker();
 
-      tracker.track("inv-1", canvasA, "my canvas", originNode, "alice", "editor", [nodeA, nodeB], []);
+      tracker.track(
+        "inv-1",
+        canvasA,
+        "my canvas",
+        "",
+        0,
+        "",
+        originNode,
+        "alice",
+        "editor",
+        [nodeA, nodeB],
+        []
+      );
 
       expect(tracker.has(canvasA)).toBe(true);
       expect(tracker.size).toBe(1);
@@ -53,8 +65,32 @@ describe("GossipTracker", () => {
     it("merges targets and acked when same canvasDocId tracked twice", () => {
       const tracker = new GossipTracker();
 
-      tracker.track("inv-1", canvasA, "my canvas", originNode, "alice", "editor", [nodeA, nodeB], []);
-      tracker.track("inv-1", canvasA, "my canvas", originNode, "alice", "editor", [nodeB, nodeC], [nodeA]);
+      tracker.track(
+        "inv-1",
+        canvasA,
+        "my canvas",
+        "",
+        0,
+        "",
+        originNode,
+        "alice",
+        "editor",
+        [nodeA, nodeB],
+        []
+      );
+      tracker.track(
+        "inv-1",
+        canvasA,
+        "my canvas",
+        "",
+        0,
+        "",
+        originNode,
+        "alice",
+        "editor",
+        [nodeB, nodeC],
+        [nodeA]
+      );
 
       expect(tracker.size).toBe(1);
 
@@ -67,7 +103,19 @@ describe("GossipTracker", () => {
   describe("markAcked()", () => {
     it("marks target and returns true for new ack", () => {
       const tracker = new GossipTracker();
-      tracker.track("inv-1", canvasA, "my canvas", originNode, "alice", "editor", [nodeA, nodeB], []);
+      tracker.track(
+        "inv-1",
+        canvasA,
+        "my canvas",
+        "",
+        0,
+        "",
+        originNode,
+        "alice",
+        "editor",
+        [nodeA, nodeB],
+        []
+      );
 
       const first = tracker.markAcked(canvasA, nodeA);
       expect(first).toBe(true);
@@ -78,7 +126,19 @@ describe("GossipTracker", () => {
 
     it("auto-removes fully-acked entries", () => {
       const tracker = new GossipTracker();
-      tracker.track("inv-1", canvasA, "my canvas", originNode, "alice", "editor", [nodeA, nodeB], []);
+      tracker.track(
+        "inv-1",
+        canvasA,
+        "my canvas",
+        "",
+        0,
+        "",
+        originNode,
+        "alice",
+        "editor",
+        [nodeA, nodeB],
+        []
+      );
 
       tracker.markAcked(canvasA, nodeA);
       expect(tracker.has(canvasA)).toBe(true);
@@ -99,8 +159,32 @@ describe("GossipTracker", () => {
   describe("entriesForPeer()", () => {
     it("returns entries with un-acked target matching peer", () => {
       const tracker = new GossipTracker();
-      tracker.track("inv-1", canvasA, "canvas a", originNode, "alice", "editor", [nodeA, nodeB], []);
-      tracker.track("inv-2", canvasB, "canvas b", originNode, "alice", "viewer", [nodeC, nodeD], []);
+      tracker.track(
+        "inv-1",
+        canvasA,
+        "canvas a",
+        "",
+        0,
+        "",
+        originNode,
+        "alice",
+        "editor",
+        [nodeA, nodeB],
+        []
+      );
+      tracker.track(
+        "inv-2",
+        canvasB,
+        "canvas b",
+        "",
+        0,
+        "",
+        originNode,
+        "alice",
+        "viewer",
+        [nodeC, nodeD],
+        []
+      );
 
       const entries = tracker.entriesForPeer(nodeA);
       expect(entries).toHaveLength(1);
@@ -109,7 +193,19 @@ describe("GossipTracker", () => {
 
     it("excludes entries where peer already acked", () => {
       const tracker = new GossipTracker();
-      tracker.track("inv-1", canvasA, "canvas a", originNode, "alice", "editor", [nodeA, nodeB], [nodeA]);
+      tracker.track(
+        "inv-1",
+        canvasA,
+        "canvas a",
+        "",
+        0,
+        "",
+        originNode,
+        "alice",
+        "editor",
+        [nodeA, nodeB],
+        [nodeA]
+      );
 
       const entries = tracker.entriesForPeer(nodeA);
       expect(entries).toHaveLength(0);
@@ -117,8 +213,32 @@ describe("GossipTracker", () => {
 
     it("returns multiple entries when peer is un-acked target in several", () => {
       const tracker = new GossipTracker();
-      tracker.track("inv-1", canvasA, "canvas a", originNode, "alice", "editor", [nodeA, nodeB], []);
-      tracker.track("inv-2", canvasB, "canvas b", originNode, "alice", "viewer", [nodeA, nodeC], []);
+      tracker.track(
+        "inv-1",
+        canvasA,
+        "canvas a",
+        "",
+        0,
+        "",
+        originNode,
+        "alice",
+        "editor",
+        [nodeA, nodeB],
+        []
+      );
+      tracker.track(
+        "inv-2",
+        canvasB,
+        "canvas b",
+        "",
+        0,
+        "",
+        originNode,
+        "alice",
+        "viewer",
+        [nodeA, nodeC],
+        []
+      );
 
       const entries = tracker.entriesForPeer(nodeA);
       expect(entries).toHaveLength(2);
@@ -128,9 +248,45 @@ describe("GossipTracker", () => {
   describe("allEntries()", () => {
     it("returns all entries", () => {
       const tracker = new GossipTracker();
-      tracker.track("inv-1", canvasA, "canvas a", originNode, "alice", "editor", [nodeA], []);
-      tracker.track("inv-2", canvasB, "canvas b", originNode, "alice", "viewer", [nodeB], []);
-      tracker.track("inv-3", canvasC, "canvas c", originNode, "alice", "editor", [nodeC], []);
+      tracker.track(
+        "inv-1",
+        canvasA,
+        "canvas a",
+        "",
+        0,
+        "",
+        originNode,
+        "alice",
+        "editor",
+        [nodeA],
+        []
+      );
+      tracker.track(
+        "inv-2",
+        canvasB,
+        "canvas b",
+        "",
+        0,
+        "",
+        originNode,
+        "alice",
+        "viewer",
+        [nodeB],
+        []
+      );
+      tracker.track(
+        "inv-3",
+        canvasC,
+        "canvas c",
+        "",
+        0,
+        "",
+        originNode,
+        "alice",
+        "editor",
+        [nodeC],
+        []
+      );
 
       const entries = tracker.allEntries();
       expect(entries).toHaveLength(3);
@@ -150,7 +306,19 @@ describe("GossipTracker", () => {
   describe("get() and has()", () => {
     it("returns the entry when it exists", () => {
       const tracker = new GossipTracker();
-      tracker.track("inv-1", canvasA, "canvas a", originNode, "alice", "editor", [nodeA], []);
+      tracker.track(
+        "inv-1",
+        canvasA,
+        "canvas a",
+        "",
+        0,
+        "",
+        originNode,
+        "alice",
+        "editor",
+        [nodeA],
+        []
+      );
 
       expect(tracker.has(canvasA)).toBe(true);
       expect(tracker.get(canvasA)).toBeDefined();
@@ -168,7 +336,19 @@ describe("GossipTracker", () => {
   describe("remove()", () => {
     it("removes an existing entry and returns true", () => {
       const tracker = new GossipTracker();
-      tracker.track("inv-1", canvasA, "canvas a", originNode, "alice", "editor", [nodeA], []);
+      tracker.track(
+        "inv-1",
+        canvasA,
+        "canvas a",
+        "",
+        0,
+        "",
+        originNode,
+        "alice",
+        "editor",
+        [nodeA],
+        []
+      );
 
       const result = tracker.remove(canvasA);
       expect(result).toBe(true);
@@ -187,9 +367,45 @@ describe("GossipTracker", () => {
   describe("removeMany()", () => {
     it("removes multiple entries at once", () => {
       const tracker = new GossipTracker();
-      tracker.track("inv-1", canvasA, "canvas a", originNode, "alice", "editor", [nodeA], []);
-      tracker.track("inv-2", canvasB, "canvas b", originNode, "alice", "viewer", [nodeB], []);
-      tracker.track("inv-3", canvasC, "canvas c", originNode, "alice", "editor", [nodeC], []);
+      tracker.track(
+        "inv-1",
+        canvasA,
+        "canvas a",
+        "",
+        0,
+        "",
+        originNode,
+        "alice",
+        "editor",
+        [nodeA],
+        []
+      );
+      tracker.track(
+        "inv-2",
+        canvasB,
+        "canvas b",
+        "",
+        0,
+        "",
+        originNode,
+        "alice",
+        "viewer",
+        [nodeB],
+        []
+      );
+      tracker.track(
+        "inv-3",
+        canvasC,
+        "canvas c",
+        "",
+        0,
+        "",
+        originNode,
+        "alice",
+        "editor",
+        [nodeC],
+        []
+      );
 
       tracker.removeMany([canvasA, canvasC]);
 
@@ -201,7 +417,19 @@ describe("GossipTracker", () => {
 
     it("silently ignores ids that don't exist", () => {
       const tracker = new GossipTracker();
-      tracker.track("inv-1", canvasA, "canvas a", originNode, "alice", "editor", [nodeA], []);
+      tracker.track(
+        "inv-1",
+        canvasA,
+        "canvas a",
+        "",
+        0,
+        "",
+        originNode,
+        "alice",
+        "editor",
+        [nodeA],
+        []
+      );
 
       tracker.removeMany([canvasB, canvasC]);
       expect(tracker.size).toBe(1);
@@ -211,7 +439,19 @@ describe("GossipTracker", () => {
   describe("getAckedList()", () => {
     it("returns acked set as an array", () => {
       const tracker = new GossipTracker();
-      tracker.track("inv-1", canvasA, "canvas a", originNode, "alice", "editor", [nodeA, nodeB, nodeC], []);
+      tracker.track(
+        "inv-1",
+        canvasA,
+        "canvas a",
+        "",
+        0,
+        "",
+        originNode,
+        "alice",
+        "editor",
+        [nodeA, nodeB, nodeC],
+        []
+      );
 
       tracker.markAcked(canvasA, nodeA);
 
@@ -228,7 +468,19 @@ describe("GossipTracker", () => {
 
     it("returns empty array when nothing has been acked", () => {
       const tracker = new GossipTracker();
-      tracker.track("inv-1", canvasA, "canvas a", originNode, "alice", "editor", [nodeA], []);
+      tracker.track(
+        "inv-1",
+        canvasA,
+        "canvas a",
+        "",
+        0,
+        "",
+        originNode,
+        "alice",
+        "editor",
+        [nodeA],
+        []
+      );
 
       const acked = tracker.getAckedList(canvasA);
       expect(acked).toEqual([]);
@@ -238,8 +490,32 @@ describe("GossipTracker", () => {
   describe("clear()", () => {
     it("clears all entries", () => {
       const tracker = new GossipTracker();
-      tracker.track("inv-1", canvasA, "canvas a", originNode, "alice", "editor", [nodeA], []);
-      tracker.track("inv-2", canvasB, "canvas b", originNode, "alice", "viewer", [nodeB], []);
+      tracker.track(
+        "inv-1",
+        canvasA,
+        "canvas a",
+        "",
+        0,
+        "",
+        originNode,
+        "alice",
+        "editor",
+        [nodeA],
+        []
+      );
+      tracker.track(
+        "inv-2",
+        canvasB,
+        "canvas b",
+        "",
+        0,
+        "",
+        originNode,
+        "alice",
+        "viewer",
+        [nodeB],
+        []
+      );
 
       expect(tracker.size).toBe(2);
 
@@ -257,10 +533,34 @@ describe("GossipTracker", () => {
       const tracker = new GossipTracker();
       expect(tracker.size).toBe(0);
 
-      tracker.track("inv-1", canvasA, "canvas a", originNode, "alice", "editor", [nodeA], []);
+      tracker.track(
+        "inv-1",
+        canvasA,
+        "canvas a",
+        "",
+        0,
+        "",
+        originNode,
+        "alice",
+        "editor",
+        [nodeA],
+        []
+      );
       expect(tracker.size).toBe(1);
 
-      tracker.track("inv-2", canvasB, "canvas b", originNode, "alice", "viewer", [nodeB], []);
+      tracker.track(
+        "inv-2",
+        canvasB,
+        "canvas b",
+        "",
+        0,
+        "",
+        originNode,
+        "alice",
+        "viewer",
+        [nodeB],
+        []
+      );
       expect(tracker.size).toBe(2);
 
       tracker.remove(canvasA);
@@ -272,8 +572,32 @@ describe("GossipTracker", () => {
 
     it("decreases when auto-remove fires on full ack", () => {
       const tracker = new GossipTracker();
-      tracker.track("inv-1", canvasA, "canvas a", originNode, "alice", "editor", [nodeA], []);
-      tracker.track("inv-2", canvasB, "canvas b", originNode, "alice", "viewer", [nodeB], []);
+      tracker.track(
+        "inv-1",
+        canvasA,
+        "canvas a",
+        "",
+        0,
+        "",
+        originNode,
+        "alice",
+        "editor",
+        [nodeA],
+        []
+      );
+      tracker.track(
+        "inv-2",
+        canvasB,
+        "canvas b",
+        "",
+        0,
+        "",
+        originNode,
+        "alice",
+        "viewer",
+        [nodeB],
+        []
+      );
       expect(tracker.size).toBe(2);
 
       tracker.markAcked(canvasA, nodeA);

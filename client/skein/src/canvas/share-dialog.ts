@@ -16,6 +16,14 @@ import type { SkeinTheme } from "../theme/skein-theme";
 // types
 // ---------------------------------------------------------------------------
 
+export interface FriendInfo {
+  friendId: string;
+  username: string;
+  nodeId: string;
+  avatarDataUrl?: string;
+  isOnline: boolean;
+}
+
 export interface ShareDialogOptions {
   app: Application;
   theme: SkeinTheme;
@@ -27,6 +35,10 @@ export interface ShareDialogOptions {
   onRemovePeer?: (nodeId: string) => void;
   /** called when user clicks "add friend" on a peer — sends a friend request */
   onAddFriend?: (nodeId: string) => void | Promise<void>;
+  /** list of friends who haven't been invited to this canvas yet */
+  friends?: FriendInfo[];
+  /** called when user clicks "invite" on a friend row — sends canvas-invite */
+  onInviteFriend?: (friend: FriendInfo) => void | Promise<void>;
   onClose?: () => void;
 }
 
@@ -48,6 +60,10 @@ const BUTTON_PAD_V = 6;
 const COPY_FEEDBACK_MS = 1500;
 const DIALOG_Z = 10002;
 const DOM_Z = "10003";
+
+const AVATAR_COLORS = [
+  0x6366f1, 0x8b5cf6, 0xec4899, 0xf43f5e, 0xf97316, 0xeab308, 0x22c55e, 0x14b8a6, 0x3b82f6,
+];
 
 // ---------------------------------------------------------------------------
 // helpers — pixi
@@ -286,6 +302,147 @@ function buildPeerRow(
 }
 
 // ---------------------------------------------------------------------------
+// helpers — friend invite row
+// ---------------------------------------------------------------------------
+
+function buildFriendInviteRow(
+  friend: FriendInfo,
+  theme: SkeinTheme,
+  scrollBoxWidth: number,
+  rowHeight: number,
+  isRemoved: () => boolean,
+  onInvite?: (friend: FriendInfo) => void | Promise<void>
+): Container {
+  const row = new Container();
+
+  // avatar circle — colored based on username hash
+  const avatarSize = 22;
+  const charSum = friend.username.split("").reduce((acc, ch) => acc + ch.charCodeAt(0), 0);
+  const avatarColor = AVATAR_COLORS[charSum % AVATAR_COLORS.length];
+
+  const avatarBg = new Graphics();
+  avatarBg.circle(avatarSize / 2, avatarSize / 2, avatarSize / 2);
+  avatarBg.fill({ color: avatarColor });
+  avatarBg.y = (rowHeight - avatarSize) / 2;
+  row.addChild(avatarBg);
+
+  // initial letter centered in avatar
+  const initial = (friend.username[0] ?? "?").toUpperCase();
+  const initialText = new Text({
+    text: initial,
+    style: {
+      fontFamily: theme.fontFamily,
+      fontSize: 11,
+      fontWeight: "bold",
+      fill: 0xffffff,
+    },
+    resolution: theme.textResolution,
+  });
+  initialText.eventMode = "none";
+  initialText.x = (avatarSize - initialText.width) / 2;
+  initialText.y = avatarBg.y + (avatarSize - initialText.height) / 2;
+  row.addChild(initialText);
+
+  // online status dot — 6px circle at bottom-right of avatar
+  const dotSize = 6;
+  const statusDot = new Graphics();
+  statusDot.circle(dotSize / 2, dotSize / 2, dotSize / 2);
+  statusDot.fill({ color: friend.isOnline ? 0x22c55e : 0x6b7280 });
+  statusDot.x = avatarSize - dotSize + 1;
+  statusDot.y = avatarBg.y + avatarSize - dotSize + 1;
+  row.addChild(statusDot);
+
+  // username text
+  const displayName = friend.username || friend.nodeId.slice(0, 12) + "...";
+  const nameText = new Text({
+    text: displayName,
+    style: {
+      fontFamily: theme.fontFamily,
+      fontSize: theme.fontSizeSmall,
+      fill: theme.frameHeaderText,
+    },
+    resolution: theme.textResolution,
+  });
+  nameText.eventMode = "none";
+  nameText.x = avatarSize + 8;
+  nameText.y = (rowHeight - nameText.height) / 2;
+  row.addChild(nameText);
+
+  // invite button — right-aligned
+  const inviteBtnText = new Text({
+    text: "invite",
+    style: {
+      fontFamily: theme.fontFamily,
+      fontSize: theme.fontSizeSmall,
+      fill: 0x60a5fa,
+    },
+    resolution: theme.textResolution,
+  });
+  inviteBtnText.eventMode = "none";
+
+  const inviteBtnBg = new Graphics();
+  const inviteW = inviteBtnText.width + 14 * 2;
+  const inviteH = inviteBtnText.height + 6 * 2;
+  inviteBtnBg.roundRect(0, 0, inviteW, inviteH, 4);
+  inviteBtnBg.fill({ color: 0x1e3a5f });
+
+  const inviteView = new Container();
+  inviteView.addChild(inviteBtnBg);
+  inviteBtnText.x = 14;
+  inviteBtnText.y = 6;
+  inviteView.addChild(inviteBtnText);
+
+  const inviteBtn = new ButtonContainer(inviteView);
+  inviteBtn.cursor = "pointer";
+  inviteBtn.x = scrollBoxWidth - inviteW - 8;
+  inviteBtn.y = (rowHeight - inviteH) / 2;
+  row.addChild(inviteBtn);
+
+  inviteBtn.onPress.connect(async () => {
+    // show sending feedback
+    inviteBtnText.text = "sending...";
+    inviteBtnText.style.fill = 0x60a5fa;
+    inviteBtnBg.clear();
+    const sendingW = inviteBtnText.width + 14 * 2;
+    inviteBtnBg.roundRect(0, 0, sendingW, inviteH, 4);
+    inviteBtnBg.fill({ color: 0x1e1b4b });
+
+    try {
+      await onInvite?.(friend);
+      if (isRemoved()) return;
+      // success state
+      inviteBtnText.text = "sent!";
+      inviteBtnText.style.fill = 0x4ade80;
+      inviteBtnBg.clear();
+      const sentW = inviteBtnText.width + 14 * 2;
+      inviteBtnBg.roundRect(0, 0, sentW, inviteH, 4);
+      inviteBtnBg.fill({ color: 0x14532d });
+    } catch {
+      if (isRemoved()) return;
+      // failure state
+      inviteBtnText.text = "failed";
+      inviteBtnText.style.fill = 0xef4444;
+      inviteBtnBg.clear();
+      const failW = inviteBtnText.width + 14 * 2;
+      inviteBtnBg.roundRect(0, 0, failW, inviteH, 4);
+      inviteBtnBg.fill({ color: 0x7f1d1d });
+    }
+
+    // revert to invite after delay
+    setTimeout(() => {
+      if (isRemoved()) return;
+      inviteBtnText.text = "invite";
+      inviteBtnText.style.fill = 0x60a5fa;
+      inviteBtnBg.clear();
+      inviteBtnBg.roundRect(0, 0, inviteW, inviteH, 4);
+      inviteBtnBg.fill({ color: 0x1e3a5f });
+    }, COPY_FEEDBACK_MS);
+  });
+
+  return row;
+}
+
+// ---------------------------------------------------------------------------
 // helpers — DOM input overlays
 // ---------------------------------------------------------------------------
 
@@ -445,6 +602,46 @@ export function showShareDialog(options: ShareDialogOptions): ShareDialogHandle 
   }
 
   // -------------------------------------------------------------------------
+  // friend invite section
+  // -------------------------------------------------------------------------
+
+  const friendSection = new Container();
+  const friendLabel = makeLabel("invite friends", theme);
+  friendSection.addChild(friendLabel);
+
+  const friendList = options.friends ?? [];
+
+  if (friendList.length === 0) {
+    const noFriendsText = new Text({
+      text: "no friends to invite",
+      style: {
+        fontFamily: theme.fontFamily,
+        fontSize: theme.fontSizeSmall,
+        fill: 0x6b7280,
+      },
+      resolution: theme.textResolution,
+    });
+    noFriendsText.eventMode = "none";
+    noFriendsText.y = friendLabel.height + LABEL_GAP;
+    friendSection.addChild(noFriendsText);
+  } else {
+    let friendY = friendLabel.height + LABEL_GAP;
+    for (const friend of friendList) {
+      const friendRow = buildFriendInviteRow(
+        friend,
+        theme,
+        scrollBoxWidth,
+        copyBtnH,
+        isRemoved,
+        options.onInviteFriend
+      );
+      friendRow.y = friendY;
+      friendSection.addChild(friendRow);
+      friendY += copyBtnH + 4;
+    }
+  }
+
+  // -------------------------------------------------------------------------
   // close button (FancyButton — required by Dialog's button API)
   // -------------------------------------------------------------------------
 
@@ -500,7 +697,9 @@ export function showShareDialog(options: ShareDialogOptions): ShareDialogHandle 
   const rowHeight = titleText.height + LABEL_GAP + INPUT_HEIGHT; // approximate single row
   const peerSectionHeight =
     peerLabel.height + LABEL_GAP + Math.max(1, peerList.length) * (copyBtnH + 4);
-  const contentNeeded = rowHeight * 2 + SECTION_GAP * 2 + peerSectionHeight;
+  const friendSectionHeight =
+    friendLabel.height + LABEL_GAP + Math.max(1, friendList.length) * (copyBtnH + 4);
+  const contentNeeded = rowHeight * 2 + SECTION_GAP * 3 + peerSectionHeight + friendSectionHeight;
   const DIALOG_HEIGHT =
     DIALOG_PADDING * 2 + titleText.height + contentNeeded + closeBtnHeight + DIALOG_PADDING;
 
@@ -523,7 +722,7 @@ export function showShareDialog(options: ShareDialogOptions): ShareDialogHandle 
     width: DIALOG_WIDTH,
     height: DIALOG_HEIGHT,
     padding: DIALOG_PADDING,
-    content: [row1.container, row2.container, peerSection],
+    content: [row1.container, row2.container, peerSection, friendSection],
     buttons: [closeButton],
     scrollBox: {
       background: 0x141414,

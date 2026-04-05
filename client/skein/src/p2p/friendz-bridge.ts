@@ -190,6 +190,9 @@ export async function sendCanvasInvite(
     inviteId: string;
     canvasDocId: string;
     canvasTitle: string;
+    canvasDescription?: string;
+    canvasColor?: number;
+    canvasPreviewUrl?: string;
     originNodeId: string;
     originUsername: string;
     role: "editor" | "viewer";

@@ -16,6 +16,9 @@ export interface GossipEntry {
   inviteId: string;
   canvasDocId: string;
   canvasTitle: string;
+  canvasDescription: string;
+  canvasColor: number;
+  canvasPreviewUrl: string;
   originNodeId: string;
   originUsername: string;
   role: "editor" | "viewer";
@@ -34,11 +37,14 @@ export class GossipTracker {
     inviteId: string,
     canvasDocId: string,
     canvasTitle: string,
+    canvasDescription: string,
+    canvasColor: number,
+    canvasPreviewUrl: string,
     originNodeId: string,
     originUsername: string,
     role: "editor" | "viewer",
     targets: string[],
-    acked: string[],
+    acked: string[]
   ): void {
     const existing = this.entries.get(canvasDocId);
     if (existing) {
@@ -52,14 +58,24 @@ export class GossipTracker {
       inviteId,
       canvasDocId,
       canvasTitle,
+      canvasDescription,
+      canvasColor,
+      canvasPreviewUrl,
       originNodeId,
       originUsername,
       role,
       targets: new Set(targets),
       acked: new Set(acked),
     });
-    console.log(TAG, "tracking invite for:", canvasDocId.slice(0, 16) + "...",
-      "targets:", targets.length, "acked:", acked.length);
+    console.log(
+      TAG,
+      "tracking invite for:",
+      canvasDocId.slice(0, 16) + "...",
+      "targets:",
+      targets.length,
+      "acked:",
+      acked.length
+    );
   }
 
   /**
@@ -71,9 +87,14 @@ export class GossipTracker {
     if (!entry) return false;
     if (entry.acked.has(nodeId)) return false;
     entry.acked.add(nodeId);
-    console.log(TAG, "marked acked:", nodeId.slice(0, 16) + "...",
-      "for:", canvasDocId.slice(0, 16) + "...",
-      "(" + entry.acked.size + "/" + entry.targets.size + ")");
+    console.log(
+      TAG,
+      "marked acked:",
+      nodeId.slice(0, 16) + "...",
+      "for:",
+      canvasDocId.slice(0, 16) + "...",
+      "(" + entry.acked.size + "/" + entry.targets.size + ")"
+    );
     // auto-remove fully-acked entries
     if (this.isFullyAcked(entry)) {
       console.log(TAG, "all targets acked for:", canvasDocId.slice(0, 16) + "...", "— removing");

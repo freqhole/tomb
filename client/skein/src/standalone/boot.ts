@@ -3,14 +3,16 @@ import { BroadcastChannelNetworkAdapter } from "@automerge/automerge-repo-networ
 import { IndexedDBStorageAdapter } from "@automerge/automerge-repo-storage-indexeddb";
 import { createTestRegistry } from "../../widgets/index";
 import { createNarthexRegistry } from "../../widgets/narthex/index";
+import type { CanvasDocument } from "../canvas/canvas-doc";
 import { CanvasStore } from "../canvas/canvas-store";
 import type { ConnectionStateSource } from "../canvas/connection-status";
 import { initCanvas, type SkeinCanvas } from "../canvas/init";
-import { showShareDialog } from "../canvas/share-dialog";
+import { showShareDialog, type FriendInfo } from "../canvas/share-dialog";
 import { FriendzProtocol } from "../p2p/friends-protocol";
 import {
   destroyBridge,
   initBridge,
+  sendCanvasInvite,
   sendFriendRequest,
   setOutboundRequestHook,
 } from "../p2p/friendz-bridge";
@@ -50,6 +52,7 @@ class SkeinRouter {
   private friendzProtocol: FriendzProtocol | null = null;
   private friendzDocUnsubs: Array<() => void> = [];
   private friendsDocHandle: DocHandle<any> | null = null;
+  private inboxDocHandle: DocHandle<any> | null = null;
   private gossipTracker: GossipTracker = new GossipTracker();
   private transportPresenceUnsubs: Array<() => void> = [];
 
@@ -397,6 +400,7 @@ class SkeinRouter {
     if (inboxEntry?.docId) {
       inboxHandle = await this.repo.find<any>(inboxEntry.docId as DocumentId);
       await inboxHandle.whenReady();
+      this.inboxDocHandle = inboxHandle;
     }
 
     // look up the messagez widget's automerge doc
@@ -610,6 +614,9 @@ class SkeinRouter {
             id: msg.inviteId,
             canvasDocId: msg.canvasDocId,
             canvasTitle: msg.canvasTitle,
+            canvasDescription: msg.canvasDescription ?? "",
+            canvasColor: msg.canvasColor ?? 0,
+            canvasPreviewUrl: msg.canvasPreviewUrl ?? "",
             fromNodeId: msg.originNodeId,
             fromUsername: msg.originUsername,
             relayedBy: fromNodeId !== msg.originNodeId ? fromNodeId : "",
@@ -630,6 +637,9 @@ class SkeinRouter {
           msg.inviteId,
           msg.canvasDocId,
           msg.canvasTitle,
+          msg.canvasDescription ?? "",
+          msg.canvasColor ?? 0,
+          msg.canvasPreviewUrl ?? "",
           msg.originNodeId,
           msg.originUsername,
           msg.role,
@@ -792,6 +802,9 @@ class SkeinRouter {
                 inviteId: entry.inviteId,
                 canvasDocId: entry.canvasDocId,
                 canvasTitle: entry.canvasTitle,
+                canvasDescription: entry.canvasDescription,
+                canvasColor: entry.canvasColor,
+                canvasPreviewUrl: entry.canvasPreviewUrl,
                 originNodeId: entry.originNodeId,
                 originUsername: entry.originUsername,
                 role: entry.role,
@@ -851,6 +864,19 @@ class SkeinRouter {
       }
     }
 
+    // bridge transport reconnection to friendz protocol —
+    // when the iroh adapter reconnects to a peer, send an immediate
+    // heartbeat so the remote peer updates lastSeen and presence-driven
+    // delivery kicks in without waiting for the next 30s heartbeat cycle
+    const unsubReconnect = this.irohAdapter.onPeerConnect((nodeId) => {
+      if (!this.friendzProtocol) return;
+
+      this.friendzProtocol.sendHeartbeatTo(nodeId).catch((err) => {
+        console.warn("[skein] post-reconnect heartbeat failed:", nodeId.slice(0, 16) + "...", err);
+      });
+    });
+    this.friendzDocUnsubs.push(unsubReconnect);
+
     console.log("[skein] friendz protocol initialized");
   }
 
@@ -895,6 +921,57 @@ class SkeinRouter {
             .filter((p) => p.nodeId !== identity.node_id)
             .map((p) => ({ nodeId: p.nodeId, joinedAt: p.joinedAt }));
 
+          // build friends list for invite picker — exclude already shared
+          const peerNodeIds = new Set(peerList.map((p) => p.nodeId));
+          const friendsForInvite: FriendInfo[] = [];
+
+          if (this.friendsDocHandle) {
+            const friendsDoc = this.friendsDocHandle.doc() as
+              | {
+                  friends?: Array<{
+                    id: string;
+                    username?: string;
+                    alias?: string;
+                    nodeIds?: Array<{ nodeId: string; username?: string; avatarDataUrl?: string }>;
+                  }>;
+                }
+              | undefined;
+
+            // get already-invited node IDs from inbox outbox
+            const alreadyInvited = new Set<string>();
+            if (this.inboxDocHandle) {
+              const inboxDoc = this.inboxDocHandle.doc() as
+                | { shares?: Array<{ canvasDocId: string; toNodeId: string }> }
+                | undefined;
+              if (inboxDoc?.shares) {
+                for (const share of inboxDoc.shares) {
+                  if (share.canvasDocId === docId) {
+                    alreadyInvited.add(share.toNodeId);
+                  }
+                }
+              }
+            }
+
+            if (friendsDoc?.friends) {
+              for (const friend of friendsDoc.friends) {
+                if (!friend.nodeIds) continue;
+                for (const n of friend.nodeIds) {
+                  if (!n.nodeId) continue;
+                  if (peerNodeIds.has(n.nodeId)) continue;
+                  if (alreadyInvited.has(n.nodeId)) continue;
+
+                  friendsForInvite.push({
+                    friendId: friend.id,
+                    username: friend.alias || n.username || friend.username || "",
+                    nodeId: n.nodeId,
+                    avatarDataUrl: n.avatarDataUrl,
+                    isOnline: this.friendzProtocol?.isOnline(n.nodeId) ?? false,
+                  });
+                }
+              }
+            }
+          }
+
           showShareDialog({
             app: this.currentCanvas.app,
             theme: this.currentCanvas.theme,
@@ -915,6 +992,102 @@ class SkeinRouter {
               } catch (err) {
                 console.warn("[skein] failed to send friend request:", err);
               }
+            },
+            friends: friendsForInvite,
+            onInviteFriend: async (friend: FriendInfo) => {
+              if (!this.friendzProtocol || !this.currentCanvas) return;
+              const localIdentity = await getStoredIdentity();
+              if (!localIdentity) return;
+
+              const canvasTitle = this.currentCanvas.store.metadata().title;
+              const canvasDescription = this.currentCanvas.store.metadata().description;
+
+              // look up color and previewUrl from the narthex canvas card
+              let canvasColor = 0;
+              let canvasPreviewUrl = "";
+              if (this.narthexDocId) {
+                try {
+                  const narthexHandle = await this.repo.find<CanvasDocument>(
+                    this.narthexDocId as DocumentId
+                  );
+                  await narthexHandle.whenReady();
+                  const narthexDoc = narthexHandle.doc();
+                  if (narthexDoc?.widgets) {
+                    for (const entry of Object.values(narthexDoc.widgets)) {
+                      if (
+                        entry.type === "canvas-card" &&
+                        (entry.props as any)?.canvasDocId === docId &&
+                        entry.docId
+                      ) {
+                        const cardHandle = await this.repo.find<any>(entry.docId as DocumentId);
+                        await cardHandle.whenReady();
+                        const cardDoc = cardHandle.doc() as Record<string, unknown> | undefined;
+                        canvasColor = (cardDoc?.color as number) ?? 0;
+                        canvasPreviewUrl = (cardDoc?.previewUrl as string) ?? "";
+                        break;
+                      }
+                    }
+                  }
+                } catch {
+                  // canvas card lookup is best-effort
+                }
+              }
+
+              const inviteId = crypto.randomUUID();
+              const allTargets = [friend.nodeId];
+
+              // send the invite via protocol
+              await sendCanvasInvite(friend.nodeId, {
+                inviteId,
+                canvasDocId: docId,
+                canvasTitle,
+                canvasDescription,
+                canvasColor,
+                canvasPreviewUrl,
+                originNodeId: localIdentity.node_id,
+                originUsername: "",
+                role: "editor",
+                targets: allTargets,
+                acked: [],
+              });
+
+              // write outbox entry to inbox doc
+              if (this.inboxDocHandle) {
+                this.inboxDocHandle.change((draft: any) => {
+                  if (!draft.shares) draft.shares = [];
+                  draft.shares.push({
+                    id: inviteId,
+                    canvasDocId: docId,
+                    canvasTitle,
+                    canvasDescription,
+                    canvasColor,
+                    canvasPreviewUrl,
+                    toNodeId: friend.nodeId,
+                    toUsername: friend.username,
+                    sentAt: new Date().toISOString(),
+                    delivered: false,
+                    accepted: false,
+                    declined: false,
+                  });
+                });
+              }
+
+              // track in gossip tracker for relay
+              this.gossipTracker.track(
+                inviteId,
+                docId,
+                canvasTitle,
+                canvasDescription,
+                canvasColor,
+                canvasPreviewUrl,
+                localIdentity.node_id,
+                "",
+                "editor",
+                allTargets,
+                []
+              );
+
+              console.log("[skein] canvas invite sent to:", friend.nodeId.slice(0, 16) + "...");
             },
           });
         },
@@ -1268,6 +1441,7 @@ class SkeinRouter {
   destroy(): void {
     this.destroyCurrent();
     this.friendsDocHandle = null;
+    this.inboxDocHandle = null;
     this.gossipTracker.clear();
     for (const unsub of this.friendzDocUnsubs) {
       unsub();

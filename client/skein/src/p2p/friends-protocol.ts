@@ -77,6 +77,9 @@ export interface CanvasInviteMessage {
   inviteId: string;
   canvasDocId: string;
   canvasTitle: string;
+  canvasDescription?: string;
+  canvasColor?: number;
+  canvasPreviewUrl?: string;
   originNodeId: string;
   originUsername: string;
   role: "editor" | "viewer";
@@ -354,6 +357,9 @@ export class FriendzProtocol {
     } catch (err) {
       if (!this._destroyed) {
         console.error(TAG, "read loop error from:", peerId.slice(0, 16) + "...", err);
+        // clear lastSeen so isOnline() returns false immediately
+        this.lastSeen.delete(peerId);
+        this.emitOnlineChange();
       }
     } finally {
       // clean up stream reference if it's still the current one
@@ -593,6 +599,23 @@ export class FriendzProtocol {
     // send immediately, then on interval
     sendHeartbeats();
     this.heartbeatTimer = setInterval(sendHeartbeats, HEARTBEAT_INTERVAL_MS);
+  }
+
+  /** send a single heartbeat to a specific peer (used after transport reconnection). */
+  async sendHeartbeatTo(peerNodeId: string): Promise<void> {
+    // invalidate any stale stream for this peer
+    const existing = this.streams.get(peerNodeId);
+    if (existing) {
+      existing.close();
+      this.streams.delete(peerNodeId);
+    }
+
+    const msg: HeartbeatMessage = {
+      type: "heartbeat",
+      nodeId: this.localNodeId,
+      username: this.localUsername,
+    };
+    await this.sendMessage(peerNodeId, msg);
   }
 
   /** stop the heartbeat interval. */

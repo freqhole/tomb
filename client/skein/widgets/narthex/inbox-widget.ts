@@ -1,11 +1,13 @@
-import { Container, Graphics, Rectangle, Text } from "pixi.js";
+import { Assets, Container, Graphics, Rectangle, Sprite, Text, Texture } from "pixi.js";
 import { z } from "zod";
 import { sendCanvasInviteAccept, sendCanvasInviteDecline } from "../../src/p2p/friendz-bridge";
 import { getStoredIdentity } from "../../src/p2p/identity";
-import type {
-  WidgetController,
-  WidgetFactory,
-  WidgetMountContext,
+import {
+  isTransparent,
+  safeColor,
+  type WidgetController,
+  type WidgetFactory,
+  type WidgetMountContext,
 } from "../../src/widgets/widget-types";
 
 // ---------------------------------------------------------------------------
@@ -16,6 +18,9 @@ const canvasInviteSchema = z.object({
   id: z.string(),
   canvasDocId: z.string(),
   canvasTitle: z.string().default(""),
+  canvasDescription: z.string().default(""),
+  canvasColor: z.number().default(0),
+  canvasPreviewUrl: z.string().default(""),
   fromNodeId: z.string(),
   fromUsername: z.string().default(""),
   relayedBy: z.string().default(""),
@@ -27,6 +32,9 @@ const canvasShareSchema = z.object({
   id: z.string(),
   canvasDocId: z.string(),
   canvasTitle: z.string().default(""),
+  canvasDescription: z.string().default(""),
+  canvasColor: z.number().default(0),
+  canvasPreviewUrl: z.string().default(""),
   toNodeId: z.string(),
   toUsername: z.string().default(""),
   sentAt: z.string(),
@@ -62,9 +70,13 @@ const TAB_HEIGHT = 28;
 const TAB_FONT_SIZE = 11;
 const TAB_ACTIVE_COLOR = 0xf0f0ff;
 const TAB_INACTIVE_COLOR = 0x666678;
-const ROW_HEIGHT = 52;
+const ROW_HEIGHT = 80;
 const ROW_PADDING_X = 10;
-const ROW_AVATAR_SIZE = 28;
+
+const THUMB_SIZE = 44;
+const THUMB_RADIUS = 4;
+const THUMB_MARGIN = 10;
+const COLOR_STRIPE_WIDTH = 3;
 const ROW_NAME_SIZE = 11;
 const ROW_SUB_SIZE = 9;
 const ROW_ALT_BG = 0x1f1f2c;
@@ -77,18 +89,6 @@ const HEADER_SIZE = 14;
 // ---------------------------------------------------------------------------
 // helpers
 // ---------------------------------------------------------------------------
-
-const COLOR_PALETTE = [
-  0xd946ef, 0x6366f1, 0x06b6d4, 0x10b981, 0xeab308, 0xf97316, 0xef4444, 0x8b5cf6,
-];
-
-function colorForName(name: string): number {
-  let hash = 0;
-  for (let i = 0; i < name.length; i++) {
-    hash = (hash * 31 + name.charCodeAt(i)) | 0;
-  }
-  return COLOR_PALETTE[Math.abs(hash) % COLOR_PALETTE.length];
-}
 
 function truncate(str: string, max: number): string {
   return str.length > max ? str.slice(0, max - 1) + "\u2026" : str;
@@ -346,12 +346,10 @@ export const inboxWidget: WidgetFactory<typeof inboxSchema> = {
         return new Date(b.receivedAt).getTime() - new Date(a.receivedAt).getTime();
       });
 
+      const leftW = COLOR_STRIPE_WIDTH + 4 + THUMB_SIZE + THUMB_MARGIN;
       const maxNameChars = Math.max(
         6,
-        Math.floor(
-          (contentW - ROW_PADDING_X - ROW_AVATAR_SIZE - ROW_PADDING_X - ACTION_BTN_SIZE * 2 - 40) /
-            (ROW_NAME_SIZE * 0.55)
-        )
+        Math.floor((contentW - leftW - ACTION_BTN_SIZE * 2 - 40) / (ROW_NAME_SIZE * 0.55))
       );
 
       for (let i = 0; i < sorted.length; i++) {
@@ -372,45 +370,87 @@ export const inboxWidget: WidgetFactory<typeof inboxSchema> = {
         }
         rowContainer.addChild(rowBg);
 
-        // avatar circle
-        const displayName = invite.fromUsername || invite.fromNodeId.slice(0, 8);
-        const avatarColor = colorForName(displayName);
-        const avatarX = ROW_PADDING_X + ROW_AVATAR_SIZE / 2;
-        const avatarY = ROW_HEIGHT / 2;
+        // thumbnail area
+        const thumbColor = isTransparent(invite.canvasColor)
+          ? BORDER
+          : safeColor(invite.canvasColor);
+        const thumbX = COLOR_STRIPE_WIDTH + 4;
+        const thumbY = (ROW_HEIGHT - THUMB_SIZE) / 2;
 
-        const avatar = new Graphics();
-        avatar.eventMode = "none";
-        avatar.circle(avatarX, avatarY, ROW_AVATAR_SIZE / 2);
-        avatar.fill({ color: avatarColor });
-        rowContainer.addChild(avatar);
+        // color stripe on left edge
+        const stripe = new Graphics();
+        stripe.eventMode = "none";
+        stripe.rect(0, 0, COLOR_STRIPE_WIDTH, ROW_HEIGHT);
+        stripe.fill({ color: thumbColor });
+        rowContainer.addChild(stripe);
 
-        const initial = (invite.fromUsername || "?").charAt(0).toUpperCase();
-        const avatarLetter = new Text({
-          text: initial,
-          style: {
-            fontFamily: FONT,
-            fontSize: 9,
-            fontWeight: "bold",
-            fill: 0xffffff,
-            align: "center",
-          },
-          resolution: RESOLUTION,
-        });
-        avatarLetter.eventMode = "none";
-        avatarLetter.anchor.set(0.5);
-        avatarLetter.x = avatarX;
-        avatarLetter.y = avatarY;
-        rowContainer.addChild(avatarLetter);
+        if (invite.canvasPreviewUrl) {
+          // placeholder bg while loading
+          const thumbBg = new Graphics();
+          thumbBg.eventMode = "none";
+          thumbBg.roundRect(thumbX, thumbY, THUMB_SIZE, THUMB_SIZE, THUMB_RADIUS);
+          thumbBg.fill({ color: thumbColor, alpha: 0.15 });
+          rowContainer.addChild(thumbBg);
+
+          // async load — fire and forget, will render when ready
+          Assets.load<Texture>(invite.canvasPreviewUrl)
+            .then((texture) => {
+              if (!rowContainer.destroyed) {
+                const sprite = new Sprite(texture);
+                const scale = Math.max(THUMB_SIZE / texture.width, THUMB_SIZE / texture.height);
+                sprite.width = texture.width * scale;
+                sprite.height = texture.height * scale;
+                sprite.x = thumbX + (THUMB_SIZE - sprite.width) / 2;
+                sprite.y = thumbY + (THUMB_SIZE - sprite.height) / 2;
+                sprite.eventMode = "none";
+                // clip to rounded rect
+                const mask = new Graphics();
+                mask.roundRect(thumbX, thumbY, THUMB_SIZE, THUMB_SIZE, THUMB_RADIUS);
+                mask.fill({ color: 0xffffff });
+                rowContainer.addChild(mask);
+                sprite.mask = mask;
+                rowContainer.addChild(sprite);
+              }
+            })
+            .catch(() => {});
+        } else {
+          // solid color thumbnail with canvas title initial
+          const thumbBg = new Graphics();
+          thumbBg.eventMode = "none";
+          thumbBg.roundRect(thumbX, thumbY, THUMB_SIZE, THUMB_SIZE, THUMB_RADIUS);
+          thumbBg.fill({ color: thumbColor, alpha: 0.25 });
+          rowContainer.addChild(thumbBg);
+
+          const titleInitial = (invite.canvasTitle || "?").charAt(0).toUpperCase();
+          const thumbLetter = new Text({
+            text: titleInitial,
+            style: {
+              fontFamily: FONT,
+              fontSize: 14,
+              fontWeight: "bold",
+              fill: thumbColor,
+              align: "center",
+            },
+            resolution: RESOLUTION,
+          });
+          thumbLetter.eventMode = "none";
+          thumbLetter.anchor.set(0.5);
+          thumbLetter.x = thumbX + THUMB_SIZE / 2;
+          thumbLetter.y = thumbY + THUMB_SIZE / 2;
+          rowContainer.addChild(thumbLetter);
+        }
 
         // text content
-        const textX = ROW_PADDING_X + ROW_AVATAR_SIZE + ROW_PADDING_X;
+        const textX = leftW;
+        const hasDesc = !!invite.canvasDescription;
 
-        const nameLabel = invite.fromUsername
-          ? truncate(invite.fromUsername, maxNameChars)
-          : truncate(invite.fromNodeId, maxNameChars);
+        // line 1: canvas title (bold)
+        const titleLabel = invite.canvasTitle
+          ? truncate(invite.canvasTitle, maxNameChars)
+          : "untitled canvas";
 
-        const nameText = new Text({
-          text: nameLabel,
+        const titleText = new Text({
+          text: titleLabel,
           style: {
             fontFamily: FONT,
             fontSize: ROW_NAME_SIZE,
@@ -419,27 +459,38 @@ export const inboxWidget: WidgetFactory<typeof inboxSchema> = {
           },
           resolution: RESOLUTION,
         });
-        nameText.eventMode = "none";
-        nameText.x = textX;
-        nameText.y = 8;
-        rowContainer.addChild(nameText);
+        titleText.eventMode = "none";
+        titleText.x = textX;
+        titleText.y = hasDesc ? 12 : 22;
+        rowContainer.addChild(titleText);
 
-        // subtitle: canvas title + relayed indicator + time
-        let subLabel = invite.canvasTitle
-          ? truncate(invite.canvasTitle, maxNameChars)
-          : "untitled canvas";
-        if (invite.relayedBy) subLabel += " (relayed)";
-        subLabel += "  " + relativeTime(invite.receivedAt);
+        // line 2: description (only if present)
+        if (hasDesc) {
+          const descText = new Text({
+            text: truncate(invite.canvasDescription, maxNameChars),
+            style: { fontFamily: FONT, fontSize: ROW_SUB_SIZE, fill: MUTED_TEXT },
+            resolution: RESOLUTION,
+          });
+          descText.eventMode = "none";
+          descText.x = textX;
+          descText.y = 30;
+          rowContainer.addChild(descText);
+        }
 
-        const subText = new Text({
-          text: subLabel,
+        // line 3: from: username  ·  time
+        const displayName = invite.fromUsername || invite.fromNodeId.slice(0, 8);
+        let metaLabel = `from: ${displayName}  \u00b7  ${relativeTime(invite.receivedAt)}`;
+        if (invite.relayedBy) metaLabel += " (relayed)";
+
+        const metaText = new Text({
+          text: metaLabel,
           style: { fontFamily: FONT, fontSize: ROW_SUB_SIZE, fill: MUTED_TEXT },
           resolution: RESOLUTION,
         });
-        subText.eventMode = "none";
-        subText.x = textX;
-        subText.y = 28;
-        rowContainer.addChild(subText);
+        metaText.eventMode = "none";
+        metaText.x = textX;
+        metaText.y = hasDesc ? 47 : 42;
+        rowContainer.addChild(metaText);
 
         // right side — depends on status
         if (invite.status === "pending") {
@@ -598,11 +649,10 @@ export const inboxWidget: WidgetFactory<typeof inboxSchema> = {
         return new Date(b.sentAt).getTime() - new Date(a.sentAt).getTime();
       });
 
+      const leftW = COLOR_STRIPE_WIDTH + 4 + THUMB_SIZE + THUMB_MARGIN;
       const maxNameChars = Math.max(
         6,
-        Math.floor(
-          (contentW - ROW_PADDING_X - ROW_AVATAR_SIZE - ROW_PADDING_X - 80) / (ROW_NAME_SIZE * 0.55)
-        )
+        Math.floor((contentW - leftW - 80) / (ROW_NAME_SIZE * 0.55))
       );
 
       for (let i = 0; i < sorted.length; i++) {
@@ -623,45 +673,85 @@ export const inboxWidget: WidgetFactory<typeof inboxSchema> = {
         }
         rowContainer.addChild(rowBg);
 
-        // avatar circle
-        const displayName = share.toUsername || share.toNodeId.slice(0, 8);
-        const avatarColor = colorForName(displayName);
-        const avatarX = ROW_PADDING_X + ROW_AVATAR_SIZE / 2;
-        const avatarY = ROW_HEIGHT / 2;
+        // thumbnail area
+        const thumbColor = isTransparent(share.canvasColor) ? BORDER : safeColor(share.canvasColor);
+        const thumbX = COLOR_STRIPE_WIDTH + 4;
+        const thumbY = (ROW_HEIGHT - THUMB_SIZE) / 2;
 
-        const avatar = new Graphics();
-        avatar.eventMode = "none";
-        avatar.circle(avatarX, avatarY, ROW_AVATAR_SIZE / 2);
-        avatar.fill({ color: avatarColor });
-        rowContainer.addChild(avatar);
+        // color stripe on left edge
+        const stripe = new Graphics();
+        stripe.eventMode = "none";
+        stripe.rect(0, 0, COLOR_STRIPE_WIDTH, ROW_HEIGHT);
+        stripe.fill({ color: thumbColor });
+        rowContainer.addChild(stripe);
 
-        const initial = (share.toUsername || "?").charAt(0).toUpperCase();
-        const avatarLetter = new Text({
-          text: initial,
-          style: {
-            fontFamily: FONT,
-            fontSize: 9,
-            fontWeight: "bold",
-            fill: 0xffffff,
-            align: "center",
-          },
-          resolution: RESOLUTION,
-        });
-        avatarLetter.eventMode = "none";
-        avatarLetter.anchor.set(0.5);
-        avatarLetter.x = avatarX;
-        avatarLetter.y = avatarY;
-        rowContainer.addChild(avatarLetter);
+        if (share.canvasPreviewUrl) {
+          // placeholder bg while loading
+          const thumbBg = new Graphics();
+          thumbBg.eventMode = "none";
+          thumbBg.roundRect(thumbX, thumbY, THUMB_SIZE, THUMB_SIZE, THUMB_RADIUS);
+          thumbBg.fill({ color: thumbColor, alpha: 0.15 });
+          rowContainer.addChild(thumbBg);
+
+          // async load — fire and forget, will render when ready
+          Assets.load<Texture>(share.canvasPreviewUrl)
+            .then((texture) => {
+              if (!rowContainer.destroyed) {
+                const sprite = new Sprite(texture);
+                const scale = Math.max(THUMB_SIZE / texture.width, THUMB_SIZE / texture.height);
+                sprite.width = texture.width * scale;
+                sprite.height = texture.height * scale;
+                sprite.x = thumbX + (THUMB_SIZE - sprite.width) / 2;
+                sprite.y = thumbY + (THUMB_SIZE - sprite.height) / 2;
+                sprite.eventMode = "none";
+                // clip to rounded rect
+                const mask = new Graphics();
+                mask.roundRect(thumbX, thumbY, THUMB_SIZE, THUMB_SIZE, THUMB_RADIUS);
+                mask.fill({ color: 0xffffff });
+                rowContainer.addChild(mask);
+                sprite.mask = mask;
+                rowContainer.addChild(sprite);
+              }
+            })
+            .catch(() => {});
+        } else {
+          // solid color thumbnail with canvas title initial
+          const thumbBg = new Graphics();
+          thumbBg.eventMode = "none";
+          thumbBg.roundRect(thumbX, thumbY, THUMB_SIZE, THUMB_SIZE, THUMB_RADIUS);
+          thumbBg.fill({ color: thumbColor, alpha: 0.25 });
+          rowContainer.addChild(thumbBg);
+
+          const titleInitial = (share.canvasTitle || "?").charAt(0).toUpperCase();
+          const thumbLetter = new Text({
+            text: titleInitial,
+            style: {
+              fontFamily: FONT,
+              fontSize: 14,
+              fontWeight: "bold",
+              fill: thumbColor,
+              align: "center",
+            },
+            resolution: RESOLUTION,
+          });
+          thumbLetter.eventMode = "none";
+          thumbLetter.anchor.set(0.5);
+          thumbLetter.x = thumbX + THUMB_SIZE / 2;
+          thumbLetter.y = thumbY + THUMB_SIZE / 2;
+          rowContainer.addChild(thumbLetter);
+        }
 
         // text content
-        const textX = ROW_PADDING_X + ROW_AVATAR_SIZE + ROW_PADDING_X;
+        const textX = leftW;
+        const hasDesc = !!share.canvasDescription;
 
-        const nameLabel = share.toUsername
-          ? truncate(share.toUsername, maxNameChars)
-          : truncate(share.toNodeId, maxNameChars);
+        // line 1: canvas title (bold)
+        const titleLabel = share.canvasTitle
+          ? truncate(share.canvasTitle, maxNameChars)
+          : "untitled canvas";
 
-        const nameText = new Text({
-          text: nameLabel,
+        const titleText = new Text({
+          text: titleLabel,
           style: {
             fontFamily: FONT,
             fontSize: ROW_NAME_SIZE,
@@ -670,26 +760,37 @@ export const inboxWidget: WidgetFactory<typeof inboxSchema> = {
           },
           resolution: RESOLUTION,
         });
-        nameText.eventMode = "none";
-        nameText.x = textX;
-        nameText.y = 8;
-        rowContainer.addChild(nameText);
+        titleText.eventMode = "none";
+        titleText.x = textX;
+        titleText.y = hasDesc ? 12 : 22;
+        rowContainer.addChild(titleText);
 
-        // subtitle: canvas title + time
-        const subLabel =
-          (share.canvasTitle ? truncate(share.canvasTitle, maxNameChars) : "untitled canvas") +
-          "  " +
-          relativeTime(share.sentAt);
+        // line 2: description (only if present)
+        if (hasDesc) {
+          const descText = new Text({
+            text: truncate(share.canvasDescription, maxNameChars),
+            style: { fontFamily: FONT, fontSize: ROW_SUB_SIZE, fill: MUTED_TEXT },
+            resolution: RESOLUTION,
+          });
+          descText.eventMode = "none";
+          descText.x = textX;
+          descText.y = 30;
+          rowContainer.addChild(descText);
+        }
 
-        const subText = new Text({
-          text: subLabel,
+        // line 3: to: username  ·  time
+        const displayName = share.toUsername || share.toNodeId.slice(0, 8);
+        const metaLabel = `to: ${displayName}  \u00b7  ${relativeTime(share.sentAt)}`;
+
+        const metaText = new Text({
+          text: metaLabel,
           style: { fontFamily: FONT, fontSize: ROW_SUB_SIZE, fill: MUTED_TEXT },
           resolution: RESOLUTION,
         });
-        subText.eventMode = "none";
-        subText.x = textX;
-        subText.y = 28;
-        rowContainer.addChild(subText);
+        metaText.eventMode = "none";
+        metaText.x = textX;
+        metaText.y = hasDesc ? 47 : 42;
+        rowContainer.addChild(metaText);
 
         // right side — status indicator
         let statusIconChar = "";
