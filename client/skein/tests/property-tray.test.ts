@@ -25,57 +25,13 @@ test("property tray is hidden by default", async ({ canvasPage }) => {
   expect(visible).toBe(false);
 });
 
-test("property tray is hidden in view mode even when a widget is selected", async ({
-  canvasPage,
-}) => {
-  const { page } = await canvasPage();
-
-  // add a widget in edit mode, select it, then switch to view mode
-  await page.evaluate(() => {
-    const skein = (window as any).__skein;
-    skein.inputRouter.toggleMode(); // → edit
-    skein.store.addWidget({
-      id: "w1",
-      type: "label",
-      x: 50,
-      y: 50,
-      width: 200,
-      height: 100,
-      zIndex: 1,
-      props: {},
-      collapsed: false,
-      docId: null,
-    });
-  });
-  await page.waitForTimeout(300);
-
-  // select it
-  await page.evaluate(() => {
-    (window as any).__skein.inputRouter.selectWidget("w1");
-  });
-  await page.waitForTimeout(100);
-
-  // switch back to view mode
-  await page.evaluate(() => {
-    (window as any).__skein.inputRouter.toggleMode(); // → view
-  });
-  await page.waitForTimeout(100);
-
-  const visible = await page.evaluate(() => {
-    return (window as any).__skein.propertyTray.root.visible;
-  });
-
-  expect(visible).toBe(false);
-});
-
-test("property tray appears when a widget with editableProps is selected in edit mode", async ({
+test("property tray appears when a widget with editableProps is selected", async ({
   canvasPage,
 }) => {
   const { page } = await canvasPage();
 
   await page.evaluate(() => {
     const skein = (window as any).__skein;
-    skein.inputRouter.toggleMode(); // → edit
     skein.store.addWidget({
       id: "w1",
       type: "label",
@@ -108,7 +64,6 @@ test("property tray hides when widget is deselected", async ({ canvasPage }) => 
 
   await page.evaluate(() => {
     const skein = (window as any).__skein;
-    skein.inputRouter.toggleMode(); // → edit
     skein.store.addWidget({
       id: "w1",
       type: "label",
@@ -154,7 +109,6 @@ test("property tray does not appear for stateless widgets (hello-world)", async 
 
   await page.evaluate(() => {
     const skein = (window as any).__skein;
-    skein.inputRouter.toggleMode(); // → edit
     skein.store.addWidget({
       id: "hw1",
       type: "hello-world",
@@ -182,14 +136,11 @@ test("property tray does not appear for stateless widgets (hello-world)", async 
   expect(visible).toBe(false);
 });
 
-test("property tray is positioned to the right of the selected widget", async ({
-  canvasPage,
-}) => {
+test("property tray is positioned to the right of the selected widget", async ({ canvasPage }) => {
   const { page } = await canvasPage();
 
   await page.evaluate(() => {
     const skein = (window as any).__skein;
-    skein.inputRouter.toggleMode(); // → edit
     skein.store.addWidget({
       id: "w1",
       type: "label",
@@ -218,8 +169,8 @@ test("property tray is positioned to the right of the selected widget", async ({
 
   // tray should be to the right of the widget (x=100 + width=200 + gap=8 = 308)
   expect(pos.x).toBe(308);
-  // tray y should match the widget y
-  expect(pos.y).toBe(80);
+  // tray y should be widget y minus frameHeaderHeight (80 - 28 = 52)
+  expect(pos.y).toBe(52);
 });
 
 test("property tray repositions when widget is moved", async ({ canvasPage }) => {
@@ -227,7 +178,6 @@ test("property tray repositions when widget is moved", async ({ canvasPage }) =>
 
   await page.evaluate(() => {
     const skein = (window as any).__skein;
-    skein.inputRouter.toggleMode(); // → edit
     skein.store.addWidget({
       id: "w1",
       type: "label",
@@ -261,7 +211,8 @@ test("property tray repositions when widget is moved", async ({ canvasPage }) =>
 
   // 300 + 200 (width) + 8 (gap) = 508
   expect(pos.x).toBe(508);
-  expect(pos.y).toBe(200);
+  // 200 - 28 (frameHeaderHeight) = 172
+  expect(pos.y).toBe(172);
 });
 
 test("property tray shows the widget name in the header", async ({ canvasPage }) => {
@@ -269,7 +220,6 @@ test("property tray shows the widget name in the header", async ({ canvasPage })
 
   await page.evaluate(() => {
     const skein = (window as any).__skein;
-    skein.inputRouter.toggleMode();
     skein.store.addWidget({
       id: "w1",
       type: "label",
@@ -306,7 +256,6 @@ test("property tray renders controls for each editable prop", async ({ canvasPag
   // use counter widget which has 2 editableProps: label (string) and step (number)
   await page.evaluate(() => {
     const skein = (window as any).__skein;
-    skein.inputRouter.toggleMode();
     skein.store.addWidget({
       id: "c1",
       type: "counter",
@@ -342,53 +291,11 @@ test("property tray renders controls for each editable prop", async ({ canvasPag
   expect(result.controlCount).toBe(2);
 });
 
-test("property tray hides when switching from edit to view mode", async ({ canvasPage }) => {
-  const { page } = await canvasPage();
-
-  await page.evaluate(() => {
-    const skein = (window as any).__skein;
-    skein.inputRouter.toggleMode(); // → edit
-    skein.store.addWidget({
-      id: "w1",
-      type: "label",
-      x: 50,
-      y: 50,
-      width: 200,
-      height: 100,
-      zIndex: 1,
-      props: {},
-      collapsed: false,
-      docId: null,
-    });
-  });
-  await page.waitForTimeout(300);
-
-  await page.evaluate(() => {
-    (window as any).__skein.inputRouter.selectWidget("w1");
-  });
-  await page.waitForTimeout(100);
-
-  expect(
-    await page.evaluate(() => (window as any).__skein.propertyTray.root.visible)
-  ).toBe(true);
-
-  // switch to view mode
-  await page.evaluate(() => {
-    (window as any).__skein.inputRouter.toggleMode(); // → view
-  });
-  await page.waitForTimeout(100);
-
-  expect(
-    await page.evaluate(() => (window as any).__skein.propertyTray.root.visible)
-  ).toBe(false);
-});
-
 test("property tray switches when selecting a different widget", async ({ canvasPage }) => {
   const { page } = await canvasPage();
 
   await page.evaluate(() => {
     const skein = (window as any).__skein;
-    skein.inputRouter.toggleMode();
     skein.store.addWidget({
       id: "w1",
       type: "label",
@@ -446,7 +353,6 @@ test("property tray hides when the selected widget is removed", async ({ canvasP
 
   await page.evaluate(() => {
     const skein = (window as any).__skein;
-    skein.inputRouter.toggleMode();
     skein.store.addWidget({
       id: "w1",
       type: "label",
@@ -467,9 +373,7 @@ test("property tray hides when the selected widget is removed", async ({ canvasP
   });
   await page.waitForTimeout(100);
 
-  expect(
-    await page.evaluate(() => (window as any).__skein.propertyTray.root.visible)
-  ).toBe(true);
+  expect(await page.evaluate(() => (window as any).__skein.propertyTray.root.visible)).toBe(true);
 
   // remove the widget
   await page.evaluate(() => {
@@ -478,9 +382,7 @@ test("property tray hides when the selected widget is removed", async ({ canvasP
   });
   await page.waitForTimeout(100);
 
-  expect(
-    await page.evaluate(() => (window as any).__skein.propertyTray.root.visible)
-  ).toBe(false);
+  expect(await page.evaluate(() => (window as any).__skein.propertyTray.root.visible)).toBe(false);
 });
 
 test("number control +/- buttons change the widget doc value", async ({ canvasPage }) => {
@@ -488,7 +390,6 @@ test("number control +/- buttons change the widget doc value", async ({ canvasPa
 
   await page.evaluate(() => {
     const skein = (window as any).__skein;
-    skein.inputRouter.toggleMode();
     skein.store.addWidget({
       id: "c1",
       type: "counter",
@@ -554,7 +455,6 @@ test("property tray survives canvas destroy without errors", async ({ canvasPage
   // add a widget and select it so the tray is visible
   await page.evaluate(() => {
     const skein = (window as any).__skein;
-    skein.inputRouter.toggleMode();
     skein.store.addWidget({
       id: "w1",
       type: "label",
@@ -592,7 +492,6 @@ test("property tray repositions when widget is resized", async ({ canvasPage }) 
 
   await page.evaluate(() => {
     const skein = (window as any).__skein;
-    skein.inputRouter.toggleMode();
     skein.store.addWidget({
       id: "w1",
       type: "label",

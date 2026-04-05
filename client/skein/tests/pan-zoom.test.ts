@@ -488,7 +488,6 @@ test("widget drag accounts for zoom level", async ({ canvasPage }) => {
       collapsed: false,
       docId: null,
     });
-    skein.inputRouter.setMode("edit");
     await new Promise((r) => setTimeout(r, 50));
 
     // zoom to 2x

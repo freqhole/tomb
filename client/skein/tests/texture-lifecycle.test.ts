@@ -108,14 +108,7 @@ test.describe("texture lifecycle — property tray shared asset unload", () => {
     // wait for the preview sprite to load
     await page.waitForTimeout(1500);
 
-    // step 3: switch to edit mode
-    await page.evaluate(() => {
-      const skein = (window as any).__skein;
-      skein.inputRouter.setMode("edit");
-    });
-    await page.waitForTimeout(300);
-
-    // step 4: select the canvas-card widget (which opens the property tray
+    // step 3: select the canvas-card widget (which opens the property tray
     // with an image control that loads the same data URL)
     const cardWidgetId = await page.evaluate(() => {
       const skein = (window as any).__skein;
@@ -192,13 +185,6 @@ test.describe("texture lifecycle — property tray shared asset unload", () => {
       }
     }, fakeDataUrl);
     await page.waitForTimeout(1500);
-
-    // enter edit mode
-    await page.evaluate(() => {
-      const skein = (window as any).__skein;
-      skein.inputRouter.setMode("edit");
-    });
-    await page.waitForTimeout(300);
 
     // select the canvas-card
     const cardId = await page.evaluate(() => {

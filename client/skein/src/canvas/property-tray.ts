@@ -178,7 +178,6 @@ export class PropertyTray {
 
     // subscribe to selection and mode changes
     this.unsubs.push(inputRouter.onSelectionChange(() => this.refresh()));
-    this.unsubs.push(inputRouter.onModeChange(() => this.refresh()));
 
     // reposition tray when the store changes (widget moved/resized)
     this.unsubs.push(store.onChange(() => this.repositionIfNeeded()));
@@ -258,7 +257,7 @@ export class PropertyTray {
   private refresh(): void {
     const selectedId = this.inputRouter.selectedWidgetId;
 
-    if (!selectedId || !this.inputRouter.isEditMode) {
+    if (!selectedId) {
       this.hide();
       return;
     }
@@ -359,7 +358,7 @@ export class PropertyTray {
 
   private positionNextTo(frameX: number, frameY: number, frameWidth: number): void {
     this.root.x = Math.round(frameX + frameWidth + TRAY_GAP);
-    this.root.y = Math.round(frameY);
+    this.root.y = Math.round(frameY - this.theme.frameHeaderHeight);
   }
 
   private repositionIfNeeded(): void {

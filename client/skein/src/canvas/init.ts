@@ -147,7 +147,7 @@ export async function initCanvas(options: InitCanvasOptions): Promise<SkeinCanva
   // step 7: draw stage background inside the world container so it
   // pans and zooms with everything else
   const stageBg = new Graphics();
-  stageBg.rect(0, 0, app.screen.width, app.screen.height);
+  stageBg.rect(-2000, -2000, 4000, 4000);
   stageBg.fill({ color: theme.stageBg });
   stageBg.zIndex = -1;
   world.addChild(stageBg);
@@ -216,6 +216,12 @@ export async function initCanvas(options: InitCanvasOptions): Promise<SkeinCanva
     theme,
     onDoubleClick: (screenX, screenY, worldX, worldY) => {
       toolbar.openFlyoutAtPosition(screenX, screenY, worldX, worldY);
+    },
+    onLassoStart: () => {
+      widgetManager.setLassoActive(true);
+    },
+    onLassoEnd: () => {
+      widgetManager.setLassoActive(false);
     },
   });
 

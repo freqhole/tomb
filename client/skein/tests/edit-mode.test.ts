@@ -10,100 +10,18 @@ test("toolbar is visible on canvas init", async ({ canvasPage }) => {
   expect(exists).toBe(true);
 });
 
-test("toolbar shows view mode by default", async ({ canvasPage }) => {
+test("add widget button is visible on canvas init", async ({ canvasPage }) => {
   const { page } = await canvasPage();
 
-  const modeText = await page.evaluate(() => {
-    return (window as any).__skein.toolbar.modeBtnText.text;
-  });
-  expect(modeText).toBe("edit");
-});
-
-test("pressing 'e' toggles to edit mode", async ({ canvasPage }) => {
-  const { page } = await canvasPage();
-
-  // start in view mode
-  const mode = await page.evaluate(() => {
-    return (window as any).__skein.inputRouter.mode;
-  });
-  expect(mode).toBe("view");
-
-  // press 'e' to toggle
-  await page.keyboard.press("e");
-
-  const modeAfter = await page.evaluate(() => {
-    return (window as any).__skein.inputRouter.mode;
-  });
-  expect(modeAfter).toBe("edit");
-
-  // toolbar button text should update
-  const modeText = await page.evaluate(() => {
-    return (window as any).__skein.toolbar.modeBtnText.text;
-  });
-  expect(modeText).toBe("view");
-});
-
-test("pressing 'e' again toggles back to view mode", async ({ canvasPage }) => {
-  const { page } = await canvasPage();
-
-  await page.keyboard.press("e");
-  await page.keyboard.press("e");
-
-  const mode = await page.evaluate(() => {
-    return (window as any).__skein.inputRouter.mode;
-  });
-  expect(mode).toBe("view");
-});
-
-test("toolbar mode button toggles mode via onPress", async ({ canvasPage }) => {
-  const { page } = await canvasPage();
-
-  // simulate pressing the mode button via its onPress signal
-  await page.evaluate(() => {
-    (window as any).__skein.toolbar.modeBtn.onPress.emit();
-  });
-
-  const mode = await page.evaluate(() => {
-    return (window as any).__skein.inputRouter.mode;
-  });
-  expect(mode).toBe("edit");
-
-  await page.evaluate(() => {
-    (window as any).__skein.toolbar.modeBtn.onPress.emit();
-  });
-
-  const modeAfter = await page.evaluate(() => {
-    return (window as any).__skein.inputRouter.mode;
-  });
-  expect(modeAfter).toBe("view");
-});
-
-test("add widget button appears in edit mode", async ({ canvasPage }) => {
-  const { page } = await canvasPage();
-
-  // in view mode, add button should be hidden
-  const visibleBefore = await page.evaluate(() => {
+  const visible = await page.evaluate(() => {
     const toolbar = (window as any).__skein.toolbar;
     return toolbar.addBtn.visible;
   });
-  expect(visibleBefore).toBe(false);
-
-  // switch to edit mode
-  await page.keyboard.press("e");
-
-  // add button should now be visible
-  const visibleAfter = await page.evaluate(() => {
-    const toolbar = (window as any).__skein.toolbar;
-    return toolbar.addBtn.visible;
-  });
-  expect(visibleAfter).toBe(true);
+  expect(visible).toBe(true);
 });
 
 test("adding a widget via toolbar creates it in the store", async ({ canvasPage }) => {
   const { page } = await canvasPage();
-
-  // switch to edit mode
-  await page.keyboard.press("e");
 
   // use the toolbar's internal addWidget method to add a widget
   await page.evaluate(() => {
@@ -127,9 +45,6 @@ test("adding a widget via toolbar creates it in the store", async ({ canvasPage 
 
 test("flyout menu stays within the viewport bounds", async ({ canvasPage }) => {
   const { page } = await canvasPage();
-
-  // switch to edit mode so the "+" button is visible
-  await page.keyboard.press("e");
 
   // open the flyout by calling toggleFlyout (private, but accessible for testing)
   await page.evaluate(() => {
@@ -181,9 +96,6 @@ test("flyout menu stays within bounds on a small viewport", async ({ canvasPage 
   await page.setViewportSize({ width: 400, height: 300 });
   await page.waitForTimeout(200);
 
-  // switch to edit mode
-  await page.keyboard.press("e");
-
   // open the flyout
   await page.evaluate(() => {
     const toolbar = (window as any).__skein.toolbar;
@@ -224,7 +136,7 @@ test("flyout menu stays within bounds on a small viewport", async ({ canvasPage 
   expect(bounds.bottom).toBeLessThanOrEqual(bounds.viewportHeight);
 });
 
-test("selecting a widget in edit mode updates inputRouter selection", async ({ canvasPage }) => {
+test("selecting a widget updates inputRouter selection", async ({ canvasPage }) => {
   const { page } = await canvasPage();
 
   // add a widget
@@ -246,9 +158,6 @@ test("selecting a widget in edit mode updates inputRouter selection", async ({ c
 
   await page.waitForTimeout(200);
 
-  // switch to edit mode
-  await page.keyboard.press("e");
-
   // programmatically select the widget
   await page.evaluate(() => {
     (window as any).__skein.inputRouter.selectWidget("sel-test");
@@ -268,7 +177,7 @@ test("selecting a widget in edit mode updates inputRouter selection", async ({ c
   expect(isSelected).toBe(true);
 });
 
-test("escape key deselects widget in edit mode", async ({ canvasPage }) => {
+test("escape key deselects widget", async ({ canvasPage }) => {
   const { page } = await canvasPage();
 
   await page.evaluate(() => {
@@ -289,8 +198,7 @@ test("escape key deselects widget in edit mode", async ({ canvasPage }) => {
 
   await page.waitForTimeout(200);
 
-  // enter edit mode and select
-  await page.keyboard.press("e");
+  // select the widget
   await page.evaluate(() => {
     (window as any).__skein.inputRouter.selectWidget("esc-test");
   });
@@ -304,7 +212,7 @@ test("escape key deselects widget in edit mode", async ({ canvasPage }) => {
   expect(selected).toBeNull();
 });
 
-test("delete key removes selected widget in edit mode", async ({ canvasPage }) => {
+test("delete key removes selected widget", async ({ canvasPage }) => {
   const { page } = await canvasPage();
 
   await page.evaluate(() => {
@@ -325,8 +233,7 @@ test("delete key removes selected widget in edit mode", async ({ canvasPage }) =
 
   await page.waitForTimeout(200);
 
-  // enter edit mode, select, and delete
-  await page.keyboard.press("e");
+  // select and delete
   await page.evaluate(() => {
     (window as any).__skein.inputRouter.selectWidget("del-test");
   });
@@ -345,43 +252,7 @@ test("delete key removes selected widget in edit mode", async ({ canvasPage }) =
   expect(liveCount).toBe(0);
 });
 
-test("switching to view mode clears selection", async ({ canvasPage }) => {
-  const { page } = await canvasPage();
-
-  await page.evaluate(() => {
-    const skein = (window as any).__skein;
-    skein.store.addWidget({
-      id: "mode-sel",
-      type: "hello-world",
-      x: 100,
-      y: 100,
-      width: 200,
-      height: 100,
-      zIndex: 1,
-      props: {},
-      collapsed: false,
-      docId: null,
-    });
-  });
-
-  await page.waitForTimeout(200);
-
-  // enter edit mode and select
-  await page.keyboard.press("e");
-  await page.evaluate(() => {
-    (window as any).__skein.inputRouter.selectWidget("mode-sel");
-  });
-
-  // switch to view mode
-  await page.keyboard.press("e");
-
-  const selected = await page.evaluate(() => {
-    return (window as any).__skein.inputRouter.selectedWidgetId;
-  });
-  expect(selected).toBeNull();
-});
-
-test("edit mode frames show header buttons, view mode hides them", async ({ canvasPage }) => {
+test("selecting a widget makes header and buttons visible", async ({ canvasPage }) => {
   const { page } = await canvasPage();
 
   await page.evaluate(() => {
@@ -402,8 +273,8 @@ test("edit mode frames show header buttons, view mode hides them", async ({ canv
 
   await page.waitForTimeout(200);
 
-  // in view mode: collapse and close buttons should be hidden
-  const viewState = await page.evaluate(() => {
+  // initially (not hovered, not selected): header should be hidden
+  const initialState = await page.evaluate(() => {
     const live = (window as any).__skein.widgetManager.getLiveWidgets();
     const w = live.get("vis-test");
     const frame = w.frame;
@@ -413,16 +284,16 @@ test("edit mode frames show header buttons, view mode hides them", async ({ canv
       headerVisible: frame.header?.visible,
     };
   });
-  // NOTE: collapseBtn and closeBtn are private, but we access them for testing
-  // in view mode they should not be visible
-  expect(viewState.collapseBtnVisible).toBe(false);
-  expect(viewState.closeBtnVisible).toBe(false);
-  expect(viewState.headerVisible).toBe(false);
+  expect(initialState.collapseBtnVisible).toBe(false);
+  expect(initialState.closeBtnVisible).toBe(false);
+  expect(initialState.headerVisible).toBe(false);
 
-  // switch to edit mode
-  await page.keyboard.press("e");
+  // select the widget
+  await page.evaluate(() => {
+    (window as any).__skein.inputRouter.selectWidget("vis-test");
+  });
 
-  const editState = await page.evaluate(() => {
+  const selectedState = await page.evaluate(() => {
     const live = (window as any).__skein.widgetManager.getLiveWidgets();
     const w = live.get("vis-test");
     const frame = w.frame;
@@ -432,9 +303,9 @@ test("edit mode frames show header buttons, view mode hides them", async ({ canv
       headerVisible: frame.header?.visible,
     };
   });
-  expect(editState.collapseBtnVisible).toBe(true);
-  expect(editState.closeBtnVisible).toBe(true);
-  expect(editState.headerVisible).toBe(true);
+  expect(selectedState.collapseBtnVisible).toBe(true);
+  expect(selectedState.closeBtnVisible).toBe(true);
+  expect(selectedState.headerVisible).toBe(true);
 });
 
 test("close button removes widget from store", async ({ canvasPage }) => {
@@ -649,9 +520,6 @@ test("select callback via frame updates input router selection", async ({ canvas
 
   await page.waitForTimeout(200);
 
-  // switch to edit mode
-  await page.keyboard.press("e");
-
   // select widget 1 via frame callback
   await page.evaluate(() => {
     const live = (window as any).__skein.widgetManager.getLiveWidgets();
@@ -693,7 +561,7 @@ test("select callback via frame updates input router selection", async ({ canvas
   expect(states2.frame2Selected).toBe(true);
 });
 
-test("delete button visible only when widget selected in edit mode", async ({ canvasPage }) => {
+test("delete button visible only when widget selected", async ({ canvasPage }) => {
   const { page } = await canvasPage();
 
   await page.evaluate(() => {
@@ -714,27 +582,20 @@ test("delete button visible only when widget selected in edit mode", async ({ ca
 
   await page.waitForTimeout(200);
 
-  // in view mode, delete button should be hidden
-  const viewVisible = await page.evaluate(() => {
+  // no selection — delete button should be hidden
+  const noSelVisible = await page.evaluate(() => {
     return (window as any).__skein.toolbar.deleteBtn.visible;
   });
-  expect(viewVisible).toBe(false);
-
-  // enter edit mode — still hidden (nothing selected)
-  await page.keyboard.press("e");
-  const editNoSel = await page.evaluate(() => {
-    return (window as any).__skein.toolbar.deleteBtn.visible;
-  });
-  expect(editNoSel).toBe(false);
+  expect(noSelVisible).toBe(false);
 
   // select the widget — delete should appear
   await page.evaluate(() => {
     (window as any).__skein.inputRouter.selectWidget("del-vis");
   });
-  const editWithSel = await page.evaluate(() => {
+  const withSelVisible = await page.evaluate(() => {
     return (window as any).__skein.toolbar.deleteBtn.visible;
   });
-  expect(editWithSel).toBe(true);
+  expect(withSelVisible).toBe(true);
 
   // deselect — hidden again
   await page.keyboard.press("Escape");
@@ -765,8 +626,7 @@ test("toolbar delete button removes the selected widget", async ({ canvasPage })
 
   await page.waitForTimeout(200);
 
-  // enter edit mode and select
-  await page.keyboard.press("e");
+  // select the widget
   await page.evaluate(() => {
     (window as any).__skein.inputRouter.selectWidget("toolbar-del");
   });
@@ -790,7 +650,7 @@ test("toolbar delete button removes the selected widget", async ({ canvasPage })
   expect(counts.selected).toBeNull();
 });
 
-test("resize handles visible only in edit mode", async ({ canvasPage }) => {
+test("resize handles visible when selected, hidden when not", async ({ canvasPage }) => {
   const { page } = await canvasPage();
 
   await page.evaluate(() => {
@@ -811,8 +671,8 @@ test("resize handles visible only in edit mode", async ({ canvasPage }) => {
 
   await page.waitForTimeout(200);
 
-  // in view mode, handles should be hidden
-  const viewHandleCount = await page.evaluate(() => {
+  // not selected — handles should be hidden
+  const notSelectedHandleCount = await page.evaluate(() => {
     const live = (window as any).__skein.widgetManager.getLiveWidgets();
     const frame = live.get("handle-vis").frame;
     let visible = 0;
@@ -821,17 +681,14 @@ test("resize handles visible only in edit mode", async ({ canvasPage }) => {
     }
     return visible;
   });
-  expect(viewHandleCount).toBe(0);
+  expect(notSelectedHandleCount).toBe(0);
 
-  // switch to edit mode — handles should be visible
-  await page.keyboard.press("e");
-
-  // select the widget so handles become visible (handles require hover or selection)
+  // select the widget — handles should be visible
   await page.evaluate(() => {
     (window as any).__skein.inputRouter.selectWidget("handle-vis");
   });
 
-  const editHandleCount = await page.evaluate(() => {
+  const selectedHandleCount = await page.evaluate(() => {
     const live = (window as any).__skein.widgetManager.getLiveWidgets();
     const frame = live.get("handle-vis").frame;
     let visible = 0;
@@ -840,57 +697,26 @@ test("resize handles visible only in edit mode", async ({ canvasPage }) => {
     }
     return visible;
   });
-  expect(editHandleCount).toBe(8);
-});
+  expect(selectedHandleCount).toBe(8);
 
-test("content container interactivity changes with mode", async ({ canvasPage }) => {
-  const { page } = await canvasPage();
-
+  // deselect — handles should be hidden again
   await page.evaluate(() => {
-    const skein = (window as any).__skein;
-    skein.store.addWidget({
-      id: "interact-test",
-      type: "hello-world",
-      x: 100,
-      y: 100,
-      width: 200,
-      height: 100,
-      zIndex: 1,
-      props: {},
-      collapsed: false,
-      docId: null,
-    });
+    (window as any).__skein.inputRouter.selectWidget(null);
   });
 
-  await page.waitForTimeout(200);
-
-  // in view mode: content is interactive
-  const viewState = await page.evaluate(() => {
+  const deselectedHandleCount = await page.evaluate(() => {
     const live = (window as any).__skein.widgetManager.getLiveWidgets();
-    const frame = live.get("interact-test").frame;
-    return {
-      eventMode: frame.contentContainer.eventMode,
-      interactiveChildren: frame.contentContainer.interactiveChildren,
-    };
+    const frame = live.get("handle-vis").frame;
+    let visible = 0;
+    for (const h of frame.resizeHandles.values()) {
+      if (h.visible) visible++;
+    }
+    return visible;
   });
-  // in view mode, content should accept events
-  expect(viewState.interactiveChildren).toBe(true);
-
-  // switch to edit mode: content becomes inert
-  await page.keyboard.press("e");
-
-  const editState = await page.evaluate(() => {
-    const live = (window as any).__skein.widgetManager.getLiveWidgets();
-    const frame = live.get("interact-test").frame;
-    return {
-      eventMode: frame.contentContainer.eventMode,
-      interactiveChildren: frame.contentContainer.interactiveChildren,
-    };
-  });
-  expect(editState.interactiveChildren).toBe(false);
+  expect(deselectedHandleCount).toBe(0);
 });
 
-test("collapsed widget hides resize handles in edit mode", async ({ canvasPage }) => {
+test("collapsed widget hides resize handles", async ({ canvasPage }) => {
   const { page } = await canvasPage();
 
   await page.evaluate(() => {
@@ -910,9 +736,6 @@ test("collapsed widget hides resize handles in edit mode", async ({ canvasPage }
   });
 
   await page.waitForTimeout(200);
-
-  // enter edit mode
-  await page.keyboard.press("e");
 
   // select the widget so handles become visible
   await page.evaluate(() => {
@@ -968,47 +791,4 @@ test("destroy cleans up toolbar and input router", async ({ canvasPage }) => {
 
   // canvas should be gone from DOM
   await expect(page.locator("#canvas-root canvas")).toHaveCount(0);
-});
-
-test("newly added widgets respect current edit mode", async ({ canvasPage }) => {
-  const { page } = await canvasPage();
-
-  // enter edit mode first
-  await page.keyboard.press("e");
-
-  // now add a widget — it should mount in edit mode
-  await page.evaluate(() => {
-    const skein = (window as any).__skein;
-    skein.store.addWidget({
-      id: "late-widget",
-      type: "hello-world",
-      x: 100,
-      y: 100,
-      width: 200,
-      height: 100,
-      zIndex: 1,
-      props: {},
-      collapsed: false,
-      docId: null,
-    });
-  });
-
-  await page.waitForTimeout(200);
-
-  // select the widget so handles become visible (handles require hover or selection)
-  await page.evaluate(() => {
-    (window as any).__skein.inputRouter.selectWidget("late-widget");
-  });
-
-  // the widget's frame should be in edit mode (resize handles visible)
-  const handleCount = await page.evaluate(() => {
-    const live = (window as any).__skein.widgetManager.getLiveWidgets();
-    const frame = live.get("late-widget").frame;
-    let visible = 0;
-    for (const h of frame.resizeHandles.values()) {
-      if (h.visible) visible++;
-    }
-    return visible;
-  });
-  expect(handleCount).toBe(8);
 });

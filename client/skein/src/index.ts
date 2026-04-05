@@ -6,7 +6,6 @@ export { createCrashedPlaceholder } from "./canvas/crashed-placeholder";
 export { initCanvas } from "./canvas/init";
 export type { InitCanvasOptions, SkeinCanvas } from "./canvas/init";
 export { InputRouter } from "./canvas/input-router";
-export type { CanvasMode } from "./canvas/input-router";
 export { PropertyTray } from "./canvas/property-tray";
 export { Toolbar } from "./canvas/toolbar";
 export { WidgetFrame } from "./canvas/widget-frame";

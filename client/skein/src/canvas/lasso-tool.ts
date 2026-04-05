@@ -17,6 +17,10 @@ interface LassoToolOptions {
   theme: SkeinTheme;
   /** callback when user double-clicks empty canvas in edit mode */
   onDoubleClick: (screenX: number, screenY: number, worldX: number, worldY: number) => void;
+  /** called when a lasso drag begins — used to make widgets inert */
+  onLassoStart?: () => void;
+  /** called when a lasso drag ends — used to restore widget interactivity */
+  onLassoEnd?: () => void;
 }
 
 interface Point {
@@ -137,7 +141,6 @@ function polylineIntersectsRect(points: Point[], rect: Rect): boolean {
  *
  * handles click-to-deselect, double-click-to-open-flyout, and
  * click-and-drag to draw a freeform lasso selection around widgets.
- * only operates in edit mode.
  */
 export class LassoTool {
   private readonly target: Graphics;
@@ -151,6 +154,8 @@ export class LassoTool {
     worldX: number,
     worldY: number
   ) => void;
+  private readonly onLassoStart: (() => void) | null;
+  private readonly onLassoEnd: (() => void) | null;
 
   // lasso drawing state
   private lassoActive = false;
@@ -172,9 +177,6 @@ export class LassoTool {
   private readonly handlePointerUp: (e: FederatedPointerEvent) => void;
   private readonly handlePointerUpOutside: (e: FederatedPointerEvent) => void;
 
-  // mode change unsubscribe
-  private unsubModeChange: (() => void) | null = null;
-
   private static readonly CLICK_DISTANCE_THRESHOLD = 5;
   private static readonly CLICK_TIME_THRESHOLD = 300;
   private static readonly DOUBLE_CLICK_TIME_THRESHOLD = 400;
@@ -187,6 +189,8 @@ export class LassoTool {
     this.widgetManager = options.widgetManager;
     this.theme = options.theme;
     this.onDoubleClick = options.onDoubleClick;
+    this.onLassoStart = options.onLassoStart ?? null;
+    this.onLassoEnd = options.onLassoEnd ?? null;
 
     // bind event handlers
     this.handlePointerDown = this.onPointerDown.bind(this);
@@ -199,18 +203,11 @@ export class LassoTool {
     this.target.on("pointermove", this.handlePointerMove);
     this.target.on("pointerup", this.handlePointerUp);
     this.target.on("pointerupoutside", this.handlePointerUpOutside);
-
-    // subscribe to mode changes — end lasso if switching away from edit
-    this.unsubModeChange = this.inputRouter.onModeChange(() => {
-      this.endLasso();
-    });
   }
 
   // --- pointer event handlers ---
 
   private onPointerDown(e: FederatedPointerEvent): void {
-    if (!this.inputRouter.isEditMode) return;
-
     // avoid multi-touch conflicts
     if (this.activePointerId !== null) return;
     this.activePointerId = e.pointerId;
@@ -224,7 +221,6 @@ export class LassoTool {
   }
 
   private onPointerMove(e: FederatedPointerEvent): void {
-    if (!this.inputRouter.isEditMode) return;
     if (this.activePointerId !== e.pointerId) return;
 
     const dx = e.global.x - this.pointerDownPos.x;
@@ -253,11 +249,6 @@ export class LassoTool {
   private onPointerUp(e: FederatedPointerEvent): void {
     if (this.activePointerId !== e.pointerId) return;
     this.activePointerId = null;
-
-    if (!this.inputRouter.isEditMode) {
-      this.endLasso();
-      return;
-    }
 
     if (this.lassoActive) {
       // finish lasso — final selection update then clean up
@@ -313,6 +304,7 @@ export class LassoTool {
 
   /** begin a new lasso from the initial pointer-down position */
   private startLasso(): void {
+    this.onLassoStart?.();
     this.lassoActive = true;
     this.lassoPoints = [{ x: this.pointerDownWorldPos.x, y: this.pointerDownWorldPos.y }];
 
@@ -345,6 +337,9 @@ export class LassoTool {
    * idempotent — safe to call multiple times or when no lasso is active.
    */
   private endLasso(): void {
+    // only fire callback if a lasso was actually running
+    const wasActive = this.lassoActive;
+
     this.lassoActive = false;
     this.lassoPoints = [];
     this.activePointerId = null;
@@ -357,6 +352,10 @@ export class LassoTool {
       }
       this.lassoGraphics.destroy();
       this.lassoGraphics = null;
+    }
+
+    if (wasActive) {
+      this.onLassoEnd?.();
     }
   }
 
@@ -424,11 +423,5 @@ export class LassoTool {
     this.target.off("pointermove", this.handlePointerMove);
     this.target.off("pointerup", this.handlePointerUp);
     this.target.off("pointerupoutside", this.handlePointerUpOutside);
-
-    // unsubscribe from mode changes
-    if (this.unsubModeChange) {
-      this.unsubModeChange();
-      this.unsubModeChange = null;
-    }
   }
 }

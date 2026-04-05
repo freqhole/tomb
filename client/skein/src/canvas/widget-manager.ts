@@ -116,15 +116,6 @@ export class WidgetManager {
     });
     this.unsubs.push(unsubStore);
 
-    // subscribe to mode changes — update all frames
-    const unsubMode = this.inputRouter.onModeChange((mode) => {
-      const editing = mode === "edit";
-      for (const live of this.liveWidgets.values()) {
-        live.frame.setEditMode(editing);
-      }
-    });
-    this.unsubs.push(unsubMode);
-
     // subscribe to single-selection changes (backward compat for property tray etc.)
     const unsubSelection = this.inputRouter.onSelectionChange((_selectedId) => {
       // frame highlighting is driven by multi-selection below;
@@ -233,14 +224,13 @@ export class WidgetManager {
 
     // resolve the widget name from factory metadata
     const widgetName = factory.metadata.name;
-    const editing = this.inputRouter.isEditMode;
 
     // build callbacks that close over this entry's id
     const callbacks = this.createFrameCallbacks(entry.id);
 
     // create the pixi frame — singleton widgets cannot be closed
     const closeable = !factory.metadata.singleton;
-    const frame = new WidgetFrame(entry, widgetName, this.theme, editing, callbacks, closeable);
+    const frame = new WidgetFrame(entry, widgetName, this.theme, callbacks, closeable);
 
     // if this widget is the currently selected one, mark it
     if (this.inputRouter.selectedWidgetId === entry.id) {
@@ -297,9 +287,8 @@ export class WidgetManager {
    * mount a crashed placeholder for a widget that failed to load.
    */
   private mountCrashed(entry: WidgetEntry, reason: string): void {
-    const editing = this.inputRouter.isEditMode;
     const callbacks = this.createFrameCallbacks(entry.id);
-    const frame = new WidgetFrame(entry, "crashed", this.theme, editing, callbacks);
+    const frame = new WidgetFrame(entry, "crashed", this.theme, callbacks);
     const ctrl = createCrashedPlaceholder(entry.width, entry.height, reason, this.theme);
 
     frame.contentContainer.addChild(ctrl.container);
@@ -566,12 +555,25 @@ export class WidgetManager {
     }
   }
 
+  /** set lasso-active state on all live widget frames.
+   *  when active, all widget content becomes inert with a dark overlay
+   *  so the lasso pointer events aren't captured by widget content. */
+  setLassoActive(active: boolean): void {
+    for (const live of this.liveWidgets.values()) {
+      live.frame.setLassoActive(active);
+    }
+  }
+
   /** return the map of all currently mounted widgets. */
   getLiveWidgets(): Map<string, LiveWidget> {
     return this.liveWidgets;
   }
 
-  /** expand the stage background to encompass all widgets with padding */
+  /**
+   * expand the stage background to encompass all widgets with padding,
+   * ensuring it always covers at least the base area (-2000,-2000 to 2000,2000)
+   * so the lasso tool's hit area spans the full viewport.
+   */
   private updateStageBounds(): void {
     if (this.liveWidgets.size === 0) return;
 
@@ -588,11 +590,21 @@ export class WidgetManager {
       maxY = Math.max(maxY, e.y + e.height);
     }
 
-    const pad = 500;
-    const bgX = minX - pad;
-    const bgY = minY - pad;
-    const bgW = maxX - minX + pad * 2;
-    const bgH = maxY - minY + pad * 2;
+    const pad = 2000;
+    let bgX = minX - pad;
+    let bgY = minY - pad;
+    let bgW = maxX - minX + pad * 2;
+    let bgH = maxY - minY + pad * 2;
+
+    // ensure minimum bounds cover the base area
+    const baseMin = -2000;
+    const baseMax = 2000;
+    bgX = Math.min(bgX, baseMin);
+    bgY = Math.min(bgY, baseMin);
+    const bgRight = Math.max(bgX + bgW, baseMax);
+    const bgBottom = Math.max(bgY + bgH, baseMax);
+    bgW = bgRight - bgX;
+    bgH = bgBottom - bgY;
 
     // only redraw if the bounds actually changed (avoid thrashing the graphics object)
     const last = this.lastStageBounds;

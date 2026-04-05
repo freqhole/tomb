@@ -1,24 +1,14 @@
-/**
- * the two modes the canvas operates in.
- *
- * view mode: widgets receive pointer events, frames are minimal.
- * edit mode: canvas intercepts pointer events for drag/resize/select, frames show full chrome.
- */
-export type CanvasMode = "view" | "edit";
-
-type ModeListener = (mode: CanvasMode) => void;
 type SelectionListener = (widgetId: string | null) => void;
 type MultiSelectionListener = (ids: ReadonlySet<string>) => void;
 
 /**
- * routes input events and manages canvas mode state.
+ * routes input events and manages selection state.
  *
  * the input router is the central coordinator for:
- * - edit/view mode switching
  * - widget selection tracking (single and multi)
  * - keyboard shortcut handling
  *
- * other components subscribe to mode/selection changes
+ * other components subscribe to selection changes
  * and update their visual state accordingly.
  *
  * multi-selection notes:
@@ -31,11 +21,9 @@ type MultiSelectionListener = (ids: ReadonlySet<string>) => void;
  * - `toggleWidgetInSelection(id)` adds/removes from multi-select (shift-click).
  */
 export class InputRouter {
-  private _mode: CanvasMode = "view";
   private _selectedWidgetId: string | null = null;
   private _selectedWidgetIds: Set<string> = new Set();
 
-  private modeListeners: ModeListener[] = [];
   private selectionListeners: SelectionListener[] = [];
   private multiSelectionListeners: MultiSelectionListener[] = [];
   private onDeleteWidget: ((id: string) => void) | null = null;
@@ -46,11 +34,6 @@ export class InputRouter {
   constructor() {
     this.keydownHandler = this.handleKeyDown.bind(this);
     document.addEventListener("keydown", this.keydownHandler);
-  }
-
-  /** current canvas mode */
-  get mode(): CanvasMode {
-    return this._mode;
   }
 
   /**
@@ -69,11 +52,6 @@ export class InputRouter {
     return this._selectedWidgetIds;
   }
 
-  /** whether the canvas is in edit mode */
-  get isEditMode(): boolean {
-    return this._mode === "edit";
-  }
-
   /** set the callback for when a widget should be deleted */
   setDeleteHandler(handler: (id: string) => void): void {
     this.onDeleteWidget = handler;
@@ -87,26 +65,6 @@ export class InputRouter {
   /** set the callback for sending a widget backward in z-order */
   setSendBackwardHandler(handler: (id: string) => void): void {
     this.sendBackwardHandler = handler;
-  }
-
-  /** toggle between view and edit mode */
-  toggleMode(): void {
-    this.setMode(this._mode === "view" ? "edit" : "view");
-  }
-
-  /** set the canvas mode explicitly */
-  setMode(mode: CanvasMode): void {
-    if (this._mode === mode) return;
-    this._mode = mode;
-
-    // clear all selection when switching to view mode
-    if (mode === "view" && this._selectedWidgetIds.size > 0) {
-      this.selectWidget(null);
-    }
-
-    for (const listener of this.modeListeners) {
-      listener(mode);
-    }
   }
 
   /**
@@ -183,14 +141,6 @@ export class InputRouter {
     this.notifyMultiSelection();
   }
 
-  /** subscribe to mode changes. returns an unsubscribe function. */
-  onModeChange(listener: ModeListener): () => void {
-    this.modeListeners.push(listener);
-    return () => {
-      this.modeListeners = this.modeListeners.filter((l) => l !== listener);
-    };
-  }
-
   /** subscribe to single-selection changes. returns an unsubscribe function. */
   onSelectionChange(listener: SelectionListener): () => void {
     this.selectionListeners.push(listener);
@@ -216,19 +166,8 @@ export class InputRouter {
     const tag = (e.target as HTMLElement)?.tagName;
     if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
 
-    // 'e' key toggles edit mode
-    if (e.key === "e" && !e.metaKey && !e.ctrlKey && !e.altKey) {
-      this.toggleMode();
-      e.preventDefault();
-      return;
-    }
-
-    // delete/backspace removes selected widget(s) in edit mode
-    if (
-      (e.key === "Delete" || e.key === "Backspace") &&
-      this._mode === "edit" &&
-      this._selectedWidgetIds.size > 0
-    ) {
+    // delete/backspace removes selected widget(s)
+    if ((e.key === "Delete" || e.key === "Backspace") && this._selectedWidgetIds.size > 0) {
       // snapshot ids before clearing selection
       const ids = [...this._selectedWidgetIds];
       this.selectWidget(null);
@@ -241,13 +180,8 @@ export class InputRouter {
       return;
     }
 
-    // ] brings selected widget(s) forward in z-order (edit mode only)
-    if (
-      e.key === "]" &&
-      this._mode === "edit" &&
-      this._selectedWidgetIds.size > 0 &&
-      this.bringForwardHandler
-    ) {
+    // ] brings selected widget(s) forward in z-order
+    if (e.key === "]" && this._selectedWidgetIds.size > 0 && this.bringForwardHandler) {
       for (const id of this._selectedWidgetIds) {
         this.bringForwardHandler(id);
       }
@@ -255,13 +189,8 @@ export class InputRouter {
       return;
     }
 
-    // [ sends selected widget(s) backward in z-order (edit mode only)
-    if (
-      e.key === "[" &&
-      this._mode === "edit" &&
-      this._selectedWidgetIds.size > 0 &&
-      this.sendBackwardHandler
-    ) {
+    // [ sends selected widget(s) backward in z-order
+    if (e.key === "[" && this._selectedWidgetIds.size > 0 && this.sendBackwardHandler) {
       for (const id of this._selectedWidgetIds) {
         this.sendBackwardHandler(id);
       }
@@ -269,8 +198,8 @@ export class InputRouter {
       return;
     }
 
-    // escape deselects in edit mode
-    if (e.key === "Escape" && this._mode === "edit") {
+    // escape deselects all
+    if (e.key === "Escape") {
       if (this._selectedWidgetIds.size > 0) {
         this.selectWidget(null);
         e.preventDefault();
@@ -292,7 +221,6 @@ export class InputRouter {
       document.removeEventListener("keydown", this.keydownHandler);
       this.keydownHandler = null;
     }
-    this.modeListeners = [];
     this.selectionListeners = [];
     this.multiSelectionListeners = [];
     this.onDeleteWidget = null;

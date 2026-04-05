@@ -3,7 +3,7 @@ import { Container, Graphics, Rectangle, Text, type Application } from "pixi.js"
 import type { SkeinTheme } from "../theme/skein-theme";
 import type { WidgetRegistry } from "../widgets/widget-registry";
 import type { CanvasStore } from "./canvas-store";
-import type { CanvasMode, InputRouter } from "./input-router";
+import type { InputRouter } from "./input-router";
 
 export interface ToolbarOptions {
   /** if true, this toolbar is in the narthex (home screen) */
@@ -18,9 +18,8 @@ export interface ToolbarOptions {
  * pure PixiJS toolbar rendered at the top-right of the stage.
  *
  * provides:
- * - mode toggle (view/edit)
- * - "+" button that opens a flyout menu of widget types (visible in edit mode)
- * - delete button (remove selected widget, visible when selection exists in edit mode)
+ * - "+" button that opens a flyout menu of widget types
+ * - delete button (remove selected widget, visible when selection exists)
  *
  * no DOM elements are used. everything is rendered with pixi containers,
  * graphics, text, and @pixi/ui ButtonContainer for interactivity.
@@ -35,10 +34,6 @@ export class Toolbar {
   private readonly theme: SkeinTheme;
 
   private readonly background: Graphics;
-  private readonly modeBtn: ButtonContainer;
-  private readonly modeBtnBg: Graphics;
-  private readonly modeBtnText: Text;
-  private readonly separator: Graphics;
   private readonly addBtn: ButtonContainer;
   private readonly deleteBtn: ButtonContainer;
   private readonly homeBtn: ButtonContainer | null;
@@ -79,27 +74,10 @@ export class Toolbar {
     this.background = new Graphics();
     this.root.addChild(this.background);
 
-    // mode toggle button — shows the action (opposite of current mode)
-    const modeLabel = inputRouter.mode === "view" ? "edit" : "view";
-    const mode = this.createButton(modeLabel);
-    this.modeBtn = mode.btn;
-    this.modeBtnBg = mode.bg;
-    this.modeBtnText = mode.text;
-    this.modeBtn.onPress.connect(() => {
-      this.inputRouter.toggleMode();
-    });
-    this.root.addChild(this.modeBtn);
-
-    // thin vertical separator
-    this.separator = new Graphics();
-    this.separator.rect(0, 0, 1, 16);
-    this.separator.fill({ color: theme.frameBorder });
-    this.root.addChild(this.separator);
-
     // "+" button to open the widget flyout
     const add = this.createButton("+", { color: theme.accent });
     this.addBtn = add.btn;
-    this.addBtn.visible = false;
+    this.addBtn.visible = true;
     this.addBtn.onPress.connect(() => {
       this.toggleFlyout();
     });
@@ -161,20 +139,17 @@ export class Toolbar {
     // add root to stage
     app.stage.addChild(this.root);
 
-    // subscribe to mode and selection changes
-    this.unsubs.push(this.inputRouter.onModeChange((m) => this.updateMode(m)));
+    // subscribe to selection changes
     this.unsubs.push(this.inputRouter.onSelectionChange((id) => this.updateSelection(id)));
     // also listen to multi-selection so delete button shows for lasso selections
     this.unsubs.push(
       this.inputRouter.onMultiSelectionChange(() => {
-        this.deleteBtn.visible =
-          this.inputRouter.selectedWidgetIds.size > 0 && this.inputRouter.isEditMode;
+        this.deleteBtn.visible = this.inputRouter.selectedWidgetIds.size > 0;
         this.layout();
       })
     );
 
     // set initial state then lay out
-    this.updateMode(this.inputRouter.mode);
     this.updateSelection(this.inputRouter.selectedWidgetId);
     this.layout();
   }
@@ -365,11 +340,6 @@ export class Toolbar {
   openFlyoutAtPosition(screenX: number, screenY: number, worldX: number, worldY: number): void {
     this.pendingPlacement = { x: worldX, y: worldY };
 
-    // enter edit mode if not already in it
-    if (!this.inputRouter.isEditMode) {
-      this.inputRouter.toggleMode();
-    }
-
     // open the flyout (reuse openFlyout logic but position at screen coords)
     if (this.flyoutOpen) {
       this.closeFlyout();
@@ -541,26 +511,10 @@ export class Toolbar {
       x += this.shareBtn.width + gap;
     }
 
-    // mode button is always visible
-    this.modeBtn.x = x;
-    this.modeBtn.y = pad.v;
-    x += this.modeBtn.width + gap;
-
-    // separator: only show when there are visible buttons after it
-    const hasButtonsAfterSeparator = this.addBtn.visible || this.deleteBtn.visible;
-    this.separator.visible = hasButtonsAfterSeparator;
-    if (hasButtonsAfterSeparator) {
-      this.separator.x = x;
-      this.separator.y = pad.v + (this.modeBtn.height - 16) / 2;
-      x += this.separator.width + gap;
-    }
-
-    // "+" button (visible only in edit mode)
-    if (this.addBtn.visible) {
-      this.addBtn.x = x;
-      this.addBtn.y = pad.v;
-      x += this.addBtn.width + gap;
-    }
+    // "+" button (always visible)
+    this.addBtn.x = x;
+    this.addBtn.y = pad.v;
+    x += this.addBtn.width + gap;
 
     // delete button (visible only when selected in edit mode)
     if (this.deleteBtn.visible) {
@@ -571,7 +525,7 @@ export class Toolbar {
 
     // total toolbar size
     const totalWidth = x - gap + pad.h;
-    const totalHeight = this.modeBtn.height + pad.v * 2;
+    const totalHeight = this.addBtn.height + pad.v * 2;
 
     // redraw the toolbar background
     this.background.clear();
@@ -592,33 +546,8 @@ export class Toolbar {
 
   // -- state updates ---------------------------------------------------------
 
-  private updateMode(mode: CanvasMode): void {
-    // update mode button label — shows the action (opposite of current mode)
-    this.modeBtnText.text = mode === "view" ? "edit" : "view";
-
-    const padding = { h: 8, v: 3 };
-    const width = this.modeBtnText.width + padding.h * 2;
-    const height = this.modeBtnText.height + padding.v * 2;
-    this.modeBtnBg.clear();
-    this.modeBtnBg.roundRect(0, 0, width, height, 4);
-    this.modeBtnBg.fill({ color: this.theme.frameBorder });
-
-    // toggle add button visibility based on current mode
-    const isEdit = mode === "edit";
-    this.addBtn.visible = isEdit;
-
-    // hide delete when leaving edit mode
-    if (!isEdit) {
-      this.deleteBtn.visible = false;
-      this.closeFlyout();
-    }
-
-    this.layout();
-  }
-
   private updateSelection(_id: string | null): void {
-    this.deleteBtn.visible =
-      this.inputRouter.selectedWidgetIds.size > 0 && this.inputRouter.isEditMode;
+    this.deleteBtn.visible = this.inputRouter.selectedWidgetIds.size > 0;
     this.layout();
   }
 

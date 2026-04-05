@@ -45,12 +45,14 @@ type HandlePosition = "nw" | "n" | "ne" | "e" | "se" | "s" | "sw" | "w";
 /**
  * the widget frame wraps each widget with canvas-managed chrome.
  *
- * in edit mode: full header with name + collapse + close buttons,
- * 8 resize handles (visible on hover/select), selection border,
- * draggable header, rounded corners.
- *
- * in view mode: header is hidden, no resize handles, no rounded corners,
- * no border. events pass through to the widget content.
+ * chrome visibility is driven by hover and selection state:
+ * - when hovered, selected, multi-selected, or collapsed the header,
+ *   border, and buttons are shown.
+ * - when none of those conditions hold, chrome is hidden and events
+ *   pass through to the widget content.
+ * - resize handles appear only when single-selected (not collapsed).
+ * - content is made inert (non-interactive) when selected or
+ *   multi-selected so the canvas can handle drag/resize.
  *
  * when collapsed: content container is hidden, frame shows only the header.
  */
@@ -79,11 +81,12 @@ export class WidgetFrame {
   private readonly resizeHandles: Map<HandlePosition, Graphics> = new Map();
 
   // state
-  private _editing = false;
   private _selected = false;
   private _multiSelected = false;
   private _collapsed = false;
   private _hovered = false;
+  private _lassoActive = false;
+  private _hoverGraceTimer: ReturnType<typeof setTimeout> | null = null;
   private _width: number;
   private _height: number;
 
@@ -106,7 +109,6 @@ export class WidgetFrame {
     entry: WidgetEntry,
     widgetName: string,
     theme: SkeinTheme,
-    editing: boolean,
     callbacks: WidgetFrameCallbacks,
     closeable = true
   ) {
@@ -116,7 +118,6 @@ export class WidgetFrame {
     this.closeable = closeable;
     this._width = entry.width;
     this._height = entry.height;
-    this._editing = editing;
     this._collapsed = entry.collapsed;
 
     // root container positioned on the stage
@@ -127,16 +128,29 @@ export class WidgetFrame {
     this.root.eventMode = "static";
     this.root.sortableChildren = true;
 
-    // track hover state for resize handle and border visibility
+    // track hover state for chrome visibility
     this.root.on("pointerenter", () => {
+      if (this._hoverGraceTimer !== null) {
+        clearTimeout(this._hoverGraceTimer);
+        this._hoverGraceTimer = null;
+      }
       this._hovered = true;
-      this.updateHandleVisibility();
-      this.drawBorder();
+      this.updateVisualState();
+      this.draw();
     });
+
     this.root.on("pointerleave", () => {
-      this._hovered = false;
-      this.updateHandleVisibility();
-      this.drawBorder();
+      // if selected or collapsed, chrome stays — no grace timer needed
+      if (this._selected || this._multiSelected || this._collapsed) {
+        return;
+      }
+      // start grace timer so user can move from content to header
+      this._hoverGraceTimer = setTimeout(() => {
+        this._hoverGraceTimer = null;
+        this._hovered = false;
+        this.updateVisualState();
+        this.draw();
+      }, 150);
     });
 
     // border/selection overlay (drawn behind everything)
@@ -145,7 +159,7 @@ export class WidgetFrame {
 
     // header bar — positioned above the content area so it doesn't
     // cover widget content. sits at negative y so the content stays
-    // at y=0 in both edit and view modes (no position shift).
+    // at y=0 (no position shift).
     this.header = new Container();
     this.header.y = -theme.frameHeaderHeight;
     this.root.addChild(this.header);
@@ -193,15 +207,15 @@ export class WidgetFrame {
     this.root.addChild(this.contentContainer);
 
     // rectangular mask for the content container — clips widget-drawn
-    // rounded corners so they don't show against the canvas background
-    // in view mode. in edit mode the frame chrome provides visual framing
-    // so the mask uses a matching corner radius.
+    // rounded corners so they don't show against the canvas background.
+    // when chrome is visible the mask uses a matching corner radius.
     this.contentMask = new Graphics();
     this.root.addChild(this.contentMask);
     this.contentContainer.mask = this.contentMask;
 
-    // dark semi-transparent overlay drawn on top of widget content in edit
-    // mode so it's visually obvious that content is non-interactive.
+    // dark semi-transparent overlay drawn on top of widget content when
+    // selected/multi-selected so it's visually obvious that content is
+    // non-interactive.
     this.editOverlay = new Graphics();
     this.editOverlay.eventMode = "none";
     this.editOverlay.visible = false;
@@ -217,28 +231,15 @@ export class WidgetFrame {
 
     // initial draw
     this.draw();
-    this.applyMode();
-  }
-
-  /** switch between edit and view mode */
-  setEditMode(editing: boolean): void {
-    if (this._editing === editing) return;
-    this._editing = editing;
-    if (!editing) {
-      this._selected = false;
-    }
-    this.applyMode();
-    // full redraw — header needs to be redrawn so its hit area exists
-    // when switching from view to edit mode (it was cleared in view mode)
-    this.draw();
+    this.updateVisualState();
   }
 
   /** set whether this frame is selected (single or multi) */
   setSelected(selected: boolean): void {
     if (this._selected === selected) return;
     this._selected = selected;
-    this.updateHandleVisibility();
-    this.drawBorder();
+    this.updateVisualState();
+    this.draw();
   }
 
   /**
@@ -249,8 +250,16 @@ export class WidgetFrame {
   setMultiSelected(multi: boolean): void {
     if (this._multiSelected === multi) return;
     this._multiSelected = multi;
-    this.updateHandleVisibility();
-    this.updateBodyHitArea();
+    this.updateVisualState();
+    this.draw();
+  }
+
+  /** temporarily make this frame inert during lasso selection */
+  setLassoActive(active: boolean): void {
+    if (this._lassoActive === active) return;
+    this._lassoActive = active;
+    this.updateVisualState();
+    this.draw();
   }
 
   /** update position on the stage */
@@ -269,7 +278,7 @@ export class WidgetFrame {
     this._collapsed = collapsed;
     this.contentContainer.visible = !collapsed;
     this.updateCollapseButton();
-    this.applyMode();
+    this.updateVisualState();
     this.draw();
   }
 
@@ -282,6 +291,10 @@ export class WidgetFrame {
 
   /** clean up all pixi objects */
   destroy(): void {
+    if (this._hoverGraceTimer !== null) {
+      clearTimeout(this._hoverGraceTimer);
+      this._hoverGraceTimer = null;
+    }
     this.hideLayersFlyout();
     this.root.destroy({ children: true });
   }
@@ -301,11 +314,12 @@ export class WidgetFrame {
   private drawHeader(): void {
     const w = this._width;
     const h = this.theme.frameHeaderHeight;
-    const r = this._editing ? this.theme.frameCornerRadius : 0;
+    const showChrome = this._collapsed || this._hovered || this._selected || this._multiSelected;
+    const r = showChrome ? this.theme.frameCornerRadius : 0;
 
     this.headerBg.clear();
-    if (!this._editing) {
-      // no header drawn in view mode
+    if (!showChrome) {
+      // no header drawn when chrome is hidden
       return;
     }
     // rounded top corners, flat bottom
@@ -323,12 +337,13 @@ export class WidgetFrame {
   private drawBorder(): void {
     const w = this._width;
     const hdr = this.theme.frameHeaderHeight;
-    const r = this._editing ? this.theme.frameCornerRadius : 0;
+    const showChrome = this._collapsed || this._hovered || this._selected || this._multiSelected;
+    const r = showChrome ? this.theme.frameCornerRadius : 0;
 
     this.border.clear();
 
-    if (!this._editing) {
-      // no border in view mode — widgets render edge-to-edge
+    if (!showChrome) {
+      // no border when chrome is hidden — widgets render edge-to-edge
       return;
     }
 
@@ -336,18 +351,17 @@ export class WidgetFrame {
 
     const borderColor = this._selected
       ? this.theme.frameBorderSelected
-      : this._hovered && this._editing
-        ? this.theme.frameBorderHover
-        : this.theme.frameBorder;
+      : this.theme.frameBorderHover;
 
     this.border.roundRect(0, -hdr, w, totalH, r);
     this.border.stroke({ color: borderColor, width: this._selected ? 2 : 1 });
   }
 
-  /** redraw the dark overlay shown on top of content in edit mode. */
+  /** redraw the dark overlay shown on top of content when selected/multi-selected. */
   private drawEditOverlay(): void {
     this.editOverlay.clear();
-    if (!this._editing || this._collapsed) {
+    const isInert = this._lassoActive || this._selected || this._multiSelected;
+    if (!isInert || this._collapsed) {
       this.editOverlay.visible = false;
       return;
     }
@@ -357,13 +371,14 @@ export class WidgetFrame {
     this.editOverlay.visible = true;
   }
 
-  /** redraw the content mask to match current dimensions and mode. */
+  /** redraw the content mask to match current dimensions and state. */
   private drawContentMask(): void {
     const y = 0;
-    const r = this._editing ? this.theme.frameCornerRadius : 0;
+    const showChrome = this._collapsed || this._hovered || this._selected || this._multiSelected;
+    const r = showChrome ? this.theme.frameCornerRadius : 0;
     this.contentMask.clear();
     if (r > 0) {
-      // in edit mode, use rounded bottom corners matching the frame
+      // when chrome is visible, use rounded bottom corners matching the frame
       this.contentMask.moveTo(0, y);
       this.contentMask.lineTo(this._width, y);
       this.contentMask.lineTo(this._width, y + this._height - r);
@@ -374,7 +389,7 @@ export class WidgetFrame {
       this.contentMask.closePath();
       this.contentMask.fill({ color: 0xffffff });
     } else {
-      // in view mode, sharp rectangle — clips any widget-drawn rounded corners
+      // no chrome — sharp rectangle clips any widget-drawn rounded corners
       this.contentMask.rect(0, y, this._width, this._height);
       this.contentMask.fill({ color: 0xffffff });
     }
@@ -409,7 +424,7 @@ export class WidgetFrame {
 
       // interaction
       handle.on("pointerdown", (e: FederatedPointerEvent) => {
-        if (!this._editing) return;
+        if (!this._selected) return;
         e.stopPropagation();
         this.resizing = true;
         this.resizeHandle = pos;
@@ -546,7 +561,6 @@ export class WidgetFrame {
     this.headerBg.cursor = "grab";
 
     this.headerBg.on("pointerdown", (e: FederatedPointerEvent) => {
-      if (!this._editing) return;
       e.stopPropagation();
 
       // shift-click toggles multi-selection; regular click does single-select
@@ -582,7 +596,7 @@ export class WidgetFrame {
    */
   private setupBodyDragInteraction(): void {
     this.bodyHitArea.on("pointerdown", (e: FederatedPointerEvent) => {
-      if (!this._editing || !this._multiSelected) return;
+      if (!this._multiSelected) return;
       e.stopPropagation();
       this.startDrag(e);
     });
@@ -607,7 +621,7 @@ export class WidgetFrame {
   private updateBodyHitArea(): void {
     this.bodyHitArea.clear();
 
-    if (!this._multiSelected || !this._editing || this._collapsed) {
+    if (!this._multiSelected || this._collapsed) {
       this.bodyHitArea.eventMode = "none";
       this.bodyHitArea.cursor = "default";
       return;
@@ -877,47 +891,47 @@ export class WidgetFrame {
     this.layersFlyout = null;
   }
 
-  // --- mode management ---
+  // --- visual state management ---
 
   private updateHandleVisibility(): void {
-    // resize handles visible only when selected (not just hovered) and
-    // not during multi-select (multi-select is for moving, not resizing)
-    const show = this._editing && !this._collapsed && this._selected && !this._multiSelected;
+    // resize handles visible only when single-selected and not collapsed
+    const show = !this._collapsed && this._selected && !this._multiSelected;
     for (const handle of this.resizeHandles.values()) {
       handle.visible = show;
     }
   }
 
-  private applyMode(): void {
-    // resize handles: visible only in edit mode, selected, and not multi-selected
+  private updateVisualState(): void {
+    // collapsed widgets always show chrome (no content to hover over)
+    const showChrome = this._collapsed || this._hovered || this._selected || this._multiSelected;
+    const isInert = this._lassoActive || this._selected || this._multiSelected;
+
+    // resize handles: visible only when single-selected and not collapsed
     this.updateHandleVisibility();
 
-    // header: entirely hidden in view mode, fully visible in edit mode
-    this.header.visible = this._editing;
+    // header visibility
+    this.header.visible = showChrome;
 
-    // header buttons: visible only in edit mode
-    this.layersBtn.visible = this._editing;
-    this.collapseBtn.visible = this._editing;
-    this.closeBtn.visible = this._editing && this.closeable;
+    // header buttons
+    this.layersBtn.visible = showChrome;
+    this.collapseBtn.visible = showChrome;
+    this.closeBtn.visible = showChrome && this.closeable;
 
-    // hide layers flyout when leaving edit mode
-    if (!this._editing) {
+    // hide layers flyout when chrome disappears
+    if (!showChrome) {
       this.hideLayersFlyout();
     }
 
-    // header interactivity
-    this.headerBg.eventMode = this._editing ? "static" : "none";
-    this.headerBg.cursor = this._editing ? "grab" : "default";
+    // header interactivity — always active (hidden header won't receive events anyway)
+    this.headerBg.eventMode = "static";
+    this.headerBg.cursor = "grab";
 
-    // content container position: sits below header in edit mode,
-    // flush to top in view mode (no header taking up space)
+    // content container position stays at y=0
     this.contentContainer.y = 0;
 
-    // content container interactivity
-    // in edit mode: widgets are inert (canvas intercepts events)
-    // in view mode: widgets receive events
-    this.contentContainer.eventMode = this._editing ? "none" : "auto";
-    this.contentContainer.interactiveChildren = !this._editing;
+    // content interactivity: inert when selected, interactive otherwise
+    this.contentContainer.eventMode = isInert ? "none" : "auto";
+    this.contentContainer.interactiveChildren = !isInert;
 
     // update body hit area for multi-select drag
     this.updateBodyHitArea();

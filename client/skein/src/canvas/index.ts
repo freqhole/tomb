@@ -6,7 +6,6 @@ export { createCrashedPlaceholder } from "./crashed-placeholder";
 export { initCanvas } from "./init";
 export type { InitCanvasOptions, SkeinCanvas } from "./init";
 export { InputRouter } from "./input-router";
-export type { CanvasMode } from "./input-router";
 export { LassoTool } from "./lasso-tool";
 export { PresenceManager } from "./presence-manager";
 export type { PeerPresence, PresenceMessage } from "./presence-manager";
