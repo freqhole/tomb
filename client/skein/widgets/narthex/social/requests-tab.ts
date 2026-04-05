@@ -79,7 +79,9 @@ export function createRequestsTab(ctx: TabContext): TabController {
   };
 
   container.on("wheel", (e: WheelEvent) => {
-    e.preventDefault();
+    const canScroll = totalHeight > areaHeight;
+    if (!canScroll) return; // let the event pass through to the canvas viewport
+
     e.stopPropagation();
     if ((e as any).nativeEvent) (e as any).nativeEvent._skeinWidgetScroll = true;
     scrollY += e.deltaY > 0 ? SCROLL_SPEED : -SCROLL_SPEED;

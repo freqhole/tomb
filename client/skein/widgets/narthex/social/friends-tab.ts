@@ -4,50 +4,56 @@
 
 import { Assets, Container, Graphics, Rectangle, Sprite, Text, Texture } from "pixi.js";
 import {
-    isOnline as bridgeIsOnline,
-    isProtocolReady as bridgeIsProtocolReady,
-    onOnlineChange,
-    sendFriendRequest,
+  isOnline as bridgeIsOnline,
+  isProtocolReady as bridgeIsProtocolReady,
+  onOnlineChange,
+  sendFriendRequest,
 } from "../../../src/p2p/friendz-bridge";
 import { createSkeinInput, type SkeinInputHandle } from "../../../src/widgets/skein-input";
 import {
-    ACCENT,
-    BG,
-    BORDER,
-    BUTTON_GAP,
-    BUTTON_HEIGHT,
-    BUTTON_RADIUS,
-    FIELD_BG,
-    FIELD_BORDER,
-    FIELD_GAP,
-    FIELD_HEIGHT,
-    FONT,
-    LABEL_COLOR,
-    LABEL_SIZE,
-    MUTED_TEXT,
-    OFFLINE_COLOR,
-    ONLINE_COLOR,
-    ONLINE_DOT_BORDER,
-    ONLINE_DOT_SIZE,
-    OPTION_FONT_SIZE,
-    OPTION_PILL_GAP,
-    OPTION_PILL_HEIGHT,
-    OPTION_PILL_RADIUS,
-    PADDING_X,
-    REJECT_COLOR,
-    RESOLUTION,
-    ROW_ALT_BG,
-    ROW_AVATAR_SIZE,
-    ROW_HEIGHT,
-    ROW_NAME_SIZE,
-    ROW_PADDING_X,
-    ROW_SUB_SIZE,
-    SCROLL_SPEED,
-    TAB_FONT_SIZE,
-    TEXT_COLOR,
-    TEXT_SIZE,
+  ACCENT,
+  BG,
+  BORDER,
+  BUTTON_GAP,
+  BUTTON_HEIGHT,
+  BUTTON_RADIUS,
+  FIELD_BG,
+  FIELD_BORDER,
+  FIELD_GAP,
+  FIELD_HEIGHT,
+  FONT,
+  LABEL_COLOR,
+  LABEL_SIZE,
+  MUTED_TEXT,
+  OFFLINE_COLOR,
+  ONLINE_COLOR,
+  ONLINE_DOT_BORDER,
+  ONLINE_DOT_SIZE,
+  OPTION_FONT_SIZE,
+  OPTION_PILL_GAP,
+  OPTION_PILL_HEIGHT,
+  OPTION_PILL_RADIUS,
+  PADDING_X,
+  REJECT_COLOR,
+  RESOLUTION,
+  ROW_ALT_BG,
+  ROW_AVATAR_SIZE,
+  ROW_HEIGHT,
+  ROW_NAME_SIZE,
+  ROW_PADDING_X,
+  ROW_SUB_SIZE,
+  SCROLL_SPEED,
+  TAB_FONT_SIZE,
+  TEXT_COLOR,
+  TEXT_SIZE,
 } from "./constants";
-import { colorForName, friendDisplayName, friendDisplayNameFull, isValidNodeId, truncate } from "./helpers";
+import {
+  colorForName,
+  friendDisplayName,
+  friendDisplayNameFull,
+  isValidNodeId,
+  truncate,
+} from "./helpers";
 import type { FriendEntry, FriendGroup } from "./schema";
 import type { TabContext, TabController } from "./types";
 
@@ -125,9 +131,11 @@ export function createFriendsTab(ctx: TabContext): TabController {
   emptyText.eventMode = "none";
   container.addChild(emptyText);
 
-  // scroll handler on the list container
+  // scroll handler on the list container — only capture when content overflows
   listContainer.on("wheel", (e: WheelEvent) => {
-    e.preventDefault();
+    const canScroll = totalListHeight > listAreaHeight;
+    if (!canScroll) return; // let the event pass through to the canvas viewport
+
     e.stopPropagation();
     // claim the native event so the viewport doesn't also pan
     if ((e as any).nativeEvent) (e as any).nativeEvent._skeinWidgetScroll = true;
@@ -885,9 +893,7 @@ export function createFriendsTab(ctx: TabContext): TabController {
       dy += LABEL_SIZE + 6;
 
       // collect all known groups
-      const knownGroups: string[] = (ctx.doc.current.groups ?? []).map(
-        (g: FriendGroup) => g.name
-      );
+      const knownGroups: string[] = (ctx.doc.current.groups ?? []).map((g: FriendGroup) => g.name);
       if (friend.group && !knownGroups.includes(friend.group)) {
         knownGroups.push(friend.group);
       }

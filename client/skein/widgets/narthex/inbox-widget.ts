@@ -273,7 +273,9 @@ export const inboxWidget: WidgetFactory<typeof inboxSchema> = {
     container.addChild(inboxEmptyText);
 
     inboxListContainer.on("wheel", (e: WheelEvent) => {
-      e.preventDefault();
+      const canScroll = totalInboxHeight > inboxAreaHeight;
+      if (!canScroll) return; // let the event pass through to the canvas viewport
+
       e.stopPropagation();
       // claim the native event so the viewport doesn't also pan
       if ((e as any).nativeEvent) (e as any).nativeEvent._skeinWidgetScroll = true;
@@ -316,7 +318,9 @@ export const inboxWidget: WidgetFactory<typeof inboxSchema> = {
     container.addChild(outboxEmptyText);
 
     outboxListContainer.on("wheel", (e: WheelEvent) => {
-      e.preventDefault();
+      const canScroll = totalOutboxHeight > outboxAreaHeight;
+      if (!canScroll) return; // let the event pass through to the canvas viewport
+
       e.stopPropagation();
       // claim the native event so the viewport doesn't also pan
       if ((e as any).nativeEvent) (e as any).nativeEvent._skeinWidgetScroll = true;
