@@ -371,8 +371,11 @@ export class FriendzProtocol {
         }
       }
     } catch (err) {
-      if (!this._destroyed) {
-        console.error(TAG, "read loop error from:", peerId.slice(0, 16) + "...", err);
+      // if this stream was replaced by a newer one, the close error is expected —
+      // the new stream is already handling this peer, so don't mark them offline
+      const wasReplaced = this.streams.get(peerId) !== stream;
+      if (!this._destroyed && !wasReplaced) {
+        console.warn(TAG, "read loop error from:", peerId.slice(0, 16) + "...", err);
         // clear lastSeen so isOnline() returns false immediately
         this.lastSeen.delete(peerId);
         this.emitOnlineChange();
