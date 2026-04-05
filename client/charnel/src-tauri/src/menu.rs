@@ -90,7 +90,7 @@ fn build_and_set_menu(app: &AppHandle<Wry>) -> tauri::Result<()> {
         .accelerator("CmdOrCtrl+,")
         .build(app)?;
     let config_item = MenuItemBuilder::with_id(MENU_CONFIG, "config").build(app)?;
-    let devtools_item = MenuItemBuilder::with_id(MENU_DEVTOOLS, "developer tools")
+    let devtools_item = MenuItemBuilder::with_id(MENU_DEVTOOLS, "developer toolz")
         .accelerator("CmdOrCtrl+Shift+I")
         .build(app)?;
 

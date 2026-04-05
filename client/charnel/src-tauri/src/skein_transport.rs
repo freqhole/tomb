@@ -14,17 +14,100 @@
 //! - `read_message` — reads a length-delimited message from a stream
 //! - `close_stream` — closes and removes a stream
 //! - `stream_info` — returns metadata for a stream handle
-//!
-//! note: inbound stream acceptance (accept loop) is not yet supported.
-//! the iroh router needs to be extended with skein ALPNs for that (phase 2b).
+//! - `accept_stream` — blocks until an incoming stream arrives from a remote peer
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 use base64::Engine;
+use iroh::endpoint::Connection;
+use iroh::protocol::{AcceptError, ProtocolHandler};
 use serde_json::json;
+use tokio::sync::mpsc;
 use tokio::sync::Mutex;
+
+/// global sender for incoming skein streams
+///
+/// set once during SkeinTransportState::new(), read by init_p2p_client
+/// when building the router with skein protocol handlers.
+static INCOMING_SENDER: std::sync::Mutex<Option<mpsc::Sender<IncomingStream>>> =
+    std::sync::Mutex::new(None);
+
+/// get a clone of the incoming stream sender (for use in init_p2p_client)
+pub fn get_incoming_sender() -> Option<mpsc::Sender<IncomingStream>> {
+    INCOMING_SENDER.lock().unwrap().clone()
+}
+
+/// ALPN for friend requests, profile sharing, and presence heartbeat
+pub const FRIENDZ_ALPN: &[u8] = b"freqhole-friendz/1";
+
+/// ALPN for automerge-repo document sync
+pub const AUTOMERGE_ALPN: &[u8] = b"iroh/automerge-repo/1";
+
+/// an incoming stream from a remote peer, queued for JS consumption
+pub struct IncomingStream {
+    pub send: iroh::endpoint::SendStream,
+    pub recv: iroh::endpoint::RecvStream,
+    pub peer_node_id: String,
+    pub alpn: String,
+}
+
+/// protocol handler for skein ALPNs (friendz, automerge)
+///
+/// accepts incoming connections and queues them as stream handles
+/// that can be consumed by the JS side via skein_dispatch("accept_stream").
+#[derive(Debug, Clone)]
+pub struct SkeinProtocolHandler {
+    alpn: String,
+    incoming_tx: mpsc::Sender<IncomingStream>,
+}
+
+impl SkeinProtocolHandler {
+    pub fn new(alpn: &str, incoming_tx: mpsc::Sender<IncomingStream>) -> Self {
+        Self {
+            alpn: alpn.to_string(),
+            incoming_tx,
+        }
+    }
+}
+
+impl ProtocolHandler for SkeinProtocolHandler {
+    async fn accept(&self, connection: Connection) -> Result<(), AcceptError> {
+        let peer_id = connection.remote_id();
+        tracing::info!(
+            peer = %peer_id,
+            alpn = &self.alpn,
+            "skein: accepted incoming connection"
+        );
+
+        // accept a bidirectional stream from the connection
+        let (send, recv) = connection.accept_bi().await.map_err(|e| {
+            tracing::warn!(error = %e, alpn = &self.alpn, "skein: failed to accept bi stream");
+            e
+        })?;
+
+        let stream = IncomingStream {
+            send,
+            recv,
+            peer_node_id: peer_id.to_string(),
+            alpn: self.alpn.clone(),
+        };
+
+        if self.incoming_tx.send(stream).await.is_err() {
+            tracing::warn!(
+                alpn = &self.alpn,
+                "skein: incoming stream channel closed, dropping connection"
+            );
+        }
+
+        Ok(())
+    }
+
+    async fn shutdown(&self) {
+        tracing::info!(alpn = &self.alpn, "skein: protocol handler shutting down");
+    }
+}
 
 /// a single bidirectional QUIC stream
 struct BiStreamHandle {
@@ -38,6 +121,8 @@ struct BiStreamHandle {
 pub struct SkeinTransportState {
     streams: Mutex<HashMap<u64, Arc<BiStreamHandle>>>,
     next_id: AtomicU64,
+    /// receiver for incoming streams from SkeinProtocolHandler
+    incoming_rx: Mutex<Option<mpsc::Receiver<IncomingStream>>>,
 }
 
 impl Default for SkeinTransportState {
@@ -47,10 +132,21 @@ impl Default for SkeinTransportState {
 }
 
 impl SkeinTransportState {
+    /// create transport state and register the incoming stream channel globally
+    ///
+    /// creates an mpsc channel internally. the sender is stored in a global
+    /// static so init_p2p_client can retrieve it when building the router
+    /// with skein protocol handlers.
     pub fn new() -> Self {
+        let (tx, rx) = mpsc::channel(64);
+
+        // store sender globally for init_p2p_client to pick up
+        *INCOMING_SENDER.lock().unwrap() = Some(tx);
+
         Self {
             streams: Mutex::new(HashMap::new()),
             next_id: AtomicU64::new(1),
+            incoming_rx: Mutex::new(Some(rx)),
         }
     }
 
@@ -73,6 +169,7 @@ pub async fn skein_dispatch(
         "read_message" => read_message(&state, &payload).await,
         "close_stream" => close_stream(&state, &payload).await,
         "stream_info" => stream_info(&state, &payload).await,
+        "accept_stream" => accept_stream(&state).await,
         _ => Err(format!("unknown skein_dispatch action: {}", action)),
     }
 }
@@ -260,4 +357,50 @@ async fn stream_info(
         "peer_node_id": stream.peer_node_id,
         "alpn": stream.alpn,
     }))
+}
+
+/// accept an incoming stream from a remote peer
+///
+/// blocks until a stream arrives or returns null if no incoming channel is configured.
+/// returns `{ handle, peer_node_id, alpn }` on success, `{ handle: null }` if unavailable.
+async fn accept_stream(state: &SkeinTransportState) -> Result<serde_json::Value, String> {
+    let mut rx_guard = state.incoming_rx.lock().await;
+    let rx = match rx_guard.as_mut() {
+        Some(rx) => rx,
+        None => return Ok(json!({ "handle": serde_json::Value::Null })),
+    };
+
+    match rx.recv().await {
+        Some(incoming) => {
+            let handle_id = state.next_handle();
+            let peer_node_id = incoming.peer_node_id.clone();
+            let alpn = incoming.alpn.clone();
+
+            let stream = Arc::new(BiStreamHandle {
+                send: Mutex::new(incoming.send),
+                recv: Mutex::new(incoming.recv),
+                peer_node_id: peer_node_id.clone(),
+                alpn: alpn.clone(),
+            });
+
+            state.streams.lock().await.insert(handle_id, stream);
+
+            tracing::info!(
+                handle = handle_id,
+                peer = &peer_node_id[..std::cmp::min(16, peer_node_id.len())],
+                alpn = &alpn,
+                "skein: accepted incoming stream"
+            );
+
+            Ok(json!({
+                "handle": handle_id,
+                "peer_node_id": peer_node_id,
+                "alpn": alpn,
+            }))
+        }
+        None => {
+            // channel closed — all protocol handlers shut down
+            Ok(json!({ "handle": serde_json::Value::Null }))
+        }
+    }
 }

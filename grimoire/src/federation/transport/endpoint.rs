@@ -14,7 +14,7 @@ use crate::federation::identity;
 use crate::federation::transport::freqhole_protocol::FreqholeProtocol;
 use crate::federation::transport::protocol::FREQHOLE_ALPN;
 use iroh::endpoint::presets;
-use iroh::protocol::Router;
+use iroh::protocol::{Router, RouterBuilder};
 use iroh::{Endpoint, EndpointAddr, PublicKey, SecretKey};
 use iroh_blobs::provider::events::{EventMask, EventSender};
 use iroh_blobs::BlobsProtocol;
@@ -104,13 +104,29 @@ impl FederationEndpoint {
         &self.endpoint
     }
 
-    /// start the router with both protocol handlers
+    /// start the router with the default protocol handlers only
     ///
     /// sets up:
-    /// - freqhole/1: existing P2P proxy protocol
-    /// - freqhole-blobz: iroh-blobs verified streaming
+    /// - freqhole/1: P2P proxy protocol
+    /// - /iroh-bytes/4: iroh-blobs verified streaming
     pub async fn start_router(&mut self) -> GrimoireResult<()> {
-        info!("[p2p-endpoint] starting router with dual protocol support");
+        self.start_router_with(|builder| builder).await
+    }
+
+    /// start the router with default handlers plus extra protocol handlers
+    ///
+    /// the `customize` closure receives the RouterBuilder after freqhole/1
+    /// and iroh-blobs handlers are registered, allowing callers to chain
+    /// additional `.accept(alpn, handler)` calls for their own protocols.
+    ///
+    /// example: charnel uses this to register skein's social ALPNs
+    /// (freqhole-friendz/1, iroh/automerge-repo/1) so the endpoint can
+    /// accept incoming connections for those protocols.
+    pub async fn start_router_with<F>(&mut self, customize: F) -> GrimoireResult<()>
+    where
+        F: FnOnce(RouterBuilder) -> RouterBuilder,
+    {
+        info!("[p2p-endpoint] starting router with protocol handlers");
 
         // create freqhole/1 protocol handler
         let freqhole_handler = FreqholeProtocol::new();
@@ -120,13 +136,17 @@ impl FederationEndpoint {
         let event_sender = EventSender::DEFAULT.tracing(EventMask::default());
         let blobs_handler = BlobsProtocol::new(blobs_store, Some(event_sender));
 
-        // build router with both protocols
-        let router = Router::builder(self.endpoint.clone())
+        // build router with core protocols
+        let builder = Router::builder(self.endpoint.clone())
             .accept(FREQHOLE_ALPN, freqhole_handler)
-            .accept(BLOBS_ALPN, blobs_handler)
-            .spawn();
+            .accept(BLOBS_ALPN, blobs_handler);
 
-        info!("[p2p-endpoint] router started with ALPNs: freqhole/1, /iroh-bytes/4");
+        // let caller add extra protocol handlers
+        let builder = customize(builder);
+
+        let router = builder.spawn();
+
+        info!("[p2p-endpoint] router started");
 
         self.router = Some(router);
         Ok(())

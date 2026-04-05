@@ -141,10 +141,38 @@ pub async fn init_p2p_client(config_path: &Path) -> Result<(), String> {
             has_peers = has_peers,
             "starting router"
         );
-        endpoint
-            .start_router()
-            .await
-            .map_err(|e| format!("failed to start P2P router: {}", e))?;
+
+        // if skein transport is initialized, register its ALPNs on the router
+        // so the endpoint can accept incoming friendz and automerge connections
+        if let Some(incoming_tx) = crate::skein_transport::get_incoming_sender() {
+            tracing::info!("registering skein ALPNs: freqhole-friendz/1, iroh/automerge-repo/1");
+            let tx2 = incoming_tx.clone();
+            endpoint
+                .start_router_with(|builder| {
+                    builder
+                        .accept(
+                            crate::skein_transport::FRIENDZ_ALPN,
+                            crate::skein_transport::SkeinProtocolHandler::new(
+                                "freqhole-friendz/1",
+                                incoming_tx,
+                            ),
+                        )
+                        .accept(
+                            crate::skein_transport::AUTOMERGE_ALPN,
+                            crate::skein_transport::SkeinProtocolHandler::new(
+                                "iroh/automerge-repo/1",
+                                tx2,
+                            ),
+                        )
+                })
+                .await
+                .map_err(|e| format!("failed to start P2P router: {}", e))?;
+        } else {
+            endpoint
+                .start_router()
+                .await
+                .map_err(|e| format!("failed to start P2P router: {}", e))?;
+        }
     }
 
     // register endpoint for P2P client operations (stores reference for outbound)
