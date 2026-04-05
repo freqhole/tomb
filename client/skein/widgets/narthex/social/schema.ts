@@ -60,7 +60,13 @@ export const profileSchema = z.object({
 
 export const socialSchema = z.object({
   /** local identity — username, bio, avatar, accent color, node ID */
-  profile: profileSchema.default({}),
+  profile: profileSchema.default({
+    username: "",
+    bio: "",
+    avatarDataUrl: "",
+    accentColor: 0x6366f1,
+    nodeId: "",
+  }),
 
   /** peer directory */
   friends: z.array(friendEntrySchema).default([]),

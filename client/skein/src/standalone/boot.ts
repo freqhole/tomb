@@ -17,7 +17,12 @@ import {
   setOutboundRequestHook,
 } from "../p2p/friendz-bridge";
 import { GossipTracker } from "../p2p/gossip-tracker";
-import { ensureIdentity, getMiddenNode, getStoredIdentity } from "../p2p/identity";
+import {
+  ensureIdentity,
+  getMiddenNode,
+  getStoredIdentity,
+  onIdentityChange,
+} from "../p2p/identity";
 import {
   FRIENDZ_ALPN,
   IrohNetworkAdapter,
@@ -27,8 +32,7 @@ import { decodeShareString, encodeShareString } from "../p2p/share-string";
 import { getMetaValue, setMetaValue } from "../storage/meta-db";
 
 // well-known singleton widget IDs — must match the singletonId in each factory's metadata
-const PROFILE_WIDGET_ID = "skein-profile";
-const FRIENDS_WIDGET_ID = "skein-friends";
+const SOCIAL_WIDGET_ID = "skein-social";
 const INBOX_WIDGET_ID = "skein-inbox";
 const MESSAGEZ_WIDGET_ID = "skein-messagez";
 
@@ -51,7 +55,7 @@ class SkeinRouter {
 
   private friendzProtocol: FriendzProtocol | null = null;
   private friendzDocUnsubs: Array<() => void> = [];
-  private friendsDocHandle: DocHandle<any> | null = null;
+  private socialDocHandle: DocHandle<any> | null = null;
   private inboxDocHandle: DocHandle<any> | null = null;
   private gossipTracker: GossipTracker = new GossipTracker();
   private transportPresenceUnsubs: Array<() => void> = [];
@@ -112,29 +116,15 @@ class SkeinRouter {
         docId: null,
       });
 
-      // seed with a profile widget in the top-right area
+      // seed with a social widget in the top-right area
       narthexStore.addWidget({
-        id: PROFILE_WIDGET_ID,
-        type: "profile",
+        id: SOCIAL_WIDGET_ID,
+        type: "social",
         x: 700,
         y: 30,
         width: 280,
-        height: 360,
+        height: 500,
         zIndex: 1,
-        props: {},
-        collapsed: false,
-        docId: null,
-      });
-
-      // seed with a friends widget below the profile
-      narthexStore.addWidget({
-        id: FRIENDS_WIDGET_ID,
-        type: "friends",
-        x: 700,
-        y: 410,
-        width: 280,
-        height: 400,
-        zIndex: 2,
         props: {},
         collapsed: false,
         docId: null,
@@ -148,7 +138,7 @@ class SkeinRouter {
         y: 200,
         width: 560,
         height: 280,
-        zIndex: 3,
+        zIndex: 2,
         props: {},
         collapsed: false,
         docId: null,
@@ -175,32 +165,16 @@ class SkeinRouter {
       const existingStore = await CanvasStore.open(this.repo, this.narthexDocId as DocumentId);
       const widgets = existingStore.doc().widgets;
 
-      if (!widgets[PROFILE_WIDGET_ID]) {
-        console.log("[skein] re-seeding missing profile widget");
+      if (!widgets[SOCIAL_WIDGET_ID]) {
+        console.log("[skein] re-seeding missing social widget");
         existingStore.addWidget({
-          id: PROFILE_WIDGET_ID,
-          type: "profile",
+          id: SOCIAL_WIDGET_ID,
+          type: "social",
           x: 700,
           y: 30,
           width: 280,
-          height: 360,
+          height: 500,
           zIndex: Object.keys(widgets).length + 1,
-          props: {},
-          collapsed: false,
-          docId: null,
-        });
-      }
-
-      if (!widgets[FRIENDS_WIDGET_ID]) {
-        console.log("[skein] re-seeding missing friends widget");
-        existingStore.addWidget({
-          id: FRIENDS_WIDGET_ID,
-          type: "friends",
-          x: 700,
-          y: 410,
-          width: 280,
-          height: 400,
-          zIndex: Object.keys(widgets).length + 2,
           props: {},
           collapsed: false,
           docId: null,
@@ -382,10 +356,24 @@ class SkeinRouter {
         }
       });
 
-      // initialize the friends protocol (reads friends/profile docs)
+      // initialize the friends protocol (reads social widget doc).
+      // if no identity exists yet (first boot), the init will silently
+      // no-op. we listen for identity creation and retry in that case.
       this.initFriendzProtocol().catch((err) => {
         console.warn("[skein] failed to initialize friendz protocol:", err);
       });
+
+      // retry protocol init when the user generates an identity for the
+      // first time — without this, all P2P features stay dead until reload.
+      const unsubIdentity = onIdentityChange((identity) => {
+        if (identity && !this.friendzProtocol) {
+          console.log("[skein] identity created — retrying protocol init");
+          this.initFriendzProtocol().catch((err) => {
+            console.warn("[skein] deferred protocol init failed:", err);
+          });
+        }
+      });
+      this.friendzDocUnsubs.push(unsubIdentity);
 
       // narthex share helper isn't applicable but clear any stale one
       (window as any).__skein.share = () => {
@@ -434,24 +422,16 @@ class SkeinRouter {
     const store = this.currentCanvas?.store;
     if (!store) return;
 
-    // look up the friends widget's automerge doc
-    const friendsEntry = store.getWidget(FRIENDS_WIDGET_ID);
-    if (!friendsEntry?.docId) {
-      console.log("[skein] friends widget doc not ready yet — deferring protocol init");
+    // look up the social widget's automerge doc
+    const socialEntry = store.getWidget(SOCIAL_WIDGET_ID);
+    if (!socialEntry?.docId) {
+      console.log("[skein] social widget doc not ready yet — deferring protocol init");
       return;
     }
 
-    const friendsHandle = await this.repo.find<any>(friendsEntry.docId as DocumentId);
-    await friendsHandle.whenReady();
-    this.friendsDocHandle = friendsHandle;
-
-    // look up the profile widget's automerge doc
-    const profileEntry = store.getWidget(PROFILE_WIDGET_ID);
-    let profileHandle: DocHandle<any> | null = null;
-    if (profileEntry?.docId) {
-      profileHandle = await this.repo.find<any>(profileEntry.docId as DocumentId);
-      await profileHandle.whenReady();
-    }
+    const socialHandle = await this.repo.find<any>(socialEntry.docId as DocumentId);
+    await socialHandle.whenReady();
+    this.socialDocHandle = socialHandle;
 
     // look up the inbox widget's automerge doc
     const inboxEntry = store.getWidget(INBOX_WIDGET_ID);
@@ -470,10 +450,10 @@ class SkeinRouter {
       await messagezHandle.whenReady();
     }
 
-    // read initial privacy settings from friends doc
-    const friendsDoc = friendsHandle.doc() as Record<string, unknown> | undefined;
-    const profileVisibility = (friendsDoc?.profileVisibility as string) ?? "friends";
-    const friendRequestsFrom = (friendsDoc?.friendRequestsFrom as string) ?? "everyone";
+    // read initial privacy settings from social doc
+    const socialDoc = socialHandle.doc() as Record<string, unknown> | undefined;
+    const profileVisibility = (socialDoc?.profileVisibility as string) ?? "friends";
+    const friendRequestsFrom = (socialDoc?.friendRequestsFrom as string) ?? "everyone";
 
     // read initial canvas invite privacy setting from messagez doc
     const messagezDoc = messagezHandle?.doc() as Record<string, unknown> | undefined;
@@ -482,18 +462,18 @@ class SkeinRouter {
     this.friendzProtocol = new FriendzProtocol({
       getMidden: async () => (await getMiddenNode()) as unknown as MiddenStreamNode,
       localNodeId: identity.node_id,
-      localUsername:
-        ((profileHandle?.doc() as Record<string, unknown> | undefined)?.username as string) ?? "",
+      localUsername: ((socialHandle.doc() as any)?.profile?.username as string) ?? "",
       getLocalProfile: () => {
-        const doc = profileHandle?.doc() as Record<string, unknown> | undefined;
+        const doc = socialHandle.doc() as Record<string, any> | undefined;
+        const profile = doc?.profile ?? {};
         return {
-          username: (doc?.username as string) ?? "",
-          bio: (doc?.bio as string) ?? "",
-          avatarDataUrl: (doc?.avatarDataUrl as string) ?? "",
+          username: (profile.username as string) ?? "",
+          bio: (profile.bio as string) ?? "",
+          avatarDataUrl: (profile.avatarDataUrl as string) ?? "",
         };
       },
       isFriend: (nodeId: string) => {
-        const doc = friendsHandle.doc() as
+        const doc = socialHandle.doc() as
           | { friends?: Array<{ nodeIds?: Array<{ nodeId: string }> }> }
           | undefined;
         return doc?.friends?.some((f) => f.nodeIds?.some((n) => n.nodeId === nodeId)) ?? false;
@@ -564,9 +544,9 @@ class SkeinRouter {
 
     // --- wire event callbacks ---
 
-    // incoming friend request → write to friends doc
+    // incoming friend request → write to social doc
     this.friendzProtocol.onFriendRequest = (msg, fromNodeId) => {
-      friendsHandle.change((draft: any) => {
+      socialHandle.change((draft: any) => {
         if (!draft.pendingRequests) draft.pendingRequests = [];
         // don't add duplicate pending requests from the same node
         const exists = draft.pendingRequests.some(
@@ -582,11 +562,14 @@ class SkeinRouter {
         }
       });
       console.log("[skein] received friend request from:", fromNodeId.slice(0, 16) + "...");
+
+      // send an immediate heartbeat so the requester sees us as online
+      this.friendzProtocol!.sendHeartbeatTo(fromNodeId).catch(() => {});
     };
 
     // friend accept → remote peer accepted our outgoing request, add them as friend
     this.friendzProtocol.onFriendAccept = (msg, fromNodeId) => {
-      friendsHandle.change((draft: any) => {
+      socialHandle.change((draft: any) => {
         if (!draft.friends) draft.friends = [];
         // check if we already have this friend
         const existingFriend = draft.friends.find((f: any) =>
@@ -613,7 +596,7 @@ class SkeinRouter {
         }
       });
       // also update outbound request status if we had one pending
-      friendsHandle.change((draft: any) => {
+      socialHandle.change((draft: any) => {
         if (!draft.outboundRequests) return;
         for (const req of draft.outboundRequests) {
           if (req.toNodeId === fromNodeId && req.status === "pending") {
@@ -627,11 +610,17 @@ class SkeinRouter {
 
       // send ack back so the accepter can confirm the handshake
       this.friendzProtocol!.sendFriendAcceptAck(fromNodeId).catch(() => {});
+
+      // immediately fetch profile from the new friend and send a heartbeat
+      // so they see us online — without this, both sides have to wait for
+      // the next heartbeat cycle (~30s) before profiles and presence appear.
+      this.friendzProtocol!.requestProfile(fromNodeId).catch(() => {});
+      this.friendzProtocol!.sendHeartbeatTo(fromNodeId).catch(() => {});
     };
 
     // friend reject → update request status (informational)
     this.friendzProtocol.onFriendReject = (_msg, fromNodeId) => {
-      friendsHandle.change((draft: any) => {
+      socialHandle.change((draft: any) => {
         if (!draft.outboundRequests) return;
         for (const req of draft.outboundRequests) {
           if (req.toNodeId === fromNodeId && req.status === "pending") {
@@ -645,7 +634,7 @@ class SkeinRouter {
 
     // profile response → update the friend's nodeId entry with profile data
     this.friendzProtocol.onProfileResponse = (profile, fromNodeId) => {
-      friendsHandle.change((draft: any) => {
+      socialHandle.change((draft: any) => {
         if (!draft.friends) return;
         for (const friend of draft.friends) {
           if (!friend.nodeIds) continue;
@@ -665,7 +654,7 @@ class SkeinRouter {
 
     // heartbeat → update lastSeenAt on the friend's nodeId entry
     this.friendzProtocol.onHeartbeat = (heartbeat, fromNodeId) => {
-      friendsHandle.change((draft: any) => {
+      socialHandle.change((draft: any) => {
         if (!draft.friends) return;
         for (const friend of draft.friends) {
           if (!friend.nodeIds) continue;
@@ -681,7 +670,7 @@ class SkeinRouter {
         }
       });
       // if we don't have profile data for this peer, request it
-      const currentDoc = friendsHandle.doc() as
+      const currentDoc = socialHandle.doc() as
         | { friends?: Array<{ nodeIds?: Array<{ nodeId: string; avatarDataUrl?: string }> }> }
         | undefined;
       if (currentDoc?.friends) {
@@ -801,7 +790,7 @@ class SkeinRouter {
 
       // friend-accept-ack — upgrade pending-ack to fully accepted
       this.friendzProtocol.onFriendAcceptAck = (_msg, fromNodeId) => {
-        friendsHandle.change((draft: any) => {
+        socialHandle.change((draft: any) => {
           if (!draft.pendingRequests) return;
           for (const req of draft.pendingRequests) {
             if (req.fromNodeId === fromNodeId && req.status === "accepted-pending-ack") {
@@ -811,6 +800,11 @@ class SkeinRouter {
           }
         });
         console.log("[skein] friend-accept-ack from:", fromNodeId.slice(0, 16) + "...");
+
+        // now that the handshake is complete, fetch their profile and
+        // announce presence so both sides have profile data immediately
+        this.friendzProtocol!.requestProfile(fromNodeId).catch(() => {});
+        this.friendzProtocol!.sendHeartbeatTo(fromNodeId).catch(() => {});
       };
 
       // ACL change notification — update local canvas card
@@ -891,17 +885,22 @@ class SkeinRouter {
       }
     };
 
-    // watch friends doc for privacy setting changes
-    const onFriendsChange = () => {
-      const doc = friendsHandle.doc() as Record<string, unknown> | undefined;
+    // watch social doc for privacy setting and username changes
+    const onSocialChange = () => {
+      const doc = socialHandle.doc() as Record<string, unknown> | undefined;
       if (!doc || !this.friendzProtocol) return;
       const pv = (doc.profileVisibility as string) ?? "friends";
       const frf = (doc.friendRequestsFrom as string) ?? "everyone";
       this.friendzProtocol.setProfileVisibility(pv as "friends" | "everyone" | "nobody");
       this.friendzProtocol.setFriendRequestsFrom(frf as "everyone" | "nobody");
+      // update username from nested profile
+      const profile = doc.profile as Record<string, unknown> | undefined;
+      if (profile?.username && typeof profile.username === "string") {
+        this.friendzProtocol.setLocalUsername(profile.username);
+      }
     };
-    friendsHandle.on("change", onFriendsChange);
-    this.friendzDocUnsubs.push(() => friendsHandle.off("change", onFriendsChange));
+    socialHandle.on("change", onSocialChange);
+    this.friendzDocUnsubs.push(() => socialHandle.off("change", onSocialChange));
 
     // watch messagez doc for canvas invite privacy changes
     if (messagezHandle) {
@@ -915,21 +914,9 @@ class SkeinRouter {
       this.friendzDocUnsubs.push(() => messagezHandle!.off("change", onMessagezChange));
     }
 
-    // watch profile doc for username changes
-    if (profileHandle) {
-      const onProfileChange = () => {
-        const doc = profileHandle!.doc() as Record<string, unknown> | undefined;
-        if (doc?.username && typeof doc.username === "string") {
-          this.friendzProtocol?.setLocalUsername(doc.username);
-        }
-      };
-      profileHandle.on("change", onProfileChange);
-      this.friendzDocUnsubs.push(() => profileHandle!.off("change", onProfileChange));
-    }
-
     // start heartbeat — getter reads the current friends list from the doc
     this.friendzProtocol.startHeartbeat(() => {
-      const doc = friendsHandle.doc() as
+      const doc = socialHandle.doc() as
         | { friends?: Array<{ nodeIds?: Array<{ nodeId: string }> }> }
         | undefined;
       if (!doc?.friends) return [];
@@ -989,9 +976,9 @@ class SkeinRouter {
     // initialize the bridge so widgets can use the protocol
     initBridge(this.friendzProtocol);
 
-    // track outbound friend requests in the friends doc
+    // track outbound friend requests in the social doc
     setOutboundRequestHook((toNodeId: string) => {
-      friendsHandle.change((draft: any) => {
+      socialHandle.change((draft: any) => {
         if (!draft.outboundRequests) draft.outboundRequests = [];
         // don't duplicate pending requests to the same node
         const exists = draft.outboundRequests.some(
@@ -1010,11 +997,11 @@ class SkeinRouter {
 
     // request profiles from all friend node IDs (fire-and-forget)
     // this populates avatar, bio, and username data from friends who are online
-    const friendsDocForProfiles = friendsHandle.doc() as
+    const socialDocForProfiles = socialHandle.doc() as
       | { friends?: Array<{ nodeIds?: Array<{ nodeId: string; avatarDataUrl?: string }> }> }
       | undefined;
-    if (friendsDocForProfiles?.friends) {
-      for (const friend of friendsDocForProfiles.friends) {
+    if (socialDocForProfiles?.friends) {
+      for (const friend of socialDocForProfiles.friends) {
         if (friend.nodeIds) {
           for (const n of friend.nodeIds) {
             if (n.nodeId) {
@@ -1088,8 +1075,8 @@ class SkeinRouter {
           const peerNodeIds = new Set(peerList.map((p) => p.nodeId));
           const friendsForInvite: FriendInfo[] = [];
 
-          if (this.friendsDocHandle) {
-            const friendsDoc = this.friendsDocHandle.doc() as
+          if (this.socialDocHandle) {
+            const friendsDoc = this.socialDocHandle.doc() as
               | {
                   friends?: Array<{
                     id: string;
@@ -1303,7 +1290,7 @@ class SkeinRouter {
       // set up name resolver for cursor labels
       if (canvas.presenceRenderer) {
         canvas.presenceRenderer.setNameResolver((peerId: string) => {
-          const doc = this.friendsDocHandle?.doc() as
+          const doc = this.socialDocHandle?.doc() as
             | {
                 friends?: Array<{
                   alias?: string;
@@ -1759,13 +1746,13 @@ class SkeinRouter {
     // read the profile username for the canvas author
     let authorName = "";
     try {
-      const profileEntry = this.currentCanvas?.store.getWidget(PROFILE_WIDGET_ID);
-      if (profileEntry?.docId) {
-        const profileHandle = await this.repo.find(profileEntry.docId as DocumentId);
-        await profileHandle.whenReady();
-        const profileDoc = profileHandle.doc() as Record<string, unknown> | undefined;
-        if (profileDoc?.username && typeof profileDoc.username === "string") {
-          authorName = profileDoc.username;
+      const socialEntry = this.currentCanvas?.store.getWidget(SOCIAL_WIDGET_ID);
+      if (socialEntry?.docId) {
+        const socialHandle = await this.repo.find(socialEntry.docId as DocumentId);
+        await socialHandle.whenReady();
+        const socialDoc = socialHandle.doc() as Record<string, any> | undefined;
+        if (socialDoc?.profile?.username && typeof socialDoc.profile.username === "string") {
+          authorName = socialDoc.profile.username;
         }
       }
     } catch {
@@ -1858,7 +1845,7 @@ class SkeinRouter {
     this.destroyCurrent();
     for (const unsub of this.canvasWatcherUnsubs) unsub();
     this.canvasWatcherUnsubs = [];
-    this.friendsDocHandle = null;
+    this.socialDocHandle = null;
     this.inboxDocHandle = null;
     this.gossipTracker.clear();
     for (const unsub of this.friendzDocUnsubs) {

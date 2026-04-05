@@ -1,4 +1,4 @@
-// E2E tests for profile widget features, canvas author auto-population,
+// E2E tests for social widget features, canvas author auto-population,
 // and image upload flows.
 
 import { expect, test } from "@playwright/test";
@@ -16,7 +16,7 @@ async function getAvatarScreenCoords(
     const skein = (window as any).__skein;
     if (!skein) return null;
     const live = skein.widgetManager.getLiveWidgets();
-    const widget = live.get("skein-profile");
+    const widget = live.get("skein-social");
     if (!widget) return null;
 
     // the avatar container is the child of the widget's container that
@@ -24,7 +24,7 @@ async function getAvatarScreenCoords(
     const ctrl = widget.ctrl;
     if (!ctrl?.container) return null;
 
-    // the profile widget exposes the avatar center position indirectly —
+    // the social widget exposes the avatar center position indirectly —
     // the avatarContainer has a hitArea (Circle) whose center gives us
     // the local coords. fall back to a heuristic if we can't find it.
     const container = ctrl.container;
@@ -72,16 +72,16 @@ async function waitForNarthex(page: import("@playwright/test").Page): Promise<vo
   );
 }
 
-/** read the profile widget's per-widget doc state */
+/** read the social widget's profile sub-object from the per-widget doc state */
 async function getProfileState(
   page: import("@playwright/test").Page
 ): Promise<Record<string, unknown> | null> {
   return page.evaluate(() => {
     const skein = (window as any).__skein;
     const live = skein.widgetManager.getLiveWidgets();
-    const widget = live.get("skein-profile");
+    const widget = live.get("skein-social");
     if (!widget?.widgetDoc) return null;
-    return widget.widgetDoc.current;
+    return widget.widgetDoc.current?.profile ?? null;
   });
 }
 
@@ -145,8 +145,8 @@ test.describe("profile and image features", () => {
   // profile node ID
   // -------------------------------------------------------------------------
 
-  test("profile widget generates a 64-char hex node ID on first boot", async ({ page }) => {
-    // settle time for the profile widget to mount and generate the nodeId
+  test("social widget generates a 64-char hex node ID on first boot", async ({ page }) => {
+    // settle time for the social widget to mount and generate the nodeId
     await page.waitForTimeout(1500);
 
     const state = await getProfileState(page);
@@ -159,14 +159,14 @@ test.describe("profile and image features", () => {
     expect(state!.nodeId).toMatch(/^[0-9a-f]{64}$/);
   });
 
-  test("profile node ID persists across page reload", async ({ page }) => {
+  test("social widget node ID persists across page reload", async ({ page }) => {
     await page.waitForTimeout(1500);
 
     const nodeIdBefore = await page.evaluate(() => {
       const skein = (window as any).__skein;
       const live = skein.widgetManager.getLiveWidgets();
-      const widget = live.get("skein-profile");
-      return widget?.widgetDoc?.current?.nodeId ?? "";
+      const widget = live.get("skein-social");
+      return widget?.widgetDoc?.current?.profile?.nodeId ?? "";
     });
 
     expect(nodeIdBefore).toBeTruthy();
@@ -179,8 +179,8 @@ test.describe("profile and image features", () => {
     const nodeIdAfter = await page.evaluate(() => {
       const skein = (window as any).__skein;
       const live = skein.widgetManager.getLiveWidgets();
-      const widget = live.get("skein-profile");
-      return widget?.widgetDoc?.current?.nodeId ?? "";
+      const widget = live.get("skein-social");
+      return widget?.widgetDoc?.current?.profile?.nodeId ?? "";
     });
 
     expect(nodeIdAfter).toBe(nodeIdBefore);
@@ -190,15 +190,16 @@ test.describe("profile and image features", () => {
   // canvas author auto-population
   // -------------------------------------------------------------------------
 
-  test("canvas author is auto-populated from profile username", async ({ page }) => {
-    // set a username on the profile widget
+  test("canvas author is auto-populated from social widget username", async ({ page }) => {
+    // set a username on the social widget
     await page.evaluate(() => {
       const skein = (window as any).__skein;
       const live = skein.widgetManager.getLiveWidgets();
-      const widget = live.get("skein-profile");
+      const widget = live.get("skein-social");
       if (widget?.widgetDoc) {
         widget.widgetDoc.change((d: any) => {
-          d.username = "alice";
+          if (!d.profile) d.profile = {};
+          d.profile.username = "alice";
         });
       }
     });
@@ -232,7 +233,7 @@ test.describe("profile and image features", () => {
     expect(authorName).toBe("alice");
   });
 
-  test("canvas author falls back to empty when profile has no username", async ({ page }) => {
+  test("canvas author falls back to empty when social widget has no username", async ({ page }) => {
     // don't set a username — leave it blank
 
     await createCanvasAndWaitForNavigation(page, {
@@ -262,7 +263,7 @@ test.describe("profile and image features", () => {
   // profile avatar upload via file chooser
   // -------------------------------------------------------------------------
 
-  test("profile avatar upload via file chooser stores a WebP data URL", async ({ page }) => {
+  test("social widget avatar upload via file chooser stores a WebP data URL", async ({ page }) => {
     await page.waitForTimeout(1500);
 
     // get the avatar circle's screen coordinates from the PixiJS display tree
@@ -283,8 +284,8 @@ test.describe("profile and image features", () => {
       () => {
         const skein = (window as any).__skein;
         const live = skein?.widgetManager?.getLiveWidgets();
-        const widget = live?.get("skein-profile");
-        const url = widget?.widgetDoc?.current?.avatarDataUrl ?? "";
+        const widget = live?.get("skein-social");
+        const url = widget?.widgetDoc?.current?.profile?.avatarDataUrl ?? "";
         return url.startsWith("data:image/");
       },
       { timeout: 10_000 }
@@ -294,15 +295,15 @@ test.describe("profile and image features", () => {
     const avatarDataUrl = await page.evaluate(() => {
       const skein = (window as any).__skein;
       const live = skein.widgetManager.getLiveWidgets();
-      const widget = live.get("skein-profile");
-      return widget?.widgetDoc?.current?.avatarDataUrl ?? "";
+      const widget = live.get("skein-social");
+      return widget?.widgetDoc?.current?.profile?.avatarDataUrl ?? "";
     });
 
     expect(avatarDataUrl).toBeTruthy();
     expect(avatarDataUrl).toMatch(/^data:image\/webp;base64,/);
   });
 
-  test("profile avatar persists across page reload", async ({ page }) => {
+  test("social widget avatar persists across page reload", async ({ page }) => {
     await page.waitForTimeout(1500);
 
     // get the avatar circle's screen coordinates from the PixiJS display tree
@@ -320,8 +321,8 @@ test.describe("profile and image features", () => {
       () => {
         const skein = (window as any).__skein;
         const live = skein?.widgetManager?.getLiveWidgets();
-        const widget = live?.get("skein-profile");
-        const url = widget?.widgetDoc?.current?.avatarDataUrl ?? "";
+        const widget = live?.get("skein-social");
+        const url = widget?.widgetDoc?.current?.profile?.avatarDataUrl ?? "";
         return url.startsWith("data:image/");
       },
       { timeout: 10_000 }
@@ -331,8 +332,8 @@ test.describe("profile and image features", () => {
     const avatarBefore = await page.evaluate(() => {
       const skein = (window as any).__skein;
       const live = skein.widgetManager.getLiveWidgets();
-      const widget = live.get("skein-profile");
-      return widget?.widgetDoc?.current?.avatarDataUrl ?? "";
+      const widget = live.get("skein-social");
+      return widget?.widgetDoc?.current?.profile?.avatarDataUrl ?? "";
     });
     expect(avatarBefore).toMatch(/^data:image\/webp;base64,/);
 
@@ -345,8 +346,8 @@ test.describe("profile and image features", () => {
     const avatarAfter = await page.evaluate(() => {
       const skein = (window as any).__skein;
       const live = skein.widgetManager.getLiveWidgets();
-      const widget = live.get("skein-profile");
-      return widget?.widgetDoc?.current?.avatarDataUrl ?? "";
+      const widget = live.get("skein-social");
+      return widget?.widgetDoc?.current?.profile?.avatarDataUrl ?? "";
     });
 
     expect(avatarAfter).toBe(avatarBefore);
@@ -356,7 +357,7 @@ test.describe("profile and image features", () => {
   // profile singleton behavior
   // -------------------------------------------------------------------------
 
-  test("profile widget is a singleton and not crashed after navigate-back", async ({ page }) => {
+  test("social widget is a singleton and not crashed after navigate-back", async ({ page }) => {
     // create a canvas and navigate there
     await createCanvasAndWaitForNavigation(page, {
       title: "singleton test canvas",
@@ -366,11 +367,11 @@ test.describe("profile and image features", () => {
     // navigate back to the narthex
     await navigateBackToNarthex(page);
 
-    // verify the profile widget is present and not crashed
+    // verify the social widget is present and not crashed
     const result = await page.evaluate(() => {
       const skein = (window as any).__skein;
       const live = skein.widgetManager.getLiveWidgets();
-      const widget = live.get("skein-profile");
+      const widget = live.get("skein-social");
       if (!widget) return { found: false, crashed: false };
       return {
         found: true,

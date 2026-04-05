@@ -1,6 +1,6 @@
 import type { Container } from "pixi.js";
 import type { z } from "zod";
-import type { KeyboardDriver } from "../../../src/widgets/widget-types";
+import type { KeyboardDriver } from "../../../src/widgets/keyboard-driver";
 import type { socialSchema } from "./schema";
 
 // ---------------------------------------------------------------------------

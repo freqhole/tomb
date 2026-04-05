@@ -7,19 +7,19 @@ import { ensureIdentity, getStoredIdentity, onIdentityChange } from "../../../sr
 import { pickImageAsDataUrl } from "../../../src/widgets/image-utils";
 import { createSkeinInput, type SkeinInputHandle } from "../../../src/widgets/skein-input";
 import {
-    ACCENT,
-    AVATAR_EXPORT_SIZE,
-    AVATAR_RADIUS,
-    COLOR_DOT_GAP,
-    COLOR_DOT_RADIUS,
-    COLOR_PALETTE,
-    FIELD_GAP,
-    FIELD_HEIGHT,
-    FONT,
-    LABEL_COLOR,
-    LABEL_SIZE,
-    MUTED_TEXT,
-    RESOLUTION,
+  ACCENT,
+  AVATAR_EXPORT_SIZE,
+  AVATAR_RADIUS,
+  COLOR_DOT_GAP,
+  COLOR_DOT_RADIUS,
+  COLOR_PALETTE,
+  FIELD_GAP,
+  FIELD_HEIGHT,
+  FONT,
+  LABEL_COLOR,
+  LABEL_SIZE,
+  MUTED_TEXT,
+  RESOLUTION,
 } from "./constants";
 import type { TabContext, TabController } from "./types";
 
@@ -40,7 +40,7 @@ function createField(
   labelStr: string,
   profileKey: "username" | "bio",
   placeholder: string,
-  currentWidth: number,
+  currentWidth: number
 ): FieldEntry {
   const label = new Text({
     text: labelStr,
@@ -166,20 +166,31 @@ export function createProfileTab(ctx: TabContext): TabController {
   let loadedAvatarAssetKey = "";
 
   const updateAvatarSprite = async (dataUrl: string) => {
+    // deduplicate — if we're already loading (or loaded) this exact URL, skip.
+    // prevents the double-call that happens when pickAvatarFile writes to the
+    // doc (firing the change handler) and then the layout also triggers a load.
+    if (dataUrl && lastRequestedAvatarUrl === dataUrl) return;
+
+    // capture the previous asset key so we can defer its unload until
+    // the new texture is ready — avoids destroying a texture source that
+    // the render pipeline may still reference this frame.
+    const previousAssetKey = loadedAvatarAssetKey;
+
     lastRequestedAvatarUrl = dataUrl;
 
-    // destroy previous sprite if any
+    // destroy previous sprite if any — clear the stencil mask BEFORE
+    // destroying so PixiJS doesn't try to pop a mask on a dead texture.
     if (avatarSprite) {
       avatarContainer.removeChild(avatarSprite);
+      avatarSprite.mask = null;
       avatarSprite.destroy();
       avatarSprite = null;
     }
-    if (loadedAvatarAssetKey) {
-      Assets.unload(loadedAvatarAssetKey);
-      loadedAvatarAssetKey = "";
-    }
+    loadedAvatarAssetKey = "";
 
     if (!dataUrl) {
+      // no image — unload the old texture immediately (nothing to swap to)
+      if (previousAssetKey) Assets.unload(previousAssetKey);
       avatarPlaceholder.visible = true;
       avatarInitial.visible = true;
       return;
@@ -203,8 +214,16 @@ export function createProfileTab(ctx: TabContext): TabController {
       avatarSprite.height = AVATAR_RADIUS * 2;
       avatarSprite.mask = avatarMask;
       avatarContainer.addChild(avatarSprite);
+
+      // now safe to release the old texture — the new one is in the tree
+      if (previousAssetKey && previousAssetKey !== dataUrl) {
+        Assets.unload(previousAssetKey);
+      }
     } catch {
       // failed to load — fall back to placeholder
+      if (previousAssetKey && previousAssetKey !== dataUrl) {
+        Assets.unload(previousAssetKey);
+      }
       avatarPlaceholder.visible = true;
       avatarInitial.visible = true;
     }
@@ -228,10 +247,13 @@ export function createProfileTab(ctx: TabContext): TabController {
       cropSquare: true,
     });
     if (dataUrl) {
+      // writing to the doc fires the change handler which calls
+      // updateAvatarSprite — no need to call it explicitly here.
+      // doing both caused a double async load that destroyed the
+      // texture while the render pipeline still referenced it.
       ctx.doc.change((d) => {
         d.profile.avatarDataUrl = dataUrl;
       });
-      updateAvatarSprite(dataUrl);
     }
   };
 
@@ -434,6 +456,7 @@ export function createProfileTab(ctx: TabContext): TabController {
       drawAvatarPlaceholder();
       if (avatarSprite) {
         avatarContainer.removeChild(avatarSprite);
+        avatarSprite.mask = null;
         avatarSprite.destroy();
         avatarSprite = null;
       }

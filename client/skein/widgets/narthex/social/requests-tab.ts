@@ -3,7 +3,11 @@
 // ---------------------------------------------------------------------------
 
 import { Container, Graphics, Rectangle, Text } from "pixi.js";
-import { acceptFriendRequest, rejectFriendRequest } from "../../../src/p2p/friendz-bridge";
+import {
+  acceptFriendRequest,
+  rejectFriendRequest,
+  requestProfile,
+} from "../../../src/p2p/friendz-bridge";
 import {
   ACCEPT_COLOR,
   ACTION_BTN_SIZE,
@@ -237,7 +241,7 @@ export function createRequestsTab(ctx: TabContext): TabController {
             (r: PendingFriendRequest) =>
               r.fromNodeId === request.fromNodeId && r.status === "pending"
           );
-          if (req) req.status = "accepted";
+          if (req) req.status = "accepted-pending-ack";
 
           // add to friends list if not already present
           const exists = draft.friends.some((f: FriendEntry) =>
@@ -263,6 +267,9 @@ export function createRequestsTab(ctx: TabContext): TabController {
             });
           }
         });
+        // immediately fetch profile from the accepted friend and announce
+        // our presence so they see us online right away
+        requestProfile(request.fromNodeId).catch(() => {});
       });
       row.addChild(acceptBtn);
 
