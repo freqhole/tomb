@@ -472,20 +472,17 @@ describe("canvas-wizard per-widget doc round-trip", () => {
 
     expect(widgetDoc.current.title).toBe("untitled canvas");
     expect(widgetDoc.current.description).toBe("");
-    expect(widgetDoc.current.authorName).toBe("");
     expect(widgetDoc.current.color).toBe(0xd946ef);
 
     // simulate user filling in the wizard form
     widgetDoc.change((draft) => {
       draft.title = "wizard-filled title";
       draft.description = "wizard desc";
-      draft.authorName = "wizard-user";
       draft.color = 0x10b981;
     });
 
     expect(widgetDoc.current.title).toBe("wizard-filled title");
     expect(widgetDoc.current.description).toBe("wizard desc");
-    expect(widgetDoc.current.authorName).toBe("wizard-user");
     expect(widgetDoc.current.color).toBe(0x10b981);
   });
 });

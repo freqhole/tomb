@@ -18,14 +18,13 @@ export interface FriendzWiringDeps {
   narthexDocId: string;
   gossipTracker: GossipTracker;
   socialWidgetId: string;
-  inboxWidgetId: string;
   messagezWidgetId: string;
 }
 
 export interface FriendzWiringResult {
   protocol: FriendzProtocol;
   socialDocHandle: DocHandle<any>;
-  inboxDocHandle: DocHandle<any> | null;
+  messagezDocHandle: DocHandle<any> | null;
   unsubs: Array<() => void>;
 }
 
@@ -43,7 +42,6 @@ export async function initFriendzWiring(
     narthexDocId,
     gossipTracker,
     socialWidgetId,
-    inboxWidgetId,
     messagezWidgetId,
   } = deps;
 
@@ -59,14 +57,6 @@ export async function initFriendzWiring(
 
   const socialHandle = await repo.find<any>(socialEntry.docId as DocumentId);
   await socialHandle.whenReady();
-
-  // look up the inbox widget's automerge doc
-  const inboxEntry = store.getWidget(inboxWidgetId);
-  let inboxHandle: DocHandle<any> | null = null;
-  if (inboxEntry?.docId) {
-    inboxHandle = await repo.find<any>(inboxEntry.docId as DocumentId);
-    await inboxHandle.whenReady();
-  }
 
   // look up the messagez widget's automerge doc
   const messagezEntry = store.getWidget(messagezWidgetId);
@@ -316,14 +306,14 @@ export async function initFriendzWiring(
     }
   };
 
-  // --- canvas invite callbacks (require inbox doc) ---
-  if (inboxHandle) {
+  // --- canvas invite callbacks (require messagez doc) ---
+  if (messagezHandle) {
     const localNodeId = identity.node_id;
 
     // incoming canvas invite
     protocol.onCanvasInvite = (msg, fromNodeId) => {
       // dedup by canvasDocId — a canvas can only appear once in inbox
-      const currentInbox = inboxHandle!.doc() as
+      const currentInbox = messagezHandle!.doc() as
         | { invites?: Array<{ canvasDocId: string }> }
         | undefined;
       const alreadyHave = currentInbox?.invites?.some((i) => i.canvasDocId === msg.canvasDocId);
@@ -340,7 +330,7 @@ export async function initFriendzWiring(
         return;
       }
 
-      inboxHandle!.change((draft: any) => {
+      messagezHandle!.change((draft: any) => {
         if (!draft.invites) draft.invites = [];
         draft.invites.push({
           id: msg.inviteId,
@@ -386,7 +376,7 @@ export async function initFriendzWiring(
 
     // canvas invite ACK — update outbox delivery status + gossip tracker
     protocol.onCanvasInviteAck = (msg, _fromNodeId) => {
-      inboxHandle!.change((draft: any) => {
+      messagezHandle!.change((draft: any) => {
         if (!draft.shares) return;
         const share = draft.shares.find(
           (s: any) => s.canvasDocId === msg.canvasDocId && s.toNodeId === msg.ackerNodeId
@@ -398,7 +388,7 @@ export async function initFriendzWiring(
 
     // canvas invite accepted
     protocol.onCanvasInviteAccept = (msg, _fromNodeId) => {
-      inboxHandle!.change((draft: any) => {
+      messagezHandle!.change((draft: any) => {
         if (!draft.shares) return;
         const share = draft.shares.find(
           (s: any) => s.canvasDocId === msg.canvasDocId && s.toNodeId === msg.accepterNodeId
@@ -410,7 +400,7 @@ export async function initFriendzWiring(
 
     // canvas invite declined
     protocol.onCanvasInviteDecline = (msg, _fromNodeId) => {
-      inboxHandle!.change((draft: any) => {
+      messagezHandle!.change((draft: any) => {
         if (!draft.shares) return;
         const share = draft.shares.find(
           (s: any) => s.canvasDocId === msg.canvasDocId && s.toNodeId === msg.declinerNodeId
@@ -564,7 +554,7 @@ export async function initFriendzWiring(
 
   // presence-driven gossip delivery — when a peer comes online, check
   // if we have undelivered invites or gossip relay tasks for them
-  if (inboxHandle) {
+  if (messagezHandle) {
     const localNodeId = identity.node_id;
 
     protocol.onOnlineChange(() => {
@@ -659,7 +649,7 @@ export async function initFriendzWiring(
   return {
     protocol,
     socialDocHandle: socialHandle,
-    inboxDocHandle: inboxHandle,
+    messagezDocHandle: messagezHandle,
     unsubs,
   };
 }

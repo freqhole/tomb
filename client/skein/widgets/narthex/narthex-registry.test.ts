@@ -11,9 +11,9 @@ describe("createNarthexRegistry", () => {
     expect(registry.has("join-canvas")).toBe(true);
   });
 
-  it("has exactly 7 widget types", () => {
+  it("has exactly 6 widget types", () => {
     const registry = createNarthexRegistry();
-    expect(registry.types().length).toBe(7);
+    expect(registry.types().length).toBe(6);
   });
 
   it("canvas-card is hidden", () => {
@@ -47,27 +47,20 @@ describe("createNarthexRegistry", () => {
     expect(registry.get("join-canvas")!.metadata.hidden).toBeFalsy();
   });
 
-  it("registers inbox", () => {
-    const registry = createNarthexRegistry();
-    expect(registry.has("inbox")).toBe(true);
-  });
-
-  it("inbox is a singleton", () => {
-    const registry = createNarthexRegistry();
-    expect(registry.get("inbox")!.metadata.singleton).toBe(true);
-    expect(registry.get("inbox")!.metadata.singletonId).toBe("skein-inbox");
-  });
-
   it("registers messagez", () => {
     const registry = createNarthexRegistry();
     expect(registry.has("messagez")).toBe(true);
   });
 
-  it("messagez is a hidden singleton", () => {
+  it("messagez is a singleton", () => {
     const registry = createNarthexRegistry();
-    expect(registry.get("messagez")!.metadata.hidden).toBe(true);
     expect(registry.get("messagez")!.metadata.singleton).toBe(true);
     expect(registry.get("messagez")!.metadata.singletonId).toBe("skein-messagez");
+  });
+
+  it("messagez is not hidden", () => {
+    const registry = createNarthexRegistry();
+    expect(registry.get("messagez")!.metadata.hidden).toBeFalsy();
   });
 
   it("non-hidden widgets for palette", () => {
@@ -79,6 +72,6 @@ describe("createNarthexRegistry", () => {
     expect(types).toContain("social");
     expect(types).toContain("label");
     expect(types).toContain("join-canvas");
-    expect(types).toContain("inbox");
+    expect(types).toContain("messagez");
   });
 });

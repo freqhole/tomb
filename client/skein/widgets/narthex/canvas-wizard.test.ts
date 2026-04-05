@@ -7,22 +7,21 @@ describe("canvasWizardSchema", () => {
     expect(result).toEqual({
       title: "untitled canvas",
       description: "",
-      authorName: "",
       color: 0xd946ef,
+      previewUrl: "",
     });
   });
 
   it("accepts valid overrides", () => {
     const result = canvasWizardSchema.parse({
       title: "my canvas",
-      authorName: "alice",
       color: 0x06b6d4,
     });
     expect(result).toEqual({
       title: "my canvas",
       description: "",
-      authorName: "alice",
       color: 0x06b6d4,
+      previewUrl: "",
     });
   });
 
@@ -30,8 +29,8 @@ describe("canvasWizardSchema", () => {
     const result = canvasWizardSchema.parse({ title: "test" });
     expect(result.title).toBe("test");
     expect(result.description).toBe("");
-    expect(result.authorName).toBe("");
     expect(result.color).toBe(0xd946ef);
+    expect(result.previewUrl).toBe("");
   });
 
   it("rejects non-string title", () => {

@@ -1,5 +1,6 @@
-import { Container, Graphics, Text } from "pixi.js";
+import { Assets, Container, Graphics, Sprite, Text, Texture } from "pixi.js";
 import { z } from "zod";
+import { pickImageAsDataUrl } from "../../src/widgets/image-utils";
 import { createSkeinInput, type SkeinInputHandle } from "../../src/widgets/skein-input";
 import type {
   WidgetController,
@@ -14,8 +15,8 @@ import type {
 export const canvasWizardSchema = z.object({
   title: z.string().default("untitled canvas"),
   description: z.string().default(""),
-  authorName: z.string().default(""),
   color: z.number().default(0xd946ef),
+  previewUrl: z.string().default(""),
 });
 
 export type CanvasWizardState = z.infer<typeof canvasWizardSchema>;
@@ -52,6 +53,11 @@ const BUTTON_HEIGHT = 30;
 const BUTTON_GAP = 8;
 const FONT = "system-ui, sans-serif";
 const RESOLUTION = 3;
+
+const PREVIEW_HEIGHT = 80;
+const PREVIEW_BG = 0x12121a;
+const PREVIEW_BORDER = 0x333348;
+const PREVIEW_RADIUS = 4;
 
 // ---------------------------------------------------------------------------
 // factory
@@ -119,13 +125,13 @@ export const canvasWizardWidget: WidgetFactory<typeof canvasWizardSchema> = {
     interface FieldEntry {
       label: Text;
       handle: SkeinInputHandle;
-      docKey: "title" | "description" | "authorName";
+      docKey: "title" | "description";
       layoutAt: (x: number, y: number, w: number) => void;
     }
 
     function createField(
       labelStr: string,
-      docKey: "title" | "description" | "authorName",
+      docKey: "title" | "description",
       placeholder: string
     ): FieldEntry {
       const label = new Text({
@@ -164,9 +170,8 @@ export const canvasWizardWidget: WidgetFactory<typeof canvasWizardSchema> = {
 
     const titleField = createField("title", "title", "canvas title...");
     const descField = createField("description", "description", "short description...");
-    const authorField = createField("author", "authorName", "your name...");
 
-    const fields = [titleField, descField, authorField];
+    const fields = [titleField, descField];
 
     // ---------------------------------------------------------------------------
     // color picker
@@ -233,6 +238,117 @@ export const canvasWizardWidget: WidgetFactory<typeof canvasWizardSchema> = {
     };
 
     // ---------------------------------------------------------------------------
+    // image preview upload
+    // ---------------------------------------------------------------------------
+
+    const previewLabel = new Text({
+      text: "preview image",
+      style: { fontFamily: FONT, fontSize: LABEL_SIZE, fill: LABEL_COLOR },
+      resolution: RESOLUTION,
+    });
+    previewLabel.eventMode = "none";
+    container.addChild(previewLabel);
+
+    const previewArea = new Container();
+    previewArea.eventMode = "static";
+    container.addChild(previewArea);
+
+    const previewBg = new Graphics();
+    previewArea.addChild(previewBg);
+
+    let previewSprite: Sprite | null = null;
+    let loadedPreviewAssetKey = "";
+
+    const uploadBtn = new Container();
+    uploadBtn.eventMode = "static";
+    uploadBtn.cursor = "pointer";
+    const uploadBg = new Graphics();
+    uploadBtn.addChild(uploadBg);
+    const uploadText = new Text({
+      text: "upload",
+      style: { fontFamily: FONT, fontSize: LABEL_SIZE, fill: TEXT_COLOR },
+      resolution: RESOLUTION,
+    });
+    uploadText.eventMode = "none";
+    uploadBtn.addChild(uploadText);
+    previewArea.addChild(uploadBtn);
+
+    const clearImgBtn = new Container();
+    clearImgBtn.eventMode = "static";
+    clearImgBtn.cursor = "pointer";
+    const clearImgBg = new Graphics();
+    clearImgBtn.addChild(clearImgBg);
+    const clearImgText = new Text({
+      text: "clear",
+      style: { fontFamily: FONT, fontSize: LABEL_SIZE, fill: MUTED_TEXT },
+      resolution: RESOLUTION,
+    });
+    clearImgText.eventMode = "none";
+    clearImgBtn.addChild(clearImgText);
+    previewArea.addChild(clearImgBtn);
+
+    const updatePreviewSprite = async (dataUrl: string) => {
+      // clean up existing
+      if (previewSprite) {
+        previewArea.removeChild(previewSprite);
+        previewSprite.destroy();
+        previewSprite = null;
+      }
+      if (loadedPreviewAssetKey) {
+        Assets.unload(loadedPreviewAssetKey);
+        loadedPreviewAssetKey = "";
+      }
+
+      if (!dataUrl) return;
+
+      try {
+        const texture = await Assets.load<Texture>(dataUrl);
+        previewSprite = new Sprite(texture);
+        loadedPreviewAssetKey = dataUrl;
+        previewSprite.eventMode = "none";
+
+        // fit within the preview thumbnail area
+        const maxW = PREVIEW_HEIGHT;
+        const maxH = PREVIEW_HEIGHT;
+        const scale = Math.min(maxW / texture.width, maxH / texture.height);
+        previewSprite.width = texture.width * scale;
+        previewSprite.height = texture.height * scale;
+        previewSprite.x = 0;
+        previewSprite.y = 0;
+
+        previewArea.addChildAt(previewSprite, 1); // after bg, before buttons
+      } catch {
+        // silently ignore load failures
+      }
+    };
+
+    uploadBtn.on("pointertap", async (e: any) => {
+      e.stopPropagation();
+      for (const f of fields) f.handle.blur();
+      const dataUrl = await pickImageAsDataUrl({
+        maxWidth: 320,
+        maxHeight: 200,
+        quality: 0.8,
+      });
+      if (dataUrl) {
+        ctx.doc.change((draft) => {
+          draft.previewUrl = dataUrl;
+        });
+        await updatePreviewSprite(dataUrl);
+        layout(currentWidth, currentHeight);
+      }
+    });
+
+    clearImgBtn.on("pointertap", (e: any) => {
+      e.stopPropagation();
+      ctx.doc.change((draft) => {
+        draft.previewUrl = "";
+      });
+      updatePreviewSprite("");
+      layout(currentWidth, currentHeight);
+    });
+
+    // ---------------------------------------------------------------------------
     // buttons
     // ---------------------------------------------------------------------------
 
@@ -289,8 +405,8 @@ export const canvasWizardWidget: WidgetFactory<typeof canvasWizardSchema> = {
           detail: {
             title: state.title,
             description: state.description,
-            authorName: state.authorName,
             color: state.color,
+            previewUrl: state.previewUrl,
             wizardWidgetId: ctx.widgetId,
           },
         })
@@ -336,19 +452,59 @@ export const canvasWizardWidget: WidgetFactory<typeof canvasWizardSchema> = {
       }
       y += LABEL_SIZE + 4 + FIELD_HEIGHT + FIELD_GAP;
 
-      // author field
-      authorField.layoutAt(PADDING_X, y, contentW);
-      if (!(authorField.handle as any).input?.editing) {
-        authorField.handle.value = state.authorName;
-      }
-      y += LABEL_SIZE + 4 + FIELD_HEIGHT + FIELD_GAP;
-
       // color picker
       colorLabel.x = PADDING_X;
       colorLabel.y = y;
       y += LABEL_SIZE + 6;
       layoutColorDots(PADDING_X, y);
       y += COLOR_DOT_RADIUS * 2 + FIELD_GAP;
+
+      // preview image upload
+      previewLabel.x = PADDING_X;
+      previewLabel.y = y;
+      y += LABEL_SIZE + 4;
+
+      const hasPreview = !!state.previewUrl;
+      const thumbW = hasPreview ? PREVIEW_HEIGHT : 0;
+      const btnPad = 6;
+      const btnH = 22;
+      const uploadBtnW = uploadText.width + 12;
+      const clearBtnW = clearImgText.width + 12;
+
+      previewArea.x = PADDING_X;
+      previewArea.y = y;
+
+      // draw preview thumbnail bg
+      previewBg.clear();
+      if (hasPreview) {
+        previewBg.roundRect(0, 0, PREVIEW_HEIGHT, PREVIEW_HEIGHT, PREVIEW_RADIUS);
+        previewBg.fill({ color: PREVIEW_BG });
+        previewBg.stroke({ color: PREVIEW_BORDER, width: 1 });
+      }
+
+      // position upload button
+      const btnX = hasPreview ? thumbW + btnPad : 0;
+      uploadBg.clear();
+      uploadBg.roundRect(0, 0, uploadBtnW, btnH, PREVIEW_RADIUS);
+      uploadBg.fill({ color: FIELD_BG });
+      uploadBg.stroke({ color: FIELD_BORDER, width: 1 });
+      uploadBtn.x = btnX;
+      uploadBtn.y = hasPreview ? (PREVIEW_HEIGHT - btnH) / 2 : 0;
+      uploadText.x = 6;
+      uploadText.y = (btnH - LABEL_SIZE) / 2;
+
+      // position clear button
+      clearImgBg.clear();
+      clearImgBg.roundRect(0, 0, clearBtnW, btnH, PREVIEW_RADIUS);
+      clearImgBg.fill({ color: FIELD_BG });
+      clearImgBg.stroke({ color: FIELD_BORDER, width: 1 });
+      clearImgBtn.x = btnX + uploadBtnW + 4;
+      clearImgBtn.y = uploadBtn.y;
+      clearImgText.x = 6;
+      clearImgText.y = (btnH - LABEL_SIZE) / 2;
+      clearImgBtn.visible = hasPreview;
+
+      y += (hasPreview ? PREVIEW_HEIGHT : btnH) + FIELD_GAP;
 
       // buttons — anchored to the bottom of the card
       const buttonY = h - PADDING_Y - BUTTON_HEIGHT;
@@ -379,7 +535,13 @@ export const canvasWizardWidget: WidgetFactory<typeof canvasWizardSchema> = {
 
     // subscribe to remote doc changes (automerge sync)
     const unsub = ctx.doc.on("change", () => {
+      const state = ctx.doc.current;
       layout(currentWidth, currentHeight);
+      // update preview sprite if URL changed externally
+      const currentUrl = loadedPreviewAssetKey;
+      if (state.previewUrl !== currentUrl) {
+        updatePreviewSprite(state.previewUrl);
+      }
     });
 
     // ---------------------------------------------------------------------------
@@ -391,6 +553,12 @@ export const canvasWizardWidget: WidgetFactory<typeof canvasWizardSchema> = {
 
       destroy() {
         for (const f of fields) f.handle.destroy();
+        if (previewSprite) {
+          previewSprite.destroy();
+        }
+        if (loadedPreviewAssetKey) {
+          Assets.unload(loadedPreviewAssetKey);
+        }
         unsub();
         container.destroy({ children: true });
       },

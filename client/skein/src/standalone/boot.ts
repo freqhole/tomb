@@ -30,7 +30,6 @@ import { initFriendzWiring } from "./friendz-wiring";
 import {
   createNarthexWithSeed,
   ensureSingletonWidgets,
-  INBOX_WIDGET_ID,
   MESSAGEZ_WIDGET_ID,
   SOCIAL_WIDGET_ID,
 } from "./narthex-seed";
@@ -55,7 +54,7 @@ class SkeinRouter {
   private friendzProtocol: FriendzProtocol | null = null;
   private friendzDocUnsubs: Array<() => void> = [];
   private socialDocHandle: DocHandle<any> | null = null;
-  private inboxDocHandle: DocHandle<any> | null = null;
+  private messagezDocHandle: DocHandle<any> | null = null;
   private gossipTracker: GossipTracker = new GossipTracker();
   private transportPresenceUnsubs: Array<() => void> = [];
   private canvasWatcherUnsubs: Array<() => void> = [];
@@ -312,7 +311,6 @@ class SkeinRouter {
       narthexDocId: this.narthexDocId,
       gossipTracker: this.gossipTracker,
       socialWidgetId: SOCIAL_WIDGET_ID,
-      inboxWidgetId: INBOX_WIDGET_ID,
       messagezWidgetId: MESSAGEZ_WIDGET_ID,
     });
 
@@ -320,7 +318,7 @@ class SkeinRouter {
 
     this.friendzProtocol = result.protocol;
     this.socialDocHandle = result.socialDocHandle;
-    this.inboxDocHandle = result.inboxDocHandle;
+    this.messagezDocHandle = result.messagezDocHandle;
     this.friendzDocUnsubs.push(...result.unsubs);
   }
 
@@ -381,10 +379,10 @@ class SkeinRouter {
                 }
               | undefined;
 
-            // get already-invited node IDs from inbox outbox
+            // get already-invited node IDs from messagez outbox
             const alreadyInvited = new Set<string>();
-            if (this.inboxDocHandle) {
-              const inboxDoc = this.inboxDocHandle.doc() as
+            if (this.messagezDocHandle) {
+              const inboxDoc = this.messagezDocHandle.doc() as
                 | { shares?: Array<{ canvasDocId: string; toNodeId: string }> }
                 | undefined;
               if (inboxDoc?.shares) {
@@ -495,9 +493,9 @@ class SkeinRouter {
                 acked: [],
               });
 
-              // write outbox entry to inbox doc
-              if (this.inboxDocHandle) {
-                this.inboxDocHandle.change((draft: any) => {
+              // write outbox entry to messagez doc
+              if (this.messagezDocHandle) {
+                this.messagezDocHandle.change((draft: any) => {
                   if (!draft.shares) draft.shares = [];
                   draft.shares.push({
                     id: inviteId,
@@ -869,8 +867,8 @@ class SkeinRouter {
   private async createCanvasFromNarthex(detail?: {
     title?: string;
     description?: string;
-    authorName?: string;
     color?: number;
+    previewUrl?: string;
     wizardWidgetId?: string;
   }): Promise<void> {
     if (!this.currentCanvas || !this.narthexDocId) return;
@@ -959,7 +957,8 @@ class SkeinRouter {
         canvasDocId: newDocId,
         title,
         description: detail?.description || "",
-        authorName: authorName || detail?.authorName || "",
+        previewUrl: detail?.previewUrl || "",
+        authorName,
         color: detail?.color ?? 0xd946ef,
         createdAt: shortDate,
         modifiedAt: now,
@@ -978,7 +977,7 @@ class SkeinRouter {
     for (const unsub of this.canvasWatcherUnsubs) unsub();
     this.canvasWatcherUnsubs = [];
     this.socialDocHandle = null;
-    this.inboxDocHandle = null;
+    this.messagezDocHandle = null;
     this.gossipTracker.clear();
     for (const unsub of this.friendzDocUnsubs) {
       unsub();

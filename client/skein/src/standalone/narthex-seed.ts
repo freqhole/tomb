@@ -3,12 +3,11 @@ import { CanvasStore } from "../canvas/canvas-store";
 
 // well-known singleton widget IDs — must match the singletonId in each factory's metadata
 export const SOCIAL_WIDGET_ID = "skein-social";
-export const INBOX_WIDGET_ID = "skein-inbox";
 export const MESSAGEZ_WIDGET_ID = "skein-messagez";
 
 /**
  * creates a fresh narthex canvas document and seeds it with the default set of
- * widgets: a decorative label, social, inbox, and messagez.
+ * widgets: a decorative label, social, and messagez.
  *
  * returns the CanvasStore so the caller can grab the documentId and persist it.
  */
@@ -49,10 +48,10 @@ export function createNarthexWithSeed(repo: Repo): CanvasStore {
     docId: null,
   });
 
-  // seed with an inbox widget below the narthex label
+  // seed with a messagez widget below the narthex label
   store.addWidget({
-    id: INBOX_WIDGET_ID,
-    type: "inbox",
+    id: MESSAGEZ_WIDGET_ID,
+    type: "messagez",
     x: 60,
     y: 200,
     width: 560,
@@ -60,20 +59,6 @@ export function createNarthexWithSeed(repo: Repo): CanvasStore {
     zIndex: 2,
     props: {},
     collapsed: false,
-    docId: null,
-  });
-
-  // seed with a headless messagez widget (no visual, just holds settings doc)
-  store.addWidget({
-    id: MESSAGEZ_WIDGET_ID,
-    type: "messagez",
-    x: 0,
-    y: 0,
-    width: 0,
-    height: 0,
-    zIndex: 0,
-    props: {},
-    collapsed: true,
     docId: null,
   });
 
@@ -85,10 +70,7 @@ export function createNarthexWithSeed(repo: Repo): CanvasStore {
  * are missing. this handles cases where widgets were lost due to a bug or
  * schema migration.
  */
-export async function ensureSingletonWidgets(
-  repo: Repo,
-  narthexDocId: DocumentId,
-): Promise<void> {
+export async function ensureSingletonWidgets(repo: Repo, narthexDocId: DocumentId): Promise<void> {
   const store = await CanvasStore.open(repo, narthexDocId);
   const widgets = store.doc().widgets;
 
@@ -108,11 +90,11 @@ export async function ensureSingletonWidgets(
     });
   }
 
-  if (!widgets[INBOX_WIDGET_ID]) {
-    console.log("[skein] re-seeding missing inbox widget");
+  if (!widgets[MESSAGEZ_WIDGET_ID]) {
+    console.log("[skein] re-seeding missing messagez widget");
     store.addWidget({
-      id: INBOX_WIDGET_ID,
-      type: "inbox",
+      id: MESSAGEZ_WIDGET_ID,
+      type: "messagez",
       x: 60,
       y: 200,
       width: 560,
@@ -120,22 +102,6 @@ export async function ensureSingletonWidgets(
       zIndex: Object.keys(widgets).length + 3,
       props: {},
       collapsed: false,
-      docId: null,
-    });
-  }
-
-  if (!widgets[MESSAGEZ_WIDGET_ID]) {
-    console.log("[skein] re-seeding missing messagez widget");
-    store.addWidget({
-      id: MESSAGEZ_WIDGET_ID,
-      type: "messagez",
-      x: 0,
-      y: 0,
-      width: 0,
-      height: 0,
-      zIndex: 0,
-      props: {},
-      collapsed: true,
       docId: null,
     });
   }

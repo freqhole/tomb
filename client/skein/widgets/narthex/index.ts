@@ -2,7 +2,6 @@ import { WidgetRegistry } from "../../src/widgets/widget-registry";
 import { labelWidget } from "../label";
 import { canvasCardWidget } from "./canvas-card";
 import { canvasWizardWidget } from "./canvas-wizard";
-import { inboxWidget } from "./inbox-widget";
 import { joinCanvasWidget } from "./join-canvas";
 import { messagezWidget } from "./messagez-widget";
 import { socialWidget } from "./social/social-widget";
@@ -18,7 +17,6 @@ export function createNarthexRegistry(): WidgetRegistry {
   registry.register(canvasWizardWidget);
   registry.register(joinCanvasWidget);
   registry.register(socialWidget);
-  registry.register(inboxWidget);
   registry.register(messagezWidget);
   registry.register(labelWidget);
   return registry;
@@ -26,7 +24,6 @@ export function createNarthexRegistry(): WidgetRegistry {
 
 export { canvasCardSchema, canvasCardWidget } from "./canvas-card";
 export { canvasWizardSchema, canvasWizardWidget } from "./canvas-wizard";
-export { inboxSchema, inboxWidget } from "./inbox-widget";
 export { joinCanvasSchema, joinCanvasWidget } from "./join-canvas";
 export { messagezSchema, messagezWidget } from "./messagez-widget";
 export { socialSchema, socialWidget } from "./social";

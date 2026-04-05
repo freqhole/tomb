@@ -34,7 +34,7 @@ async function waitForNarthex(page: import("@playwright/test").Page): Promise<vo
 /** dispatch `skein:create-canvas` and wait for the hash to change (navigation to new canvas) */
 async function createCanvasAndWaitForNavigation(
   page: import("@playwright/test").Page,
-  detail: { title: string; authorName: string; color: number }
+  detail: { title: string; color: number }
 ): Promise<string> {
   // record current hash before creation
   const hashBefore = await page.evaluate(() => window.location.hash);
@@ -125,7 +125,6 @@ test.describe("narthex navigation", () => {
     // create a canvas from the narthex
     await createCanvasAndWaitForNavigation(page, {
       title: "e2e test canvas",
-      authorName: "tester",
       color: 0xd946ef,
     });
 
@@ -145,7 +144,6 @@ test.describe("narthex navigation", () => {
     // create a canvas and record its doc id
     const newDocId = await createCanvasAndWaitForNavigation(page, {
       title: "e2e docid test",
-      authorName: "tester",
       color: 0xd946ef,
     });
 
@@ -208,7 +206,6 @@ test.describe("narthex navigation", () => {
     // create a canvas so we have a canvas-card on the narthex
     const newDocId = await createCanvasAndWaitForNavigation(page, {
       title: "e2e click test",
-      authorName: "tester",
       color: 0xd946ef,
     });
 
@@ -244,7 +241,6 @@ test.describe("narthex navigation", () => {
     // create a canvas from the narthex
     await createCanvasAndWaitForNavigation(page, {
       title: "e2e reload test",
-      authorName: "tester",
       color: 0xd946ef,
     });
 
@@ -268,7 +264,6 @@ test.describe("narthex navigation", () => {
     // create the first canvas
     const docId1 = await createCanvasAndWaitForNavigation(page, {
       title: "e2e multi test 1",
-      authorName: "tester",
       color: 0xd946ef,
     });
 
@@ -278,7 +273,6 @@ test.describe("narthex navigation", () => {
     // create the second canvas
     const docId2 = await createCanvasAndWaitForNavigation(page, {
       title: "e2e multi test 2",
-      authorName: "tester",
       color: 0x3b82f6,
     });
 
