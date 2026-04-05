@@ -14,6 +14,7 @@ import {
   sendFriendRequest,
   setOutboundRequestHook,
 } from "../p2p/friendz-bridge";
+import { GossipTracker } from "../p2p/gossip-tracker";
 import { ensureIdentity, getMiddenNode, getStoredIdentity } from "../p2p/identity";
 import {
   FRIENDZ_ALPN,
@@ -26,6 +27,8 @@ import { getMetaValue, setMetaValue } from "../storage/meta-db";
 // well-known singleton widget IDs — must match the singletonId in each factory's metadata
 const PROFILE_WIDGET_ID = "skein-profile";
 const FRIENDS_WIDGET_ID = "skein-friends";
+const INBOX_WIDGET_ID = "skein-inbox";
+const MESSAGEZ_WIDGET_ID = "skein-messagez";
 
 // indexeddb key for the well-known narthex document id
 const NARTHEX_DOC_KEY = "skein-narthex-doc-id";
@@ -47,6 +50,7 @@ class SkeinRouter {
   private friendzProtocol: FriendzProtocol | null = null;
   private friendzDocUnsubs: Array<() => void> = [];
   private friendsDocHandle: DocHandle<any> | null = null;
+  private gossipTracker: GossipTracker = new GossipTracker();
   private transportPresenceUnsubs: Array<() => void> = [];
 
   /** adapter connection state source for the ConnectionStatus widget */
@@ -131,6 +135,34 @@ class SkeinRouter {
         collapsed: false,
         docId: null,
       });
+
+      // seed with an inbox widget below the narthex label
+      narthexStore.addWidget({
+        id: INBOX_WIDGET_ID,
+        type: "inbox",
+        x: 60,
+        y: 200,
+        width: 560,
+        height: 280,
+        zIndex: 3,
+        props: {},
+        collapsed: false,
+        docId: null,
+      });
+
+      // seed with a headless messagez widget (no visual, just holds settings doc)
+      narthexStore.addWidget({
+        id: MESSAGEZ_WIDGET_ID,
+        type: "messagez",
+        x: 0,
+        y: 0,
+        width: 0,
+        height: 0,
+        zIndex: 0,
+        props: {},
+        collapsed: true,
+        docId: null,
+      });
     } else {
       console.log("[skein] found existing narthex doc:", this.narthexDocId);
 
@@ -167,6 +199,38 @@ class SkeinRouter {
           zIndex: Object.keys(widgets).length + 2,
           props: {},
           collapsed: false,
+          docId: null,
+        });
+      }
+
+      if (!widgets[INBOX_WIDGET_ID]) {
+        console.log("[skein] re-seeding missing inbox widget");
+        existingStore.addWidget({
+          id: INBOX_WIDGET_ID,
+          type: "inbox",
+          x: 60,
+          y: 200,
+          width: 560,
+          height: 280,
+          zIndex: Object.keys(widgets).length + 3,
+          props: {},
+          collapsed: false,
+          docId: null,
+        });
+      }
+
+      if (!widgets[MESSAGEZ_WIDGET_ID]) {
+        console.log("[skein] re-seeding missing messagez widget");
+        existingStore.addWidget({
+          id: MESSAGEZ_WIDGET_ID,
+          type: "messagez",
+          x: 0,
+          y: 0,
+          width: 0,
+          height: 0,
+          zIndex: 0,
+          props: {},
+          collapsed: true,
           docId: null,
         });
       }
@@ -327,10 +391,30 @@ class SkeinRouter {
       await profileHandle.whenReady();
     }
 
+    // look up the inbox widget's automerge doc
+    const inboxEntry = store.getWidget(INBOX_WIDGET_ID);
+    let inboxHandle: DocHandle<any> | null = null;
+    if (inboxEntry?.docId) {
+      inboxHandle = await this.repo.find<any>(inboxEntry.docId as DocumentId);
+      await inboxHandle.whenReady();
+    }
+
+    // look up the messagez widget's automerge doc
+    const messagezEntry = store.getWidget(MESSAGEZ_WIDGET_ID);
+    let messagezHandle: DocHandle<any> | null = null;
+    if (messagezEntry?.docId) {
+      messagezHandle = await this.repo.find<any>(messagezEntry.docId as DocumentId);
+      await messagezHandle.whenReady();
+    }
+
     // read initial privacy settings from friends doc
     const friendsDoc = friendsHandle.doc() as Record<string, unknown> | undefined;
     const profileVisibility = (friendsDoc?.profileVisibility as string) ?? "friends";
     const friendRequestsFrom = (friendsDoc?.friendRequestsFrom as string) ?? "everyone";
+
+    // read initial canvas invite privacy setting from messagez doc
+    const messagezDoc = messagezHandle?.doc() as Record<string, unknown> | undefined;
+    const canvasInvitesFrom = (messagezDoc?.canvasInvitesFrom as string) ?? "everyone";
 
     this.friendzProtocol = new FriendzProtocol({
       getMidden: async () => (await getMiddenNode()) as unknown as MiddenStreamNode,
@@ -353,6 +437,7 @@ class SkeinRouter {
       },
       profileVisibility: profileVisibility as "friends" | "everyone" | "nobody",
       friendRequestsFrom: friendRequestsFrom as "everyone" | "nobody",
+      canvasInvitesFrom: canvasInvitesFrom as "everyone" | "friends" | "nobody",
     });
 
     // register ALPN handler for incoming friendz streams
@@ -422,6 +507,9 @@ class SkeinRouter {
         }
       });
       console.log("[skein] friend request accepted by:", fromNodeId.slice(0, 16) + "...");
+
+      // send ack back so the accepter can confirm the handshake
+      this.friendzProtocol!.sendFriendAcceptAck(fromNodeId).catch(() => {});
     };
 
     // friend reject → update request status (informational)
@@ -493,6 +581,143 @@ class SkeinRouter {
       }
     };
 
+    // --- canvas invite callbacks (require inbox doc) ---
+    if (inboxHandle) {
+      const localNodeId = identity.node_id;
+      const gossipTracker = this.gossipTracker;
+
+      // incoming canvas invite
+      this.friendzProtocol.onCanvasInvite = (msg, fromNodeId) => {
+        // dedup by canvasDocId — a canvas can only appear once in inbox
+        const currentInbox = inboxHandle!.doc() as
+          | { invites?: Array<{ canvasDocId: string }> }
+          | undefined;
+        const alreadyHave = currentInbox?.invites?.some((i) => i.canvasDocId === msg.canvasDocId);
+
+        if (alreadyHave) {
+          // still ACK so the relayer knows we got it
+          this.friendzProtocol!.sendCanvasInviteAck(fromNodeId, {
+            inviteId: msg.inviteId,
+            canvasDocId: msg.canvasDocId,
+            ackerNodeId: localNodeId,
+          }).catch(() => {});
+          return;
+        }
+
+        inboxHandle!.change((draft: any) => {
+          if (!draft.invites) draft.invites = [];
+          draft.invites.push({
+            id: msg.inviteId,
+            canvasDocId: msg.canvasDocId,
+            canvasTitle: msg.canvasTitle,
+            fromNodeId: msg.originNodeId,
+            fromUsername: msg.originUsername,
+            relayedBy: fromNodeId !== msg.originNodeId ? fromNodeId : "",
+            receivedAt: new Date().toISOString(),
+            status: "pending",
+          });
+        });
+
+        // ACK immediately
+        this.friendzProtocol!.sendCanvasInviteAck(fromNodeId, {
+          inviteId: msg.inviteId,
+          canvasDocId: msg.canvasDocId,
+          ackerNodeId: localNodeId,
+        }).catch(() => {});
+
+        // pick up gossip responsibility for remaining targets
+        gossipTracker.track(
+          msg.inviteId,
+          msg.canvasDocId,
+          msg.canvasTitle,
+          msg.originNodeId,
+          msg.originUsername,
+          msg.role,
+          msg.targets,
+          [...msg.acked, localNodeId] // include ourselves as acked
+        );
+
+        console.log("[skein] received canvas invite for:", msg.canvasDocId.slice(0, 16) + "...");
+      };
+
+      // canvas invite ACK — update outbox delivery status + gossip tracker
+      this.friendzProtocol.onCanvasInviteAck = (msg, _fromNodeId) => {
+        inboxHandle!.change((draft: any) => {
+          if (!draft.shares) return;
+          const share = draft.shares.find(
+            (s: any) => s.canvasDocId === msg.canvasDocId && s.toNodeId === msg.ackerNodeId
+          );
+          if (share) share.delivered = true;
+        });
+        gossipTracker.markAcked(msg.canvasDocId, msg.ackerNodeId);
+      };
+
+      // canvas invite accepted
+      this.friendzProtocol.onCanvasInviteAccept = (msg, _fromNodeId) => {
+        inboxHandle!.change((draft: any) => {
+          if (!draft.shares) return;
+          const share = draft.shares.find(
+            (s: any) => s.canvasDocId === msg.canvasDocId && s.toNodeId === msg.accepterNodeId
+          );
+          if (share) share.accepted = true;
+        });
+        console.log("[skein] canvas invite accepted by:", msg.accepterNodeId.slice(0, 16) + "...");
+      };
+
+      // canvas invite declined
+      this.friendzProtocol.onCanvasInviteDecline = (msg, _fromNodeId) => {
+        inboxHandle!.change((draft: any) => {
+          if (!draft.shares) return;
+          const share = draft.shares.find(
+            (s: any) => s.canvasDocId === msg.canvasDocId && s.toNodeId === msg.declinerNodeId
+          );
+          if (share) share.declined = true;
+        });
+        console.log("[skein] canvas invite declined by:", msg.declinerNodeId.slice(0, 16) + "...");
+      };
+
+      // friend-accept-ack — upgrade pending-ack to fully accepted
+      this.friendzProtocol.onFriendAcceptAck = (_msg, fromNodeId) => {
+        friendsHandle.change((draft: any) => {
+          if (!draft.pendingRequests) return;
+          for (const req of draft.pendingRequests) {
+            if (req.fromNodeId === fromNodeId && req.status === "accepted-pending-ack") {
+              req.status = "accepted";
+              break;
+            }
+          }
+        });
+        console.log("[skein] friend-accept-ack from:", fromNodeId.slice(0, 16) + "...");
+      };
+
+      // ACL change notification — update local canvas card
+      this.friendzProtocol.onAclChange = (msg, _fromNodeId) => {
+        if (!store) return;
+        const widgets = store.doc().widgets;
+        for (const [widgetId, w] of Object.entries(widgets)) {
+          if (w.type === "canvas-card" && (w.props as any)?.canvasDocId === msg.canvasDocId) {
+            store.handle.change((draft: any) => {
+              const card = draft.widgets[widgetId];
+              if (!card) return;
+              if (msg.newRole === "removed") {
+                card.props.accessRevoked = true;
+                card.props.role = "viewer";
+              } else {
+                card.props.role = msg.newRole;
+              }
+            });
+            break;
+          }
+        }
+        console.log(
+          "[skein] ACL change for canvas:",
+          msg.canvasDocId.slice(0, 16) + "...",
+          "new role:",
+          msg.newRole
+        );
+      };
+    }
+
     // watch friends doc for privacy setting changes
     const onFriendsChange = () => {
       const doc = friendsHandle.doc() as Record<string, unknown> | undefined;
@@ -504,6 +729,18 @@ class SkeinRouter {
     };
     friendsHandle.on("change", onFriendsChange);
     this.friendzDocUnsubs.push(() => friendsHandle.off("change", onFriendsChange));
+
+    // watch messagez doc for canvas invite privacy changes
+    if (messagezHandle) {
+      const onMessagezChange = () => {
+        const doc = messagezHandle!.doc() as Record<string, unknown> | undefined;
+        if (!doc || !this.friendzProtocol) return;
+        const cif = (doc.canvasInvitesFrom as string) ?? "everyone";
+        this.friendzProtocol.setCanvasInvitesFrom(cif as "everyone" | "friends" | "nobody");
+      };
+      messagezHandle.on("change", onMessagezChange);
+      this.friendzDocUnsubs.push(() => messagezHandle!.off("change", onMessagezChange));
+    }
 
     // watch profile doc for username changes
     if (profileHandle) {
@@ -533,6 +770,45 @@ class SkeinRouter {
       }
       return nodeIds;
     });
+
+    // presence-driven gossip delivery — when a peer comes online, check
+    // if we have undelivered invites or gossip relay tasks for them
+    if (inboxHandle) {
+      const localNodeId = identity.node_id;
+      const gossipTracker = this.gossipTracker;
+      const protocol = this.friendzProtocol!;
+
+      this.friendzProtocol.onOnlineChange(() => {
+        // check gossip tracker for entries that have un-ACK'd targets now online
+        for (const entry of gossipTracker.allEntries()) {
+          for (const targetNodeId of entry.targets) {
+            if (entry.acked.has(targetNodeId)) continue;
+            if (targetNodeId === localNodeId) continue;
+            if (!protocol.isOnline(targetNodeId)) continue;
+
+            // relay the invite
+            protocol
+              .sendCanvasInvite(targetNodeId, {
+                inviteId: entry.inviteId,
+                canvasDocId: entry.canvasDocId,
+                canvasTitle: entry.canvasTitle,
+                originNodeId: entry.originNodeId,
+                originUsername: entry.originUsername,
+                role: entry.role,
+                targets: [...entry.targets],
+                acked: [...entry.acked],
+              })
+              .catch((err) => {
+                console.warn(
+                  "[skein] gossip relay failed for:",
+                  targetNodeId.slice(0, 16) + "...",
+                  err
+                );
+              });
+          }
+        }
+      });
+    }
 
     // initialize the bridge so widgets can use the protocol
     initBridge(this.friendzProtocol);
@@ -992,6 +1268,7 @@ class SkeinRouter {
   destroy(): void {
     this.destroyCurrent();
     this.friendsDocHandle = null;
+    this.gossipTracker.clear();
     for (const unsub of this.friendzDocUnsubs) {
       unsub();
     }

@@ -177,6 +177,90 @@ export async function requestProfile(peerNodeId: string): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
+// canvas invite actions (require bridge to be ready)
+// ---------------------------------------------------------------------------
+
+/**
+ * send a canvas invite to a peer.
+ * the invite includes gossip fields (targets, acked) for relay.
+ */
+export async function sendCanvasInvite(
+  peerNodeId: string,
+  invite: {
+    inviteId: string;
+    canvasDocId: string;
+    canvasTitle: string;
+    originNodeId: string;
+    originUsername: string;
+    role: "editor" | "viewer";
+    targets: string[];
+    acked: string[];
+  }
+): Promise<void> {
+  if (!protocol) throw new Error("friendz bridge not initialized");
+  await protocol.sendCanvasInvite(peerNodeId, invite);
+}
+
+/**
+ * acknowledge receipt of a canvas invite.
+ */
+export async function sendCanvasInviteAck(
+  peerNodeId: string,
+  ack: { inviteId: string; canvasDocId: string; ackerNodeId: string }
+): Promise<void> {
+  if (!protocol) throw new Error("friendz bridge not initialized");
+  await protocol.sendCanvasInviteAck(peerNodeId, ack);
+}
+
+/**
+ * accept a canvas invite.
+ */
+export async function sendCanvasInviteAccept(
+  peerNodeId: string,
+  accept: { inviteId: string; canvasDocId: string; accepterNodeId: string }
+): Promise<void> {
+  if (!protocol) throw new Error("friendz bridge not initialized");
+  await protocol.sendCanvasInviteAccept(peerNodeId, accept);
+}
+
+/**
+ * decline a canvas invite.
+ */
+export async function sendCanvasInviteDecline(
+  peerNodeId: string,
+  decline: { inviteId: string; canvasDocId: string; declinerNodeId: string }
+): Promise<void> {
+  if (!protocol) throw new Error("friendz bridge not initialized");
+  await protocol.sendCanvasInviteDecline(peerNodeId, decline);
+}
+
+/**
+ * send an ACL change notification to a peer.
+ */
+export async function sendAclChange(
+  peerNodeId: string,
+  change: {
+    canvasDocId: string;
+    canvasTitle: string;
+    targetNodeId: string;
+    newRole: "editor" | "viewer" | "removed";
+    changedBy: string;
+    changedByUsername: string;
+  }
+): Promise<void> {
+  if (!protocol) throw new Error("friendz bridge not initialized");
+  await protocol.sendAclChange(peerNodeId, change);
+}
+
+/**
+ * send a friend-accept-ack to confirm receipt of a friend accept.
+ */
+export async function sendFriendAcceptAck(peerNodeId: string): Promise<void> {
+  if (!protocol) throw new Error("friendz bridge not initialized");
+  await protocol.sendFriendAcceptAck(peerNodeId);
+}
+
+// ---------------------------------------------------------------------------
 // privacy setting updates
 // ---------------------------------------------------------------------------
 
@@ -194,4 +278,12 @@ export function setProfileVisibility(visibility: "friends" | "everyone" | "nobod
  */
 export function setFriendRequestsFrom(from: "everyone" | "nobody"): void {
   protocol?.setFriendRequestsFrom(from);
+}
+
+/**
+ * update the canvas invites privacy setting on the protocol.
+ * called when the user changes the setting in the inbox widget.
+ */
+export function setCanvasInvitesFrom(from: "everyone" | "friends" | "nobody"): void {
+  protocol?.setCanvasInvitesFrom(from);
 }

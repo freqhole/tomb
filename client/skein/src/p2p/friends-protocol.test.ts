@@ -8,6 +8,12 @@ import {
   encodeMessage,
   FriendzProtocol,
   HEARTBEAT_TIMEOUT_MS,
+  type AclChangeMessage,
+  type CanvasInviteAcceptMessage,
+  type CanvasInviteAckMessage,
+  type CanvasInviteDeclineMessage,
+  type CanvasInviteMessage,
+  type FriendAcceptAckMessage,
   type FriendRequestMessage,
   type FriendzMessage,
   type FriendzProtocolOptions,
@@ -156,6 +162,84 @@ describe("encodeMessage / decodeMessage", () => {
     const msg: FriendzMessage = {
       type: "friend-reject",
       fromNodeId: "e".repeat(64),
+    };
+    const encoded = encodeMessage(msg);
+    const decoded = decodeMessage(encoded);
+    expect(decoded).toEqual(msg);
+  });
+
+  it("roundtrips a friend-accept-ack message", () => {
+    const msg: FriendzMessage = {
+      type: "friend-accept-ack",
+      fromNodeId: "a".repeat(64),
+    };
+    const encoded = encodeMessage(msg);
+    const decoded = decodeMessage(encoded);
+    expect(decoded).toEqual(msg);
+  });
+
+  it("roundtrips a canvas-invite message", () => {
+    const msg: FriendzMessage = {
+      type: "canvas-invite",
+      inviteId: "inv-123",
+      canvasDocId: "doc-456",
+      canvasTitle: "my canvas",
+      originNodeId: "a".repeat(64),
+      originUsername: "alice",
+      role: "editor",
+      targets: ["b".repeat(64), "c".repeat(64)],
+      acked: ["b".repeat(64)],
+    };
+    const encoded = encodeMessage(msg);
+    const decoded = decodeMessage(encoded);
+    expect(decoded).toEqual(msg);
+  });
+
+  it("roundtrips a canvas-invite-ack message", () => {
+    const msg: FriendzMessage = {
+      type: "canvas-invite-ack",
+      inviteId: "inv-123",
+      canvasDocId: "doc-456",
+      ackerNodeId: "b".repeat(64),
+    };
+    const encoded = encodeMessage(msg);
+    const decoded = decodeMessage(encoded);
+    expect(decoded).toEqual(msg);
+  });
+
+  it("roundtrips a canvas-invite-accept message", () => {
+    const msg: FriendzMessage = {
+      type: "canvas-invite-accept",
+      inviteId: "inv-123",
+      canvasDocId: "doc-456",
+      accepterNodeId: "b".repeat(64),
+    };
+    const encoded = encodeMessage(msg);
+    const decoded = decodeMessage(encoded);
+    expect(decoded).toEqual(msg);
+  });
+
+  it("roundtrips a canvas-invite-decline message", () => {
+    const msg: FriendzMessage = {
+      type: "canvas-invite-decline",
+      inviteId: "inv-123",
+      canvasDocId: "doc-456",
+      declinerNodeId: "b".repeat(64),
+    };
+    const encoded = encodeMessage(msg);
+    const decoded = decodeMessage(encoded);
+    expect(decoded).toEqual(msg);
+  });
+
+  it("roundtrips an acl-change message", () => {
+    const msg: FriendzMessage = {
+      type: "acl-change",
+      canvasDocId: "doc-456",
+      canvasTitle: "my canvas",
+      targetNodeId: "b".repeat(64),
+      newRole: "editor",
+      changedBy: "a".repeat(64),
+      changedByUsername: "alice",
     };
     const encoded = encodeMessage(msg);
     const decoded = decodeMessage(encoded);
@@ -403,6 +487,367 @@ describe("FriendzProtocol", () => {
     });
   });
 
+  describe("canvas invite handling", () => {
+    it("handles incoming canvas-invite and fires callback", async () => {
+      const invites: Array<{ msg: CanvasInviteMessage; from: string }> = [];
+      protocol.onCanvasInvite = (msg, from) => invites.push({ msg, from });
+
+      const peerId = "b".repeat(64);
+      const stream = createMockBiStream(peerId);
+      protocol.handleStream(stream as unknown as BiStreamLike);
+
+      const msg: FriendzMessage = {
+        type: "canvas-invite",
+        inviteId: "inv-1",
+        canvasDocId: "doc-1",
+        canvasTitle: "cool canvas",
+        originNodeId: peerId,
+        originUsername: "bob",
+        role: "editor",
+        targets: ["a".repeat(64)],
+        acked: [],
+      };
+      stream.pushMessage(encodeMessage(msg));
+      await flush();
+
+      expect(invites).toHaveLength(1);
+      expect(invites[0].msg.inviteId).toBe("inv-1");
+      expect(invites[0].from).toBe(peerId);
+    });
+
+    it("blocks canvas-invite when canvasInvitesFrom is 'nobody'", async () => {
+      const closedProtocol = new FriendzProtocol(
+        defaultOptions({
+          getMidden: async () => mockMidden as unknown as MiddenStreamNode,
+          canvasInvitesFrom: "nobody",
+        })
+      );
+
+      const invites: Array<{ from: string }> = [];
+      closedProtocol.onCanvasInvite = (_msg, from) => invites.push({ from });
+
+      const peerId = "b".repeat(64);
+      const stream = createMockBiStream(peerId);
+      closedProtocol.handleStream(stream as unknown as BiStreamLike);
+
+      const msg: FriendzMessage = {
+        type: "canvas-invite",
+        inviteId: "inv-1",
+        canvasDocId: "doc-1",
+        canvasTitle: "cool canvas",
+        originNodeId: peerId,
+        originUsername: "bob",
+        role: "editor",
+        targets: ["a".repeat(64)],
+        acked: [],
+      };
+      stream.pushMessage(encodeMessage(msg));
+      await flush();
+
+      expect(invites).toHaveLength(0);
+
+      closedProtocol.destroy();
+    });
+
+    it("blocks canvas-invite from non-friend when canvasInvitesFrom is 'friends'", async () => {
+      const friendsOnlyProtocol = new FriendzProtocol(
+        defaultOptions({
+          getMidden: async () => mockMidden as unknown as MiddenStreamNode,
+          canvasInvitesFrom: "friends",
+          isFriend: () => false,
+        })
+      );
+
+      const invites: Array<{ from: string }> = [];
+      friendsOnlyProtocol.onCanvasInvite = (_msg, from) => invites.push({ from });
+
+      const strangerId = "c".repeat(64);
+      const stream = createMockBiStream(strangerId);
+      friendsOnlyProtocol.handleStream(stream as unknown as BiStreamLike);
+
+      const msg: FriendzMessage = {
+        type: "canvas-invite",
+        inviteId: "inv-1",
+        canvasDocId: "doc-1",
+        canvasTitle: "cool canvas",
+        originNodeId: strangerId,
+        originUsername: "charlie",
+        role: "viewer",
+        targets: ["a".repeat(64)],
+        acked: [],
+      };
+      stream.pushMessage(encodeMessage(msg));
+      await flush();
+
+      expect(invites).toHaveLength(0);
+
+      friendsOnlyProtocol.destroy();
+    });
+
+    it("allows canvas-invite from friend when canvasInvitesFrom is 'friends'", async () => {
+      const friendId = "b".repeat(64);
+      const friendsOnlyProtocol = new FriendzProtocol(
+        defaultOptions({
+          getMidden: async () => mockMidden as unknown as MiddenStreamNode,
+          canvasInvitesFrom: "friends",
+          isFriend: (id) => id === friendId,
+        })
+      );
+
+      const invites: Array<{ msg: CanvasInviteMessage; from: string }> = [];
+      friendsOnlyProtocol.onCanvasInvite = (msg, from) => invites.push({ msg, from });
+
+      const stream = createMockBiStream(friendId);
+      friendsOnlyProtocol.handleStream(stream as unknown as BiStreamLike);
+
+      const msg: FriendzMessage = {
+        type: "canvas-invite",
+        inviteId: "inv-1",
+        canvasDocId: "doc-1",
+        canvasTitle: "cool canvas",
+        originNodeId: friendId,
+        originUsername: "bob",
+        role: "editor",
+        targets: ["a".repeat(64)],
+        acked: [],
+      };
+      stream.pushMessage(encodeMessage(msg));
+      await flush();
+
+      expect(invites).toHaveLength(1);
+      expect(invites[0].from).toBe(friendId);
+
+      friendsOnlyProtocol.destroy();
+    });
+
+    it("handles incoming canvas-invite-ack and fires callback", async () => {
+      const acks: Array<{ msg: CanvasInviteAckMessage; from: string }> = [];
+      protocol.onCanvasInviteAck = (msg, from) => acks.push({ msg, from });
+
+      const peerId = "b".repeat(64);
+      const stream = createMockBiStream(peerId);
+      protocol.handleStream(stream as unknown as BiStreamLike);
+
+      const msg: FriendzMessage = {
+        type: "canvas-invite-ack",
+        inviteId: "inv-1",
+        canvasDocId: "doc-1",
+        ackerNodeId: peerId,
+      };
+      stream.pushMessage(encodeMessage(msg));
+      await flush();
+
+      expect(acks).toHaveLength(1);
+      expect(acks[0].msg.inviteId).toBe("inv-1");
+      expect(acks[0].from).toBe(peerId);
+    });
+
+    it("handles incoming canvas-invite-accept and fires callback", async () => {
+      const accepts: Array<{ msg: CanvasInviteAcceptMessage; from: string }> = [];
+      protocol.onCanvasInviteAccept = (msg, from) => accepts.push({ msg, from });
+
+      const peerId = "b".repeat(64);
+      const stream = createMockBiStream(peerId);
+      protocol.handleStream(stream as unknown as BiStreamLike);
+
+      const msg: FriendzMessage = {
+        type: "canvas-invite-accept",
+        inviteId: "inv-1",
+        canvasDocId: "doc-1",
+        accepterNodeId: peerId,
+      };
+      stream.pushMessage(encodeMessage(msg));
+      await flush();
+
+      expect(accepts).toHaveLength(1);
+      expect(accepts[0].msg.inviteId).toBe("inv-1");
+      expect(accepts[0].from).toBe(peerId);
+    });
+
+    it("handles incoming canvas-invite-decline and fires callback", async () => {
+      const declines: Array<{ msg: CanvasInviteDeclineMessage; from: string }> = [];
+      protocol.onCanvasInviteDecline = (msg, from) => declines.push({ msg, from });
+
+      const peerId = "b".repeat(64);
+      const stream = createMockBiStream(peerId);
+      protocol.handleStream(stream as unknown as BiStreamLike);
+
+      const msg: FriendzMessage = {
+        type: "canvas-invite-decline",
+        inviteId: "inv-1",
+        canvasDocId: "doc-1",
+        declinerNodeId: peerId,
+      };
+      stream.pushMessage(encodeMessage(msg));
+      await flush();
+
+      expect(declines).toHaveLength(1);
+      expect(declines[0].msg.inviteId).toBe("inv-1");
+      expect(declines[0].from).toBe(peerId);
+    });
+
+    it("handles incoming acl-change and fires callback", async () => {
+      const changes: Array<{ msg: AclChangeMessage; from: string }> = [];
+      protocol.onAclChange = (msg, from) => changes.push({ msg, from });
+
+      const peerId = "b".repeat(64);
+      const stream = createMockBiStream(peerId);
+      protocol.handleStream(stream as unknown as BiStreamLike);
+
+      const msg: FriendzMessage = {
+        type: "acl-change",
+        canvasDocId: "doc-1",
+        canvasTitle: "cool canvas",
+        targetNodeId: "a".repeat(64),
+        newRole: "viewer",
+        changedBy: peerId,
+        changedByUsername: "bob",
+      };
+      stream.pushMessage(encodeMessage(msg));
+      await flush();
+
+      expect(changes).toHaveLength(1);
+      expect(changes[0].msg.newRole).toBe("viewer");
+      expect(changes[0].from).toBe(peerId);
+    });
+
+    it("handles incoming friend-accept-ack and fires callback", async () => {
+      const acks: Array<{ msg: FriendAcceptAckMessage; from: string }> = [];
+      protocol.onFriendAcceptAck = (msg, from) => acks.push({ msg, from });
+
+      const peerId = "b".repeat(64);
+      const stream = createMockBiStream(peerId);
+      protocol.handleStream(stream as unknown as BiStreamLike);
+
+      const msg: FriendzMessage = {
+        type: "friend-accept-ack",
+        fromNodeId: peerId,
+      };
+      stream.pushMessage(encodeMessage(msg));
+      await flush();
+
+      expect(acks).toHaveLength(1);
+      expect(acks[0].msg.fromNodeId).toBe(peerId);
+      expect(acks[0].from).toBe(peerId);
+    });
+  });
+
+  describe("canvas invite outbound", () => {
+    it("sendCanvasInvite sends the correct message", async () => {
+      const targetId = "b".repeat(64);
+      await protocol.sendCanvasInvite(targetId, {
+        inviteId: "inv-1",
+        canvasDocId: "doc-1",
+        canvasTitle: "cool canvas",
+        originNodeId: "a".repeat(64),
+        originUsername: "alice",
+        role: "editor",
+        targets: [targetId],
+        acked: [],
+      });
+
+      expect(mockMidden.open_bi).toHaveBeenCalledWith(targetId, FRIENDZ_ALPN);
+
+      const stream = await mockMidden.open_bi.mock.results[0].value;
+      expect(stream._written).toHaveLength(1);
+      const msg = JSON.parse(new TextDecoder().decode(stream._written[0]));
+      expect(msg.type).toBe("canvas-invite");
+      expect(msg.inviteId).toBe("inv-1");
+      expect(msg.canvasDocId).toBe("doc-1");
+      expect(msg.canvasTitle).toBe("cool canvas");
+      expect(msg.role).toBe("editor");
+    });
+
+    it("sendCanvasInviteAck sends the correct message", async () => {
+      const targetId = "b".repeat(64);
+      await protocol.sendCanvasInviteAck(targetId, {
+        inviteId: "inv-1",
+        canvasDocId: "doc-1",
+        ackerNodeId: "a".repeat(64),
+      });
+
+      expect(mockMidden.open_bi).toHaveBeenCalledWith(targetId, FRIENDZ_ALPN);
+
+      const stream = await mockMidden.open_bi.mock.results[0].value;
+      expect(stream._written).toHaveLength(1);
+      const msg = JSON.parse(new TextDecoder().decode(stream._written[0]));
+      expect(msg.type).toBe("canvas-invite-ack");
+      expect(msg.inviteId).toBe("inv-1");
+      expect(msg.ackerNodeId).toBe("a".repeat(64));
+    });
+
+    it("sendCanvasInviteAccept sends the correct message", async () => {
+      const targetId = "b".repeat(64);
+      await protocol.sendCanvasInviteAccept(targetId, {
+        inviteId: "inv-1",
+        canvasDocId: "doc-1",
+        accepterNodeId: "a".repeat(64),
+      });
+
+      expect(mockMidden.open_bi).toHaveBeenCalledWith(targetId, FRIENDZ_ALPN);
+
+      const stream = await mockMidden.open_bi.mock.results[0].value;
+      expect(stream._written).toHaveLength(1);
+      const msg = JSON.parse(new TextDecoder().decode(stream._written[0]));
+      expect(msg.type).toBe("canvas-invite-accept");
+      expect(msg.inviteId).toBe("inv-1");
+      expect(msg.accepterNodeId).toBe("a".repeat(64));
+    });
+
+    it("sendCanvasInviteDecline sends the correct message", async () => {
+      const targetId = "b".repeat(64);
+      await protocol.sendCanvasInviteDecline(targetId, {
+        inviteId: "inv-1",
+        canvasDocId: "doc-1",
+        declinerNodeId: "a".repeat(64),
+      });
+
+      expect(mockMidden.open_bi).toHaveBeenCalledWith(targetId, FRIENDZ_ALPN);
+
+      const stream = await mockMidden.open_bi.mock.results[0].value;
+      expect(stream._written).toHaveLength(1);
+      const msg = JSON.parse(new TextDecoder().decode(stream._written[0]));
+      expect(msg.type).toBe("canvas-invite-decline");
+      expect(msg.inviteId).toBe("inv-1");
+      expect(msg.declinerNodeId).toBe("a".repeat(64));
+    });
+
+    it("sendAclChange sends the correct message", async () => {
+      const targetId = "b".repeat(64);
+      await protocol.sendAclChange(targetId, {
+        canvasDocId: "doc-1",
+        canvasTitle: "cool canvas",
+        targetNodeId: targetId,
+        newRole: "removed",
+        changedBy: "a".repeat(64),
+        changedByUsername: "alice",
+      });
+
+      expect(mockMidden.open_bi).toHaveBeenCalledWith(targetId, FRIENDZ_ALPN);
+
+      const stream = await mockMidden.open_bi.mock.results[0].value;
+      expect(stream._written).toHaveLength(1);
+      const msg = JSON.parse(new TextDecoder().decode(stream._written[0]));
+      expect(msg.type).toBe("acl-change");
+      expect(msg.canvasDocId).toBe("doc-1");
+      expect(msg.newRole).toBe("removed");
+      expect(msg.changedByUsername).toBe("alice");
+    });
+
+    it("sendFriendAcceptAck sends the correct message", async () => {
+      const targetId = "b".repeat(64);
+      await protocol.sendFriendAcceptAck(targetId);
+
+      expect(mockMidden.open_bi).toHaveBeenCalledWith(targetId, FRIENDZ_ALPN);
+
+      const stream = await mockMidden.open_bi.mock.results[0].value;
+      expect(stream._written).toHaveLength(1);
+      const msg = JSON.parse(new TextDecoder().decode(stream._written[0]));
+      expect(msg.type).toBe("friend-accept-ack");
+      expect(msg.fromNodeId).toBe("a".repeat(64));
+    });
+  });
+
   describe("outbound messages", () => {
     it("sendFriendRequest opens a stream and sends the message", async () => {
       const targetId = "b".repeat(64);
@@ -638,12 +1083,24 @@ describe("FriendzProtocol", () => {
       protocol.onFriendRequest = () => {};
       protocol.onFriendAccept = () => {};
       protocol.onProfileResponse = () => {};
+      protocol.onFriendAcceptAck = () => {};
+      protocol.onCanvasInvite = () => {};
+      protocol.onCanvasInviteAck = () => {};
+      protocol.onCanvasInviteAccept = () => {};
+      protocol.onCanvasInviteDecline = () => {};
+      protocol.onAclChange = () => {};
 
       protocol.destroy();
 
       expect(protocol.onFriendRequest).toBeNull();
       expect(protocol.onFriendAccept).toBeNull();
       expect(protocol.onProfileResponse).toBeNull();
+      expect(protocol.onFriendAcceptAck).toBeNull();
+      expect(protocol.onCanvasInvite).toBeNull();
+      expect(protocol.onCanvasInviteAck).toBeNull();
+      expect(protocol.onCanvasInviteAccept).toBeNull();
+      expect(protocol.onCanvasInviteDecline).toBeNull();
+      expect(protocol.onAclChange).toBeNull();
     });
   });
 });

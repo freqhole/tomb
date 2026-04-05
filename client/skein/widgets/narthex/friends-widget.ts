@@ -49,14 +49,14 @@ const pendingFriendRequestSchema = z.object({
   fromNodeId: z.string(),
   fromUsername: z.string().default(""),
   receivedAt: z.string().default(""),
-  status: z.enum(["pending", "accepted", "rejected"]).default("pending"),
+  status: z.enum(["pending", "accepted", "accepted-pending-ack", "rejected"]).default("pending"),
 });
 
 const outboundFriendRequestSchema = z.object({
   toNodeId: z.string(),
   toUsername: z.string().default(""),
   sentAt: z.string().default(""),
-  status: z.enum(["pending", "accepted", "rejected"]).default("pending"),
+  status: z.enum(["pending", "accepted", "accepted-pending-ack", "rejected"]).default("pending"),
 });
 
 export const friendsSchema = z.object({

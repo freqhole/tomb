@@ -65,14 +65,74 @@ export interface HeartbeatMessage {
   username: string;
 }
 
+/** acknowledge a friend-accept (two-phase handshake). */
+export interface FriendAcceptAckMessage {
+  type: "friend-accept-ack";
+  fromNodeId: string;
+}
+
+/** send a canvas invite (or relay via gossip). */
+export interface CanvasInviteMessage {
+  type: "canvas-invite";
+  inviteId: string;
+  canvasDocId: string;
+  canvasTitle: string;
+  originNodeId: string;
+  originUsername: string;
+  role: "editor" | "viewer";
+  targets: string[];
+  acked: string[];
+}
+
+/** acknowledge receipt of a canvas invite. */
+export interface CanvasInviteAckMessage {
+  type: "canvas-invite-ack";
+  inviteId: string;
+  canvasDocId: string;
+  ackerNodeId: string;
+}
+
+/** accept a canvas invite. */
+export interface CanvasInviteAcceptMessage {
+  type: "canvas-invite-accept";
+  inviteId: string;
+  canvasDocId: string;
+  accepterNodeId: string;
+}
+
+/** decline a canvas invite. */
+export interface CanvasInviteDeclineMessage {
+  type: "canvas-invite-decline";
+  inviteId: string;
+  canvasDocId: string;
+  declinerNodeId: string;
+}
+
+/** notify a peer that their ACL role changed. */
+export interface AclChangeMessage {
+  type: "acl-change";
+  canvasDocId: string;
+  canvasTitle: string;
+  targetNodeId: string;
+  newRole: "editor" | "viewer" | "removed";
+  changedBy: string;
+  changedByUsername: string;
+}
+
 /** union of all protocol messages. */
 export type FriendzMessage =
   | ProfileRequestMessage
   | ProfileResponseMessage
   | FriendRequestMessage
   | FriendAcceptMessage
+  | FriendAcceptAckMessage
   | FriendRejectMessage
-  | HeartbeatMessage;
+  | HeartbeatMessage
+  | CanvasInviteMessage
+  | CanvasInviteAckMessage
+  | CanvasInviteAcceptMessage
+  | CanvasInviteDeclineMessage
+  | AclChangeMessage;
 
 // ---------------------------------------------------------------------------
 // message encoding / decoding
@@ -115,6 +175,27 @@ export type OnProfileResponse = (profile: ProfileResponseMessage, fromNodeId: st
 /** callback for when a heartbeat is received from a remote peer. */
 export type OnHeartbeat = (heartbeat: HeartbeatMessage, fromNodeId: string) => void;
 
+/** callback for when a friend-accept-ack is received from a remote peer. */
+export type OnFriendAcceptAck = (ack: FriendAcceptAckMessage, fromNodeId: string) => void;
+
+/** callback for when a canvas invite is received from a remote peer. */
+export type OnCanvasInvite = (invite: CanvasInviteMessage, fromNodeId: string) => void;
+
+/** callback for when a canvas invite ack is received from a remote peer. */
+export type OnCanvasInviteAck = (ack: CanvasInviteAckMessage, fromNodeId: string) => void;
+
+/** callback for when a canvas invite is accepted by a remote peer. */
+export type OnCanvasInviteAccept = (accept: CanvasInviteAcceptMessage, fromNodeId: string) => void;
+
+/** callback for when a canvas invite is declined by a remote peer. */
+export type OnCanvasInviteDecline = (
+  decline: CanvasInviteDeclineMessage,
+  fromNodeId: string
+) => void;
+
+/** callback for when an ACL change notification is received from a remote peer. */
+export type OnAclChange = (change: AclChangeMessage, fromNodeId: string) => void;
+
 // ---------------------------------------------------------------------------
 // FriendzProtocol
 // ---------------------------------------------------------------------------
@@ -140,6 +221,9 @@ export interface FriendzProtocolOptions {
 
   /** privacy: who can send us friend requests ("everyone" | "nobody"). */
   friendRequestsFrom?: "everyone" | "nobody";
+
+  /** privacy: who can send us canvas invites ("everyone" | "friends" | "nobody"). */
+  canvasInvitesFrom?: "everyone" | "friends" | "nobody";
 }
 
 /**
@@ -164,6 +248,7 @@ export class FriendzProtocol {
   private isFriend: (nodeId: string) => boolean;
   private profileVisibility: "friends" | "everyone" | "nobody";
   private friendRequestsFrom: "everyone" | "nobody";
+  private canvasInvitesFrom: "everyone" | "friends" | "nobody";
 
   /** active BiStreams to peers, keyed by node ID. */
   private streams = new Map<string, BiStreamLike>();
@@ -199,6 +284,24 @@ export class FriendzProtocol {
   /** called when a heartbeat is received. */
   onHeartbeat: OnHeartbeat | null = null;
 
+  /** called when a friend-accept-ack is received. */
+  onFriendAcceptAck: OnFriendAcceptAck | null = null;
+
+  /** called when a canvas invite is received. */
+  onCanvasInvite: OnCanvasInvite | null = null;
+
+  /** called when a canvas invite ack is received. */
+  onCanvasInviteAck: OnCanvasInviteAck | null = null;
+
+  /** called when a canvas invite is accepted. */
+  onCanvasInviteAccept: OnCanvasInviteAccept | null = null;
+
+  /** called when a canvas invite is declined. */
+  onCanvasInviteDecline: OnCanvasInviteDecline | null = null;
+
+  /** called when an ACL change notification is received. */
+  onAclChange: OnAclChange | null = null;
+
   constructor(options: FriendzProtocolOptions) {
     this.getMidden = options.getMidden;
     this.localNodeId = options.localNodeId;
@@ -207,6 +310,7 @@ export class FriendzProtocol {
     this.isFriend = options.isFriend;
     this.profileVisibility = options.profileVisibility ?? "friends";
     this.friendRequestsFrom = options.friendRequestsFrom ?? "everyone";
+    this.canvasInvitesFrom = options.canvasInvitesFrom ?? "everyone";
   }
 
   // --- incoming stream handling (called by the ALPN router) ---
@@ -287,6 +391,30 @@ export class FriendzProtocol {
         this.onHeartbeat?.(msg, fromNodeId);
         break;
 
+      case "friend-accept-ack":
+        this.onFriendAcceptAck?.(msg, fromNodeId);
+        break;
+
+      case "canvas-invite":
+        this.handleCanvasInvite(msg, fromNodeId);
+        break;
+
+      case "canvas-invite-ack":
+        this.onCanvasInviteAck?.(msg, fromNodeId);
+        break;
+
+      case "canvas-invite-accept":
+        this.onCanvasInviteAccept?.(msg, fromNodeId);
+        break;
+
+      case "canvas-invite-decline":
+        this.onCanvasInviteDecline?.(msg, fromNodeId);
+        break;
+
+      case "acl-change":
+        this.onAclChange?.(msg, fromNodeId);
+        break;
+
       default:
         console.warn(TAG, "unknown message type from:", fromNodeId.slice(0, 16) + "...", msg);
     }
@@ -328,6 +456,18 @@ export class FriendzProtocol {
     }
 
     this.onFriendRequest?.(msg, fromNodeId);
+  }
+
+  private handleCanvasInvite(msg: CanvasInviteMessage, fromNodeId: string): void {
+    if (this.canvasInvitesFrom === "nobody") {
+      console.log(TAG, "ignoring canvas invite (invites disabled)");
+      return;
+    }
+    if (this.canvasInvitesFrom === "friends" && !this.isFriend(fromNodeId)) {
+      console.log(TAG, "ignoring canvas invite from non-friend:", fromNodeId.slice(0, 16) + "...");
+      return;
+    }
+    this.onCanvasInvite?.(msg, fromNodeId);
   }
 
   // --- outbound protocol actions ---
@@ -373,6 +513,57 @@ export class FriendzProtocol {
    */
   async requestProfile(peerNodeId: string): Promise<void> {
     const msg: ProfileRequestMessage = { type: "profile-request" };
+    await this.sendMessage(peerNodeId, msg);
+  }
+
+  /** send a friend-accept-ack to complete the two-phase handshake. */
+  async sendFriendAcceptAck(peerNodeId: string): Promise<void> {
+    const msg: FriendAcceptAckMessage = {
+      type: "friend-accept-ack",
+      fromNodeId: this.localNodeId,
+    };
+    await this.sendMessage(peerNodeId, msg);
+  }
+
+  /** send a canvas invite to a peer. */
+  async sendCanvasInvite(
+    peerNodeId: string,
+    invite: Omit<CanvasInviteMessage, "type">
+  ): Promise<void> {
+    const msg: CanvasInviteMessage = { type: "canvas-invite", ...invite };
+    await this.sendMessage(peerNodeId, msg);
+  }
+
+  /** send a canvas invite ack to a peer. */
+  async sendCanvasInviteAck(
+    peerNodeId: string,
+    ack: Omit<CanvasInviteAckMessage, "type">
+  ): Promise<void> {
+    const msg: CanvasInviteAckMessage = { type: "canvas-invite-ack", ...ack };
+    await this.sendMessage(peerNodeId, msg);
+  }
+
+  /** accept a canvas invite. */
+  async sendCanvasInviteAccept(
+    peerNodeId: string,
+    accept: Omit<CanvasInviteAcceptMessage, "type">
+  ): Promise<void> {
+    const msg: CanvasInviteAcceptMessage = { type: "canvas-invite-accept", ...accept };
+    await this.sendMessage(peerNodeId, msg);
+  }
+
+  /** decline a canvas invite. */
+  async sendCanvasInviteDecline(
+    peerNodeId: string,
+    decline: Omit<CanvasInviteDeclineMessage, "type">
+  ): Promise<void> {
+    const msg: CanvasInviteDeclineMessage = { type: "canvas-invite-decline", ...decline };
+    await this.sendMessage(peerNodeId, msg);
+  }
+
+  /** send an ACL change notification to a peer. */
+  async sendAclChange(peerNodeId: string, change: Omit<AclChangeMessage, "type">): Promise<void> {
+    const msg: AclChangeMessage = { type: "acl-change", ...change };
     await this.sendMessage(peerNodeId, msg);
   }
 
@@ -517,6 +708,11 @@ export class FriendzProtocol {
     this.friendRequestsFrom = from;
   }
 
+  /** update canvas invite privacy settings. */
+  setCanvasInvitesFrom(from: "everyone" | "friends" | "nobody"): void {
+    this.canvasInvitesFrom = from;
+  }
+
   /**
    * clean up all streams, timers, and listeners.
    */
@@ -536,5 +732,11 @@ export class FriendzProtocol {
     this.onFriendReject = null;
     this.onProfileResponse = null;
     this.onHeartbeat = null;
+    this.onFriendAcceptAck = null;
+    this.onCanvasInvite = null;
+    this.onCanvasInviteAck = null;
+    this.onCanvasInviteAccept = null;
+    this.onCanvasInviteDecline = null;
+    this.onAclChange = null;
   }
 }
