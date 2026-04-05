@@ -1,5 +1,6 @@
 import type { Container } from "pixi.js";
 import { z } from "zod";
+import type { CanvasStore } from "../canvas/canvas-store";
 import type { KeyboardDriver } from "./keyboard-driver";
 
 /**
@@ -56,6 +57,9 @@ export interface WidgetMountContext<S extends z.ZodType = z.ZodType> {
   widgetId: string;
   /** the canvas DOM element — used for positioning DOM overlays (e.g. textarea editing) */
   canvasElement: HTMLCanvasElement;
+  /** the canvas store — provides read/write access to canvas-level metadata.
+   *  available on regular canvases; may be undefined for headless or test contexts. */
+  canvasStore?: CanvasStore;
 }
 
 /**

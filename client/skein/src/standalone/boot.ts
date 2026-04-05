@@ -1372,6 +1372,16 @@ class SkeinRouter {
             d.modifiedAt = meta.lastModified;
             changed = true;
           }
+          // sync color from canvas doc (0 means "not set" — skip to keep card's own default)
+          if (meta.color && meta.color !== (d.color ?? 0)) {
+            d.color = meta.color;
+            changed = true;
+          }
+          // sync previewUrl from canvas doc
+          if (meta.previewUrl !== undefined && meta.previewUrl !== (d.previewUrl ?? "")) {
+            d.previewUrl = meta.previewUrl;
+            changed = true;
+          }
 
           // seed lastVisitedAt for pre-migration cards (one-time migration).
           // without this, cards created before the schema migration have
@@ -1747,6 +1757,26 @@ class SkeinRouter {
       newStore.setDescription(detail.description);
     }
     newStore.setCreatedAt(now);
+
+    // set color on the canvas document (source of truth for metadata)
+    if (detail?.color) {
+      newStore.setColor(detail.color);
+    }
+
+    // seed a canvas-info widget so every new canvas has one by default.
+    // uses the singleton pattern — placed in the top-left corner.
+    newStore.addWidget({
+      id: "canvas-info",
+      type: "canvas-info",
+      x: 20,
+      y: 20,
+      width: 280,
+      height: 340,
+      zIndex: 0,
+      props: {},
+      collapsed: false,
+      docId: null,
+    });
 
     // if the wizard widget is still on the narthex, remove it
     if (detail?.wizardWidgetId) {

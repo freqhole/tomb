@@ -1,4 +1,5 @@
 import { WidgetRegistry } from "../src/widgets/widget-registry";
+import { canvasInfoWidget } from "./canvas-info";
 import { counterWidget } from "./counter";
 import { helloWorldWidget } from "./hello-world";
 import { imageWidget } from "./image";
@@ -12,6 +13,7 @@ import { notepadWidget } from "./notepad";
  */
 export function createTestRegistry(): WidgetRegistry {
   const registry = new WidgetRegistry();
+  registry.register(canvasInfoWidget);
   registry.register(helloWorldWidget);
   registry.register(counterWidget);
   registry.register(imageWidget);
@@ -21,6 +23,8 @@ export function createTestRegistry(): WidgetRegistry {
   return registry;
 }
 
+export { canvasInfoSchema, canvasInfoWidget } from "./canvas-info";
+export type { CanvasInfoState } from "./canvas-info";
 export { counterSchema, counterWidget } from "./counter";
 export { helloWorldWidget } from "./hello-world";
 export { imageSchema, imageWidget } from "./image";

@@ -27,4 +27,30 @@ describe("emptyCanvasDoc", () => {
     expect(doc.createdAt).toBe("");
     expect(doc.lastModified).toBe("");
   });
+
+  it("returns default color of 0", () => {
+    const doc = emptyCanvasDoc();
+    expect(doc.color).toBe(0);
+  });
+
+  it("returns empty previewUrl", () => {
+    const doc = emptyCanvasDoc();
+    expect(doc.previewUrl).toBe("");
+  });
+
+  it("includes color and previewUrl in the full document shape", () => {
+    const doc = emptyCanvasDoc();
+    // verify both new fields are present alongside existing ones
+    expect(doc).toMatchObject({
+      version: 1,
+      widgets: {},
+      title: "",
+      description: "",
+      createdAt: "",
+      lastModified: "",
+      color: 0,
+      previewUrl: "",
+      peers: {},
+    });
+  });
 });

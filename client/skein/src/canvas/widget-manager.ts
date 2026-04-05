@@ -241,6 +241,7 @@ export class WidgetManager {
       height: entry.height,
       keyboard: this.keyboard,
       canvasElement: this.canvasElement,
+      canvasStore: this.store,
       widgetId: entry.id,
     };
 

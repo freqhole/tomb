@@ -81,14 +81,23 @@ export class CanvasStore {
 
   // -- metadata --------------------------------------------------------------
 
-  /** get the canvas metadata (title, description, timestamps). */
-  metadata(): { title: string; description: string; createdAt: string; lastModified: string } {
+  /** get the canvas metadata (title, description, timestamps, color, preview). */
+  metadata(): {
+    title: string;
+    description: string;
+    createdAt: string;
+    lastModified: string;
+    color: number;
+    previewUrl: string;
+  } {
     const doc = this.doc();
     return {
       title: doc.title ?? "",
       description: doc.description ?? "",
       createdAt: doc.createdAt ?? "",
       lastModified: doc.lastModified ?? "",
+      color: doc.color ?? 0,
+      previewUrl: doc.previewUrl ?? "",
     };
   }
 
@@ -113,6 +122,22 @@ export class CanvasStore {
     this.handle.change((doc) => {
       doc.createdAt = isoDate;
       doc.lastModified = isoDate;
+    });
+  }
+
+  /** set the canvas tag color. */
+  setColor(color: number): void {
+    this.handle.change((doc) => {
+      doc.color = color;
+      doc.lastModified = new Date().toISOString();
+    });
+  }
+
+  /** set the canvas preview image (data URL). */
+  setPreviewUrl(url: string): void {
+    this.handle.change((doc) => {
+      doc.previewUrl = url;
+      doc.lastModified = new Date().toISOString();
     });
   }
 
