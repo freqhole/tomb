@@ -2,7 +2,7 @@
 // unit tests for IrohNetworkAdapter
 // ---------------------------------------------------------------------------
 
-import { beforeEach, describe, expect, it, vi, type Mock } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 
 // ---------------------------------------------------------------------------
 // mock: ./identity

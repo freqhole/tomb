@@ -233,6 +233,12 @@ export function friendDisplayNameFull(friend: FriendEntry): string {
 }
 
 // ---------------------------------------------------------------------------
+// collapsible group state (persists across layout calls within widget lifetime)
+// ---------------------------------------------------------------------------
+
+const collapsedGroups = new Set<string>();
+
+// ---------------------------------------------------------------------------
 // factory
 // ---------------------------------------------------------------------------
 
@@ -266,6 +272,12 @@ export const friendsWidget: WidgetFactory<typeof friendsSchema> = {
 
     // scroll state
     let scrollY = 0;
+
+    // detail view editing state
+    let editingAlias = false;
+    let aliasInputHandle: SkeinInputHandle | null = null;
+    let editingNewGroup = false;
+    let groupInputHandle: SkeinInputHandle | null = null;
 
     // ---------------------------------------------------------------------------
     // background card
@@ -463,158 +475,268 @@ export const friendsWidget: WidgetFactory<typeof friendsSchema> = {
         Math.floor((contentW - ROW_AVATAR_SIZE - ROW_PADDING_X * 4) / (ROW_NAME_SIZE * 0.55))
       );
 
-      for (let i = 0; i < friends.length; i++) {
-        const friend = friends[i];
-        const rowY = i * ROW_HEIGHT;
+      // group friends by their group field
+      const grouped = new Map<string, FriendEntry[]>();
+      const ungrouped: FriendEntry[] = [];
 
-        const rowContainer = new Container();
-        rowContainer.eventMode = "static";
-        rowContainer.cursor = "pointer";
-        rowContainer.hitArea = new Rectangle(0, 0, contentW, ROW_HEIGHT);
-        rowContainer.y = rowY;
-        listInner.addChild(rowContainer);
-
-        // alternating row background
-        const rowBg = new Graphics();
-        rowBg.eventMode = "none";
-        rowBg.rect(0, 0, contentW, ROW_HEIGHT);
-        if (i % 2 === 1) {
-          rowBg.fill({ color: ROW_ALT_BG, alpha: 0.5 });
+      for (const friend of friends) {
+        if (friend.group) {
+          const existing = grouped.get(friend.group);
+          if (existing) {
+            existing.push(friend);
+          } else {
+            grouped.set(friend.group, [friend]);
+          }
         } else {
-          rowBg.fill({ color: BG, alpha: 0.01 });
+          ungrouped.push(friend);
         }
-        rowContainer.addChild(rowBg);
+      }
 
-        // avatar circle with initial letter
-        const displayName = friendDisplayName(friend);
-        const avatarColor = colorForName(displayName, i);
-        const avatarX = ROW_PADDING_X + ROW_AVATAR_SIZE / 2;
-        const avatarY = ROW_HEIGHT / 2;
+      // sort group names alphabetically
+      const sortedGroupNames = [...grouped.keys()].sort((a, b) => a.localeCompare(b));
 
-        const avatarUrl = friend.nodeIds.find((n) => n.avatarDataUrl)?.avatarDataUrl;
+      // build the ordered list of items to render
+      type RowItem =
+        | { type: "header"; group: string; count: number }
+        | { type: "friend"; friend: FriendEntry };
+      const items: RowItem[] = [];
 
-        const avatar = new Graphics();
-        avatar.eventMode = "none";
-        avatar.circle(avatarX, avatarY, ROW_AVATAR_SIZE / 2);
-        avatar.fill({ color: avatarColor });
-        rowContainer.addChild(avatar);
-
-        const initial = displayName.charAt(0).toUpperCase() || "?";
-        const avatarLetter = new Text({
-          text: initial,
-          style: {
-            fontFamily: FONT,
-            fontSize: 11,
-            fontWeight: "bold",
-            fill: 0xffffff,
-            align: "center",
-          },
-          resolution: RESOLUTION,
-        });
-        avatarLetter.eventMode = "none";
-        avatarLetter.anchor.set(0.5);
-        avatarLetter.x = avatarX;
-        avatarLetter.y = avatarY;
-        rowContainer.addChild(avatarLetter);
-
-        // async avatar image overlay
-        if (avatarUrl) {
-          const cacheKey = `friend-avatar-${friend.id}`;
-          Assets.load({ src: avatarUrl, alias: cacheKey })
-            .then((texture) => {
-              if (rowContainer.destroyed) return;
-              const avatarSprite = new Sprite(texture);
-              avatarSprite.eventMode = "none";
-              avatarSprite.width = ROW_AVATAR_SIZE;
-              avatarSprite.height = ROW_AVATAR_SIZE;
-              avatarSprite.x = avatarX - ROW_AVATAR_SIZE / 2;
-              avatarSprite.y = avatarY - ROW_AVATAR_SIZE / 2;
-
-              const spriteMask = new Graphics();
-              spriteMask.circle(avatarX, avatarY, ROW_AVATAR_SIZE / 2);
-              spriteMask.fill({ color: 0xffffff });
-              rowContainer.addChild(spriteMask);
-              avatarSprite.mask = spriteMask;
-              rowContainer.addChild(avatarSprite);
-
-              avatar.visible = false;
-              avatarLetter.visible = false;
-            })
-            .catch(() => {});
+      for (const groupName of sortedGroupNames) {
+        const groupFriends = grouped.get(groupName)!;
+        items.push({ type: "header", group: groupName, count: groupFriends.length });
+        if (!collapsedGroups.has(groupName)) {
+          for (const friend of groupFriends) {
+            items.push({ type: "friend", friend });
+          }
         }
+      }
 
-        // online/offline dot — overlaid on avatar bottom-right with border ring
-        const isAnyNodeOnline = friend.nodeIds.some((n) => bridgeIsOnline(n.nodeId));
-        const dotColor = isAnyNodeOnline ? ONLINE_COLOR : OFFLINE_COLOR;
-        const dotCx = avatarX + ROW_AVATAR_SIZE / 2 - ONLINE_DOT_SIZE / 2 + 1;
-        const dotCy = avatarY + ROW_AVATAR_SIZE / 2 - ONLINE_DOT_SIZE / 2 + 1;
+      // ungrouped friends at the end without a header
+      for (const friend of ungrouped) {
+        items.push({ type: "friend", friend });
+      }
 
-        const onlineDot = new Graphics();
-        onlineDot.eventMode = "none";
-        // border ring (matches card background)
-        onlineDot.circle(dotCx, dotCy, ONLINE_DOT_SIZE / 2 + ONLINE_DOT_BORDER);
-        onlineDot.fill({ color: BG });
-        // inner dot
-        onlineDot.circle(dotCx, dotCy, ONLINE_DOT_SIZE / 2);
-        onlineDot.fill({ color: dotColor });
-        rowContainer.addChild(onlineDot);
+      let friendRowIndex = 0;
+      let currentY = 0;
 
-        // name text — vertically centered
-        const textX = ROW_PADDING_X + ROW_AVATAR_SIZE + ROW_PADDING_X;
-        const nameText = new Text({
-          text: truncate(displayName || "unnamed", maxNameChars),
-          style: {
-            fontFamily: FONT,
-            fontSize: ROW_NAME_SIZE,
-            fontWeight: "bold",
-            fill: TEXT_COLOR,
-          },
-          resolution: RESOLUTION,
-        });
-        nameText.eventMode = "none";
-        nameText.x = textX;
-        nameText.y = (ROW_HEIGHT - ROW_NAME_SIZE) / 2;
-        rowContainer.addChild(nameText);
+      for (const item of items) {
+        if (item.type === "header") {
+          // render group header row
+          const headerRow = new Container();
+          headerRow.eventMode = "static";
+          headerRow.cursor = "pointer";
+          headerRow.hitArea = new Rectangle(0, 0, contentW, ROW_HEIGHT);
+          headerRow.y = currentY;
+          listInner.addChild(headerRow);
 
-        // chevron hint on the right
-        const chevron = new Text({
-          text: "\u203a",
-          style: { fontFamily: FONT, fontSize: 16, fill: MUTED_TEXT },
-          resolution: RESOLUTION,
-        });
-        chevron.eventMode = "none";
-        chevron.x = contentW - ROW_PADDING_X - chevron.width;
-        chevron.y = (ROW_HEIGHT - 16) / 2;
-        rowContainer.addChild(chevron);
+          const headerBg = new Graphics();
+          headerBg.eventMode = "none";
+          headerBg.rect(0, 0, contentW, ROW_HEIGHT);
+          headerBg.fill({ color: 0x1c1c28 });
+          headerRow.addChild(headerBg);
 
-        // click row → open detail view
-        const friendId = friend.id;
-        rowContainer.on("pointertap", (e) => {
-          e.stopPropagation();
-          selectedFriendId = friendId;
-          viewMode = "detail";
-          scrollY = 0;
-          layout(currentWidth, currentHeight);
-        });
+          const isCollapsed = collapsedGroups.has(item.group);
+          const chevronChar = isCollapsed ? "\u25b8" : "\u25be";
+          const chevronText = new Text({
+            text: chevronChar,
+            style: { fontFamily: FONT, fontSize: 11, fill: LABEL_COLOR },
+            resolution: RESOLUTION,
+          });
+          chevronText.eventMode = "none";
+          chevronText.x = ROW_PADDING_X;
+          chevronText.y = (ROW_HEIGHT - 11) / 2;
+          headerRow.addChild(chevronText);
 
-        // hover effect
-        rowContainer.on("pointerover", () => {
-          rowBg.clear();
-          rowBg.rect(0, 0, contentW, ROW_HEIGHT);
-          rowBg.fill({ color: 0x252536, alpha: 0.8 });
-        });
-        rowContainer.on("pointerout", () => {
-          rowBg.clear();
+          const groupNameText = new Text({
+            text: item.group,
+            style: { fontFamily: FONT, fontSize: 11, fontWeight: "bold", fill: LABEL_COLOR },
+            resolution: RESOLUTION,
+          });
+          groupNameText.eventMode = "none";
+          groupNameText.x = ROW_PADDING_X + chevronText.width + 6;
+          groupNameText.y = (ROW_HEIGHT - 11) / 2;
+          headerRow.addChild(groupNameText);
+
+          // count badge on the right
+          const countText = new Text({
+            text: String(item.count),
+            style: { fontFamily: FONT, fontSize: 10, fill: MUTED_TEXT },
+            resolution: RESOLUTION,
+          });
+          countText.eventMode = "none";
+          countText.x = contentW - ROW_PADDING_X - countText.width;
+          countText.y = (ROW_HEIGHT - 10) / 2;
+          headerRow.addChild(countText);
+
+          const groupName = item.group;
+          headerRow.on("pointertap", (e) => {
+            e.stopPropagation();
+            if (collapsedGroups.has(groupName)) {
+              collapsedGroups.delete(groupName);
+            } else {
+              collapsedGroups.add(groupName);
+            }
+            layout(currentWidth, currentHeight);
+          });
+
+          currentY += ROW_HEIGHT;
+        } else {
+          // render friend row
+          const friend = item.friend;
+          const i = friendRowIndex;
+          friendRowIndex++;
+
+          const rowContainer = new Container();
+          rowContainer.eventMode = "static";
+          rowContainer.cursor = "pointer";
+          rowContainer.hitArea = new Rectangle(0, 0, contentW, ROW_HEIGHT);
+          rowContainer.y = currentY;
+          listInner.addChild(rowContainer);
+
+          // alternating row background
+          const rowBg = new Graphics();
+          rowBg.eventMode = "none";
           rowBg.rect(0, 0, contentW, ROW_HEIGHT);
           if (i % 2 === 1) {
             rowBg.fill({ color: ROW_ALT_BG, alpha: 0.5 });
           } else {
             rowBg.fill({ color: BG, alpha: 0.01 });
           }
-        });
+          rowContainer.addChild(rowBg);
+
+          // avatar circle with initial letter
+          const displayName = friendDisplayName(friend);
+          const avatarColor = colorForName(displayName, i);
+          const avatarX = ROW_PADDING_X + ROW_AVATAR_SIZE / 2;
+          const avatarY = ROW_HEIGHT / 2;
+
+          const avatarUrl = friend.nodeIds.find((n) => n.avatarDataUrl)?.avatarDataUrl;
+
+          const avatar = new Graphics();
+          avatar.eventMode = "none";
+          avatar.circle(avatarX, avatarY, ROW_AVATAR_SIZE / 2);
+          avatar.fill({ color: avatarColor });
+          rowContainer.addChild(avatar);
+
+          const initial = displayName.charAt(0).toUpperCase() || "?";
+          const avatarLetter = new Text({
+            text: initial,
+            style: {
+              fontFamily: FONT,
+              fontSize: 11,
+              fontWeight: "bold",
+              fill: 0xffffff,
+              align: "center",
+            },
+            resolution: RESOLUTION,
+          });
+          avatarLetter.eventMode = "none";
+          avatarLetter.anchor.set(0.5);
+          avatarLetter.x = avatarX;
+          avatarLetter.y = avatarY;
+          rowContainer.addChild(avatarLetter);
+
+          // async avatar image overlay
+          if (avatarUrl) {
+            const cacheKey = `friend-avatar-${friend.id}`;
+            Assets.load({ src: avatarUrl, alias: cacheKey })
+              .then((texture) => {
+                if (rowContainer.destroyed) return;
+                const avatarSprite = new Sprite(texture);
+                avatarSprite.eventMode = "none";
+                avatarSprite.width = ROW_AVATAR_SIZE;
+                avatarSprite.height = ROW_AVATAR_SIZE;
+                avatarSprite.x = avatarX - ROW_AVATAR_SIZE / 2;
+                avatarSprite.y = avatarY - ROW_AVATAR_SIZE / 2;
+
+                const spriteMask = new Graphics();
+                spriteMask.circle(avatarX, avatarY, ROW_AVATAR_SIZE / 2);
+                spriteMask.fill({ color: 0xffffff });
+                rowContainer.addChild(spriteMask);
+                avatarSprite.mask = spriteMask;
+                rowContainer.addChild(avatarSprite);
+
+                avatar.visible = false;
+                avatarLetter.visible = false;
+              })
+              .catch(() => {});
+          }
+
+          // online/offline dot — overlaid on avatar bottom-right with border ring
+          const isAnyNodeOnline = friend.nodeIds.some((n) => bridgeIsOnline(n.nodeId));
+          const dotColor = isAnyNodeOnline ? ONLINE_COLOR : OFFLINE_COLOR;
+          const dotCx = avatarX + ROW_AVATAR_SIZE / 2 - ONLINE_DOT_SIZE / 2 + 1;
+          const dotCy = avatarY + ROW_AVATAR_SIZE / 2 - ONLINE_DOT_SIZE / 2 + 1;
+
+          const onlineDot = new Graphics();
+          onlineDot.eventMode = "none";
+          // border ring (matches card background)
+          onlineDot.circle(dotCx, dotCy, ONLINE_DOT_SIZE / 2 + ONLINE_DOT_BORDER);
+          onlineDot.fill({ color: BG });
+          // inner dot
+          onlineDot.circle(dotCx, dotCy, ONLINE_DOT_SIZE / 2);
+          onlineDot.fill({ color: dotColor });
+          rowContainer.addChild(onlineDot);
+
+          // name text — vertically centered
+          const textX = ROW_PADDING_X + ROW_AVATAR_SIZE + ROW_PADDING_X;
+          const nameText = new Text({
+            text: truncate(displayName || "unnamed", maxNameChars),
+            style: {
+              fontFamily: FONT,
+              fontSize: ROW_NAME_SIZE,
+              fontWeight: "bold",
+              fill: TEXT_COLOR,
+            },
+            resolution: RESOLUTION,
+          });
+          nameText.eventMode = "none";
+          nameText.x = textX;
+          nameText.y = (ROW_HEIGHT - ROW_NAME_SIZE) / 2;
+          rowContainer.addChild(nameText);
+
+          // chevron hint on the right
+          const chevron = new Text({
+            text: "\u203a",
+            style: { fontFamily: FONT, fontSize: 16, fill: MUTED_TEXT },
+            resolution: RESOLUTION,
+          });
+          chevron.eventMode = "none";
+          chevron.x = contentW - ROW_PADDING_X - chevron.width;
+          chevron.y = (ROW_HEIGHT - 16) / 2;
+          rowContainer.addChild(chevron);
+
+          // click row → open detail view
+          const friendId = friend.id;
+          rowContainer.on("pointertap", (e) => {
+            e.stopPropagation();
+            selectedFriendId = friendId;
+            viewMode = "detail";
+            scrollY = 0;
+            layout(currentWidth, currentHeight);
+          });
+
+          // hover effect
+          rowContainer.on("pointerover", () => {
+            rowBg.clear();
+            rowBg.rect(0, 0, contentW, ROW_HEIGHT);
+            rowBg.fill({ color: 0x252536, alpha: 0.8 });
+          });
+          rowContainer.on("pointerout", () => {
+            rowBg.clear();
+            rowBg.rect(0, 0, contentW, ROW_HEIGHT);
+            if (i % 2 === 1) {
+              rowBg.fill({ color: ROW_ALT_BG, alpha: 0.5 });
+            } else {
+              rowBg.fill({ color: BG, alpha: 0.01 });
+            }
+          });
+
+          currentY += ROW_HEIGHT;
+        }
       }
 
-      totalListHeight = friends.length * ROW_HEIGHT;
+      totalListHeight = currentY;
     };
 
     // ---------------------------------------------------------------------------
@@ -635,6 +757,16 @@ export const friendsWidget: WidgetFactory<typeof friendsSchema> = {
     container.addChild(detailContainer);
 
     const rebuildDetailView = (friend: FriendEntry, contentW: number, areaHeight: number) => {
+      // clean up any existing input handles before destroying children
+      if (aliasInputHandle) {
+        aliasInputHandle.destroy();
+        aliasInputHandle = null;
+      }
+      if (groupInputHandle) {
+        groupInputHandle.destroy();
+        groupInputHandle = null;
+      }
+
       while (detailContainer.children.length > 0) {
         detailContainer.removeChildAt(0).destroy({ children: true });
       }
@@ -782,6 +914,159 @@ export const friendsWidget: WidgetFactory<typeof friendsSchema> = {
       detailContainer.addChild(nameText);
       dy += DETAIL_NAME_SIZE + 6;
 
+      // alias section — inline editing
+      const aliasLabel = new Text({
+        text: "alias",
+        style: { fontFamily: FONT, fontSize: LABEL_SIZE, fill: LABEL_COLOR },
+        resolution: RESOLUTION,
+      });
+      aliasLabel.eventMode = "none";
+      aliasLabel.x = 0;
+      aliasLabel.y = dy;
+      detailContainer.addChild(aliasLabel);
+      dy += LABEL_SIZE + 4;
+
+      if (editingAlias) {
+        // editing mode — show input field with save/cancel
+        aliasInputHandle = createSkeinInput({
+          canvasElement: ctx.canvasElement,
+          width: contentW,
+          height: FIELD_HEIGHT,
+          value: friend.alias,
+          onChange: () => {},
+        });
+        aliasInputHandle.input.x = 0;
+        aliasInputHandle.input.y = dy;
+        detailContainer.addChild(aliasInputHandle.input);
+        dy += FIELD_HEIGHT + 6;
+
+        // save button
+        const aliasSaveBtn = new Container();
+        aliasSaveBtn.eventMode = "static";
+        aliasSaveBtn.cursor = "pointer";
+        const aliasSaveBg = new Graphics();
+        aliasSaveBg.eventMode = "none";
+        const aliasSaveText = new Text({
+          text: "save",
+          style: { fontFamily: FONT, fontSize: 9, fill: 0xffffff },
+          resolution: RESOLUTION,
+        });
+        aliasSaveText.eventMode = "none";
+        const savePadX = 10;
+        const savePadY = 4;
+        const saveW = aliasSaveText.width + savePadX * 2;
+        const saveH = aliasSaveText.height + savePadY * 2;
+        aliasSaveBg.roundRect(0, 0, saveW, saveH, 3);
+        aliasSaveBg.fill({ color: ACCENT });
+        aliasSaveBtn.addChild(aliasSaveBg);
+        aliasSaveText.x = savePadX;
+        aliasSaveText.y = savePadY;
+        aliasSaveBtn.addChild(aliasSaveText);
+        aliasSaveBtn.hitArea = new Rectangle(0, 0, saveW, saveH);
+        aliasSaveBtn.x = 0;
+        aliasSaveBtn.y = dy;
+        const savedFriendId = friend.id;
+        aliasSaveBtn.on("pointertap", (e) => {
+          e.stopPropagation();
+          const newValue = aliasInputHandle ? aliasInputHandle.value.trim() : "";
+          editingAlias = false;
+          ctx.doc.change((draft) => {
+            const idx = draft.friends.findIndex((f: FriendEntry) => f.id === savedFriendId);
+            if (idx !== -1) draft.friends[idx].alias = newValue;
+          });
+        });
+        detailContainer.addChild(aliasSaveBtn);
+
+        // cancel button
+        const aliasCancelBtn = new Container();
+        aliasCancelBtn.eventMode = "static";
+        aliasCancelBtn.cursor = "pointer";
+        const aliasCancelBg = new Graphics();
+        aliasCancelBg.eventMode = "none";
+        const aliasCancelText = new Text({
+          text: "cancel",
+          style: { fontFamily: FONT, fontSize: 9, fill: MUTED_TEXT },
+          resolution: RESOLUTION,
+        });
+        aliasCancelText.eventMode = "none";
+        const cancelPadX = 10;
+        const cancelPadY = 4;
+        const cancelW = aliasCancelText.width + cancelPadX * 2;
+        const cancelH = aliasCancelText.height + cancelPadY * 2;
+        aliasCancelBg.roundRect(0, 0, cancelW, cancelH, 3);
+        aliasCancelBg.fill({ color: FIELD_BG });
+        aliasCancelBg.stroke({ color: FIELD_BORDER, width: 1 });
+        aliasCancelBtn.addChild(aliasCancelBg);
+        aliasCancelText.x = cancelPadX;
+        aliasCancelText.y = cancelPadY;
+        aliasCancelBtn.addChild(aliasCancelText);
+        aliasCancelBtn.hitArea = new Rectangle(0, 0, cancelW, cancelH);
+        aliasCancelBtn.x = saveW + 6;
+        aliasCancelBtn.y = dy;
+        aliasCancelBtn.on("pointertap", (e) => {
+          e.stopPropagation();
+          editingAlias = false;
+          layout(currentWidth, currentHeight);
+        });
+        detailContainer.addChild(aliasCancelBtn);
+
+        dy += saveH + 8;
+      } else {
+        // display mode — show alias value with edit button
+        const aliasRow = new Container();
+        aliasRow.eventMode = "static";
+        aliasRow.y = dy;
+        detailContainer.addChild(aliasRow);
+
+        const aliasValue = friend.alias || "none";
+        const aliasValueText = new Text({
+          text: aliasValue,
+          style: {
+            fontFamily: FONT,
+            fontSize: DETAIL_NODEID_SIZE,
+            fill: friend.alias ? TEXT_COLOR : MUTED_TEXT,
+          },
+          resolution: RESOLUTION,
+        });
+        aliasValueText.eventMode = "none";
+        aliasValueText.y = 2;
+        aliasRow.addChild(aliasValueText);
+
+        // edit button — pill-shaped like the copy button
+        const aliasEditBtn = new Container();
+        aliasEditBtn.eventMode = "static";
+        aliasEditBtn.cursor = "pointer";
+        aliasEditBtn.x = aliasValueText.width + 8;
+        const aliasEditBg = new Graphics();
+        aliasEditBg.eventMode = "none";
+        const aliasEditLabel = new Text({
+          text: "edit",
+          style: { fontFamily: FONT, fontSize: 9, fill: ACCENT },
+          resolution: RESOLUTION,
+        });
+        aliasEditLabel.eventMode = "none";
+        const editPadX = 8;
+        const editPadY = 3;
+        const editW = aliasEditLabel.width + editPadX * 2;
+        const editH = aliasEditLabel.height + editPadY * 2;
+        aliasEditBg.roundRect(0, 0, editW, editH, 3);
+        aliasEditBg.fill({ color: FIELD_BG });
+        aliasEditBg.stroke({ color: FIELD_BORDER, width: 1 });
+        aliasEditBtn.addChild(aliasEditBg);
+        aliasEditLabel.x = editPadX;
+        aliasEditLabel.y = editPadY;
+        aliasEditBtn.addChild(aliasEditLabel);
+        aliasEditBtn.hitArea = new Rectangle(0, 0, editW, editH);
+        aliasEditBtn.on("pointertap", (e) => {
+          e.stopPropagation();
+          editingAlias = true;
+          layout(currentWidth, currentHeight);
+        });
+        aliasRow.addChild(aliasEditBtn);
+
+        dy += editH + 8;
+      }
+
       // bio (if any nodeId has one)
       const bio = friend.nodeIds.find((n) => n.bio)?.bio;
       if (bio) {
@@ -895,8 +1180,8 @@ export const friendsWidget: WidgetFactory<typeof friendsSchema> = {
         dy += copyH + 8;
       }
 
-      // group (if any)
-      if (friend.group) {
+      // group — editable picker
+      {
         const groupLabel = new Text({
           text: "group",
           style: { fontFamily: FONT, fontSize: LABEL_SIZE, fill: LABEL_COLOR },
@@ -905,17 +1190,184 @@ export const friendsWidget: WidgetFactory<typeof friendsSchema> = {
         groupLabel.eventMode = "none";
         groupLabel.y = dy;
         detailContainer.addChild(groupLabel);
-        dy += LABEL_SIZE + 4;
+        dy += LABEL_SIZE + 6;
 
-        const groupText = new Text({
-          text: friend.group,
-          style: { fontFamily: FONT, fontSize: DETAIL_NODEID_SIZE, fill: TEXT_COLOR },
-          resolution: RESOLUTION,
-        });
-        groupText.eventMode = "none";
-        groupText.y = dy;
-        detailContainer.addChild(groupText);
-        dy += groupText.height + 8;
+        // collect all known groups
+        const knownGroups: string[] = (ctx.doc.current.groups ?? []).map(
+          (g: FriendGroup) => g.name
+        );
+        if (friend.group && !knownGroups.includes(friend.group)) {
+          knownGroups.push(friend.group);
+        }
+        knownGroups.sort((a, b) => a.localeCompare(b));
+
+        // build pill options: "none" + known groups + "+ new"
+        const pillOptions: string[] = ["none", ...knownGroups, "+ new"];
+        let px = 0;
+        let pillRowY = dy;
+        const friendIdForGroup = friend.id;
+
+        for (const opt of pillOptions) {
+          const isActive =
+            (opt === "none" && !friend.group) ||
+            (opt !== "none" && opt !== "+ new" && friend.group === opt);
+          const pillW = Math.max(40, opt.length * (OPTION_FONT_SIZE * 0.65) + 20);
+
+          // wrap to next line if exceeds contentW
+          if (px + pillW > contentW && px > 0) {
+            px = 0;
+            pillRowY += OPTION_PILL_HEIGHT + OPTION_PILL_GAP;
+          }
+
+          const pill = new Container();
+          pill.eventMode = "static";
+          pill.cursor = "pointer";
+          pill.hitArea = new Rectangle(0, 0, pillW, OPTION_PILL_HEIGHT);
+          pill.x = px;
+          pill.y = pillRowY;
+
+          const pillBg = new Graphics();
+          pillBg.roundRect(0, 0, pillW, OPTION_PILL_HEIGHT, OPTION_PILL_RADIUS);
+          if (isActive) {
+            pillBg.fill({ color: ACCENT });
+          } else {
+            pillBg.fill({ color: FIELD_BG });
+            pillBg.stroke({ color: FIELD_BORDER, width: 1 });
+          }
+          pill.addChild(pillBg);
+
+          const pillText = new Text({
+            text: opt,
+            style: {
+              fontFamily: FONT,
+              fontSize: OPTION_FONT_SIZE,
+              fill: isActive ? 0xffffff : MUTED_TEXT,
+            },
+            resolution: RESOLUTION,
+          });
+          pillText.eventMode = "none";
+          pillText.x = (pillW - pillText.width) / 2;
+          pillText.y = (OPTION_PILL_HEIGHT - OPTION_FONT_SIZE) / 2;
+          pill.addChild(pillText);
+
+          const optValue = opt;
+          pill.on("pointertap", (e) => {
+            e.stopPropagation();
+            if (optValue === "+ new") {
+              editingNewGroup = true;
+              layout(currentWidth, currentHeight);
+            } else if (optValue === "none") {
+              ctx.doc.change((draft) => {
+                const idx = draft.friends.findIndex((f: FriendEntry) => f.id === friendIdForGroup);
+                if (idx !== -1) draft.friends[idx].group = "";
+              });
+            } else {
+              ctx.doc.change((draft) => {
+                const idx = draft.friends.findIndex((f: FriendEntry) => f.id === friendIdForGroup);
+                if (idx !== -1) draft.friends[idx].group = optValue;
+              });
+            }
+          });
+
+          detailContainer.addChild(pill);
+          px += pillW + OPTION_PILL_GAP;
+        }
+
+        dy = pillRowY + OPTION_PILL_HEIGHT + 8;
+
+        // new group input (shown when "+ new" is clicked)
+        if (editingNewGroup) {
+          groupInputHandle = createSkeinInput({
+            canvasElement: ctx.canvasElement,
+            width: contentW,
+            height: FIELD_HEIGHT,
+            value: "",
+            onChange: () => {},
+          });
+          groupInputHandle.input.x = 0;
+          groupInputHandle.input.y = dy;
+          detailContainer.addChild(groupInputHandle.input);
+          dy += FIELD_HEIGHT + 6;
+
+          // confirm button
+          const newGroupConfirmBtn = new Container();
+          newGroupConfirmBtn.eventMode = "static";
+          newGroupConfirmBtn.cursor = "pointer";
+          const newGroupConfirmBg = new Graphics();
+          newGroupConfirmBg.eventMode = "none";
+          const newGroupConfirmText = new Text({
+            text: "add group",
+            style: { fontFamily: FONT, fontSize: 9, fill: 0xffffff },
+            resolution: RESOLUTION,
+          });
+          newGroupConfirmText.eventMode = "none";
+          const ngPadX = 10;
+          const ngPadY = 4;
+          const ngW = newGroupConfirmText.width + ngPadX * 2;
+          const ngH = newGroupConfirmText.height + ngPadY * 2;
+          newGroupConfirmBg.roundRect(0, 0, ngW, ngH, 3);
+          newGroupConfirmBg.fill({ color: ACCENT });
+          newGroupConfirmBtn.addChild(newGroupConfirmBg);
+          newGroupConfirmText.x = ngPadX;
+          newGroupConfirmText.y = ngPadY;
+          newGroupConfirmBtn.addChild(newGroupConfirmText);
+          newGroupConfirmBtn.hitArea = new Rectangle(0, 0, ngW, ngH);
+          newGroupConfirmBtn.x = 0;
+          newGroupConfirmBtn.y = dy;
+          newGroupConfirmBtn.on("pointertap", (e) => {
+            e.stopPropagation();
+            const newGroupName = groupInputHandle ? groupInputHandle.value.trim() : "";
+            if (newGroupName) {
+              editingNewGroup = false;
+              ctx.doc.change((draft) => {
+                // add group if it doesn't already exist
+                const groupExists = draft.groups.some((g: FriendGroup) => g.name === newGroupName);
+                if (!groupExists) {
+                  draft.groups.push({ name: newGroupName, createdAt: new Date().toISOString() });
+                }
+                // assign friend to new group
+                const idx = draft.friends.findIndex((f: FriendEntry) => f.id === friendIdForGroup);
+                if (idx !== -1) draft.friends[idx].group = newGroupName;
+              });
+            }
+          });
+          detailContainer.addChild(newGroupConfirmBtn);
+
+          // cancel button
+          const newGroupCancelBtn = new Container();
+          newGroupCancelBtn.eventMode = "static";
+          newGroupCancelBtn.cursor = "pointer";
+          const newGroupCancelBg = new Graphics();
+          newGroupCancelBg.eventMode = "none";
+          const newGroupCancelText = new Text({
+            text: "cancel",
+            style: { fontFamily: FONT, fontSize: 9, fill: MUTED_TEXT },
+            resolution: RESOLUTION,
+          });
+          newGroupCancelText.eventMode = "none";
+          const ngcPadX = 10;
+          const ngcPadY = 4;
+          const ngcW = newGroupCancelText.width + ngcPadX * 2;
+          const ngcH = newGroupCancelText.height + ngcPadY * 2;
+          newGroupCancelBg.roundRect(0, 0, ngcW, ngcH, 3);
+          newGroupCancelBg.fill({ color: FIELD_BG });
+          newGroupCancelBg.stroke({ color: FIELD_BORDER, width: 1 });
+          newGroupCancelBtn.addChild(newGroupCancelBg);
+          newGroupCancelText.x = ngcPadX;
+          newGroupCancelText.y = ngcPadY;
+          newGroupCancelBtn.addChild(newGroupCancelText);
+          newGroupCancelBtn.hitArea = new Rectangle(0, 0, ngcW, ngcH);
+          newGroupCancelBtn.x = ngW + 6;
+          newGroupCancelBtn.y = dy;
+          newGroupCancelBtn.on("pointertap", (e) => {
+            e.stopPropagation();
+            editingNewGroup = false;
+            layout(currentWidth, currentHeight);
+          });
+          detailContainer.addChild(newGroupCancelBtn);
+
+          dy += ngH + 8;
+        }
       }
 
       // added date
@@ -1256,6 +1708,7 @@ export const friendsWidget: WidgetFactory<typeof friendsSchema> = {
       // --- outbound requests section (shown below incoming) ---
       const outbound = ((ctx.doc.current as any).outboundRequests ?? []) as OutboundFriendRequest[];
       const pendingOutbound = outbound.filter((r) => r.status === "pending");
+      const nonPendingOutbound = outbound.filter((r) => r.status !== "pending");
 
       if (pendingOutbound.length > 0) {
         const sectionY = pending.length * REQUEST_ROW_HEIGHT;
@@ -1393,6 +1846,37 @@ export const friendsWidget: WidgetFactory<typeof friendsSchema> = {
         totalRequestsHeight = sectionY + labelHeight + pendingOutbound.length * REQUEST_ROW_HEIGHT;
       } else {
         totalRequestsHeight = pending.length * REQUEST_ROW_HEIGHT;
+      }
+
+      // "clear resolved" button for non-pending outbound requests
+      if (nonPendingOutbound.length > 0) {
+        const clearY = totalRequestsHeight + 4;
+        const clearBtn = new Container();
+        clearBtn.eventMode = "static";
+        clearBtn.cursor = "pointer";
+
+        const clearText = new Text({
+          text: "clear resolved",
+          style: { fontFamily: FONT, fontSize: ROW_SUB_SIZE, fill: MUTED_TEXT },
+          resolution: RESOLUTION,
+        });
+        clearText.eventMode = "none";
+        clearBtn.addChild(clearText);
+        clearBtn.hitArea = new Rectangle(0, 0, clearText.width + 8, clearText.height + 8);
+        clearBtn.x = ROW_PADDING_X;
+        clearBtn.y = clearY;
+
+        clearBtn.on("pointertap", (e) => {
+          e.stopPropagation();
+          ctx.doc.change((draft: any) => {
+            draft.outboundRequests = draft.outboundRequests.filter(
+              (r: any) => r.status === "pending"
+            );
+          });
+        });
+
+        requestsInner.addChild(clearBtn);
+        totalRequestsHeight = clearY + clearText.height + 12;
       }
     };
 
@@ -1747,6 +2231,27 @@ export const friendsWidget: WidgetFactory<typeof friendsSchema> = {
 
     const layout = (w: number, h: number) => {
       const state = ctx.doc.current;
+
+      // auto-cleanup stale outbound requests (accepted/rejected older than 24h)
+      const now = Date.now();
+      const CLEANUP_THRESHOLD_MS = 24 * 60 * 60 * 1000;
+      const staleOutbound = (state.outboundRequests ?? []).filter(
+        (r: OutboundFriendRequest) =>
+          r.status !== "pending" &&
+          r.sentAt &&
+          now - new Date(r.sentAt).getTime() > CLEANUP_THRESHOLD_MS
+      );
+      if (staleOutbound.length > 0) {
+        ctx.doc.change((draft) => {
+          draft.outboundRequests = draft.outboundRequests.filter(
+            (r: OutboundFriendRequest) =>
+              r.status === "pending" ||
+              !r.sentAt ||
+              now - new Date(r.sentAt).getTime() <= CLEANUP_THRESHOLD_MS
+          );
+        });
+      }
+
       const friends = state.friends;
       const pendingRequests = (state.pendingRequests ?? []).filter(
         (r: PendingFriendRequest) => r.status === "pending"
@@ -1967,6 +2472,14 @@ export const friendsWidget: WidgetFactory<typeof friendsSchema> = {
       destroy() {
         nameField.handle.destroy();
         nodeIdField.handle.destroy();
+        if (aliasInputHandle) {
+          aliasInputHandle.destroy();
+          aliasInputHandle = null;
+        }
+        if (groupInputHandle) {
+          groupInputHandle.destroy();
+          groupInputHandle = null;
+        }
         unsub();
         unsubOnline();
         container.destroy({ children: true });

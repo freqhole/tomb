@@ -237,6 +237,23 @@ export class PresenceManager {
   }
 
   // ---------------------------------------------------------------------------
+  // external offline signal
+  // ---------------------------------------------------------------------------
+
+  /** immediately mark a specific peer as offline (e.g. on transport disconnect) */
+  markPeerOffline(peerId: string): void {
+    const peer = this.peers.get(peerId);
+    if (peer && peer.online) {
+      peer.online = false;
+      peer.cursor = null;
+      peer.lockedWidgets.clear();
+      peer.selectedWidgets = [];
+      this.emitPresenceChanged(peerId, peer);
+      this.emitPeerLeft(peerId);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
   // lifecycle
   // ---------------------------------------------------------------------------
 

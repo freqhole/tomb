@@ -128,6 +128,12 @@ export class IrohNetworkAdapter extends NetworkAdapter {
   /** external handlers registered for non-sync ALPNs via registerAlpnHandler(). */
   private alpnHandlers = new Map<string, (stream: BiStreamLike) => void>();
 
+  /** listeners notified when a peer stream is established */
+  private peerConnectListeners: Array<(peerId: string) => void> = [];
+
+  /** listeners notified when a peer stream is removed */
+  private peerDisconnectListeners: Array<(peerId: string) => void> = [];
+
   constructor(getMidden: () => Promise<MiddenStreamNode>) {
     super();
     this.getMidden = getMidden;
@@ -217,6 +223,8 @@ export class IrohNetworkAdapter extends NetworkAdapter {
     }
     this.reconnectState.clear();
     this.connectionStateListeners.length = 0;
+    this.peerConnectListeners.length = 0;
+    this.peerDisconnectListeners.length = 0;
 
     if (this.identityUnsub) {
       this.identityUnsub();
@@ -306,6 +314,30 @@ export class IrohNetworkAdapter extends NetworkAdapter {
     return () => {
       const idx = this.connectionStateListeners.indexOf(handler);
       if (idx >= 0) this.connectionStateListeners.splice(idx, 1);
+    };
+  }
+
+  /**
+   * subscribe to peer connect events. fires when a stream is
+   * successfully established with a peer. returns an unsubscribe function.
+   */
+  onPeerConnect(handler: (peerId: string) => void): () => void {
+    this.peerConnectListeners.push(handler);
+    return () => {
+      const idx = this.peerConnectListeners.indexOf(handler);
+      if (idx >= 0) this.peerConnectListeners.splice(idx, 1);
+    };
+  }
+
+  /**
+   * subscribe to peer disconnect events. fires when a peer's stream
+   * is removed (closed or errored). returns an unsubscribe function.
+   */
+  onPeerDisconnect(handler: (peerId: string) => void): () => void {
+    this.peerDisconnectListeners.push(handler);
+    return () => {
+      const idx = this.peerDisconnectListeners.indexOf(handler);
+      if (idx >= 0) this.peerDisconnectListeners.splice(idx, 1);
     };
   }
 
@@ -449,6 +481,9 @@ export class IrohNetworkAdapter extends NetworkAdapter {
     this.clearReconnectState(peerId);
     this.emitConnectionStateChange();
 
+    // notify peer-connect listeners
+    for (const h of this.peerConnectListeners) h(peerId);
+
     // emit peer-candidate so automerge-repo starts syncing
     this.emit("peer-candidate", {
       peerId: peerId as PeerId,
@@ -503,6 +538,9 @@ export class IrohNetworkAdapter extends NetworkAdapter {
       stream.close();
       this.streams.delete(peerId);
       this.emitConnectionStateChange();
+
+      // notify peer-disconnect listeners
+      for (const h of this.peerDisconnectListeners) h(peerId);
     }
 
     this.readLoops.delete(peerId);

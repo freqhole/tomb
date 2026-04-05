@@ -46,6 +46,8 @@ class SkeinRouter {
 
   private friendzProtocol: FriendzProtocol | null = null;
   private friendzDocUnsubs: Array<() => void> = [];
+  private friendsDocHandle: DocHandle<any> | null = null;
+  private transportPresenceUnsubs: Array<() => void> = [];
 
   /** adapter connection state source for the ConnectionStatus widget */
   private readonly connectionStateSource: ConnectionStateSource;
@@ -231,6 +233,8 @@ class SkeinRouter {
 
   /** tear down the current canvas if any */
   private destroyCurrent(): void {
+    for (const unsub of this.transportPresenceUnsubs) unsub();
+    this.transportPresenceUnsubs = [];
     if (this.currentCanvas) {
       this.currentCanvas.destroy();
       this.currentCanvas = null;
@@ -313,6 +317,7 @@ class SkeinRouter {
 
     const friendsHandle = await this.repo.find<any>(friendsEntry.docId as DocumentId);
     await friendsHandle.whenReady();
+    this.friendsDocHandle = friendsHandle;
 
     // look up the profile widget's automerge doc
     const profileEntry = store.getWidget(PROFILE_WIDGET_ID);
@@ -640,6 +645,46 @@ class SkeinRouter {
       });
 
       this.currentCanvas = canvas;
+
+      // wire transport disconnect → immediate presence offline
+      const unsubDisconnect = this.irohAdapter.onPeerDisconnect((nodeId) => {
+        this.currentCanvas?.presenceManager.markPeerOffline(nodeId);
+      });
+      this.transportPresenceUnsubs.push(unsubDisconnect);
+
+      // immediately broadcast presence when a peer reconnects
+      const unsubConnect = this.irohAdapter.onPeerConnect(() => {
+        this.currentCanvas?.presenceManager.broadcastOnline();
+      });
+      this.transportPresenceUnsubs.push(unsubConnect);
+
+      // set up name resolver for cursor labels
+      if (canvas.presenceRenderer) {
+        canvas.presenceRenderer.setNameResolver((peerId: string) => {
+          const doc = this.friendsDocHandle?.doc() as
+            | {
+                friends?: Array<{
+                  alias?: string;
+                  username?: string;
+                  nodeIds?: Array<{ nodeId: string; username?: string }>;
+                }>;
+              }
+            | undefined;
+          if (!doc?.friends) return null;
+          for (const friend of doc.friends) {
+            if (friend.nodeIds?.some((n) => n.nodeId === peerId)) {
+              // prefer alias, then username, then null (fallback to hex)
+              if (friend.alias) return friend.alias;
+              if (friend.username) return friend.username;
+              // try node-level username
+              const node = friend.nodeIds.find((n) => n.nodeId === peerId);
+              if (node?.username) return node.username;
+              return null;
+            }
+          }
+          return null;
+        });
+      }
       (window as any).__skein = canvas;
 
       // expose a share helper for quick testing via browser console
@@ -946,6 +991,7 @@ class SkeinRouter {
   /** tear down the router — destroys canvas, friendz protocol, and bridge. */
   destroy(): void {
     this.destroyCurrent();
+    this.friendsDocHandle = null;
     for (const unsub of this.friendzDocUnsubs) {
       unsub();
     }

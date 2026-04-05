@@ -18,6 +18,7 @@ export class PresenceRenderer {
   private readonly theme: SkeinTheme;
   private readonly root: Container;
   private readonly cursors: Map<string, Container> = new Map();
+  private nameResolver: ((peerId: string) => string | null) | null = null;
 
   private readonly unsubs: (() => void)[] = [];
 
@@ -41,6 +42,19 @@ export class PresenceRenderer {
     // hydrate any peers that already exist
     for (const [peerId, presence] of presenceManager.getPeers()) {
       this.updatePeer(peerId, presence);
+    }
+  }
+
+  /** set a function that resolves peer IDs to display names. cursor labels will update on the next presence change. */
+  setNameResolver(resolver: ((peerId: string) => string | null) | null): void {
+    this.nameResolver = resolver;
+    // refresh all existing cursors with new names
+    for (const [peerId, cursor] of this.cursors) {
+      const label = cursor.children.find((c) => c instanceof Text) as Text | undefined;
+      if (label) {
+        const name = this.nameResolver?.(peerId);
+        label.text = name || peerId.slice(0, 8);
+      }
     }
   }
 
@@ -75,6 +89,15 @@ export class PresenceRenderer {
     cursor.visible = true;
     cursor.x = presence.cursor!.x;
     cursor.y = presence.cursor!.y;
+
+    // update label text in case the resolved name changed since creation
+    if (this.nameResolver) {
+      const label = cursor.children.find((c) => c instanceof Text) as Text | undefined;
+      if (label) {
+        const name = this.nameResolver(peerId);
+        label.text = name || peerId.slice(0, 8);
+      }
+    }
   }
 
   /**
@@ -96,9 +119,9 @@ export class PresenceRenderer {
     arrow.stroke({ color: 0x000000, width: 1, alpha: 0.4 });
     container.addChild(arrow);
 
-    // truncated peer id label
+    // truncated peer id label (use resolved name if available)
     const label = new Text({
-      text: peerId.slice(0, 8),
+      text: this.nameResolver?.(peerId) || peerId.slice(0, 8),
       resolution: this.theme.textResolution,
       style: {
         fontFamily: this.theme.fontFamily,
@@ -124,6 +147,7 @@ export class PresenceRenderer {
     }
     this.cursors.clear();
 
+    this.nameResolver = null;
     this.root.destroy({ children: true });
   }
 }
