@@ -469,9 +469,12 @@ export class IrohNetworkAdapter extends NetworkAdapter {
   }
 
   private registerStream(peerId: string, stream: BiStreamLike): void {
-    // if we already have a stream for this peer, close the old one
+    // if we already have a stream for this peer, close the old one.
+    // the old read loop will detect the closed stream and exit, but
+    // won't call removePeer() because the stream reference won't match.
     const existing = this.streams.get(peerId);
     if (existing) {
+      console.log(TAG, "replacing existing stream for peer:", peerId.slice(0, 16) + "...");
       existing.close();
     }
 
@@ -522,13 +525,20 @@ export class IrohNetworkAdapter extends NetworkAdapter {
         }
       }
 
-      // clean up
-      this.removePeer(peerId);
+      // only clean up if this stream is still the active one for this peer.
+      // if registerStream() replaced our stream with a newer one, the replacement
+      // already closed us and started its own read loop — calling removePeer here
+      // would incorrectly kill the new stream.
+      if (this.streams.get(peerId) === stream) {
+        this.removePeer(peerId);
+      }
     };
 
     loop_().catch((err) => {
       console.error(TAG, "read loop crashed for peer:", peerId.slice(0, 16) + "...", err);
-      this.removePeer(peerId);
+      if (this.streams.get(peerId) === stream) {
+        this.removePeer(peerId);
+      }
     });
   }
 

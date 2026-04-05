@@ -160,14 +160,26 @@ export class TauriStreamNode implements MiddenStreamNode {
   }
 
   async accept(): Promise<BiStreamLike | null> {
-    // inbound stream acceptance is not yet supported in tauri mode.
-    // the iroh router needs to be extended with skein ALPNs for this (phase 2b).
-    // for now, we return null which makes the accept loop exit cleanly.
-    //
-    // this means peers cannot initiate connections to us — we must always
-    // be the one to connect. in practice this works because heartbeats
-    // and sync are initiated from our side periodically.
-    console.warn(TAG, "accept() not yet supported in tauri mode");
-    return null;
+    try {
+      const result = await dispatch("accept_stream");
+      if (result.handle === null || result.handle === undefined) {
+        // channel closed or not configured — no more incoming streams
+        return null;
+      }
+      console.log(
+        TAG,
+        "accepted incoming stream from",
+        (result.peer_node_id as string).slice(0, 16) + "...",
+        "on",
+        result.alpn,
+        "(handle:",
+        result.handle,
+        ")"
+      );
+      return new TauriBiStream(result.handle, result.peer_node_id, result.alpn);
+    } catch (err) {
+      console.error(TAG, "accept_stream failed:", err);
+      return null;
+    }
   }
 }
