@@ -71,6 +71,12 @@ export interface BiStreamLike {
   write_message(data: Uint8Array): Promise<void>;
   read_message(): Promise<Uint8Array | null>; // null = stream closed
   close(): void;
+  // raw framing (no length prefix) — used by freqhole/1 protocol.
+  // grimoire and midden both send raw JSON terminated by finish(),
+  // NOT length-delimited. these methods are optional because only
+  // midden BiStream implements them; TauriBiStream does not need them.
+  read_to_end?(max_size: number): Promise<Uint8Array>;
+  write_raw_and_finish?(data: Uint8Array): Promise<void>;
 }
 
 /**

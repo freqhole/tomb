@@ -107,6 +107,27 @@ export interface ThumbnailOptions {
 export type PeersMap = Record<string, { nodeId: string }>;
 
 // ---------------------------------------------------------------------------
+// peer node ID helper
+// ---------------------------------------------------------------------------
+
+/** extract peer node IDs from the peers map, filtering out the local node */
+async function getPeerNodeIds(
+  peers: PeersMap | Record<string, { nodeId: string }>
+): Promise<string[]> {
+  let localNodeId: string | null = null;
+  try {
+    const { getStoredIdentity } = await import("../p2p/identity");
+    const identity = await getStoredIdentity();
+    localNodeId = identity?.node_id ?? null;
+  } catch {
+    // identity not available — no filtering
+  }
+  return Object.values(peers)
+    .map((p) => p.nodeId)
+    .filter((id): id is string => Boolean(id) && id !== localNodeId);
+}
+
+// ---------------------------------------------------------------------------
 // tauri bridge helper
 // ---------------------------------------------------------------------------
 
@@ -244,9 +265,7 @@ export async function snatchBlob(
     const { getMiddenNode } = await import("../p2p/identity");
     const { storeBlob, storeDomainEntity } = await import("../storage/skein-blob-store");
 
-    const peerAddrs = Object.values(peers)
-      .map((p) => p.nodeId)
-      .filter(Boolean);
+    const peerAddrs = await getPeerNodeIds(peers);
 
     if (peerAddrs.length === 0) {
       throw new Error("no peers available for snatch");
@@ -375,9 +394,7 @@ export async function snatchBlob(
     throw lastError ?? new Error("browser snatch failed: all peers exhausted");
   }
 
-  const peerAddrs = Object.values(peers)
-    .map((p) => p.nodeId)
-    .filter(Boolean);
+  const peerAddrs = await getPeerNodeIds(peers);
 
   if (peerAddrs.length === 0) {
     throw new Error("no peers available for snatch");
@@ -630,9 +647,7 @@ async function fetchFullBlobLocal(blobId: string): Promise<string | null> {
  * fetch full blob data from canvas peers via P2P proxy.
  */
 async function fetchFullBlobFromPeers(blobId: string, peers: PeersMap): Promise<string | null> {
-  const peerAddrs = Object.values(peers)
-    .map((p) => p.nodeId)
-    .filter(Boolean);
+  const peerAddrs = await getPeerNodeIds(peers);
 
   if (peerAddrs.length === 0) {
     return null;
@@ -1077,9 +1092,7 @@ async function fetchThumbnailFromPeers(
   size: number,
   peers: Record<string, { nodeId: string }>
 ): Promise<string | null> {
-  const peerIds = Object.values(peers)
-    .map((p) => p.nodeId)
-    .filter(Boolean);
+  const peerIds = await getPeerNodeIds(peers);
 
   if (peerIds.length === 0) {
     return null;

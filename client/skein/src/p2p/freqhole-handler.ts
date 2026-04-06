@@ -9,9 +9,10 @@
 // this enables browser peers to serve their uploaded/snatched files
 // to other peers on the canvas.
 //
-// protocol framing: messages use length-delimited encoding via BiStreamLike
-// (4-byte BE u32 length prefix + JSON payload). this matches the framing
-// used by write_message() / read_message() on the WASM BiStream.
+// protocol framing: grimoire and midden both use RAW JSON (no length prefix)
+// for the freqhole/1 protocol. messages are terminated by the sender calling
+// finish() on the send stream, and the receiver reads with read_to_end().
+// this is NOT the length-delimited framing used by BiStream.read_message().
 // ---------------------------------------------------------------------------
 
 import type { BiStreamLike } from "./iroh-network-adapter";
@@ -64,7 +65,29 @@ const TAG = "[freqhole-handler]";
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
-async function sendMessage(stream: BiStreamLike, msg: PeerMessage): Promise<void> {
+/**
+ * send a response as raw JSON + finish the stream (no length prefix).
+ * matches grimoire's send_response() / recv.read_to_end() framing.
+ * used for proxy_response messages where the receiver reads until stream end.
+ */
+async function sendRawResponse(stream: BiStreamLike, msg: PeerMessage): Promise<void> {
+  const json = JSON.stringify(msg);
+  const bytes = encoder.encode(json);
+  if (stream.write_raw_and_finish) {
+    await stream.write_raw_and_finish(bytes);
+  } else {
+    // fallback for streams that don't support raw write
+    await stream.write_message(bytes);
+  }
+}
+
+/**
+ * send a message with 4-byte BE u32 length prefix (length-delimited framing).
+ * matches grimoire's stream_blob() response reading which expects:
+ *   4-byte length prefix → JSON header → then raw blob bytes.
+ * does NOT finish the stream — caller may write more data after.
+ */
+async function sendLengthDelimited(stream: BiStreamLike, msg: PeerMessage): Promise<void> {
   const json = JSON.stringify(msg);
   const bytes = encoder.encode(json);
   await stream.write_message(bytes);
@@ -135,7 +158,7 @@ async function handleProxyRequest(stream: BiStreamLike, msg: ProxyRequest): Prom
 
     // fallback — not implemented
     console.log(TAG, `unhandled proxy route: ${method} ${path}`);
-    await sendMessage(stream, {
+    await sendRawResponse(stream, {
       type: "proxy_response",
       id,
       status: 404,
@@ -143,7 +166,7 @@ async function handleProxyRequest(stream: BiStreamLike, msg: ProxyRequest): Prom
     });
   } catch (err) {
     console.error(TAG, `error handling proxy ${method} ${path}:`, err);
-    await sendMessage(stream, {
+    await sendRawResponse(stream, {
       type: "proxy_response",
       id,
       status: 500,
@@ -158,11 +181,11 @@ async function handleProxyRequest(stream: BiStreamLike, msg: ProxyRequest): Prom
 async function handleThumbnailData(
   stream: BiStreamLike,
   id: number,
-  body: Record<string, unknown>,
+  body: Record<string, unknown>
 ): Promise<void> {
   const blobId = (body.blob_id ?? body.id) as string | undefined;
   if (!blobId) {
-    await sendMessage(stream, {
+    await sendRawResponse(stream, {
       type: "proxy_response",
       id,
       status: 400,
@@ -174,7 +197,7 @@ async function handleThumbnailData(
   const store = await getBlobStore();
   const record = await store.getBlobRecord(blobId);
   if (!record) {
-    await sendMessage(stream, {
+    await sendRawResponse(stream, {
       type: "proxy_response",
       id,
       status: 404,
@@ -185,7 +208,7 @@ async function handleThumbnailData(
 
   const data = await store.getBlobData(blobId);
   if (!data) {
-    await sendMessage(stream, {
+    await sendRawResponse(stream, {
       type: "proxy_response",
       id,
       status: 404,
@@ -197,7 +220,7 @@ async function handleThumbnailData(
   // browser doesn't generate thumbnails — serve the original image data.
   // this is fine for photos; the peer will display the original.
   const base64 = arrayBufferToBase64(data);
-  await sendMessage(stream, {
+  await sendRawResponse(stream, {
     type: "proxy_response",
     id,
     status: 200,
@@ -211,15 +234,11 @@ async function handleThumbnailData(
   });
 }
 
-async function handleBlobData(
-  stream: BiStreamLike,
-  id: number,
-  blobId: string,
-): Promise<void> {
+async function handleBlobData(stream: BiStreamLike, id: number, blobId: string): Promise<void> {
   const store = await getBlobStore();
   const record = await store.getBlobRecord(blobId);
   if (!record) {
-    await sendMessage(stream, {
+    await sendRawResponse(stream, {
       type: "proxy_response",
       id,
       status: 404,
@@ -230,7 +249,7 @@ async function handleBlobData(
 
   const data = await store.getBlobData(blobId);
   if (!data) {
-    await sendMessage(stream, {
+    await sendRawResponse(stream, {
       type: "proxy_response",
       id,
       status: 404,
@@ -240,7 +259,7 @@ async function handleBlobData(
   }
 
   const base64 = arrayBufferToBase64(data);
-  await sendMessage(stream, {
+  await sendRawResponse(stream, {
     type: "proxy_response",
     id,
     status: 200,
@@ -257,11 +276,11 @@ async function handleBlobData(
 async function handleBlobMetadata(
   stream: BiStreamLike,
   id: number,
-  body: Record<string, unknown>,
+  body: Record<string, unknown>
 ): Promise<void> {
   const blobId = (body.id ?? body.blob_id) as string | undefined;
   if (!blobId) {
-    await sendMessage(stream, {
+    await sendRawResponse(stream, {
       type: "proxy_response",
       id,
       status: 400,
@@ -273,7 +292,7 @@ async function handleBlobMetadata(
   const store = await getBlobStore();
   const record = await store.getBlobRecord(blobId);
   if (!record) {
-    await sendMessage(stream, {
+    await sendRawResponse(stream, {
       type: "proxy_response",
       id,
       status: 404,
@@ -283,7 +302,7 @@ async function handleBlobMetadata(
   }
 
   // return a simplified record matching what grimoire returns
-  await sendMessage(stream, {
+  await sendRawResponse(stream, {
     type: "proxy_response",
     id,
     status: 200,
@@ -306,7 +325,7 @@ async function handleBlobMetadata(
 
 async function handleBlobStreamRequest(
   stream: BiStreamLike,
-  msg: BlobStreamRequest,
+  msg: BlobStreamRequest
 ): Promise<void> {
   const { id, blob_id } = msg;
   const peerId = stream.peer_node_id().slice(0, 16);
@@ -317,7 +336,9 @@ async function handleBlobStreamRequest(
   const record = await store.getBlobRecord(blob_id);
 
   if (!record) {
-    await sendMessage(stream, {
+    // error responses also use length-delimited framing because
+    // grimoire's stream_blob() always reads a length-prefixed header first
+    await sendLengthDelimited(stream, {
       type: "blob_stream_response",
       id,
       size: null,
@@ -329,7 +350,7 @@ async function handleBlobStreamRequest(
 
   const data = await store.getBlobData(blob_id);
   if (!data) {
-    await sendMessage(stream, {
+    await sendLengthDelimited(stream, {
       type: "blob_stream_response",
       id,
       size: null,
@@ -339,8 +360,9 @@ async function handleBlobStreamRequest(
     return;
   }
 
-  // send header with size and content type
-  await sendMessage(stream, {
+  // send length-prefixed header with size and content type
+  // (grimoire's stream_blob reads 4-byte prefix + JSON header)
+  await sendLengthDelimited(stream, {
     type: "blob_stream_response",
     id,
     size: data.byteLength,
@@ -357,8 +379,16 @@ async function handleBlobStreamRequest(
 async function handleStreamAsync(stream: BiStreamLike): Promise<void> {
   const peerId = stream.peer_node_id().slice(0, 16);
 
-  // read one request message from the stream
-  const raw = await stream.read_message();
+  // read the full request message using raw framing (no length prefix).
+  // grimoire and midden both send raw JSON terminated by finish().
+  let raw: Uint8Array | null;
+  if (stream.read_to_end) {
+    const result = await stream.read_to_end(10 * 1024 * 1024);
+    raw = result.byteLength > 0 ? result : null;
+  } else {
+    // fallback for streams that don't support raw read
+    raw = await stream.read_message();
+  }
   if (!raw) {
     // stream closed before any message — nothing to do
     console.log(TAG, `stream from ${peerId}... closed before message`);
@@ -387,7 +417,7 @@ async function handleStreamAsync(stream: BiStreamLike): Promise<void> {
       console.log(TAG, `unhandled message type "${msg.type}" from ${peerId}...`);
       // try to send a generic error response if the message has an id
       if ("id" in msg && typeof msg.id === "number") {
-        await sendMessage(stream, {
+        await sendRawResponse(stream, {
           type: "proxy_response",
           id: msg.id,
           status: 400,

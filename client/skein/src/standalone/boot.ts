@@ -10,28 +10,29 @@ import { initCanvas, type SkeinCanvas } from "../canvas/init";
 import { showShareDialog, type FriendInfo } from "../canvas/share-dialog";
 import type { FriendzProtocol } from "../p2p/friends-protocol";
 import {
-    destroyBridge,
-    sendCanvasInvite,
-    sendFriendRequest,
-    setOutboundRequestHook,
+  destroyBridge,
+  sendCanvasInvite,
+  sendFriendRequest,
+  setOutboundRequestHook,
 } from "../p2p/friendz-bridge";
 import { GossipTracker } from "../p2p/gossip-tracker";
 import {
-    ensureIdentity,
-    getMiddenNode,
-    getStoredIdentity,
-    onIdentityChange,
+  ensureIdentity,
+  getMiddenNode,
+  getStoredIdentity,
+  onIdentityChange,
 } from "../p2p/identity";
 import { IrohNetworkAdapter, type MiddenStreamNode } from "../p2p/iroh-network-adapter";
 import { decodeShareString, encodeShareString } from "../p2p/share-string";
 import { getMetaValue, setMetaValue } from "../storage/meta-db";
 import { syncCanvasMetadataToCards, watchCanvasDocsForUpdates } from "./canvas-watchers";
 import { initFriendzWiring } from "./friendz-wiring";
+import { handleFreqholeStream } from "../p2p/freqhole-handler";
 import {
-    createNarthexWithSeed,
-    ensureSingletonWidgets,
-    MESSAGEZ_WIDGET_ID,
-    SOCIAL_WIDGET_ID,
+  createNarthexWithSeed,
+  ensureSingletonWidgets,
+  MESSAGEZ_WIDGET_ID,
+  SOCIAL_WIDGET_ID,
 } from "./narthex-seed";
 import { isTauriMode, TauriStreamNode } from "../p2p/tauri-transport";
 import type { SocialDoc } from "../../widgets/narthex/social/types";
@@ -102,6 +103,14 @@ class SkeinRouter {
     } else {
       console.log("[skein] found existing narthex doc:", this.narthexDocId);
       await ensureSingletonWidgets(this.repo, this.narthexDocId as DocumentId);
+    }
+
+    // register freqhole/1 ALPN handler early so the browser can serve blobs
+    // to peers regardless of friendz protocol initialization state.
+    // (friendz-wiring.ts also registers this, but that happens later and
+    // only when navigating to the narthex with a valid identity.)
+    if (!isTauriMode()) {
+      this.irohAdapter.registerAlpnHandler("freqhole/1", handleFreqholeStream);
     }
 
     // listen for hash changes (browser back/forward, programmatic navigation)
@@ -325,7 +334,9 @@ class SkeinRouter {
 
     // in tauri mode, reuse the sqlite-backed social doc created during narthex init.
     // in browser mode, friendz-wiring will create its own from the automerge handle.
-    const socialDoc: SocialDoc | undefined = isTauriMode() ? this.socialDoc ?? undefined : undefined;
+    const socialDoc: SocialDoc | undefined = isTauriMode()
+      ? (this.socialDoc ?? undefined)
+      : undefined;
 
     const result = await initFriendzWiring({
       repo: this.repo,
@@ -428,7 +439,6 @@ class SkeinRouter {
               }
             }
           }
-
 
           // build a nodeId -> display name map from friends for the peer list
           const peerDisplayNames = new Map<string, string>();
@@ -615,9 +625,7 @@ class SkeinRouter {
         canvas.presenceRenderer.setNameResolver((peerId: string) => {
           const state = this.socialDoc?.current;
           if (!state?.friends) return null;
-          const friend = state.friends.find((f) =>
-            f.nodeIds?.some((n) => n.nodeId === peerId)
-          );
+          const friend = state.friends.find((f) => f.nodeIds?.some((n) => n.nodeId === peerId));
           if (!friend) return null;
           const display = resolveFriendDisplay(friend);
           return display.name || null;
@@ -997,7 +1005,11 @@ class SkeinRouter {
     this.destroyCurrent();
     for (const unsub of this.canvasWatcherUnsubs) unsub();
     this.canvasWatcherUnsubs = [];
-    if (this.socialDoc && 'destroy' in this.socialDoc && typeof (this.socialDoc as any).destroy === 'function') {
+    if (
+      this.socialDoc &&
+      "destroy" in this.socialDoc &&
+      typeof (this.socialDoc as any).destroy === "function"
+    ) {
       (this.socialDoc as any).destroy();
     }
     this.socialDoc = null;

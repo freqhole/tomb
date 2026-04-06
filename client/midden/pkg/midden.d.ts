@@ -48,6 +48,14 @@ export class BiStream {
      */
     read_message(): Promise<any>;
     /**
+     * read all remaining bytes from the recv stream (no length prefix).
+     *
+     * reads until the remote peer finishes the stream or `max_size` bytes
+     * are read. this matches grimoire's `read_to_end()` framing where
+     * the message is terminated by the sender calling `finish()`.
+     */
+    read_to_end(max_size: number): Promise<any>;
+    /**
      * write a length-delimited message.
      *
      * writes a 4-byte big-endian u32 length prefix followed by the payload.
@@ -55,6 +63,14 @@ export class BiStream {
      * iroh-automerge-repo example.
      */
     write_message(data: Uint8Array): Promise<void>;
+    /**
+     * write raw bytes without a length prefix, then finish the send stream.
+     *
+     * this matches grimoire's `send_response()` framing where the message
+     * is terminated by calling `finish()` on the send stream. the receiver
+     * uses `read_to_end()` to read all bytes.
+     */
+    write_raw_and_finish(data: Uint8Array): Promise<void>;
 }
 
 /**

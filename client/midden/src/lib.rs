@@ -273,6 +273,64 @@ impl BiStream {
         }
     }
 
+    /// read all remaining bytes from the recv stream (no length prefix).
+    ///
+    /// reads until the remote peer finishes the stream or `max_size` bytes
+    /// are read. this matches grimoire's `read_to_end()` framing where
+    /// the message is terminated by the sender calling `finish()`.
+    pub async fn read_to_end(&self, max_size: u32) -> Result<JsValue, JsError> {
+        let mut recv = self
+            .recv
+            .borrow_mut()
+            .take()
+            .ok_or_else(|| JsError::new("recv stream busy or closed"))?;
+
+        let result = recv.read_to_end(max_size as usize).await;
+
+        // put stream back
+        *self.recv.borrow_mut() = Some(recv);
+
+        match result {
+            Ok(bytes) => Ok(Uint8Array::from(&bytes[..]).into()),
+            Err(e) => {
+                let err_str = e.to_string();
+                if err_str.contains("finished")
+                    || err_str.contains("closed")
+                    || err_str.contains("eof")
+                {
+                    // clean close — return empty array
+                    return Ok(Uint8Array::new_with_length(0).into());
+                }
+                Err(to_js_err(e))
+            }
+        }
+    }
+
+    /// write raw bytes without a length prefix, then finish the send stream.
+    ///
+    /// this matches grimoire's `send_response()` framing where the message
+    /// is terminated by calling `finish()` on the send stream. the receiver
+    /// uses `read_to_end()` to read all bytes.
+    pub async fn write_raw_and_finish(&self, data: &[u8]) -> Result<(), JsError> {
+        let mut send = self
+            .send
+            .borrow_mut()
+            .take()
+            .ok_or_else(|| JsError::new("send stream busy or closed"))?;
+
+        let result = async {
+            send.write_all(data).await.map_err(to_js_err)?;
+            send.finish().map_err(to_js_err)?;
+            Ok::<(), JsError>(())
+        }
+        .await;
+
+        // put stream back even on error
+        *self.send.borrow_mut() = Some(send);
+
+        result
+    }
+
     /// close the stream.
     ///
     /// finishes the send half and drops both halves.
