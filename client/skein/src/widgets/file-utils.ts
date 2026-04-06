@@ -356,74 +356,8 @@ export async function snatchBlob(
           }
         }
 
-        // strategy 3: custom freqhole/1 fetch with progress callback (transitional fallback)
-        if (!downloaded && onProgress && typeof nodeAny.fetch_blob_with_progress === "function") {
-          try {
-            console.log(
-              TAG,
-              `trying custom fetch_blob_with_progress from ${peerAddr.slice(0, 16)}...`
-            );
-            const result: any = await withPeerTimeout(
-              nodeAny.fetch_blob_with_progress(
-                peerAddr,
-                info.blobId,
-                (received: number, total: number) => {
-                  if (total > 0) onProgress(received / total);
-                  else onProgress(-1);
-                }
-              ),
-              30000
-            );
-            bytes = result.data;
-            downloaded = true;
-          } catch (err) {
-            console.debug(TAG, `custom fetch_blob_with_progress failed:`, err);
-          }
-        }
-
-        // strategy 4: custom freqhole/1 fetch without progress (transitional fallback)
-        if (!downloaded && typeof nodeAny.fetch_blob === "function") {
-          try {
-            console.log(TAG, `trying custom fetch_blob from ${peerAddr.slice(0, 16)}...`);
-            const result: any = await withPeerTimeout(
-              nodeAny.fetch_blob(peerAddr, info.blobId) as Promise<any>,
-              30000
-            );
-            bytes = result.data;
-            downloaded = true;
-          } catch (err) {
-            console.debug(TAG, `custom fetch_blob failed:`, err);
-          }
-        }
-
-        // strategy 5: proxy_request (base64, last resort — very inefficient)
-        if (!downloaded) {
-          if (typeof nodeAny.proxy_request !== "function") {
-            throw new Error("midden node does not support any blob fetch method");
-          }
-          console.log(TAG, `trying proxy_request fallback from ${peerAddr.slice(0, 16)}...`);
-          const result: any = await withPeerTimeout(
-            nodeAny.proxy_request(
-              peerAddr,
-              "GET",
-              `/api/blobs/${info.blobId}/data`,
-              null
-            ) as Promise<any>,
-            30000
-          );
-          const parsed = JSON.parse(result.body);
-          if (!parsed.success || !parsed.data?.data) {
-            throw new Error("proxy_request returned no blob data");
-          }
-          const binaryStr = atob(parsed.data.data);
-          bytes = new Uint8Array(binaryStr.length);
-          for (let i = 0; i < binaryStr.length; i++) {
-            bytes[i] = binaryStr.charCodeAt(i);
-          }
-        }
-
         if (!bytes) {
-          throw new Error("all download strategies failed — no bytes received");
+          throw new Error("iroh-blobs download failed — no fallback available");
         }
 
         console.log(
@@ -537,23 +471,8 @@ export async function snatchBlob(
         }
       }
 
-      // strategy 3: unverified custom BlobStreamRequest (transitional fallback)
       if (!blobResult) {
-        try {
-          console.log(TAG, `trying unverified fallback from ${peerAddr.slice(0, 16)}...`);
-          const unverified = await tauriInvoke("p2p_fetch_blob", {
-            peerAddr,
-            blobId: info.blobId,
-          });
-          blobResult = {
-            data: unverified.data,
-            blake3: "",
-            size: unverified.size,
-          };
-          console.log(TAG, `unverified fallback succeeded for blob ${info.blobId.slice(0, 8)}...`);
-        } catch (err) {
-          throw new Error(`all download strategies failed for peer ${peerAddr.slice(0, 16)}...`);
-        }
+        throw new Error("iroh-blobs download failed — no fallback available");
       }
 
       if (!blobResult.data) {

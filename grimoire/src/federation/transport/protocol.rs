@@ -35,27 +35,6 @@ pub enum PeerMessage {
         body: String,
     },
 
-    /// request blob stream by blob_id
-    /// response will be BlobStreamResponse followed by raw bytes
-    BlobStreamRequest {
-        /// request id for correlation
-        id: u64,
-        /// blob_id to stream
-        blob_id: String,
-    },
-
-    /// blob stream response header - raw bytes follow
-    BlobStreamResponse {
-        /// request id for correlation
-        id: u64,
-        /// blob size in bytes (if known)
-        size: Option<u64>,
-        /// mime type (if known)
-        content_type: Option<String>,
-        /// error message if blob not found
-        error: Option<String>,
-    },
-
     /// request to upload a blob
     /// header is length-prefixed JSON, followed by raw bytes
     BlobUploadRequest {

@@ -74,24 +74,14 @@ export class BiStream {
 }
 
 /**
- * blob fetch result
+ * result from fetching the server hello image from a peer
  */
-export class BlobResult {
+export class HelloImageResult {
     private constructor();
     free(): void;
     [Symbol.dispose](): void;
-    /**
-     * get content type (if known)
-     */
-    content_type(): string | undefined;
-    /**
-     * get blob data as Uint8Array
-     */
-    data(): Uint8Array;
-    /**
-     * get blob size in bytes
-     */
-    size(): number;
+    readonly content_type: string | undefined;
+    readonly data: Uint8Array;
 }
 
 export class IntoUnderlyingByteSource {
@@ -145,6 +135,10 @@ export class MiddenNode {
      * to the appropriate handler.
      */
     accept(): Promise<any>;
+    /**
+     * return the number of blobs currently held in the store via active TempTags.
+     */
+    active_blob_count(): number;
     /**
      * compute blake3 hash for a blob on demand
      *
@@ -210,27 +204,16 @@ export class MiddenNode {
      */
     ensure_blob(peer_addr: string, blake3_hash: string): Promise<boolean>;
     /**
-     * fetch a blob from a peer
-     * peer_addr can be plain node_id or full endpoint JSON with relay/IP hints
-     * returns BlobResult with data and metadata
-     */
-    fetch_blob(peer_addr: string, blob_id: string): Promise<BlobResult>;
-    /**
-     * fetch a blob from a peer with progress callback
-     * callback is called with (received_bytes, total_bytes) as arguments
-     * if total_bytes is 0, the size is unknown
-     */
-    fetch_blob_with_progress(peer_addr: string, blob_id: string, on_progress: Function): Promise<BlobResult>;
-    /**
      * fetch server image from a peer (public, no auth required)
      * used during "add remote" flow before user is authenticated
      * peer_addr can be plain node_id or full endpoint JSON with relay/IP hints
      */
-    fetch_hello_image(peer_addr: string): Promise<BlobResult>;
+    fetch_hello_image(peer_addr: string): Promise<HelloImageResult>;
     /**
      * import raw bytes into the iroh-blobs store, returning the blake3 hash.
      * this makes the blob available for verified download by peers.
-     * the blob stays in memory until the tab is closed.
+     * the blob stays in the store as long as its TempTag is held in active_tags.
+     * call release_blob() to allow GC, or it will be evicted when the map exceeds 10 entries.
      */
     import_blob(data: Uint8Array): Promise<string>;
     /**
@@ -252,6 +235,11 @@ export class MiddenNode {
      * peer_addr can be plain node_id or full endpoint JSON with relay/IP hints
      */
     proxy_request(peer_addr: string, method: string, path: string, body?: string | null): Promise<any>;
+    /**
+     * release a blob's TempTag, allowing the store to garbage-collect it.
+     * blake3_hash should be the 64-char hex string returned by import_blob.
+     */
+    release_blob(blake3_hash: string): void;
     /**
      * get the secret key bytes for persistence (32 bytes)
      * store this in IndexedDB to maintain the same identity across sessions

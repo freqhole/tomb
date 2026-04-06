@@ -212,42 +212,6 @@ pub async fn proxy_request(
     })
 }
 
-/// fetch a blob from a remote peer
-///
-/// streams the blob data and returns it along with metadata.
-/// returns error if blob not found or connection fails.
-pub async fn fetch_blob(peer_addr: &str, blob_id: &str) -> GrimoireResult<P2pBlobData> {
-    let endpoint = get_endpoint()?;
-    let addr = parse_peer_address(peer_addr)?;
-    let node_id_short = &addr.id.to_string()[..16];
-    let blob_id_short = &blob_id[..16.min(blob_id.len())];
-
-    info!("fetching blob {} from {}", blob_id_short, node_id_short);
-
-    let conn = connect_to_peer(&endpoint, &addr).await?;
-    let (info, mut stream) = conn.stream_blob(blob_id).await?;
-
-    // read all blob data (100MB max)
-    let data = stream.read_to_end(100 * 1024 * 1024).await.map_err(|e| {
-        GrimoireError::FederationApiError {
-            message: format!("failed to read blob data: {}", e),
-        }
-    })?;
-
-    info!(
-        "received {} bytes for blob {} from {}",
-        data.len(),
-        blob_id_short,
-        node_id_short
-    );
-
-    Ok(P2pBlobData {
-        data,
-        content_type: info.content_type,
-        size: info.size,
-    })
-}
-
 /// fetch a blob from a remote peer using iroh-blobs verified streaming
 ///
 /// uses blake3 content hash for cryptographic verification.

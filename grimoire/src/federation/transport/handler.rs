@@ -289,129 +289,6 @@ async fn handle_stream(
             send_response(&mut send, &resp).await?;
         }
 
-        PeerMessage::BlobStreamRequest { id, blob_id } => {
-            debug!("blob stream: {} from {}", blob_id, node_id_short);
-
-            // blob requests require auth
-            let _caller = match get_caller_for_peer(node_id_str).await {
-                Some(c) => c,
-                None => {
-                    warn!(
-                        "rejecting blob request from unknown peer: {} from {}",
-                        blob_id, node_id_short
-                    );
-                    let resp = PeerMessage::BlobStreamResponse {
-                        id,
-                        size: None,
-                        content_type: None,
-                        error: Some("unauthorized: peer not registered".to_string()),
-                    };
-                    send_length_prefixed(&mut send, &resp).await?;
-                    return Ok(());
-                }
-            };
-
-            // get blob metadata and data
-            match get_media_blob_with_data(&blob_id).await {
-                Ok((blob, db_data)) => {
-                    // determine how to get the blob data
-                    let data = if let Some(data) = db_data {
-                        // blob stored in database
-                        Some(data)
-                    } else if let Some(ref local_path) = blob.local_path {
-                        // blob stored on filesystem - read it
-                        let path = std::path::Path::new(local_path);
-                        match read_file_to_bytes(local_path).await {
-                            Ok(data) => {
-                                // opportunistically compute blake3 and add to FsStore
-                                // this enables verified streaming for future requests
-                                // (don't block on this, fire and forget)
-                                if blob.blake3.is_none() {
-                                    let blob_id_clone = blob_id.clone();
-                                    tokio::spawn(async move {
-                                        if let Err(e) =
-                                            blobz::ensure_blake3_hash(&blob_id_clone).await
-                                        {
-                                            tracing::debug!(
-                                                "failed to compute blake3 for {}: {}",
-                                                blob_id_clone,
-                                                e
-                                            );
-                                        } else {
-                                            tracing::debug!(
-                                                "computed blake3 on-demand for {}",
-                                                blob_id_clone
-                                            );
-                                        }
-                                    });
-                                } else {
-                                    // already have blake3, just ensure file is in FsStore
-                                    let path_clone = path.to_path_buf();
-                                    tokio::spawn(async move {
-                                        if let Err(e) = blobz::add_file_to_store(&path_clone).await
-                                        {
-                                            tracing::debug!("failed to add blob to FsStore: {}", e);
-                                        }
-                                    });
-                                }
-                                Some(data)
-                            }
-                            Err(e) => {
-                                let resp = PeerMessage::BlobStreamResponse {
-                                    id,
-                                    size: None,
-                                    content_type: None,
-                                    error: Some(format!("failed to read blob file: {}", e)),
-                                };
-                                send_length_prefixed(&mut send, &resp).await?;
-                                return Ok(());
-                            }
-                        }
-                    } else {
-                        None
-                    };
-
-                    match data {
-                        Some(bytes) => {
-                            // send header
-                            let resp = PeerMessage::BlobStreamResponse {
-                                id,
-                                size: Some(bytes.len() as u64),
-                                content_type: blob.mime.clone(),
-                                error: None,
-                            };
-                            send_length_prefixed(&mut send, &resp).await?;
-
-                            // stream body
-                            send.write_all(&bytes)
-                                .await
-                                .map_err(|e| format!("failed to write blob data: {}", e))?;
-                            send.finish()
-                                .map_err(|e| format!("failed to finish blob stream: {}", e))?;
-                        }
-                        None => {
-                            let resp = PeerMessage::BlobStreamResponse {
-                                id,
-                                size: None,
-                                content_type: None,
-                                error: Some("blob has no data".to_string()),
-                            };
-                            send_length_prefixed(&mut send, &resp).await?;
-                        }
-                    }
-                }
-                Err(e) => {
-                    let resp = PeerMessage::BlobStreamResponse {
-                        id,
-                        size: None,
-                        content_type: None,
-                        error: Some(format!("blob not found: {}", e)),
-                    };
-                    send_length_prefixed(&mut send, &resp).await?;
-                }
-            }
-        }
-
         PeerMessage::BlobUploadRequest {
             id,
             filename,
@@ -694,7 +571,6 @@ async fn handle_stream(
 
         // ignore responses sent to us (shouldn't happen)
         PeerMessage::ProxyResponse { .. }
-        | PeerMessage::BlobStreamResponse { .. }
         | PeerMessage::BlobUploadResponse { .. }
         | PeerMessage::HelloImageResponse { .. }
         | PeerMessage::EnsureBlobResponse { .. }

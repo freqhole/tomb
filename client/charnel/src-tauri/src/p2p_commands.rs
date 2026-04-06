@@ -229,34 +229,6 @@ pub async fn p2p_proxy_request(
     })
 }
 
-/// fetch a blob from a remote peer via P2P
-///
-/// returns base64-encoded data (since tauri can't easily pass raw bytes)
-#[tauri::command]
-pub async fn p2p_fetch_blob(
-    app_handle: tauri::AppHandle,
-    peer_addr: String,
-    blob_id: String,
-) -> Result<P2pBlobResponse, String> {
-    use base64::{engine::general_purpose::STANDARD, Engine};
-
-    let blob = grimoire::federation::p2p_client::fetch_blob(&peer_addr, &blob_id)
-        .await
-        .map_err(|e| {
-            let error_msg = e.to_string();
-            if is_connection_error(&error_msg) {
-                let _ = notify_peer_offline(&app_handle, &peer_addr, &error_msg);
-            }
-            error_msg
-        })?;
-
-    Ok(P2pBlobResponse {
-        data: STANDARD.encode(&blob.data),
-        content_type: blob.content_type,
-        size: blob.size,
-    })
-}
-
 /// fetch a blob from a remote peer via iroh-blobs verified streaming
 ///
 /// uses blake3 content hash for cryptographic verification.

@@ -35,20 +35,6 @@ interface ProxyResponse {
   body: string;
 }
 
-interface BlobStreamRequest {
-  type: "blob_stream_request";
-  id: number;
-  blob_id: string;
-}
-
-interface BlobStreamResponse {
-  type: "blob_stream_response";
-  id: number;
-  size?: number | null;
-  content_type?: string | null;
-  error?: string | null;
-}
-
 interface ComputeBlake3Request {
   type: "compute_blake3_request";
   id: number;
@@ -78,8 +64,6 @@ interface EnsureBlobResponse {
 type PeerMessage =
   | ProxyRequest
   | ProxyResponse
-  | BlobStreamRequest
-  | BlobStreamResponse
   | ComputeBlake3Request
   | ComputeBlake3Response
   | EnsureBlobRequest
@@ -109,18 +93,6 @@ async function sendRawResponse(stream: BiStreamLike, msg: PeerMessage): Promise<
     // fallback for streams that don't support raw write
     await stream.write_message(bytes);
   }
-}
-
-/**
- * send a message with 4-byte BE u32 length prefix (length-delimited framing).
- * matches grimoire's stream_blob() response reading which expects:
- *   4-byte length prefix → JSON header → then raw blob bytes.
- * does NOT finish the stream — caller may write more data after.
- */
-async function sendLengthDelimited(stream: BiStreamLike, msg: PeerMessage): Promise<void> {
-  const json = JSON.stringify(msg);
-  const bytes = encoder.encode(json);
-  await stream.write_message(bytes);
 }
 
 function arrayBufferToBase64(buffer: ArrayBuffer): string {
@@ -359,59 +331,6 @@ async function handleBlobMetadata(
   });
 }
 
-// ---- blob stream request --------------------------------------------------
-
-async function handleBlobStreamRequest(
-  stream: BiStreamLike,
-  msg: BlobStreamRequest
-): Promise<void> {
-  const { id, blob_id } = msg;
-  const peerId = stream.peer_node_id().slice(0, 16);
-
-  console.log(TAG, `blob stream request for ${blob_id} from ${peerId}...`);
-
-  const store = await getBlobStore();
-  const record = await store.getBlobRecord(blob_id);
-
-  if (!record) {
-    // error responses also use length-delimited framing because
-    // grimoire's stream_blob() always reads a length-prefixed header first
-    await sendLengthDelimited(stream, {
-      type: "blob_stream_response",
-      id,
-      size: null,
-      content_type: null,
-      error: "blob not found",
-    });
-    return;
-  }
-
-  const data = await store.getBlobData(blob_id);
-  if (!data) {
-    await sendLengthDelimited(stream, {
-      type: "blob_stream_response",
-      id,
-      size: null,
-      content_type: null,
-      error: "blob data not found in OPFS",
-    });
-    return;
-  }
-
-  // send length-prefixed header with size and content type
-  // (grimoire's stream_blob reads 4-byte prefix + JSON header)
-  await sendLengthDelimited(stream, {
-    type: "blob_stream_response",
-    id,
-    size: data.byteLength,
-    content_type: record.mime || "application/octet-stream",
-    error: null,
-  });
-
-  // send the raw blob bytes as a second length-delimited message
-  await stream.write_message(new Uint8Array(data));
-}
-
 // ---- compute_blake3 request -----------------------------------------------
 
 async function handleComputeBlake3(stream: BiStreamLike, msg: ComputeBlake3Request): Promise<void> {
@@ -554,10 +473,6 @@ async function handleStreamAsync(stream: BiStreamLike): Promise<void> {
   switch (msg.type) {
     case "proxy_request":
       await handleProxyRequest(stream, msg as ProxyRequest);
-      break;
-
-    case "blob_stream_request":
-      await handleBlobStreamRequest(stream, msg as BlobStreamRequest);
       break;
 
     case "compute_blake3_request":

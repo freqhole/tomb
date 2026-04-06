@@ -5,6 +5,6 @@ import { __wbg_set_wasm } from "./midden_bg.js";
 __wbg_set_wasm(wasm);
 wasm.__wbindgen_start();
 export {
-    BiStream, BlobResult, IntoUnderlyingByteSource, IntoUnderlyingSink, IntoUnderlyingSource, MiddenNode, UploadResult, hash_blake3, start
+    BiStream, HelloImageResult, IntoUnderlyingByteSource, IntoUnderlyingSink, IntoUnderlyingSource, MiddenNode, UploadResult, hash_blake3, start
 } from "./midden_bg.js";
 export { wasm as __wasm }

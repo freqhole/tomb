@@ -148,37 +148,36 @@ export class BiStream {
 if (Symbol.dispose) BiStream.prototype[Symbol.dispose] = BiStream.prototype.free;
 
 /**
- * blob fetch result
+ * result from fetching the server hello image from a peer
  */
-export class BlobResult {
+export class HelloImageResult {
     constructor() {
         throw new Error('cannot invoke `new` directly');
     }
     static __wrap(ptr) {
         ptr = ptr >>> 0;
-        const obj = Object.create(BlobResult.prototype);
+        const obj = Object.create(HelloImageResult.prototype);
         obj.__wbg_ptr = ptr;
-        BlobResultFinalization.register(obj, obj.__wbg_ptr, obj);
+        HelloImageResultFinalization.register(obj, obj.__wbg_ptr, obj);
         return obj;
     }
     __destroy_into_raw() {
         const ptr = this.__wbg_ptr;
         this.__wbg_ptr = 0;
-        BlobResultFinalization.unregister(this);
+        HelloImageResultFinalization.unregister(this);
         return ptr;
     }
     free() {
         const ptr = this.__destroy_into_raw();
-        wasm.__wbg_blobresult_free(ptr, 0);
+        wasm.__wbg_helloimageresult_free(ptr, 0);
     }
     /**
-     * get content type (if known)
      * @returns {string | undefined}
      */
-    content_type() {
+    get content_type() {
         if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
         _assertNum(this.__wbg_ptr);
-        const ret = wasm.blobresult_content_type(this.__wbg_ptr);
+        const ret = wasm.helloimageresult_content_type(this.__wbg_ptr);
         let v1;
         if (ret[0] !== 0) {
             v1 = getStringFromWasm0(ret[0], ret[1]).slice();
@@ -187,27 +186,16 @@ export class BlobResult {
         return v1;
     }
     /**
-     * get blob data as Uint8Array
      * @returns {Uint8Array}
      */
-    data() {
+    get data() {
         if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
         _assertNum(this.__wbg_ptr);
-        const ret = wasm.blobresult_data(this.__wbg_ptr);
+        const ret = wasm.helloimageresult_data(this.__wbg_ptr);
         return ret;
     }
-    /**
-     * get blob size in bytes
-     * @returns {number}
-     */
-    size() {
-        if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
-        _assertNum(this.__wbg_ptr);
-        const ret = wasm.blobresult_size(this.__wbg_ptr);
-        return ret >>> 0;
-    }
 }
-if (Symbol.dispose) BlobResult.prototype[Symbol.dispose] = BlobResult.prototype.free;
+if (Symbol.dispose) HelloImageResult.prototype[Symbol.dispose] = HelloImageResult.prototype.free;
 
 export class IntoUnderlyingByteSource {
     constructor() {
@@ -396,6 +384,16 @@ export class MiddenNode {
         return ret;
     }
     /**
+     * return the number of blobs currently held in the store via active TempTags.
+     * @returns {number}
+     */
+    active_blob_count() {
+        if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
+        _assertNum(this.__wbg_ptr);
+        const ret = wasm.middennode_active_blob_count(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
      * compute blake3 hash for a blob on demand
      *
      * use this when the client doesn't have the blake3 hash yet (not in API response).
@@ -539,48 +537,11 @@ export class MiddenNode {
         return ret;
     }
     /**
-     * fetch a blob from a peer
-     * peer_addr can be plain node_id or full endpoint JSON with relay/IP hints
-     * returns BlobResult with data and metadata
-     * @param {string} peer_addr
-     * @param {string} blob_id
-     * @returns {Promise<BlobResult>}
-     */
-    fetch_blob(peer_addr, blob_id) {
-        if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
-        _assertNum(this.__wbg_ptr);
-        const ptr0 = passStringToWasm0(peer_addr, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
-        const len0 = WASM_VECTOR_LEN;
-        const ptr1 = passStringToWasm0(blob_id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
-        const len1 = WASM_VECTOR_LEN;
-        const ret = wasm.middennode_fetch_blob(this.__wbg_ptr, ptr0, len0, ptr1, len1);
-        return ret;
-    }
-    /**
-     * fetch a blob from a peer with progress callback
-     * callback is called with (received_bytes, total_bytes) as arguments
-     * if total_bytes is 0, the size is unknown
-     * @param {string} peer_addr
-     * @param {string} blob_id
-     * @param {Function} on_progress
-     * @returns {Promise<BlobResult>}
-     */
-    fetch_blob_with_progress(peer_addr, blob_id, on_progress) {
-        if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
-        _assertNum(this.__wbg_ptr);
-        const ptr0 = passStringToWasm0(peer_addr, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
-        const len0 = WASM_VECTOR_LEN;
-        const ptr1 = passStringToWasm0(blob_id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
-        const len1 = WASM_VECTOR_LEN;
-        const ret = wasm.middennode_fetch_blob_with_progress(this.__wbg_ptr, ptr0, len0, ptr1, len1, on_progress);
-        return ret;
-    }
-    /**
      * fetch server image from a peer (public, no auth required)
      * used during "add remote" flow before user is authenticated
      * peer_addr can be plain node_id or full endpoint JSON with relay/IP hints
      * @param {string} peer_addr
-     * @returns {Promise<BlobResult>}
+     * @returns {Promise<HelloImageResult>}
      */
     fetch_hello_image(peer_addr) {
         if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
@@ -593,7 +554,8 @@ export class MiddenNode {
     /**
      * import raw bytes into the iroh-blobs store, returning the blake3 hash.
      * this makes the blob available for verified download by peers.
-     * the blob stays in memory until the tab is closed.
+     * the blob stays in the store as long as its TempTag is held in active_tags.
+     * call release_blob() to allow GC, or it will be evicted when the map exceeds 10 entries.
      * @param {Uint8Array} data
      * @returns {Promise<string>}
      */
@@ -667,6 +629,21 @@ export class MiddenNode {
         var len3 = WASM_VECTOR_LEN;
         const ret = wasm.middennode_proxy_request(this.__wbg_ptr, ptr0, len0, ptr1, len1, ptr2, len2, ptr3, len3);
         return ret;
+    }
+    /**
+     * release a blob's TempTag, allowing the store to garbage-collect it.
+     * blake3_hash should be the 64-char hex string returned by import_blob.
+     * @param {string} blake3_hash
+     */
+    release_blob(blake3_hash) {
+        if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
+        _assertNum(this.__wbg_ptr);
+        const ptr0 = passStringToWasm0(blake3_hash, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.middennode_release_blob(this.__wbg_ptr, ptr0, len0);
+        if (ret[1]) {
+            throw takeFromExternrefTable0(ret[0]);
+        }
     }
     /**
      * get the secret key bytes for persistence (32 bytes)
@@ -891,10 +868,6 @@ export function __wbg_bistream_new() { return logError(function (arg0) {
     const ret = BiStream.__wrap(arg0);
     return ret;
 }, arguments); }
-export function __wbg_blobresult_new() { return logError(function (arg0) {
-    const ret = BlobResult.__wrap(arg0);
-    return ret;
-}, arguments); }
 export function __wbg_body_ac1dad652946e6da() { return logError(function (arg0) {
     const ret = arg0.body;
     return isLikeNone(ret) ? 0 : addToExternrefTable0(ret);
@@ -919,10 +892,6 @@ export function __wbg_byteOffset_b26b63681c83856c() { return logError(function (
 }, arguments); }
 export function __wbg_call_2d781c1f4d5c0ef8() { return handleError(function (arg0, arg1, arg2) {
     const ret = arg0.call(arg1, arg2);
-    return ret;
-}, arguments); }
-export function __wbg_call_dcc2662fa17a72cf() { return handleError(function (arg0, arg1, arg2, arg3) {
-    const ret = arg0.call(arg1, arg2, arg3);
     return ret;
 }, arguments); }
 export function __wbg_call_e133b57c9155d22c() { return handleError(function (arg0, arg1) {
@@ -1052,6 +1021,10 @@ export function __wbg_has_926ef2ff40b308cf() { return handleError(function (arg0
 }, arguments); }
 export function __wbg_headers_eb2234545f9ff993() { return logError(function (arg0) {
     const ret = arg0.headers;
+    return ret;
+}, arguments); }
+export function __wbg_helloimageresult_new() { return logError(function (arg0) {
+    const ret = HelloImageResult.__wrap(arg0);
     return ret;
 }, arguments); }
 export function __wbg_instanceof_ArrayBuffer_101e2bf31071a9f6() { return logError(function (arg0) {
@@ -1437,42 +1410,42 @@ export function __wbg_wasClean_69f68dc4ed2d2cc7() { return logError(function (ar
     return ret;
 }, arguments); }
 export function __wbindgen_cast_0000000000000001() { return logError(function (arg0, arg1) {
-    // Cast intrinsic for `Closure(Closure { dtor_idx: 2141, function: Function { arguments: [NamedExternref("CloseEvent")], shim_idx: 2142, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+    // Cast intrinsic for `Closure(Closure { dtor_idx: 2134, function: Function { arguments: [NamedExternref("CloseEvent")], shim_idx: 2135, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
     const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen__closure__destroy__h04df11150c2ec967, wasm_bindgen__convert__closures_____invoke__hab17faabe688f6d8);
     return ret;
 }, arguments); }
 export function __wbindgen_cast_0000000000000002() { return logError(function (arg0, arg1) {
-    // Cast intrinsic for `Closure(Closure { dtor_idx: 2576, function: Function { arguments: [], shim_idx: 2577, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+    // Cast intrinsic for `Closure(Closure { dtor_idx: 2569, function: Function { arguments: [], shim_idx: 2570, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
     const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen__closure__destroy__ha7f394643b1887b3, wasm_bindgen__convert__closures_____invoke__he5a7fdd38fa79d5e);
     return ret;
 }, arguments); }
 export function __wbindgen_cast_0000000000000003() { return logError(function (arg0, arg1) {
-    // Cast intrinsic for `Closure(Closure { dtor_idx: 2635, function: Function { arguments: [Externref], shim_idx: 2636, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+    // Cast intrinsic for `Closure(Closure { dtor_idx: 2628, function: Function { arguments: [Externref], shim_idx: 2629, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
     const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen__closure__destroy__h62030f04146461fd, wasm_bindgen__convert__closures_____invoke__h66dcf80ecdfd60a9);
     return ret;
 }, arguments); }
 export function __wbindgen_cast_0000000000000004() { return logError(function (arg0, arg1) {
-    // Cast intrinsic for `Closure(Closure { dtor_idx: 2659, function: Function { arguments: [], shim_idx: 2660, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+    // Cast intrinsic for `Closure(Closure { dtor_idx: 2652, function: Function { arguments: [], shim_idx: 2653, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
     const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen__closure__destroy__h662eff4f51ac122f, wasm_bindgen__convert__closures_____invoke__ha42ef89cec163d20);
     return ret;
 }, arguments); }
 export function __wbindgen_cast_0000000000000005() { return logError(function (arg0, arg1) {
-    // Cast intrinsic for `Closure(Closure { dtor_idx: 2664, function: Function { arguments: [], shim_idx: 2665, ret: Unit, inner_ret: Some(Unit) }, mutable: false }) -> Externref`.
+    // Cast intrinsic for `Closure(Closure { dtor_idx: 2657, function: Function { arguments: [], shim_idx: 2658, ret: Unit, inner_ret: Some(Unit) }, mutable: false }) -> Externref`.
     const ret = makeClosure(arg0, arg1, wasm.wasm_bindgen__closure__destroy__h94ada4b4ca07a4ba, wasm_bindgen__convert__closures_____invoke__h8e48a5c06956cc7f);
     return ret;
 }, arguments); }
 export function __wbindgen_cast_0000000000000006() { return logError(function (arg0, arg1) {
-    // Cast intrinsic for `Closure(Closure { dtor_idx: 3060, function: Function { arguments: [NamedExternref("MessageEvent")], shim_idx: 3061, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+    // Cast intrinsic for `Closure(Closure { dtor_idx: 3053, function: Function { arguments: [NamedExternref("MessageEvent")], shim_idx: 3054, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
     const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen__closure__destroy__h8a10a08b2dea436a, wasm_bindgen__convert__closures_____invoke__hf0f0900181bab35b);
     return ret;
 }, arguments); }
 export function __wbindgen_cast_0000000000000007() { return logError(function (arg0, arg1) {
-    // Cast intrinsic for `Closure(Closure { dtor_idx: 4611, function: Function { arguments: [], shim_idx: 4612, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+    // Cast intrinsic for `Closure(Closure { dtor_idx: 4604, function: Function { arguments: [], shim_idx: 4605, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
     const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen__closure__destroy__hf45afd2339ecd0b0, wasm_bindgen__convert__closures_____invoke__h527d1a328962d6ec);
     return ret;
 }, arguments); }
 export function __wbindgen_cast_0000000000000008() { return logError(function (arg0, arg1) {
-    // Cast intrinsic for `Closure(Closure { dtor_idx: 4622, function: Function { arguments: [Externref], shim_idx: 4654, ret: Result(Unit), inner_ret: Some(Result(Unit)) }, mutable: true }) -> Externref`.
+    // Cast intrinsic for `Closure(Closure { dtor_idx: 4615, function: Function { arguments: [Externref], shim_idx: 4647, ret: Result(Unit), inner_ret: Some(Result(Unit)) }, mutable: true }) -> Externref`.
     const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen__closure__destroy__h80c7527661a50b70, wasm_bindgen__convert__closures_____invoke__ha84b42b578005502);
     return ret;
 }, arguments); }
@@ -1583,9 +1556,9 @@ const __wbindgen_enum_RequestMode = ["same-origin", "no-cors", "cors", "navigate
 const BiStreamFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_bistream_free(ptr >>> 0, 1));
-const BlobResultFinalization = (typeof FinalizationRegistry === 'undefined')
+const HelloImageResultFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
-    : new FinalizationRegistry(ptr => wasm.__wbg_blobresult_free(ptr >>> 0, 1));
+    : new FinalizationRegistry(ptr => wasm.__wbg_helloimageresult_free(ptr >>> 0, 1));
 const IntoUnderlyingByteSourceFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_intounderlyingbytesource_free(ptr >>> 0, 1));
