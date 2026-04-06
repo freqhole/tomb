@@ -1,6 +1,6 @@
 /**
- * utilities for file picking, uploading, and blob data fetching
- * in the skein widget system.
+ * utilities for file picking, uploading, blob data fetching, snatch,
+ * and save-to-disk in the skein widget system.
  *
  * supports two runtime modes:
  * - Tauri mode: native file dialogs + IPC invoke for uploads
@@ -9,6 +9,13 @@
  * thumbnail fetching has a P2P fallback: when the blob isn't available
  * locally (e.g. a peer uploaded it), we proxy the thumbnail request
  * through connected canvas peers via p2p_proxy_request.
+ *
+ * snatch: download a full blob from a canvas peer via iroh-blobs verified
+ * transfer, then ingest it into the local grimoire (creating a media_blobz
+ * entry, domain entity, and thumbnail job).
+ *
+ * save to disk: export a locally-stored blob to a user-chosen filesystem
+ * path via the native save dialog.
  */
 
 import { isTauriMode } from "../p2p/tauri-transport";
@@ -44,6 +51,35 @@ export interface FileUploadResult {
   existing: boolean;
 }
 
+/** blob locality — whether the blob exists in the local grimoire DB */
+export type BlobLocality = "local" | "remote" | "unknown";
+
+/** result from checking blob locality */
+export interface BlobLocalityInfo {
+  /** whether the blob is in the local grimoire DB */
+  locality: BlobLocality;
+  /** blob metadata (only present when local) */
+  metadata?: {
+    id: string;
+    mime?: string;
+    filename?: string;
+    size?: number;
+    blake3?: string;
+    /** blob-level metadata JSON — check source field for snatch detection */
+    blobMetadata?: Record<string, unknown>;
+  };
+}
+
+/** metadata about a blob needed for snatch operations */
+export interface SnatchBlobInfo {
+  blobId: string;
+  filename: string;
+  mime: string;
+  size: number;
+  blake3: string;
+  domain: string;
+}
+
 /** options for file upload */
 export interface UploadOptions {
   title?: string;
@@ -60,6 +96,9 @@ export interface ThumbnailOptions {
   /** canvas peers to try for P2P fallback — keys are peer IDs, values have nodeId */
   peers?: Record<string, { nodeId: string }>;
 }
+
+/** peers map type — extracted for reuse across functions */
+export type PeersMap = Record<string, { nodeId: string }>;
 
 // ---------------------------------------------------------------------------
 // tauri bridge helper
@@ -92,6 +131,425 @@ function cacheKey(blobId: string, size: number): string {
 /** clear the entire thumbnail cache (e.g. on disconnect) */
 export function clearThumbnailCache(): void {
   thumbnailCache.clear();
+}
+
+// ---------------------------------------------------------------------------
+// blob locality check
+// ---------------------------------------------------------------------------
+
+/**
+ * check whether a blob exists in the local grimoire database.
+ * used to determine whether to show "snatch" (remote) or "save to disk" (local).
+ *
+ * returns locality info including metadata when the blob is local.
+ */
+export async function checkBlobLocality(blobId: string): Promise<BlobLocalityInfo> {
+  if (!blobId) {
+    return { locality: "unknown" };
+  }
+
+  if (!isTauriMode()) {
+    // browser mode: could check IndexedDB in the future.
+    // for now, treat all blobs as unknown in browser mode.
+    return { locality: "unknown" };
+  }
+
+  try {
+    const response = await tauriInvoke("api_call", {
+      path: "/api/blob_metadata",
+      body: { id: blobId },
+    });
+
+    if (!response.success || !response.data) {
+      return { locality: "remote" };
+    }
+
+    const blob = response.data;
+    let blobMetadata: Record<string, unknown> | undefined;
+    if (blob.metadata && typeof blob.metadata === "object") {
+      blobMetadata = blob.metadata as Record<string, unknown>;
+    } else if (typeof blob.metadata === "string") {
+      try {
+        blobMetadata = JSON.parse(blob.metadata);
+      } catch {
+        // not valid JSON — ignore
+      }
+    }
+
+    return {
+      locality: "local",
+      metadata: {
+        id: blob.id,
+        mime: blob.mime ?? undefined,
+        filename: blob.filename ?? undefined,
+        size: blob.size ?? undefined,
+        blake3: blob.blake3 ?? undefined,
+        blobMetadata,
+      },
+    };
+  } catch (err) {
+    console.debug(TAG, "blob locality check failed:", err);
+    return { locality: "unknown" };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// snatch (download from peer + ingest locally)
+// ---------------------------------------------------------------------------
+
+/**
+ * snatch a blob from a canvas peer: download the full file via iroh-blobs
+ * verified transfer, then ingest it into the local grimoire to create a
+ * media_blobz entry, domain entity, and thumbnail job.
+ *
+ * after snatch, the blob resolves locally (no more P2P dependency for
+ * thumbnails or previews).
+ *
+ * requires Tauri mode — browser P2P blob fetch is not yet wired.
+ */
+export async function snatchBlob(info: SnatchBlobInfo, peers: PeersMap): Promise<FileUploadResult> {
+  if (!isTauriMode()) {
+    throw new Error(
+      "snatch requires the desktop app — browser P2P blob fetch is not yet supported"
+    );
+  }
+
+  const peerAddrs = Object.values(peers)
+    .map((p) => p.nodeId)
+    .filter(Boolean);
+
+  if (peerAddrs.length === 0) {
+    throw new Error("no peers available for snatch");
+  }
+
+  // try each peer until one succeeds
+  let lastError: unknown;
+  for (const peerAddr of peerAddrs) {
+    try {
+      console.log(
+        TAG,
+        `snatching blob ${info.blobId.slice(0, 8)}... from peer ${peerAddr.slice(0, 16)}...`
+      );
+
+      // step 1: download full blob via iroh-blobs verified transfer
+      const blobResult = await tauriInvoke("p2p_fetch_blob_verified_by_id", {
+        peerAddr,
+        blobId: info.blobId,
+      });
+
+      // blobResult is { data: string (base64), content_type, size, blake3 }
+      if (!blobResult.data) {
+        throw new Error("peer returned empty blob data");
+      }
+
+      console.log(
+        TAG,
+        `downloaded ${formatFileSize(blobResult.size)} from peer, ingesting locally...`
+      );
+
+      // step 2: ingest into local grimoire via the upload endpoint.
+      // pass the base64 data directly + metadata marking this as a snatch.
+      const uploadResponse = await tauriInvoke("api_call", {
+        path: "/api/upload/file",
+        body: {
+          data: blobResult.data,
+          filename: info.filename,
+          metadata: JSON.stringify({ source: "snatch", original_blob_id: info.blobId }),
+          wait_for_completion: true,
+        },
+      });
+
+      if (!uploadResponse.success) {
+        const detail =
+          uploadResponse.errors?.[0]?.detail ?? uploadResponse.message ?? "ingest failed";
+        throw new Error(`snatch ingest failed: ${detail}`);
+      }
+
+      const d = uploadResponse.data;
+      if (!d) {
+        throw new Error("snatch ingest returned no data");
+      }
+
+      console.log(TAG, `snatch complete: blob ${d.blob_id?.slice(0, 8)}... domain=${d.domain}`);
+
+      // clear thumbnail cache for this blob so it re-fetches from local
+      const key200 = cacheKey(info.blobId, 200);
+      const key50 = cacheKey(info.blobId, 50);
+      thumbnailCache.delete(key200);
+      thumbnailCache.delete(key50);
+
+      return {
+        blobId: d.blob_id,
+        domain: d.domain,
+        entityId: d.entity_id,
+        jobId: d.job_id ?? null,
+        sha256: d.sha256,
+        blake3: d.blake3 ?? null,
+        size: d.size,
+        mime: d.mime,
+        existing: d.existing ?? false,
+      };
+    } catch (err) {
+      lastError = err;
+      console.debug(TAG, `snatch from peer ${peerAddr.slice(0, 16)}... failed:`, err);
+      continue;
+    }
+  }
+
+  throw lastError ?? new Error("snatch failed: all peers exhausted");
+}
+
+// ---------------------------------------------------------------------------
+// save blob to disk
+// ---------------------------------------------------------------------------
+
+/**
+ * dynamically load the Tauri dialog plugin's save function.
+ */
+async function loadTauriSaveDialog(): Promise<{
+  save: (options?: { defaultPath?: string; title?: string }) => Promise<string | null>;
+}> {
+  // @ts-ignore — @tauri-apps/plugin-dialog is only available in Tauri builds
+  return import("@tauri-apps/plugin-dialog");
+}
+
+/**
+ * save a locally-stored blob to a user-chosen location on the filesystem.
+ * opens a native save dialog, then copies the blob file to the chosen path.
+ *
+ * only works after the blob exists locally (either uploaded or snatched).
+ * requires Tauri mode.
+ *
+ * for browser mode, falls back to a programmatic <a download> click using
+ * blob data fetched from the local API.
+ *
+ * returns true if the file was saved, false if the user cancelled.
+ */
+export async function saveBlobToDisk(blobId: string, filename: string): Promise<boolean> {
+  if (!isTauriMode()) {
+    // browser fallback: fetch blob data and trigger download
+    return saveBlobToDiskBrowser(blobId, filename);
+  }
+
+  try {
+    // open native save dialog with suggested filename
+    const { save } = await loadTauriSaveDialog();
+    const destPath = await save({
+      defaultPath: filename,
+      title: "save file",
+    });
+
+    if (!destPath) {
+      return false; // user cancelled
+    }
+
+    // copy blob file to chosen path via custom Tauri command
+    await tauriInvoke("save_blob_to_path", {
+      blobId,
+      destPath,
+    });
+
+    console.log(TAG, `saved blob ${blobId.slice(0, 8)}... to ${destPath}`);
+    return true;
+  } catch (err) {
+    console.error(TAG, "save to disk failed:", err);
+    throw err;
+  }
+}
+
+/**
+ * browser fallback for save to disk — fetch blob data as base64 and
+ * trigger a programmatic download via a hidden <a> element.
+ */
+async function saveBlobToDiskBrowser(blobId: string, filename: string): Promise<boolean> {
+  try {
+    // fetch blob data from local API (browser mode would need HTTP transport)
+    const dataUrl = await getFullBlobDataUrl(blobId);
+    if (!dataUrl) {
+      throw new Error("could not fetch blob data for download");
+    }
+
+    // convert data URL to blob
+    const response = await fetch(dataUrl);
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+
+    // trigger download via hidden <a> element
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    a.style.display = "none";
+    document.body.appendChild(a);
+    a.click();
+
+    // cleanup after a short delay
+    setTimeout(() => {
+      URL.revokeObjectURL(url);
+      a.remove();
+    }, 1000);
+
+    return true;
+  } catch (err) {
+    console.error(TAG, "browser save to disk failed:", err);
+    throw err;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// full blob data (for previews)
+// ---------------------------------------------------------------------------
+
+/**
+ * fetch the full blob data (not just thumbnail) as a data URL.
+ * used for full-screen photo preview, video playback, etc.
+ *
+ * resolution order:
+ * 1. local grimoire via api_call
+ * 2. P2P proxy via connected canvas peers
+ *
+ * returns null if the blob data is not available.
+ */
+export async function getFullBlobDataUrl(blobId: string, peers?: PeersMap): Promise<string | null> {
+  // try local first
+  const localResult = await fetchFullBlobLocal(blobId);
+  if (localResult) {
+    return localResult;
+  }
+
+  // try P2P fallback
+  if (peers && isTauriMode()) {
+    const peerResult = await fetchFullBlobFromPeers(blobId, peers);
+    if (peerResult) {
+      return peerResult;
+    }
+  }
+
+  return null;
+}
+
+/**
+ * fetch full blob data from local grimoire.
+ * tries the path-based approach first (for asset:// URL in Tauri),
+ * falls back to base64 data endpoint.
+ */
+async function fetchFullBlobLocal(blobId: string): Promise<string | null> {
+  if (!isTauriMode()) {
+    return null;
+  }
+
+  try {
+    // try getting base64 data from the blob_data endpoint
+    const response = await tauriInvoke("api_call", {
+      path: `/api/blobs/${blobId}/data`,
+      body: {},
+    });
+
+    if (!response.success || !response.data) {
+      return null;
+    }
+
+    const { data, mime } = response.data;
+    if (!data || !mime) {
+      return null;
+    }
+
+    return `data:${mime};base64,${data}`;
+  } catch (err) {
+    return null;
+  }
+}
+
+/**
+ * fetch full blob data from canvas peers via P2P proxy.
+ */
+async function fetchFullBlobFromPeers(blobId: string, peers: PeersMap): Promise<string | null> {
+  const peerAddrs = Object.values(peers)
+    .map((p) => p.nodeId)
+    .filter(Boolean);
+
+  if (peerAddrs.length === 0) {
+    return null;
+  }
+
+  for (const peerAddr of peerAddrs) {
+    try {
+      const result = await tauriInvoke("p2p_proxy_request", {
+        peerAddr,
+        method: "GET",
+        path: `/api/blobs/${blobId}/data`,
+        body: null,
+      });
+
+      if (result.status !== 200) {
+        continue;
+      }
+
+      const parsed = JSON.parse(result.body);
+      if (!parsed.success || !parsed.data) {
+        continue;
+      }
+
+      const { data, mime } = parsed.data;
+      if (!data || !mime) {
+        continue;
+      }
+
+      console.log(
+        TAG,
+        `fetched full blob ${blobId.slice(0, 8)}... from peer ${peerAddr.slice(0, 16)}...`
+      );
+      return `data:${mime};base64,${data}`;
+    } catch (err) {
+      console.debug(
+        TAG,
+        `peer ${peerAddr.slice(0, 16)}... failed for full blob ${blobId.slice(0, 8)}...:`,
+        err
+      );
+      continue;
+    }
+  }
+
+  return null;
+}
+
+// ---------------------------------------------------------------------------
+// blob local path (for asset:// URLs in Tauri video/audio playback)
+// ---------------------------------------------------------------------------
+
+/**
+ * get the local filesystem path for a blob.
+ * used to construct asset:// URLs for video/audio playback in Tauri.
+ * returns null if the blob has no local path or isn't available locally.
+ */
+export async function getBlobLocalPath(blobId: string): Promise<string | null> {
+  if (!isTauriMode()) {
+    return null;
+  }
+
+  try {
+    const response = await tauriInvoke("api_call", {
+      path: `/api/blobs/${blobId}/path`,
+      body: {},
+    });
+
+    if (!response.success || !response.data) {
+      return null;
+    }
+
+    return response.data.path ?? null;
+  } catch (err) {
+    return null;
+  }
+}
+
+/**
+ * convert a local filesystem path to a Tauri asset:// URL.
+ * used for streaming video/audio from local storage without loading
+ * the entire file into memory.
+ */
+export async function convertToAssetUrl(localPath: string): Promise<string> {
+  const { convertFileSrc } = await import("@tauri-apps/api/core");
+  return convertFileSrc(localPath);
 }
 
 // ---------------------------------------------------------------------------

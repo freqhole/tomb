@@ -2476,3 +2476,43 @@ fn parse_log_line_metadata(line: &str) -> (Option<String>, Option<String>) {
 pub fn get_log_file_path(app_handle: tauri::AppHandle) -> Option<String> {
     crate::app_config::get_log_file_path(&app_handle).map(|p| p.display().to_string())
 }
+
+/// save a media blob to a user-specified filesystem path.
+/// copies the blob from grimoire's internal storage to the destination.
+/// used by skein's "save to disk" feature after snatching a file from a peer.
+#[tauri::command]
+pub async fn save_blob_to_path(
+    app_handle: tauri::AppHandle,
+    blob_id: String,
+    dest_path: String,
+) -> Result<(), String> {
+    ensure_initialized(&app_handle).await?;
+
+    // get blob metadata from grimoire
+    let blob = grimoire::media_blobz::get_media_blob(&blob_id)
+        .await
+        .map_err(|e| format!("failed to get blob: {}", e))?;
+
+    let source_path = blob
+        .local_path
+        .ok_or_else(|| "blob has no local file path".to_string())?;
+
+    let source = std::path::Path::new(&source_path);
+    if !source.exists() {
+        return Err(format!("blob source file not found: {}", source_path));
+    }
+
+    let dest = std::path::Path::new(&dest_path);
+
+    // ensure parent directory exists
+    if let Some(parent) = dest.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("failed to create destination directory: {}", e))?;
+    }
+
+    // copy the file
+    std::fs::copy(source, dest)
+        .map_err(|e| format!("failed to copy blob to destination: {}", e))?;
+
+    Ok(())
+}

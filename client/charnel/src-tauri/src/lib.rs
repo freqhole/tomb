@@ -450,6 +450,8 @@ pub fn run() {
             commands::get_log_file_path,
             // unified API dispatch (spike)
             commands::api_call,
+            // blob file operations
+            commands::save_blob_to_path,
             wizard::open_setup_wizard,
             wizard::close_setup_wizard,
             // P2P native transport commands
