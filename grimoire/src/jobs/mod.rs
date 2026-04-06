@@ -10,7 +10,14 @@
 //! - file_processor: audio file import and metadata extraction
 //! - fetch_processor: downloading from external sources (YouTube, etc.)
 //! - upload_processors: user upload handling (WebP conversion, music import)
+//!
+//! Media-specific processors in media/ submodule:
+//! - photo_processor: image thumbnail generation and EXIF metadata extraction
+//! - video_processor: video frame capture and ffprobe metadata extraction
+//! - document_processor: PDF first-page thumbnail and metadata extraction
+//! - audio_processor: general audio waveform generation and metadata extraction
 
+mod media;
 mod models;
 mod music;
 mod runner;
@@ -63,3 +70,9 @@ pub use music::{
     process_convert_webp_job, process_fetch_media_job, process_file_job, process_import_music_job,
     process_scan_directory_job,
 };
+
+// re-export media job processors (used by runner module)
+pub use media::audio_processor::process_media_file_job;
+pub use media::document_processor::process_generate_document_thumbnail_job;
+pub use media::photo_processor::process_generate_photo_thumbnail_job;
+pub use media::video_processor::process_generate_video_thumbnail_job;

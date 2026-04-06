@@ -142,3 +142,41 @@ pub async fn delete_audio(id: &str, deleted_by: Option<String>) -> GrimoireResul
 
     Ok(())
 }
+
+/// update audio metadata fields (extracted from ffprobe)
+pub async fn update_audio_metadata(
+    id: &str,
+    duration: Option<i64>,
+    sample_rate: Option<i64>,
+    channels: Option<i64>,
+    bitrate: Option<i64>,
+) -> GrimoireResult<Audio> {
+    let pool = database::connect().await?;
+
+    let audio = sqlx::query_as!(
+        Audio,
+        "UPDATE audioz SET
+            duration = COALESCE(?, duration),
+            sample_rate = COALESCE(?, sample_rate),
+            channels = COALESCE(?, channels),
+            bitrate = COALESCE(?, bitrate)
+         WHERE id = ? AND deleted_at IS NULL
+         RETURNING
+            id as \"id!\",
+            media_blob_id as \"media_blob_id!\",
+            title, description, original_filename,
+            duration, sample_rate, channels, bitrate, metadata,
+            created_at as \"created_at!\",
+            updated_at as \"updated_at!\",
+            deleted_at, deleted_by, created_by, updated_by",
+        duration,
+        sample_rate,
+        channels,
+        bitrate,
+        id
+    )
+    .fetch_one(&pool)
+    .await?;
+
+    Ok(audio)
+}

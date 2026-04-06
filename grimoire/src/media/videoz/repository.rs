@@ -144,3 +144,47 @@ pub async fn delete_video(id: &str, deleted_by: Option<String>) -> GrimoireResul
 
     Ok(())
 }
+
+/// update video metadata fields (extracted from ffprobe)
+pub async fn update_video_metadata(
+    id: &str,
+    duration: Option<i64>,
+    width: Option<i64>,
+    height: Option<i64>,
+    codec: Option<String>,
+    framerate: Option<f64>,
+    bitrate: Option<i64>,
+) -> GrimoireResult<Video> {
+    let pool = database::connect().await?;
+
+    let video = sqlx::query_as!(
+        Video,
+        "UPDATE videoz SET
+            duration = COALESCE(?, duration),
+            width = COALESCE(?, width),
+            height = COALESCE(?, height),
+            codec = COALESCE(?, codec),
+            framerate = COALESCE(?, framerate),
+            bitrate = COALESCE(?, bitrate)
+         WHERE id = ? AND deleted_at IS NULL
+         RETURNING
+            id as \"id!\",
+            media_blob_id as \"media_blob_id!\",
+            title, description, original_filename,
+            duration, width, height, codec, framerate, bitrate, metadata,
+            created_at as \"created_at!\",
+            updated_at as \"updated_at!\",
+            deleted_at, deleted_by, created_by, updated_by",
+        duration,
+        width,
+        height,
+        codec,
+        framerate,
+        bitrate,
+        id
+    )
+    .fetch_one(&pool)
+    .await?;
+
+    Ok(video)
+}

@@ -151,3 +151,54 @@ pub async fn delete_photo(id: &str, deleted_by: Option<String>) -> GrimoireResul
 
     Ok(())
 }
+
+/// update photo metadata fields (extracted from EXIF or image processing)
+pub async fn update_photo_metadata(
+    id: &str,
+    width: Option<i64>,
+    height: Option<i64>,
+    taken_at: Option<i64>,
+    camera_make: Option<String>,
+    camera_model: Option<String>,
+    gps_lat: Option<f64>,
+    gps_lon: Option<f64>,
+    orientation: Option<i64>,
+) -> GrimoireResult<Photo> {
+    let pool = database::connect().await?;
+
+    let photo = sqlx::query_as!(
+        Photo,
+        "UPDATE photoz SET
+            width = COALESCE(?, width),
+            height = COALESCE(?, height),
+            taken_at = COALESCE(?, taken_at),
+            camera_make = COALESCE(?, camera_make),
+            camera_model = COALESCE(?, camera_model),
+            gps_lat = COALESCE(?, gps_lat),
+            gps_lon = COALESCE(?, gps_lon),
+            orientation = COALESCE(?, orientation)
+         WHERE id = ? AND deleted_at IS NULL
+         RETURNING
+            id as \"id!\",
+            media_blob_id as \"media_blob_id!\",
+            title, description, original_filename,
+            taken_at, width, height, camera_make, camera_model,
+            gps_lat, gps_lon, orientation, metadata,
+            created_at as \"created_at!\",
+            updated_at as \"updated_at!\",
+            deleted_at, deleted_by, created_by, updated_by",
+        width,
+        height,
+        taken_at,
+        camera_make,
+        camera_model,
+        gps_lat,
+        gps_lon,
+        orientation,
+        id
+    )
+    .fetch_one(&pool)
+    .await?;
+
+    Ok(photo)
+}

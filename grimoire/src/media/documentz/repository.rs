@@ -145,3 +145,41 @@ pub async fn delete_document(id: &str, deleted_by: Option<String>) -> GrimoireRe
 
     Ok(())
 }
+
+/// update document metadata fields (extracted from processing)
+pub async fn update_document_metadata(
+    id: &str,
+    author: Option<String>,
+    page_count: Option<i64>,
+    doc_type: Option<String>,
+    language: Option<String>,
+) -> GrimoireResult<Document> {
+    let pool = database::connect().await?;
+
+    let document = sqlx::query_as!(
+        Document,
+        "UPDATE documentz SET
+            author = COALESCE(?, author),
+            page_count = COALESCE(?, page_count),
+            doc_type = COALESCE(?, doc_type),
+            language = COALESCE(?, language)
+         WHERE id = ? AND deleted_at IS NULL
+         RETURNING
+            id as \"id!\",
+            media_blob_id as \"media_blob_id!\",
+            title, description, original_filename,
+            author, page_count, doc_type, language, metadata,
+            created_at as \"created_at!\",
+            updated_at as \"updated_at!\",
+            deleted_at, deleted_by, created_by, updated_by",
+        author,
+        page_count,
+        doc_type,
+        language,
+        id
+    )
+    .fetch_one(&pool)
+    .await?;
+
+    Ok(document)
+}

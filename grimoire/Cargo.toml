@@ -52,6 +52,7 @@ iroh = { workspace = true }
 iroh-blobs = { workspace = true }
 blake3 = { workspace = true }
 getrandom = "0.2"
+kamadak-exif = "0.5"
 
 clap = { version = "4.4", features = ["derive"] }
 humantime = "2.1"
