@@ -97,6 +97,17 @@ pub struct MediaConfig {
     /// when enabled, thumbnails are generated lazily on first request
     #[serde(default)]
     pub thumbnail_on_demand_enabled: bool,
+    /// path to ImageMagick magick binary (for PDF thumbnail generation)
+    #[serde(default = "default_magick_path")]
+    pub magick_path: String,
+    /// args for generating PDF page thumbnails (placeholders: {input}, {output})
+    /// output should be a single WebP file of the first page
+    #[serde(default = "default_magick_pdf_thumbnail_args")]
+    pub magick_pdf_thumbnail_args: String,
+    /// args for extracting a video frame for thumbnail (placeholders: {input}, {output}, {timestamp})
+    /// timestamp is computed as ~10% into the video duration
+    #[serde(default = "default_video_thumbnail_args")]
+    pub video_thumbnail_args: String,
 }
 
 fn default_max_connections() -> u32 {
@@ -146,6 +157,18 @@ fn default_generate_scan_duplicate_report() -> bool {
 
 fn default_thumbnail_sizes() -> Vec<u32> {
     vec![50, 200]
+}
+
+fn default_magick_path() -> String {
+    "magick".to_string()
+}
+
+fn default_magick_pdf_thumbnail_args() -> String {
+    "-density 150 {input}[0] -resize 800x800> -quality 80 {output}".to_string()
+}
+
+fn default_video_thumbnail_args() -> String {
+    "-ss {timestamp} -i {input} -frames:v 1 -vf scale=800:-2 -y {output}".to_string()
 }
 
 fn default_max_fs_file_size() -> u64 {
@@ -1327,6 +1350,9 @@ mod tests {
                 skip_duplicates: true,
                 thumbnail_sizes: vec![50, 200],
                 thumbnail_on_demand_enabled: false,
+                magick_path: "magick".to_string(),
+                magick_pdf_thumbnail_args: default_magick_pdf_thumbnail_args(),
+                video_thumbnail_args: default_video_thumbnail_args(),
             },
             musicbrainz: MusicBrainzConfig { enabled: false },
             logging: LoggingConfig {
@@ -1366,6 +1392,9 @@ mod tests {
                 skip_duplicates: true,
                 thumbnail_sizes: vec![50, 200],
                 thumbnail_on_demand_enabled: false,
+                magick_path: "magick".to_string(),
+                magick_pdf_thumbnail_args: default_magick_pdf_thumbnail_args(),
+                video_thumbnail_args: default_video_thumbnail_args(),
             },
             musicbrainz: MusicBrainzConfig { enabled: false },
             logging: LoggingConfig {
@@ -1403,6 +1432,9 @@ mod tests {
                 skip_duplicates: true,
                 thumbnail_sizes: vec![50, 200],
                 thumbnail_on_demand_enabled: false,
+                magick_path: "magick".to_string(),
+                magick_pdf_thumbnail_args: default_magick_pdf_thumbnail_args(),
+                video_thumbnail_args: default_video_thumbnail_args(),
             },
             musicbrainz: MusicBrainzConfig { enabled: false },
             logging: LoggingConfig {

@@ -3,6 +3,6 @@
 mod models;
 
 pub use models::{
-    AssociationHint, AssociationInfo, DeleteImageRequest, ImageUploadResponse, MusicImportResponse,
-    MusicMetadataHints, MusicUploadResponse, SetPrimaryImageRequest,
+    AssociationHint, AssociationInfo, DeleteImageRequest, FileUploadResponse, ImageUploadResponse,
+    MusicImportResponse, MusicMetadataHints, MusicUploadResponse, SetPrimaryImageRequest,
 };

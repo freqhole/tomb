@@ -20,6 +20,12 @@ pub enum JobType {
     // upload processing
     ConvertWebp,
     ImportMusic,
+
+    // media processing (non-music domains)
+    GeneratePhotoThumbnail,
+    GenerateVideoThumbnail,
+    GenerateDocumentThumbnail,
+    ProcessMediaFile,
 }
 
 /// job status lifecycle

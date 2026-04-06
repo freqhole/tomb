@@ -118,3 +118,28 @@ pub struct MusicImportResponse {
     /// success message
     pub message: String,
 }
+
+/// response for universal file upload endpoint
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct FileUploadResponse {
+    /// ID of the created media blob
+    pub blob_id: String,
+    /// media domain the file was classified into
+    pub domain: String,
+    /// ID of the domain entity (audioz/photoz/videoz/documentz/filez row)
+    pub entity_id: String,
+    /// ID of the processing job (thumbnail generation), if queued
+    pub job_id: Option<String>,
+    /// SHA256 hash of the uploaded file
+    pub sha256: String,
+    /// blake3 hash for P2P verified streaming
+    pub blake3: String,
+    /// file size in bytes
+    pub size: i64,
+    /// MIME type of the file
+    pub mime: String,
+    /// whether this blob already existed (deduplication)
+    pub existing: bool,
+    /// success message
+    pub message: String,
+}

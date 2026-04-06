@@ -8,6 +8,7 @@ pub mod collectionz;
 pub mod documentz;
 pub mod domain;
 pub mod filez;
+pub mod ingest;
 pub mod photoz;
 pub mod videoz;
 

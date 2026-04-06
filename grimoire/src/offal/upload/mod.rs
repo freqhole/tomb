@@ -66,6 +66,15 @@ pub const ROUTES: &[RouteInfo] = &[
         response_type: "EmptyResponse",
         auth: RouteAuth::Role(UserRole::Admin),
     },
+    RouteInfo {
+        name: "upload_file",
+        path: "/api/upload/file",
+        method: Method::POST,
+        domain: Domain::Media,
+        request_type: "String",
+        response_type: "FileUploadResponse",
+        auth: RouteAuth::Role(UserRole::Member),
+    },
 ];
 
 /// collect all route metadata from upload domain
@@ -111,6 +120,7 @@ pub async fn dispatch(
         "/api/upload/image" => Some(upload_image(caller, body.clone()).await),
         "/api/upload/music" => Some(upload_music(caller, body.clone()).await),
         "/api/upload/music-paths" => Some(import_music_paths(caller, body.clone()).await),
+        "/api/upload/file" => Some(upload_file(caller, body.clone()).await),
         _ => None,
     }
 }
@@ -762,6 +772,155 @@ pub async fn upload_music(caller: &Caller, body: JsonValue) -> GrimoireResponse<
     };
 
     GrimoireResponse::success("music uploaded", serde_json::to_value(response).unwrap())
+}
+
+/// upload any file — universal file upload endpoint
+///
+/// classifies the file by domain (audio, photo, video, document, file),
+/// creates a media blob, domain entity, and queues thumbnail generation.
+///
+/// path: POST /api/upload/file
+pub async fn upload_file(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
+    // check role
+    if !matches!(caller.role, UserRole::Admin | UserRole::Member) {
+        return GrimoireResponse::failure(
+            "forbidden",
+            vec![ErrorDetail::new(
+                "forbidden",
+                "forbidden",
+                "only members can upload files",
+            )],
+        );
+    }
+
+    // parse request — reuse the same data/file_path pattern as music/image upload
+    #[derive(Debug, serde::Deserialize)]
+    struct UploadFileRequest {
+        #[serde(default)]
+        data: Option<String>,
+        #[serde(default)]
+        file_path: Option<String>,
+        #[serde(default)]
+        filename: Option<String>,
+        #[serde(default)]
+        title: Option<String>,
+        #[serde(default)]
+        description: Option<String>,
+        #[serde(default)]
+        metadata: Option<String>,
+        #[serde(default)]
+        wait_for_completion: bool,
+    }
+
+    let req: UploadFileRequest = match serde_json::from_value(body) {
+        Ok(r) => r,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "bad request",
+                vec![ErrorDetail::new(
+                    "bad_request",
+                    "bad request",
+                    &e.to_string(),
+                )],
+            )
+        }
+    };
+
+    // build FileSource
+    let source = match (&req.data, &req.file_path) {
+        (Some(base64_data), None) => {
+            let decoded = match base64::engine::general_purpose::STANDARD.decode(base64_data) {
+                Ok(d) => d,
+                Err(e) => {
+                    return GrimoireResponse::failure(
+                        "invalid base64 data",
+                        vec![ErrorDetail::new(
+                            "bad_request",
+                            "invalid data",
+                            &format!("failed to decode base64: {}", e),
+                        )],
+                    )
+                }
+            };
+            let name = req.filename.unwrap_or_else(|| "file.bin".to_string());
+            crate::media::ingest::FileSource::Bytes {
+                data: decoded,
+                filename: name,
+            }
+        }
+        (None, Some(file_path)) => {
+            let path = std::path::PathBuf::from(file_path);
+            crate::media::ingest::FileSource::Path { path }
+        }
+        (Some(_), Some(_)) => {
+            return GrimoireResponse::failure(
+                "bad request",
+                vec![ErrorDetail::new(
+                    "bad_request",
+                    "invalid request",
+                    "provide either 'data' or 'file_path', not both",
+                )],
+            )
+        }
+        (None, None) => {
+            return GrimoireResponse::failure(
+                "bad request",
+                vec![ErrorDetail::new(
+                    "bad_request",
+                    "invalid request",
+                    "must provide 'data' (base64) or 'file_path'",
+                )],
+            )
+        }
+    };
+
+    let options = crate::media::ingest::IngestOptions {
+        title: req.title,
+        description: req.description,
+        metadata: req.metadata,
+        created_by: Some(caller.user_id.clone()),
+    };
+
+    // call the core ingest function
+    let result = match crate::media::ingest::ingest_file(source, options).await {
+        Ok(r) => r,
+        Err(e) => return GrimoireResponse::failure("file ingest failed", vec![e.into()]),
+    };
+
+    // optionally wait for the thumbnail job to complete
+    if req.wait_for_completion {
+        if let Some(ref job_id) = result.job_id {
+            let start = std::time::Instant::now();
+            loop {
+                if start.elapsed() > MAX_WAIT_DURATION {
+                    break; // timeout — return the result anyway
+                }
+                let job_response = crate::jobs::get_job(job_id).await;
+                if let Some(job_status) = job_response.data {
+                    let status = job_status.status.as_str();
+                    if status == "Completed" || status == "Failed" || status == "Cancelled" {
+                        break;
+                    }
+                }
+                sleep(POLL_INTERVAL).await;
+            }
+        }
+    }
+
+    let response = crate::upload::FileUploadResponse {
+        blob_id: result.blob_id,
+        domain: result.domain,
+        entity_id: result.entity_id,
+        job_id: result.job_id,
+        sha256: result.sha256,
+        blake3: result.blake3,
+        size: result.size,
+        mime: result.mime,
+        existing: result.existing,
+        message: "file uploaded and processed".to_string(),
+    };
+
+    GrimoireResponse::success("file uploaded", serde_json::to_value(response).unwrap())
 }
 
 /// detect audio mime type from filename and magic bytes

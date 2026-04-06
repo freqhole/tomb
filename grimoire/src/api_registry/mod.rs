@@ -30,6 +30,7 @@ impl Method {
 pub enum Domain {
     App,
     Auth,
+    Media,
     Music,
     Admin,
 }
@@ -39,6 +40,7 @@ impl Domain {
         match self {
             Domain::App => "app",
             Domain::Auth => "auth",
+            Domain::Media => "media",
             Domain::Music => "music",
             Domain::Admin => "admin",
         }
@@ -171,12 +173,12 @@ pub mod type_registry {
     use crate::music::analytics::{
         CreateListenSessionRequest, DeleteFeedEventRequest, DeleteListenSessionRequest, FeedItem,
         FeedItemType, FeedRequest, FeedResponse, GetListenSessionRequest,
-        ListListenSessionsRequest, ListListenSessionsResponse, ListenSession,
-        ListenSessionStatus, ListenSessionType, ListeningHistoryItem, ListeningHistoryRequest,
-        ListeningHistoryResponse, OverviewStats, PlayAnalytics, RecordPlayRequest, SessionSong,
-        SessionSummary, SongAnalyticsRequest, TopAlbum, TopAlbumsRequest, TopArtist,
-        TopArtistsRequest, TopSong, TopSongsRequest, UpdateListenSessionProgressRequest,
-        UpdateListenSessionSongsRequest, UpdateListenSessionStatusRequest, UserStats,
+        ListListenSessionsRequest, ListListenSessionsResponse, ListenSession, ListenSessionStatus,
+        ListenSessionType, ListeningHistoryItem, ListeningHistoryRequest, ListeningHistoryResponse,
+        OverviewStats, PlayAnalytics, RecordPlayRequest, SessionSong, SessionSummary,
+        SongAnalyticsRequest, TopAlbum, TopAlbumsRequest, TopArtist, TopArtistsRequest, TopSong,
+        TopSongsRequest, UpdateListenSessionProgressRequest, UpdateListenSessionSongsRequest,
+        UpdateListenSessionStatusRequest, UserStats,
     };
 
     // musicbrainz types
