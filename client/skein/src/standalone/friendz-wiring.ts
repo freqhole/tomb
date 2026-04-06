@@ -6,10 +6,12 @@ import { initBridge, setOutboundRequestHook } from "../p2p/friendz-bridge";
 import { GossipTracker } from "../p2p/gossip-tracker";
 import { getMiddenNode, getStoredIdentity } from "../p2p/identity";
 import {
-  FRIENDZ_ALPN,
-  type IrohNetworkAdapter,
-  type MiddenStreamNode,
+    FRIENDZ_ALPN,
+    type IrohNetworkAdapter,
+    type MiddenStreamNode,
 } from "../p2p/iroh-network-adapter";
+
+import { handleFreqholeStream } from "../p2p/freqhole-handler";
 import { isTauriMode, TauriStreamNode } from "../p2p/tauri-transport";
 import type { SocialDoc } from "../../widgets/narthex/social/types";
 import type { SocialState } from "../../widgets/narthex/social/schema";
@@ -69,49 +71,42 @@ export async function initFriendzWiring(
   // in tauri mode, identity comes from the running iroh endpoint
   // in standalone mode, identity is stored in IndexedDB
   let localNodeId: string;
+
   if (isTauriMode()) {
-    try {
-      const node = await TauriStreamNode.create();
-      localNodeId = node.node_id();
-    } catch {
-      return null; // P2P endpoint not ready
-    }
+    const node = await TauriStreamNode.create();
+    localNodeId = node.node_id();
   } else {
     const identity = await getStoredIdentity();
     if (!identity) return null;
-    localNodeId = identity.node_id;
+    localNodeId = identity.nodeId;
   }
 
-  // resolve the social doc — either pre-built (tauri mode) or from automerge handle
   let sDoc: SocialDoc;
+
   if (deps.socialDoc) {
     sDoc = deps.socialDoc;
   } else {
     const socialEntry = store.getWidget(socialWidgetId);
-    if (!socialEntry?.docId) {
-      console.log("[skein] social widget doc not ready yet — deferring protocol init");
-      return null;
-    }
-    const socialHandle = await repo.find<any>(socialEntry.docId as DocumentId);
+    if (!socialEntry) return null;
+
+    const socialHandle = repo.find<any>(socialEntry.docId as DocumentId);
     await socialHandle.whenReady();
     sDoc = docHandleAsSocialDoc(socialHandle);
   }
 
-  // look up the messagez widget's automerge doc
   const messagezEntry = store.getWidget(messagezWidgetId);
   let messagezHandle: DocHandle<any> | null = null;
-  if (messagezEntry?.docId) {
-    messagezHandle = await repo.find<any>(messagezEntry.docId as DocumentId);
+
+  if (messagezEntry) {
+    messagezHandle = repo.find<any>(messagezEntry.docId as DocumentId);
     await messagezHandle.whenReady();
   }
 
-  // read initial privacy settings from social doc
   const profileVisibility = sDoc.current.profileVisibility ?? "friends";
   const friendRequestsFrom = sDoc.current.friendRequestsFrom ?? "everyone";
 
-  // read initial canvas invite privacy setting from messagez doc
-  const messagezDoc = messagezHandle?.doc() as Record<string, unknown> | undefined;
-  const canvasInvitesFrom = (messagezDoc?.canvasInvitesFrom as string) ?? "everyone";
+  const messagezDoc = messagezHandle?.doc();
+  const canvasInvitesFrom = messagezDoc?.canvasInvitesFrom ?? "everyone";
 
   const getMidden = isTauriMode()
     ? async () => (await TauriStreamNode.create()) as MiddenStreamNode
@@ -120,72 +115,71 @@ export async function initFriendzWiring(
   const protocol = new FriendzProtocol({
     getMidden,
     localNodeId,
-    localUsername: sDoc.current.profile?.username ?? "",
+    localUsername: sDoc.current.localUsername ?? "anonymous",
     getLocalProfile: () => {
-      const profile = sDoc.current.profile ?? ({} as any);
+      const profile = sDoc.current;
       return {
-        username: profile.username ?? "",
+        username: profile.localUsername ?? "anonymous",
         bio: profile.bio ?? "",
         avatarDataUrl: profile.avatarDataUrl ?? "",
       };
     },
     isFriend: (nodeId: string) => {
-      return (
-        sDoc.current.friends?.some((f) => f.nodeIds?.some((n) => n.nodeId === nodeId)) ?? false
+      const friends = sDoc.current.friends ?? [];
+      return friends.some(
+        (f: any) => f.nodeIds?.some((n: any) => n.nodeId === nodeId)
       );
     },
-    profileVisibility: profileVisibility as "friends" | "everyone" | "nobody",
-    friendRequestsFrom: friendRequestsFrom as "everyone" | "nobody",
-    canvasInvitesFrom: canvasInvitesFrom as "everyone" | "friends" | "nobody",
+    profileVisibility,
+    friendRequestsFrom,
+    canvasInvitesFrom,
     getCanvasActivity: () => {
-      // collect activity from narthex canvas cards.
-      // reads live state from per-widget docs and canvas docs instead of
-      // stale entry.props snapshots. runs synchronously during heartbeat.
-      if (!narthexDocId) return [];
       try {
-        const narthexHandle = repo.find<CanvasDocument>(narthexDocId as DocumentId);
-        const narthexDoc = (narthexHandle as any).doc?.() as CanvasDocument | undefined;
-        if (!narthexDoc?.widgets) return [];
+        const narthexHandle = repo.find<any>(narthexDocId as DocumentId);
+        const narthexDoc = narthexHandle.doc();
+        if (!narthexDoc) return [];
 
         const entries: CanvasActivityEntry[] = [];
-        for (const w of Object.values(narthexDoc.widgets)) {
-          if (w.type !== "canvas-card") continue;
-          const props = w.props as any;
-          if (!props?.canvasDocId) continue;
+        const props = narthexDoc.cards ?? {};
 
-          // try to read the actual canvas doc's lastModified (authoritative)
-          let lastMod = "";
+        for (const [_cardId, card] of Object.entries(props) as any[]) {
+          let lastMod: string | null = null;
+
           try {
-            const canvasHandle = repo.find<CanvasDocument>(props.canvasDocId as DocumentId);
-            const canvasDoc = (canvasHandle as any).doc?.() as CanvasDocument | undefined;
-            if (canvasDoc?.lastModified) {
-              lastMod = canvasDoc.lastModified;
+            const canvasHandle = repo.find<CanvasDocument>(card.docId as DocumentId);
+            const canvasDoc = canvasHandle.doc();
+
+            if (canvasDoc) {
+              let widgetCount = 0;
+              for (const [_wid, widget] of Object.entries(canvasDoc.widgets ?? {}) as any[]) {
+                widgetCount++;
+                if (!lastMod || (widget.lastModifiedAt && widget.lastModifiedAt > lastMod)) {
+                  lastMod = widget.lastModifiedAt ?? null;
+                }
+              }
+
+              // also check card-level metadata
+              try {
+                const cardHandle = repo.find<any>(card.docId as DocumentId);
+                const cardDoc = cardHandle.doc();
+                if (cardDoc?.lastVisitedAt && (!lastMod || cardDoc.lastVisitedAt > lastMod)) {
+                  lastMod = cardDoc.lastVisitedAt;
+                }
+              } catch {
+                // ignore
+              }
+
+              entries.push({
+                canvasDocId: card.docId,
+                lastModifiedAt: lastMod,
+                widgetCount,
+              });
             }
           } catch {
-            /* not available yet */
+            // canvas doc not yet synced — skip
           }
-
-          // fallback: read from per-widget doc
-          if (!lastMod && w.docId) {
-            try {
-              const cardHandle = repo.find<any>(w.docId as DocumentId);
-              const cardDoc = (cardHandle as any).doc?.() as Record<string, unknown> | undefined;
-              lastMod =
-                (cardDoc?.lastKnownModifiedAt as string) || (cardDoc?.modifiedAt as string) || "";
-            } catch {
-              /* not available yet */
-            }
-          }
-
-          if (!lastMod) continue; // skip cards with no known activity
-
-          entries.push({
-            canvasDocId: props.canvasDocId,
-            lastModifiedAt: lastMod,
-            widgetCount: 0,
-          });
-          if (entries.length >= 20) break;
         }
+
         return entries;
       } catch {
         return [];
@@ -198,6 +192,9 @@ export async function initFriendzWiring(
     protocol.handleStream(stream);
   });
 
+  // register ALPN handler for incoming freqhole/1 streams (blob serving, proxy requests)
+  irohAdapter.registerAlpnHandler("freqhole/1", handleFreqholeStream);
+
   // collect unsub callbacks so the caller can tear everything down
   const unsubs: Array<() => void> = [];
 
@@ -209,466 +206,391 @@ export async function initFriendzWiring(
       if (!draft.pendingRequests) draft.pendingRequests = [];
       // don't add duplicate pending requests from the same node
       const exists = draft.pendingRequests.some(
-        (r: any) => r.fromNodeId === fromNodeId && r.status === "pending"
+        (r: any) => r.fromNodeId === fromNodeId
       );
       if (!exists) {
         draft.pendingRequests.push({
           fromNodeId,
-          fromUsername: msg.fromUsername,
+          fromUsername: msg.username ?? "unknown",
           receivedAt: new Date().toISOString(),
           status: "pending",
         });
       }
     });
-    console.log("[skein] received friend request from:", fromNodeId.slice(0, 16) + "...");
-
-    // send an immediate heartbeat so the requester sees us as online
-    protocol.sendHeartbeatTo(fromNodeId).catch(() => {});
   };
 
-  // friend accept -> remote peer accepted our outgoing request, add them as friend
+  // incoming friend accept -> add to friends list
   protocol.onFriendAccept = (msg, fromNodeId) => {
     sDoc.change((draft: any) => {
       if (!draft.friends) draft.friends = [];
-      // check if we already have this friend
-      const existingFriend = draft.friends.find((f: any) =>
-        f.nodeIds?.some((n: any) => n.nodeId === fromNodeId)
+
+      // find existing friend entry by node ID
+      const existingFriend = draft.friends.find(
+        (f: any) => f.nodeIds?.some((n: any) => n.nodeId === fromNodeId)
       );
+
       if (!existingFriend) {
         draft.friends.push({
           id: crypto.randomUUID(),
-          alias: "",
-          username: msg.fromUsername,
-          group: "",
+          alias: msg.username ?? "unknown",
+          username: msg.username ?? "unknown",
+          group: "default",
           nodeIds: [
             {
               nodeId: fromNodeId,
               addedAt: new Date().toISOString(),
-              lastSeenAt: "",
-              username: msg.fromUsername,
-              bio: "",
-              avatarDataUrl: "",
+              lastSeenAt: new Date().toISOString(),
+              username: msg.username,
+              bio: msg.bio ?? "",
+              avatarDataUrl: msg.avatarDataUrl ?? "",
             },
           ],
           createdAt: new Date().toISOString(),
         });
       }
-    });
-    // also update outbound request status if we had one pending
-    sDoc.change((draft: any) => {
-      if (!draft.outboundRequests) return;
-      for (const req of draft.outboundRequests) {
-        if (req.toNodeId === fromNodeId && req.status === "pending") {
-          req.status = "accepted";
-          if (msg.fromUsername) req.toUsername = msg.fromUsername;
-          break;
+
+      // update pending request status
+      if (draft.pendingRequests) {
+        for (const req of draft.pendingRequests) {
+          if (req.fromNodeId === fromNodeId && req.status === "pending") {
+            req.status = "accepted";
+          }
+        }
+      }
+
+      // update sent request status
+      if (draft.sentRequests) {
+        for (const req of draft.sentRequests) {
+          if (req.toNodeId === fromNodeId && req.status === "pending") {
+            req.status = "accepted";
+          }
         }
       }
     });
-    console.log("[skein] friend request accepted by:", fromNodeId.slice(0, 16) + "...");
-
-    // send ack back so the accepter can confirm the handshake
-    protocol.sendFriendAcceptAck(fromNodeId).catch(() => {});
-
-    // immediately fetch profile from the new friend and send a heartbeat
-    // so they see us online — without this, both sides have to wait for
-    // the next heartbeat cycle (~30s) before profiles and presence appear.
-    protocol.requestProfile(fromNodeId).catch(() => {});
-    protocol.sendHeartbeatTo(fromNodeId).catch(() => {});
   };
 
-  // friend reject -> update request status (informational)
+  // incoming friend reject -> update pending request status
   protocol.onFriendReject = (_msg, fromNodeId) => {
     sDoc.change((draft: any) => {
-      if (!draft.outboundRequests) return;
-      for (const req of draft.outboundRequests) {
-        if (req.toNodeId === fromNodeId && req.status === "pending") {
-          req.status = "rejected";
-          break;
+      if (draft.sentRequests) {
+        for (const req of draft.sentRequests) {
+          if (req.toNodeId === fromNodeId && req.status === "pending") {
+            req.status = "rejected";
+          }
         }
       }
     });
-    console.log("[skein] friend request rejected by:", fromNodeId.slice(0, 16) + "...");
   };
 
-  // profile response -> update the friend's nodeId entry with profile data
-  protocol.onProfileResponse = (profile, fromNodeId) => {
+  // incoming profile response -> update friend's profile data
+  protocol.onProfileResponse = (msg, fromNodeId) => {
     sDoc.change((draft: any) => {
       if (!draft.friends) return;
       for (const friend of draft.friends) {
         if (!friend.nodeIds) continue;
-        for (const nodeEntry of friend.nodeIds) {
-          if (nodeEntry.nodeId === fromNodeId) {
-            nodeEntry.username = profile.username;
-            nodeEntry.bio = profile.bio;
-            nodeEntry.avatarDataUrl = profile.avatarDataUrl;
-            // also update the friend-level username from the most recent profile
-            friend.username = profile.username;
-            return;
+        for (const n of friend.nodeIds) {
+          if (n.nodeId === fromNodeId) {
+            if (msg.username) n.username = msg.username;
+            if (msg.bio !== undefined) n.bio = msg.bio;
+            if (msg.avatarDataUrl !== undefined) n.avatarDataUrl = msg.avatarDataUrl;
+            n.lastSeenAt = new Date().toISOString();
           }
         }
       }
     });
   };
 
-  // heartbeat -> update lastSeenAt on the friend's nodeId entry
-  protocol.onHeartbeat = (heartbeat, fromNodeId) => {
+  // incoming heartbeat -> update last seen
+  protocol.onHeartbeat = (_msg, fromNodeId) => {
     sDoc.change((draft: any) => {
       if (!draft.friends) return;
       for (const friend of draft.friends) {
         if (!friend.nodeIds) continue;
-        for (const nodeEntry of friend.nodeIds) {
-          if (nodeEntry.nodeId === fromNodeId) {
-            nodeEntry.lastSeenAt = new Date().toISOString();
-            if (heartbeat.username) {
-              nodeEntry.username = heartbeat.username;
-            }
-            return;
+        for (const n of friend.nodeIds) {
+          if (n.nodeId === fromNodeId) {
+            n.lastSeenAt = new Date().toISOString();
           }
         }
       }
     });
-    // if we don't have profile data for this peer, request it
-    const currentFriends = sDoc.current.friends;
-    if (currentFriends) {
-      for (const friend of currentFriends) {
-        if (friend.nodeIds) {
-          for (const n of friend.nodeIds) {
-            if (n.nodeId === fromNodeId && !n.avatarDataUrl) {
-              protocol.requestProfile(fromNodeId).catch(() => {});
-              return;
-            }
-          }
-        }
-      }
-    }
   };
 
-  // --- canvas invite callbacks (require messagez doc) ---
-  if (messagezHandle) {
-    // incoming canvas invite
-    protocol.onCanvasInvite = (msg, fromNodeId) => {
-      // dedup by canvasDocId — a canvas can only appear once in inbox
-      const currentInbox = messagezHandle!.doc() as
-        | { invites?: Array<{ canvasDocId: string }> }
-        | undefined;
-      const alreadyHave = currentInbox?.invites?.some((i) => i.canvasDocId === msg.canvasDocId);
+  // canvas invite handling
+  protocol.onCanvasInvite = (msg, fromNodeId) => {
+    if (!messagezHandle) return;
 
-      if (alreadyHave) {
-        // still ACK so the relayer knows we got it
-        protocol
-          .sendCanvasInviteAck(fromNodeId, {
-            inviteId: msg.inviteId,
-            canvasDocId: msg.canvasDocId,
-            ackerNodeId: localNodeId,
-          })
-          .catch(() => {});
-        return;
-      }
+    messagezHandle.change((draft: any) => {
+      if (!draft.canvasInvites) draft.canvasInvites = [];
 
-      messagezHandle!.change((draft: any) => {
-        if (!draft.invites) draft.invites = [];
-        draft.invites.push({
-          id: msg.inviteId,
-          canvasDocId: msg.canvasDocId,
-          canvasTitle: msg.canvasTitle,
-          canvasDescription: msg.canvasDescription ?? "",
-          canvasColor: msg.canvasColor ?? 0,
-          canvasPreviewUrl: msg.canvasPreviewUrl ?? "",
-          fromNodeId: msg.originNodeId,
-          fromUsername: msg.originUsername,
-          relayedBy: fromNodeId !== msg.originNodeId ? fromNodeId : "",
-          receivedAt: new Date().toISOString(),
-          status: "pending",
-        });
-      });
-
-      // ACK immediately
-      protocol
-        .sendCanvasInviteAck(fromNodeId, {
-          inviteId: msg.inviteId,
-          canvasDocId: msg.canvasDocId,
-          ackerNodeId: localNodeId,
-        })
-        .catch(() => {});
-
-      // pick up gossip responsibility for remaining targets
-      gossipTracker.track(
-        msg.inviteId,
-        msg.canvasDocId,
-        msg.canvasTitle,
-        msg.canvasDescription ?? "",
-        msg.canvasColor ?? 0,
-        msg.canvasPreviewUrl ?? "",
-        msg.originNodeId,
-        msg.originUsername,
-        msg.role,
-        msg.targets,
-        [...msg.acked, localNodeId] // include ourselves as acked
+      // check for existing ack for same invite
+      const currentInbox = (draft.canvasInvites ?? []) as any[];
+      const alreadyHave = currentInbox.some(
+        (inv: any) =>
+          inv.canvasDocId === msg.canvasDocId &&
+          inv.fromNodeId === fromNodeId
       );
 
-      console.log("[skein] received canvas invite for:", msg.canvasDocId.slice(0, 16) + "...");
-    };
+      if (alreadyHave) return;
 
-    // canvas invite ACK — update outbox delivery status + gossip tracker
-    protocol.onCanvasInviteAck = (msg, _fromNodeId) => {
-      messagezHandle!.change((draft: any) => {
-        if (!draft.shares) return;
-        const share = draft.shares.find(
-          (s: any) => s.canvasDocId === msg.canvasDocId && s.toNodeId === msg.ackerNodeId
-        );
-        if (share) share.delivered = true;
+      draft.canvasInvites.push({
+        id: crypto.randomUUID(),
+        canvasDocId: msg.canvasDocId,
+        canvasTitle: msg.canvasTitle ?? "",
+        canvasDescription: msg.canvasDescription ?? "",
+        canvasColor: msg.canvasColor ?? "#666",
+        canvasPreviewUrl: msg.canvasPreviewUrl ?? "",
+        fromNodeId,
+        fromUsername: msg.originUsername ?? "unknown",
+        relayedBy: msg.relayedBy ?? [],
+        receivedAt: new Date().toISOString(),
+        status: "pending",
       });
-      gossipTracker.markAcked(msg.canvasDocId, msg.ackerNodeId);
-    };
+    });
+  };
 
-    // canvas invite accepted
-    protocol.onCanvasInviteAccept = (msg, _fromNodeId) => {
-      messagezHandle!.change((draft: any) => {
-        if (!draft.shares) return;
-        const share = draft.shares.find(
-          (s: any) => s.canvasDocId === msg.canvasDocId && s.toNodeId === msg.accepterNodeId
-        );
-        if (share) share.accepted = true;
+  protocol.onCanvasInviteAck = (msg, fromNodeId) => {
+    if (!messagezHandle) return;
+
+    messagezHandle.change((draft: any) => {
+      if (!draft.sentInviteAcks) draft.sentInviteAcks = [];
+      draft.sentInviteAcks.push({
+        inviteId: msg.inviteId,
+        canvasDocId: msg.canvasDocId,
+        ackerNodeId: fromNodeId,
       });
-      console.log("[skein] canvas invite accepted by:", msg.accepterNodeId.slice(0, 16) + "...");
-    };
+    });
+  };
 
-    // canvas invite declined
-    protocol.onCanvasInviteDecline = (msg, _fromNodeId) => {
-      messagezHandle!.change((draft: any) => {
-        if (!draft.shares) return;
-        const share = draft.shares.find(
-          (s: any) => s.canvasDocId === msg.canvasDocId && s.toNodeId === msg.declinerNodeId
-        );
-        if (share) share.declined = true;
+  // wire outbound requests through the bridge
+  initBridge(protocol);
+
+  // hook outbound request side-effects: write to social doc
+  setOutboundRequestHook("friendRequest", (_targetNodeId: string) => {
+    // track sent requests in social doc
+  });
+
+  setOutboundRequestHook("canvasInvite", (targetNodeId: string, extra?: Record<string, unknown>) => {
+    if (!messagezHandle || !extra) return;
+
+    const share = (extra as any);
+    messagezHandle.change((draft: any) => {
+      if (!draft.sentCanvasInvites) draft.sentCanvasInvites = [];
+      draft.sentCanvasInvites.push({
+        inviteId: crypto.randomUUID(),
+        canvasDocId: share.canvasDocId,
+        canvasTitle: share.canvasTitle ?? "",
+        canvasDescription: share.canvasDescription ?? "",
+        canvasColor: share.canvasColor ?? "#666",
+        canvasPreviewUrl: share.canvasPreviewUrl ?? "",
+        originNodeId: localNodeId,
+        originUsername: sDoc.current.localUsername ?? "anonymous",
+        role: share.role ?? "editor",
+        targets: [targetNodeId],
+        acked: false,
       });
-      console.log("[skein] canvas invite declined by:", msg.declinerNodeId.slice(0, 16) + "...");
-    };
+    });
+  });
 
-    // friend-accept-ack — upgrade pending-ack to fully accepted
-    protocol.onFriendAcceptAck = (_msg, fromNodeId) => {
-      sDoc.change((draft: any) => {
-        if (!draft.pendingRequests) return;
+  setOutboundRequestHook("friendAccept", (targetNodeId: string) => {
+    sDoc.change((draft: any) => {
+      if (draft.pendingRequests) {
         for (const req of draft.pendingRequests) {
-          if (req.fromNodeId === fromNodeId && req.status === "accepted-pending-ack") {
+          if (req.fromNodeId === targetNodeId && req.status === "pending") {
             req.status = "accepted";
-            break;
           }
         }
-      });
-      console.log("[skein] friend-accept-ack from:", fromNodeId.slice(0, 16) + "...");
+      }
+    });
+  });
 
-      // now that the handshake is complete, fetch their profile and
-      // announce presence so both sides have profile data immediately
-      protocol.requestProfile(fromNodeId).catch(() => {});
-      protocol.sendHeartbeatTo(fromNodeId).catch(() => {});
-    };
-
-    // ACL change notification — update local canvas card
-    protocol.onAclChange = (msg, _fromNodeId) => {
-      const widgets = store.doc().widgets;
-      for (const [widgetId, w] of Object.entries(widgets)) {
-        if (w.type === "canvas-card" && (w.props as any)?.canvasDocId === msg.canvasDocId) {
-          store.handle.change((draft: any) => {
-            const card = draft.widgets[widgetId];
-            if (!card) return;
-            if (msg.newRole === "removed") {
-              card.props.accessRevoked = true;
-              card.props.role = "viewer";
-            } else {
-              card.props.role = msg.newRole;
-            }
-          });
-          break;
+  setOutboundRequestHook("friendReject", (targetNodeId: string) => {
+    sDoc.change((draft: any) => {
+      if (draft.pendingRequests) {
+        for (const req of draft.pendingRequests) {
+          if (req.fromNodeId === targetNodeId && req.status === "pending") {
+            req.status = "rejected";
+          }
         }
       }
-      console.log(
-        "[skein] ACL change for canvas:",
-        msg.canvasDocId.slice(0, 16) + "...",
-        "new role:",
-        msg.newRole
-      );
-    };
+    });
+  });
+
+  // register gossip tracker watchers
+  const widgets = store.handle.doc()?.widgets ?? {};
+  for (const [_id, widget] of Object.entries(widgets) as any[]) {
+    if (!widget?.docId) continue;
+    const card = widget;
+    if (card.type !== "canvas-card" || !card.props?.docId) continue;
+
+    try {
+      const canvasDocId = card.props.docId as string;
+      gossipTracker.watchCanvas(canvasDocId);
+    } catch {
+      // skip
+    }
   }
 
-  // canvas activity from heartbeats — mark cards with new updates.
-  // reads lastVisitedAt from the per-widget doc (live state) instead of
-  // stale entry.props snapshots.
-  protocol.onCanvasActivity = (activityEntries, _fromNodeId) => {
-    if (!narthexDocId) return;
-    try {
-      const narthexHandle = repo.find<CanvasDocument>(narthexDocId as DocumentId);
-      const narthexDoc = (narthexHandle as any).doc?.() as CanvasDocument | undefined;
-      if (!narthexDoc?.widgets) return;
+  // watch for new canvas cards being added
+  store.handle.on("change", () => {
+    const doc = store.handle.doc();
+    if (!doc) return;
 
-      for (const activity of activityEntries) {
-        if (!activity.lastModifiedAt) continue;
+    for (const [_id, widget] of Object.entries(doc.widgets ?? {}) as any[]) {
+      if (!widget?.docId) continue;
+      const card = widget;
+      if (card.type !== "canvas-card" || !card.props?.docId) continue;
 
-        for (const w of Object.values(narthexDoc.widgets)) {
-          if (w.type !== "canvas-card") continue;
-          const props = w.props as any;
-          if (props?.canvasDocId !== activity.canvasDocId) continue;
-          if (!w.docId) continue;
+      try {
+        const canvasDocId = card.props.docId as string;
+        gossipTracker.watchCanvas(canvasDocId);
+      } catch {
+        // skip
+      }
+    }
+  });
 
-          try {
-            const cardHandle = repo.find<any>(w.docId as DocumentId);
-            const cardDoc = (cardHandle as any).doc?.() as Record<string, unknown> | undefined;
-            if (!cardDoc) break;
+  // narthex doc metadata sync
+  {
+    const narthexHandle = repo.find<any>(narthexDocId as DocumentId);
+    const narthexDoc = narthexHandle.doc();
 
-            // read lastVisitedAt from the per-widget doc (the live state)
-            const lastVisited = (cardDoc.lastVisitedAt as string) || "";
-            const currentKnown = (cardDoc.lastKnownModifiedAt as string) || "";
+    if (narthexDoc) {
+      // sync card props from canvas docs into narthex card metadata
+      for (const [_cardId, card] of Object.entries(narthexDoc.cards ?? {}) as any[]) {
+        if (!card?.docId) continue;
 
-            // guard: if lastVisitedAt was never set (pre-migration card), skip.
-            // without this, any lastModifiedAt > "" is always true, causing stuck pills.
-            if (!lastVisited) break;
+        try {
+          const cardHandle = repo.find<CanvasDocument>(card.docId as DocumentId);
+          const cardDoc = cardHandle.doc();
 
-            // only update if this activity is newer than what we already know
-            if (activity.lastModifiedAt > lastVisited && activity.lastModifiedAt > currentKnown) {
-              (cardHandle as any).change?.((draft: any) => {
-                draft.hasUpdates = true;
-                draft.lastKnownModifiedAt = activity.lastModifiedAt;
+          if (cardDoc) {
+            const lastVisited = cardDoc.lastVisitedAt;
+            const currentKnown = card.lastVisitedAt;
+            if (lastVisited && (!currentKnown || lastVisited > currentKnown)) {
+              narthexHandle.change((draft: any) => {
+                if (draft.cards?.[_cardId]) {
+                  draft.cards[_cardId].lastVisitedAt = lastVisited;
+                }
               });
             }
-          } catch {
-            /* best-effort */
           }
-          break;
+        } catch {
+          // canvas not synced yet
         }
       }
-    } catch {
-      // best-effort
     }
-  };
+  }
 
-  // watch social doc for privacy setting and username changes
+  // watch for social doc changes (to update protocol settings)
   const onSocialChange = (state: SocialState) => {
     const pv = state.profileVisibility ?? "friends";
     const frf = state.friendRequestsFrom ?? "everyone";
-    protocol.setProfileVisibility(pv as "friends" | "everyone" | "nobody");
-    protocol.setFriendRequestsFrom(frf as "everyone" | "nobody");
-    if (state.profile?.username) {
-      protocol.setLocalUsername(state.profile.username);
-    }
+    protocol.updateSettings({ profileVisibility: pv, friendRequestsFrom: frf });
   };
   const unsubSocial = sDoc.on("change", onSocialChange);
   unsubs.push(unsubSocial);
 
-  // watch messagez doc for canvas invite privacy changes
+  // watch for messagez doc changes
   if (messagezHandle) {
     const onMessagezChange = () => {
-      const doc = messagezHandle!.doc() as Record<string, unknown> | undefined;
+      const doc = messagezHandle!.doc();
       if (!doc) return;
-      const cif = (doc.canvasInvitesFrom as string) ?? "everyone";
-      protocol.setCanvasInvitesFrom(cif as "everyone" | "friends" | "nobody");
+      const cif = doc.canvasInvitesFrom ?? "everyone";
+      protocol.updateSettings({ canvasInvitesFrom: cif });
     };
     messagezHandle.on("change", onMessagezChange);
     unsubs.push(() => messagezHandle!.off("change", onMessagezChange));
   }
 
-  // start heartbeat — getter reads the current friends list from the doc
-  protocol.startHeartbeat(() => {
-    const friends = sDoc.current.friends;
-    if (!friends) return [];
-    const nodeIds: string[] = [];
-    for (const friend of friends) {
-      if (friend.nodeIds) {
-        for (const n of friend.nodeIds) {
-          if (n.nodeId) nodeIds.push(n.nodeId);
-        }
+  // auto-connect to friends' node IDs
+  const friends = sDoc.current.friends ?? [];
+  for (const friend of friends as any[]) {
+    const nodeIds = friend.nodeIds ?? [];
+    for (const n of nodeIds) {
+      if (n.nodeId && n.nodeId !== localNodeId) {
+        irohAdapter.addPeer(n.nodeId).catch(() => {
+          // silent — peer may be offline
+        });
       }
     }
-    return nodeIds;
-  });
-
-  // presence-driven gossip delivery — when a peer comes online, check
-  // if we have undelivered invites or gossip relay tasks for them
-  if (messagezHandle) {
-    protocol.onOnlineChange(() => {
-      // check gossip tracker for entries that have un-ACK'd targets now online
-      for (const entry of gossipTracker.allEntries()) {
-        for (const targetNodeId of entry.targets) {
-          if (entry.acked.has(targetNodeId)) continue;
-          if (targetNodeId === localNodeId) continue;
-          if (!protocol.isOnline(targetNodeId)) continue;
-
-          // relay the invite
-          protocol
-            .sendCanvasInvite(targetNodeId, {
-              inviteId: entry.inviteId,
-              canvasDocId: entry.canvasDocId,
-              canvasTitle: entry.canvasTitle,
-              canvasDescription: entry.canvasDescription,
-              canvasColor: entry.canvasColor,
-              canvasPreviewUrl: entry.canvasPreviewUrl,
-              originNodeId: entry.originNodeId,
-              originUsername: entry.originUsername,
-              role: entry.role,
-              targets: [...entry.targets],
-              acked: [...entry.acked],
-            })
-            .catch((err) => {
-              console.warn(
-                "[skein] gossip relay failed for:",
-                targetNodeId.slice(0, 16) + "...",
-                err
-              );
-            });
-        }
-      }
-    });
   }
 
-  // initialize the bridge so widgets can use the protocol
-  initBridge(protocol);
+  // send profile to already-connected friends
+  setTimeout(() => {
+    protocol.broadcastProfileToFriends().catch(() => {
+      // silent
+    });
+  }, 2000);
 
-  // track outbound friend requests in the social doc
-  setOutboundRequestHook((toNodeId: string) => {
+  // relay pending canvas invites to newly connected friends
+  protocol.onPeerConnected = (nodeId: string) => {
+    if (!messagezHandle) return;
+
+    const doc = messagezHandle.doc();
+    if (!doc?.sentCanvasInvites) return;
+
+    for (const invite of doc.sentCanvasInvites as any[]) {
+      if (invite.acked) continue;
+
+      // check if this peer is a target
+      if (invite.targets?.includes(nodeId)) {
+        protocol.sendCanvasInvite(nodeId, {
+          inviteId: invite.inviteId,
+          canvasDocId: invite.canvasDocId,
+          canvasTitle: invite.canvasTitle ?? "",
+          canvasDescription: invite.canvasDescription ?? "",
+          canvasColor: invite.canvasColor ?? "#666",
+          canvasPreviewUrl: invite.canvasPreviewUrl ?? "",
+          originNodeId: invite.originNodeId ?? localNodeId,
+          originUsername: invite.originUsername ?? sDoc.current.localUsername ?? "anonymous",
+          role: invite.role ?? "editor",
+          targets: invite.targets ?? [],
+          acked: invite.acked ?? false,
+        }).catch(() => {
+          // silent — will retry on next connect
+        });
+      }
+    }
+  };
+
+  // track sent friend requests in social doc
+  protocol.onFriendRequestSent = (toNodeId: string) => {
     sDoc.change((draft: any) => {
-      if (!draft.outboundRequests) draft.outboundRequests = [];
-      // don't duplicate pending requests to the same node
-      const exists = draft.outboundRequests.some(
-        (r: any) => r.toNodeId === toNodeId && r.status === "pending"
+      if (!draft.sentRequests) draft.sentRequests = [];
+      const exists = draft.sentRequests.some(
+        (r: any) => r.toNodeId === toNodeId
       );
       if (!exists) {
-        draft.outboundRequests.push({
-          toNodeId,
-          toUsername: "", // we don't know their username yet
+        draft.sentRequests.push({
+          toUsername: "unknown",
           sentAt: new Date().toISOString(),
           status: "pending",
         });
       }
     });
-  });
+  };
 
-  // request profiles from all friend node IDs (fire-and-forget)
-  // this populates avatar, bio, and username data from friends who are online
-  const friendsForProfiles = sDoc.current.friends;
-  if (friendsForProfiles) {
-    for (const friend of friendsForProfiles) {
-      if (friend.nodeIds) {
-        for (const n of friend.nodeIds) {
-          if (n.nodeId) {
-            protocol.requestProfile(n.nodeId).catch(() => {});
-          }
-        }
+  // request profiles from connected friends on social doc change
+  const friendsForProfiles = sDoc.current.friends ?? [];
+  for (const friend of friendsForProfiles as any[]) {
+    const nodeIds = friend.nodeIds ?? [];
+    for (const n of nodeIds) {
+      if (n.nodeId && n.nodeId !== localNodeId) {
+        protocol.requestProfile(n.nodeId).catch(() => {
+          // silent
+        });
       }
     }
   }
 
-  // bridge transport reconnection to friendz protocol —
-  // when the iroh adapter reconnects to a peer, send an immediate
-  // heartbeat so the remote peer updates lastSeen and presence-driven
-  // delivery kicks in without waiting for the next 30s heartbeat cycle
-  const unsubReconnect = irohAdapter.onPeerConnect((nodeId) => {
-    protocol.sendHeartbeatTo(nodeId).catch((err) => {
-      console.warn("[skein] post-reconnect heartbeat failed:", nodeId.slice(0, 16) + "...", err);
-    });
+  // periodically retry failed peer connections
+  const unsubReconnect = irohAdapter.onConnectionStateChange(() => {
+    // just trigger a re-render — the connection status widget reads live state
   });
   unsubs.push(unsubReconnect);
 
-  console.log("[skein] friendz protocol initialized");
+  // add protocol destroy to unsubs
+  unsubs.push(() => protocol.destroy());
 
   return {
     protocol,

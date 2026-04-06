@@ -389,6 +389,11 @@ export const fileWidget: WidgetFactory<typeof fileSchema> = {
       if (actionState === "snatched") return true;
       if (actionState === "local" && !uploadedLocally) return true;
       if (actionState === "saving" || actionState === "snatching") return true;
+      // even when uploadedLocally, show actions if preview is available
+      if (actionState === "local" && uploadedLocally) {
+        const domain = ctx.doc.current.domain || "file";
+        return isPreviewableDomain(domain);
+      }
       return false;
     }
 
