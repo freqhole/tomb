@@ -77,6 +77,24 @@ export interface WidgetMountContext<S extends z.ZodType = z.ZodType> {
 }
 
 /**
+ * handler for widgets that accept drop operations (e.g. bins).
+ * the widget manager checks live widgets for this during frame drags
+ * and forwards hover/drop events.
+ */
+export interface DropTargetHandler {
+  /** test if a world-space point falls inside this widget's drop zone */
+  hitTest(worldX: number, worldY: number): boolean;
+  /** called each frame while a dragged widget hovers over this target */
+  onHover(worldX: number, worldY: number, draggedWidgetId: string): void;
+  /** called when the dragged widget leaves this target's zone */
+  onLeave(): void;
+  /** called when a widget is dropped on this target. return true if the
+   *  drop was consumed (widget will be nested). return false to let the
+   *  normal drop flow proceed. */
+  onDrop(widgetId: string, worldX: number, worldY: number): boolean;
+}
+
+/**
  * the object returned by a widget factory's create() function.
  * the canvas uses this to manage the widget's lifecycle.
  */
@@ -89,6 +107,10 @@ export interface WidgetController {
   resize?: (width: number, height: number) => void;
   /** declare input/output ports for dataflow wiring between widgets (future) */
   ports?: () => WidgetPortDeclaration;
+  /** optional drop target handler — when present, the widget manager will
+   *  check this widget for drop overlap during frame drags. used by bins
+   *  to accept widgets being dragged onto them. */
+  dropTarget?: DropTargetHandler;
 }
 
 /**

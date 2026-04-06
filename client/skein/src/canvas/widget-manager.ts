@@ -74,6 +74,9 @@ export class WidgetManager {
   /** cached stage background bounds to avoid unnecessary redraws */
   private lastStageBounds = { x: 0, y: 0, w: 0, h: 0 };
 
+  /** the widget ID of the drop target currently being hovered during a drag, or null */
+  private activeDropTarget: string | null = null;
+
   constructor(
     store: CanvasStore,
     registry: WidgetRegistry,
@@ -372,12 +375,15 @@ export class WidgetManager {
 
       // batch drag support — only activates when multiple widgets are selected
       onDragStart: () => {
+        this.activeDropTarget = null;
         this.handleBatchDragStart(widgetId);
       },
       onDragDelta: (dx: number, dy: number) => {
         this.handleBatchDragDelta(widgetId, dx, dy);
+        this.checkDropTargetHover(widgetId);
       },
       onDragEnd: () => {
+        this.tryDropOnTarget(widgetId);
         this.handleBatchDragEnd(widgetId);
       },
 
@@ -457,6 +463,66 @@ export class WidgetManager {
 
     this.batchDrag = null;
     this.updateStageBounds();
+  }
+
+  /**
+   * during a frame drag, check if the dragged widget is hovering over
+   * any live widget that implements a drop target. if so, forward hover
+   * events for visual feedback (e.g. bin slot highlighting).
+   */
+  private checkDropTargetHover(draggedId: string): void {
+    const draggedLive = this.liveWidgets.get(draggedId);
+    if (!draggedLive) return;
+
+    // use the center of the dragged widget's frame as the test point
+    const wx = draggedLive.frame.root.x + draggedLive.entry.width / 2;
+    const wy = draggedLive.frame.root.y + draggedLive.entry.height / 2;
+
+    let foundTarget: string | null = null;
+
+    for (const [targetId, live] of this.liveWidgets) {
+      if (targetId === draggedId) continue;
+      if (!live.ctrl.dropTarget) continue;
+
+      if (live.ctrl.dropTarget.hitTest(wx, wy)) {
+        live.ctrl.dropTarget.onHover(wx, wy, draggedId);
+        foundTarget = targetId;
+        break;
+      }
+    }
+
+    // if we left the previous target, notify it
+    if (this.activeDropTarget && this.activeDropTarget !== foundTarget) {
+      const prev = this.liveWidgets.get(this.activeDropTarget);
+      prev?.ctrl.dropTarget?.onLeave();
+    }
+
+    this.activeDropTarget = foundTarget;
+  }
+
+  /**
+   * at the end of a frame drag, check if the widget should be dropped
+   * onto an active drop target. returns true if the drop was consumed.
+   */
+  private tryDropOnTarget(draggedId: string): boolean {
+    if (!this.activeDropTarget) return false;
+
+    const targetLive = this.liveWidgets.get(this.activeDropTarget);
+    const draggedLive = this.liveWidgets.get(draggedId);
+
+    if (!targetLive?.ctrl.dropTarget || !draggedLive) {
+      this.activeDropTarget = null;
+      return false;
+    }
+
+    const wx = draggedLive.frame.root.x + draggedLive.entry.width / 2;
+    const wy = draggedLive.frame.root.y + draggedLive.entry.height / 2;
+
+    const consumed = targetLive.ctrl.dropTarget.onDrop(draggedId, wx, wy);
+    targetLive.ctrl.dropTarget.onLeave();
+    this.activeDropTarget = null;
+
+    return consumed;
   }
 
   /**

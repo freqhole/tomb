@@ -1,0 +1,256 @@
+import type { DocumentId, Repo } from "@automerge/automerge-repo";
+import { Container, Graphics, Text, type FederatedPointerEvent } from "pixi.js";
+import type { CanvasStore } from "../../src/canvas/canvas-store";
+import type { WidgetRegistry } from "../../src/widgets/widget-registry";
+import type { CardInteractionCallbacks } from "./bin-renderer";
+
+const FONT_FAMILY = "'Atkinson Hyperlegible Next', sans-serif";
+const TEXT_RESOLUTION =
+  typeof window !== "undefined" ? Math.max(window.devicePixelRatio, 2) : 2;
+
+// drag threshold in pixels — prevents accidental drags on tap
+const DRAG_THRESHOLD = 5;
+
+// ghost appearance
+const GHOST_WIDTH = 120;
+const GHOST_HEIGHT = 28;
+const GHOST_RADIUS = 4;
+const GHOST_BG = 0x2a2a2a;
+const GHOST_TEXT_COLOR = 0xe0e0e0;
+const GHOST_ALPHA = 0.85;
+const GHOST_FONT_SIZE = 10;
+
+// -----------------------------------------------------------------------
+// context
+// -----------------------------------------------------------------------
+
+export interface BinDragContext {
+  /** the bin widget's root container (used to lazily find the pixi stage) */
+  binContainer: Container;
+  /** the bin's content container (for coordinate reference) */
+  binContentContainer: Container;
+  /** the bin widget's own ID */
+  binWidgetId: string;
+  /** canvas store for setParentId, moveWidget, getWidget */
+  store: CanvasStore;
+  /** automerge repo for reading child widget docs */
+  repo: Repo;
+  /** widget registry for calling getCompactInfo on child factories */
+  registry: WidgetRegistry;
+  /** callback when a child is successfully dragged out of the bin */
+  onDragOut: (widgetId: string) => void;
+}
+
+// -----------------------------------------------------------------------
+// factory
+// -----------------------------------------------------------------------
+
+/**
+ * create a set of CardInteractionCallbacks that implement drag-out behavior
+ * for compact cards in the bin widget.
+ *
+ * when the user pointer-downs on a card and moves past a small threshold,
+ * a semi-transparent ghost label is created and follows the pointer. on
+ * release the child widget is un-nested (parentId cleared) and positioned
+ * at the drop point in world coordinates so the widget manager can mount
+ * it as a standalone frame.
+ */
+export function createBinDragHandler(
+  ctx: BinDragContext,
+): CardInteractionCallbacks {
+  // lazily resolved reference to the pixi stage (topmost ancestor).
+  // the stage is also the viewport container whose position and scale
+  // represent the current pan / zoom.
+  let stageRef: Container | null = null;
+
+  function getStage(): Container {
+    if (!stageRef) {
+      let current: Container = ctx.binContainer;
+      while (current.parent) current = current.parent;
+      stageRef = current;
+    }
+    return stageRef;
+  }
+
+  // -- drag state ----------------------------------------------------------
+
+  let dragCandidate: {
+    widgetId: string;
+    startX: number;
+    startY: number;
+  } | null = null;
+
+  let dragging = false;
+  let ghost: Container | null = null;
+  let lastGlobalX = 0;
+  let lastGlobalY = 0;
+
+  // references to pixi listeners so we can remove them on cleanup
+  let activeCardTarget: Container | null = null;
+  let moveHandler: ((e: FederatedPointerEvent) => void) | null = null;
+  let upHandler: (() => void) | null = null;
+
+  // -- helpers -------------------------------------------------------------
+
+  /** read a human-friendly label for a child widget via its factory's getCompactInfo */
+  function readLabel(widgetId: string): string {
+    const entry = ctx.store.getWidget(widgetId);
+    if (!entry) return "widget";
+
+    const factory = ctx.registry.get(entry.type);
+    if (!factory?.getCompactInfo || !entry.docId) {
+      return factory?.metadata.name ?? entry.type;
+    }
+
+    try {
+      const handle = ctx.repo.handles[entry.docId as DocumentId];
+      if (!handle) return factory.metadata.name;
+
+      const rawDoc = handle.doc();
+      if (!rawDoc) return factory.metadata.name;
+
+      const state = factory.schema ? factory.schema.parse(rawDoc) : rawDoc;
+      return factory.getCompactInfo(state).label;
+    } catch {
+      return factory?.metadata.name ?? entry.type;
+    }
+  }
+
+  /** create the small floating ghost container added to the stage during drag */
+  function createGhostContainer(label: string): Container {
+    const c = new Container();
+    c.alpha = GHOST_ALPHA;
+    c.label = "bin-drag-ghost";
+
+    const bg = new Graphics();
+    bg.roundRect(0, 0, GHOST_WIDTH, GHOST_HEIGHT, GHOST_RADIUS).fill({
+      color: GHOST_BG,
+    });
+    c.addChild(bg);
+
+    const text = new Text({
+      text: label,
+      style: {
+        fontFamily: FONT_FAMILY,
+        fontSize: GHOST_FONT_SIZE,
+        fill: GHOST_TEXT_COLOR,
+      },
+      resolution: TEXT_RESOLUTION,
+    });
+    text.x = 6;
+    text.y = Math.round((GHOST_HEIGHT - GHOST_FONT_SIZE) / 2);
+    c.addChild(text);
+
+    return c;
+  }
+
+  /** tear down all listeners and destroy the ghost if present */
+  function cleanup(): void {
+    if (activeCardTarget && moveHandler) {
+      activeCardTarget.off("globalpointermove", moveHandler);
+    }
+    if (activeCardTarget && upHandler) {
+      activeCardTarget.off("pointerup", upHandler);
+      activeCardTarget.off("pointerupoutside", upHandler);
+    }
+
+    if (ghost) {
+      ghost.parent?.removeChild(ghost);
+      ghost.destroy({ children: true });
+      ghost = null;
+    }
+
+    dragCandidate = null;
+    dragging = false;
+    activeCardTarget = null;
+    moveHandler = null;
+    upHandler = null;
+  }
+
+  // -- callbacks -----------------------------------------------------------
+
+  return {
+    onCardPointerDown(widgetId: string, e: PointerEvent): void {
+      // clean up any in-progress drag (shouldn't normally happen)
+      if (dragCandidate || dragging) {
+        cleanup();
+      }
+
+      // the bin-renderer passes a pixi FederatedPointerEvent typed as PointerEvent
+      const pe = e as unknown as FederatedPointerEvent;
+
+      dragCandidate = {
+        widgetId,
+        startX: pe.global.x,
+        startY: pe.global.y,
+      };
+      lastGlobalX = pe.global.x;
+      lastGlobalY = pe.global.y;
+
+      // the currentTarget is the card container that received the pointerdown.
+      // we attach globalpointermove / pointerup / pointerupoutside on it so
+      // pixi delivers events for the entire drag lifecycle. globalpointermove
+      // fires on any interactive object regardless of pointer position.
+      activeCardTarget = pe.currentTarget as Container;
+
+      moveHandler = (moveEvent: FederatedPointerEvent) => {
+        if (!dragCandidate) return;
+
+        lastGlobalX = moveEvent.global.x;
+        lastGlobalY = moveEvent.global.y;
+
+        const dx = moveEvent.global.x - dragCandidate.startX;
+        const dy = moveEvent.global.y - dragCandidate.startY;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+
+        if (!dragging && dist > DRAG_THRESHOLD) {
+          // crossed the threshold — promote to a real drag
+          dragging = true;
+          const label = readLabel(dragCandidate.widgetId);
+          ghost = createGhostContainer(label);
+
+          const stage = getStage();
+          stage.addChild(ghost);
+        }
+
+        if (dragging && ghost) {
+          // position the ghost in stage-local (world) coordinates so it
+          // tracks the pointer regardless of pan / zoom
+          const stage = getStage();
+          const local = stage.toLocal(moveEvent.global);
+          ghost.x = local.x;
+          ghost.y = local.y;
+        }
+      };
+
+      upHandler = () => {
+        if (dragging && dragCandidate) {
+          // convert the last known pointer position to world coordinates.
+          // the stage's local coordinate space is the same space that
+          // widget frame positions (root.x, root.y) live in.
+          const stage = getStage();
+          const worldPos = stage.toLocal({ x: lastGlobalX, y: lastGlobalY });
+
+          // un-nest the widget from the bin
+          ctx.store.setParentId(dragCandidate.widgetId, null);
+
+          // place it at the drop point so the widget manager can mount it
+          ctx.store.moveWidget(
+            dragCandidate.widgetId,
+            worldPos.x,
+            worldPos.y,
+          );
+
+          // notify the bin so it can remove the item from its automerge doc
+          ctx.onDragOut(dragCandidate.widgetId);
+        }
+
+        cleanup();
+      };
+
+      activeCardTarget.on("globalpointermove", moveHandler);
+      activeCardTarget.on("pointerup", upHandler);
+      activeCardTarget.on("pointerupoutside", upHandler);
+    },
+  };
+}
