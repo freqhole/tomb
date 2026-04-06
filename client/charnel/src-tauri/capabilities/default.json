@@ -1,8 +1,8 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Capability for the main window and setup wizard",
-  "windows": ["main", "setup-wizard", "about"],
+  "description": "Capability for the main window, setup wizard, and skein canvas",
+  "windows": ["main", "setup-wizard", "about", "skein"],
   "remote": {
     "urls": ["http://localhost:*", "https://localhost:*"]
   },

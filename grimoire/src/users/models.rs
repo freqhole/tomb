@@ -130,6 +130,14 @@ pub struct User {
     pub haruspex_user_id: Option<String>,
     /// extensible metadata as JSON string
     pub metadata: Option<String>,
+    /// free-form display name set by local admin (no char restrictions)
+    pub alias: String,
+    /// user bio / about text
+    pub bio: String,
+    /// avatar URL or data URL (base64 jpeg)
+    pub avatar_url: String,
+    /// accent color for theming (default 0x6366f1)
+    pub accent_color: i64,
 }
 
 /// Peer node entry - maps iroh node_ids to users for P2P authentication
@@ -141,6 +149,14 @@ pub struct UserPeerNode {
     pub metadata: Option<String>,
     pub created_at: i64,
     pub last_seen_at: Option<i64>,
+    /// self-reported display name from this node
+    pub display_name: String,
+    /// self-reported bio from this node
+    pub bio: String,
+    /// self-reported avatar URL or data URL from this node
+    pub avatar_url: String,
+    /// self-reported accent color from this node
+    pub accent_color: i64,
 }
 
 /// Peer node with associated user information for listing
@@ -153,6 +169,10 @@ pub struct PeerNodeWithUser {
     pub last_seen_at: Option<i64>,
     pub username: String,
     pub role: String,
+    /// self-reported display name from this node
+    pub display_name: String,
+    /// user-level alias set by local admin
+    pub alias: String,
 }
 
 impl User {

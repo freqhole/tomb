@@ -11,6 +11,8 @@ import {
   type MiddenStreamNode,
 } from "../p2p/iroh-network-adapter";
 import { isTauriMode, TauriStreamNode } from "../p2p/tauri-transport";
+import type { SocialDoc } from "../../widgets/narthex/social/types";
+import type { SocialState } from "../../widgets/narthex/social/schema";
 
 export interface FriendzWiringDeps {
   repo: Repo;
@@ -20,13 +22,31 @@ export interface FriendzWiringDeps {
   gossipTracker: GossipTracker;
   socialWidgetId: string;
   messagezWidgetId: string;
+  socialDoc?: SocialDoc;
 }
 
 export interface FriendzWiringResult {
   protocol: FriendzProtocol;
-  socialDocHandle: DocHandle<any>;
+  socialDoc: SocialDoc;
   messagezDocHandle: DocHandle<any> | null;
   unsubs: Array<() => void>;
+}
+
+/** wrap an automerge DocHandle as a SocialDoc (for browser/standalone mode) */
+function docHandleAsSocialDoc(handle: DocHandle<any>): SocialDoc {
+  return {
+    get current(): SocialState {
+      return (handle.doc() ?? {}) as SocialState;
+    },
+    change(fn: (draft: SocialState) => void) {
+      handle.change(fn as any);
+    },
+    on(_event: "change", handler: (state: SocialState) => void): () => void {
+      const cb = () => handler((handle.doc() ?? {}) as SocialState);
+      handle.on("change", cb);
+      return () => handle.off("change", cb);
+    },
+  };
 }
 
 /**
@@ -62,15 +82,20 @@ export async function initFriendzWiring(
     localNodeId = identity.node_id;
   }
 
-  // look up the social widget's automerge doc
-  const socialEntry = store.getWidget(socialWidgetId);
-  if (!socialEntry?.docId) {
-    console.log("[skein] social widget doc not ready yet — deferring protocol init");
-    return null;
+  // resolve the social doc — either pre-built (tauri mode) or from automerge handle
+  let sDoc: SocialDoc;
+  if (deps.socialDoc) {
+    sDoc = deps.socialDoc;
+  } else {
+    const socialEntry = store.getWidget(socialWidgetId);
+    if (!socialEntry?.docId) {
+      console.log("[skein] social widget doc not ready yet — deferring protocol init");
+      return null;
+    }
+    const socialHandle = await repo.find<any>(socialEntry.docId as DocumentId);
+    await socialHandle.whenReady();
+    sDoc = docHandleAsSocialDoc(socialHandle);
   }
-
-  const socialHandle = await repo.find<any>(socialEntry.docId as DocumentId);
-  await socialHandle.whenReady();
 
   // look up the messagez widget's automerge doc
   const messagezEntry = store.getWidget(messagezWidgetId);
@@ -81,9 +106,8 @@ export async function initFriendzWiring(
   }
 
   // read initial privacy settings from social doc
-  const socialDoc = socialHandle.doc() as Record<string, unknown> | undefined;
-  const profileVisibility = (socialDoc?.profileVisibility as string) ?? "friends";
-  const friendRequestsFrom = (socialDoc?.friendRequestsFrom as string) ?? "everyone";
+  const profileVisibility = sDoc.current.profileVisibility ?? "friends";
+  const friendRequestsFrom = sDoc.current.friendRequestsFrom ?? "everyone";
 
   // read initial canvas invite privacy setting from messagez doc
   const messagezDoc = messagezHandle?.doc() as Record<string, unknown> | undefined;
@@ -96,21 +120,19 @@ export async function initFriendzWiring(
   const protocol = new FriendzProtocol({
     getMidden,
     localNodeId,
-    localUsername: ((socialHandle.doc() as any)?.profile?.username as string) ?? "",
+    localUsername: sDoc.current.profile?.username ?? "",
     getLocalProfile: () => {
-      const doc = socialHandle.doc() as Record<string, any> | undefined;
-      const profile = doc?.profile ?? {};
+      const profile = sDoc.current.profile ?? ({} as any);
       return {
-        username: (profile.username as string) ?? "",
-        bio: (profile.bio as string) ?? "",
-        avatarDataUrl: (profile.avatarDataUrl as string) ?? "",
+        username: profile.username ?? "",
+        bio: profile.bio ?? "",
+        avatarDataUrl: profile.avatarDataUrl ?? "",
       };
     },
     isFriend: (nodeId: string) => {
-      const doc = socialHandle.doc() as
-        | { friends?: Array<{ nodeIds?: Array<{ nodeId: string }> }> }
-        | undefined;
-      return doc?.friends?.some((f) => f.nodeIds?.some((n) => n.nodeId === nodeId)) ?? false;
+      return (
+        sDoc.current.friends?.some((f) => f.nodeIds?.some((n) => n.nodeId === nodeId)) ?? false
+      );
     },
     profileVisibility: profileVisibility as "friends" | "everyone" | "nobody",
     friendRequestsFrom: friendRequestsFrom as "everyone" | "nobody",
@@ -183,7 +205,7 @@ export async function initFriendzWiring(
 
   // incoming friend request -> write to social doc
   protocol.onFriendRequest = (msg, fromNodeId) => {
-    socialHandle.change((draft: any) => {
+    sDoc.change((draft: any) => {
       if (!draft.pendingRequests) draft.pendingRequests = [];
       // don't add duplicate pending requests from the same node
       const exists = draft.pendingRequests.some(
@@ -206,7 +228,7 @@ export async function initFriendzWiring(
 
   // friend accept -> remote peer accepted our outgoing request, add them as friend
   protocol.onFriendAccept = (msg, fromNodeId) => {
-    socialHandle.change((draft: any) => {
+    sDoc.change((draft: any) => {
       if (!draft.friends) draft.friends = [];
       // check if we already have this friend
       const existingFriend = draft.friends.find((f: any) =>
@@ -233,7 +255,7 @@ export async function initFriendzWiring(
       }
     });
     // also update outbound request status if we had one pending
-    socialHandle.change((draft: any) => {
+    sDoc.change((draft: any) => {
       if (!draft.outboundRequests) return;
       for (const req of draft.outboundRequests) {
         if (req.toNodeId === fromNodeId && req.status === "pending") {
@@ -257,7 +279,7 @@ export async function initFriendzWiring(
 
   // friend reject -> update request status (informational)
   protocol.onFriendReject = (_msg, fromNodeId) => {
-    socialHandle.change((draft: any) => {
+    sDoc.change((draft: any) => {
       if (!draft.outboundRequests) return;
       for (const req of draft.outboundRequests) {
         if (req.toNodeId === fromNodeId && req.status === "pending") {
@@ -271,7 +293,7 @@ export async function initFriendzWiring(
 
   // profile response -> update the friend's nodeId entry with profile data
   protocol.onProfileResponse = (profile, fromNodeId) => {
-    socialHandle.change((draft: any) => {
+    sDoc.change((draft: any) => {
       if (!draft.friends) return;
       for (const friend of draft.friends) {
         if (!friend.nodeIds) continue;
@@ -291,7 +313,7 @@ export async function initFriendzWiring(
 
   // heartbeat -> update lastSeenAt on the friend's nodeId entry
   protocol.onHeartbeat = (heartbeat, fromNodeId) => {
-    socialHandle.change((draft: any) => {
+    sDoc.change((draft: any) => {
       if (!draft.friends) return;
       for (const friend of draft.friends) {
         if (!friend.nodeIds) continue;
@@ -307,11 +329,9 @@ export async function initFriendzWiring(
       }
     });
     // if we don't have profile data for this peer, request it
-    const currentDoc = socialHandle.doc() as
-      | { friends?: Array<{ nodeIds?: Array<{ nodeId: string; avatarDataUrl?: string }> }> }
-      | undefined;
-    if (currentDoc?.friends) {
-      for (const friend of currentDoc.friends) {
+    const currentFriends = sDoc.current.friends;
+    if (currentFriends) {
+      for (const friend of currentFriends) {
         if (friend.nodeIds) {
           for (const n of friend.nodeIds) {
             if (n.nodeId === fromNodeId && !n.avatarDataUrl) {
@@ -428,7 +448,7 @@ export async function initFriendzWiring(
 
     // friend-accept-ack — upgrade pending-ack to fully accepted
     protocol.onFriendAcceptAck = (_msg, fromNodeId) => {
-      socialHandle.change((draft: any) => {
+      sDoc.change((draft: any) => {
         if (!draft.pendingRequests) return;
         for (const req of draft.pendingRequests) {
           if (req.fromNodeId === fromNodeId && req.status === "accepted-pending-ack") {
@@ -523,21 +543,17 @@ export async function initFriendzWiring(
   };
 
   // watch social doc for privacy setting and username changes
-  const onSocialChange = () => {
-    const doc = socialHandle.doc() as Record<string, unknown> | undefined;
-    if (!doc) return;
-    const pv = (doc.profileVisibility as string) ?? "friends";
-    const frf = (doc.friendRequestsFrom as string) ?? "everyone";
+  const onSocialChange = (state: SocialState) => {
+    const pv = state.profileVisibility ?? "friends";
+    const frf = state.friendRequestsFrom ?? "everyone";
     protocol.setProfileVisibility(pv as "friends" | "everyone" | "nobody");
     protocol.setFriendRequestsFrom(frf as "everyone" | "nobody");
-    // update username from nested profile
-    const profile = doc.profile as Record<string, unknown> | undefined;
-    if (profile?.username && typeof profile.username === "string") {
-      protocol.setLocalUsername(profile.username);
+    if (state.profile?.username) {
+      protocol.setLocalUsername(state.profile.username);
     }
   };
-  socialHandle.on("change", onSocialChange);
-  unsubs.push(() => socialHandle.off("change", onSocialChange));
+  const unsubSocial = sDoc.on("change", onSocialChange);
+  unsubs.push(unsubSocial);
 
   // watch messagez doc for canvas invite privacy changes
   if (messagezHandle) {
@@ -553,12 +569,10 @@ export async function initFriendzWiring(
 
   // start heartbeat — getter reads the current friends list from the doc
   protocol.startHeartbeat(() => {
-    const doc = socialHandle.doc() as
-      | { friends?: Array<{ nodeIds?: Array<{ nodeId: string }> }> }
-      | undefined;
-    if (!doc?.friends) return [];
+    const friends = sDoc.current.friends;
+    if (!friends) return [];
     const nodeIds: string[] = [];
-    for (const friend of doc.friends) {
+    for (const friend of friends) {
       if (friend.nodeIds) {
         for (const n of friend.nodeIds) {
           if (n.nodeId) nodeIds.push(n.nodeId);
@@ -611,7 +625,7 @@ export async function initFriendzWiring(
 
   // track outbound friend requests in the social doc
   setOutboundRequestHook((toNodeId: string) => {
-    socialHandle.change((draft: any) => {
+    sDoc.change((draft: any) => {
       if (!draft.outboundRequests) draft.outboundRequests = [];
       // don't duplicate pending requests to the same node
       const exists = draft.outboundRequests.some(
@@ -630,17 +644,13 @@ export async function initFriendzWiring(
 
   // request profiles from all friend node IDs (fire-and-forget)
   // this populates avatar, bio, and username data from friends who are online
-  const socialDocForProfiles = socialHandle.doc() as
-    | { friends?: Array<{ nodeIds?: Array<{ nodeId: string; avatarDataUrl?: string }> }> }
-    | undefined;
-  if (socialDocForProfiles?.friends) {
-    for (const friend of socialDocForProfiles.friends) {
+  const friendsForProfiles = sDoc.current.friends;
+  if (friendsForProfiles) {
+    for (const friend of friendsForProfiles) {
       if (friend.nodeIds) {
         for (const n of friend.nodeIds) {
           if (n.nodeId) {
-            protocol.requestProfile(n.nodeId).catch(() => {
-              // silently ignore — peer may be offline
-            });
+            protocol.requestProfile(n.nodeId).catch(() => {});
           }
         }
       }
@@ -662,7 +672,7 @@ export async function initFriendzWiring(
 
   return {
     protocol,
-    socialDocHandle: socialHandle,
+    socialDoc: sDoc,
     messagezDocHandle: messagezHandle,
     unsubs,
   };

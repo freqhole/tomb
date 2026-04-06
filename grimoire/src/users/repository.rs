@@ -19,6 +19,10 @@ struct UserRow {
     deleted_at: Option<i64>,
     haruspex_user_id: Option<String>,
     metadata: Option<String>,
+    alias: String,
+    bio: String,
+    avatar_url: String,
+    accent_color: i64,
 }
 
 impl From<UserRow> for User {
@@ -33,6 +37,10 @@ impl From<UserRow> for User {
             deleted_at: row.deleted_at,
             haruspex_user_id: row.haruspex_user_id,
             metadata: row.metadata,
+            alias: row.alias,
+            bio: row.bio,
+            avatar_url: row.avatar_url,
+            accent_color: row.accent_color,
         }
     }
 }
@@ -46,6 +54,10 @@ struct UserPeerNodeRow {
     metadata: Option<String>,
     created_at: i64,
     last_seen_at: Option<i64>,
+    display_name: String,
+    bio: String,
+    avatar_url: String,
+    accent_color: i64,
 }
 
 impl From<UserPeerNodeRow> for UserPeerNode {
@@ -57,6 +69,10 @@ impl From<UserPeerNodeRow> for UserPeerNode {
             metadata: row.metadata,
             created_at: row.created_at,
             last_seen_at: row.last_seen_at,
+            display_name: row.display_name,
+            bio: row.bio,
+            avatar_url: row.avatar_url,
+            accent_color: row.accent_color,
         }
     }
 }
@@ -71,6 +87,8 @@ struct PeerNodeWithUserRow {
     last_seen_at: Option<i64>,
     username: String,
     role: String,
+    display_name: String,
+    alias: String,
 }
 
 impl From<PeerNodeWithUserRow> for PeerNodeWithUser {
@@ -83,6 +101,8 @@ impl From<PeerNodeWithUserRow> for PeerNodeWithUser {
             last_seen_at: row.last_seen_at,
             username: row.username,
             role: row.role,
+            display_name: row.display_name,
+            alias: row.alias,
         }
     }
 }
@@ -140,7 +160,7 @@ impl UserRepository {
             r#"
             INSERT INTO user_accountz (username, role, created_at, updated_at)
             VALUES (?1, ?2, ?3, ?4)
-            RETURNING id as "id!", username as "username!", role as "role!", api_key, created_at as "created_at!", updated_at as "updated_at!", deleted_at, haruspex_user_id, metadata
+            RETURNING id as "id!", username as "username!", role as "role!", api_key, created_at as "created_at!", updated_at as "updated_at!", deleted_at, haruspex_user_id, metadata, alias as "alias!", bio as "bio!", avatar_url as "avatar_url!", accent_color as "accent_color!"
             "#,
             request.username,
             role,
@@ -160,7 +180,7 @@ impl UserRepository {
         let user = sqlx::query_as!(
             UserRow,
             r#"
-            SELECT id as "id!", username as "username!", role as "role!", api_key, created_at as "created_at!", updated_at as "updated_at!", deleted_at, haruspex_user_id, metadata
+            SELECT id as "id!", username as "username!", role as "role!", api_key, created_at as "created_at!", updated_at as "updated_at!", deleted_at, haruspex_user_id, metadata, alias as "alias!", bio as "bio!", avatar_url as "avatar_url!", accent_color as "accent_color!"
             FROM user_accountz
             WHERE id = ?1
             "#,
@@ -179,7 +199,7 @@ impl UserRepository {
         let user = sqlx::query_as!(
             UserRow,
             r#"
-            SELECT id as "id!", username as "username!", role as "role!", api_key, created_at as "created_at!", updated_at as "updated_at!", deleted_at, haruspex_user_id, metadata
+            SELECT id as "id!", username as "username!", role as "role!", api_key, created_at as "created_at!", updated_at as "updated_at!", deleted_at, haruspex_user_id, metadata, alias as "alias!", bio as "bio!", avatar_url as "avatar_url!", accent_color as "accent_color!"
             FROM user_accountz
             WHERE username = ?1
             "#,
@@ -198,7 +218,7 @@ impl UserRepository {
         let user = sqlx::query_as!(
             UserRow,
             r#"
-            SELECT id as "id!", username as "username!", role as "role!", api_key, created_at as "created_at!", updated_at as "updated_at!", deleted_at, haruspex_user_id, metadata
+            SELECT id as "id!", username as "username!", role as "role!", api_key, created_at as "created_at!", updated_at as "updated_at!", deleted_at, haruspex_user_id, metadata, alias as "alias!", bio as "bio!", avatar_url as "avatar_url!", accent_color as "accent_color!"
             FROM user_accountz
             WHERE api_key = ?1 AND deleted_at IS NULL
             "#,
@@ -217,7 +237,7 @@ impl UserRepository {
         let user = sqlx::query_as!(
             UserRow,
             r#"
-            SELECT id as "id!", username as "username!", role as "role!", api_key, created_at as "created_at!", updated_at as "updated_at!", deleted_at, haruspex_user_id, metadata
+            SELECT id as "id!", username as "username!", role as "role!", api_key, created_at as "created_at!", updated_at as "updated_at!", deleted_at, haruspex_user_id, metadata, alias as "alias!", bio as "bio!", avatar_url as "avatar_url!", accent_color as "accent_color!"
             FROM user_accountz
             WHERE role = 'root' AND deleted_at IS NULL
             ORDER BY created_at ASC
@@ -334,7 +354,7 @@ impl UserRepository {
         let rows = sqlx::query_as!(
             UserRow,
             r#"
-            SELECT id as "id!", username as "username!", role as "role!", api_key, created_at as "created_at!", updated_at as "updated_at!", deleted_at, haruspex_user_id, metadata
+            SELECT id as "id!", username as "username!", role as "role!", api_key, created_at as "created_at!", updated_at as "updated_at!", deleted_at, haruspex_user_id, metadata, alias as "alias!", bio as "bio!", avatar_url as "avatar_url!", accent_color as "accent_color!"
             FROM user_accountz
             WHERE (?1 IS NULL OR username LIKE ?1)
               AND (?2 IS NULL OR role = ?2)
@@ -534,7 +554,7 @@ impl UserRepository {
         let user = sqlx::query_as!(
             UserRow,
             r#"
-            SELECT id as "id!", username as "username!", role as "role!", api_key, created_at as "created_at!", updated_at as "updated_at!", deleted_at, haruspex_user_id, metadata
+            SELECT id as "id!", username as "username!", role as "role!", api_key, created_at as "created_at!", updated_at as "updated_at!", deleted_at, haruspex_user_id, metadata, alias as "alias!", bio as "bio!", avatar_url as "avatar_url!", accent_color as "accent_color!"
             FROM user_accountz
             WHERE haruspex_user_id = ?1 AND deleted_at IS NULL
             "#,
@@ -556,7 +576,7 @@ impl UserRepository {
         let user = sqlx::query_as!(
             UserRow,
             r#"
-            SELECT id as "id!", username as "username!", role as "role!", api_key, created_at as "created_at!", updated_at as "updated_at!", deleted_at, haruspex_user_id, metadata
+            SELECT id as "id!", username as "username!", role as "role!", api_key, created_at as "created_at!", updated_at as "updated_at!", deleted_at, haruspex_user_id, metadata, alias as "alias!", bio as "bio!", avatar_url as "avatar_url!", accent_color as "accent_color!"
             FROM user_accountz
             WHERE haruspex_user_id = ?1
             "#,
@@ -591,7 +611,7 @@ impl UserRepository {
         let user = sqlx::query_as!(
             UserRow,
             r#"
-            SELECT u.id as "id!", u.username as "username!", u.role as "role!", u.api_key, u.created_at as "created_at!", u.updated_at as "updated_at!", u.deleted_at, u.haruspex_user_id, u.metadata
+            SELECT u.id as "id!", u.username as "username!", u.role as "role!", u.api_key, u.created_at as "created_at!", u.updated_at as "updated_at!", u.deleted_at, u.haruspex_user_id, u.metadata, u.alias as "alias!", u.bio as "bio!", u.avatar_url as "avatar_url!", u.accent_color as "accent_color!"
             FROM user_accountz u
             INNER JOIN user_peer_nodez p ON u.id = p.user_id
             WHERE p.node_id = ?1 AND u.deleted_at IS NULL
@@ -623,7 +643,7 @@ impl UserRepository {
             r#"
             INSERT INTO user_accountz (username, role, haruspex_user_id, metadata, created_at, updated_at)
             VALUES (?1, ?2, ?3, ?4, ?5, ?6)
-            RETURNING id as "id!", username as "username!", role as "role!", api_key, created_at as "created_at!", updated_at as "updated_at!", deleted_at, haruspex_user_id, metadata
+            RETURNING id as "id!", username as "username!", role as "role!", api_key, created_at as "created_at!", updated_at as "updated_at!", deleted_at, haruspex_user_id, metadata, alias as "alias!", bio as "bio!", avatar_url as "avatar_url!", accent_color as "accent_color!"
             "#,
             username,
             role_str,
@@ -659,7 +679,7 @@ impl UserRepository {
             UPDATE user_accountz
             SET username = ?1, metadata = json_patch(COALESCE(metadata, '{}'), ?2), updated_at = ?3
             WHERE id = ?4
-            RETURNING id as "id!", username as "username!", role as "role!", api_key, created_at as "created_at!", updated_at as "updated_at!", deleted_at, haruspex_user_id, metadata
+            RETURNING id as "id!", username as "username!", role as "role!", api_key, created_at as "created_at!", updated_at as "updated_at!", deleted_at, haruspex_user_id, metadata, alias as "alias!", bio as "bio!", avatar_url as "avatar_url!", accent_color as "accent_color!"
             "#,
             username,
             metadata_patch,
@@ -717,7 +737,7 @@ impl UserRepository {
             ON CONFLICT (user_id, node_id) DO UPDATE SET
                 instance_name = COALESCE(?3, instance_name),
                 last_seen_at = ?4
-            RETURNING user_id as "user_id!", node_id as "node_id!", instance_name, metadata, created_at as "created_at!", last_seen_at
+            RETURNING user_id as "user_id!", node_id as "node_id!", instance_name, metadata, created_at as "created_at!", last_seen_at, display_name as "display_name!", bio as "bio!", avatar_url as "avatar_url!", accent_color as "accent_color!"
             "#,
             user_id,
             node_id,
@@ -737,7 +757,7 @@ impl UserRepository {
         let rows = sqlx::query_as!(
             UserPeerNodeRow,
             r#"
-            SELECT user_id as "user_id!", node_id as "node_id!", instance_name, metadata, created_at as "created_at!", last_seen_at
+            SELECT user_id as "user_id!", node_id as "node_id!", instance_name, metadata, created_at as "created_at!", last_seen_at, display_name as "display_name!", bio as "bio!", avatar_url as "avatar_url!", accent_color as "accent_color!"
             FROM user_peer_nodez
             WHERE user_id = ?1
             ORDER BY last_seen_at DESC NULLS LAST
@@ -796,14 +816,16 @@ impl UserRepository {
         let rows = sqlx::query_as!(
             PeerNodeWithUserRow,
             r#"
-            SELECT 
+            SELECT
                 p.user_id as "user_id!",
                 p.node_id as "node_id!",
                 p.instance_name,
                 p.created_at as "created_at!",
                 p.last_seen_at,
                 u.username as "username!",
-                u.role as "role!"
+                u.role as "role!",
+                p.display_name as "display_name!",
+                u.alias as "alias!"
             FROM user_peer_nodez p
             INNER JOIN user_accountz u ON p.user_id = u.id
             WHERE u.deleted_at IS NULL

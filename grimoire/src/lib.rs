@@ -26,6 +26,7 @@ pub mod response;
 pub mod search;
 pub mod sessions;
 pub mod setup;
+pub mod social;
 pub mod upload;
 pub mod users;
 pub mod wordlist;
@@ -48,6 +49,11 @@ pub use search::{
     MatchType, PlaylistSearchResult, QueryContext, SearchField, SearchRequest, SearchResponse,
     SongSearchResult, SortDirection, Suggestion, SuggestionType, SuggestionsRequest,
     SuggestionsResponse,
+};
+pub use social::{
+    FriendGroup, FriendRequest, PeerFriend, PeerFriendDetail, PeerNodeProfile, SocialRepository,
+    SocialService, SocialSettings, SocialSnapshot, UpdateNodeProfileRequest, UpdateProfileRequest,
+    UserProfile,
 };
 pub use users::models::AuthResult;
 pub use users::{

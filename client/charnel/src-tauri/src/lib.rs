@@ -8,6 +8,7 @@ mod p2p_state;
 mod server_controls;
 mod skein_transport;
 mod skein_window;
+mod social_commands;
 mod spume_bridge;
 mod tray;
 mod wizard;

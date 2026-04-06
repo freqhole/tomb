@@ -158,10 +158,16 @@ impl SkeinTransportState {
 /// single dispatch command for all skein transport operations
 #[tauri::command]
 pub async fn skein_dispatch(
+    app_handle: tauri::AppHandle,
     state: tauri::State<'_, SkeinTransportState>,
     action: String,
     payload: serde_json::Value,
 ) -> Result<serde_json::Value, String> {
+    // route social_* actions to the social commands module
+    if action.starts_with("social_") {
+        return crate::social_commands::dispatch(&app_handle, &action, &payload).await;
+    }
+
     match action.as_str() {
         "get_node_id" => get_node_id(),
         "open_bi" => open_bi(&state, &payload).await,

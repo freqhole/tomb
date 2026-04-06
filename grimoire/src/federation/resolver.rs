@@ -8,7 +8,7 @@ use crate::config::get_config;
 use crate::federation::client::NodeIdUserInfo;
 use crate::federation::setup::get_authenticated_client;
 use crate::response::GrimoireResponse;
-use crate::users::{User, UserRole, UserService};
+use crate::users::{User, UserService};
 use serde::{Deserialize, Serialize};
 
 /// result of resolving a peer's node_id
@@ -152,55 +152,61 @@ pub async fn resolve_peer(node_id: &str) -> ResolvedPeer {
         };
     }
 
-    // create local user
-    let username = haruspex_info
-        .display_name
-        .clone()
-        .unwrap_or_else(|| haruspex_info.user_id.clone());
-    let default_role = UserRole::from(federation_config.default_role.as_str());
-
-    match user_service
-        .sync_federated_user(
-            &username,
-            &haruspex_info.user_id,
-            default_role,
-            haruspex_info.avatar_url.as_deref(),
-        )
+    // create local user via shared resolve_or_create path
+    let social_service = crate::social::service::SocialService::new();
+    let display_name = haruspex_info.display_name.as_deref();
+    match social_service
+        .resolve_or_create_user_for_node(node_id, display_name)
         .await
     {
-        GrimoireResponse {
-            success: true,
-            data: Some(user),
-            ..
-        } => {
-            // also register the peer node
-            let _ = user_service.upsert_peer_node(&user.id, node_id, None).await;
-
-            ResolvedPeer {
-                node_id: node_id.to_string(),
-                user: Some(user),
-                haruspex_info: Some(haruspex_info),
-                user_created: true,
-                error: None,
+        Ok(resolved) => {
+            // fetch full user record
+            match user_service.get_user(&resolved.user_id).await {
+                GrimoireResponse {
+                    success: true,
+                    data: Some(user),
+                    ..
+                } => {
+                    // ensure API key exists
+                    let user_with_key = match user_service.ensure_api_key(user).await {
+                        GrimoireResponse {
+                            success: true,
+                            data: Some(u),
+                            ..
+                        } => u,
+                        _ => {
+                            return ResolvedPeer {
+                                node_id: node_id.to_string(),
+                                user: None,
+                                haruspex_info: Some(haruspex_info),
+                                user_created: resolved.created,
+                                error: Some("failed to ensure api key for new user".to_string()),
+                            };
+                        }
+                    };
+                    ResolvedPeer {
+                        node_id: node_id.to_string(),
+                        user: Some(user_with_key),
+                        haruspex_info: Some(haruspex_info),
+                        user_created: resolved.created,
+                        error: None,
+                    }
+                }
+                _ => ResolvedPeer {
+                    node_id: node_id.to_string(),
+                    user: None,
+                    haruspex_info: Some(haruspex_info),
+                    user_created: resolved.created,
+                    error: Some("failed to fetch user after resolve".to_string()),
+                },
             }
         }
-        GrimoireResponse {
-            success: false,
-            message,
-            ..
-        } => ResolvedPeer {
+        Err(e) => ResolvedPeer {
             node_id: node_id.to_string(),
             user: None,
             haruspex_info: Some(haruspex_info),
             user_created: false,
-            error: Some(format!("failed to create user: {}", message)),
-        },
-        _ => ResolvedPeer {
-            node_id: node_id.to_string(),
-            user: None,
-            haruspex_info: Some(haruspex_info),
-            user_created: false,
-            error: Some("failed to create user: unknown error".to_string()),
+            error: Some(format!("failed to resolve user for node: {}", e)),
         },
     }
 }

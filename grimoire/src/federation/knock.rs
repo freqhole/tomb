@@ -141,7 +141,7 @@ pub async fn create_knock(
         SELECT id as "id!", node_id as "node_id!", username as "username!",
                message as "message!", status as "status!", created_at as "created_at!",
                processed_at, processed_by
-        FROM knock_requestz 
+        FROM knock_requestz
         WHERE node_id = ?
         "#,
         node_id
@@ -179,7 +179,7 @@ pub async fn create_knock(
                 SELECT id as "id!", node_id as "node_id!", username as "username!",
                        message as "message!", status as "status!", created_at as "created_at!",
                        processed_at, processed_by
-                FROM knock_requestz 
+                FROM knock_requestz
                 WHERE node_id = ?
                 "#,
                 node_id
@@ -253,7 +253,7 @@ pub async fn list_knocks(include_all: bool) -> GrimoireResponse<Vec<KnockRequest
             SELECT id as "id!", node_id as "node_id!", username as "username!",
                    message as "message!", status as "status!", created_at as "created_at!",
                    processed_at, processed_by
-            FROM knock_requestz 
+            FROM knock_requestz
             ORDER BY created_at DESC
             "#
         )
@@ -267,7 +267,7 @@ pub async fn list_knocks(include_all: bool) -> GrimoireResponse<Vec<KnockRequest
             SELECT id as "id!", node_id as "node_id!", username as "username!",
                    message as "message!", status as "status!", created_at as "created_at!",
                    processed_at, processed_by
-            FROM knock_requestz 
+            FROM knock_requestz
             WHERE status = 'pending'
             ORDER BY created_at DESC
             "#
@@ -294,7 +294,7 @@ pub async fn get_knock(id: &str) -> GrimoireResponse<KnockRequest> {
         SELECT id as "id!", node_id as "node_id!", username as "username!",
                message as "message!", status as "status!", created_at as "created_at!",
                processed_at, processed_by
-        FROM knock_requestz 
+        FROM knock_requestz
         WHERE id = ?
         "#,
         id
@@ -315,7 +315,7 @@ pub async fn accept_knock(
     request: ProcessKnockRequest,
     admin_user_id: &str,
 ) -> GrimoireResult<KnockRequest> {
-    use crate::users::{CreateUserRequest, UserRole, UserService};
+    use crate::users::{UserRole, UserService};
 
     let pool = database::connect().await?;
 
@@ -325,7 +325,7 @@ pub async fn accept_knock(
         SELECT id as "id!", node_id as "node_id!", username as "username!",
                message as "message!", status as "status!", created_at as "created_at!",
                processed_at, processed_by
-        FROM knock_requestz 
+        FROM knock_requestz
         WHERE id = ?
         "#,
         knock_id
@@ -361,52 +361,68 @@ pub async fn accept_knock(
     let user_service = UserService::new();
 
     // get existing user or create new one
-    let user = if let Some(user_id) = request.user_id {
+    let _user = if let Some(user_id) = request.user_id {
         // use existing user
         let user_result = user_service.get_user(&user_id).await;
-        user_result
-            .data
-            .ok_or_else(|| crate::error::GrimoireError::ProcessingFailed {
-                message: format!("user not found: {}", user_id),
-            })?
-    } else {
-        // create new user
-        let create_request = CreateUserRequest {
-            username: username.clone(),
-            role: Some(role),
-            invite_code: None, // admin is approving directly
-        };
+        let user =
+            user_result
+                .data
+                .ok_or_else(|| crate::error::GrimoireError::ProcessingFailed {
+                    message: format!("user not found: {}", user_id),
+                })?;
 
-        // register user (bypassing invite code since admin is approving)
-        let user_result = user_service.register_user(&create_request).await;
-        if !user_result.success {
+        // link peer node to existing user
+        let peer_result = user_service
+            .add_peer_node(&user.id, &row.node_id, None)
+            .await;
+        if !peer_result.success {
             return Err(crate::error::GrimoireError::ProcessingFailed {
-                message: user_result.message,
+                message: peer_result.message,
             });
         }
 
-        user_result
-            .data
-            .ok_or_else(|| crate::error::GrimoireError::ProcessingFailed {
-                message: "user creation returned no data".to_string(),
-            })?
-    };
+        user
+    } else {
+        // resolve or create user for this node_id
+        let social_service = crate::social::service::SocialService::new();
+        let resolved = social_service
+            .resolve_or_create_user_for_node(&row.node_id, Some(username.as_str()))
+            .await
+            .map_err(|e| crate::error::GrimoireError::ProcessingFailed {
+                message: format!("failed to resolve user for node: {}", e),
+            })?;
 
-    // link peer node to user
-    let peer_result = user_service
-        .add_peer_node(&user.id, &row.node_id, None)
-        .await;
-    if !peer_result.success {
-        return Err(crate::error::GrimoireError::ProcessingFailed {
-            message: peer_result.message,
-        });
-    }
+        // fetch the full user record
+        let user_result = user_service.get_user(&resolved.user_id).await;
+        let mut user =
+            user_result
+                .data
+                .ok_or_else(|| crate::error::GrimoireError::ProcessingFailed {
+                    message: format!("user not found after resolve: {}", resolved.user_id),
+                })?;
+
+        // update role if it differs from the default assigned by resolve_or_create
+        if user.role != role {
+            let user_repo = crate::users::repository::UserRepository::new();
+            if let Ok(updated) = user_repo
+                .update_user(
+                    &resolved.user_id,
+                    &crate::users::UpdateUserRequest { role: Some(role) },
+                )
+                .await
+            {
+                user = updated;
+            }
+        }
+
+        user
+    };
 
     // update knock status and fetch in one query
     let updated = sqlx::query_as!(
         KnockRow,
         r#"
-        UPDATE knock_requestz 
+        UPDATE knock_requestz
         SET status = 'accepted', processed_at = unixepoch(), processed_by = ?
         WHERE id = ?
         RETURNING id as "id!", node_id as "node_id!", username as "username!",
@@ -453,7 +469,7 @@ pub async fn reject_knock(knock_id: &str, admin_user_id: &str) -> GrimoireResult
     let updated = sqlx::query_as!(
         KnockRow,
         r#"
-        UPDATE knock_requestz 
+        UPDATE knock_requestz
         SET status = 'rejected', processed_at = unixepoch(), processed_by = ?
         WHERE id = ?
         RETURNING id as "id!", node_id as "node_id!", username as "username!",
@@ -492,7 +508,7 @@ pub async fn reject_all_knocks(admin_user_id: &str) -> GrimoireResult<u64> {
 
     let result = sqlx::query!(
         r#"
-        UPDATE knock_requestz 
+        UPDATE knock_requestz
         SET status = 'rejected', processed_at = unixepoch(), processed_by = ?
         WHERE status = 'pending'
         "#,

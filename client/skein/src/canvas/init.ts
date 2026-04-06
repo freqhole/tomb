@@ -40,6 +40,9 @@ export interface InitCanvasOptions {
   onShare?: () => void;
   /** optional transport-level connection state source for the status indicator */
   connectionStateSource?: import("./connection-status").ConnectionStateSource | null;
+  /** optional per-widget doc overrides — lets callers inject a custom doc (e.g.
+   *  SqliteSocialDoc) for specific widget IDs instead of the automerge-backed one */
+  docOverrides?: Map<string, import("../widgets/widget-types").WidgetDoc<any>>;
 }
 
 export interface SkeinCanvas {
@@ -195,6 +198,14 @@ export async function initCanvas(options: InitCanvasOptions): Promise<SkeinCanva
     app.canvas as HTMLCanvasElement,
     stageBg
   );
+
+  // apply doc overrides before start() so widgets mount with the right doc
+  if (options.docOverrides) {
+    for (const [widgetId, doc] of options.docOverrides) {
+      widgetManager.setDocOverride(widgetId, doc);
+    }
+  }
+
   widgetManager.start();
 
   // step 10: create the toolbar (pixi-rendered, top-right of stage).

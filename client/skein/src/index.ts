@@ -29,6 +29,10 @@ export type {
   WidgetPropDef,
 } from "./widgets/widget-types";
 
+// p2p / social
+export { SqliteSocialDoc, resolveFriendDisplay } from "./p2p/sqlite-social-doc";
+export { isTauriMode } from "./p2p/tauri-transport";
+
 // theme
 export { defaultTheme } from "./theme/skein-theme";
 export type { SkeinTheme } from "./theme/skein-theme";

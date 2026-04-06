@@ -10,17 +10,17 @@ import { initCanvas, type SkeinCanvas } from "../canvas/init";
 import { showShareDialog, type FriendInfo } from "../canvas/share-dialog";
 import type { FriendzProtocol } from "../p2p/friends-protocol";
 import {
-  destroyBridge,
-  sendCanvasInvite,
-  sendFriendRequest,
-  setOutboundRequestHook,
+    destroyBridge,
+    sendCanvasInvite,
+    sendFriendRequest,
+    setOutboundRequestHook,
 } from "../p2p/friendz-bridge";
 import { GossipTracker } from "../p2p/gossip-tracker";
 import {
-  ensureIdentity,
-  getMiddenNode,
-  getStoredIdentity,
-  onIdentityChange,
+    ensureIdentity,
+    getMiddenNode,
+    getStoredIdentity,
+    onIdentityChange,
 } from "../p2p/identity";
 import { IrohNetworkAdapter, type MiddenStreamNode } from "../p2p/iroh-network-adapter";
 import { decodeShareString, encodeShareString } from "../p2p/share-string";
@@ -28,12 +28,14 @@ import { getMetaValue, setMetaValue } from "../storage/meta-db";
 import { syncCanvasMetadataToCards, watchCanvasDocsForUpdates } from "./canvas-watchers";
 import { initFriendzWiring } from "./friendz-wiring";
 import {
-  createNarthexWithSeed,
-  ensureSingletonWidgets,
-  MESSAGEZ_WIDGET_ID,
-  SOCIAL_WIDGET_ID,
+    createNarthexWithSeed,
+    ensureSingletonWidgets,
+    MESSAGEZ_WIDGET_ID,
+    SOCIAL_WIDGET_ID,
 } from "./narthex-seed";
 import { isTauriMode, TauriStreamNode } from "../p2p/tauri-transport";
+import type { SocialDoc } from "../../widgets/narthex/social/types";
+import { SqliteSocialDoc, resolveFriendDisplay } from "../p2p/sqlite-social-doc";
 
 // indexeddb key for the well-known narthex document id
 const NARTHEX_DOC_KEY = "skein-narthex-doc-id";
@@ -54,7 +56,7 @@ class SkeinRouter {
 
   private friendzProtocol: FriendzProtocol | null = null;
   private friendzDocUnsubs: Array<() => void> = [];
-  private socialDocHandle: DocHandle<any> | null = null;
+  private socialDoc: SocialDoc | null = null;
   private messagezDocHandle: DocHandle<any> | null = null;
   private gossipTracker: GossipTracker = new GossipTracker();
   private transportPresenceUnsubs: Array<() => void> = [];
@@ -195,12 +197,25 @@ class SkeinRouter {
 
       console.log("[skein] navigating to narthex, doc:", this.narthexDocId);
 
+      // in tauri mode, create the sqlite-backed social doc early so it can
+      // be shared between the social widget and the friendz protocol.
+      if (isTauriMode() && !this.socialDoc) {
+        try {
+          this.socialDoc = await SqliteSocialDoc.create();
+        } catch (err) {
+          console.warn("[skein] failed to create SqliteSocialDoc:", err);
+        }
+      }
+
       const canvas = await initCanvas({
         mountElement: this.mountElement,
         canvasDocId: this.narthexDocId,
         registry: createNarthexRegistry(),
         repo: this.repo,
         isNarthex: true,
+        docOverrides: this.socialDoc
+          ? new Map([[SOCIAL_WIDGET_ID, this.socialDoc as any]])
+          : undefined,
       });
 
       this.currentCanvas = canvas;
@@ -308,6 +323,10 @@ class SkeinRouter {
     const store = this.currentCanvas?.store;
     if (!store || !this.narthexDocId) return;
 
+    // in tauri mode, reuse the sqlite-backed social doc created during narthex init.
+    // in browser mode, friendz-wiring will create its own from the automerge handle.
+    const socialDoc: SocialDoc | undefined = isTauriMode() ? this.socialDoc ?? undefined : undefined;
+
     const result = await initFriendzWiring({
       repo: this.repo,
       irohAdapter: this.irohAdapter,
@@ -316,12 +335,13 @@ class SkeinRouter {
       gossipTracker: this.gossipTracker,
       socialWidgetId: SOCIAL_WIDGET_ID,
       messagezWidgetId: MESSAGEZ_WIDGET_ID,
+      socialDoc,
     });
 
     if (!result) return;
 
     this.friendzProtocol = result.protocol;
-    this.socialDocHandle = result.socialDocHandle;
+    this.socialDoc = result.socialDoc;
     this.messagezDocHandle = result.messagezDocHandle;
     this.friendzDocUnsubs.push(...result.unsubs);
   }
@@ -371,17 +391,8 @@ class SkeinRouter {
           const peerNodeIds = new Set(peerList.map((p) => p.nodeId));
           const friendsForInvite: FriendInfo[] = [];
 
-          if (this.socialDocHandle) {
-            const friendsDoc = this.socialDocHandle.doc() as
-              | {
-                  friends?: Array<{
-                    id: string;
-                    username?: string;
-                    alias?: string;
-                    nodeIds?: Array<{ nodeId: string; username?: string; avatarDataUrl?: string }>;
-                  }>;
-                }
-              | undefined;
+          if (this.socialDoc) {
+            const friendsState = this.socialDoc.current;
 
             // get already-invited node IDs from messagez outbox
             const alreadyInvited = new Set<string>();
@@ -398,8 +409,8 @@ class SkeinRouter {
               }
             }
 
-            if (friendsDoc?.friends) {
-              for (const friend of friendsDoc.friends) {
+            if (friendsState?.friends) {
+              for (const friend of friendsState.friends) {
                 if (!friend.nodeIds) continue;
                 for (const n of friend.nodeIds) {
                   if (!n.nodeId) continue;
@@ -586,28 +597,14 @@ class SkeinRouter {
       // set up name resolver for cursor labels
       if (canvas.presenceRenderer) {
         canvas.presenceRenderer.setNameResolver((peerId: string) => {
-          const doc = this.socialDocHandle?.doc() as
-            | {
-                friends?: Array<{
-                  alias?: string;
-                  username?: string;
-                  nodeIds?: Array<{ nodeId: string; username?: string }>;
-                }>;
-              }
-            | undefined;
-          if (!doc?.friends) return null;
-          for (const friend of doc.friends) {
-            if (friend.nodeIds?.some((n) => n.nodeId === peerId)) {
-              // prefer username, then alias, then null (fallback to hex)
-              if (friend.username) return friend.username;
-              if (friend.alias) return friend.alias;
-              // try node-level username
-              const node = friend.nodeIds.find((n) => n.nodeId === peerId);
-              if (node?.username) return node.username;
-              return null;
-            }
-          }
-          return null;
+          const state = this.socialDoc?.current;
+          if (!state?.friends) return null;
+          const friend = state.friends.find((f) =>
+            f.nodeIds?.some((n) => n.nodeId === peerId)
+          );
+          if (!friend) return null;
+          const display = resolveFriendDisplay(friend);
+          return display.name || null;
         });
       }
       (window as any).__skein = canvas;
@@ -879,19 +876,23 @@ class SkeinRouter {
 
     // read the profile username for the canvas author
     let authorName = "";
-    try {
-      const socialEntry = this.currentCanvas?.store.getWidget(SOCIAL_WIDGET_ID);
-      if (socialEntry?.docId) {
-        const socialHandle = await this.repo.find(socialEntry.docId as DocumentId);
-        await socialHandle.whenReady();
-        const socialDoc = socialHandle.doc() as Record<string, any> | undefined;
-        if (socialDoc?.profile?.username && typeof socialDoc.profile.username === "string") {
-          authorName = socialDoc.profile.username;
+    if (this.socialDoc) {
+      authorName = this.socialDoc.current.profile?.username ?? "";
+    } else {
+      // protocol not initialized yet — try reading automerge doc directly
+      try {
+        const socialEntry = this.currentCanvas?.store.getWidget(SOCIAL_WIDGET_ID);
+        if (socialEntry?.docId) {
+          const socialHandle = await this.repo.find(socialEntry.docId as DocumentId);
+          await socialHandle.whenReady();
+          const socialDoc = socialHandle.doc() as Record<string, any> | undefined;
+          if (socialDoc?.profile?.username && typeof socialDoc.profile.username === "string") {
+            authorName = socialDoc.profile.username;
+          }
         }
+      } catch {
+        console.warn("[skein] failed to read profile for canvas author");
       }
-    } catch {
-      // if profile reading fails, fall back to empty author
-      console.warn("[skein] failed to read profile for canvas author");
     }
 
     // create a new empty canvas document in the shared repo
@@ -980,7 +981,10 @@ class SkeinRouter {
     this.destroyCurrent();
     for (const unsub of this.canvasWatcherUnsubs) unsub();
     this.canvasWatcherUnsubs = [];
-    this.socialDocHandle = null;
+    if (this.socialDoc && 'destroy' in this.socialDoc && typeof (this.socialDoc as any).destroy === 'function') {
+      (this.socialDoc as any).destroy();
+    }
+    this.socialDoc = null;
     this.messagezDocHandle = null;
     this.gossipTracker.clear();
     for (const unsub of this.friendzDocUnsubs) {

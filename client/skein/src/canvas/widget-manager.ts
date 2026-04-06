@@ -63,6 +63,11 @@ export class WidgetManager {
   private beforeRemoveHook: ((entry: WidgetEntry, repo: Repo) => void | Promise<void>) | null =
     null;
 
+  /** optional doc overrides — if a widget ID is in this map, its doc will be
+   *  used instead of creating one from automerge. used to inject SqliteSocialDoc
+   *  for the social widget in tauri mode. */
+  private readonly docOverrides = new Map<string, WidgetDoc<any>>();
+
   /** batch drag state — non-null while a multi-widget drag is in progress */
   private batchDrag: BatchDragState | null = null;
 
@@ -96,6 +101,12 @@ export class WidgetManager {
    *  repo instance so it can open and delete linked documents. */
   setBeforeRemoveHook(hook: (entry: WidgetEntry, repo: Repo) => void | Promise<void>): void {
     this.beforeRemoveHook = hook;
+  }
+
+  /** register a doc override for a specific widget ID. must be called before
+   *  start() so the override is available when widgets are first mounted. */
+  setDocOverride(widgetId: string, doc: WidgetDoc<any>): void {
+    this.docOverrides.set(widgetId, doc);
   }
 
   /**
@@ -179,7 +190,10 @@ export class WidgetManager {
     // build the per-widget document facade
     let doc: WidgetDoc<any>;
 
-    if (factory.schema) {
+    // check for doc override (e.g., SqliteSocialDoc in tauri mode)
+    if (this.docOverrides.has(entry.id)) {
+      doc = this.docOverrides.get(entry.id)!;
+    } else if (factory.schema) {
       let widgetDocHandle: DocHandle<any>;
 
       if (entry.docId) {
