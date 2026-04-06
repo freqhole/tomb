@@ -38,6 +38,7 @@ const BLOB_DB_NAME = "skein-blobs";
 const BLOB_STORE = "blobs";
 const ENTITY_STORE = "domain_entities";
 const OPFS_DIR = "skein-blobs";
+const BAO_OPFS_DIR = "skein-blobs-bao";
 
 // ---- session url cache ----------------------------------------------------
 
@@ -71,28 +72,43 @@ export function clearBlobUrlCache(): void {
 /**
  * open (or create) the skein-blobs indexeddb database.
  *
- * version 1 creates the "blobs" and "domain_entities" object stores
- * with their respective indexes. callers are responsible for closing
- * the returned database when done.
+ * version 1 created the "blobs" and "domain_entities" object stores
+ * with sha256 and domain indexes. version 2 adds a blake3 index to
+ * the blobs store. callers are responsible for closing the returned
+ * database when done.
  */
 export async function openBlobDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
-    const req = indexedDB.open(BLOB_DB_NAME, 1);
-    req.onupgradeneeded = () => {
+    const req = indexedDB.open(BLOB_DB_NAME, 2);
+    req.onupgradeneeded = (event) => {
       const db = req.result;
-      if (!db.objectStoreNames.contains(BLOB_STORE)) {
+      const oldVersion = event.oldVersion;
+
+      if (oldVersion < 1) {
+        // fresh install — create stores and all indexes
         const blobStore = db.createObjectStore(BLOB_STORE, {
           keyPath: "blob_id",
         });
         blobStore.createIndex("sha256", "sha256", { unique: false });
         blobStore.createIndex("domain", "domain", { unique: false });
-      }
-      if (!db.objectStoreNames.contains(ENTITY_STORE)) {
+        blobStore.createIndex("blake3", "blake3", { unique: false });
+
         const entityStore = db.createObjectStore(ENTITY_STORE, {
           keyPath: "entity_id",
         });
         entityStore.createIndex("blob_id", "blob_id", { unique: false });
         entityStore.createIndex("domain", "domain", { unique: false });
+      }
+
+      if (oldVersion < 2) {
+        // upgrade from v1 — add blake3 index to existing blobs store
+        if (db.objectStoreNames.contains(BLOB_STORE)) {
+          const tx = (event.target as IDBOpenDBRequest).transaction!;
+          const blobStore = tx.objectStore(BLOB_STORE);
+          if (!blobStore.indexNames.contains("blake3")) {
+            blobStore.createIndex("blake3", "blake3", { unique: false });
+          }
+        }
       }
     };
     req.onsuccess = () => resolve(req.result);
@@ -109,7 +125,8 @@ async function getOpfsDir(create = false): Promise<FileSystemDirectoryHandle | n
   try {
     const root = await navigator.storage.getDirectory();
     return await root.getDirectoryHandle(OPFS_DIR, { create });
-  } catch {
+  } catch (err) {
+    console.warn("[skein-blob-store] OPFS directory access failed:", err);
     return null;
   }
 }
@@ -181,12 +198,13 @@ export async function storeBlob(
 ): Promise<void> {
   // write bytes to OPFS
   const dir = await getOpfsDir(true);
-  if (dir) {
-    const fileHandle = await dir.getFileHandle(blobId, { create: true });
-    const writable = await fileHandle.createWritable();
-    await writable.write(data);
-    await writable.close();
+  if (!dir) {
+    throw new Error("OPFS is not available — cannot store blob data");
   }
+  const fileHandle = await dir.getFileHandle(blobId, { create: true });
+  const writable = await fileHandle.createWritable();
+  await writable.write(data);
+  await writable.close();
 
   // write metadata record to IndexedDB
   const record: SkeinBlobRecord = {
@@ -294,9 +312,27 @@ export async function getBlobRecord(blobId: string): Promise<SkeinBlobRecord | n
 }
 
 /**
- * look up a blob record by its blake3 hash.
+ * look up a blob record by its sha256 hash using the sha256 index.
  *
- * scans all records in the store since there is no blake3 index.
+ * returns `null` when no matching record is found.
+ */
+export async function getBlobRecordBySha256(sha256: string): Promise<SkeinBlobRecord | null> {
+  if (!sha256) return null;
+  const db = await openBlobDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(BLOB_STORE, "readonly");
+    const store = tx.objectStore(BLOB_STORE);
+    const index = store.index("sha256");
+    const req = index.get(sha256);
+    req.onsuccess = () => resolve((req.result as SkeinBlobRecord) ?? null);
+    req.onerror = () => reject(req.error);
+    tx.oncomplete = () => db.close();
+  });
+}
+
+/**
+ * look up a blob record by its blake3 hash using the blake3 index.
+ *
  * returns `null` when no matching record is found.
  */
 export async function getBlobRecordByBlake3(blake3Hash: string): Promise<SkeinBlobRecord | null> {
@@ -305,20 +341,9 @@ export async function getBlobRecordByBlake3(blake3Hash: string): Promise<SkeinBl
   return new Promise((resolve, reject) => {
     const tx = db.transaction(BLOB_STORE, "readonly");
     const store = tx.objectStore(BLOB_STORE);
-    const req = store.openCursor();
-    req.onsuccess = () => {
-      const cursor = req.result;
-      if (!cursor) {
-        resolve(null);
-        return;
-      }
-      const record = cursor.value as SkeinBlobRecord;
-      if (record.blake3 === blake3Hash) {
-        resolve(record);
-        return;
-      }
-      cursor.continue();
-    };
+    const index = store.index("blake3");
+    const req = index.get(blake3Hash);
+    req.onsuccess = () => resolve((req.result as SkeinBlobRecord) ?? null);
     req.onerror = () => reject(req.error);
     tx.oncomplete = () => db.close();
   });
@@ -336,9 +361,129 @@ export async function getBlobData(blobId: string): Promise<ArrayBuffer | null> {
     const fileHandle = await dir.getFileHandle(blobId);
     const file = await fileHandle.getFile();
     return await file.arrayBuffer();
-  } catch {
+  } catch (err) {
+    console.warn("[skein-blob-store] getBlobData failed for", blobId, err);
     return null;
   }
+}
+
+// ---- bao outboard OPFS cache ----------------------------------------------
+
+/**
+ * get (or create) the bao cache directory handle in OPFS.
+ */
+async function getBaoOpfsDir(create = false): Promise<FileSystemDirectoryHandle | null> {
+  try {
+    const root = await navigator.storage.getDirectory();
+    return await root.getDirectoryHandle(BAO_OPFS_DIR, { create });
+  } catch (err) {
+    console.warn("[skein-blob-store] bao OPFS directory access failed:", err);
+    return null;
+  }
+}
+
+/**
+ * store bao-encoded bytes (data + outboard tree interleaved) in OPFS.
+ *
+ * keyed by blake3 hash so it can be looked up when a peer requests the blob
+ * via ensure_blob. the bao data is the format returned by iroh-blobs
+ * `export_bao().bao_to_vec()` and accepted by `import_bao_bytes()`.
+ */
+export async function storeBaoData(blake3Hash: string, baoData: ArrayBuffer): Promise<void> {
+  const dir = await getBaoOpfsDir(true);
+  if (!dir) {
+    console.warn("[skein-blob-store] cannot store bao data — OPFS unavailable");
+    return;
+  }
+  try {
+    const fileHandle = await dir.getFileHandle(blake3Hash, { create: true });
+    const writable = await fileHandle.createWritable();
+    await writable.write(baoData);
+    await writable.close();
+  } catch (err) {
+    console.warn("[skein-blob-store] storeBaoData failed for", blake3Hash.slice(0, 16), err);
+  }
+}
+
+/**
+ * retrieve cached bao-encoded bytes for a given blake3 hash.
+ *
+ * returns null if no cached bao data exists or OPFS is unavailable.
+ */
+export async function getBaoData(blake3Hash: string): Promise<ArrayBuffer | null> {
+  try {
+    const dir = await getBaoOpfsDir(false);
+    if (!dir) return null;
+    const fileHandle = await dir.getFileHandle(blake3Hash);
+    const file = await fileHandle.getFile();
+    return await file.arrayBuffer();
+  } catch {
+    // file not found or OPFS unavailable — expected for blobs without cached bao
+    return null;
+  }
+}
+
+/**
+ * delete cached bao data for a given blake3 hash.
+ */
+export async function deleteBaoData(blake3Hash: string): Promise<void> {
+  try {
+    const dir = await getBaoOpfsDir(false);
+    if (dir) {
+      await dir.removeEntry(blake3Hash);
+    }
+  } catch {
+    // file may not exist — that's fine
+  }
+}
+
+/**
+ * resolve a blobId to a SkeinBlobRecord using multiple lookup strategies.
+ * tries: primary key → sha256 index → blake3 index (if provided).
+ *
+ * this handles the case where the automerge doc's blobId was overwritten
+ * by a Tauri peer with a server-assigned UUID that doesn't match the
+ * browser's sha256-based primary key.
+ */
+export async function resolveBlob(
+  blobId: string,
+  blake3?: string
+): Promise<SkeinBlobRecord | null> {
+  if (!blobId) return null;
+
+  // 1. try primary key (most common case — blobId IS the sha256)
+  const byKey = await getBlobRecord(blobId);
+  if (byKey) return byKey;
+
+  // 2. try sha256 index (blobId might be stored as sha256 but under a different primary key)
+  const bySha = await getBlobRecordBySha256(blobId);
+  if (bySha) return bySha;
+
+  // 3. try blake3 index if available
+  if (blake3) {
+    const byBlake3 = await getBlobRecordByBlake3(blake3);
+    if (byBlake3) return byBlake3;
+  }
+
+  return null;
+}
+
+/**
+ * resolve a blobId and return the raw data from OPFS.
+ * uses resolveBlob to find the correct IDB record, then reads OPFS
+ * using the record's actual blob_id (which is the OPFS filename).
+ */
+export async function resolveBlobData(
+  blobId: string,
+  blake3?: string
+): Promise<{ record: SkeinBlobRecord; data: ArrayBuffer } | null> {
+  const record = await resolveBlob(blobId, blake3);
+  if (!record) return null;
+
+  const data = await getBlobData(record.blob_id);
+  if (!data) return null;
+
+  return { record, data };
 }
 
 /**
@@ -362,11 +507,13 @@ export async function getBlobObjectURL(blobId: string): Promise<string | null> {
   const cached = blobUrlCache.get(blobId);
   if (cached) return cached;
 
-  const data = await getBlobData(blobId);
+  const record = await resolveBlob(blobId);
+  if (!record) return null;
+
+  const data = await getBlobData(record.blob_id);
   if (!data) return null;
 
-  const record = await getBlobRecord(blobId);
-  const mime = record?.mime ?? "application/octet-stream";
+  const mime = record.mime ?? "application/octet-stream";
 
   const blob = new Blob([data], { type: mime });
   const url = URL.createObjectURL(blob);
@@ -438,6 +585,12 @@ export async function getDomainEntitiesByBlob(blobId: string): Promise<SkeinDoma
  * entities referencing this blob, and any cached object url.
  */
 export async function deleteBlob(blobId: string): Promise<void> {
+  // look up the record so we can clean up the bao cache by blake3 hash
+  const record = await getBlobRecord(blobId);
+  if (record?.blake3) {
+    await deleteBaoData(record.blake3);
+  }
+
   // remove from OPFS
   try {
     const dir = await getOpfsDir(false);
@@ -511,10 +664,16 @@ export async function clearAll(): Promise<void> {
     };
   });
 
-  // remove the OPFS directory
+  // remove the OPFS directories (blobs + bao cache)
   try {
     const root = await navigator.storage.getDirectory();
     await root.removeEntry(OPFS_DIR, { recursive: true });
+  } catch {
+    // directory may not exist — that's fine
+  }
+  try {
+    const root = await navigator.storage.getDirectory();
+    await root.removeEntry(BAO_OPFS_DIR, { recursive: true });
   } catch {
     // directory may not exist — that's fine
   }

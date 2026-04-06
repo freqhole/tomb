@@ -210,12 +210,37 @@ export class MiddenNode {
      */
     fetch_hello_image(peer_addr: string): Promise<HelloImageResult>;
     /**
+     * check whether a blob with the given blake3 hash is currently held in the MemStore
+     * via an active TempTag. avoids expensive OPFS read + bao recomputation when the
+     * blob is already loaded.
+     */
+    has_active_blob(blake3_hash: string): boolean;
+    /**
+     * import a blob from its pre-computed bao-encoded bytes, skipping the
+     * expensive bao tree computation. `blake3_hash` is the 64-char hex hash,
+     * `bao_data` is the bao-encoded bytes previously returned by
+     * `import_blob_and_export_bao`.
+     *
+     * uses `import_bao_bytes` (iroh-blobs internal API) to feed the pre-computed
+     * bao stream directly into the store, then creates a global TempTag via
+     * `Tags::temp_tag` to prevent GC.
+     */
+    import_bao(blake3_hash: string, bao_data: Uint8Array): Promise<string>;
+    /**
      * import raw bytes into the iroh-blobs store, returning the blake3 hash.
      * this makes the blob available for verified download by peers.
      * the blob stays in the store as long as its TempTag is held in active_tags.
-     * call release_blob() to allow GC, or it will be evicted when the map exceeds 10 entries.
+     * call release_blob() to allow GC, or it will be evicted when the map exceeds 3 entries.
      */
     import_blob(data: Uint8Array): Promise<string>;
+    /**
+     * import raw bytes into the iroh-blobs store, returning both the blake3 hash
+     * AND the bao-encoded bytes. the bao bytes can be cached in OPFS and later
+     * fed to `import_bao` to skip the expensive bao tree recomputation on re-import.
+     *
+     * returns a JS object: `{ hash: string, bao: Uint8Array }`
+     */
+    import_blob_and_export_bao(data: Uint8Array): Promise<any>;
     /**
      * get our node_id (iroh public key)
      */

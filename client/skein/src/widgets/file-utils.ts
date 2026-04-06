@@ -174,6 +174,9 @@ async function tauriInvoke(cmd: string, args: Record<string, unknown>): Promise<
  */
 const thumbnailCache = new Map<string, string>();
 
+/** session-scoped locality cache — avoids repeated IDB lookups for blobs we already know are local */
+const localityCache = new Map<string, BlobLocalityInfo>();
+
 function cacheKey(blobId: string, size: number): string {
   return `${blobId}:${size}`;
 }
@@ -193,21 +196,71 @@ export function clearThumbnailCache(): void {
  *
  * returns locality info including metadata when the blob is local.
  */
-export async function checkBlobLocality(blobId: string): Promise<BlobLocalityInfo> {
+export async function checkBlobLocality(
+  blobId: string,
+  blake3?: string
+): Promise<BlobLocalityInfo> {
   if (!blobId) {
     return { locality: "unknown" };
   }
 
+  const cached = localityCache.get(blobId);
+  if (cached && cached.locality === "local") {
+    return cached;
+  }
+
   if (!isTauriMode()) {
     try {
-      const { hasBlob, getBlobRecord } = await import("../storage/skein-blob-store");
+      const { hasBlob, getBlobRecord, getBlobRecordBySha256 } =
+        await import("../storage/skein-blob-store");
       const exists = await hasBlob(blobId);
       if (!exists) {
+        // blobId might be a server-assigned UUID that doesn't match our IDB primary key.
+        // fall back to sha256 index lookup — the browser originally stored the blob
+        // under its sha256 hash, but a Tauri peer's snatch may have overwritten the
+        // automerge doc's blobId with the server UUID.
+        const sha256Record = await getBlobRecordBySha256(blobId);
+        if (sha256Record) {
+          const result: BlobLocalityInfo = {
+            locality: "local",
+            metadata: {
+              id: sha256Record.blob_id,
+              mime: sha256Record.mime || undefined,
+              filename: sha256Record.filename || undefined,
+              size: sha256Record.size || undefined,
+              blake3: sha256Record.blake3 || undefined,
+            },
+          };
+          localityCache.set(blobId, result);
+          return result;
+        }
+        // fallback: try blake3 index — the blobId might be a server UUID that
+        // doesn't match our sha256-based primary key, but the content hash is
+        // the same regardless of which peer assigned the ID.
+        if (blake3) {
+          const { getBlobRecordByBlake3 } = await import("../storage/skein-blob-store");
+          const blake3Record = await getBlobRecordByBlake3(blake3);
+          if (blake3Record) {
+            const result: BlobLocalityInfo = {
+              locality: "local",
+              metadata: {
+                id: blake3Record.blob_id,
+                mime: blake3Record.mime || undefined,
+                filename: blake3Record.filename || undefined,
+                size: blake3Record.size || undefined,
+                blake3: blake3Record.blake3 || undefined,
+              },
+            };
+            localityCache.set(blobId, result);
+            return result;
+          }
+        }
+
         return { locality: "remote" };
       }
       const record = await getBlobRecord(blobId);
       if (record) {
-        return {
+        const result: BlobLocalityInfo = {
           locality: "local",
           metadata: {
             id: record.blob_id,
@@ -217,8 +270,12 @@ export async function checkBlobLocality(blobId: string): Promise<BlobLocalityInf
             blake3: record.blake3 || undefined,
           },
         };
+        localityCache.set(blobId, result);
+        return result;
       }
-      return { locality: "local" };
+      const result: BlobLocalityInfo = { locality: "local" };
+      localityCache.set(blobId, result);
+      return result;
     } catch (err) {
       console.debug(TAG, "browser blob locality check failed:", err);
       return { locality: "unknown" };
@@ -247,7 +304,7 @@ export async function checkBlobLocality(blobId: string): Promise<BlobLocalityInf
       }
     }
 
-    return {
+    const result: BlobLocalityInfo = {
       locality: "local",
       metadata: {
         id: blob.id,
@@ -258,6 +315,8 @@ export async function checkBlobLocality(blobId: string): Promise<BlobLocalityInf
         blobMetadata,
       },
     };
+    localityCache.set(blobId, result);
+    return result;
   } catch (err) {
     console.debug(TAG, "blob locality check failed:", err);
     return { locality: "unknown" };
@@ -286,7 +345,8 @@ export async function snatchBlob(
 ): Promise<FileUploadResult> {
   if (!isTauriMode()) {
     const { getMiddenNode } = await import("../p2p/identity");
-    const { storeBlob, storeDomainEntity } = await import("../storage/skein-blob-store");
+    const { storeBlob, storeDomainEntity, computeSha256 } =
+      await import("../storage/skein-blob-store");
 
     const peerAddrs = await getPeerNodeIds(peers);
 
@@ -365,10 +425,13 @@ export async function snatchBlob(
           `browser snatch: downloaded ${formatFileSize(bytes.length)}, storing in OPFS...`
         );
 
-        // store in OPFS + IDB
-        await storeBlob(info.blobId, bytes.buffer as ArrayBuffer, {
-          blob_id: info.blobId,
-          sha256: "",
+        // store in OPFS + IDB — compute sha256 so the record is findable
+        // even when the automerge doc's blobId gets overwritten by a Tauri
+        // peer with a server-assigned UUID.
+        const sha256 = await computeSha256(bytes.buffer as ArrayBuffer);
+        await storeBlob(sha256, bytes.buffer as ArrayBuffer, {
+          blob_id: sha256,
+          sha256: sha256,
           blake3: blake3Hash,
           filename: info.filename,
           mime: info.mime,
@@ -383,7 +446,7 @@ export async function snatchBlob(
         const entityId = crypto.randomUUID();
         await storeDomainEntity({
           entity_id: entityId,
-          blob_id: info.blobId,
+          blob_id: sha256,
           domain: info.domain,
           title: info.filename,
           description: "",
@@ -397,14 +460,22 @@ export async function snatchBlob(
         thumbnailCache.delete(key200);
         thumbnailCache.delete(key50);
 
-        console.log(TAG, `browser snatch complete: blob ${info.blobId.slice(0, 8)}...`);
+        // mark blob as local in the locality cache since we just downloaded it
+        localityCache.set(info.blobId, { locality: "local" });
+        // also cache by sha256 key so resolveBlob can find it later
+        localityCache.set(sha256, { locality: "local" });
+
+        console.log(
+          TAG,
+          `browser snatch complete: blob ${sha256.slice(0, 8)}... (doc blobId=${info.blobId.slice(0, 8)}...)`
+        );
 
         return {
-          blobId: info.blobId,
+          blobId: sha256,
           domain: info.domain,
           entityId,
           jobId: null,
-          sha256: "",
+          sha256: sha256,
           blake3: blake3Hash || null,
           size: info.size || bytes.length,
           mime: info.mime,
@@ -514,6 +585,9 @@ export async function snatchBlob(
       const key50 = cacheKey(info.blobId, 50);
       thumbnailCache.delete(key200);
       thumbnailCache.delete(key50);
+
+      // mark blob as local in the locality cache since we just downloaded it
+      localityCache.set(info.blobId, { locality: "local" });
 
       return {
         blobId: d.blob_id,
@@ -1012,7 +1086,7 @@ export async function uploadFile(
       entityId,
       jobId: null,
       sha256: record.sha256,
-      blake3: "",
+      blake3: record.blake3 || "",
       size: record.size,
       mime: record.mime,
       existing: false,
@@ -1132,16 +1206,19 @@ export async function getThumbnailDataUrl(
  */
 async function fetchThumbnailLocal(blobId: string, size: number): Promise<string | null> {
   if (!isTauriMode()) {
-    // browser mode: try generating thumbnail from OPFS data
+    // browser mode: try generating thumbnail from OPFS data.
+    // use resolveBlob to handle the case where the automerge doc's blobId
+    // was overwritten by a Tauri peer with a server UUID that doesn't match
+    // the browser's sha256-based primary key.
     try {
-      const { getBlobData, getBlobRecord } = await import("../storage/skein-blob-store");
-      const record = await getBlobRecord(blobId);
+      const { resolveBlob, getBlobData } = await import("../storage/skein-blob-store");
+      const record = await resolveBlob(blobId);
       if (!record) return null;
 
       // only generate thumbnails for images — video/audio need ffmpeg (Tauri only)
       if (!record.mime.startsWith("image/")) return null;
 
-      const data = await getBlobData(blobId);
+      const data = await getBlobData(record.blob_id);
       if (!data) return null;
 
       const blob = new Blob([data], { type: record.mime });

@@ -371,6 +371,13 @@ async fn create_domain_entity(
 ) -> GrimoireResult<String> {
     match domain {
         MediaDomain::Audio => {
+            // check if domain entity already exists for this blob (dedup)
+            if let Ok(existing) =
+                crate::media::audioz::repository::get_audio_by_blob_id(blob_id).await
+            {
+                tracing::info!("audio entity already exists for blob {}, reusing", blob_id);
+                return Ok(existing.id);
+            }
             let entity = crate::media::audioz::repository::create_audio(
                 crate::media::audioz::CreateAudioRequest {
                     media_blob_id: blob_id.to_string(),
@@ -389,6 +396,13 @@ async fn create_domain_entity(
             Ok(entity.id)
         }
         MediaDomain::Photo => {
+            // check if domain entity already exists for this blob (dedup)
+            if let Ok(existing) =
+                crate::media::photoz::repository::get_photo_by_blob_id(blob_id).await
+            {
+                tracing::info!("photo entity already exists for blob {}, reusing", blob_id);
+                return Ok(existing.id);
+            }
             let entity = crate::media::photoz::repository::create_photo(
                 crate::media::photoz::CreatePhotoRequest {
                     media_blob_id: blob_id.to_string(),
@@ -411,6 +425,13 @@ async fn create_domain_entity(
             Ok(entity.id)
         }
         MediaDomain::Video => {
+            // check if domain entity already exists for this blob (dedup)
+            if let Ok(existing) =
+                crate::media::videoz::repository::get_video_by_blob_id(blob_id).await
+            {
+                tracing::info!("video entity already exists for blob {}, reusing", blob_id);
+                return Ok(existing.id);
+            }
             let entity = crate::media::videoz::repository::create_video(
                 crate::media::videoz::CreateVideoRequest {
                     media_blob_id: blob_id.to_string(),
@@ -431,6 +452,16 @@ async fn create_domain_entity(
             Ok(entity.id)
         }
         MediaDomain::Document => {
+            // check if domain entity already exists for this blob (dedup)
+            if let Ok(existing) =
+                crate::media::documentz::repository::get_document_by_blob_id(blob_id).await
+            {
+                tracing::info!(
+                    "document entity already exists for blob {}, reusing",
+                    blob_id
+                );
+                return Ok(existing.id);
+            }
             let entity = crate::media::documentz::repository::create_document(
                 crate::media::documentz::CreateDocumentRequest {
                     media_blob_id: blob_id.to_string(),
@@ -449,6 +480,13 @@ async fn create_domain_entity(
             Ok(entity.id)
         }
         MediaDomain::File => {
+            // check if domain entity already exists for this blob (dedup)
+            if let Ok(existing) =
+                crate::media::filez::repository::get_file_by_blob_id(blob_id).await
+            {
+                tracing::info!("file entity already exists for blob {}, reusing", blob_id);
+                return Ok(existing.id);
+            }
             let entity = crate::media::filez::repository::create_file(
                 crate::media::filez::CreateFileRequest {
                     media_blob_id: blob_id.to_string(),

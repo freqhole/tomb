@@ -135,6 +135,7 @@ function createPillButton(text: string, fill: number, onClick: () => void): Pill
   c.addChild(label);
 
   const redraw = () => {
+    if (c.destroyed) return;
     const w = label.width + BUTTON_PAD_H * 2;
     bg.clear();
     bg.roundRect(0, 0, w, BUTTON_H, BUTTON_RADIUS);
@@ -204,6 +205,9 @@ export const fileWidget: WidgetFactory<typeof fileSchema> = {
     // flag: true when the user uploaded the file through this widget instance.
     // prevents showing "save to disk" for files the user just uploaded.
     let uploadedLocally = false;
+
+    // set when the widget is destroyed; async handlers check this to bail out
+    let destroyed = false;
 
     // -- background -----------------------------------------------------------
 
@@ -406,6 +410,7 @@ export const fileWidget: WidgetFactory<typeof fileSchema> = {
 
     /** sync action button visibility based on current actionState */
     function syncActionButtons() {
+      if (destroyed) return;
       const state = ctx.doc.current;
       const domain = state.domain || "file";
 
@@ -532,17 +537,39 @@ export const fileWidget: WidgetFactory<typeof fileSchema> = {
       thumbSprite.y = (thumbAreaH - thumbSprite.height) / 2;
     };
 
+    // max data URL length we're willing to hand to PixiJS (~10 MB base64)
+    const MAX_DATA_URL_LENGTH = 10 * 1024 * 1024;
+
+    const isValidImageDataUrl = (url: string): boolean => {
+      if (!url || typeof url !== "string") return false;
+      if (!url.startsWith("data:image/")) return false;
+      if (url.length > MAX_DATA_URL_LENGTH) return false;
+      // must have the base64 comma separator
+      if (!url.includes(",")) return false;
+      return true;
+    };
+
     const destroySprite = () => {
-      if (thumbSprite) {
-        container.removeChild(thumbSprite);
-        thumbSprite.destroy();
+      try {
+        if (thumbSprite) {
+          container.removeChild(thumbSprite);
+          thumbSprite.destroy();
+          thumbSprite = null;
+        }
+      } catch (err) {
+        // sprite/texture destruction can fail if the WebGL context was lost
+        console.warn("[file-widget] destroySprite: sprite cleanup failed", err);
         thumbSprite = null;
       }
       if (loadedAssetKey) {
         const keyToUnload = loadedAssetKey;
         // defer unload to next frame so the render loop doesn't access a destroyed texture
         requestAnimationFrame(() => {
-          Assets.unload(keyToUnload);
+          try {
+            Assets.unload(keyToUnload);
+          } catch (err) {
+            console.warn("[file-widget] destroySprite: asset unload failed", err);
+          }
           if (keyToUnload.startsWith("blob:")) {
             URL.revokeObjectURL(keyToUnload);
           }
@@ -580,7 +607,7 @@ export const fileWidget: WidgetFactory<typeof fileSchema> = {
       actionState = "checking";
       syncActionButtons();
 
-      const info = await checkBlobLocality(blobId);
+      const info = await checkBlobLocality(blobId, ctx.doc.current.blake3);
       // make sure we're still looking at the same blob
       if (ctx.doc.current.blobId !== blobId) return;
 
@@ -637,29 +664,65 @@ export const fileWidget: WidgetFactory<typeof fileSchema> = {
 
         destroySprite();
 
-        if (dataUrl) {
-          const texture = await Assets.load<Texture>(dataUrl);
+        if (dataUrl && isValidImageDataUrl(dataUrl)) {
+          let texture: Texture | null = null;
+          try {
+            texture = await Assets.load<Texture>(dataUrl);
+          } catch (texErr) {
+            console.warn("[file-widget] loadThumbnail: Assets.load failed for", blobId, texErr);
+            texture = null;
+          }
+
+          // validate the texture has a usable WebGL source — Assets.load can
+          // return a Texture whose underlying source or style is null/invalid
+          // (e.g. malformed image data, GPU resource lost). this causes an
+          // "addressModeU" crash during the render frame when PixiJS tries to
+          // bind the texture. treat it as a failed load instead.
+          if (texture && !texture.source?.style) {
+            console.warn(
+              "[file-widget] loadThumbnail: texture has invalid source, skipping",
+              blobId
+            );
+            try {
+              Assets.unload(dataUrl);
+            } catch {
+              /* ignored */
+            }
+            texture = null;
+          }
 
           if (abort.signal.aborted || lastRequestedBlobId !== blobId) {
-            Assets.unload(dataUrl);
+            if (texture) {
+              try {
+                Assets.unload(dataUrl);
+              } catch {
+                /* ignored */
+              }
+            }
             return;
           }
 
-          currentTexture = texture;
-          loadedAssetKey = dataUrl;
-          thumbSprite = new Sprite(currentTexture);
-          // insert above bg but below info container and overlays
-          container.addChildAt(thumbSprite, 1);
-          hasThumbnail = true;
+          if (texture) {
+            currentTexture = texture;
+            loadedAssetKey = dataUrl;
+            thumbSprite = new Sprite(currentTexture);
+            // insert above bg but below info container and overlays
+            container.addChildAt(thumbSprite, 1);
+            hasThumbnail = true;
 
-          // make thumbnail clickable for preview when the domain supports it
-          const domain = ctx.doc.current.domain || "file";
-          thumbSprite.eventMode = "static";
-          thumbSprite.cursor = isPreviewableDomain(domain) ? "pointer" : "default";
-          thumbSprite.on("pointertap", (e) => {
-            e.stopPropagation();
-            handlePreview();
-          });
+            // make thumbnail clickable for preview when the domain supports it
+            const domain = ctx.doc.current.domain || "file";
+            thumbSprite.eventMode = "static";
+            thumbSprite.cursor = isPreviewableDomain(domain) ? "pointer" : "default";
+            thumbSprite.on("pointertap", (e) => {
+              e.stopPropagation();
+              handlePreview();
+            });
+          } else {
+            // texture failed to load — show fallback icon
+            hasThumbnail = false;
+            positionFallbackIcon(currentWidth, currentHeight);
+          }
         } else {
           // no thumbnail available — show fallback icon with domain name
           hasThumbnail = false;
@@ -689,14 +752,51 @@ export const fileWidget: WidgetFactory<typeof fileSchema> = {
     const loadEmbeddedThumbnail = async (dataUrl: string) => {
       if (!dataUrl) return;
 
+      if (!isValidImageDataUrl(dataUrl)) {
+        console.warn(
+          "[file-widget] loadEmbeddedThumbnail: malformed data URL, falling back to async fetch"
+        );
+        loadThumbnail(ctx.doc.current.blobId);
+        return;
+      }
+
       try {
         destroySprite();
 
-        const texture = await Assets.load<Texture>(dataUrl);
+        let texture: Texture | null = null;
+        try {
+          texture = await Assets.load<Texture>(dataUrl);
+        } catch (texErr) {
+          console.warn("[file-widget] loadEmbeddedThumbnail: Assets.load failed", texErr);
+          texture = null;
+        }
+
+        // validate the texture has a usable WebGL source (same guard as loadThumbnail)
+        if (texture && !texture.source?.style) {
+          console.warn("[file-widget] loadEmbeddedThumbnail: texture has invalid source, skipping");
+          try {
+            Assets.unload(dataUrl);
+          } catch {
+            /* ignored */
+          }
+          texture = null;
+        }
 
         // check we haven't been superseded while loading
         if (ctx.doc.current.thumbnailDataUrl !== dataUrl) {
-          Assets.unload(dataUrl);
+          if (texture) {
+            try {
+              Assets.unload(dataUrl);
+            } catch {
+              /* ignored */
+            }
+          }
+          return;
+        }
+
+        if (!texture) {
+          // texture load failed — fall back to the async thumbnail fetch
+          loadThumbnail(ctx.doc.current.blobId);
           return;
         }
 
@@ -719,7 +819,7 @@ export const fileWidget: WidgetFactory<typeof fileSchema> = {
         syncVisibility();
         fitSprite(currentWidth, currentHeight);
       } catch {
-        // data URL failed to load — fall back to the async thumbnail fetch
+        // unexpected error — fall back to the async thumbnail fetch
         loadThumbnail(ctx.doc.current.blobId);
       }
     };
@@ -851,11 +951,16 @@ export const fileWidget: WidgetFactory<typeof fileSchema> = {
         // generate from OPFS for image blobs — non-image blobs get thumbnails
         // when a Tauri peer snatches and generates via ffmpeg)
         try {
-          const thumbDataUrl = await getThumbnailDataUrl(result.blobId, { size: 200 });
-          if (thumbDataUrl && ctx.doc.current.blobId === result.blobId) {
-            ctx.doc.change((draft) => {
-              draft.thumbnailDataUrl = thumbDataUrl;
+          if (!ctx.doc.current.thumbnailDataUrl) {
+            const thumbDataUrl = await getThumbnailDataUrl(result.blobId, {
+              size: 200,
+              peers: ctx.canvasStore?.peers(),
             });
+            if (thumbDataUrl && ctx.doc.current.blobId === result.blobId) {
+              ctx.doc.change((draft) => {
+                draft.thumbnailDataUrl = thumbDataUrl;
+              });
+            }
           }
         } catch {
           // thumbnail generation may not be ready yet — that's OK
@@ -1080,6 +1185,7 @@ export const fileWidget: WidgetFactory<typeof fileSchema> = {
           activePlayer = null;
         }
         unsub();
+        destroyed = true;
         destroySprite();
         container.destroy({ children: true });
       },

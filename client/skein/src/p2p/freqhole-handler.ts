@@ -205,7 +205,7 @@ async function handleThumbnailData(
   }
 
   const store = await getBlobStore();
-  const record = await store.getBlobRecord(blobId);
+  const record = await store.resolveBlob(blobId);
   if (!record) {
     await sendRawResponse(stream, {
       type: "proxy_response",
@@ -216,7 +216,7 @@ async function handleThumbnailData(
     return;
   }
 
-  const data = await store.getBlobData(blobId);
+  const data = await store.getBlobData(record.blob_id);
   if (!data) {
     await sendRawResponse(stream, {
       type: "proxy_response",
@@ -246,7 +246,7 @@ async function handleThumbnailData(
 
 async function handleBlobData(stream: BiStreamLike, id: number, blobId: string): Promise<void> {
   const store = await getBlobStore();
-  const record = await store.getBlobRecord(blobId);
+  const record = await store.resolveBlob(blobId);
   if (!record) {
     await sendRawResponse(stream, {
       type: "proxy_response",
@@ -257,7 +257,7 @@ async function handleBlobData(stream: BiStreamLike, id: number, blobId: string):
     return;
   }
 
-  const data = await store.getBlobData(blobId);
+  const data = await store.getBlobData(record.blob_id);
   if (!data) {
     await sendRawResponse(stream, {
       type: "proxy_response",
@@ -300,7 +300,7 @@ async function handleBlobMetadata(
   }
 
   const store = await getBlobStore();
-  const record = await store.getBlobRecord(blobId);
+  const record = await store.resolveBlob(blobId);
   if (!record) {
     await sendRawResponse(stream, {
       type: "proxy_response",
@@ -340,9 +340,9 @@ async function handleComputeBlake3(stream: BiStreamLike, msg: ComputeBlake3Reque
   console.log(TAG, `compute_blake3 for ${blob_id.slice(0, 8)}... from ${peerId}...`);
 
   const store = await getBlobStore();
-  const data = await store.getBlobData(blob_id);
+  const resolved = await store.resolveBlobData(blob_id);
 
-  if (!data) {
+  if (!resolved) {
     await sendRawResponse(stream, {
       type: "compute_blake3_response",
       id,
@@ -352,19 +352,41 @@ async function handleComputeBlake3(stream: BiStreamLike, msg: ComputeBlake3Reque
     return;
   }
 
-  try {
-    // hash_blake3 is a standalone #[wasm_bindgen] function on the midden module
-    const middenWasm = (await import("midden")) as any;
-    const hash: string =
-      typeof middenWasm.hash_blake3 === "function"
-        ? middenWasm.hash_blake3(new Uint8Array(data))
-        : (() => {
-            throw new Error("hash_blake3 not available on midden module");
-          })();
+  let data: ArrayBuffer | null = resolved.data;
 
-    // also import into MemStore so the blob is ready for immediate verified download
+  try {
+    // import into MemStore AND export the bao-encoded bytes for caching.
+    // import_blob_and_export_bao returns { hash, bao } — we use its hash
+    // as the blake3 result instead of calling hash_blake3 separately.
+    // this avoids copying the full blob into WASM twice (OOM fix).
     const node = await getMiddenNode();
-    await (node as any).import_blob(new Uint8Array(data));
+    let hash: string;
+
+    if (typeof (node as any).import_blob_and_export_bao === "function") {
+      try {
+        const result = await (node as any).import_blob_and_export_bao(new Uint8Array(data));
+        // release the JS ArrayBuffer to allow GC before caching bao
+        data = null;
+        hash = result.hash;
+        if (result && result.bao) {
+          const baoStore = await getBlobStore();
+          await baoStore.storeBaoData(hash, result.bao.buffer);
+          console.log(
+            TAG,
+            `cached bao data for ${hash.slice(0, 16)}... (${result.bao.byteLength} bytes)`
+          );
+        }
+      } catch (baoErr) {
+        // fallback to plain import if bao export fails — import_blob also returns the hash
+        console.warn(TAG, `bao export failed, falling back to plain import:`, baoErr);
+        hash = await (node as any).import_blob(new Uint8Array(data!));
+        data = null;
+      }
+    } else {
+      // midden build without bao export support — import_blob returns the hash
+      hash = await (node as any).import_blob(new Uint8Array(data));
+      data = null;
+    }
 
     console.log(TAG, `computed blake3 for ${blob_id.slice(0, 8)}...: ${hash.slice(0, 16)}...`);
 
@@ -393,8 +415,42 @@ async function handleEnsureBlob(stream: BiStreamLike, msg: EnsureBlobRequest): P
   console.log(TAG, `ensure_blob ${blake3_hash.slice(0, 16)}... from ${peerId}...`);
 
   try {
-    // look up the blob record by its blake3 hash (cursor scan, no index)
+    // check if already in MemStore (avoids expensive OPFS read + bao recomputation)
+    const node = await getMiddenNode();
+    if (typeof (node as any).has_active_blob === "function") {
+      const alreadyLoaded = (node as any).has_active_blob(blake3_hash);
+      if (alreadyLoaded) {
+        console.log(
+          TAG,
+          `blob ${blake3_hash.slice(0, 16)}... already in MemStore, skipping re-import`
+        );
+        await sendRawResponse(stream, { type: "ensure_blob_response", id, available: true });
+        return;
+      }
+    }
+
+    // try fast path: import from cached bao data (skips bao tree recomputation).
+    // the bao cache is populated by handleComputeBlake3 / import_blob_and_export_bao.
     const store = await getBlobStore();
+    if (typeof (node as any).import_bao === "function") {
+      const baoData = await store.getBaoData(blake3_hash);
+      if (baoData) {
+        try {
+          await (node as any).import_bao(blake3_hash, new Uint8Array(baoData));
+          console.log(
+            TAG,
+            `ensured blob ${blake3_hash.slice(0, 16)}... via cached bao (fast path)`
+          );
+          await sendRawResponse(stream, { type: "ensure_blob_response", id, available: true });
+          return;
+        } catch (baoErr) {
+          // bao import failed — fall through to full import path
+          console.warn(TAG, `bao import failed, falling back to full import:`, baoErr);
+        }
+      }
+    }
+
+    // slow path: look up raw blob data by blake3 hash, import via add_bytes
     const record = await store.getBlobRecordByBlake3(blake3_hash);
 
     if (!record) {
@@ -418,9 +474,25 @@ async function handleEnsureBlob(stream: BiStreamLike, msg: EnsureBlobRequest): P
       return;
     }
 
-    // import into MemStore so the blob is available for iroh-blobs serving
-    const node = await getMiddenNode();
-    await (node as any).import_blob(new Uint8Array(data));
+    // import into MemStore. try the bao-exporting variant so we cache the bao
+    // data for next time (if the method is available).
+    if (typeof (node as any).import_blob_and_export_bao === "function") {
+      try {
+        const result = await (node as any).import_blob_and_export_bao(new Uint8Array(data));
+        if (result && result.bao) {
+          await store.storeBaoData(blake3_hash, result.bao.buffer);
+          console.log(
+            TAG,
+            `ensured blob ${blake3_hash.slice(0, 16)}... and cached bao (${result.bao.byteLength} bytes)`
+          );
+        }
+      } catch (baoErr) {
+        console.warn(TAG, `bao export failed, falling back to plain import:`, baoErr);
+        await (node as any).import_blob(new Uint8Array(data));
+      }
+    } else {
+      await (node as any).import_blob(new Uint8Array(data));
+    }
 
     console.log(TAG, `ensured blob ${blake3_hash.slice(0, 16)}... in MemStore`);
 

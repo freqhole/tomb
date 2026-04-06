@@ -7,6 +7,8 @@
 //! - freqhole/1: custom protocol for API proxying and small blob streaming
 //! - freqhole-blobz: iroh-blobs protocol for verified streaming of audio files
 
+use bao_tree::ChunkRanges;
+use indexmap::IndexMap;
 use iroh::endpoint::presets;
 use iroh::endpoint::{Connection, RecvStream, SendStream};
 use iroh::protocol::ProtocolHandler;
@@ -19,7 +21,6 @@ use iroh_blobs::{BlobsProtocol, Hash, HashAndFormat};
 use js_sys::Uint8Array;
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
-use std::collections::HashMap;
 use tracing::level_filters::LevelFilter;
 use tracing::{info, warn};
 use tracing_subscriber_wasm::MakeConsoleWriter;
@@ -390,9 +391,9 @@ pub struct MiddenNode {
     blobs_downloader: Downloader,
     blobs_protocol: BlobsProtocol,
     /// active TempTags keyed by blob hash — prevents GC of imported blobs.
-    /// capped at 10 entries; oldest evicted when full.
+    /// capped at 3 entries; oldest evicted when full.
     #[wasm_bindgen(skip)]
-    pub active_tags: RefCell<HashMap<Hash, TempTag>>,
+    pub active_tags: RefCell<IndexMap<Hash, TempTag>>,
 }
 
 #[wasm_bindgen]
@@ -462,7 +463,7 @@ impl MiddenNode {
             blobs_store,
             blobs_downloader,
             blobs_protocol,
-            active_tags: RefCell::new(HashMap::new()),
+            active_tags: RefCell::new(IndexMap::new()),
         })
     }
 
@@ -538,7 +539,7 @@ impl MiddenNode {
             blobs_store,
             blobs_downloader,
             blobs_protocol,
-            active_tags: RefCell::new(HashMap::new()),
+            active_tags: RefCell::new(IndexMap::new()),
         })
     }
 
@@ -1054,9 +1055,20 @@ impl MiddenNode {
     /// import raw bytes into the iroh-blobs store, returning the blake3 hash.
     /// this makes the blob available for verified download by peers.
     /// the blob stays in the store as long as its TempTag is held in active_tags.
-    /// call release_blob() to allow GC, or it will be evicted when the map exceeds 10 entries.
+    /// call release_blob() to allow GC, or it will be evicted when the map exceeds 3 entries.
     #[wasm_bindgen]
     pub async fn import_blob(&self, data: &[u8]) -> Result<String, JsError> {
+        // check active_tags first to avoid the expensive add_bytes + bao computation
+        let hash_bytes = blake3::hash(data);
+        let hash = Hash::from_bytes(*hash_bytes.as_bytes());
+
+        {
+            let tags = self.active_tags.borrow();
+            if tags.contains_key(&hash) {
+                return Ok(hash.to_hex().to_string());
+            }
+        }
+
         let bytes_data = bytes::Bytes::from(data.to_vec());
         let tt = self
             .blobs_store
@@ -1065,24 +1077,121 @@ impl MiddenNode {
             .temp_tag()
             .await
             .map_err(|e| JsError::new(&format!("failed to import blob: {}", e)))?;
-        let hash = tt.hash();
 
         let mut tags = self.active_tags.borrow_mut();
-
-        // dedup: if we already hold this hash, just return
-        if tags.contains_key(&hash) {
-            return Ok(hash.to_hex().to_string());
-        }
 
         // cap at 3 entries — evict oldest before inserting the 4th.
         // blobs are served on-demand from OPFS; small cap keeps memory bounded.
         // GC (30s interval) reclaims MemStore memory after TempTags are dropped.
         if tags.len() >= 3 {
             let evict_key = *tags.keys().next().unwrap();
-            tags.remove(&evict_key);
+            tags.shift_remove(&evict_key);
         }
 
         tags.insert(hash, tt);
+        Ok(hash.to_hex().to_string())
+    }
+
+    /// import raw bytes into the iroh-blobs store, returning both the blake3 hash
+    /// AND the bao-encoded bytes. the bao bytes can be cached in OPFS and later
+    /// fed to `import_bao` to skip the expensive bao tree recomputation on re-import.
+    ///
+    /// returns a JS object: `{ hash: string, bao: Uint8Array }`
+    #[wasm_bindgen]
+    pub async fn import_blob_and_export_bao(&self, data: &[u8]) -> Result<JsValue, JsError> {
+        let hash_bytes = blake3::hash(data);
+        let hash = Hash::from_bytes(*hash_bytes.as_bytes());
+        let hash_str = hash.to_hex().to_string();
+
+        // import the blob (computes bao tree internally)
+        let bytes_data = bytes::Bytes::from(data.to_vec());
+        let tt = self
+            .blobs_store
+            .blobs()
+            .add_bytes(bytes_data)
+            .temp_tag()
+            .await
+            .map_err(|e| JsError::new(&format!("failed to import blob: {}", e)))?;
+
+        // export the bao-encoded stream (data + tree interleaved).
+        // this is the format accepted by import_bao_bytes for re-import.
+        let bao_bytes = self
+            .blobs_store
+            .blobs()
+            .export_bao(hash, ChunkRanges::all())
+            .bao_to_vec()
+            .await
+            .map_err(|e| JsError::new(&format!("failed to export bao: {}", e)))?;
+
+        // store TempTag (with eviction)
+        let mut tags = self.active_tags.borrow_mut();
+        if tags.len() >= 3 {
+            let evict_key = *tags.keys().next().unwrap();
+            tags.shift_remove(&evict_key);
+        }
+        tags.insert(hash, tt);
+
+        // return { hash, bao } to JS
+        let bao_array = Uint8Array::new_with_length(bao_bytes.len() as u32);
+        bao_array.copy_from(&bao_bytes);
+
+        let result = js_sys::Object::new();
+        js_sys::Reflect::set(&result, &"hash".into(), &hash_str.into())
+            .map_err(|_| JsError::new("failed to set hash on result object"))?;
+        js_sys::Reflect::set(&result, &"bao".into(), &bao_array.into())
+            .map_err(|_| JsError::new("failed to set bao on result object"))?;
+        Ok(result.into())
+    }
+
+    /// import a blob from its pre-computed bao-encoded bytes, skipping the
+    /// expensive bao tree computation. `blake3_hash` is the 64-char hex hash,
+    /// `bao_data` is the bao-encoded bytes previously returned by
+    /// `import_blob_and_export_bao`.
+    ///
+    /// uses `import_bao_bytes` (iroh-blobs internal API) to feed the pre-computed
+    /// bao stream directly into the store, then creates a global TempTag via
+    /// `Tags::temp_tag` to prevent GC.
+    #[wasm_bindgen]
+    pub async fn import_bao(&self, blake3_hash: &str, bao_data: &[u8]) -> Result<String, JsError> {
+        let hash: Hash = blake3_hash
+            .parse()
+            .map_err(|_| JsError::new("invalid blake3 hash"))?;
+
+        // check active_tags first — no need to re-import
+        {
+            let tags = self.active_tags.borrow();
+            if tags.contains_key(&hash) {
+                return Ok(hash.to_hex().to_string());
+            }
+        }
+
+        // import the bao-encoded bytes (data + outboard tree interleaved).
+        // this skips the bao tree computation that add_bytes() would do.
+        let bao_bytes = bytes::Bytes::from(bao_data.to_vec());
+        self.blobs_store
+            .blobs()
+            .import_bao_bytes(hash, ChunkRanges::all(), bao_bytes)
+            .await
+            .map_err(|e| JsError::new(&format!("failed to import bao: {}", e)))?;
+
+        // create a global-scope TempTag to prevent GC.
+        // Tags::temp_tag creates a TempTag independent of any Batch scope,
+        // so it survives as long as we hold it in active_tags.
+        let tt = self
+            .blobs_store
+            .tags()
+            .temp_tag(HashAndFormat::raw(hash))
+            .await
+            .map_err(|e| JsError::new(&format!("failed to create temp tag: {}", e)))?;
+
+        // store TempTag (with eviction)
+        let mut tags = self.active_tags.borrow_mut();
+        if tags.len() >= 3 {
+            let evict_key = *tags.keys().next().unwrap();
+            tags.shift_remove(&evict_key);
+        }
+        tags.insert(hash, tt);
+
         Ok(hash.to_hex().to_string())
     }
 
@@ -1093,7 +1202,7 @@ impl MiddenNode {
         let hash: Hash = blake3_hash
             .parse()
             .map_err(|_| JsError::new("invalid blake3 hash"))?;
-        self.active_tags.borrow_mut().remove(&hash);
+        self.active_tags.borrow_mut().shift_remove(&hash);
         Ok(())
     }
 
@@ -1101,6 +1210,18 @@ impl MiddenNode {
     #[wasm_bindgen]
     pub fn active_blob_count(&self) -> usize {
         self.active_tags.borrow().len()
+    }
+
+    /// check whether a blob with the given blake3 hash is currently held in the MemStore
+    /// via an active TempTag. avoids expensive OPFS read + bao recomputation when the
+    /// blob is already loaded.
+    #[wasm_bindgen]
+    pub fn has_active_blob(&self, blake3_hash: &str) -> bool {
+        let hash: Hash = match blake3_hash.parse() {
+            Ok(h) => h,
+            Err(_) => return false,
+        };
+        self.active_tags.borrow().contains_key(&hash)
     }
 }
 
