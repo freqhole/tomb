@@ -1,4 +1,4 @@
-import type { FriendEntry } from "./schema";
+import type { FriendEntry, FriendGroup } from "./schema";
 
 // ---------------------------------------------------------------------------
 // visual constants used by helpers
@@ -60,4 +60,30 @@ export function friendDisplayNameFull(friend: FriendEntry): string {
     return `${friend.username} (${friend.alias})`;
   }
   return friendDisplayName(friend);
+}
+
+/**
+ * resolve the best bio string for a friend.
+ * picks the first non-empty bio from the friend's node profiles,
+ * preferring the most recently seen node.
+ */
+export function bestBio(friend: FriendEntry): string {
+  // sort nodes by lastSeenAt descending so we prefer the freshest profile
+  const sorted = [...friend.nodeIds].sort((a, b) =>
+    (b.lastSeenAt || "").localeCompare(a.lastSeenAt || "")
+  );
+  for (const node of sorted) {
+    if (node.bio) return node.bio;
+  }
+  return "";
+}
+
+/**
+ * generate a unique auto-incrementing group name like "group 1", "group 2", etc.
+ */
+export function generateUniqueGroupName(groups: FriendGroup[]): string {
+  const existing = new Set(groups.map((g) => g.name));
+  let i = 1;
+  while (existing.has(`group ${i}`)) i++;
+  return `group ${i}`;
 }

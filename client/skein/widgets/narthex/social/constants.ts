@@ -47,12 +47,32 @@ export const TAB_INACTIVE_COLOR = MUTED_TEXT;
 
 // friend list rows
 export const ROW_HEIGHT = 44;
+export const ROW_HEIGHT_BIO = 52;
 export const ROW_PADDING_X = 10;
 export const ROW_AVATAR_SIZE = 24;
 export const ROW_NAME_SIZE = 12;
 export const ROW_SUB_SIZE = 10;
 export const ROW_ALT_BG = 0x1e1e2a;
 export const SCROLL_SPEED = 20;
+
+// drag-and-drop
+export const DRAG_HOLD_MS = 150;
+export const DRAG_THRESHOLD = 5;
+export const GHOST_ALPHA = 0.65;
+export const DRAG_ROW_DIMMED_ALPHA = 0.3;
+
+// drop zone bar (shown during drag)
+export const DROP_ZONE_HEIGHT = 36;
+export const DROP_ZONE_BG = 0x252540;
+export const DROP_ZONE_ACTIVE_BG = 0x3a3a5a;
+export const DROP_ZONE_BORDER = 0x4a4a6a;
+export const DROP_ZONE_FONT_SIZE = 11;
+
+// group header drop target highlight
+export const GROUP_DROP_HIGHLIGHT = 0x2e2e4a;
+export const GROUP_LINE_WIDTH = 3;
+export const GROUP_LINE_INSET = 2;
+export const HEADER_HOLD_MS = 400;
 
 // online dot
 export const ONLINE_DOT_SIZE = 7;

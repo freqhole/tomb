@@ -36,9 +36,22 @@ import {
   PADDING_X,
   REJECT_COLOR,
   RESOLUTION,
+  DRAG_HOLD_MS,
+  DRAG_ROW_DIMMED_ALPHA,
+  DRAG_THRESHOLD,
+  DROP_ZONE_ACTIVE_BG,
+  DROP_ZONE_BG,
+  DROP_ZONE_BORDER,
+  DROP_ZONE_FONT_SIZE,
+  DROP_ZONE_HEIGHT,
+  GHOST_ALPHA,
+  GROUP_LINE_INSET,
+  GROUP_LINE_WIDTH,
+  HEADER_HOLD_MS,
   ROW_ALT_BG,
   ROW_AVATAR_SIZE,
   ROW_HEIGHT,
+  ROW_HEIGHT_BIO,
   ROW_NAME_SIZE,
   ROW_PADDING_X,
   ROW_SUB_SIZE,
@@ -48,9 +61,11 @@ import {
   TEXT_SIZE,
 } from "./constants";
 import {
+  bestBio,
   colorForName,
   friendDisplayName,
   friendDisplayNameFull,
+  generateUniqueGroupName,
   isValidNodeId,
   truncate,
 } from "./helpers";
@@ -74,6 +89,7 @@ const COPY_FEEDBACK_MS = 1500;
 // ---------------------------------------------------------------------------
 
 const collapsedGroups = new Set<string>();
+const headerLastTapTime = new Map<string, number>();
 
 // ---------------------------------------------------------------------------
 // factory
@@ -100,6 +116,24 @@ export function createFriendsTab(ctx: TabContext): TabController {
   let aliasInputHandle: SkeinInputHandle | null = null;
   let editingNewGroup = false;
   let groupInputHandle: SkeinInputHandle | null = null;
+
+  // drag-and-drop state
+  let dragState: null | {
+    friendId: string;
+    friendGroup: string;
+    startX: number;
+    startY: number;
+    holdTimer: ReturnType<typeof setTimeout> | null;
+    isDragging: boolean;
+    ghost: Container | null;
+  } = null;
+
+  // inline group rename state
+  let editingGroupName: string | null = null;
+  let groupRenameHandle: SkeinInputHandle | null = null;
+
+  // track group header positions for drop hit testing during drag
+  let groupHeaderHitAreas: { group: string; y: number; height: number }[] = [];
 
   // ---------------------------------------------------------------------------
   // friend list area (scrollable, masked)
@@ -130,6 +164,291 @@ export function createFriendsTab(ctx: TabContext): TabController {
   });
   emptyText.eventMode = "none";
   container.addChild(emptyText);
+
+  // -------------------------------------------------------------------------
+  // drop zone bar — fixed at top of list, visible only during drag
+  // -------------------------------------------------------------------------
+
+  const dropZoneBar = new Container();
+  dropZoneBar.visible = false;
+  dropZoneBar.eventMode = "static";
+  container.addChild(dropZoneBar);
+
+  const dzNewGroupBg = new Graphics();
+  dzNewGroupBg.eventMode = "static";
+  dzNewGroupBg.cursor = "copy";
+  dropZoneBar.addChild(dzNewGroupBg);
+
+  const dzNewGroupLabel = new Text({
+    text: "+ new group",
+    style: { fontFamily: FONT, fontSize: DROP_ZONE_FONT_SIZE, fill: TEXT_COLOR },
+    resolution: RESOLUTION,
+  });
+  dzNewGroupLabel.eventMode = "none";
+  dropZoneBar.addChild(dzNewGroupLabel);
+
+  const dzRemoveBg = new Graphics();
+  dzRemoveBg.eventMode = "static";
+  dzRemoveBg.cursor = "pointer";
+  dropZoneBar.addChild(dzRemoveBg);
+
+  const dzRemoveLabel = new Text({
+    text: "remove from group",
+    style: { fontFamily: FONT, fontSize: DROP_ZONE_FONT_SIZE, fill: TEXT_COLOR },
+    resolution: RESOLUTION,
+  });
+  dzRemoveLabel.eventMode = "none";
+  dropZoneBar.addChild(dzRemoveLabel);
+
+  // -------------------------------------------------------------------------
+  // drag-and-drop management
+  // -------------------------------------------------------------------------
+
+  const showDropZones = (friendGroup: string) => {
+    dropZoneBar.visible = true;
+    dzRemoveBg.visible = friendGroup !== "";
+    dzRemoveLabel.visible = friendGroup !== "";
+  };
+
+  const hideDropZones = () => {
+    dropZoneBar.visible = false;
+  };
+
+  const layoutDropZones = (contentW: number, topY: number) => {
+    dropZoneBar.x = 0;
+    dropZoneBar.y = topY;
+
+    const halfW = Math.floor(contentW / 2);
+
+    // left zone: + new group
+    dzNewGroupBg.clear();
+    dzNewGroupBg.roundRect(0, 0, halfW - 2, DROP_ZONE_HEIGHT, 4);
+    dzNewGroupBg.fill({ color: DROP_ZONE_BG });
+    dzNewGroupBg.stroke({ color: DROP_ZONE_BORDER, width: 1 });
+    dzNewGroupBg.hitArea = new Rectangle(0, 0, halfW - 2, DROP_ZONE_HEIGHT);
+    dzNewGroupLabel.x = (halfW - 2 - dzNewGroupLabel.width) / 2;
+    dzNewGroupLabel.y = (DROP_ZONE_HEIGHT - DROP_ZONE_FONT_SIZE) / 2;
+
+    // right zone: remove from group
+    dzRemoveBg.clear();
+    dzRemoveBg.roundRect(halfW + 2, 0, halfW - 2, DROP_ZONE_HEIGHT, 4);
+    dzRemoveBg.fill({ color: DROP_ZONE_BG });
+    dzRemoveBg.stroke({ color: DROP_ZONE_BORDER, width: 1 });
+    dzRemoveBg.hitArea = new Rectangle(halfW + 2, 0, halfW - 2, DROP_ZONE_HEIGHT);
+    dzRemoveLabel.x = halfW + 2 + (halfW - 2 - dzRemoveLabel.width) / 2;
+    dzRemoveLabel.y = (DROP_ZONE_HEIGHT - DROP_ZONE_FONT_SIZE) / 2;
+  };
+
+  /** start a drag operation — creates ghost, shows drop zones */
+  const startDrag = (friendId: string, friendGroup: string, globalX: number, globalY: number) => {
+    if (!dragState) return;
+    dragState.isDragging = true;
+
+    const friend = ctx.doc.current.friends.find((f) => f.id === friendId);
+    if (!friend) return;
+
+    const ghost = new Container();
+    ghost.eventMode = "none";
+    ghost.alpha = GHOST_ALPHA;
+
+    const ghostBg = new Graphics();
+    ghostBg.roundRect(0, 0, currentWidth * 0.7, ROW_HEIGHT, 6);
+    ghostBg.fill({ color: 0x2a2a3e });
+    ghost.addChild(ghostBg);
+
+    const ghostText = new Text({
+      text: friendDisplayName(friend),
+      style: { fontFamily: FONT, fontSize: ROW_NAME_SIZE, fontWeight: "bold", fill: TEXT_COLOR },
+      resolution: RESOLUTION,
+    });
+    ghostText.x = 10;
+    ghostText.y = (ROW_HEIGHT - ROW_NAME_SIZE) / 2;
+    ghost.addChild(ghostText);
+
+    // position ghost centered on pointer
+    const localPos = container.toLocal({ x: globalX, y: globalY });
+    ghost.x = localPos.x - ghost.width / 2;
+    ghost.y = localPos.y - ghost.height / 2;
+
+    container.addChild(ghost);
+    dragState.ghost = ghost;
+
+    showDropZones(friendGroup);
+    layoutDropZones(currentWidth, 0);
+
+    // force rebuild to dim the dragged row and shift list below drop zones
+    layout(currentWidth, currentHeight);
+  };
+
+  /** update drag position and highlight hovered drop targets */
+  const updateDrag = (globalX: number, globalY: number) => {
+    if (!dragState?.isDragging || !dragState.ghost) return;
+
+    const localPos = container.toLocal({ x: globalX, y: globalY });
+    dragState.ghost.x = localPos.x - dragState.ghost.width / 2;
+    dragState.ghost.y = localPos.y - dragState.ghost.height / 2;
+
+    // check hover over drop zone bar
+    const dzY = dropZoneBar.y;
+    const inDropBar = localPos.y >= dzY && localPos.y <= dzY + DROP_ZONE_HEIGHT;
+    const halfW = Math.floor(currentWidth / 2);
+
+    // highlight new-group zone
+    dzNewGroupBg.clear();
+    const newGroupHover = inDropBar && localPos.x < halfW;
+    dzNewGroupBg.roundRect(0, 0, halfW - 2, DROP_ZONE_HEIGHT, 4);
+    dzNewGroupBg.fill({ color: newGroupHover ? DROP_ZONE_ACTIVE_BG : DROP_ZONE_BG });
+    dzNewGroupBg.stroke({ color: DROP_ZONE_BORDER, width: 1 });
+
+    // highlight remove zone
+    if (dzRemoveBg.visible) {
+      dzRemoveBg.clear();
+      const removeHover = inDropBar && localPos.x >= halfW;
+      dzRemoveBg.roundRect(halfW + 2, 0, halfW - 2, DROP_ZONE_HEIGHT, 4);
+      dzRemoveBg.fill({ color: removeHover ? DROP_ZONE_ACTIVE_BG : DROP_ZONE_BG });
+      dzRemoveBg.stroke({ color: DROP_ZONE_BORDER, width: 1 });
+    }
+  };
+
+  /** end drag — evaluate drop target and perform mutation */
+  const endDrag = (globalX: number, globalY: number): "tap" | "dropped" | "cancelled" => {
+    if (!dragState) return "cancelled";
+
+    const friendId = dragState.friendId;
+    const wasDragging = dragState.isDragging;
+
+    // clean up
+    if (dragState.holdTimer) clearTimeout(dragState.holdTimer);
+    if (dragState.ghost) {
+      dragState.ghost.destroy({ children: true });
+    }
+    dragState = null;
+    hideDropZones();
+
+    if (!wasDragging) {
+      return "tap";
+    }
+
+    // evaluate drop target
+    const localPos = container.toLocal({ x: globalX, y: globalY });
+    const dzY = dropZoneBar.y;
+    const inDropBar = localPos.y >= dzY && localPos.y <= dzY + DROP_ZONE_HEIGHT;
+    const halfW = Math.floor(currentWidth / 2);
+
+    if (inDropBar && localPos.x < halfW) {
+      // dropped on "+ new group"
+      ctx.doc.change((draft) => {
+        const name = generateUniqueGroupName(draft.groups);
+        draft.groups.push({ name, createdAt: new Date().toISOString() });
+        const f = draft.friends.find((fr) => fr.id === friendId);
+        if (f) f.group = name;
+      });
+      // enter inline rename on the new group after re-render
+      const updatedFriend = ctx.doc.current.friends.find((f) => f.id === friendId);
+      if (updatedFriend && updatedFriend.group) {
+        editingGroupName = updatedFriend.group;
+      }
+      layout(currentWidth, currentHeight);
+      return "dropped";
+    }
+
+    if (inDropBar && localPos.x >= halfW) {
+      // dropped on "remove from group"
+      ctx.doc.change((draft) => {
+        const f = draft.friends.find((fr) => fr.id === friendId);
+        if (f) f.group = "";
+      });
+      layout(currentWidth, currentHeight);
+      return "dropped";
+    }
+
+    // check group headers — adjust for scroll and drop zone offset
+    const listTopOffset = DROP_ZONE_HEIGHT + 4;
+    const scrollAdjustedY = localPos.y - listTopOffset + scrollY;
+    for (const hit of groupHeaderHitAreas) {
+      if (scrollAdjustedY >= hit.y && scrollAdjustedY <= hit.y + hit.height) {
+        ctx.doc.change((draft) => {
+          const f = draft.friends.find((fr) => fr.id === friendId);
+          if (f) f.group = hit.group;
+        });
+        layout(currentWidth, currentHeight);
+        return "dropped";
+      }
+    }
+
+    // dropped nowhere meaningful — cancel
+    layout(currentWidth, currentHeight);
+    return "cancelled";
+  };
+
+  const cancelDrag = () => {
+    if (!dragState) return;
+    if (dragState.holdTimer) clearTimeout(dragState.holdTimer);
+    if (dragState.ghost) {
+      dragState.ghost.destroy({ children: true });
+    }
+    dragState = null;
+    hideDropZones();
+    layout(currentWidth, currentHeight);
+  };
+
+  // -------------------------------------------------------------------------
+  // global safety net — any pointer/mouse/touch release clears drag state
+  // -------------------------------------------------------------------------
+
+  const globalRelease = (ev: PointerEvent | MouseEvent | TouchEvent) => {
+    if (!dragState) return;
+    // try to get coordinates for drop evaluation
+    let gx = 0;
+    let gy = 0;
+    if ("clientX" in ev) {
+      gx = ev.clientX;
+      gy = ev.clientY;
+    } else if ("changedTouches" in ev && ev.changedTouches.length > 0) {
+      gx = ev.changedTouches[0].clientX;
+      gy = ev.changedTouches[0].clientY;
+    }
+    if (dragState.isDragging) {
+      endDrag(gx, gy);
+    } else {
+      // hold timer started but never became a drag — just clean up
+      if (dragState.holdTimer) clearTimeout(dragState.holdTimer);
+      dragState = null;
+    }
+  };
+
+  window.addEventListener("pointerup", globalRelease, true);
+  window.addEventListener("mouseup", globalRelease, true);
+  window.addEventListener("touchend", globalRelease, true);
+  const globalCancel = () => cancelDrag();
+  window.addEventListener("pointercancel", globalCancel, true);
+  window.addEventListener("touchcancel", globalCancel, true);
+
+  // container-level fallback for pixi event system
+  container.on("pointerup", (e) => {
+    if (!dragState) return;
+    const gx = e.globalX ?? (e as any).global?.x ?? 0;
+    const gy = e.globalY ?? (e as any).global?.y ?? 0;
+    if (dragState.isDragging) {
+      endDrag(gx, gy);
+    } else {
+      if (dragState.holdTimer) clearTimeout(dragState.holdTimer);
+      dragState = null;
+    }
+  });
+
+  container.on("pointerupoutside", (e) => {
+    if (!dragState) return;
+    const gx = e.globalX ?? (e as any).global?.x ?? 0;
+    const gy = e.globalY ?? (e as any).global?.y ?? 0;
+    if (dragState.isDragging) {
+      endDrag(gx, gy);
+    } else {
+      if (dragState.holdTimer) clearTimeout(dragState.holdTimer);
+      dragState = null;
+    }
+  });
+
 
   // scroll handler on the list container — only capture when content overflows
   listContainer.on("wheel", (e: WheelEvent) => {
@@ -165,6 +484,9 @@ export function createFriendsTab(ctx: TabContext): TabController {
     while (listInner.children.length > 0) {
       listInner.removeChildAt(0).destroy({ children: true });
     }
+
+    // reset group header hit areas for drag-and-drop
+    groupHeaderHitAreas = [];
 
     const maxNameChars = Math.max(
       6,
@@ -231,6 +553,14 @@ export function createFriendsTab(ctx: TabContext): TabController {
         headerBg.fill({ color: 0x1c1c28 });
         headerRow.addChild(headerBg);
 
+        // colored group indicator line on header left edge
+        const headerLineColor = colorForName(item.group, 0);
+        const headerLine = new Graphics();
+        headerLine.eventMode = "none";
+        headerLine.rect(GROUP_LINE_INSET, 0, GROUP_LINE_WIDTH, ROW_HEIGHT);
+        headerLine.fill({ color: headerLineColor });
+        headerRow.addChild(headerLine);
+
         const isCollapsed = collapsedGroups.has(item.group);
         const chevronChar = isCollapsed ? "\u25b8" : "\u25be";
         const chevronText = new Text({
@@ -243,17 +573,75 @@ export function createFriendsTab(ctx: TabContext): TabController {
         chevronText.y = (ROW_HEIGHT - 11) / 2;
         headerRow.addChild(chevronText);
 
-        const groupNameText = new Text({
-          text: item.group,
-          style: { fontFamily: FONT, fontSize: 11, fontWeight: "bold", fill: LABEL_COLOR },
-          resolution: RESOLUTION,
-        });
-        groupNameText.eventMode = "none";
-        groupNameText.x = ROW_PADDING_X + chevronText.width + 6;
-        groupNameText.y = (ROW_HEIGHT - 11) / 2;
-        headerRow.addChild(groupNameText);
+        if (editingGroupName === item.group) {
+          // inline rename mode — show SkeinInput instead of static text
+          const inputX = ROW_PADDING_X + chevronText.width + 6;
+          const inputW = contentW - inputX - ROW_PADDING_X - 30;
 
-        // count badge on the right
+          if (groupRenameHandle) {
+            groupRenameHandle.destroy();
+            groupRenameHandle = null;
+          }
+
+          const oldGroupName = item.group;
+          groupRenameHandle = createSkeinInput({
+            canvasElement: ctx.canvasElement,
+            width: inputW,
+            height: ROW_HEIGHT - 8,
+            value: item.group,
+            fontSize: 11,
+            onEnter: (newName: string) => {
+              const trimmed = newName.trim();
+              if (trimmed && trimmed !== oldGroupName) {
+                ctx.doc.change((draft) => {
+                  const g = draft.groups.find((gr) => gr.name === oldGroupName);
+                  if (g) g.name = trimmed;
+                  for (const f of draft.friends) {
+                    if (f.group === oldGroupName) f.group = trimmed;
+                  }
+                });
+              }
+              editingGroupName = null;
+              if (groupRenameHandle) {
+                groupRenameHandle.destroy();
+                groupRenameHandle = null;
+              }
+              layout(currentWidth, currentHeight);
+            },
+          });
+          groupRenameHandle.input.x = inputX;
+          groupRenameHandle.input.y = (ROW_HEIGHT - (ROW_HEIGHT - 8)) / 2;
+          headerRow.addChild(groupRenameHandle.input);
+
+          // escape key handler to cancel rename
+          const escHandler = (ev: KeyboardEvent) => {
+            if (ev.key === "Escape") {
+              ev.stopPropagation();
+              editingGroupName = null;
+              if (groupRenameHandle) {
+                groupRenameHandle.destroy();
+                groupRenameHandle = null;
+              }
+              window.removeEventListener("keydown", escHandler, true);
+              layout(currentWidth, currentHeight);
+            }
+          };
+          window.addEventListener("keydown", escHandler, true);
+
+          // auto-focus after a tick
+          setTimeout(() => groupRenameHandle?.focus(), 50);
+        } else {
+          // normal group name text
+          const groupNameText = new Text({
+            text: item.group,
+            style: { fontFamily: FONT, fontSize: 11, fontWeight: "bold", fill: LABEL_COLOR },
+            resolution: RESOLUTION,
+          });
+          groupNameText.eventMode = "none";
+          groupNameText.x = ROW_PADDING_X + chevronText.width + 6;
+          groupNameText.y = (ROW_HEIGHT - 11) / 2;
+          headerRow.addChild(groupNameText);
+        }
         const countText = new Text({
           text: String(item.count),
           style: { fontFamily: FONT, fontSize: 10, fill: MUTED_TEXT },
@@ -265,8 +653,25 @@ export function createFriendsTab(ctx: TabContext): TabController {
         headerRow.addChild(countText);
 
         const groupName = item.group;
+
+        // double-click detection — tap times stored in module-level Map
+        // so they survive rebuildRows cycles
         headerRow.on("pointertap", (e) => {
           e.stopPropagation();
+          // ignore taps while a long-press rename is pending
+          if (editingGroupName === groupName) return;
+
+          const now = Date.now();
+          const prev = headerLastTapTime.get(groupName) || 0;
+          headerLastTapTime.set(groupName, now);
+
+          if (now - prev < 400) {
+            // double-click — enter inline rename mode
+            headerLastTapTime.delete(groupName);
+            editingGroupName = groupName;
+            layout(currentWidth, currentHeight);
+            return;
+          }
           if (collapsedGroups.has(groupName)) {
             collapsedGroups.delete(groupName);
           } else {
@@ -275,24 +680,49 @@ export function createFriendsTab(ctx: TabContext): TabController {
           layout(currentWidth, currentHeight);
         });
 
+        // long-press detection — hold to rename
+        let headerHoldTimer: ReturnType<typeof setTimeout> | null = null;
+        headerRow.on("pointerdown", () => {
+          headerHoldTimer = setTimeout(() => {
+            headerHoldTimer = null;
+            editingGroupName = groupName;
+            layout(currentWidth, currentHeight);
+          }, HEADER_HOLD_MS);
+        });
+        headerRow.on("pointerup", () => {
+          if (headerHoldTimer) { clearTimeout(headerHoldTimer); headerHoldTimer = null; }
+        });
+        headerRow.on("pointerupoutside", () => {
+          if (headerHoldTimer) { clearTimeout(headerHoldTimer); headerHoldTimer = null; }
+        });
+        headerRow.on("pointermove", () => {
+          if (headerHoldTimer) { clearTimeout(headerHoldTimer); headerHoldTimer = null; }
+        });
         currentY += ROW_HEIGHT;
+
+        // register header for drop hit testing
+        groupHeaderHitAreas.push({ group: item.group, y: headerRow.y, height: ROW_HEIGHT });
       } else {
         // render friend row
         const friend = item.friend;
         const i = friendRowIndex;
         friendRowIndex++;
 
+        // compute bio and effective row height
+        const bio = bestBio(friend);
+        const effectiveRowHeight = bio ? ROW_HEIGHT_BIO : ROW_HEIGHT;
+
         const rowContainer = new Container();
         rowContainer.eventMode = "static";
         rowContainer.cursor = "pointer";
-        rowContainer.hitArea = new Rectangle(0, 0, contentW, ROW_HEIGHT);
+        rowContainer.hitArea = new Rectangle(0, 0, contentW, effectiveRowHeight);
         rowContainer.y = currentY;
         listInner.addChild(rowContainer);
 
         // alternating row background
         const rowBg = new Graphics();
         rowBg.eventMode = "none";
-        rowBg.rect(0, 0, contentW, ROW_HEIGHT);
+        rowBg.rect(0, 0, contentW, effectiveRowHeight);
         if (i % 2 === 1) {
           rowBg.fill({ color: ROW_ALT_BG, alpha: 0.5 });
         } else {
@@ -300,11 +730,26 @@ export function createFriendsTab(ctx: TabContext): TabController {
         }
         rowContainer.addChild(rowBg);
 
+        // dim the row if it's currently being dragged
+        if (dragState?.isDragging && dragState.friendId === friend.id) {
+          rowContainer.alpha = DRAG_ROW_DIMMED_ALPHA;
+        }
+
+
+        // colored group indicator line on the left edge
+        if (friend.group) {
+          const groupLineColor = colorForName(friend.group, 0);
+          const groupLine = new Graphics();
+          groupLine.eventMode = "none";
+          groupLine.rect(GROUP_LINE_INSET, 0, GROUP_LINE_WIDTH, effectiveRowHeight);
+          groupLine.fill({ color: groupLineColor });
+          rowContainer.addChild(groupLine);
+        }
         // avatar circle with initial letter
         const displayName = friendDisplayName(friend);
         const avatarColor = colorForName(displayName, i);
         const avatarX = ROW_PADDING_X + ROW_AVATAR_SIZE / 2;
-        const avatarY = ROW_HEIGHT / 2;
+        const avatarY = effectiveRowHeight / 2;
 
         const avatarUrl = friend.nodeIds.find((n) => n.avatarDataUrl)?.avatarDataUrl;
 
@@ -374,8 +819,12 @@ export function createFriendsTab(ctx: TabContext): TabController {
         onlineDot.fill({ color: dotColor });
         rowContainer.addChild(onlineDot);
 
-        // name text — vertically centered
+        // name text — shifted up if bio present
         const textX = ROW_PADDING_X + ROW_AVATAR_SIZE + ROW_PADDING_X;
+        const nameY = bio
+          ? effectiveRowHeight / 2 - ROW_NAME_SIZE - 1
+          : (effectiveRowHeight - ROW_NAME_SIZE) / 2;
+
         // primary name label (bold) — username or alias
         const nameText = new Text({
           text: truncate(displayName || "unnamed", maxNameChars),
@@ -389,7 +838,7 @@ export function createFriendsTab(ctx: TabContext): TabController {
         });
         nameText.eventMode = "none";
         nameText.x = textX;
-        nameText.y = (ROW_HEIGHT - ROW_NAME_SIZE) / 2;
+        nameText.y = nameY;
         rowContainer.addChild(nameText);
 
         // if the friend has both a username and an alias, show the alias
@@ -407,8 +856,25 @@ export function createFriendsTab(ctx: TabContext): TabController {
           });
           aliasText.eventMode = "none";
           aliasText.x = textX + nameText.width;
-          aliasText.y = (ROW_HEIGHT - ROW_NAME_SIZE) / 2;
+          aliasText.y = nameY;
           rowContainer.addChild(aliasText);
+        }
+
+        // bio line — second row of text under the name
+        if (bio) {
+          const maxBioChars = Math.max(
+            10,
+            Math.floor((contentW - textX - ROW_PADDING_X - 20) / (ROW_SUB_SIZE * 0.55))
+          );
+          const bioText = new Text({
+            text: truncate(bio, maxBioChars),
+            style: { fontFamily: FONT, fontSize: ROW_SUB_SIZE, fill: MUTED_TEXT },
+            resolution: RESOLUTION,
+          });
+          bioText.eventMode = "none";
+          bioText.x = textX;
+          bioText.y = effectiveRowHeight / 2 + 2;
+          rowContainer.addChild(bioText);
         }
 
         // chevron hint on the right
@@ -419,28 +885,81 @@ export function createFriendsTab(ctx: TabContext): TabController {
         });
         chevron.eventMode = "none";
         chevron.x = contentW - ROW_PADDING_X - chevron.width;
-        chevron.y = (ROW_HEIGHT - 16) / 2;
+        chevron.y = (effectiveRowHeight - 16) / 2;
         rowContainer.addChild(chevron);
 
-        // click row -> open detail view
+        // drag-aware pointer events (replaces simple pointertap)
         const friendId = friend.id;
-        rowContainer.on("pointertap", (e) => {
-          e.stopPropagation();
-          selectedFriendId = friendId;
-          viewMode = "detail";
-          scrollY = 0;
-          layout(currentWidth, currentHeight);
+        const friendGroup = friend.group;
+
+        rowContainer.on("pointerdown", (e) => {
+          if (dragState) return;
+          const gx = e.globalX ?? (e as any).global?.x ?? 0;
+          const gy = e.globalY ?? (e as any).global?.y ?? 0;
+          dragState = {
+            friendId,
+            friendGroup,
+            startX: gx,
+            startY: gy,
+            holdTimer: setTimeout(() => {
+              if (dragState && dragState.friendId === friendId && !dragState.isDragging) {
+                startDrag(friendId, friendGroup, gx, gy);
+              }
+            }, DRAG_HOLD_MS),
+            isDragging: false,
+            ghost: null,
+          };
+        });
+
+        rowContainer.on("globalpointermove", (e) => {
+          if (!dragState || dragState.friendId !== friendId) return;
+          const gx = e.globalX ?? (e as any).global?.x ?? 0;
+          const gy = e.globalY ?? (e as any).global?.y ?? 0;
+          const dx = gx - dragState.startX;
+          const dy = gy - dragState.startY;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+
+          if (!dragState.isDragging && dist > DRAG_THRESHOLD) {
+            if (dragState.holdTimer) clearTimeout(dragState.holdTimer);
+            startDrag(friendId, friendGroup, gx, gy);
+          } else if (dragState.isDragging) {
+            updateDrag(gx, gy);
+          }
+        });
+
+        rowContainer.on("pointerup", (e) => {
+          if (!dragState || dragState.friendId !== friendId) return;
+          const gx = e.globalX ?? (e as any).global?.x ?? 0;
+          const gy = e.globalY ?? (e as any).global?.y ?? 0;
+          const result = endDrag(gx, gy);
+
+          if (result === "tap") {
+            // normal tap — open detail view
+            selectedFriendId = friendId;
+            viewMode = "detail";
+            scrollY = 0;
+            layout(currentWidth, currentHeight);
+          }
+        });
+
+        rowContainer.on("pointerupoutside", (e) => {
+          if (!dragState || dragState.friendId !== friendId) return;
+          const gx = e.globalX ?? (e as any).global?.x ?? 0;
+          const gy = e.globalY ?? (e as any).global?.y ?? 0;
+          endDrag(gx, gy);
         });
 
         // hover effect
         rowContainer.on("pointerover", () => {
+          if (dragState?.isDragging) return;
           rowBg.clear();
-          rowBg.rect(0, 0, contentW, ROW_HEIGHT);
+          rowBg.rect(0, 0, contentW, effectiveRowHeight);
           rowBg.fill({ color: 0x252536, alpha: 0.8 });
         });
         rowContainer.on("pointerout", () => {
+          if (dragState?.isDragging) return;
           rowBg.clear();
-          rowBg.rect(0, 0, contentW, ROW_HEIGHT);
+          rowBg.rect(0, 0, contentW, effectiveRowHeight);
           if (i % 2 === 1) {
             rowBg.fill({ color: ROW_ALT_BG, alpha: 0.5 });
           } else {
@@ -448,7 +967,7 @@ export function createFriendsTab(ctx: TabContext): TabController {
           }
         });
 
-        currentY += ROW_HEIGHT;
+        currentY += effectiveRowHeight;
       }
     }
 
@@ -1399,6 +1918,7 @@ export function createFriendsTab(ctx: TabContext): TabController {
     addModeContainer.visible = false;
     addBtn.visible = false;
     emptyText.visible = false;
+    dropZoneBar.visible = false;
 
     switch (viewMode) {
       case "list": {
@@ -1420,15 +1940,28 @@ export function createFriendsTab(ctx: TabContext): TabController {
         const listTop = 0;
         listAreaHeight = addBtnY - listTop - 8;
 
-        // update mask — the parent positions us so (0,0) is the content origin
-        listMask.clear();
-        listMask.rect(0, listTop, w, listAreaHeight);
-        listMask.fill({ color: 0xffffff });
-
-        // position list container
-        listContainer.x = 0;
-        listContainer.y = listTop;
-        listContainer.hitArea = new Rectangle(0, 0, w, listAreaHeight);
+        // update mask — adjust for drop zone bar during drag
+        if (dragState?.isDragging) {
+          layoutDropZones(w, listTop);
+          dropZoneBar.visible = true;
+          dzRemoveBg.visible = dragState.friendGroup !== "";
+          dzRemoveLabel.visible = dragState.friendGroup !== "";
+          const dzOffset = DROP_ZONE_HEIGHT + 4;
+          listContainer.y = listTop + dzOffset;
+          listMask.clear();
+          listMask.rect(0, listTop + dzOffset, w, listAreaHeight - dzOffset);
+          listMask.fill({ color: 0xffffff });
+          listContainer.hitArea = new Rectangle(0, 0, w, listAreaHeight - dzOffset);
+          listAreaHeight -= dzOffset;
+        } else {
+          // normal mask
+          listMask.clear();
+          listMask.rect(0, listTop, w, listAreaHeight);
+          listMask.fill({ color: 0xffffff });
+          listContainer.x = 0;
+          listContainer.y = listTop;
+          listContainer.hitArea = new Rectangle(0, 0, w, listAreaHeight);
+        }
 
         // rebuild rows
         rebuildRows(friends, w);
@@ -1550,6 +2083,18 @@ export function createFriendsTab(ctx: TabContext): TabController {
         groupInputHandle.destroy();
         groupInputHandle = null;
       }
+      if (groupRenameHandle) {
+        groupRenameHandle.destroy();
+        groupRenameHandle = null;
+      }
+      if (dragState) {
+        cancelDrag();
+      }
+      window.removeEventListener("pointerup", globalRelease, true);
+      window.removeEventListener("mouseup", globalRelease, true);
+      window.removeEventListener("touchend", globalRelease, true);
+      window.removeEventListener("pointercancel", globalCancel, true);
+      window.removeEventListener("touchcancel", globalCancel, true);
       unsub();
       unsubOnline();
       container.destroy({ children: true });
