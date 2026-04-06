@@ -565,6 +565,9 @@ export const fileWidget: WidgetFactory<typeof fileSchema> = {
         const keyToUnload = loadedAssetKey;
         // defer unload to next frame so the render loop doesn't access a destroyed texture
         requestAnimationFrame(() => {
+          // guard: if the same key was re-loaded between destroySprite and this RAF,
+          // skip unload — the texture is back in use by a new sprite.
+          if (loadedAssetKey === keyToUnload) return;
           try {
             Assets.unload(keyToUnload);
           } catch (err) {
@@ -652,9 +655,12 @@ export const fileWidget: WidgetFactory<typeof fileSchema> = {
       loadingAbort = abort;
 
       try {
+        // only check cache + local — never contact peers during render.
+        // peers that can generate thumbnails (Tauri w/ ffmpeg) write
+        // thumbnailDataUrl back into the automerge doc after snatch,
+        // which triggers the fast embedded path above on all peers.
         const thumbOpts: ThumbnailOptions = {
           size: 200,
-          peers: ctx.canvasStore?.peers(),
         };
         const dataUrl = await getThumbnailDataUrl(blobId, thumbOpts);
 
@@ -751,6 +757,12 @@ export const fileWidget: WidgetFactory<typeof fileSchema> = {
 
     const loadEmbeddedThumbnail = async (dataUrl: string) => {
       if (!dataUrl) return;
+
+      // abort any in-flight loadThumbnail so it doesn't clobber our sprite later
+      if (loadingAbort) {
+        loadingAbort.abort();
+        loadingAbort = null;
+      }
 
       if (!isValidImageDataUrl(dataUrl)) {
         console.warn(
@@ -936,34 +948,39 @@ export const fileWidget: WidgetFactory<typeof fileSchema> = {
         }
         syncActionButtons();
 
-        // re-layout and re-fetch thumbnail from local
+        // re-layout
         positionInfoBar(currentWidth, currentHeight);
         fitSprite(currentWidth, currentHeight);
         if (!hasThumbnail) {
           positionFallbackIcon(currentWidth, currentHeight);
         }
 
-        // reload thumbnail from local source
-        loadThumbnail(result.blobId);
-
-        // embed the generated thumbnail in the doc so all peers get instant render
-        // (in Tauri mode, grimoire generates thumbnails; in browser mode, we
-        // generate from OPFS for image blobs — non-image blobs get thumbnails
-        // when a Tauri peer snatches and generates via ffmpeg)
+        // generate thumbnail locally and write to doc if possible.
+        // writing thumbnailDataUrl to the doc triggers loadEmbeddedThumbnail
+        // via the doc-change subscription — single code path, no race.
+        // if local generation fails (e.g. audio in browser — no ffmpeg),
+        // fall back to loadThumbnail which checks cache + local only.
         try {
           if (!ctx.doc.current.thumbnailDataUrl) {
             const thumbDataUrl = await getThumbnailDataUrl(result.blobId, {
               size: 200,
-              peers: ctx.canvasStore?.peers(),
             });
             if (thumbDataUrl && ctx.doc.current.blobId === result.blobId) {
               ctx.doc.change((draft) => {
                 draft.thumbnailDataUrl = thumbDataUrl;
               });
+              // doc-change subscription will call loadEmbeddedThumbnail
+            } else {
+              // no thumbnail generated — try loading from local/cache
+              loadThumbnail(result.blobId);
             }
+          } else {
+            // doc already has a thumbnail (maybe peer wrote it) — load it
+            loadEmbeddedThumbnail(ctx.doc.current.thumbnailDataUrl);
           }
         } catch {
-          // thumbnail generation may not be ready yet — that's OK
+          // thumbnail generation failed — try loading from local/cache
+          loadThumbnail(result.blobId);
         }
       } catch (err) {
         console.error("[file] snatch failed:", err);

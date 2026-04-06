@@ -18,7 +18,7 @@ use iroh_blobs::api::Store;
 use iroh_blobs::api::TempTag;
 use iroh_blobs::store::GcConfig;
 use iroh_blobs::{BlobsProtocol, Hash, HashAndFormat};
-use js_sys::Uint8Array;
+use js_sys::{Function as JsFunction, Uint8Array};
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
 use tracing::level_filters::LevelFilter;
@@ -898,6 +898,76 @@ impl MiddenNode {
         Ok(array)
     }
 
+    /// download a blob with progress reporting via JS callback
+    ///
+    /// same as download_verified but calls on_progress(fraction) where
+    /// fraction is bytes_received / total_size (0.0 to 1.0).
+    /// total_size should come from the automerge doc's size field.
+    pub async fn download_verified_with_progress(
+        &self,
+        peer_addr: &str,
+        blake3_hash: &str,
+        total_size: f64,
+        on_progress: &JsFunction,
+    ) -> Result<Uint8Array, JsError> {
+        let addr = parse_peer_addr(peer_addr).map_err(|e| JsError::new(&e))?;
+
+        let hash: Hash = blake3_hash
+            .parse()
+            .map_err(|e| JsError::new(&format!("invalid blake3 hash: {}", e)))?;
+
+        let hash_and_format = HashAndFormat::raw(hash);
+        let progress = self.blobs_downloader.download(hash_and_format, [addr.id]);
+
+        use iroh_blobs::api::downloader::DownloadProgressItem;
+        use n0_future::StreamExt;
+
+        let mut stream = progress
+            .stream()
+            .await
+            .map_err(|e| JsError::new(&format!("download stream failed: {}", e)))?;
+
+        let mut had_error = false;
+        let mut last_error: Option<String> = None;
+
+        while let Some(event) = stream.next().await {
+            match &event {
+                DownloadProgressItem::Progress(bytes) => {
+                    if total_size > 0.0 {
+                        let fraction = (*bytes as f64 / total_size).min(1.0);
+                        let _ = on_progress.call1(&JsValue::NULL, &JsValue::from_f64(fraction));
+                    }
+                }
+                DownloadProgressItem::Error(e) => {
+                    had_error = true;
+                    last_error = Some(format!("{:?}", e));
+                }
+                DownloadProgressItem::DownloadError => {
+                    had_error = true;
+                    last_error = Some("download error".to_string());
+                }
+                _ => {}
+            }
+        }
+
+        if had_error {
+            return Err(JsError::new(&format!(
+                "download failed: {}",
+                last_error.unwrap_or_else(|| "unknown error".to_string())
+            )));
+        }
+
+        let bytes = self
+            .blobs_store
+            .get_bytes(hash)
+            .await
+            .map_err(|e| JsError::new(&format!("failed to read blob from store: {}", e)))?;
+
+        let array = Uint8Array::new_with_length(bytes.len() as u32);
+        array.copy_from(&bytes);
+        Ok(array)
+    }
+
     /// ensure a blob is loaded into the peer's FsStore by blake3 hash
     ///
     /// call this before retrying download_verified if the first attempt fails.
@@ -969,6 +1039,42 @@ impl MiddenNode {
 
         // retry verified download
         self.download_verified(peer_addr, blake3_hash).await
+    }
+
+    /// download with ensure + retry and progress reporting
+    ///
+    /// tries download first; if blob not in peer's FsStore, calls ensure_blob
+    /// then retries. progress callback receives fraction (0.0 to 1.0).
+    pub async fn download_verified_with_ensure_progress(
+        &self,
+        peer_addr: &str,
+        blake3_hash: &str,
+        total_size: f64,
+        on_progress: &JsFunction,
+    ) -> Result<Uint8Array, JsError> {
+        // first attempt
+        match self
+            .download_verified_with_progress(peer_addr, blake3_hash, total_size, on_progress)
+            .await
+        {
+            Ok(data) => return Ok(data),
+            Err(_e) => {
+                // retry with ensure_blob (normal for first download)
+            }
+        }
+
+        // ensure blob is loaded into FsStore
+        let available = self.ensure_blob(peer_addr, blake3_hash).await?;
+        if !available {
+            return Err(JsError::new(&format!(
+                "blob {} not available on peer",
+                &blake3_hash[..16.min(blake3_hash.len())]
+            )));
+        }
+
+        // retry verified download with progress
+        self.download_verified_with_progress(peer_addr, blake3_hash, total_size, on_progress)
+            .await
     }
 
     /// compute blake3 hash for a blob on demand
@@ -1048,6 +1154,32 @@ impl MiddenNode {
         // return [data, blake3] as JS array
         let result = js_sys::Array::new();
         result.push(&data);
+        result.push(&JsValue::from_str(&blake3));
+        Ok(result)
+    }
+
+    /// full pipeline from blob_id with progress reporting
+    ///
+    /// computes blake3 on demand, then uses verified download with progress.
+    /// returns [data: Uint8Array, blake3: string].
+    pub async fn download_verified_by_id_progress(
+        &self,
+        peer_addr: &str,
+        blob_id: &str,
+        total_size: f64,
+        on_progress: &JsFunction,
+    ) -> Result<js_sys::Array, JsError> {
+        let blake3 = self
+            .compute_blake3(peer_addr, blob_id)
+            .await?
+            .ok_or_else(|| JsError::new("blob not found on peer"))?;
+
+        let data = self
+            .download_verified_with_ensure_progress(peer_addr, &blake3, total_size, on_progress)
+            .await?;
+
+        let result = js_sys::Array::new();
+        result.push(&data.into());
         result.push(&JsValue::from_str(&blake3));
         Ok(result)
     }

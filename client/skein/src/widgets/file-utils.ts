@@ -371,22 +371,31 @@ export async function snatchBlob(
         const nodeAny = node as any;
         const onProgress = options?.onProgress;
         let downloaded = false;
+        const progressFn = onProgress
+          ? (fraction: number) => {
+              onProgress(fraction);
+            }
+          : () => {};
 
         // strategy 1: iroh-blobs verified download when blake3 is known from doc
         // (skips the compute_blake3 RPC — goes straight to ensure + download)
         if (
           !downloaded &&
           blake3Hash &&
-          typeof nodeAny.download_verified_with_ensure === "function"
+          typeof nodeAny.download_verified_with_ensure_progress === "function"
         ) {
           try {
             console.log(
               TAG,
               `trying iroh-blobs verified (blake3 known) from ${peerAddr.slice(0, 16)}...`
             );
-            if (onProgress) onProgress(-1); // indeterminate — iroh-blobs has no progress API yet
             bytes = await withPeerTimeout(
-              nodeAny.download_verified_with_ensure(peerAddr, blake3Hash) as Promise<Uint8Array>,
+              nodeAny.download_verified_with_ensure_progress(
+                peerAddr,
+                blake3Hash,
+                info.size || 0,
+                progressFn
+              ) as Promise<Uint8Array>,
               30000
             );
             downloaded = true;
@@ -397,15 +406,19 @@ export async function snatchBlob(
 
         // strategy 2: iroh-blobs verified download with on-demand blake3 compute
         // (asks peer to compute blake3, then downloads verified)
-        if (!downloaded && typeof nodeAny.download_verified_by_id === "function") {
+        if (!downloaded && typeof nodeAny.download_verified_by_id_progress === "function") {
           try {
             console.log(
               TAG,
               `trying iroh-blobs verified (compute blake3) from ${peerAddr.slice(0, 16)}...`
             );
-            if (onProgress) onProgress(-1);
             const result: any = await withPeerTimeout(
-              nodeAny.download_verified_by_id(peerAddr, info.blobId) as Promise<any>,
+              nodeAny.download_verified_by_id_progress(
+                peerAddr,
+                info.blobId,
+                info.size || 0,
+                progressFn
+              ) as Promise<any>,
               30000
             );
             bytes = result[0] as Uint8Array;
@@ -509,6 +522,16 @@ export async function snatchBlob(
       // step 1: download full blob — prefer iroh-blobs verified, fall back to unverified
       let blobResult: { data: string; blake3: string; size?: number } | null = null;
 
+      // set up progress channel for tauri IPC
+      const { Channel } = await import("@tauri-apps/api/core");
+      const onProgress = options?.onProgress;
+      const progressChannel = new Channel<{ bytes_downloaded: number }>();
+      progressChannel.onmessage = (msg) => {
+        if (onProgress && info.size > 0) {
+          onProgress(Math.min(msg.bytes_downloaded / info.size, 1.0));
+        }
+      };
+
       // strategy 1: if blake3 known from doc, use verified+ensure directly (skips compute step)
       if (info.blake3) {
         try {
@@ -519,6 +542,7 @@ export async function snatchBlob(
           const verified = await tauriInvoke("p2p_fetch_blob_verified", {
             peerAddr,
             blake3Hash: info.blake3,
+            onProgress: progressChannel,
           });
           blobResult = { data: verified.data, blake3: info.blake3, size: verified.size };
         } catch (err) {
@@ -536,6 +560,7 @@ export async function snatchBlob(
           blobResult = await tauriInvoke("p2p_fetch_blob_verified_by_id", {
             peerAddr,
             blobId: info.blobId,
+            onProgress: progressChannel,
           });
         } catch (err) {
           console.debug(TAG, `iroh-blobs verified (compute blake3) failed:`, err);

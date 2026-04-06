@@ -443,6 +443,157 @@ pub async fn fetch_blob_verified_by_id(
     Ok((data, blake3))
 }
 
+/// download a blob using iroh-blobs verified streaming, with progress reporting.
+///
+/// same as fetch_blob_verified but calls `on_progress(bytes_downloaded)` on each
+/// DownloadProgressItem::Progress event.
+pub async fn fetch_blob_verified_with_progress(
+    peer_addr: &str,
+    blake3_hash: &str,
+    on_progress: impl Fn(u64),
+) -> GrimoireResult<Vec<u8>> {
+    let addr = parse_peer_address(peer_addr)?;
+    let node_id_short = &addr.id.to_string()[..16];
+    let hash_short = &blake3_hash[..16.min(blake3_hash.len())];
+
+    info!(
+        "fetching verified blob {} from {} (with progress)",
+        hash_short, node_id_short
+    );
+
+    // get blobs state (downloader + store)
+    let (downloader, store) = {
+        let guard = BLOBS_STATE.lock().unwrap();
+        let state = guard
+            .as_ref()
+            .ok_or_else(|| GrimoireError::FederationApiError {
+                message: "blobs downloader not initialized".to_string(),
+            })?;
+        (state.downloader.clone(), state.store.clone())
+    };
+
+    // parse blake3 hash
+    let hash: Hash = blake3_hash
+        .parse()
+        .map_err(|e| GrimoireError::FederationApiError {
+            message: format!("invalid blake3 hash: {}", e),
+        })?;
+
+    // create hash_and_format for download
+    let hash_and_format = HashAndFormat::raw(hash);
+
+    // download the blob using iroh-blobs protocol
+    use futures_util::StreamExt;
+    use iroh_blobs::api::downloader::DownloadProgressItem;
+
+    let progress = downloader.download(hash_and_format, [addr.id]);
+    let mut stream = progress
+        .stream()
+        .await
+        .map_err(|e| GrimoireError::FederationApiError {
+            message: format!("download stream failed: {}", e),
+        })?;
+
+    // consume progress stream, check for errors, report progress
+    let mut had_error = false;
+    let mut last_error: Option<String> = None;
+
+    while let Some(event) = stream.next().await {
+        match event {
+            DownloadProgressItem::Error(e) => {
+                had_error = true;
+                last_error = Some(format!("{:?}", e));
+            }
+            DownloadProgressItem::DownloadError => {
+                had_error = true;
+                last_error = Some("download error".to_string());
+            }
+            DownloadProgressItem::PartComplete { .. } => {
+                debug!("iroh-blobs: part complete for {}", hash_short);
+            }
+            DownloadProgressItem::Progress(bytes) => {
+                on_progress(bytes);
+            }
+            _ => {}
+        }
+    }
+
+    if had_error {
+        return Err(GrimoireError::FederationApiError {
+            message: format!(
+                "verified download failed: {}",
+                last_error.unwrap_or_else(|| "unknown error".to_string())
+            ),
+        });
+    }
+
+    // read the blob from store
+    let bytes = store
+        .get_bytes(hash)
+        .await
+        .map_err(|e| GrimoireError::FederationApiError {
+            message: format!("failed to read blob from store: {}", e),
+        })?;
+
+    info!(
+        "received {} verified bytes for blob {} from {}",
+        bytes.len(),
+        hash_short,
+        node_id_short
+    );
+
+    Ok(bytes.to_vec())
+}
+
+/// verified download with ensure + retry and progress reporting.
+pub async fn fetch_blob_verified_with_ensure_progress(
+    peer_addr: &str,
+    blake3_hash: &str,
+    on_progress: impl Fn(u64),
+) -> GrimoireResult<Vec<u8>> {
+    match fetch_blob_verified_with_progress(peer_addr, blake3_hash, &on_progress).await {
+        Ok(data) => return Ok(data),
+        Err(e) => {
+            let hash_short = &blake3_hash[..16.min(blake3_hash.len())];
+            debug!(
+                "verified download failed for {}, trying ensure: {}",
+                hash_short, e
+            );
+        }
+    }
+
+    let available = ensure_blob(peer_addr, blake3_hash).await?;
+    if !available {
+        return Err(GrimoireError::FederationApiError {
+            message: format!(
+                "blob {} not available on peer",
+                &blake3_hash[..16.min(blake3_hash.len())]
+            ),
+        });
+    }
+
+    fetch_blob_verified_with_progress(peer_addr, blake3_hash, &on_progress).await
+}
+
+/// full pipeline from blob_id with progress reporting.
+pub async fn fetch_blob_verified_by_id_progress(
+    peer_addr: &str,
+    blob_id: &str,
+    on_progress: impl Fn(u64),
+) -> GrimoireResult<(Vec<u8>, String)> {
+    let blob_id_short = &blob_id[..16.min(blob_id.len())];
+
+    let blake3 = compute_blake3(peer_addr, blob_id).await?.ok_or_else(|| {
+        GrimoireError::FederationApiError {
+            message: format!("blob {} not found on peer", blob_id_short),
+        }
+    })?;
+
+    let data = fetch_blob_verified_with_ensure_progress(peer_addr, &blake3, &on_progress).await?;
+
+    Ok((data, blake3))
+}
+
 /// fetch server image from a remote peer (public, no auth required)
 ///
 /// used during "add remote" flow before user is authenticated.

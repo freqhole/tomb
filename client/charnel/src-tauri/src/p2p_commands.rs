@@ -51,6 +51,12 @@ pub struct P2pResponse {
     pub body: String,
 }
 
+/// progress event sent during blob download via tauri::ipc::Channel
+#[derive(Clone, Serialize)]
+pub struct DownloadProgress {
+    pub bytes_downloaded: u64,
+}
+
 /// blob response with base64 data
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct P2pBlobResponse {
@@ -239,24 +245,29 @@ pub async fn p2p_fetch_blob_verified(
     app_handle: tauri::AppHandle,
     peer_addr: String,
     blake3_hash: String,
+    on_progress: tauri::ipc::Channel<DownloadProgress>,
 ) -> Result<P2pBlobResponse, String> {
     use base64::{engine::general_purpose::STANDARD, Engine};
 
-    // use fetch_blob_verified_with_ensure which handles on-demand loading
-    let data =
-        grimoire::federation::p2p_client::fetch_blob_verified_with_ensure(&peer_addr, &blake3_hash)
-            .await
-            .map_err(|e| {
-                let error_msg = e.to_string();
-                if is_connection_error(&error_msg) {
-                    let _ = notify_peer_offline(&app_handle, &peer_addr, &error_msg);
-                }
-                error_msg
-            })?;
+    let data = grimoire::federation::p2p_client::fetch_blob_verified_with_ensure_progress(
+        &peer_addr,
+        &blake3_hash,
+        |bytes_downloaded| {
+            let _ = on_progress.send(DownloadProgress { bytes_downloaded });
+        },
+    )
+    .await
+    .map_err(|e| {
+        let error_msg = e.to_string();
+        if is_connection_error(&error_msg) {
+            let _ = notify_peer_offline(&app_handle, &peer_addr, &error_msg);
+        }
+        error_msg
+    })?;
 
     Ok(P2pBlobResponse {
         data: STANDARD.encode(&data),
-        content_type: Some("audio/mpeg".to_string()), // iroh-blobs doesn't track content type
+        content_type: Some("audio/mpeg".to_string()),
         size: data.len() as u64,
     })
 }
@@ -271,19 +282,25 @@ pub async fn p2p_fetch_blob_verified_by_id(
     app_handle: tauri::AppHandle,
     peer_addr: String,
     blob_id: String,
+    on_progress: tauri::ipc::Channel<DownloadProgress>,
 ) -> Result<P2pBlobWithBlake3Response, String> {
     use base64::{engine::general_purpose::STANDARD, Engine};
 
-    let (data, blake3) =
-        grimoire::federation::p2p_client::fetch_blob_verified_by_id(&peer_addr, &blob_id)
-            .await
-            .map_err(|e| {
-                let error_msg = e.to_string();
-                if is_connection_error(&error_msg) {
-                    let _ = notify_peer_offline(&app_handle, &peer_addr, &error_msg);
-                }
-                error_msg
-            })?;
+    let (data, blake3) = grimoire::federation::p2p_client::fetch_blob_verified_by_id_progress(
+        &peer_addr,
+        &blob_id,
+        |bytes_downloaded| {
+            let _ = on_progress.send(DownloadProgress { bytes_downloaded });
+        },
+    )
+    .await
+    .map_err(|e| {
+        let error_msg = e.to_string();
+        if is_connection_error(&error_msg) {
+            let _ = notify_peer_offline(&app_handle, &peer_addr, &error_msg);
+        }
+        error_msg
+    })?;
 
     Ok(P2pBlobWithBlake3Response {
         data: STANDARD.encode(&data),
