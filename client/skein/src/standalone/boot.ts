@@ -3,11 +3,13 @@ import { BroadcastChannelNetworkAdapter } from "@automerge/automerge-repo-networ
 import { IndexedDBStorageAdapter } from "@automerge/automerge-repo-storage-indexeddb";
 import { createTestRegistry } from "../../widgets/index";
 import { createNarthexRegistry } from "../../widgets/narthex/index";
+import type { SocialDoc } from "../../widgets/narthex/social/types";
 import type { CanvasDocument } from "../canvas/canvas-doc";
 import { CanvasStore } from "../canvas/canvas-store";
 import type { ConnectionStateSource } from "../canvas/connection-status";
 import { initCanvas, type SkeinCanvas } from "../canvas/init";
 import { showShareDialog, type FriendInfo } from "../canvas/share-dialog";
+import { handleFreqholeStream } from "../p2p/freqhole-handler";
 import type { FriendzProtocol } from "../p2p/friends-protocol";
 import {
   destroyBridge,
@@ -24,19 +26,17 @@ import {
 } from "../p2p/identity";
 import { IrohNetworkAdapter, type MiddenStreamNode } from "../p2p/iroh-network-adapter";
 import { decodeShareString, encodeShareString } from "../p2p/share-string";
+import { resolveFriendDisplay, SqliteSocialDoc } from "../p2p/sqlite-social-doc";
+import { isTauriMode, TauriStreamNode } from "../p2p/tauri-transport";
 import { getMetaValue, setMetaValue } from "../storage/meta-db";
 import { syncCanvasMetadataToCards, watchCanvasDocsForUpdates } from "./canvas-watchers";
 import { initFriendzWiring } from "./friendz-wiring";
-import { handleFreqholeStream } from "../p2p/freqhole-handler";
 import {
   createNarthexWithSeed,
   ensureSingletonWidgets,
   MESSAGEZ_WIDGET_ID,
   SOCIAL_WIDGET_ID,
 } from "./narthex-seed";
-import { isTauriMode, TauriStreamNode } from "../p2p/tauri-transport";
-import type { SocialDoc } from "../../widgets/narthex/social/types";
-import { SqliteSocialDoc, resolveFriendDisplay } from "../p2p/sqlite-social-doc";
 
 // indexeddb key for the well-known narthex document id
 const NARTHEX_DOC_KEY = "skein-narthex-doc-id";
@@ -862,6 +862,10 @@ class SkeinRouter {
 
     // always write self — idempotent, ensures we're in the peer list
     canvas.store.addPeer(identity.node_id);
+
+    // wire transport-level connectivity into the canvas store so widgets
+    // can check which peers are online for smarter snatch peer selection
+    canvas.store.setPeerOnlineChecker((nodeId) => this.irohAdapter.isConnected(nodeId));
 
     // write the remote peer from a pending join (stashed by joinCanvasFromNarthex)
     if (this.pendingPeerNodeId) {

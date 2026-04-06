@@ -15,6 +15,8 @@ export class CanvasStore {
   /** the automerge repo this document belongs to. */
   readonly repo: Repo;
 
+  private _peerOnlineChecker: ((nodeId: string) => boolean) | null = null;
+
   private constructor(repo: Repo, handle: DocHandle<CanvasDocument>) {
     this.repo = repo;
     this.handle = handle;
@@ -350,5 +352,17 @@ export class CanvasStore {
     return () => {
       this.handle.off("ephemeral-message", listener);
     };
+  }
+
+  /** set a callback that checks whether a peer nodeId is currently connected.
+   *  used by widgets to sort peers online-first for snatch operations. */
+  setPeerOnlineChecker(checker: (nodeId: string) => boolean): void {
+    this._peerOnlineChecker = checker;
+  }
+
+  /** check whether a peer is currently connected at the transport level.
+   *  returns false if no checker is configured or the peer is offline. */
+  isPeerOnline(nodeId: string): boolean {
+    return this._peerOnlineChecker?.(nodeId) ?? false;
   }
 }

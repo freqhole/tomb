@@ -20,7 +20,7 @@ use crate::media_blobz::get_media_blob_with_data;
 use crate::offal::dispatch as offal_dispatch;
 use crate::offal::Caller;
 use crate::users::{UserRole, UserService};
-use base64::Engine;
+
 use iroh::PublicKey;
 use serde_json::{json, Value as JsonValue};
 use tokio::fs::File;
@@ -114,82 +114,14 @@ async fn handle_stream(
         .as_ref()
         .map(|f| f.max_message_size_bytes())
         .unwrap_or(10 * 1024 * 1024);
-    let max_upload_size = federation_config
-        .as_ref()
-        .map(|f| f.max_upload_size_bytes())
-        .unwrap_or(500 * 1024 * 1024);
-
-    // check for length-prefixed header (used by blob upload)
-    let mut prefix_buf = [0u8; 4];
-    recv.read_exact(&mut prefix_buf)
+    // read the full message as JSON
+    let msg_bytes = recv
+        .read_to_end(max_size)
         .await
-        .map_err(|e| format!("failed to read message prefix: {}", e))?;
+        .map_err(|e| format!("failed to read message: {}", e))?;
 
-    let prefix_len = u32::from_be_bytes(prefix_buf) as usize;
-
-    // if prefix looks like a reasonable header length (1 byte to 64KB),
-    // treat as length-prefixed message (for uploads)
-    let (msg, blob_data) = if prefix_len > 0 && prefix_len < 65536 {
-        let mut header_buf = vec![0u8; prefix_len];
-        recv.read_exact(&mut header_buf)
-            .await
-            .map_err(|e| format!("failed to read header: {}", e))?;
-
-        let msg: PeerMessage = serde_json::from_slice(&header_buf)
-            .map_err(|e| format!("failed to parse header: {}", e))?;
-
-        // if this is a blob upload, read the blob data
-        let blob_data = if let PeerMessage::BlobUploadRequest { id, size, .. } = &msg {
-            if *size as usize > max_upload_size {
-                let resp = PeerMessage::BlobUploadResponse {
-                    id: *id,
-                    blob_id: None,
-                    job_id: None,
-                    error: Some(format!(
-                        "file too large: {} bytes exceeds limit of {} MB",
-                        size,
-                        max_upload_size / (1024 * 1024)
-                    )),
-                    body: None,
-                };
-                send_response(&mut send, &resp).await?;
-                return Ok(());
-            }
-
-            match recv.read_to_end(max_upload_size).await {
-                Ok(data) => Some(data),
-                Err(e) => {
-                    let resp = PeerMessage::BlobUploadResponse {
-                        id: *id,
-                        blob_id: None,
-                        job_id: None,
-                        error: Some(format!("failed to read blob data: {}", e)),
-                        body: None,
-                    };
-                    send_response(&mut send, &resp).await?;
-                    return Ok(());
-                }
-            }
-        } else {
-            None
-        };
-
-        (msg, blob_data)
-    } else {
-        // regular message: prefix bytes are part of JSON
-        let rest = recv
-            .read_to_end(max_size)
-            .await
-            .map_err(|e| format!("failed to read message: {}", e))?;
-
-        let mut msg_bytes = prefix_buf.to_vec();
-        msg_bytes.extend(rest);
-
-        let msg: PeerMessage = serde_json::from_slice(&msg_bytes)
-            .map_err(|e| format!("failed to parse message: {}", e))?;
-
-        (msg, None)
-    };
+    let msg: PeerMessage = serde_json::from_slice(&msg_bytes)
+        .map_err(|e| format!("failed to parse message: {}", e))?;
 
     match msg {
         PeerMessage::ProxyRequest {
@@ -287,133 +219,6 @@ async fn handle_stream(
                 body: response_body,
             };
             send_response(&mut send, &resp).await?;
-        }
-
-        PeerMessage::BlobUploadRequest {
-            id,
-            filename,
-            content_type,
-            size,
-            associate_with,
-        } => {
-            debug!(
-                "blob upload: {} ({} bytes) from {}",
-                filename, size, node_id_short
-            );
-
-            // uploads require auth
-            let caller = match get_caller_for_peer(node_id_str).await {
-                Some(c) => c,
-                None => {
-                    warn!(
-                        "rejecting upload from unknown peer: {} from {}",
-                        filename, node_id_short
-                    );
-                    let resp = PeerMessage::BlobUploadResponse {
-                        id,
-                        blob_id: None,
-                        job_id: None,
-                        error: Some("unauthorized: peer not registered".to_string()),
-                        body: None,
-                    };
-                    send_response(&mut send, &resp).await?;
-                    return Ok(());
-                }
-            };
-
-            // get the blob data that was read earlier
-            let data = match blob_data {
-                Some(d) => d,
-                None => {
-                    let resp = PeerMessage::BlobUploadResponse {
-                        id,
-                        blob_id: None,
-                        job_id: None,
-                        error: Some("no blob data received".to_string()),
-                        body: None,
-                    };
-                    send_response(&mut send, &resp).await?;
-                    return Ok(());
-                }
-            };
-
-            // verify size matches
-            if data.len() as u64 != size {
-                let resp = PeerMessage::BlobUploadResponse {
-                    id,
-                    blob_id: None,
-                    job_id: None,
-                    error: Some(format!(
-                        "size mismatch: expected {} bytes, got {}",
-                        size,
-                        data.len()
-                    )),
-                    body: None,
-                };
-                send_response(&mut send, &resp).await?;
-                return Ok(());
-            }
-
-            // dispatch to offal upload handler
-            // encode data as base64 for the upload handler
-            let base64_data = base64::engine::general_purpose::STANDARD.encode(&data);
-
-            let mut upload_body = json!({
-                "data": base64_data,
-                "filename": filename,
-                "content_type": content_type,
-            });
-
-            // include association metadata if provided
-            if let Some(assoc) = associate_with {
-                upload_body["associate_with"] = assoc;
-            }
-
-            // determine upload path based on content type
-            let upload_path = if content_type.starts_with("audio/") {
-                "/api/upload/music"
-            } else if content_type.starts_with("image/") {
-                "/api/upload/image"
-            } else {
-                "/api/upload/music" // default to music
-            };
-
-            let response =
-                offal_dispatch(upload_path, &caller, upload_body, Some(OffalMethod::POST)).await;
-
-            if response.success {
-                // extract blob_id and job_id from response
-                let blob_id = response
-                    .data
-                    .as_ref()
-                    .and_then(|d| d.get("blob_id"))
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string());
-                let job_id = response
-                    .data
-                    .as_ref()
-                    .and_then(|d| d.get("job_id"))
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string());
-
-                let resp = PeerMessage::BlobUploadResponse {
-                    id,
-                    blob_id,
-                    job_id,
-                    error: None,
-                    body: Some(serde_json::to_string(&response).unwrap_or_default()),
-                };
-                send_response(&mut send, &resp).await?;
-            } else {
-                let resp = PeerMessage::BlobUploadResponse {
-                    id,
-                    blob_id: None,
-                    job_id: None,
-                    error: Some(response.message.clone()),
-                    body: Some(serde_json::to_string(&response).unwrap_or_default()),
-                };
-                send_response(&mut send, &resp).await?;
-            }
         }
 
         PeerMessage::HelloImageRequest { id } => {
@@ -571,7 +376,6 @@ async fn handle_stream(
 
         // ignore responses sent to us (shouldn't happen)
         PeerMessage::ProxyResponse { .. }
-        | PeerMessage::BlobUploadResponse { .. }
         | PeerMessage::HelloImageResponse { .. }
         | PeerMessage::EnsureBlobResponse { .. }
         | PeerMessage::ComputeBlake3Response { .. } => {

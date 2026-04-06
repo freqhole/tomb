@@ -51,20 +51,6 @@ enum PeerMessage {
         body: String,
     },
 
-    BlobUploadRequest {
-        id: u64,
-        filename: String,
-        content_type: String,
-        size: u64,
-        associate_with: Option<serde_json::Value>,
-    },
-    BlobUploadResponse {
-        id: u64,
-        blob_id: Option<String>,
-        job_id: Option<String>,
-        error: Option<String>,
-        body: Option<String>,
-    },
     HelloImageRequest {
         id: u64,
     },
@@ -122,33 +108,6 @@ impl HelloImageResult {
 pub struct ProxyResponse {
     pub status: u16,
     pub body: String,
-}
-
-/// upload result
-#[wasm_bindgen]
-pub struct UploadResult {
-    blob_id: Option<String>,
-    job_id: Option<String>,
-    /// full server response body for client parsing
-    body: Option<String>,
-}
-
-#[wasm_bindgen]
-impl UploadResult {
-    /// get the created blob_id (if successful)
-    pub fn blob_id(&self) -> Option<String> {
-        self.blob_id.clone()
-    }
-
-    /// get the import job_id
-    pub fn job_id(&self) -> Option<String> {
-        self.job_id.clone()
-    }
-
-    /// get the full server response body (for Zod validation)
-    pub fn body(&self) -> Option<String> {
-        self.body.clone()
-    }
 }
 
 /// a bidirectional QUIC stream for length-delimited message exchange.
@@ -742,79 +701,6 @@ impl MiddenNode {
                     .map_err(to_js_err)?;
 
                 Ok(HelloImageResult { data, content_type })
-            }
-            _ => Err(JsError::new("unexpected response type")),
-        }
-    }
-
-    /// upload a blob to a peer
-    /// peer_addr can be plain node_id or full endpoint JSON with relay/IP hints
-    /// associate_with: optional JSON string with entity association metadata
-    /// returns UploadResult with blob_id and job_id on success
-    pub async fn upload_blob(
-        &self,
-        peer_addr: &str,
-        filename: &str,
-        content_type: &str,
-        data: &[u8],
-        associate_with: Option<String>,
-    ) -> Result<UploadResult, JsError> {
-        let addr = parse_peer_addr(peer_addr).map_err(|e| JsError::new(&e))?;
-
-        // connect to peer
-        let conn = self.connect_to_peer(&addr).await?;
-
-        let (mut send, mut recv): (SendStream, RecvStream) =
-            conn.open_bi().await.map_err(to_js_err)?;
-
-        // parse associate_with if provided
-        let associate_with_value: Option<serde_json::Value> = associate_with
-            .as_ref()
-            .and_then(|s| serde_json::from_str(s).ok());
-
-        // send length-prefixed header
-        let request = PeerMessage::BlobUploadRequest {
-            id: 1,
-            filename: filename.to_string(),
-            content_type: content_type.to_string(),
-            size: data.len() as u64,
-            associate_with: associate_with_value,
-        };
-        let header_bytes = serde_json::to_vec(&request).map_err(to_js_err)?;
-        let header_len = header_bytes.len() as u32;
-
-        // write length prefix
-        send.write_all(&header_len.to_be_bytes())
-            .await
-            .map_err(to_js_err)?;
-        // write header
-        send.write_all(&header_bytes).await.map_err(to_js_err)?;
-        // write blob data
-        send.write_all(data).await.map_err(to_js_err)?;
-        send.finish().map_err(to_js_err)?;
-
-        // read response (no length prefix, read to end)
-        let response_bytes: Vec<u8> = recv.read_to_end(1024 * 1024).await.map_err(to_js_err)?;
-
-        let response: PeerMessage = serde_json::from_slice(&response_bytes).map_err(to_js_err)?;
-
-        match response {
-            PeerMessage::BlobUploadResponse {
-                blob_id,
-                job_id,
-                error,
-                body,
-                ..
-            } => {
-                if let Some(err) = error {
-                    return Err(JsError::new(&err));
-                }
-
-                Ok(UploadResult {
-                    blob_id,
-                    job_id,
-                    body,
-                })
             }
             _ => Err(JsError::new("unexpected response type")),
         }

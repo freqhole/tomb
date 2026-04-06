@@ -102,6 +102,13 @@ export interface SnatchOptions {
   onProgress?: (fraction: number) => void;
   /** abort signal to cancel an in-progress snatch */
   signal?: AbortSignal;
+  /** check whether a peer nodeId is currently connected at the transport level.
+   *  when provided, enables parallel probe-then-download: all peers are probed
+   *  in parallel, the first responsive peer wins, then download starts from it. */
+  isPeerOnline?: (nodeId: string) => boolean;
+  /** called when switching to a new peer attempt. useful for UI feedback like
+   *  "trying peer 2/3..." between download attempts. */
+  onPeerAttempt?: (peerIndex: number, peerCount: number, online: boolean) => void;
 }
 
 /** options for file upload */
@@ -345,314 +352,439 @@ export async function snatchBlob(
   peers: PeersMap,
   options?: SnatchOptions
 ): Promise<FileUploadResult> {
-  if (!isTauriMode()) {
-    const { getMiddenNode } = await import("../p2p/identity");
-    const { storeBlob, storeDomainEntity, computeSha256 } =
-      await import("../storage/skein-blob-store");
+  const allPeerAddrs = await getPeerNodeIds(peers);
 
-    const peerAddrs = await getPeerNodeIds(peers);
-
-    if (peerAddrs.length === 0) {
-      throw new Error("no peers available for snatch");
-    }
-
-    const node = await getMiddenNode();
-    let lastError: unknown;
-
-    for (const peerAddr of peerAddrs) {
-      if (options?.signal?.aborted) {
-        throw new DOMException("snatch cancelled", "AbortError");
-      }
-
-      try {
-        console.log(
-          TAG,
-          `browser snatch: blob ${info.blobId.slice(0, 8)}... from peer ${peerAddr.slice(0, 16)}...`
-        );
-
-        // download strategy: prefer iroh-blobs verified, fall back to custom protocol
-        let bytes: Uint8Array | undefined;
-        let blake3Hash = info.blake3;
-
-        const nodeAny = node as any;
-        const onProgress = options?.onProgress;
-        let downloaded = false;
-        const progressFn = onProgress
-          ? (fraction: number) => {
-              onProgress(fraction);
-            }
-          : () => {};
-
-        // strategy 1: iroh-blobs verified download when blake3 is known from doc
-        // (skips the compute_blake3 RPC — goes straight to ensure + download)
-        if (
-          !downloaded &&
-          blake3Hash &&
-          typeof nodeAny.download_verified_with_ensure_progress === "function"
-        ) {
-          try {
-            console.log(
-              TAG,
-              `trying iroh-blobs verified (blake3 known) from ${peerAddr.slice(0, 16)}...`
-            );
-            bytes = await withPeerTimeout(
-              nodeAny.download_verified_with_ensure_progress(
-                peerAddr,
-                blake3Hash,
-                info.size || 0,
-                progressFn
-              ) as Promise<Uint8Array>,
-              30000
-            );
-            downloaded = true;
-          } catch (err) {
-            console.debug(TAG, `iroh-blobs verified (blake3 known) failed:`, err);
-          }
-        }
-
-        // strategy 2: iroh-blobs verified download with on-demand blake3 compute
-        // (asks peer to compute blake3, then downloads verified)
-        if (!downloaded && typeof nodeAny.download_verified_by_id_progress === "function") {
-          try {
-            console.log(
-              TAG,
-              `trying iroh-blobs verified (compute blake3) from ${peerAddr.slice(0, 16)}...`
-            );
-            const result: any = await withPeerTimeout(
-              nodeAny.download_verified_by_id_progress(
-                peerAddr,
-                info.blobId,
-                info.size || 0,
-                progressFn
-              ) as Promise<any>,
-              30000
-            );
-            bytes = result[0] as Uint8Array;
-            blake3Hash = (result[1] as string) || blake3Hash;
-            downloaded = true;
-          } catch (err) {
-            console.debug(TAG, `iroh-blobs verified (compute blake3) failed:`, err);
-          }
-        }
-
-        if (!bytes) {
-          throw new Error("iroh-blobs download failed — no fallback available");
-        }
-
-        console.log(
-          TAG,
-          `browser snatch: downloaded ${formatFileSize(bytes.length)}, storing in OPFS...`
-        );
-
-        // check for cancellation before storing
-        if (options?.signal?.aborted) {
-          throw new DOMException("snatch cancelled", "AbortError");
-        }
-
-        // store in OPFS + IDB — compute sha256 so the record is findable
-        // even when the automerge doc's blobId gets overwritten by a Tauri
-        // peer with a server-assigned UUID.
-        const sha256 = await computeSha256(bytes.buffer as ArrayBuffer);
-        await storeBlob(sha256, bytes.buffer as ArrayBuffer, {
-          blob_id: sha256,
-          sha256: sha256,
-          blake3: blake3Hash,
-          filename: info.filename,
-          mime: info.mime,
-          size: info.size || bytes.length,
-          domain: info.domain,
-          blob_type: "original",
-          parent_blob_id: null,
-          metadata: { source: "snatch" },
-        });
-
-        // create domain entity record
-        const entityId = crypto.randomUUID();
-        await storeDomainEntity({
-          entity_id: entityId,
-          blob_id: sha256,
-          domain: info.domain,
-          title: info.filename,
-          description: "",
-          metadata: {},
-          created_at: Date.now(),
-        });
-
-        // clear thumbnail cache for this blob
-        const key200 = cacheKey(info.blobId, 200);
-        const key50 = cacheKey(info.blobId, 50);
-        thumbnailCache.delete(key200);
-        thumbnailCache.delete(key50);
-
-        // mark blob as local in the locality cache since we just downloaded it
-        localityCache.set(info.blobId, { locality: "local" });
-        // also cache by sha256 key so resolveBlob can find it later
-        localityCache.set(sha256, { locality: "local" });
-
-        console.log(
-          TAG,
-          `browser snatch complete: blob ${sha256.slice(0, 8)}... (doc blobId=${info.blobId.slice(0, 8)}...)`
-        );
-
-        return {
-          blobId: sha256,
-          domain: info.domain,
-          entityId,
-          jobId: null,
-          sha256: sha256,
-          blake3: blake3Hash || null,
-          size: info.size || bytes.length,
-          mime: info.mime,
-          existing: false,
-        };
-      } catch (err) {
-        lastError = err;
-        console.debug(TAG, `browser snatch from peer ${peerAddr.slice(0, 16)}... failed:`, err);
-        continue;
-      }
-    }
-
-    throw lastError ?? new Error("browser snatch failed: all peers exhausted");
-  }
-
-  const peerAddrs = await getPeerNodeIds(peers);
-
-  if (peerAddrs.length === 0) {
+  if (allPeerAddrs.length === 0) {
     throw new Error("no peers available for snatch");
   }
 
-  // try each peer until one succeeds
+  // phase 1: find the best peer via parallel probing.
+  // phase 2: download from the winner.
+  // if download fails, exclude that peer and repeat.
+  let remaining = [...allPeerAddrs];
   let lastError: unknown;
-  for (const peerAddr of peerAddrs) {
+
+  while (remaining.length > 0) {
     if (options?.signal?.aborted) {
       throw new DOMException("snatch cancelled", "AbortError");
     }
 
+    // --- phase 1: parallel probe to find a responsive peer with the blob ---
+    const bestPeer = await probePeersForBlob(info, remaining, options);
+
+    if (!bestPeer) {
+      throw new Error("no peer has the blob (all probes failed)");
+    }
+
+    // --- phase 2: download from the best peer ---
+    const peerIndex = allPeerAddrs.indexOf(bestPeer);
+    const isOnline = options?.isPeerOnline?.(bestPeer) ?? false;
+    options?.onPeerAttempt?.(peerIndex, allPeerAddrs.length, isOnline);
+
+    console.log(
+      TAG,
+      `probe winner: ${bestPeer.slice(0, 16)}... (${isOnline ? "connected" : "responded to probe"}), starting download`
+    );
+
     try {
-      console.log(
-        TAG,
-        `snatching blob ${info.blobId.slice(0, 8)}... from peer ${peerAddr.slice(0, 16)}...`
-      );
-
-      // step 1: download full blob — prefer iroh-blobs verified, fall back to unverified
-      let blobResult: { data: string; blake3: string; size?: number } | null = null;
-
-      // set up progress channel for tauri IPC
-      const { Channel } = await import("@tauri-apps/api/core");
-      const onProgress = options?.onProgress;
-      const progressChannel = new Channel<{ bytes_downloaded: number }>();
-      progressChannel.onmessage = (msg) => {
-        if (onProgress && info.size > 0) {
-          onProgress(Math.min(msg.bytes_downloaded / info.size, 1.0));
-        }
-      };
-
-      // strategy 1: if blake3 known from doc, use verified+ensure directly (skips compute step)
-      if (info.blake3) {
-        try {
-          console.log(
-            TAG,
-            `trying iroh-blobs verified (blake3 known) from ${peerAddr.slice(0, 16)}...`
-          );
-          const verified = await tauriInvoke("p2p_fetch_blob_verified", {
-            peerAddr,
-            blake3Hash: info.blake3,
-            onProgress: progressChannel,
-          });
-          blobResult = { data: verified.data, blake3: info.blake3, size: verified.size };
-        } catch (err) {
-          console.debug(TAG, `iroh-blobs verified (blake3 known) failed:`, err);
-        }
-      }
-
-      // strategy 2: verified by id (computes blake3 on peer, then iroh-blobs download)
-      if (!blobResult) {
-        try {
-          console.log(
-            TAG,
-            `trying iroh-blobs verified (compute blake3) from ${peerAddr.slice(0, 16)}...`
-          );
-          blobResult = await tauriInvoke("p2p_fetch_blob_verified_by_id", {
-            peerAddr,
-            blobId: info.blobId,
-            onProgress: progressChannel,
-          });
-        } catch (err) {
-          console.debug(TAG, `iroh-blobs verified (compute blake3) failed:`, err);
-        }
-      }
-
-      if (!blobResult) {
-        throw new Error("iroh-blobs download failed — no fallback available");
-      }
-
-      if (!blobResult.data) {
-        throw new Error("peer returned empty blob data");
-      }
-
-      console.log(
-        TAG,
-        `downloaded ${blobResult.size ? formatFileSize(blobResult.size) : "unknown size"} from peer, ingesting locally...`
-      );
-
-      // check for cancellation before ingesting
-      if (options?.signal?.aborted) {
-        throw new DOMException("snatch cancelled", "AbortError");
-      }
-
-      // step 2: ingest into local grimoire via the upload endpoint.
-      // pass the base64 data directly + metadata marking this as a snatch.
-      const uploadResponse = await tauriInvoke("api_call", {
-        path: "/api/upload/file",
-        body: {
-          data: blobResult.data,
-          filename: info.filename,
-          metadata: JSON.stringify({ source: "snatch", original_blob_id: info.blobId }),
-          wait_for_completion: true,
-        },
-      });
-
-      if (!uploadResponse.success) {
-        const detail =
-          uploadResponse.errors?.[0]?.detail ?? uploadResponse.message ?? "ingest failed";
-        throw new Error(`snatch ingest failed: ${detail}`);
-      }
-
-      const d = uploadResponse.data;
-      if (!d) {
-        throw new Error("snatch ingest returned no data");
-      }
-
-      console.log(TAG, `snatch complete: blob ${d.blob_id?.slice(0, 8)}... domain=${d.domain}`);
-
-      // clear thumbnail cache for this blob so it re-fetches from local
-      const key200 = cacheKey(info.blobId, 200);
-      const key50 = cacheKey(info.blobId, 50);
-      thumbnailCache.delete(key200);
-      thumbnailCache.delete(key50);
-
-      // mark blob as local in the locality cache since we just downloaded it
-      localityCache.set(info.blobId, { locality: "local" });
-
-      return {
-        blobId: d.blob_id,
-        domain: d.domain,
-        entityId: d.entity_id,
-        jobId: d.job_id ?? null,
-        sha256: d.sha256,
-        blake3: d.blake3 ?? null,
-        size: d.size,
-        mime: d.mime,
-        existing: d.existing ?? false,
-      };
+      const result = isTauriMode()
+        ? await snatchFromTauriPeer(info, bestPeer, options)
+        : await snatchFromBrowserPeer(info, bestPeer, options);
+      return result;
     } catch (err) {
       lastError = err;
-      console.debug(TAG, `snatch from peer ${peerAddr.slice(0, 16)}... failed:`, err);
+      console.debug(TAG, `download from probed peer ${bestPeer.slice(0, 16)}... failed:`, err);
+      remaining = remaining.filter((p) => p !== bestPeer);
       continue;
     }
   }
 
   throw lastError ?? new Error("snatch failed: all peers exhausted");
+}
+
+// ---------------------------------------------------------------------------
+// parallel peer probing
+// ---------------------------------------------------------------------------
+
+/** timeout for individual peer probes (short — probes should be fast) */
+const PROBE_TIMEOUT_MS = 8000;
+
+/**
+ * probe all candidate peers in parallel to find one that has the blob.
+ * uses EnsureBlobRequest (lightweight: checks availability without downloading).
+ * returns the nodeId of the first peer to respond positively, or null if none.
+ * requires blake3 hash to be present on the blob info.
+ */
+async function probePeersForBlob(
+  info: SnatchBlobInfo,
+  peerAddrs: string[],
+  options?: SnatchOptions
+): Promise<string | null> {
+  if (peerAddrs.length === 0) return null;
+
+  // sort so connected peers are probed first (their responses arrive faster)
+  const sorted = sortPeersByConnectivity(peerAddrs, options?.isPeerOnline);
+
+  console.log(TAG, `probing ${sorted.length} peer(s) for blob ${info.blobId.slice(0, 8)}...`);
+
+  const probes = sorted.map((peerAddr) => probeSinglePeer(info, peerAddr, options));
+
+  try {
+    // Promise.any resolves with the first fulfilled promise.
+    // rejected probes (offline, doesn't have blob) are ignored until all fail.
+    return await Promise.any(probes);
+  } catch {
+    // AggregateError — all probes failed
+    console.debug(TAG, "all peer probes failed");
+    return null;
+  }
+}
+
+/**
+ * probe a single peer to check if it has the blob.
+ * resolves with the peerAddr if the peer has it, rejects otherwise.
+ */
+async function probeSinglePeer(
+  info: SnatchBlobInfo,
+  peerAddr: string,
+  options?: SnatchOptions
+): Promise<string> {
+  if (options?.signal?.aborted) {
+    throw new DOMException("snatch cancelled", "AbortError");
+  }
+
+  if (!isTauriMode()) {
+    // browser: use midden's ensure_blob method
+    const { getMiddenNode } = await import("../p2p/identity");
+    const node = await getMiddenNode();
+    const nodeAny = node as any;
+
+    if (typeof nodeAny.ensure_blob !== "function") {
+      throw new Error("midden node does not support ensure_blob");
+    }
+
+    const available: boolean = await withPeerTimeout(
+      nodeAny.ensure_blob(peerAddr, info.blake3) as Promise<boolean>,
+      PROBE_TIMEOUT_MS
+    );
+    if (available) return peerAddr;
+    throw new Error(`peer ${peerAddr.slice(0, 16)} does not have the blob`);
+  }
+
+  // tauri: use the p2p_probe_blob command (sends EnsureBlobRequest)
+  const available: boolean = await withPeerTimeout(
+    tauriInvoke("p2p_probe_blob", {
+      peerAddr,
+      blake3Hash: info.blake3,
+    }) as Promise<boolean>,
+    PROBE_TIMEOUT_MS
+  );
+  if (available) return peerAddr;
+  throw new Error(`peer ${peerAddr.slice(0, 16)} does not have the blob`);
+}
+
+/**
+ * sort peer nodeIds so that connected peers come first.
+ * preserves relative order within each group.
+ */
+function sortPeersByConnectivity(
+  peerAddrs: string[],
+  isPeerOnline?: (nodeId: string) => boolean
+): string[] {
+  if (!isPeerOnline) return peerAddrs;
+
+  const online: string[] = [];
+  const offline: string[] = [];
+
+  for (const addr of peerAddrs) {
+    if (isPeerOnline(addr)) {
+      online.push(addr);
+    } else {
+      offline.push(addr);
+    }
+  }
+
+  if (online.length > 0 && offline.length > 0) {
+    console.log(TAG, `peer ordering: ${online.length} connected, ${offline.length} not connected`);
+  }
+
+  return [...online, ...offline];
+}
+
+// ---------------------------------------------------------------------------
+// per-peer download (browser)
+// ---------------------------------------------------------------------------
+
+/**
+ * download and ingest a blob from a single browser peer via midden WASM.
+ */
+async function snatchFromBrowserPeer(
+  info: SnatchBlobInfo,
+  peerAddr: string,
+  options?: SnatchOptions
+): Promise<FileUploadResult> {
+  const { getMiddenNode } = await import("../p2p/identity");
+  const { storeBlob, storeDomainEntity, computeSha256 } =
+    await import("../storage/skein-blob-store");
+
+  const node = await getMiddenNode();
+
+  console.log(
+    TAG,
+    `browser snatch: blob ${info.blobId.slice(0, 8)}... from peer ${peerAddr.slice(0, 16)}...`
+  );
+
+  let bytes: Uint8Array | undefined;
+  let blake3Hash = info.blake3;
+
+  const nodeAny = node as any;
+  const onProgress = options?.onProgress;
+  let downloaded = false;
+  const progressFn = onProgress
+    ? (fraction: number) => {
+        onProgress(fraction);
+      }
+    : () => {};
+
+  // strategy 1: iroh-blobs verified download when blake3 is known from doc
+  if (
+    !downloaded &&
+    blake3Hash &&
+    typeof nodeAny.download_verified_with_ensure_progress === "function"
+  ) {
+    try {
+      console.log(
+        TAG,
+        `trying iroh-blobs verified (blake3 known) from ${peerAddr.slice(0, 16)}...`
+      );
+      bytes = await withPeerTimeout(
+        nodeAny.download_verified_with_ensure_progress(
+          peerAddr,
+          blake3Hash,
+          info.size || 0,
+          progressFn
+        ) as Promise<Uint8Array>,
+        30000
+      );
+      downloaded = true;
+    } catch (err) {
+      console.debug(TAG, `iroh-blobs verified (blake3 known) failed:`, err);
+    }
+  }
+
+  // strategy 2: iroh-blobs verified download with on-demand blake3 compute
+  if (!downloaded && typeof nodeAny.download_verified_by_id_progress === "function") {
+    try {
+      console.log(
+        TAG,
+        `trying iroh-blobs verified (compute blake3) from ${peerAddr.slice(0, 16)}...`
+      );
+      const result: any = await withPeerTimeout(
+        nodeAny.download_verified_by_id_progress(
+          peerAddr,
+          info.blobId,
+          info.size || 0,
+          progressFn
+        ) as Promise<any>,
+        30000
+      );
+      bytes = result[0] as Uint8Array;
+      blake3Hash = (result[1] as string) || blake3Hash;
+      downloaded = true;
+    } catch (err) {
+      console.debug(TAG, `iroh-blobs verified (compute blake3) failed:`, err);
+    }
+  }
+
+  if (!bytes) {
+    throw new Error("iroh-blobs download failed — no fallback available");
+  }
+
+  console.log(
+    TAG,
+    `browser snatch: downloaded ${formatFileSize(bytes.length)}, storing in OPFS...`
+  );
+
+  if (options?.signal?.aborted) {
+    throw new DOMException("snatch cancelled", "AbortError");
+  }
+
+  // store in OPFS + IDB
+  const sha256 = await computeSha256(bytes.buffer as ArrayBuffer);
+  await storeBlob(sha256, bytes.buffer as ArrayBuffer, {
+    blob_id: sha256,
+    sha256: sha256,
+    blake3: blake3Hash,
+    filename: info.filename,
+    mime: info.mime,
+    size: info.size || bytes.length,
+    domain: info.domain,
+    blob_type: "original",
+    parent_blob_id: null,
+    metadata: { source: "snatch" },
+  });
+
+  const entityId = crypto.randomUUID();
+  await storeDomainEntity({
+    entity_id: entityId,
+    blob_id: sha256,
+    domain: info.domain,
+    title: info.filename,
+    description: "",
+    metadata: {},
+    created_at: Date.now(),
+  });
+
+  // clear thumbnail cache for this blob
+  const key200 = cacheKey(info.blobId, 200);
+  const key50 = cacheKey(info.blobId, 50);
+  thumbnailCache.delete(key200);
+  thumbnailCache.delete(key50);
+
+  localityCache.set(info.blobId, { locality: "local" });
+  localityCache.set(sha256, { locality: "local" });
+
+  console.log(
+    TAG,
+    `browser snatch complete: blob ${sha256.slice(0, 8)}... (doc blobId=${info.blobId.slice(0, 8)}...)`
+  );
+
+  return {
+    blobId: sha256,
+    domain: info.domain,
+    entityId,
+    jobId: null,
+    sha256: sha256,
+    blake3: blake3Hash || null,
+    size: info.size || bytes.length,
+    mime: info.mime,
+    existing: false,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// per-peer download (tauri)
+// ---------------------------------------------------------------------------
+
+/**
+ * download and ingest a blob from a single peer via Tauri IPC.
+ */
+async function snatchFromTauriPeer(
+  info: SnatchBlobInfo,
+  peerAddr: string,
+  options?: SnatchOptions
+): Promise<FileUploadResult> {
+  console.log(
+    TAG,
+    `snatching blob ${info.blobId.slice(0, 8)}... from peer ${peerAddr.slice(0, 16)}...`
+  );
+
+  let blobResult: { data: string; blake3: string; size?: number } | null = null;
+
+  // set up progress channel for tauri IPC
+  const { Channel } = await import("@tauri-apps/api/core");
+  const onProgress = options?.onProgress;
+  const progressChannel = new Channel<{ bytes_downloaded: number }>();
+  progressChannel.onmessage = (msg) => {
+    if (onProgress && info.size > 0) {
+      onProgress(Math.min(msg.bytes_downloaded / info.size, 1.0));
+    }
+  };
+
+  // strategy 1: if blake3 known from doc, use verified+ensure directly
+  if (info.blake3) {
+    try {
+      console.log(
+        TAG,
+        `trying iroh-blobs verified (blake3 known) from ${peerAddr.slice(0, 16)}...`
+      );
+      const verified = await tauriInvoke("p2p_fetch_blob_verified", {
+        peerAddr,
+        blake3Hash: info.blake3,
+        onProgress: progressChannel,
+      });
+      blobResult = { data: verified.data, blake3: info.blake3, size: verified.size };
+    } catch (err) {
+      console.debug(TAG, `iroh-blobs verified (blake3 known) failed:`, err);
+    }
+  }
+
+  // strategy 2: verified by id (computes blake3 on peer, then iroh-blobs download)
+  if (!blobResult) {
+    try {
+      console.log(
+        TAG,
+        `trying iroh-blobs verified (compute blake3) from ${peerAddr.slice(0, 16)}...`
+      );
+      blobResult = await tauriInvoke("p2p_fetch_blob_verified_by_id", {
+        peerAddr,
+        blobId: info.blobId,
+        onProgress: progressChannel,
+      });
+    } catch (err) {
+      console.debug(TAG, `iroh-blobs verified (compute blake3) failed:`, err);
+    }
+  }
+
+  if (!blobResult) {
+    throw new Error("iroh-blobs download failed — no fallback available");
+  }
+
+  if (!blobResult.data) {
+    throw new Error("peer returned empty blob data");
+  }
+
+  console.log(
+    TAG,
+    `downloaded ${blobResult.size ? formatFileSize(blobResult.size) : "unknown size"} from peer, ingesting locally...`
+  );
+
+  if (options?.signal?.aborted) {
+    throw new DOMException("snatch cancelled", "AbortError");
+  }
+
+  // ingest into local grimoire via the upload endpoint
+  const uploadResponse = await tauriInvoke("api_call", {
+    path: "/api/upload/file",
+    body: {
+      data: blobResult.data,
+      filename: info.filename,
+      metadata: JSON.stringify({ source: "snatch", original_blob_id: info.blobId }),
+      wait_for_completion: true,
+    },
+  });
+
+  if (!uploadResponse.success) {
+    const detail = uploadResponse.errors?.[0]?.detail ?? uploadResponse.message ?? "ingest failed";
+    throw new Error(`snatch ingest failed: ${detail}`);
+  }
+
+  const d = uploadResponse.data;
+  if (!d) {
+    throw new Error("snatch ingest returned no data");
+  }
+
+  console.log(TAG, `snatch complete: blob ${d.blob_id?.slice(0, 8)}... domain=${d.domain}`);
+
+  // clear thumbnail cache for this blob so it re-fetches from local
+  const key200 = cacheKey(info.blobId, 200);
+  const key50 = cacheKey(info.blobId, 50);
+  thumbnailCache.delete(key200);
+  thumbnailCache.delete(key50);
+
+  localityCache.set(info.blobId, { locality: "local" });
+
+  return {
+    blobId: d.blob_id,
+    domain: d.domain,
+    entityId: d.entity_id,
+    jobId: d.job_id ?? null,
+    sha256: d.sha256,
+    blake3: d.blake3 ?? null,
+    size: d.size,
+    mime: d.mime,
+    existing: d.existing ?? false,
+  };
 }
 
 // ---------------------------------------------------------------------------

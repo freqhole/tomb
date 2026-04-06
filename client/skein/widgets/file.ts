@@ -957,6 +957,12 @@ export const fileWidget: WidgetFactory<typeof fileSchema> = {
       snatchBtn.setColor(0x555555);
       syncActionButtons();
 
+      // show "probing..." while the parallel probe runs (before download starts)
+      snatchProgressText = "probing...";
+      if (!snatchHovered) {
+        snatchBtn.setLabel(snatchProgressText);
+      }
+
       try {
         const result = await snatchBlob(
           {
@@ -985,6 +991,20 @@ export const fileWidget: WidgetFactory<typeof fileSchema> = {
               }
             },
             signal: snatchAbort?.signal,
+            isPeerOnline: ctx.canvasStore
+              ? (nodeId: string) => ctx.canvasStore!.isPeerOnline(nodeId)
+              : undefined,
+            onPeerAttempt: (peerIndex, peerCount, online) => {
+              if (snatchCancelled) return;
+              const label =
+                peerCount > 1
+                  ? `peer ${peerIndex + 1}/${peerCount}${online ? "" : " (offline)"}`
+                  : "snatching...";
+              snatchProgressText = label;
+              if (!snatchHovered) {
+                snatchBtn.setLabel(snatchProgressText);
+              }
+            },
           }
         );
 

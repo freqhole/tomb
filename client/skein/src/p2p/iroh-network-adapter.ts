@@ -291,6 +291,11 @@ export class IrohNetworkAdapter extends NetworkAdapter {
     this.emitConnectionStateChange();
   }
 
+  /** check whether we have an active stream to a peer (transport-level connectivity check) */
+  isConnected(nodeId: string): boolean {
+    return this.streams.has(nodeId);
+  }
+
   /**
    * get a summary of the current connection state.
    * used by the UI to show stoplight-style indicators.
