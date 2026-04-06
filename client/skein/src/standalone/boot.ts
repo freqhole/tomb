@@ -429,12 +429,28 @@ class SkeinRouter {
             }
           }
 
+
+          // build a nodeId -> display name map from friends for the peer list
+          const peerDisplayNames = new Map<string, string>();
+          if (this.socialDoc) {
+            const state = this.socialDoc.current;
+            if (state?.friends) {
+              for (const friend of state.friends) {
+                const name = friend.alias || friend.username || "";
+                if (!name) continue;
+                for (const n of friend.nodeIds) {
+                  if (n.nodeId) peerDisplayNames.set(n.nodeId, name);
+                }
+              }
+            }
+          }
           showShareDialog({
             app: this.currentCanvas.app,
             theme: this.currentCanvas.theme,
             shareString: shareStr,
             shareUrl,
             peers: peerList,
+            peerDisplayNames,
             onRemovePeer: (nodeId: string) => {
               // remove from canvas doc
               this.currentCanvas?.store.removePeer(nodeId);

@@ -40,6 +40,8 @@ export interface ShareDialogOptions {
   /** called when user clicks "invite" on a friend row — sends canvas-invite */
   onInviteFriend?: (friend: FriendInfo) => void | Promise<void>;
   onClose?: () => void;
+  /** optional map of nodeId -> display name for resolving peer names from friends list */
+  peerDisplayNames?: Map<string, string>;
 }
 
 export interface ShareDialogHandle {
@@ -167,18 +169,21 @@ function buildPeerRow(
   copyBtnH: number,
   isRemoved: () => boolean,
   onRemovePeer?: (nodeId: string) => void,
-  onAddFriend?: (nodeId: string) => void | Promise<void>
+  onAddFriend?: (nodeId: string) => void | Promise<void>,
+  displayName?: string
 ): Container {
   const row = new Container();
 
-  // truncated node ID text
+  // peer display: show name if known, otherwise truncated node ID
   const truncated = nodeId.slice(0, 8) + "..." + nodeId.slice(-8);
+  const label = displayName ? displayName : truncated;
   const idText = new Text({
-    text: truncated,
+    text: label,
     style: {
       fontFamily: theme.fontFamily,
       fontSize: theme.fontSizeSmall,
       fill: theme.frameHeaderText,
+      fontWeight: displayName ? "bold" : "normal",
     },
     resolution: theme.textResolution,
   });
@@ -186,6 +191,22 @@ function buildPeerRow(
   idText.y = (copyBtnH - idText.height) / 2;
   row.addChild(idText);
 
+  // show truncated nodeId below the name if we have a display name
+  if (displayName) {
+    const subIdText = new Text({
+      text: truncated,
+      style: {
+        fontFamily: theme.fontFamily,
+        fontSize: theme.fontSizeSmall - 1,
+        fill: 0x6b7280,
+      },
+      resolution: theme.textResolution,
+    });
+    subIdText.eventMode = "none";
+    subIdText.x = idText.x + idText.width + 6;
+    subIdText.y = (copyBtnH - subIdText.height) / 2;
+    row.addChild(subIdText);
+  }
   // copy button — copies full node ID
   const copyBtn = makeCopyButton(theme);
   let rightOffset = 8;
@@ -584,6 +605,7 @@ export function showShareDialog(options: ShareDialogOptions): ShareDialogHandle 
     peerSection.addChild(emptyText);
   } else {
     let peerY = peerLabel.height + LABEL_GAP;
+    const nameMap = options.peerDisplayNames;
     for (const peer of peerList) {
       const peerRow = buildPeerRow(
         peer.nodeId,
@@ -593,7 +615,8 @@ export function showShareDialog(options: ShareDialogOptions): ShareDialogHandle 
         copyBtnH,
         isRemoved,
         options.onRemovePeer,
-        options.onAddFriend
+        options.onAddFriend,
+        nameMap?.get(peer.nodeId)
       );
       peerRow.y = peerY;
       peerSection.addChild(peerRow);
