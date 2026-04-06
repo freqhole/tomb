@@ -5,6 +5,7 @@ import {
   uploadFile,
   getThumbnailDataUrl,
   formatFileSize,
+  type ThumbnailOptions,
 } from "../src/widgets/file-utils";
 import type {
   WidgetController,
@@ -368,7 +369,11 @@ export const fileWidget: WidgetFactory<typeof fileSchema> = {
       loadingAbort = abort;
 
       try {
-        const dataUrl = await getThumbnailDataUrl(blobId, 200);
+        const thumbOpts: ThumbnailOptions = {
+          size: 200,
+          peers: ctx.canvasStore?.peers(),
+        };
+        const dataUrl = await getThumbnailDataUrl(blobId, thumbOpts);
 
         if (abort.signal.aborted || lastRequestedBlobId !== blobId) {
           return;

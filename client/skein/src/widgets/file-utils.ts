@@ -5,6 +5,10 @@
  * supports two runtime modes:
  * - Tauri mode: native file dialogs + IPC invoke for uploads
  * - browser mode: hidden <input> file picker (upload requires Tauri)
+ *
+ * thumbnail fetching has a P2P fallback: when the blob isn't available
+ * locally (e.g. a peer uploaded it), we proxy the thumbnail request
+ * through connected canvas peers via p2p_proxy_request.
  */
 
 import { isTauriMode } from "../p2p/tauri-transport";
@@ -49,6 +53,14 @@ export interface UploadOptions {
   waitForCompletion?: boolean;
 }
 
+/** options for thumbnail fetching */
+export interface ThumbnailOptions {
+  /** thumbnail size in pixels (default: 200) */
+  size?: number;
+  /** canvas peers to try for P2P fallback — keys are peer IDs, values have nodeId */
+  peers?: Record<string, { nodeId: string }>;
+}
+
 // ---------------------------------------------------------------------------
 // tauri bridge helper
 // ---------------------------------------------------------------------------
@@ -60,6 +72,26 @@ export interface UploadOptions {
 async function tauriInvoke(cmd: string, args: Record<string, unknown>): Promise<any> {
   const { invoke } = await import("@tauri-apps/api/core");
   return invoke(cmd, args);
+}
+
+// ---------------------------------------------------------------------------
+// thumbnail cache
+// ---------------------------------------------------------------------------
+
+/**
+ * in-memory cache of fetched thumbnails. keyed by "blobId:size".
+ * survives for the session — cleared on page reload.
+ * avoids redundant local + P2P fetches when widgets re-render.
+ */
+const thumbnailCache = new Map<string, string>();
+
+function cacheKey(blobId: string, size: number): string {
+  return `${blobId}:${size}`;
+}
+
+/** clear the entire thumbnail cache (e.g. on disconnect) */
+export function clearThumbnailCache(): void {
+  thumbnailCache.clear();
 }
 
 // ---------------------------------------------------------------------------
@@ -243,9 +275,54 @@ export async function uploadFile(
 /**
  * fetch thumbnail image data for a blob and return it as a data URL.
  * walks the blob parent-child chain to find the best available thumbnail.
- * returns null if no thumbnail is available or if not in Tauri mode.
+ *
+ * resolution order:
+ * 1. in-memory cache (instant, session-scoped)
+ * 2. local grimoire via api_call (blob is on this machine)
+ * 3. P2P proxy via connected canvas peers (blob is on a peer's machine)
+ *
+ * returns null if no thumbnail is available from any source.
  */
-export async function getThumbnailDataUrl(blobId: string, size?: number): Promise<string | null> {
+export async function getThumbnailDataUrl(
+  blobId: string,
+  options?: ThumbnailOptions | number
+): Promise<string | null> {
+  // support legacy call signature: getThumbnailDataUrl(blobId, 200)
+  const opts: ThumbnailOptions = typeof options === "number" ? { size: options } : (options ?? {});
+  const size = opts.size ?? 200;
+
+  // 1. check in-memory cache
+  const key = cacheKey(blobId, size);
+  const cached = thumbnailCache.get(key);
+  if (cached) {
+    return cached;
+  }
+
+  // 2. try local grimoire (blob exists on this machine)
+  const localResult = await fetchThumbnailLocal(blobId, size);
+  if (localResult) {
+    thumbnailCache.set(key, localResult);
+    return localResult;
+  }
+
+  // 3. try P2P fallback — proxy the request through connected canvas peers
+  const peers = opts.peers;
+  if (peers && isTauriMode()) {
+    const peerResult = await fetchThumbnailFromPeers(blobId, size, peers);
+    if (peerResult) {
+      thumbnailCache.set(key, peerResult);
+      return peerResult;
+    }
+  }
+
+  return null;
+}
+
+/**
+ * try fetching thumbnail data from the local grimoire instance.
+ * returns a data URL on success, null on failure.
+ */
+async function fetchThumbnailLocal(blobId: string, size: number): Promise<string | null> {
   if (!isTauriMode()) {
     return null;
   }
@@ -255,7 +332,7 @@ export async function getThumbnailDataUrl(blobId: string, size?: number): Promis
       path: "/api/blobs/thumbnail_data",
       body: {
         blob_id: blobId,
-        size: size ?? 200,
+        size,
       },
     });
 
@@ -270,9 +347,72 @@ export async function getThumbnailDataUrl(blobId: string, size?: number): Promis
 
     return `data:${mime};base64,${data}`;
   } catch (err) {
-    console.warn(TAG, "failed to fetch thumbnail for blob", blobId, err);
+    // not an error — just means the blob isn't available locally
     return null;
   }
+}
+
+/**
+ * try fetching thumbnail data by proxying the request through canvas peers.
+ * iterates connected peers and tries each one until one succeeds.
+ * uses the same /api/blobs/thumbnail_data endpoint on the remote side
+ * via p2p_proxy_request, so the peer does all the thumbnail chain walking.
+ */
+async function fetchThumbnailFromPeers(
+  blobId: string,
+  size: number,
+  peers: Record<string, { nodeId: string }>
+): Promise<string | null> {
+  const peerIds = Object.values(peers)
+    .map((p) => p.nodeId)
+    .filter(Boolean);
+
+  if (peerIds.length === 0) {
+    return null;
+  }
+
+  for (const peerAddr of peerIds) {
+    try {
+      const result = await tauriInvoke("p2p_proxy_request", {
+        peerAddr,
+        method: "POST",
+        path: "/api/blobs/thumbnail_data",
+        body: JSON.stringify({ blob_id: blobId, size }),
+      });
+
+      // result is { status: number, body: string }
+      // body is a JSON-serialized GrimoireResponse
+      if (result.status !== 200) {
+        continue;
+      }
+
+      const parsed = JSON.parse(result.body);
+      if (!parsed.success || !parsed.data) {
+        continue;
+      }
+
+      const { data, mime } = parsed.data;
+      if (!data || !mime) {
+        continue;
+      }
+
+      console.log(
+        TAG,
+        `fetched thumbnail for ${blobId.slice(0, 8)}... from peer ${peerAddr.slice(0, 16)}...`
+      );
+      return `data:${mime};base64,${data}`;
+    } catch (err) {
+      // peer unreachable or request failed — try next peer
+      console.debug(
+        TAG,
+        `peer ${peerAddr.slice(0, 16)}... failed for thumbnail ${blobId.slice(0, 8)}...:`,
+        err
+      );
+      continue;
+    }
+  }
+
+  return null;
 }
 
 // ---------------------------------------------------------------------------
