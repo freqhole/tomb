@@ -489,9 +489,12 @@ pub async fn create_image_blob_from_webp_data(
         Ok(blob) => {
             let blob_id = blob.id.clone();
 
-            // generate sized thumbnails for Original and Waveform blobs
+            // generate sized thumbnails for Original, Preview, and Waveform blobs
             // (not for Thumbnails - that would cause infinite recursion)
-            if blob_type == BlobType::Original || blob_type == BlobType::Waveform {
+            if blob_type == BlobType::Original
+                || blob_type == BlobType::Preview
+                || blob_type == BlobType::Waveform
+            {
                 let thumb_result =
                     super::thumbnails::generate_sized_thumbnails(&blob_id, created_by).await;
                 if !thumb_result.success {

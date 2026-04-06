@@ -116,7 +116,7 @@ pub async fn process_generate_video_thumbnail_job(job: &Job) -> Result<Option<Va
 
     let blob_response = blob_data::create_image_blob_from_webp_data(
         webp_data,
-        BlobType::Original,
+        BlobType::Preview,
         Some(params.blob_id.clone()),
         metadata,
         job.created_by.clone(),

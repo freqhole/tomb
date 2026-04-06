@@ -148,16 +148,19 @@ pub async fn generate_sized_thumbnails(
         }
     };
 
-    // only generate thumbnails for original images and waveforms
+    // only generate thumbnails for original, preview, and waveform images
     let blob_type = parent_blob.blob_type;
-    if blob_type != BlobType::Original && blob_type != BlobType::Waveform {
+    if blob_type != BlobType::Original
+        && blob_type != BlobType::Preview
+        && blob_type != BlobType::Waveform
+    {
         return GrimoireResponse::failure(
             "invalid parent blob type",
             vec![ErrorDetail::new(
                 "invalid_blob_type",
                 "Invalid Blob Type",
                 format!(
-                    "can only generate thumbnails from original or waveform blobs, got: {}",
+                    "can only generate thumbnails from original, preview, or waveform blobs, got: {}",
                     blob_type
                 ),
             )],
@@ -326,6 +329,103 @@ pub async fn find_existing_thumbnail(parent_blob_id: &str, width: u32) -> Option
     .flatten()
 }
 
+/// find a displayable thumbnail for a blob, walking the parent-child chain.
+///
+/// searches in this order:
+/// 1. direct thumbnail: child of blob_id with blob_type='thumbnail' and matching width
+/// 2. child's thumbnail: find a child blob (original or waveform), then find ITS thumbnail
+/// 3. child blob data directly: if a child blob exists in blob_data (e.g. the WebP preview)
+///
+/// returns (thumbnail_blob_id, blob_data_bytes, mime_type) if found
+pub async fn find_displayable_thumbnail(
+    blob_id: &str,
+    size: u32,
+) -> Option<(String, Vec<u8>, String)> {
+    // step 1: direct thumbnail
+    if let Some(thumb) = find_existing_thumbnail(blob_id, size).await {
+        let data_resp = super::get_blob_data(&thumb.id).await;
+        if data_resp.success {
+            if let Some(data) = data_resp.data {
+                return Some((
+                    thumb.id,
+                    data,
+                    thumb.mime.unwrap_or_else(|| "image/webp".to_string()),
+                ));
+            }
+        }
+    }
+
+    // step 2: find child blobs (original or waveform type) and check their thumbnails
+    let pool = database::connect().await.ok()?;
+    let children: Vec<MediaBlob> = sqlx::query_as!(
+        MediaBlob,
+        "SELECT
+            id as \"id!\",
+            sha256 as \"sha256!\",
+            size,
+            mime,
+            source_client_id,
+            local_path,
+            filename,
+            parent_blob_id,
+            blob_type as \"blob_type!\",
+            metadata,
+            created_at as \"created_at!\",
+            updated_at as \"updated_at!\",
+            deleted_at,
+            deleted_by,
+            created_by,
+            updated_by,
+            width,
+            height,
+            blake3
+         FROM media_blobz
+         WHERE parent_blob_id = ?
+           AND blob_type IN ('original', 'preview', 'waveform')
+           AND deleted_at IS NULL
+         ORDER BY created_at DESC",
+        blob_id
+    )
+    .fetch_all(&pool)
+    .await
+    .ok()?;
+
+    for child in &children {
+        // try child's thumbnail
+        if let Some(thumb) = find_existing_thumbnail(&child.id, size).await {
+            let data_resp = super::get_blob_data(&thumb.id).await;
+            if data_resp.success {
+                if let Some(data) = data_resp.data {
+                    return Some((
+                        thumb.id,
+                        data,
+                        thumb.mime.unwrap_or_else(|| "image/webp".to_string()),
+                    ));
+                }
+            }
+        }
+    }
+
+    // step 3: try child blob data directly (the WebP preview itself)
+    for child in &children {
+        let data_resp = super::get_blob_data(&child.id).await;
+        if data_resp.success {
+            if let Some(data) = data_resp.data {
+                return Some((
+                    child.id.clone(),
+                    data,
+                    child
+                        .mime
+                        .clone()
+                        .unwrap_or_else(|| "image/webp".to_string()),
+                ));
+            }
+        }
+    }
+
+    None
+}
+
 /// get or generate a thumbnail for a blob at a specific size
 ///
 /// returns the thumbnail blob ID if it exists or can be generated
@@ -395,7 +495,7 @@ async fn get_blobs_needing_thumbnails_batch() -> GrimoireResponse<Vec<MediaBlob>
             b.height,
             b.blake3
          FROM media_blobz b
-         WHERE b.blob_type IN ('original', 'waveform')
+         WHERE b.blob_type IN ('original', 'preview', 'waveform')
            AND b.mime LIKE 'image/%'
            AND b.deleted_at IS NULL
            AND NOT EXISTS (
@@ -444,7 +544,7 @@ pub async fn count_blobs_needing_thumbnails() -> GrimoireResponse<u32> {
 
     let count: i64 = match sqlx::query_scalar!(
         "SELECT COUNT(*) FROM media_blobz b
-         WHERE b.blob_type IN ('original', 'waveform')
+         WHERE b.blob_type IN ('original', 'preview', 'waveform')
            AND b.mime LIKE 'image/%'
            AND b.deleted_at IS NULL
            AND NOT EXISTS (

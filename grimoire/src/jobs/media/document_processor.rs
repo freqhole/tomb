@@ -115,7 +115,7 @@ async fn generate_thumbnail_and_metadata(
 
     let resp = blob_data::create_image_blob_from_webp_data(
         webp_data,
-        BlobType::Original,
+        BlobType::Preview,
         Some(blob_id.to_string()),
         metadata_json,
         created_by.map(|s| s.to_string()),

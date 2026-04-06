@@ -98,7 +98,7 @@ pub async fn process_generate_photo_thumbnail_job(job: &Job) -> Result<Option<Va
     // create a child blob for the WebP version (this auto-generates sized thumbnails)
     let create_response = blob_data::create_image_blob_from_webp_data(
         webp_data,
-        BlobType::Original,
+        BlobType::Preview,
         Some(params.blob_id.clone()),
         blob_metadata,
         job.created_by.clone(),

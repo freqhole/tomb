@@ -42,6 +42,15 @@ pub const ROUTES: &[RouteInfo] = &[
         response_type: "String",
         auth: RouteAuth::Authenticated,
     },
+    RouteInfo {
+        name: "get_blob_thumbnail_data",
+        path: "/api/blobs/thumbnail_data",
+        method: Method::POST,
+        domain: Domain::Music,
+        request_type: "GetBlobThumbnailDataRequest",
+        response_type: "String",
+        auth: RouteAuth::Authenticated,
+    },
 ];
 
 /// collect all route metadata from media_blobz domain
@@ -60,6 +69,11 @@ pub async fn dispatch(
     // exact match for blob_metadata (new POST route)
     if path == "/api/blob_metadata" {
         return Some(get_metadata(caller, body.clone()).await);
+    }
+
+    // exact match for thumbnail_data (POST route, must match before strip_prefix)
+    if path == "/api/blobs/thumbnail_data" {
+        return Some(get_thumbnail_data(caller, body.clone()).await);
     }
 
     let rest = path.strip_prefix("/api/blobs/")?;
@@ -94,6 +108,18 @@ pub async fn dispatch(
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct GetBlobMetadataRequest {
     pub id: String,
+}
+
+/// request for getting displayable thumbnail data
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct GetBlobThumbnailDataRequest {
+    pub blob_id: String,
+    #[serde(default = "default_thumbnail_size")]
+    pub size: u32,
+}
+
+fn default_thumbnail_size() -> u32 {
+    200
 }
 
 /// get blob metadata
@@ -257,6 +283,53 @@ pub async fn get_thumbnail(
             // no thumbnail found, fall back to original blob path
             get_path(_caller, id, _body).await
         }
+    }
+}
+
+/// get thumbnail image data (base64) for a blob, walking the parent-child chain
+///
+/// path: POST /api/blobs/thumbnail_data
+///
+/// finds the best available thumbnail for the given blob, walking through
+/// child blobs (WebP previews, waveforms) and their sized thumbnails.
+/// returns base64-encoded image data suitable for rendering in a widget.
+pub async fn get_thumbnail_data(_caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
+    let req: GetBlobThumbnailDataRequest = match serde_json::from_value(body) {
+        Ok(r) => r,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "bad request",
+                vec![ErrorDetail::new(
+                    "bad_request",
+                    "bad request",
+                    &e.to_string(),
+                )],
+            )
+        }
+    };
+
+    match blob_data::find_displayable_thumbnail(&req.blob_id, req.size).await {
+        Some((thumb_id, data, mime)) => {
+            let base64_data = base64::engine::general_purpose::STANDARD.encode(&data);
+            GrimoireResponse::success(
+                "thumbnail data",
+                serde_json::json!({
+                    "blob_id": req.blob_id,
+                    "thumbnail_blob_id": thumb_id,
+                    "data": base64_data,
+                    "mime": mime,
+                    "size": req.size,
+                }),
+            )
+        }
+        None => GrimoireResponse::failure(
+            "no thumbnail available",
+            vec![ErrorDetail::new(
+                "thumbnail_not_found",
+                "thumbnail not found",
+                &format!("no displayable thumbnail found for blob {}", req.blob_id),
+            )],
+        ),
     }
 }
 
