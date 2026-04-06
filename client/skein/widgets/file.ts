@@ -9,6 +9,7 @@ import {
   getFullBlobDataUrl,
   getThumbnailDataUrl,
   pickFile,
+  revealBlobInFinder,
   saveBlobToDisk,
   snatchBlob,
   uploadFile,
@@ -197,6 +198,10 @@ export const fileWidget: WidgetFactory<typeof fileSchema> = {
     let currentTexture: Texture | null = null;
     let thumbSprite: Sprite | null = null;
     let loadingAbort: AbortController | null = null;
+    let snatchAbort: AbortController | null = null;
+    let snatchCancelled = false;
+    let snatchProgressText = "";
+    let snatchHovered = false;
     let lastRequestedBlobId = "";
     let loadedAssetKey = "";
     let activeOverlay: MediaOverlayHandle | null = null;
@@ -351,11 +356,36 @@ export const fileWidget: WidgetFactory<typeof fileSchema> = {
     infoContainer.addChild(actionContainer);
 
     // snatch button — shown when blob is remote
-    const snatchBtn = createPillButton("snatch", 0x2d5a27, handleSnatch);
+    const snatchBtn = createPillButton("snatch", 0x2d5a27, () => {
+      if (actionState === "snatching") {
+        cancelSnatch();
+      } else {
+        handleSnatch();
+      }
+    });
     actionContainer.addChild(snatchBtn.container);
 
+    snatchBtn.container.on("pointerover", () => {
+      if (actionState === "snatching") {
+        snatchHovered = true;
+        snatchBtn.setLabel("cancel");
+        snatchBtn.setColor(0x5a2727);
+      }
+    });
+    snatchBtn.container.on("pointerout", () => {
+      if (actionState === "snatching") {
+        snatchHovered = false;
+        snatchBtn.setLabel(snatchProgressText || "snatching...");
+        snatchBtn.setColor(0x555555);
+      }
+    });
+
     // save to disk button — shown after snatch (blob is local but not "on disk")
-    const saveBtn = createPillButton("save", 0x27455a, handleSaveToDisk);
+    const saveBtn = createPillButton(
+      isTauriMode() ? "reveal" : "save",
+      0x27455a,
+      isTauriMode() ? handleRevealInFinder : handleSaveToDisk
+    );
     actionContainer.addChild(saveBtn.container);
 
     // preview/play button — shown when blob is local and domain supports it
@@ -434,7 +464,7 @@ export const fileWidget: WidgetFactory<typeof fileSchema> = {
         saveBtn.setLabel("saving...");
         saveBtn.setColor(0x555555);
       } else {
-        saveBtn.setLabel("save");
+        saveBtn.setLabel(isTauriMode() ? "reveal" : "save");
         saveBtn.setColor(0x27455a);
       }
 
@@ -892,6 +922,23 @@ export const fileWidget: WidgetFactory<typeof fileSchema> = {
 
     // -- snatch handler -------------------------------------------------------
 
+    function cancelSnatch() {
+      if (actionState !== "snatching") return;
+      snatchCancelled = true;
+      if (snatchAbort) {
+        snatchAbort.abort();
+        snatchAbort = null;
+      }
+      snatchHovered = false;
+      snatchProgressText = "";
+      actionState = "remote";
+      snatchBtn.setLabel("snatch");
+      snatchBtn.setColor(0x2d5a27);
+      syncActionButtons();
+      positionInfoBar(currentWidth, currentHeight);
+      console.log("[file] snatch cancelled by user");
+    }
+
     async function handleSnatch() {
       if (actionState !== "remote") return;
 
@@ -901,6 +948,9 @@ export const fileWidget: WidgetFactory<typeof fileSchema> = {
         console.warn("[file] no peers available for snatch");
         return;
       }
+
+      snatchCancelled = false;
+      snatchAbort = new AbortController();
 
       actionState = "snatching";
       snatchBtn.setLabel("snatching...");
@@ -920,15 +970,28 @@ export const fileWidget: WidgetFactory<typeof fileSchema> = {
           peers as PeersMap,
           {
             onProgress: (fraction) => {
+              if (snatchCancelled) return;
               if (fraction >= 0) {
                 const pct = Math.round(fraction * 100);
-                snatchBtn.setLabel(`${pct}%`);
+                snatchProgressText = `${pct}%`;
+                if (!snatchHovered) {
+                  snatchBtn.setLabel(snatchProgressText);
+                }
               } else {
-                snatchBtn.setLabel("snatching...");
+                snatchProgressText = "snatching...";
+                if (!snatchHovered) {
+                  snatchBtn.setLabel(snatchProgressText);
+                }
               }
             },
+            signal: snatchAbort?.signal,
           }
         );
+
+        if (snatchCancelled) {
+          console.log("[file] snatch result discarded (cancelled)");
+          return;
+        }
 
         // update the doc if the blob ID changed (SHA256 dedup might map to existing)
         // suppress the doc-change subscription so it doesn't overwrite
@@ -983,13 +1046,29 @@ export const fileWidget: WidgetFactory<typeof fileSchema> = {
           loadThumbnail(result.blobId);
         }
       } catch (err) {
+        if (snatchCancelled) {
+          console.log("[file] snatch aborted (cancelled)");
+          return;
+        }
         console.error("[file] snatch failed:", err);
         actionState = "remote";
         syncActionButtons();
+      } finally {
+        snatchAbort = null;
       }
     }
 
     // -- save to disk handler -------------------------------------------------
+
+    async function handleRevealInFinder() {
+      if (actionState !== "snatched" && actionState !== "local") return;
+      const state = ctx.doc.current;
+      const revealed = await revealBlobInFinder(state.blobId);
+      if (!revealed) {
+        console.warn("[file] could not reveal blob in finder, falling back to save dialog");
+        handleSaveToDisk();
+      }
+    }
 
     async function handleSaveToDisk() {
       if (actionState !== "snatched" && actionState !== "local") return;
@@ -1192,6 +1271,10 @@ export const fileWidget: WidgetFactory<typeof fileSchema> = {
         if (loadingAbort) {
           loadingAbort.abort();
           loadingAbort = null;
+        }
+        if (snatchAbort) {
+          snatchAbort.abort();
+          snatchAbort = null;
         }
         if (activeOverlay && !activeOverlay.closed) {
           activeOverlay.close();

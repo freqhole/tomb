@@ -100,6 +100,8 @@ export interface SnatchBlobInfo {
 export interface SnatchOptions {
   /** called with progress updates during download (0.0 to 1.0, or -1 if total unknown) */
   onProgress?: (fraction: number) => void;
+  /** abort signal to cancel an in-progress snatch */
+  signal?: AbortSignal;
 }
 
 /** options for file upload */
@@ -358,6 +360,10 @@ export async function snatchBlob(
     let lastError: unknown;
 
     for (const peerAddr of peerAddrs) {
+      if (options?.signal?.aborted) {
+        throw new DOMException("snatch cancelled", "AbortError");
+      }
+
       try {
         console.log(
           TAG,
@@ -438,6 +444,11 @@ export async function snatchBlob(
           `browser snatch: downloaded ${formatFileSize(bytes.length)}, storing in OPFS...`
         );
 
+        // check for cancellation before storing
+        if (options?.signal?.aborted) {
+          throw new DOMException("snatch cancelled", "AbortError");
+        }
+
         // store in OPFS + IDB — compute sha256 so the record is findable
         // even when the automerge doc's blobId gets overwritten by a Tauri
         // peer with a server-assigned UUID.
@@ -513,6 +524,10 @@ export async function snatchBlob(
   // try each peer until one succeeds
   let lastError: unknown;
   for (const peerAddr of peerAddrs) {
+    if (options?.signal?.aborted) {
+      throw new DOMException("snatch cancelled", "AbortError");
+    }
+
     try {
       console.log(
         TAG,
@@ -579,6 +594,11 @@ export async function snatchBlob(
         TAG,
         `downloaded ${blobResult.size ? formatFileSize(blobResult.size) : "unknown size"} from peer, ingesting locally...`
       );
+
+      // check for cancellation before ingesting
+      if (options?.signal?.aborted) {
+        throw new DOMException("snatch cancelled", "AbortError");
+      }
 
       // step 2: ingest into local grimoire via the upload endpoint.
       // pass the base64 data directly + metadata marking this as a snatch.
@@ -690,6 +710,33 @@ export async function saveBlobToDisk(blobId: string, filename: string): Promise<
   } catch (err) {
     console.error(TAG, "save to disk failed:", err);
     throw err;
+  }
+}
+
+/**
+ * reveal a blob's file in the OS file manager (Finder on macOS, Explorer on Windows).
+ * only works in Tauri mode — the blob must exist locally.
+ * returns true if the reveal succeeded, false if the path couldn't be resolved.
+ */
+export async function revealBlobInFinder(blobId: string): Promise<boolean> {
+  if (!isTauriMode()) {
+    return false;
+  }
+
+  try {
+    const localPath = await getBlobLocalPath(blobId);
+    if (!localPath) {
+      console.warn(TAG, "no local path for blob, cannot reveal:", blobId.slice(0, 8));
+      return false;
+    }
+
+    // @ts-ignore — @tauri-apps/plugin-opener is only available in Tauri builds
+    const { revealItemInDir } = await import("@tauri-apps/plugin-opener");
+    await revealItemInDir(localPath);
+    return true;
+  } catch (err) {
+    console.error(TAG, "reveal in finder failed:", err);
+    return false;
   }
 }
 
