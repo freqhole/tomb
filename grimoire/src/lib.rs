@@ -18,6 +18,7 @@ pub mod federation;
 pub mod health;
 pub mod jobs;
 pub mod maintenance;
+pub mod media;
 pub mod media_blobz;
 pub mod metadata;
 pub mod music;
@@ -40,6 +41,7 @@ pub use config::{
 pub use dbinfo::{get_database_info, test_database};
 pub use error::{ErrorDetail, GrimoireError, GrimoireResult, SetupStep};
 pub use health::{EmptyResponse, HealthResponse};
+pub use media::{classify_domain, MediaDomain};
 pub use media_blobz::{CreateMediaBlobRequest, MediaBlob};
 pub use metadata::{merge_metadata, update_media_blob_metadata, update_song_metadata};
 pub use music::entities::{albums::Album, artists::Artist, songs::Song};
