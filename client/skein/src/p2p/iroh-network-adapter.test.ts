@@ -86,7 +86,7 @@ function createMockMidden(nodeId: string = "a".repeat(64)) {
   const midden = {
     node_id: () => nodeId,
 
-    open_bi: vi.fn(async (_addr: string, _alpn: string) => {
+    open_bi: vi.fn(async (_addr: string, _alpn: string): Promise<BiStreamLike> => {
       return createMockBiStream(_addr);
     }),
 
@@ -360,7 +360,7 @@ describe("IrohNetworkAdapter", () => {
 
       const written = stream.write_message.mock.calls[0][0] as Uint8Array;
       // decode the written bytes to verify CBOR encoding
-      const decoded = cbor.decode(written);
+      const decoded = cbor.decode(written) as Record<string, unknown>;
       expect(decoded.type).toBe("sync");
       expect(decoded.targetId).toBe(peerId);
       expect(decoded.documentId).toBe("doc-1");

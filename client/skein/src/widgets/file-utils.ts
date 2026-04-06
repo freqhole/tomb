@@ -409,20 +409,45 @@ export async function snatchBlob(
         `snatching blob ${info.blobId.slice(0, 8)}... from peer ${peerAddr.slice(0, 16)}...`
       );
 
-      // step 1: download full blob via iroh-blobs verified transfer
-      const blobResult = await tauriInvoke("p2p_fetch_blob_verified_by_id", {
-        peerAddr,
-        blobId: info.blobId,
-      });
+      // step 1: download full blob — try verified transfer first, fall back to unverified
+      let blobResult: { data: string; blake3: string; size?: number };
 
-      // blobResult is { data: string (base64), content_type, size, blake3 }
+      try {
+        blobResult = await tauriInvoke("p2p_fetch_blob_verified_by_id", {
+          peerAddr,
+          blobId: info.blobId,
+        });
+      } catch (verifiedErr) {
+        // verified path fails when the peer is a browser (doesn't handle compute_blake3_request).
+        // fall back to unverified BlobStreamRequest which browsers do support.
+        console.log(
+          TAG,
+          `verified fetch failed for peer ${peerAddr.slice(0, 16)}..., falling back to unverified transfer:`,
+          verifiedErr
+        );
+
+        const unverified = await tauriInvoke("p2p_fetch_blob", {
+          peerAddr,
+          blobId: info.blobId,
+        });
+
+        // p2p_fetch_blob returns { data: string (base64), content_type: string, size: number }
+        blobResult = {
+          data: unverified.data,
+          blake3: "",
+          size: unverified.size,
+        };
+
+        console.log(TAG, `unverified fallback succeeded for blob ${info.blobId.slice(0, 8)}...`);
+      }
+
       if (!blobResult.data) {
         throw new Error("peer returned empty blob data");
       }
 
       console.log(
         TAG,
-        `downloaded ${formatFileSize(blobResult.size)} from peer, ingesting locally...`
+        `downloaded ${blobResult.size ? formatFileSize(blobResult.size) : "unknown size"} from peer, ingesting locally...`
       );
 
       // step 2: ingest into local grimoire via the upload endpoint.
