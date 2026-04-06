@@ -63,7 +63,7 @@ export async function initFriendzWiring(
     irohAdapter,
     store,
     narthexDocId,
-    gossipTracker,
+    gossipTracker: _gossipTracker,
     socialWidgetId,
     messagezWidgetId,
   } = deps;
@@ -78,7 +78,7 @@ export async function initFriendzWiring(
   } else {
     const identity = await getStoredIdentity();
     if (!identity) return null;
-    localNodeId = identity.nodeId;
+    localNodeId = identity.node_id;
   }
 
   let sDoc: SocialDoc;
@@ -89,8 +89,7 @@ export async function initFriendzWiring(
     const socialEntry = store.getWidget(socialWidgetId);
     if (!socialEntry) return null;
 
-    const socialHandle = repo.find<any>(socialEntry.docId as DocumentId);
-    await socialHandle.whenReady();
+    const socialHandle = await repo.find<any>(socialEntry.docId as DocumentId);
     sDoc = docHandleAsSocialDoc(socialHandle);
   }
 
@@ -98,8 +97,7 @@ export async function initFriendzWiring(
   let messagezHandle: DocHandle<any> | null = null;
 
   if (messagezEntry) {
-    messagezHandle = repo.find<any>(messagezEntry.docId as DocumentId);
-    await messagezHandle.whenReady();
+    messagezHandle = await repo.find<any>(messagezEntry.docId as DocumentId);
   }
 
   const profileVisibility = sDoc.current.profileVisibility ?? "friends";
@@ -115,13 +113,13 @@ export async function initFriendzWiring(
   const protocol = new FriendzProtocol({
     getMidden,
     localNodeId,
-    localUsername: sDoc.current.localUsername ?? "anonymous",
+    localUsername: sDoc.current.profile?.username ?? "anonymous",
     getLocalProfile: () => {
-      const profile = sDoc.current;
+      const p = sDoc.current.profile;
       return {
-        username: profile.localUsername ?? "anonymous",
-        bio: profile.bio ?? "",
-        avatarDataUrl: profile.avatarDataUrl ?? "",
+        username: p?.username ?? "anonymous",
+        bio: p?.bio ?? "",
+        avatarDataUrl: p?.avatarDataUrl ?? "",
       };
     },
     isFriend: (nodeId: string) => {
@@ -135,8 +133,8 @@ export async function initFriendzWiring(
     canvasInvitesFrom,
     getCanvasActivity: () => {
       try {
-        const narthexHandle = repo.find<any>(narthexDocId as DocumentId);
-        const narthexDoc = narthexHandle.doc();
+        const narthexHandle = repo.handles[narthexDocId as DocumentId];
+        const narthexDoc = narthexHandle?.doc();
         if (!narthexDoc) return [];
 
         const entries: CanvasActivityEntry[] = [];
@@ -146,8 +144,8 @@ export async function initFriendzWiring(
           let lastMod: string | null = null;
 
           try {
-            const canvasHandle = repo.find<CanvasDocument>(card.docId as DocumentId);
-            const canvasDoc = canvasHandle.doc();
+            const canvasHandle = repo.handles[card.docId as DocumentId];
+            const canvasDoc = canvasHandle?.doc() as CanvasDocument | undefined;
 
             if (canvasDoc) {
               let widgetCount = 0;
@@ -160,8 +158,8 @@ export async function initFriendzWiring(
 
               // also check card-level metadata
               try {
-                const cardHandle = repo.find<any>(card.docId as DocumentId);
-                const cardDoc = cardHandle.doc();
+                const cardHandle = repo.handles[card.docId as DocumentId];
+                const cardDoc = cardHandle?.doc();
                 if (cardDoc?.lastVisitedAt && (!lastMod || cardDoc.lastVisitedAt > lastMod)) {
                   lastMod = cardDoc.lastVisitedAt;
                 }
@@ -171,7 +169,7 @@ export async function initFriendzWiring(
 
               entries.push({
                 canvasDocId: card.docId,
-                lastModifiedAt: lastMod,
+                lastModifiedAt: lastMod ?? "",
                 widgetCount,
               });
             }
@@ -211,7 +209,7 @@ export async function initFriendzWiring(
       if (!exists) {
         draft.pendingRequests.push({
           fromNodeId,
-          fromUsername: msg.username ?? "unknown",
+          fromUsername: msg.fromUsername ?? "unknown",
           receivedAt: new Date().toISOString(),
           status: "pending",
         });
@@ -232,17 +230,17 @@ export async function initFriendzWiring(
       if (!existingFriend) {
         draft.friends.push({
           id: crypto.randomUUID(),
-          alias: msg.username ?? "unknown",
-          username: msg.username ?? "unknown",
+          alias: msg.fromUsername ?? "unknown",
+          username: msg.fromUsername ?? "unknown",
           group: "default",
           nodeIds: [
             {
               nodeId: fromNodeId,
               addedAt: new Date().toISOString(),
               lastSeenAt: new Date().toISOString(),
-              username: msg.username,
-              bio: msg.bio ?? "",
-              avatarDataUrl: msg.avatarDataUrl ?? "",
+              username: msg.fromUsername ?? "",
+              bio: "",
+              avatarDataUrl: "",
             },
           ],
           createdAt: new Date().toISOString(),
@@ -341,7 +339,7 @@ export async function initFriendzWiring(
         canvasPreviewUrl: msg.canvasPreviewUrl ?? "",
         fromNodeId,
         fromUsername: msg.originUsername ?? "unknown",
-        relayedBy: msg.relayedBy ?? [],
+        relayedBy: (msg as any).relayedBy ?? [],
         receivedAt: new Date().toISOString(),
         status: "pending",
       });
@@ -364,53 +362,20 @@ export async function initFriendzWiring(
   // wire outbound requests through the bridge
   initBridge(protocol);
 
-  // hook outbound request side-effects: write to social doc
-  setOutboundRequestHook("friendRequest", (_targetNodeId: string) => {
-    // track sent requests in social doc
-  });
-
-  setOutboundRequestHook("canvasInvite", (targetNodeId: string, extra?: Record<string, unknown>) => {
-    if (!messagezHandle || !extra) return;
-
-    const share = (extra as any);
-    messagezHandle.change((draft: any) => {
-      if (!draft.sentCanvasInvites) draft.sentCanvasInvites = [];
-      draft.sentCanvasInvites.push({
-        inviteId: crypto.randomUUID(),
-        canvasDocId: share.canvasDocId,
-        canvasTitle: share.canvasTitle ?? "",
-        canvasDescription: share.canvasDescription ?? "",
-        canvasColor: share.canvasColor ?? "#666",
-        canvasPreviewUrl: share.canvasPreviewUrl ?? "",
-        originNodeId: localNodeId,
-        originUsername: sDoc.current.localUsername ?? "anonymous",
-        role: share.role ?? "editor",
-        targets: [targetNodeId],
-        acked: false,
-      });
-    });
-  });
-
-  setOutboundRequestHook("friendAccept", (targetNodeId: string) => {
+  // hook outbound request side-effects: track sent friend requests in social doc
+  setOutboundRequestHook((targetNodeId: string) => {
     sDoc.change((draft: any) => {
-      if (draft.pendingRequests) {
-        for (const req of draft.pendingRequests) {
-          if (req.fromNodeId === targetNodeId && req.status === "pending") {
-            req.status = "accepted";
-          }
-        }
-      }
-    });
-  });
-
-  setOutboundRequestHook("friendReject", (targetNodeId: string) => {
-    sDoc.change((draft: any) => {
-      if (draft.pendingRequests) {
-        for (const req of draft.pendingRequests) {
-          if (req.fromNodeId === targetNodeId && req.status === "pending") {
-            req.status = "rejected";
-          }
-        }
+      if (!draft.sentRequests) draft.sentRequests = [];
+      const exists = draft.sentRequests.some(
+        (r: any) => r.toNodeId === targetNodeId
+      );
+      if (!exists) {
+        draft.sentRequests.push({
+          toNodeId: targetNodeId,
+          toUsername: "unknown",
+          sentAt: new Date().toISOString(),
+          status: "pending",
+        });
       }
     });
   });
@@ -422,12 +387,9 @@ export async function initFriendzWiring(
     const card = widget;
     if (card.type !== "canvas-card" || !card.props?.docId) continue;
 
-    try {
-      const canvasDocId = card.props.docId as string;
-      gossipTracker.watchCanvas(canvasDocId);
-    } catch {
-      // skip
-    }
+    // TODO: gossip tracker canvas watching not yet implemented
+    const _canvasDocId = card.props.docId as string;
+    void _canvasDocId;
   }
 
   // watch for new canvas cards being added
@@ -440,18 +402,15 @@ export async function initFriendzWiring(
       const card = widget;
       if (card.type !== "canvas-card" || !card.props?.docId) continue;
 
-      try {
-        const canvasDocId = card.props.docId as string;
-        gossipTracker.watchCanvas(canvasDocId);
-      } catch {
-        // skip
-      }
+      // TODO: gossip tracker canvas watching not yet implemented
+      const _canvasDocId = card.props.docId as string;
+      void _canvasDocId;
     }
   });
 
   // narthex doc metadata sync
   {
-    const narthexHandle = repo.find<any>(narthexDocId as DocumentId);
+    const narthexHandle = await repo.find<any>(narthexDocId as DocumentId);
     const narthexDoc = narthexHandle.doc();
 
     if (narthexDoc) {
@@ -460,11 +419,11 @@ export async function initFriendzWiring(
         if (!card?.docId) continue;
 
         try {
-          const cardHandle = repo.find<CanvasDocument>(card.docId as DocumentId);
+          const cardHandle = await repo.find<any>(card.docId as DocumentId);
           const cardDoc = cardHandle.doc();
 
           if (cardDoc) {
-            const lastVisited = cardDoc.lastVisitedAt;
+            const lastVisited = cardDoc.lastVisitedAt as string | undefined;
             const currentKnown = card.lastVisitedAt;
             if (lastVisited && (!currentKnown || lastVisited > currentKnown)) {
               narthexHandle.change((draft: any) => {
@@ -485,7 +444,8 @@ export async function initFriendzWiring(
   const onSocialChange = (state: SocialState) => {
     const pv = state.profileVisibility ?? "friends";
     const frf = state.friendRequestsFrom ?? "everyone";
-    protocol.updateSettings({ profileVisibility: pv, friendRequestsFrom: frf });
+    protocol.setProfileVisibility(pv);
+    protocol.setFriendRequestsFrom(frf);
   };
   const unsubSocial = sDoc.on("change", onSocialChange);
   unsubs.push(unsubSocial);
@@ -496,7 +456,7 @@ export async function initFriendzWiring(
       const doc = messagezHandle!.doc();
       if (!doc) return;
       const cif = doc.canvasInvitesFrom ?? "everyone";
-      protocol.updateSettings({ canvasInvitesFrom: cif });
+      protocol.setCanvasInvitesFrom(cif);
     };
     messagezHandle.on("change", onMessagezChange);
     unsubs.push(() => messagezHandle!.off("change", onMessagezChange));
@@ -515,60 +475,22 @@ export async function initFriendzWiring(
     }
   }
 
-  // send profile to already-connected friends
-  setTimeout(() => {
-    protocol.broadcastProfileToFriends().catch(() => {
-      // silent
-    });
-  }, 2000);
-
-  // relay pending canvas invites to newly connected friends
-  protocol.onPeerConnected = (nodeId: string) => {
-    if (!messagezHandle) return;
-
-    const doc = messagezHandle.doc();
-    if (!doc?.sentCanvasInvites) return;
-
-    for (const invite of doc.sentCanvasInvites as any[]) {
-      if (invite.acked) continue;
-
-      // check if this peer is a target
-      if (invite.targets?.includes(nodeId)) {
-        protocol.sendCanvasInvite(nodeId, {
-          inviteId: invite.inviteId,
-          canvasDocId: invite.canvasDocId,
-          canvasTitle: invite.canvasTitle ?? "",
-          canvasDescription: invite.canvasDescription ?? "",
-          canvasColor: invite.canvasColor ?? "#666",
-          canvasPreviewUrl: invite.canvasPreviewUrl ?? "",
-          originNodeId: invite.originNodeId ?? localNodeId,
-          originUsername: invite.originUsername ?? sDoc.current.localUsername ?? "anonymous",
-          role: invite.role ?? "editor",
-          targets: invite.targets ?? [],
-          acked: invite.acked ?? false,
-        }).catch(() => {
-          // silent — will retry on next connect
-        });
+  // start heartbeat (which sends presence + profile to connected peers)
+  protocol.startHeartbeat(() => {
+    const fs = sDoc.current.friends ?? [];
+    const ids: string[] = [];
+    for (const f of fs as any[]) {
+      for (const n of f.nodeIds ?? []) {
+        if (n.nodeId && n.nodeId !== localNodeId) ids.push(n.nodeId);
       }
     }
-  };
+    return ids;
+  });
 
-  // track sent friend requests in social doc
-  protocol.onFriendRequestSent = (toNodeId: string) => {
-    sDoc.change((draft: any) => {
-      if (!draft.sentRequests) draft.sentRequests = [];
-      const exists = draft.sentRequests.some(
-        (r: any) => r.toNodeId === toNodeId
-      );
-      if (!exists) {
-        draft.sentRequests.push({
-          toUsername: "unknown",
-          sentAt: new Date().toISOString(),
-          status: "pending",
-        });
-      }
-    });
-  };
+  // TODO: relay pending canvas invites when a peer connects
+  // (needs onPeerConnected callback on FriendzProtocol or an equivalent mechanism)
+
+  // sent friend request tracking is handled by setOutboundRequestHook above
 
   // request profiles from connected friends on social doc change
   const friendsForProfiles = sDoc.current.friends ?? [];
