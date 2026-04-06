@@ -228,6 +228,12 @@ export class MiddenNode {
      */
     fetch_hello_image(peer_addr: string): Promise<BlobResult>;
     /**
+     * import raw bytes into the iroh-blobs store, returning the blake3 hash.
+     * this makes the blob available for verified download by peers.
+     * the blob stays in memory until the tab is closed.
+     */
+    import_blob(data: Uint8Array): Promise<string>;
+    /**
      * get our node_id (iroh public key)
      */
     node_id(): string;
@@ -280,5 +286,11 @@ export class UploadResult {
      */
     job_id(): string | undefined;
 }
+
+/**
+ * compute the blake3 hash of the given bytes and return as a hex string.
+ * this runs entirely in the browser — no network call needed.
+ */
+export function hash_blake3(data: Uint8Array): string;
 
 export function start(): void;

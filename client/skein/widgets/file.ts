@@ -1,22 +1,22 @@
 import { Assets, Container, Graphics, Sprite, Text, Texture } from "pixi.js";
 import { z } from "zod";
-import {
-  pickFile,
-  uploadFile,
-  getThumbnailDataUrl,
-  formatFileSize,
-  checkBlobLocality,
-  snatchBlob,
-  saveBlobToDisk,
-  getFullBlobDataUrl,
-  getBlobLocalPath,
-  convertToAssetUrl,
-  type ThumbnailOptions,
-  type PeersMap,
-} from "../src/widgets/file-utils";
-import { createMediaOverlay, type MediaOverlayHandle } from "../src/widgets/media-overlay";
-import { createInlinePlayer, type InlinePlayerHandle } from "../src/widgets/inline-media";
 import { isTauriMode } from "../src/p2p/tauri-transport";
+import {
+  checkBlobLocality,
+  convertToAssetUrl,
+  formatFileSize,
+  getBlobLocalPath,
+  getFullBlobDataUrl,
+  getThumbnailDataUrl,
+  pickFile,
+  saveBlobToDisk,
+  snatchBlob,
+  uploadFile,
+  type PeersMap,
+  type ThumbnailOptions,
+} from "../src/widgets/file-utils";
+import { createInlinePlayer, type InlinePlayerHandle } from "../src/widgets/inline-media";
+import { createMediaOverlay, type MediaOverlayHandle } from "../src/widgets/media-overlay";
 import type {
   WidgetController,
   WidgetFactory,
@@ -38,6 +38,8 @@ export const fileSchema = z.object({
   size: z.number().default(0),
   /** blake3 content hash (for P2P verified fetch) */
   blake3: z.string().default(""),
+  /** embedded thumbnail as a data URL (written after upload/snatch for instant render) */
+  thumbnailDataUrl: z.string().default(""),
 });
 
 export type FileState = z.infer<typeof fileSchema>;
@@ -682,6 +684,46 @@ export const fileWidget: WidgetFactory<typeof fileSchema> = {
       }
     };
 
+    // -- embedded thumbnail (from automerge doc data URL) ---------------------
+
+    const loadEmbeddedThumbnail = async (dataUrl: string) => {
+      if (!dataUrl) return;
+
+      try {
+        destroySprite();
+
+        const texture = await Assets.load<Texture>(dataUrl);
+
+        // check we haven't been superseded while loading
+        if (ctx.doc.current.thumbnailDataUrl !== dataUrl) {
+          Assets.unload(dataUrl);
+          return;
+        }
+
+        currentTexture = texture;
+        loadedAssetKey = dataUrl;
+        thumbSprite = new Sprite(currentTexture);
+        // insert above bg but below info container and overlays
+        container.addChildAt(thumbSprite, 1);
+        hasThumbnail = true;
+
+        // make thumbnail clickable for preview when the domain supports it
+        const domain = ctx.doc.current.domain || "file";
+        thumbSprite.eventMode = "static";
+        thumbSprite.cursor = isPreviewableDomain(domain) ? "pointer" : "default";
+        thumbSprite.on("pointertap", (e) => {
+          e.stopPropagation();
+          handlePreview();
+        });
+
+        syncVisibility();
+        fitSprite(currentWidth, currentHeight);
+      } catch {
+        // data URL failed to load — fall back to the async thumbnail fetch
+        loadThumbnail(ctx.doc.current.blobId);
+      }
+    };
+
     // -- upload flow ----------------------------------------------------------
 
     const handleUpload = async () => {
@@ -712,10 +754,20 @@ export const fileWidget: WidgetFactory<typeof fileSchema> = {
           draft.mime = result.mime;
           draft.size = result.size;
           draft.blake3 = result.blake3 ?? "";
+          draft.thumbnailDataUrl = result.thumbnailDataUrl ?? "";
         });
 
-        // manually trigger thumbnail load (subscription is suppressed)
-        loadThumbnail(result.blobId);
+        // use the embedded thumbnail if the upload produced one, otherwise
+        // fall back to the async thumbnail fetch from grimoire/peers
+        if (result.thumbnailDataUrl) {
+          loadState = "loaded";
+          syncVisibility();
+          positionInfoBar(currentWidth, currentHeight);
+          positionFallbackIcon(currentWidth, currentHeight);
+          loadEmbeddedThumbnail(result.thumbnailDataUrl);
+        } else {
+          loadThumbnail(result.blobId);
+        }
       } catch (err) {
         console.error("file upload failed:", err);
         loadState = "error";
@@ -793,6 +845,21 @@ export const fileWidget: WidgetFactory<typeof fileSchema> = {
 
         // reload thumbnail from local source
         loadThumbnail(result.blobId);
+
+        // embed the generated thumbnail in the doc so all peers get instant render
+        // (in Tauri mode, grimoire generates thumbnails; in browser mode, we
+        // generate from OPFS for image blobs — non-image blobs get thumbnails
+        // when a Tauri peer snatches and generates via ffmpeg)
+        try {
+          const thumbDataUrl = await getThumbnailDataUrl(result.blobId, { size: 200 });
+          if (thumbDataUrl && ctx.doc.current.blobId === result.blobId) {
+            ctx.doc.change((draft) => {
+              draft.thumbnailDataUrl = thumbDataUrl;
+            });
+          }
+        } catch {
+          // thumbnail generation may not be ready yet — that's OK
+        }
       } catch (err) {
         console.error("[file] snatch failed:", err);
         actionState = "remote";
@@ -939,15 +1006,36 @@ export const fileWidget: WidgetFactory<typeof fileSchema> = {
     // -- doc change subscription ----------------------------------------------
 
     let prevBlobId = ctx.doc.current.blobId;
+    let prevThumbDataUrl = ctx.doc.current.thumbnailDataUrl;
     const unsub = ctx.doc.on("change", (state) => {
       drawBg(currentWidth, currentHeight);
 
       if (state.blobId !== prevBlobId) {
         prevBlobId = state.blobId;
+        prevThumbDataUrl = state.thumbnailDataUrl;
         // reset uploaded flag when blobId changes (e.g. from a peer's change)
         uploadedLocally = false;
-        loadThumbnail(state.blobId);
+
+        // immediately show metadata from the new state
+        if (state.blobId) {
+          loadState = "loaded";
+          syncVisibility();
+          positionInfoBar(currentWidth, currentHeight);
+          positionFallbackIcon(currentWidth, currentHeight);
+
+          if (state.thumbnailDataUrl) {
+            loadEmbeddedThumbnail(state.thumbnailDataUrl);
+          } else {
+            loadThumbnail(state.blobId);
+          }
+        } else {
+          loadThumbnail(state.blobId);
+        }
         checkLocality(state.blobId);
+      } else if (state.thumbnailDataUrl && state.thumbnailDataUrl !== prevThumbDataUrl) {
+        // a peer (or Tauri snatch) wrote a new thumbnail — load it
+        prevThumbDataUrl = state.thumbnailDataUrl;
+        loadEmbeddedThumbnail(state.thumbnailDataUrl);
       } else if (loadState === "loaded") {
         // metadata changed — refresh info bar
         syncActionButtons();
@@ -957,7 +1045,20 @@ export const fileWidget: WidgetFactory<typeof fileSchema> = {
 
     // kick off initial load if a blob ID is already set
     if (ctx.doc.current.blobId) {
-      loadThumbnail(ctx.doc.current.blobId);
+      // immediately show metadata (filename, size, domain badge) — no async needed
+      loadState = "loaded";
+      syncVisibility();
+      positionInfoBar(currentWidth, currentHeight);
+      positionFallbackIcon(currentWidth, currentHeight);
+
+      // if we have an embedded thumbnail, load it (fast — it's a data URL, already local)
+      if (ctx.doc.current.thumbnailDataUrl) {
+        loadEmbeddedThumbnail(ctx.doc.current.thumbnailDataUrl);
+      } else {
+        // fall back to the old async thumbnail fetch from grimoire/peers
+        loadThumbnail(ctx.doc.current.blobId);
+      }
+
       checkLocality(ctx.doc.current.blobId);
     }
 

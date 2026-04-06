@@ -22,6 +22,20 @@ import { isTauriMode } from "../p2p/tauri-transport";
 
 const TAG = "[file-utils]";
 
+const PEER_TIMEOUT_MS = 8000;
+
+async function withPeerTimeout<T>(promise: Promise<T>, ms = PEER_TIMEOUT_MS): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error("peer timeout")), ms);
+  });
+  try {
+    return await Promise.race([promise, timeout]);
+  } finally {
+    clearTimeout(timer!);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // types
 // ---------------------------------------------------------------------------
@@ -49,6 +63,8 @@ export interface FileUploadResult {
   size: number;
   mime: string;
   existing: boolean;
+  /** embedded thumbnail data URL (browser-generated or fetched from grimoire) */
+  thumbnailDataUrl?: string | null;
 }
 
 /** blob locality — whether the blob exists in the local grimoire DB */
@@ -107,21 +123,28 @@ export interface ThumbnailOptions {
 export type PeersMap = Record<string, { nodeId: string }>;
 
 // ---------------------------------------------------------------------------
-// peer node ID helper
+// peer node ID helper (cached)
 // ---------------------------------------------------------------------------
+
+let _cachedLocalNodeId: string | null | undefined = undefined;
+
+async function getLocalNodeId(): Promise<string | null> {
+  if (_cachedLocalNodeId !== undefined) return _cachedLocalNodeId;
+  try {
+    const { getStoredIdentity } = await import("../p2p/identity");
+    const identity = await getStoredIdentity();
+    _cachedLocalNodeId = identity?.node_id ?? null;
+  } catch {
+    _cachedLocalNodeId = null;
+  }
+  return _cachedLocalNodeId;
+}
 
 /** extract peer node IDs from the peers map, filtering out the local node */
 async function getPeerNodeIds(
   peers: PeersMap | Record<string, { nodeId: string }>
 ): Promise<string[]> {
-  let localNodeId: string | null = null;
-  try {
-    const { getStoredIdentity } = await import("../p2p/identity");
-    const identity = await getStoredIdentity();
-    localNodeId = identity?.node_id ?? null;
-  } catch {
-    // identity not available — no filtering
-  }
+  const localNodeId = await getLocalNodeId();
   return Object.values(peers)
     .map((p) => p.nodeId)
     .filter((id): id is string => Boolean(id) && id !== localNodeId);
@@ -281,57 +304,126 @@ export async function snatchBlob(
           `browser snatch: blob ${info.blobId.slice(0, 8)}... from peer ${peerAddr.slice(0, 16)}...`
         );
 
-        // prefer iroh-blobs verified download (binary, efficient)
-        let bytes: Uint8Array;
+        // download strategy: prefer iroh-blobs verified, fall back to custom protocol
+        let bytes: Uint8Array | undefined;
         let blake3Hash = info.blake3;
 
         const nodeAny = node as any;
         const onProgress = options?.onProgress;
+        let downloaded = false;
 
-        if (onProgress && typeof nodeAny.fetch_blob_with_progress === "function") {
-          // use progress-aware fetch for UI feedback
-          const result = await nodeAny.fetch_blob_with_progress(
-            peerAddr,
-            info.blobId,
-            (received: number, total: number) => {
-              if (total > 0) {
-                onProgress(received / total);
-              } else {
-                onProgress(-1);
-              }
-            }
-          );
-          bytes = result.data;
-        } else if (typeof nodeAny.download_verified_by_id === "function") {
-          // download_verified_by_id returns [Uint8Array, string (blake3)]
-          const result = await nodeAny.download_verified_by_id(peerAddr, info.blobId);
-          bytes = result[0] as Uint8Array;
-          blake3Hash = (result[1] as string) || blake3Hash;
-        } else if (typeof nodeAny.fetch_blob === "function") {
-          // fetch_blob returns { data: Uint8Array, content_type?: string }
-          const result = await nodeAny.fetch_blob(peerAddr, info.blobId);
-          bytes = result.data;
-        } else {
-          // fallback: proxy_request (base64, less efficient)
+        // strategy 1: iroh-blobs verified download when blake3 is known from doc
+        // (skips the compute_blake3 RPC — goes straight to ensure + download)
+        if (
+          !downloaded &&
+          blake3Hash &&
+          typeof nodeAny.download_verified_with_ensure === "function"
+        ) {
+          try {
+            console.log(
+              TAG,
+              `trying iroh-blobs verified (blake3 known) from ${peerAddr.slice(0, 16)}...`
+            );
+            if (onProgress) onProgress(-1); // indeterminate — iroh-blobs has no progress API yet
+            bytes = await withPeerTimeout(
+              nodeAny.download_verified_with_ensure(peerAddr, blake3Hash) as Promise<Uint8Array>,
+              30000
+            );
+            downloaded = true;
+          } catch (err) {
+            console.debug(TAG, `iroh-blobs verified (blake3 known) failed:`, err);
+          }
+        }
+
+        // strategy 2: iroh-blobs verified download with on-demand blake3 compute
+        // (asks peer to compute blake3, then downloads verified)
+        if (!downloaded && typeof nodeAny.download_verified_by_id === "function") {
+          try {
+            console.log(
+              TAG,
+              `trying iroh-blobs verified (compute blake3) from ${peerAddr.slice(0, 16)}...`
+            );
+            if (onProgress) onProgress(-1);
+            const result: any = await withPeerTimeout(
+              nodeAny.download_verified_by_id(peerAddr, info.blobId) as Promise<any>,
+              30000
+            );
+            bytes = result[0] as Uint8Array;
+            blake3Hash = (result[1] as string) || blake3Hash;
+            downloaded = true;
+          } catch (err) {
+            console.debug(TAG, `iroh-blobs verified (compute blake3) failed:`, err);
+          }
+        }
+
+        // strategy 3: custom freqhole/1 fetch with progress callback (transitional fallback)
+        if (!downloaded && onProgress && typeof nodeAny.fetch_blob_with_progress === "function") {
+          try {
+            console.log(
+              TAG,
+              `trying custom fetch_blob_with_progress from ${peerAddr.slice(0, 16)}...`
+            );
+            const result: any = await withPeerTimeout(
+              nodeAny.fetch_blob_with_progress(
+                peerAddr,
+                info.blobId,
+                (received: number, total: number) => {
+                  if (total > 0) onProgress(received / total);
+                  else onProgress(-1);
+                }
+              ),
+              30000
+            );
+            bytes = result.data;
+            downloaded = true;
+          } catch (err) {
+            console.debug(TAG, `custom fetch_blob_with_progress failed:`, err);
+          }
+        }
+
+        // strategy 4: custom freqhole/1 fetch without progress (transitional fallback)
+        if (!downloaded && typeof nodeAny.fetch_blob === "function") {
+          try {
+            console.log(TAG, `trying custom fetch_blob from ${peerAddr.slice(0, 16)}...`);
+            const result: any = await withPeerTimeout(
+              nodeAny.fetch_blob(peerAddr, info.blobId) as Promise<any>,
+              30000
+            );
+            bytes = result.data;
+            downloaded = true;
+          } catch (err) {
+            console.debug(TAG, `custom fetch_blob failed:`, err);
+          }
+        }
+
+        // strategy 5: proxy_request (base64, last resort — very inefficient)
+        if (!downloaded) {
           if (typeof nodeAny.proxy_request !== "function") {
             throw new Error("midden node does not support any blob fetch method");
           }
-          const result = await nodeAny.proxy_request(
-            peerAddr,
-            "GET",
-            `/api/blobs/${info.blobId}/data`,
-            null
+          console.log(TAG, `trying proxy_request fallback from ${peerAddr.slice(0, 16)}...`);
+          const result: any = await withPeerTimeout(
+            nodeAny.proxy_request(
+              peerAddr,
+              "GET",
+              `/api/blobs/${info.blobId}/data`,
+              null
+            ) as Promise<any>,
+            30000
           );
           const parsed = JSON.parse(result.body);
           if (!parsed.success || !parsed.data?.data) {
             throw new Error("proxy_request returned no blob data");
           }
-          // decode base64 to Uint8Array
           const binaryStr = atob(parsed.data.data);
           bytes = new Uint8Array(binaryStr.length);
           for (let i = 0; i < binaryStr.length; i++) {
             bytes[i] = binaryStr.charCodeAt(i);
           }
+        }
+
+        if (!bytes) {
+          throw new Error("all download strategies failed — no bytes received");
         }
 
         console.log(
@@ -409,36 +501,59 @@ export async function snatchBlob(
         `snatching blob ${info.blobId.slice(0, 8)}... from peer ${peerAddr.slice(0, 16)}...`
       );
 
-      // step 1: download full blob — try verified transfer first, fall back to unverified
-      let blobResult: { data: string; blake3: string; size?: number };
+      // step 1: download full blob — prefer iroh-blobs verified, fall back to unverified
+      let blobResult: { data: string; blake3: string; size?: number } | null = null;
 
-      try {
-        blobResult = await tauriInvoke("p2p_fetch_blob_verified_by_id", {
-          peerAddr,
-          blobId: info.blobId,
-        });
-      } catch (verifiedErr) {
-        // verified path fails when the peer is a browser (doesn't handle compute_blake3_request).
-        // fall back to unverified BlobStreamRequest which browsers do support.
-        console.log(
-          TAG,
-          `verified fetch failed for peer ${peerAddr.slice(0, 16)}..., falling back to unverified transfer:`,
-          verifiedErr
-        );
+      // strategy 1: if blake3 known from doc, use verified+ensure directly (skips compute step)
+      if (info.blake3) {
+        try {
+          console.log(
+            TAG,
+            `trying iroh-blobs verified (blake3 known) from ${peerAddr.slice(0, 16)}...`
+          );
+          const verified = await tauriInvoke("p2p_fetch_blob_verified", {
+            peerAddr,
+            blake3Hash: info.blake3,
+          });
+          blobResult = { data: verified.data, blake3: info.blake3, size: verified.size };
+        } catch (err) {
+          console.debug(TAG, `iroh-blobs verified (blake3 known) failed:`, err);
+        }
+      }
 
-        const unverified = await tauriInvoke("p2p_fetch_blob", {
-          peerAddr,
-          blobId: info.blobId,
-        });
+      // strategy 2: verified by id (computes blake3 on peer, then iroh-blobs download)
+      if (!blobResult) {
+        try {
+          console.log(
+            TAG,
+            `trying iroh-blobs verified (compute blake3) from ${peerAddr.slice(0, 16)}...`
+          );
+          blobResult = await tauriInvoke("p2p_fetch_blob_verified_by_id", {
+            peerAddr,
+            blobId: info.blobId,
+          });
+        } catch (err) {
+          console.debug(TAG, `iroh-blobs verified (compute blake3) failed:`, err);
+        }
+      }
 
-        // p2p_fetch_blob returns { data: string (base64), content_type: string, size: number }
-        blobResult = {
-          data: unverified.data,
-          blake3: "",
-          size: unverified.size,
-        };
-
-        console.log(TAG, `unverified fallback succeeded for blob ${info.blobId.slice(0, 8)}...`);
+      // strategy 3: unverified custom BlobStreamRequest (transitional fallback)
+      if (!blobResult) {
+        try {
+          console.log(TAG, `trying unverified fallback from ${peerAddr.slice(0, 16)}...`);
+          const unverified = await tauriInvoke("p2p_fetch_blob", {
+            peerAddr,
+            blobId: info.blobId,
+          });
+          blobResult = {
+            data: unverified.data,
+            blake3: "",
+            size: unverified.size,
+          };
+          console.log(TAG, `unverified fallback succeeded for blob ${info.blobId.slice(0, 8)}...`);
+        } catch (err) {
+          throw new Error(`all download strategies failed for peer ${peerAddr.slice(0, 16)}...`);
+        }
       }
 
       if (!blobResult.data) {
@@ -690,10 +805,13 @@ async function fetchFullBlobFromPeers(blobId: string, peers: PeersMap): Promise<
           let contentType = "application/octet-stream";
 
           if (typeof nodeAny.download_verified_by_id === "function") {
-            const result = await nodeAny.download_verified_by_id(peerAddr, blobId);
+            const result = await withPeerTimeout<any>(
+              nodeAny.download_verified_by_id(peerAddr, blobId),
+              30000
+            );
             bytes = result[0] as Uint8Array;
           } else if (typeof nodeAny.fetch_blob === "function") {
-            const result = await nodeAny.fetch_blob(peerAddr, blobId);
+            const result = await withPeerTimeout<any>(nodeAny.fetch_blob(peerAddr, blobId), 30000);
             bytes = result.data;
             contentType = result.content_type || contentType;
           }
@@ -710,11 +828,9 @@ async function fetchFullBlobFromPeers(blobId: string, peers: PeersMap): Promise<
           // fallback: proxy_request for blob data
           if (!bytes && typeof nodeAny.proxy_request === "function") {
             try {
-              const proxyResult = await nodeAny.proxy_request(
-                peerAddr,
-                "GET",
-                `/api/blobs/${blobId}/data`,
-                null
+              const proxyResult = await withPeerTimeout<any>(
+                nodeAny.proxy_request(peerAddr, "GET", `/api/blobs/${blobId}/data`, null),
+                30000
               );
               if (proxyResult.status === 200) {
                 const parsed = JSON.parse(proxyResult.body);
@@ -743,12 +859,15 @@ async function fetchFullBlobFromPeers(blobId: string, peers: PeersMap): Promise<
 
   for (const peerAddr of peerAddrs) {
     try {
-      const result = await tauriInvoke("p2p_proxy_request", {
-        peerAddr,
-        method: "GET",
-        path: `/api/blobs/${blobId}/data`,
-        body: null,
-      });
+      const result = await withPeerTimeout(
+        tauriInvoke("p2p_proxy_request", {
+          peerAddr,
+          method: "GET",
+          path: `/api/blobs/${blobId}/data`,
+          body: null,
+        }),
+        30000
+      );
 
       if (result.status !== 200) {
         continue;
@@ -962,6 +1081,12 @@ export async function uploadFile(
       created_at: Date.now(),
     });
 
+    // generate browser-side thumbnail for images
+    let thumbnailDataUrl: string | null = null;
+    if (picked.file) {
+      thumbnailDataUrl = await generateThumbnailDataUrl(picked.file);
+    }
+
     return {
       blobId: record.blob_id,
       domain: record.domain,
@@ -972,6 +1097,7 @@ export async function uploadFile(
       size: record.size,
       mime: record.mime,
       existing: false,
+      thumbnailDataUrl,
     };
   }
 
@@ -1009,6 +1135,14 @@ export async function uploadFile(
     throw new Error("file upload returned no data");
   }
 
+  // try to get the generated thumbnail from grimoire (Tauri mode)
+  let thumbnailDataUrl: string | null = null;
+  try {
+    thumbnailDataUrl = await fetchThumbnailLocal(d.blob_id, 200);
+  } catch {
+    // thumbnail may not be ready yet — that's OK
+  }
+
   return {
     blobId: d.blob_id,
     domain: d.domain,
@@ -1019,6 +1153,7 @@ export async function uploadFile(
     size: d.size,
     mime: d.mime,
     existing: d.existing ?? false,
+    thumbnailDataUrl,
   };
 }
 
@@ -1078,7 +1213,23 @@ export async function getThumbnailDataUrl(
  */
 async function fetchThumbnailLocal(blobId: string, size: number): Promise<string | null> {
   if (!isTauriMode()) {
-    return null;
+    // browser mode: try generating thumbnail from OPFS data
+    try {
+      const { getBlobData, getBlobRecord } = await import("../storage/skein-blob-store");
+      const record = await getBlobRecord(blobId);
+      if (!record) return null;
+
+      // only generate thumbnails for images — video/audio need ffmpeg (Tauri only)
+      if (!record.mime.startsWith("image/")) return null;
+
+      const data = await getBlobData(blobId);
+      if (!data) return null;
+
+      const blob = new Blob([data], { type: record.mime });
+      return await generateThumbnailDataUrl(blob, size);
+    } catch {
+      return null;
+    }
   }
 
   try {
@@ -1133,34 +1284,36 @@ async function fetchThumbnailFromPeers(
         return null;
       }
 
-      for (const peerAddr of peerIds) {
-        try {
-          const result = await nodeAny.proxy_request(
+      const fetchFromBrowserPeer = async (peerAddr: string): Promise<string> => {
+        const result = await withPeerTimeout<any>(
+          nodeAny.proxy_request(
             peerAddr,
             "POST",
             "/api/blobs/thumbnail_data",
             JSON.stringify({ blob_id: blobId, size })
-          );
+          )
+        );
 
-          if (result.status !== 200) continue;
+        if (result.status !== 200) throw new Error("non-200 status");
 
-          const parsed = JSON.parse(result.body);
-          if (!parsed.success || !parsed.data) continue;
+        const parsed = JSON.parse(result.body);
+        if (!parsed.success || !parsed.data) throw new Error("unsuccessful response");
 
-          const { data, mime } = parsed.data;
-          if (!data || !mime) continue;
+        const { data, mime } = parsed.data;
+        if (!data || !mime) throw new Error("missing data or mime");
 
-          console.log(
-            TAG,
-            `fetched thumbnail for ${blobId.slice(0, 8)}... from browser peer ${peerAddr.slice(0, 16)}...`
-          );
-          return `data:${mime};base64,${data}`;
-        } catch (err) {
-          console.debug(
-            TAG,
-            `browser peer thumbnail fetch failed for ${peerAddr.slice(0, 16)}...:`,
-            err
-          );
+        console.log(
+          TAG,
+          `fetched thumbnail for ${blobId.slice(0, 8)}... from browser peer ${peerAddr.slice(0, 16)}...`
+        );
+        return `data:${mime};base64,${data}`;
+      };
+
+      for (let i = 0; i < peerIds.length; i += 2) {
+        const batch = peerIds.slice(i, i + 2);
+        try {
+          return await Promise.any(batch.map((addr) => fetchFromBrowserPeer(addr)));
+        } catch {
           continue;
         }
       }
@@ -1170,48 +1323,81 @@ async function fetchThumbnailFromPeers(
     return null;
   }
 
-  for (const peerAddr of peerIds) {
-    try {
-      const result = await tauriInvoke("p2p_proxy_request", {
+  const fetchFromTauriPeer = async (peerAddr: string): Promise<string> => {
+    const result = await withPeerTimeout(
+      tauriInvoke("p2p_proxy_request", {
         peerAddr,
         method: "POST",
         path: "/api/blobs/thumbnail_data",
         body: JSON.stringify({ blob_id: blobId, size }),
-      });
+      })
+    );
 
-      // result is { status: number, body: string }
-      // body is a JSON-serialized GrimoireResponse
-      if (result.status !== 200) {
-        continue;
-      }
+    if (result.status !== 200) throw new Error("non-200 status");
 
-      const parsed = JSON.parse(result.body);
-      if (!parsed.success || !parsed.data) {
-        continue;
-      }
+    const parsed = JSON.parse(result.body);
+    if (!parsed.success || !parsed.data) throw new Error("unsuccessful response");
 
-      const { data, mime } = parsed.data;
-      if (!data || !mime) {
-        continue;
-      }
+    const { data, mime } = parsed.data;
+    if (!data || !mime) throw new Error("missing data or mime");
 
-      console.log(
-        TAG,
-        `fetched thumbnail for ${blobId.slice(0, 8)}... from peer ${peerAddr.slice(0, 16)}...`
-      );
-      return `data:${mime};base64,${data}`;
-    } catch (err) {
-      // peer unreachable or request failed — try next peer
-      console.debug(
-        TAG,
-        `peer ${peerAddr.slice(0, 16)}... failed for thumbnail ${blobId.slice(0, 8)}...:`,
-        err
-      );
+    console.log(
+      TAG,
+      `fetched thumbnail for ${blobId.slice(0, 8)}... from peer ${peerAddr.slice(0, 16)}...`
+    );
+    return `data:${mime};base64,${data}`;
+  };
+
+  for (let i = 0; i < peerIds.length; i += 2) {
+    const batch = peerIds.slice(i, i + 2);
+    try {
+      return await Promise.any(batch.map((addr) => fetchFromTauriPeer(addr)));
+    } catch {
       continue;
     }
   }
 
   return null;
+}
+
+// ---------------------------------------------------------------------------
+// generateThumbnailDataUrl
+// ---------------------------------------------------------------------------
+
+/**
+ * generate a 200px WebP thumbnail data URL from a File object.
+ * only works for image files — returns null for non-image types.
+ * uses OffscreenCanvas for efficient off-main-thread resizing.
+ */
+export async function generateThumbnailDataUrl(blob: Blob, maxSize = 200): Promise<string | null> {
+  // only generate thumbnails for images
+  if (!blob.type.startsWith("image/")) return null;
+
+  try {
+    const bitmap = await createImageBitmap(blob);
+    const scale = Math.min(maxSize / bitmap.width, maxSize / bitmap.height, 1);
+    const w = Math.round(bitmap.width * scale);
+    const h = Math.round(bitmap.height * scale);
+    const canvas = new OffscreenCanvas(w, h);
+    const ctx = canvas.getContext("2d");
+    if (!ctx) {
+      bitmap.close();
+      return null;
+    }
+    ctx.drawImage(bitmap, 0, 0, w, h);
+    bitmap.close();
+
+    const thumbBlob = await canvas.convertToBlob({ type: "image/webp", quality: 0.75 });
+    return new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result as string);
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(thumbBlob);
+    });
+  } catch (err) {
+    console.warn(TAG, "thumbnail generation failed:", err);
+    return null;
+  }
 }
 
 // ---------------------------------------------------------------------------

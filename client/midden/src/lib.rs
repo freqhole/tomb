@@ -9,10 +9,11 @@
 
 use iroh::endpoint::presets;
 use iroh::endpoint::{Connection, RecvStream, SendStream};
+use iroh::protocol::ProtocolHandler;
 use iroh::{Endpoint, EndpointAddr, PublicKey, SecretKey};
 use iroh_blobs::api::downloader::Downloader;
 use iroh_blobs::api::Store;
-use iroh_blobs::{Hash, HashAndFormat};
+use iroh_blobs::{BlobsProtocol, Hash, HashAndFormat};
 use js_sys::Uint8Array;
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
@@ -358,6 +359,13 @@ fn start() {
     info!("midden initialized");
 }
 
+/// compute the blake3 hash of the given bytes and return as a hex string.
+/// this runs entirely in the browser — no network call needed.
+#[wasm_bindgen]
+pub fn hash_blake3(data: &[u8]) -> String {
+    blake3::hash(data).to_hex().to_string()
+}
+
 /// parse peer address - accepts either:
 /// - plain node_id (64 hex chars): "13a257b5367d6b5b7ceb67ec6246c3dafbe886af8ed429408cd7619c7a4787b1"
 /// - full endpoint JSON: {"id":"...","addrs":[{"Relay":"..."},{"Ip":"..."}]}
@@ -391,6 +399,7 @@ pub struct MiddenNode {
     // iroh-blobs components
     blobs_store: Store,
     blobs_downloader: Downloader,
+    blobs_protocol: BlobsProtocol,
 }
 
 #[wasm_bindgen]
@@ -429,6 +438,7 @@ impl MiddenNode {
                 FREQHOLE_ALPN.to_vec(),
                 AUTOMERGE_ALPN.to_vec(),
                 FRIENDZ_ALPN.to_vec(),
+                iroh_blobs::ALPN.to_vec(),
             ])
             .bind()
             .await
@@ -438,6 +448,7 @@ impl MiddenNode {
         let mem_store = iroh_blobs::store::mem::MemStore::default();
         let blobs_downloader = Downloader::new(&mem_store, &endpoint);
         let blobs_store = mem_store.as_ref().clone();
+        let blobs_protocol = BlobsProtocol::new(&blobs_store, None);
 
         // wait for relay connection
         endpoint.online().await;
@@ -450,6 +461,7 @@ impl MiddenNode {
             secret_key_bytes: bytes,
             blobs_store,
             blobs_downloader,
+            blobs_protocol,
         })
     }
 
@@ -484,6 +496,7 @@ impl MiddenNode {
             FREQHOLE_ALPN.to_vec(),
             AUTOMERGE_ALPN.to_vec(),
             FRIENDZ_ALPN.to_vec(),
+            iroh_blobs::ALPN.to_vec(),
         ];
         for i in 0..extra_alpns.length() {
             let alpn_str = extra_alpns
@@ -505,6 +518,7 @@ impl MiddenNode {
         let mem_store = iroh_blobs::store::mem::MemStore::default();
         let blobs_downloader = Downloader::new(&mem_store, &endpoint);
         let blobs_store = mem_store.as_ref().clone();
+        let blobs_protocol = BlobsProtocol::new(&blobs_store, None);
 
         endpoint.online().await;
 
@@ -516,6 +530,7 @@ impl MiddenNode {
             secret_key_bytes: bytes,
             blobs_store,
             blobs_downloader,
+            blobs_protocol,
         })
     }
 
@@ -565,40 +580,57 @@ impl MiddenNode {
     /// the caller should check `stream.alpn()` to route the connection
     /// to the appropriate handler.
     pub async fn accept(&self) -> Result<JsValue, JsError> {
-        // wait for the next incoming connection
-        let incoming = match self.endpoint.accept().await {
-            Some(incoming) => incoming,
-            None => return Ok(JsValue::NULL), // endpoint closed
-        };
+        loop {
+            // wait for the next incoming connection
+            let incoming = match self.endpoint.accept().await {
+                Some(incoming) => incoming,
+                None => return Ok(JsValue::NULL), // endpoint closed
+            };
 
-        // accept the connection (completes TLS handshake).
-        // iroh 0.97: Incoming implements IntoFuture, so .await directly
-        // yields Result<Connection, ConnectingError>.
-        let conn = incoming.await.map_err(to_js_err)?;
+            // accept the connection (completes TLS handshake)
+            let conn = incoming.await.map_err(to_js_err)?;
 
-        // extract connection metadata
-        // iroh 0.97: Connection::alpn() returns &[u8]
-        let alpn = String::from_utf8_lossy(conn.alpn()).to_string();
-        // iroh 0.97: Connection::remote_id() returns EndpointId (= PublicKey)
-        let peer_node_id = conn.remote_id().to_string();
+            // extract ALPN before deciding how to handle
+            let alpn_bytes = conn.alpn().to_vec();
 
-        // accept one bidirectional stream from this connection
-        let (send, recv) = conn.accept_bi().await.map_err(to_js_err)?;
+            // iroh-blobs connections are handled entirely in Rust —
+            // spawn the BlobsProtocol handler and loop back to accept more
+            if alpn_bytes == iroh_blobs::ALPN {
+                let blobs = self.blobs_protocol.clone();
+                let peer_id = conn.remote_id().to_string();
+                info!(
+                    "accepting iroh-blobs connection from {}",
+                    &peer_id[..std::cmp::min(16, peer_id.len())]
+                );
+                wasm_bindgen_futures::spawn_local(async move {
+                    if let Err(e) = blobs.accept(conn).await {
+                        warn!("iroh-blobs accept error: {}", e);
+                    }
+                });
+                continue; // loop back to accept the next connection
+            }
 
-        info!(
-            "accepted bi stream from {} on ALPN {}",
-            &peer_node_id[..std::cmp::min(16, peer_node_id.len())],
-            &alpn
-        );
+            // for other ALPNs, return a BiStream to JS as before
+            let alpn = String::from_utf8_lossy(&alpn_bytes).to_string();
+            let peer_node_id = conn.remote_id().to_string();
 
-        let stream = BiStream {
-            send: RefCell::new(Some(send)),
-            recv: RefCell::new(Some(recv)),
-            peer_node_id,
-            alpn,
-        };
+            let (send, recv) = conn.accept_bi().await.map_err(to_js_err)?;
 
-        Ok(stream.into())
+            info!(
+                "accepted bi stream from {} on ALPN {}",
+                &peer_node_id[..std::cmp::min(16, peer_node_id.len())],
+                &alpn
+            );
+
+            let stream = BiStream {
+                send: RefCell::new(Some(send)),
+                recv: RefCell::new(Some(recv)),
+                peer_node_id,
+                alpn,
+            };
+
+            return Ok(stream.into());
+        }
     }
 
     /// connect to a peer
@@ -1145,6 +1177,26 @@ impl MiddenNode {
         result.push(&data);
         result.push(&JsValue::from_str(&blake3));
         Ok(result)
+    }
+
+    /// import raw bytes into the iroh-blobs store, returning the blake3 hash.
+    /// this makes the blob available for verified download by peers.
+    /// the blob stays in memory until the tab is closed.
+    #[wasm_bindgen]
+    pub async fn import_blob(&self, data: &[u8]) -> Result<String, JsError> {
+        let bytes_data = bytes::Bytes::from(data.to_vec());
+        let tt = self
+            .blobs_store
+            .blobs()
+            .add_bytes(bytes_data)
+            .temp_tag()
+            .await
+            .map_err(|e| JsError::new(&format!("failed to import blob: {}", e)))?;
+        let hash = tt.hash();
+        // leak the TempTag to prevent garbage collection — keep blob in store
+        let mut tt = tt;
+        tt.leak();
+        Ok(hash.to_hex().to_string())
     }
 }
 

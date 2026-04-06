@@ -1973,6 +1973,7 @@ name = "midden"
 version = "0.2.0"
 dependencies = [
  "anyhow",
+ "blake3",
  "bytes",
  "console_error_panic_hook",
  "getrandom 0.2.17",

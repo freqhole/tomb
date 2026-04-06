@@ -105,9 +105,7 @@ export async function openBlobDb(): Promise<IDBDatabase> {
 /**
  * get (or create) the skein-blobs directory handle in OPFS.
  */
-async function getOpfsDir(
-  create = false,
-): Promise<FileSystemDirectoryHandle | null> {
+async function getOpfsDir(create = false): Promise<FileSystemDirectoryHandle | null> {
   try {
     const root = await navigator.storage.getDirectory();
     return await root.getDirectoryHandle(OPFS_DIR, { create });
@@ -143,6 +141,23 @@ export async function computeSha256(data: ArrayBuffer): Promise<string> {
 }
 
 /**
+ * compute the blake3 hash of data using the midden WASM module.
+ * returns empty string if midden is not available (e.g. WASM not loaded yet).
+ */
+async function computeBlake3(data: Uint8Array): Promise<string> {
+  try {
+    const midden = (await import("midden")) as any;
+    if (typeof midden.hash_blake3 === "function") {
+      return midden.hash_blake3(data);
+    }
+    return "";
+  } catch {
+    // midden WASM not available — skip blake3 computation
+    return "";
+  }
+}
+
+/**
  * classify a MIME type into a domain string.
  */
 export function classifyDomain(mime: string): string {
@@ -162,7 +177,7 @@ export function classifyDomain(mime: string): string {
 export async function storeBlob(
   blobId: string,
   data: ArrayBuffer,
-  meta: Omit<SkeinBlobRecord, "created_at">,
+  meta: Omit<SkeinBlobRecord, "created_at">
 ): Promise<void> {
   // write bytes to OPFS
   const dir = await getOpfsDir(true);
@@ -202,12 +217,10 @@ export async function storeBlob(
  * content-addressed deduplication. if a blob with the same id already
  * exists, the existing record is returned without writing again.
  */
-export async function storeBlobFromFile(
-  file: File,
-  domain?: string,
-): Promise<SkeinBlobRecord> {
+export async function storeBlobFromFile(file: File, domain?: string): Promise<SkeinBlobRecord> {
   const buffer = await file.arrayBuffer();
   const sha256 = await computeSha256(buffer);
+  const blake3 = await computeBlake3(new Uint8Array(buffer));
   const blobId = sha256;
 
   // dedup — return existing record if already stored
@@ -219,7 +232,7 @@ export async function storeBlobFromFile(
   const meta: Omit<SkeinBlobRecord, "created_at"> = {
     blob_id: blobId,
     sha256,
-    blake3: "",
+    blake3,
     filename: file.name,
     mime: file.type || "application/octet-stream",
     size: buffer.byteLength,
@@ -237,20 +250,75 @@ export async function storeBlobFromFile(
 }
 
 /**
+ * update the blake3 hash for an existing blob record.
+ */
+export async function updateBlake3(blobId: string, blake3: string): Promise<void> {
+  const db = await openBlobDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(BLOB_STORE, "readwrite");
+    const store = tx.objectStore(BLOB_STORE);
+    const getReq = store.get(blobId);
+    getReq.onsuccess = () => {
+      const record = getReq.result as SkeinBlobRecord | undefined;
+      if (record) {
+        record.blake3 = blake3;
+        store.put(record);
+      }
+    };
+    tx.oncomplete = () => {
+      db.close();
+      resolve();
+    };
+    tx.onerror = () => {
+      db.close();
+      reject(tx.error);
+    };
+  });
+}
+
+/**
  * retrieve a blob metadata record by its id.
  *
  * returns `null` when the blob does not exist.
  */
-export async function getBlobRecord(
-  blobId: string,
-): Promise<SkeinBlobRecord | null> {
+export async function getBlobRecord(blobId: string): Promise<SkeinBlobRecord | null> {
   const db = await openBlobDb();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(BLOB_STORE, "readonly");
     const store = tx.objectStore(BLOB_STORE);
     const req = store.get(blobId);
-    req.onsuccess = () =>
-      resolve((req.result as SkeinBlobRecord) ?? null);
+    req.onsuccess = () => resolve((req.result as SkeinBlobRecord) ?? null);
+    req.onerror = () => reject(req.error);
+    tx.oncomplete = () => db.close();
+  });
+}
+
+/**
+ * look up a blob record by its blake3 hash.
+ *
+ * scans all records in the store since there is no blake3 index.
+ * returns `null` when no matching record is found.
+ */
+export async function getBlobRecordByBlake3(blake3Hash: string): Promise<SkeinBlobRecord | null> {
+  if (!blake3Hash) return null;
+  const db = await openBlobDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(BLOB_STORE, "readonly");
+    const store = tx.objectStore(BLOB_STORE);
+    const req = store.openCursor();
+    req.onsuccess = () => {
+      const cursor = req.result;
+      if (!cursor) {
+        resolve(null);
+        return;
+      }
+      const record = cursor.value as SkeinBlobRecord;
+      if (record.blake3 === blake3Hash) {
+        resolve(record);
+        return;
+      }
+      cursor.continue();
+    };
     req.onerror = () => reject(req.error);
     tx.oncomplete = () => db.close();
   });
@@ -261,9 +329,7 @@ export async function getBlobRecord(
  *
  * returns `null` if the file is not found or OPFS is unavailable.
  */
-export async function getBlobData(
-  blobId: string,
-): Promise<ArrayBuffer | null> {
+export async function getBlobData(blobId: string): Promise<ArrayBuffer | null> {
   try {
     const dir = await getOpfsDir(false);
     if (!dir) return null;
@@ -289,9 +355,7 @@ export async function hasBlob(blobId: string): Promise<boolean> {
  * urls are cached for the lifetime of the page session and revoked
  * automatically on beforeunload. returns `null` if the blob is not found.
  */
-export async function getBlobObjectURL(
-  blobId: string,
-): Promise<string | null> {
+export async function getBlobObjectURL(blobId: string): Promise<string | null> {
   ensureBeforeUnloadListener();
 
   // check the session cache first
@@ -315,9 +379,7 @@ export async function getBlobObjectURL(
 /**
  * store a domain entity record in IndexedDB.
  */
-export async function storeDomainEntity(
-  entity: SkeinDomainEntity,
-): Promise<void> {
+export async function storeDomainEntity(entity: SkeinDomainEntity): Promise<void> {
   const db = await openBlobDb();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(ENTITY_STORE, "readwrite");
@@ -339,16 +401,13 @@ export async function storeDomainEntity(
  *
  * returns `null` when the entity does not exist.
  */
-export async function getDomainEntity(
-  entityId: string,
-): Promise<SkeinDomainEntity | null> {
+export async function getDomainEntity(entityId: string): Promise<SkeinDomainEntity | null> {
   const db = await openBlobDb();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(ENTITY_STORE, "readonly");
     const store = tx.objectStore(ENTITY_STORE);
     const req = store.get(entityId);
-    req.onsuccess = () =>
-      resolve((req.result as SkeinDomainEntity) ?? null);
+    req.onsuccess = () => resolve((req.result as SkeinDomainEntity) ?? null);
     req.onerror = () => reject(req.error);
     tx.oncomplete = () => db.close();
   });
@@ -357,17 +416,14 @@ export async function getDomainEntity(
 /**
  * retrieve all domain entities associated with a given blob id.
  */
-export async function getDomainEntitiesByBlob(
-  blobId: string,
-): Promise<SkeinDomainEntity[]> {
+export async function getDomainEntitiesByBlob(blobId: string): Promise<SkeinDomainEntity[]> {
   const db = await openBlobDb();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(ENTITY_STORE, "readonly");
     const store = tx.objectStore(ENTITY_STORE);
     const index = store.index("blob_id");
     const req = index.getAll(blobId);
-    req.onsuccess = () =>
-      resolve((req.result as SkeinDomainEntity[]) ?? []);
+    req.onsuccess = () => resolve((req.result as SkeinDomainEntity[]) ?? []);
     req.onerror = () => reject(req.error);
     tx.oncomplete = () => db.close();
   });

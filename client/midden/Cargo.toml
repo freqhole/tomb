@@ -9,6 +9,7 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 anyhow = "1"
+blake3 = "1.5"
 bytes = "1.10"
 console_error_panic_hook = "0.1.7"
 getrandom = { version = "0.2", features = ["js"] }

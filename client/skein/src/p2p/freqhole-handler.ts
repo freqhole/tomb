@@ -49,11 +49,41 @@ interface BlobStreamResponse {
   error?: string | null;
 }
 
+interface ComputeBlake3Request {
+  type: "compute_blake3_request";
+  id: number;
+  blob_id: string;
+}
+
+interface ComputeBlake3Response {
+  type: "compute_blake3_response";
+  id: number;
+  blake3: string | null;
+  error?: string | null;
+}
+
+interface EnsureBlobRequest {
+  type: "ensure_blob_request";
+  id: number;
+  blake3_hash: string;
+}
+
+interface EnsureBlobResponse {
+  type: "ensure_blob_response";
+  id: number;
+  available: boolean;
+  error?: string | null;
+}
+
 type PeerMessage =
   | ProxyRequest
   | ProxyResponse
   | BlobStreamRequest
   | BlobStreamResponse
+  | ComputeBlake3Request
+  | ComputeBlake3Response
+  | EnsureBlobRequest
+  | EnsureBlobResponse
   | { type: string; [key: string]: unknown };
 
 // ---- constants ------------------------------------------------------------
@@ -105,6 +135,14 @@ function arrayBufferToBase64(buffer: ArrayBuffer): string {
 // lazy import to avoid circular deps and keep the module light at load time
 async function getBlobStore() {
   return import("../storage/skein-blob-store");
+}
+
+// lazy import for midden node (used by compute_blake3 and ensure_blob handlers)
+async function getMiddenNode() {
+  const { getMiddenNode: getMidden } = await import("./identity");
+  const node = await getMidden();
+  if (!node) throw new Error("midden node not available");
+  return node;
 }
 
 // ---- proxy request dispatch -----------------------------------------------
@@ -374,6 +412,115 @@ async function handleBlobStreamRequest(
   await stream.write_message(new Uint8Array(data));
 }
 
+// ---- compute_blake3 request -----------------------------------------------
+
+async function handleComputeBlake3(stream: BiStreamLike, msg: ComputeBlake3Request): Promise<void> {
+  const { id, blob_id } = msg;
+  const peerId = stream.peer_node_id().slice(0, 16);
+
+  console.log(TAG, `compute_blake3 for ${blob_id.slice(0, 8)}... from ${peerId}...`);
+
+  const store = await getBlobStore();
+  const data = await store.getBlobData(blob_id);
+
+  if (!data) {
+    await sendRawResponse(stream, {
+      type: "compute_blake3_response",
+      id,
+      blake3: null,
+      error: "blob not found in OPFS",
+    });
+    return;
+  }
+
+  try {
+    // hash_blake3 is a standalone #[wasm_bindgen] function on the midden module
+    const middenWasm = (await import("midden")) as any;
+    const hash: string =
+      typeof middenWasm.hash_blake3 === "function"
+        ? middenWasm.hash_blake3(new Uint8Array(data))
+        : (() => {
+            throw new Error("hash_blake3 not available on midden module");
+          })();
+
+    // also import into MemStore so the blob is ready for immediate verified download
+    const node = await getMiddenNode();
+    await (node as any).import_blob(new Uint8Array(data));
+
+    console.log(TAG, `computed blake3 for ${blob_id.slice(0, 8)}...: ${hash.slice(0, 16)}...`);
+
+    await sendRawResponse(stream, {
+      type: "compute_blake3_response",
+      id,
+      blake3: hash,
+    });
+  } catch (err) {
+    console.error(TAG, `blake3 computation failed:`, err);
+    await sendRawResponse(stream, {
+      type: "compute_blake3_response",
+      id,
+      blake3: null,
+      error: err instanceof Error ? err.message : "blake3 computation failed",
+    });
+  }
+}
+
+// ---- ensure_blob request --------------------------------------------------
+
+async function handleEnsureBlob(stream: BiStreamLike, msg: EnsureBlobRequest): Promise<void> {
+  const { id, blake3_hash } = msg;
+  const peerId = stream.peer_node_id().slice(0, 16);
+
+  console.log(TAG, `ensure_blob ${blake3_hash.slice(0, 16)}... from ${peerId}...`);
+
+  try {
+    // look up the blob record by its blake3 hash (cursor scan, no index)
+    const store = await getBlobStore();
+    const record = await store.getBlobRecordByBlake3(blake3_hash);
+
+    if (!record) {
+      await sendRawResponse(stream, {
+        type: "ensure_blob_response",
+        id,
+        available: false,
+        error: "no blob with this blake3 hash found locally",
+      });
+      return;
+    }
+
+    const data = await store.getBlobData(record.blob_id);
+    if (!data) {
+      await sendRawResponse(stream, {
+        type: "ensure_blob_response",
+        id,
+        available: false,
+        error: "blob data not found in OPFS",
+      });
+      return;
+    }
+
+    // import into MemStore so the blob is available for iroh-blobs serving
+    const node = await getMiddenNode();
+    await (node as any).import_blob(new Uint8Array(data));
+
+    console.log(TAG, `ensured blob ${blake3_hash.slice(0, 16)}... in MemStore`);
+
+    await sendRawResponse(stream, {
+      type: "ensure_blob_response",
+      id,
+      available: true,
+    });
+  } catch (err) {
+    console.error(TAG, `ensure_blob failed:`, err);
+    await sendRawResponse(stream, {
+      type: "ensure_blob_response",
+      id,
+      available: false,
+      error: err instanceof Error ? err.message : "ensure_blob failed",
+    });
+  }
+}
+
 // ---- main entry point -----------------------------------------------------
 
 async function handleStreamAsync(stream: BiStreamLike): Promise<void> {
@@ -411,6 +558,14 @@ async function handleStreamAsync(stream: BiStreamLike): Promise<void> {
 
     case "blob_stream_request":
       await handleBlobStreamRequest(stream, msg as BlobStreamRequest);
+      break;
+
+    case "compute_blake3_request":
+      await handleComputeBlake3(stream, msg as ComputeBlake3Request);
+      break;
+
+    case "ensure_blob_request":
+      await handleEnsureBlob(stream, msg as EnsureBlobRequest);
       break;
 
     default:
