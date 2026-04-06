@@ -80,6 +80,12 @@ export interface SnatchBlobInfo {
   domain: string;
 }
 
+/** options for snatch operations */
+export interface SnatchOptions {
+  /** called with progress updates during download (0.0 to 1.0, or -1 if total unknown) */
+  onProgress?: (fraction: number) => void;
+}
+
 /** options for file upload */
 export interface UploadOptions {
   title?: string;
@@ -149,9 +155,30 @@ export async function checkBlobLocality(blobId: string): Promise<BlobLocalityInf
   }
 
   if (!isTauriMode()) {
-    // browser mode: could check IndexedDB in the future.
-    // for now, treat all blobs as unknown in browser mode.
-    return { locality: "unknown" };
+    try {
+      const { hasBlob, getBlobRecord } = await import("../storage/skein-blob-store");
+      const exists = await hasBlob(blobId);
+      if (!exists) {
+        return { locality: "remote" };
+      }
+      const record = await getBlobRecord(blobId);
+      if (record) {
+        return {
+          locality: "local",
+          metadata: {
+            id: record.blob_id,
+            mime: record.mime || undefined,
+            filename: record.filename || undefined,
+            size: record.size || undefined,
+            blake3: record.blake3 || undefined,
+          },
+        };
+      }
+      return { locality: "local" };
+    } catch (err) {
+      console.debug(TAG, "browser blob locality check failed:", err);
+      return { locality: "unknown" };
+    }
   }
 
   try {
@@ -205,13 +232,147 @@ export async function checkBlobLocality(blobId: string): Promise<BlobLocalityInf
  * after snatch, the blob resolves locally (no more P2P dependency for
  * thumbnails or previews).
  *
- * requires Tauri mode — browser P2P blob fetch is not yet wired.
+ * in browser mode, uses the midden node's fetch methods and stores
+ * in OPFS + IndexedDB. in Tauri mode, uses IPC commands.
  */
-export async function snatchBlob(info: SnatchBlobInfo, peers: PeersMap): Promise<FileUploadResult> {
+export async function snatchBlob(
+  info: SnatchBlobInfo,
+  peers: PeersMap,
+  options?: SnatchOptions
+): Promise<FileUploadResult> {
   if (!isTauriMode()) {
-    throw new Error(
-      "snatch requires the desktop app — browser P2P blob fetch is not yet supported"
-    );
+    const { getMiddenNode } = await import("../p2p/identity");
+    const { storeBlob, storeDomainEntity } = await import("../storage/skein-blob-store");
+
+    const peerAddrs = Object.values(peers)
+      .map((p) => p.nodeId)
+      .filter(Boolean);
+
+    if (peerAddrs.length === 0) {
+      throw new Error("no peers available for snatch");
+    }
+
+    const node = await getMiddenNode();
+    let lastError: unknown;
+
+    for (const peerAddr of peerAddrs) {
+      try {
+        console.log(
+          TAG,
+          `browser snatch: blob ${info.blobId.slice(0, 8)}... from peer ${peerAddr.slice(0, 16)}...`
+        );
+
+        // prefer iroh-blobs verified download (binary, efficient)
+        let bytes: Uint8Array;
+        let blake3Hash = info.blake3;
+
+        const nodeAny = node as any;
+        const onProgress = options?.onProgress;
+
+        if (onProgress && typeof nodeAny.fetch_blob_with_progress === "function") {
+          // use progress-aware fetch for UI feedback
+          const result = await nodeAny.fetch_blob_with_progress(
+            peerAddr,
+            info.blobId,
+            (received: number, total: number) => {
+              if (total > 0) {
+                onProgress(received / total);
+              } else {
+                onProgress(-1);
+              }
+            }
+          );
+          bytes = result.data;
+        } else if (typeof nodeAny.download_verified_by_id === "function") {
+          // download_verified_by_id returns [Uint8Array, string (blake3)]
+          const result = await nodeAny.download_verified_by_id(peerAddr, info.blobId);
+          bytes = result[0] as Uint8Array;
+          blake3Hash = (result[1] as string) || blake3Hash;
+        } else if (typeof nodeAny.fetch_blob === "function") {
+          // fetch_blob returns { data: Uint8Array, content_type?: string }
+          const result = await nodeAny.fetch_blob(peerAddr, info.blobId);
+          bytes = result.data;
+        } else {
+          // fallback: proxy_request (base64, less efficient)
+          if (typeof nodeAny.proxy_request !== "function") {
+            throw new Error("midden node does not support any blob fetch method");
+          }
+          const result = await nodeAny.proxy_request(
+            peerAddr,
+            "GET",
+            `/api/blobs/${info.blobId}/data`,
+            null
+          );
+          const parsed = JSON.parse(result.body);
+          if (!parsed.success || !parsed.data?.data) {
+            throw new Error("proxy_request returned no blob data");
+          }
+          // decode base64 to Uint8Array
+          const binaryStr = atob(parsed.data.data);
+          bytes = new Uint8Array(binaryStr.length);
+          for (let i = 0; i < binaryStr.length; i++) {
+            bytes[i] = binaryStr.charCodeAt(i);
+          }
+        }
+
+        console.log(
+          TAG,
+          `browser snatch: downloaded ${formatFileSize(bytes.length)}, storing in OPFS...`
+        );
+
+        // store in OPFS + IDB
+        await storeBlob(info.blobId, bytes.buffer as ArrayBuffer, {
+          blob_id: info.blobId,
+          sha256: "",
+          blake3: blake3Hash,
+          filename: info.filename,
+          mime: info.mime,
+          size: info.size || bytes.length,
+          domain: info.domain,
+          blob_type: "original",
+          parent_blob_id: null,
+          metadata: { source: "snatch" },
+        });
+
+        // create domain entity record
+        const entityId = crypto.randomUUID();
+        await storeDomainEntity({
+          entity_id: entityId,
+          blob_id: info.blobId,
+          domain: info.domain,
+          title: info.filename,
+          description: "",
+          metadata: {},
+          created_at: Date.now(),
+        });
+
+        // clear thumbnail cache for this blob
+        const key200 = cacheKey(info.blobId, 200);
+        const key50 = cacheKey(info.blobId, 50);
+        thumbnailCache.delete(key200);
+        thumbnailCache.delete(key50);
+
+        console.log(TAG, `browser snatch complete: blob ${info.blobId.slice(0, 8)}...`);
+
+        return {
+          blobId: info.blobId,
+          domain: info.domain,
+          entityId,
+          jobId: null,
+          sha256: "",
+          blake3: blake3Hash || null,
+          size: info.size || bytes.length,
+          mime: info.mime,
+          existing: false,
+        };
+      } catch (err) {
+        lastError = err;
+        console.debug(TAG, `browser snatch from peer ${peerAddr.slice(0, 16)}... failed:`, err);
+        continue;
+      }
+    }
+
+    throw lastError ?? new Error("browser snatch failed: all peers exhausted");
   }
 
   const peerAddrs = Object.values(peers)
@@ -417,7 +578,7 @@ export async function getFullBlobDataUrl(blobId: string, peers?: PeersMap): Prom
   }
 
   // try P2P fallback
-  if (peers && isTauriMode()) {
+  if (peers) {
     const peerResult = await fetchFullBlobFromPeers(blobId, peers);
     if (peerResult) {
       return peerResult;
@@ -434,7 +595,13 @@ export async function getFullBlobDataUrl(blobId: string, peers?: PeersMap): Prom
  */
 async function fetchFullBlobLocal(blobId: string): Promise<string | null> {
   if (!isTauriMode()) {
-    return null;
+    try {
+      const { getBlobObjectURL } = await import("../storage/skein-blob-store");
+      const url = await getBlobObjectURL(blobId);
+      return url;
+    } catch {
+      return null;
+    }
   }
 
   try {
@@ -468,6 +635,69 @@ async function fetchFullBlobFromPeers(blobId: string, peers: PeersMap): Promise<
     .filter(Boolean);
 
   if (peerAddrs.length === 0) {
+    return null;
+  }
+
+  if (!isTauriMode()) {
+    try {
+      const { getMiddenNode } = await import("../p2p/identity");
+      const node = await getMiddenNode();
+      const nodeAny = node as any;
+
+      for (const peerAddr of peerAddrs) {
+        try {
+          let bytes: Uint8Array | null = null;
+          let contentType = "application/octet-stream";
+
+          if (typeof nodeAny.download_verified_by_id === "function") {
+            const result = await nodeAny.download_verified_by_id(peerAddr, blobId);
+            bytes = result[0] as Uint8Array;
+          } else if (typeof nodeAny.fetch_blob === "function") {
+            const result = await nodeAny.fetch_blob(peerAddr, blobId);
+            bytes = result.data;
+            contentType = result.content_type || contentType;
+          }
+
+          if (bytes) {
+            const blob = new Blob([new Uint8Array(bytes)], { type: contentType });
+            console.log(
+              TAG,
+              `fetched full blob ${blobId.slice(0, 8)}... from browser peer ${peerAddr.slice(0, 16)}...`
+            );
+            return URL.createObjectURL(blob);
+          }
+
+          // fallback: proxy_request for blob data
+          if (!bytes && typeof nodeAny.proxy_request === "function") {
+            try {
+              const proxyResult = await nodeAny.proxy_request(
+                peerAddr,
+                "GET",
+                `/api/blobs/${blobId}/data`,
+                null
+              );
+              if (proxyResult.status === 200) {
+                const parsed = JSON.parse(proxyResult.body);
+                if (parsed.success && parsed.data?.data && parsed.data?.mime) {
+                  return `data:${parsed.data.mime};base64,${parsed.data.data}`;
+                }
+              }
+            } catch {
+              // fall through to next peer
+            }
+          }
+        } catch (err) {
+          console.debug(
+            TAG,
+            `browser peer ${peerAddr.slice(0, 16)}... failed for full blob ${blobId.slice(0, 8)}...:`,
+            err
+          );
+          continue;
+        }
+      }
+    } catch (err) {
+      console.debug(TAG, "browser P2P full blob fetch setup failed:", err);
+    }
     return null;
   }
 
@@ -673,10 +903,36 @@ export async function uploadFile(
   options?: UploadOptions
 ): Promise<FileUploadResult> {
   if (!isTauriMode()) {
-    throw new Error(
-      "file upload requires the desktop app or an HTTP connection — " +
-        "browser-only upload is not yet supported"
-    );
+    if (!picked.file) {
+      throw new Error("no File object available in browser mode");
+    }
+
+    const { storeBlobFromFile, storeDomainEntity } = await import("../storage/skein-blob-store");
+
+    const record = await storeBlobFromFile(picked.file);
+
+    const entityId = crypto.randomUUID();
+    await storeDomainEntity({
+      entity_id: entityId,
+      blob_id: record.blob_id,
+      domain: record.domain,
+      title: options?.title || picked.filename,
+      description: options?.description || "",
+      metadata: {},
+      created_at: Date.now(),
+    });
+
+    return {
+      blobId: record.blob_id,
+      domain: record.domain,
+      entityId,
+      jobId: null,
+      sha256: record.sha256,
+      blake3: "",
+      size: record.size,
+      mime: record.mime,
+      existing: false,
+    };
   }
 
   const body: Record<string, unknown> = {
@@ -765,7 +1021,7 @@ export async function getThumbnailDataUrl(
 
   // 3. try P2P fallback — proxy the request through connected canvas peers
   const peers = opts.peers;
-  if (peers && isTauriMode()) {
+  if (peers) {
     const peerResult = await fetchThumbnailFromPeers(blobId, size, peers);
     if (peerResult) {
       thumbnailCache.set(key, peerResult);
@@ -826,6 +1082,53 @@ async function fetchThumbnailFromPeers(
     .filter(Boolean);
 
   if (peerIds.length === 0) {
+    return null;
+  }
+
+  if (!isTauriMode()) {
+    try {
+      const { getMiddenNode } = await import("../p2p/identity");
+      const node = await getMiddenNode();
+      const nodeAny = node as any;
+
+      if (typeof nodeAny.proxy_request !== "function") {
+        return null;
+      }
+
+      for (const peerAddr of peerIds) {
+        try {
+          const result = await nodeAny.proxy_request(
+            peerAddr,
+            "POST",
+            "/api/blobs/thumbnail_data",
+            JSON.stringify({ blob_id: blobId, size })
+          );
+
+          if (result.status !== 200) continue;
+
+          const parsed = JSON.parse(result.body);
+          if (!parsed.success || !parsed.data) continue;
+
+          const { data, mime } = parsed.data;
+          if (!data || !mime) continue;
+
+          console.log(
+            TAG,
+            `fetched thumbnail for ${blobId.slice(0, 8)}... from browser peer ${peerAddr.slice(0, 16)}...`
+          );
+          return `data:${mime};base64,${data}`;
+        } catch (err) {
+          console.debug(
+            TAG,
+            `browser peer thumbnail fetch failed for ${peerAddr.slice(0, 16)}...:`,
+            err
+          );
+          continue;
+        }
+      }
+    } catch (err) {
+      console.debug(TAG, "browser peer thumbnail fetch setup failed:", err);
+    }
     return null;
   }
 

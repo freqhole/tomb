@@ -15,6 +15,8 @@ import {
   type PeersMap,
 } from "../src/widgets/file-utils";
 import { createMediaOverlay, type MediaOverlayHandle } from "../src/widgets/media-overlay";
+import { createInlinePlayer, type InlinePlayerHandle } from "../src/widgets/inline-media";
+import { isTauriMode } from "../src/p2p/tauri-transport";
 import type {
   WidgetController,
   WidgetFactory,
@@ -195,6 +197,7 @@ export const fileWidget: WidgetFactory<typeof fileSchema> = {
     let lastRequestedBlobId = "";
     let loadedAssetKey = "";
     let activeOverlay: MediaOverlayHandle | null = null;
+    let activePlayer: InlinePlayerHandle | null = null;
 
     // flag: true when the user uploaded the file through this widget instance.
     // prevents showing "save to disk" for files the user just uploaded.
@@ -247,7 +250,7 @@ export const fileWidget: WidgetFactory<typeof fileSchema> = {
     // -- loading text ---------------------------------------------------------
 
     const loadingText = new Text({
-      text: "uploading...",
+      text: "loading...",
       style: {
         fontFamily: "system-ui, sans-serif",
         fontSize: 12,
@@ -265,7 +268,7 @@ export const fileWidget: WidgetFactory<typeof fileSchema> = {
     // -- error text -----------------------------------------------------------
 
     const errorText = new Text({
-      text: "upload failed",
+      text: "load failed",
       style: {
         fontFamily: "system-ui, sans-serif",
         fontSize: 12,
@@ -402,7 +405,7 @@ export const fileWidget: WidgetFactory<typeof fileSchema> = {
       // snatch: visible when remote or actively snatching
       snatchBtn.setVisible(actionState === "remote" || actionState === "snatching");
       if (actionState === "snatching") {
-        snatchBtn.setLabel("snatching...");
+        // label is managed by the progress callback in handleSnatch
         snatchBtn.setColor(0x555555);
       } else {
         snatchBtn.setLabel("snatch");
@@ -529,10 +532,14 @@ export const fileWidget: WidgetFactory<typeof fileSchema> = {
         thumbSprite = null;
       }
       if (loadedAssetKey) {
-        Assets.unload(loadedAssetKey);
-        if (loadedAssetKey.startsWith("blob:")) {
-          URL.revokeObjectURL(loadedAssetKey);
-        }
+        const keyToUnload = loadedAssetKey;
+        // defer unload to next frame so the render loop doesn't access a destroyed texture
+        requestAnimationFrame(() => {
+          Assets.unload(keyToUnload);
+          if (keyToUnload.startsWith("blob:")) {
+            URL.revokeObjectURL(keyToUnload);
+          }
+        });
         loadedAssetKey = "";
       }
       currentTexture = null;
@@ -605,6 +612,7 @@ export const fileWidget: WidgetFactory<typeof fileSchema> = {
       lastRequestedBlobId = blobId;
       loadState = "loading";
       syncVisibility();
+      loadingText.text = "loading...";
 
       const abort = new AbortController();
       loadingAbort = abort;
@@ -680,6 +688,7 @@ export const fileWidget: WidgetFactory<typeof fileSchema> = {
 
         loadState = "loading";
         syncVisibility();
+        loadingText.text = "uploading...";
 
         const result = await uploadFile(picked, { waitForCompletion: true });
 
@@ -725,6 +734,8 @@ export const fileWidget: WidgetFactory<typeof fileSchema> = {
       }
 
       actionState = "snatching";
+      snatchBtn.setLabel("snatching...");
+      snatchBtn.setColor(0x555555);
       syncActionButtons();
 
       try {
@@ -737,7 +748,17 @@ export const fileWidget: WidgetFactory<typeof fileSchema> = {
             blake3: state.blake3,
             domain: state.domain,
           },
-          peers as PeersMap
+          peers as PeersMap,
+          {
+            onProgress: (fraction) => {
+              if (fraction >= 0) {
+                const pct = Math.round(fraction * 100);
+                snatchBtn.setLabel(`${pct}%`);
+              } else {
+                snatchBtn.setLabel("snatching...");
+              }
+            },
+          }
         );
 
         // update the doc if the blob ID changed (SHA256 dedup might map to existing)
@@ -806,16 +827,55 @@ export const fileWidget: WidgetFactory<typeof fileSchema> = {
       if (!state.blobId || !isPreviewableDomain(state.domain)) return;
       if (actionState !== "local" && actionState !== "snatched") return;
 
-      // close any existing overlay
-      if (activeOverlay && !activeOverlay.closed) {
-        activeOverlay.close();
+      const overlayType = domainToOverlayType(state.domain);
+
+      // photos use the fullscreen overlay — inline at widget scale isn't useful
+      if (overlayType === "photo") {
+        // close any existing overlay/player
+        if (activeOverlay && !activeOverlay.closed) {
+          activeOverlay.close();
+        }
+        if (activePlayer && !activePlayer.closed) {
+          activePlayer.close();
+          activePlayer = null;
+        }
+
+        let src: string | null = null;
+        const peers = ctx.canvasStore?.peers() as PeersMap | undefined;
+        src = await getFullBlobDataUrl(state.blobId, peers);
+
+        if (!src) {
+          console.warn("[file] could not resolve blob data for photo preview");
+          return;
+        }
+
+        activeOverlay = createMediaOverlay({
+          type: "photo",
+          src,
+          filename: state.filename,
+          mime: state.mime,
+          onClose: () => {
+            activeOverlay = null;
+          },
+        });
+        return;
       }
 
-      const overlayType = domainToOverlayType(state.domain);
+      // video/audio use the inline player positioned over the widget
+      // close any existing overlay/player
+      if (activeOverlay && !activeOverlay.closed) {
+        activeOverlay.close();
+        activeOverlay = null;
+      }
+      if (activePlayer && !activePlayer.closed) {
+        activePlayer.close();
+        activePlayer = null;
+      }
+
       let src: string | null = null;
 
       // for video/audio, prefer asset:// URL (supports range requests / streaming)
-      if (overlayType === "video" || overlayType === "audio") {
+      if (isTauriMode()) {
         const localPath = await getBlobLocalPath(state.blobId);
         if (localPath) {
           try {
@@ -826,7 +886,7 @@ export const fileWidget: WidgetFactory<typeof fileSchema> = {
         }
       }
 
-      // fallback: fetch full blob data as a data URL
+      // fallback: fetch full blob data
       if (!src) {
         const peers = ctx.canvasStore?.peers() as PeersMap | undefined;
         src = await getFullBlobDataUrl(state.blobId, peers);
@@ -837,28 +897,25 @@ export const fileWidget: WidgetFactory<typeof fileSchema> = {
         return;
       }
 
-      // for audio, also try to get waveform
-      let waveformSrc: string | undefined;
-      if (overlayType === "audio") {
-        // waveform thumbnails use the same blob thumbnail system
-        const thumbOpts: ThumbnailOptions = {
-          size: 200,
-          peers: ctx.canvasStore?.peers(),
-        };
-        const waveform = await getThumbnailDataUrl(state.blobId, thumbOpts);
-        if (waveform) {
-          waveformSrc = waveform;
-        }
+      // hide thumbnail while player is active
+      if (thumbSprite) {
+        thumbSprite.visible = false;
       }
 
-      activeOverlay = createMediaOverlay({
-        type: overlayType,
+      activePlayer = createInlinePlayer({
+        type: overlayType as "video" | "audio",
         src,
-        filename: state.filename,
         mime: state.mime,
-        waveformSrc,
+        container,
+        canvasElement: ctx.canvasElement,
+        width: currentWidth,
+        height: currentHeight,
         onClose: () => {
-          activeOverlay = null;
+          activePlayer = null;
+          // re-show thumbnail
+          if (thumbSprite) {
+            thumbSprite.visible = true;
+          }
         },
       });
     }
@@ -912,6 +969,10 @@ export const fileWidget: WidgetFactory<typeof fileSchema> = {
           activeOverlay.close();
           activeOverlay = null;
         }
+        if (activePlayer && !activePlayer.closed) {
+          activePlayer.close();
+          activePlayer = null;
+        }
         unsub();
         destroySprite();
         container.destroy({ children: true });
@@ -922,6 +983,9 @@ export const fileWidget: WidgetFactory<typeof fileSchema> = {
         drawBg(width, height);
         drawPlaceholderBorder(width, height);
         repositionOverlays(width, height);
+        if (activePlayer && !activePlayer.closed) {
+          activePlayer.reposition(width, height);
+        }
         fitSprite(width, height);
         if (loadState === "loaded") {
           syncActionButtons();
