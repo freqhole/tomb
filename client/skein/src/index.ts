@@ -19,6 +19,7 @@ export type { KeyboardHandler } from "./widgets/keyboard-driver";
 export { createWidgetDoc } from "./widgets/widget-doc";
 export { WidgetRegistry } from "./widgets/widget-registry";
 export type {
+  CompactInfo,
   PortDef,
   WidgetController,
   WidgetDoc,
@@ -30,7 +31,7 @@ export type {
 } from "./widgets/widget-types";
 
 // p2p / social
-export { SqliteSocialDoc, resolveFriendDisplay } from "./p2p/sqlite-social-doc";
+export { resolveFriendDisplay, SqliteSocialDoc } from "./p2p/sqlite-social-doc";
 export { isTauriMode } from "./p2p/tauri-transport";
 
 // theme

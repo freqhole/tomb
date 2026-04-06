@@ -25,6 +25,7 @@ test("selectWidget sets both selectedWidgetId and selectedWidgetIds", async ({ c
       props: {},
       collapsed: false,
       docId: null,
+      parentId: null,
     });
   });
   await page.waitForTimeout(100);
@@ -64,6 +65,7 @@ test("selectWidgets multi-selects multiple widgets", async ({ canvasPage }) => {
       props: {},
       collapsed: false,
       docId: null,
+      parentId: null,
     });
     skein.store.addWidget({
       id: "w-2",
@@ -76,6 +78,7 @@ test("selectWidgets multi-selects multiple widgets", async ({ canvasPage }) => {
       props: {},
       collapsed: false,
       docId: null,
+      parentId: null,
     });
     skein.store.addWidget({
       id: "w-3",
@@ -88,6 +91,7 @@ test("selectWidgets multi-selects multiple widgets", async ({ canvasPage }) => {
       props: {},
       collapsed: false,
       docId: null,
+      parentId: null,
     });
   });
   await page.waitForTimeout(100);
@@ -140,6 +144,7 @@ test("toggleWidgetInSelection adds and removes widgets", async ({ canvasPage }) 
       props: {},
       collapsed: false,
       docId: null,
+      parentId: null,
     });
     skein.store.addWidget({
       id: "w-2",
@@ -152,6 +157,7 @@ test("toggleWidgetInSelection adds and removes widgets", async ({ canvasPage }) 
       props: {},
       collapsed: false,
       docId: null,
+      parentId: null,
     });
   });
   await page.waitForTimeout(100);
@@ -219,6 +225,7 @@ test("multi-select clears when switching to view mode", async ({ canvasPage }) =
       props: {},
       collapsed: false,
       docId: null,
+      parentId: null,
     });
     skein.store.addWidget({
       id: "w-2",
@@ -231,6 +238,7 @@ test("multi-select clears when switching to view mode", async ({ canvasPage }) =
       props: {},
       collapsed: false,
       docId: null,
+      parentId: null,
     });
   });
   await page.waitForTimeout(100);
@@ -273,6 +281,7 @@ test("delete key removes all selected widgets", async ({ canvasPage }) => {
       props: {},
       collapsed: false,
       docId: null,
+      parentId: null,
     });
     skein.store.addWidget({
       id: "w-2",
@@ -285,6 +294,7 @@ test("delete key removes all selected widgets", async ({ canvasPage }) => {
       props: {},
       collapsed: false,
       docId: null,
+      parentId: null,
     });
     skein.store.addWidget({
       id: "w-3",
@@ -297,6 +307,7 @@ test("delete key removes all selected widgets", async ({ canvasPage }) => {
       props: {},
       collapsed: false,
       docId: null,
+      parentId: null,
     });
   });
   await page.waitForTimeout(100);
@@ -345,6 +356,7 @@ test("property tray hides during multi-selection", async ({ canvasPage }) => {
       props: {},
       collapsed: false,
       docId: null,
+      parentId: null,
     });
     skein.store.addWidget({
       id: "w-2",
@@ -357,6 +369,7 @@ test("property tray hides during multi-selection", async ({ canvasPage }) => {
       props: {},
       collapsed: false,
       docId: null,
+      parentId: null,
     });
   });
   await page.waitForTimeout(200);
@@ -413,6 +426,7 @@ test("multi-selection frames show selected border", async ({ canvasPage }) => {
       props: {},
       collapsed: false,
       docId: null,
+      parentId: null,
     });
     skein.store.addWidget({
       id: "w-2",
@@ -425,6 +439,7 @@ test("multi-selection frames show selected border", async ({ canvasPage }) => {
       props: {},
       collapsed: false,
       docId: null,
+      parentId: null,
     });
     skein.store.addWidget({
       id: "w-3",
@@ -437,6 +452,7 @@ test("multi-selection frames show selected border", async ({ canvasPage }) => {
       props: {},
       collapsed: false,
       docId: null,
+      parentId: null,
     });
   });
   await page.waitForTimeout(100);
@@ -494,6 +510,7 @@ test("batch drag moves all selected widgets together", async ({ canvasPage }) =>
       props: {},
       collapsed: false,
       docId: null,
+      parentId: null,
     });
     skein.store.addWidget({
       id: "w-2",
@@ -506,6 +523,7 @@ test("batch drag moves all selected widgets together", async ({ canvasPage }) =>
       props: {},
       collapsed: false,
       docId: null,
+      parentId: null,
     });
   });
   await page.waitForTimeout(100);

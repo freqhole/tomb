@@ -2,6 +2,7 @@ import { Assets, Container, Graphics, Sprite, Text, Texture } from "pixi.js";
 import { z } from "zod";
 import { pickImageAsDataUrl } from "../src/widgets/image-utils";
 import type {
+  CompactInfo,
   WidgetController,
   WidgetFactory,
   WidgetMountContext,
@@ -47,6 +48,11 @@ export const imageWidget: WidgetFactory<typeof imageSchema> = {
     { key: "bgColor", label: "background", type: "color" as const, default: 0x1a1a2e },
     { key: "borderColor", label: "border", type: "color" as const, default: 0x2a2a3e },
   ],
+
+  getCompactInfo: (state: ImageState): CompactInfo => ({
+    label: state.url ? "image" : "empty image",
+    thumbnailUrl: state.url || undefined,
+  }),
 
   create(ctx: WidgetMountContext<typeof imageSchema>): WidgetController {
     const container = new Container();

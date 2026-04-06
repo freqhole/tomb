@@ -53,6 +53,7 @@ test("store.addWidget writes to the document", async ({ canvasPage }) => {
       props: {},
       collapsed: false,
       docId: null,
+      parentId: null,
     });
   });
 
@@ -84,6 +85,7 @@ test("store.removeWidget removes from the document", async ({ canvasPage }) => {
       props: {},
       collapsed: false,
       docId: null,
+      parentId: null,
     });
   });
 
@@ -120,6 +122,7 @@ test("store.moveWidget updates position", async ({ canvasPage }) => {
       props: {},
       collapsed: false,
       docId: null,
+      parentId: null,
     });
     skein.store.moveWidget("movable", 300, 450);
   });
@@ -177,6 +180,7 @@ test("canvas persists widgets across sessions via IndexedDB", async ({ browser }
       props: {},
       collapsed: false,
       docId: null,
+      parentId: null,
     });
   });
 

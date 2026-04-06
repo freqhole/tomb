@@ -5,6 +5,7 @@ import { createDomOverlay, type DomOverlayHandle } from "../src/widgets/dom-over
 import {
   isTransparent,
   safeColor,
+  type CompactInfo,
   type WidgetController,
   type WidgetFactory,
   type WidgetMountContext,
@@ -50,6 +51,10 @@ export const labelWidget: WidgetFactory<typeof labelSchema> = {
       default: "system-ui, sans-serif",
     },
   ],
+
+  getCompactInfo: (state: LabelState): CompactInfo => ({
+    label: state.text || "label",
+  }),
 
   create(ctx: WidgetMountContext<typeof labelSchema>): WidgetController {
     const container = new Container();

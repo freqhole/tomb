@@ -1,6 +1,7 @@
 import { Container, Graphics, Text } from "pixi.js";
 import { z } from "zod";
 import type {
+  CompactInfo,
   WidgetController,
   WidgetFactory,
   WidgetMountContext,
@@ -36,6 +37,10 @@ export const counterWidget: WidgetFactory<typeof counterSchema> = {
     { key: "label", label: "label", type: "string" as const, default: "counter" },
     { key: "step", label: "step size", type: "number" as const, default: 1 },
   ],
+
+  getCompactInfo: (state: CounterState): CompactInfo => ({
+    label: `${state.label}: ${state.count}`,
+  }),
 
   create(ctx: WidgetMountContext<typeof counterSchema>): WidgetController {
     const container = new Container();

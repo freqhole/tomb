@@ -165,6 +165,7 @@ test("label widget mounts with default text", async ({ canvasPage }) => {
       props: {},
       collapsed: false,
       docId: null,
+      parentId: null,
     });
   });
 
@@ -204,6 +205,7 @@ test("label widget text persists via automerge doc", async ({ canvasPage }) => {
       props: {},
       collapsed: false,
       docId: null,
+      parentId: null,
     });
   });
 
@@ -249,6 +251,7 @@ test("label widget text syncs between peers", async ({ canvasPage }) => {
       props: {},
       collapsed: false,
       docId: null,
+      parentId: null,
     });
   });
 
@@ -308,6 +311,7 @@ test("label widget resize callback is invoked", async ({ canvasPage }) => {
       props: {},
       collapsed: false,
       docId: null,
+      parentId: null,
     });
   });
 
@@ -353,6 +357,7 @@ test("notepad widget mounts with empty text", async ({ canvasPage }) => {
       props: {},
       collapsed: false,
       docId: null,
+      parentId: null,
     });
   });
 
@@ -391,6 +396,7 @@ test("notepad widget text changes persist via doc", async ({ canvasPage }) => {
       props: {},
       collapsed: false,
       docId: null,
+      parentId: null,
     });
   });
 
@@ -436,6 +442,7 @@ test("notepad widget text syncs between peers", async ({ canvasPage }) => {
       props: {},
       collapsed: false,
       docId: null,
+      parentId: null,
     });
   });
 
@@ -494,6 +501,7 @@ test("notepad widget survives resize without crashing", async ({ canvasPage }) =
       props: {},
       collapsed: false,
       docId: null,
+      parentId: null,
     });
   });
 
@@ -546,6 +554,7 @@ test("notepad widget can be destroyed cleanly", async ({ canvasPage }) => {
       props: {},
       collapsed: false,
       docId: null,
+      parentId: null,
     });
   });
 
@@ -588,6 +597,7 @@ test("label and notepad widgets coexist on the same canvas", async ({ canvasPage
       props: {},
       collapsed: false,
       docId: null,
+      parentId: null,
     });
     skein.store.addWidget({
       id: "notepad-coexist",
@@ -600,6 +610,7 @@ test("label and notepad widgets coexist on the same canvas", async ({ canvasPage
       props: {},
       collapsed: false,
       docId: null,
+      parentId: null,
     });
   });
 

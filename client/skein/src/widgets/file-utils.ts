@@ -1156,6 +1156,17 @@ export async function pickFile(): Promise<PickedFile | null> {
 }
 
 /**
+ * pick multiple files via the native file picker.
+ * returns an array of picked files, or an empty array on cancel.
+ */
+export async function pickFiles(): Promise<PickedFile[]> {
+  if (isTauriMode()) {
+    return pickFilesTauri();
+  }
+  return pickFilesBrowser();
+}
+
+/**
  * dynamically load the Tauri dialog plugin.
  * uses a variable module specifier so TypeScript doesn't try to resolve
  * the package at compile time (it's only available in Tauri builds).
@@ -1198,6 +1209,32 @@ async function pickFileTauri(): Promise<PickedFile | null> {
   }
 }
 
+/** Tauri-mode multi-file picker — uses @tauri-apps/plugin-dialog with multiple: true */
+async function pickFilesTauri(): Promise<PickedFile[]> {
+  try {
+    const { open } = await loadTauriDialog();
+    const result = await open({ multiple: true });
+
+    if (result === null) {
+      return [];
+    }
+
+    // open() with multiple:true returns string[] | null
+    const paths = Array.isArray(result) ? result : [result];
+    return paths
+      .filter((p): p is string => typeof p === "string" && p.length > 0)
+      .map((filePath) => ({
+        path: filePath,
+        filename: filePath.split(/[\\/]/).pop() ?? filePath,
+        size: 0,
+        file: null,
+      }));
+  } catch (err) {
+    console.error(TAG, "native multi-file picker failed:", err);
+    return [];
+  }
+}
+
 /** browser-mode file picker — uses a hidden <input type="file"> */
 async function pickFileBrowser(): Promise<PickedFile | null> {
   const input = document.createElement("input");
@@ -1237,6 +1274,48 @@ async function pickFileBrowser(): Promise<PickedFile | null> {
   } catch (err) {
     console.error(TAG, "browser file picker failed:", err);
     return null;
+  } finally {
+    input.remove();
+  }
+}
+
+/** browser-mode multi-file picker — uses a hidden <input type="file" multiple> */
+async function pickFilesBrowser(): Promise<PickedFile[]> {
+  const input = document.createElement("input");
+  input.type = "file";
+  input.multiple = true;
+  input.style.display = "none";
+
+  document.body.appendChild(input);
+
+  try {
+    input.click();
+
+    const files = await new Promise<FileList | null>((resolve) => {
+      input.addEventListener("change", () => {
+        resolve(input.files);
+      });
+
+      const onFocus = () => {
+        window.removeEventListener("focus", onFocus);
+        setTimeout(() => resolve(null), 300);
+      };
+      window.addEventListener("focus", onFocus);
+    });
+
+    if (!files || files.length === 0) {
+      return [];
+    }
+
+    return Array.from(files).map((file) => ({
+      path: null,
+      filename: file.name,
+      size: file.size,
+      file,
+    }));
+  } catch (err) {
+    console.error(TAG, "browser multi-file picker failed:", err);
+    return [];
   } finally {
     input.remove();
   }

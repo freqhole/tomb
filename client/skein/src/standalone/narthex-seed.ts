@@ -32,6 +32,7 @@ export function createNarthexWithSeed(repo: Repo): CanvasStore {
     },
     collapsed: false,
     docId: null,
+    parentId: null,
   });
 
   // seed with a social widget in the top-right area
@@ -46,6 +47,7 @@ export function createNarthexWithSeed(repo: Repo): CanvasStore {
     props: {},
     collapsed: false,
     docId: null,
+    parentId: null,
   });
 
   // seed with a messagez widget below the narthex label
@@ -60,6 +62,7 @@ export function createNarthexWithSeed(repo: Repo): CanvasStore {
     props: {},
     collapsed: false,
     docId: null,
+    parentId: null,
   });
 
   return store;
@@ -87,6 +90,7 @@ export async function ensureSingletonWidgets(repo: Repo, narthexDocId: DocumentI
       props: {},
       collapsed: false,
       docId: null,
+      parentId: null,
     });
   }
 
@@ -103,6 +107,7 @@ export async function ensureSingletonWidgets(repo: Repo, narthexDocId: DocumentI
       props: {},
       collapsed: false,
       docId: null,
+      parentId: null,
     });
   }
 }

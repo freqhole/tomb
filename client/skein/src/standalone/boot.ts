@@ -749,6 +749,7 @@ class SkeinRouter {
           },
           collapsed: false,
           docId: null,
+          parentId: null,
         });
       }
     }
@@ -835,6 +836,7 @@ class SkeinRouter {
           },
           collapsed: false,
           docId: null,
+          parentId: null,
         });
       }
     }
@@ -964,6 +966,7 @@ class SkeinRouter {
       props: {},
       collapsed: false,
       docId: null,
+      parentId: null,
     });
 
     // if the wizard widget is still on the narthex, remove it
@@ -998,6 +1001,7 @@ class SkeinRouter {
       },
       collapsed: false,
       docId: null,
+      parentId: null,
     });
 
     // navigate to the new canvas

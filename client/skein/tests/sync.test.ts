@@ -18,6 +18,7 @@ test("two peers see each other's widgets via BroadcastChannel", async ({ canvasP
       props: {},
       collapsed: false,
       docId: null,
+      parentId: null,
     });
   });
 
@@ -62,6 +63,7 @@ test("widget position changes sync between peers", async ({ canvasPage }) => {
       props: {},
       collapsed: false,
       docId: null,
+      parentId: null,
     });
   });
 
@@ -113,6 +115,7 @@ test("widget removal syncs between peers", async ({ canvasPage }) => {
       props: {},
       collapsed: false,
       docId: null,
+      parentId: null,
     });
   });
 
@@ -162,6 +165,7 @@ test("widget internal state syncs via zod-validated doc API", async ({ canvasPag
       props: {},
       collapsed: false,
       docId: null,
+      parentId: null,
     });
   });
 
@@ -248,6 +252,7 @@ test("concurrent widget additions from both peers merge", async ({ canvasPage })
         props: {},
         collapsed: false,
         docId: null,
+        parentId: null,
       });
     }),
     peerB.page.evaluate(() => {
@@ -263,6 +268,7 @@ test("concurrent widget additions from both peers merge", async ({ canvasPage })
         props: {},
         collapsed: false,
         docId: null,
+        parentId: null,
       });
     }),
   ]);

@@ -19,6 +19,7 @@ import {
 import { createInlinePlayer, type InlinePlayerHandle } from "../src/widgets/inline-media";
 import { createMediaOverlay, type MediaOverlayHandle } from "../src/widgets/media-overlay";
 import type {
+  CompactInfo,
   WidgetController,
   WidgetFactory,
   WidgetMountContext,
@@ -188,6 +189,12 @@ export const fileWidget: WidgetFactory<typeof fileSchema> = {
   },
   schema: fileSchema,
   // no editableProps — the file is set by uploading, not by editing fields
+
+  getCompactInfo: (state: FileState): CompactInfo => ({
+    label: state.filename || "untitled",
+    thumbnailUrl: state.thumbnailDataUrl || undefined,
+    accentColor: domainBadgeColor(state.domain),
+  }),
 
   create(ctx: WidgetMountContext<typeof fileSchema>): WidgetController {
     const container = new Container();

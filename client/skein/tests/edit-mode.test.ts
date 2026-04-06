@@ -153,6 +153,7 @@ test("selecting a widget updates inputRouter selection", async ({ canvasPage }) 
       props: {},
       collapsed: false,
       docId: null,
+      parentId: null,
     });
   });
 
@@ -193,6 +194,7 @@ test("escape key deselects widget", async ({ canvasPage }) => {
       props: {},
       collapsed: false,
       docId: null,
+      parentId: null,
     });
   });
 
@@ -228,6 +230,7 @@ test("delete key removes selected widget", async ({ canvasPage }) => {
       props: {},
       collapsed: false,
       docId: null,
+      parentId: null,
     });
   });
 
@@ -268,6 +271,7 @@ test("selecting a widget makes header and buttons visible", async ({ canvasPage 
       props: {},
       collapsed: false,
       docId: null,
+      parentId: null,
     });
   });
 
@@ -324,6 +328,7 @@ test("close button removes widget from store", async ({ canvasPage }) => {
       props: {},
       collapsed: false,
       docId: null,
+      parentId: null,
     });
   });
 
@@ -362,6 +367,7 @@ test("collapse callback hides content container", async ({ canvasPage }) => {
       props: {},
       collapsed: false,
       docId: null,
+      parentId: null,
     });
   });
 
@@ -429,6 +435,7 @@ test("move callback updates position in store", async ({ canvasPage }) => {
       props: {},
       collapsed: false,
       docId: null,
+      parentId: null,
     });
   });
 
@@ -466,6 +473,7 @@ test("resize callback updates size in store and calls ctrl.resize()", async ({ c
       props: {},
       collapsed: false,
       docId: null,
+      parentId: null,
     });
   });
 
@@ -503,6 +511,7 @@ test("select callback via frame updates input router selection", async ({ canvas
       props: {},
       collapsed: false,
       docId: null,
+      parentId: null,
     });
     skein.store.addWidget({
       id: "sel-cb-2",
@@ -515,6 +524,7 @@ test("select callback via frame updates input router selection", async ({ canvas
       props: {},
       collapsed: false,
       docId: null,
+      parentId: null,
     });
   });
 
@@ -577,6 +587,7 @@ test("delete button visible only when widget selected", async ({ canvasPage }) =
       props: {},
       collapsed: false,
       docId: null,
+      parentId: null,
     });
   });
 
@@ -621,6 +632,7 @@ test("toolbar delete button removes the selected widget", async ({ canvasPage })
       props: {},
       collapsed: false,
       docId: null,
+      parentId: null,
     });
   });
 
@@ -666,6 +678,7 @@ test("resize handles visible when selected, hidden when not", async ({ canvasPag
       props: {},
       collapsed: false,
       docId: null,
+      parentId: null,
     });
   });
 
@@ -732,6 +745,7 @@ test("collapsed widget hides resize handles", async ({ canvasPage }) => {
       props: {},
       collapsed: false,
       docId: null,
+      parentId: null,
     });
   });
 

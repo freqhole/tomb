@@ -11,6 +11,7 @@ import { colorToCss } from "../src/widgets/format";
 import {
   isTransparent,
   safeColor,
+  type CompactInfo,
   type WidgetController,
   type WidgetFactory,
   type WidgetMountContext,
@@ -67,6 +68,15 @@ export const markdownWidget: WidgetFactory<typeof markdownSchema> = {
       default: "system-ui, sans-serif",
     },
   ],
+
+  getCompactInfo: (state: MarkdownState): CompactInfo => ({
+    label:
+      state.text
+        .split("\n")
+        .find((l) => l.trim() !== "")
+        ?.replace(/^#+\s*/, "")
+        .trim() || "markdown",
+  }),
 
   create(ctx: WidgetMountContext<typeof markdownSchema>): WidgetController {
     const container = new Container();

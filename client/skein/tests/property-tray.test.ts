@@ -43,6 +43,7 @@ test("property tray appears when a widget with editableProps is selected", async
       props: {},
       collapsed: false,
       docId: null,
+      parentId: null,
     });
   });
   await page.waitForTimeout(300);
@@ -75,6 +76,7 @@ test("property tray hides when widget is deselected", async ({ canvasPage }) => 
       props: {},
       collapsed: false,
       docId: null,
+      parentId: null,
     });
   });
   await page.waitForTimeout(300);
@@ -120,6 +122,7 @@ test("property tray does not appear for stateless widgets (hello-world)", async 
       props: {},
       collapsed: false,
       docId: null,
+      parentId: null,
     });
   });
   await page.waitForTimeout(300);
@@ -152,6 +155,7 @@ test("property tray is positioned to the right of the selected widget", async ({
       props: {},
       collapsed: false,
       docId: null,
+      parentId: null,
     });
   });
   await page.waitForTimeout(300);
@@ -189,6 +193,7 @@ test("property tray repositions when widget is moved", async ({ canvasPage }) =>
       props: {},
       collapsed: false,
       docId: null,
+      parentId: null,
     });
   });
   await page.waitForTimeout(300);
@@ -231,6 +236,7 @@ test("property tray shows the widget name in the header", async ({ canvasPage })
       props: {},
       collapsed: false,
       docId: null,
+      parentId: null,
     });
   });
   await page.waitForTimeout(300);
@@ -267,6 +273,7 @@ test("property tray renders controls for each editable prop", async ({ canvasPag
       props: {},
       collapsed: false,
       docId: null,
+      parentId: null,
     });
   });
   await page.waitForTimeout(300);
@@ -307,6 +314,7 @@ test("property tray switches when selecting a different widget", async ({ canvas
       props: {},
       collapsed: false,
       docId: null,
+      parentId: null,
     });
     skein.store.addWidget({
       id: "c1",
@@ -319,6 +327,7 @@ test("property tray switches when selecting a different widget", async ({ canvas
       props: {},
       collapsed: false,
       docId: null,
+      parentId: null,
     });
   });
   await page.waitForTimeout(300);
@@ -364,6 +373,7 @@ test("property tray hides when the selected widget is removed", async ({ canvasP
       props: {},
       collapsed: false,
       docId: null,
+      parentId: null,
     });
   });
   await page.waitForTimeout(300);
@@ -401,6 +411,7 @@ test("number control +/- buttons change the widget doc value", async ({ canvasPa
       props: {},
       collapsed: false,
       docId: null,
+      parentId: null,
     });
   });
   await page.waitForTimeout(300);
@@ -466,6 +477,7 @@ test("property tray survives canvas destroy without errors", async ({ canvasPage
       props: {},
       collapsed: false,
       docId: null,
+      parentId: null,
     });
   });
   await page.waitForTimeout(300);
@@ -503,6 +515,7 @@ test("property tray repositions when widget is resized", async ({ canvasPage }) 
       props: {},
       collapsed: false,
       docId: null,
+      parentId: null,
     });
   });
   await page.waitForTimeout(300);

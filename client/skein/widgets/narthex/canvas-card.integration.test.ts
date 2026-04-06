@@ -221,6 +221,7 @@ describe("CanvasStore widget entry with docId round-trip", () => {
       },
       collapsed: false,
       docId: null,
+      parentId: null,
     });
 
     const entry = store.getWidget(widgetId);
@@ -248,6 +249,7 @@ describe("CanvasStore widget entry with docId round-trip", () => {
       props: { canvasDocId: "some-canvas" },
       collapsed: false,
       docId: null,
+      parentId: null,
     });
 
     // simulate what widget-manager does after creating the per-widget doc
@@ -288,6 +290,7 @@ describe("CanvasStore widget entry with docId round-trip", () => {
       props,
       collapsed: false,
       docId: null,
+      parentId: null,
     });
 
     // step 2: widget-manager mounts — creates per-widget doc from entry.props
@@ -336,6 +339,7 @@ describe("CanvasStore widget entry with docId round-trip", () => {
       props: {},
       collapsed: false,
       docId: null,
+      parentId: null,
     });
 
     // wizard doc is created
@@ -369,6 +373,7 @@ describe("CanvasStore widget entry with docId round-trip", () => {
       },
       collapsed: false,
       docId: null,
+      parentId: null,
     });
 
     // 3. widget-manager creates per-widget doc
@@ -441,6 +446,7 @@ describe("canvasCardSchema parsing of Automerge proxy data", () => {
       },
       collapsed: false,
       docId: null,
+      parentId: null,
     });
 
     // read back — entry.props is an Automerge proxy

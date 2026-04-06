@@ -576,6 +576,7 @@ export class Toolbar {
       props: {},
       collapsed: false,
       docId: null,
+      parentId: null,
     });
   }
 

@@ -27,6 +27,20 @@ export function isTransparent(color: number): boolean {
 }
 
 /**
+ * compact display info returned by a widget factory for rendering
+ * inside a bin widget. used to show minimized representations of
+ * widgets without mounting them.
+ */
+export interface CompactInfo {
+  /** short display text (filename, title, widget name, etc.) */
+  label: string;
+  /** small image for the card face. data URL or asset URL. */
+  thumbnailUrl?: string;
+  /** accent color for spine/border tinting (pixi hex number) */
+  accentColor?: number;
+}
+
+/**
  * a validated, Automerge-backed document facade for widget state.
  * widgets interact with their state exclusively through this interface.
  * they never see Automerge directly.
@@ -116,6 +130,12 @@ export interface WidgetFactory<S extends z.ZodType = z.ZodType> {
   schema?: S;
   /** editable properties shown in the property editor panel when this widget is selected in edit mode */
   editableProps?: WidgetPropDef[];
+  /**
+   * extract compact display info from the widget's state.
+   * used by bin widgets to render children in minimized form.
+   * does not require the widget to be mounted — pure function of state.
+   */
+  getCompactInfo?: (state: z.infer<S>) => CompactInfo;
   /** create a widget instance given a mount context */
   create(ctx: WidgetMountContext<S>): WidgetController;
 }

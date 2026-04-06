@@ -17,6 +17,7 @@ test("add widget via store mounts it onto the pixi stage", async ({ canvasPage }
       props: {},
       collapsed: false,
       docId: null,
+      parentId: null,
     });
   });
 
@@ -61,6 +62,7 @@ test("remove widget via store unmounts it from the pixi stage", async ({ canvasP
       props: {},
       collapsed: false,
       docId: null,
+      parentId: null,
     });
   });
 
@@ -101,6 +103,7 @@ test("unknown widget type mounts a crashed placeholder", async ({ canvasPage }) 
       props: {},
       collapsed: false,
       docId: null,
+      parentId: null,
     });
   });
 
@@ -134,6 +137,7 @@ test("add multiple widgets — all render at correct positions", async ({ canvas
       props: {},
       collapsed: false,
       docId: null,
+      parentId: null,
     });
     skein.store.addWidget({
       id: "w2",
@@ -146,6 +150,7 @@ test("add multiple widgets — all render at correct positions", async ({ canvas
       props: {},
       collapsed: false,
       docId: null,
+      parentId: null,
     });
     skein.store.addWidget({
       id: "w3",
@@ -158,6 +163,7 @@ test("add multiple widgets — all render at correct positions", async ({ canvas
       props: {},
       collapsed: false,
       docId: null,
+      parentId: null,
     });
   });
 
@@ -200,6 +206,7 @@ test("move widget via store updates frame position on stage", async ({ canvasPag
       props: {},
       collapsed: false,
       docId: null,
+      parentId: null,
     });
   });
 
@@ -237,6 +244,7 @@ test("resize widget via store calls ctrl.resize()", async ({ canvasPage }) => {
       props: {},
       collapsed: false,
       docId: null,
+      parentId: null,
     });
   });
 
@@ -282,6 +290,7 @@ test("counter widget — increment persists, state round-trips through doc", asy
       props: {},
       collapsed: false,
       docId: null,
+      parentId: null,
     });
   });
 
@@ -301,9 +310,7 @@ test("counter widget — increment persists, state round-trips through doc", asy
   expect(initial!.crashed).toBe(false);
 });
 
-test("counter ctx.doc.change() persists and ctx.doc.on('change') fires", async ({
-  canvasPage,
-}) => {
+test("counter ctx.doc.change() persists and ctx.doc.on('change') fires", async ({ canvasPage }) => {
   const { page } = await canvasPage();
 
   // use the skeinHelpers to test createWidgetDoc in a real canvas context
@@ -373,6 +380,7 @@ test("widget z-index change via store updates frame zIndex", async ({ canvasPage
       props: {},
       collapsed: false,
       docId: null,
+      parentId: null,
     });
   });
 
@@ -408,6 +416,7 @@ test("destroyAll cleans up all widgets", async ({ canvasPage }) => {
       props: {},
       collapsed: false,
       docId: null,
+      parentId: null,
     });
     skein.store.addWidget({
       id: "d2",
@@ -420,6 +429,7 @@ test("destroyAll cleans up all widgets", async ({ canvasPage }) => {
       props: {},
       collapsed: false,
       docId: null,
+      parentId: null,
     });
   });
 

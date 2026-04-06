@@ -18,6 +18,9 @@ export interface WidgetEntry {
   collapsed: boolean;
   /** automerge document id for the widget's internal state. null if stateless. */
   docId: string | null;
+  /** if set, this widget is nested inside another widget (e.g. a bin).
+   *  the parent widget handles rendering; the widget manager skips mounting. */
+  parentId?: string | null;
 }
 
 /** a peer that has connected to this canvas via P2P. */

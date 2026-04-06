@@ -1,4 +1,5 @@
 import { WidgetRegistry } from "../src/widgets/widget-registry";
+import { registerBinWidget } from "./bin/index";
 import { canvasInfoWidget } from "./canvas-info";
 import { counterWidget } from "./counter";
 import { fileWidget } from "./file";
@@ -22,8 +23,12 @@ export function createTestRegistry(): WidgetRegistry {
   registry.register(labelWidget);
   registry.register(markdownWidget);
   registry.register(notepadWidget);
+  registerBinWidget(registry);
   return registry;
 }
+
+export { binSchema, binWidget, registerBinWidget } from "./bin/index";
+export type { BinState } from "./bin/index";
 
 export { canvasInfoSchema, canvasInfoWidget } from "./canvas-info";
 export type { CanvasInfoState } from "./canvas-info";
@@ -35,4 +40,3 @@ export { imageSchema, imageWidget } from "./image";
 export { labelSchema, labelWidget } from "./label";
 export { markdownSchema, markdownWidget } from "./markdown";
 export { notepadSchema, notepadWidget } from "./notepad";
-

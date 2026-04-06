@@ -351,6 +351,15 @@ export class WidgetManager {
         if (this.inputRouter.selectedWidgetIds.has(widgetId)) {
           this.inputRouter.selectWidget(null);
         }
+        // cascade delete: recursively remove all descendants nested inside this widget.
+        // this handles bins-in-bins — grandchildren, great-grandchildren, etc.
+        const collectDescendants = (id: string): string[] => {
+          const children = this.store.getChildren(id);
+          return children.flatMap((c) => [c.id, ...collectDescendants(c.id)]);
+        };
+        for (const descendantId of collectDescendants(widgetId)) {
+          this.store.removeWidget(descendantId);
+        }
         this.store.removeWidget(widgetId);
       },
       onCollapse: (collapsed: boolean) => {
@@ -517,8 +526,19 @@ export class WidgetManager {
 
     // find new widgets and update existing ones
     for (const [id, entry] of Object.entries(doc.widgets)) {
+      // skip widgets nested inside a parent (the parent bin renders them)
+      if (entry.parentId) {
+        // if this widget was previously mounted and just gained a parentId,
+        // unmount it — the parent widget takes over rendering.
+        // use permanent=false so the automerge doc is preserved.
+        if (liveWidgetIds.has(id)) {
+          this.unmountWidget(id, false);
+        }
+        continue;
+      }
+
       if (!liveWidgetIds.has(id) && !this.mountingIds.has(id)) {
-        // new widget — mount it
+        // new widget (or previously parented widget that lost its parentId) — mount it
         this.mountWidget(entry);
       } else {
         // existing widget — check for position/size/zIndex/collapsed changes

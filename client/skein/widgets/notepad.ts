@@ -5,6 +5,7 @@ import { colorToCss } from "../src/widgets/format";
 import {
   isTransparent,
   safeColor,
+  type CompactInfo,
   type WidgetController,
   type WidgetFactory,
   type WidgetMountContext,
@@ -47,6 +48,10 @@ export const notepadWidget: WidgetFactory<typeof notepadSchema> = {
       default: "system-ui, sans-serif",
     },
   ],
+
+  getCompactInfo: (state: NotepadState): CompactInfo => ({
+    label: state.text ? state.text.split("\n")[0] : "empty note",
+  }),
 
   create(ctx: WidgetMountContext<typeof notepadSchema>): WidgetController {
     const container = new Container();

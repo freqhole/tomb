@@ -319,6 +319,22 @@ export class CanvasStore {
     });
   }
 
+  /** set the parentId for a widget (nest it inside a bin). pass null to un-nest. */
+  setParentId(widgetId: string, parentId: string | null): void {
+    this.handle.change((doc) => {
+      const widget = doc.widgets[widgetId];
+      if (widget) {
+        widget.parentId = parentId;
+        this.touchModified(doc);
+      }
+    });
+  }
+
+  /** get all widget entries that are children of the given parent. */
+  getChildren(parentId: string): WidgetEntry[] {
+    return Object.values(this.doc().widgets).filter((w) => w.parentId === parentId);
+  }
+
   /** subscribe to document changes. returns an unsubscribe function. */
   onChange(handler: (doc: CanvasDocument) => void): () => void {
     const listener = () => {

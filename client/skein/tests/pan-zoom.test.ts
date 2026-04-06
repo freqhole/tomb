@@ -428,6 +428,7 @@ test("widgets live inside the world container and move with pan", async ({ canva
       props: {},
       collapsed: false,
       docId: null,
+      parentId: null,
     });
     // wait for mount
     await new Promise((r) => setTimeout(r, 50));
@@ -487,6 +488,7 @@ test("widget drag accounts for zoom level", async ({ canvasPage }) => {
       props: {},
       collapsed: false,
       docId: null,
+      parentId: null,
     });
     await new Promise((r) => setTimeout(r, 50));
 

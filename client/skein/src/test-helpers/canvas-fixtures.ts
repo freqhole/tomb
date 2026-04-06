@@ -19,6 +19,7 @@ export function widgetEntry(overrides: Partial<WidgetEntry> = {}): WidgetEntry {
     props: {},
     collapsed: false,
     docId: null,
+    parentId: null,
     ...overrides,
   };
 }

@@ -7,6 +7,7 @@ export type { SkeinInputHandle, SkeinInputOptions } from "./skein-input";
 export { createWidgetDoc } from "./widget-doc";
 export { WidgetRegistry } from "./widget-registry";
 export type {
+  CompactInfo,
   PortDef,
   WidgetController,
   WidgetDoc,
