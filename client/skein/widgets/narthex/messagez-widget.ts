@@ -19,11 +19,11 @@ const canvasInviteSchema = z.object({
   canvasDocId: z.string(),
   canvasTitle: z.string().default(""),
   canvasDescription: z.string().default(""),
-  canvasColor: z.number().default(0),
+  canvasColor: z.number().catch(0),
   canvasPreviewUrl: z.string().default(""),
   fromNodeId: z.string(),
   fromUsername: z.string().default(""),
-  relayedBy: z.string().default(""),
+  relayedBy: z.string().catch(""),
   receivedAt: z.string(),
   status: z.enum(["pending", "accepted", "declined"]).default("pending"),
 });

@@ -25,8 +25,15 @@ export function createWidgetDoc<S extends z.ZodType>(
     const raw = handle.doc();
     try {
       return schema.parse(raw ?? {});
-    } catch {
-      // graceful degradation: if peer data is corrupt, use defaults
+    } catch (err) {
+      // graceful degradation: if peer data is corrupt, use defaults.
+      // log the error so schema mismatches are visible during development.
+      console.warn(
+        "[widget-doc] schema parse failed — falling back to defaults. error:",
+        err instanceof z.ZodError ? err.issues : err,
+        "raw keys:",
+        raw ? Object.keys(raw) : "null"
+      );
       return schema.parse({});
     }
   }

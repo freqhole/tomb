@@ -311,32 +311,59 @@ export async function initFriendzWiring(
 
   // canvas invite handling
   protocol.onCanvasInvite = (msg, fromNodeId) => {
-    if (!messagezHandle) return;
+    console.log(
+      "[friendz-wiring] received canvas invite from:",
+      fromNodeId.slice(0, 16) + "...",
+      "canvas:",
+      msg.canvasDocId.slice(0, 16) + "...",
+      "origin:",
+      msg.originNodeId.slice(0, 16) + "...",
+      "title:",
+      msg.canvasTitle,
+      "messagezHandle?",
+      !!messagezHandle
+    );
+
+    if (!messagezHandle) {
+      console.warn("[friendz-wiring] no messagez handle — cannot write invite to inbox");
+      return;
+    }
 
     messagezHandle.change((draft: any) => {
       if (!draft.invites) draft.invites = [];
 
-      // check for existing ack for same invite
+      // check for existing invite for same canvas from same origin
       const currentInbox = (draft.invites ?? []) as any[];
       const alreadyHave = currentInbox.some(
         (inv: any) => inv.canvasDocId === msg.canvasDocId && inv.fromNodeId === msg.originNodeId
       );
 
-      if (alreadyHave) return;
+      if (alreadyHave) {
+        console.log("[friendz-wiring] duplicate invite — already in inbox, skipping");
+        return;
+      }
 
-      draft.invites.push({
+      const inviteRecord = {
         id: crypto.randomUUID(),
         canvasDocId: msg.canvasDocId,
         canvasTitle: msg.canvasTitle ?? "",
         canvasDescription: msg.canvasDescription ?? "",
-        canvasColor: msg.canvasColor ?? "#666",
+        canvasColor: typeof msg.canvasColor === "number" ? msg.canvasColor : 0,
         canvasPreviewUrl: msg.canvasPreviewUrl ?? "",
         fromNodeId: msg.originNodeId,
         fromUsername: msg.originUsername ?? "unknown",
-        relayedBy: (msg as any).relayedBy ?? [],
+        relayedBy: fromNodeId !== msg.originNodeId ? fromNodeId : "",
         receivedAt: new Date().toISOString(),
-        status: "pending",
-      });
+        status: "pending" as const,
+      };
+
+      draft.invites.push(inviteRecord);
+      console.log(
+        "[friendz-wiring] wrote invite to inbox — total invites:",
+        draft.invites.length,
+        "record:",
+        JSON.stringify(inviteRecord)
+      );
     });
 
     // track in gossip tracker for relay to other targets
@@ -367,6 +394,12 @@ export async function initFriendzWiring(
   };
 
   protocol.onCanvasInviteAck = (msg, fromNodeId) => {
+    console.log(
+      "[friendz-wiring] received invite ACK from:",
+      fromNodeId.slice(0, 16) + "...",
+      "canvas:",
+      msg.canvasDocId.slice(0, 16) + "..."
+    );
     if (!messagezHandle) return;
 
     messagezHandle.change((draft: any) => {
@@ -396,6 +429,12 @@ export async function initFriendzWiring(
   };
 
   protocol.onCanvasInviteAccept = (msg, fromNodeId) => {
+    console.log(
+      "[friendz-wiring] received invite ACCEPT from:",
+      fromNodeId.slice(0, 16) + "...",
+      "canvas:",
+      msg.canvasDocId.slice(0, 16) + "..."
+    );
     if (!messagezHandle) return;
 
     messagezHandle.change((draft: any) => {
@@ -416,6 +455,12 @@ export async function initFriendzWiring(
   };
 
   protocol.onCanvasInviteDecline = (msg, fromNodeId) => {
+    console.log(
+      "[friendz-wiring] received invite DECLINE from:",
+      fromNodeId.slice(0, 16) + "...",
+      "canvas:",
+      msg.canvasDocId.slice(0, 16) + "..."
+    );
     if (!messagezHandle) return;
 
     messagezHandle.change((draft: any) => {
