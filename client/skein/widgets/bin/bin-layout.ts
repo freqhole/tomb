@@ -1,15 +1,17 @@
 import {
-    BIN_HEADER_HEIGHT,
-    BIN_PADDING,
-    CRATE_GAP,
-    CRATE_SLOT_H,
-    CRATE_SLOT_W,
-    GRID_CELL_SIZE,
-    GRID_GAP,
-    GRID_LABEL_HEIGHT,
-    SHELF_GAP,
-    SHELF_SLOT_H,
-    SHELF_SLOT_W,
+  BIN_HEADER_HEIGHT,
+  BIN_PADDING,
+  CRATE_GAP,
+  CRATE_SLOT_H,
+  CRATE_SLOT_W,
+  DRAWER_GAP,
+  DRAWER_ROW_H,
+  GRID_CELL_SIZE,
+  GRID_GAP,
+  GRID_LABEL_HEIGHT,
+  SHELF_GAP,
+  SHELF_SLOT_H,
+  SHELF_SLOT_W,
 } from "./bin-constants";
 
 /** a layout mode supported by the bin widget */
@@ -40,7 +42,7 @@ export function slotSize(mode: BinMode): { width: number; height: number } {
       return { width: CRATE_SLOT_W, height: CRATE_SLOT_H };
     case "drawer":
       // drawer mode uses full width, fixed row height
-      return { width: 0, height: CRATE_SLOT_H };
+      return { width: 0, height: DRAWER_ROW_H };
   }
 }
 
@@ -54,7 +56,7 @@ export function slotGap(mode: BinMode): number {
     case "crate":
       return CRATE_GAP;
     case "drawer":
-      return CRATE_GAP;
+      return DRAWER_GAP;
   }
 }
 

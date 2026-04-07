@@ -10,7 +10,7 @@ export const GRID_CELL_SIZE = 96;
 export const GRID_GAP = 4;
 
 /** max characters for the filename label under grid cells */
-export const GRID_LABEL_MAX_CHARS = 12;
+export const GRID_LABEL_MAX_CHARS = 24;
 
 /** font size for grid cell labels */
 export const GRID_LABEL_FONT_SIZE = 9;
@@ -48,6 +48,22 @@ export const CRATE_THUMB_SIZE = 20;
 
 /** font size for crate row text */
 export const CRATE_FONT_SIZE = 9;
+
+// -- drawer mode (full-width rows) -------------------------------------------
+
+/** drawer row height (taller than crate for better readability) */
+export const DRAWER_ROW_H = 36;
+
+/** gap between drawer rows */
+export const DRAWER_GAP = 2;
+
+/** font size for drawer row text */
+export const DRAWER_FONT_SIZE = 10;
+
+// -- endcap thumbnails -------------------------------------------------------
+
+/** height of the thumbnail endcap at the top of each shelf spine */
+export const SHELF_ENDCAP_H = 24;
 
 // -- shared ------------------------------------------------------------------
 

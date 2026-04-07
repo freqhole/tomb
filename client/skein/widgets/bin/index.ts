@@ -49,6 +49,8 @@ export const binSchema = z.object({
   rows: z.number().default(1),
   /** ordered list of child widgets and their slot positions */
   items: z.array(binItemSchema).default([]),
+  /** shelf text direction — top = text reads top-to-bottom, bottom = bottom-to-top */
+  shelfTextOrigin: z.enum(["top", "bottom"]).default("top"),
 });
 
 export type BinState = z.infer<typeof binSchema>;
@@ -93,6 +95,13 @@ export const binWidget: WidgetFactory<typeof binSchema> = {
       label: "columns",
       type: "number",
       default: 3,
+    },
+    {
+      key: "shelfTextOrigin",
+      label: "shelf text",
+      type: "select",
+      options: ["top", "bottom"],
+      default: "top",
     },
   ],
 
@@ -340,7 +349,8 @@ export const binWidget: WidgetFactory<typeof binSchema> = {
 
       // when maximized in grid mode, auto-compute column count to fill the width
       const baseCols = Math.max(1, state.cols);
-      const cols = maximizedCols ?? baseCols;
+      // drawer mode is always single-column (items stack vertically)
+      const cols = mode === "drawer" ? 1 : (maximizedCols ?? baseCols);
       const rows = computeRows(items.length, cols);
 
       // auto-update rows in the doc if it diverged
@@ -364,6 +374,7 @@ export const binWidget: WidgetFactory<typeof binSchema> = {
       const contentWidth = width - BIN_PADDING * 2;
 
       if (renderer) {
+        renderer.shelfTextOrigin = (state.shelfTextOrigin as "top" | "bottom") ?? "top";
         const visibleHeight = height - BIN_HEADER_HEIGHT - BIN_PADDING * 2;
         renderer.render(items, mode, cols, rows, contentWidth, visibleHeight);
       }
@@ -668,12 +679,14 @@ export const binWidget: WidgetFactory<typeof binSchema> = {
               const occupied = state.items.map((i: any) => i.slot);
               let slot = hitTestSlot(mode, localX, localY, cols, rows, contentWidth);
 
-              // if the hit slot is occupied, or no slot was hit, find the first empty
+              // use the hit slot if it's empty; otherwise fall back to first empty
               if (slot) {
                 const occupiedSet = new Set(occupied.map((s: any) => `${s.col},${s.row}`));
                 if (occupiedSet.has(`${slot.col},${slot.row}`)) {
+                  // occupied slot — try to find any empty slot
                   slot = firstEmptySlot(occupied, cols, rows);
                 }
+                // else: slot is empty — use it directly (no override to firstEmptySlot)
               } else {
                 slot = firstEmptySlot(occupied, cols, rows);
               }
