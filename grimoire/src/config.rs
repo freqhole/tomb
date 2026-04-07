@@ -532,6 +532,20 @@ impl GrimoireConfig {
         self.data_dir.join(format!("{}-blobdata.{}", stem, ext))
     }
 
+    /// get path to automerge document storage SQLite database file.
+    /// derives from main database filename: grimoire.db → grimoire-automerge.db
+    pub fn automerge_db_path(&self) -> PathBuf {
+        let stem = std::path::Path::new(&self.database.filename)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("grimoire");
+        let ext = std::path::Path::new(&self.database.filename)
+            .extension()
+            .and_then(|s| s.to_str())
+            .unwrap_or("db");
+        self.data_dir.join(format!("{}-automerge.{}", stem, ext))
+    }
+
     /// Get path to temp directory
     pub fn temp_dir(&self) -> PathBuf {
         self.data_dir.join("tmp")

@@ -3,3 +3,5 @@
 pub mod documents;
 pub mod identity;
 pub mod protocol;
+pub mod storage;
+pub mod sync;
