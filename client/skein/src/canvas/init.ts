@@ -239,6 +239,10 @@ export async function initCanvas(options: InitCanvasOptions): Promise<SkeinCanva
   // step 11: create viewport for pan/zoom control over the world container
   const viewport = new Viewport(world, app.canvas as HTMLCanvasElement);
 
+  // step 11b: give the widget manager a viewport reference so maximize/restore
+  // can save and restore camera state
+  widgetManager.setViewport(viewport);
+
   // step 12: create the presence manager for multiplayer awareness.
   // uses the repo's peer id so ephemeral message sender ids match.
   const peerId = repo.peerId as string;

@@ -20,6 +20,7 @@ export interface WidgetFrameCallbacks {
   onResize: (width: number, height: number) => void;
   onClose: () => void;
   onCollapse: (collapsed: boolean) => void;
+  onMaximize?: () => void;
   /** z-order: bring this widget to the front of all others */
   onBringToFront?: () => void;
   /** z-order: move this widget one layer forward */
@@ -75,6 +76,7 @@ export class WidgetFrame {
   private _layerTotal = 0;
   private readonly collapseBtn: Container;
   private readonly closeBtn: Container;
+  private readonly maximizeBtn: Container;
   private readonly closeable: boolean;
   private readonly contentMask: Graphics;
   private readonly editOverlay: Graphics;
@@ -85,6 +87,7 @@ export class WidgetFrame {
   private _multiSelected = false;
   private _collapsed = false;
   private _hovered = false;
+  private _maximized = false;
   private _lassoActive = false;
   private _hoverGraceTimer: ReturnType<typeof setTimeout> | null = null;
   private _width: number;
@@ -190,6 +193,10 @@ export class WidgetFrame {
     this.collapseBtn = this.createHeaderButton(this._collapsed ? "+" : "-", theme);
     this.header.addChild(this.collapseBtn);
 
+    // maximize button
+    this.maximizeBtn = this.createHeaderButton("\u2922", theme);
+    this.header.addChild(this.maximizeBtn);
+
     // close button
     this.closeBtn = this.createHeaderButton("x", theme);
     this.header.addChild(this.closeBtn);
@@ -282,6 +289,20 @@ export class WidgetFrame {
     this.draw();
   }
 
+  /** enter or leave maximized state. when maximized, chrome (header, border,
+   *  resize handles) is hidden and drag is disabled. the widget manager
+   *  controls sizing and positioning externally. */
+  setMaximized(maximized: boolean): void {
+    this._maximized = maximized;
+    this.draw();
+    this.updateVisualState();
+  }
+
+  /** whether this frame is currently in maximized mode */
+  get maximized(): boolean {
+    return this._maximized;
+  }
+
   /** update the frame dimensions (e.g., after store resizeWidget) */
   updateSize(width: number, height: number): void {
     this._width = width;
@@ -312,6 +333,11 @@ export class WidgetFrame {
   }
 
   private drawHeader(): void {
+    // no header in maximized mode
+    if (this._maximized) {
+      this.headerBg.clear();
+      return;
+    }
     const w = this._width;
     const h = this.theme.frameHeaderHeight;
     const showChrome = this._collapsed || this._hovered || this._selected || this._multiSelected;
@@ -335,6 +361,11 @@ export class WidgetFrame {
   }
 
   private drawBorder(): void {
+    // no border in maximized mode
+    if (this._maximized) {
+      this.border.clear();
+      return;
+    }
     const w = this._width;
     const hdr = this.theme.frameHeaderHeight;
     const showChrome = this._collapsed || this._hovered || this._selected || this._multiSelected;
@@ -359,6 +390,11 @@ export class WidgetFrame {
 
   /** redraw the dark overlay shown on top of content when selected/multi-selected. */
   private drawEditOverlay(): void {
+    // no edit overlay in maximized mode
+    if (this._maximized) {
+      this.editOverlay.visible = false;
+      return;
+    }
     this.editOverlay.clear();
     const isInert = this._lassoActive || this._selected || this._multiSelected;
     if (!isInert || this._collapsed) {
@@ -400,9 +436,11 @@ export class WidgetFrame {
     const btnSize = this.theme.frameHeaderHeight - 8;
     this.closeBtn.x = w - btnSize - 4;
     this.closeBtn.y = 4;
-    this.collapseBtn.x = w - (btnSize + 4) * 2;
+    this.maximizeBtn.x = w - (btnSize + 4) * 2;
+    this.maximizeBtn.y = 4;
+    this.collapseBtn.x = w - (btnSize + 4) * 3;
     this.collapseBtn.y = 4;
-    this.layersBtn.x = w - (btnSize + 4) * 3;
+    this.layersBtn.x = w - (btnSize + 4) * 4;
     this.layersBtn.y = 4;
   }
 
@@ -699,6 +737,15 @@ export class WidgetFrame {
       this.callbacks.onCollapse(!this._collapsed);
     });
 
+    // maximize button
+    const maximizeBg = this.maximizeBtn.getChildAt(0) as Graphics;
+    maximizeBg.eventMode = "static";
+    maximizeBg.cursor = "pointer";
+    maximizeBg.on("pointertap", (e: FederatedPointerEvent) => {
+      e.stopPropagation();
+      this.callbacks.onMaximize?.();
+    });
+
     // close button
     const closeBg = this.closeBtn.getChildAt(0) as Graphics;
     closeBg.eventMode = "static";
@@ -902,6 +949,26 @@ export class WidgetFrame {
   }
 
   private updateVisualState(): void {
+    // when maximized, hide all chrome — the widget fills the viewport
+    if (this._maximized) {
+      this.header.visible = false;
+      this.layersBtn.visible = false;
+      this.collapseBtn.visible = false;
+      this.maximizeBtn.visible = false;
+      this.closeBtn.visible = false;
+      this.hideLayersFlyout();
+      for (const handle of this.resizeHandles.values()) {
+        handle.visible = false;
+      }
+      this.contentContainer.y = 0;
+      this.contentContainer.eventMode = "auto";
+      this.contentContainer.interactiveChildren = true;
+      this.bodyHitArea.eventMode = "none";
+      // disable header drag while maximized
+      this.headerBg.eventMode = "none";
+      return;
+    }
+
     // collapsed widgets always show chrome (no content to hover over)
     const showChrome = this._collapsed || this._hovered || this._selected || this._multiSelected;
     const isInert = this._lassoActive || this._selected || this._multiSelected;
@@ -915,6 +982,7 @@ export class WidgetFrame {
     // header buttons
     this.layersBtn.visible = showChrome;
     this.collapseBtn.visible = showChrome;
+    this.maximizeBtn.visible = showChrome;
     this.closeBtn.visible = showChrome && this.closeable;
 
     // hide layers flyout when chrome disappears

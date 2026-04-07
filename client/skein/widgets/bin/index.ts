@@ -14,6 +14,8 @@ import {
   BIN_HEADER_FONT_SIZE,
   BIN_HEADER_HEIGHT,
   BIN_PADDING,
+  GRID_CELL_SIZE,
+  GRID_GAP,
   HEADER_BG,
   TEXT_COLOR,
   TEXT_MUTED,
@@ -107,6 +109,9 @@ export const binWidget: WidgetFactory<typeof binSchema> = {
     let currentWidth = ctx.width;
     let currentHeight = ctx.height;
     let destroyed = false;
+    let isMaximized = false;
+    /** when maximized, auto-computed column count (null = use doc value) */
+    let maximizedCols: number | null = null;
 
     // -- resolve dependencies ------------------------------------------------
     // the bin needs access to the automerge repo and widget registry to read
@@ -293,7 +298,8 @@ export const binWidget: WidgetFactory<typeof binSchema> = {
 
       titleText.text = title;
 
-      countBadge.text = `${count} item${count !== 1 ? "s" : ""}`;
+      const colsLabel = isMaximized && maximizedCols ? ` \u00b7 ${maximizedCols} cols` : "";
+      countBadge.text = `${count} item${count !== 1 ? "s" : ""}${colsLabel}`;
       countBadge.x = width - countBadge.width - 6;
       countBadge.y = (BIN_HEADER_HEIGHT - BIN_HEADER_FONT_SIZE) / 2;
 
@@ -331,7 +337,10 @@ export const binWidget: WidgetFactory<typeof binSchema> = {
       const state = ctx.doc.current;
       const items = state.items;
       const mode = state.mode as BinMode;
-      const cols = Math.max(1, state.cols);
+
+      // when maximized in grid mode, auto-compute column count to fill the width
+      const baseCols = Math.max(1, state.cols);
+      const cols = maximizedCols ?? baseCols;
       const rows = computeRows(items.length, cols);
 
       // auto-update rows in the doc if it diverged
@@ -544,9 +553,34 @@ export const binWidget: WidgetFactory<typeof binSchema> = {
 
       destroy() {
         destroyed = true;
+        isMaximized = false;
+        maximizedCols = null;
         unsub();
         renderer?.destroy();
         container.destroy({ children: true });
+      },
+
+      setMaximized(maximized: boolean) {
+        isMaximized = maximized;
+        if (maximized) {
+          // auto-compute column count from available width for grid/crate modes
+          const contentWidth = currentWidth - BIN_PADDING * 2;
+          const mode = ctx.doc.current.mode as BinMode;
+          if (mode === "grid") {
+            maximizedCols = Math.max(
+              1,
+              Math.floor((contentWidth + GRID_GAP) / (GRID_CELL_SIZE + GRID_GAP))
+            );
+          } else if (mode === "crate") {
+            // crate rows are full-width, but more columns means more side-by-side
+            maximizedCols = Math.max(1, Math.floor(contentWidth / 180));
+          } else {
+            maximizedCols = null;
+          }
+        } else {
+          maximizedCols = null;
+        }
+        layout(currentWidth, currentHeight);
       },
 
       dropTarget: store

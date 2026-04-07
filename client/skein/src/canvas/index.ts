@@ -3,6 +3,8 @@ export type { CanvasDocument, WidgetEntry } from "./canvas-doc";
 export { CanvasStore } from "./canvas-store";
 export { ConnectionStatus } from "./connection-status";
 export { createCrashedPlaceholder } from "./crashed-placeholder";
+export { FocusStack } from "./focus-stack";
+export type { FocusEntry } from "./focus-stack";
 export { initCanvas } from "./init";
 export type { InitCanvasOptions, SkeinCanvas } from "./init";
 export { InputRouter } from "./input-router";

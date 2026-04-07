@@ -111,6 +111,9 @@ export interface WidgetController {
    *  check this widget for drop overlap during frame drags. used by bins
    *  to accept widgets being dragged onto them. */
   dropTarget?: DropTargetHandler;
+  /** optional: called when the widget enters or leaves maximized (full-viewport) mode.
+   *  widgets can use this to render richer UI when they have more space. */
+  setMaximized?: (maximized: boolean) => void;
 }
 
 /**

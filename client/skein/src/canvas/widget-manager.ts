@@ -1,5 +1,5 @@
 import type { DocHandle, DocumentId, Repo } from "@automerge/automerge-repo";
-import { Container, Graphics } from "pixi.js";
+import { Container, Graphics, Text } from "pixi.js";
 import type { SkeinTheme } from "../theme/skein-theme";
 import type { KeyboardDriver } from "../widgets/keyboard-driver";
 import { createWidgetDoc } from "../widgets/widget-doc";
@@ -8,7 +8,9 @@ import type { WidgetController, WidgetDoc, WidgetMountContext } from "../widgets
 import type { CanvasDocument, WidgetEntry } from "./canvas-doc";
 import type { CanvasStore } from "./canvas-store";
 import { createCrashedPlaceholder } from "./crashed-placeholder";
+import { FocusStack } from "./focus-stack";
 import type { InputRouter } from "./input-router";
+import type { Viewport } from "./viewport";
 import { WidgetFrame } from "./widget-frame";
 
 /** snapshot of positions at the start of a batch drag */
@@ -77,6 +79,15 @@ export class WidgetManager {
   /** the widget ID of the drop target currently being hovered during a drag, or null */
   private activeDropTarget: string | null = null;
 
+  /** focus stack for maximize / restore navigation */
+  private readonly focusStack = new FocusStack();
+
+  /** viewport reference for saving/restoring camera state during maximize */
+  private viewport: Viewport | null = null;
+
+  /** floating back button shown when a widget is maximized */
+  private backButton: Container | null = null;
+
   constructor(
     store: CanvasStore,
     registry: WidgetRegistry,
@@ -110,6 +121,11 @@ export class WidgetManager {
    *  start() so the override is available when widgets are first mounted. */
   setDocOverride(widgetId: string, doc: WidgetDoc<any>): void {
     this.docOverrides.set(widgetId, doc);
+  }
+
+  /** set the viewport reference so maximize/restore can save and restore camera state */
+  setViewport(viewport: Viewport): void {
+    this.viewport = viewport;
   }
 
   /**
@@ -162,6 +178,186 @@ export class WidgetManager {
       this.store.sendToBack(id);
       this.updateLayerInfo();
     });
+  }
+
+  // --- focus stack (maximize / restore) ---
+
+  /** maximize a widget to fill the viewport. pushes onto the focus stack. */
+  maximize(widgetId: string): void {
+    const live = this.liveWidgets.get(widgetId);
+    if (!live || this.focusStack.hasWidget(widgetId)) return;
+
+    // save current viewport state so we can restore later
+    const savedViewport = this.viewport
+      ? { x: this.viewport.cameraX, y: this.viewport.cameraY, zoom: this.viewport.zoom }
+      : { x: 0, y: 0, zoom: 1 };
+
+    this.focusStack.push({
+      widgetId,
+      savedViewport,
+      savedSize: { width: live.entry.width, height: live.entry.height },
+    });
+
+    // hide all other widget frames (including any previously maximized widget)
+    for (const [id, other] of this.liveWidgets) {
+      if (id !== widgetId) {
+        other.frame.root.visible = false;
+      }
+    }
+
+    // reset viewport to origin at 1x zoom
+    if (this.viewport) {
+      this.viewport.resetView();
+    }
+
+    // enter maximized mode on the frame (hides chrome, disables drag)
+    live.frame.setMaximized(true);
+
+    // position frame at origin and resize to fill viewport
+    const { width, height } = this.getViewportSize();
+    live.frame.setPosition(0, 0);
+    live.frame.updateSize(width, height);
+    if (live.ctrl.resize) {
+      try {
+        live.ctrl.resize(width, height);
+      } catch (err) {
+        console.warn(`widget ${widgetId} threw during maximize resize:`, err);
+      }
+    }
+
+    // notify the widget so it can adapt its rendering
+    if (live.ctrl.setMaximized) {
+      try {
+        live.ctrl.setMaximized(true);
+      } catch (err) {
+        console.warn(`widget ${widgetId} threw during setMaximized(true):`, err);
+      }
+    }
+
+    // show floating back button
+    this.showBackButton();
+  }
+
+  /** restore the most recently maximized widget. pops the focus stack. */
+  restore(): void {
+    const entry = this.focusStack.pop();
+    if (!entry) return;
+
+    const live = this.liveWidgets.get(entry.widgetId);
+
+    if (live) {
+      // notify the widget it's leaving maximized mode
+      if (live.ctrl.setMaximized) {
+        try {
+          live.ctrl.setMaximized(false);
+        } catch (err) {
+          console.warn(`widget ${entry.widgetId} threw during setMaximized(false):`, err);
+        }
+      }
+
+      // restore frame chrome and original size
+      live.frame.setMaximized(false);
+      live.frame.setPosition(live.entry.x, live.entry.y);
+      live.frame.updateSize(entry.savedSize.width, entry.savedSize.height);
+      if (live.ctrl.resize) {
+        try {
+          live.ctrl.resize(entry.savedSize.width, entry.savedSize.height);
+        } catch (err) {
+          console.warn(`widget ${entry.widgetId} threw during restore resize:`, err);
+        }
+      }
+    }
+
+    if (this.focusStack.isEmpty) {
+      // stack fully empty — show all widgets, restore original viewport
+      for (const other of this.liveWidgets.values()) {
+        other.frame.root.visible = true;
+      }
+      if (this.viewport) {
+        this.viewport.zoomTo(entry.savedViewport.zoom);
+        this.viewport.panTo(entry.savedViewport.x, entry.savedViewport.y);
+      }
+      this.removeBackButton();
+    } else {
+      // still a maximized widget underneath — show only that one
+      const parent = this.focusStack.peek()!;
+      const parentLive = this.liveWidgets.get(parent.widgetId);
+      if (parentLive) {
+        parentLive.frame.root.visible = true;
+      }
+      // hide the widget we just restored (it goes back behind the parent)
+      if (live) {
+        live.frame.root.visible = false;
+      }
+    }
+  }
+
+  /** whether any widget is currently maximized */
+  get isMaximized(): boolean {
+    return !this.focusStack.isEmpty;
+  }
+
+  /** current viewport size in CSS pixels */
+  private getViewportSize(): { width: number; height: number } {
+    return {
+      width: this.canvasElement.clientWidth,
+      height: this.canvasElement.clientHeight,
+    };
+  }
+
+  /** create and show the floating back button on app.stage (fixed position) */
+  private showBackButton(): void {
+    this.removeBackButton();
+
+    const btn = new Container();
+    const padding = 10;
+    const btnHeight = 30;
+    const label = new Text({
+      text: "\u2190 back",
+      resolution: 2,
+      style: {
+        fontFamily: this.theme.fontFamily,
+        fontSize: 13,
+        fill: 0xffffff,
+      },
+    });
+    const btnWidth = label.width + padding * 2;
+
+    const bg = new Graphics();
+    bg.roundRect(0, 0, btnWidth, btnHeight, 6);
+    bg.fill({ color: 0x1a1a1a, alpha: 0.85 });
+    bg.stroke({ color: 0x444444, width: 1 });
+    bg.eventMode = "static";
+    bg.cursor = "pointer";
+    bg.on("pointertap", () => {
+      this.restore();
+    });
+
+    label.x = padding;
+    label.y = Math.round((btnHeight - label.height) / 2);
+
+    btn.addChild(bg);
+    btn.addChild(label);
+    btn.x = 12;
+    btn.y = 12;
+    btn.zIndex = 99999;
+
+    // add to app.stage (parent of the world container) so it stays
+    // fixed on screen regardless of viewport pan/zoom
+    const appStage = this.stage.parent;
+    if (appStage) {
+      appStage.addChild(btn);
+    }
+
+    this.backButton = btn;
+  }
+
+  /** remove the floating back button */
+  private removeBackButton(): void {
+    if (this.backButton) {
+      this.backButton.destroy({ children: true });
+      this.backButton = null;
+    }
   }
 
   /**
@@ -371,6 +567,9 @@ export class WidgetManager {
         if (live) {
           live.frame.setCollapsed(collapsed);
         }
+      },
+      onMaximize: () => {
+        this.maximize(widgetId);
       },
 
       // batch drag support — only activates when multiple widgets are selected
@@ -586,6 +785,10 @@ export class WidgetManager {
     // find widgets that were removed from the document
     for (const id of liveWidgetIds) {
       if (!docWidgetIds.has(id)) {
+        // if the removed widget was maximized, restore before unmounting
+        if (this.focusStack.peek()?.widgetId === id) {
+          this.restore();
+        }
         this.unmountWidget(id);
       }
     }
@@ -594,6 +797,10 @@ export class WidgetManager {
     for (const [id, entry] of Object.entries(doc.widgets)) {
       // skip widgets nested inside a parent (the parent bin renders them)
       if (entry.parentId) {
+        // if this widget was maximized and just got nested, restore first
+        if (this.focusStack.peek()?.widgetId === id && liveWidgetIds.has(id)) {
+          this.restore();
+        }
         // if this widget was previously mounted and just gained a parentId,
         // unmount it — the parent widget takes over rendering.
         // use permanent=false so the automerge doc is preserved.
@@ -610,6 +817,13 @@ export class WidgetManager {
         // existing widget — check for position/size/zIndex/collapsed changes
         const live = this.liveWidgets.get(id)!;
         const prev = live.entry;
+
+        // if this widget is currently maximized, snapshot the entry but skip
+        // visual updates — maximize controls the frame position and size
+        if (this.focusStack.peek()?.widgetId === id) {
+          live.entry = { ...entry };
+          continue;
+        }
 
         // update position if changed
         if (prev.x !== entry.x || prev.y !== entry.y) {
@@ -645,6 +859,17 @@ export class WidgetManager {
 
     this.updateStageBounds();
     this.updateLayerInfo();
+
+    // enforce focus stack visibility — newly mounted or reconciled widgets
+    // must stay hidden when another widget is maximized
+    if (!this.focusStack.isEmpty) {
+      const maximizedId = this.focusStack.peek()!.widgetId;
+      for (const [id, live] of this.liveWidgets) {
+        if (id !== maximizedId) {
+          live.frame.root.visible = false;
+        }
+      }
+    }
   }
 
   /** update layer position info on all live widget frames */
@@ -722,6 +947,10 @@ export class WidgetManager {
    * kept alive so they're still available when the canvas is re-opened.
    */
   destroyAll(): void {
+    // clean up focus stack and floating back button
+    this.focusStack.clear();
+    this.removeBackButton();
+
     for (const unsub of this.unsubs) {
       unsub();
     }
