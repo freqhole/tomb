@@ -82,6 +82,10 @@ export class WidgetManager {
   /** focus stack for maximize / restore navigation */
   private readonly focusStack = new FocusStack();
 
+  /** widget IDs that were un-nested from the currently maximized widget.
+   *  these should remain visible alongside the maximized widget. */
+  private readonly maximizedEscapees = new Set<string>();
+
   /** viewport reference for saving/restoring camera state during maximize */
   private viewport: Viewport | null = null;
 
@@ -187,6 +191,8 @@ export class WidgetManager {
     const live = this.liveWidgets.get(widgetId);
     if (!live || this.focusStack.hasWidget(widgetId)) return;
 
+    this.maximizedEscapees.clear();
+
     // save current viewport state so we can restore later
     const savedViewport = this.viewport
       ? { x: this.viewport.cameraX, y: this.viewport.cameraY, zoom: this.viewport.zoom }
@@ -290,6 +296,8 @@ export class WidgetManager {
         live.frame.root.visible = false;
       }
     }
+
+    this.maximizedEscapees.clear();
   }
 
   /** whether any widget is currently maximized */
@@ -718,7 +726,24 @@ export class WidgetManager {
     const wy = draggedLive.frame.root.y + draggedLive.entry.height / 2;
 
     const consumed = targetLive.ctrl.dropTarget.onDrop(draggedId, wx, wy);
-    targetLive.ctrl.dropTarget.onLeave();
+
+    // if the primary drop was consumed and there are other selected widgets
+    // in the batch drag, drop those too (multi-drop into bin)
+    if (consumed && this.batchDrag) {
+      for (const [otherId] of this.batchDrag.startPositions) {
+        const otherLive = this.liveWidgets.get(otherId);
+        if (!otherLive) continue;
+        const ox = otherLive.frame.root.x + otherLive.entry.width / 2;
+        const oy = otherLive.frame.root.y + otherLive.entry.height / 2;
+        // re-check drop target is still valid (previous drop might have destroyed it)
+        if (!targetLive.ctrl.dropTarget) break;
+        targetLive.ctrl.dropTarget.onDrop(otherId, ox, oy);
+      }
+      // clear batch drag state since all widgets were consumed
+      this.batchDrag = null;
+    }
+
+    targetLive.ctrl.dropTarget?.onLeave();
     this.activeDropTarget = null;
 
     return consumed;
@@ -813,9 +838,15 @@ export class WidgetManager {
       if (!liveWidgetIds.has(id) && !this.mountingIds.has(id)) {
         // new widget (or previously parented widget that lost its parentId) — mount it
         this.mountWidget(entry);
+        // if we're in maximized mode, this widget likely just escaped from a bin —
+        // keep it visible alongside the maximized widget
+        if (!this.focusStack.isEmpty) {
+          this.maximizedEscapees.add(id);
+        }
       } else {
         // existing widget — check for position/size/zIndex/collapsed changes
-        const live = this.liveWidgets.get(id)!;
+        const live = this.liveWidgets.get(id);
+        if (!live) continue; // still mounting asynchronously
         const prev = live.entry;
 
         // if this widget is currently maximized, snapshot the entry but skip
@@ -865,7 +896,9 @@ export class WidgetManager {
     if (!this.focusStack.isEmpty) {
       const maximizedId = this.focusStack.peek()!.widgetId;
       for (const [id, live] of this.liveWidgets) {
-        if (id !== maximizedId) {
+        if (id === maximizedId || this.maximizedEscapees.has(id)) {
+          live.frame.root.visible = true;
+        } else {
           live.frame.root.visible = false;
         }
       }
@@ -949,6 +982,7 @@ export class WidgetManager {
   destroyAll(): void {
     // clean up focus stack and floating back button
     this.focusStack.clear();
+    this.maximizedEscapees.clear();
     this.removeBackButton();
 
     for (const unsub of this.unsubs) {

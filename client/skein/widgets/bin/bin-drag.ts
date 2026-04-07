@@ -5,8 +5,7 @@ import type { WidgetRegistry } from "../../src/widgets/widget-registry";
 import type { CardInteractionCallbacks } from "./bin-renderer";
 
 const FONT_FAMILY = "'Atkinson Hyperlegible Next', sans-serif";
-const TEXT_RESOLUTION =
-  typeof window !== "undefined" ? Math.max(window.devicePixelRatio, 2) : 2;
+const TEXT_RESOLUTION = typeof window !== "undefined" ? Math.max(window.devicePixelRatio, 2) : 2;
 
 // drag threshold in pixels — prevents accidental drags on tap
 const DRAG_THRESHOLD = 5;
@@ -55,21 +54,21 @@ export interface BinDragContext {
  * at the drop point in world coordinates so the widget manager can mount
  * it as a standalone frame.
  */
-export function createBinDragHandler(
-  ctx: BinDragContext,
-): CardInteractionCallbacks {
-  // lazily resolved reference to the pixi stage (topmost ancestor).
-  // the stage is also the viewport container whose position and scale
-  // represent the current pan / zoom.
-  let stageRef: Container | null = null;
+export function createBinDragHandler(ctx: BinDragContext): CardInteractionCallbacks {
+  let worldRef: Container | null = null;
 
-  function getStage(): Container {
-    if (!stageRef) {
+  /** get the world container that widget frames live in.
+   *  the bin container hierarchy is: binContainer → contentContainer → frame.root → world.
+   *  we walk up 3 levels from the bin container. */
+  function getWorld(): Container {
+    if (!worldRef) {
       let current: Container = ctx.binContainer;
-      while (current.parent) current = current.parent;
-      stageRef = current;
+      for (let i = 0; i < 3 && current.parent; i++) {
+        current = current.parent;
+      }
+      worldRef = current;
     }
-    return stageRef;
+    return worldRef;
   }
 
   // -- drag state ----------------------------------------------------------
@@ -209,15 +208,15 @@ export function createBinDragHandler(
           const label = readLabel(dragCandidate.widgetId);
           ghost = createGhostContainer(label);
 
-          const stage = getStage();
-          stage.addChild(ghost);
+          const world = getWorld();
+          world.addChild(ghost);
         }
 
         if (dragging && ghost) {
-          // position the ghost in stage-local (world) coordinates so it
+          // position the ghost in world-local coordinates so it
           // tracks the pointer regardless of pan / zoom
-          const stage = getStage();
-          const local = stage.toLocal(moveEvent.global);
+          const world = getWorld();
+          const local = world.toLocal(moveEvent.global);
           ghost.x = local.x;
           ghost.y = local.y;
         }
@@ -226,20 +225,14 @@ export function createBinDragHandler(
       upHandler = () => {
         if (dragging && dragCandidate) {
           // convert the last known pointer position to world coordinates.
-          // the stage's local coordinate space is the same space that
-          // widget frame positions (root.x, root.y) live in.
-          const stage = getStage();
-          const worldPos = stage.toLocal({ x: lastGlobalX, y: lastGlobalY });
+          // the world container's local coordinate space is the same space
+          // that widget frame positions (root.x, root.y) live in.
+          const world = getWorld();
+          const worldPos = world.toLocal({ x: lastGlobalX, y: lastGlobalY });
 
-          // un-nest the widget from the bin
-          ctx.store.setParentId(dragCandidate.widgetId, null);
-
-          // place it at the drop point so the widget manager can mount it
-          ctx.store.moveWidget(
-            dragCandidate.widgetId,
-            worldPos.x,
-            worldPos.y,
-          );
+          // un-nest the widget and place it at the drop point in a single
+          // atomic change so reconcile sees the final position immediately.
+          ctx.store.unparentAndMove(dragCandidate.widgetId, worldPos.x, worldPos.y);
 
           // notify the bin so it can remove the item from its automerge doc
           ctx.onDragOut(dragCandidate.widgetId);

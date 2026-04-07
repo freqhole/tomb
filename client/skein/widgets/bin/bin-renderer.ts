@@ -183,6 +183,11 @@ export class BinRenderer {
         // new card
         this.addCard({ widgetId: item.widgetId, info, slot: item.slot });
         this.subscribeToChildDoc(item.widgetId);
+        // ensure the child's automerge handle is loaded (may be cold after page reload)
+        const childEntry = this.store.getWidget(item.widgetId);
+        if (childEntry?.docId) {
+          this.ensureHandle(item.widgetId, childEntry.docId);
+        }
       }
     }
 
@@ -299,9 +304,48 @@ export class BinRenderer {
       card.thumbSprite.destroy();
     }
     if (card.textureKey) {
-      Assets.unload(card.textureKey).catch(() => {});
+      // skip data: URLs — they're small thumbnails that may be shared with the
+      // file widget (which loads the same data URL from the asset cache). unloading
+      // here would destroy the shared texture source and cause addressModeU crashes.
+      if (!card.textureKey.startsWith("data:")) {
+        const keyToUnload = card.textureKey;
+        // defer unload to next frame so the renderer doesn't access a destroyed texture
+        requestAnimationFrame(() => {
+          try {
+            Assets.unload(keyToUnload);
+          } catch {
+            /* ignored */
+          }
+        });
+      }
     }
     card.container.destroy({ children: true });
+  }
+
+  /**
+   * safely load a texture from a URL (typically a data URL).
+   * validates the texture has a usable GPU source before returning.
+   * returns null if loading fails or the texture is invalid.
+   */
+  private async loadCardTexture(url: string): Promise<Texture | null> {
+    try {
+      const tex = await Assets.load<Texture>(url);
+      // guard against invalid GPU sources that cause addressModeU / alphaMode crashes
+      if (!tex || !tex.source?.style) {
+        // only unload non-data: URLs — data: thumbnails are shared across consumers
+        if (!url.startsWith("data:")) {
+          try {
+            Assets.unload(url);
+          } catch {
+            /* ignored */
+          }
+        }
+        return null;
+      }
+      return tex;
+    } catch {
+      return null;
+    }
   }
 
   // -----------------------------------------------------------------------
@@ -346,39 +390,33 @@ export class BinRenderer {
     let textureKey: string | null = null;
 
     if (info.thumbnailUrl && info.thumbnailUrl.length > 0) {
-      // load thumbnail asynchronously
-      const key = `bin-thumb-${widgetId}`;
-      textureKey = key;
+      textureKey = info.thumbnailUrl;
 
-      Assets.load<Texture>(info.thumbnailUrl)
-        .then((tex: Texture) => {
-          if (this.destroyed || !this.cards.has(widgetId)) return;
+      this.loadCardTexture(info.thumbnailUrl).then((tex) => {
+        if (!tex || this.destroyed || !this.cards.has(widgetId)) return;
 
-          const sprite = new Sprite(tex);
-          sprite.anchor.set(0.5);
+        const sprite = new Sprite(tex);
+        sprite.anchor.set(0.5);
 
-          // fit the sprite into the cell, center-cropped
-          const scale = Math.max(GRID_CELL_SIZE / tex.width, GRID_CELL_SIZE / tex.height);
-          sprite.scale.set(scale);
-          sprite.x = GRID_CELL_SIZE / 2;
-          sprite.y = GRID_CELL_SIZE / 2;
+        // fit the sprite into the cell, center-cropped
+        const scale = Math.max(GRID_CELL_SIZE / tex.width, GRID_CELL_SIZE / tex.height);
+        sprite.scale.set(scale);
+        sprite.x = GRID_CELL_SIZE / 2;
+        sprite.y = GRID_CELL_SIZE / 2;
 
-          // clip to cell bounds
-          const mask = new Graphics();
-          mask.roundRect(0, 0, GRID_CELL_SIZE, GRID_CELL_SIZE, 3).fill({ color: 0xffffff });
-          card.addChild(mask);
-          card.addChild(sprite);
-          sprite.mask = mask;
+        // clip to cell bounds
+        const mask = new Graphics();
+        mask.roundRect(0, 0, GRID_CELL_SIZE, GRID_CELL_SIZE, 3).fill({ color: 0xffffff });
+        card.addChild(mask);
+        card.addChild(sprite);
+        sprite.mask = mask;
 
-          // update the rendered card reference
-          const existing = this.cards.get(widgetId);
-          if (existing) {
-            existing.thumbSprite = sprite;
-          }
-        })
-        .catch(() => {
-          // thumbnail load failed — keep fallback
-        });
+        // update the rendered card reference
+        const existing = this.cards.get(widgetId);
+        if (existing) {
+          existing.thumbSprite = sprite;
+        }
+      });
     } else {
       // fallback: colored rect with first letter
       const accent = info.accentColor ?? DEFAULT_ACCENT_COLOR;
@@ -507,35 +545,32 @@ export class BinRenderer {
     let textureKey: string | null = null;
 
     if (info.thumbnailUrl && info.thumbnailUrl.length > 0) {
-      const key = `bin-crate-thumb-${widgetId}`;
-      textureKey = key;
+      textureKey = info.thumbnailUrl;
 
-      Assets.load<Texture>(info.thumbnailUrl!)
-        .then((tex: Texture) => {
-          if (this.destroyed || !this.cards.has(widgetId)) return;
+      this.loadCardTexture(info.thumbnailUrl).then((tex) => {
+        if (!tex || this.destroyed || !this.cards.has(widgetId)) return;
 
-          const sprite = new Sprite(tex);
-          sprite.anchor.set(0.5);
-          const scale = Math.max(CRATE_THUMB_SIZE / tex.width, CRATE_THUMB_SIZE / tex.height);
-          sprite.scale.set(scale);
-          sprite.x = thumbPad + CRATE_THUMB_SIZE / 2;
-          sprite.y = thumbPad + CRATE_THUMB_SIZE / 2;
+        const sprite = new Sprite(tex);
+        sprite.anchor.set(0.5);
+        const scale = Math.max(CRATE_THUMB_SIZE / tex.width, CRATE_THUMB_SIZE / tex.height);
+        sprite.scale.set(scale);
+        sprite.x = thumbPad + CRATE_THUMB_SIZE / 2;
+        sprite.y = thumbPad + CRATE_THUMB_SIZE / 2;
 
-          // clip to thumb square
-          const mask = new Graphics();
-          mask
-            .roundRect(thumbPad, thumbPad, CRATE_THUMB_SIZE, CRATE_THUMB_SIZE, 2)
-            .fill({ color: 0xffffff });
-          card.addChild(mask);
-          card.addChild(sprite);
-          sprite.mask = mask;
+        // clip to thumb square
+        const mask = new Graphics();
+        mask
+          .roundRect(thumbPad, thumbPad, CRATE_THUMB_SIZE, CRATE_THUMB_SIZE, 2)
+          .fill({ color: 0xffffff });
+        card.addChild(mask);
+        card.addChild(sprite);
+        sprite.mask = mask;
 
-          const existing = this.cards.get(widgetId);
-          if (existing) {
-            existing.thumbSprite = sprite;
-          }
-        })
-        .catch(() => {});
+        const existing = this.cards.get(widgetId);
+        if (existing) {
+          existing.thumbSprite = sprite;
+        }
+      });
     }
 
     // filename text
@@ -607,44 +642,28 @@ export class BinRenderer {
 
     // thumbnail sprite (if available)
     if (info.thumbnailUrl && info.thumbnailUrl.length > 0) {
-      const key = `bin-drawer-thumb-${widgetId}`;
-      try {
-        const texture = Assets.cache.get(key);
-        if (texture) {
-          const sprite = new Sprite(texture);
-          const scale = Math.min(thumbSize / sprite.width, thumbSize / sprite.height);
-          sprite.width = sprite.width * scale;
-          sprite.height = sprite.height * scale;
-          sprite.x = thumbPad + 3 + (thumbSize - sprite.width) / 2;
-          sprite.y = (slotH - sprite.height) / 2;
+      card.textureKey = info.thumbnailUrl;
 
-          // round mask for thumbnail
-          const mask = new Graphics();
-          mask
-            .roundRect(sprite.x, sprite.y, sprite.width, sprite.height, 2)
-            .fill({ color: 0xffffff });
-          card.container.addChild(mask);
-          sprite.mask = mask;
-          card.container.addChild(sprite);
-          card.thumbSprite = sprite;
-          card.textureKey = key;
-        } else {
-          // load texture async
-          const existing = Assets.cache.has(key);
-          if (!existing) {
-            Assets.load({ alias: key, src: info.thumbnailUrl })
-              .then((tex) => {
-                if (!tex || this.destroyed) return;
-                // the card may have been rebuilt by the time this resolves.
-                // trigger a re-render of this specific card.
-                this.onChildDocChanged(widgetId);
-              })
-              .catch(() => {});
-          }
-        }
-      } catch {
-        // texture load failed — use fallback
-      }
+      this.loadCardTexture(info.thumbnailUrl).then((tex) => {
+        if (!tex || this.destroyed || !this.cards.has(widgetId)) return;
+
+        const sprite = new Sprite(tex);
+        const scale = Math.min(thumbSize / tex.width, thumbSize / tex.height);
+        sprite.width = tex.width * scale;
+        sprite.height = tex.height * scale;
+        sprite.x = thumbPad + 3 + (thumbSize - sprite.width) / 2;
+        sprite.y = (slotH - sprite.height) / 2;
+
+        // round mask for thumbnail
+        const mask = new Graphics();
+        mask
+          .roundRect(sprite.x, sprite.y, sprite.width, sprite.height, 2)
+          .fill({ color: 0xffffff });
+        card.container.addChild(mask);
+        sprite.mask = mask;
+        card.container.addChild(sprite);
+        card.thumbSprite = sprite;
+      });
     }
 
     // text label — more room in drawer mode
@@ -764,6 +783,33 @@ export class BinRenderer {
   // -----------------------------------------------------------------------
   // child doc subscription
   // -----------------------------------------------------------------------
+
+  /**
+   * ensure a child widget's automerge handle is in the repo cache.
+   * after a page reload, handles for parented widgets are not pre-loaded
+   * because the widget manager skips mounting them. this method kicks off
+   * repo.find() and re-renders the card once the handle is ready.
+   */
+  private ensureHandle(widgetId: string, docId: string): void {
+    // already cached — nothing to do
+    if (this.repo.handles[docId as DocumentId]) return;
+
+    // repo.find() returns Promise<DocHandle>. once found, wait for the doc
+    // to be ready, then re-render the card with real compact info.
+    this.repo
+      .find<any>(docId as DocumentId)
+      .then((handle) => handle.whenReady())
+      .then(() => {
+        if (this.destroyed) return;
+        // re-render the card with fresh compact info now that the handle is available
+        this.onChildDocChanged(widgetId);
+        // set up change subscription if we haven't already
+        this.subscribeToChildDoc(widgetId);
+      })
+      .catch(() => {
+        // handle not available — card will use fallback label
+      });
+  }
 
   /**
    * subscribe to a child widget's automerge doc for changes.

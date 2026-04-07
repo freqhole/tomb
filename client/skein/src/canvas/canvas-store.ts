@@ -330,6 +330,20 @@ export class CanvasStore {
     });
   }
 
+  /** un-nest a widget and move it in a single atomic change.
+   *  avoids the race where setParentId triggers reconcile before moveWidget runs. */
+  unparentAndMove(widgetId: string, x: number, y: number): void {
+    this.handle.change((doc) => {
+      const widget = doc.widgets[widgetId];
+      if (widget) {
+        widget.parentId = null;
+        widget.x = x;
+        widget.y = y;
+        this.touchModified(doc);
+      }
+    });
+  }
+
   /** get all widget entries that are children of the given parent. */
   getChildren(parentId: string): WidgetEntry[] {
     return Object.values(this.doc().widgets).filter((w) => w.parentId === parentId);

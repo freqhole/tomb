@@ -83,6 +83,7 @@ export class WidgetFrame {
   private readonly resizeHandles: Map<HandlePosition, Graphics> = new Map();
 
   // state
+  private _destroyed = false;
   private _selected = false;
   private _multiSelected = false;
   private _collapsed = false;
@@ -312,6 +313,7 @@ export class WidgetFrame {
 
   /** clean up all pixi objects */
   destroy(): void {
+    this._destroyed = true;
     if (this._hoverGraceTimer !== null) {
       clearTimeout(this._hoverGraceTimer);
       this._hoverGraceTimer = null;
@@ -612,7 +614,7 @@ export class WidgetFrame {
     });
 
     this.headerBg.on("globalpointermove", (e: FederatedPointerEvent) => {
-      if (!this.dragging) return;
+      if (this._destroyed || !this.dragging) return;
       this.updateDrag(e);
     });
 
@@ -640,7 +642,7 @@ export class WidgetFrame {
     });
 
     this.bodyHitArea.on("globalpointermove", (e: FederatedPointerEvent) => {
-      if (!this.dragging) return;
+      if (this._destroyed || !this.dragging) return;
       this.updateDrag(e);
     });
 
@@ -677,6 +679,7 @@ export class WidgetFrame {
   // --- shared drag helpers (used by both header drag and body drag) ---
 
   private startDrag(e: FederatedPointerEvent): void {
+    if (this._destroyed) return;
     this.dragging = true;
     this.dragStartGlobal = { x: e.global.x, y: e.global.y };
     this.dragStartLocal = { x: this.root.x, y: this.root.y };
@@ -688,6 +691,7 @@ export class WidgetFrame {
   }
 
   private updateDrag(e: FederatedPointerEvent): void {
+    if (this._destroyed) return;
     const zoom = this.root.parent?.scale.x ?? 1;
     const dx = (e.global.x - this.dragStartGlobal.x) / zoom;
     const dy = (e.global.y - this.dragStartGlobal.y) / zoom;
@@ -699,6 +703,7 @@ export class WidgetFrame {
   }
 
   private finishDrag(): void {
+    if (this._destroyed) return;
     this.dragging = false;
     this.headerBg.cursor = "grab";
     this.bodyHitArea.cursor = this._multiSelected ? "grab" : "default";
@@ -709,6 +714,10 @@ export class WidgetFrame {
     this.root.y = snapToGrid(this.root.y, g);
 
     this.callbacks.onDragEnd?.();
+    // re-check: onDragEnd may trigger a drop that unmounts this widget and
+    // destroys this frame (e.g. widget dropped into a bin). bail out so we
+    // don't access the destroyed root container.
+    if (this._destroyed) return;
     this.callbacks.onMove(this.root.x, this.root.y);
   }
 

@@ -601,20 +601,25 @@ export const fileWidget: WidgetFactory<typeof fileSchema> = {
       }
       if (loadedAssetKey) {
         const keyToUnload = loadedAssetKey;
-        // defer unload to next frame so the render loop doesn't access a destroyed texture
-        requestAnimationFrame(() => {
-          // guard: if the same key was re-loaded between destroySprite and this RAF,
-          // skip unload — the texture is back in use by a new sprite.
-          if (loadedAssetKey === keyToUnload) return;
-          try {
-            Assets.unload(keyToUnload);
-          } catch (err) {
-            console.warn("[file-widget] destroySprite: asset unload failed", err);
-          }
-          if (keyToUnload.startsWith("blob:")) {
-            URL.revokeObjectURL(keyToUnload);
-          }
-        });
+        // defer unload to next frame so the render loop doesn't access a destroyed texture.
+        // skip data: URLs entirely — they're small thumbnails that may be shared with
+        // the bin renderer (which loads the same data URL from the asset cache). unloading
+        // here would destroy the shared texture source and cause addressModeU crashes.
+        if (!keyToUnload.startsWith("data:")) {
+          requestAnimationFrame(() => {
+            // guard: if the same key was re-loaded between destroySprite and this RAF,
+            // skip unload — the texture is back in use by a new sprite.
+            if (loadedAssetKey === keyToUnload) return;
+            try {
+              Assets.unload(keyToUnload);
+            } catch (err) {
+              console.warn("[file-widget] destroySprite: asset unload failed", err);
+            }
+            if (keyToUnload.startsWith("blob:")) {
+              URL.revokeObjectURL(keyToUnload);
+            }
+          });
+        }
         loadedAssetKey = "";
       }
       currentTexture = null;
@@ -727,16 +732,20 @@ export const fileWidget: WidgetFactory<typeof fileSchema> = {
               "[file-widget] loadThumbnail: texture has invalid source, skipping",
               blobId
             );
-            try {
-              Assets.unload(dataUrl);
-            } catch {
-              /* ignored */
+            // only unload non-data: URLs — data: thumbnails are shared with the
+            // bin renderer via the asset cache; unloading destroys the shared source.
+            if (!dataUrl.startsWith("data:")) {
+              try {
+                Assets.unload(dataUrl);
+              } catch {
+                /* ignored */
+              }
             }
             texture = null;
           }
 
           if (abort.signal.aborted || lastRequestedBlobId !== blobId) {
-            if (texture) {
+            if (texture && !dataUrl.startsWith("data:")) {
               try {
                 Assets.unload(dataUrl);
               } catch {
@@ -824,17 +833,19 @@ export const fileWidget: WidgetFactory<typeof fileSchema> = {
         // validate the texture has a usable WebGL source (same guard as loadThumbnail)
         if (texture && !texture.source?.style) {
           console.warn("[file-widget] loadEmbeddedThumbnail: texture has invalid source, skipping");
-          try {
-            Assets.unload(dataUrl);
-          } catch {
-            /* ignored */
+          if (!dataUrl.startsWith("data:")) {
+            try {
+              Assets.unload(dataUrl);
+            } catch {
+              /* ignored */
+            }
           }
           texture = null;
         }
 
         // check we haven't been superseded while loading
         if (ctx.doc.current.thumbnailDataUrl !== dataUrl) {
-          if (texture) {
+          if (texture && !dataUrl.startsWith("data:")) {
             try {
               Assets.unload(dataUrl);
             } catch {
