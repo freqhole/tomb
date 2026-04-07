@@ -355,7 +355,8 @@ export const binWidget: WidgetFactory<typeof binSchema> = {
       const contentWidth = width - BIN_PADDING * 2;
 
       if (renderer) {
-        renderer.render(items, mode, cols, rows, contentWidth);
+        const visibleHeight = height - BIN_HEADER_HEIGHT - BIN_PADDING * 2;
+        renderer.render(items, mode, cols, rows, contentWidth, visibleHeight);
       }
     }
 

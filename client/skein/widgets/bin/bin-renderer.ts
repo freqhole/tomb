@@ -18,7 +18,7 @@ import {
   TEXT_COLOR,
 } from "./bin-constants";
 import type { BinMode, SlotPosition } from "./bin-layout";
-import { slotRect } from "./bin-layout";
+import { contentDimensions, slotRect } from "./bin-layout";
 
 const FONT_FAMILY = "'Atkinson Hyperlegible Next', sans-serif";
 const TEXT_RESOLUTION = typeof window !== "undefined" ? Math.max(window.devicePixelRatio, 2) : 2;
@@ -91,6 +91,17 @@ export class BinRenderer {
 
   private destroyed = false;
 
+  /** drawer mode: current scroll offset (px) */
+  private scrollY = 0;
+  /** drawer mode: total content height (px) */
+  private totalContentHeight = 0;
+  /** drawer mode: visible area height (px) */
+  private visibleHeight = 0;
+  /** drawer mode: scroll container that clips content */
+  private scrollMask: Graphics | null = null;
+  /** drawer mode: inner container that moves with scroll */
+  private scrollInner: Container | null = null;
+
   constructor(
     repo: Repo,
     registry: WidgetRegistry,
@@ -125,12 +136,21 @@ export class BinRenderer {
     mode: BinMode,
     _cols: number,
     _rows: number,
-    contentWidth: number
+    contentWidth: number,
+    visibleHeight?: number
   ): void {
     if (this.destroyed) return;
 
     this.mode = mode;
     this.contentWidth = contentWidth;
+    this.visibleHeight = visibleHeight ?? 200;
+
+    // set up or tear down drawer scroll infrastructure
+    if (mode === "drawer") {
+      this.setupDrawerScroll(contentWidth);
+    } else {
+      this.teardownDrawerScroll();
+    }
 
     // determine which cards to add, update, or remove
     const newIds = new Set(items.map((i) => i.widgetId));
@@ -166,6 +186,16 @@ export class BinRenderer {
       }
     }
 
+    // compute total content height for scroll
+    const contentDims = contentDimensions(mode, Math.max(1, _cols), _rows, contentWidth);
+    this.totalContentHeight = contentDims.height;
+
+    // clamp scroll in case content shrank
+    if (mode === "drawer") {
+      this.clampScroll();
+      this.positionScrollInner();
+    }
+
     // bring highlight to front
     this.container.removeChild(this.slotHighlight);
     this.container.addChild(this.slotHighlight);
@@ -198,6 +228,11 @@ export class BinRenderer {
     this.highlightedSlot = slot;
   }
 
+  /** the container that cards are added to (scrollInner in drawer mode, main container otherwise) */
+  private get cardParent(): Container {
+    return this.scrollInner ?? this.container;
+  }
+
   /**
    * get the rendered card container for a specific widget, or null.
    * useful for drag-out: clone or detach this container.
@@ -211,6 +246,7 @@ export class BinRenderer {
    */
   destroy(): void {
     this.destroyed = true;
+    this.teardownDrawerScroll();
 
     // removeCard() also cleans up doc subscriptions, so no separate loop needed
     for (const id of [...this.cards.keys()]) {
@@ -228,25 +264,25 @@ export class BinRenderer {
   private addCard(state: CardRenderState): void {
     const card = this.buildCard(state);
     this.cards.set(state.widgetId, card);
-    this.container.addChild(card.container);
+    this.cardParent.addChild(card.container);
   }
 
   private updateCard(existing: RenderedCard, state: CardRenderState): void {
     // tear down old visuals
-    this.container.removeChild(existing.container);
+    this.cardParent.removeChild(existing.container);
     this.cleanupCardResources(existing);
 
     // rebuild
     const card = this.buildCard(state);
     this.cards.set(state.widgetId, card);
-    this.container.addChild(card.container);
+    this.cardParent.addChild(card.container);
   }
 
   private removeCard(widgetId: string): void {
     const card = this.cards.get(widgetId);
     if (!card) return;
 
-    this.container.removeChild(card.container);
+    this.cardParent.removeChild(card.container);
     this.cleanupCardResources(card);
     this.cards.delete(widgetId);
 
@@ -281,7 +317,7 @@ export class BinRenderer {
       case "crate":
         return this.buildCrateCard(state);
       case "drawer":
-        return this.buildCrateCard(state); // drawer reuses crate rendering for now
+        return this.buildDrawerCard(state);
     }
   }
 
@@ -522,6 +558,187 @@ export class BinRenderer {
     this.attachCardPointerHandlers(card, widgetId);
 
     return { widgetId, slot, container: card, thumbSprite, textureKey };
+  }
+
+  /** drawer mode: full-width horizontal rows with thumbnail + text */
+  private buildDrawerCard(state: CardRenderState): RenderedCard {
+    const { info, slot, widgetId } = state;
+    const rect = slotRect("drawer", slot, this.contentWidth);
+    const accent = info.accentColor ?? DEFAULT_ACCENT_COLOR;
+
+    const card: RenderedCard = {
+      widgetId,
+      slot,
+      container: new Container(),
+      thumbSprite: null,
+      textureKey: null,
+    };
+
+    card.container.label = `card-${widgetId}`;
+    card.container.x = rect.x;
+    card.container.y = rect.y;
+    card.container.eventMode = "static";
+    card.container.cursor = "pointer";
+
+    const slotW = rect.width;
+    const slotH = rect.height;
+
+    // background
+    const bg = new Graphics();
+    bg.roundRect(0, 0, slotW, slotH, 3).fill({ color: accent, alpha: 0.2 });
+    bg.roundRect(0, 0, slotW, slotH, 3).stroke({ width: 1, color: SLOT_BORDER_COLOR });
+    card.container.addChild(bg);
+
+    // left accent bar
+    const accentBar = new Graphics();
+    accentBar.rect(0, 0, 3, slotH).fill({ color: accent });
+    card.container.addChild(accentBar);
+
+    // thumbnail area
+    const thumbSize = CRATE_THUMB_SIZE;
+    const thumbPad = 4;
+
+    // thumbnail placeholder
+    const thumbBg = new Graphics();
+    thumbBg
+      .rect(thumbPad + 3, (slotH - thumbSize) / 2, thumbSize, thumbSize)
+      .fill({ color: accent, alpha: 0.3 });
+    card.container.addChild(thumbBg);
+
+    // thumbnail sprite (if available)
+    if (info.thumbnailUrl && info.thumbnailUrl.length > 0) {
+      const key = `bin-drawer-thumb-${widgetId}`;
+      try {
+        const texture = Assets.cache.get(key);
+        if (texture) {
+          const sprite = new Sprite(texture);
+          const scale = Math.min(thumbSize / sprite.width, thumbSize / sprite.height);
+          sprite.width = sprite.width * scale;
+          sprite.height = sprite.height * scale;
+          sprite.x = thumbPad + 3 + (thumbSize - sprite.width) / 2;
+          sprite.y = (slotH - sprite.height) / 2;
+
+          // round mask for thumbnail
+          const mask = new Graphics();
+          mask
+            .roundRect(sprite.x, sprite.y, sprite.width, sprite.height, 2)
+            .fill({ color: 0xffffff });
+          card.container.addChild(mask);
+          sprite.mask = mask;
+          card.container.addChild(sprite);
+          card.thumbSprite = sprite;
+          card.textureKey = key;
+        } else {
+          // load texture async
+          const existing = Assets.cache.has(key);
+          if (!existing) {
+            Assets.load({ alias: key, src: info.thumbnailUrl })
+              .then((tex) => {
+                if (!tex || this.destroyed) return;
+                // the card may have been rebuilt by the time this resolves.
+                // trigger a re-render of this specific card.
+                this.onChildDocChanged(widgetId);
+              })
+              .catch(() => {});
+          }
+        }
+      } catch {
+        // texture load failed — use fallback
+      }
+    }
+
+    // text label — more room in drawer mode
+    const textX = thumbPad + 3 + thumbSize + 6;
+    const maxLabelWidth = slotW - textX - 6;
+    const maxChars = Math.floor(maxLabelWidth / 5.5);
+    const label = new Text({
+      text: truncateLabel(info.label, Math.max(8, maxChars)),
+      style: {
+        fontFamily: FONT_FAMILY,
+        fontSize: CRATE_FONT_SIZE,
+        fill: TEXT_COLOR,
+      },
+      resolution: TEXT_RESOLUTION,
+    });
+    label.x = textX;
+    label.y = (slotH - CRATE_FONT_SIZE) / 2;
+    card.container.addChild(label);
+
+    this.attachCardPointerHandlers(card.container, widgetId);
+
+    return card;
+  }
+
+  // -----------------------------------------------------------------------
+  // drawer scroll infrastructure
+  // -----------------------------------------------------------------------
+
+  private setupDrawerScroll(contentWidth: number): void {
+    if (!this.scrollInner) {
+      this.scrollInner = new Container();
+      this.scrollInner.label = "drawer-scroll-inner";
+      this.container.addChild(this.scrollInner);
+
+      // mask to clip content to the visible area
+      this.scrollMask = new Graphics();
+      this.container.addChild(this.scrollMask);
+      this.scrollInner.mask = this.scrollMask;
+
+      // wheel handler for scroll isolation
+      this.scrollInner.eventMode = "static";
+      this.scrollInner.on("wheel", (e: WheelEvent) => {
+        const canScroll = this.totalContentHeight > this.visibleHeight;
+        if (!canScroll) return;
+
+        e.stopPropagation();
+        // claim the native event so the viewport doesn't also pan
+        if ((e as any).nativeEvent) (e as any).nativeEvent._skeinWidgetScroll = true;
+
+        const SCROLL_SPEED = 30;
+        this.scrollY += e.deltaY > 0 ? SCROLL_SPEED : -SCROLL_SPEED;
+        this.clampScroll();
+        this.positionScrollInner();
+      });
+    }
+
+    // update mask dimensions
+    this.scrollMask!.clear();
+    this.scrollMask!.rect(0, 0, contentWidth, this.visibleHeight).fill({ color: 0xffffff });
+  }
+
+  private teardownDrawerScroll(): void {
+    if (this.scrollInner) {
+      // move any existing cards from scrollInner back to the main container
+      while (this.scrollInner.children.length > 0) {
+        const child = this.scrollInner.children[0];
+        this.scrollInner.removeChild(child);
+        this.container.addChild(child);
+      }
+
+      this.scrollInner.mask = null;
+      this.container.removeChild(this.scrollInner);
+      this.scrollInner.destroy({ children: false }); // don't destroy moved children
+      this.scrollInner = null;
+
+      if (this.scrollMask) {
+        this.container.removeChild(this.scrollMask);
+        this.scrollMask.destroy();
+        this.scrollMask = null;
+      }
+
+      this.scrollY = 0;
+    }
+  }
+
+  private clampScroll(): void {
+    const maxScroll = Math.max(0, this.totalContentHeight - this.visibleHeight);
+    this.scrollY = Math.max(0, Math.min(this.scrollY, maxScroll));
+  }
+
+  private positionScrollInner(): void {
+    if (this.scrollInner) {
+      this.scrollInner.y = -this.scrollY;
+    }
   }
 
   // -----------------------------------------------------------------------

@@ -8,12 +8,13 @@ import {
   getBlobLocalPath,
   getFullBlobDataUrl,
   getThumbnailDataUrl,
-  pickFile,
+  pickFiles,
   revealBlobInFinder,
   saveBlobToDisk,
   snatchBlob,
   uploadFile,
   type PeersMap,
+  type PickedFile,
   type ThumbnailOptions,
 } from "../src/widgets/file-utils";
 import { createInlinePlayer, type InlinePlayerHandle } from "../src/widgets/inline-media";
@@ -875,48 +876,173 @@ export const fileWidget: WidgetFactory<typeof fileSchema> = {
 
     // -- upload flow ----------------------------------------------------------
 
+    /**
+     * when multiple files are picked, replace this file widget with a new bin
+     * widget containing all the selected files as children.
+     */
+    const handleMultiFileUpload = async (picked: PickedFile[]) => {
+      const store = ctx.canvasStore;
+      if (!store) return;
+
+      // read this widget's position/size so the bin appears in the same spot
+      const selfEntry = store.getWidget(ctx.widgetId);
+      if (!selfEntry) return;
+
+      // dynamically import bin schema to avoid circular deps
+      const { binSchema: _binSchema } = await import("./bin/index");
+
+      // create the bin widget at the same position as this file widget.
+      // make it a bit wider/taller to accommodate multiple items.
+      const binId = crypto.randomUUID();
+      const cols = Math.min(picked.length, 3);
+      store.addWidget({
+        id: binId,
+        type: "bin",
+        x: selfEntry.x,
+        y: selfEntry.y,
+        width: Math.max(selfEntry.width, 320),
+        height: Math.max(selfEntry.height, 240),
+        zIndex: selfEntry.zIndex,
+        props: {},
+        collapsed: false,
+        docId: null,
+        parentId: null,
+      });
+
+      // wait a tick so the widget manager can create the bin's automerge doc
+      // via reconcile. after this, the bin's docId will be set.
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      const binEntry = store.getWidget(binId);
+      if (!binEntry?.docId) {
+        console.warn("file: bin doc not created after auto-bin, aborting");
+        return;
+      }
+
+      // get the bin's doc handle
+      const repo = store.repo;
+      const binDocHandle = repo.handles[binEntry.docId as any];
+      if (!binDocHandle) {
+        console.warn("file: bin doc handle not found, aborting");
+        return;
+      }
+
+      // upload each file and create child widgets in the bin
+      const items: Array<{ widgetId: string; slot: { col: number; row: number } }> = [];
+
+      for (let i = 0; i < picked.length; i++) {
+        const file = picked[i];
+        const slot = { col: i % cols, row: Math.floor(i / cols) };
+        const childId = crypto.randomUUID();
+
+        // create a child file widget entry nested in the bin
+        store.addWidget({
+          id: childId,
+          type: "file",
+          x: 0,
+          y: 0,
+          width: 200,
+          height: 160,
+          zIndex: 0,
+          props: {},
+          collapsed: false,
+          docId: null,
+          parentId: binId,
+        });
+
+        // the widget manager skips widgets with parentId, so no automerge doc
+        // was created during reconcile. create the per-widget doc ourselves.
+        const childDefaults = fileSchema.parse({});
+        const childDocHandle = repo.create(childDefaults);
+        store.setDocId(childId, childDocHandle.documentId);
+
+        // add the item to the bin immediately so it appears as a card
+        items.push({ widgetId: childId, slot });
+
+        // fire-and-forget upload — don't await each one sequentially for better UX
+        uploadFile(file, { waitForCompletion: true })
+          .then((result) => {
+            childDocHandle.change((draft: any) => {
+              draft.blobId = result.blobId;
+              draft.domain = result.domain;
+              draft.entityId = result.entityId;
+              draft.filename = file.filename;
+              draft.mime = result.mime;
+              draft.size = result.size;
+              draft.blake3 = result.blake3 ?? "";
+              draft.thumbnailDataUrl = result.thumbnailDataUrl ?? "";
+            });
+          })
+          .catch((err) => {
+            console.warn(`file: auto-bin upload failed for ${file.filename}:`, err);
+            // leave the child widget in place — it will show as empty
+          });
+      }
+
+      // write all items into the bin's doc at once
+      const rows = Math.ceil(picked.length / cols);
+      binDocHandle.change((draft: any) => {
+        draft.items = items;
+        draft.cols = cols;
+        draft.rows = rows;
+        draft.title = "";
+        draft.mode = "grid";
+      });
+
+      // remove this file widget — the bin replaces it
+      store.removeWidget(ctx.widgetId);
+    };
+
     const handleUpload = async () => {
       if (loadState !== "empty") return;
 
       try {
-        const picked = await pickFile();
-        if (!picked) return;
+        const picked = await pickFiles();
+        if (!picked || picked.length === 0) return;
 
-        loadState = "loading";
-        syncVisibility();
-        loadingText.text = "uploading...";
-
-        const result = await uploadFile(picked, { waitForCompletion: true });
-
-        // mark as locally uploaded so we don't show "save to disk".
-        // suppress the doc-change subscription by updating prevBlobId first,
-        // otherwise the subscription resets uploadedLocally to false.
-        uploadedLocally = true;
-        prevBlobId = result.blobId;
-        actionState = "local";
-
-        ctx.doc.change((draft) => {
-          draft.blobId = result.blobId;
-          draft.domain = result.domain;
-          draft.entityId = result.entityId;
-          draft.filename = picked.filename;
-          draft.mime = result.mime;
-          draft.size = result.size;
-          draft.blake3 = result.blake3 ?? "";
-          draft.thumbnailDataUrl = result.thumbnailDataUrl ?? "";
-        });
-
-        // use the embedded thumbnail if the upload produced one, otherwise
-        // fall back to the async thumbnail fetch from grimoire/peers
-        if (result.thumbnailDataUrl) {
-          loadState = "loaded";
+        // single file: upload into this widget as before
+        if (picked.length === 1) {
+          const file = picked[0];
+          loadState = "loading";
           syncVisibility();
-          positionInfoBar(currentWidth, currentHeight);
-          positionFallbackIcon(currentWidth, currentHeight);
-          loadEmbeddedThumbnail(result.thumbnailDataUrl);
-        } else {
-          loadThumbnail(result.blobId);
+          loadingText.text = "uploading...";
+
+          const result = await uploadFile(file, { waitForCompletion: true });
+
+          // mark as locally uploaded so we don't show "save to disk".
+          // suppress the doc-change subscription by updating prevBlobId first,
+          // otherwise the subscription resets uploadedLocally to false.
+          uploadedLocally = true;
+          prevBlobId = result.blobId;
+          actionState = "local";
+
+          ctx.doc.change((draft) => {
+            draft.blobId = result.blobId;
+            draft.domain = result.domain;
+            draft.entityId = result.entityId;
+            draft.filename = file.filename;
+            draft.mime = result.mime;
+            draft.size = result.size;
+            draft.blake3 = result.blake3 ?? "";
+            draft.thumbnailDataUrl = result.thumbnailDataUrl ?? "";
+          });
+
+          // use the embedded thumbnail if the upload produced one, otherwise
+          // fall back to the async thumbnail fetch from grimoire/peers
+          if (result.thumbnailDataUrl) {
+            loadState = "loaded";
+            syncVisibility();
+            positionInfoBar(currentWidth, currentHeight);
+            positionFallbackIcon(currentWidth, currentHeight);
+            loadEmbeddedThumbnail(result.thumbnailDataUrl);
+          } else {
+            loadThumbnail(result.blobId);
+          }
+          return;
         }
+
+        // multiple files: replace this file widget with a bin
+        await handleMultiFileUpload(picked);
       } catch (err) {
         console.error("file upload failed:", err);
         loadState = "error";
