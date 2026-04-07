@@ -211,7 +211,6 @@ export class BinRenderer {
 
     // compute total content height for scroll
     const opts: SlotSizeOptions = { scale: this.scale };
-    if (mode === "shelf") opts.shelfHeight = this.visibleHeight;
     const contentDims = contentDimensions(mode, Math.max(1, _cols), _rows, contentWidth, opts);
     this.totalContentHeight = contentDims.height;
 
@@ -248,7 +247,6 @@ export class BinRenderer {
     }
 
     const opts: SlotSizeOptions = { scale: this.scale };
-    if (this.mode === "shelf") opts.shelfHeight = this.visibleHeight;
     const rect = slotRect(this.mode, slot, this.contentWidth, opts);
     this.slotHighlight.clear();
     this.slotHighlight
@@ -268,7 +266,6 @@ export class BinRenderer {
     this.gridOutlines.clear();
 
     const opts: SlotSizeOptions = { scale: this.scale };
-    if (this.mode === "shelf") opts.shelfHeight = this.visibleHeight;
 
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {

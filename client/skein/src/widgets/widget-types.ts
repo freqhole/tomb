@@ -27,6 +27,20 @@ export function isTransparent(color: number): boolean {
 }
 
 /**
+ * an action button that a widget exposes in the property tray.
+ * unlike header actions (which live in the frame header bar), widget actions
+ * appear as buttons in the prop tray flyout when the widget is selected.
+ */
+export interface WidgetAction {
+  /** unique identifier for this action */
+  id: string;
+  /** display label shown on the button */
+  label: string;
+  /** click handler */
+  onClick: () => void;
+}
+
+/**
  * a button or info badge that a widget can inject into the frame header.
  * widgets return these from create() and/or update them dynamically via
  * setHeaderActions() on the mount context.
@@ -137,6 +151,9 @@ export interface WidgetController {
   /** optional initial header actions to inject into the frame header bar.
    *  these are set once at mount time; use ctx.setHeaderActions() for dynamic updates. */
   headerActions?: HeaderAction[];
+  /** optional action buttons shown in the property tray when this widget is selected.
+   *  used for widget-specific operations like "tidy" in the bin widget. */
+  widgetActions?: WidgetAction[];
 }
 
 /**

@@ -12,7 +12,12 @@ import { pickImageAsDataUrl } from "../widgets/image-utils";
 
 import { createSkeinInput } from "../widgets/skein-input";
 import type { WidgetRegistry } from "../widgets/widget-registry";
-import type { WidgetDoc, WidgetFactory, WidgetPropDef } from "../widgets/widget-types";
+import type {
+  WidgetAction,
+  WidgetDoc,
+  WidgetFactory,
+  WidgetPropDef,
+} from "../widgets/widget-types";
 import { TRANSPARENT_COLOR } from "../widgets/widget-types";
 import type { WidgetEntry } from "./canvas-doc";
 import type { CanvasStore } from "./canvas-store";
@@ -98,6 +103,7 @@ export class PropertyTray {
   private deleteContainer: Container | null = null;
   /** visibility conditions for controls with visibleWhen */
   private controlVisibility = new Map<number, { key: string; value: unknown }>();
+  private actionContainers: Container[] = [];
   private docUnsub: (() => void) | null = null;
   private unsubs: (() => void)[] = [];
 
@@ -286,7 +292,7 @@ export class PropertyTray {
       return;
     }
 
-    this.show(selectedId, factory, live.widgetDoc, live.entry);
+    this.show(selectedId, factory, live.widgetDoc, live.entry, live.ctrl.widgetActions);
     this.positionNextTo(live.frame.root.x, live.frame.root.y, live.entry.width);
   }
 
@@ -297,7 +303,8 @@ export class PropertyTray {
     widgetId: string,
     factory: WidgetFactory,
     doc: WidgetDoc<any> | null,
-    entry: WidgetEntry
+    entry: WidgetEntry,
+    widgetActions?: WidgetAction[]
   ): void {
     // tear down any previous tray state
     this.clearControls();
@@ -364,6 +371,18 @@ export class PropertyTray {
       });
     }
 
+    // widget actions (e.g. "tidy" in the bin widget)
+    if (widgetActions?.length) {
+      y += ROW_GAP;
+      for (const action of widgetActions) {
+        const btn = this.createWidgetActionButton(action, fieldWidth);
+        this.contentContainer.addChild(btn);
+        btn.y = Math.round(y);
+        this.actionContainers.push(btn);
+        y += FIELD_HEIGHT + ROW_GAP;
+      }
+    }
+
     // delete button at the bottom (skip for singletons)
     const isSingleton = factory.metadata.singleton === true;
     this.deleteContainer = this.createDeleteButton(widgetId, isSingleton, fieldWidth);
@@ -409,6 +428,14 @@ export class PropertyTray {
       control.container.y = Math.round(y);
       y += control.height + ROW_GAP;
     }
+    // widget action buttons
+    if (this.actionContainers.length) {
+      y += ROW_GAP;
+      for (const btn of this.actionContainers) {
+        btn.y = Math.round(y);
+        y += FIELD_HEIGHT + ROW_GAP;
+      }
+    }
     // delete button at the bottom
     if (this.deleteContainer && this.deleteContainer.children.length > 0) {
       y += ROW_GAP;
@@ -436,6 +463,11 @@ export class PropertyTray {
     }
     this.controls = [];
     this.controlVisibility.clear();
+
+    for (const btn of this.actionContainers) {
+      btn.destroy({ children: true });
+    }
+    this.actionContainers = [];
 
     if (this.deleteContainer) {
       this.deleteContainer.destroy({ children: true });
@@ -591,6 +623,51 @@ export class PropertyTray {
   // ---------------------------------------------------------------------------
   // title control (edits entry.title on the canvas store)
   // ---------------------------------------------------------------------------
+
+  /** create a styled button for a widget action (shown between props and delete) */
+  private createWidgetActionButton(action: WidgetAction, fieldWidth: number): Container {
+    const container = new Container();
+    const btnHeight = FIELD_HEIGHT;
+
+    const bg = new Graphics();
+    bg.roundRect(0, 0, fieldWidth, btnHeight, 4);
+    bg.fill({ color: 0x2a2a2a });
+    bg.eventMode = "static";
+    bg.cursor = "pointer";
+    container.addChild(bg);
+
+    const label = new Text({
+      text: action.label,
+      resolution: this.theme.textResolution,
+      style: {
+        fontFamily: this.theme.fontFamily,
+        fontSize: this.theme.fontSizeSmall,
+        fill: this.theme.frameHeaderText,
+      },
+    });
+    label.anchor.set(0.5, 0.5);
+    label.x = fieldWidth / 2;
+    label.y = btnHeight / 2;
+    label.eventMode = "none";
+    container.addChild(label);
+
+    bg.on("pointerenter", () => {
+      bg.clear();
+      bg.roundRect(0, 0, fieldWidth, btnHeight, 4);
+      bg.fill({ color: 0x3a3a3a });
+    });
+    bg.on("pointerleave", () => {
+      bg.clear();
+      bg.roundRect(0, 0, fieldWidth, btnHeight, 4);
+      bg.fill({ color: 0x2a2a2a });
+    });
+    bg.on("pointertap", (e: FederatedPointerEvent) => {
+      e.stopPropagation();
+      action.onClick();
+    });
+
+    return container;
+  }
 
   private createTitleControl(
     widgetId: string,

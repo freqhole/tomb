@@ -3,15 +3,15 @@
 
 import { Container, Graphics, Sprite, Text } from "pixi.js";
 import {
-    CRATE_FONT_SIZE,
-    DEFAULT_ACCENT_COLOR,
-    DRAWER_FONT_SIZE,
-    GRID_LABEL_FONT_SIZE,
-    GRID_LABEL_MAX_CHARS,
-    SHELF_FONT_SIZE,
-    SLOT_BORDER_COLOR,
-    SLOT_EMPTY_BG,
-    TEXT_COLOR,
+  CRATE_FONT_SIZE,
+  DEFAULT_ACCENT_COLOR,
+  DRAWER_FONT_SIZE,
+  GRID_LABEL_FONT_SIZE,
+  GRID_LABEL_MAX_CHARS,
+  SHELF_FONT_SIZE,
+  SLOT_BORDER_COLOR,
+  SLOT_EMPTY_BG,
+  TEXT_COLOR,
 } from "./bin-constants";
 import type { SlotSizeOptions } from "./bin-layout";
 import { slotRect } from "./bin-layout";
@@ -156,7 +156,7 @@ function buildGridCard(state: CardRenderState, ctx: CardBuildContext): RenderedC
 /** shelf mode: narrow vertical spine with endcap thumbnail + rotated text */
 function buildShelfCard(state: CardRenderState, ctx: CardBuildContext): RenderedCard {
   const { info, slot, widgetId } = state;
-  const layoutOpts: SlotSizeOptions = { scale: ctx.scale, shelfHeight: ctx.visibleHeight };
+  const layoutOpts: SlotSizeOptions = { scale: ctx.scale };
   const rect = slotRect(ctx.mode, slot, ctx.contentWidth, layoutOpts);
   const accent = info.accentColor ?? DEFAULT_ACCENT_COLOR;
 

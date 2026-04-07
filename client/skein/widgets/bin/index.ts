@@ -14,6 +14,7 @@ import { BIN_PADDING, TEXT_MUTED } from "./bin-constants";
 import { createBinDragHandler } from "./bin-drag";
 import {
   autoFitCols,
+  computeGridBounds,
   computeRows,
   firstEmptySlot,
   hitTestSlot,
@@ -86,12 +87,6 @@ export const binWidget: WidgetFactory<typeof binSchema> = {
       default: "grid",
     },
     {
-      key: "title",
-      label: "title",
-      type: "string",
-      default: "",
-    },
-    {
       key: "slotScale",
       label: "slot size",
       type: "select",
@@ -145,6 +140,27 @@ export const binWidget: WidgetFactory<typeof binSchema> = {
     let snatchInProgress = false;
     let snatchAbortController: AbortController | null = null;
     let snatchLabel = "snatch all";
+
+    // -- tidy ----------------------------------------------------------------
+
+    function handleTidy() {
+      const state = ctx.doc.current;
+      const mode = state.mode as BinMode;
+      const scale = resolveScale(state.slotScale as SlotScale);
+      const contentWidth = currentWidth - BIN_PADDING * 2;
+      const cols = autoFitCols(mode, contentWidth, { scale });
+
+      ctx.doc.change((draft) => {
+        for (let i = 0; i < draft.items.length; i++) {
+          draft.items[i].slot = {
+            col: i % cols,
+            row: Math.floor(i / cols),
+          };
+        }
+        draft.cols = cols;
+        draft.rows = computeRows(draft.items.length, cols);
+      });
+    }
 
     // -- header actions ------------------------------------------------------
 
@@ -237,10 +253,11 @@ export const binWidget: WidgetFactory<typeof binSchema> = {
       const scale = resolveScale(state.slotScale as SlotScale);
       const contentWidth = width - BIN_PADDING * 2;
       const layoutOptions: SlotSizeOptions = { scale };
-      if (mode === "shelf") layoutOptions.shelfHeight = height - BIN_PADDING * 2;
 
-      const cols = autoFitCols(mode, contentWidth, layoutOptions);
-      const rows = computeRows(items.length, cols);
+      const minCols = autoFitCols(mode, contentWidth, layoutOptions);
+      const bounds = computeGridBounds(items, minCols);
+      const cols = bounds.cols;
+      const rows = Math.max(bounds.rows, computeRows(items.length, cols));
 
       // auto-update rows in the doc if it diverged
       if (state.rows !== rows) {
@@ -451,7 +468,6 @@ export const binWidget: WidgetFactory<typeof binSchema> = {
               const cols = Math.max(1, state.cols);
               const contentWidth = entry.width - BIN_PADDING * 2;
               const layoutOptions: SlotSizeOptions = { scale };
-              if (mode === "shelf") layoutOptions.shelfHeight = entry.height - BIN_PADDING * 2;
 
               // convert to content-local coordinates
               const localX = worldX - entry.x - BIN_PADDING;
@@ -462,7 +478,8 @@ export const binWidget: WidgetFactory<typeof binSchema> = {
                 localY += renderer.getScrollOffset();
               }
 
-              const rows = computeRows(state.items.length, cols);
+              const bounds = computeGridBounds(state.items, cols);
+              const rows = Math.max(bounds.rows, computeRows(state.items.length, cols)) + 1;
               let slot = hitTestSlot(mode, localX, localY, cols, rows, contentWidth, layoutOptions);
 
               if (!slot) {
@@ -526,7 +543,6 @@ export const binWidget: WidgetFactory<typeof binSchema> = {
               const cols = Math.max(1, state.cols);
               const contentWidth = entry.width - BIN_PADDING * 2;
               const layoutOptions: SlotSizeOptions = { scale };
-              if (mode === "shelf") layoutOptions.shelfHeight = entry.height - BIN_PADDING * 2;
 
               const localX = worldX - entry.x - BIN_PADDING;
               let localY = worldY - entry.y - BIN_PADDING;
@@ -535,7 +551,8 @@ export const binWidget: WidgetFactory<typeof binSchema> = {
                 localY += renderer.getScrollOffset();
               }
 
-              const rows = computeRows(state.items.length, cols);
+              const bounds = computeGridBounds(state.items, cols);
+              const rows = Math.max(bounds.rows, computeRows(state.items.length, cols)) + 1;
               const slot = hitTestSlot(
                 mode,
                 localX,
@@ -591,6 +608,8 @@ export const binWidget: WidgetFactory<typeof binSchema> = {
 
       headerActions: buildHeaderActions(),
 
+      widgetActions: [{ id: "tidy", label: "tidy", onClick: handleTidy }],
+
       resize(width: number, height: number) {
         currentWidth = width;
         currentHeight = height;
@@ -634,7 +653,6 @@ export const binWidget: WidgetFactory<typeof binSchema> = {
               const cols = Math.max(1, state.cols);
               const contentWidth = entry.width - BIN_PADDING * 2;
               const layoutOptions: SlotSizeOptions = { scale };
-              if (mode === "shelf") layoutOptions.shelfHeight = entry.height - BIN_PADDING * 2;
 
               // convert world coordinates to content-local coordinates.
               // the content area starts at (entry.x + BIN_PADDING, entry.y + BIN_PADDING).
@@ -646,8 +664,9 @@ export const binWidget: WidgetFactory<typeof binSchema> = {
                 localY += renderer.getScrollOffset();
               }
 
-              // allow one extra row for the potential new item
-              const rows = computeRows(state.items.length + 1, cols);
+              // account for existing item positions and extra room for the incoming item
+              const bounds = computeGridBounds(state.items, cols);
+              const rows = Math.max(bounds.rows, computeRows(state.items.length + 1, cols)) + 1;
               const slot = hitTestSlot(
                 mode,
                 localX,
@@ -689,7 +708,6 @@ export const binWidget: WidgetFactory<typeof binSchema> = {
               const cols = Math.max(1, state.cols);
               const contentWidth = entry.width - BIN_PADDING * 2;
               const layoutOptions: SlotSizeOptions = { scale };
-              if (mode === "shelf") layoutOptions.shelfHeight = entry.height - BIN_PADDING * 2;
 
               // convert to content-local coordinates
               const localX = worldX - entry.x - BIN_PADDING;
@@ -701,7 +719,8 @@ export const binWidget: WidgetFactory<typeof binSchema> = {
               }
 
               // find a slot for the dropped widget
-              const rows = computeRows(state.items.length + 1, cols);
+              const dropBounds = computeGridBounds(state.items, cols);
+              const rows = Math.max(dropBounds.rows, computeRows(state.items.length + 1, cols)) + 1;
               const occupied = state.items.map((i: any) => i.slot);
               let slot = hitTestSlot(mode, localX, localY, cols, rows, contentWidth, layoutOptions);
 
@@ -735,7 +754,15 @@ export const binWidget: WidgetFactory<typeof binSchema> = {
                       .map((i: any) => i.slot);
                     // also exclude the target slot itself
                     allOccupied.push(slot);
-                    const swapRows = computeRows(draft.items.length + 1, Math.max(1, draft.cols));
+                    const itemSlots = draft.items.map((i: any) => ({
+                      slot: { col: i.slot.col, row: i.slot.row },
+                    }));
+                    const swapBounds = computeGridBounds(itemSlots, Math.max(1, draft.cols));
+                    const swapRows =
+                      Math.max(
+                        swapBounds.rows,
+                        computeRows(draft.items.length + 1, Math.max(1, draft.cols))
+                      ) + 1;
                     const emptySlot = firstEmptySlot(
                       allOccupied,
                       Math.max(1, draft.cols),

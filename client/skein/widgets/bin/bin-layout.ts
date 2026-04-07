@@ -28,9 +28,6 @@ export interface SlotPosition {
 export interface SlotSizeOptions {
   /** scale multiplier (default 1.0) — applied to base slot dimensions */
   scale?: number;
-  /** override shelf slot height to match the container's visible height.
-   *  when set, shelf spines stretch to fill the bin vertically. */
-  shelfHeight?: number;
 }
 
 /** pixel coordinates of a slot's top-left corner (relative to content area) */
@@ -56,7 +53,7 @@ export function slotSize(
     case "shelf":
       return {
         width: Math.round(SHELF_SLOT_W * s),
-        height: options?.shelfHeight ?? Math.round(SHELF_SLOT_H * s),
+        height: Math.round(SHELF_SLOT_H * s),
       };
     case "crate":
       return {
@@ -86,6 +83,28 @@ export function slotGap(mode: BinMode): number {
 export function computeRows(itemCount: number, cols: number): number {
   if (itemCount === 0) return 1;
   return Math.ceil(itemCount / Math.max(1, cols));
+}
+
+/**
+ * compute the minimum grid dimensions needed to fit all items at their
+ * current slot positions. ensures no item overflows the grid.
+ * also respects minCols (from autoFitCols) so the grid is at least
+ * as wide as the container allows.
+ */
+export function computeGridBounds(
+  items: Array<{ slot: SlotPosition }>,
+  minCols: number
+): { cols: number; rows: number } {
+  let maxCol = minCols - 1;
+  let maxRow = 0;
+  for (const item of items) {
+    if (item.slot.col > maxCol) maxCol = item.slot.col;
+    if (item.slot.row > maxRow) maxRow = item.slot.row;
+  }
+  return {
+    cols: maxCol + 1,
+    rows: items.length > 0 ? maxRow + 1 : 1,
+  };
 }
 
 /**
