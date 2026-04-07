@@ -4,6 +4,7 @@ import { formatRelativeTime, formatShortDate } from "../../src/widgets/format";
 import {
   isTransparent,
   safeColor,
+  type CompactInfo,
   type WidgetController,
   type WidgetFactory,
   type WidgetMountContext,
@@ -160,6 +161,12 @@ export const canvasCardWidget: WidgetFactory<typeof canvasCardSchema> = {
       imageMaxHeight: 200,
     },
   ],
+
+  getCompactInfo: (state: z.infer<typeof canvasCardSchema>): CompactInfo => ({
+    label: state.title || "untitled canvas",
+    thumbnailUrl: state.previewUrl || undefined,
+    accentColor: state.color,
+  }),
 
   create(ctx: WidgetMountContext<typeof canvasCardSchema>): WidgetController {
     const container = new Container();
