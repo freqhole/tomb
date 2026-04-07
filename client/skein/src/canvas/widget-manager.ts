@@ -1,5 +1,5 @@
 import type { DocHandle, DocumentId, Repo } from "@automerge/automerge-repo";
-import { Container, Graphics, Text } from "pixi.js";
+import { Container, Graphics } from "pixi.js";
 import type { SkeinTheme } from "../theme/skein-theme";
 import type { KeyboardDriver } from "../widgets/keyboard-driver";
 import { createWidgetDoc } from "../widgets/widget-doc";
@@ -10,6 +10,7 @@ import type { CanvasStore } from "./canvas-store";
 import { createCrashedPlaceholder } from "./crashed-placeholder";
 import { FocusStack } from "./focus-stack";
 import type { InputRouter } from "./input-router";
+import type { BreadcrumbItem, Toolbar } from "./toolbar";
 import type { Viewport } from "./viewport";
 import { WidgetFrame } from "./widget-frame";
 
@@ -89,8 +90,11 @@ export class WidgetManager {
   /** viewport reference for saving/restoring camera state during maximize */
   private viewport: Viewport | null = null;
 
-  /** floating back button shown when a widget is maximized */
-  private backButton: Container | null = null;
+  /** toolbar reference for pushing breadcrumb updates */
+  private toolbar: Toolbar | null = null;
+
+  /** callback to navigate home (narthex) — used as the first breadcrumb */
+  private onNavigateHome: (() => void) | null = null;
 
   constructor(
     store: CanvasStore,
@@ -130,6 +134,16 @@ export class WidgetManager {
   /** set the viewport reference so maximize/restore can save and restore camera state */
   setViewport(viewport: Viewport): void {
     this.viewport = viewport;
+  }
+
+  /** set the toolbar reference so breadcrumbs can be updated on maximize/restore */
+  setToolbar(toolbar: Toolbar): void {
+    this.toolbar = toolbar;
+  }
+
+  /** set the navigate-home callback (shown as the "narthex" breadcrumb) */
+  setNavigateHome(handler: (() => void) | null): void {
+    this.onNavigateHome = handler;
   }
 
   /**
@@ -182,6 +196,8 @@ export class WidgetManager {
       this.store.sendToBack(id);
       this.updateLayerInfo();
     });
+
+    this.updateBreadcrumbs();
   }
 
   // --- focus stack (maximize / restore) ---
@@ -240,8 +256,8 @@ export class WidgetManager {
       }
     }
 
-    // show floating back button
-    this.showBackButton();
+    // update breadcrumbs to reflect maximized state
+    this.updateBreadcrumbs();
   }
 
   /** restore the most recently maximized widget. pops the focus stack. */
@@ -283,7 +299,6 @@ export class WidgetManager {
         this.viewport.zoomTo(entry.savedViewport.zoom);
         this.viewport.panTo(entry.savedViewport.x, entry.savedViewport.y);
       }
-      this.removeBackButton();
     } else {
       // still a maximized widget underneath — show only that one
       const parent = this.focusStack.peek()!;
@@ -298,6 +313,7 @@ export class WidgetManager {
     }
 
     this.maximizedEscapees.clear();
+    this.updateBreadcrumbs();
   }
 
   /** whether any widget is currently maximized */
@@ -313,59 +329,64 @@ export class WidgetManager {
     };
   }
 
-  /** create and show the floating back button on app.stage (fixed position) */
-  private showBackButton(): void {
-    this.removeBackButton();
-
-    const btn = new Container();
-    const padding = 10;
-    const btnHeight = 30;
-    const label = new Text({
-      text: "\u2190 back",
-      resolution: 2,
-      style: {
-        fontFamily: this.theme.fontFamily,
-        fontSize: 13,
-        fill: 0xffffff,
-      },
-    });
-    const btnWidth = label.width + padding * 2;
-
-    const bg = new Graphics();
-    bg.roundRect(0, 0, btnWidth, btnHeight, 6);
-    bg.fill({ color: 0x1a1a1a, alpha: 0.85 });
-    bg.stroke({ color: 0x444444, width: 1 });
-    bg.eventMode = "static";
-    bg.cursor = "pointer";
-    bg.on("pointertap", () => {
+  /** restore all maximized widgets back to the canvas level */
+  private restoreAll(): void {
+    while (!this.focusStack.isEmpty) {
       this.restore();
-    });
-
-    label.x = padding;
-    label.y = Math.round((btnHeight - label.height) / 2);
-
-    btn.addChild(bg);
-    btn.addChild(label);
-    btn.x = 12;
-    btn.y = 12;
-    btn.zIndex = 99999;
-
-    // add to app.stage (parent of the world container) so it stays
-    // fixed on screen regardless of viewport pan/zoom
-    const appStage = this.stage.parent;
-    if (appStage) {
-      appStage.addChild(btn);
     }
-
-    this.backButton = btn;
   }
 
-  /** remove the floating back button */
-  private removeBackButton(): void {
-    if (this.backButton) {
-      this.backButton.destroy({ children: true });
-      this.backButton = null;
+  /** restore maximized widgets until the focus stack has `targetDepth` entries.
+   *  e.g., targetDepth=1 means keep only the bottom entry (the first maximized widget). */
+  private restoreTo(targetDepth: number): void {
+    while (this.focusStack.depth > targetDepth) {
+      this.restore();
     }
+  }
+
+  /** recompute and push breadcrumbs to the toolbar based on the current focus stack */
+  private updateBreadcrumbs(): void {
+    if (!this.toolbar) return;
+
+    const crumbs: BreadcrumbItem[] = [];
+
+    // "narthex" crumb — always first when navigateHome is available
+    if (this.onNavigateHome) {
+      const handler = this.onNavigateHome;
+      crumbs.push({ label: "narthex", onClick: () => handler() });
+    }
+
+    // canvas title crumb
+    const canvasTitle = this.store.metadata().title || "untitled canvas";
+
+    if (this.focusStack.isEmpty) {
+      // not maximized — canvas name is the current (non-clickable) context
+      crumbs.push({ label: canvasTitle });
+    } else {
+      // maximized — canvas name is clickable to restore all
+      crumbs.push({ label: canvasTitle, onClick: () => this.restoreAll() });
+
+      // add a crumb for each focus stack entry (bottom to top)
+      const entries = this.focusStack.entries;
+      for (let i = 0; i < entries.length; i++) {
+        const entry = entries[i];
+        const live = this.liveWidgets.get(entry.widgetId);
+        const factory = this.registry.get(live?.entry.type ?? "");
+        const label = live?.entry.title || factory?.metadata.name || "widget";
+        const isLast = i === entries.length - 1;
+
+        if (isLast) {
+          // current maximized widget — non-clickable
+          crumbs.push({ label });
+        } else {
+          // intermediate — clicking restores to this level
+          const targetDepth = i + 1;
+          crumbs.push({ label, onClick: () => this.restoreTo(targetDepth) });
+        }
+      }
+    }
+
+    this.toolbar.setBreadcrumbs(crumbs);
   }
 
   /**
@@ -920,6 +941,8 @@ export class WidgetManager {
         }
       }
     }
+
+    this.updateBreadcrumbs();
   }
 
   /** update layer position info on all live widget frames */
@@ -997,10 +1020,9 @@ export class WidgetManager {
    * kept alive so they're still available when the canvas is re-opened.
    */
   destroyAll(): void {
-    // clean up focus stack and floating back button
+    // clean up focus stack
     this.focusStack.clear();
     this.maximizedEscapees.clear();
-    this.removeBackButton();
 
     for (const unsub of this.unsubs) {
       unsub();

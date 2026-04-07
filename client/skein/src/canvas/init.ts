@@ -206,8 +206,6 @@ export async function initCanvas(options: InitCanvasOptions): Promise<SkeinCanva
     }
   }
 
-  widgetManager.start();
-
   // step 10: create the toolbar (pixi-rendered, top-right of stage).
   // added directly to app.stage by the Toolbar constructor so it stays fixed.
   const toolbar = new Toolbar(app, inputRouter, store, registry, theme, {
@@ -215,6 +213,17 @@ export async function initCanvas(options: InitCanvasOptions): Promise<SkeinCanva
     onNavigateHome: options.onNavigateHome,
     onShare: options.onShare,
   });
+
+  // step 10a: wire toolbar into widget manager for breadcrumb navigation.
+  // the widget manager pushes breadcrumb updates on maximize/restore and
+  // whenever widget titles or canvas title change. must happen before start()
+  // so the first reconcile() → updateBreadcrumbs() call sees the toolbar.
+  widgetManager.setToolbar(toolbar);
+  if (options.onNavigateHome) {
+    widgetManager.setNavigateHome(options.onNavigateHome);
+  }
+
+  widgetManager.start();
 
   // step 10b: create the lasso tool for multi-select, click-deselect, and
   // double-click-to-add. it attaches pointer handlers to the stage background

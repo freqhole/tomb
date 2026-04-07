@@ -14,6 +14,14 @@ export interface ToolbarOptions {
   onShare?: () => void;
 }
 
+/** a single segment of the breadcrumb trail shown in the toolbar */
+export interface BreadcrumbItem {
+  /** display label for this crumb */
+  label: string;
+  /** click handler — if omitted, this crumb is the current context (non-clickable, muted) */
+  onClick?: () => void;
+}
+
 /**
  * pure PixiJS toolbar rendered at the top-right of the stage.
  *
@@ -36,7 +44,8 @@ export class Toolbar {
   private readonly background: Graphics;
   private readonly addBtn: ButtonContainer;
   private readonly deleteBtn: ButtonContainer;
-  private readonly homeBtn: ButtonContainer | null;
+  private breadcrumbContainer: Container;
+  private breadcrumbs: BreadcrumbItem[] = [];
   private readonly shareBtn: ButtonContainer | null;
   private readonly options: ToolbarOptions;
 
@@ -101,17 +110,10 @@ export class Toolbar {
     });
     this.root.addChild(this.deleteBtn);
 
-    // home button — visible when onNavigateHome is provided (i.e., inside a canvas, not the narthex)
-    if (this.options.onNavigateHome) {
-      const home = this.createButton("home", { color: theme.accent });
-      this.homeBtn = home.btn;
-      this.homeBtn.onPress.connect(() => {
-        this.options.onNavigateHome?.();
-      });
-      this.root.addChild(this.homeBtn);
-    } else {
-      this.homeBtn = null;
-    }
+    // breadcrumb trail (updated externally via setBreadcrumbs)
+    this.breadcrumbContainer = new Container();
+    this.breadcrumbContainer.eventMode = "static";
+    this.root.addChild(this.breadcrumbContainer);
 
     // share button — visible when onShare is provided
     if (this.options.onShare) {
@@ -497,26 +499,26 @@ export class Toolbar {
     const pad = { h: 8, v: 4 };
     let x = pad.h;
 
-    // home button (visible when navigating back is possible)
-    if (this.homeBtn) {
-      this.homeBtn.x = x;
-      this.homeBtn.y = pad.v;
-      x += this.homeBtn.width + gap;
+    // breadcrumb trail (left side)
+    if (this.breadcrumbContainer.children.length > 0) {
+      this.breadcrumbContainer.x = x;
+      this.breadcrumbContainer.y = pad.v + 3; // vertically center with buttons
+      x += this.breadcrumbContainer.width + gap + 4; // extra spacing before buttons
     }
 
-    // share button (always visible when it exists)
+    // share button
     if (this.shareBtn) {
       this.shareBtn.x = x;
       this.shareBtn.y = pad.v;
       x += this.shareBtn.width + gap;
     }
 
-    // "+" button (always visible)
+    // "+" button
     this.addBtn.x = x;
     this.addBtn.y = pad.v;
     x += this.addBtn.width + gap;
 
-    // delete button (visible only when selected in edit mode)
+    // delete button
     if (this.deleteBtn.visible) {
       this.deleteBtn.x = x;
       this.deleteBtn.y = pad.v;
@@ -538,7 +540,147 @@ export class Toolbar {
     this.root.x = Math.round(this.app.screen.width - totalWidth - margin);
     this.root.y = margin;
 
-    // reposition flyout if it's open (re-run the full positioning logic)
+    // responsive truncation: if toolbar extends past left edge, truncate breadcrumbs
+    if (this.root.x < margin && this.breadcrumbs.length > 2) {
+      this.truncateBreadcrumbs();
+    }
+
+    // reposition flyout if open
+    if (this.flyoutOpen) {
+      this.positionFlyout();
+    }
+  }
+
+  // -- breadcrumbs -----------------------------------------------------------
+
+  /** update the breadcrumb trail displayed in the toolbar.
+   *  the last crumb should have no onClick (it represents the current context). */
+  setBreadcrumbs(crumbs: BreadcrumbItem[]): void {
+    this.breadcrumbs = crumbs;
+    this.renderBreadcrumbs();
+    this.layout();
+  }
+
+  /** rebuild the breadcrumb pixi elements from `this.breadcrumbs` */
+  private renderBreadcrumbs(): void {
+    // tear down previous crumb elements
+    this.breadcrumbContainer.removeChildren();
+
+    let x = 0;
+    const gap = 4;
+    const sepColor = 0x666666;
+
+    for (let i = 0; i < this.breadcrumbs.length; i++) {
+      const crumb = this.breadcrumbs[i];
+      const isLast = i === this.breadcrumbs.length - 1;
+      const isClickable = !!crumb.onClick;
+
+      const text = new Text({
+        text: crumb.label,
+        style: {
+          fontFamily: this.theme.fontFamily,
+          fontSize: this.theme.fontSizeSmall,
+          fill: isLast ? 0x888888 : isClickable ? 0xcccccc : 0x888888,
+        },
+        resolution: this.theme.textResolution,
+      });
+
+      if (isClickable) {
+        text.eventMode = "static";
+        text.cursor = "pointer";
+
+        const handler = crumb.onClick!;
+        text.on("pointerover", () => {
+          text.style.fill = this.theme.accent;
+        });
+        text.on("pointerout", () => {
+          text.style.fill = 0xcccccc;
+        });
+        text.on("pointertap", (e: any) => {
+          e.stopPropagation();
+          handler();
+        });
+      } else {
+        text.eventMode = "none";
+      }
+
+      text.x = x;
+      this.breadcrumbContainer.addChild(text);
+      x += text.width + gap;
+
+      // add separator after all but the last crumb
+      if (!isLast) {
+        const sep = new Text({
+          text: ">",
+          style: {
+            fontFamily: this.theme.fontFamily,
+            fontSize: this.theme.fontSizeSmall,
+            fill: sepColor,
+          },
+          resolution: this.theme.textResolution,
+        });
+        sep.eventMode = "none";
+        sep.x = x;
+        this.breadcrumbContainer.addChild(sep);
+        x += sep.width + gap;
+      }
+    }
+  }
+
+  /** truncate breadcrumbs from the left when toolbar is too wide for the screen */
+  private truncateBreadcrumbs(): void {
+    // keep at least the last 2 crumbs, prepend "..." for truncated ones
+    if (this.breadcrumbs.length <= 2) return;
+
+    const truncated: BreadcrumbItem[] = [{ label: "..." }, ...this.breadcrumbs.slice(-2)];
+
+    // temporarily replace and re-render, then re-layout
+    const full = this.breadcrumbs;
+    this.breadcrumbs = truncated;
+    this.renderBreadcrumbs();
+
+    // re-run layout with truncated crumbs (but don't recurse — only call positioning part)
+    const gap = 6;
+    const pad = { h: 8, v: 4 };
+    let x = pad.h;
+
+    if (this.breadcrumbContainer.children.length > 0) {
+      this.breadcrumbContainer.x = x;
+      this.breadcrumbContainer.y = pad.v + 3;
+      x += this.breadcrumbContainer.width + gap + 4;
+    }
+
+    if (this.shareBtn) {
+      this.shareBtn.x = x;
+      this.shareBtn.y = pad.v;
+      x += this.shareBtn.width + gap;
+    }
+
+    this.addBtn.x = x;
+    this.addBtn.y = pad.v;
+    x += this.addBtn.width + gap;
+
+    if (this.deleteBtn.visible) {
+      this.deleteBtn.x = x;
+      this.deleteBtn.y = pad.v;
+      x += this.deleteBtn.width + gap;
+    }
+
+    const totalWidth = x - gap + pad.h;
+    const totalHeight = this.addBtn.height + pad.v * 2;
+
+    this.background.clear();
+    this.background.roundRect(0, 0, totalWidth, totalHeight, 6);
+    this.background.fill({ color: this.theme.toolbarBg, alpha: 0.92 });
+    this.background.stroke({ color: this.theme.toolbarBorder, width: 1 });
+
+    const margin = 8;
+    this.root.x = Math.round(this.app.screen.width - totalWidth - margin);
+    this.root.y = margin;
+
+    // restore the full breadcrumb data (truncated is only visual)
+    this.breadcrumbs = full;
+
     if (this.flyoutOpen) {
       this.positionFlyout();
     }

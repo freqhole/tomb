@@ -44,6 +44,11 @@ export class FocusStack {
     return this.stack.length;
   }
 
+  /** return a shallow copy of all entries, bottom-to-top (oldest first). */
+  get entries(): ReadonlyArray<FocusEntry> {
+    return [...this.stack];
+  }
+
   /** check if a specific widget is currently maximized (anywhere in the stack) */
   hasWidget(widgetId: string): boolean {
     return this.stack.some((e) => e.widgetId === widgetId);
