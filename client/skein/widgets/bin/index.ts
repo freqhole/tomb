@@ -8,20 +8,27 @@ import type {
   WidgetFactory,
   WidgetMountContext,
 } from "../../src/widgets/widget-types";
+import type { SlotScale } from "./bin-constants";
 import {
   ACTION_BTN_BG,
   ACTION_BTN_HOVER,
   BIN_HEADER_FONT_SIZE,
   BIN_HEADER_HEIGHT,
   BIN_PADDING,
-  GRID_CELL_SIZE,
-  GRID_GAP,
   HEADER_BG,
   TEXT_COLOR,
   TEXT_MUTED,
 } from "./bin-constants";
 import { createBinDragHandler } from "./bin-drag";
-import { computeRows, firstEmptySlot, hitTestSlot, type BinMode } from "./bin-layout";
+import {
+  autoFitCols,
+  computeRows,
+  firstEmptySlot,
+  hitTestSlot,
+  resolveScale,
+  type BinMode,
+  type SlotSizeOptions,
+} from "./bin-layout";
 import { BinRenderer, type CardInteractionCallbacks } from "./bin-renderer";
 
 // -----------------------------------------------------------------------
@@ -51,6 +58,8 @@ export const binSchema = z.object({
   items: z.array(binItemSchema).default([]),
   /** shelf text direction — top = text reads top-to-bottom, bottom = bottom-to-top */
   shelfTextOrigin: z.enum(["top", "bottom"]).default("top"),
+  /** slot size preset — controls density of the grid */
+  slotScale: z.enum(["s", "m", "l", "xl"]).default("m"),
 });
 
 export type BinState = z.infer<typeof binSchema>;
@@ -91,10 +100,11 @@ export const binWidget: WidgetFactory<typeof binSchema> = {
       default: "",
     },
     {
-      key: "cols",
-      label: "columns",
-      type: "number",
-      default: 3,
+      key: "slotScale",
+      label: "slot size",
+      type: "select",
+      options: ["s", "m", "l", "xl"],
+      default: "m",
     },
     {
       key: "shelfTextOrigin",
@@ -119,9 +129,6 @@ export const binWidget: WidgetFactory<typeof binSchema> = {
     let currentWidth = ctx.width;
     let currentHeight = ctx.height;
     let destroyed = false;
-    let isMaximized = false;
-    /** when maximized, auto-computed column count (null = use doc value) */
-    let maximizedCols: number | null = null;
 
     // -- resolve dependencies ------------------------------------------------
     // the bin needs access to the automerge repo and widget registry to read
@@ -308,8 +315,7 @@ export const binWidget: WidgetFactory<typeof binSchema> = {
 
       titleText.text = title;
 
-      const colsLabel = isMaximized && maximizedCols ? ` \u00b7 ${maximizedCols} cols` : "";
-      countBadge.text = `${count} item${count !== 1 ? "s" : ""}${colsLabel}`;
+      countBadge.text = `${count} item${count !== 1 ? "s" : ""}`;
       countBadge.x = width - countBadge.width - 6;
       countBadge.y = (BIN_HEADER_HEIGHT - BIN_HEADER_FONT_SIZE) / 2;
 
@@ -348,16 +354,26 @@ export const binWidget: WidgetFactory<typeof binSchema> = {
       const items = state.items;
       const mode = state.mode as BinMode;
 
-      // when maximized in grid mode, auto-compute column count to fill the width
-      const baseCols = Math.max(1, state.cols);
-      // drawer mode is always single-column (items stack vertically)
-      const cols = mode === "drawer" ? 1 : (maximizedCols ?? baseCols);
+      const scale = resolveScale(state.slotScale as SlotScale);
+      const contentWidth = width - BIN_PADDING * 2;
+      const layoutOptions: SlotSizeOptions = { scale };
+      if (mode === "shelf")
+        layoutOptions.shelfHeight = height - BIN_HEADER_HEIGHT - BIN_PADDING * 2;
+
+      const cols = autoFitCols(mode, contentWidth, layoutOptions);
       const rows = computeRows(items.length, cols);
 
       // auto-update rows in the doc if it diverged
       if (state.rows !== rows) {
         ctx.doc.change((draft) => {
           draft.rows = rows;
+        });
+      }
+
+      // sync auto-computed cols to the doc so drop target can read it
+      if (state.cols !== cols) {
+        ctx.doc.change((draft) => {
+          draft.cols = cols;
         });
       }
 
@@ -372,12 +388,10 @@ export const binWidget: WidgetFactory<typeof binSchema> = {
         return;
       }
 
-      const contentWidth = width - BIN_PADDING * 2;
-
       if (renderer) {
         renderer.shelfTextOrigin = (state.shelfTextOrigin as "top" | "bottom") ?? "top";
         const visibleHeight = height - BIN_HEADER_HEIGHT - BIN_PADDING * 2;
-        renderer.render(items, mode, cols, rows, contentWidth, visibleHeight);
+        renderer.render(items, mode, cols, rows, contentWidth, visibleHeight, scale);
       }
     }
 
@@ -393,7 +407,9 @@ export const binWidget: WidgetFactory<typeof binSchema> = {
       if (!picked || picked.length === 0) return;
 
       const state = ctx.doc.current;
-      const cols = Math.max(1, state.cols);
+      const scale = resolveScale(state.slotScale as SlotScale);
+      const contentWidth = currentWidth - BIN_PADDING * 2;
+      const cols = autoFitCols(state.mode as BinMode, contentWidth, { scale });
       let currentItems = [...state.items];
 
       // pre-load file schema once for all children
@@ -553,8 +569,12 @@ export const binWidget: WidgetFactory<typeof binSchema> = {
 
               const state = ctx.doc.current;
               const mode = state.mode as BinMode;
-              const cols = mode === "drawer" ? 1 : Math.max(1, state.cols);
+              const scale = resolveScale(state.slotScale as SlotScale);
+              const cols = Math.max(1, state.cols);
               const contentWidth = entry.width - BIN_PADDING * 2;
+              const layoutOptions: SlotSizeOptions = { scale };
+              if (mode === "shelf")
+                layoutOptions.shelfHeight = entry.height - BIN_HEADER_HEIGHT - BIN_PADDING * 2;
 
               // convert to content-local coordinates
               const localX = worldX - entry.x - BIN_PADDING;
@@ -566,7 +586,7 @@ export const binWidget: WidgetFactory<typeof binSchema> = {
               }
 
               const rows = computeRows(state.items.length, cols);
-              let slot = hitTestSlot(mode, localX, localY, cols, rows, contentWidth);
+              let slot = hitTestSlot(mode, localX, localY, cols, rows, contentWidth, layoutOptions);
 
               if (!slot) {
                 // pointer not on a valid slot — find the first empty
@@ -625,8 +645,12 @@ export const binWidget: WidgetFactory<typeof binSchema> = {
 
               const state = ctx.doc.current;
               const mode = state.mode as BinMode;
-              const cols = mode === "drawer" ? 1 : Math.max(1, state.cols);
+              const scale = resolveScale(state.slotScale as SlotScale);
+              const cols = Math.max(1, state.cols);
               const contentWidth = entry.width - BIN_PADDING * 2;
+              const layoutOptions: SlotSizeOptions = { scale };
+              if (mode === "shelf")
+                layoutOptions.shelfHeight = entry.height - BIN_HEADER_HEIGHT - BIN_PADDING * 2;
 
               const localX = worldX - entry.x - BIN_PADDING;
               let localY = worldY - entry.y - BIN_HEADER_HEIGHT - BIN_PADDING;
@@ -636,7 +660,15 @@ export const binWidget: WidgetFactory<typeof binSchema> = {
               }
 
               const rows = computeRows(state.items.length, cols);
-              const slot = hitTestSlot(mode, localX, localY, cols, rows, contentWidth);
+              const slot = hitTestSlot(
+                mode,
+                localX,
+                localY,
+                cols,
+                rows,
+                contentWidth,
+                layoutOptions
+              );
 
               if (slot) {
                 renderer.showSlotHighlight(slot);
@@ -688,33 +720,12 @@ export const binWidget: WidgetFactory<typeof binSchema> = {
 
       destroy() {
         destroyed = true;
-        isMaximized = false;
-        maximizedCols = null;
         unsub();
         renderer?.destroy();
         container.destroy({ children: true });
       },
 
-      setMaximized(maximized: boolean) {
-        isMaximized = maximized;
-        if (maximized) {
-          // auto-compute column count from available width for grid/crate modes
-          const contentWidth = currentWidth - BIN_PADDING * 2;
-          const mode = ctx.doc.current.mode as BinMode;
-          if (mode === "grid") {
-            maximizedCols = Math.max(
-              1,
-              Math.floor((contentWidth + GRID_GAP) / (GRID_CELL_SIZE + GRID_GAP))
-            );
-          } else if (mode === "crate") {
-            // crate rows are full-width, but more columns means more side-by-side
-            maximizedCols = Math.max(1, Math.floor(contentWidth / 180));
-          } else {
-            maximizedCols = null;
-          }
-        } else {
-          maximizedCols = null;
-        }
+      setMaximized(_maximized: boolean) {
         layout(currentWidth, currentHeight);
       },
 
@@ -740,8 +751,12 @@ export const binWidget: WidgetFactory<typeof binSchema> = {
 
               const state = ctx.doc.current;
               const mode = state.mode as BinMode;
+              const scale = resolveScale(state.slotScale as SlotScale);
               const cols = Math.max(1, state.cols);
               const contentWidth = entry.width - BIN_PADDING * 2;
+              const layoutOptions: SlotSizeOptions = { scale };
+              if (mode === "shelf")
+                layoutOptions.shelfHeight = entry.height - BIN_HEADER_HEIGHT - BIN_PADDING * 2;
 
               // convert world coordinates to content-local coordinates.
               // the content area starts at (entry.x + BIN_PADDING, entry.y + BIN_HEADER_HEIGHT + BIN_PADDING).
@@ -755,7 +770,15 @@ export const binWidget: WidgetFactory<typeof binSchema> = {
 
               // allow one extra row for the potential new item
               const rows = computeRows(state.items.length + 1, cols);
-              const slot = hitTestSlot(mode, localX, localY, cols, rows, contentWidth);
+              const slot = hitTestSlot(
+                mode,
+                localX,
+                localY,
+                cols,
+                rows,
+                contentWidth,
+                layoutOptions
+              );
 
               if (slot) {
                 // always highlight the slot under the cursor — even if occupied
@@ -784,8 +807,12 @@ export const binWidget: WidgetFactory<typeof binSchema> = {
 
               const state = ctx.doc.current;
               const mode = state.mode as BinMode;
+              const scale = resolveScale(state.slotScale as SlotScale);
               const cols = Math.max(1, state.cols);
               const contentWidth = entry.width - BIN_PADDING * 2;
+              const layoutOptions: SlotSizeOptions = { scale };
+              if (mode === "shelf")
+                layoutOptions.shelfHeight = entry.height - BIN_HEADER_HEIGHT - BIN_PADDING * 2;
 
               // convert to content-local coordinates
               const localX = worldX - entry.x - BIN_PADDING;
@@ -799,7 +826,7 @@ export const binWidget: WidgetFactory<typeof binSchema> = {
               // find a slot for the dropped widget
               const rows = computeRows(state.items.length + 1, cols);
               const occupied = state.items.map((i: any) => i.slot);
-              let slot = hitTestSlot(mode, localX, localY, cols, rows, contentWidth);
+              let slot = hitTestSlot(mode, localX, localY, cols, rows, contentWidth, layoutOptions);
 
               if (!slot) {
                 // pointer not on a valid slot — find the first empty

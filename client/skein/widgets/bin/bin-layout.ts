@@ -12,6 +12,8 @@ import {
   SHELF_GAP,
   SHELF_SLOT_H,
   SHELF_SLOT_W,
+  SLOT_SCALE_MULTIPLIERS,
+  type SlotScale,
 } from "./bin-constants";
 
 /** a layout mode supported by the bin widget */
@@ -23,6 +25,15 @@ export interface SlotPosition {
   row: number;
 }
 
+/** options that affect slot dimensions */
+export interface SlotSizeOptions {
+  /** scale multiplier (default 1.0) — applied to base slot dimensions */
+  scale?: number;
+  /** override shelf slot height to match the container's visible height.
+   *  when set, shelf spines stretch to fill the bin vertically. */
+  shelfHeight?: number;
+}
+
 /** pixel coordinates of a slot's top-left corner (relative to content area) */
 export interface SlotRect {
   x: number;
@@ -31,18 +42,30 @@ export interface SlotRect {
   height: number;
 }
 
-/** get the slot dimensions (width, height) for a given mode */
-export function slotSize(mode: BinMode): { width: number; height: number } {
+/** get the slot dimensions (width, height) for a given mode, optionally scaled */
+export function slotSize(
+  mode: BinMode,
+  options?: SlotSizeOptions
+): { width: number; height: number } {
+  const s = options?.scale ?? 1.0;
   switch (mode) {
     case "grid":
-      return { width: GRID_CELL_SIZE, height: GRID_CELL_SIZE + GRID_LABEL_HEIGHT };
+      return {
+        width: Math.round(GRID_CELL_SIZE * s),
+        height: Math.round(GRID_CELL_SIZE * s) + GRID_LABEL_HEIGHT,
+      };
     case "shelf":
-      return { width: SHELF_SLOT_W, height: SHELF_SLOT_H };
+      return {
+        width: Math.round(SHELF_SLOT_W * s),
+        height: options?.shelfHeight ?? Math.round(SHELF_SLOT_H * s),
+      };
     case "crate":
-      return { width: CRATE_SLOT_W, height: CRATE_SLOT_H };
+      return {
+        width: Math.round(CRATE_SLOT_W * s),
+        height: Math.round(CRATE_SLOT_H * s),
+      };
     case "drawer":
-      // drawer mode uses full width, fixed row height
-      return { width: 0, height: DRAWER_ROW_H };
+      return { width: 0, height: Math.round(DRAWER_ROW_H * s) };
   }
 }
 
@@ -66,18 +89,36 @@ export function computeRows(itemCount: number, cols: number): number {
   return Math.ceil(itemCount / Math.max(1, cols));
 }
 
-/** compute the auto column count from a target column count and available width */
-export function computeCols(targetCols: number, _availableWidth: number, _mode: BinMode): number {
-  // for now, just use the target. future: clamp to available width.
-  return Math.max(1, targetCols);
+/**
+ * auto-compute the number of columns that fit in the given content width
+ * based on the slot dimensions for the current mode and scale.
+ * drawer mode always returns 1.
+ */
+export function autoFitCols(
+  mode: BinMode,
+  contentWidth: number,
+  options?: SlotSizeOptions
+): number {
+  if (mode === "drawer") return 1;
+
+  const size = slotSize(mode, options);
+  const gap = slotGap(mode);
+
+  if (size.width <= 0) return 1;
+  return Math.max(1, Math.floor((contentWidth + gap) / (size.width + gap)));
 }
 
 /**
  * get the pixel rect for a given slot position (relative to the content area origin).
  * the content area starts below the header.
  */
-export function slotRect(mode: BinMode, slot: SlotPosition, contentWidth: number): SlotRect {
-  const size = slotSize(mode);
+export function slotRect(
+  mode: BinMode,
+  slot: SlotPosition,
+  contentWidth: number,
+  options?: SlotSizeOptions
+): SlotRect {
+  const size = slotSize(mode, options);
   const gap = slotGap(mode);
 
   if (mode === "drawer") {
@@ -128,9 +169,10 @@ export function hitTestSlot(
   py: number,
   cols: number,
   rows: number,
-  contentWidth: number
+  contentWidth: number,
+  options?: SlotSizeOptions
 ): SlotPosition | null {
-  const size = slotSize(mode);
+  const size = slotSize(mode, options);
   const gap = slotGap(mode);
 
   if (mode === "drawer") {
@@ -172,9 +214,10 @@ export function contentDimensions(
   mode: BinMode,
   cols: number,
   rows: number,
-  contentWidth: number
+  contentWidth: number,
+  options?: SlotSizeOptions
 ): { width: number; height: number } {
-  const size = slotSize(mode);
+  const size = slotSize(mode, options);
   const gap = slotGap(mode);
 
   if (mode === "drawer") {
@@ -198,11 +241,18 @@ export function idealBinSize(
   mode: BinMode,
   cols: number,
   rows: number,
-  contentWidth: number
+  contentWidth: number,
+  options?: SlotSizeOptions
 ): { width: number; height: number } {
-  const content = contentDimensions(mode, cols, rows, contentWidth);
+  const content = contentDimensions(mode, cols, rows, contentWidth, options);
   return {
     width: content.width + BIN_PADDING * 2,
     height: content.height + BIN_HEADER_HEIGHT + BIN_PADDING * 2,
   };
+}
+
+/** resolve a SlotScale name to its numeric multiplier */
+export function resolveScale(scaleName?: SlotScale | string): number {
+  if (!scaleName) return 1.0;
+  return SLOT_SCALE_MULTIPLIERS[scaleName as SlotScale] ?? 1.0;
 }

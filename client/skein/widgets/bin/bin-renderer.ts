@@ -1,57 +1,20 @@
 import type { DocumentId, Repo } from "@automerge/automerge-repo";
-import { Assets, Container, Graphics, Rectangle, Sprite, Text, Texture } from "pixi.js";
+import { Assets, Container, Graphics, Rectangle, Texture } from "pixi.js";
 import type { CanvasStore } from "../../src/canvas/canvas-store";
 import type { WidgetRegistry } from "../../src/widgets/widget-registry";
 import type { CompactInfo } from "../../src/widgets/widget-types";
-import {
-  CRATE_FONT_SIZE,
-  DEFAULT_ACCENT_COLOR,
-  DRAWER_FONT_SIZE,
-  GRID_CELL_SIZE,
-  GRID_LABEL_FONT_SIZE,
-  GRID_LABEL_MAX_CHARS,
-  SHELF_ENDCAP_H,
-  SHELF_FONT_SIZE,
-  SHELF_SLOT_H,
-  SHELF_SLOT_W,
-  SLOT_BORDER_COLOR,
-  SLOT_EMPTY_BG,
-  TEXT_COLOR,
-} from "./bin-constants";
-import type { BinMode, SlotPosition } from "./bin-layout";
+import { buildCard } from "./bin-card-builders";
+import type { BinMode, SlotPosition, SlotSizeOptions } from "./bin-layout";
 import { contentDimensions, slotRect } from "./bin-layout";
+import type {
+  CardBuildContext,
+  CardInteractionCallbacks,
+  CardRenderState,
+  RenderedCard,
+} from "./bin-types";
 
-const FONT_FAMILY = "'Atkinson Hyperlegible Next', sans-serif";
-const TEXT_RESOLUTION = typeof window !== "undefined" ? Math.max(window.devicePixelRatio, 2) : 2;
-
-// -----------------------------------------------------------------------
-// types
-// -----------------------------------------------------------------------
-
-/** all the state needed to render one compact card */
-interface CardRenderState {
-  widgetId: string;
-  info: CompactInfo;
-  slot: SlotPosition;
-}
-
-/** a rendered compact card in the container */
-interface RenderedCard {
-  widgetId: string;
-  slot: SlotPosition;
-  container: Container;
-  /** pixi sprite for the thumbnail (if any) — held so we can destroy the texture */
-  thumbSprite: Sprite | null;
-  /** the loaded texture key (for asset cache cleanup) */
-  textureKey: string | null;
-}
-
-/** callback fired when a compact card pointer event happens */
-export interface CardInteractionCallbacks {
-  onCardPointerDown?: (widgetId: string, e: PointerEvent) => void;
-  onCardPointerUp?: (widgetId: string, e: PointerEvent) => void;
-  onCardTap?: (widgetId: string, e: PointerEvent) => void;
-}
+// re-export for backwards compat (bin-drag.ts used to import from here)
+export type { CardInteractionCallbacks } from "./bin-types";
 
 // -----------------------------------------------------------------------
 // BinRenderer
@@ -92,6 +55,9 @@ export class BinRenderer {
   /** current layout state — set via render() */
   private mode: BinMode = "grid";
   private contentWidth = 200;
+
+  /** current scale multiplier — set via render() */
+  private scale = 1.0;
 
   /** shelf text direction — top = text reads top-to-bottom, bottom = bottom-to-top */
   shelfTextOrigin: "top" | "bottom" = "top";
@@ -173,13 +139,15 @@ export class BinRenderer {
     _cols: number,
     _rows: number,
     contentWidth: number,
-    visibleHeight?: number
+    visibleHeight?: number,
+    scale?: number
   ): void {
     if (this.destroyed) return;
 
     this.mode = mode;
     this.contentWidth = contentWidth;
     this.visibleHeight = visibleHeight ?? 200;
+    this.scale = scale ?? 1.0;
 
     // drawer mode: items stack sequentially regardless of stored slot positions.
     // when switching from grid (cols>1) to drawer, items may share the same row,
@@ -242,7 +210,9 @@ export class BinRenderer {
     }
 
     // compute total content height for scroll
-    const contentDims = contentDimensions(mode, Math.max(1, _cols), _rows, contentWidth);
+    const opts: SlotSizeOptions = { scale: this.scale };
+    if (mode === "shelf") opts.shelfHeight = this.visibleHeight;
+    const contentDims = contentDimensions(mode, Math.max(1, _cols), _rows, contentWidth, opts);
     this.totalContentHeight = contentDims.height;
 
     // clamp scroll in case content shrank
@@ -277,7 +247,9 @@ export class BinRenderer {
       return; // already highlighting this slot
     }
 
-    const rect = slotRect(this.mode, slot, this.contentWidth);
+    const opts: SlotSizeOptions = { scale: this.scale };
+    if (this.mode === "shelf") opts.shelfHeight = this.visibleHeight;
+    const rect = slotRect(this.mode, slot, this.contentWidth, opts);
     this.slotHighlight.clear();
     this.slotHighlight
       .roundRect(rect.x, rect.y, rect.width, rect.height, 3)
@@ -295,9 +267,12 @@ export class BinRenderer {
   private drawGridOutlines(cols: number, rows: number): void {
     this.gridOutlines.clear();
 
+    const opts: SlotSizeOptions = { scale: this.scale };
+    if (this.mode === "shelf") opts.shelfHeight = this.visibleHeight;
+
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
-        const rect = slotRect(this.mode, { col: c, row: r }, this.contentWidth);
+        const rect = slotRect(this.mode, { col: c, row: r }, this.contentWidth, opts);
         this.gridOutlines
           .roundRect(rect.x, rect.y, rect.width, rect.height, 3)
           .stroke({ width: 1, color: 0x333333, alpha: 0.5 });
@@ -340,7 +315,7 @@ export class BinRenderer {
   // -----------------------------------------------------------------------
 
   private addCard(state: CardRenderState): void {
-    const card = this.buildCard(state);
+    const card = this.buildCardFromState(state);
     this.cards.set(state.widgetId, card);
     this.cardParent.addChild(card.container);
   }
@@ -351,7 +326,7 @@ export class BinRenderer {
     this.cleanupCardResources(existing);
 
     // rebuild
-    const card = this.buildCard(state);
+    const card = this.buildCardFromState(state);
     this.cards.set(state.widgetId, card);
     this.cardParent.addChild(card.container);
   }
@@ -422,427 +397,25 @@ export class BinRenderer {
   }
 
   // -----------------------------------------------------------------------
-  // card construction per mode
+  // card construction — delegates to bin-card-builders
   // -----------------------------------------------------------------------
 
-  private buildCard(state: CardRenderState): RenderedCard {
-    switch (this.mode) {
-      case "grid":
-        return this.buildGridCard(state);
-      case "shelf":
-        return this.buildShelfCard(state);
-      case "crate":
-        return this.buildCrateCard(state);
-      case "drawer":
-        return this.buildDrawerCard(state);
-    }
-  }
-
-  /** grid mode: square thumbnail + label below */
-  private buildGridCard(state: CardRenderState): RenderedCard {
-    const { info, slot, widgetId } = state;
-    const rect = slotRect(this.mode, slot, this.contentWidth);
-
-    const card = new Container();
-    card.label = `card-${widgetId}`;
-    card.x = rect.x;
-    card.y = rect.y;
-    card.eventMode = "static";
-    card.cursor = "pointer";
-
-    // background
-    const bg = new Graphics();
-    bg.roundRect(0, 0, GRID_CELL_SIZE, GRID_CELL_SIZE, 3)
-      .fill({ color: SLOT_EMPTY_BG })
-      .roundRect(0, 0, GRID_CELL_SIZE, GRID_CELL_SIZE, 3)
-      .stroke({ width: 1, color: SLOT_BORDER_COLOR });
-    card.addChild(bg);
-
-    // thumbnail or fallback
-    let thumbSprite: Sprite | null = null;
-    let textureKey: string | null = null;
-
-    if (info.thumbnailUrl && info.thumbnailUrl.length > 0) {
-      textureKey = info.thumbnailUrl;
-
-      this.loadCardTexture(info.thumbnailUrl).then((tex) => {
-        if (!tex || this.destroyed || !this.cards.has(widgetId)) return;
-
-        const sprite = new Sprite(tex);
-        sprite.anchor.set(0.5);
-
-        // fit the sprite into the cell, center-cropped
-        const scale = Math.max(GRID_CELL_SIZE / tex.width, GRID_CELL_SIZE / tex.height);
-        sprite.scale.set(scale);
-        sprite.x = GRID_CELL_SIZE / 2;
-        sprite.y = GRID_CELL_SIZE / 2;
-
-        // clip to cell bounds
-        const mask = new Graphics();
-        mask.roundRect(0, 0, GRID_CELL_SIZE, GRID_CELL_SIZE, 3).fill({ color: 0xffffff });
-        card.addChild(mask);
-        card.addChild(sprite);
-        sprite.mask = mask;
-
-        // update the rendered card reference
-        const existing = this.cards.get(widgetId);
-        if (existing) {
-          existing.thumbSprite = sprite;
-        }
-      });
-    } else {
-      // fallback: colored rect with first letter
-      const accent = info.accentColor ?? DEFAULT_ACCENT_COLOR;
-      const fallback = new Graphics();
-      fallback.roundRect(4, 4, GRID_CELL_SIZE - 8, GRID_CELL_SIZE - 8, 3).fill({
-        color: accent,
-        alpha: 0.4,
-      });
-      card.addChild(fallback);
-
-      const letter = info.label.charAt(0).toUpperCase() || "?";
-      const letterText = new Text({
-        text: letter,
-        style: {
-          fontFamily: FONT_FAMILY,
-          fontSize: 28,
-          fill: TEXT_COLOR,
-          align: "center",
-        },
-        resolution: TEXT_RESOLUTION,
-      });
-      letterText.anchor.set(0.5);
-      letterText.x = GRID_CELL_SIZE / 2;
-      letterText.y = GRID_CELL_SIZE / 2;
-      card.addChild(letterText);
-    }
-
-    // filename label below the cell
-    // use full cell width for label — compute max chars dynamically
-    const maxGridChars = Math.max(
-      GRID_LABEL_MAX_CHARS,
-      Math.floor(GRID_CELL_SIZE / (GRID_LABEL_FONT_SIZE * 0.55))
-    );
-    const truncated = truncateLabel(info.label, maxGridChars);
-    const label = new Text({
-      text: truncated,
-      style: {
-        fontFamily: FONT_FAMILY,
-        fontSize: GRID_LABEL_FONT_SIZE,
-        fill: TEXT_COLOR,
-        align: "center",
+  private buildCardFromState(state: CardRenderState): RenderedCard {
+    const ctx: CardBuildContext = {
+      mode: this.mode,
+      contentWidth: this.contentWidth,
+      scale: this.scale,
+      shelfTextOrigin: this.shelfTextOrigin,
+      visibleHeight: this.visibleHeight,
+      loadCardTexture: (url) => this.loadCardTexture(url),
+      isAlive: (wid) => !this.destroyed && this.cards.has(wid),
+      updateThumbSprite: (wid, sprite) => {
+        const card = this.cards.get(wid);
+        if (card) card.thumbSprite = sprite;
       },
-      resolution: TEXT_RESOLUTION,
-    });
-    label.anchor.set(0.5, 0);
-    label.x = GRID_CELL_SIZE / 2;
-    label.y = GRID_CELL_SIZE + 2;
-    card.addChild(label);
-
-    // pointer interactions
-    this.attachCardPointerHandlers(card, widgetId);
-
-    return { widgetId, slot, container: card, thumbSprite, textureKey };
-  }
-
-  /** shelf mode: narrow vertical spine with endcap thumbnail + rotated text */
-  private buildShelfCard(state: CardRenderState): RenderedCard {
-    const { info, slot, widgetId } = state;
-    const rect = slotRect(this.mode, slot, this.contentWidth);
-    const accent = info.accentColor ?? DEFAULT_ACCENT_COLOR;
-
-    const card = new Container();
-    card.label = `card-${widgetId}`;
-    card.x = rect.x;
-    card.y = rect.y;
-    card.eventMode = "static";
-    card.cursor = "pointer";
-
-    // spine background
-    const bg = new Graphics();
-    bg.roundRect(0, 0, SHELF_SLOT_W, SHELF_SLOT_H, 2).fill({ color: accent, alpha: 0.6 });
-    bg.roundRect(0, 0, SHELF_SLOT_W, SHELF_SLOT_H, 2).stroke({
-      width: 1,
-      color: SLOT_BORDER_COLOR,
-    });
-    card.addChild(bg);
-
-    // endcap thumbnail at top of spine
-    let thumbSprite: Sprite | null = null;
-    let textureKey: string | null = null;
-    const endcapH = SHELF_ENDCAP_H;
-
-    if (info.thumbnailUrl && info.thumbnailUrl.length > 0) {
-      textureKey = info.thumbnailUrl;
-
-      // placeholder background for the endcap area
-      const thumbBg = new Graphics();
-      thumbBg.rect(0, 0, SHELF_SLOT_W, endcapH).fill({ color: accent, alpha: 0.3 });
-      card.addChild(thumbBg);
-
-      this.loadCardTexture(info.thumbnailUrl).then((tex) => {
-        if (!tex || this.destroyed || !this.cards.has(widgetId)) return;
-
-        const sprite = new Sprite(tex);
-        sprite.anchor.set(0.5);
-        // fill-crop into endcap area (flush, no margin)
-        const scale = Math.max(SHELF_SLOT_W / tex.width, endcapH / tex.height);
-        sprite.scale.set(scale);
-        sprite.x = SHELF_SLOT_W / 2;
-        sprite.y = endcapH / 2;
-
-        const mask = new Graphics();
-        mask.rect(0, 0, SHELF_SLOT_W, endcapH).fill({ color: 0xffffff });
-        card.addChild(mask);
-        card.addChild(sprite);
-        sprite.mask = mask;
-
-        const existing = this.cards.get(widgetId);
-        if (existing) existing.thumbSprite = sprite;
-      });
-    } else {
-      // fallback: accent letter in the endcap area
-      const letter = info.label.charAt(0).toUpperCase() || "?";
-      const letterText = new Text({
-        text: letter,
-        style: {
-          fontFamily: FONT_FAMILY,
-          fontSize: 14,
-          fill: TEXT_COLOR,
-          align: "center",
-        },
-        resolution: TEXT_RESOLUTION,
-      });
-      letterText.anchor.set(0.5);
-      letterText.x = SHELF_SLOT_W / 2;
-      letterText.y = endcapH / 2;
-      card.addChild(letterText);
-    }
-
-    // rotated text — direction based on shelfTextOrigin
-    const textAreaH = SHELF_SLOT_H - endcapH - 4;
-    const maxChars = Math.max(4, Math.floor(textAreaH / (SHELF_FONT_SIZE * 0.7)));
-    const label = new Text({
-      text: truncateLabel(info.label, maxChars),
-      style: {
-        fontFamily: FONT_FAMILY,
-        fontSize: SHELF_FONT_SIZE,
-        fill: TEXT_COLOR,
-      },
-      resolution: TEXT_RESOLUTION,
-    });
-    label.anchor.set(0, 0.5);
-
-    if (this.shelfTextOrigin === "top") {
-      // text reads top-to-bottom (clockwise rotation)
-      label.rotation = Math.PI / 2;
-      label.x = SHELF_SLOT_W / 2 - label.height / 2;
-      label.y = endcapH + 2;
-    } else {
-      // text reads bottom-to-top (counter-clockwise rotation — original behavior)
-      label.rotation = -Math.PI / 2;
-      label.x = SHELF_SLOT_W / 2 + label.height / 2;
-      label.y = SHELF_SLOT_H - 2;
-    }
-    card.addChild(label);
-
-    this.attachCardPointerHandlers(card, widgetId);
-
-    return { widgetId, slot, container: card, thumbSprite, textureKey };
-  }
-
-  /** crate mode: horizontal row with flush-left endcap thumbnail + text */
-  private buildCrateCard(state: CardRenderState): RenderedCard {
-    const { info, slot, widgetId } = state;
-    const rect = slotRect(this.mode, slot, this.contentWidth);
-    const accent = info.accentColor ?? DEFAULT_ACCENT_COLOR;
-
-    const card = new Container();
-    card.label = `card-${widgetId}`;
-    card.x = rect.x;
-    card.y = rect.y;
-    card.eventMode = "static";
-    card.cursor = "pointer";
-
-    // crate rows use full content width
-    const slotW = this.contentWidth;
-    const slotH = rect.height;
-
-    // background
-    const bg = new Graphics();
-    bg.roundRect(0, 0, slotW, slotH, 2).fill({ color: SLOT_EMPTY_BG });
-    bg.roundRect(0, 0, slotW, slotH, 2).stroke({ width: 1, color: SLOT_BORDER_COLOR });
-    card.addChild(bg);
-
-    // endcap thumbnail — flush left, square matching row height
-    const endcapW = slotH;
-    let thumbSprite: Sprite | null = null;
-    let textureKey: string | null = null;
-
-    // endcap placeholder
-    const thumbBg = new Graphics();
-    thumbBg.rect(0, 0, endcapW, slotH).fill({ color: accent, alpha: 0.6 });
-    card.addChild(thumbBg);
-
-    if (info.thumbnailUrl && info.thumbnailUrl.length > 0) {
-      textureKey = info.thumbnailUrl;
-
-      this.loadCardTexture(info.thumbnailUrl).then((tex) => {
-        if (!tex || this.destroyed || !this.cards.has(widgetId)) return;
-
-        const sprite = new Sprite(tex);
-        sprite.anchor.set(0.5);
-        // fill-crop into endcap area
-        const scale = Math.max(endcapW / tex.width, slotH / tex.height);
-        sprite.scale.set(scale);
-        sprite.x = endcapW / 2;
-        sprite.y = slotH / 2;
-
-        const mask = new Graphics();
-        mask.rect(0, 0, endcapW, slotH).fill({ color: 0xffffff });
-        card.addChild(mask);
-        card.addChild(sprite);
-        sprite.mask = mask;
-
-        const existing = this.cards.get(widgetId);
-        if (existing) existing.thumbSprite = sprite;
-      });
-    } else {
-      // fallback: letter in endcap
-      const letter = info.label.charAt(0).toUpperCase() || "?";
-      const letterText = new Text({
-        text: letter,
-        style: {
-          fontFamily: FONT_FAMILY,
-          fontSize: 14,
-          fill: TEXT_COLOR,
-        },
-        resolution: TEXT_RESOLUTION,
-      });
-      letterText.anchor.set(0.5);
-      letterText.x = endcapW / 2;
-      letterText.y = slotH / 2;
-      card.addChild(letterText);
-    }
-
-    // filename text — to the right of the endcap, full remaining width
-    const textX = endcapW + 6;
-    const maxLabelWidth = slotW - textX - 4;
-    const maxChars = Math.max(6, Math.floor(maxLabelWidth / (CRATE_FONT_SIZE * 0.55)));
-    const label = new Text({
-      text: truncateLabel(info.label, maxChars),
-      style: {
-        fontFamily: FONT_FAMILY,
-        fontSize: CRATE_FONT_SIZE,
-        fill: TEXT_COLOR,
-      },
-      resolution: TEXT_RESOLUTION,
-    });
-    label.x = textX;
-    label.y = (slotH - label.height) / 2;
-    card.addChild(label);
-
-    this.attachCardPointerHandlers(card, widgetId);
-
-    return { widgetId, slot, container: card, thumbSprite, textureKey };
-  }
-
-  /** drawer mode: full-width horizontal rows with flush-left endcap + text */
-  private buildDrawerCard(state: CardRenderState): RenderedCard {
-    const { info, slot, widgetId } = state;
-    const rect = slotRect("drawer", slot, this.contentWidth);
-    const accent = info.accentColor ?? DEFAULT_ACCENT_COLOR;
-
-    const card: RenderedCard = {
-      widgetId,
-      slot,
-      container: new Container(),
-      thumbSprite: null,
-      textureKey: null,
+      attachPointerHandlers: (card, wid) => this.attachCardPointerHandlers(card, wid),
     };
-
-    card.container.label = `card-${widgetId}`;
-    card.container.x = rect.x;
-    card.container.y = rect.y;
-    card.container.eventMode = "static";
-    card.container.cursor = "pointer";
-
-    const slotW = rect.width;
-    const slotH = rect.height;
-
-    // background
-    const bg = new Graphics();
-    bg.roundRect(0, 0, slotW, slotH, 3).fill({ color: accent, alpha: 0.15 });
-    bg.roundRect(0, 0, slotW, slotH, 3).stroke({ width: 1, color: SLOT_BORDER_COLOR });
-    card.container.addChild(bg);
-
-    // endcap thumbnail — flush left, square matching row height
-    const endcapW = slotH;
-
-    // endcap placeholder
-    const thumbBg = new Graphics();
-    thumbBg.rect(0, 0, endcapW, slotH).fill({ color: accent, alpha: 0.3 });
-    card.container.addChild(thumbBg);
-
-    if (info.thumbnailUrl && info.thumbnailUrl.length > 0) {
-      card.textureKey = info.thumbnailUrl;
-
-      this.loadCardTexture(info.thumbnailUrl).then((tex) => {
-        if (!tex || this.destroyed || !this.cards.has(widgetId)) return;
-
-        const sprite = new Sprite(tex);
-        sprite.anchor.set(0.5);
-        // fill-crop into endcap area
-        const scale = Math.max(endcapW / tex.width, slotH / tex.height);
-        sprite.scale.set(scale);
-        sprite.x = endcapW / 2;
-        sprite.y = slotH / 2;
-
-        const mask = new Graphics();
-        mask.rect(0, 0, endcapW, slotH).fill({ color: 0xffffff });
-        card.container.addChild(mask);
-        sprite.mask = mask;
-        card.container.addChild(sprite);
-        card.thumbSprite = sprite;
-      });
-    } else {
-      // fallback: letter in endcap
-      const letter = info.label.charAt(0).toUpperCase() || "?";
-      const letterText = new Text({
-        text: letter,
-        style: {
-          fontFamily: FONT_FAMILY,
-          fontSize: 16,
-          fill: TEXT_COLOR,
-        },
-        resolution: TEXT_RESOLUTION,
-      });
-      letterText.anchor.set(0.5);
-      letterText.x = endcapW / 2;
-      letterText.y = slotH / 2;
-      card.container.addChild(letterText);
-    }
-
-    // text label — to the right of the endcap, full remaining width
-    const textX = endcapW + 8;
-    const maxLabelWidth = slotW - textX - 8;
-    const maxChars = Math.max(8, Math.floor(maxLabelWidth / (DRAWER_FONT_SIZE * 0.55)));
-    const label = new Text({
-      text: truncateLabel(info.label, maxChars),
-      style: {
-        fontFamily: FONT_FAMILY,
-        fontSize: DRAWER_FONT_SIZE,
-        fill: TEXT_COLOR,
-      },
-      resolution: TEXT_RESOLUTION,
-    });
-    label.x = textX;
-    label.y = (slotH - label.height) / 2;
-    card.container.addChild(label);
-
-    this.attachCardPointerHandlers(card.container, widgetId);
-
-    return card;
+    return buildCard(state, ctx);
   }
 
   // -----------------------------------------------------------------------
@@ -1051,13 +624,4 @@ export class BinRenderer {
       return { label: factory.metadata.name };
     }
   }
-}
-
-// -----------------------------------------------------------------------
-// helpers
-// -----------------------------------------------------------------------
-
-function truncateLabel(text: string, maxChars: number): string {
-  if (text.length <= maxChars) return text;
-  return text.slice(0, maxChars - 1) + "\u2026";
 }

@@ -2,7 +2,7 @@ import type { DocumentId, Repo } from "@automerge/automerge-repo";
 import { Container, Graphics, Text, type FederatedPointerEvent } from "pixi.js";
 import type { CanvasStore } from "../../src/canvas/canvas-store";
 import type { WidgetRegistry } from "../../src/widgets/widget-registry";
-import type { CardInteractionCallbacks } from "./bin-renderer";
+import type { CardInteractionCallbacks } from "./bin-types";
 
 const FONT_FAMILY = "'Atkinson Hyperlegible Next', sans-serif";
 const TEXT_RESOLUTION = typeof window !== "undefined" ? Math.max(window.devicePixelRatio, 2) : 2;

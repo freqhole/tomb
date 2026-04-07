@@ -1,6 +1,19 @@
 // layout constants for the bin widget.
 // slot dimensions vary by layout mode.
 
+// -- slot scale --------------------------------------------------------------
+
+/** named slot size presets */
+export type SlotScale = "s" | "m" | "l" | "xl";
+
+/** multiplier applied to base slot dimensions for each scale preset */
+export const SLOT_SCALE_MULTIPLIERS: Record<SlotScale, number> = {
+  s: 0.6,
+  m: 1.0,
+  l: 1.5,
+  xl: 2.0,
+};
+
 // -- grid mode (square tiles) ------------------------------------------------
 
 /** grid cell size in pixels (square) */
