@@ -356,15 +356,23 @@ export class WidgetManager {
       crumbs.push({ label: "narthex", onClick: () => handler() });
     }
 
-    // canvas title crumb
-    const canvasTitle = this.store.metadata().title || "untitled canvas";
+    // canvas title crumb — on the narthex (no onNavigateHome), skip if untitled
+    const canvasTitle = this.store.metadata().title;
+    const showCanvasCrumb = canvasTitle || this.onNavigateHome;
+    const displayTitle = canvasTitle || "untitled canvas";
+
+    if (!showCanvasCrumb) {
+      // narthex with no title — no breadcrumbs needed
+      this.toolbar.setBreadcrumbs(crumbs);
+      return;
+    }
 
     if (this.focusStack.isEmpty) {
       // not maximized — canvas name is the current (non-clickable) context
-      crumbs.push({ label: canvasTitle });
+      crumbs.push({ label: displayTitle });
     } else {
       // maximized — canvas name is clickable to restore all
-      crumbs.push({ label: canvasTitle, onClick: () => this.restoreAll() });
+      crumbs.push({ label: displayTitle, onClick: () => this.restoreAll() });
 
       // add a crumb for each focus stack entry (bottom to top)
       const entries = this.focusStack.entries;
