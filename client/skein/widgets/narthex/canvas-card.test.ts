@@ -201,9 +201,9 @@ describe("canvasCardWidget", () => {
   });
 
   it("has editableProps", () => {
-    expect(canvasCardWidget.editableProps).toHaveLength(4);
+    expect(canvasCardWidget.editableProps).toHaveLength(3);
     const keys = canvasCardWidget.editableProps.map((p) => p.key);
-    expect(keys).toEqual(["title", "description", "color", "previewUrl"]);
+    expect(keys).toEqual(["description", "color", "previewUrl"]);
   });
 
   it("previewUrl prop is an image type", () => {

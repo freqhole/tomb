@@ -130,6 +130,16 @@ export interface AclChangeMessage {
   changedByUsername: string;
 }
 
+/** notify a peer that a shared canvas was modified. */
+export interface CanvasUpdateMessage {
+  type: "canvas-update";
+  canvasDocId: string;
+  lastModifiedAt: string;
+  widgetCount: number;
+  modifiedByNodeId: string;
+  modifiedByUsername: string;
+}
+
 /** union of all protocol messages. */
 export type FriendzMessage =
   | ProfileRequestMessage
@@ -143,7 +153,8 @@ export type FriendzMessage =
   | CanvasInviteAckMessage
   | CanvasInviteAcceptMessage
   | CanvasInviteDeclineMessage
-  | AclChangeMessage;
+  | AclChangeMessage
+  | CanvasUpdateMessage;
 
 // ---------------------------------------------------------------------------
 // message encoding / decoding
@@ -206,6 +217,9 @@ export type OnCanvasInviteDecline = (
 
 /** callback for when an ACL change notification is received from a remote peer. */
 export type OnAclChange = (change: AclChangeMessage, fromNodeId: string) => void;
+
+/** callback for when a canvas update notification is received from a remote peer. */
+export type OnCanvasUpdate = (msg: CanvasUpdateMessage, fromNodeId: string) => void;
 
 // ---------------------------------------------------------------------------
 // FriendzProtocol
@@ -320,6 +334,15 @@ export class FriendzProtocol {
   /** called when canvas activity entries arrive in a heartbeat. */
   onCanvasActivity: ((entries: CanvasActivityEntry[], fromNodeId: string) => void) | null = null;
 
+  /** called when a peer stream is fully connected and the read loop has started. */
+  onPeerConnected: ((peerNodeId: string) => void) | null = null;
+
+  /** called after each heartbeat tick with the list of friend node IDs. */
+  onAfterHeartbeatTick: ((friendNodeIds: string[]) => void) | null = null;
+
+  /** called when a canvas update notification is received. */
+  onCanvasUpdate: OnCanvasUpdate | null = null;
+
   constructor(options: FriendzProtocolOptions) {
     this.getMidden = options.getMidden;
     this.localNodeId = options.localNodeId;
@@ -351,6 +374,8 @@ export class FriendzProtocol {
 
     // start reading messages
     this.readLoop(peerId, stream);
+
+    this.onPeerConnected?.(peerId);
   }
 
   private async readLoop(peerId: string, stream: BiStreamLike): Promise<void> {
@@ -441,6 +466,10 @@ export class FriendzProtocol {
 
       case "acl-change":
         this.onAclChange?.(msg, fromNodeId);
+        break;
+
+      case "canvas-update":
+        this.onCanvasUpdate?.(msg, fromNodeId);
         break;
 
       default:
@@ -595,6 +624,15 @@ export class FriendzProtocol {
     await this.sendMessage(peerNodeId, msg);
   }
 
+  /** send a canvas update notification to a peer. */
+  async sendCanvasUpdate(
+    peerNodeId: string,
+    update: Omit<CanvasUpdateMessage, "type">
+  ): Promise<void> {
+    const msg: CanvasUpdateMessage = { type: "canvas-update", ...update };
+    await this.sendMessage(peerNodeId, msg);
+  }
+
   // --- heartbeat ---
 
   /**
@@ -613,11 +651,14 @@ export class FriendzProtocol {
         canvasActivity: activity.length > 0 ? activity : undefined,
       };
 
-      for (const peerId of getFriendNodeIds()) {
+      const nodeIds = getFriendNodeIds();
+      for (const peerId of nodeIds) {
         this.sendMessage(peerId, msg).catch((err) => {
           console.warn(TAG, "heartbeat failed for:", peerId.slice(0, 16) + "...", err);
         });
       }
+
+      this.onAfterHeartbeatTick?.(nodeIds);
     };
 
     // send immediately, then on interval
@@ -793,5 +834,8 @@ export class FriendzProtocol {
     this.onCanvasInviteDecline = null;
     this.onAclChange = null;
     this.onCanvasActivity = null;
+    this.onPeerConnected = null;
+    this.onAfterHeartbeatTick = null;
+    this.onCanvasUpdate = null;
   }
 }
