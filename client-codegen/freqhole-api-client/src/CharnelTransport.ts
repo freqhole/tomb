@@ -3,7 +3,7 @@
 // uses Tauri IPC commands to make P2P requests via the server's
 // app iroh endpoint. no WASM needed.
 
-import type { Transport, TransportResponse, BlobData } from "./transport.js";
+import type { BlobData, Transport, TransportResponse } from "./transport.js";
 
 // tauri invoke function type
 type InvokeFn = (cmd: string, args?: unknown) => Promise<unknown>;
@@ -51,11 +51,11 @@ const urlCache = new Map<string, string>();
  */
 function base64ToBytes(base64: string): Uint8Array {
   // convert URL-safe base64 to standard base64
-  let standardBase64 = base64.replace(/-/g, '+').replace(/_/g, '/');
+  let standardBase64 = base64.replace(/-/g, "+").replace(/_/g, "/");
   // add padding if needed
   const padLen = (4 - (standardBase64.length % 4)) % 4;
-  standardBase64 += '='.repeat(padLen);
-  
+  standardBase64 += "=".repeat(padLen);
+
   const binaryString = atob(standardBase64);
   const bytes = new Uint8Array(binaryString.length);
   for (let i = 0; i < binaryString.length; i++) {
@@ -68,7 +68,7 @@ function base64ToBytes(base64: string): Uint8Array {
  * encode Uint8Array to base64 string
  */
 function bytesToBase64(bytes: Uint8Array): string {
-  let binary = '';
+  let binary = "";
   for (let i = 0; i < bytes.length; i++) {
     binary += String.fromCharCode(bytes[i]);
   }
@@ -113,7 +113,11 @@ export class CharnelTransport implements Transport {
   /**
    * make an API request via P2P
    */
-  async request(method: string, path: string, body?: string): Promise<TransportResponse> {
+  async request(
+    method: string,
+    path: string,
+    body?: string,
+  ): Promise<TransportResponse> {
     const inv = await ensureInvoke();
 
     const result = (await inv("p2p_proxy_request", {
@@ -164,7 +168,11 @@ export class CharnelTransport implements Transport {
         contentType,
         data: base64,
         associateWith,
-      })) as { blob_id: string | null; job_id: string | null; body: string | null };
+      })) as {
+        blob_id: string | null;
+        job_id: string | null;
+        body: string | null;
+      };
 
       // use full server response body if available (for proper Zod validation)
       if (result.body) {
@@ -199,56 +207,40 @@ export class CharnelTransport implements Transport {
    */
   async fetchBlob(blobId: string, blake3?: string): Promise<BlobData> {
     const inv = await ensureInvoke();
+    const tauri = await import("@tauri-apps/api/core");
+    const onProgress = new tauri.Channel<{ bytes_downloaded: number }>();
 
-    // if blake3 is provided, use verified iroh-blobs download
     if (blake3) {
-      try {
-        const result = (await inv("p2p_fetch_blob_verified", {
-          peerAddr: this.peerAddr,
-          blake3Hash: blake3,
-        })) as { data: string; content_type: string | null; size: number };
+      // blake3 known — use verified iroh-blobs download
+      const result = (await inv("p2p_fetch_blob_verified", {
+        peerAddr: this.peerAddr,
+        blake3Hash: blake3,
+        onProgress,
+      })) as { data: string; content_type: string | null; size: number };
 
-        const bytes = base64ToBytes(result.data);
-        return {
-          data: bytes,
-          contentType: result.content_type ?? "audio/mpeg",
-        };
-      } catch (e) {
-        const errorMessage = e instanceof Error ? e.message : String(e);
-        console.warn(`[CharnelTransport] verified download failed, falling back: ${errorMessage}`);
-        // fall through to regular fetch_blob
-      }
-    } else {
-      // no blake3 provided - try on-demand computation + verified download
-      try {
-        const result = (await inv("p2p_fetch_blob_verified_by_id", {
-          peerAddr: this.peerAddr,
-          blobId,
-        })) as { data: string; content_type: string | null; size: number; blake3: string };
-
-        const bytes = base64ToBytes(result.data);
-        return {
-          data: bytes,
-          contentType: result.content_type ?? "audio/mpeg",
-        };
-      } catch (e) {
-        const errorMessage = e instanceof Error ? e.message : String(e);
-        console.warn(`[CharnelTransport] on-demand verified download failed, falling back: ${errorMessage}`);
-        // fall through to regular fetch_blob
-      }
+      const bytes = base64ToBytes(result.data);
+      return {
+        data: bytes,
+        contentType: result.content_type ?? "audio/mpeg",
+      };
     }
 
-    const result = (await inv("p2p_fetch_blob", {
+    // no blake3 provided — ask the peer to compute it, then do verified download
+    const result = (await inv("p2p_fetch_blob_verified_by_id", {
       peerAddr: this.peerAddr,
       blobId,
-    })) as { data: string; content_type: string | null };
+      onProgress,
+    })) as {
+      data: string;
+      content_type: string | null;
+      size: number;
+      blake3: string;
+    };
 
-    // decode base64 data (handles URL-safe encoding)
     const bytes = base64ToBytes(result.data);
-
     return {
       data: bytes,
-      contentType: result.content_type ?? "application/octet-stream",
+      contentType: result.content_type ?? "audio/mpeg",
     };
   }
 
@@ -276,7 +268,9 @@ export class CharnelTransport implements Transport {
 
     // fetch via P2P and cache (pass blake3 for verified download)
     const blobData = await this.fetchBlob(blobId, blake3);
-    const blob = new Blob([blobData.data.slice().buffer], { type: blobData.contentType });
+    const blob = new Blob([blobData.data.slice().buffer], {
+      type: blobData.contentType,
+    });
 
     // store in Cache API (HTTP URL key for webkitgtk compatibility)
     const response = new Response(blob, {
@@ -344,7 +338,10 @@ const transportCache = new Map<string, CharnelTransport>();
  * get or create a CharnelTransport for a peer (async)
  * initializes transport before returning
  */
-export async function createCharnelTransport(peerAddr: string, cacheName?: string): Promise<CharnelTransport> {
+export async function createCharnelTransport(
+  peerAddr: string,
+  cacheName?: string,
+): Promise<CharnelTransport> {
   // include cacheName in cache key so different remotes get different transports
   const cacheKey = cacheName ? `${peerAddr}:${cacheName}` : peerAddr;
   const existing = transportCache.get(cacheKey);
@@ -361,7 +358,10 @@ export async function createCharnelTransport(peerAddr: string, cacheName?: strin
 /**
  * get or create a CharnelTransport (alias for createCharnelTransport)
  */
-export async function getCharnelTransport(peerAddr: string, cacheName?: string): Promise<CharnelTransport> {
+export async function getCharnelTransport(
+  peerAddr: string,
+  cacheName?: string,
+): Promise<CharnelTransport> {
   return createCharnelTransport(peerAddr, cacheName);
 }
 
