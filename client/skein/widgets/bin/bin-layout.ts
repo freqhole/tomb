@@ -145,11 +145,22 @@ export function hitTestSlot(
 
   if (col < 0 || col >= cols || row < 0 || row >= rows) return null;
 
-  // check that the pointer is actually inside the cell (not in the gap)
+  // snap to nearest cell when pointer is in the gap between cells.
+  // this makes drop targeting more forgiving — instead of returning null
+  // (which causes the highlight to jump to the first empty slot), we
+  // keep the highlight on the nearest cell.
   const cellX = px - col * (size.width + gap);
   const cellY = py - row * (size.height + gap);
-  if (cellX > size.width || cellY > size.height) return null;
 
+  // if we're past the cell in X, try the next column
+  if (cellX > size.width && col + 1 < cols) {
+    return { col: col + 1, row };
+  }
+  // if we're past the cell in Y, try the next row
+  if (cellY > size.height && row + 1 < rows) {
+    return { col, row: row + 1 };
+  }
+  // if both are past, we're in a diagonal gap — just use the computed col/row
   return { col, row };
 }
 

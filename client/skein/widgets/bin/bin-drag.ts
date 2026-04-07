@@ -38,6 +38,13 @@ export interface BinDragContext {
   registry: WidgetRegistry;
   /** callback when a child is successfully dragged out of the bin */
   onDragOut: (widgetId: string) => void;
+  /** callback to try an internal rearrangement when the drop is within the bin.
+   * returns true if the rearrangement was performed (drop was within the bin). */
+  onInternalMove?: (widgetId: string, worldX: number, worldY: number) => boolean;
+  /** called during drag to show slot highlight for potential internal rearrangement */
+  onDragMove?: (widgetId: string, worldX: number, worldY: number) => void;
+  /** called when drag ends or is cancelled to clean up any highlights */
+  onDragEnd?: () => void;
 }
 
 // -----------------------------------------------------------------------
@@ -145,6 +152,7 @@ export function createBinDragHandler(ctx: BinDragContext): CardInteractionCallba
 
   /** tear down all listeners and destroy the ghost if present */
   function cleanup(): void {
+    ctx.onDragEnd?.();
     if (activeCardTarget && moveHandler) {
       activeCardTarget.off("globalpointermove", moveHandler);
     }
@@ -219,25 +227,32 @@ export function createBinDragHandler(ctx: BinDragContext): CardInteractionCallba
           const local = world.toLocal(moveEvent.global);
           ghost.x = local.x;
           ghost.y = local.y;
+
+          // show slot highlight for potential internal rearrangement
+          if (dragCandidate) {
+            ctx.onDragMove?.(dragCandidate.widgetId, local.x, local.y);
+          }
         }
       };
 
       upHandler = () => {
         if (dragging && dragCandidate) {
-          // convert the last known pointer position to world coordinates.
-          // the world container's local coordinate space is the same space
-          // that widget frame positions (root.x, root.y) live in.
           const world = getWorld();
           const worldPos = world.toLocal({ x: lastGlobalX, y: lastGlobalY });
 
-          // un-nest the widget and place it at the drop point in a single
-          // atomic change so reconcile sees the final position immediately.
-          ctx.store.unparentAndMove(dragCandidate.widgetId, worldPos.x, worldPos.y);
+          // try internal rearrangement first — if the drop is within the bin,
+          // just move the item to a different slot without un-nesting
+          const handled = ctx.onInternalMove?.(dragCandidate.widgetId, worldPos.x, worldPos.y);
 
-          // notify the bin so it can remove the item from its automerge doc
-          ctx.onDragOut(dragCandidate.widgetId);
+          if (!handled) {
+            // drop was outside the bin — un-nest and move to world
+            ctx.store.unparentAndMove(dragCandidate.widgetId, worldPos.x, worldPos.y);
+            ctx.onDragOut(dragCandidate.widgetId);
+          }
         }
 
+        // clean up highlight from internal drag
+        ctx.onDragEnd?.();
         cleanup();
       };
 

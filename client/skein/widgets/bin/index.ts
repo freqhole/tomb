@@ -536,6 +536,120 @@ export const binWidget: WidgetFactory<typeof binSchema> = {
                 }
               });
             },
+
+            onInternalMove: (widgetId: string, worldX: number, worldY: number): boolean => {
+              const entry = store.getWidget(ctx.widgetId);
+              if (!entry) return false;
+
+              // check if the drop point is within the bin's frame bounds
+              if (
+                worldX < entry.x ||
+                worldX > entry.x + entry.width ||
+                worldY < entry.y ||
+                worldY > entry.y + entry.height
+              ) {
+                return false; // outside the bin — let the drag handler un-nest
+              }
+
+              const state = ctx.doc.current;
+              const mode = state.mode as BinMode;
+              const cols = mode === "drawer" ? 1 : Math.max(1, state.cols);
+              const contentWidth = entry.width - BIN_PADDING * 2;
+
+              // convert to content-local coordinates
+              const localX = worldX - entry.x - BIN_PADDING;
+              let localY = worldY - entry.y - BIN_HEADER_HEIGHT - BIN_PADDING;
+
+              // account for drawer scroll
+              if (mode === "drawer" && renderer) {
+                localY += renderer.getScrollOffset();
+              }
+
+              const rows = computeRows(state.items.length, cols);
+              let slot = hitTestSlot(mode, localX, localY, cols, rows, contentWidth);
+
+              if (!slot) {
+                // pointer not on a valid slot — find the first empty
+                const occupied = state.items.map((i: any) => i.slot);
+                slot = firstEmptySlot(occupied, cols, rows);
+              }
+
+              if (!slot) return false; // no valid target
+
+              // find the item being moved
+              const itemIdx = state.items.findIndex((i: any) => i.widgetId === widgetId);
+              if (itemIdx === -1) return false; // not in this bin (shouldn't happen)
+
+              // check if it's the same slot (no-op)
+              const currentSlot = state.items[itemIdx].slot;
+              if (currentSlot.col === slot.col && currentSlot.row === slot.row) {
+                return true; // dropped on same slot — still counts as handled
+              }
+
+              // check if target slot is occupied by another item
+              const targetKey = `${slot.col},${slot.row}`;
+
+              ctx.doc.change((draft) => {
+                const occupantIdx = draft.items.findIndex(
+                  (i: any, idx: number) =>
+                    idx !== itemIdx && `${i.slot.col},${i.slot.row}` === targetKey
+                );
+
+                if (occupantIdx !== -1) {
+                  // swap: move occupant to the dragged item's original slot
+                  draft.items[occupantIdx].slot = { col: currentSlot.col, row: currentSlot.row };
+                }
+
+                // move the dragged item to the target slot
+                draft.items[itemIdx].slot = slot!;
+              });
+
+              return true;
+            },
+
+            onDragMove: (_widgetId: string, worldX: number, worldY: number): void => {
+              if (!renderer) return;
+              const entry = store.getWidget(ctx.widgetId);
+              if (!entry) return;
+
+              // check if pointer is within the bin
+              if (
+                worldX < entry.x ||
+                worldX > entry.x + entry.width ||
+                worldY < entry.y ||
+                worldY > entry.y + entry.height
+              ) {
+                renderer.showSlotHighlight(null);
+                return;
+              }
+
+              const state = ctx.doc.current;
+              const mode = state.mode as BinMode;
+              const cols = mode === "drawer" ? 1 : Math.max(1, state.cols);
+              const contentWidth = entry.width - BIN_PADDING * 2;
+
+              const localX = worldX - entry.x - BIN_PADDING;
+              let localY = worldY - entry.y - BIN_HEADER_HEIGHT - BIN_PADDING;
+
+              if (mode === "drawer" && renderer) {
+                localY += renderer.getScrollOffset();
+              }
+
+              const rows = computeRows(state.items.length, cols);
+              const slot = hitTestSlot(mode, localX, localY, cols, rows, contentWidth);
+
+              if (slot) {
+                renderer.showSlotHighlight(slot);
+              } else {
+                const occupied = state.items.map((i: any) => i.slot);
+                const empty = firstEmptySlot(occupied, cols, rows);
+                renderer.showSlotHighlight(empty);
+              }
+            },
+
+            onDragEnd: (): void => {
+              renderer?.showSlotHighlight(null);
+            },
           })
         : {};
 
@@ -623,7 +737,12 @@ export const binWidget: WidgetFactory<typeof binSchema> = {
               // convert world coordinates to content-local coordinates.
               // the content area starts at (entry.x + BIN_PADDING, entry.y + BIN_HEADER_HEIGHT + BIN_PADDING).
               const localX = worldX - entry.x - BIN_PADDING;
-              const localY = worldY - entry.y - BIN_HEADER_HEIGHT - BIN_PADDING;
+              let localY = worldY - entry.y - BIN_HEADER_HEIGHT - BIN_PADDING;
+
+              // in drawer mode, account for scroll offset so hit testing matches visible content
+              if (mode === "drawer" && renderer) {
+                localY += renderer.getScrollOffset();
+              }
 
               // allow one extra row for the potential new item
               const rows = computeRows(state.items.length + 1, cols);
@@ -661,7 +780,12 @@ export const binWidget: WidgetFactory<typeof binSchema> = {
 
               // convert to content-local coordinates
               const localX = worldX - entry.x - BIN_PADDING;
-              const localY = worldY - entry.y - BIN_HEADER_HEIGHT - BIN_PADDING;
+              let localY = worldY - entry.y - BIN_HEADER_HEIGHT - BIN_PADDING;
+
+              // in drawer mode, account for scroll offset
+              if (mode === "drawer" && renderer) {
+                localY += renderer.getScrollOffset();
+              }
 
               // find a slot for the dropped widget
               const rows = computeRows(state.items.length + 1, cols);

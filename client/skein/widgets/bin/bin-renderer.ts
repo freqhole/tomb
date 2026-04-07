@@ -1,5 +1,5 @@
 import type { DocumentId, Repo } from "@automerge/automerge-repo";
-import { Assets, Container, Graphics, Sprite, Text, Texture } from "pixi.js";
+import { Assets, Container, Graphics, Rectangle, Sprite, Text, Texture } from "pixi.js";
 import type { CanvasStore } from "../../src/canvas/canvas-store";
 import type { WidgetRegistry } from "../../src/widgets/widget-registry";
 import type { CompactInfo } from "../../src/widgets/widget-types";
@@ -93,6 +93,11 @@ export class BinRenderer {
   /** shelf text direction — top = text reads top-to-bottom, bottom = bottom-to-top */
   shelfTextOrigin: "top" | "bottom" = "top";
 
+  /** current scroll offset — used by drop target to convert world coords to content coords in drawer mode */
+  getScrollOffset(): number {
+    return this.mode === "drawer" ? this.scrollY : 0;
+  }
+
   private destroyed = false;
 
   /** drawer mode: current scroll offset (px) */
@@ -105,8 +110,6 @@ export class BinRenderer {
   private scrollMask: Graphics | null = null;
   /** drawer mode: inner container that moves with scroll */
   private scrollInner: Container | null = null;
-  /** drawer mode: transparent hit area for wheel events in empty space */
-  private scrollBg: Graphics | null = null;
 
   constructor(
     repo: Repo,
@@ -128,9 +131,9 @@ export class BinRenderer {
     this.container.addChild(this.slotHighlight);
 
     // wheel handler for drawer mode scroll — on the root container so it
-    // catches bubbled events from cards inside scrollInner AND direct events
-    // from the transparent scrollBg hit area in gaps between cards.
-    this.container.eventMode = "auto";
+    // catches events from cards inside scrollInner. an explicit hitArea is
+    // set in setupDrawerScroll() so events fire even in gaps between cards.
+    this.container.eventMode = "static";
     this.container.on("wheel", (e: WheelEvent) => {
       if (this.mode !== "drawer") return;
       const canScroll = this.totalContentHeight > this.visibleHeight;
@@ -812,29 +815,22 @@ export class BinRenderer {
     if (!this.scrollInner) {
       this.scrollInner = new Container();
       this.scrollInner.label = "drawer-scroll-inner";
+      this.scrollInner.eventMode = "static";
       this.container.addChild(this.scrollInner);
 
       // mask to clip content to the visible area
       this.scrollMask = new Graphics();
       this.container.addChild(this.scrollMask);
       this.scrollInner.mask = this.scrollMask;
-
-      // transparent hit area so wheel events fire in gaps between cards
-      // (the actual wheel handler is on this.container — see constructor)
-      this.scrollBg = new Graphics();
-      this.scrollBg.eventMode = "static";
-      this.container.addChildAt(this.scrollBg, 0);
     }
 
-    // update mask and hit area dimensions
+    // update mask dimensions
     this.scrollMask!.clear();
     this.scrollMask!.rect(0, 0, contentWidth, this.visibleHeight).fill({ color: 0xffffff });
 
-    this.scrollBg!.clear();
-    this.scrollBg!.rect(0, 0, contentWidth, this.visibleHeight).fill({
-      color: 0x000000,
-      alpha: 0.001,
-    });
+    // explicit hit area so wheel events fire anywhere in the visible region
+    // (without this, Pixi only fires events on child bounds which miss gaps between cards)
+    this.container.hitArea = new Rectangle(0, 0, contentWidth, this.visibleHeight);
   }
 
   private teardownDrawerScroll(): void {
@@ -857,14 +853,11 @@ export class BinRenderer {
         this.scrollMask = null;
       }
 
-      if (this.scrollBg) {
-        this.container.removeChild(this.scrollBg);
-        this.scrollBg.destroy();
-        this.scrollBg = null;
-      }
-
       this.scrollY = 0;
     }
+
+    // clear the explicit hit area so non-drawer modes use child-based hit testing
+    this.container.hitArea = null;
   }
 
   private clampScroll(): void {
