@@ -27,6 +27,7 @@ export const canvasCardSchema = z.object({
   lastVisitedAt: z.string().default(""),
   hasUpdates: z.boolean().default(false),
   lastKnownModifiedAt: z.string().default(""),
+  lastModifiedBy: z.string().default(""),
 });
 
 export type CanvasCardState = z.infer<typeof canvasCardSchema>;

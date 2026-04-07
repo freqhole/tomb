@@ -17,6 +17,13 @@ export class CanvasStore {
 
   private _peerOnlineChecker: ((nodeId: string) => boolean) | null = null;
 
+  private _localNodeId: string = "";
+
+  /** set the local peer's node ID so local edits can be attributed. */
+  setLocalNodeId(id: string): void {
+    this._localNodeId = id;
+  }
+
   private constructor(repo: Repo, handle: DocHandle<CanvasDocument>) {
     this.repo = repo;
     this.handle = handle;
@@ -92,6 +99,7 @@ export class CanvasStore {
     description: string;
     createdAt: string;
     lastModified: string;
+    lastModifiedBy: string;
     color: number;
     previewUrl: string;
   } {
@@ -101,6 +109,7 @@ export class CanvasStore {
       description: doc.description ?? "",
       createdAt: doc.createdAt ?? "",
       lastModified: doc.lastModified ?? "",
+      lastModifiedBy: doc.lastModifiedBy ?? "",
       color: doc.color ?? 0,
       previewUrl: doc.previewUrl ?? "",
     };
@@ -299,6 +308,9 @@ export class CanvasStore {
   /** update the lastModified timestamp on the document. */
   private touchModified(doc: CanvasDocument): void {
     doc.lastModified = new Date().toISOString();
+    if (this._localNodeId) {
+      doc.lastModifiedBy = this._localNodeId;
+    }
   }
 
   /** reassign zIndexes 0, 1, 2, ... according to the given id order */

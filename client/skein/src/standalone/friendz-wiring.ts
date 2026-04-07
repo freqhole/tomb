@@ -136,13 +136,16 @@ export async function initFriendzWiring(
         if (!narthexDoc) return [];
 
         const entries: CanvasActivityEntry[] = [];
-        const props = narthexDoc.cards ?? {};
 
-        for (const [_cardId, card] of Object.entries(props) as any[]) {
+        for (const [_cardId, card] of Object.entries(narthexDoc.widgets ?? {}) as any[]) {
+          if (card.type !== "canvas-card") continue;
+          const canvasDocId = (card.props as any)?.canvasDocId;
+          if (!canvasDocId) continue;
+
           let lastMod: string | null = null;
 
           try {
-            const canvasHandle = repo.handles[card.docId as DocumentId];
+            const canvasHandle = repo.handles[canvasDocId as DocumentId];
             const canvasDoc = canvasHandle?.doc() as CanvasDocument | undefined;
 
             if (canvasDoc) {
@@ -166,7 +169,7 @@ export async function initFriendzWiring(
               }
 
               entries.push({
-                canvasDocId: card.docId,
+                canvasDocId,
                 lastModifiedAt: lastMod ?? "",
                 widgetCount,
               });
@@ -568,6 +571,9 @@ export async function initFriendzWiring(
           const canvasDoc = canvasHandle.doc() as CanvasDocument | undefined;
           if (!canvasDoc) return;
 
+          // only gossip our own edits — prevents amplification of remote syncs
+          if (canvasDoc.lastModifiedBy && canvasDoc.lastModifiedBy !== localNodeId) return;
+
           // count widgets and find latest modification timestamp
           let widgetCount = 0;
           let lastMod = canvasDoc.lastModified ?? "";
@@ -620,7 +626,7 @@ export async function initFriendzWiring(
 
     if (narthexDoc) {
       // sync card props from canvas docs into narthex card metadata
-      for (const [_cardId, card] of Object.entries(narthexDoc.cards ?? {}) as any[]) {
+      for (const [_cardId, card] of Object.entries(narthexDoc.widgets ?? {}) as any[]) {
         if (!card?.docId) continue;
 
         try {
@@ -632,8 +638,8 @@ export async function initFriendzWiring(
             const currentKnown = card.lastVisitedAt;
             if (lastVisited && (!currentKnown || lastVisited > currentKnown)) {
               narthexHandle.change((draft: any) => {
-                if (draft.cards?.[_cardId]) {
-                  draft.cards[_cardId].lastVisitedAt = lastVisited;
+                if (draft.widgets?.[_cardId]) {
+                  draft.widgets[_cardId].lastVisitedAt = lastVisited;
                 }
               });
             }
@@ -808,16 +814,19 @@ export async function initFriendzWiring(
     try {
       const narthexHandle = repo.handles[narthexDocId as any];
       const narthexDoc = narthexHandle?.doc();
-      if (!narthexDoc?.cards) return;
+      if (!narthexDoc?.widgets) return;
 
-      for (const [cardId, card] of Object.entries(narthexDoc.cards) as any[]) {
-        if (card?.props?.canvasDocId === msg.canvasDocId) {
-          narthexHandle.change((draft: any) => {
-            if (draft.cards?.[cardId]) {
-              draft.cards[cardId].hasUpdates = true;
-              draft.cards[cardId].lastKnownModifiedAt = msg.lastModifiedAt;
-            }
-          });
+      for (const [_cardId, card] of Object.entries(narthexDoc.widgets) as any[]) {
+        if (card?.props?.canvasDocId === msg.canvasDocId && card.docId) {
+          // update the per-widget doc (where the canvas-card reads hasUpdates from)
+          const cardHandle = repo.handles[card.docId as any];
+          if (cardHandle) {
+            cardHandle.change((draft: any) => {
+              draft.hasUpdates = true;
+              draft.lastKnownModifiedAt = msg.lastModifiedAt;
+              draft.lastModifiedBy = msg.modifiedByNodeId;
+            });
+          }
           break;
         }
       }

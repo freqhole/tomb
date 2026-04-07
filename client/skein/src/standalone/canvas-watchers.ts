@@ -5,12 +5,14 @@ import { CanvasStore } from "../canvas/canvas-store";
 /**
  * iterates all canvas-card widgets in the narthex, opens each linked canvas
  * document, and copies fresh metadata (title, description, lastModified,
- * color, previewUrl) into the card's per-widget doc. also handles hasUpdates
- * logic and the lastVisitedAt one-time migration for pre-schema cards.
+ * color, previewUrl, lastModifiedBy) into the card's per-widget doc. also
+ * handles hasUpdates logic (using lastModifiedBy to distinguish own vs remote
+ * edits) and the lastVisitedAt one-time migration for pre-schema cards.
  */
 export async function syncCanvasMetadataToCards(
   repo: Repo,
-  narthexStore: CanvasStore
+  narthexStore: CanvasStore,
+  localNodeId: string
 ): Promise<void> {
   const widgets = narthexStore.allWidgets();
 
@@ -56,6 +58,11 @@ export async function syncCanvasMetadataToCards(
           d.previewUrl = meta.previewUrl;
           changed = true;
         }
+        // sync lastModifiedBy from canvas doc
+        if (meta.lastModifiedBy !== undefined && meta.lastModifiedBy !== (d.lastModifiedBy ?? "")) {
+          d.lastModifiedBy = meta.lastModifiedBy;
+          changed = true;
+        }
 
         // seed lastVisitedAt for pre-migration cards (one-time migration).
         // without this, cards created before the schema migration have
@@ -73,16 +80,22 @@ export async function syncCanvasMetadataToCards(
           return;
         }
 
-        // set or clear hasUpdates using the live draft values
-        if (meta.lastModified && lastVisited && meta.lastModified > lastVisited) {
+        // set or clear hasUpdates based on who last modified the canvas.
+        // own edits never trigger the pill — only remote changes do.
+        const modifiedByOther = meta.lastModifiedBy && meta.lastModifiedBy !== localNodeId;
+        if (
+          modifiedByOther &&
+          meta.lastModified &&
+          lastVisited &&
+          meta.lastModified > lastVisited
+        ) {
           d.hasUpdates = true;
           d.lastKnownModifiedAt = meta.lastModified;
           changed = true;
-        } else if (meta.lastModified && lastVisited && meta.lastModified <= lastVisited) {
-          if (d.hasUpdates) {
-            d.hasUpdates = false;
-            changed = true;
-          }
+        } else if (!modifiedByOther && d.hasUpdates) {
+          // own edit was the last change — clear any stale pill
+          d.hasUpdates = false;
+          changed = true;
         }
       });
 
@@ -98,15 +111,18 @@ export async function syncCanvasMetadataToCards(
 
 /**
  * watches all canvas docs linked from narthex cards for remote changes.
- * when a canvas doc's lastModified changes (via automerge sync), marks
- * the card with hasUpdates so the update dot appears.
+ * when a canvas doc's lastModified changes (via automerge sync) and the
+ * change was made by a different node (lastModifiedBy !== localNodeId),
+ * marks the card with hasUpdates so the update dot appears. own edits
+ * are ignored since the user already sees them.
  *
  * returns an array of unsubscribe functions -- the caller is responsible
  * for invoking them when watchers should be torn down.
  */
 export async function watchCanvasDocsForUpdates(
   repo: Repo,
-  narthexStore: CanvasStore
+  narthexStore: CanvasStore,
+  localNodeId: string
 ): Promise<Array<() => void>> {
   const unsubs: Array<() => void> = [];
   const widgets = narthexStore.allWidgets();
@@ -139,25 +155,19 @@ export async function watchCanvasDocsForUpdates(
         if (canvasDoc.lastModified === lastSeenModified) return;
         lastSeenModified = canvasDoc.lastModified;
 
+        // only show the pill for remote changes — own edits are already visible
+        if (!canvasDoc.lastModifiedBy || canvasDoc.lastModifiedBy === localNodeId) return;
+
         // don't mark as updated if user is currently viewing this canvas
         const currentHash = window.location.hash.slice(1);
         if (currentHash === canvasDocId) return;
 
-        // read the card's lastVisitedAt from the per-widget doc
-        const currentCardDoc = cardHandle.doc() as Record<string, unknown> | undefined;
-        const lastVisited = (currentCardDoc?.lastVisitedAt as string) || "";
-
-        // guard: if lastVisitedAt was never set (pre-migration card), skip.
-        // without this, any lastModified > "" is always true, causing stuck pills.
-        if (!lastVisited) return;
-
-        if (canvasDoc.lastModified > lastVisited) {
-          cardHandle.change((draft: any) => {
-            draft.hasUpdates = true;
-            draft.lastKnownModifiedAt = canvasDoc.lastModified;
-            draft.modifiedAt = canvasDoc.lastModified;
-          });
-        }
+        cardHandle.change((draft: any) => {
+          draft.hasUpdates = true;
+          draft.lastKnownModifiedAt = canvasDoc.lastModified;
+          draft.modifiedAt = canvasDoc.lastModified;
+          draft.lastModifiedBy = canvasDoc.lastModifiedBy;
+        });
       };
 
       canvasHandle.on("change", onChange);

@@ -21,6 +21,7 @@ describe("canvasCardSchema", () => {
       lastVisitedAt: "",
       hasUpdates: false,
       lastKnownModifiedAt: "",
+      lastModifiedBy: "",
     });
   });
 

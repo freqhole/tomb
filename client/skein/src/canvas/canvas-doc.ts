@@ -47,6 +47,8 @@ export interface CanvasDocument {
   createdAt: string;
   /** ISO date string when the canvas was last modified */
   lastModified: string;
+  /** node ID of the peer who last modified this canvas */
+  lastModifiedBy: string;
   /** tag color for the canvas (used for visual theming on narthex cards). 0 means no color set. */
   color: number;
   /** data URL for a preview/thumbnail image */
@@ -66,6 +68,7 @@ export function emptyCanvasDoc(): CanvasDocument {
     description: "",
     createdAt: "",
     lastModified: "",
+    lastModifiedBy: "",
     color: 0,
     previewUrl: "",
     peers: {},

@@ -57,6 +57,7 @@ export function canvasDoc(
     lastModified: "",
     color: 0,
     previewUrl: "",
+    lastModifiedBy: "",
     peers: {},
   };
 }

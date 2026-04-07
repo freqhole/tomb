@@ -62,6 +62,8 @@ class SkeinRouter {
   private gossipTracker: GossipTracker = new GossipTracker();
   private transportPresenceUnsubs: Array<() => void> = [];
   private canvasWatcherUnsubs: Array<() => void> = [];
+  private localNodeId: string = "";
+  private flushCanvasUpdates: (() => void) | null = null;
 
   /** adapter connection state source for the ConnectionStatus widget */
   private readonly connectionStateSource: ConnectionStateSource;
@@ -146,14 +148,14 @@ class SkeinRouter {
       }
     }) as EventListener);
 
-    // announce offline to peers and stamp last-visited on page close
+    // announce offline to peers on page close
     window.addEventListener("beforeunload", () => {
       if (this.friendzProtocol) {
         this.friendzProtocol.announceOffline();
         this.friendzProtocol.stopHeartbeat();
       }
-      // stamp last-visited synchronously — best effort, may not complete for async ops
-      this.stampLastVisitedOnCurrentCanvas().catch(() => {});
+      // canvas update flush is best-effort — peer may not receive before close
+      this.flushCanvasUpdates?.();
     });
 
     // initial navigation based on current hash
@@ -247,6 +249,9 @@ class SkeinRouter {
       // stamp lastVisitedAt before tearing down so own edits aren't flagged
       await this.stampLastVisitedOnCurrentCanvas();
 
+      // flush pending canvas update notifications to peers before leaving
+      this.flushCanvasUpdates?.();
+
       this.destroyCurrent();
 
       // clear hash for the narthex (clean URL)
@@ -255,6 +260,21 @@ class SkeinRouter {
       }
 
       console.log("[skein] navigating to narthex, doc:", this.narthexDocId);
+
+      // resolve local node ID for canvas attribution
+      if (!this.localNodeId) {
+        try {
+          if (isTauriMode()) {
+            const node = await TauriStreamNode.create();
+            this.localNodeId = node.node_id();
+          } else {
+            const identity = await getStoredIdentity();
+            this.localNodeId = identity?.node_id ?? "";
+          }
+        } catch {
+          // identity not ready
+        }
+      }
 
       // in tauri mode, create the sqlite-backed social doc early so it can
       // be shared between the social widget and the friendz protocol.
@@ -278,6 +298,7 @@ class SkeinRouter {
       });
 
       this.currentCanvas = canvas;
+      canvas.store.setLocalNodeId(this.localNodeId);
       (window as any).__skein = canvas;
 
       // when a canvas-card is deleted from the narthex, clean up the linked
@@ -355,12 +376,12 @@ class SkeinRouter {
       // runs asynchronously after the narthex is mounted so it doesn't block render.
       (async () => {
         try {
-          await syncCanvasMetadataToCards(this.repo, canvas.store);
+          await syncCanvasMetadataToCards(this.repo, canvas.store, this.localNodeId);
         } catch (err) {
           console.warn("[skein] metadata sync failed:", err);
         }
         try {
-          const unsubs = await watchCanvasDocsForUpdates(this.repo, canvas.store);
+          const unsubs = await watchCanvasDocsForUpdates(this.repo, canvas.store, this.localNodeId);
           this.canvasWatcherUnsubs.push(...unsubs);
         } catch (err) {
           console.warn("[skein] canvas watcher setup failed:", err);
@@ -415,6 +436,9 @@ class SkeinRouter {
     try {
       // stamp lastVisitedAt before tearing down so own edits aren't flagged
       await this.stampLastVisitedOnCurrentCanvas();
+
+      // flush pending canvas update notifications to peers before leaving
+      this.flushCanvasUpdates?.();
 
       this.destroyCurrent();
 
@@ -572,22 +596,7 @@ class SkeinRouter {
               const inviteId = crypto.randomUUID();
               const allTargets = [friend.nodeId];
 
-              // send the invite via protocol
-              await sendCanvasInvite(friend.nodeId, {
-                inviteId,
-                canvasDocId: docId,
-                canvasTitle,
-                canvasDescription,
-                canvasColor,
-                canvasPreviewUrl,
-                originNodeId: localIdentity.node_id,
-                originUsername: this.friendzProtocol?.getLocalUsername() ?? "",
-                role: "editor",
-                targets: allTargets,
-                acked: [],
-              });
-
-              // write outbox entry to messagez doc
+              // write outbox entry FIRST — durable record that survives failures
               if (this.messagezDocHandle) {
                 this.messagezDocHandle.change((draft: any) => {
                   if (!draft.shares) draft.shares = [];
@@ -608,7 +617,7 @@ class SkeinRouter {
                 });
               }
 
-              // track in gossip tracker for relay
+              // track in gossip tracker BEFORE the send — relay is the safety net
               this.gossipTracker.track(
                 inviteId,
                 docId,
@@ -617,11 +626,33 @@ class SkeinRouter {
                 canvasColor,
                 canvasPreviewUrl,
                 localIdentity.node_id,
-                "",
+                this.friendzProtocol?.getLocalUsername() ?? "",
                 "editor",
                 allTargets,
                 []
               );
+
+              // attempt direct send — best effort, gossip relay handles offline peers
+              try {
+                await sendCanvasInvite(friend.nodeId, {
+                  inviteId,
+                  canvasDocId: docId,
+                  canvasTitle,
+                  canvasDescription,
+                  canvasColor,
+                  canvasPreviewUrl,
+                  originNodeId: localIdentity.node_id,
+                  originUsername: this.friendzProtocol?.getLocalUsername() ?? "",
+                  role: "editor",
+                  targets: allTargets,
+                  acked: [],
+                });
+              } catch (err) {
+                console.warn(
+                  "[skein] direct invite send failed (gossip relay will retry):",
+                  (err as Error)?.message ?? err
+                );
+              }
 
               console.log("[skein] canvas invite sent to:", friend.nodeId.slice(0, 16) + "...");
             },
@@ -630,6 +661,7 @@ class SkeinRouter {
       });
 
       this.currentCanvas = canvas;
+      canvas.store.setLocalNodeId(this.localNodeId);
 
       // update lastVisitedAt on the canvas card
       if (this.narthexDocId) {
