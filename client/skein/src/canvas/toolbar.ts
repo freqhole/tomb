@@ -54,6 +54,7 @@ export class Toolbar {
   private readonly flyoutBg: Graphics;
   private flyoutOpen = false;
   private stageDismissHandler: ((e: any) => void) | null = null;
+  private flyoutBackdrop: Graphics | null = null;
 
   private unsubs: (() => void)[] = [];
   private widgetCounter = 0;
@@ -73,6 +74,9 @@ export class Toolbar {
     this.registry = registry;
     this.theme = theme;
     this.options = options ?? {};
+
+    // ensure stage sorts children by zIndex so the backdrop layer works
+    app.stage.sortableChildren = true;
 
     // root container lives on the stage at a high zIndex
     this.root = new Container();
@@ -352,18 +356,7 @@ export class Toolbar {
 
     this.positionFlyoutAtScreen(screenX, screenY);
 
-    // dismiss when clicking outside — same logic as openFlyout
-    requestAnimationFrame(() => {
-      this.stageDismissHandler = (e: any) => {
-        let target = e.target;
-        while (target) {
-          if (target === this.flyout || target === this.addBtn) return;
-          target = target.parent;
-        }
-        this.closeFlyout();
-      };
-      this.app.stage.on("pointerdown", this.stageDismissHandler);
-    });
+    this.showFlyoutBackdrop();
   }
 
   /** position the flyout near given screen coordinates, clamped to viewport. */
@@ -460,22 +453,7 @@ export class Toolbar {
 
     this.positionFlyout();
 
-    // dismiss when clicking outside — use a one-shot pointerdown on the stage.
-    // delay attachment by a frame so the current press event doesn't immediately
-    // trigger the dismiss handler.
-    requestAnimationFrame(() => {
-      this.stageDismissHandler = (e: any) => {
-        // don't close if the click landed inside the flyout itself
-        // (item handlers will close it after adding a widget)
-        let target = e.target;
-        while (target) {
-          if (target === this.flyout || target === this.addBtn) return;
-          target = target.parent;
-        }
-        this.closeFlyout();
-      };
-      this.app.stage.on("pointerdown", this.stageDismissHandler);
-    });
+    this.showFlyoutBackdrop();
   }
 
   /** close the flyout and remove the stage dismiss listener. */
@@ -485,9 +463,39 @@ export class Toolbar {
     this.flyout.visible = false;
     this.pendingPlacement = null;
 
+    this.removeFlyoutBackdrop();
+
     if (this.stageDismissHandler) {
       this.app.stage.off("pointerdown", this.stageDismissHandler);
       this.stageDismissHandler = null;
+    }
+  }
+
+  /** create a full-screen transparent overlay behind the flyout.
+   *  clicking the backdrop closes the flyout. */
+  private showFlyoutBackdrop(): void {
+    this.removeFlyoutBackdrop();
+
+    const backdrop = new Graphics();
+    backdrop.rect(-20000, -20000, 40000, 40000);
+    backdrop.fill({ color: 0x000000, alpha: 0.001 }); // near-invisible but catches events
+    backdrop.eventMode = "static";
+    backdrop.cursor = "default";
+    backdrop.zIndex = 9999; // below toolbar root (10000) but above everything else
+    backdrop.on("pointerdown", (e: any) => {
+      e.stopPropagation();
+      this.closeFlyout();
+    });
+
+    this.app.stage.addChild(backdrop);
+    this.flyoutBackdrop = backdrop;
+  }
+
+  /** remove the flyout backdrop overlay */
+  private removeFlyoutBackdrop(): void {
+    if (this.flyoutBackdrop) {
+      this.flyoutBackdrop.destroy();
+      this.flyoutBackdrop = null;
     }
   }
 
@@ -727,6 +735,7 @@ export class Toolbar {
   /** unsubscribe from all listeners and remove the toolbar from the stage. */
   destroy(): void {
     this.closeFlyout();
+    this.removeFlyoutBackdrop();
     for (const unsub of this.unsubs) {
       unsub();
     }

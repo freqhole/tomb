@@ -1,4 +1,5 @@
 import { WidgetRegistry } from "../../src/widgets/widget-registry";
+import { registerBinWidget } from "../bin/index";
 import { labelWidget } from "../label";
 import { canvasCardWidget } from "./canvas-card";
 import { canvasWizardWidget } from "./canvas-wizard";
@@ -19,6 +20,7 @@ export function createNarthexRegistry(): WidgetRegistry {
   registry.register(socialWidget);
   registry.register(messagezWidget);
   registry.register(labelWidget);
+  registerBinWidget(registry);
   return registry;
 }
 

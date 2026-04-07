@@ -468,7 +468,7 @@ export class WidgetManager {
     const widgetName = factory.metadata.name;
 
     // build callbacks that close over this entry's id
-    const callbacks = this.createFrameCallbacks(entry.id);
+    const callbacks = this.createFrameCallbacks(entry.id, entry.type);
 
     // create the pixi frame
     const frame = new WidgetFrame(entry, widgetName, this.theme, callbacks);
@@ -536,7 +536,7 @@ export class WidgetManager {
    * mount a crashed placeholder for a widget that failed to load.
    */
   private mountCrashed(entry: WidgetEntry, reason: string): void {
-    const callbacks = this.createFrameCallbacks(entry.id);
+    const callbacks = this.createFrameCallbacks(entry.id, entry.type);
     const frame = new WidgetFrame(entry, "crashed", this.theme, callbacks);
     const ctrl = createCrashedPlaceholder(entry.width, entry.height, reason, this.theme);
 
@@ -574,7 +574,7 @@ export class WidgetManager {
    * create the callback object for a widget frame.
    * each callback closes over the widget id and delegates to the store or input router.
    */
-  private createFrameCallbacks(widgetId: string) {
+  private createFrameCallbacks(widgetId: string, widgetType?: string) {
     return {
       onSelect: () => {
         this.inputRouter.selectWidget(widgetId);
@@ -609,9 +609,13 @@ export class WidgetManager {
           live.frame.setCollapsed(collapsed);
         }
       },
-      onMaximize: () => {
-        this.maximize(widgetId);
-      },
+      onMaximize: (() => {
+        const factory = widgetType ? this.registry.get(widgetType) : null;
+        if (factory?.metadata.maximizable === false) return undefined;
+        return () => {
+          this.maximize(widgetId);
+        };
+      })(),
 
       // batch drag support — only activates when multiple widgets are selected
       onDragStart: () => {

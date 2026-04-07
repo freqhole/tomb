@@ -179,6 +179,10 @@ export interface WidgetMetadata {
   defaultWidth?: number;
   /** default height when placing the widget on the canvas */
   defaultHeight?: number;
+  /** whether this widget can be maximized via the frame header button.
+   *  defaults to true when omitted. set to false for widgets that should
+   *  never fill the canvas (e.g. canvas cards). */
+  maximizable?: boolean;
 }
 
 /**

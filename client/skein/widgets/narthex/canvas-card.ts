@@ -145,10 +145,10 @@ export const canvasCardWidget: WidgetFactory<typeof canvasCardSchema> = {
     version: "0.1.0",
     category: "narthex",
     hidden: true,
+    maximizable: false,
   },
   schema: canvasCardSchema,
   editableProps: [
-    { key: "title", label: "title", type: "string" as const, default: "untitled canvas" },
     { key: "description", label: "description", type: "string" as const, default: "" },
     { key: "color", label: "color tag", type: "color" as const, default: 0xd946ef },
     {
@@ -758,6 +758,53 @@ export const canvasCardWidget: WidgetFactory<typeof canvasCardSchema> = {
       }
     });
 
+    // --- title sync ---
+    // the canvas card's doc has its own title field (doc.current.title).
+    // the widget frame header uses entry.title (from the canvas store).
+    // keep them in sync so editing either one updates both.
+    let titleSyncing = false;
+
+    const syncDocTitleToEntry = () => {
+      if (titleSyncing) return;
+      const docTitle = ctx.doc.current.title;
+      const entry = ctx.canvasStore?.getWidget(ctx.widgetId);
+      if (!entry) return;
+      const entryTitle = entry.title ?? "";
+      if (docTitle && docTitle !== entryTitle) {
+        titleSyncing = true;
+        ctx.canvasStore?.setWidgetTitle(ctx.widgetId, docTitle);
+        titleSyncing = false;
+      }
+    };
+
+    const syncEntryTitleToDoc = () => {
+      if (titleSyncing) return;
+      const entry = ctx.canvasStore?.getWidget(ctx.widgetId);
+      if (!entry) return;
+      const entryTitle = entry.title ?? "";
+      const docTitle = ctx.doc.current.title;
+      if (entryTitle && entryTitle !== docTitle) {
+        titleSyncing = true;
+        ctx.doc.change((d: any) => {
+          d.title = entryTitle;
+        });
+        titleSyncing = false;
+      }
+    };
+
+    // initial sync: doc title -> entry title (doc title is the source on first mount)
+    syncDocTitleToEntry();
+
+    // listen for doc changes -> push to entry title
+    const unsubDocTitle = ctx.doc.on("change", () => {
+      syncDocTitleToEntry();
+    });
+
+    // listen for store changes -> push to doc title
+    const unsubStoreTitle = ctx.canvasStore?.onChange(() => {
+      syncEntryTitleToDoc();
+    });
+
     // --- subscribe to doc changes ---
 
     const unsub = ctx.doc.on("change", () => {
@@ -768,6 +815,8 @@ export const canvasCardWidget: WidgetFactory<typeof canvasCardSchema> = {
       container,
       destroy() {
         unsub();
+        unsubDocTitle();
+        unsubStoreTitle?.();
         if (previewSprite) {
           container.removeChild(previewSprite);
           previewSprite.mask = null;

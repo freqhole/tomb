@@ -367,9 +367,17 @@ export class WidgetFrame {
   }
 
   private drawHeader(): void {
-    // no header in maximized mode
     if (this._maximized) {
+      if (!this._hovered) {
+        this.headerBg.clear();
+        return;
+      }
+      // semi-transparent overlay header when maximized and hovered
+      const w = this._width;
+      const h = this.theme.frameHeaderHeight;
       this.headerBg.clear();
+      this.headerBg.rect(0, 0, w, h);
+      this.headerBg.fill({ color: this.theme.frameHeaderBg, alpha: 0.85 });
       return;
     }
     const w = this._width;
@@ -430,7 +438,7 @@ export class WidgetFrame {
       return;
     }
     this.editOverlay.clear();
-    const isInert = this._lassoActive || this._selected || this._multiSelected;
+    const isInert = this._lassoActive || this._multiSelected;
     if (!isInert || this._collapsed) {
       this.editOverlay.visible = false;
       return;
@@ -1191,31 +1199,57 @@ export class WidgetFrame {
   }
 
   private updateVisualState(): void {
-    // when maximized, hide all chrome — the widget fills the viewport
     if (this._maximized) {
-      this.header.visible = false;
-      this.hamburgerBtn.visible = false;
-      this.collapseBtn.visible = false;
-      this.maximizeBtn.visible = false;
-      this.hideHamburgerFlyout();
+      const showHeader = this._hovered;
+
+      this.header.visible = showHeader;
+      if (showHeader) {
+        // overlay header at top of content (instead of above it)
+        this.header.y = 0;
+        this.header.alpha = 0.9;
+        this.positionButtons();
+      }
+
+      // system buttons follow header visibility
+      this.hamburgerBtn.visible = showHeader;
+      this.collapseBtn.visible = false; // collapse doesn't make sense when maximized
+      this.maximizeBtn.visible = showHeader && !!this.callbacks.onMaximize;
+
+      // custom actions follow header
+      for (const c of this.customActionContainers) {
+        if (!showHeader) {
+          c.visible = false;
+        }
+      }
+
+      if (!showHeader) {
+        this.hideHamburgerFlyout();
+      }
+
+      // resize handles always hidden when maximized
       for (const handle of this.resizeHandles.values()) {
         handle.visible = false;
       }
-      for (const c of this.customActionContainers) {
-        c.visible = false;
-      }
+
+      // content fills the viewport from y=0
       this.contentContainer.y = 0;
       this.contentContainer.eventMode = "auto";
       this.contentContainer.interactiveChildren = true;
       this.bodyHitArea.eventMode = "none";
-      // disable header drag while maximized
-      this.headerBg.eventMode = "none";
+      // header interactivity only when visible
+      this.headerBg.eventMode = showHeader ? "static" : "none";
+      this.headerBg.cursor = showHeader ? "default" : "auto";
+
       return;
     }
 
     // collapsed widgets always show chrome (no content to hover over)
     const showChrome = this._collapsed || this._hovered || this._selected || this._multiSelected;
-    const isInert = this._lassoActive || this._selected || this._multiSelected;
+    const isInert = this._lassoActive || this._multiSelected;
+
+    // restore header position and opacity (may have been changed during maximized hover)
+    this.header.y = -this.theme.frameHeaderHeight;
+    this.header.alpha = 1;
 
     // resize handles: visible only when single-selected and not collapsed
     this.updateHandleVisibility();
@@ -1226,7 +1260,7 @@ export class WidgetFrame {
     // system buttons — always visible when chrome is shown
     this.hamburgerBtn.visible = showChrome;
     this.collapseBtn.visible = showChrome;
-    this.maximizeBtn.visible = showChrome;
+    this.maximizeBtn.visible = showChrome && !!this.callbacks.onMaximize;
 
     // custom action containers follow chrome visibility (positionButtons handles overflow)
     for (const c of this.customActionContainers) {
