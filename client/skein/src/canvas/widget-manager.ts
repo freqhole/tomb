@@ -616,6 +616,9 @@ export class WidgetManager {
           this.maximize(widgetId);
         };
       })(),
+      onRestore: () => {
+        this.restore();
+      },
 
       // batch drag support — only activates when multiple widgets are selected
       onDragStart: () => {

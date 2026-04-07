@@ -478,6 +478,16 @@ export class PropertyTray {
   }
 
   private positionNextTo(frameX: number, frameY: number, frameWidth: number): void {
+    // when the widget is maximized, the tray would normally be positioned
+    // off-screen (to the right of the full-viewport widget). instead,
+    // overlay it inside the viewport on the right side.
+    if (this.widgetManager.isMaximized) {
+      const margin = 8;
+      this.root.x = Math.round(frameX + frameWidth - this.trayWidth - margin);
+      this.root.y = Math.round(frameY + margin);
+      return;
+    }
+
     this.root.x = Math.round(frameX + frameWidth + TRAY_GAP);
     this.root.y = Math.round(frameY - this.theme.frameHeaderHeight);
   }

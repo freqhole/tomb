@@ -1,4 +1,4 @@
-import { Container, Graphics, Text, type FederatedPointerEvent } from "pixi.js";
+import { Container, Graphics, Rectangle, Text, type FederatedPointerEvent } from "pixi.js";
 import type { SkeinTheme } from "../theme/skein-theme";
 import type { HeaderAction } from "../widgets/widget-types";
 import type { WidgetEntry } from "./canvas-doc";
@@ -22,6 +22,7 @@ export interface WidgetFrameCallbacks {
   onClose: () => void;
   onCollapse: (collapsed: boolean) => void;
   onMaximize?: () => void;
+  onRestore?: () => void;
   /** z-order: bring this widget to the front of all others */
   onBringToFront?: () => void;
   /** z-order: move this widget one layer forward */
@@ -372,12 +373,12 @@ export class WidgetFrame {
         this.headerBg.clear();
         return;
       }
-      // semi-transparent overlay header when maximized and hovered
+      // opaque header — it sits above the content, not overlaying it
       const w = this._width;
       const h = this.theme.frameHeaderHeight;
       this.headerBg.clear();
       this.headerBg.rect(0, 0, w, h);
-      this.headerBg.fill({ color: this.theme.frameHeaderBg, alpha: 0.85 });
+      this.headerBg.fill({ color: this.theme.frameHeaderBg });
       return;
     }
     const w = this._width;
@@ -486,15 +487,18 @@ export class WidgetFrame {
     const btnSize = this.theme.frameHeaderHeight - 8;
     const btnSlot = btnSize + 4; // width of one system button slot
 
-    // system buttons: hamburger (rightmost), maximize, collapse
-    this.hamburgerBtn.x = w - btnSlot;
-    this.hamburgerBtn.y = 4;
-    this.maximizeBtn.x = w - btnSlot * 2;
-    this.maximizeBtn.y = 4;
-    this.collapseBtn.x = w - btnSlot * 3;
-    this.collapseBtn.y = 4;
-
-    const systemButtonsWidth = btnSlot * 3;
+    // position system buttons from right to left, skipping hidden ones
+    const systemButtons = [this.hamburgerBtn, this.maximizeBtn, this.collapseBtn];
+    let btnX = w;
+    let visibleSystemCount = 0;
+    for (const btn of systemButtons) {
+      if (!btn.visible) continue;
+      btnX -= btnSlot;
+      btn.x = btnX;
+      btn.y = 4;
+      visibleSystemCount++;
+    }
+    const systemButtonsWidth = visibleSystemCount * btnSlot;
     const titleMinWidth = 60;
     const availableForActions = w - titleMinWidth - systemButtonsWidth;
 
@@ -863,7 +867,11 @@ export class WidgetFrame {
     maximizeBg.cursor = "pointer";
     maximizeBg.on("pointertap", (e: FederatedPointerEvent) => {
       e.stopPropagation();
-      this.callbacks.onMaximize?.();
+      if (this._maximized) {
+        this.callbacks.onRestore?.();
+      } else {
+        this.callbacks.onMaximize?.();
+      }
     });
   }
 
@@ -1202,12 +1210,24 @@ export class WidgetFrame {
     if (this._maximized) {
       const showHeader = this._hovered;
 
+      // explicit hitArea so hover events fire even when widget content
+      // has no interactive pixi elements (e.g., image widget, label)
+      this.root.hitArea = new Rectangle(
+        0,
+        -this.theme.frameHeaderHeight,
+        this._width,
+        this._height + this.theme.frameHeaderHeight
+      );
+
       this.header.visible = showHeader;
       if (showHeader) {
-        // overlay header at top of content (instead of above it)
-        this.header.y = 0;
-        this.header.alpha = 0.9;
+        // header sits above the content, at its normal position
+        this.header.y = -this.theme.frameHeaderHeight;
+        this.header.alpha = 1;
         this.positionButtons();
+        // update maximize/restore icon
+        const maximizeLabel = this.maximizeBtn.getChildAt(1) as Text;
+        maximizeLabel.text = "\u2921"; // ⤡ restore icon
       }
 
       // system buttons follow header visibility
@@ -1245,11 +1265,19 @@ export class WidgetFrame {
 
     // collapsed widgets always show chrome (no content to hover over)
     const showChrome = this._collapsed || this._hovered || this._selected || this._multiSelected;
-    const isInert = this._lassoActive || this._multiSelected;
 
-    // restore header position and opacity (may have been changed during maximized hover)
+    // restore header position and opacity (may have been changed during maximize hover)
     this.header.y = -this.theme.frameHeaderHeight;
     this.header.alpha = 1;
+
+    // clear explicit hitArea — let pixi auto-detect from children
+    this.root.hitArea = null;
+
+    // restore maximize icon
+    const maximizeLabel = this.maximizeBtn.getChildAt(1) as Text;
+    maximizeLabel.text = "\u2922"; // ⤢ maximize icon
+
+    const isInert = this._lassoActive || this._multiSelected;
 
     // resize handles: visible only when single-selected and not collapsed
     this.updateHandleVisibility();
