@@ -19,6 +19,19 @@ thiserror = { workspace = true }
 # keypair persistence
 getrandom = "0.2"
 
+# automerge doc sync
+samod = { version = "0.9", features = ["tokio"] }
+automerge = "0.8"
+futures = "0.3"
+tokio-util = { workspace = true }
+bytes = "1"
+url = "2"
+derive_more = { version = "2.0", features = ["debug"] }
+
+# sqlite storage for automerge docs
+sqlx = { workspace = true, features = ["runtime-tokio-rustls", "sqlite", "migrate"] }
+
 [dev-dependencies]
 tokio = { workspace = true, features = ["full", "test-util"] }
 tempfile = { workspace = true }
+futures = "0.3"
