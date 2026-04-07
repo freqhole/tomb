@@ -1,5 +1,6 @@
 import { Container, Graphics, Text, type FederatedPointerEvent } from "pixi.js";
 import type { SkeinTheme } from "../theme/skein-theme";
+import type { HeaderAction } from "../widgets/widget-types";
 import type { WidgetEntry } from "./canvas-doc";
 
 /** snap a value to the nearest grid line */
@@ -65,22 +66,28 @@ export class WidgetFrame {
   private readonly callbacks: WidgetFrameCallbacks;
   private readonly widgetName: string;
 
+  // title support — entry.title overrides widgetName in the header
+  private _title = "";
+
   // visual elements
   private readonly border: Graphics;
   private readonly header: Container;
   private readonly headerBg: Graphics;
   private readonly headerText: Text;
-  private readonly layersBtn: Container;
-  private layersFlyout: Container | null = null;
+  private readonly hamburgerBtn: Container;
+  private hamburgerFlyout: Container | null = null;
   private _layerPosition = 0;
   private _layerTotal = 0;
   private readonly collapseBtn: Container;
-  private readonly closeBtn: Container;
   private readonly maximizeBtn: Container;
-  private readonly closeable: boolean;
   private readonly contentMask: Graphics;
   private readonly editOverlay: Graphics;
   private readonly resizeHandles: Map<HandlePosition, Graphics> = new Map();
+
+  // custom header actions injected by widgets
+  private customActions: HeaderAction[] = [];
+  private customActionContainers: Container[] = [];
+  private overflowActions: HeaderAction[] = [];
 
   // state
   private _destroyed = false;
@@ -113,13 +120,12 @@ export class WidgetFrame {
     entry: WidgetEntry,
     widgetName: string,
     theme: SkeinTheme,
-    callbacks: WidgetFrameCallbacks,
-    closeable = true
+    callbacks: WidgetFrameCallbacks
   ) {
     this.theme = theme;
     this.callbacks = callbacks;
     this.widgetName = widgetName;
-    this.closeable = closeable;
+    this._title = entry.title ?? "";
     this._width = entry.width;
     this._height = entry.height;
     this._collapsed = entry.collapsed;
@@ -172,7 +178,7 @@ export class WidgetFrame {
     this.header.addChild(this.headerBg);
 
     this.headerText = new Text({
-      text: this.widgetName,
+      text: this._title || this.widgetName,
       resolution: theme.textResolution,
       style: {
         fontFamily: theme.fontFamily,
@@ -186,10 +192,6 @@ export class WidgetFrame {
     this.headerText.eventMode = "none";
     this.header.addChild(this.headerText);
 
-    // layers button — opens a flyout with z-order controls
-    this.layersBtn = this.createHeaderButton("\u2261", theme);
-    this.header.addChild(this.layersBtn);
-
     // collapse button
     this.collapseBtn = this.createHeaderButton(this._collapsed ? "+" : "-", theme);
     this.header.addChild(this.collapseBtn);
@@ -198,9 +200,9 @@ export class WidgetFrame {
     this.maximizeBtn = this.createHeaderButton("\u2922", theme);
     this.header.addChild(this.maximizeBtn);
 
-    // close button
-    this.closeBtn = this.createHeaderButton("x", theme);
-    this.header.addChild(this.closeBtn);
+    // hamburger button — opens a flyout with z-order controls and overflow actions
+    this.hamburgerBtn = this.createHeaderButton("\u2261", theme);
+    this.header.addChild(this.hamburgerBtn);
 
     // invisible hit area for body-drag when multi-selected.
     // sits behind the content container so it catches clicks on the
@@ -240,6 +242,36 @@ export class WidgetFrame {
     // initial draw
     this.draw();
     this.updateVisualState();
+  }
+
+  /** update the display title shown in the header */
+  setTitle(title: string): void {
+    this._title = title;
+    this.headerText.text = this._title || this.widgetName;
+  }
+
+  /** set custom header actions injected by the widget */
+  setCustomActions(actions: HeaderAction[]): void {
+    // destroy existing action containers
+    for (const c of this.customActionContainers) {
+      this.header.removeChild(c);
+      c.destroy({ children: true });
+    }
+    this.customActionContainers = [];
+    this.overflowActions = [];
+
+    // store new actions
+    this.customActions = actions;
+
+    // create containers for each action
+    for (const action of actions) {
+      const container = this.createActionButton(action);
+      this.customActionContainers.push(container);
+      this.header.addChild(container);
+    }
+
+    // reposition everything
+    this.draw();
   }
 
   /** set whether this frame is selected (single or multi) */
@@ -318,7 +350,7 @@ export class WidgetFrame {
       clearTimeout(this._hoverGraceTimer);
       this._hoverGraceTimer = null;
     }
-    this.hideLayersFlyout();
+    this.hideHamburgerFlyout();
     this.root.destroy({ children: true });
   }
 
@@ -433,17 +465,88 @@ export class WidgetFrame {
     }
   }
 
+  /**
+   * responsive header layout:
+   * [title text          ] [custom actions...] [collapse] [maximize] [hamburger]
+   *
+   * system buttons are positioned from the right edge.
+   * custom actions fill the space between the title and system buttons.
+   * actions that don't fit overflow into the hamburger flyout.
+   */
   private positionButtons(): void {
     const w = this._width;
     const btnSize = this.theme.frameHeaderHeight - 8;
-    this.closeBtn.x = w - btnSize - 4;
-    this.closeBtn.y = 4;
-    this.maximizeBtn.x = w - (btnSize + 4) * 2;
+    const btnSlot = btnSize + 4; // width of one system button slot
+
+    // system buttons: hamburger (rightmost), maximize, collapse
+    this.hamburgerBtn.x = w - btnSlot;
+    this.hamburgerBtn.y = 4;
+    this.maximizeBtn.x = w - btnSlot * 2;
     this.maximizeBtn.y = 4;
-    this.collapseBtn.x = w - (btnSize + 4) * 3;
+    this.collapseBtn.x = w - btnSlot * 3;
     this.collapseBtn.y = 4;
-    this.layersBtn.x = w - (btnSize + 4) * 4;
-    this.layersBtn.y = 4;
+
+    const systemButtonsWidth = btnSlot * 3;
+    const titleMinWidth = 60;
+    const availableForActions = w - titleMinWidth - systemButtonsWidth;
+
+    // walk custom actions left-to-right, measuring which fit
+    let usedWidth = 0;
+    let firstOverflowIndex = this.customActions.length; // assume all fit
+
+    for (let i = 0; i < this.customActions.length; i++) {
+      const actionWidth = this.measureActionWidth(this.customActions[i]);
+
+      if (usedWidth + actionWidth > availableForActions) {
+        firstOverflowIndex = i;
+        break;
+      }
+      usedWidth += actionWidth;
+    }
+
+    // set overflow actions
+    this.overflowActions = this.customActions.slice(firstOverflowIndex);
+
+    // position fitting action containers from right-to-left, left of collapse button
+    const actionsRightEdge = w - systemButtonsWidth;
+    let actionX = actionsRightEdge;
+
+    // position in reverse so rightmost fitting action is nearest to system buttons
+    for (let i = firstOverflowIndex - 1; i >= 0; i--) {
+      const container = this.customActionContainers[i];
+      const actionWidth = this.measureActionWidth(this.customActions[i]);
+      actionX -= actionWidth;
+      container.x = actionX;
+      container.y = 4;
+      container.visible = true;
+    }
+
+    // hide overflow action containers
+    for (let i = firstOverflowIndex; i < this.customActionContainers.length; i++) {
+      this.customActionContainers[i].visible = false;
+    }
+
+    // clip title text so it doesn't overlap actions
+    const titleMaxWidth = Math.max(20, actionX - 8 - 8); // 8px left padding + 8px gap
+    this.headerText.style.wordWrap = false;
+    // use a simple width clamp — pixi Text doesn't have native maxWidth,
+    // but we can use the content mask on the header or set the text scale
+    if (this.headerText.width > titleMaxWidth) {
+      this.headerText.scale.x = titleMaxWidth / this.headerText.width;
+    } else {
+      this.headerText.scale.x = 1;
+    }
+  }
+
+  /** measure the display width of a custom action button */
+  private measureActionWidth(action: HeaderAction): number {
+    // measure text width by creating a temporary text, or estimate from label length.
+    // for consistency, use fontSize * charCount * 0.6 + padding as a rough estimate,
+    // then we refine with actual container width if available.
+    const charWidth = this.theme.fontSizeSmall * 0.6;
+    const textWidth = action.label.length * charWidth;
+    const padding = 24; // 12px each side
+    return textWidth + padding;
   }
 
   private updateCollapseButton(): void {
@@ -724,16 +827,16 @@ export class WidgetFrame {
   // --- button interaction ---
 
   private setupButtonInteraction(): void {
-    // layers button — toggle flyout
-    const layersBg = this.layersBtn.getChildAt(0) as Graphics;
-    layersBg.eventMode = "static";
-    layersBg.cursor = "pointer";
-    layersBg.on("pointertap", (e: FederatedPointerEvent) => {
+    // hamburger button — toggle flyout
+    const hamburgerBg = this.hamburgerBtn.getChildAt(0) as Graphics;
+    hamburgerBg.eventMode = "static";
+    hamburgerBg.cursor = "pointer";
+    hamburgerBg.on("pointertap", (e: FederatedPointerEvent) => {
       e.stopPropagation();
-      if (this.layersFlyout) {
-        this.hideLayersFlyout();
+      if (this.hamburgerFlyout) {
+        this.hideHamburgerFlyout();
       } else {
-        this.showLayersFlyout();
+        this.showHamburgerFlyout();
       }
     });
 
@@ -753,15 +856,6 @@ export class WidgetFrame {
     maximizeBg.on("pointertap", (e: FederatedPointerEvent) => {
       e.stopPropagation();
       this.callbacks.onMaximize?.();
-    });
-
-    // close button
-    const closeBg = this.closeBtn.getChildAt(0) as Graphics;
-    closeBg.eventMode = "static";
-    closeBg.cursor = "pointer";
-    closeBg.on("pointertap", (e: FederatedPointerEvent) => {
-      e.stopPropagation();
-      this.callbacks.onClose();
     });
   }
 
@@ -792,7 +886,55 @@ export class WidgetFrame {
     return container;
   }
 
-  // --- layer flyout ---
+  /** create a custom action button or info badge for the header */
+  private createActionButton(action: HeaderAction): Container {
+    const btnHeight = this.theme.frameHeaderHeight - 8;
+    const container = new Container();
+
+    const label = new Text({
+      text: action.label,
+      resolution: this.theme.textResolution,
+      style: {
+        fontFamily: this.theme.fontFamily,
+        fontSize: this.theme.fontSizeSmall,
+        fill: action.isInfo ? 0x666666 : this.theme.frameHeaderText,
+      },
+    });
+    label.anchor.set(0.5);
+    label.eventMode = "none";
+
+    if (action.isInfo) {
+      // info badge: just text, no background, not clickable
+      const textWidth = label.width;
+      const totalWidth = textWidth + 24; // 12px padding each side
+      label.x = totalWidth / 2;
+      label.y = btnHeight / 2;
+      container.addChild(label);
+    } else {
+      // clickable action button with rounded-rect background
+      const textWidth = label.width;
+      const totalWidth = textWidth + 24; // 12px padding each side
+
+      const bg = new Graphics();
+      bg.roundRect(0, 0, totalWidth, btnHeight, 3);
+      bg.fill({ color: this.theme.frameBorder });
+      bg.eventMode = "static";
+      bg.cursor = "pointer";
+      bg.on("pointertap", (e: FederatedPointerEvent) => {
+        e.stopPropagation();
+        action.onClick?.();
+      });
+      container.addChild(bg);
+
+      label.x = totalWidth / 2;
+      label.y = btnHeight / 2;
+      container.addChild(label);
+    }
+
+    return container;
+  }
+
+  // --- hamburger flyout ---
 
   /** update the layer position info (called by widget manager on reconcile) */
   setLayerInfo(position: number, total: number): void {
@@ -800,18 +942,26 @@ export class WidgetFrame {
     this._layerTotal = total;
   }
 
-  /** show the layers flyout menu below the layers button */
-  private showLayersFlyout(): void {
-    if (this.layersFlyout) return;
+  /**
+   * show the hamburger flyout menu below the hamburger button.
+   * contains overflow actions (if any) at the top, then z-order controls,
+   * then a layer status row.
+   */
+  private showHamburgerFlyout(): void {
+    if (this.hamburgerFlyout) return;
 
     const panelWidth = 180;
     const rowHeight = 24;
-    const items = [
+
+    // z-order items
+    const zOrderItems = [
       { label: "bring to front", shortcut: "]", action: () => this.callbacks.onBringToFront?.() },
       { label: "bring forward", shortcut: "", action: () => this.callbacks.onBringForward?.() },
       { label: "send backward", shortcut: "", action: () => this.callbacks.onSendBackward?.() },
       { label: "send to back", shortcut: "[", action: () => this.callbacks.onSendToBack?.() },
     ];
+
+    const hasOverflow = this.overflowActions.length > 0;
 
     const flyout = new Container();
     flyout.zIndex = 1000;
@@ -823,20 +973,24 @@ export class WidgetFrame {
     blocker.eventMode = "static";
     blocker.on("pointertap", (e: FederatedPointerEvent) => {
       e.stopPropagation();
-      this.hideLayersFlyout();
+      this.hideHamburgerFlyout();
     });
     flyout.addChild(blocker);
 
-    // panel container positioned below the layers button
+    // panel container positioned below the hamburger button
     const panel = new Container();
-    panel.x = this.layersBtn.x;
+    panel.x = this.hamburgerBtn.x;
     panel.y = this.theme.frameHeaderHeight + 2;
     flyout.addChild(panel);
 
-    // separator + status row height
-    const separatorY = items.length * rowHeight;
+    // calculate panel height
+    const overflowRowCount = hasOverflow ? this.overflowActions.length : 0;
+    const overflowSectionHeight = hasOverflow ? overflowRowCount * rowHeight + 1 : 0; // +1 for separator
+    const zOrderSectionHeight = zOrderItems.length * rowHeight;
+    const statusSeparatorHeight = 1;
     const statusRowHeight = rowHeight;
-    const panelHeight = separatorY + 1 + statusRowHeight;
+    const panelHeight =
+      overflowSectionHeight + zOrderSectionHeight + statusSeparatorHeight + statusRowHeight;
 
     // background
     const bg = new Graphics();
@@ -846,10 +1000,86 @@ export class WidgetFrame {
     bg.eventMode = "static";
     panel.addChild(bg);
 
-    // action rows
-    for (let i = 0; i < items.length; i++) {
-      const item = items[i];
-      const rowY = i * rowHeight;
+    let currentY = 0;
+
+    // overflow actions section (if any)
+    if (hasOverflow) {
+      for (let i = 0; i < this.overflowActions.length; i++) {
+        const action = this.overflowActions[i];
+        const rowY = currentY + i * rowHeight;
+
+        if (action.isInfo) {
+          // non-clickable info row with muted text
+          const infoLabel = new Text({
+            text: action.label,
+            resolution: this.theme.textResolution,
+            style: {
+              fontFamily: this.theme.fontFamily,
+              fontSize: this.theme.fontSizeSmall,
+              fill: 0x666666,
+            },
+          });
+          infoLabel.x = 8;
+          infoLabel.y = rowY + rowHeight / 2;
+          infoLabel.anchor.set(0, 0.5);
+          infoLabel.eventMode = "none";
+          panel.addChild(infoLabel);
+        } else {
+          // clickable row
+          const rowHit = new Graphics();
+          rowHit.rect(1, rowY + 1, panelWidth - 2, rowHeight - 1);
+          rowHit.fill({ color: 0x000000, alpha: 0.01 });
+          rowHit.eventMode = "static";
+          rowHit.cursor = "pointer";
+          panel.addChild(rowHit);
+
+          rowHit.on("pointerenter", () => {
+            rowHit.clear();
+            rowHit.rect(1, rowY + 1, panelWidth - 2, rowHeight - 1);
+            rowHit.fill({ color: this.theme.frameBorderHover });
+          });
+          rowHit.on("pointerleave", () => {
+            rowHit.clear();
+            rowHit.rect(1, rowY + 1, panelWidth - 2, rowHeight - 1);
+            rowHit.fill({ color: 0x000000, alpha: 0.01 });
+          });
+          rowHit.on("pointertap", (e: FederatedPointerEvent) => {
+            e.stopPropagation();
+            action.onClick?.();
+            this.hideHamburgerFlyout();
+          });
+
+          const actionLabel = new Text({
+            text: action.label,
+            resolution: this.theme.textResolution,
+            style: {
+              fontFamily: this.theme.fontFamily,
+              fontSize: this.theme.fontSizeSmall,
+              fill: this.theme.frameHeaderText,
+            },
+          });
+          actionLabel.x = 8;
+          actionLabel.y = rowY + rowHeight / 2;
+          actionLabel.anchor.set(0, 0.5);
+          actionLabel.eventMode = "none";
+          panel.addChild(actionLabel);
+        }
+      }
+
+      currentY += overflowRowCount * rowHeight;
+
+      // separator between overflow actions and z-order controls
+      const overflowSep = new Graphics();
+      overflowSep.rect(4, currentY, panelWidth - 8, 1);
+      overflowSep.fill({ color: this.theme.toolbarBorder });
+      panel.addChild(overflowSep);
+      currentY += 1;
+    }
+
+    // z-order action rows
+    for (let i = 0; i < zOrderItems.length; i++) {
+      const item = zOrderItems[i];
+      const rowY = currentY + i * rowHeight;
 
       // hit area for the row
       const rowHit = new Graphics();
@@ -875,7 +1105,7 @@ export class WidgetFrame {
       rowHit.on("pointertap", (e: FederatedPointerEvent) => {
         e.stopPropagation();
         item.action();
-        this.hideLayersFlyout();
+        this.hideHamburgerFlyout();
       });
 
       // label
@@ -913,11 +1143,14 @@ export class WidgetFrame {
       }
     }
 
-    // separator line
+    currentY += zOrderItems.length * rowHeight;
+
+    // separator line before status
     const sep = new Graphics();
-    sep.rect(4, separatorY, panelWidth - 8, 1);
+    sep.rect(4, currentY, panelWidth - 8, 1);
     sep.fill({ color: this.theme.toolbarBorder });
     panel.addChild(sep);
+    currentY += 1;
 
     // status row: "layer N / M"
     const statusText = new Text({
@@ -930,21 +1163,21 @@ export class WidgetFrame {
       },
     });
     statusText.x = 8;
-    statusText.y = separatorY + 1 + statusRowHeight / 2;
+    statusText.y = currentY + statusRowHeight / 2;
     statusText.anchor.set(0, 0.5);
     statusText.eventMode = "none";
     panel.addChild(statusText);
 
-    this.layersFlyout = flyout;
+    this.hamburgerFlyout = flyout;
     this.root.addChild(flyout);
   }
 
-  /** hide and destroy the layers flyout */
-  private hideLayersFlyout(): void {
-    if (!this.layersFlyout) return;
-    this.root.removeChild(this.layersFlyout);
-    this.layersFlyout.destroy({ children: true });
-    this.layersFlyout = null;
+  /** hide and destroy the hamburger flyout */
+  private hideHamburgerFlyout(): void {
+    if (!this.hamburgerFlyout) return;
+    this.root.removeChild(this.hamburgerFlyout);
+    this.hamburgerFlyout.destroy({ children: true });
+    this.hamburgerFlyout = null;
   }
 
   // --- visual state management ---
@@ -961,13 +1194,15 @@ export class WidgetFrame {
     // when maximized, hide all chrome — the widget fills the viewport
     if (this._maximized) {
       this.header.visible = false;
-      this.layersBtn.visible = false;
+      this.hamburgerBtn.visible = false;
       this.collapseBtn.visible = false;
       this.maximizeBtn.visible = false;
-      this.closeBtn.visible = false;
-      this.hideLayersFlyout();
+      this.hideHamburgerFlyout();
       for (const handle of this.resizeHandles.values()) {
         handle.visible = false;
+      }
+      for (const c of this.customActionContainers) {
+        c.visible = false;
       }
       this.contentContainer.y = 0;
       this.contentContainer.eventMode = "auto";
@@ -988,15 +1223,23 @@ export class WidgetFrame {
     // header visibility
     this.header.visible = showChrome;
 
-    // header buttons
-    this.layersBtn.visible = showChrome;
+    // system buttons — always visible when chrome is shown
+    this.hamburgerBtn.visible = showChrome;
     this.collapseBtn.visible = showChrome;
     this.maximizeBtn.visible = showChrome;
-    this.closeBtn.visible = showChrome && this.closeable;
 
-    // hide layers flyout when chrome disappears
+    // custom action containers follow chrome visibility (positionButtons handles overflow)
+    for (const c of this.customActionContainers) {
+      // positionButtons() controls per-action visibility based on overflow,
+      // but when chrome is hidden, hide them all
+      if (!showChrome) {
+        c.visible = false;
+      }
+    }
+
+    // hide hamburger flyout when chrome disappears
     if (!showChrome) {
-      this.hideLayersFlyout();
+      this.hideHamburgerFlyout();
     }
 
     // header interactivity — always active (hidden header won't receive events anyway)

@@ -12,8 +12,9 @@ import { pickImageAsDataUrl } from "../widgets/image-utils";
 
 import { createSkeinInput } from "../widgets/skein-input";
 import type { WidgetRegistry } from "../widgets/widget-registry";
-import type { WidgetDoc, WidgetPropDef } from "../widgets/widget-types";
+import type { WidgetDoc, WidgetFactory, WidgetPropDef } from "../widgets/widget-types";
 import { TRANSPARENT_COLOR } from "../widgets/widget-types";
+import type { WidgetEntry } from "./canvas-doc";
 import type { CanvasStore } from "./canvas-store";
 import type { InputRouter } from "./input-router";
 import type { WidgetManager } from "./widget-manager";
@@ -83,6 +84,7 @@ export class PropertyTray {
   private readonly inputRouter: InputRouter;
   private readonly widgetManager: WidgetManager;
   private readonly registry: WidgetRegistry;
+  private readonly store: CanvasStore;
 
   private readonly bg: Graphics;
   private readonly header: Text;
@@ -92,6 +94,8 @@ export class PropertyTray {
   private trayWidth = DEFAULT_TRAY_WIDTH;
   private currentWidgetId: string | null = null;
   private controls: PropControl[] = [];
+  private titleControl: PropControl | null = null;
+  private deleteContainer: Container | null = null;
   /** visibility conditions for controls with visibleWhen */
   private controlVisibility = new Map<number, { key: string; value: unknown }>();
   private docUnsub: (() => void) | null = null;
@@ -128,8 +132,9 @@ export class PropertyTray {
     this.inputRouter = inputRouter;
     this.widgetManager = widgetManager;
     this.registry = registry;
+    this.store = store;
 
-    // root container — hidden until a widget with editableProps is selected
+    // root container — hidden until a widget is selected
     this.root = new Container();
     this.root.visible = false;
     this.root.zIndex = 99999;
@@ -224,6 +229,7 @@ export class PropertyTray {
    */
   private applyWidth(): void {
     const fieldWidth = this.trayWidth - TRAY_PAD_H * 2;
+    this.titleControl?.setWidth(fieldWidth);
     for (const control of this.controls) {
       control.setWidth(fieldWidth);
     }
@@ -258,7 +264,6 @@ export class PropertyTray {
    */
   private refresh(): void {
     const selectedId = this.inputRouter.selectedWidgetId;
-
     if (!selectedId) {
       this.hide();
       return;
@@ -270,18 +275,18 @@ export class PropertyTray {
     }
 
     const live = this.widgetManager.getLiveWidgets().get(selectedId);
-    if (!live || !live.widgetDoc || live.crashed) {
+    if (!live || live.crashed) {
       this.hide();
       return;
     }
 
     const factory = this.registry.get(live.entry.type);
-    if (!factory?.editableProps?.length) {
+    if (!factory) {
       this.hide();
       return;
     }
 
-    this.show(selectedId, factory.metadata.name, factory.editableProps, live.widgetDoc);
+    this.show(selectedId, factory, live.widgetDoc, live.entry);
     this.positionNextTo(live.frame.root.x, live.frame.root.y, live.entry.width);
   }
 
@@ -290,64 +295,83 @@ export class PropertyTray {
    */
   private show(
     widgetId: string,
-    widgetName: string,
-    props: WidgetPropDef[],
-    doc: WidgetDoc<any>
+    factory: WidgetFactory,
+    doc: WidgetDoc<any> | null,
+    entry: WidgetEntry
   ): void {
     // tear down any previous tray state
     this.clearControls();
 
     this.currentWidgetId = widgetId;
-    this.header.text = widgetName;
+    this.header.text = factory.metadata.name;
 
     // position the content below the header
     this.contentContainer.y = Math.round(this.header.y + this.header.height + ROW_GAP);
 
-    // build a control for each editable prop
     const fieldWidth = this.trayWidth - TRAY_PAD_H * 2;
     let y = 0;
-    for (let i = 0; i < props.length; i++) {
-      const prop = props[i];
-      const control = this.createControl(prop, doc, fieldWidth);
-      this.contentContainer.addChild(control.container);
-      this.controls.push(control);
 
-      // track conditional visibility
-      if (prop.visibleWhen) {
-        this.controlVisibility.set(i, prop.visibleWhen);
-        const currentVal = doc.current[prop.visibleWhen.key];
-        if (currentVal !== prop.visibleWhen.value) {
-          control.container.visible = false;
-        }
-      }
+    // title field (always shown)
+    this.titleControl = this.createTitleControl(widgetId, entry.title ?? "", fieldWidth);
+    this.contentContainer.addChild(this.titleControl.container);
+    this.titleControl.container.y = Math.round(y);
+    y += this.titleControl.height + ROW_GAP;
 
-      // layout only visible controls
-      if (control.container.visible) {
-        control.container.y = Math.round(y);
-        y += control.height + ROW_GAP;
-      }
-    }
+    // widget-specific prop controls (only if doc exists and factory has editable props)
+    const props = factory.editableProps ?? [];
+    if (doc && props.length) {
+      for (let i = 0; i < props.length; i++) {
+        const prop = props[i];
+        const control = this.createControl(prop, doc, fieldWidth);
+        this.contentContainer.addChild(control.container);
+        this.controls.push(control);
 
-    // subscribe to doc changes so controls stay in sync with remote edits
-    this.docUnsub = doc.on("change", (state: Record<string, unknown>) => {
-      let needsRelayout = false;
-      for (let i = 0; i < this.controls.length; i++) {
-        const control = this.controls[i];
-        control.update(state[control.key]);
-
-        const vis = this.controlVisibility.get(i);
-        if (vis) {
-          const shouldBeVisible = state[vis.key] === vis.value;
-          if (control.container.visible !== shouldBeVisible) {
-            control.container.visible = shouldBeVisible;
-            needsRelayout = true;
+        // track conditional visibility
+        if (prop.visibleWhen) {
+          this.controlVisibility.set(i, prop.visibleWhen);
+          const currentVal = doc.current[prop.visibleWhen.key];
+          if (currentVal !== prop.visibleWhen.value) {
+            control.container.visible = false;
           }
         }
+
+        // layout only visible controls
+        if (control.container.visible) {
+          control.container.y = Math.round(y);
+          y += control.height + ROW_GAP;
+        }
       }
-      if (needsRelayout) {
-        this.relayoutControls();
-      }
-    });
+
+      // subscribe to doc changes so controls stay in sync with remote edits
+      this.docUnsub = doc.on("change", (state: Record<string, unknown>) => {
+        let needsRelayout = false;
+        for (let i = 0; i < this.controls.length; i++) {
+          const control = this.controls[i];
+          control.update(state[control.key]);
+
+          const vis = this.controlVisibility.get(i);
+          if (vis) {
+            const shouldBeVisible = state[vis.key] === vis.value;
+            if (control.container.visible !== shouldBeVisible) {
+              control.container.visible = shouldBeVisible;
+              needsRelayout = true;
+            }
+          }
+        }
+        if (needsRelayout) {
+          this.relayoutControls();
+        }
+      });
+    }
+
+    // delete button at the bottom (skip for singletons)
+    const isSingleton = factory.metadata.singleton === true;
+    this.deleteContainer = this.createDeleteButton(widgetId, isSingleton, fieldWidth);
+    this.contentContainer.addChild(this.deleteContainer);
+    if (!isSingleton) {
+      y += ROW_GAP;
+      this.deleteContainer.y = Math.round(y);
+    }
 
     this.drawBackground();
     this.drawResizeHandle();
@@ -375,10 +399,20 @@ export class PropertyTray {
    */
   private relayoutControls(): void {
     let y = 0;
+    // title control is always first
+    if (this.titleControl) {
+      this.titleControl.container.y = Math.round(y);
+      y += this.titleControl.height + ROW_GAP;
+    }
     for (const control of this.controls) {
       if (!control.container.visible) continue;
       control.container.y = Math.round(y);
       y += control.height + ROW_GAP;
+    }
+    // delete button at the bottom
+    if (this.deleteContainer && this.deleteContainer.children.length > 0) {
+      y += ROW_GAP;
+      this.deleteContainer.y = Math.round(y);
     }
     this.drawBackground();
   }
@@ -392,11 +426,22 @@ export class PropertyTray {
       this.docUnsub = null;
     }
 
+    if (this.titleControl) {
+      this.titleControl.destroy();
+      this.titleControl = null;
+    }
+
     for (const control of this.controls) {
       control.destroy();
     }
     this.controls = [];
     this.controlVisibility.clear();
+
+    if (this.deleteContainer) {
+      this.deleteContainer.destroy({ children: true });
+      this.deleteContainer = null;
+    }
+
     this.contentContainer.removeChildren();
   }
 
@@ -541,6 +586,70 @@ export class PropertyTray {
       color: highlight ? this.theme.accent : this.theme.frameBorder,
       width: 1,
     });
+  }
+
+  // ---------------------------------------------------------------------------
+  // title control (edits entry.title on the canvas store)
+  // ---------------------------------------------------------------------------
+
+  private createTitleControl(
+    widgetId: string,
+    currentTitle: string,
+    fieldWidth: number
+  ): PropControl {
+    const container = new Container();
+    container.eventMode = "static";
+
+    const label = this.createLabel("title");
+    container.addChild(label);
+
+    const fieldY = Math.round(label.height + LABEL_FIELD_GAP);
+
+    const handle = createSkeinInput({
+      canvasElement: this.canvasElement,
+      width: fieldWidth,
+      height: FIELD_HEIGHT,
+      value: currentTitle,
+      onChange: (value: string) => {
+        this.store.setWidgetTitle(widgetId, value);
+      },
+      fontSize: this.theme.fontSizeSmall,
+      fontFamily: this.theme.fontFamily,
+      textColor: this.theme.frameHeaderText,
+      bgColor: 0x141414,
+      borderColor: this.theme.frameBorder,
+      borderActiveColor: this.theme.accent,
+      cornerRadius: 4,
+    });
+
+    handle.input.y = fieldY;
+    container.addChild(handle.input);
+
+    // close any active popup when the input is clicked/focused
+    handle.input.on("pointertap", () => {
+      this.closeActivePopup();
+    });
+
+    const totalHeight = fieldY + FIELD_HEIGHT;
+
+    return {
+      key: "__title__",
+      height: totalHeight,
+      container,
+      update(value: unknown) {
+        if (!handle.isEditing) {
+          handle.value = String(value ?? "");
+        }
+      },
+      setWidth(fw: number) {
+        handle.setWidth(fw);
+      },
+      destroy() {
+        handle.blur();
+        handle.destroy();
+        container.destroy({ children: true });
+      },
+    };
   }
 
   // ---------------------------------------------------------------------------
@@ -1473,6 +1582,147 @@ export class PropertyTray {
         container.destroy({ children: true });
       },
     };
+  }
+
+  // ---------------------------------------------------------------------------
+  // delete button
+  // ---------------------------------------------------------------------------
+
+  private createDeleteButton(
+    widgetId: string,
+    isSingleton: boolean,
+    fieldWidth: number
+  ): Container {
+    const container = new Container();
+    if (isSingleton) return container;
+
+    const btnHeight = FIELD_HEIGHT;
+
+    const deleteBg = new Graphics();
+    const deleteText = new Text({
+      text: "delete widget",
+      resolution: this.theme.textResolution,
+      style: {
+        fontFamily: this.theme.fontFamily,
+        fontSize: this.theme.fontSizeSmall,
+        fill: 0xffffff,
+      },
+    });
+    deleteText.anchor.set(0.5, 0.5);
+
+    // confirmation elements
+    const confirmContainer = new Container();
+    confirmContainer.visible = false;
+
+    const confirmText = new Text({
+      text: "are you sure?",
+      resolution: this.theme.textResolution,
+      style: {
+        fontFamily: this.theme.fontFamily,
+        fontSize: this.theme.fontSizeSmall,
+        fill: 0xaaaaaa,
+      },
+    });
+
+    // "yes" button
+    const yesBg = new Graphics();
+    const yesText = new Text({
+      text: "yes",
+      resolution: this.theme.textResolution,
+      style: {
+        fontFamily: this.theme.fontFamily,
+        fontSize: this.theme.fontSizeSmall,
+        fill: 0xffffff,
+      },
+    });
+    yesText.anchor.set(0.5, 0.5);
+
+    // "cancel" button
+    const cancelBg = new Graphics();
+    const cancelText = new Text({
+      text: "cancel",
+      resolution: this.theme.textResolution,
+      style: {
+        fontFamily: this.theme.fontFamily,
+        fontSize: this.theme.fontSizeSmall,
+        fill: 0xaaaaaa,
+      },
+    });
+    cancelText.anchor.set(0.5, 0.5);
+
+    const drawDelete = () => {
+      deleteBg.clear();
+      deleteBg.roundRect(0, 0, fieldWidth, btnHeight, 4);
+      deleteBg.fill({ color: 0x7f1d1d });
+      deleteText.x = fieldWidth / 2;
+      deleteText.y = btnHeight / 2;
+    };
+
+    const drawConfirm = () => {
+      const halfW = (fieldWidth - 4) / 2;
+
+      confirmText.x = fieldWidth / 2;
+      confirmText.y = -2;
+      confirmText.anchor.set(0.5, 1);
+
+      yesBg.clear();
+      yesBg.roundRect(0, 0, halfW, btnHeight, 4);
+      yesBg.fill({ color: 0xb91c1c });
+      yesText.x = halfW / 2;
+      yesText.y = btnHeight / 2;
+
+      cancelBg.clear();
+      cancelBg.roundRect(0, 0, halfW, btnHeight, 4);
+      cancelBg.fill({ color: 0x374151 });
+      cancelText.x = halfW / 2;
+      cancelText.y = btnHeight / 2;
+
+      const yesContainer = new Container();
+      yesContainer.addChild(yesBg, yesText);
+      yesContainer.x = 0;
+
+      const cancelContainer2 = new Container();
+      cancelContainer2.addChild(cancelBg, cancelText);
+      cancelContainer2.x = halfW + 4;
+
+      confirmContainer.removeChildren();
+      confirmContainer.addChild(confirmText, yesContainer, cancelContainer2);
+    };
+
+    drawDelete();
+    container.addChild(deleteBg, deleteText);
+
+    // click: show confirmation
+    deleteBg.eventMode = "static";
+    deleteBg.cursor = "pointer";
+    deleteBg.on("pointertap", (e) => {
+      e.stopPropagation();
+      deleteBg.visible = false;
+      deleteText.visible = false;
+      drawConfirm();
+      confirmContainer.visible = true;
+      container.addChild(confirmContainer);
+    });
+
+    // yes = delete
+    yesBg.eventMode = "static";
+    yesBg.cursor = "pointer";
+    yesBg.on("pointertap", (e) => {
+      e.stopPropagation();
+      this.widgetManager.closeWidget(widgetId);
+    });
+
+    // cancel = restore
+    cancelBg.eventMode = "static";
+    cancelBg.cursor = "pointer";
+    cancelBg.on("pointertap", (e) => {
+      e.stopPropagation();
+      confirmContainer.visible = false;
+      deleteBg.visible = true;
+      deleteText.visible = true;
+    });
+
+    return container;
   }
 }
 

@@ -1,5 +1,4 @@
 import {
-  BIN_HEADER_HEIGHT,
   BIN_PADDING,
   CRATE_GAP,
   CRATE_SLOT_H,
@@ -247,7 +246,7 @@ export function idealBinSize(
   const content = contentDimensions(mode, cols, rows, contentWidth, options);
   return {
     width: content.width + BIN_PADDING * 2,
-    height: content.height + BIN_HEADER_HEIGHT + BIN_PADDING * 2,
+    height: content.height + BIN_PADDING * 2,
   };
 }
 

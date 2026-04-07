@@ -4,21 +4,13 @@ import { z } from "zod";
 import type { WidgetRegistry } from "../../src/widgets/widget-registry";
 import type {
   CompactInfo,
+  HeaderAction,
   WidgetController,
   WidgetFactory,
   WidgetMountContext,
 } from "../../src/widgets/widget-types";
 import type { SlotScale } from "./bin-constants";
-import {
-  ACTION_BTN_BG,
-  ACTION_BTN_HOVER,
-  BIN_HEADER_FONT_SIZE,
-  BIN_HEADER_HEIGHT,
-  BIN_PADDING,
-  HEADER_BG,
-  TEXT_COLOR,
-  TEXT_MUTED,
-} from "./bin-constants";
+import { BIN_PADDING, TEXT_MUTED } from "./bin-constants";
 import { createBinDragHandler } from "./bin-drag";
 import {
   autoFitCols,
@@ -148,128 +140,45 @@ export const binWidget: WidgetFactory<typeof binSchema> = {
     let registry: WidgetRegistry | null = null;
     let renderer: BinRenderer | null = null;
 
-    // -- header --------------------------------------------------------------
+    // -- snatch state --------------------------------------------------------
 
-    const headerContainer = new Container();
-    headerContainer.label = "bin-header";
-    container.addChild(headerContainer);
-
-    const headerBg = new Graphics();
-    headerContainer.addChild(headerBg);
-
-    const titleText = new Text({
-      text: "",
-      style: {
-        fontFamily: FONT_FAMILY,
-        fontSize: BIN_HEADER_FONT_SIZE,
-        fill: TEXT_COLOR,
-      },
-      resolution: TEXT_RESOLUTION,
-    });
-    titleText.x = 6;
-    titleText.y = (BIN_HEADER_HEIGHT - BIN_HEADER_FONT_SIZE) / 2;
-    headerContainer.addChild(titleText);
-
-    const countBadge = new Text({
-      text: "",
-      style: {
-        fontFamily: FONT_FAMILY,
-        fontSize: BIN_HEADER_FONT_SIZE,
-        fill: TEXT_MUTED,
-      },
-      resolution: TEXT_RESOLUTION,
-    });
-    headerContainer.addChild(countBadge);
-
-    // "add files" button in the header
-    const addBtnContainer = new Container();
-    addBtnContainer.label = "add-btn";
-    addBtnContainer.eventMode = "static";
-    addBtnContainer.cursor = "pointer";
-    headerContainer.addChild(addBtnContainer);
-
-    const addBtnBg = new Graphics();
-    addBtnContainer.addChild(addBtnBg);
-
-    const addBtnText = new Text({
-      text: "+ add",
-      style: {
-        fontFamily: FONT_FAMILY,
-        fontSize: BIN_HEADER_FONT_SIZE - 1,
-        fill: TEXT_COLOR,
-      },
-      resolution: TEXT_RESOLUTION,
-    });
-    addBtnText.x = 6;
-    addBtnText.y = 2;
-    addBtnContainer.addChild(addBtnText);
-
-    const addBtnW = addBtnText.width + 12;
-    const addBtnH = BIN_HEADER_HEIGHT - 6;
-
-    function drawAddBtn(hover = false) {
-      addBtnBg.clear();
-      addBtnBg.roundRect(0, 0, addBtnW, addBtnH, 3).fill({
-        color: hover ? ACTION_BTN_HOVER : ACTION_BTN_BG,
-      });
-    }
-
-    drawAddBtn();
-    addBtnContainer.on("pointerover", () => drawAddBtn(true));
-    addBtnContainer.on("pointerout", () => drawAddBtn(false));
-
-    addBtnContainer.on("pointertap", (e: any) => {
-      e.stopPropagation();
-      handleAddFiles();
-    });
-
-    // "snatch all" button in the header
-    const snatchBtnContainer = new Container();
-    snatchBtnContainer.label = "snatch-btn";
-    snatchBtnContainer.eventMode = "static";
-    snatchBtnContainer.cursor = "pointer";
-    headerContainer.addChild(snatchBtnContainer);
-
-    const snatchBtnBg = new Graphics();
-    snatchBtnContainer.addChild(snatchBtnBg);
-
-    const snatchBtnText = new Text({
-      text: "snatch all",
-      style: {
-        fontFamily: FONT_FAMILY,
-        fontSize: BIN_HEADER_FONT_SIZE - 1,
-        fill: TEXT_COLOR,
-      },
-      resolution: TEXT_RESOLUTION,
-    });
-    snatchBtnText.x = 6;
-    snatchBtnText.y = 2;
-    snatchBtnContainer.addChild(snatchBtnText);
-
-    const snatchBtnW = snatchBtnText.width + 12;
-    const snatchBtnH = BIN_HEADER_HEIGHT - 6;
     let snatchInProgress = false;
     let snatchAbortController: AbortController | null = null;
+    let snatchLabel = "snatch all";
 
-    function drawSnatchBtn(hover = false, active = false) {
-      snatchBtnBg.clear();
-      snatchBtnBg.roundRect(0, 0, snatchBtnW, snatchBtnH, 3).fill({
-        color: active ? 0x5a2727 : hover ? ACTION_BTN_HOVER : ACTION_BTN_BG,
+    // -- header actions ------------------------------------------------------
+
+    function buildHeaderActions(): HeaderAction[] {
+      const state = ctx.doc.current;
+      const count = state.items.length;
+      const actions: HeaderAction[] = [];
+
+      actions.push({
+        id: "add",
+        label: "+ add",
+        onClick: handleAddFiles,
       });
-    }
 
-    drawSnatchBtn();
-    snatchBtnContainer.on("pointerover", () => drawSnatchBtn(true, snatchInProgress));
-    snatchBtnContainer.on("pointerout", () => drawSnatchBtn(false, snatchInProgress));
-    snatchBtnContainer.on("pointertap", (e: any) => {
-      e.stopPropagation();
-      if (snatchInProgress) {
-        // cancel in-progress snatch
-        snatchAbortController?.abort();
-        return;
-      }
-      handleSnatchAll();
-    });
+      actions.push({
+        id: "snatch",
+        label: snatchLabel,
+        onClick: () => {
+          if (snatchInProgress) {
+            snatchAbortController?.abort();
+          } else {
+            handleSnatchAll();
+          }
+        },
+      });
+
+      actions.push({
+        id: "count",
+        label: `${count} item${count !== 1 ? "s" : ""}`,
+        isInfo: true,
+      });
+
+      return actions;
+    }
 
     // -- empty state ---------------------------------------------------------
 
@@ -297,7 +206,7 @@ export const binWidget: WidgetFactory<typeof binSchema> = {
     const contentContainer = new Container();
     contentContainer.label = "bin-content";
     contentContainer.x = BIN_PADDING;
-    contentContainer.y = BIN_HEADER_HEIGHT + BIN_PADDING;
+    contentContainer.y = BIN_PADDING;
     container.addChild(contentContainer);
 
     // -- card interaction callbacks -------------------------------------------
@@ -305,46 +214,17 @@ export const binWidget: WidgetFactory<typeof binSchema> = {
 
     // -- layout and render ---------------------------------------------------
 
-    function drawHeader(width: number) {
-      headerBg.clear();
-      headerBg.rect(0, 0, width, BIN_HEADER_HEIGHT).fill({ color: HEADER_BG });
-
-      const state = ctx.doc.current;
-      const title = state.title || "bin";
-      const count = state.items.length;
-
-      titleText.text = title;
-
-      countBadge.text = `${count} item${count !== 1 ? "s" : ""}`;
-      countBadge.x = width - countBadge.width - 6;
-      countBadge.y = (BIN_HEADER_HEIGHT - BIN_HEADER_FONT_SIZE) / 2;
-
-      // position add button to the left of the count badge
-      addBtnContainer.x = countBadge.x - addBtnW - 8;
-      addBtnContainer.y = 3;
-
-      // position snatch button to the left of the add button
-      snatchBtnContainer.x = addBtnContainer.x - snatchBtnW - 4;
-      snatchBtnContainer.y = 3;
-    }
-
     function drawEmpty(width: number, height: number) {
-      const contentH = height - BIN_HEADER_HEIGHT;
+      const contentH = height;
 
       emptyBorder.clear();
       emptyBorder
-        .roundRect(
-          BIN_PADDING,
-          BIN_HEADER_HEIGHT + BIN_PADDING,
-          width - BIN_PADDING * 2,
-          contentH - BIN_PADDING * 2,
-          4
-        )
+        .roundRect(BIN_PADDING, BIN_PADDING, width - BIN_PADDING * 2, contentH - BIN_PADDING * 2, 4)
         .stroke({ width: 1, color: 0x2a2a2a, alpha: 0.6 });
 
       emptyText.anchor.set(0.5);
       emptyText.x = width / 2;
-      emptyText.y = BIN_HEADER_HEIGHT + contentH / 2;
+      emptyText.y = contentH / 2;
     }
 
     function layout(width: number, height: number) {
@@ -357,8 +237,7 @@ export const binWidget: WidgetFactory<typeof binSchema> = {
       const scale = resolveScale(state.slotScale as SlotScale);
       const contentWidth = width - BIN_PADDING * 2;
       const layoutOptions: SlotSizeOptions = { scale };
-      if (mode === "shelf")
-        layoutOptions.shelfHeight = height - BIN_HEADER_HEIGHT - BIN_PADDING * 2;
+      if (mode === "shelf") layoutOptions.shelfHeight = height - BIN_PADDING * 2;
 
       const cols = autoFitCols(mode, contentWidth, layoutOptions);
       const rows = computeRows(items.length, cols);
@@ -377,8 +256,6 @@ export const binWidget: WidgetFactory<typeof binSchema> = {
         });
       }
 
-      drawHeader(width);
-
       const hasItems = items.length > 0;
       emptyContainer.visible = !hasItems;
       contentContainer.visible = hasItems;
@@ -390,7 +267,7 @@ export const binWidget: WidgetFactory<typeof binSchema> = {
 
       if (renderer) {
         renderer.shelfTextOrigin = (state.shelfTextOrigin as "top" | "bottom") ?? "top";
-        const visibleHeight = height - BIN_HEADER_HEIGHT - BIN_PADDING * 2;
+        const visibleHeight = height - BIN_PADDING * 2;
         renderer.render(items, mode, cols, rows, contentWidth, visibleHeight, scale);
       }
     }
@@ -497,8 +374,8 @@ export const binWidget: WidgetFactory<typeof binSchema> = {
 
       snatchInProgress = true;
       snatchAbortController = new AbortController();
-      drawSnatchBtn(false, true);
-      snatchBtnText.text = "cancel";
+      snatchLabel = "cancel";
+      ctx.setHeaderActions?.(buildHeaderActions());
 
       try {
         const { snatchAllInBin } = await import("./bin-actions");
@@ -508,11 +385,12 @@ export const binWidget: WidgetFactory<typeof binSchema> = {
           signal: snatchAbortController.signal,
           onProgress: (progress) => {
             if (progress.done) {
-              snatchBtnText.text = "snatch all";
+              snatchLabel = "snatch all";
             } else {
               const done = progress.snatched + progress.failed + progress.alreadyLocal;
-              snatchBtnText.text = `${done}/${progress.total}`;
+              snatchLabel = `${done}/${progress.total}`;
             }
+            ctx.setHeaderActions?.(buildHeaderActions());
           },
         });
       } catch (err) {
@@ -520,8 +398,8 @@ export const binWidget: WidgetFactory<typeof binSchema> = {
       } finally {
         snatchInProgress = false;
         snatchAbortController = null;
-        snatchBtnText.text = "snatch all";
-        drawSnatchBtn();
+        snatchLabel = "snatch all";
+        ctx.setHeaderActions?.(buildHeaderActions());
       }
     }
 
@@ -573,12 +451,11 @@ export const binWidget: WidgetFactory<typeof binSchema> = {
               const cols = Math.max(1, state.cols);
               const contentWidth = entry.width - BIN_PADDING * 2;
               const layoutOptions: SlotSizeOptions = { scale };
-              if (mode === "shelf")
-                layoutOptions.shelfHeight = entry.height - BIN_HEADER_HEIGHT - BIN_PADDING * 2;
+              if (mode === "shelf") layoutOptions.shelfHeight = entry.height - BIN_PADDING * 2;
 
               // convert to content-local coordinates
               const localX = worldX - entry.x - BIN_PADDING;
-              let localY = worldY - entry.y - BIN_HEADER_HEIGHT - BIN_PADDING;
+              let localY = worldY - entry.y - BIN_PADDING;
 
               // account for drawer scroll
               if (mode === "drawer" && renderer) {
@@ -649,11 +526,10 @@ export const binWidget: WidgetFactory<typeof binSchema> = {
               const cols = Math.max(1, state.cols);
               const contentWidth = entry.width - BIN_PADDING * 2;
               const layoutOptions: SlotSizeOptions = { scale };
-              if (mode === "shelf")
-                layoutOptions.shelfHeight = entry.height - BIN_HEADER_HEIGHT - BIN_PADDING * 2;
+              if (mode === "shelf") layoutOptions.shelfHeight = entry.height - BIN_PADDING * 2;
 
               const localX = worldX - entry.x - BIN_PADDING;
-              let localY = worldY - entry.y - BIN_HEADER_HEIGHT - BIN_PADDING;
+              let localY = worldY - entry.y - BIN_PADDING;
 
               if (mode === "drawer" && renderer) {
                 localY += renderer.getScrollOffset();
@@ -705,12 +581,15 @@ export const binWidget: WidgetFactory<typeof binSchema> = {
     // subscribe to doc changes
     const unsub = ctx.doc.on("change", () => {
       layout(currentWidth, currentHeight);
+      ctx.setHeaderActions?.(buildHeaderActions());
     });
 
     // -- controller ----------------------------------------------------------
 
     return {
       container,
+
+      headerActions: buildHeaderActions(),
 
       resize(width: number, height: number) {
         currentWidth = width;
@@ -755,13 +634,12 @@ export const binWidget: WidgetFactory<typeof binSchema> = {
               const cols = Math.max(1, state.cols);
               const contentWidth = entry.width - BIN_PADDING * 2;
               const layoutOptions: SlotSizeOptions = { scale };
-              if (mode === "shelf")
-                layoutOptions.shelfHeight = entry.height - BIN_HEADER_HEIGHT - BIN_PADDING * 2;
+              if (mode === "shelf") layoutOptions.shelfHeight = entry.height - BIN_PADDING * 2;
 
               // convert world coordinates to content-local coordinates.
-              // the content area starts at (entry.x + BIN_PADDING, entry.y + BIN_HEADER_HEIGHT + BIN_PADDING).
+              // the content area starts at (entry.x + BIN_PADDING, entry.y + BIN_PADDING).
               const localX = worldX - entry.x - BIN_PADDING;
-              let localY = worldY - entry.y - BIN_HEADER_HEIGHT - BIN_PADDING;
+              let localY = worldY - entry.y - BIN_PADDING;
 
               // in drawer mode, account for scroll offset so hit testing matches visible content
               if (mode === "drawer" && renderer) {
@@ -811,12 +689,11 @@ export const binWidget: WidgetFactory<typeof binSchema> = {
               const cols = Math.max(1, state.cols);
               const contentWidth = entry.width - BIN_PADDING * 2;
               const layoutOptions: SlotSizeOptions = { scale };
-              if (mode === "shelf")
-                layoutOptions.shelfHeight = entry.height - BIN_HEADER_HEIGHT - BIN_PADDING * 2;
+              if (mode === "shelf") layoutOptions.shelfHeight = entry.height - BIN_PADDING * 2;
 
               // convert to content-local coordinates
               const localX = worldX - entry.x - BIN_PADDING;
-              let localY = worldY - entry.y - BIN_HEADER_HEIGHT - BIN_PADDING;
+              let localY = worldY - entry.y - BIN_PADDING;
 
               // in drawer mode, account for scroll offset
               if (mode === "drawer" && renderer) {

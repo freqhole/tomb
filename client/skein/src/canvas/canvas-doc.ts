@@ -16,6 +16,9 @@ export interface WidgetEntry {
   zIndex: number;
   props: Record<string, unknown>;
   collapsed: boolean;
+  /** user-editable display title shown in the frame header.
+   *  when empty or undefined, the frame falls back to the factory metadata name. */
+  title?: string;
   /** automerge document id for the widget's internal state. null if stateless. */
   docId: string | null;
   /** if set, this widget is nested inside another widget (e.g. a bin).

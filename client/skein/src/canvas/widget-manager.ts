@@ -449,9 +449,8 @@ export class WidgetManager {
     // build callbacks that close over this entry's id
     const callbacks = this.createFrameCallbacks(entry.id);
 
-    // create the pixi frame — singleton widgets cannot be closed
-    const closeable = !factory.metadata.singleton;
-    const frame = new WidgetFrame(entry, widgetName, this.theme, callbacks, closeable);
+    // create the pixi frame
+    const frame = new WidgetFrame(entry, widgetName, this.theme, callbacks);
 
     // if this widget is the currently selected one, mark it
     if (this.inputRouter.selectedWidgetId === entry.id) {
@@ -467,6 +466,9 @@ export class WidgetManager {
       canvasElement: this.canvasElement,
       canvasStore: this.store,
       widgetId: entry.id,
+      setHeaderActions: (actions) => {
+        frame.setCustomActions(actions);
+      },
     };
 
     let ctrl: WidgetController;
@@ -485,6 +487,11 @@ export class WidgetManager {
         `factory threw: ${err instanceof Error ? err.message : String(err)}`
       );
       return;
+    }
+
+    // apply initial header actions if the widget declared any
+    if (ctrl.headerActions) {
+      frame.setCustomActions(ctrl.headerActions);
     }
 
     // add the widget's container into the frame's content area
@@ -525,6 +532,24 @@ export class WidgetManager {
   }
 
   /**
+   * close a widget: deselect, cascade-delete descendants, remove from store.
+   * used by the property tray delete button and internal close logic.
+   */
+  closeWidget(widgetId: string): void {
+    if (this.inputRouter.selectedWidgetIds.has(widgetId)) {
+      this.inputRouter.selectWidget(null);
+    }
+    const collectDescendants = (id: string): string[] => {
+      const children = this.store.getChildren(id);
+      return children.flatMap((c) => [c.id, ...collectDescendants(c.id)]);
+    };
+    for (const descendantId of collectDescendants(widgetId)) {
+      this.store.removeWidget(descendantId);
+    }
+    this.store.removeWidget(widgetId);
+  }
+
+  /**
    * create the callback object for a widget frame.
    * each callback closes over the widget id and delegates to the store or input router.
    */
@@ -554,20 +579,7 @@ export class WidgetManager {
         this.updateStageBounds();
       },
       onClose: () => {
-        // deselect if this widget is selected
-        if (this.inputRouter.selectedWidgetIds.has(widgetId)) {
-          this.inputRouter.selectWidget(null);
-        }
-        // cascade delete: recursively remove all descendants nested inside this widget.
-        // this handles bins-in-bins — grandchildren, great-grandchildren, etc.
-        const collectDescendants = (id: string): string[] => {
-          const children = this.store.getChildren(id);
-          return children.flatMap((c) => [c.id, ...collectDescendants(c.id)]);
-        };
-        for (const descendantId of collectDescendants(widgetId)) {
-          this.store.removeWidget(descendantId);
-        }
-        this.store.removeWidget(widgetId);
+        this.closeWidget(widgetId);
       },
       onCollapse: (collapsed: boolean) => {
         this.store.setCollapsed(widgetId, collapsed);
@@ -881,6 +893,11 @@ export class WidgetManager {
         // update collapsed state if changed
         if (prev.collapsed !== entry.collapsed) {
           live.frame.setCollapsed(entry.collapsed);
+        }
+
+        // update title if changed
+        if (prev.title !== entry.title) {
+          live.frame.setTitle(entry.title ?? "");
         }
 
         // snapshot the latest entry

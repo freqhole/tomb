@@ -319,6 +319,17 @@ export class CanvasStore {
     });
   }
 
+  /** set the display title for a widget. stored on the canvas entry, not the per-widget doc. */
+  setWidgetTitle(widgetId: string, title: string): void {
+    this.handle.change((doc) => {
+      const widget = doc.widgets[widgetId];
+      if (widget) {
+        widget.title = title;
+        this.touchModified(doc);
+      }
+    });
+  }
+
   /** set the parentId for a widget (nest it inside a bin). pass null to un-nest. */
   setParentId(widgetId: string, parentId: string | null): void {
     this.handle.change((doc) => {

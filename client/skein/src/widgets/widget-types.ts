@@ -27,6 +27,22 @@ export function isTransparent(color: number): boolean {
 }
 
 /**
+ * a button or info badge that a widget can inject into the frame header.
+ * widgets return these from create() and/or update them dynamically via
+ * setHeaderActions() on the mount context.
+ */
+export interface HeaderAction {
+  /** unique identifier for this action (used for diffing / updates) */
+  id: string;
+  /** display label shown in the header button */
+  label: string;
+  /** if true, rendered as a non-clickable info badge (e.g. item count) */
+  isInfo?: boolean;
+  /** click handler — ignored when isInfo is true */
+  onClick?: () => void;
+}
+
+/**
  * compact display info returned by a widget factory for rendering
  * inside a bin widget. used to show minimized representations of
  * widgets without mounting them.
@@ -74,6 +90,10 @@ export interface WidgetMountContext<S extends z.ZodType = z.ZodType> {
   /** the canvas store — provides read/write access to canvas-level metadata.
    *  available on regular canvases; may be undefined for headless or test contexts. */
   canvasStore?: CanvasStore;
+  /** dynamically update the custom header actions shown in the widget frame.
+   *  call this whenever the action labels or set of actions changes (e.g. item
+   *  count updated, snatch progress). provided by the widget manager at mount time. */
+  setHeaderActions?: (actions: HeaderAction[]) => void;
 }
 
 /**
@@ -114,6 +134,9 @@ export interface WidgetController {
   /** optional: called when the widget enters or leaves maximized (full-viewport) mode.
    *  widgets can use this to render richer UI when they have more space. */
   setMaximized?: (maximized: boolean) => void;
+  /** optional initial header actions to inject into the frame header bar.
+   *  these are set once at mount time; use ctx.setHeaderActions() for dynamic updates. */
+  headerActions?: HeaderAction[];
 }
 
 /**
