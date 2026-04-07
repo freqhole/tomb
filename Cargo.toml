@@ -5,6 +5,7 @@ members = [
     "server",
     "client-codegen",
     "client/charnel/src-tauri",
+    "client/reliquary",
 ]
 exclude = [
     "client/midden", # WASM package, built separately with wasm-pack
@@ -94,7 +95,7 @@ blake3 = "1.5"
 
 # release profile optimizations for smaller binaries
 [profile.release]
-lto = "thin"           # faster than "fat" LTO, still good size reduction  
+lto = "thin"           # faster than "fat" LTO, still good size reduction
 strip = "symbols"      # strip debug symbols
 panic = "abort"        # smaller than unwinding
 codegen-units = 1      # better optimization, slower compile

@@ -1,0 +1,24 @@
+[package]
+name = "reliquary"
+version.workspace = true
+edition = "2021"
+description = "headless hub peer for skein canvas P2P ecosystem"
+
+[dependencies]
+# workspace deps
+grimoire = { path = "../../grimoire", default-features = false }
+iroh = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }
+blake3 = { workspace = true }
+thiserror = { workspace = true }
+
+# keypair persistence
+getrandom = "0.2"
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["full", "test-util"] }
+tempfile = { workspace = true }
