@@ -534,14 +534,71 @@ export async function initFriendzWiring(
     }
   }
 
-  // register gossip tracker watchers
+  // --- canvas update federation (phase 2): send side ---
+  // track which canvas docs we're already watching (by per-widget docId)
+  const watchedCanvasWidgets = new Set<string>();
+  // canvases with changes since last heartbeat flush
+  const dirtyCanvases = new Map<
+    string,
+    { canvasDocId: string; lastModified: string; widgetCount: number }
+  >();
+
+  /** attach a change listener to the canvas doc behind a canvas-card widget. */
+  function watchCanvasForFederation(widgetDocId: string): void {
+    if (watchedCanvasWidgets.has(widgetDocId)) return;
+    watchedCanvasWidgets.add(widgetDocId);
+
+    // resolve canvas doc id from the per-widget doc (async, fire-and-forget)
+    (async () => {
+      try {
+        const cardHandle = await repo.find<any>(widgetDocId as DocumentId);
+        await cardHandle.whenReady();
+        const cardDoc = cardHandle.doc() as Record<string, unknown> | undefined;
+        const canvasDocId = cardDoc?.canvasDocId as string | undefined;
+        if (!canvasDocId) return;
+
+        let canvasHandle: DocHandle<any>;
+        try {
+          canvasHandle = await repo.find<CanvasDocument>(canvasDocId as DocumentId);
+        } catch {
+          return; // canvas not available
+        }
+
+        const onChange = () => {
+          const canvasDoc = canvasHandle.doc() as CanvasDocument | undefined;
+          if (!canvasDoc) return;
+
+          // count widgets and find latest modification timestamp
+          let widgetCount = 0;
+          let lastMod = canvasDoc.lastModified ?? "";
+          for (const [, w] of Object.entries(canvasDoc.widgets ?? {}) as any[]) {
+            widgetCount++;
+            if (w.lastModifiedAt && w.lastModifiedAt > lastMod) {
+              lastMod = w.lastModifiedAt;
+            }
+          }
+
+          dirtyCanvases.set(canvasDocId, {
+            canvasDocId,
+            lastModified: lastMod,
+            widgetCount,
+          });
+        };
+
+        canvasHandle.on("change", onChange);
+        unsubs.push(() => canvasHandle.off("change", onChange));
+      } catch (err) {
+        console.warn("[friendz-wiring] failed to watch canvas for federation:", err);
+      }
+    })();
+  }
+
+  // attach watchers to existing canvas-card widgets
   const widgets = store.handle.doc()?.widgets ?? {};
   for (const [_id, widget] of Object.entries(widgets) as any[]) {
     if (!widget?.docId) continue;
-    const card = widget;
-    if (card.type !== "canvas-card" || !card.props?.docId) continue;
-
-    // canvas change tracking for update federation (phase 2)
+    if (widget.type !== "canvas-card") continue;
+    watchCanvasForFederation(widget.docId);
   }
 
   // watch for new canvas cards being added
@@ -551,10 +608,8 @@ export async function initFriendzWiring(
 
     for (const [_id, widget] of Object.entries(doc.widgets ?? {}) as any[]) {
       if (!widget?.docId) continue;
-      const card = widget;
-      if (card.type !== "canvas-card" || !card.props?.docId) continue;
-
-      // canvas change tracking for update federation (phase 2)
+      if (widget.type !== "canvas-card") continue;
+      watchCanvasForFederation(widget.docId);
     }
   });
 
@@ -629,6 +684,7 @@ export async function initFriendzWiring(
   const RELAY_CAP_PER_PEER = 3;
 
   protocol.onAfterHeartbeatTick = (friendNodeIds: string[]) => {
+    // --- relay pending canvas invites ---
     for (const peerId of friendNodeIds) {
       if (!protocol.isOnline(peerId)) continue;
 
@@ -660,6 +716,50 @@ export async function initFriendzWiring(
           });
         relayed++;
       }
+    }
+
+    // --- flush dirty canvas updates to peers who share each canvas ---
+    if (dirtyCanvases.size > 0) {
+      const localUsername = sDoc.current.profile?.username ?? "anonymous";
+      const onlineFriends = new Set(friendNodeIds.filter((id) => protocol.isOnline(id)));
+
+      for (const [, info] of dirtyCanvases) {
+        // look up who shares this canvas from the CanvasDocument.peers field
+        try {
+          const canvasHandle = repo.handles[info.canvasDocId as any];
+          const canvasDoc = canvasHandle?.doc() as CanvasDocument | undefined;
+          const peers = canvasDoc?.peers ?? {};
+
+          for (const peerNodeId of Object.keys(peers)) {
+            if (peerNodeId === localNodeId) continue;
+            if (!onlineFriends.has(peerNodeId)) continue;
+
+            protocol
+              .sendCanvasUpdate(peerNodeId, {
+                canvasDocId: info.canvasDocId,
+                lastModifiedAt: info.lastModified,
+                widgetCount: info.widgetCount,
+                modifiedByNodeId: localNodeId,
+                modifiedByUsername: localUsername,
+              })
+              .catch((err) => {
+                console.warn(
+                  "[friendz-wiring] canvas update send failed for:",
+                  peerNodeId.slice(0, 16) + "...",
+                  err
+                );
+              });
+          }
+        } catch (err) {
+          console.warn(
+            "[friendz-wiring] failed to flush canvas update:",
+            info.canvasDocId.slice(0, 16) + "...",
+            err
+          );
+        }
+      }
+
+      dirtyCanvases.clear();
     }
   };
 
@@ -695,8 +795,11 @@ export async function initFriendzWiring(
     }
   };
 
-  // handle incoming canvas update notifications (phase 2)
+  // handle incoming canvas update notifications
   protocol.onCanvasUpdate = (msg, _fromNodeId) => {
+    // filter out our own updates (we already see them locally)
+    if (msg.modifiedByNodeId === localNodeId) return;
+
     // check if we're currently viewing this canvas — if so, suppress
     const currentHash = window.location.hash.replace(/^#/, "");
     if (currentHash === msg.canvasDocId) return;

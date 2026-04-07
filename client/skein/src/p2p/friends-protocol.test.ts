@@ -1119,6 +1119,248 @@ describe("FriendzProtocol", () => {
     });
   });
 
+  describe("fast presence ACK", () => {
+    it("replies with heartbeat when receiving first heartbeat from a new peer", async () => {
+      const peerId = "b".repeat(64);
+      const stream = createMockBiStream(peerId);
+      protocol.handleStream(stream as unknown as BiStreamLike);
+
+      // peer sends their first heartbeat
+      const msg: FriendzMessage = { type: "heartbeat", nodeId: peerId, username: "bob" };
+      stream.pushMessage(encodeMessage(msg));
+      await flush();
+
+      // protocol should have replied with a heartbeat written to the existing stream
+      // (sendMessage reuses the stream stored by handleStream)
+      const replies = stream._written
+        .map((b: Uint8Array) => JSON.parse(new TextDecoder().decode(b)))
+        .filter((m: any) => m.type === "heartbeat");
+      expect(replies.length).toBeGreaterThanOrEqual(1);
+      expect(replies[0].nodeId).toBe("a".repeat(64));
+    });
+
+    it("does NOT reply with heartbeat for subsequent heartbeats from same peer", async () => {
+      const peerId = "b".repeat(64);
+      const stream = createMockBiStream(peerId);
+      protocol.handleStream(stream as unknown as BiStreamLike);
+
+      // first heartbeat — triggers fast ACK
+      stream.pushMessage(encodeMessage({ type: "heartbeat", nodeId: peerId, username: "bob" }));
+      await flush();
+
+      const writtenAfterFirst = stream._written.length;
+
+      // second heartbeat — should NOT trigger another ACK
+      stream.pushMessage(encodeMessage({ type: "heartbeat", nodeId: peerId, username: "bob" }));
+      await flush();
+
+      // no additional heartbeat replies written (peer is already online)
+      const newWrites = stream._written
+        .slice(writtenAfterFirst)
+        .map((b: Uint8Array) => JSON.parse(new TextDecoder().decode(b)))
+        .filter((m: any) => m.type === "heartbeat");
+      expect(newWrites).toHaveLength(0);
+    });
+
+    it("replies again after peer times out and sends a new heartbeat", async () => {
+      const peerId = "b".repeat(64);
+      const stream = createMockBiStream(peerId);
+      protocol.handleStream(stream as unknown as BiStreamLike);
+
+      // first heartbeat
+      stream.pushMessage(encodeMessage({ type: "heartbeat", nodeId: peerId, username: "bob" }));
+      await flush();
+
+      const writtenAfterFirst = stream._written.length;
+
+      // simulate timeout
+      (protocol as any).lastSeen.set(peerId, Date.now() - HEARTBEAT_TIMEOUT_MS - 1);
+
+      // new heartbeat after timeout — should trigger fast ACK again
+      stream.pushMessage(encodeMessage({ type: "heartbeat", nodeId: peerId, username: "bob" }));
+      await flush();
+
+      const newReplies = stream._written
+        .slice(writtenAfterFirst)
+        .map((b: Uint8Array) => JSON.parse(new TextDecoder().decode(b)))
+        .filter((m: any) => m.type === "heartbeat");
+      expect(newReplies.length).toBeGreaterThanOrEqual(1);
+    });
+  });
+
+  describe("offline announcement", () => {
+    it("announceOffline sends offline-announcement to all online peers", async () => {
+      const peer1 = "b".repeat(64);
+      const peer2 = "c".repeat(64);
+
+      // make both peers online via incoming streams
+      const stream1 = createMockBiStream(peer1);
+      const stream2 = createMockBiStream(peer2);
+      protocol.handleStream(stream1 as unknown as BiStreamLike);
+      protocol.handleStream(stream2 as unknown as BiStreamLike);
+
+      stream1.pushMessage(encodeMessage({ type: "heartbeat", nodeId: peer1, username: "bob" }));
+      stream2.pushMessage(encodeMessage({ type: "heartbeat", nodeId: peer2, username: "charlie" }));
+      await flush();
+
+      expect(protocol.getOnlinePeers().length).toBe(2);
+
+      // record write counts before announceOffline
+      const before1 = stream1._written.length;
+      const before2 = stream2._written.length;
+
+      protocol.announceOffline();
+      await flush();
+
+      // should have written offline-announcement to both existing streams
+      const msgs1 = stream1._written
+        .slice(before1)
+        .map((b: Uint8Array) => JSON.parse(new TextDecoder().decode(b)));
+      const msgs2 = stream2._written
+        .slice(before2)
+        .map((b: Uint8Array) => JSON.parse(new TextDecoder().decode(b)));
+
+      expect(msgs1.some((m: any) => m.type === "offline-announcement")).toBe(true);
+      expect(msgs2.some((m: any) => m.type === "offline-announcement")).toBe(true);
+    });
+
+    it("announceOffline does not send to offline peers", async () => {
+      const onlinePeer = "b".repeat(64);
+
+      // only onlinePeer gets a heartbeat
+      const stream = createMockBiStream(onlinePeer);
+      protocol.handleStream(stream as unknown as BiStreamLike);
+      stream.pushMessage(encodeMessage({ type: "heartbeat", nodeId: onlinePeer, username: "bob" }));
+      await flush();
+
+      const beforeCount = stream._written.length;
+
+      protocol.announceOffline();
+      await flush();
+
+      // should have written offline-announcement to the online peer's stream
+      const newMsgs = stream._written
+        .slice(beforeCount)
+        .map((b: Uint8Array) => JSON.parse(new TextDecoder().decode(b)));
+      expect(newMsgs.some((m: any) => m.type === "offline-announcement")).toBe(true);
+
+      // offline peer has no stream, so nothing to check — no open_bi should have been called
+      // for a peer that was never connected
+      const calledPeers = mockMidden.open_bi.mock.calls.map((c: any) => c[0]);
+      expect(calledPeers).not.toContain("c".repeat(64));
+    });
+
+    it("receiving offline-announcement removes peer from online set", async () => {
+      const peerId = "b".repeat(64);
+      const stream = createMockBiStream(peerId);
+      protocol.handleStream(stream as unknown as BiStreamLike);
+
+      // make peer online
+      stream.pushMessage(encodeMessage({ type: "heartbeat", nodeId: peerId, username: "bob" }));
+      await flush();
+      expect(protocol.isOnline(peerId)).toBe(true);
+
+      // receive offline announcement
+      const offlineMsg: FriendzMessage = { type: "offline-announcement", nodeId: peerId };
+      stream.pushMessage(encodeMessage(offlineMsg));
+      await flush();
+
+      expect(protocol.isOnline(peerId)).toBe(false);
+      expect(protocol.getOnlinePeers()).not.toContain(peerId);
+    });
+
+    it("receiving offline-announcement emits onOnlineChange", async () => {
+      const peerId = "b".repeat(64);
+      const stream = createMockBiStream(peerId);
+      protocol.handleStream(stream as unknown as BiStreamLike);
+
+      stream.pushMessage(encodeMessage({ type: "heartbeat", nodeId: peerId, username: "bob" }));
+      await flush();
+
+      const changes: number[] = [];
+      protocol.onOnlineChange(() => changes.push(1));
+
+      stream.pushMessage(encodeMessage({ type: "offline-announcement", nodeId: peerId }));
+      await flush();
+
+      expect(changes.length).toBeGreaterThan(0);
+    });
+
+    it("receiving offline-announcement for unknown peer is a no-op", async () => {
+      const peerId = "b".repeat(64);
+      const stream = createMockBiStream(peerId);
+      protocol.handleStream(stream as unknown as BiStreamLike);
+
+      const changes: number[] = [];
+      protocol.onOnlineChange(() => changes.push(1));
+
+      // send offline for a peer we've never seen
+      const offlineMsg: FriendzMessage = { type: "offline-announcement", nodeId: "d".repeat(64) };
+      stream.pushMessage(encodeMessage(offlineMsg));
+      await flush();
+
+      expect(changes).toHaveLength(0);
+    });
+  });
+
+  describe("heartbeat optimization", () => {
+    it("startHeartbeat sends initial announce to ALL friends", async () => {
+      const friend1 = "b".repeat(64);
+      const friend2 = "c".repeat(64);
+
+      protocol.startHeartbeat(() => [friend1, friend2]);
+      await flush(50);
+
+      // initial announce should contact all friends
+      expect(mockMidden.open_bi).toHaveBeenCalledWith(friend1, FRIENDZ_ALPN);
+      expect(mockMidden.open_bi).toHaveBeenCalledWith(friend2, FRIENDZ_ALPN);
+
+      protocol.stopHeartbeat();
+    });
+
+    it("onAfterHeartbeatTick fires with all friend IDs on initial announce", async () => {
+      const friend1 = "b".repeat(64);
+      const friend2 = "c".repeat(64);
+      const tickCalls: string[][] = [];
+      protocol.onAfterHeartbeatTick = (ids) => tickCalls.push([...ids]);
+
+      protocol.startHeartbeat(() => [friend1, friend2]);
+      await flush(50);
+
+      expect(tickCalls.length).toBeGreaterThanOrEqual(1);
+      expect(tickCalls[0]).toContain(friend1);
+      expect(tickCalls[0]).toContain(friend2);
+
+      protocol.stopHeartbeat();
+    });
+
+    it("probePeer sends a one-shot heartbeat to the specified peer", async () => {
+      const peerId = "b".repeat(64);
+
+      await protocol.probePeer(peerId);
+      await flush();
+
+      expect(mockMidden.open_bi).toHaveBeenCalledWith(peerId, FRIENDZ_ALPN);
+      const outStream = await mockMidden.open_bi.mock.results[0].value;
+      const msg = JSON.parse(new TextDecoder().decode(outStream._written[0]));
+      expect(msg.type).toBe("heartbeat");
+      expect(msg.nodeId).toBe("a".repeat(64));
+    });
+
+    it("stopHeartbeat clears both heartbeat and discovery timers", () => {
+      protocol.startHeartbeat(() => ["b".repeat(64)]);
+
+      // both timers should exist
+      expect((protocol as any).heartbeatTimer).not.toBeNull();
+      expect((protocol as any).discoveryTimer).not.toBeNull();
+
+      protocol.stopHeartbeat();
+
+      expect((protocol as any).heartbeatTimer).toBeNull();
+      expect((protocol as any).discoveryTimer).toBeNull();
+    });
+  });
+
   describe("sendHeartbeatTo", () => {
     it("sendHeartbeatTo invalidates stale stream and sends heartbeat", async () => {
       const peerId = "peer-aaa".padEnd(64, "0");

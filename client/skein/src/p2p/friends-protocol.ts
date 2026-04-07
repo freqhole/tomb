@@ -21,6 +21,9 @@ export const HEARTBEAT_INTERVAL_MS = 30_000;
 /** time after last heartbeat before marking a friend offline (ms). */
 export const HEARTBEAT_TIMEOUT_MS = 90_000;
 
+/** interval for probing offline friends to see if they came back (ms). */
+export const DISCOVERY_SWEEP_MS = 300_000; // 5 min
+
 // ---------------------------------------------------------------------------
 // protocol message types
 // ---------------------------------------------------------------------------
@@ -140,6 +143,12 @@ export interface CanvasUpdateMessage {
   modifiedByUsername: string;
 }
 
+/** sent when a peer is about to go offline (tab close / app exit). */
+export interface OfflineAnnouncementMessage {
+  type: "offline-announcement";
+  nodeId: string;
+}
+
 /** union of all protocol messages. */
 export type FriendzMessage =
   | ProfileRequestMessage
@@ -154,7 +163,8 @@ export type FriendzMessage =
   | CanvasInviteAcceptMessage
   | CanvasInviteDeclineMessage
   | AclChangeMessage
-  | CanvasUpdateMessage;
+  | CanvasUpdateMessage
+  | OfflineAnnouncementMessage;
 
 // ---------------------------------------------------------------------------
 // message encoding / decoding
@@ -290,6 +300,12 @@ export class FriendzProtocol {
 
   /** heartbeat interval timer. */
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+
+  /** discovery sweep timer for probing offline friends. */
+  private discoveryTimer: ReturnType<typeof setInterval> | null = null;
+
+  /** stored friend node ID getter from startHeartbeat, used by discovery sweep. */
+  private getFriendNodeIds: (() => string[]) | null = null;
 
   /** online/offline change listeners. */
   private onlineChangeListeners: Array<() => void> = [];
@@ -435,14 +451,33 @@ export class FriendzProtocol {
         this.onFriendReject?.(msg, fromNodeId);
         break;
 
-      case "heartbeat":
+      case "heartbeat": {
+        const wasOnline =
+          this.lastSeen.has(fromNodeId) &&
+          Date.now() - this.lastSeen.get(fromNodeId)! < HEARTBEAT_TIMEOUT_MS;
         this.lastSeen.set(fromNodeId, Date.now());
         this.emitOnlineChange();
         this.onHeartbeat?.(msg, fromNodeId);
         if (msg.canvasActivity && msg.canvasActivity.length > 0) {
           this.onCanvasActivity?.(msg.canvasActivity, fromNodeId);
         }
+        // fast presence ACK: if this is the first heartbeat from a newly-online peer,
+        // reply immediately so they know we're online too
+        if (!wasOnline) {
+          console.log(TAG, "peer online:", fromNodeId.slice(0, 16) + "...");
+          const activity = this.getCanvasActivity?.() ?? [];
+          const reply: HeartbeatMessage = {
+            type: "heartbeat",
+            nodeId: this.localNodeId,
+            username: this.localUsername,
+            canvasActivity: activity.length > 0 ? activity : undefined,
+          };
+          this.sendMessage(fromNodeId, reply).catch(() => {
+            // silent — just a presence ack, not critical
+          });
+        }
         break;
+      }
 
       case "friend-accept-ack":
         this.onFriendAcceptAck?.(msg, fromNodeId);
@@ -470,6 +505,14 @@ export class FriendzProtocol {
 
       case "canvas-update":
         this.onCanvasUpdate?.(msg, fromNodeId);
+        break;
+
+      case "offline-announcement":
+        if (this.lastSeen.has(msg.nodeId)) {
+          console.log(TAG, "peer offline (announced):", msg.nodeId.slice(0, 16) + "...");
+          this.lastSeen.delete(msg.nodeId);
+          this.emitOnlineChange();
+        }
         break;
 
       default:
@@ -641,29 +684,64 @@ export class FriendzProtocol {
    */
   startHeartbeat(getFriendNodeIds: () => string[]): void {
     this.stopHeartbeat();
+    this.getFriendNodeIds = getFriendNodeIds;
 
-    const sendHeartbeats = async () => {
+    const buildHeartbeatMsg = (): HeartbeatMessage => {
       const activity = this.getCanvasActivity?.() ?? [];
-      const msg: HeartbeatMessage = {
+      return {
         type: "heartbeat",
         nodeId: this.localNodeId,
         username: this.localUsername,
         canvasActivity: activity.length > 0 ? activity : undefined,
       };
+    };
 
-      const nodeIds = getFriendNodeIds();
-      for (const peerId of nodeIds) {
-        this.sendMessage(peerId, msg).catch((err) => {
+    // initial announce round: send to ALL friends so online peers can reply
+    const allFriends = getFriendNodeIds();
+    const msg = buildHeartbeatMsg();
+    for (const peerId of allFriends) {
+      this.sendMessage(peerId, msg).catch((err) => {
+        console.warn(TAG, "initial announce failed for:", peerId.slice(0, 16) + "...", err);
+      });
+    }
+    this.onAfterHeartbeatTick?.(allFriends);
+
+    // regular heartbeat: send only to online peers
+    const sendHeartbeats = async () => {
+      const hbMsg = buildHeartbeatMsg();
+      const onlinePeers = this.getOnlinePeers();
+      for (const peerId of onlinePeers) {
+        this.sendMessage(peerId, hbMsg).catch((err) => {
           console.warn(TAG, "heartbeat failed for:", peerId.slice(0, 16) + "...", err);
         });
       }
 
-      this.onAfterHeartbeatTick?.(nodeIds);
+      // check for peers that timed out since last tick
+      const now = Date.now();
+      for (const [nodeId, lastSeenAt] of this.lastSeen) {
+        if (now - lastSeenAt >= HEARTBEAT_TIMEOUT_MS) {
+          console.log(TAG, "peer offline (timeout):", nodeId.slice(0, 16) + "...");
+          this.lastSeen.delete(nodeId);
+          this.emitOnlineChange();
+        }
+      }
+
+      this.onAfterHeartbeatTick?.(getFriendNodeIds());
     };
 
-    // send immediately, then on interval
-    sendHeartbeats();
     this.heartbeatTimer = setInterval(sendHeartbeats, HEARTBEAT_INTERVAL_MS);
+
+    // discovery sweep: periodically probe offline friends
+    this.discoveryTimer = setInterval(() => {
+      const friends = this.getFriendNodeIds?.() ?? [];
+      const sweepMsg = buildHeartbeatMsg();
+      for (const peerId of friends) {
+        if (this.isOnline(peerId)) continue; // skip already-online
+        this.sendMessage(peerId, sweepMsg).catch(() => {
+          // silent — they're probably offline
+        });
+      }
+    }, DISCOVERY_SWEEP_MS);
   }
 
   /** send a single heartbeat to a specific peer (used after transport reconnection). */
@@ -685,11 +763,40 @@ export class FriendzProtocol {
     await this.sendMessage(peerNodeId, msg);
   }
 
+  /** send a one-shot heartbeat to a single peer (e.g. when viewing their profile or sharing a canvas). */
+  async probePeer(nodeId: string): Promise<void> {
+    const activity = this.getCanvasActivity?.() ?? [];
+    const msg: HeartbeatMessage = {
+      type: "heartbeat",
+      nodeId: this.localNodeId,
+      username: this.localUsername,
+      canvasActivity: activity.length > 0 ? activity : undefined,
+    };
+    await this.sendMessage(nodeId, msg);
+  }
+
+  /** announce to all online peers that we're going offline. fire-and-forget. */
+  announceOffline(): void {
+    const msg: OfflineAnnouncementMessage = {
+      type: "offline-announcement",
+      nodeId: this.localNodeId,
+    };
+    for (const peerId of this.getOnlinePeers()) {
+      this.sendMessage(peerId, msg).catch(() => {
+        // fire-and-forget — we're shutting down
+      });
+    }
+  }
+
   /** stop the heartbeat interval. */
   stopHeartbeat(): void {
     if (this.heartbeatTimer) {
       clearInterval(this.heartbeatTimer);
       this.heartbeatTimer = null;
+    }
+    if (this.discoveryTimer) {
+      clearInterval(this.discoveryTimer);
+      this.discoveryTimer = null;
     }
   }
 
@@ -821,6 +928,7 @@ export class FriendzProtocol {
     this.streams.clear();
     this.pendingConnections.clear();
     this.lastSeen.clear();
+    this.getFriendNodeIds = null;
     this.onlineChangeListeners = [];
     this.onFriendRequest = null;
     this.onFriendAccept = null;

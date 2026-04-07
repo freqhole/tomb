@@ -146,6 +146,16 @@ class SkeinRouter {
       }
     }) as EventListener);
 
+    // announce offline to peers and stamp last-visited on page close
+    window.addEventListener("beforeunload", () => {
+      if (this.friendzProtocol) {
+        this.friendzProtocol.announceOffline();
+        this.friendzProtocol.stopHeartbeat();
+      }
+      // stamp last-visited synchronously — best effort, may not complete for async ops
+      this.stampLastVisitedOnCurrentCanvas().catch(() => {});
+    });
+
     // initial navigation based on current hash
     console.log("[skein] router booted, initial hash:", JSON.stringify(window.location.hash));
     await this.onHashChange();
