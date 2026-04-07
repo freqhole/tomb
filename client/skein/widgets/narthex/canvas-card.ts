@@ -168,6 +168,13 @@ export const canvasCardWidget: WidgetFactory<typeof canvasCardSchema> = {
     accentColor: state.color,
   }),
 
+  onCompactActivate: (state: z.infer<typeof canvasCardSchema>): void => {
+    if (state.accessRevoked) return;
+    if (state.canvasDocId) {
+      window.location.hash = state.canvasDocId;
+    }
+  },
+
   create(ctx: WidgetMountContext<typeof canvasCardSchema>): WidgetController {
     const container = new Container();
     container.eventMode = "static";

@@ -1,4 +1,4 @@
-import type { Repo } from "@automerge/automerge-repo";
+import type { DocumentId, Repo } from "@automerge/automerge-repo";
 import { Container, Graphics, Text } from "pixi.js";
 import { z } from "zod";
 import type { WidgetRegistry } from "../../src/widgets/widget-registry";
@@ -577,6 +577,31 @@ export const binWidget: WidgetFactory<typeof binSchema> = {
             },
           })
         : {};
+
+    // add onCardTap: look up the child widget's factory and call
+    // onCompactActivate if the factory defines one (e.g., canvas-card
+    // navigates to the canvas). cardCallbacks is the same object returned
+    // by createBinDragHandler, so we just add the onCardTap property.
+    if (store && repo && registry) {
+      (cardCallbacks as CardInteractionCallbacks).onCardTap = (widgetId: string) => {
+        const entry = store.getWidget(widgetId);
+        if (!entry) return;
+
+        const factory = registry!.get(entry.type);
+        if (!factory?.onCompactActivate || !entry.docId) return;
+
+        try {
+          const handle = repo!.handles[entry.docId as DocumentId];
+          if (!handle) return;
+          const rawDoc = handle.doc();
+          if (!rawDoc) return;
+          const state = factory.schema ? factory.schema.parse(rawDoc) : rawDoc;
+          factory.onCompactActivate(state);
+        } catch {
+          // best-effort — don't break the bin on activation errors
+        }
+      };
+    }
 
     if (repo && registry && store) {
       renderer = new BinRenderer(repo, registry, store, cardCallbacks);

@@ -205,6 +205,13 @@ export interface WidgetFactory<S extends z.ZodType = z.ZodType> {
    * does not require the widget to be mounted — pure function of state.
    */
   getCompactInfo?: (state: z.infer<S>) => CompactInfo;
+  /**
+   * called when a compact card for this widget is tapped inside a bin.
+   * pure function of state — the widget is not mounted when this fires.
+   * use for navigation or other side-effects (e.g., canvas-card opens the canvas).
+   * if omitted, tapping a compact card does nothing.
+   */
+  onCompactActivate?: (state: z.infer<S>) => void;
   /** create a widget instance given a mount context */
   create(ctx: WidgetMountContext<S>): WidgetController;
 }
