@@ -102,6 +102,7 @@ export const binWidget: WidgetFactory<typeof binSchema> = {
       type: "select",
       options: ["top", "bottom"],
       default: "top",
+      visibleWhen: { key: "mode", value: "shelf" },
     },
   ],
 
@@ -629,21 +630,9 @@ export const binWidget: WidgetFactory<typeof binSchema> = {
               const slot = hitTestSlot(mode, localX, localY, cols, rows, contentWidth);
 
               if (slot) {
-                // check if this slot is already occupied
-                const occupiedSet = new Set(
-                  state.items.map((i: any) => `${i.slot.col},${i.slot.row}`)
-                );
-                if (occupiedSet.has(`${slot.col},${slot.row}`)) {
-                  // occupied — show highlight on the first empty slot instead
-                  const empty = firstEmptySlot(
-                    state.items.map((i: any) => i.slot),
-                    cols,
-                    rows
-                  );
-                  renderer.showSlotHighlight(empty);
-                } else {
-                  renderer.showSlotHighlight(slot);
-                }
+                // always highlight the slot under the cursor — even if occupied
+                // (dropping on an occupied slot will swap the occupant out)
+                renderer.showSlotHighlight(slot);
               } else {
                 // pointer is in the bin area but not on a valid slot — find the first empty
                 const empty = firstEmptySlot(
@@ -679,15 +668,8 @@ export const binWidget: WidgetFactory<typeof binSchema> = {
               const occupied = state.items.map((i: any) => i.slot);
               let slot = hitTestSlot(mode, localX, localY, cols, rows, contentWidth);
 
-              // use the hit slot if it's empty; otherwise fall back to first empty
-              if (slot) {
-                const occupiedSet = new Set(occupied.map((s: any) => `${s.col},${s.row}`));
-                if (occupiedSet.has(`${slot.col},${slot.row}`)) {
-                  // occupied slot — try to find any empty slot
-                  slot = firstEmptySlot(occupied, cols, rows);
-                }
-                // else: slot is empty — use it directly (no override to firstEmptySlot)
-              } else {
+              if (!slot) {
+                // pointer not on a valid slot — find the first empty
                 slot = firstEmptySlot(occupied, cols, rows);
               }
 
@@ -699,7 +681,38 @@ export const binWidget: WidgetFactory<typeof binSchema> = {
               // nest the widget: set parentId and add to the bin's items
               store.setParentId(draggedWidgetId, ctx.widgetId);
 
+              // if the target slot is occupied, swap the occupant to the first empty slot
+              const occupiedSet = new Set(occupied.map((s: any) => `${s.col},${s.row}`));
+              const targetKey = `${slot.col},${slot.row}`;
+
               ctx.doc.change((draft) => {
+                if (occupiedSet.has(targetKey)) {
+                  // find the occupant and move it to the first available slot
+                  const occupantIdx = draft.items.findIndex(
+                    (i: any) => `${i.slot.col},${i.slot.row}` === targetKey
+                  );
+                  if (occupantIdx !== -1) {
+                    // compute empty slot excluding the target (which the new widget will take)
+                    const allOccupied = draft.items
+                      .filter((_: any, idx: number) => idx !== occupantIdx)
+                      .map((i: any) => i.slot);
+                    // also exclude the target slot itself
+                    allOccupied.push(slot);
+                    const swapRows = computeRows(draft.items.length + 1, Math.max(1, draft.cols));
+                    const emptySlot = firstEmptySlot(
+                      allOccupied,
+                      Math.max(1, draft.cols),
+                      swapRows
+                    );
+                    if (emptySlot) {
+                      draft.items[occupantIdx].slot = emptySlot;
+                    } else {
+                      // no empty slot — push occupant to a new row
+                      draft.items[occupantIdx].slot = { col: 0, row: swapRows };
+                    }
+                  }
+                }
+
                 draft.items.push({ widgetId: draggedWidgetId, slot });
                 draft.rows = computeRows(draft.items.length, Math.max(1, draft.cols));
               });

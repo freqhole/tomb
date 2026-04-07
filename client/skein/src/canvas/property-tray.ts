@@ -92,6 +92,8 @@ export class PropertyTray {
   private trayWidth = DEFAULT_TRAY_WIDTH;
   private currentWidgetId: string | null = null;
   private controls: PropControl[] = [];
+  /** visibility conditions for controls with visibleWhen */
+  private controlVisibility = new Map<number, { key: string; value: unknown }>();
   private docUnsub: (() => void) | null = null;
   private unsubs: (() => void)[] = [];
 
@@ -304,18 +306,46 @@ export class PropertyTray {
     // build a control for each editable prop
     const fieldWidth = this.trayWidth - TRAY_PAD_H * 2;
     let y = 0;
-    for (const prop of props) {
+    for (let i = 0; i < props.length; i++) {
+      const prop = props[i];
       const control = this.createControl(prop, doc, fieldWidth);
-      control.container.y = Math.round(y);
       this.contentContainer.addChild(control.container);
       this.controls.push(control);
-      y += control.height + ROW_GAP;
+
+      // track conditional visibility
+      if (prop.visibleWhen) {
+        this.controlVisibility.set(i, prop.visibleWhen);
+        const currentVal = doc.current[prop.visibleWhen.key];
+        if (currentVal !== prop.visibleWhen.value) {
+          control.container.visible = false;
+        }
+      }
+
+      // layout only visible controls
+      if (control.container.visible) {
+        control.container.y = Math.round(y);
+        y += control.height + ROW_GAP;
+      }
     }
 
     // subscribe to doc changes so controls stay in sync with remote edits
     this.docUnsub = doc.on("change", (state: Record<string, unknown>) => {
-      for (const control of this.controls) {
+      let needsRelayout = false;
+      for (let i = 0; i < this.controls.length; i++) {
+        const control = this.controls[i];
         control.update(state[control.key]);
+
+        const vis = this.controlVisibility.get(i);
+        if (vis) {
+          const shouldBeVisible = state[vis.key] === vis.value;
+          if (control.container.visible !== shouldBeVisible) {
+            control.container.visible = shouldBeVisible;
+            needsRelayout = true;
+          }
+        }
+      }
+      if (needsRelayout) {
+        this.relayoutControls();
       }
     });
 
@@ -341,6 +371,19 @@ export class PropertyTray {
   }
 
   /**
+   * re-compute y positions for controls after visibility changes.
+   */
+  private relayoutControls(): void {
+    let y = 0;
+    for (const control of this.controls) {
+      if (!control.container.visible) continue;
+      control.container.y = Math.round(y);
+      y += control.height + ROW_GAP;
+    }
+    this.drawBackground();
+  }
+
+  /**
    * tear down controls and doc subscription without hiding the root.
    */
   private clearControls(): void {
@@ -353,6 +396,7 @@ export class PropertyTray {
       control.destroy();
     }
     this.controls = [];
+    this.controlVisibility.clear();
     this.contentContainer.removeChildren();
   }
 

@@ -126,6 +126,24 @@ export class BinRenderer {
     this.slotHighlight = new Graphics();
     this.slotHighlight.visible = false;
     this.container.addChild(this.slotHighlight);
+
+    // wheel handler for drawer mode scroll — on the root container so it
+    // catches bubbled events from cards inside scrollInner AND direct events
+    // from the transparent scrollBg hit area in gaps between cards.
+    this.container.eventMode = "auto";
+    this.container.on("wheel", (e: WheelEvent) => {
+      if (this.mode !== "drawer") return;
+      const canScroll = this.totalContentHeight > this.visibleHeight;
+      if (!canScroll) return;
+
+      e.stopPropagation();
+      if ((e as any).nativeEvent) (e as any).nativeEvent._skeinWidgetScroll = true;
+
+      const SCROLL_SPEED = 30;
+      this.scrollY += e.deltaY > 0 ? SCROLL_SPEED : -SCROLL_SPEED;
+      this.clampScroll();
+      this.positionScrollInner();
+    });
   }
 
   // -----------------------------------------------------------------------
@@ -801,26 +819,11 @@ export class BinRenderer {
       this.container.addChild(this.scrollMask);
       this.scrollInner.mask = this.scrollMask;
 
-      // transparent background covering the visible scroll area so wheel events
-      // fire even in gaps between cards (not just over card graphics).
-      // sits behind scrollInner in the parent container.
+      // transparent hit area so wheel events fire in gaps between cards
+      // (the actual wheel handler is on this.container — see constructor)
       this.scrollBg = new Graphics();
       this.scrollBg.eventMode = "static";
       this.container.addChildAt(this.scrollBg, 0);
-
-      this.scrollBg.on("wheel", (e: WheelEvent) => {
-        const canScroll = this.totalContentHeight > this.visibleHeight;
-        if (!canScroll) return;
-
-        e.stopPropagation();
-        // claim the native event so the viewport doesn't also pan
-        if ((e as any).nativeEvent) (e as any).nativeEvent._skeinWidgetScroll = true;
-
-        const SCROLL_SPEED = 30;
-        this.scrollY += e.deltaY > 0 ? SCROLL_SPEED : -SCROLL_SPEED;
-        this.clampScroll();
-        this.positionScrollInner();
-      });
     }
 
     // update mask and hit area dimensions
