@@ -208,30 +208,33 @@ export function createRequestsTab(ctx: TabContext): TabController {
         row.addChild(subText);
       }
 
-      // accept button (green circle with checkmark)
+      // accept button (outlined rounded rect with label)
+      const acceptW = 52;
+      const acceptH = 22;
       const acceptBtn = new Container();
       acceptBtn.eventMode = "static";
       acceptBtn.cursor = "pointer";
-      acceptBtn.hitArea = new Rectangle(0, 0, ACTION_BTN_SIZE, ACTION_BTN_SIZE);
-      acceptBtn.x = contentW - ACTION_BTN_SIZE * 2 - ROW_PADDING_X - 4;
-      acceptBtn.y = (REQUEST_ROW_HEIGHT - ACTION_BTN_SIZE) / 2;
+      acceptBtn.hitArea = new Rectangle(0, 0, acceptW, acceptH);
+      acceptBtn.x = contentW - acceptW - 52 - ROW_PADDING_X - 4;
+      acceptBtn.y = (REQUEST_ROW_HEIGHT - acceptH) / 2;
 
       const acceptBg = new Graphics();
       acceptBg.eventMode = "none";
-      acceptBg.circle(ACTION_BTN_SIZE / 2, ACTION_BTN_SIZE / 2, ACTION_BTN_SIZE / 2);
-      acceptBg.fill({ color: ACCEPT_COLOR });
+      acceptBg.roundRect(0, 0, acceptW, acceptH, 4);
+      acceptBg.fill({ color: 0x111118 });
+      acceptBg.stroke({ color: ACCEPT_COLOR, width: 1.5 });
       acceptBtn.addChild(acceptBg);
 
-      const acceptIcon = new Text({
-        text: "\u2713",
-        style: { fontFamily: FONT, fontSize: 13, fontWeight: "bold", fill: 0xffffff },
+      const acceptLabel = new Text({
+        text: "accept",
+        style: { fontFamily: FONT, fontSize: ROW_SUB_SIZE, fill: ACCEPT_COLOR },
         resolution: RESOLUTION,
       });
-      acceptIcon.eventMode = "none";
-      acceptIcon.anchor.set(0.5);
-      acceptIcon.x = ACTION_BTN_SIZE / 2;
-      acceptIcon.y = ACTION_BTN_SIZE / 2;
-      acceptBtn.addChild(acceptIcon);
+      acceptLabel.eventMode = "none";
+      acceptLabel.anchor.set(0.5);
+      acceptLabel.x = acceptW / 2;
+      acceptLabel.y = acceptH / 2;
+      acceptBtn.addChild(acceptLabel);
 
       acceptBtn.on("pointertap", (e) => {
         e.stopPropagation();
@@ -275,30 +278,33 @@ export function createRequestsTab(ctx: TabContext): TabController {
       });
       row.addChild(acceptBtn);
 
-      // reject button (red circle with x)
+      // reject button (outlined rounded rect with label)
+      const rejectW = 52;
+      const rejectH = 22;
       const rejectBtn = new Container();
       rejectBtn.eventMode = "static";
       rejectBtn.cursor = "pointer";
-      rejectBtn.hitArea = new Rectangle(0, 0, ACTION_BTN_SIZE, ACTION_BTN_SIZE);
-      rejectBtn.x = contentW - ACTION_BTN_SIZE - ROW_PADDING_X;
-      rejectBtn.y = (REQUEST_ROW_HEIGHT - ACTION_BTN_SIZE) / 2;
+      rejectBtn.hitArea = new Rectangle(0, 0, rejectW, rejectH);
+      rejectBtn.x = contentW - rejectW - ROW_PADDING_X;
+      rejectBtn.y = (REQUEST_ROW_HEIGHT - rejectH) / 2;
 
       const rejectBg = new Graphics();
       rejectBg.eventMode = "none";
-      rejectBg.circle(ACTION_BTN_SIZE / 2, ACTION_BTN_SIZE / 2, ACTION_BTN_SIZE / 2);
-      rejectBg.fill({ color: REJECT_COLOR });
+      rejectBg.roundRect(0, 0, rejectW, rejectH, 4);
+      rejectBg.fill({ color: 0x111118 });
+      rejectBg.stroke({ color: REJECT_COLOR, width: 1.5 });
       rejectBtn.addChild(rejectBg);
 
-      const rejectIcon = new Text({
-        text: "\u00d7",
-        style: { fontFamily: FONT, fontSize: 14, fontWeight: "bold", fill: 0xffffff },
+      const rejectLabel = new Text({
+        text: "reject",
+        style: { fontFamily: FONT, fontSize: ROW_SUB_SIZE, fill: REJECT_COLOR },
         resolution: RESOLUTION,
       });
-      rejectIcon.eventMode = "none";
-      rejectIcon.anchor.set(0.5);
-      rejectIcon.x = ACTION_BTN_SIZE / 2;
-      rejectIcon.y = ACTION_BTN_SIZE / 2;
-      rejectBtn.addChild(rejectIcon);
+      rejectLabel.eventMode = "none";
+      rejectLabel.anchor.set(0.5);
+      rejectLabel.x = rejectW / 2;
+      rejectLabel.y = rejectH / 2;
+      rejectBtn.addChild(rejectLabel);
 
       rejectBtn.on("pointertap", (e) => {
         e.stopPropagation();

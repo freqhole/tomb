@@ -85,7 +85,6 @@ const SCROLL_SPEED = 30;
 const ACTION_BTN_SIZE = 22;
 const FONT = "system-ui, sans-serif";
 const RESOLUTION = 3;
-const HEADER_SIZE = 14;
 
 // ---------------------------------------------------------------------------
 // helpers
@@ -138,6 +137,12 @@ export const messagezWidget: WidgetFactory<typeof messagezSchema> = {
     // scroll state
     let scrollY = 0;
 
+    // whether to show resolved (delivered/accepted/declined) items in outbox
+    let showResolved = false;
+
+    // whether to show accepted/declined invites in inbox
+    let showAccepted = false;
+
     // cache the local node id (resolved async)
     let localNodeId = "";
     getStoredIdentity().then((id) => {
@@ -157,26 +162,6 @@ export const messagezWidget: WidgetFactory<typeof messagezSchema> = {
       cardBg.fill({ color: BG });
       cardBg.stroke({ color: BORDER, width: 1 });
     };
-
-    // -----------------------------------------------------------------------
-    // header
-    // -----------------------------------------------------------------------
-
-    const headerText = new Text({
-      text: "messagez",
-      style: {
-        fontFamily: FONT,
-        fontSize: HEADER_SIZE,
-        fontWeight: "bold",
-        fill: TEXT_COLOR,
-      },
-      resolution: RESOLUTION,
-    });
-    headerText.eventMode = "none";
-    container.addChild(headerText);
-
-    const headerSep = new Graphics();
-    container.addChild(headerSep);
 
     // -----------------------------------------------------------------------
     // tab bar
@@ -202,6 +187,64 @@ export const messagezWidget: WidgetFactory<typeof messagezSchema> = {
 
     const tabUnderline = new Graphics();
     container.addChild(tabUnderline);
+
+    // "clear all" button — right side of tab bar
+    const clearAllText = new Text({
+      text: "clear all",
+      style: { fontFamily: FONT, fontSize: TAB_FONT_SIZE - 1, fill: MUTED_TEXT },
+      resolution: RESOLUTION,
+    });
+    clearAllText.eventMode = "static";
+    clearAllText.cursor = "pointer";
+    clearAllText.visible = false;
+    container.addChild(clearAllText);
+
+    clearAllText.on("pointertap", (e) => {
+      e.stopPropagation();
+      ctx.doc.change((draft) => {
+        if (viewMode === "inbox") {
+          draft.invites = [];
+        } else {
+          draft.shares = [];
+        }
+      });
+    });
+
+    // "show resolved" / "hide resolved" toggle — outbox only
+    const toggleResolvedText = new Text({
+      text: "show resolved",
+      style: { fontFamily: FONT, fontSize: TAB_FONT_SIZE - 1, fill: MUTED_TEXT },
+      resolution: RESOLUTION,
+    });
+    toggleResolvedText.eventMode = "static";
+    toggleResolvedText.cursor = "pointer";
+    toggleResolvedText.visible = false;
+    container.addChild(toggleResolvedText);
+
+    toggleResolvedText.on("pointertap", (e) => {
+      e.stopPropagation();
+      showResolved = !showResolved;
+      scrollY = 0;
+      layout(currentWidth, currentHeight);
+    });
+
+    // "show accepted" / "hide accepted" toggle — inbox only
+    const toggleAcceptedText = new Text({
+      text: "show accepted",
+      style: { fontFamily: FONT, fontSize: TAB_FONT_SIZE - 1, fill: MUTED_TEXT },
+      resolution: RESOLUTION,
+    });
+    toggleAcceptedText.eventMode = "static";
+    toggleAcceptedText.cursor = "pointer";
+    toggleAcceptedText.visible = false;
+    container.addChild(toggleAcceptedText);
+
+    toggleAcceptedText.on("pointertap", (e) => {
+      e.stopPropagation();
+      showAccepted = !showAccepted;
+      scrollY = 0;
+      layout(currentWidth, currentHeight);
+    });
 
     tabInboxText.on("pointertap", (e) => {
       e.stopPropagation();
@@ -503,30 +546,33 @@ export const messagezWidget: WidgetFactory<typeof messagezSchema> = {
 
         // right side — depends on status
         if (invite.status === "pending") {
-          // accept button (green circle with checkmark)
+          // accept button (outlined rounded rect with text label)
           const acceptBtn = new Container();
           acceptBtn.eventMode = "static";
           acceptBtn.cursor = "pointer";
-          acceptBtn.hitArea = new Rectangle(0, 0, ACTION_BTN_SIZE, ACTION_BTN_SIZE);
-          acceptBtn.x = contentW - ACTION_BTN_SIZE * 2 - ROW_PADDING_X - 4;
-          acceptBtn.y = (ROW_HEIGHT - ACTION_BTN_SIZE) / 2;
+          const acceptW = 52;
+          const acceptH = 22;
+          acceptBtn.hitArea = new Rectangle(0, 0, acceptW, acceptH);
+          acceptBtn.x = contentW - acceptW - 52 - ROW_PADDING_X - 16;
+          acceptBtn.y = (ROW_HEIGHT - acceptH) / 2;
 
           const acceptBg = new Graphics();
           acceptBg.eventMode = "none";
-          acceptBg.circle(ACTION_BTN_SIZE / 2, ACTION_BTN_SIZE / 2, ACTION_BTN_SIZE / 2);
-          acceptBg.fill({ color: ACCEPT_COLOR });
+          acceptBg.roundRect(0, 0, acceptW, acceptH, 4);
+          acceptBg.fill({ color: 0x111118 });
+          acceptBg.stroke({ color: ACCEPT_COLOR, width: 1.5 });
           acceptBtn.addChild(acceptBg);
 
-          const acceptIcon = new Text({
-            text: "\u2713",
-            style: { fontFamily: FONT, fontSize: 13, fontWeight: "bold", fill: 0xffffff },
+          const acceptLabel = new Text({
+            text: "accept",
+            style: { fontFamily: FONT, fontSize: ROW_SUB_SIZE, fill: ACCEPT_COLOR },
             resolution: RESOLUTION,
           });
-          acceptIcon.eventMode = "none";
-          acceptIcon.anchor.set(0.5);
-          acceptIcon.x = ACTION_BTN_SIZE / 2;
-          acceptIcon.y = ACTION_BTN_SIZE / 2;
-          acceptBtn.addChild(acceptIcon);
+          acceptLabel.eventMode = "none";
+          acceptLabel.anchor.set(0.5);
+          acceptLabel.x = acceptW / 2;
+          acceptLabel.y = acceptH / 2;
+          acceptBtn.addChild(acceptLabel);
 
           acceptBtn.on("pointertap", (e) => {
             e.stopPropagation();
@@ -564,30 +610,33 @@ export const messagezWidget: WidgetFactory<typeof messagezSchema> = {
           });
           rowContainer.addChild(acceptBtn);
 
-          // decline button (red circle with X)
+          // decline button (outlined rounded rect with text label)
+          const declineW = 52;
+          const declineH = 22;
           const declineBtn = new Container();
           declineBtn.eventMode = "static";
           declineBtn.cursor = "pointer";
-          declineBtn.hitArea = new Rectangle(0, 0, ACTION_BTN_SIZE, ACTION_BTN_SIZE);
-          declineBtn.x = contentW - ACTION_BTN_SIZE - ROW_PADDING_X;
-          declineBtn.y = (ROW_HEIGHT - ACTION_BTN_SIZE) / 2;
+          declineBtn.hitArea = new Rectangle(0, 0, declineW, declineH);
+          declineBtn.x = contentW - declineW - ROW_PADDING_X;
+          declineBtn.y = (ROW_HEIGHT - declineH) / 2;
 
           const declineBg = new Graphics();
           declineBg.eventMode = "none";
-          declineBg.circle(ACTION_BTN_SIZE / 2, ACTION_BTN_SIZE / 2, ACTION_BTN_SIZE / 2);
-          declineBg.fill({ color: DECLINE_COLOR });
+          declineBg.roundRect(0, 0, declineW, declineH, 4);
+          declineBg.fill({ color: 0x111118 });
+          declineBg.stroke({ color: DECLINE_COLOR, width: 1.5 });
           declineBtn.addChild(declineBg);
 
-          const declineIcon = new Text({
-            text: "\u00d7",
-            style: { fontFamily: FONT, fontSize: 14, fontWeight: "bold", fill: 0xffffff },
+          const declineLabel = new Text({
+            text: "decline",
+            style: { fontFamily: FONT, fontSize: ROW_SUB_SIZE, fill: DECLINE_COLOR },
             resolution: RESOLUTION,
           });
-          declineIcon.eventMode = "none";
-          declineIcon.anchor.set(0.5);
-          declineIcon.x = ACTION_BTN_SIZE / 2;
-          declineIcon.y = ACTION_BTN_SIZE / 2;
-          declineBtn.addChild(declineIcon);
+          declineLabel.eventMode = "none";
+          declineLabel.anchor.set(0.5);
+          declineLabel.x = declineW / 2;
+          declineLabel.y = declineH / 2;
+          declineBtn.addChild(declineLabel);
 
           declineBtn.on("pointertap", (e) => {
             e.stopPropagation();
@@ -664,8 +713,13 @@ export const messagezWidget: WidgetFactory<typeof messagezSchema> = {
         outboxListInner.removeChildAt(0).destroy({ children: true });
       }
 
+      // filter out resolved items unless toggle is on
+      const visible = showResolved
+        ? shares
+        : shares.filter((s) => !s.delivered && !s.accepted && !s.declined);
+
       // sort: undelivered first, then by sentAt descending
-      const sorted = [...shares].sort((a, b) => {
+      const sorted = [...visible].sort((a, b) => {
         const aResolved = a.delivered || a.accepted || a.declined;
         const bResolved = b.delivered || b.accepted || b.declined;
         if (!aResolved && bResolved) return -1;
@@ -927,20 +981,31 @@ export const messagezWidget: WidgetFactory<typeof messagezSchema> = {
       // card background
       drawCard(w, h);
 
-      // header
-      headerText.x = PADDING_X;
-      headerText.y = y;
-      y += HEADER_SIZE + 8;
-
-      // header separator
-      headerSep.clear();
-      headerSep.moveTo(PADDING_X, y);
-      headerSep.lineTo(w - PADDING_X, y);
-      headerSep.stroke({ color: BORDER, width: 1, alpha: 0.6 });
-      y += 6;
-
       // tab bar
       drawTabBar(y, pendingCount);
+
+      // position "clear all" and "show resolved" on the tab bar line
+      const tabBtnY = y + (TAB_HEIGHT - (TAB_FONT_SIZE - 1)) / 2;
+      const currentTabItems = viewMode === "inbox" ? invites.length : shares.length;
+
+      clearAllText.visible = currentTabItems > 0;
+      clearAllText.x = w - PADDING_X - clearAllText.width;
+      clearAllText.y = tabBtnY;
+
+      toggleResolvedText.text = showResolved ? "hide resolved" : "show resolved";
+      toggleResolvedText.visible = viewMode === "outbox" && shares.length > 0;
+      toggleResolvedText.x = clearAllText.visible
+        ? clearAllText.x - toggleResolvedText.width - 12
+        : w - PADDING_X - toggleResolvedText.width;
+      toggleResolvedText.y = tabBtnY;
+
+      toggleAcceptedText.text = showAccepted ? "hide accepted" : "show accepted";
+      toggleAcceptedText.visible = viewMode === "inbox" && invites.length > 0;
+      toggleAcceptedText.x = clearAllText.visible
+        ? clearAllText.x - toggleAcceptedText.width - 12
+        : w - PADDING_X - toggleAcceptedText.width;
+      toggleAcceptedText.y = tabBtnY;
+
       y += TAB_HEIGHT + 4;
 
       // hide all view containers
@@ -965,15 +1030,21 @@ export const messagezWidget: WidgetFactory<typeof messagezSchema> = {
         inboxListContainer.y = inboxAreaY;
         inboxListContainer.hitArea = new Rectangle(0, 0, contentW, inboxAreaHeight);
 
+        // filter invites based on toggle
+        const visibleInvites = showAccepted
+          ? invites
+          : invites.filter((inv: CanvasInvite) => inv.status === "pending");
+
         // rebuild rows
-        rebuildInboxRows(invites, contentW);
+        rebuildInboxRows(visibleInvites, contentW);
 
         // clamp scroll
         clampInboxScroll();
         inboxListInner.y = -scrollY;
 
         // empty state
-        if (invites.length === 0) {
+        if (visibleInvites.length === 0) {
+          inboxEmptyText.text = invites.length > 0 ? "all invites accepted" : "no invites yet";
           inboxEmptyText.visible = true;
           inboxEmptyText.x = PADDING_X + (contentW - inboxEmptyText.width) / 2;
           inboxEmptyText.y = inboxAreaY + inboxAreaHeight / 2 - 6;
@@ -1003,6 +1074,12 @@ export const messagezWidget: WidgetFactory<typeof messagezSchema> = {
 
         // empty state
         if (shares.length === 0) {
+          outboxEmptyText.text = "no shares yet";
+          outboxEmptyText.visible = true;
+          outboxEmptyText.x = PADDING_X + (contentW - outboxEmptyText.width) / 2;
+          outboxEmptyText.y = outboxAreaY + outboxAreaHeight / 2 - 6;
+        } else if (totalOutboxHeight === 0) {
+          outboxEmptyText.text = "all shares resolved";
           outboxEmptyText.visible = true;
           outboxEmptyText.x = PADDING_X + (contentW - outboxEmptyText.width) / 2;
           outboxEmptyText.y = outboxAreaY + outboxAreaHeight / 2 - 6;

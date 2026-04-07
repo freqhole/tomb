@@ -3,26 +3,25 @@
 // ---------------------------------------------------------------------------
 
 import { Container, Graphics, Text } from "pixi.js";
+// note: Text is still used for tab labels
 import type {
-    WidgetController,
-    WidgetFactory,
-    WidgetMountContext,
+  WidgetController,
+  WidgetFactory,
+  WidgetMountContext,
 } from "../../../src/widgets/widget-types";
 import {
-    ACCENT,
-    BG,
-    BORDER,
-    CARD_RADIUS,
-    FONT,
-    HEADER_SIZE,
-    PADDING_X,
-    PADDING_Y,
-    RESOLUTION,
-    TAB_ACTIVE_COLOR,
-    TAB_FONT_SIZE,
-    TAB_HEIGHT,
-    TAB_INACTIVE_COLOR,
-    TEXT_COLOR,
+  ACCENT,
+  BG,
+  BORDER,
+  CARD_RADIUS,
+  FONT,
+  PADDING_X,
+  PADDING_Y,
+  RESOLUTION,
+  TAB_ACTIVE_COLOR,
+  TAB_FONT_SIZE,
+  TAB_HEIGHT,
+  TAB_INACTIVE_COLOR,
 } from "./constants";
 import { createFriendsTab } from "./friends-tab";
 import { createProfileTab } from "./profile-tab";
@@ -79,26 +78,6 @@ export const socialWidget: WidgetFactory<typeof socialSchema> = {
       cardBg.fill({ color: BG });
       cardBg.stroke({ color: BORDER, width: 1 });
     };
-
-    // -----------------------------------------------------------------------
-    // header
-    // -----------------------------------------------------------------------
-
-    const headerText = new Text({
-      text: "social",
-      style: {
-        fontFamily: FONT,
-        fontSize: HEADER_SIZE,
-        fontWeight: "bold",
-        fill: TEXT_COLOR,
-      },
-      resolution: RESOLUTION,
-    });
-    headerText.eventMode = "none";
-    container.addChild(headerText);
-
-    const headerSep = new Graphics();
-    container.addChild(headerSep);
 
     // -----------------------------------------------------------------------
     // tab bar
@@ -167,18 +146,6 @@ export const socialWidget: WidgetFactory<typeof socialSchema> = {
 
       // card background
       drawCard(w, h);
-
-      // header
-      headerText.x = PADDING_X;
-      headerText.y = y;
-      y += HEADER_SIZE + 8;
-
-      // header separator
-      headerSep.clear();
-      headerSep.moveTo(PADDING_X, y);
-      headerSep.lineTo(w - PADDING_X, y);
-      headerSep.stroke({ color: BORDER, width: 1, alpha: 0.6 });
-      y += 6;
 
       // -- tab bar ----------------------------------------------------------
 
