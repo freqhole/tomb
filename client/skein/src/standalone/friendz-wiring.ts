@@ -34,6 +34,7 @@ export interface FriendzWiringResult {
   socialDoc: SocialDoc;
   messagezDocHandle: DocHandle<any> | null;
   unsubs: Array<() => void>;
+  flushCanvasUpdates: () => void;
 }
 
 /** wrap an automerge DocHandle as a SocialDoc (for browser/standalone mode) */
@@ -651,50 +652,54 @@ export async function initFriendzWiring(
     }
   }
 
-  protocol.onAfterHeartbeatTick = (friendNodeIds: string[]) => {
-    // flush dirty canvas updates to peers who share each canvas
-    if (dirtyCanvases.size > 0) {
-      const localUsername = sDoc.current.profile?.username ?? "anonymous";
-      const onlineFriends = new Set(friendNodeIds.filter((id) => protocol.isOnline(id)));
+  /** flush pending dirty canvas update notifications to online peers.
+   *  called from onAfterHeartbeatTick and also exposed for manual flush on navigation/close. */
+  function flushDirtyCanvasUpdates(): void {
+    if (dirtyCanvases.size === 0) return;
 
-      for (const [, info] of dirtyCanvases) {
-        // look up who shares this canvas from the CanvasDocument.peers field
-        try {
-          const canvasHandle = repo.handles[info.canvasDocId as any];
-          const canvasDoc = canvasHandle?.doc() as CanvasDocument | undefined;
-          const peers = canvasDoc?.peers ?? {};
+    const localUsername = sDoc.current.profile?.username ?? "anonymous";
+    const onlinePeers = protocol.getOnlinePeers();
 
-          for (const peerNodeId of Object.keys(peers)) {
-            if (peerNodeId === localNodeId) continue;
-            if (!onlineFriends.has(peerNodeId)) continue;
+    for (const [, info] of dirtyCanvases) {
+      try {
+        const canvasHandle = repo.handles[info.canvasDocId as any];
+        const canvasDoc = canvasHandle?.doc() as CanvasDocument | undefined;
+        const peers = canvasDoc?.peers ?? {};
 
-            protocol
-              .sendCanvasUpdate(peerNodeId, {
-                canvasDocId: info.canvasDocId,
-                lastModifiedAt: info.lastModified,
-                widgetCount: info.widgetCount,
-                modifiedByNodeId: localNodeId,
-                modifiedByUsername: localUsername,
-              })
-              .catch((err) => {
-                console.warn(
-                  "[friendz-wiring] canvas update send failed for:",
-                  peerNodeId.slice(0, 16) + "...",
-                  err
-                );
-              });
-          }
-        } catch (err) {
-          console.warn(
-            "[friendz-wiring] failed to flush canvas update:",
-            info.canvasDocId.slice(0, 16) + "...",
-            err
-          );
+        for (const peerNodeId of Object.keys(peers)) {
+          if (peerNodeId === localNodeId) continue;
+          if (!onlinePeers.includes(peerNodeId)) continue;
+
+          protocol
+            .sendCanvasUpdate(peerNodeId, {
+              canvasDocId: info.canvasDocId,
+              lastModifiedAt: info.lastModified,
+              widgetCount: info.widgetCount,
+              modifiedByNodeId: localNodeId,
+              modifiedByUsername: localUsername,
+            })
+            .catch((err) => {
+              console.warn(
+                "[friendz-wiring] canvas update send failed for:",
+                peerNodeId.slice(0, 16) + "...",
+                err
+              );
+            });
         }
+      } catch (err) {
+        console.warn(
+          "[friendz-wiring] failed to flush canvas update:",
+          info.canvasDocId.slice(0, 16) + "...",
+          err
+        );
       }
-
-      dirtyCanvases.clear();
     }
+
+    dirtyCanvases.clear();
+  }
+
+  protocol.onAfterHeartbeatTick = (_friendNodeIds: string[]) => {
+    flushDirtyCanvasUpdates();
   };
 
   /** compute and send a gossip digest to a peer that just came online.
@@ -899,6 +904,29 @@ export async function initFriendzWiring(
     return ids;
   });
 
+  // when a friend connects at the transport level, probe them immediately
+  // so we don't have to wait for the next heartbeat tick to discover them.
+  const unsubPeerConnect = irohAdapter.onPeerConnect((peerId: string) => {
+    // check if this peer is a known friend
+    const currentFriends = sDoc.current.friends ?? [];
+    const isFriendPeer = currentFriends.some((f: any) =>
+      f.nodeIds?.some((n: any) => n.nodeId === peerId)
+    );
+    if (!isFriendPeer) return;
+
+    // only probe if they're not already online (avoid redundant heartbeats)
+    if (protocol.isOnline(peerId)) return;
+
+    console.log(
+      "[friendz-wiring] friend connected at transport, probing:",
+      peerId.slice(0, 16) + "..."
+    );
+    protocol.probePeer(peerId).catch(() => {
+      // silent — probe is best-effort
+    });
+  });
+  unsubs.push(unsubPeerConnect);
+
   // sent friend request tracking is handled by setOutboundRequestHook above
 
   // request profiles from connected friends on social doc change
@@ -928,5 +956,6 @@ export async function initFriendzWiring(
     socialDoc: sDoc,
     messagezDocHandle: messagezHandle,
     unsubs,
+    flushCanvasUpdates: flushDirtyCanvasUpdates,
   };
 }

@@ -434,6 +434,7 @@ class SkeinRouter {
     this.socialDoc = result.socialDoc;
     this.messagezDocHandle = result.messagezDocHandle;
     this.friendzDocUnsubs.push(...result.unsubs);
+    this.flushCanvasUpdates = result.flushCanvasUpdates;
   }
 
   /** navigate to a specific canvas by document id */
@@ -1138,6 +1139,7 @@ class SkeinRouter {
       this.friendzProtocol.destroy();
       this.friendzProtocol = null;
     }
+    this.flushCanvasUpdates = null;
   }
 }
 
