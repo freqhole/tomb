@@ -656,6 +656,15 @@ export const binWidget: WidgetFactory<typeof binSchema> = {
     if (repo && registry && store) {
       renderer = new BinRenderer(repo, registry, store, cardCallbacks);
       contentContainer.addChild(renderer.container);
+
+      // show slot outlines on hover so the user can see drop targets
+      container.eventMode = "static";
+      container.on("pointerenter", () => {
+        renderer?.setGridVisible(true);
+      });
+      container.on("pointerleave", () => {
+        renderer?.setGridVisible(false);
+      });
     }
 
     // initial layout

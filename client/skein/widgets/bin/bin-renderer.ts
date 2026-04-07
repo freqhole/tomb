@@ -86,6 +86,9 @@ export class BinRenderer {
   private slotHighlight: Graphics;
   private highlightedSlot: SlotPosition | null = null;
 
+  /** grid slot outlines — visible on hover to show drop targets */
+  private gridOutlines: Graphics;
+
   /** current layout state — set via render() */
   private mode: BinMode = "grid";
   private contentWidth = 200;
@@ -124,6 +127,12 @@ export class BinRenderer {
 
     this.container = new Container();
     this.container.label = "bin-renderer";
+
+    // grid slot outlines — behind cards, visible on hover
+    this.gridOutlines = new Graphics();
+    this.gridOutlines.visible = false;
+    this.gridOutlines.label = "grid-outlines";
+    this.container.addChild(this.gridOutlines);
 
     // slot highlight overlay — drawn on top of cards
     this.slotHighlight = new Graphics();
@@ -187,6 +196,12 @@ export class BinRenderer {
       this.teardownDrawerScroll();
     }
 
+    // ensure grid outlines are in the correct parent (scrollInner for drawer, container for others)
+    if (this.gridOutlines.parent !== this.cardParent) {
+      this.gridOutlines.parent?.removeChild(this.gridOutlines);
+      this.cardParent.addChild(this.gridOutlines);
+    }
+
     // determine which cards to add, update, or remove
     const newIds = new Set(mappedItems.map((i) => i.widgetId));
     const oldIds = new Set(this.cards.keys());
@@ -236,6 +251,9 @@ export class BinRenderer {
       this.positionScrollInner();
     }
 
+    // redraw grid outlines for the new layout
+    this.drawGridOutlines(Math.max(1, _cols), _rows);
+
     // bring highlight to front
     this.container.removeChild(this.slotHighlight);
     this.container.addChild(this.slotHighlight);
@@ -268,6 +286,25 @@ export class BinRenderer {
     this.highlightedSlot = slot;
   }
 
+  /** show or hide the slot grid outlines */
+  setGridVisible(visible: boolean): void {
+    this.gridOutlines.visible = visible;
+  }
+
+  /** redraw the slot grid outlines for the current layout */
+  private drawGridOutlines(cols: number, rows: number): void {
+    this.gridOutlines.clear();
+
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const rect = slotRect(this.mode, { col: c, row: r }, this.contentWidth);
+        this.gridOutlines
+          .roundRect(rect.x, rect.y, rect.width, rect.height, 3)
+          .stroke({ width: 1, color: 0x333333, alpha: 0.5 });
+      }
+    }
+  }
+
   /** the container that cards are added to (scrollInner in drawer mode, main container otherwise) */
   private get cardParent(): Container {
     return this.scrollInner ?? this.container;
@@ -293,6 +330,7 @@ export class BinRenderer {
       this.removeCard(id);
     }
 
+    this.gridOutlines.destroy();
     this.slotHighlight.destroy();
     this.container.destroy({ children: true });
   }
