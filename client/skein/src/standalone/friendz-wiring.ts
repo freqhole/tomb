@@ -6,15 +6,15 @@ import { initBridge, setOutboundRequestHook } from "../p2p/friendz-bridge";
 import { GossipTracker } from "../p2p/gossip-tracker";
 import { getMiddenNode, getStoredIdentity } from "../p2p/identity";
 import {
-    FRIENDZ_ALPN,
-    type IrohNetworkAdapter,
-    type MiddenStreamNode,
+  FRIENDZ_ALPN,
+  type IrohNetworkAdapter,
+  type MiddenStreamNode,
 } from "../p2p/iroh-network-adapter";
 
+import type { SocialState } from "../../widgets/narthex/social/schema";
+import type { SocialDoc } from "../../widgets/narthex/social/types";
 import { handleFreqholeStream } from "../p2p/freqhole-handler";
 import { isTauriMode, TauriStreamNode } from "../p2p/tauri-transport";
-import type { SocialDoc } from "../../widgets/narthex/social/types";
-import type { SocialState } from "../../widgets/narthex/social/schema";
 
 export interface FriendzWiringDeps {
   repo: Repo;
@@ -124,9 +124,7 @@ export async function initFriendzWiring(
     },
     isFriend: (nodeId: string) => {
       const friends = sDoc.current.friends ?? [];
-      return friends.some(
-        (f: any) => f.nodeIds?.some((n: any) => n.nodeId === nodeId)
-      );
+      return friends.some((f: any) => f.nodeIds?.some((n: any) => n.nodeId === nodeId));
     },
     profileVisibility,
     friendRequestsFrom,
@@ -203,9 +201,7 @@ export async function initFriendzWiring(
     sDoc.change((draft: any) => {
       if (!draft.pendingRequests) draft.pendingRequests = [];
       // don't add duplicate pending requests from the same node
-      const exists = draft.pendingRequests.some(
-        (r: any) => r.fromNodeId === fromNodeId
-      );
+      const exists = draft.pendingRequests.some((r: any) => r.fromNodeId === fromNodeId);
       if (!exists) {
         draft.pendingRequests.push({
           fromNodeId,
@@ -223,8 +219,8 @@ export async function initFriendzWiring(
       if (!draft.friends) draft.friends = [];
 
       // find existing friend entry by node ID
-      const existingFriend = draft.friends.find(
-        (f: any) => f.nodeIds?.some((n: any) => n.nodeId === fromNodeId)
+      const existingFriend = draft.friends.find((f: any) =>
+        f.nodeIds?.some((n: any) => n.nodeId === fromNodeId)
       );
 
       if (!existingFriend) {
@@ -318,19 +314,17 @@ export async function initFriendzWiring(
     if (!messagezHandle) return;
 
     messagezHandle.change((draft: any) => {
-      if (!draft.canvasInvites) draft.canvasInvites = [];
+      if (!draft.invites) draft.invites = [];
 
       // check for existing ack for same invite
-      const currentInbox = (draft.canvasInvites ?? []) as any[];
+      const currentInbox = (draft.invites ?? []) as any[];
       const alreadyHave = currentInbox.some(
-        (inv: any) =>
-          inv.canvasDocId === msg.canvasDocId &&
-          inv.fromNodeId === fromNodeId
+        (inv: any) => inv.canvasDocId === msg.canvasDocId && inv.fromNodeId === fromNodeId
       );
 
       if (alreadyHave) return;
 
-      draft.canvasInvites.push({
+      draft.invites.push({
         id: crypto.randomUUID(),
         canvasDocId: msg.canvasDocId,
         canvasTitle: msg.canvasTitle ?? "",
@@ -366,9 +360,7 @@ export async function initFriendzWiring(
   setOutboundRequestHook((targetNodeId: string) => {
     sDoc.change((draft: any) => {
       if (!draft.sentRequests) draft.sentRequests = [];
-      const exists = draft.sentRequests.some(
-        (r: any) => r.toNodeId === targetNodeId
-      );
+      const exists = draft.sentRequests.some((r: any) => r.toNodeId === targetNodeId);
       if (!exists) {
         draft.sentRequests.push({
           toNodeId: targetNodeId,

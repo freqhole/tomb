@@ -179,6 +179,43 @@ class SkeinRouter {
     }
   }
 
+  /**
+   * stamp lastVisitedAt on the canvas card we're leaving so that own edits
+   * don't trigger a false "updated" pill when we return to the narthex.
+   * best-effort — failures are silently ignored.
+   */
+  private async stampLastVisitedOnCurrentCanvas(): Promise<void> {
+    if (!this.currentCanvas || !this.narthexDocId) return;
+    // figure out which canvas doc we're currently viewing
+    const currentHash = window.location.hash.slice(1);
+    if (!currentHash || currentHash === this.narthexDocId) return;
+
+    try {
+      const narthexHandle = await this.repo.find<CanvasDocument>(this.narthexDocId as DocumentId);
+      await narthexHandle.whenReady();
+      const narthexDoc = narthexHandle.doc();
+      if (!narthexDoc?.widgets) return;
+
+      for (const entry of Object.values(narthexDoc.widgets)) {
+        if (
+          entry.type === "canvas-card" &&
+          (entry.props as any)?.canvasDocId === currentHash &&
+          entry.docId
+        ) {
+          const cardHandle = await this.repo.find<any>(entry.docId as DocumentId);
+          await cardHandle.whenReady();
+          cardHandle.change((draft: any) => {
+            draft.lastVisitedAt = new Date().toISOString();
+            draft.hasUpdates = false;
+          });
+          break;
+        }
+      }
+    } catch {
+      // best-effort — don't block navigation
+    }
+  }
+
   /** tear down the current canvas if any */
   private destroyCurrent(): void {
     for (const unsub of this.transportPresenceUnsubs) unsub();
@@ -197,6 +234,9 @@ class SkeinRouter {
     this.navigating = true;
 
     try {
+      // stamp lastVisitedAt before tearing down so own edits aren't flagged
+      await this.stampLastVisitedOnCurrentCanvas();
+
       this.destroyCurrent();
 
       // clear hash for the narthex (clean URL)
@@ -363,6 +403,9 @@ class SkeinRouter {
     this.navigating = true;
 
     try {
+      // stamp lastVisitedAt before tearing down so own edits aren't flagged
+      await this.stampLastVisitedOnCurrentCanvas();
+
       this.destroyCurrent();
 
       // ensure the hash is set (for reload persistence)
