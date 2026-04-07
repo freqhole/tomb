@@ -1,5 +1,5 @@
 import type { DocHandle, DocumentId, PeerId, Repo } from "@automerge/automerge-repo";
-import type { CanvasDocument, CanvasPeer, WidgetEntry } from "./canvas-doc";
+import type { CanvasDocument, CanvasPeer, PendingCanvasInvite, WidgetEntry } from "./canvas-doc";
 import { emptyCanvasDoc } from "./canvas-doc";
 
 /** handler signature for ephemeral message listeners */
@@ -87,6 +87,41 @@ export class CanvasStore {
     this.handle.change((doc) => {
       if (doc.peers && doc.peers[nodeId]) {
         delete doc.peers[nodeId];
+      }
+    });
+  }
+
+  /** stamp our own lastSeenAt in the peers record.
+   *  each peer only writes their own entry so there are no conflicts. */
+  stampLastSeen(): void {
+    if (!this._localNodeId) return;
+    this.handle.change((doc) => {
+      if (!doc.peers) doc.peers = {} as Record<string, CanvasPeer>;
+      const entry = doc.peers[this._localNodeId];
+      if (entry) {
+        entry.lastSeenAt = new Date().toISOString();
+      }
+    });
+  }
+
+  /** get all pending invites for this canvas. */
+  pendingInvites(): Record<string, PendingCanvasInvite> {
+    return this.doc().pendingInvites ?? {};
+  }
+
+  /** write a pending invite into the canvas doc for gossip relay. */
+  addPendingInvite(targetNodeId: string, invite: PendingCanvasInvite): void {
+    this.handle.change((doc) => {
+      if (!doc.pendingInvites) doc.pendingInvites = {} as Record<string, PendingCanvasInvite>;
+      doc.pendingInvites[targetNodeId] = invite;
+    });
+  }
+
+  /** remove a pending invite (e.g. after the target joined or declined). */
+  removePendingInvite(targetNodeId: string): void {
+    this.handle.change((doc) => {
+      if (doc.pendingInvites && doc.pendingInvites[targetNodeId]) {
+        delete doc.pendingInvites[targetNodeId];
       }
     });
   }

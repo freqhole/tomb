@@ -30,6 +30,21 @@ export interface WidgetEntry {
 export interface CanvasPeer {
   nodeId: string;
   joinedAt: string;
+  /** ISO timestamp of when this peer last viewed or interacted with this canvas.
+   *  each peer stamps only their own entry — no conflict possible. */
+  lastSeenAt?: string;
+}
+
+/** a pending canvas invite that hasn't been accepted yet. */
+export interface PendingCanvasInvite {
+  /** node ID of the peer who created the invite. */
+  invitedBy: string;
+  /** username of the inviter for display. */
+  invitedByUsername: string;
+  /** role being offered. */
+  role: "editor" | "viewer";
+  /** ISO timestamp when the invite was created. */
+  invitedAt: string;
 }
 
 /**
@@ -55,6 +70,10 @@ export interface CanvasDocument {
   previewUrl: string;
   /** peers that have connected to this canvas — used to re-establish P2P on reload */
   peers: Record<string, CanvasPeer>;
+  /** pending invites for peers who haven't joined yet.
+   *  keyed by target node ID. used for gossip relay — any peer on the canvas
+   *  can read this and relay the invite when the target comes online. */
+  pendingInvites?: Record<string, PendingCanvasInvite>;
 }
 
 /**

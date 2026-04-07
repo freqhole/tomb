@@ -18,6 +18,7 @@ import {
   type FriendRequestMessage,
   type FriendzMessage,
   type FriendzProtocolOptions,
+  type GossipDigestMessage,
   type HeartbeatMessage,
   type ProfileResponseMessage,
 } from "./friends-protocol";
@@ -1473,6 +1474,164 @@ describe("FriendzProtocol", () => {
     it("setFriendRequestsFrom updates privacy setting", () => {
       protocol.setFriendRequestsFrom("nobody");
       expect((protocol as any).friendRequestsFrom).toBe("nobody");
+    });
+  });
+
+  describe("onPeerBecameOnline", () => {
+    it("fires onPeerBecameOnline when first heartbeat arrives from unknown peer", async () => {
+      const calls: string[] = [];
+      protocol.onPeerBecameOnline = (peerId) => calls.push(peerId);
+
+      const peerId = "b".repeat(64);
+      const stream = createMockBiStream(peerId);
+      protocol.handleStream(stream as unknown as BiStreamLike);
+
+      stream.pushMessage(encodeMessage({ type: "heartbeat", nodeId: peerId, username: "bob" }));
+      await flush();
+
+      expect(calls).toHaveLength(1);
+      expect(calls[0]).toBe(peerId);
+    });
+
+    it("does NOT fire onPeerBecameOnline for subsequent heartbeats from same peer", async () => {
+      const calls: string[] = [];
+      protocol.onPeerBecameOnline = (peerId) => calls.push(peerId);
+
+      const peerId = "b".repeat(64);
+      const stream = createMockBiStream(peerId);
+      protocol.handleStream(stream as unknown as BiStreamLike);
+
+      stream.pushMessage(encodeMessage({ type: "heartbeat", nodeId: peerId, username: "bob" }));
+      await flush();
+
+      stream.pushMessage(encodeMessage({ type: "heartbeat", nodeId: peerId, username: "bob" }));
+      await flush();
+
+      expect(calls).toHaveLength(1);
+    });
+
+    it("fires onPeerBecameOnline again after peer times out and reconnects", async () => {
+      vi.useFakeTimers();
+      try {
+        const calls: string[] = [];
+        protocol.onPeerBecameOnline = (peerId) => calls.push(peerId);
+
+        const peerId = "b".repeat(64);
+        const stream = createMockBiStream(peerId);
+        protocol.handleStream(stream as unknown as BiStreamLike);
+
+        // first heartbeat
+        stream.pushMessage(encodeMessage({ type: "heartbeat", nodeId: peerId, username: "bob" }));
+        await vi.advanceTimersByTimeAsync(20);
+
+        expect(calls).toHaveLength(1);
+
+        // advance past heartbeat timeout (90s)
+        vi.advanceTimersByTime(HEARTBEAT_TIMEOUT_MS + 1000);
+
+        // second heartbeat after timeout — peer was stale, so onPeerBecameOnline fires again
+        stream.pushMessage(encodeMessage({ type: "heartbeat", nodeId: peerId, username: "bob" }));
+        await vi.advanceTimersByTimeAsync(20);
+
+        expect(calls).toHaveLength(2);
+        expect(calls[0]).toBe(peerId);
+        expect(calls[1]).toBe(peerId);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
+
+  describe("gossip-digest", () => {
+    it("incoming gossip-digest fires onGossipDigest callback", async () => {
+      const received: Array<{ msg: GossipDigestMessage; from: string }> = [];
+      protocol.onGossipDigest = (msg, from) => received.push({ msg, from });
+
+      const peerId = "b".repeat(64);
+      const stream = createMockBiStream(peerId);
+      protocol.handleStream(stream as unknown as BiStreamLike);
+
+      const msg: GossipDigestMessage = {
+        type: "gossip-digest",
+        canvasUpdates: [
+          { canvasDocId: "doc-1", lastModifiedAt: "2025-01-01T00:00:00Z", lastModifiedBy: peerId },
+        ],
+        pendingInvites: [
+          {
+            canvasDocId: "doc-2",
+            canvasTitle: "invite canvas",
+            canvasDescription: "test",
+            canvasColor: 1,
+            canvasPreviewUrl: "",
+            invitedBy: peerId,
+            invitedByUsername: "bob",
+            role: "editor",
+            invitedAt: "2025-01-01T00:00:00Z",
+          },
+        ],
+      };
+      stream.pushMessage(encodeMessage(msg));
+      await flush();
+
+      expect(received).toHaveLength(1);
+      expect(received[0].from).toBe(peerId);
+      expect(received[0].msg.canvasUpdates).toHaveLength(1);
+      expect(received[0].msg.canvasUpdates[0].canvasDocId).toBe("doc-1");
+      expect(received[0].msg.pendingInvites).toHaveLength(1);
+      expect(received[0].msg.pendingInvites[0].canvasDocId).toBe("doc-2");
+    });
+
+    it("sendGossipDigest sends correctly typed message", async () => {
+      const targetId = "b".repeat(64);
+      const stream = createMockBiStream(targetId);
+      protocol.handleStream(stream as unknown as BiStreamLike);
+      await flush();
+
+      await protocol.sendGossipDigest(targetId, {
+        canvasUpdates: [
+          {
+            canvasDocId: "doc-1",
+            lastModifiedAt: "2025-01-01T00:00:00Z",
+            lastModifiedBy: "a".repeat(64),
+          },
+        ],
+        pendingInvites: [
+          {
+            canvasDocId: "doc-2",
+            canvasTitle: "test canvas",
+            canvasDescription: "desc",
+            canvasColor: 2,
+            canvasPreviewUrl: "",
+            invitedBy: "a".repeat(64),
+            invitedByUsername: "alice",
+            role: "viewer",
+            invitedAt: "2025-01-01T00:00:00Z",
+          },
+        ],
+      });
+
+      // should reuse the existing stream, not open a new one
+      expect(mockMidden.open_bi).not.toHaveBeenCalled();
+      expect(stream._written.length).toBeGreaterThan(0);
+
+      const lastWritten = stream._written[stream._written.length - 1];
+      const parsed = JSON.parse(new TextDecoder().decode(lastWritten));
+      expect(parsed.type).toBe("gossip-digest");
+      expect(parsed.canvasUpdates).toHaveLength(1);
+      expect(parsed.canvasUpdates[0].canvasDocId).toBe("doc-1");
+      expect(parsed.pendingInvites).toHaveLength(1);
+      expect(parsed.pendingInvites[0].canvasDocId).toBe("doc-2");
+      expect(parsed.pendingInvites[0].role).toBe("viewer");
+    });
+
+    it("destroy() nulls onGossipDigest and onPeerBecameOnline callbacks", () => {
+      protocol.onGossipDigest = () => {};
+      protocol.onPeerBecameOnline = () => {};
+
+      protocol.destroy();
+
+      expect(protocol.onGossipDigest).toBeNull();
+      expect(protocol.onPeerBecameOnline).toBeNull();
     });
   });
 

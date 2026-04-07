@@ -1,9 +1,12 @@
 import type { DocHandle, DocumentId, Repo } from "@automerge/automerge-repo";
 import type { CanvasDocument } from "../canvas/canvas-doc";
 import type { CanvasStore } from "../canvas/canvas-store";
-import { FriendzProtocol, type CanvasActivityEntry } from "../p2p/friends-protocol";
+import {
+  FriendzProtocol,
+  type CanvasActivityEntry,
+  type GossipDigestMessage,
+} from "../p2p/friends-protocol";
 import { initBridge, setOutboundRequestHook } from "../p2p/friendz-bridge";
-import { GossipTracker } from "../p2p/gossip-tracker";
 import { getMiddenNode, getStoredIdentity } from "../p2p/identity";
 import {
   FRIENDZ_ALPN,
@@ -21,7 +24,6 @@ export interface FriendzWiringDeps {
   irohAdapter: IrohNetworkAdapter;
   store: CanvasStore;
   narthexDocId: string;
-  gossipTracker: GossipTracker;
   socialWidgetId: string;
   messagezWidgetId: string;
   socialDoc?: SocialDoc;
@@ -58,15 +60,7 @@ function docHandleAsSocialDoc(handle: DocHandle<any>): SocialDoc {
 export async function initFriendzWiring(
   deps: FriendzWiringDeps
 ): Promise<FriendzWiringResult | null> {
-  const {
-    repo,
-    irohAdapter,
-    store,
-    narthexDocId,
-    gossipTracker,
-    socialWidgetId,
-    messagezWidgetId,
-  } = deps;
+  const { repo, irohAdapter, store, narthexDocId, socialWidgetId, messagezWidgetId } = deps;
 
   // in tauri mode, identity comes from the running iroh endpoint
   // in standalone mode, identity is stored in IndexedDB
@@ -369,21 +363,6 @@ export async function initFriendzWiring(
       );
     });
 
-    // track in gossip tracker for relay to other targets
-    gossipTracker.track(
-      msg.inviteId,
-      msg.canvasDocId,
-      msg.canvasTitle ?? "",
-      msg.canvasDescription ?? "",
-      msg.canvasColor ?? 0,
-      msg.canvasPreviewUrl ?? "",
-      msg.originNodeId,
-      msg.originUsername ?? "",
-      msg.role,
-      msg.targets,
-      msg.acked
-    );
-
     // send ACK back to the sender
     protocol
       .sendCanvasInviteAck(fromNodeId, {
@@ -413,9 +392,6 @@ export async function initFriendzWiring(
         ackerNodeId: fromNodeId,
       });
     });
-
-    // feed ACK to gossip tracker so we stop relaying to this peer
-    gossipTracker.markAcked(msg.canvasDocId, msg.ackerNodeId || fromNodeId);
 
     // update outbox: mark matching share as delivered
     messagezHandle.change((draft: any) => {
@@ -453,8 +429,20 @@ export async function initFriendzWiring(
       }
     });
 
-    // accepting also counts as an ACK for gossip purposes
-    gossipTracker.markAcked(msg.canvasDocId, msg.accepterNodeId || fromNodeId);
+    // clean up pendingInvites on the canvas doc — this peer has accepted
+    try {
+      const accepterId = msg.accepterNodeId || fromNodeId;
+      const canvasHandle = repo.handles[msg.canvasDocId as any];
+      if (canvasHandle) {
+        canvasHandle.change((draft: any) => {
+          if (draft.pendingInvites?.[accepterId]) {
+            delete draft.pendingInvites[accepterId];
+          }
+        });
+      }
+    } catch {
+      // best effort
+    }
   };
 
   protocol.onCanvasInviteDecline = (msg, fromNodeId) => {
@@ -479,8 +467,20 @@ export async function initFriendzWiring(
       }
     });
 
-    // declining also counts as an ACK for gossip purposes
-    gossipTracker.markAcked(msg.canvasDocId, msg.declinerNodeId || fromNodeId);
+    // clean up pendingInvites on the canvas doc — this peer declined
+    try {
+      const declinerId = msg.declinerNodeId || fromNodeId;
+      const canvasHandle = repo.handles[msg.canvasDocId as any];
+      if (canvasHandle) {
+        canvasHandle.change((draft: any) => {
+          if (draft.pendingInvites?.[declinerId]) {
+            delete draft.pendingInvites[declinerId];
+          }
+        });
+      }
+    } catch {
+      // best effort
+    }
   };
 
   // wire outbound requests through the bridge
@@ -501,41 +501,6 @@ export async function initFriendzWiring(
       }
     });
   });
-
-  // seed gossip tracker from undelivered outbox entries on boot
-  if (messagezHandle) {
-    const messagezState = messagezHandle.doc();
-    if (messagezState?.shares) {
-      const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
-      const now = Date.now();
-      for (const share of messagezState.shares as any[]) {
-        if (share.delivered || share.accepted || share.declined) continue;
-        // skip shares older than 7 days
-        if (share.sentAt && now - new Date(share.sentAt).getTime() > SEVEN_DAYS_MS) continue;
-
-        gossipTracker.track(
-          share.id ?? crypto.randomUUID(),
-          share.canvasDocId,
-          share.canvasTitle ?? "",
-          share.canvasDescription ?? "",
-          share.canvasColor ?? 0,
-          share.canvasPreviewUrl ?? "",
-          localNodeId, // we're the origin for outbox entries
-          sDoc.current.profile?.username ?? "anonymous",
-          "editor", // outbox shares are always editor role currently
-          [share.toNodeId],
-          []
-        );
-      }
-      if (gossipTracker.size > 0) {
-        console.log(
-          "[friendz-wiring] seeded gossip tracker with",
-          gossipTracker.size,
-          "undelivered shares"
-        );
-      }
-    }
-  }
 
   // --- canvas update federation (phase 2): send side ---
   // track which canvas docs we're already watching (by per-widget docId)
@@ -686,45 +651,8 @@ export async function initFriendzWiring(
     }
   }
 
-  // relay pending canvas invites after each heartbeat tick
-  const RELAY_CAP_PER_PEER = 3;
-
   protocol.onAfterHeartbeatTick = (friendNodeIds: string[]) => {
-    // --- relay pending canvas invites ---
-    for (const peerId of friendNodeIds) {
-      if (!protocol.isOnline(peerId)) continue;
-
-      const pending = gossipTracker.entriesForPeer(peerId);
-      let relayed = 0;
-      for (const entry of pending) {
-        if (relayed >= RELAY_CAP_PER_PEER) break;
-
-        protocol
-          .sendCanvasInvite(peerId, {
-            inviteId: entry.inviteId,
-            canvasDocId: entry.canvasDocId,
-            canvasTitle: entry.canvasTitle,
-            canvasDescription: entry.canvasDescription ?? "",
-            canvasColor: entry.canvasColor ?? 0,
-            canvasPreviewUrl: entry.canvasPreviewUrl ?? "",
-            originNodeId: entry.originNodeId,
-            originUsername: entry.originUsername ?? "",
-            role: entry.role,
-            targets: [...entry.targets],
-            acked: [...entry.acked],
-          })
-          .catch((err) => {
-            console.warn(
-              "[friendz-wiring] gossip relay failed for:",
-              peerId.slice(0, 16) + "...",
-              err
-            );
-          });
-        relayed++;
-      }
-    }
-
-    // --- flush dirty canvas updates to peers who share each canvas ---
+    // flush dirty canvas updates to peers who share each canvas
     if (dirtyCanvases.size > 0) {
       const localUsername = sDoc.current.profile?.username ?? "anonymous";
       const onlineFriends = new Set(friendNodeIds.filter((id) => protocol.isOnline(id)));
@@ -769,36 +697,88 @@ export async function initFriendzWiring(
     }
   };
 
-  // relay pending invites when a new peer connects
-  protocol.onPeerConnected = (peerNodeId: string) => {
-    const pending = gossipTracker.entriesForPeer(peerNodeId);
-    let relayed = 0;
-    for (const entry of pending) {
-      if (relayed >= RELAY_CAP_PER_PEER) break;
+  /** compute and send a gossip digest to a peer that just came online.
+   *  scans local canvas docs for shared canvases with updates and pending invites. */
+  async function computeAndSendGossipDigest(peerNodeId: string): Promise<void> {
+    const canvasUpdates: GossipDigestMessage["canvasUpdates"] = [];
+    const pendingInvites: GossipDigestMessage["pendingInvites"] = [];
 
-      protocol
-        .sendCanvasInvite(peerNodeId, {
-          inviteId: entry.inviteId,
-          canvasDocId: entry.canvasDocId,
-          canvasTitle: entry.canvasTitle,
-          canvasDescription: entry.canvasDescription ?? "",
-          canvasColor: entry.canvasColor ?? 0,
-          canvasPreviewUrl: entry.canvasPreviewUrl ?? "",
-          originNodeId: entry.originNodeId,
-          originUsername: entry.originUsername ?? "",
-          role: entry.role,
-          targets: [...entry.targets],
-          acked: [...entry.acked],
-        })
-        .catch((err) => {
-          console.warn(
-            "[friendz-wiring] peer-connect relay failed for:",
-            peerNodeId.slice(0, 16) + "...",
-            err
-          );
-        });
-      relayed++;
+    const narthexHandle = repo.handles[narthexDocId as any];
+    const narthexDoc = narthexHandle?.doc();
+    if (!narthexDoc?.widgets) return;
+
+    for (const [_cardId, card] of Object.entries(narthexDoc.widgets) as any[]) {
+      if (card.type !== "canvas-card") continue;
+      const canvasDocId = (card.props as any)?.canvasDocId;
+      if (!canvasDocId) continue;
+
+      try {
+        const canvasHandle = repo.handles[canvasDocId as any];
+        const canvasDoc = canvasHandle?.doc() as CanvasDocument | undefined;
+        if (!canvasDoc) continue;
+
+        // check for canvas updates: peer is on this canvas and has stale state
+        const peerEntry = canvasDoc.peers?.[peerNodeId];
+        if (peerEntry) {
+          const peerLastSeen = peerEntry.lastSeenAt ?? "";
+          if (canvasDoc.lastModified && canvasDoc.lastModified > peerLastSeen) {
+            canvasUpdates.push({
+              canvasDocId,
+              lastModifiedAt: canvasDoc.lastModified,
+              lastModifiedBy: canvasDoc.lastModifiedBy ?? "",
+            });
+          }
+        }
+
+        // check for pending invites targeting this peer
+        const pendingInvite = canvasDoc.pendingInvites?.[peerNodeId];
+        if (pendingInvite && !canvasDoc.peers?.[peerNodeId]) {
+          pendingInvites.push({
+            canvasDocId,
+            canvasTitle: canvasDoc.title ?? "",
+            canvasDescription: canvasDoc.description ?? "",
+            canvasColor: canvasDoc.color ?? 0,
+            canvasPreviewUrl: canvasDoc.previewUrl ?? "",
+            invitedBy: pendingInvite.invitedBy,
+            invitedByUsername: pendingInvite.invitedByUsername ?? "",
+            role: pendingInvite.role,
+            invitedAt: pendingInvite.invitedAt,
+          });
+        }
+      } catch {
+        // canvas doc not synced yet — skip
+      }
     }
+
+    if (canvasUpdates.length === 0 && pendingInvites.length === 0) return;
+
+    console.log(
+      "[friendz-wiring] sending gossip digest to:",
+      peerNodeId.slice(0, 16) + "...",
+      "updates:",
+      canvasUpdates.length,
+      "invites:",
+      pendingInvites.length
+    );
+
+    await protocol.sendGossipDigest(peerNodeId, { canvasUpdates, pendingInvites });
+  }
+
+  // send a gossip digest when a friend peer transitions to online.
+  // this fires on BOTH sides of the heartbeat handshake, making the exchange
+  // bidirectional — each peer tells the other about canvas updates and pending invites.
+  protocol.onPeerBecameOnline = (peerNodeId: string) => {
+    const friends = sDoc.current.friends ?? [];
+    const isFriend = friends.some((f: any) => f.nodeIds?.some((n: any) => n.nodeId === peerNodeId));
+    if (!isFriend) return;
+
+    computeAndSendGossipDigest(peerNodeId).catch((err) => {
+      console.warn(
+        "[friendz-wiring] gossip digest failed for:",
+        peerNodeId.slice(0, 16) + "...",
+        err
+      );
+    });
   };
 
   // handle incoming canvas update notifications
@@ -832,6 +812,78 @@ export async function initFriendzWiring(
       }
     } catch (err) {
       console.warn("[friendz-wiring] failed to mark canvas update:", err);
+    }
+  };
+
+  // handle incoming gossip digests from peers that just came online
+  protocol.onGossipDigest = (msg, fromNodeId) => {
+    // process canvas update notifications
+    for (const update of msg.canvasUpdates) {
+      // skip our own edits
+      if (update.lastModifiedBy === localNodeId) continue;
+
+      // skip if currently viewing this canvas
+      const currentHash = window.location.hash.replace(/^#/, "");
+      if (currentHash === update.canvasDocId) continue;
+
+      // find the narthex card and mark hasUpdates
+      try {
+        const narthexHandle = repo.handles[narthexDocId as any];
+        const narthexDoc = narthexHandle?.doc();
+        if (!narthexDoc?.widgets) continue;
+
+        for (const [_cardId, card] of Object.entries(narthexDoc.widgets) as any[]) {
+          if (card?.props?.canvasDocId === update.canvasDocId && card.docId) {
+            const cardHandle = repo.handles[card.docId as any];
+            if (cardHandle) {
+              cardHandle.change((draft: any) => {
+                draft.hasUpdates = true;
+                draft.lastKnownModifiedAt = update.lastModifiedAt;
+                draft.lastModifiedBy = update.lastModifiedBy;
+              });
+            }
+            break;
+          }
+        }
+      } catch {
+        // best effort
+      }
+    }
+
+    // process pending invite notifications
+    for (const invite of msg.pendingInvites) {
+      if (!messagezHandle) continue;
+
+      // write to inbox (same logic as onCanvasInvite but from digest data)
+      messagezHandle.change((draft: any) => {
+        if (!draft.invites) draft.invites = [];
+
+        const currentInbox = (draft.invites ?? []) as any[];
+        const alreadyHave = currentInbox.some(
+          (inv: any) =>
+            inv.canvasDocId === invite.canvasDocId && inv.fromNodeId === invite.invitedBy
+        );
+        if (alreadyHave) return;
+
+        draft.invites.push({
+          id: crypto.randomUUID(),
+          canvasDocId: invite.canvasDocId,
+          canvasTitle: invite.canvasTitle ?? "",
+          canvasDescription: invite.canvasDescription ?? "",
+          canvasColor: typeof invite.canvasColor === "number" ? invite.canvasColor : 0,
+          canvasPreviewUrl: invite.canvasPreviewUrl ?? "",
+          fromNodeId: invite.invitedBy,
+          fromUsername: invite.invitedByUsername ?? "unknown",
+          relayedBy: fromNodeId,
+          receivedAt: new Date().toISOString(),
+          status: "pending" as const,
+        });
+
+        console.log(
+          "[friendz-wiring] gossip digest: wrote invite to inbox for canvas:",
+          invite.canvasDocId.slice(0, 16) + "..."
+        );
+      });
     }
   };
 

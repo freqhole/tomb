@@ -17,7 +17,7 @@ import {
   sendFriendRequest,
   setOutboundRequestHook,
 } from "../p2p/friendz-bridge";
-import { GossipTracker } from "../p2p/gossip-tracker";
+
 import {
   ensureIdentity,
   getMiddenNode,
@@ -59,7 +59,7 @@ class SkeinRouter {
   private friendzDocUnsubs: Array<() => void> = [];
   private socialDoc: SocialDoc | null = null;
   private messagezDocHandle: DocHandle<any> | null = null;
-  private gossipTracker: GossipTracker = new GossipTracker();
+
   private transportPresenceUnsubs: Array<() => void> = [];
   private canvasWatcherUnsubs: Array<() => void> = [];
   private localNodeId: string = "";
@@ -154,6 +154,10 @@ class SkeinRouter {
         this.friendzProtocol.announceOffline();
         this.friendzProtocol.stopHeartbeat();
       }
+      // stamp lastSeenAt on the current canvas so peers know when we last saw it
+      if (this.currentCanvas) {
+        this.currentCanvas.store.stampLastSeen();
+      }
       // canvas update flush is best-effort — peer may not receive before close
       this.flushCanvasUpdates?.();
     });
@@ -222,6 +226,10 @@ class SkeinRouter {
           });
           break;
         }
+      }
+      // also stamp lastSeenAt on the canvas doc itself for gossip digest computation
+      if (this.currentCanvas) {
+        this.currentCanvas.store.stampLastSeen();
       }
     } catch {
       // best-effort — don't block navigation
@@ -414,7 +422,7 @@ class SkeinRouter {
       irohAdapter: this.irohAdapter,
       store,
       narthexDocId: this.narthexDocId,
-      gossipTracker: this.gossipTracker,
+
       socialWidgetId: SOCIAL_WIDGET_ID,
       messagezWidgetId: MESSAGEZ_WIDGET_ID,
       socialDoc,
@@ -617,20 +625,17 @@ class SkeinRouter {
                 });
               }
 
-              // track in gossip tracker BEFORE the send — relay is the safety net
-              this.gossipTracker.track(
-                inviteId,
-                docId,
-                canvasTitle,
-                canvasDescription,
-                canvasColor,
-                canvasPreviewUrl,
-                localIdentity.node_id,
-                this.friendzProtocol?.getLocalUsername() ?? "",
-                "editor",
-                allTargets,
-                []
-              );
+              // write pending invite to the canvas doc for gossip relay.
+              // Automerge syncs this to all peers on the canvas so any of them
+              // can relay the invite when the target comes online.
+              if (this.currentCanvas) {
+                this.currentCanvas.store.addPendingInvite(friend.nodeId, {
+                  invitedBy: localIdentity.node_id,
+                  invitedByUsername: this.friendzProtocol?.getLocalUsername() ?? "",
+                  role: "editor",
+                  invitedAt: new Date().toISOString(),
+                });
+              }
 
               // attempt direct send — best effort, gossip relay handles offline peers
               try {
@@ -950,6 +955,11 @@ class SkeinRouter {
     // always write self — idempotent, ensures we're in the peer list
     canvas.store.addPeer(identity.node_id);
 
+    // stamp our lastSeenAt on the canvas doc — used by gossip digest
+    // to determine which canvases have updates since we last saw them
+    canvas.store.setLocalNodeId(identity.node_id);
+    canvas.store.stampLastSeen();
+
     // wire transport-level connectivity into the canvas store so widgets
     // can check which peers are online for smarter snatch peer selection
     canvas.store.setPeerOnlineChecker((nodeId) => this.irohAdapter.isConnected(nodeId));
@@ -972,6 +982,16 @@ class SkeinRouter {
       this.irohAdapter.addPeer(nodeId).catch((err) => {
         console.warn("[skein] failed to reconnect to peer:", nodeId.slice(0, 16) + "...", err);
       });
+    }
+
+    // clean up any pending invite for ourselves on this canvas doc
+    const pendingInvites = canvas.store.pendingInvites();
+    if (pendingInvites[identity.node_id]) {
+      canvas.store.removePendingInvite(identity.node_id);
+      console.log(
+        "[skein] cleaned up pending invite for self on canvas:",
+        canvas.store.handle.documentId
+      );
     }
   }
 
@@ -1107,7 +1127,7 @@ class SkeinRouter {
     }
     this.socialDoc = null;
     this.messagezDocHandle = null;
-    this.gossipTracker.clear();
+
     for (const unsub of this.friendzDocUnsubs) {
       unsub();
     }

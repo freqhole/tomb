@@ -149,6 +149,35 @@ export interface OfflineAnnouncementMessage {
   nodeId: string;
 }
 
+/** a canvas update entry in a gossip digest. */
+export interface GossipDigestCanvasUpdate {
+  canvasDocId: string;
+  lastModifiedAt: string;
+  lastModifiedBy: string;
+}
+
+/** a pending invite entry in a gossip digest. */
+export interface GossipDigestPendingInvite {
+  canvasDocId: string;
+  canvasTitle: string;
+  canvasDescription: string;
+  canvasColor: number;
+  canvasPreviewUrl: string;
+  invitedBy: string;
+  invitedByUsername: string;
+  role: "editor" | "viewer";
+  invitedAt: string;
+}
+
+/** gossip digest sent when a peer comes online.
+ *  bundles canvas updates and pending invites for the receiving peer,
+ *  computed from the sender's local canvas doc state. */
+export interface GossipDigestMessage {
+  type: "gossip-digest";
+  canvasUpdates: GossipDigestCanvasUpdate[];
+  pendingInvites: GossipDigestPendingInvite[];
+}
+
 /** union of all protocol messages. */
 export type FriendzMessage =
   | ProfileRequestMessage
@@ -164,7 +193,8 @@ export type FriendzMessage =
   | CanvasInviteDeclineMessage
   | AclChangeMessage
   | CanvasUpdateMessage
-  | OfflineAnnouncementMessage;
+  | OfflineAnnouncementMessage
+  | GossipDigestMessage;
 
 // ---------------------------------------------------------------------------
 // message encoding / decoding
@@ -353,11 +383,19 @@ export class FriendzProtocol {
   /** called when a peer stream is fully connected and the read loop has started. */
   onPeerConnected: ((peerNodeId: string) => void) | null = null;
 
+  /** called when a peer transitions from offline/unknown to online.
+   *  fires on the !wasOnline heartbeat transition, which happens on BOTH sides
+   *  during the initial handshake — making gossip exchange bidirectional. */
+  onPeerBecameOnline: ((peerNodeId: string) => void) | null = null;
+
   /** called after each heartbeat tick with the list of friend node IDs. */
   onAfterHeartbeatTick: ((friendNodeIds: string[]) => void) | null = null;
 
   /** called when a canvas update notification is received. */
   onCanvasUpdate: OnCanvasUpdate | null = null;
+
+  /** called when a gossip digest is received from a peer that just came online. */
+  onGossipDigest: ((msg: GossipDigestMessage, fromNodeId: string) => void) | null = null;
 
   constructor(options: FriendzProtocolOptions) {
     this.getMidden = options.getMidden;
@@ -475,6 +513,7 @@ export class FriendzProtocol {
           this.sendMessage(fromNodeId, reply).catch(() => {
             // silent — just a presence ack, not critical
           });
+          this.onPeerBecameOnline?.(fromNodeId);
         }
         break;
       }
@@ -505,6 +544,10 @@ export class FriendzProtocol {
 
       case "canvas-update":
         this.onCanvasUpdate?.(msg, fromNodeId);
+        break;
+
+      case "gossip-digest":
+        this.onGossipDigest?.(msg, fromNodeId);
         break;
 
       case "offline-announcement":
@@ -673,6 +716,15 @@ export class FriendzProtocol {
     update: Omit<CanvasUpdateMessage, "type">
   ): Promise<void> {
     const msg: CanvasUpdateMessage = { type: "canvas-update", ...update };
+    await this.sendMessage(peerNodeId, msg);
+  }
+
+  /** send a gossip digest to a peer (triggered on peer-online transition). */
+  async sendGossipDigest(
+    peerNodeId: string,
+    digest: Omit<GossipDigestMessage, "type">
+  ): Promise<void> {
+    const msg: GossipDigestMessage = { type: "gossip-digest", ...digest };
     await this.sendMessage(peerNodeId, msg);
   }
 
@@ -943,7 +995,9 @@ export class FriendzProtocol {
     this.onAclChange = null;
     this.onCanvasActivity = null;
     this.onPeerConnected = null;
+    this.onPeerBecameOnline = null;
     this.onAfterHeartbeatTick = null;
     this.onCanvasUpdate = null;
+    this.onGossipDigest = null;
   }
 }
