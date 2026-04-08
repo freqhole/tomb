@@ -63,7 +63,7 @@ impl<T: AsyncRead + Unpin> AsyncRead for LoggingIo<T> {
                         .iter()
                         .map(|b| format!("{:02x}", b))
                         .collect();
-                    tracing::info!(
+                    tracing::trace!(
                         label = %self.label,
                         bytes_read,
                         total_read = total,
@@ -103,7 +103,7 @@ impl<T: AsyncWrite + Unpin> AsyncWrite for LoggingIo<T> {
                 .iter()
                 .map(|b| format!("{:02x}", b))
                 .collect();
-            tracing::info!(
+            tracing::trace!(
                 label = %self.label,
                 bytes_written = n,
                 total_written = total,
@@ -119,7 +119,7 @@ impl<T: AsyncWrite + Unpin> AsyncWrite for LoggingIo<T> {
     }
 
     fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
-        tracing::info!(label = %self.label, "transport SHUTDOWN");
+        tracing::debug!(label = %self.label, "transport SHUTDOWN");
         Pin::new(&mut self.inner).poll_shutdown(cx)
     }
 }

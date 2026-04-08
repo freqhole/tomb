@@ -481,8 +481,19 @@ class SkeinRouter {
           // build peer list from canvas doc (exclude self)
           const peersRecord = this.currentCanvas.store.peers();
           const peerList = Object.values(peersRecord)
-            .filter((p) => p.nodeId !== identity.node_id)
-            .map((p) => ({ nodeId: p.nodeId, joinedAt: p.joinedAt }));
+            .filter((p) => {
+              // guard: automerge may return non-string nodeId from Rust-written entries
+              if (typeof p.nodeId !== "string") {
+                console.warn(
+                  "[skein] share dialog: peer entry has non-string nodeId:",
+                  typeof p.nodeId,
+                  JSON.stringify(p)
+                );
+                return false;
+              }
+              return p.nodeId !== identity.node_id;
+            })
+            .map((p) => ({ nodeId: String(p.nodeId), joinedAt: String(p.joinedAt ?? "") }));
 
           // build friends list for invite picker — exclude already shared
           const peerNodeIds = new Set(peerList.map((p) => p.nodeId));

@@ -68,6 +68,8 @@ pub struct BlobSnatcher {
     downloader: Downloader,
     /// hub's own node ID string (to exclude from peer lists).
     local_node_id: String,
+    /// notify handle used to trigger an immediate scan from outside the loop.
+    scan_trigger: Arc<tokio::sync::Notify>,
 }
 
 impl BlobSnatcher {
@@ -79,6 +81,7 @@ impl BlobSnatcher {
         store: Store,
         downloader: Downloader,
         local_node_id: String,
+        scan_trigger: Arc<tokio::sync::Notify>,
     ) -> Self {
         Self {
             canvas_doc_ids,
@@ -87,7 +90,13 @@ impl BlobSnatcher {
             store,
             downloader,
             local_node_id,
+            scan_trigger,
         }
+    }
+
+    /// return a clone of the scan trigger handle so callers can wake the loop.
+    pub fn scan_trigger(&self) -> Arc<tokio::sync::Notify> {
+        Arc::clone(&self.scan_trigger)
     }
 
     /// run the periodic scan loop until the token is cancelled.
@@ -102,13 +111,16 @@ impl BlobSnatcher {
         );
 
         loop {
-            // wait for next scan interval or cancellation
+            // wait for next scan interval, an on-demand trigger, or cancellation
             tokio::select! {
                 _ = cancel.cancelled() => {
                     tracing::info!("blob snatcher scan loop shutting down");
                     break;
                 }
                 _ = tokio::time::sleep(Duration::from_secs(SCAN_INTERVAL_SECS)) => {}
+                _ = self.scan_trigger.notified() => {
+                    tracing::info!("on-demand blob snatch scan requested");
+                }
             }
 
             // run the scan itself with cancel awareness — if ctrl+c fires
@@ -142,11 +154,16 @@ impl BlobSnatcher {
             guard.iter().cloned().collect()
         };
 
+        tracing::info!(
+            canvas_count = doc_ids.len(),
+            "blob snatcher: starting scan cycle"
+        );
+
         if doc_ids.is_empty() {
             return 0;
         }
 
-        tracing::debug!(
+        tracing::info!(
             canvas_count = doc_ids.len(),
             "scanning canvases for missing blobs"
         );
@@ -165,7 +182,7 @@ impl BlobSnatcher {
         }
 
         if all_refs.is_empty() {
-            tracing::debug!("no missing blobs found across all canvases");
+            tracing::info!("no missing blobs found across all canvases");
             return 0;
         }
 
@@ -222,7 +239,7 @@ impl BlobSnatcher {
             let whandle = match self.repo.find(widget_doc_id_str).await {
                 Some(h) => h,
                 None => {
-                    tracing::debug!(
+                    tracing::info!(
                         widget_doc_id = widget_doc_id_str,
                         "widget state doc not found in hub repo"
                     );
@@ -242,7 +259,7 @@ impl BlobSnatcher {
                 Ok(Some(blob_ref)) => {
                     // skip if blake3 is empty (can't snatch without it)
                     if blob_ref.blake3.is_empty() {
-                        tracing::debug!(
+                        tracing::info!(
                             widget_doc_id = widget_doc_id_str,
                             "widget has no blake3 hash, skipping"
                         );
@@ -253,7 +270,7 @@ impl BlobSnatcher {
                     let already_have = check_blob_exists(&blob_ref).await;
 
                     if !already_have {
-                        tracing::debug!(
+                        tracing::info!(
                             blake3 = trunc(&blob_ref.blake3),
                             filename = %blob_ref.filename,
                             "found missing blob in file widget"
@@ -286,7 +303,7 @@ impl BlobSnatcher {
         let handle = match self.repo.find(canvas_doc_id).await {
             Some(h) => h,
             None => {
-                tracing::debug!(doc_id = canvas_doc_id, "canvas doc not found in hub repo");
+                tracing::info!(doc_id = canvas_doc_id, "canvas doc not found in hub repo");
                 return (Vec::new(), Vec::new());
             }
         };
@@ -361,7 +378,7 @@ impl BlobSnatcher {
             return Err(SnatchError::NoPeers);
         }
 
-        tracing::debug!(
+        tracing::info!(
             hash = trunc(blake3_hash),
             peer_count = peers.len(),
             "probing peers for blob"
@@ -383,7 +400,7 @@ impl BlobSnatcher {
                         let _ = tx.send(peer).await;
                     }
                     Ok(false) => {
-                        tracing::debug!(peer = trunc(&peer), "peer doesn't have blob");
+                        tracing::info!(peer = trunc(&peer), "peer doesn't have blob");
                     }
                     Err(e) => {
                         tracing::debug!(
@@ -754,7 +771,7 @@ fn read_canvas_for_file_widgets(
         }
     });
 
-    tracing::debug!(
+    tracing::info!(
         canvas = canvas_doc_id,
         file_widgets = widget_doc_ids.len(),
         peers = peers.len(),

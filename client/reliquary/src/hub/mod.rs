@@ -108,6 +108,8 @@ pub struct HubPeerService {
     blobs_store: Store,
     /// iroh-blobs downloader for verified blob transfers
     blobs_downloader: Downloader,
+    /// trigger to wake the blob snatcher for an immediate scan
+    pub(crate) snatch_trigger: Arc<tokio::sync::Notify>,
 }
 
 impl HubPeerService {
@@ -269,6 +271,8 @@ impl HubPeerService {
             "iroh router started with automerge-repo, friendz, freqhole/1, and iroh-blobs protocols"
         );
 
+        let snatch_trigger = Arc::new(tokio::sync::Notify::new());
+
         Ok(Self {
             endpoint,
             router,
@@ -284,6 +288,7 @@ impl HubPeerService {
             canvas_doc_ids: Arc::new(Mutex::new(HashSet::new())),
             blobs_store,
             blobs_downloader,
+            snatch_trigger,
         })
     }
 
@@ -306,6 +311,7 @@ impl HubPeerService {
             self.blobs_store.clone(),
             self.blobs_downloader.clone(),
             self.node_id_str.clone(),
+            self.snatch_trigger.clone(),
         );
         let snatch_cancel = cancel.clone();
         let snatch_handle = tokio::spawn(async move {

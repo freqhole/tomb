@@ -174,8 +174,14 @@ function buildPeerRow(
 ): Container {
   const row = new Container();
 
+  // defensive: coerce nodeId to string (automerge may return non-string from Rust peer writes)
+  const safeNodeId = typeof nodeId === "string" ? nodeId : String((nodeId as unknown) ?? "unknown");
+  if (safeNodeId !== nodeId) {
+    console.warn("[share-dialog] buildPeerRow: coerced non-string nodeId:", typeof nodeId, nodeId);
+  }
+
   // peer display: show name if known, otherwise truncated node ID
-  const truncated = nodeId.slice(0, 8) + "..." + nodeId.slice(-8);
+  const truncated = safeNodeId.slice(0, 8) + "..." + safeNodeId.slice(-8);
   const label = displayName ? displayName : truncated;
   const idText = new Text({
     text: label,
@@ -215,7 +221,7 @@ function buildPeerRow(
   copyBtn.btn.x = scrollBoxWidth - copyBtn.width - rightOffset;
   copyBtn.btn.y = 0;
   row.addChild(copyBtn.btn);
-  wireCopy(copyBtn.btn, copyBtn.bg, copyBtn.text, copyBtnH, nodeId, theme, isRemoved);
+  wireCopy(copyBtn.btn, copyBtn.bg, copyBtn.text, copyBtnH, safeNodeId, theme, isRemoved);
 
   // remove button (if handler provided)
   if (onRemovePeer) {
@@ -249,7 +255,7 @@ function buildPeerRow(
     row.addChild(removeBtn);
 
     removeBtn.onPress.connect(() => {
-      onRemovePeer(nodeId);
+      onRemovePeer(safeNodeId);
     });
   }
 
@@ -296,7 +302,7 @@ function buildPeerRow(
       friendBtnBg.fill({ color: 0x1e1b4b });
 
       try {
-        await onAddFriend(nodeId);
+        await onAddFriend(safeNodeId);
         if (isRemoved()) return;
         friendBtnText.text = "sent!";
       } catch {

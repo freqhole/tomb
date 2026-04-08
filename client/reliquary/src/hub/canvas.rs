@@ -203,6 +203,16 @@ impl HubPeerService {
         // 4. write ourselves into the canvas doc's peers map (async — doc may
         //    not be synced yet, so we retry in the background)
         self.schedule_write_self_to_canvas(canvas_doc_id);
+
+        // 5. trigger a blob snatch scan after a delay — gives automerge sync
+        //    time to deliver the canvas doc + widget state docs before scanning
+        let trigger = self.snatch_trigger.clone();
+        tokio::spawn(async move {
+            // wait for automerge sync to deliver docs (canvas + widget state docs)
+            tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+            trigger.notify_one();
+            tracing::info!("triggered blob snatcher scan after canvas invite");
+        });
     }
 
     /// schedule a background task to write the hub peer into a canvas doc's
@@ -478,6 +488,16 @@ impl HubPeerService {
 
             // write ourselves into the canvas doc's peers map
             self.schedule_write_self_to_canvas(&invite.canvas_doc_id);
+
+            // trigger a blob snatch scan after a delay — gives automerge sync
+            // time to deliver the canvas doc + widget state docs before scanning
+            let trigger = self.snatch_trigger.clone();
+            tokio::spawn(async move {
+                // wait for automerge sync to deliver docs (canvas + widget state docs)
+                tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+                trigger.notify_one();
+                tracing::info!("triggered blob snatcher scan after gossip digest invite");
+            });
         }
     }
 }
@@ -723,6 +743,27 @@ fn read_canvas_for_gossip(
                     .is_some();
 
                 if !peer_is_member {
+                    // dump invite entry keys for diagnostics
+                    let invite_keys: Vec<String> = doc.keys(&invite_obj).collect();
+                    tracing::info!(
+                        canvas_doc_id = %canvas_doc_id,
+                        peer = %peer_node_id,
+                        invite_keys = ?invite_keys,
+                        "gossip: pending invite field names in automerge doc"
+                    );
+
+                    // log raw values to detect type mismatches (e.g. Text vs Str)
+                    let raw_invited_by = doc.get(&invite_obj, "invitedBy");
+                    let raw_invited_by_username = doc.get(&invite_obj, "invitedByUsername");
+                    let raw_title = doc.get(automerge::ROOT, "title");
+                    tracing::info!(
+                        canvas_doc_id = %canvas_doc_id,
+                        raw_invited_by = ?raw_invited_by,
+                        raw_invited_by_username = ?raw_invited_by_username,
+                        raw_title = ?raw_title,
+                        "gossip: raw automerge values for invite metadata"
+                    );
+
                     let invited_by = read_str(doc, &invite_obj, "invitedBy");
                     let invited_by_username = read_str(doc, &invite_obj, "invitedByUsername");
 
@@ -758,6 +799,14 @@ fn read_canvas_for_gossip(
                         role,
                         invited_at,
                     });
+
+                    tracing::info!(
+                        canvas_doc_id = %canvas_doc_id,
+                        canvas_title = ?invite.as_ref().map(|i| &i.canvas_title),
+                        invited_by = ?invite.as_ref().map(|i| &i.invited_by),
+                        invited_by_username = ?invite.as_ref().map(|i| &i.invited_by_username),
+                        "gossip: constructed pending invite for digest"
+                    );
                 }
             }
         }

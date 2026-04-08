@@ -529,7 +529,7 @@ impl HubRepo {
                 }
 
                 RepoMessage::Ephemeral(msg) => {
-                    tracing::debug!(
+                    tracing::trace!(
                         peer = %peer_id_str,
                         doc_id = %msg.document_id,
                         count = msg.count,
