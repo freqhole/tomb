@@ -220,12 +220,11 @@ export async function initFriendzWiring(
       const existingFriend = draft.friends.find((f: any) =>
         f.nodeIds?.some((n: any) => n.nodeId === fromNodeId)
       );
-
       if (!existingFriend) {
         draft.friends.push({
           id: crypto.randomUUID(),
-          alias: msg.fromUsername ?? "unknown",
-          username: msg.fromUsername ?? "unknown",
+          alias: "",
+          username: msg.fromUsername ?? "",
           group: "default",
           nodeIds: [
             {
@@ -239,6 +238,20 @@ export async function initFriendzWiring(
           ],
           createdAt: new Date().toISOString(),
         });
+      } else {
+        // friend entry was pre-created (e.g. by the add-friend UI) with
+        // empty username — backfill from the accept message.
+        // alias is intentionally left alone (user-controlled local label).
+        const acceptName = msg.fromUsername ?? "";
+        if (acceptName) {
+          if (!existingFriend.username) existingFriend.username = acceptName;
+          // also update the matching node-level username
+          for (const n of existingFriend.nodeIds ?? []) {
+            if (n.nodeId === fromNodeId && !n.username) {
+              n.username = acceptName;
+            }
+          }
+        }
       }
 
       // update pending request status
@@ -259,6 +272,10 @@ export async function initFriendzWiring(
         }
       }
     });
+
+    // request the accepted peer's profile so bio/avatar arrive immediately
+    // (without this, profile data only populates on next init / page reload)
+    protocol.requestProfile(fromNodeId).catch(() => {});
   };
 
   // incoming friend reject -> update pending request status
@@ -280,13 +297,21 @@ export async function initFriendzWiring(
       if (!draft.friends) return;
       for (const friend of draft.friends) {
         if (!friend.nodeIds) continue;
+        let matched = false;
         for (const n of friend.nodeIds) {
           if (n.nodeId === fromNodeId) {
+            matched = true;
             if (msg.username) n.username = msg.username;
             if (msg.bio !== undefined) n.bio = msg.bio;
             if (msg.avatarDataUrl !== undefined) n.avatarDataUrl = msg.avatarDataUrl;
             n.lastSeenAt = new Date().toISOString();
           }
+        }
+        // also update the top-level friend.username so the display name
+        // resolves correctly (friendDisplayName checks friend.username first).
+        // alias is left alone — it's a user-controlled local label.
+        if (matched && msg.username) {
+          friend.username = msg.username;
         }
       }
     });

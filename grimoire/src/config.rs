@@ -201,6 +201,26 @@ pub struct FederationConfig {
     /// enable federation features (default: false)
     #[serde(default)]
     pub enabled: bool,
+    /// enable hub peer mode: when enabled, this instance runs as an always-on
+    /// relay peer that auto-accepts canvas invites, aggressively syncs automerge
+    /// documents, and fetches blobs referenced in canvas documents.
+    /// designed for always-on machines (e.g. raspberry pi). default: false
+    #[serde(default)]
+    pub hub_peer_enabled: bool,
+    /// display name for the hub peer in the friendz protocol.
+    /// used in heartbeat messages so other peers can identify this hub.
+    /// default: "hub"
+    #[serde(default = "default_hub_peer_username")]
+    pub hub_peer_username: String,
+    /// optional bio for the hub peer's profile.
+    /// shown to other peers when they view the hub's profile.
+    #[serde(default)]
+    pub hub_peer_bio: String,
+    /// optional path to an avatar image for the hub peer's profile.
+    /// can be relative to data_dir or an absolute path. the image will be
+    /// resized to a small square WebP thumbnail on boot.
+    #[serde(default)]
+    pub hub_peer_avatar: String,
     /// haruspex (supabase) url for peer coordination
     /// e.g., "http://127.0.0.1:54321" for local dev or "https://xxx.supabase.co"
     #[serde(default)]
@@ -235,6 +255,10 @@ pub struct FederationConfig {
     /// the same port should be forwarded on the router (UDP, external:same -> internal:same)
     #[serde(default)]
     pub bind_port: Option<u16>,
+}
+
+fn default_hub_peer_username() -> String {
+    "hub".to_string()
 }
 
 fn default_federation_role() -> String {

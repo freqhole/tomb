@@ -135,7 +135,13 @@ impl FriendzHandler {
             let mut state = self.inner.state.lock().await;
             if let Some(send) = state.streams.get_mut(peer_node_id) {
                 match codec::write_message(send, msg).await {
-                    Ok(()) => return Ok(()),
+                    Ok(()) => {
+                        tracing::debug!(
+                            peer = %peer_node_id,
+                            "friendz: sent message on existing stream"
+                        );
+                        return Ok(());
+                    }
                     Err(e) => {
                         tracing::debug!(
                             peer = %peer_node_id,
@@ -179,6 +185,11 @@ impl FriendzHandler {
         codec::write_message(&mut send, msg)
             .await
             .map_err(|e| HandlerError::Send(e.to_string()))?;
+
+        tracing::debug!(
+            peer = %peer_node_id,
+            "friendz: sent message on new outbound stream"
+        );
 
         // store stream and start read loop
         {
@@ -356,6 +367,8 @@ impl ProtocolHandler for FriendzHandler {
             state.streams.insert(peer_node_id.clone(), send);
         }
 
+        tracing::debug!(peer = %peer_node_id, "friendz: stored send half and starting read loop");
+
         // spawn read loop
         let inner = self.inner.clone();
         let node_id = peer_node_id.clone();
@@ -427,13 +440,26 @@ async fn handle_message(inner: &Inner, from_node_id: &str, msg: FriendzMessage) 
                 };
                 let mut state = inner.state.lock().await;
                 if let Some(send) = state.streams.get_mut(from_node_id) {
-                    if let Err(e) = codec::write_message(send, &reply).await {
-                        tracing::debug!(
-                            peer = %from_node_id,
-                            error = %e,
-                            "friendz: failed to send presence ACK"
-                        );
+                    match codec::write_message(send, &reply).await {
+                        Ok(()) => {
+                            tracing::info!(
+                                peer = %from_node_id,
+                                "friendz: presence ACK sent successfully"
+                            );
+                        }
+                        Err(e) => {
+                            tracing::warn!(
+                                peer = %from_node_id,
+                                error = %e,
+                                "friendz: failed to send presence ACK"
+                            );
+                        }
                     }
+                } else {
+                    tracing::warn!(
+                        peer = %from_node_id,
+                        "friendz: no stream found for presence ACK (stream not stored?)"
+                    );
                 }
             }
         }
@@ -448,8 +474,14 @@ async fn handle_message(inner: &Inner, from_node_id: &str, msg: FriendzMessage) 
             }
         }
 
-        // all other message types: no special inline handling
-        _ => {}
+        // all other message types: log for debugging, no special inline handling
+        other => {
+            tracing::debug!(
+                from = %from_node_id,
+                "friendz: received {:?}",
+                std::mem::discriminant(other)
+            );
+        }
     }
 
     // always emit MessageReceived for all message types (including heartbeats)

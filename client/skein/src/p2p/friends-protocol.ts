@@ -495,6 +495,14 @@ export class FriendzProtocol {
           Date.now() - this.lastSeen.get(fromNodeId)! < HEARTBEAT_TIMEOUT_MS;
         this.lastSeen.set(fromNodeId, Date.now());
         this.emitOnlineChange();
+        console.log(
+          "[hub-online-debug] heartbeat from:",
+          fromNodeId.slice(0, 16) + "...",
+          "wasOnline:",
+          wasOnline,
+          "username:",
+          msg.nodeId?.slice(0, 16)
+        );
         this.onHeartbeat?.(msg, fromNodeId);
         if (msg.canvasActivity && msg.canvasActivity.length > 0) {
           this.onCanvasActivity?.(msg.canvasActivity, fromNodeId);

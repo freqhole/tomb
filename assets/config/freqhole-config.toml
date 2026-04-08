@@ -438,6 +438,26 @@ default_role = "viewer"
 # when approved, the peer is granted access with the specified role.
 knocking_enabled = false
 
+# OPTIONAL: enable hub peer mode (default: false)
+# when enabled, this instance runs as an always-on relay peer that aggressively
+# syncs automerge documents and participates in the friendz presence protocol.
+# designed for always-on machines (e.g. raspberry pi).
+hub_peer_enabled = false
+
+# OPTIONAL: display name for the hub peer (default: "hub")
+# shown to other peers in heartbeat messages and profile responses.
+hub_peer_username = "hubbub"
+
+# OPTIONAL: bio for the hub peer's profile (default: "")
+# shown to other peers when they view the hub's profile.
+hub_peer_bio = "imma sync yr docz"
+
+# OPTIONAL: path to an avatar image for the hub peer (default: "")
+# can be relative to data_dir or an absolute path.
+# the image will be resized to a small 128x128 square WebP thumbnail on boot.
+# supports PNG, JPEG, WebP, GIF, BMP, TIFF.
+hub_peer_avatar = ""
+
 # OPTIONAL: bind iroh to a specific UDP port for manual port forwarding (default: 0 = disabled)
 # use this if your router doesn't support UPnP and you've manually set up port forwarding.
 #

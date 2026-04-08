@@ -92,6 +92,12 @@ enum Commands {
         action: plumbing::FederationAction,
     },
 
+    /// Hub peer operations (always-on P2P relay)
+    HubPeer {
+        #[command(subcommand)]
+        action: plumbing::HubPeerAction,
+    },
+
     /// Blob operations (blake3 hashes for P2P streaming)
     Blobz {
         #[command(subcommand)]
@@ -219,6 +225,9 @@ async fn main() -> Result<()> {
         }
         Commands::Blobz { action } => {
             plumbing::handle_blobz(action, json_output).await?;
+        }
+        Commands::HubPeer { action } => {
+            plumbing::handle_hub_peer(action, json_output).await?;
         }
         Commands::Serve { .. } | Commands::Http { .. } | Commands::P2p { .. } => {
             // handled above with early return

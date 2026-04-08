@@ -979,12 +979,14 @@ dependencies = [
  "clap",
  "dialoguer",
  "grimoire",
+ "reliquary",
  "serde",
  "serde_json",
  "server",
  "tempfile",
  "time",
  "tokio",
+ "tokio-util",
  "tracing",
  "tracing-subscriber",
 ]
@@ -5988,6 +5990,7 @@ name = "reliquary"
 version = "0.1.13"
 dependencies = [
  "automerge",
+ "base64 0.21.7",
  "blake3",
  "bytes",
  "derive_more 2.1.1",
