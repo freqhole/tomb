@@ -257,6 +257,9 @@ impl HubRepo {
             Arc::new(RwLock::new(HashMap::new()));
 
         let doc_ids = storage.load_all_doc_ids().await;
+        let total = doc_ids.len();
+        let mut loaded: usize = 0;
+        let mut failed: usize = 0;
         for doc_id in doc_ids {
             if let Some(bytes) = storage.load_doc(&doc_id).await {
                 match automerge::Automerge::load(&bytes) {
@@ -265,14 +268,17 @@ impl HubRepo {
                             .write()
                             .await
                             .insert(doc_id.clone(), Arc::new(RwLock::new(doc)));
-                        tracing::info!(doc_id, "loaded persisted doc");
+                        tracing::debug!(doc_id, "loaded persisted doc");
+                        loaded += 1;
                     }
                     Err(e) => {
                         tracing::warn!(doc_id, error = %e, "failed to load persisted doc, skipping");
+                        failed += 1;
                     }
                 }
             }
         }
+        tracing::info!(total, loaded, failed, "loaded persisted docs from storage");
 
         Ok(Self {
             documents,
@@ -577,5 +583,18 @@ impl HubRepo {
     /// the hub's own peer ID (iroh node_id hex string).
     pub fn peer_id(&self) -> &str {
         &self.peer_id
+    }
+
+    /// list all document IDs currently held in memory.
+    pub async fn all_doc_ids(&self) -> Vec<String> {
+        self.documents.read().await.keys().cloned().collect()
+    }
+
+    /// subscribe to document change notifications.
+    ///
+    /// fires whenever a document is created or updated via sync.
+    /// the payload is the doc_id string.
+    pub fn subscribe_doc_changes(&self) -> broadcast::Receiver<String> {
+        self.doc_notify.subscribe()
     }
 }

@@ -576,24 +576,75 @@ export const messagezWidget: WidgetFactory<typeof messagezSchema> = {
 
           acceptBtn.on("pointertap", (e) => {
             e.stopPropagation();
+
+            // immediate visual feedback — pulsing animation
+            acceptBtn.eventMode = "none";
+            acceptBtn.cursor = "default";
+            acceptLabel.text = "joining...";
+            acceptLabel.x = acceptW / 2;
+
+            // pulse opacity animation
+            let pulseUp = false;
+            const pulseTimer = setInterval(() => {
+              if (pulseUp) {
+                acceptBtn.alpha = Math.min(acceptBtn.alpha + 0.05, 1.0);
+                if (acceptBtn.alpha >= 1.0) pulseUp = false;
+              } else {
+                acceptBtn.alpha = Math.max(acceptBtn.alpha - 0.05, 0.3);
+                if (acceptBtn.alpha <= 0.3) pulseUp = true;
+              }
+            }, 50);
+
             const inviteId = invite.id;
             const canvasDocId = invite.canvasDocId;
             const fromNode = invite.fromNodeId;
+
+            // send accept notification to the peer (fire-and-forget)
             sendCanvasInviteAccept(fromNode, {
               inviteId,
               canvasDocId,
               accepterNodeId: localNodeId,
             }).catch((err) => {
-              console.warn("[inbox] failed to accept canvas invite:", err);
-            });
-            ctx.doc.change((draft) => {
-              const inv = draft.invites.find(
-                (r: CanvasInvite) => r.id === inviteId && r.status === "pending"
-              );
-              if (inv) inv.status = "accepted";
+              console.warn("[inbox] failed to send accept message:", err);
             });
 
-            // notify boot.ts to create a remote card and navigate to the canvas
+            // listen for confirmation from boot.ts
+            const cleanup = () => {
+              clearInterval(pulseTimer);
+              acceptBtn.alpha = 1.0;
+              window.removeEventListener(
+                "skein:accept-canvas-invite-done",
+                onDone as EventListener
+              );
+              clearTimeout(timeout);
+            };
+
+            const onDone = (evt: CustomEvent) => {
+              if (evt.detail?.canvasDocId !== canvasDocId) return;
+              cleanup();
+              // NOW change invite status
+              ctx.doc.change((draft) => {
+                const inv = draft.invites.find(
+                  (r: CanvasInvite) => r.id === inviteId && r.status === "pending"
+                );
+                if (inv) inv.status = "accepted";
+              });
+              layout(currentWidth, currentHeight);
+            };
+
+            const timeout = setTimeout(() => {
+              cleanup();
+              // timeout — re-enable button so user can retry
+              acceptBtn.eventMode = "static";
+              acceptBtn.cursor = "pointer";
+              acceptLabel.text = "retry";
+              acceptLabel.x = acceptW / 2;
+              console.warn("[inbox] accept timed out for canvas:", canvasDocId);
+            }, 15000);
+
+            window.addEventListener("skein:accept-canvas-invite-done", onDone as EventListener);
+
+            // dispatch the accept event to boot.ts
             window.dispatchEvent(
               new CustomEvent("skein:accept-canvas-invite", {
                 detail: {

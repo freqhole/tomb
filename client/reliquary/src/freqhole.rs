@@ -30,7 +30,7 @@ pub const FREQHOLE_ALPN: &[u8] = b"freqhole/1";
 const TEMP_TAG_HOLD_SECS: u64 = 120;
 
 /// max number of active temp tags to hold. oldest are evicted when full.
-const MAX_ACTIVE_TAGS: usize = 16;
+const MAX_ACTIVE_TAGS: usize = 64;
 
 // ---------------------------------------------------------------------------
 // protocol messages (subset matching grimoire's PeerMessage)
@@ -122,11 +122,24 @@ impl FreqholeHandler {
 
         // remove expired tags
         let now = tokio::time::Instant::now();
+        let before = tags.len();
         tags.retain(|(_, t)| t.expires > now);
+        let expired = before - tags.len();
 
         // evict oldest if at capacity
+        let mut evicted = 0;
         while tags.len() >= MAX_ACTIVE_TAGS {
             tags.remove(0);
+            evicted += 1;
+        }
+
+        if expired > 0 || evicted > 0 {
+            tracing::info!(
+                expired,
+                evicted,
+                remaining = tags.len(),
+                "freqhole/1: tag cleanup before hold"
+            );
         }
 
         tags.push((
@@ -136,6 +149,13 @@ impl FreqholeHandler {
                 expires: now + Duration::from_secs(TEMP_TAG_HOLD_SECS),
             },
         ));
+
+        tracing::info!(
+            hash = %&hash.to_string()[..16],
+            active_tags = tags.len(),
+            hold_secs = TEMP_TAG_HOLD_SECS,
+            "freqhole/1: blob held in store"
+        );
     }
 
     /// check if a blob is already held (recently imported).
@@ -151,7 +171,7 @@ impl ProtocolHandler for FreqholeHandler {
         let peer_id = conn.remote_id();
         let peer_id_str = peer_id.to_string();
         let peer_short = &peer_id_str[..16.min(peer_id_str.len())];
-        tracing::debug!(peer = peer_short, "freqhole/1: accepted connection");
+        tracing::info!(peer = peer_short, "freqhole/1: accepted connection");
 
         // accept streams in a loop (mirrors grimoire's handler pattern).
         // each stream carries one request/response pair.
@@ -209,8 +229,29 @@ async fn handle_stream(
         .await
         .map_err(|e| format!("failed to read request: {e}"))?;
 
-    let msg: PeerMessage =
-        serde_json::from_slice(&msg_bytes).map_err(|e| format!("failed to parse request: {e}"))?;
+    let msg: PeerMessage = match serde_json::from_slice(&msg_bytes) {
+        Ok(m) => m,
+        Err(e) => {
+            let preview = String::from_utf8_lossy(&msg_bytes[..msg_bytes.len().min(200)]);
+            tracing::warn!(
+                peer = peer_short,
+                error = %e,
+                raw_preview = %preview,
+                "freqhole/1: failed to parse request"
+            );
+            return Err(format!("failed to parse request: {e}"));
+        }
+    };
+
+    tracing::info!(
+        peer = peer_short,
+        msg_type = match &msg {
+            PeerMessage::EnsureBlobRequest { .. } => "ensure_blob_request",
+            PeerMessage::ComputeBlake3Request { .. } => "compute_blake3_request",
+            _ => "other",
+        },
+        "freqhole/1: received request"
+    );
 
     match msg {
         PeerMessage::EnsureBlobRequest { id, blake3_hash } => {
@@ -241,11 +282,23 @@ async fn handle_ensure_blob(
     blake3_hash: &str,
 ) -> Result<(), String> {
     let hash_short = &blake3_hash[..16.min(blake3_hash.len())];
-    tracing::debug!(
+    let hash_len = blake3_hash.len();
+    tracing::info!(
         peer = peer_short,
-        hash = hash_short,
-        "freqhole/1: ensure_blob request"
+        hash_short = hash_short,
+        hash_full = blake3_hash,
+        hash_len,
+        "freqhole/1: ensure_blob request (blake3 should be 64 hex chars)"
     );
+
+    if hash_len != 64 {
+        tracing::warn!(
+            peer = peer_short,
+            hash_full = blake3_hash,
+            hash_len,
+            "freqhole/1: received non-blake3 hash! expected 64 hex chars — client may be sending a blob ID instead of a blake3 hash"
+        );
+    }
 
     let (available, error) = ensure_blob_in_store(handler, blake3_hash).await;
 
@@ -343,39 +396,84 @@ async fn ensure_blob_in_store(
 
     // check if already held in store
     if handler.has_active_blob(&hash).await {
-        tracing::debug!(
+        tracing::info!(
             hash = &blake3_hash[..16],
-            "blob already in store, skipping import"
+            "freqhole/1: blob already held in store"
         );
         return (true, None);
     }
 
     // look up in grimoire by blake3
     let blob = match grimoire::media_blobz::get_media_blob_by_blake3(blake3_hash).await {
-        Ok(b) => b,
+        Ok(b) => {
+            tracing::info!(
+                hash = &blake3_hash[..16],
+                blob_id = %b.id,
+                local_path = ?b.local_path,
+                size = ?b.size,
+                mime = ?b.mime,
+                "freqhole/1: found blob in grimoire"
+            );
+            b
+        }
         Err(_) => {
+            tracing::info!(
+                hash = &blake3_hash[..16],
+                "freqhole/1: blob not found in grimoire by blake3"
+            );
             return (
                 false,
                 Some("blob not found in grimoire by blake3".to_string()),
-            )
+            );
         }
     };
 
     // read blob data — prefer local_path (filesystem), fall back to blob_data table
     let data = if let Some(ref local_path) = blob.local_path {
         match tokio::fs::read(local_path).await {
-            Ok(d) => d,
+            Ok(d) => {
+                tracing::info!(
+                    hash = &blake3_hash[..16],
+                    path = local_path,
+                    data_size = d.len(),
+                    "freqhole/1: read blob data from local_path succeeded"
+                );
+                d
+            }
             Err(e) => {
+                tracing::info!(
+                    hash = &blake3_hash[..16],
+                    path = local_path,
+                    error = %e,
+                    "freqhole/1: read blob data from local_path failed"
+                );
                 return (
                     false,
                     Some(format!("failed to read blob file {}: {e}", local_path)),
-                )
+                );
             }
         }
     } else {
+        tracing::info!(
+            hash = &blake3_hash[..16],
+            "freqhole/1: reading blob data from blob_data table"
+        );
         match grimoire::blob_data::get_blob_data(&blob.id).await.data {
-            Some(d) => d,
-            None => return (false, Some("blob has no data available".to_string())),
+            Some(d) => {
+                tracing::info!(
+                    hash = &blake3_hash[..16],
+                    data_size = d.len(),
+                    "freqhole/1: read blob data from blob_data table"
+                );
+                d
+            }
+            None => {
+                tracing::info!(
+                    hash = &blake3_hash[..16],
+                    "freqhole/1: blob has no data available (no local_path, no blob_data)"
+                );
+                return (false, Some("blob has no data available".to_string()));
+            }
         }
     };
 
@@ -389,13 +487,35 @@ async fn ensure_blob_in_store(
         .await
     {
         Ok(tag) => {
+            let imported_hash = tag.hash();
+            let hashes_match = imported_hash == hash;
+            tracing::info!(
+                requested_hash = &blake3_hash[..16],
+                imported_hash = %&imported_hash.to_string()[..16],
+                hashes_match,
+                "freqhole/1: blob imported into store successfully"
+            );
+            if !hashes_match {
+                tracing::error!(
+                    requested = %blake3_hash,
+                    imported = %imported_hash,
+                    "freqhole/1: HASH MISMATCH — imported blob hash does not match requested hash!"
+                );
+            }
             handler.hold_blob(hash, tag).await;
             (true, None)
         }
-        Err(e) => (
-            false,
-            Some(format!("failed to import blob into store: {e}")),
-        ),
+        Err(e) => {
+            tracing::warn!(
+                hash = &blake3_hash[..16],
+                error = %e,
+                "freqhole/1: failed to import blob into store"
+            );
+            (
+                false,
+                Some(format!("failed to import blob into store: {e}")),
+            )
+        }
     }
 }
 
@@ -410,6 +530,29 @@ async fn send_response(
 ) -> Result<(), String> {
     let bytes =
         serde_json::to_vec(msg).map_err(|e| format!("failed to serialize response: {e}"))?;
+
+    tracing::info!(
+        response_size = bytes.len(),
+        response_type = match msg {
+            PeerMessage::EnsureBlobResponse { available, .. } => {
+                if *available {
+                    "ensure_blob_response(available=true)"
+                } else {
+                    "ensure_blob_response(available=false)"
+                }
+            }
+            PeerMessage::ComputeBlake3Response { blake3, .. } => {
+                if blake3.is_some() {
+                    "compute_blake3_response(found)"
+                } else {
+                    "compute_blake3_response(not_found)"
+                }
+            }
+            _ => "other",
+        },
+        "freqhole/1: sending response"
+    );
+
     send.write_all(&bytes)
         .await
         .map_err(|e| format!("failed to write response: {e}"))?;

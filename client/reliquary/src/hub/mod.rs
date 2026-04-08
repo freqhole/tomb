@@ -15,6 +15,7 @@ mod messages;
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
@@ -305,7 +306,6 @@ impl HubPeerService {
 
         // spawn the blob snatcher scan loop
         let snatcher = BlobSnatcher::new(
-            self.canvas_doc_ids.clone(),
             self.hub_repo.clone(),
             self.endpoint.clone(),
             self.blobs_store.clone(),
@@ -318,6 +318,46 @@ impl HubPeerService {
             snatcher.run_scan_loop(snatch_cancel).await;
         });
         tracing::info!("blob snatcher scan loop started");
+
+        // spawn a debouncer that listens for doc changes and triggers a blob
+        // snatch scan shortly after activity settles. this gives near-instant
+        // snatching when new file attachments arrive via automerge sync.
+        let debounce_trigger = self.snatch_trigger.clone();
+        let mut doc_rx = self.hub_repo.subscribe_doc_changes();
+        let debounce_cancel = cancel.clone();
+        tokio::spawn(async move {
+            loop {
+                // wait for the first doc change (or cancellation)
+                tokio::select! {
+                    _ = debounce_cancel.cancelled() => break,
+                    result = doc_rx.recv() => {
+                        match result {
+                            Ok(doc_id) => {
+                                tracing::debug!(doc_id, "doc change detected, starting debounce");
+                            }
+                            Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                                tracing::debug!(skipped = n, "doc_notify lagged, triggering scan");
+                                debounce_trigger.notify_one();
+                                continue;
+                            }
+                            Err(_) => break, // channel closed
+                        }
+                    }
+                }
+
+                // debounce: drain changes for 3 seconds of quiet
+                loop {
+                    match tokio::time::timeout(Duration::from_secs(3), doc_rx.recv()).await {
+                        Ok(Ok(_)) => continue, // more changes, keep draining
+                        Ok(Err(tokio::sync::broadcast::error::RecvError::Lagged(_))) => continue,
+                        _ => break, // timeout (quiet period) or channel closed
+                    }
+                }
+
+                tracing::info!("doc changes settled, triggering blob snatch scan");
+                debounce_trigger.notify_one();
+            }
+        });
 
         // run the friendz heartbeat loop and event processing concurrently
         let friendz = self.friendz.clone();

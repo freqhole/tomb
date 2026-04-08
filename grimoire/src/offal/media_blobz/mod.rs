@@ -5,7 +5,7 @@
 use crate::api_registry::{Domain, Method, RouteAuth, RouteInfo};
 use crate::blob_data::{self, find_existing_thumbnail};
 use crate::error::ErrorDetail;
-use crate::media_blobz::get_media_blob;
+use crate::media_blobz::{get_media_blob, get_media_blob_by_blake3};
 use crate::offal::caller::Caller;
 use crate::response::GrimoireResponse;
 use base64::Engine;
@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use zod_gen_derive::ZodSchema;
 
-/// route metadata for media blobs (stream_blob, blob_metadata, get_blob_thumbnail)
+/// route metadata for media blobs (stream_blob, blob_metadata, blob_metadata_by_blake3, get_blob_thumbnail)
 pub const ROUTES: &[RouteInfo] = &[
     RouteInfo {
         name: "stream_blob",
@@ -30,6 +30,15 @@ pub const ROUTES: &[RouteInfo] = &[
         method: Method::POST,
         domain: Domain::Music,
         request_type: "GetBlobMetadataRequest",
+        response_type: "BlobMetadataResponse",
+        auth: RouteAuth::Authenticated,
+    },
+    RouteInfo {
+        name: "blob_metadata_by_blake3",
+        path: "/api/blob_metadata_by_blake3",
+        method: Method::POST,
+        domain: Domain::Music,
+        request_type: "GetBlobMetadataByBlake3Request",
         response_type: "BlobMetadataResponse",
         auth: RouteAuth::Authenticated,
     },
@@ -71,6 +80,10 @@ pub async fn dispatch(
         return Some(get_metadata(caller, body.clone()).await);
     }
 
+    if path == "/api/blob_metadata_by_blake3" {
+        return Some(get_metadata_by_blake3(caller, body.clone()).await);
+    }
+
     // exact match for thumbnail_data (POST route, must match before strip_prefix)
     if path == "/api/blobs/thumbnail_data" {
         return Some(get_thumbnail_data(caller, body.clone()).await);
@@ -110,6 +123,12 @@ pub struct GetBlobMetadataRequest {
     pub id: String,
 }
 
+/// request for getting blob metadata by blake3 hash
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct GetBlobMetadataByBlake3Request {
+    pub blake3: String,
+}
+
 /// request for getting displayable thumbnail data
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct GetBlobThumbnailDataRequest {
@@ -145,6 +164,33 @@ pub async fn get_metadata(_caller: &Caller, body: JsonValue) -> GrimoireResponse
         Err(e) => {
             GrimoireResponse::failure("failed to get blob metadata", vec![ErrorDetail::from(e)])
         }
+    }
+}
+
+/// get blob metadata by blake3 hash
+///
+/// path: POST /api/blob_metadata_by_blake3
+pub async fn get_metadata_by_blake3(
+    _caller: &Caller,
+    body: JsonValue,
+) -> GrimoireResponse<JsonValue> {
+    let req: GetBlobMetadataByBlake3Request = match serde_json::from_value(body) {
+        Ok(r) => r,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "bad request",
+                vec![ErrorDetail::new(
+                    "bad_request",
+                    "bad request",
+                    &e.to_string(),
+                )],
+            )
+        }
+    };
+
+    match get_media_blob_by_blake3(&req.blake3).await {
+        Ok(blob) => GrimoireResponse::success("blob metadata", serde_json::to_value(blob).unwrap()),
+        Err(e) => GrimoireResponse::failure("blob not found by blake3", vec![ErrorDetail::from(e)]),
     }
 }
 

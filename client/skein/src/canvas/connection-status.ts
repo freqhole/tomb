@@ -7,6 +7,7 @@ const COLOR_CONNECTED = 0x22c55e;
 const COLOR_CONNECTING = 0xeab308;
 const COLOR_ERROR = 0xef4444;
 const COLOR_SOLO = 0x6b7280;
+const COLOR_SYNCING = 0x3b82f6; // blue
 
 /**
  * source of transport-level connection state.
@@ -43,6 +44,8 @@ export class ConnectionStatus {
 
   private readonly unsubs: (() => void)[] = [];
   private isErrorState = false;
+  private isSyncing = false;
+  private _syncPulseTimer: ReturnType<typeof setInterval> | undefined;
 
   constructor(
     presenceManager: PresenceManager,
@@ -94,8 +97,24 @@ export class ConnectionStatus {
       }
     });
 
+    // hover tooltip — show extra info
+    this.root.on("pointerover", () => {
+      this.label.style.fontWeight = "bold";
+    });
+    this.root.on("pointerout", () => {
+      this.label.style.fontWeight = "normal";
+      if (!this.isSyncing) this.dot.alpha = 1;
+    });
+
     // draw initial state
     this.refresh();
+
+    // pulse the dot when syncing
+    this.unsubs.push(() => clearInterval(this._syncPulseTimer));
+    this._syncPulseTimer = setInterval(() => {
+      if (!this.isSyncing) return;
+      this.dot.alpha = 0.4 + Math.abs(Math.sin(Date.now() / 500)) * 0.6;
+    }, 50);
   }
 
   /**
@@ -107,6 +126,12 @@ export class ConnectionStatus {
     const margin = 8;
     this.root.x = margin;
     this.root.y = Math.round(screenHeight - this.root.height - margin);
+  }
+
+  /** set whether the canvas is currently syncing (empty doc, waiting for data) */
+  setSyncing(syncing: boolean): void {
+    this.isSyncing = syncing;
+    this.refresh();
   }
 
   /** unsubscribe from callbacks, remove from parent, and clean up. */
@@ -147,6 +172,11 @@ export class ConnectionStatus {
       dotColor = COLOR_CONNECTING;
       labelText = "connecting...";
       interactive = false;
+    } else if (this.isSyncing && onlineCount > 0) {
+      // syncing state — connected to peers, waiting for canvas data
+      dotColor = COLOR_SYNCING;
+      labelText = "syncing...";
+      interactive = false;
     } else if (onlineCount > 0) {
       // connected state — peers are online and chatting
       dotColor = COLOR_CONNECTED;
@@ -160,7 +190,7 @@ export class ConnectionStatus {
     }
 
     this.isErrorState = interactive;
-    this.root.eventMode = interactive ? "static" : "none";
+    this.root.eventMode = "static"; // always interactive for hover tooltip
     this.root.interactiveChildren = interactive;
     this.root.cursor = interactive ? "pointer" : "default";
 

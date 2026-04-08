@@ -307,6 +307,9 @@ class SkeinRouter {
 
       this.currentCanvas = canvas;
       canvas.store.setLocalNodeId(this.localNodeId);
+      if (this.localNodeId) {
+        canvas.presenceManager.setLocalNodeId(this.localNodeId);
+      }
       (window as any).__skein = canvas;
 
       // when a canvas-card is deleted from the narthex, clean up the linked
@@ -679,6 +682,9 @@ class SkeinRouter {
 
       this.currentCanvas = canvas;
       canvas.store.setLocalNodeId(this.localNodeId);
+      if (this.localNodeId) {
+        canvas.presenceManager.setLocalNodeId(this.localNodeId);
+      }
 
       // update lastVisitedAt on the canvas card
       if (this.narthexDocId) {
@@ -731,6 +737,23 @@ class SkeinRouter {
           if (!friend) return null;
           const display = resolveFriendDisplay(friend);
           return display.name || null;
+        });
+      }
+
+      // set up avatar resolver for presence cursor images
+      if (canvas.presenceRenderer) {
+        canvas.presenceRenderer.setAvatarResolver((peerId: string) => {
+          const state = this.socialDoc?.current;
+          if (!state?.friends) return null;
+          for (const friend of state.friends) {
+            if (!friend.nodeIds) continue;
+            for (const n of friend.nodeIds) {
+              if (n.nodeId === peerId && n.avatarDataUrl) {
+                return n.avatarDataUrl;
+              }
+            }
+          }
+          return null;
         });
       }
       (window as any).__skein = canvas;
@@ -856,12 +879,16 @@ class SkeinRouter {
       }
     }
 
-    // stash the remote peer's nodeId so navigateToCanvas can write it
-    // into the canvas doc reliably (no RAF race).
-    this.pendingPeerNodeId = detail.fromNodeId;
+    console.log(
+      "[skein] canvas invite accepted — canvas card created on narthex, user can navigate when ready"
+    );
 
-    // navigate to the canvas — automerge-repo will sync it from the peer.
-    window.location.hash = detail.canvasDocId;
+    // notify messagez widget that the accept flow completed successfully
+    window.dispatchEvent(
+      new CustomEvent("skein:accept-canvas-invite-done", {
+        detail: { canvasDocId: detail.canvasDocId },
+      })
+    );
   }
 
   private async joinCanvasFromNarthex(detail: {

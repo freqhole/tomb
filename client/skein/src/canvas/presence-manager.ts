@@ -1,17 +1,19 @@
 import type { CanvasStore } from "./canvas-store";
 
+const TAG = "[presence]";
+
 // palette for assigning distinct colors to each peer
 const PEER_COLORS = [
   0x22c55e, 0xeab308, 0xef4444, 0x3b82f6, 0xa855f7, 0xf97316, 0x06b6d4, 0xec4899,
 ];
 
 export type PresenceMessage =
-  | { type: "cursor"; x: number; y: number }
-  | { type: "online" }
-  | { type: "offline" }
-  | { type: "lock-widget"; widgetId: string }
-  | { type: "unlock-widget"; widgetId: string }
-  | { type: "selection"; widgetIds: string[] };
+  | { type: "cursor"; x: number; y: number; nodeId?: string }
+  | { type: "online"; nodeId?: string }
+  | { type: "offline"; nodeId?: string }
+  | { type: "lock-widget"; widgetId: string; nodeId?: string }
+  | { type: "unlock-widget"; widgetId: string; nodeId?: string }
+  | { type: "selection"; widgetIds: string[]; nodeId?: string };
 
 export interface PeerPresence {
   peerId: string;
@@ -42,6 +44,14 @@ const PRUNE_INTERVAL_MS = 60_000;
 export class PresenceManager {
   readonly localPeerId: string;
 
+  /**
+   * the local user's P2P node ID (iroh public key). unlike localPeerId
+   * (which is a random automerge repo UUID, different per tab), the nodeId
+   * is the same across all tabs/sessions of the same user. included in
+   * every broadcast so receivers can filter out cross-tab duplicates.
+   */
+  private localNodeId: string = "";
+
   private readonly _presenceChangedListeners: Array<
     (peerId: string, presence: PeerPresence) => void
   > = [];
@@ -66,6 +76,7 @@ export class PresenceManager {
   constructor(store: CanvasStore, localPeerId: string) {
     this.store = store;
     this.localPeerId = localPeerId;
+    // localNodeId is set later via setLocalNodeId() once the identity is known
 
     // subscribe to incoming ephemeral messages from other peers
     this.unsubscribe = this.store.onEphemeral((senderId: string, data: Uint8Array) => {
@@ -81,6 +92,19 @@ export class PresenceManager {
     this.pruneTimer = setInterval(() => {
       this.pruneStale();
     }, PRUNE_INTERVAL_MS);
+  }
+
+  /**
+   * set the local P2P node ID so it can be included in broadcasts.
+   * this allows receivers to detect cross-tab duplicates (same user,
+   * different automerge repo peerId).
+   */
+  setLocalNodeId(nodeId: string): void {
+    this.localNodeId = nodeId;
+    console.log(
+      TAG,
+      `localNodeId set: ${nodeId.slice(0, 16)} (localPeerId: ${this.localPeerId.slice(0, 12)})`
+    );
   }
 
   // ---------------------------------------------------------------------------
@@ -133,7 +157,7 @@ export class PresenceManager {
         clearTimeout(this.pendingCursorTimer);
         this.pendingCursorTimer = null;
       }
-      this.broadcast({ type: "cursor", x, y });
+      this.broadcast({ type: "cursor", x, y, nodeId: this.localNodeId || undefined });
     } else {
       // schedule a trailing send so the final position always arrives
       if (this.pendingCursorTimer !== null) {
@@ -142,19 +166,19 @@ export class PresenceManager {
       this.pendingCursorTimer = setTimeout(() => {
         this.pendingCursorTimer = null;
         this.lastCursorBroadcast = Date.now();
-        this.broadcast({ type: "cursor", x, y });
+        this.broadcast({ type: "cursor", x, y, nodeId: this.localNodeId || undefined });
       }, CURSOR_THROTTLE_MS - elapsed);
     }
   }
 
   /** announce that we are online */
   broadcastOnline(): void {
-    this.broadcast({ type: "online" });
+    this.broadcast({ type: "online", nodeId: this.localNodeId || undefined });
   }
 
   /** announce that we are going offline (best-effort) */
   broadcastOffline(): void {
-    this.broadcast({ type: "offline" });
+    this.broadcast({ type: "offline", nodeId: this.localNodeId || undefined });
   }
 
   /** claim an exclusive editing lock on a widget */
@@ -306,6 +330,15 @@ export class PresenceManager {
     };
 
     this.peers.set(peerId, peer);
+
+    // log all known peerIds so we can detect when the same person
+    // appears under multiple IDs (reconnection, different tab, etc.)
+    const allPeerIds = [...this.peers.keys()].map((id) => id.slice(0, 12));
+    console.log(
+      TAG,
+      `new peer created: ${peerId.slice(0, 12)} (color=#${color.toString(16)}, total peers: ${this.peers.size}, all: [${allPeerIds.join(", ")}])`
+    );
+
     this.emitPeerJoined(peerId);
     return peer;
   }
@@ -336,7 +369,37 @@ export class PresenceManager {
       return;
     }
 
-    const peer = this.getOrCreatePeer(senderId);
+    // the message's nodeId field is the true source of the presence data.
+    // the senderId from automerge-repo may be a relay hop — automerge-repo
+    // relays ephemeral broadcasts through the mesh, so peer A's message
+    // can arrive with senderId=B if B relayed it.
+    const msgNodeId = (msg as { nodeId?: string }).nodeId;
+
+    // filter out our own messages (cross-tab or relayed back to us)
+    if (msgNodeId && this.localNodeId && msgNodeId === this.localNodeId) {
+      return;
+    }
+
+    // use the message's nodeId as the peer identity when available.
+    // this ensures that relayed messages are attributed to the actual
+    // source, not the relay peer. without this, a relay creates a ghost
+    // cursor for the relay peer at the source peer's position.
+    const effectivePeerId = msgNodeId || senderId;
+
+    // also filter by localPeerId against the effective peer
+    if (effectivePeerId === this.localPeerId) {
+      return;
+    }
+
+    // log non-cursor messages (cursor messages are too frequent to log every time)
+    if (msg.type !== "cursor") {
+      console.log(
+        TAG,
+        `ephemeral from ${senderId.slice(0, 12)}: type=${msg.type} nodeId=${msgNodeId?.slice(0, 12) ?? "none"} effectivePeer=${effectivePeerId.slice(0, 12)} (local=${this.localPeerId.slice(0, 12)}, known peers: ${this.peers.size})`
+      );
+    }
+
+    const peer = this.getOrCreatePeer(effectivePeerId);
     peer.lastSeen = Date.now();
 
     switch (msg.type) {

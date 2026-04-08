@@ -1110,12 +1110,12 @@ export const fileWidget: WidgetFactory<typeof fileSchema> = {
       try {
         const result = await snatchBlob(
           {
-            blobId: state.blobId,
-            filename: state.filename,
-            mime: state.mime,
+            blobId: String(state.blobId || ""),
+            filename: String(state.filename || ""),
+            mime: String(state.mime || ""),
             size: state.size,
-            blake3: state.blake3,
-            domain: state.domain,
+            blake3: String(state.blake3 || ""),
+            domain: String(state.domain || ""),
           },
           peers as PeersMap,
           {

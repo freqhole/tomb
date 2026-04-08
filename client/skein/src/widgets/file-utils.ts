@@ -24,6 +24,14 @@ const TAG = "[file-utils]";
 
 const PEER_TIMEOUT_MS = 8000;
 
+/** coerce automerge Text objects (or any value) to a plain JS string.
+ *  automerge stores strings as Text objects which have toString() but lack
+ *  string methods like slice(). wrapping in String() normalizes them. */
+function coerceStr(v: unknown): string {
+  if (v == null) return "";
+  return String(v);
+}
+
 async function withPeerTimeout<T>(promise: Promise<T>, ms = PEER_TIMEOUT_MS): Promise<T> {
   let timer: ReturnType<typeof setTimeout>;
   const timeout = new Promise<never>((_, reject) => {
@@ -155,7 +163,7 @@ async function getPeerNodeIds(
 ): Promise<string[]> {
   const localNodeId = await getLocalNodeId();
   return Object.values(peers)
-    .map((p) => p.nodeId)
+    .map((p) => String(p.nodeId))
     .filter((id): id is string => Boolean(id) && id !== localNodeId);
 }
 
@@ -298,6 +306,34 @@ export async function checkBlobLocality(
     });
 
     if (!response.success || !response.data) {
+      // blobId not found — try blake3 lookup (the blob may have been uploaded
+      // on a different peer with a different server-assigned UUID, but the
+      // content hash is the same regardless of which peer uploaded it)
+      if (blake3) {
+        try {
+          const blake3Response = await tauriInvoke("api_call", {
+            path: "/api/blob_metadata_by_blake3",
+            body: { blake3 },
+          });
+          if (blake3Response.success && blake3Response.data) {
+            const blob = blake3Response.data;
+            const result: BlobLocalityInfo = {
+              locality: "local",
+              metadata: {
+                id: blob.id,
+                mime: blob.mime ?? undefined,
+                filename: blob.filename ?? undefined,
+                size: blob.size ?? undefined,
+                blake3: blob.blake3 ?? undefined,
+              },
+            };
+            localityCache.set(blobId, result);
+            return result;
+          }
+        } catch (err) {
+          console.debug(TAG, "blake3 fallback lookup failed:", err);
+        }
+      }
       return { locality: "remote" };
     }
 
@@ -354,6 +390,16 @@ export async function snatchBlob(
 ): Promise<FileUploadResult> {
   const allPeerAddrs = await getPeerNodeIds(peers);
 
+  // defensive: coerce blob info strings — automerge may store them as Text objects
+  info = {
+    ...info,
+    blobId: coerceStr(info.blobId),
+    filename: coerceStr(info.filename),
+    mime: coerceStr(info.mime),
+    blake3: coerceStr(info.blake3),
+    domain: coerceStr(info.domain),
+  };
+
   if (allPeerAddrs.length === 0) {
     throw new Error("no peers available for snatch");
   }
@@ -363,6 +409,45 @@ export async function snatchBlob(
   // if download fails, exclude that peer and repeat.
   let remaining = [...allPeerAddrs];
   let lastError: unknown;
+
+  // tauri: check grimoire locally first — the blob may already exist under
+  // a different ID (e.g. uploaded on this device but blobId in automerge doc
+  // was assigned by a different peer). this avoids unnecessary P2P snatching.
+  if (isTauriMode() && info.blake3) {
+    try {
+      const localCheck = await tauriInvoke("api_call", {
+        path: "/api/blob_metadata_by_blake3",
+        body: { blake3: info.blake3 },
+      });
+      if (localCheck.success && localCheck.data) {
+        const d = localCheck.data;
+        console.log(
+          TAG,
+          `blob found locally in grimoire by blake3 (id=${String(d.id).slice(0, 8)}...), skipping P2P snatch`
+        );
+        // clear caches so the widget picks up the local blob
+        const key200 = cacheKey(info.blobId, 200);
+        const key50 = cacheKey(info.blobId, 50);
+        thumbnailCache.delete(key200);
+        thumbnailCache.delete(key50);
+        localityCache.set(info.blobId, { locality: "local" });
+
+        return {
+          blobId: d.id ?? d.blob_id ?? info.blobId,
+          domain: d.domain ?? info.domain,
+          entityId: d.entity_id ?? "",
+          jobId: null,
+          sha256: d.sha256 ?? "",
+          blake3: d.blake3 ?? info.blake3,
+          size: d.size ?? info.size,
+          mime: d.mime ?? info.mime,
+          existing: true,
+        };
+      }
+    } catch (err) {
+      console.debug(TAG, "local grimoire blake3 check failed, proceeding to P2P:", err);
+    }
+  }
 
   while (remaining.length > 0) {
     if (options?.signal?.aborted) {

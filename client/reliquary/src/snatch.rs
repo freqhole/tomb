@@ -1,31 +1,40 @@
-//! blob snatching — watches canvas docs for file widgets, fetches blobs from peers.
+//! blob snatching — watches automerge docs for file widgets, fetches blobs from peers.
 //!
-//! the snatcher periodically scans all tracked canvas documents (via hub_repo)
-//! for file widgets that reference blobs the hub doesn't have locally. for each
-//! missing blob, it probes canvas peers via `ensure_blob_request` over
-//! `freqhole/1`, downloads the blob via iroh-blobs verified transfer, and
-//! ingests it into grimoire's `media_blobz` + `blob_data` storage.
+//! the snatcher scans ALL automerge documents in the hub repo for file widgets
+//! that reference blobs the hub doesn't have locally. docs without a `widgets`
+//! map are skipped cheaply. for each missing blob, it probes canvas peers via
+//! `ensure_blob_request` over `freqhole/1`, downloads the blob via iroh-blobs
+//! verified transfer, and ingests it into grimoire's `media_blobz` + `blob_data`
+//! storage.
+//!
+//! scanning is triggered reactively via doc change notifications from hub_repo
+//! (debounced 3s). no periodic timer — the snatcher only runs when docs change.
 
-use std::collections::HashSet;
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
+use futures::stream::{self, StreamExt};
 use iroh::Endpoint;
 use iroh_blobs::api::downloader::Downloader;
 use iroh_blobs::api::Store;
 use iroh_blobs::{Hash, HashAndFormat};
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, Semaphore};
 
 use crate::freqhole::{PeerMessage, FREQHOLE_ALPN};
-
-/// how often the snatcher scans canvases for missing blobs (seconds).
-const SCAN_INTERVAL_SECS: u64 = 60;
 
 /// timeout for a single ensure_blob probe to a peer (seconds).
 const PROBE_TIMEOUT_SECS: u64 = 15;
 
 /// timeout for a blob download via iroh-blobs (seconds).
 const DOWNLOAD_TIMEOUT_SECS: u64 = 120;
+
+/// max concurrent snatch operations (probe + download + ingest).
+const MAX_CONCURRENT_SNATCHES: usize = 20;
+
+/// max concurrent downloads from a single peer.
+const MAX_PER_PEER_DOWNLOADS: usize = 4;
 
 // ---------------------------------------------------------------------------
 // blob reference — extracted from file widget state docs
@@ -54,10 +63,17 @@ pub struct BlobRef {
 // blob snatcher
 // ---------------------------------------------------------------------------
 
-/// scans canvas docs for file widget blob references and fetches missing blobs.
+/// scans automerge docs for file widget blob references and fetches missing blobs.
+///
+/// instead of relying on a curated "tracked canvases" set, the snatcher scans
+/// ALL docs in the hub repo. docs without a `widgets` map are skipped cheaply.
+/// it also subscribes to doc change notifications for near-instant snatching
+/// when new file attachments arrive via automerge sync.
+///
+/// downloads are parallelized: up to `MAX_CONCURRENT_SNATCHES` (20) blobs at
+/// once, with a per-peer limit of `MAX_PER_PEER_DOWNLOADS` (4) to avoid
+/// hammering any single peer.
 pub struct BlobSnatcher {
-    /// set of canvas doc IDs the hub is tracking.
-    canvas_doc_ids: Arc<Mutex<HashSet<String>>>,
     /// hub repo for reading automerge docs.
     repo: crate::hub_repo::HubRepo,
     /// iroh endpoint for connecting to peers.
@@ -70,12 +86,13 @@ pub struct BlobSnatcher {
     local_node_id: String,
     /// notify handle used to trigger an immediate scan from outside the loop.
     scan_trigger: Arc<tokio::sync::Notify>,
+    /// per-peer download semaphores (limit concurrent downloads to a single peer).
+    peer_semaphores: Arc<Mutex<HashMap<String, Arc<Semaphore>>>>,
 }
 
 impl BlobSnatcher {
     /// create a new blob snatcher.
     pub fn new(
-        canvas_doc_ids: Arc<Mutex<HashSet<String>>>,
         repo: crate::hub_repo::HubRepo,
         endpoint: Endpoint,
         store: Store,
@@ -84,13 +101,13 @@ impl BlobSnatcher {
         scan_trigger: Arc<tokio::sync::Notify>,
     ) -> Self {
         Self {
-            canvas_doc_ids,
             repo,
             endpoint,
             store,
             downloader,
             local_node_id,
             scan_trigger,
+            peer_semaphores: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -99,27 +116,31 @@ impl BlobSnatcher {
         Arc::clone(&self.scan_trigger)
     }
 
-    /// run the periodic scan loop until the token is cancelled.
+    /// get or create a per-peer download semaphore (capped at MAX_PER_PEER_DOWNLOADS).
+    async fn peer_semaphore(&self, peer_id: &str) -> Arc<Semaphore> {
+        let mut map = self.peer_semaphores.lock().await;
+        map.entry(peer_id.to_string())
+            .or_insert_with(|| Arc::new(Semaphore::new(MAX_PER_PEER_DOWNLOADS)))
+            .clone()
+    }
+
+    /// run the scan loop until the token is cancelled.
     ///
-    /// the cancel token is checked both while waiting for the next scan
-    /// interval AND during the scan itself, so ctrl+c stops promptly
-    /// instead of waiting for a potentially long probe+download cycle.
+    /// only wakes when doc changes trigger a scan (via `scan_trigger.notified()`).
+    /// no periodic timer — if you need a full rescan, use the CLI command or
+    /// trigger it manually via the notify handle.
     pub async fn run_scan_loop(&self, cancel: tokio_util::sync::CancellationToken) {
-        tracing::info!(
-            "blob snatcher scan loop started (interval: {}s)",
-            SCAN_INTERVAL_SECS
-        );
+        tracing::info!("blob snatcher scan loop started (reactive only, no periodic timer)");
 
         loop {
-            // wait for next scan interval, an on-demand trigger, or cancellation
+            // wait for a doc-change trigger or cancellation — no timer
             tokio::select! {
                 _ = cancel.cancelled() => {
                     tracing::info!("blob snatcher scan loop shutting down");
                     break;
                 }
-                _ = tokio::time::sleep(Duration::from_secs(SCAN_INTERVAL_SECS)) => {}
                 _ = self.scan_trigger.notified() => {
-                    tracing::info!("on-demand blob snatch scan requested");
+                    tracing::info!("doc-change blob snatch scan triggered");
                 }
             }
 
@@ -140,33 +161,28 @@ impl BlobSnatcher {
         }
     }
 
-    /// scan all tracked canvases for missing blobs and snatch them.
+    /// scan all docs for missing blobs and snatch them concurrently.
     ///
-    /// iterates every canvas the hub is tracking, reads the canvas doc
-    /// to find file widgets, reads each file widget's state doc to extract
-    /// blob references, checks grimoire for local availability, and snatches
-    /// any missing blobs from canvas peers.
+    /// iterates every automerge doc in the hub repo, reads each to find file
+    /// widgets, reads each file widget's state doc to extract blob references,
+    /// checks grimoire for local availability, and snatches any missing blobs
+    /// from canvas peers.
+    ///
+    /// downloads run concurrently (up to MAX_CONCURRENT_SNATCHES) with
+    /// per-peer download limits (MAX_PER_PEER_DOWNLOADS).
     ///
     /// returns the number of blobs successfully snatched.
     pub async fn scan_and_snatch(&self) -> usize {
-        let doc_ids: Vec<String> = {
-            let guard = self.canvas_doc_ids.lock().await;
-            guard.iter().cloned().collect()
-        };
+        let doc_ids = self.repo.all_doc_ids().await;
 
-        tracing::info!(
-            canvas_count = doc_ids.len(),
-            "blob snatcher: starting scan cycle"
+        tracing::debug!(
+            doc_count = doc_ids.len(),
+            "blob snatcher: starting scan cycle (scanning all docs)"
         );
 
         if doc_ids.is_empty() {
             return 0;
         }
-
-        tracing::info!(
-            canvas_count = doc_ids.len(),
-            "scanning canvases for missing blobs"
-        );
 
         let mut all_refs = Vec::new();
         let mut all_peers: Vec<String> = Vec::new();
@@ -182,39 +198,47 @@ impl BlobSnatcher {
         }
 
         if all_refs.is_empty() {
-            tracing::info!("no missing blobs found across all canvases");
             return 0;
         }
 
         tracing::info!(
             missing = all_refs.len(),
             peers = all_peers.len(),
-            "found missing blobs, starting snatch"
+            max_concurrent = MAX_CONCURRENT_SNATCHES,
+            per_peer_limit = MAX_PER_PEER_DOWNLOADS,
+            "found missing blobs, starting parallel snatch"
         );
 
-        let mut snatched = 0;
-        for blob_ref in &all_refs {
-            match self.snatch_blob(blob_ref, &all_peers).await {
-                Ok(()) => {
-                    snatched += 1;
-                    tracing::info!(
-                        blake3 = trunc(&blob_ref.blake3),
-                        filename = %blob_ref.filename,
-                        "blob snatched successfully"
-                    );
-                }
-                Err(e) => {
-                    tracing::warn!(
-                        blake3 = trunc(&blob_ref.blake3),
-                        filename = %blob_ref.filename,
-                        error = %e,
-                        "failed to snatch blob"
-                    );
-                }
-            }
-        }
+        let snatched = AtomicUsize::new(0);
 
-        snatched
+        stream::iter(all_refs.iter())
+            .for_each_concurrent(Some(MAX_CONCURRENT_SNATCHES), |blob_ref| {
+                let snatched = &snatched;
+                let all_peers = &all_peers;
+                async move {
+                    match self.snatch_blob(blob_ref, all_peers).await {
+                        Ok(()) => {
+                            snatched.fetch_add(1, Ordering::Relaxed);
+                            tracing::info!(
+                                blake3 = trunc(&blob_ref.blake3),
+                                filename = %blob_ref.filename,
+                                "blob snatched successfully"
+                            );
+                        }
+                        Err(e) => {
+                            tracing::warn!(
+                                blake3 = trunc(&blob_ref.blake3),
+                                filename = %blob_ref.filename,
+                                error = %e,
+                                "failed to snatch blob"
+                            );
+                        }
+                    }
+                }
+            })
+            .await;
+
+        snatched.load(Ordering::Relaxed)
     }
 
     /// scan a canvas and resolve file widget state docs into full BlobRefs.
@@ -448,25 +472,51 @@ impl BlobSnatcher {
 
         let hash_and_format = HashAndFormat::raw(hash);
 
+        // acquire per-peer download semaphore (limits to MAX_PER_PEER_DOWNLOADS per peer)
+        let sem = self.peer_semaphore(provider_node_id).await;
+        let _permit = sem
+            .acquire()
+            .await
+            .map_err(|_| SnatchError::DownloadFailed("peer semaphore closed".into()))?;
+
         // start the download
         let progress = self.downloader.download(hash_and_format, [node_id]);
 
         // consume the progress stream, watching for errors
         let stream_result = tokio::time::timeout(
             Duration::from_secs(DOWNLOAD_TIMEOUT_SECS),
-            consume_download_progress(progress),
+            consume_download_progress(progress, blake3_hash),
         )
         .await
         .map_err(|_| SnatchError::DownloadTimeout)?;
 
         stream_result?;
 
+        tracing::debug!(
+            blake3 = trunc(blake3_hash),
+            "download stream completed, reading blob from store"
+        );
+
         // read the downloaded blob from the store
-        let bytes = self
-            .store
-            .get_bytes(hash)
-            .await
-            .map_err(|e| SnatchError::StoreRead(format!("{e}")))?;
+        let bytes = match self.store.get_bytes(hash).await {
+            Ok(b) => b,
+            Err(e) => {
+                tracing::error!(
+                    blake3 = trunc(blake3_hash),
+                    error = %e,
+                    error_debug = ?e,
+                    hash = %hash,
+                    "store.get_bytes failed after download — blob may not have been persisted"
+                );
+                return Err(SnatchError::StoreRead(format!("{e}")));
+            }
+        };
+
+        tracing::debug!(
+            blake3 = trunc(blake3_hash),
+            size = bytes.len(),
+            "blob read from store successfully"
+        );
 
         Ok(bytes.to_vec())
     }
@@ -686,6 +736,7 @@ async fn probe_single_peer(
 /// the download fails.
 async fn consume_download_progress(
     progress: iroh_blobs::api::downloader::DownloadProgress,
+    blake3_label: &str,
 ) -> Result<(), SnatchError> {
     use futures::StreamExt;
     use iroh_blobs::api::downloader::DownloadProgressItem;
@@ -697,20 +748,47 @@ async fn consume_download_progress(
 
     let mut had_error = false;
     let mut last_error: Option<String> = None;
+    let mut event_count: u32 = 0;
 
     while let Some(event) = stream.next().await {
+        event_count += 1;
         match &event {
             DownloadProgressItem::Error(e) => {
                 had_error = true;
                 last_error = Some(format!("{e:?}"));
+                tracing::warn!(
+                    blake3 = trunc(blake3_label),
+                    error = ?e,
+                    event_index = event_count,
+                    "download progress: error event"
+                );
             }
             DownloadProgressItem::DownloadError => {
                 had_error = true;
                 last_error = Some("download error".to_string());
+                tracing::warn!(
+                    blake3 = trunc(blake3_label),
+                    event_index = event_count,
+                    "download progress: download error event"
+                );
             }
-            _ => {}
+            other => {
+                tracing::debug!(
+                    blake3 = trunc(blake3_label),
+                    event = ?other,
+                    event_index = event_count,
+                    "download progress event"
+                );
+            }
         }
     }
+
+    tracing::debug!(
+        blake3 = trunc(blake3_label),
+        event_count,
+        had_error,
+        "download progress stream finished"
+    );
 
     if had_error {
         return Err(SnatchError::DownloadFailed(
@@ -771,12 +849,21 @@ fn read_canvas_for_file_widgets(
         }
     });
 
-    tracing::info!(
-        canvas = canvas_doc_id,
-        file_widgets = widget_doc_ids.len(),
-        peers = peers.len(),
-        "scanned canvas for file widgets"
-    );
+    if widget_doc_ids.is_empty() {
+        tracing::trace!(
+            canvas = canvas_doc_id,
+            file_widgets = 0,
+            peers = peers.len(),
+            "scanned canvas for file widgets"
+        );
+    } else {
+        tracing::info!(
+            canvas = canvas_doc_id,
+            file_widgets = widget_doc_ids.len(),
+            peers = peers.len(),
+            "scanned canvas for file widgets"
+        );
+    }
 
     // return placeholder BlobRefs — only widget_doc_id is filled in.
     // the caller resolves each widget doc into a full BlobRef.
@@ -828,13 +915,16 @@ fn read_widget_state(
 }
 
 /// helper: read a string field from an automerge object.
+/// handles both scalar strings and Text objects (JS automerge stores strings as Text).
 fn read_str(doc: &automerge::Automerge, obj: &automerge::ObjId, key: &str) -> String {
     use automerge::ReadDoc;
-    doc.get(obj, key)
-        .ok()
-        .flatten()
-        .and_then(|(v, _)| v.to_str().map(|s| s.to_string()))
-        .unwrap_or_default()
+    match doc.get(obj, key) {
+        Ok(Some((automerge::Value::Object(automerge::ObjType::Text), text_id))) => {
+            doc.text(&text_id).unwrap_or_default()
+        }
+        Ok(Some((v, _))) => v.to_str().map(|s| s.to_string()).unwrap_or_default(),
+        _ => String::new(),
+    }
 }
 
 /// helper: read a u64 field from an automerge object.

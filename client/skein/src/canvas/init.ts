@@ -1,7 +1,7 @@
 import type { DocumentId, NetworkAdapter, StorageAdapter } from "@automerge/automerge-repo";
 import { Repo } from "@automerge/automerge-repo";
 import { IndexedDBStorageAdapter } from "@automerge/automerge-repo-storage-indexeddb";
-import { Application, Container, Graphics } from "pixi.js";
+import { Application, Container, Graphics, Text } from "pixi.js";
 import type { SkeinTheme } from "../theme/skein-theme";
 import { defaultTheme } from "../theme/skein-theme";
 import { KeyboardDriver } from "../widgets/keyboard-driver";
@@ -274,6 +274,65 @@ export async function initCanvas(options: InitCanvasOptions): Promise<SkeinCanva
     connectionStatus.layout();
   }
 
+  // step 13b-sync: loading overlay — shown when the canvas doc is empty (syncing).
+  // fades out automatically when the first widget appears.
+  let syncOverlay: Container | null = null;
+  if (!options.isNarthex && store.widgetCount() === 0) {
+    syncOverlay = new Container();
+    syncOverlay.zIndex = 9000;
+
+    const syncLabel = new Text({
+      text: "syncing canvas...",
+      resolution: theme.textResolution,
+      style: {
+        fontFamily: theme.fontFamily,
+        fontSize: 16,
+        fill: theme.frameHeaderText,
+        fontStyle: "italic",
+      },
+    });
+    syncLabel.anchor.set(0.5);
+    syncOverlay.addChild(syncLabel);
+
+    // position in center of screen
+    const vv = window.visualViewport;
+    const screenW = vv ? vv.width : window.innerWidth;
+    const screenH = vv ? vv.height : window.innerHeight;
+    syncLabel.x = screenW / 2;
+    syncLabel.y = screenH / 2;
+
+    app.stage.addChild(syncOverlay);
+
+    // pulse animation
+    let syncOverlayTimer: ReturnType<typeof setInterval> | undefined;
+    syncOverlayTimer = setInterval(() => {
+      if (!syncOverlay) return;
+      syncOverlay.alpha = 0.4 + Math.abs(Math.sin(Date.now() / 800)) * 0.6;
+    }, 50);
+
+    // auto-remove when widgets appear
+    const removeSyncOverlay = () => {
+      if (syncOverlay && store.widgetCount() > 0) {
+        clearInterval(syncOverlayTimer);
+        syncOverlay.destroy({ children: true });
+        syncOverlay = null;
+        unsubSyncOverlay();
+      }
+    };
+    const unsubSyncOverlay = store.onChange(() => removeSyncOverlay());
+
+    // also set the connection status to syncing
+    if (connectionStatus) {
+      connectionStatus.setSyncing(true);
+      // clear syncing state when widgets appear
+      store.onChange(() => {
+        if (store.widgetCount() > 0) {
+          connectionStatus?.setSyncing(false);
+        }
+      });
+    }
+  }
+
   // step 13c: create the property tray for editing widget props.
   // lives in the world container so it pans/zooms with widgets.
   // subscribes to selection/mode/store changes internally.
@@ -340,6 +399,10 @@ export async function initCanvas(options: InitCanvasOptions): Promise<SkeinCanva
 
       if (onPointerMove) {
         canvasEl.removeEventListener("pointermove", onPointerMove);
+      }
+      if (syncOverlay) {
+        syncOverlay.destroy({ children: true });
+        syncOverlay = null;
       }
       connectionStatus?.destroy();
       presenceRenderer?.destroy();

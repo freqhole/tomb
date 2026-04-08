@@ -374,6 +374,27 @@ export const canvasCardWidget: WidgetFactory<typeof canvasCardSchema> = {
     updatePillText.zIndex = 50;
     container.addChild(updatePillText);
 
+    // --- syncing indicator for newly accepted remote cards ---
+    const syncingContainer = new Container();
+    syncingContainer.visible = false;
+    syncingContainer.zIndex = 50;
+    container.addChild(syncingContainer);
+
+    const syncingBg = new Graphics();
+    syncingContainer.addChild(syncingBg);
+
+    const syncingText = new Text({
+      text: "new \u2022 tap to open",
+      style: {
+        fontFamily: "system-ui, sans-serif",
+        fontSize: DATE_FONT_SIZE,
+        fontWeight: "600",
+        fill: 0x22c55e,
+      },
+      resolution: 3,
+    });
+    syncingContainer.addChild(syncingText);
+
     // --- drawing helpers ---
 
     const drawCardBg = (w: number, h: number, remote: boolean) => {
@@ -659,6 +680,30 @@ export const canvasCardWidget: WidgetFactory<typeof canvasCardSchema> = {
       }
     };
 
+    const drawSyncingIndicator = (w: number, _h: number, state: CanvasCardState) => {
+      // show for remote cards that have never been visited
+      const isNew = state.isRemote && !state.lastVisitedAt && !state.accessRevoked;
+      syncingContainer.visible = isNew;
+      if (!isNew) return;
+
+      const tw = syncingText.width;
+      const th = syncingText.height;
+      const padX = 6;
+      const padY = 2;
+      const pillW = tw + padX * 2;
+      const pillH = th + padY * 2;
+      const pillX = w - pillW - PADDING_X;
+      const pillY = ACCENT_HEIGHT + 6;
+
+      syncingBg.clear();
+      syncingBg.roundRect(pillX, pillY, pillW, pillH, pillH / 2);
+      syncingBg.fill({ color: 0x22c55e, alpha: 0.15 });
+      syncingBg.stroke({ color: 0x22c55e, width: 1, alpha: 0.4 });
+
+      syncingText.x = pillX + padX;
+      syncingText.y = pillY + padY;
+    };
+
     // --- full layout ---
 
     const layout = (w: number, h: number) => {
@@ -740,12 +785,24 @@ export const canvasCardWidget: WidgetFactory<typeof canvasCardSchema> = {
       // update pill indicator for new activity on shared canvases
       drawUpdatePill(w, state);
 
+      // syncing indicator for newly accepted remote cards
+      drawSyncingIndicator(w, h, state);
+
       // cursor style — revoked cards shouldn't look clickable
       container.cursor = state.isRemote && state.accessRevoked ? "not-allowed" : "pointer";
     };
 
     // --- initial draw ---
     layout(currentWidth, currentHeight);
+
+    // gentle pulse for the syncing indicator
+    let syncPulseDir = -1;
+    const syncPulseTimer = setInterval(() => {
+      if (!syncingContainer.visible) return;
+      syncingContainer.alpha += syncPulseDir * 0.02;
+      if (syncingContainer.alpha <= 0.4) syncPulseDir = 1;
+      if (syncingContainer.alpha >= 1.0) syncPulseDir = -1;
+    }, 50);
 
     // --- hover effects ---
 
@@ -829,6 +886,7 @@ export const canvasCardWidget: WidgetFactory<typeof canvasCardSchema> = {
     return {
       container,
       destroy() {
+        clearInterval(syncPulseTimer);
         unsub();
         unsubDocTitle();
         unsubStoreTitle?.();

@@ -698,11 +698,13 @@ fn read_canvas_for_gossip(
     // helper: read a string field from an automerge object
     fn read_str(doc: &automerge::Automerge, obj: &automerge::ObjId, key: &str) -> String {
         use automerge::ReadDoc;
-        doc.get(obj, key)
-            .ok()
-            .flatten()
-            .and_then(|(v, _)| v.to_str().map(|s| s.to_string()))
-            .unwrap_or_default()
+        match doc.get(obj, key) {
+            Ok(Some((automerge::Value::Object(automerge::ObjType::Text), text_id))) => {
+                doc.text(&text_id).unwrap_or_default()
+            }
+            Ok(Some((v, _))) => v.to_str().map(|s| s.to_string()).unwrap_or_default(),
+            _ => String::new(),
+        }
     }
 
     handle.with_document(|doc| {
@@ -743,27 +745,6 @@ fn read_canvas_for_gossip(
                     .is_some();
 
                 if !peer_is_member {
-                    // dump invite entry keys for diagnostics
-                    let invite_keys: Vec<String> = doc.keys(&invite_obj).collect();
-                    tracing::info!(
-                        canvas_doc_id = %canvas_doc_id,
-                        peer = %peer_node_id,
-                        invite_keys = ?invite_keys,
-                        "gossip: pending invite field names in automerge doc"
-                    );
-
-                    // log raw values to detect type mismatches (e.g. Text vs Str)
-                    let raw_invited_by = doc.get(&invite_obj, "invitedBy");
-                    let raw_invited_by_username = doc.get(&invite_obj, "invitedByUsername");
-                    let raw_title = doc.get(automerge::ROOT, "title");
-                    tracing::info!(
-                        canvas_doc_id = %canvas_doc_id,
-                        raw_invited_by = ?raw_invited_by,
-                        raw_invited_by_username = ?raw_invited_by_username,
-                        raw_title = ?raw_title,
-                        "gossip: raw automerge values for invite metadata"
-                    );
-
                     let invited_by = read_str(doc, &invite_obj, "invitedBy");
                     let invited_by_username = read_str(doc, &invite_obj, "invitedByUsername");
 
