@@ -179,8 +179,15 @@ async fn main() -> Result<()> {
     } else {
         "info".to_string()
     };
-    let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(&log_level));
+    let env_filter = tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| {
+        // start with the configured log level, then suppress noisy internal
+        // warnings from samod's connection lifecycle (benign "nonexistent
+        // connection" warnings that fire during normal sync churn)
+        tracing_subscriber::EnvFilter::new(format!(
+            "{},samod_core::actors::hub::state=error,samod_core::actors::hub::connection=error,noq_proto::connection=error",
+            log_level
+        ))
+    });
 
     tracing_subscriber::registry()
         .with(env_filter)

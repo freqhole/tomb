@@ -60,10 +60,13 @@ pub async fn write_message<W: tokio::io::AsyncWrite + Unpin>(
     Ok(())
 }
 
-/// read a length-prefixed message from an `AsyncRead`.
-pub async fn read_message<R: tokio::io::AsyncRead + Unpin>(
+/// read a length-prefixed raw payload from an `AsyncRead`.
+///
+/// returns the raw bytes without deserializing. useful when you want to
+/// inspect or log the payload before attempting deserialization.
+pub async fn read_raw_payload<R: tokio::io::AsyncRead + Unpin>(
     reader: &mut R,
-) -> Result<FriendzMessage, CodecError> {
+) -> Result<Vec<u8>, CodecError> {
     use tokio::io::AsyncReadExt;
 
     // read 4-byte length prefix
@@ -87,6 +90,14 @@ pub async fn read_message<R: tokio::io::AsyncRead + Unpin>(
     // read payload
     let mut buf = vec![0u8; len];
     reader.read_exact(&mut buf).await?;
+    Ok(buf)
+}
+
+/// read a length-prefixed message from an `AsyncRead`.
+pub async fn read_message<R: tokio::io::AsyncRead + Unpin>(
+    reader: &mut R,
+) -> Result<FriendzMessage, CodecError> {
+    let buf = read_raw_payload(reader).await?;
     let msg = serde_json::from_slice(&buf)?;
     Ok(msg)
 }

@@ -1,8 +1,9 @@
 //! hub peer service — orchestrates the always-on P2P hub.
 //!
 //! ties together the iroh endpoint, samod repo (automerge sync),
-//! and friendz handler (presence + messaging) into a single service
-//! that can be started from the CLI.
+//! friendz handler (presence + messaging), iroh-blobs (blob serving +
+//! downloading), and blob snatcher into a single service that can be
+//! started from the CLI.
 //!
 //! split into submodules:
 //! - `messages`: friendz message dispatch (friend requests, profile, heartbeat)
@@ -11,20 +12,27 @@
 mod canvas;
 mod messages;
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 
+use crate::freqhole::{FreqholeHandler, FREQHOLE_ALPN};
 use crate::protocol::handler::FriendzHandler;
 use crate::protocol::messages::FRIENDZ_ALPN;
+use crate::snatch::BlobSnatcher;
 use crate::storage::SqliteAutomergeStorage;
 use crate::sync::{IrohRepo, AUTOMERGE_REPO_ALPN};
 
 use crate::protocol::handler::FriendzEvent;
 use crate::protocol::messages::FriendzMessage;
+
+use iroh_blobs::api::downloader::Downloader;
+use iroh_blobs::api::Store;
+use iroh_blobs::store::GcConfig;
+use iroh_blobs::BlobsProtocol;
 
 // ---------------------------------------------------------------------------
 // errors
@@ -77,7 +85,7 @@ pub struct HubPeerConfig {
 // ---------------------------------------------------------------------------
 
 /// the hub peer service — an always-on peer that syncs automerge documents,
-/// participates in the friendz protocol, and (eventually) snatches blobs.
+/// participates in the friendz protocol, serves and snatches blobs.
 pub struct HubPeerService {
     pub(crate) endpoint: iroh::Endpoint,
     router: iroh::protocol::Router,
@@ -96,6 +104,13 @@ pub struct HubPeerService {
     pub(crate) profile_avatar_data_url: String,
     /// canvas doc IDs the hub is participating in (for gossip and relay)
     pub(crate) canvas_doc_ids: Arc<Mutex<HashSet<String>>>,
+    /// active automerge sync dialer handles keyed by peer node_id.
+    /// keeping these alive maintains the outbound sync connections.
+    pub(crate) sync_dialers: Arc<Mutex<HashMap<String, samod::DialerHandle>>>,
+    /// iroh-blobs store (MemStore-backed) for serving and downloading blobs
+    blobs_store: Store,
+    /// iroh-blobs downloader for verified blob transfers
+    blobs_downloader: Downloader,
 }
 
 impl HubPeerService {
@@ -234,12 +249,32 @@ impl HubPeerService {
         let (friendz, friendz_events) =
             FriendzHandler::new(endpoint.clone(), node_id_str.clone(), config.username);
 
-        // 6. build and start the iroh router with both protocol handlers
+        // 6. setup iroh-blobs with MemStore for blob serving + downloading.
+        // blobs are loaded on-demand from grimoire when peers send ensure_blob_request,
+        // and downloaded blobs are read from the store then ingested into grimoire.
+        let mem_store =
+            iroh_blobs::store::mem::MemStore::new_with_opts(iroh_blobs::store::mem::Options {
+                gc_config: Some(GcConfig {
+                    interval: std::time::Duration::from_secs(30),
+                    add_protected: None,
+                }),
+            });
+        let blobs_downloader = Downloader::new(&mem_store, &endpoint);
+        let blobs_store: Store = mem_store.as_ref().clone();
+        let blobs_protocol = BlobsProtocol::new(&blobs_store, None);
+        let freqhole_handler = FreqholeHandler::new(blobs_store.clone());
+        tracing::info!("iroh-blobs store and freqhole/1 handler initialized");
+
+        // 7. build and start the iroh router with all protocol handlers
         let router = iroh::protocol::Router::builder(endpoint.clone())
             .accept(AUTOMERGE_REPO_ALPN, iroh_repo.clone())
             .accept(FRIENDZ_ALPN, friendz.clone())
+            .accept(FREQHOLE_ALPN, freqhole_handler)
+            .accept(iroh_blobs::ALPN, blobs_protocol)
             .spawn();
-        tracing::info!("iroh router started with automerge-repo and friendz protocols");
+        tracing::info!(
+            "iroh router started with automerge-repo, friendz, freqhole/1, and iroh-blobs protocols"
+        );
 
         Ok(Self {
             endpoint,
@@ -253,6 +288,9 @@ impl HubPeerService {
             profile_bio,
             profile_avatar_data_url: avatar_data_url,
             canvas_doc_ids: Arc::new(Mutex::new(HashSet::new())),
+            sync_dialers: Arc::new(Mutex::new(HashMap::new())),
+            blobs_store,
+            blobs_downloader,
         })
     }
 
@@ -266,6 +304,21 @@ impl HubPeerService {
             node_id = %self.endpoint.id(),
             "hub peer service running"
         );
+
+        // spawn the blob snatcher scan loop
+        let snatcher = BlobSnatcher::new(
+            self.canvas_doc_ids.clone(),
+            self.iroh_repo.repo().clone(),
+            self.endpoint.clone(),
+            self.blobs_store.clone(),
+            self.blobs_downloader.clone(),
+            self.node_id_str.clone(),
+        );
+        let snatch_cancel = cancel.clone();
+        let snatch_handle = tokio::spawn(async move {
+            snatcher.run_scan_loop(snatch_cancel).await;
+        });
+        tracing::info!("blob snatcher scan loop started");
 
         // run the friendz heartbeat loop and event processing concurrently
         let friendz = self.friendz.clone();
@@ -308,45 +361,149 @@ impl HubPeerService {
                 .await;
         });
 
-        // process friendz events until cancellation
+        // periodic sync health check — log connected automerge peers every 30s
+        let sync_health_repo = self.iroh_repo.repo().clone();
+        let sync_health_canvas_ids = self.canvas_doc_ids.clone();
+        let sync_health_cancel = cancel.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(30));
+            interval.tick().await; // skip first immediate tick
+            loop {
+                tokio::select! {
+                    _ = sync_health_cancel.cancelled() => break,
+                    _ = interval.tick() => {
+                        let (peers, _) = sync_health_repo.connected_peers();
+                        let connected: Vec<String> = peers
+                            .iter()
+                            .filter_map(|c| {
+                                if let samod::ConnectionState::Connected { their_peer_id } = &c.state {
+                                    Some(their_peer_id.to_string())
+                                } else {
+                                    None
+                                }
+                            })
+                            .collect();
+                        let handshaking: usize = peers
+                            .iter()
+                            .filter(|c| matches!(c.state, samod::ConnectionState::Handshaking))
+                            .count();
+                        let canvas_count = sync_health_canvas_ids.lock().await.len();
+                        tracing::info!(
+                            connected_peers = ?connected,
+                            handshaking,
+                            total_connections = peers.len(),
+                            tracked_canvases = canvas_count,
+                            "sync health check"
+                        );
+                    }
+                }
+            }
+        });
+
+        // process friendz events until cancellation.
+        // the inner select! ensures that cancel interrupts even a long-running
+        // handler (e.g. the 3s gossip delay, repo.find(), send_message() to an
+        // unreachable peer) instead of waiting for it to finish.
         loop {
-            tokio::select! {
+            let event = tokio::select! {
                 _ = cancel.cancelled() => {
-                    tracing::info!("shutdown requested, announcing offline");
+                    tracing::info!("shutdown requested");
                     break;
                 }
                 event = self.friendz_events.recv() => {
                     match event {
-                        Some(event) => self.handle_friendz_event(event).await,
+                        Some(e) => e,
                         None => {
                             tracing::info!("friendz event channel closed");
                             break;
                         }
                     }
                 }
+            };
+
+            tokio::select! {
+                _ = cancel.cancelled() => {
+                    tracing::info!("shutdown requested during event handling, dropping event");
+                    break;
+                }
+                _ = self.handle_friendz_event(event) => {}
             }
         }
 
-        // graceful shutdown: announce offline, stop heartbeat, close everything
+        // graceful shutdown: announce offline, stop heartbeat + snatcher, close everything
         heartbeat_handle.abort();
+        snatch_handle.abort();
         self.shutdown().await;
     }
 
     /// check whether a node_id belongs to a friend of the hub peer.
+    ///
+    /// if the peer is in `user_peer_nodez` (an allowed peer) but doesn't have
+    /// a `peer_friendz` row yet, the friendship is auto-created. this handles
+    /// the common case where the browser sent a FriendRequest while the hub was
+    /// offline — the friendz protocol doesn't queue messages, so the hub never
+    /// saw it and never created the friendship row.
     pub(crate) async fn is_friend(&self, node_id: &str) -> bool {
         let user_service = grimoire::users::UserService::new();
         let response = user_service.get_user_by_node_id(node_id).await;
         let peer_user = match response.data {
             Some(user) => user,
-            None => return false,
+            None => {
+                tracing::debug!(
+                    peer = %node_id,
+                    "is_friend: peer not in user_peer_nodez"
+                );
+                return false;
+            }
         };
+
         let social_repo = grimoire::social::repository::SocialRepository::new();
         match social_repo
             .is_friend(&self.hub_user_id, &peer_user.id)
             .await
         {
-            Ok(is_friend) => is_friend,
-            Err(_) => false,
+            Ok(true) => return true,
+            Ok(false) => {
+                // peer is an allowed peer (in user_peer_nodez) but no friendship
+                // row exists — auto-create it. this covers the case where the
+                // browser sent a FriendRequest while the hub was offline.
+                tracing::info!(
+                    peer = %node_id,
+                    peer_user_id = %peer_user.id,
+                    peer_username = %peer_user.username,
+                    "is_friend: allowed peer has no friendship row, auto-creating"
+                );
+                match social_repo
+                    .add_friend(&self.hub_user_id, &peer_user.id, None)
+                    .await
+                {
+                    Ok(_) => {
+                        tracing::info!(
+                            peer = %node_id,
+                            peer_user_id = %peer_user.id,
+                            "is_friend: auto-created friendship for allowed peer"
+                        );
+                        true
+                    }
+                    Err(e) => {
+                        // UNIQUE constraint = already exists (race condition), treat as friend
+                        tracing::debug!(
+                            peer = %node_id,
+                            error = %e,
+                            "is_friend: add_friend result (may already exist)"
+                        );
+                        true
+                    }
+                }
+            }
+            Err(e) => {
+                tracing::warn!(
+                    peer = %node_id,
+                    error = %e,
+                    "is_friend: database error checking friendship"
+                );
+                false
+            }
         }
     }
 
@@ -354,12 +511,36 @@ impl HubPeerService {
     pub async fn shutdown(self) {
         tracing::info!("shutting down hub peer service");
 
-        // shutdown router (also shuts down protocol handlers)
-        if let Err(e) = self.router.shutdown().await {
-            tracing::warn!(error = ?e, "error shutting down router");
+        // drop sync dialers BEFORE stopping the router/repo — repo.stop()
+        // may wait for active dialers to disconnect, and the DialerHandles
+        // won't disconnect until dropped. clearing them here avoids a deadlock.
+        {
+            let mut dialers = self.sync_dialers.lock().await;
+            let count = dialers.len();
+            dialers.clear();
+            if count > 0 {
+                tracing::info!(count, "dropped sync dialers before shutdown");
+            }
+        }
+
+        // shutdown router (also shuts down protocol handlers including repo.stop())
+        // use a timeout to avoid hanging forever if something is stuck
+        tracing::debug!("shutting down iroh router...");
+        let router_shutdown = self.router.shutdown();
+        match tokio::time::timeout(std::time::Duration::from_secs(10), router_shutdown).await {
+            Ok(Ok(())) => {
+                tracing::debug!("iroh router shut down cleanly");
+            }
+            Ok(Err(e)) => {
+                tracing::warn!(error = ?e, "error shutting down router");
+            }
+            Err(_) => {
+                tracing::warn!("router shutdown timed out after 10s, continuing");
+            }
         }
 
         // close iroh endpoint
+        tracing::debug!("closing iroh endpoint...");
         self.endpoint.close().await;
 
         tracing::info!("hub peer service stopped");

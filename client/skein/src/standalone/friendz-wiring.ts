@@ -469,6 +469,22 @@ export async function initFriendzWiring(
     } catch {
       // best effort
     }
+
+    // establish automerge sync connection to the accepting peer so they can
+    // pull the canvas doc. without this, the accepter has no way to get the doc
+    // because they don't yet appear in the canvas peers map.
+    const syncTargetId = msg.accepterNodeId || fromNodeId;
+    irohAdapter.addPeer(syncTargetId).catch((err) => {
+      console.warn(
+        "[friendz-wiring] failed to connect to accepting peer for sync:",
+        syncTargetId.slice(0, 16) + "...",
+        err
+      );
+    });
+    console.log(
+      "[friendz-wiring] initiated sync connection to accepting peer:",
+      syncTargetId.slice(0, 16) + "..."
+    );
   };
 
   protocol.onCanvasInviteDecline = (msg, fromNodeId) => {

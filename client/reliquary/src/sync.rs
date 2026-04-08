@@ -5,17 +5,133 @@
 //! `iroh::protocol::ProtocolHandler` for inbound connections and provides
 //! `IrohDialer` for outbound sync.
 
+use std::pin::Pin;
 use std::sync::Arc;
+use std::task::{Context, Poll};
 
 use futures::future::BoxFuture;
 use iroh::endpoint::Connection;
 use iroh::protocol::{AcceptError, ProtocolHandler};
 use iroh::{Endpoint, EndpointAddr};
 use samod::{AcceptorHandle, BackoffConfig, DialerHandle, Repo, Stopped, Transport};
+use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use url::Url;
 
 /// ALPN protocol identifier for automerge-repo sync over iroh.
 pub const AUTOMERGE_REPO_ALPN: &[u8] = b"iroh/automerge-repo/1";
+
+// ---------------------------------------------------------------------------
+// LoggingIo — transparent AsyncRead + AsyncWrite wrapper that logs all I/O
+// ---------------------------------------------------------------------------
+
+/// wraps any AsyncRead + AsyncWrite and logs every read/write at info level.
+/// used to diagnose whether samod is actually receiving data from the peer.
+struct LoggingIo<T> {
+    inner: T,
+    label: String,
+    total_read: std::sync::atomic::AtomicUsize,
+    total_written: std::sync::atomic::AtomicUsize,
+}
+
+impl<T> LoggingIo<T> {
+    fn new(inner: T, label: String) -> Self {
+        Self {
+            inner,
+            label,
+            total_read: std::sync::atomic::AtomicUsize::new(0),
+            total_written: std::sync::atomic::AtomicUsize::new(0),
+        }
+    }
+}
+
+impl<T: AsyncRead + Unpin> AsyncRead for LoggingIo<T> {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<std::io::Result<()>> {
+        let before = buf.filled().len();
+        let result = Pin::new(&mut self.inner).poll_read(cx, buf);
+        match &result {
+            Poll::Ready(Ok(())) => {
+                let bytes_read = buf.filled().len() - before;
+                if bytes_read > 0 {
+                    let total = self
+                        .total_read
+                        .fetch_add(bytes_read, std::sync::atomic::Ordering::Relaxed)
+                        + bytes_read;
+                    // log first 64 bytes as hex for debugging wire format
+                    let filled = buf.filled();
+                    let preview_start = if before < filled.len() { before } else { 0 };
+                    let preview_end = std::cmp::min(preview_start + 64, filled.len());
+                    let preview: String = filled[preview_start..preview_end]
+                        .iter()
+                        .map(|b| format!("{:02x}", b))
+                        .collect();
+                    tracing::info!(
+                        label = %self.label,
+                        bytes_read,
+                        total_read = total,
+                        preview = %preview,
+                        "transport READ"
+                    );
+                }
+            }
+            Poll::Ready(Err(e)) => {
+                tracing::warn!(
+                    label = %self.label,
+                    error = %e,
+                    "transport READ error"
+                );
+            }
+            Poll::Pending => {}
+        }
+        result
+    }
+}
+
+impl<T: AsyncWrite + Unpin> AsyncWrite for LoggingIo<T> {
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<std::io::Result<usize>> {
+        let result = Pin::new(&mut self.inner).poll_write(cx, buf);
+        if let Poll::Ready(Ok(n)) = &result {
+            let total = self
+                .total_written
+                .fetch_add(*n, std::sync::atomic::Ordering::Relaxed)
+                + n;
+            // log first 64 bytes as hex
+            let preview_end = std::cmp::min(64, buf.len());
+            let preview: String = buf[..preview_end]
+                .iter()
+                .map(|b| format!("{:02x}", b))
+                .collect();
+            tracing::info!(
+                label = %self.label,
+                bytes_written = n,
+                total_written = total,
+                preview = %preview,
+                "transport WRITE"
+            );
+        }
+        result
+    }
+
+    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        Pin::new(&mut self.inner).poll_flush(cx)
+    }
+
+    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        tracing::info!(label = %self.label, "transport SHUTDOWN");
+        Pin::new(&mut self.inner).poll_shutdown(cx)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// IrohRepo
+// ---------------------------------------------------------------------------
 
 /// bridges a `samod::Repo` with an `iroh::Endpoint` for P2P automerge sync.
 ///
@@ -65,7 +181,7 @@ impl IrohRepo {
 impl ProtocolHandler for IrohRepo {
     async fn accept(&self, connection: Connection) -> Result<(), AcceptError> {
         let peer_id = connection.remote_id();
-        tracing::debug!(peer = %peer_id, "automerge-repo: accepted inbound connection");
+        tracing::info!(peer = %peer_id, "automerge-repo: accepted inbound connection");
 
         let (send, recv) = connection.accept_bi().await.map_err(|e| {
             tracing::warn!(
@@ -78,12 +194,71 @@ impl ProtocolHandler for IrohRepo {
 
         // combine into a single AsyncRead + AsyncWrite — join takes (reader, writer)
         let joined = tokio::io::join(recv, send);
-        let transport = Transport::from_tokio_io(joined);
+
+        // wrap with logging so we can see exactly what bytes flow through
+        let label = format!("accept:{}", &peer_id.to_string()[..16]);
+        let logged = LoggingIo::new(joined, label);
+
+        let transport = Transport::from_tokio_io(logged);
 
         if let Err(e) = self.acceptor.accept(transport) {
             tracing::warn!(peer = %peer_id, error = ?e, "automerge-repo: acceptor rejected transport");
         } else {
-            tracing::debug!(peer = %peer_id, "automerge-repo: handed transport to acceptor");
+            tracing::info!(peer = %peer_id, "automerge-repo: handed transport to acceptor");
+
+            // probe connection state after accept to see if the handshake progresses
+            let repo = self.repo.clone();
+            let peer_str = peer_id.to_string();
+            tokio::spawn(async move {
+                // check immediately
+                let (peers, _) = repo.connected_peers();
+                let summary = format_connection_summary(&peers);
+                tracing::info!(
+                    peer = %peer_str,
+                    connections = %summary,
+                    "post-accept probe: immediate"
+                );
+
+                // check after 1 second
+                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                let (peers, _) = repo.connected_peers();
+                let summary = format_connection_summary(&peers);
+                tracing::info!(
+                    peer = %peer_str,
+                    connections = %summary,
+                    "post-accept probe: +1s"
+                );
+
+                // check after 3 seconds
+                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                let (peers, _) = repo.connected_peers();
+                let summary = format_connection_summary(&peers);
+                tracing::info!(
+                    peer = %peer_str,
+                    connections = %summary,
+                    "post-accept probe: +3s"
+                );
+
+                // check after 5 seconds
+                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                let (peers, _) = repo.connected_peers();
+                let summary = format_connection_summary(&peers);
+                tracing::info!(
+                    peer = %peer_str,
+                    connections = %summary,
+                    "post-accept probe: +5s"
+                );
+
+                // check after 10 seconds
+                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                let (peers, _) = repo.connected_peers();
+                let summary = format_connection_summary(&peers);
+                tracing::info!(
+                    peer = %peer_str,
+                    connections = %summary,
+                    "post-accept probe: +10s"
+                );
+            });
         }
 
         Ok(())
@@ -93,6 +268,30 @@ impl ProtocolHandler for IrohRepo {
         tracing::debug!("automerge-repo: shutting down");
         self.repo.stop().await;
     }
+}
+
+/// format a human-readable summary of samod connection states.
+fn format_connection_summary(peers: &[samod::ConnectionInfo]) -> String {
+    if peers.is_empty() {
+        return "none".to_string();
+    }
+    let mut parts = Vec::new();
+    for p in peers {
+        let state = match &p.state {
+            samod::ConnectionState::Handshaking => "handshaking".to_string(),
+            samod::ConnectionState::Connected { their_peer_id } => {
+                let id_str = their_peer_id.to_string();
+                let short = if id_str.len() > 16 {
+                    &id_str[..16]
+                } else {
+                    &id_str
+                };
+                format!("connected({}...)", short)
+            }
+        };
+        parts.push(format!("id={:?} {}", p.id, state));
+    }
+    parts.join(", ")
 }
 
 /// samod dialer implementation backed by an iroh endpoint.
@@ -133,9 +332,14 @@ impl samod::Dialer for IrohDialer {
 
             // combine into a single AsyncRead + AsyncWrite — join takes (reader, writer)
             let joined = tokio::io::join(recv, send);
-            let transport = Transport::from_tokio_io(joined);
 
-            tracing::debug!(
+            // wrap with logging
+            let label = format!("dial:{}", &conn.remote_id().to_string()[..16]);
+            let logged = LoggingIo::new(joined, label);
+
+            let transport = Transport::from_tokio_io(logged);
+
+            tracing::info!(
                 peer = %conn.remote_id(),
                 "automerge-repo: outbound transport established"
             );

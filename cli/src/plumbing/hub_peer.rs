@@ -5,7 +5,7 @@ use grimoire::error::ErrorDetail;
 use serde::Serialize;
 use tokio::signal;
 use tokio_util::sync::CancellationToken;
-use tracing::info;
+use tracing::{info, warn};
 
 use super::utils::CommandOutput;
 
@@ -121,11 +121,11 @@ async fn start_hub_peer() -> CommandOutput<serde_json::Value> {
         service.run(cancel).await;
     });
 
-    // wait for shutdown signal
+    // wait for first Ctrl+C — triggers graceful shutdown
     match signal::ctrl_c().await {
         Ok(()) => {
             info!("received shutdown signal");
-            eprintln!("\nshutting down...");
+            eprintln!("\nshutting down... (press Ctrl+C again to force quit)");
         }
         Err(e) => {
             eprintln!("error waiting for shutdown signal: {}", e);
@@ -135,10 +135,29 @@ async fn start_hub_peer() -> CommandOutput<serde_json::Value> {
     // signal the service to shut down gracefully (offline announcement + cleanup)
     cancel_trigger.cancel();
 
-    // wait for the service to finish its graceful shutdown
-    if let Err(e) = service_handle.await {
-        if !e.is_cancelled() {
-            tracing::warn!(error = ?e, "service task error during shutdown");
+    // wait for graceful shutdown with a timeout, and listen for a second
+    // Ctrl+C to force-quit immediately
+    let graceful = async {
+        if let Err(e) = service_handle.await {
+            if !e.is_cancelled() {
+                warn!(error = ?e, "service task error during shutdown");
+            }
+        }
+    };
+
+    tokio::select! {
+        _ = graceful => {
+            info!("hub peer stopped gracefully");
+        }
+        _ = signal::ctrl_c() => {
+            warn!("received second Ctrl+C, force quitting");
+            eprintln!("force quit");
+            std::process::exit(1);
+        }
+        _ = tokio::time::sleep(std::time::Duration::from_secs(10)) => {
+            warn!("graceful shutdown timed out after 10s, force quitting");
+            eprintln!("shutdown timed out, force quit");
+            std::process::exit(1);
         }
     }
 

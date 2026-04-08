@@ -350,7 +350,7 @@ impl ProtocolHandler for FriendzHandler {
     async fn accept(&self, connection: Connection) -> Result<(), AcceptError> {
         let peer_id = connection.remote_id();
         let peer_node_id = peer_id.to_string();
-        tracing::debug!(peer = %peer_node_id, "friendz: accepted inbound connection");
+        tracing::info!(peer = %peer_node_id, "friendz: accepted inbound connection");
 
         let (send, recv) = connection.accept_bi().await.map_err(|e| {
             tracing::warn!(
@@ -367,14 +367,14 @@ impl ProtocolHandler for FriendzHandler {
             state.streams.insert(peer_node_id.clone(), send);
         }
 
-        tracing::debug!(peer = %peer_node_id, "friendz: stored send half and starting read loop");
+        tracing::info!(peer = %peer_node_id, "friendz: stored send half and starting read loop");
 
         // spawn read loop
         let inner = self.inner.clone();
         let node_id = peer_node_id.clone();
         tokio::spawn(async move {
             if let Err(e) = read_loop(&inner, &node_id, recv).await {
-                tracing::debug!(peer = %node_id, error = %e, "friendz: read loop ended");
+                tracing::warn!(peer = %node_id, error = %e, "friendz: inbound read loop ended");
             }
             // clean up stream on exit
             let mut state = inner.state.lock().await;
@@ -396,14 +396,62 @@ impl ProtocolHandler for FriendzHandler {
 // ---------------------------------------------------------------------------
 
 /// read messages from a recv stream until the stream closes or errors.
+///
+/// resilient to deserialization failures: if a single message fails to parse,
+/// it is logged and skipped rather than killing the entire stream.
 async fn read_loop(
     inner: &Inner,
     peer_node_id: &str,
     mut recv: iroh::endpoint::RecvStream,
 ) -> Result<(), CodecError> {
     loop {
-        let msg = codec::read_message(&mut recv).await?;
-        handle_message(inner, peer_node_id, msg).await;
+        // read length-delimited raw payload (4-byte BE u32 prefix + bytes)
+        let buf = codec::read_raw_payload(&mut recv).await?;
+
+        // try to deserialize
+        match serde_json::from_slice::<FriendzMessage>(&buf) {
+            Ok(msg) => {
+                tracing::info!(
+                    peer = %peer_node_id,
+                    msg_type = %msg_type_name(&msg),
+                    payload_len = buf.len(),
+                    "friendz: received message"
+                );
+                handle_message(inner, peer_node_id, msg).await;
+            }
+            Err(e) => {
+                let raw = String::from_utf8_lossy(&buf);
+                tracing::warn!(
+                    peer = %peer_node_id,
+                    error = %e,
+                    payload_len = buf.len(),
+                    raw = %raw,
+                    "friendz: failed to deserialize message, skipping"
+                );
+                // continue reading — don't kill the stream
+            }
+        }
+    }
+}
+
+/// return a human-readable name for the message type (for logging).
+fn msg_type_name(msg: &FriendzMessage) -> &'static str {
+    match msg {
+        FriendzMessage::ProfileRequest => "profile-request",
+        FriendzMessage::ProfileResponse { .. } => "profile-response",
+        FriendzMessage::FriendRequest { .. } => "friend-request",
+        FriendzMessage::FriendAccept { .. } => "friend-accept",
+        FriendzMessage::FriendAcceptAck { .. } => "friend-accept-ack",
+        FriendzMessage::FriendReject { .. } => "friend-reject",
+        FriendzMessage::Heartbeat { .. } => "heartbeat",
+        FriendzMessage::CanvasInvite { .. } => "canvas-invite",
+        FriendzMessage::CanvasInviteAck { .. } => "canvas-invite-ack",
+        FriendzMessage::CanvasInviteAccept { .. } => "canvas-invite-accept",
+        FriendzMessage::CanvasInviteDecline { .. } => "canvas-invite-decline",
+        FriendzMessage::AclChange { .. } => "acl-change",
+        FriendzMessage::CanvasUpdate { .. } => "canvas-update",
+        FriendzMessage::OfflineAnnouncement { .. } => "offline-announcement",
+        FriendzMessage::GossipDigest { .. } => "gossip-digest",
     }
 }
 

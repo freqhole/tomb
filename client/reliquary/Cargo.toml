@@ -8,12 +8,14 @@ description = "headless hub peer for skein canvas P2P ecosystem"
 # workspace deps
 grimoire = { path = "../../grimoire", default-features = false }
 iroh = { workspace = true }
+iroh-blobs = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 uuid = { workspace = true }
 blake3 = { workspace = true }
+sha2 = { workspace = true }
 thiserror = { workspace = true }
 base64 = { workspace = true }
 
@@ -24,7 +26,9 @@ getrandom = "0.2"
 samod = { version = "0.9", features = ["tokio"] }
 automerge = "0.8"
 futures = "0.3"
+indexmap = "2"
 tokio-util = { workspace = true }
+time = { workspace = true }
 bytes = "1"
 url = "2"
 derive_more = { version = "2.0", features = ["debug"] }
