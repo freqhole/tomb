@@ -1,9 +1,9 @@
 //! hub peer service — orchestrates the always-on P2P hub.
 //!
-//! ties together the iroh endpoint, samod repo (automerge sync),
-//! friendz handler (presence + messaging), iroh-blobs (blob serving +
-//! downloading), and blob snatcher into a single service that can be
-//! started from the CLI.
+//! ties together the iroh endpoint, hub_repo (automerge sync via custom
+//! CBOR handler), friendz handler (presence + messaging), iroh-blobs
+//! (blob serving + downloading), and blob snatcher into a single service
+//! that can be started from the CLI.
 //!
 //! split into submodules:
 //! - `messages`: friendz message dispatch (friend requests, profile, heartbeat)
@@ -20,6 +20,7 @@ use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 
 use crate::freqhole::{FreqholeHandler, FREQHOLE_ALPN};
+use crate::hub_repo::HubRepo;
 use crate::protocol::handler::FriendzHandler;
 use crate::protocol::messages::FRIENDZ_ALPN;
 use crate::snatch::BlobSnatcher;
@@ -90,6 +91,8 @@ pub struct HubPeerService {
     pub(crate) endpoint: iroh::Endpoint,
     router: iroh::protocol::Router,
     pub(crate) iroh_repo: IrohRepo,
+    /// custom automerge sync handler — processes CBOR messages from JS peers
+    pub(crate) hub_repo: HubRepo,
     pub(crate) friendz: FriendzHandler,
     friendz_events: tokio::sync::mpsc::UnboundedReceiver<FriendzEvent>,
     /// the hub peer's grimoire user_id
@@ -231,19 +234,27 @@ impl HubPeerService {
             .map_err(|e| HubError::Endpoint(e.to_string()))?;
         tracing::info!("iroh endpoint bound");
 
-        // 3. create samod repo with sqlite storage
+        // 3. create samod repo with sqlite storage (kept for legacy callers
+        // like BlobSnatcher and canvas.rs — will be removed in Phase 2)
         let storage = SqliteAutomergeStorage::new(&config.automerge_db_path).await?;
         let peer_id = samod::PeerId::from(node_id_str.as_str());
-        let repo = samod::Repo::build_tokio()
+        let samod_repo = samod::Repo::build_tokio()
             .with_peer_id(peer_id)
             .with_storage(storage)
             .load()
             .await;
-        tracing::info!("samod repo loaded");
+        tracing::info!("samod repo loaded (legacy, no acceptor)");
 
-        // 4. create IrohRepo (automerge sync bridge)
-        let iroh_repo = IrohRepo::new(endpoint.clone(), repo)
-            .map_err(|e| HubError::IrohRepo(format!("failed to create iroh repo: {e:?}")))?;
+        // 3b. create hub_repo — custom automerge sync handler that speaks
+        // the JS automerge-repo v2.x CBOR wire format directly
+        let hub_repo = HubRepo::new(node_id_str.clone(), &config.automerge_db_path)
+            .await
+            .map_err(|e| HubError::IrohRepo(format!("failed to create hub repo: {e}")))?;
+        tracing::info!("hub_repo loaded");
+
+        // 4. create IrohRepo (automerge sync bridge) — transitional mode:
+        // inbound connections go to hub_repo, samod repo kept for legacy API
+        let iroh_repo = IrohRepo::new_transitional(endpoint.clone(), samod_repo, hub_repo.clone());
 
         // 5. create FriendzHandler
         let (friendz, friendz_events) =
@@ -280,6 +291,7 @@ impl HubPeerService {
             endpoint,
             router,
             iroh_repo,
+            hub_repo,
             friendz,
             friendz_events,
             hub_user_id,
@@ -361,8 +373,9 @@ impl HubPeerService {
                 .await;
         });
 
-        // periodic sync health check — log connected automerge peers every 30s
-        let sync_health_repo = self.iroh_repo.repo().clone();
+        // periodic sync health check — log connected peers every 30s
+        // uses hub_repo for actual connection state (samod won't have connections)
+        let sync_health_hub_repo = self.hub_repo.clone();
         let sync_health_canvas_ids = self.canvas_doc_ids.clone();
         let sync_health_cancel = cancel.clone();
         tokio::spawn(async move {
@@ -372,26 +385,17 @@ impl HubPeerService {
                 tokio::select! {
                     _ = sync_health_cancel.cancelled() => break,
                     _ = interval.tick() => {
-                        let (peers, _) = sync_health_repo.connected_peers();
-                        let connected: Vec<String> = peers
-                            .iter()
-                            .filter_map(|c| {
-                                if let samod::ConnectionState::Connected { their_peer_id } = &c.state {
-                                    Some(their_peer_id.to_string())
-                                } else {
-                                    None
-                                }
-                            })
-                            .collect();
-                        let handshaking: usize = peers
-                            .iter()
-                            .filter(|c| matches!(c.state, samod::ConnectionState::Handshaking))
-                            .count();
+                        let peer_ids = sync_health_hub_repo.connected_peer_ids().await;
+                        let peer_count = peer_ids.len();
                         let canvas_count = sync_health_canvas_ids.lock().await.len();
+
+                        // also check how many docs hub_repo has received
+                        let doc_count = sync_health_hub_repo.document_count().await;
+
                         tracing::info!(
-                            connected_peers = ?connected,
-                            handshaking,
-                            total_connections = peers.len(),
+                            connected_peers = ?peer_ids,
+                            total_connections = peer_count,
+                            synced_documents = doc_count,
                             tracked_canvases = canvas_count,
                             "sync health check"
                         );

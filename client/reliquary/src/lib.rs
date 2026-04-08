@@ -3,6 +3,7 @@
 pub mod documents;
 pub mod freqhole;
 pub mod hub;
+pub mod hub_repo;
 pub mod identity;
 pub mod protocol;
 pub mod snatch;

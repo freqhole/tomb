@@ -138,13 +138,20 @@ impl<T: AsyncWrite + Unpin> AsyncWrite for LoggingIo<T> {
 /// implements `ProtocolHandler` to accept inbound connections from other iroh
 /// peers and feeds them to the samod repo's acceptor. use `sync_with` to
 /// initiate outbound sync with a remote peer.
+///
+/// optionally routes inbound connections to a `HubRepo` instead of samod.
 #[derive(derive_more::Debug, Clone)]
 pub struct IrohRepo {
     endpoint: Endpoint,
+    /// samod repo — used during transition, will be removed
     #[debug(skip)]
-    repo: Repo,
+    repo: Option<Repo>,
+    /// samod acceptor — used during transition, will be removed
     #[debug(skip)]
-    acceptor: AcceptorHandle,
+    acceptor: Option<AcceptorHandle>,
+    /// new hub repo that handles sync directly
+    #[debug(skip)]
+    hub_repo: Option<crate::hub_repo::HubRepo>,
 }
 
 impl IrohRepo {
@@ -157,24 +164,69 @@ impl IrohRepo {
         let acceptor = repo.make_acceptor(url)?;
         Ok(Self {
             endpoint,
-            repo,
-            acceptor,
+            repo: Some(repo),
+            acceptor: Some(acceptor),
+            hub_repo: None,
         })
+    }
+
+    /// create an iroh repo bridge using the custom hub repo (no samod).
+    pub fn new_with_hub_repo(endpoint: Endpoint, hub_repo: crate::hub_repo::HubRepo) -> Self {
+        Self {
+            endpoint,
+            repo: None,
+            acceptor: None,
+            hub_repo: Some(hub_repo),
+        }
+    }
+
+    /// transitional constructor: keeps samod repo alive for legacy callers
+    /// (`repo()`, `sync_with()`, BlobSnatcher, canvas.rs) while routing
+    /// inbound connections through the new hub_repo handler.
+    ///
+    /// the samod repo won't receive any connections (those go to hub_repo),
+    /// so legacy `repo.find()` calls will still timeout — same broken-but-
+    /// non-crashing behavior as before. this lets us prove hub_repo sync
+    /// works without adapting all consumers at once.
+    pub fn new_transitional(
+        endpoint: Endpoint,
+        repo: Repo,
+        hub_repo: crate::hub_repo::HubRepo,
+    ) -> Self {
+        // NOTE: we intentionally do NOT create a samod acceptor here.
+        // inbound connections are handled by hub_repo, not samod.
+        Self {
+            endpoint,
+            repo: Some(repo),
+            acceptor: None,
+            hub_repo: Some(hub_repo),
+        }
+    }
+
+    /// access the hub_repo (custom sync handler).
+    pub fn hub_repo(&self) -> Option<&crate::hub_repo::HubRepo> {
+        self.hub_repo.as_ref()
     }
 
     /// access the underlying samod repo.
     pub fn repo(&self) -> &Repo {
-        &self.repo
+        self.repo
+            .as_ref()
+            .expect("samod repo not initialized — use hub_repo instead")
     }
 
     /// start syncing with a remote peer. returns the dialer handle for
     /// lifecycle management.
     pub fn sync_with(&self, addr: EndpointAddr) -> Result<DialerHandle, Stopped> {
+        let repo = self
+            .repo
+            .as_ref()
+            .expect("samod repo not initialized — use hub_repo instead");
         let dialer = IrohDialer {
             endpoint: self.endpoint.clone(),
             addr,
         };
-        self.repo.dial(BackoffConfig::default(), Arc::new(dialer))
+        repo.dial(BackoffConfig::default(), Arc::new(dialer))
     }
 }
 
@@ -199,66 +251,80 @@ impl ProtocolHandler for IrohRepo {
         let label = format!("accept:{}", &peer_id.to_string()[..16]);
         let logged = LoggingIo::new(joined, label);
 
-        let transport = Transport::from_tokio_io(logged);
-
-        if let Err(e) = self.acceptor.accept(transport) {
-            tracing::warn!(peer = %peer_id, error = ?e, "automerge-repo: acceptor rejected transport");
-        } else {
-            tracing::info!(peer = %peer_id, "automerge-repo: handed transport to acceptor");
-
-            // probe connection state after accept to see if the handshake progresses
-            let repo = self.repo.clone();
-            let peer_str = peer_id.to_string();
+        // route to hub_repo if available, otherwise fall back to samod
+        if let Some(hub_repo) = &self.hub_repo {
+            let peer_id_str = peer_id.to_string();
+            let hub_repo = hub_repo.clone();
             tokio::spawn(async move {
-                // check immediately
-                let (peers, _) = repo.connected_peers();
-                let summary = format_connection_summary(&peers);
-                tracing::info!(
-                    peer = %peer_str,
-                    connections = %summary,
-                    "post-accept probe: immediate"
-                );
-
-                // check after 1 second
-                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-                let (peers, _) = repo.connected_peers();
-                let summary = format_connection_summary(&peers);
-                tracing::info!(
-                    peer = %peer_str,
-                    connections = %summary,
-                    "post-accept probe: +1s"
-                );
-
-                // check after 3 seconds
-                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-                let (peers, _) = repo.connected_peers();
-                let summary = format_connection_summary(&peers);
-                tracing::info!(
-                    peer = %peer_str,
-                    connections = %summary,
-                    "post-accept probe: +3s"
-                );
-
-                // check after 5 seconds
-                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-                let (peers, _) = repo.connected_peers();
-                let summary = format_connection_summary(&peers);
-                tracing::info!(
-                    peer = %peer_str,
-                    connections = %summary,
-                    "post-accept probe: +5s"
-                );
-
-                // check after 10 seconds
-                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-                let (peers, _) = repo.connected_peers();
-                let summary = format_connection_summary(&peers);
-                tracing::info!(
-                    peer = %peer_str,
-                    connections = %summary,
-                    "post-accept probe: +10s"
-                );
+                hub_repo.handle_connection(peer_id_str, logged).await;
             });
+        } else if let Some(acceptor) = &self.acceptor {
+            let transport = Transport::from_tokio_io(logged);
+
+            if let Err(e) = acceptor.accept(transport) {
+                tracing::warn!(peer = %peer_id, error = ?e, "automerge-repo: acceptor rejected transport");
+            } else {
+                tracing::info!(peer = %peer_id, "automerge-repo: handed transport to acceptor");
+
+                // probe connection state after accept to see if the handshake progresses
+                let repo = self
+                    .repo
+                    .clone()
+                    .expect("samod repo must exist when acceptor exists");
+                let peer_str = peer_id.to_string();
+                tokio::spawn(async move {
+                    // check immediately
+                    let (peers, _) = repo.connected_peers();
+                    let summary = format_connection_summary(&peers);
+                    tracing::info!(
+                        peer = %peer_str,
+                        connections = %summary,
+                        "post-accept probe: immediate"
+                    );
+
+                    // check after 1 second
+                    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                    let (peers, _) = repo.connected_peers();
+                    let summary = format_connection_summary(&peers);
+                    tracing::info!(
+                        peer = %peer_str,
+                        connections = %summary,
+                        "post-accept probe: +1s"
+                    );
+
+                    // check after 3 seconds
+                    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                    let (peers, _) = repo.connected_peers();
+                    let summary = format_connection_summary(&peers);
+                    tracing::info!(
+                        peer = %peer_str,
+                        connections = %summary,
+                        "post-accept probe: +3s"
+                    );
+
+                    // check after 5 seconds
+                    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                    let (peers, _) = repo.connected_peers();
+                    let summary = format_connection_summary(&peers);
+                    tracing::info!(
+                        peer = %peer_str,
+                        connections = %summary,
+                        "post-accept probe: +5s"
+                    );
+
+                    // check after 10 seconds
+                    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                    let (peers, _) = repo.connected_peers();
+                    let summary = format_connection_summary(&peers);
+                    tracing::info!(
+                        peer = %peer_str,
+                        connections = %summary,
+                        "post-accept probe: +10s"
+                    );
+                });
+            }
+        } else {
+            tracing::warn!(peer = %peer_id, "automerge-repo: no handler configured — dropping connection");
         }
 
         Ok(())
@@ -266,7 +332,10 @@ impl ProtocolHandler for IrohRepo {
 
     async fn shutdown(&self) {
         tracing::debug!("automerge-repo: shutting down");
-        self.repo.stop().await;
+        if let Some(repo) = &self.repo {
+            repo.stop().await;
+        }
+        // hub_repo doesn't need explicit shutdown — dropping it is sufficient
     }
 }
 
