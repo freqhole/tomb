@@ -3,9 +3,19 @@
 //! ties together the iroh endpoint, samod repo (automerge sync),
 //! and friendz handler (presence + messaging) into a single service
 //! that can be started from the CLI.
+//!
+//! split into submodules:
+//! - `messages`: friendz message dispatch (friend requests, profile, heartbeat)
+//! - `canvas`: canvas invite, update, and gossip digest handling
 
+mod canvas;
+mod messages;
+
+use std::collections::HashSet;
 use std::path::PathBuf;
+use std::sync::Arc;
 
+use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 
 use crate::protocol::handler::FriendzHandler;
@@ -69,21 +79,23 @@ pub struct HubPeerConfig {
 /// the hub peer service — an always-on peer that syncs automerge documents,
 /// participates in the friendz protocol, and (eventually) snatches blobs.
 pub struct HubPeerService {
-    endpoint: iroh::Endpoint,
+    pub(crate) endpoint: iroh::Endpoint,
     router: iroh::protocol::Router,
-    iroh_repo: IrohRepo,
-    friendz: FriendzHandler,
+    pub(crate) iroh_repo: IrohRepo,
+    pub(crate) friendz: FriendzHandler,
     friendz_events: tokio::sync::mpsc::UnboundedReceiver<FriendzEvent>,
     /// the hub peer's grimoire user_id
-    hub_user_id: String,
+    pub(crate) hub_user_id: String,
     /// the hub peer's iroh node ID as a string
-    node_id_str: String,
+    pub(crate) node_id_str: String,
     /// cached profile: username (from config, updated on boot)
-    profile_username: String,
+    pub(crate) profile_username: String,
     /// cached profile: bio (from config, updated on boot)
-    profile_bio: String,
+    pub(crate) profile_bio: String,
     /// cached profile: processed avatar data URL (WebP thumbnail, generated on boot)
-    profile_avatar_data_url: String,
+    pub(crate) profile_avatar_data_url: String,
+    /// canvas doc IDs the hub is participating in (for gossip and relay)
+    pub(crate) canvas_doc_ids: Arc<Mutex<HashSet<String>>>,
 }
 
 impl HubPeerService {
@@ -240,6 +252,7 @@ impl HubPeerService {
             profile_username,
             profile_bio,
             profile_avatar_data_url: avatar_data_url,
+            canvas_doc_ids: Arc::new(Mutex::new(HashSet::new())),
         })
     }
 
@@ -319,266 +332,21 @@ impl HubPeerService {
         self.shutdown().await;
     }
 
-    /// handle a single friendz event.
-    ///
-    /// this is where hub-specific behavior goes: auto-accepting canvas invites,
-    /// participating in gossip, etc. for now, just log everything.
-    async fn handle_friendz_event(&self, event: FriendzEvent) {
-        match event {
-            FriendzEvent::PeerOnline { node_id, username } => {
-                tracing::info!(
-                    peer = %node_id,
-                    username = %username,
-                    "peer came online"
-                );
-                // update last_seen_at in grimoire
-                let user_service = grimoire::users::UserService::new();
-                let result = user_service.touch_peer_node(&node_id).await;
-                if result.data.is_none() {
-                    tracing::debug!(peer = %node_id, "touch_peer_node: peer not in grimoire (not a registered friend)");
-                }
-            }
-            FriendzEvent::PeerOffline { node_id } => {
-                tracing::info!(peer = %node_id, "peer went offline");
-            }
-            FriendzEvent::MessageReceived {
-                from_node_id,
-                message,
-            } => {
-                tracing::info!(
-                    from = %from_node_id,
-                    msg_type = %friendz_msg_type_name(&message),
-                    "received friendz message"
-                );
-                self.handle_message(&from_node_id, message).await;
-            }
-        }
-    }
-
-    /// handle a specific friendz message from a peer.
-    ///
-    /// the hub peer shares its profile with everyone (no visibility gate) and
-    /// auto-accepts friend requests from peers that are already registered in
-    /// grimoire's user_peer_nodez table (i.e. admin has run `allow-peer`).
-    async fn handle_message(&self, from_node_id: &str, message: FriendzMessage) {
-        match message {
-            FriendzMessage::ProfileRequest => {
-                // hub peer shares its profile with anyone — no visibility check
-                tracing::info!(
-                    peer = %from_node_id,
-                    username = %self.profile_username,
-                    bio_len = self.profile_bio.len(),
-                    avatar_len = self.profile_avatar_data_url.len(),
-                    "responding to profile request"
-                );
-                let response = FriendzMessage::ProfileResponse {
-                    username: self.profile_username.clone(),
-                    bio: self.profile_bio.clone(),
-                    avatar_data_url: self.profile_avatar_data_url.clone(),
-                };
-                if let Err(e) = self.friendz.send_message(from_node_id, &response).await {
-                    tracing::warn!(
-                        peer = %from_node_id,
-                        error = %e,
-                        "failed to send profile response"
-                    );
-                }
-            }
-            FriendzMessage::ProfileResponse {
-                username,
-                bio,
-                avatar_data_url,
-            } => {
-                // update the remote peer's profile in grimoire
-                tracing::debug!(
-                    peer = %from_node_id,
-                    username = %username,
-                    "received profile response"
-                );
-                let social_service = grimoire::SocialService::new();
-                if let Err(e) = social_service
-                    .update_remote_node_profile(
-                        from_node_id,
-                        &username,
-                        &bio,
-                        &avatar_data_url,
-                        0x6366f1,
-                    )
-                    .await
-                {
-                    tracing::debug!(
-                        peer = %from_node_id,
-                        error = %e,
-                        "failed to update remote node profile"
-                    );
-                }
-            }
-            FriendzMessage::FriendRequest {
-                from_node_id: _req_node_id,
-                from_username,
-            } => {
-                // auto-accept only if the peer's node_id is already in user_peer_nodez
-                // (admin must have run `freqhole federation allow-peer <node-id>` first)
-                tracing::info!(
-                    peer = %from_node_id,
-                    username = %from_username,
-                    "received friend request"
-                );
-
-                let user_service = grimoire::users::UserService::new();
-                let response = user_service.get_user_by_node_id(from_node_id).await;
-                let peer_user = match response.data {
-                    Some(user) => user,
-                    None => {
-                        tracing::info!(
-                            peer = %from_node_id,
-                            "ignoring friend request from unknown peer (not in user_peer_nodez)"
-                        );
-                        return;
-                    }
-                };
-
-                // add the friendship: hub_user -> peer_user
-                let social_repo = grimoire::social::repository::SocialRepository::new();
-                match social_repo
-                    .add_friend(&self.hub_user_id, &peer_user.id, None)
-                    .await
-                {
-                    Ok(_) => {
-                        tracing::info!(
-                            peer = %from_node_id,
-                            peer_user_id = %peer_user.id,
-                            "added friend relationship"
-                        );
-                    }
-                    Err(e) => {
-                        // UNIQUE constraint violation means already friends — that's fine
-                        tracing::debug!(
-                            peer = %from_node_id,
-                            error = %e,
-                            "add_friend result (may already exist)"
-                        );
-                    }
-                }
-
-                // send friend-accept back with the hub's username from config
-                tracing::info!(
-                    peer = %from_node_id,
-                    hub_username = %self.profile_username,
-                    hub_node_id = %self.node_id_str,
-                    "sending friend-accept"
-                );
-                let accept = FriendzMessage::FriendAccept {
-                    from_node_id: self.node_id_str.clone(),
-                    from_username: self.profile_username.clone(),
-                };
-                match self.friendz.send_message(from_node_id, &accept).await {
-                    Ok(()) => {
-                        tracing::info!(peer = %from_node_id, "friend-accept sent successfully");
-                    }
-                    Err(e) => {
-                        tracing::warn!(
-                            peer = %from_node_id,
-                            error = %e,
-                            "failed to send friend-accept"
-                        );
-                    }
-                }
-
-                // proactively send our profile so the peer has our display name,
-                // bio, and avatar immediately (without waiting for a profile-request)
-                let profile_resp = FriendzMessage::ProfileResponse {
-                    username: self.profile_username.clone(),
-                    bio: self.profile_bio.clone(),
-                    avatar_data_url: self.profile_avatar_data_url.clone(),
-                };
-                match self.friendz.send_message(from_node_id, &profile_resp).await {
-                    Ok(()) => {
-                        tracing::info!(peer = %from_node_id, "profile-response sent after friend-accept");
-                    }
-                    Err(e) => {
-                        tracing::warn!(
-                            peer = %from_node_id,
-                            error = %e,
-                            "failed to send profile after friend-accept"
-                        );
-                    }
-                }
-
-                // request their profile so we have their display name, bio, avatar
-                let profile_req = FriendzMessage::ProfileRequest;
-                match self.friendz.send_message(from_node_id, &profile_req).await {
-                    Ok(()) => {
-                        tracing::info!(peer = %from_node_id, "profile-request sent after friend-accept");
-                    }
-                    Err(e) => {
-                        tracing::warn!(
-                            peer = %from_node_id,
-                            error = %e,
-                            "failed to request profile after friend-accept"
-                        );
-                    }
-                }
-            }
-            FriendzMessage::FriendAccept {
-                from_node_id: _accept_node_id,
-                from_username,
-            } => {
-                // a peer accepted our friend request (or is confirming mutual friendship).
-                // ensure the friendship exists in grimoire.
-                tracing::info!(
-                    peer = %from_node_id,
-                    username = %from_username,
-                    "received friend-accept"
-                );
-
-                let user_service = grimoire::users::UserService::new();
-                if let Some(peer_user) = user_service.get_user_by_node_id(from_node_id).await.data {
-                    let social_repo = grimoire::social::repository::SocialRepository::new();
-                    if let Err(e) = social_repo
-                        .add_friend(&self.hub_user_id, &peer_user.id, None)
-                        .await
-                    {
-                        tracing::debug!(
-                            peer = %from_node_id,
-                            error = %e,
-                            "add_friend on accept (may already exist)"
-                        );
-                    }
-                }
-
-                // send ack to complete the two-phase handshake
-                let ack = FriendzMessage::FriendAcceptAck {
-                    from_node_id: self.node_id_str.clone(),
-                };
-                if let Err(e) = self.friendz.send_message(from_node_id, &ack).await {
-                    tracing::debug!(
-                        peer = %from_node_id,
-                        error = %e,
-                        "failed to send friend-accept-ack"
-                    );
-                }
-
-                // request their profile
-                let profile_req = FriendzMessage::ProfileRequest;
-                if let Err(e) = self.friendz.send_message(from_node_id, &profile_req).await {
-                    tracing::debug!(
-                        peer = %from_node_id,
-                        error = %e,
-                        "failed to request profile after friend-accept"
-                    );
-                }
-            }
-            FriendzMessage::FriendAcceptAck {
-                from_node_id: _ack_node_id,
-            } => {
-                tracing::debug!(
-                    peer = %from_node_id,
-                    "received friend-accept-ack, handshake complete"
-                );
-            }
-            // TODO: handle canvas invites, gossip digests, etc.
-            _ => {}
+    /// check whether a node_id belongs to a friend of the hub peer.
+    pub(crate) async fn is_friend(&self, node_id: &str) -> bool {
+        let user_service = grimoire::users::UserService::new();
+        let response = user_service.get_user_by_node_id(node_id).await;
+        let peer_user = match response.data {
+            Some(user) => user,
+            None => return false,
+        };
+        let social_repo = grimoire::social::repository::SocialRepository::new();
+        match social_repo
+            .is_friend(&self.hub_user_id, &peer_user.id)
+            .await
+        {
+            Ok(is_friend) => is_friend,
+            Err(_) => false,
         }
     }
 
@@ -619,7 +387,7 @@ impl HubPeerService {
 }
 
 /// get a human-readable name for a friendz message type (for logging).
-fn friendz_msg_type_name(msg: &FriendzMessage) -> &'static str {
+pub(crate) fn friendz_msg_type_name(msg: &FriendzMessage) -> &'static str {
     match msg {
         FriendzMessage::ProfileRequest => "profile-request",
         FriendzMessage::ProfileResponse { .. } => "profile-response",
