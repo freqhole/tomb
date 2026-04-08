@@ -12,7 +12,7 @@
 mod canvas;
 mod messages;
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -24,7 +24,7 @@ use crate::hub_repo::HubRepo;
 use crate::protocol::handler::FriendzHandler;
 use crate::protocol::messages::FRIENDZ_ALPN;
 use crate::snatch::BlobSnatcher;
-use crate::storage::SqliteAutomergeStorage;
+
 use crate::sync::{IrohRepo, AUTOMERGE_REPO_ALPN};
 
 use crate::protocol::handler::FriendzEvent;
@@ -50,9 +50,6 @@ pub enum HubError {
 
     #[error("endpoint error: {0}")]
     Endpoint(String),
-
-    #[error("samod error: {0}")]
-    Samod(String),
 
     #[error("iroh repo error: {0}")]
     IrohRepo(String),
@@ -107,9 +104,6 @@ pub struct HubPeerService {
     pub(crate) profile_avatar_data_url: String,
     /// canvas doc IDs the hub is participating in (for gossip and relay)
     pub(crate) canvas_doc_ids: Arc<Mutex<HashSet<String>>>,
-    /// active automerge sync dialer handles keyed by peer node_id.
-    /// keeping these alive maintains the outbound sync connections.
-    pub(crate) sync_dialers: Arc<Mutex<HashMap<String, samod::DialerHandle>>>,
     /// iroh-blobs store (MemStore-backed) for serving and downloading blobs
     blobs_store: Store,
     /// iroh-blobs downloader for verified blob transfers
@@ -119,7 +113,7 @@ pub struct HubPeerService {
 impl HubPeerService {
     /// start the hub peer service.
     ///
-    /// this creates the iroh endpoint, samod repo, and protocol handlers,
+    /// this creates the iroh endpoint, hub_repo, and protocol handlers,
     /// wires them together, and starts the iroh router. after this returns,
     /// the service is ready to accept connections.
     pub async fn start(config: HubPeerConfig) -> Result<Self, HubError> {
@@ -234,27 +228,15 @@ impl HubPeerService {
             .map_err(|e| HubError::Endpoint(e.to_string()))?;
         tracing::info!("iroh endpoint bound");
 
-        // 3. create samod repo with sqlite storage (kept for legacy callers
-        // like BlobSnatcher and canvas.rs — will be removed in Phase 2)
-        let storage = SqliteAutomergeStorage::new(&config.automerge_db_path).await?;
-        let peer_id = samod::PeerId::from(node_id_str.as_str());
-        let samod_repo = samod::Repo::build_tokio()
-            .with_peer_id(peer_id)
-            .with_storage(storage)
-            .load()
-            .await;
-        tracing::info!("samod repo loaded (legacy, no acceptor)");
-
-        // 3b. create hub_repo — custom automerge sync handler that speaks
+        // 3. create hub_repo — custom automerge sync handler that speaks
         // the JS automerge-repo v2.x CBOR wire format directly
         let hub_repo = HubRepo::new(node_id_str.clone(), &config.automerge_db_path)
             .await
             .map_err(|e| HubError::IrohRepo(format!("failed to create hub repo: {e}")))?;
         tracing::info!("hub_repo loaded");
 
-        // 4. create IrohRepo (automerge sync bridge) — transitional mode:
-        // inbound connections go to hub_repo, samod repo kept for legacy API
-        let iroh_repo = IrohRepo::new_transitional(endpoint.clone(), samod_repo, hub_repo.clone());
+        // 4. create IrohRepo (automerge sync bridge) using hub_repo
+        let iroh_repo = IrohRepo::new(endpoint.clone(), hub_repo.clone());
 
         // 5. create FriendzHandler
         let (friendz, friendz_events) =
@@ -300,7 +282,6 @@ impl HubPeerService {
             profile_bio,
             profile_avatar_data_url: avatar_data_url,
             canvas_doc_ids: Arc::new(Mutex::new(HashSet::new())),
-            sync_dialers: Arc::new(Mutex::new(HashMap::new())),
             blobs_store,
             blobs_downloader,
         })
@@ -320,7 +301,7 @@ impl HubPeerService {
         // spawn the blob snatcher scan loop
         let snatcher = BlobSnatcher::new(
             self.canvas_doc_ids.clone(),
-            self.iroh_repo.repo().clone(),
+            self.hub_repo.clone(),
             self.endpoint.clone(),
             self.blobs_store.clone(),
             self.blobs_downloader.clone(),
@@ -374,7 +355,7 @@ impl HubPeerService {
         });
 
         // periodic sync health check — log connected peers every 30s
-        // uses hub_repo for actual connection state (samod won't have connections)
+        // uses hub_repo for actual connection state
         let sync_health_hub_repo = self.hub_repo.clone();
         let sync_health_canvas_ids = self.canvas_doc_ids.clone();
         let sync_health_cancel = cancel.clone();
@@ -514,18 +495,6 @@ impl HubPeerService {
     /// gracefully shut down the hub peer service.
     pub async fn shutdown(self) {
         tracing::info!("shutting down hub peer service");
-
-        // drop sync dialers BEFORE stopping the router/repo — repo.stop()
-        // may wait for active dialers to disconnect, and the DialerHandles
-        // won't disconnect until dropped. clearing them here avoids a deadlock.
-        {
-            let mut dialers = self.sync_dialers.lock().await;
-            let count = dialers.len();
-            dialers.clear();
-            if count > 0 {
-                tracing::info!(count, "dropped sync dialers before shutdown");
-            }
-        }
 
         // shutdown router (also shuts down protocol handlers including repo.stop())
         // use a timeout to avoid hanging forever if something is stuck

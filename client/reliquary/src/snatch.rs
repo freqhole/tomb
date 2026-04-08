@@ -1,10 +1,10 @@
 //! blob snatching — watches canvas docs for file widgets, fetches blobs from peers.
 //!
-//! the snatcher periodically scans all tracked canvas documents for file widgets
-//! that reference blobs the hub doesn't have locally. for each missing blob, it
-//! probes canvas peers via `ensure_blob_request` over `freqhole/1`, downloads
-//! the blob via iroh-blobs verified transfer, and ingests it into grimoire's
-//! `media_blobz` + `blob_data` storage.
+//! the snatcher periodically scans all tracked canvas documents (via hub_repo)
+//! for file widgets that reference blobs the hub doesn't have locally. for each
+//! missing blob, it probes canvas peers via `ensure_blob_request` over
+//! `freqhole/1`, downloads the blob via iroh-blobs verified transfer, and
+//! ingests it into grimoire's `media_blobz` + `blob_data` storage.
 
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -58,8 +58,8 @@ pub struct BlobRef {
 pub struct BlobSnatcher {
     /// set of canvas doc IDs the hub is tracking.
     canvas_doc_ids: Arc<Mutex<HashSet<String>>>,
-    /// samod repo for reading automerge docs.
-    repo: samod::Repo,
+    /// hub repo for reading automerge docs.
+    repo: crate::hub_repo::HubRepo,
     /// iroh endpoint for connecting to peers.
     endpoint: Endpoint,
     /// iroh-blobs store (MemStore-backed) for downloads.
@@ -74,7 +74,7 @@ impl BlobSnatcher {
     /// create a new blob snatcher.
     pub fn new(
         canvas_doc_ids: Arc<Mutex<HashSet<String>>>,
-        repo: samod::Repo,
+        repo: crate::hub_repo::HubRepo,
         endpoint: Endpoint,
         store: Store,
         downloader: Downloader,
@@ -218,32 +218,13 @@ impl BlobSnatcher {
         for placeholder in &placeholder_refs {
             let widget_doc_id_str = &placeholder.widget_doc_id;
 
-            // parse the widget doc ID
-            let wid = match widget_doc_id_str.parse::<samod::DocumentId>() {
-                Ok(id) => id,
-                Err(_) => {
-                    tracing::debug!(
-                        widget_doc_id = widget_doc_id_str,
-                        "invalid widget doc ID, skipping"
-                    );
-                    continue;
-                }
-            };
-
             // find the widget state doc in the repo
-            let whandle = match self.repo.find(wid).await {
-                Ok(Some(h)) => h,
-                Ok(None) => {
+            let whandle = match self.repo.find(widget_doc_id_str).await {
+                Some(h) => h,
+                None => {
                     tracing::debug!(
                         widget_doc_id = widget_doc_id_str,
-                        "widget state doc not found, requesting via samod"
-                    );
-                    continue;
-                }
-                Err(_) => {
-                    tracing::debug!(
-                        widget_doc_id = widget_doc_id_str,
-                        "repo stopped while finding widget doc"
+                        "widget state doc not found in hub repo"
                     );
                     continue;
                 }
@@ -301,26 +282,11 @@ impl BlobSnatcher {
     /// returns placeholder BlobRefs (only widget_doc_id populated) plus
     /// the list of peer node IDs from the canvas.
     async fn scan_canvas_for_widgets(&self, canvas_doc_id: &str) -> (Vec<BlobRef>, Vec<String>) {
-        let doc_id = match canvas_doc_id.parse::<samod::DocumentId>() {
-            Ok(id) => id,
-            Err(_) => {
-                tracing::debug!(doc_id = canvas_doc_id, "invalid canvas doc ID");
-                return (Vec::new(), Vec::new());
-            }
-        };
-
         // find the canvas doc in the repo
-        let handle = match self.repo.find(doc_id).await {
-            Ok(Some(h)) => h,
-            Ok(None) => {
-                tracing::debug!(doc_id = canvas_doc_id, "canvas doc not found in repo");
-                return (Vec::new(), Vec::new());
-            }
-            Err(_) => {
-                tracing::debug!(
-                    doc_id = canvas_doc_id,
-                    "repo stopped while finding canvas doc"
-                );
+        let handle = match self.repo.find(canvas_doc_id).await {
+            Some(h) => h,
+            None => {
+                tracing::debug!(doc_id = canvas_doc_id, "canvas doc not found in hub repo");
                 return (Vec::new(), Vec::new());
             }
         };
@@ -747,7 +713,7 @@ async fn consume_download_progress(
 /// returns placeholder BlobRefs (only canvas_doc_id + widget_doc_id populated)
 /// plus the list of peer node IDs from the canvas peers map.
 fn read_canvas_for_file_widgets(
-    handle: &samod::DocHandle,
+    handle: &crate::hub_repo::DocHandle,
     canvas_doc_id: &str,
     local_node_id: &str,
 ) -> (Vec<BlobRef>, Vec<String>) {
@@ -815,7 +781,7 @@ fn read_canvas_for_file_widgets(
 
 /// read a file widget state doc to extract blob reference fields.
 fn read_widget_state(
-    handle: &samod::DocHandle,
+    handle: &crate::hub_repo::DocHandle,
     canvas_doc_id: &str,
     widget_doc_id: &str,
 ) -> Option<BlobRef> {

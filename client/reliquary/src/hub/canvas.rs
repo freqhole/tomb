@@ -14,46 +14,6 @@ use crate::protocol::messages::{
 use super::HubPeerService;
 
 impl HubPeerService {
-    /// start an outbound automerge sync connection with a peer.
-    ///
-    /// parses the node_id into an iroh public key, constructs an endpoint
-    /// address (iroh will use relay discovery to find the peer), and calls
-    /// `sync_with()` on the samod repo. the returned `DialerHandle` is stored
-    /// in `self.sync_dialers` to keep the connection alive.
-    ///
-    /// skips if there's already an active dialer for this peer.
-    #[allow(dead_code)] // kept for future hub-to-hub sync
-    pub(crate) async fn start_sync_with_peer(&self, peer_node_id: &str) {
-        // skip if already syncing
-        {
-            let dialers = self.sync_dialers.lock().await;
-            if dialers.contains_key(peer_node_id) {
-                tracing::debug!(peer = %peer_node_id, "already syncing with peer");
-                return;
-            }
-        }
-
-        let public_key: iroh::PublicKey = match peer_node_id.parse() {
-            Ok(k) => k,
-            Err(e) => {
-                tracing::warn!(peer = %peer_node_id, error = %e, "invalid node ID for sync");
-                return;
-            }
-        };
-
-        let addr = iroh::EndpointAddr::from_parts(public_key, []);
-        match self.iroh_repo.sync_with(addr) {
-            Ok(handle) => {
-                tracing::info!(peer = %peer_node_id, "started automerge sync with peer");
-                let mut dialers = self.sync_dialers.lock().await;
-                dialers.insert(peer_node_id.to_string(), handle);
-            }
-            Err(e) => {
-                tracing::warn!(peer = %peer_node_id, error = ?e, "failed to start automerge sync with peer");
-            }
-        }
-    }
-
     /// compute and send a gossip digest to a specific peer.
     ///
     /// scans all canvas docs the hub participates in and builds a digest with:
@@ -75,41 +35,15 @@ impl HubPeerService {
         let mut canvas_updates: Vec<GossipDigestCanvasUpdate> = Vec::new();
         let mut pending_invites: Vec<GossipDigestPendingInvite> = Vec::new();
 
-        let repo = self.iroh_repo.repo();
+        let hub_repo = self.hub_repo.clone();
         let peer_node_id_owned = peer_node_id.to_string();
 
         for doc_id_str in &doc_ids {
-            // parse the document ID
-            let doc_id: samod::DocumentId = match doc_id_str.parse() {
-                Ok(id) => id,
-                Err(e) => {
-                    tracing::warn!(
-                        doc_id = %doc_id_str,
-                        error = %e,
-                        "failed to parse canvas doc ID for gossip"
-                    );
-                    continue;
-                }
-            };
-
-            // try to find the doc in the repo (with timeout so we don't block the event loop)
-            let handle = match tokio::time::timeout(
-                std::time::Duration::from_secs(2),
-                repo.find(doc_id),
-            )
-            .await
-            {
-                Ok(Ok(Some(h))) => h,
-                Ok(Ok(None)) => {
-                    tracing::debug!(doc_id = %doc_id_str, "canvas doc not found in repo for gossip");
-                    continue;
-                }
-                Ok(Err(_)) => {
-                    tracing::debug!(doc_id = %doc_id_str, "repo stopped while finding doc for gossip");
-                    continue;
-                }
-                Err(_) => {
-                    tracing::debug!(doc_id = %doc_id_str, "canvas doc find timed out for gossip — skipping");
+            // look up the doc in hub_repo (local lookup, no parsing needed)
+            let handle = match hub_repo.find(doc_id_str).await {
+                Some(h) => h,
+                None => {
+                    tracing::debug!(doc_id = %doc_id_str, "canvas doc not found in hub_repo for gossip");
                     continue;
                 }
             };
@@ -164,8 +98,11 @@ impl HubPeerService {
     /// the hub auto-accepts all canvas invites from known friends:
     /// 1. send CanvasInviteAck (receipt acknowledgment)
     /// 2. send CanvasInviteAccept (auto-accept)
-    /// 3. request the canvas document from samod (so the hub syncs it)
-    /// 4. track the canvas doc ID for future gossip
+    /// 3. track the canvas doc ID for future gossip
+    /// 4. write ourselves into the canvas doc's peers map (async retry)
+    ///
+    /// hub_repo receives docs passively when the JS peer syncs them — no
+    /// explicit document request is needed.
     pub(crate) async fn handle_canvas_invite(
         &self,
         from_node_id: &str,
@@ -237,38 +174,23 @@ impl HubPeerService {
             );
         }
 
-        // 3. request the canvas document via samod — this tells samod to
-        //    sync the document from connected peers
-        self.request_canvas_doc(canvas_doc_id).await;
-
-        // log current automerge sync connections for diagnostics
+        // log hub_repo connection state for diagnostics
         {
-            let (peers, _) = self.iroh_repo.repo().connected_peers();
-            let connected: Vec<String> = peers
-                .iter()
-                .filter_map(|c| {
-                    if let samod::ConnectionState::Connected { their_peer_id } = &c.state {
-                        Some(their_peer_id.to_string())
-                    } else {
-                        None
-                    }
-                })
-                .collect();
+            let peer_count = self.hub_repo.connected_peer_count().await;
+            let peer_ids = self.hub_repo.connected_peer_ids().await;
             tracing::info!(
-                connected_peers = ?connected,
-                total_connections = peers.len(),
-                "automerge sync state at invite handling time"
+                connected_peers = ?peer_ids,
+                total_connections = peer_count,
+                "hub_repo sync state at invite handling time"
             );
         }
 
         // NOTE: the hub does NOT dial the inviting peer for automerge sync.
         // instead, the JS side establishes the sync connection after receiving
         // our canvas-invite-accept (via addPeer in onCanvasInviteAccept).
-        // having both sides dial creates a simultaneous-join race condition
-        // where samod rejects the connection ("unexpected message in
-        // WaitingForPeer phase").
+        // hub_repo receives the document passively when the JS peer syncs it.
 
-        // 4. track the canvas doc ID for gossip
+        // 3. track the canvas doc ID for gossip
         {
             let mut ids = self.canvas_doc_ids.lock().await;
             ids.insert(canvas_doc_id.to_string());
@@ -278,7 +200,7 @@ impl HubPeerService {
             "canvas doc added to hub tracking set"
         );
 
-        // 5. write ourselves into the canvas doc's peers map (async — doc may
+        // 4. write ourselves into the canvas doc's peers map (async — doc may
         //    not be synced yet, so we retry in the background)
         self.schedule_write_self_to_canvas(canvas_doc_id);
     }
@@ -286,13 +208,13 @@ impl HubPeerService {
     /// schedule a background task to write the hub peer into a canvas doc's
     /// `peers` map and remove from `pendingInvites`.
     ///
-    /// the document may not be synced yet when this is called (right after
-    /// `repo.find()`), so the task retries up to ~30s with 2s intervals.
+    /// the document may not be synced yet when this is called, so the task
+    /// retries up to ~30s with 2s intervals.
     /// mirrors what the JS client does in `registerAndReconnectPeers()`:
     /// `canvas.store.addPeer(identity.node_id)` +
     /// `canvas.store.removePendingInvite(identity.node_id)`.
     pub(crate) fn schedule_write_self_to_canvas(&self, canvas_doc_id: &str) {
-        let repo = self.iroh_repo.repo().clone();
+        let hub_repo = self.hub_repo.clone();
         let node_id = self.node_id_str.clone();
         let doc_id_str = canvas_doc_id.to_string();
 
@@ -309,60 +231,37 @@ impl HubPeerService {
                     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
                 }
 
-                let doc_id: samod::DocumentId = match doc_id_str.parse() {
-                    Ok(id) => id,
-                    Err(e) => {
-                        tracing::warn!(
-                            doc_id = %doc_id_str,
-                            error = %e,
-                            "invalid canvas doc ID for peer write"
-                        );
-                        return;
-                    }
-                };
-
                 tracing::info!(
                     doc_id = %doc_id_str,
                     attempt,
-                    "peer-write: calling repo.find()"
+                    "peer-write: looking up doc in hub_repo"
                 );
 
-                let handle = match tokio::time::timeout(
-                    std::time::Duration::from_secs(5),
-                    repo.find(doc_id),
-                )
-                .await
-                {
-                    Ok(Ok(Some(h))) => {
+                // use wait_for_doc on first attempt (gives the doc a chance to
+                // arrive via sync), plain find on retries
+                let handle = if attempt == 0 {
+                    hub_repo
+                        .wait_for_doc(&doc_id_str, std::time::Duration::from_secs(5))
+                        .await
+                } else {
+                    hub_repo.find(&doc_id_str).await
+                };
+
+                let handle = match handle {
+                    Some(h) => {
                         tracing::info!(
                             doc_id = %doc_id_str,
                             attempt,
-                            samod_doc_id = %h.document_id(),
-                            "peer-write: repo.find() returned handle"
+                            hub_repo_doc_id = %h.document_id(),
+                            "peer-write: found doc handle"
                         );
                         h
                     }
-                    Ok(Ok(None)) => {
+                    None => {
                         tracing::info!(
                             doc_id = %doc_id_str,
                             attempt,
-                            "peer-write: repo.find() returned None — doc not available yet"
-                        );
-                        continue;
-                    }
-                    Ok(Err(e)) => {
-                        tracing::warn!(
-                            doc_id = %doc_id_str,
-                            error = ?e,
-                            "peer-write: repo stopped while finding doc"
-                        );
-                        return;
-                    }
-                    Err(_) => {
-                        tracing::info!(
-                            doc_id = %doc_id_str,
-                            attempt,
-                            "peer-write: repo.find() timed out after 5s — will retry"
+                            "peer-write: doc not available yet — will retry"
                         );
                         continue;
                     }
@@ -398,61 +297,6 @@ impl HubPeerService {
                 doc_id = %doc_id_str,
                 "peer-write: GAVE UP after 15 attempts — canvas doc never had content"
             );
-        });
-    }
-
-    /// request a canvas document from the samod repo.
-    ///
-    /// uses `repo.find()` which triggers the repo to request the document from
-    /// connected peers via the sync protocol. if the doc is already local, this
-    /// is a no-op (returns the existing handle).
-    async fn request_canvas_doc(&self, canvas_doc_id: &str) {
-        let doc_id: samod::DocumentId = match canvas_doc_id.parse() {
-            Ok(id) => id,
-            Err(e) => {
-                tracing::warn!(
-                    canvas_doc_id = %canvas_doc_id,
-                    error = %e,
-                    "failed to parse canvas doc ID — cannot request document"
-                );
-                return;
-            }
-        };
-
-        // spawn as a background task so we don't block the event loop.
-        // repo.find() can wait indefinitely if no peer has the document yet.
-        let repo = self.iroh_repo.repo().clone();
-        let doc_id_str = canvas_doc_id.to_string();
-        tokio::spawn(async move {
-            match tokio::time::timeout(std::time::Duration::from_secs(10), repo.find(doc_id)).await
-            {
-                Ok(Ok(Some(handle))) => {
-                    tracing::info!(
-                        canvas_doc_id = %doc_id_str,
-                        samod_doc_id = %handle.document_id(),
-                        "canvas document found/requested via samod"
-                    );
-                }
-                Ok(Ok(None)) => {
-                    tracing::info!(
-                        canvas_doc_id = %doc_id_str,
-                        "canvas document not yet available — will sync when peer connects"
-                    );
-                }
-                Ok(Err(e)) => {
-                    tracing::warn!(
-                        canvas_doc_id = %doc_id_str,
-                        error = ?e,
-                        "failed to find canvas document in samod repo"
-                    );
-                }
-                Err(_) => {
-                    tracing::info!(
-                        canvas_doc_id = %doc_id_str,
-                        "canvas document request timed out after 10s — will sync in background"
-                    );
-                }
-            }
         });
     }
 
@@ -532,7 +376,9 @@ impl HubPeerService {
     /// - canvas_updates: for canvases the hub knows about, log the update
     ///   (the hub sees changes via automerge sync anyway)
     /// - pending_invites: for canvases the hub doesn't know about yet, treat
-    ///   as a new invite — request the doc and start tracking it
+    ///   as a new invite — track the doc and start writing ourselves in
+    ///
+    /// hub_repo receives docs passively via sync — no explicit request needed.
     pub(crate) async fn handle_gossip_digest(
         &self,
         from_node_id: &str,
@@ -596,10 +442,7 @@ impl HubPeerService {
                 "gossip: treating pending invite as new canvas invite"
             );
 
-            // request the canvas document via samod
-            self.request_canvas_doc(&invite.canvas_doc_id).await;
-
-            // track it
+            // track it (hub_repo will receive the doc passively when peers sync)
             {
                 let mut ids = self.canvas_doc_ids.lock().await;
                 ids.insert(invite.canvas_doc_id.clone());
@@ -647,13 +490,15 @@ impl HubPeerService {
 /// `pendingInvites`. returns `true` if the write succeeded (or the peer was
 /// already present), `false` if the doc isn't ready yet (no content synced).
 ///
-/// runs inside `spawn_blocking` because `with_document` holds a mutex lock.
-fn write_self_to_canvas_doc(handle: &samod::DocHandle, node_id: &str, canvas_doc_id: &str) -> bool {
+/// runs inside `spawn_blocking` because doc access holds a lock.
+fn write_self_to_canvas_doc(
+    handle: &crate::hub_repo::DocHandle,
+    node_id: &str,
+    canvas_doc_id: &str,
+) -> bool {
     use automerge::ReadDoc;
 
-    let mut wrote = false;
-
-    handle.with_document(|doc| {
+    handle.with_document_mut(|doc| {
         // dump all root-level keys for diagnostics
         let root_keys: Vec<String> = doc.keys(automerge::ROOT).collect();
         tracing::info!(
@@ -684,7 +529,7 @@ fn write_self_to_canvas_doc(handle: &samod::DocHandle, node_id: &str, canvas_doc
                 canvas_doc_id = %canvas_doc_id,
                 "write_self_to_canvas_doc: doc has no content — not synced yet"
             );
-            return; // doc not synced yet
+            return false; // doc not synced yet
         }
 
         // check if already in peers
@@ -712,8 +557,7 @@ fn write_self_to_canvas_doc(handle: &samod::DocHandle, node_id: &str, canvas_doc
                 canvas_doc_id = %canvas_doc_id,
                 "write_self_to_canvas_doc: hub peer already in peers map, skipping write"
             );
-            wrote = true;
-            return;
+            return true;
         }
 
         // check pendingInvites state before writing
@@ -797,7 +641,7 @@ fn write_self_to_canvas_doc(handle: &samod::DocHandle, node_id: &str, canvas_doc
                     canvas_doc_id = %canvas_doc_id,
                     "write_self_to_canvas_doc: transact committed successfully"
                 );
-                wrote = true;
+                true
             }
             Err(e) => {
                 tracing::warn!(
@@ -805,11 +649,10 @@ fn write_self_to_canvas_doc(handle: &samod::DocHandle, node_id: &str, canvas_doc
                     error = ?e,
                     "write_self_to_canvas_doc: transact FAILED"
                 );
+                false
             }
         }
-    });
-
-    wrote
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -820,9 +663,9 @@ fn write_self_to_canvas_doc(handle: &samod::DocHandle, node_id: &str, canvas_doc
 /// for a specific peer.
 ///
 /// returns (optional canvas update, optional pending invite) for gossip digest.
-/// runs inside spawn_blocking because `with_document` takes a mutex lock.
+/// runs inside spawn_blocking because doc access holds a lock.
 fn read_canvas_for_gossip(
-    handle: &samod::DocHandle,
+    handle: &crate::hub_repo::DocHandle,
     peer_node_id: &str,
 ) -> (
     Option<GossipDigestCanvasUpdate>,

@@ -7,5 +7,4 @@ pub mod hub_repo;
 pub mod identity;
 pub mod protocol;
 pub mod snatch;
-pub mod storage;
 pub mod sync;

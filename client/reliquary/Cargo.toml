@@ -23,14 +23,12 @@ base64 = { workspace = true }
 getrandom = "0.2"
 
 # automerge doc sync
-samod = { version = "0.9", features = ["tokio"] }
 automerge = "0.8"
 futures = "0.3"
 indexmap = "2"
 tokio-util = { workspace = true }
 time = { workspace = true }
 bytes = "1"
-url = "2"
 derive_more = { version = "2.0", features = ["debug"] }
 ciborium = "0.2"
 serde_bytes = "0.11"

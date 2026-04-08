@@ -33,11 +33,8 @@ impl HubPeerService {
                 // send gossip digest to this peer if they're a friend
                 if self.is_friend(&node_id).await {
                     // NOTE: the hub does NOT dial peers for automerge sync.
-                    // samod can't handle simultaneous joins — when the hub
-                    // dials a JS automerge-repo peer, both sides send Join on
-                    // the same stream and samod rejects the connection.
-                    // instead, the JS side dials the hub (the hub's acceptor
-                    // handles inbound connections correctly).
+                    // the JS side dials the hub, and the hub's acceptor
+                    // handles inbound connections correctly.
 
                     // delay gossip slightly to allow the peer to establish
                     // automerge sync via the acceptor path
@@ -48,11 +45,6 @@ impl HubPeerService {
             }
             FriendzEvent::PeerOffline { node_id } => {
                 tracing::info!(peer = %node_id, "peer went offline");
-                // clean up sync dialer for this peer
-                let mut dialers = self.sync_dialers.lock().await;
-                if dialers.remove(&node_id).is_some() {
-                    tracing::debug!(peer = %node_id, "removed automerge sync dialer for offline peer");
-                }
             }
             FriendzEvent::MessageReceived {
                 from_node_id,

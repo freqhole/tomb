@@ -12,7 +12,7 @@ import type {
 } from "../src/widgets/widget-types";
 
 // -- constants ----------------------------------------------------------------
-
+//
 const PADDING = 10;
 const TAB_HEIGHT = 28;
 const BORDER_RADIUS = 8;

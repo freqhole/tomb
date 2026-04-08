@@ -153,8 +153,7 @@ pub struct PeerInfo {
 
 /// sqlite-backed persistence for automerge documents managed by hub_repo.
 ///
-/// uses a `hub_docs` table (separate from the samod `samod_kv` table) so both
-/// systems can coexist during the transition period.
+/// uses a `hub_docs` table for document persistence.
 pub struct HubDocStorage {
     pool: sqlx::SqlitePool,
 }
