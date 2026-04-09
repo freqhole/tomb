@@ -2,9 +2,9 @@
 //!
 //! handles incoming `ensure_blob_request` messages from peers who want to
 //! download blobs from the hub via iroh-blobs verified transfer. when a peer
-//! sends an ensure request, the hub looks up the blob in grimoire's media_blobz,
-//! reads the data, and imports it into the in-memory iroh-blobs store so the
-//! peer can download it via the iroh-blobs protocol.
+//! sends an ensure request, the hub delegates to grimoire's FsStore via
+//! `ensure_blob_by_blake3()` which adds the file by reference (only storing
+//! the outboard tree, no data copy).
 //!
 //! the protocol framing matches grimoire's `PeerMessage` format: raw JSON with
 //! no length prefix, terminated by the sender calling `finish()` on the send
@@ -12,25 +12,13 @@
 //! (tauri desktop).
 
 use std::sync::Arc;
-use std::time::Duration;
 
 use iroh::endpoint::Connection;
 use iroh::protocol::{AcceptError, ProtocolHandler};
-use iroh_blobs::api::Store;
-use iroh_blobs::Hash;
 use serde::{Deserialize, Serialize};
-use tokio::sync::Mutex;
 
 /// ALPN protocol identifier for freqhole peer connections.
 pub const FREQHOLE_ALPN: &[u8] = b"freqhole/1";
-
-/// how long to hold a TempTag after importing a blob into the store.
-/// the peer needs time to start the iroh-blobs download after receiving
-/// the ensure_blob_response. 2 minutes is generous.
-const TEMP_TAG_HOLD_SECS: u64 = 120;
-
-/// max number of active temp tags to hold. oldest are evicted when full.
-const MAX_ACTIVE_TAGS: usize = 64;
 
 // ---------------------------------------------------------------------------
 // protocol messages (subset matching grimoire's PeerMessage)
@@ -68,24 +56,14 @@ pub enum PeerMessage {
 }
 
 // ---------------------------------------------------------------------------
-// active tag entry (prevents GC of recently imported blobs)
-// ---------------------------------------------------------------------------
-
-struct ActiveTag {
-    _tag: iroh_blobs::api::TempTag,
-    expires: tokio::time::Instant,
-}
-
-// ---------------------------------------------------------------------------
 // FreqholeHandler
 // ---------------------------------------------------------------------------
 
 /// hub's freqhole/1 protocol handler.
 ///
-/// handles `ensure_blob_request` by loading blobs from grimoire's media_blobz
-/// into the in-memory iroh-blobs store for verified streaming. imported blobs
-/// are held via TempTags for a short duration to prevent GC before the peer
-/// completes the download.
+/// handles `ensure_blob_request` by ensuring blobs are available in grimoire's
+/// FsStore for verified streaming. blobs are added by reference (only the
+/// outboard tree is stored, no data copy).
 ///
 /// clone is cheap — backed by `Arc`.
 #[derive(Clone)]
@@ -94,9 +72,7 @@ pub struct FreqholeHandler {
 }
 
 struct FreqholeInner {
-    store: Store,
-    /// active TempTags keyed by blob hash — prevents GC of imported blobs.
-    active_tags: Mutex<Vec<(Hash, ActiveTag)>>,
+    store: &'static iroh_blobs::store::fs::FsStore,
 }
 
 impl std::fmt::Debug for FreqholeHandler {
@@ -106,63 +82,11 @@ impl std::fmt::Debug for FreqholeHandler {
 }
 
 impl FreqholeHandler {
-    /// create a new freqhole/1 handler backed by the given iroh-blobs store.
-    pub fn new(store: Store) -> Self {
+    /// create a new freqhole/1 handler backed by grimoire's FsStore.
+    pub fn new(store: &'static iroh_blobs::store::fs::FsStore) -> Self {
         Self {
-            inner: Arc::new(FreqholeInner {
-                store,
-                active_tags: Mutex::new(Vec::new()),
-            }),
+            inner: Arc::new(FreqholeInner { store }),
         }
-    }
-
-    /// import a blob into the store and hold a TempTag to prevent GC.
-    async fn hold_blob(&self, hash: Hash, tag: iroh_blobs::api::TempTag) {
-        let mut tags = self.inner.active_tags.lock().await;
-
-        // remove expired tags
-        let now = tokio::time::Instant::now();
-        let before = tags.len();
-        tags.retain(|(_, t)| t.expires > now);
-        let expired = before - tags.len();
-
-        // evict oldest if at capacity
-        let mut evicted = 0;
-        while tags.len() >= MAX_ACTIVE_TAGS {
-            tags.remove(0);
-            evicted += 1;
-        }
-
-        if expired > 0 || evicted > 0 {
-            tracing::info!(
-                expired,
-                evicted,
-                remaining = tags.len(),
-                "freqhole/1: tag cleanup before hold"
-            );
-        }
-
-        tags.push((
-            hash,
-            ActiveTag {
-                _tag: tag,
-                expires: now + Duration::from_secs(TEMP_TAG_HOLD_SECS),
-            },
-        ));
-
-        tracing::info!(
-            hash = %&hash.to_string()[..16],
-            active_tags = tags.len(),
-            hold_secs = TEMP_TAG_HOLD_SECS,
-            "freqhole/1: blob held in store"
-        );
-    }
-
-    /// check if a blob is already held (recently imported).
-    async fn has_active_blob(&self, hash: &Hash) -> bool {
-        let tags = self.inner.active_tags.lock().await;
-        let now = tokio::time::Instant::now();
-        tags.iter().any(|(h, t)| h == hash && t.expires > now)
     }
 }
 
@@ -206,9 +130,8 @@ impl ProtocolHandler for FreqholeHandler {
 
     async fn shutdown(&self) {
         tracing::debug!("freqhole/1: shutting down");
-        // clear all active tags
-        let mut tags = self.inner.active_tags.lock().await;
-        tags.clear();
+        // FsStore manages its own lifecycle — nothing to clean up here.
+        let _ = self.inner.store;
     }
 }
 
@@ -272,8 +195,8 @@ async fn handle_stream(
     }
 }
 
-/// handle an ensure_blob_request: look up the blob in grimoire, import into
-/// the iroh-blobs store, and respond with availability.
+/// handle an ensure_blob_request: look up the blob in grimoire, ensure it's
+/// in the FsStore, and respond with availability.
 async fn handle_ensure_blob(
     send: &mut iroh::endpoint::SendStream,
     handler: &FreqholeHandler,
@@ -382,139 +305,41 @@ async fn handle_compute_blake3(
 // blob import logic
 // ---------------------------------------------------------------------------
 
-/// look up a blob by blake3 hash in grimoire's media_blobz and import it
-/// into the iroh-blobs store for verified streaming.
+/// ensure a blob is available in grimoire's FsStore by blake3 hash.
+///
+/// delegates to `grimoire::blobz::ensure_blob_by_blake3()` which:
+/// 1. checks if already in FsStore
+/// 2. looks up blob in grimoire by blake3
+/// 3. adds file to FsStore by reference (only stores outboard tree, no data copy)
 async fn ensure_blob_in_store(
-    handler: &FreqholeHandler,
+    _handler: &FreqholeHandler,
     blake3_hash: &str,
 ) -> (bool, Option<String>) {
-    // parse the blake3 hash
-    let hash: Hash = match blake3_hash.parse() {
-        Ok(h) => h,
-        Err(e) => return (false, Some(format!("invalid blake3 hash: {e}"))),
-    };
-
-    // check if already held in store
-    if handler.has_active_blob(&hash).await {
-        tracing::info!(
-            hash = &blake3_hash[..16],
-            "freqhole/1: blob already held in store"
-        );
-        return (true, None);
-    }
-
-    // look up in grimoire by blake3
-    let blob = match grimoire::media_blobz::get_media_blob_by_blake3(blake3_hash).await {
-        Ok(b) => {
+    match grimoire::blobz::ensure_blob_by_blake3(blake3_hash).await {
+        Ok(true) => {
             tracing::info!(
-                hash = &blake3_hash[..16],
-                blob_id = %b.id,
-                local_path = ?b.local_path,
-                size = ?b.size,
-                mime = ?b.mime,
-                "freqhole/1: found blob in grimoire"
+                hash = &blake3_hash[..blake3_hash.len().min(16)],
+                "freqhole/1: blob available in FsStore"
             );
-            b
-        }
-        Err(_) => {
-            tracing::info!(
-                hash = &blake3_hash[..16],
-                "freqhole/1: blob not found in grimoire by blake3"
-            );
-            return (
-                false,
-                Some("blob not found in grimoire by blake3".to_string()),
-            );
-        }
-    };
-
-    // read blob data — prefer local_path (filesystem), fall back to blob_data table
-    let data = if let Some(ref local_path) = blob.local_path {
-        match tokio::fs::read(local_path).await {
-            Ok(d) => {
-                tracing::info!(
-                    hash = &blake3_hash[..16],
-                    path = local_path,
-                    data_size = d.len(),
-                    "freqhole/1: read blob data from local_path succeeded"
-                );
-                d
-            }
-            Err(e) => {
-                tracing::info!(
-                    hash = &blake3_hash[..16],
-                    path = local_path,
-                    error = %e,
-                    "freqhole/1: read blob data from local_path failed"
-                );
-                return (
-                    false,
-                    Some(format!("failed to read blob file {}: {e}", local_path)),
-                );
-            }
-        }
-    } else {
-        tracing::info!(
-            hash = &blake3_hash[..16],
-            "freqhole/1: reading blob data from blob_data table"
-        );
-        match grimoire::blob_data::get_blob_data(&blob.id).await.data {
-            Some(d) => {
-                tracing::info!(
-                    hash = &blake3_hash[..16],
-                    data_size = d.len(),
-                    "freqhole/1: read blob data from blob_data table"
-                );
-                d
-            }
-            None => {
-                tracing::info!(
-                    hash = &blake3_hash[..16],
-                    "freqhole/1: blob has no data available (no local_path, no blob_data)"
-                );
-                return (false, Some("blob has no data available".to_string()));
-            }
-        }
-    };
-
-    // import into the iroh-blobs store
-    match handler
-        .inner
-        .store
-        .blobs()
-        .add_bytes(bytes::Bytes::from(data))
-        .temp_tag()
-        .await
-    {
-        Ok(tag) => {
-            let imported_hash = tag.hash();
-            let hashes_match = imported_hash == hash;
-            tracing::info!(
-                requested_hash = &blake3_hash[..16],
-                imported_hash = %&imported_hash.to_string()[..16],
-                hashes_match,
-                "freqhole/1: blob imported into store successfully"
-            );
-            if !hashes_match {
-                tracing::error!(
-                    requested = %blake3_hash,
-                    imported = %imported_hash,
-                    "freqhole/1: HASH MISMATCH — imported blob hash does not match requested hash!"
-                );
-            }
-            handler.hold_blob(hash, tag).await;
             (true, None)
         }
-        Err(e) => {
-            tracing::warn!(
-                hash = &blake3_hash[..16],
-                error = %e,
-                "freqhole/1: failed to import blob into store"
+        Ok(false) => {
+            tracing::info!(
+                hash = &blake3_hash[..blake3_hash.len().min(16)],
+                "freqhole/1: blob not found in grimoire by blake3"
             );
             (
                 false,
-                Some(format!("failed to import blob into store: {e}")),
+                Some("blob not found in grimoire by blake3".to_string()),
             )
+        }
+        Err(e) => {
+            tracing::warn!(
+                hash = &blake3_hash[..blake3_hash.len().min(16)],
+                error = %e,
+                "freqhole/1: failed to ensure blob in FsStore"
+            );
+            (false, Some(format!("failed to ensure blob: {e}")))
         }
     }
 }

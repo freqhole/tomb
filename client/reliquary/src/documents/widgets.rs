@@ -70,6 +70,10 @@ pub struct FileWidgetState {
     /// embedded thumbnail as a data URL.
     #[serde(default)]
     pub thumbnail_data_url: String,
+    /// list of node IDs that have snatched (or uploaded) this blob.
+    /// used to target blob downloads — only probe peers in this list.
+    #[serde(default)]
+    pub snatched_by: Vec<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -162,6 +166,7 @@ mod tests {
             size: 5_000_000,
             blake3: "abc123def456".to_string(),
             thumbnail_data_url: String::new(),
+            snatched_by: vec!["node-a".to_string(), "node-b".to_string()],
         };
 
         let json = serde_json::to_string(&state).unwrap();
@@ -170,11 +175,16 @@ mod tests {
         assert_eq!(parsed["blobId"], "blob-123");
         assert_eq!(parsed["entityId"], "song-456");
         assert_eq!(parsed["thumbnailDataUrl"], "");
+        assert_eq!(
+            parsed["snatchedBy"],
+            serde_json::json!(["node-a", "node-b"])
+        );
 
         // round-trip
         let deserialized: FileWidgetState = serde_json::from_str(&json).unwrap();
         assert_eq!(deserialized.blob_id, "blob-123");
         assert_eq!(deserialized.size, 5_000_000);
+        assert_eq!(deserialized.snatched_by, vec!["node-a", "node-b"]);
     }
 
     #[test]
@@ -229,6 +239,24 @@ mod tests {
         assert_eq!(state.domain, "photo");
         assert_eq!(state.filename, "sunset.jpg");
         assert_eq!(state.blake3, "deadbeef");
+        // snatched_by should default to empty when missing from JSON
+        assert!(state.snatched_by.is_empty());
+
+        // also test with snatchedBy present
+        let js_json_with_snatched = r#"{
+            "blobId": "blob-abc",
+            "domain": "photo",
+            "entityId": "",
+            "filename": "sunset.jpg",
+            "mime": "image/jpeg",
+            "size": 2500000,
+            "blake3": "deadbeef",
+            "thumbnailDataUrl": "",
+            "snatchedBy": ["node-x", "node-y"]
+        }"#;
+
+        let state2: FileWidgetState = serde_json::from_str(js_json_with_snatched).unwrap();
+        assert_eq!(state2.snatched_by, vec!["node-x", "node-y"]);
     }
 
     /// test deserializing a canvas-card state as JS would produce it.

@@ -7,6 +7,7 @@ import {
   formatFileSize,
   getBlobLocalPath,
   getFullBlobDataUrl,
+  getLocalNodeId,
   getThumbnailDataUrl,
   pickFiles,
   revealBlobInFinder,
@@ -43,6 +44,9 @@ export const fileSchema = z.object({
   blake3: z.string().default(""),
   /** embedded thumbnail as a data URL (written after upload/snatch for instant render) */
   thumbnailDataUrl: z.string().default(""),
+  /** list of node IDs that have snatched (or uploaded) this blob.
+   *  used to target blob downloads — only probe peers in this list. */
+  snatchedBy: z.array(z.string()).default([]),
 });
 
 export type FileState = z.infer<typeof fileSchema>;
@@ -659,9 +663,27 @@ export const fileWidget: WidgetFactory<typeof fileSchema> = {
 
       // map locality: "unknown" stays as "checking" (no action buttons) to avoid
       // showing a non-functional snatch button in browser mode
-      if (info.locality === "local") actionState = "local";
-      else if (info.locality === "remote") actionState = "remote";
-      else actionState = "checking";
+      if (info.locality === "local") {
+        actionState = "local";
+      } else if (info.locality === "remote") {
+        actionState = "remote";
+        // blob is not local — remove ourselves from snatchedBy so peers
+        // don't try to download from us
+        const localNodeId = await getLocalNodeId();
+        if (localNodeId) {
+          const currentSnatchedBy = (ctx.doc.current.snatchedBy ?? []).map(String);
+          if (currentSnatchedBy.includes(localNodeId)) {
+            ctx.doc.change((draft) => {
+              if (draft.snatchedBy) {
+                const idx = draft.snatchedBy.findIndex((id: string) => String(id) === localNodeId);
+                if (idx >= 0) draft.snatchedBy.splice(idx, 1);
+              }
+            });
+          }
+        }
+      } else {
+        actionState = "checking";
+      }
       syncActionButtons();
 
       // re-layout to account for action bar height change
@@ -972,7 +994,8 @@ export const fileWidget: WidgetFactory<typeof fileSchema> = {
 
         // fire-and-forget upload — don't await each one sequentially for better UX
         uploadFile(file, { waitForCompletion: true })
-          .then((result) => {
+          .then(async (result) => {
+            const localNodeId = await getLocalNodeId();
             childDocHandle.change((draft: any) => {
               draft.blobId = result.blobId;
               draft.domain = result.domain;
@@ -982,6 +1005,12 @@ export const fileWidget: WidgetFactory<typeof fileSchema> = {
               draft.size = result.size;
               draft.blake3 = result.blake3 ?? "";
               draft.thumbnailDataUrl = result.thumbnailDataUrl ?? "";
+              if (localNodeId) {
+                if (!draft.snatchedBy) draft.snatchedBy = [];
+                if (!draft.snatchedBy.includes(localNodeId)) {
+                  draft.snatchedBy.push(localNodeId);
+                }
+              }
             });
           })
           .catch((err) => {
@@ -1027,6 +1056,8 @@ export const fileWidget: WidgetFactory<typeof fileSchema> = {
           prevBlobId = result.blobId;
           actionState = "local";
 
+          const localNodeId = await getLocalNodeId();
+
           ctx.doc.change((draft) => {
             draft.blobId = result.blobId;
             draft.domain = result.domain;
@@ -1036,6 +1067,12 @@ export const fileWidget: WidgetFactory<typeof fileSchema> = {
             draft.size = result.size;
             draft.blake3 = result.blake3 ?? "";
             draft.thumbnailDataUrl = result.thumbnailDataUrl ?? "";
+            if (localNodeId) {
+              if (!draft.snatchedBy) draft.snatchedBy = [];
+              if (!draft.snatchedBy.includes(localNodeId)) {
+                draft.snatchedBy.push(localNodeId);
+              }
+            }
           });
 
           // use the embedded thumbnail if the upload produced one, otherwise
@@ -1087,10 +1124,26 @@ export const fileWidget: WidgetFactory<typeof fileSchema> = {
       if (actionState !== "remote") return;
 
       const state = ctx.doc.current;
-      const peers = ctx.canvasStore?.peers();
-      if (!peers || Object.keys(peers).length === 0) {
+      const allPeers = ctx.canvasStore?.peers();
+      if (!allPeers || Object.keys(allPeers).length === 0) {
         console.warn("[file] no peers available for snatch");
         return;
+      }
+
+      // prefer peers listed in snatchedBy — they're known to have the blob.
+      // fall back to all canvas peers when snatchedBy is empty or none match.
+      const snatchedBy = (state.snatchedBy ?? []).map(String);
+      let peers: typeof allPeers;
+      if (snatchedBy.length > 0) {
+        const filtered: typeof allPeers = {};
+        for (const [key, value] of Object.entries(allPeers)) {
+          if (snatchedBy.includes(String(value.nodeId))) {
+            filtered[key] = value;
+          }
+        }
+        peers = Object.keys(filtered).length > 0 ? filtered : allPeers;
+      } else {
+        peers = allPeers;
       }
 
       snatchCancelled = false;
@@ -1173,6 +1226,18 @@ export const fileWidget: WidgetFactory<typeof fileSchema> = {
             draft.blake3 = result.blake3 ?? "";
           });
         }
+
+        // record this node as a snatcher so other peers can target us for downloads
+        const localNodeId = await getLocalNodeId();
+        if (localNodeId) {
+          ctx.doc.change((draft) => {
+            if (!draft.snatchedBy) draft.snatchedBy = [];
+            if (!draft.snatchedBy.includes(localNodeId)) {
+              draft.snatchedBy.push(localNodeId);
+            }
+          });
+        }
+
         syncActionButtons();
 
         // re-layout

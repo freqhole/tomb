@@ -145,7 +145,7 @@ export type PeersMap = Record<string, { nodeId: string }>;
 
 let _cachedLocalNodeId: string | null | undefined = undefined;
 
-async function getLocalNodeId(): Promise<string | null> {
+export async function getLocalNodeId(): Promise<string | null> {
   if (_cachedLocalNodeId !== undefined) return _cachedLocalNodeId;
   try {
     const { getStoredIdentity } = await import("../p2p/identity");

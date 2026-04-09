@@ -32,8 +32,6 @@ use crate::protocol::handler::FriendzEvent;
 use crate::protocol::messages::FriendzMessage;
 
 use iroh_blobs::api::downloader::Downloader;
-use iroh_blobs::api::Store;
-use iroh_blobs::store::GcConfig;
 use iroh_blobs::BlobsProtocol;
 
 // ---------------------------------------------------------------------------
@@ -105,9 +103,7 @@ pub struct HubPeerService {
     pub(crate) profile_avatar_data_url: String,
     /// canvas doc IDs the hub is participating in (for gossip and relay)
     pub(crate) canvas_doc_ids: Arc<Mutex<HashSet<String>>>,
-    /// iroh-blobs store (MemStore-backed) for serving and downloading blobs
-    blobs_store: Store,
-    /// iroh-blobs downloader for verified blob transfers
+    /// iroh-blobs downloader for verified blob transfers (FsStore-backed)
     blobs_downloader: Downloader,
     /// trigger to wake the blob snatcher for an immediate scan
     pub(crate) snatch_trigger: Arc<tokio::sync::Notify>,
@@ -245,21 +241,16 @@ impl HubPeerService {
         let (friendz, friendz_events) =
             FriendzHandler::new(endpoint.clone(), node_id_str.clone(), config.username);
 
-        // 6. setup iroh-blobs with MemStore for blob serving + downloading.
-        // blobs are loaded on-demand from grimoire when peers send ensure_blob_request,
-        // and downloaded blobs are read from the store then ingested into grimoire.
-        let mem_store =
-            iroh_blobs::store::mem::MemStore::new_with_opts(iroh_blobs::store::mem::Options {
-                gc_config: Some(GcConfig {
-                    interval: std::time::Duration::from_secs(30),
-                    add_protected: None,
-                }),
-            });
-        let blobs_downloader = Downloader::new(&mem_store, &endpoint);
-        let blobs_store: Store = mem_store.as_ref().clone();
-        let blobs_protocol = BlobsProtocol::new(&blobs_store, None);
-        let freqhole_handler = FreqholeHandler::new(blobs_store.clone());
-        tracing::info!("iroh-blobs store and freqhole/1 handler initialized");
+        // 6. setup iroh-blobs with FsStore for blob serving + downloading.
+        // blobs are loaded on-demand from grimoire via ensure_blob_by_blake3 (reference mode,
+        // only stores outboard tree). downloaded blobs land on FsStore disk instead of RAM.
+        let fs_store = grimoire::blobz::get_blobs_store()
+            .await
+            .map_err(|e| HubError::Grimoire(format!("failed to init FsStore: {e}")))?;
+        let blobs_downloader = Downloader::new(fs_store, &endpoint);
+        let blobs_protocol = BlobsProtocol::new(fs_store, None);
+        let freqhole_handler = FreqholeHandler::new(fs_store);
+        tracing::info!("iroh-blobs FsStore and freqhole/1 handler initialized");
 
         // 7. build and start the iroh router with all protocol handlers
         let router = iroh::protocol::Router::builder(endpoint.clone())
@@ -287,7 +278,6 @@ impl HubPeerService {
             profile_bio,
             profile_avatar_data_url: avatar_data_url,
             canvas_doc_ids: Arc::new(Mutex::new(HashSet::new())),
-            blobs_store,
             blobs_downloader,
             snatch_trigger,
         })
@@ -308,7 +298,6 @@ impl HubPeerService {
         let snatcher = BlobSnatcher::new(
             self.hub_repo.clone(),
             self.endpoint.clone(),
-            self.blobs_store.clone(),
             self.blobs_downloader.clone(),
             self.node_id_str.clone(),
             self.snatch_trigger.clone(),

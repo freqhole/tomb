@@ -18,7 +18,6 @@ use std::time::Duration;
 use futures::stream::{self, StreamExt};
 use iroh::Endpoint;
 use iroh_blobs::api::downloader::Downloader;
-use iroh_blobs::api::Store;
 use iroh_blobs::{Hash, HashAndFormat};
 use tokio::sync::{Mutex, Semaphore};
 
@@ -57,6 +56,8 @@ pub struct BlobRef {
     pub mime: String,
     /// file size in bytes.
     pub size: u64,
+    /// node IDs that have snatched this blob (from widget state doc).
+    pub snatched_by: Vec<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -78,8 +79,6 @@ pub struct BlobSnatcher {
     repo: crate::hub_repo::HubRepo,
     /// iroh endpoint for connecting to peers.
     endpoint: Endpoint,
-    /// iroh-blobs store (MemStore-backed) for downloads.
-    store: Store,
     /// iroh-blobs downloader for verified transfers.
     downloader: Downloader,
     /// hub's own node ID string (to exclude from peer lists).
@@ -95,7 +94,6 @@ impl BlobSnatcher {
     pub fn new(
         repo: crate::hub_repo::HubRepo,
         endpoint: Endpoint,
-        store: Store,
         downloader: Downloader,
         local_node_id: String,
         scan_trigger: Arc<tokio::sync::Notify>,
@@ -103,7 +101,6 @@ impl BlobSnatcher {
         Self {
             repo,
             endpoint,
-            store,
             downloader,
             local_node_id,
             scan_trigger,
@@ -365,8 +362,36 @@ impl BlobSnatcher {
             return Ok(());
         }
 
-        // probe peers to find one that has the blob
-        let provider = self.probe_peers(&blob_ref.blake3, peers).await?;
+        // determine which peers to probe — use snatchedBy if available,
+        // otherwise skip (hub should not blindly probe all peers)
+        let target_peers: Vec<String> = if blob_ref.snatched_by.is_empty() {
+            tracing::debug!(
+                blake3 = trunc(&blob_ref.blake3),
+                filename = %blob_ref.filename,
+                "no snatchedBy entries, skipping (no peers to target)"
+            );
+            return Err(SnatchError::NoPeers);
+        } else {
+            // filter to only peers that are also in the canvas peer list
+            blob_ref
+                .snatched_by
+                .iter()
+                .filter(|node_id| peers.contains(node_id) && node_id.as_str() != self.local_node_id)
+                .cloned()
+                .collect()
+        };
+
+        if target_peers.is_empty() {
+            tracing::debug!(
+                blake3 = trunc(&blob_ref.blake3),
+                snatched_by_count = blob_ref.snatched_by.len(),
+                "snatchedBy peers not in canvas peers list or all are self, skipping"
+            );
+            return Err(SnatchError::NoPeers);
+        }
+
+        // probe targeted peers to find one that has the blob
+        let provider = self.probe_peers(&blob_ref.blake3, &target_peers).await?;
 
         tracing::info!(
             blake3 = trunc(&blob_ref.blake3),
@@ -386,7 +411,86 @@ impl BlobSnatcher {
         // ingest into grimoire
         self.ingest_blob(blob_ref, data).await?;
 
+        // mark ourselves in the widget state doc's snatchedBy list
+        self.mark_snatched(&blob_ref.widget_doc_id).await;
+
         Ok(())
+    }
+
+    /// write the hub's node ID into a widget state doc's snatchedBy list.
+    async fn mark_snatched(&self, widget_doc_id: &str) {
+        let handle = match self.repo.find(widget_doc_id).await {
+            Some(h) => h,
+            None => {
+                tracing::warn!(widget_doc_id, "cannot mark snatched: widget doc not found");
+                return;
+            }
+        };
+
+        let local_id = self.local_node_id.clone();
+        let wdoc_id = widget_doc_id.to_string();
+
+        let result = tokio::task::spawn_blocking(move || {
+            handle.with_document_mut(|doc| {
+                use automerge::ReadDoc;
+
+                // get or create snatchedBy list
+                let list_id = match doc.get(automerge::ROOT, "snatchedBy") {
+                    Ok(Some((automerge::Value::Object(automerge::ObjType::List), id))) => id,
+                    _ => {
+                        // create the list via transact
+                        match doc.transact::<_, _, automerge::AutomergeError>(|tx| {
+                            use automerge::transaction::Transactable;
+                            Ok(tx.put_object(
+                                automerge::ROOT,
+                                "snatchedBy",
+                                automerge::ObjType::List,
+                            )?)
+                        }) {
+                            Ok(result) => result.result,
+                            Err(e) => {
+                                tracing::warn!(error = ?e, "failed to create snatchedBy list");
+                                return;
+                            }
+                        }
+                    }
+                };
+
+                // check if already in the list
+                let len = doc.length(&list_id);
+                for i in 0..len {
+                    if let Ok(Some((v, _))) = doc.get(&list_id, i as usize) {
+                        if v.to_str() == Some(&local_id) {
+                            tracing::debug!(widget_doc_id = %wdoc_id, "already in snatchedBy");
+                            return;
+                        }
+                    }
+                }
+
+                // append our node ID via transact
+                match doc.transact::<_, _, automerge::AutomergeError>(|tx| {
+                    use automerge::transaction::Transactable;
+                    tx.insert(&list_id, len as usize, local_id.as_str())?;
+                    Ok(())
+                }) {
+                    Ok(_) => {
+                        tracing::info!(
+                            widget_doc_id = %wdoc_id,
+                            node_id = trunc(&local_id),
+                            "added self to snatchedBy"
+                        );
+                    }
+                    Err(e) => {
+                        tracing::warn!(error = ?e, "failed to add node ID to snatchedBy");
+                    }
+                }
+            });
+        })
+        .await;
+
+        if let Err(e) = result {
+            tracing::warn!(error = %e, "spawn_blocking failed for mark_snatched");
+        }
     }
 
     /// probe peers in parallel to find one that has the blob.
@@ -498,7 +602,10 @@ impl BlobSnatcher {
         );
 
         // read the downloaded blob from the store
-        let bytes = match self.store.get_bytes(hash).await {
+        let fs_store = grimoire::blobz::get_blobs_store()
+            .await
+            .map_err(|e| SnatchError::StoreRead(format!("failed to get FsStore: {e}")))?;
+        let bytes = match fs_store.get_bytes(hash).await {
             Ok(b) => b,
             Err(e) => {
                 tracing::error!(
@@ -877,6 +984,7 @@ fn read_canvas_for_file_widgets(
             filename: String::new(),
             mime: String::new(),
             size: 0,
+            snatched_by: Vec::new(),
         })
         .collect();
 
@@ -892,6 +1000,8 @@ fn read_widget_state(
     let mut result: Option<BlobRef> = None;
 
     handle.with_document(|doc| {
+        use automerge::ReadDoc;
+
         let blob_id = read_str(doc, &automerge::ROOT, "blobId");
         let blake3 = read_str(doc, &automerge::ROOT, "blake3");
 
@@ -899,6 +1009,23 @@ fn read_widget_state(
         if blob_id.is_empty() && blake3.is_empty() {
             return;
         }
+
+        // read snatchedBy — an automerge list of string node IDs
+        let snatched_by = {
+            let mut items = Vec::new();
+            if let Ok(Some((automerge::Value::Object(automerge::ObjType::List), list_id))) =
+                doc.get(automerge::ROOT, "snatchedBy")
+            {
+                for i in 0..doc.length(&list_id) {
+                    if let Ok(Some((v, _))) = doc.get(&list_id, i as usize) {
+                        if let Some(s) = v.to_str() {
+                            items.push(s.to_string());
+                        }
+                    }
+                }
+            }
+            items
+        };
 
         result = Some(BlobRef {
             canvas_doc_id: canvas_doc_id.to_string(),
@@ -908,6 +1035,7 @@ fn read_widget_state(
             filename: read_str(doc, &automerge::ROOT, "filename"),
             mime: read_str(doc, &automerge::ROOT, "mime"),
             size: read_u64(doc, &automerge::ROOT, "size"),
+            snatched_by,
         });
     });
 
@@ -955,6 +1083,7 @@ mod tests {
             filename: "test.txt".to_string(),
             mime: "text/plain".to_string(),
             size: 42,
+            snatched_by: Vec::new(),
         };
         assert_eq!(br.size, 42);
         assert!(br.blake3.is_empty());
@@ -990,6 +1119,7 @@ mod tests {
             filename: String::new(),
             mime: String::new(),
             size: 0,
+            snatched_by: Vec::new(),
         };
         assert_eq!(trunc(&br.blake3), "");
         assert_eq!(trunc(&br.blob_id), "");
