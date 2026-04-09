@@ -3,6 +3,7 @@ import type { CanvasDocument } from "../canvas/canvas-doc";
 import type { CanvasStore } from "../canvas/canvas-store";
 import {
   FriendzProtocol,
+  type BlobSeekMessage,
   type CanvasActivityEntry,
   type GossipDigestMessage,
 } from "../p2p/friends-protocol";
@@ -748,6 +749,7 @@ export async function initFriendzWiring(
   async function computeAndSendGossipDigest(peerNodeId: string): Promise<void> {
     const canvasUpdates: GossipDigestMessage["canvasUpdates"] = [];
     const pendingInvites: GossipDigestMessage["pendingInvites"] = [];
+    const sharedCanvasIds: string[] = [];
 
     const narthexHandle = repo.handles[narthexDocId as any];
     const narthexDoc = narthexHandle?.doc();
@@ -762,6 +764,14 @@ export async function initFriendzWiring(
         const canvasHandle = repo.handles[canvasDocId as any];
         const canvasDoc = canvasHandle?.doc() as CanvasDocument | undefined;
         if (!canvasDoc) continue;
+
+        // only include in sharedCanvasIds if the peer is on this canvas
+        // (in peers or pendingInvites) — don't leak canvas IDs to unrelated peers
+        const peerIsParticipant =
+          !!canvasDoc.peers?.[peerNodeId] || !!canvasDoc.pendingInvites?.[peerNodeId];
+        if (peerIsParticipant) {
+          sharedCanvasIds.push(canvasDocId);
+        }
 
         // check for canvas updates: peer is on this canvas and has stale state
         const peerEntry = canvasDoc.peers?.[peerNodeId];
@@ -796,7 +806,8 @@ export async function initFriendzWiring(
       }
     }
 
-    if (canvasUpdates.length === 0 && pendingInvites.length === 0) return;
+    if (canvasUpdates.length === 0 && pendingInvites.length === 0 && sharedCanvasIds.length === 0)
+      return;
 
     console.log(
       "[friendz-wiring] sending gossip digest to:",
@@ -804,10 +815,16 @@ export async function initFriendzWiring(
       "updates:",
       canvasUpdates.length,
       "invites:",
-      pendingInvites.length
+      pendingInvites.length,
+      "canvases:",
+      sharedCanvasIds.length
     );
 
-    await protocol.sendGossipDigest(peerNodeId, { canvasUpdates, pendingInvites });
+    await protocol.sendGossipDigest(peerNodeId, {
+      canvasUpdates,
+      pendingInvites,
+      ...(sharedCanvasIds.length > 0 ? { sharedCanvasIds } : {}),
+    });
   }
 
   // send a gossip digest when a friend peer transitions to online.
@@ -930,6 +947,49 @@ export async function initFriendzWiring(
           invite.canvasDocId.slice(0, 16) + "..."
         );
       });
+    }
+  };
+
+  // handle incoming blob-seek queries from the hub — check local blob
+  // availability and respond with blob-offer listing available hashes.
+  protocol.onBlobSeek = async (msg: BlobSeekMessage, fromNodeId: string) => {
+    if (!msg.needed || msg.needed.length === 0) return;
+
+    console.log(
+      "[friendz-wiring] received blob-seek from:",
+      fromNodeId.slice(0, 16) + "...",
+      "needed:",
+      msg.needed.length
+    );
+
+    try {
+      const { getBlobRecordByBlake3 } = await import("../storage/skein-blob-store");
+      const available: string[] = [];
+
+      for (const blake3Hash of msg.needed) {
+        try {
+          const record = await getBlobRecordByBlake3(blake3Hash);
+          if (record) {
+            available.push(blake3Hash);
+          }
+        } catch {
+          // skip this hash on error
+        }
+      }
+
+      console.log(
+        "[friendz-wiring] blob-seek response:",
+        available.length,
+        "of",
+        msg.needed.length,
+        "available"
+      );
+
+      if (available.length > 0) {
+        await protocol.sendBlobOffer(fromNodeId, { available });
+      }
+    } catch (err) {
+      console.warn("[friendz-wiring] blob-seek handler failed:", err);
     }
   };
 

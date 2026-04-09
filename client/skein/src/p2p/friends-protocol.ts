@@ -176,6 +176,23 @@ export interface GossipDigestMessage {
   type: "gossip-digest";
   canvasUpdates: GossipDigestCanvasUpdate[];
   pendingInvites: GossipDigestPendingInvite[];
+  sharedCanvasIds?: string[];
+}
+
+/** batch blob availability query — "i need these blobs, which do you have?"
+ *  sent by the hub to peers when it has missing blobs without snatchedBy info.
+ *  the receiver checks locally and responds with blob-offer. */
+export interface BlobSeekMessage {
+  type: "blob-seek";
+  needed: string[];
+}
+
+/** batch blob availability response — "i have these blobs."
+ *  sent in response to a BlobSeek. contains the subset of requested hashes
+ *  that the responder has locally. */
+export interface BlobOfferMessage {
+  type: "blob-offer";
+  available: string[];
 }
 
 /** union of all protocol messages. */
@@ -194,7 +211,9 @@ export type FriendzMessage =
   | AclChangeMessage
   | CanvasUpdateMessage
   | OfflineAnnouncementMessage
-  | GossipDigestMessage;
+  | GossipDigestMessage
+  | BlobSeekMessage
+  | BlobOfferMessage;
 
 // ---------------------------------------------------------------------------
 // message encoding / decoding
@@ -397,6 +416,9 @@ export class FriendzProtocol {
   /** called when a gossip digest is received from a peer that just came online. */
   onGossipDigest: ((msg: GossipDigestMessage, fromNodeId: string) => void) | null = null;
 
+  /** called when a blob-seek is received from a peer. */
+  onBlobSeek: ((msg: BlobSeekMessage, fromNodeId: string) => void) | null = null;
+
   constructor(options: FriendzProtocolOptions) {
     this.getMidden = options.getMidden;
     this.localNodeId = options.localNodeId;
@@ -548,6 +570,22 @@ export class FriendzProtocol {
 
       case "gossip-digest":
         this.onGossipDigest?.(msg, fromNodeId);
+        break;
+
+      case "blob-seek":
+        this.onBlobSeek?.(msg, fromNodeId);
+        break;
+
+      case "blob-offer":
+        // blob-offer is a response to our blob-seek — browser peers don't
+        // currently send blob-seek, so this is a no-op placeholder.
+        console.log(
+          TAG,
+          "received blob-offer from:",
+          fromNodeId.slice(0, 16) + "...",
+          "available:",
+          (msg as BlobOfferMessage).available.length
+        );
         break;
 
       case "offline-announcement":
@@ -725,6 +763,12 @@ export class FriendzProtocol {
     digest: Omit<GossipDigestMessage, "type">
   ): Promise<void> {
     const msg: GossipDigestMessage = { type: "gossip-digest", ...digest };
+    await this.sendMessage(peerNodeId, msg);
+  }
+
+  /** send a blob-offer response to a peer's blob-seek query. */
+  async sendBlobOffer(peerNodeId: string, offer: Omit<BlobOfferMessage, "type">): Promise<void> {
+    const msg: BlobOfferMessage = { type: "blob-offer", ...offer };
     await this.sendMessage(peerNodeId, msg);
   }
 

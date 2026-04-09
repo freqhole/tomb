@@ -36,6 +36,7 @@ impl HubPeerService {
 
         let mut canvas_updates: Vec<GossipDigestCanvasUpdate> = Vec::new();
         let mut pending_invites: Vec<GossipDigestPendingInvite> = Vec::new();
+        let mut shared_canvas_ids: Vec<String> = Vec::new();
 
         let hub_repo = self.hub_repo.clone();
         let peer_node_id_owned = peer_node_id.to_string();
@@ -52,11 +53,14 @@ impl HubPeerService {
 
             // read the automerge doc to extract metadata
             let peer_id = peer_node_id_owned.clone();
-            let (update, invite) =
+            let (update, invite, peer_is_participant) =
                 tokio::task::spawn_blocking(move || read_canvas_for_gossip(&handle, &peer_id))
                     .await
                     .unwrap_or_default();
 
+            if peer_is_participant {
+                shared_canvas_ids.push(doc_id_str.clone());
+            }
             if let Some(u) = update {
                 canvas_updates.push(u);
             }
@@ -65,8 +69,7 @@ impl HubPeerService {
             }
         }
 
-        // include our canvas doc IDs so the peer can discover canvases they might be missing
-        let shared_canvas_ids: Vec<String> = doc_ids.clone();
+        // only share canvas IDs where the peer is a participant
 
         if canvas_updates.is_empty() && pending_invites.is_empty() {
             tracing::debug!(
@@ -749,10 +752,35 @@ fn write_self_to_canvas_doc(
         };
 
         if already_in_peers {
-            tracing::info!(
-                canvas_doc_id = %canvas_doc_id,
-                "write_self_to_canvas_doc: hub peer already in peers map, skipping write"
-            );
+            // stamp lastSeenAt so the hub doesn't appear stale in gossip
+            let now = time::OffsetDateTime::now_utc()
+                .format(&time::format_description::well_known::Rfc3339)
+                .unwrap_or_else(|_| "1970-01-01T00:00:00Z".to_string());
+
+            let nid2 = node_id.to_string();
+            match doc.transact::<_, _, automerge::AutomergeError>(|tx| {
+                use automerge::transaction::Transactable;
+                if let Some((_, peers_obj)) = tx.get(automerge::ROOT, "peers")? {
+                    if let Some((_, peer_obj)) = tx.get(&peers_obj, nid2.as_str())? {
+                        tx.put(&peer_obj, "lastSeenAt", now.as_str())?;
+                    }
+                }
+                Ok(())
+            }) {
+                Ok(_) => {
+                    tracing::debug!(
+                        canvas_doc_id = %canvas_doc_id,
+                        "write_self_to_canvas_doc: stamped lastSeenAt"
+                    );
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        canvas_doc_id = %canvas_doc_id,
+                        error = ?e,
+                        "write_self_to_canvas_doc: failed to stamp lastSeenAt"
+                    );
+                }
+            }
             return true;
         }
 
@@ -808,15 +836,16 @@ fn write_self_to_canvas_doc(
                 }
             };
 
-            // create our peer entry: { nodeId, joinedAt }
+            // create our peer entry: { nodeId, joinedAt, lastSeenAt }
             let peer_obj = tx.put_object(&peers_obj, nid.as_str(), automerge::ObjType::Map)?;
             tx.put(&peer_obj, "nodeId", nid.as_str())?;
             tx.put(&peer_obj, "joinedAt", joined_at.as_str())?;
+            tx.put(&peer_obj, "lastSeenAt", joined_at.as_str())?;
 
             tracing::info!(
                 canvas_doc_id = %canvas_doc_id,
                 node_id = %nid,
-                "transact: wrote peer entry {{ nodeId, joinedAt }}"
+                "transact: wrote peer entry {{ nodeId, joinedAt, lastSeenAt }}"
             );
 
             // remove from pendingInvites if present
@@ -866,6 +895,7 @@ fn read_canvas_for_gossip(
 ) -> (
     Option<GossipDigestCanvasUpdate>,
     Option<GossipDigestPendingInvite>,
+    bool, // peer_is_participant: true if peer is in peers or pendingInvites
 ) {
     use automerge::ReadDoc;
 
@@ -886,6 +916,7 @@ fn read_canvas_for_gossip(
     handle.with_document(|doc| {
         let mut update: Option<GossipDigestCanvasUpdate> = None;
         let mut invite: Option<GossipDigestPendingInvite> = None;
+        let mut peer_is_participant = false;
 
         // read lastModified
         let last_modified: String = read_str(doc, &automerge::ROOT, "lastModified");
@@ -896,6 +927,7 @@ fn read_canvas_for_gossip(
         // check if peer is on this canvas and has stale state
         if let Ok(Some((_, peers_obj))) = doc.get(automerge::ROOT, "peers") {
             if let Ok(Some((_, peer_entry_obj))) = doc.get(peers_obj, peer_node_id) {
+                peer_is_participant = true;
                 // peer is on this canvas — check if they have stale data
                 let peer_last_seen = read_str(doc, &peer_entry_obj, "lastSeenAt");
 
@@ -912,6 +944,7 @@ fn read_canvas_for_gossip(
         // check for pending invites targeting this peer
         if let Ok(Some((_, pending_obj))) = doc.get(automerge::ROOT, "pendingInvites") {
             if let Ok(Some((_, invite_obj))) = doc.get(pending_obj, peer_node_id) {
+                peer_is_participant = true;
                 // there's a pending invite for this peer — check they haven't already joined
                 let peer_is_member = doc
                     .get(automerge::ROOT, "peers")
@@ -968,6 +1001,6 @@ fn read_canvas_for_gossip(
             }
         }
 
-        (update, invite)
+        (update, invite, peer_is_participant)
     })
 }
