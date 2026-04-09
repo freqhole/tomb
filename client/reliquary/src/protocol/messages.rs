@@ -225,6 +225,30 @@ pub enum FriendzMessage {
         canvas_updates: Vec<GossipDigestCanvasUpdate>,
         #[serde(rename = "pendingInvites")]
         pending_invites: Vec<GossipDigestPendingInvite>,
+        /// sender's canvas doc IDs — lets the receiver compare and discover
+        /// canvases they should be on but aren't tracking yet.
+        #[serde(rename = "sharedCanvasIds")]
+        #[serde(default)]
+        #[serde(skip_serializing_if = "Vec::is_empty")]
+        shared_canvas_ids: Vec<String>,
+    },
+
+    /// batch blob availability query — "i need these blobs, which do you have?"
+    ///
+    /// sent by the hub to peers when it has missing blobs without snatchedBy info.
+    /// the receiver checks locally and responds with BlobOffer.
+    BlobSeek {
+        /// blake3 hashes of blobs the sender needs.
+        needed: Vec<String>,
+    },
+
+    /// batch blob availability response — "i have these blobs."
+    ///
+    /// sent in response to a BlobSeek. contains the subset of requested hashes
+    /// that the responder has locally.
+    BlobOffer {
+        /// blake3 hashes (from the original BlobSeek.needed) that the sender has.
+        available: Vec<String>,
     },
 }
 
@@ -540,6 +564,7 @@ mod tests {
                 role: CanvasRole::Editor,
                 invited_at: "2025-01-01T00:00:00Z".to_string(),
             }],
+            shared_canvas_ids: vec![],
         };
 
         let json = serde_json::to_string(&msg).unwrap();
@@ -607,11 +632,88 @@ mod tests {
             FriendzMessage::GossipDigest {
                 canvas_updates,
                 pending_invites,
+                shared_canvas_ids,
             } => {
                 assert_eq!(canvas_updates.len(), 1);
                 assert!(pending_invites.is_empty());
+                assert!(shared_canvas_ids.is_empty());
             }
             _ => panic!("expected GossipDigest"),
+        }
+    }
+
+    #[test]
+    fn test_blob_seek_round_trip() {
+        let msg = FriendzMessage::BlobSeek {
+            needed: vec![
+                "af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262".to_string(),
+                "deadbeef00000000000000000000000000000000000000000000000000000000".to_string(),
+            ],
+        };
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(json.contains("\"type\":\"blob-seek\""));
+        assert!(json.contains("\"needed\""));
+        let back: FriendzMessage = serde_json::from_str(&json).unwrap();
+        match back {
+            FriendzMessage::BlobSeek { needed } => {
+                assert_eq!(needed.len(), 2);
+                assert!(needed[0].starts_with("af1349b9"));
+            }
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
+    fn test_blob_offer_round_trip() {
+        let msg = FriendzMessage::BlobOffer {
+            available: vec![
+                "af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262".to_string(),
+            ],
+        };
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(json.contains("\"type\":\"blob-offer\""));
+        assert!(json.contains("\"available\""));
+        let back: FriendzMessage = serde_json::from_str(&json).unwrap();
+        match back {
+            FriendzMessage::BlobOffer { available } => {
+                assert_eq!(available.len(), 1);
+            }
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
+    fn test_gossip_digest_with_shared_canvas_ids() {
+        let msg = FriendzMessage::GossipDigest {
+            canvas_updates: vec![],
+            pending_invites: vec![],
+            shared_canvas_ids: vec!["doc123".to_string(), "doc456".to_string()],
+        };
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(json.contains("\"sharedCanvasIds\""));
+        let back: FriendzMessage = serde_json::from_str(&json).unwrap();
+        match back {
+            FriendzMessage::GossipDigest {
+                shared_canvas_ids, ..
+            } => {
+                assert_eq!(shared_canvas_ids.len(), 2);
+            }
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
+    fn test_gossip_digest_without_shared_canvas_ids() {
+        // backward compat: old peers don't send sharedCanvasIds
+        let json = r#"{"type":"gossip-digest","canvasUpdates":[],"pendingInvites":[]}"#;
+        let msg: FriendzMessage = serde_json::from_str(json).unwrap();
+        match msg {
+            FriendzMessage::GossipDigest {
+                shared_canvas_ids, ..
+            } => {
+                assert!(shared_canvas_ids.is_empty());
+            }
+            _ => panic!("wrong variant"),
         }
     }
 }

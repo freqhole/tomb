@@ -4,6 +4,8 @@
 //! dispatches to the appropriate handler. friend request/accept logic,
 //! profile exchange, and routing to canvas/gossip handlers all live here.
 
+use std::collections::HashSet;
+
 use crate::protocol::handler::FriendzEvent;
 use crate::protocol::messages::FriendzMessage;
 
@@ -45,6 +47,12 @@ impl HubPeerService {
             }
             FriendzEvent::PeerOffline { node_id } => {
                 tracing::info!(peer = %node_id, "peer went offline");
+
+                // clear peer blob inventory when peer goes offline
+                let mut inventory = self.peer_blob_inventory.lock().await;
+                if inventory.remove(&node_id).is_some() {
+                    tracing::debug!(peer = %node_id, "cleared peer blob inventory");
+                }
             }
             FriendzEvent::MessageReceived {
                 from_node_id,
@@ -371,9 +379,15 @@ impl HubPeerService {
             FriendzMessage::GossipDigest {
                 canvas_updates,
                 pending_invites,
+                shared_canvas_ids,
             } => {
-                self.handle_gossip_digest(from_node_id, canvas_updates, pending_invites)
-                    .await;
+                self.handle_gossip_digest(
+                    from_node_id,
+                    canvas_updates,
+                    pending_invites,
+                    shared_canvas_ids,
+                )
+                .await;
             }
             FriendzMessage::AclChange {
                 canvas_doc_id,
@@ -409,6 +423,64 @@ impl HubPeerService {
                     announced_node = %node_id,
                     "received offline announcement"
                 );
+            }
+            FriendzMessage::BlobSeek { needed } => {
+                tracing::info!(
+                    peer = %from_node_id,
+                    count = needed.len(),
+                    "received blob seek, checking local availability"
+                );
+
+                // check grimoire for each requested blake3 hash
+                let mut available = Vec::new();
+                for hash in &needed {
+                    match grimoire::media_blobz::get_media_blob_by_blake3(hash).await {
+                        Ok(_blob) => {
+                            available.push(hash.clone());
+                        }
+                        Err(_) => {
+                            // don't have this blob
+                        }
+                    }
+                }
+
+                tracing::info!(
+                    peer = %from_node_id,
+                    requested = needed.len(),
+                    available = available.len(),
+                    "responding to blob seek with blob offer"
+                );
+
+                if !available.is_empty() {
+                    let offer = FriendzMessage::BlobOffer { available };
+                    if let Err(e) = self.friendz.send_message(from_node_id, &offer).await {
+                        tracing::warn!(
+                            peer = %from_node_id,
+                            error = %e,
+                            "failed to send blob offer"
+                        );
+                    }
+                }
+            }
+            FriendzMessage::BlobOffer { available } => {
+                tracing::info!(
+                    peer = %from_node_id,
+                    count = available.len(),
+                    "received blob offer, updating peer inventory"
+                );
+
+                // store in peer blob inventory
+                let mut inventory = self.peer_blob_inventory.lock().await;
+                let entry = inventory
+                    .entry(from_node_id.to_string())
+                    .or_insert_with(HashSet::new);
+                for hash in available {
+                    entry.insert(hash);
+                }
+
+                // trigger a snatch scan since we now have new information about
+                // where blobs might be available
+                self.snatch_trigger.notify_one();
             }
         }
     }

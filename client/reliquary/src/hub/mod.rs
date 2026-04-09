@@ -12,7 +12,7 @@
 mod canvas;
 mod messages;
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -103,6 +103,9 @@ pub struct HubPeerService {
     pub(crate) profile_avatar_data_url: String,
     /// canvas doc IDs the hub is participating in (for gossip and relay)
     pub(crate) canvas_doc_ids: Arc<Mutex<HashSet<String>>>,
+    /// peer blob inventory — maps peer node ID → set of blake3 hashes they have.
+    /// populated by BlobOffer responses. cleared when peer goes offline.
+    pub(crate) peer_blob_inventory: Arc<Mutex<HashMap<String, HashSet<String>>>>,
     /// iroh-blobs downloader for verified blob transfers (FsStore-backed)
     blobs_downloader: Downloader,
     /// trigger to wake the blob snatcher for an immediate scan
@@ -280,6 +283,7 @@ impl HubPeerService {
             canvas_doc_ids: Arc::new(Mutex::new(HashSet::new())),
             blobs_downloader,
             snatch_trigger,
+            peer_blob_inventory: Arc::new(Mutex::new(HashMap::new())),
         })
     }
 
@@ -301,6 +305,7 @@ impl HubPeerService {
             self.blobs_downloader.clone(),
             self.node_id_str.clone(),
             self.snatch_trigger.clone(),
+            self.peer_blob_inventory.clone(),
         );
         let snatch_cancel = cancel.clone();
         let snatch_handle = tokio::spawn(async move {
@@ -593,5 +598,7 @@ pub(crate) fn friendz_msg_type_name(msg: &FriendzMessage) -> &'static str {
         FriendzMessage::CanvasUpdate { .. } => "canvas-update",
         FriendzMessage::OfflineAnnouncement { .. } => "offline-announcement",
         FriendzMessage::GossipDigest { .. } => "gossip-digest",
+        FriendzMessage::BlobSeek { .. } => "blob-seek",
+        FriendzMessage::BlobOffer { .. } => "blob-offer",
     }
 }

@@ -452,6 +452,8 @@ fn msg_type_name(msg: &FriendzMessage) -> &'static str {
         FriendzMessage::CanvasUpdate { .. } => "canvas-update",
         FriendzMessage::OfflineAnnouncement { .. } => "offline-announcement",
         FriendzMessage::GossipDigest { .. } => "gossip-digest",
+        FriendzMessage::BlobSeek { .. } => "blob-seek",
+        FriendzMessage::BlobOffer { .. } => "blob-offer",
     }
 }
 

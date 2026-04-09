@@ -10,7 +10,7 @@
 //! scanning is triggered reactively via doc change notifications from hub_repo
 //! (debounced 3s). no periodic timer — the snatcher only runs when docs change.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -87,6 +87,10 @@ pub struct BlobSnatcher {
     scan_trigger: Arc<tokio::sync::Notify>,
     /// per-peer download semaphores (limit concurrent downloads to a single peer).
     peer_semaphores: Arc<Mutex<HashMap<String, Arc<Semaphore>>>>,
+    /// peer blob inventory — maps peer node ID → set of blake3 hashes they have.
+    /// populated by BlobOffer responses via the hub service. used as fallback
+    /// when snatchedBy is empty for a blob.
+    peer_blob_inventory: Arc<Mutex<HashMap<String, HashSet<String>>>>,
 }
 
 impl BlobSnatcher {
@@ -97,6 +101,7 @@ impl BlobSnatcher {
         downloader: Downloader,
         local_node_id: String,
         scan_trigger: Arc<tokio::sync::Notify>,
+        peer_blob_inventory: Arc<Mutex<HashMap<String, HashSet<String>>>>,
     ) -> Self {
         Self {
             repo,
@@ -105,6 +110,7 @@ impl BlobSnatcher {
             local_node_id,
             scan_trigger,
             peer_semaphores: Arc::new(Mutex::new(HashMap::new())),
+            peer_blob_inventory,
         }
     }
 
@@ -362,30 +368,51 @@ impl BlobSnatcher {
             return Ok(());
         }
 
-        // determine which peers to probe — use snatchedBy if available,
-        // otherwise skip (hub should not blindly probe all peers)
-        let target_peers: Vec<String> = if blob_ref.snatched_by.is_empty() {
-            tracing::debug!(
-                blake3 = trunc(&blob_ref.blake3),
-                filename = %blob_ref.filename,
-                "no snatchedBy entries, skipping (no peers to target)"
-            );
-            return Err(SnatchError::NoPeers);
-        } else {
-            // filter to only peers that are also in the canvas peer list
+        // determine which peers to probe:
+        // 1. prefer snatchedBy (peers that confirmed they have this blob)
+        // 2. fall back to peer blob inventory (from BlobOffer gossip responses)
+        // 3. if neither has info, skip (hub should not blindly probe all peers)
+        let target_peers: Vec<String> = if !blob_ref.snatched_by.is_empty() {
+            // filter snatchedBy to peers that are also in the canvas peer list
             blob_ref
                 .snatched_by
                 .iter()
                 .filter(|node_id| peers.contains(node_id) && node_id.as_str() != self.local_node_id)
                 .cloned()
                 .collect()
+        } else {
+            // no snatchedBy — check peer blob inventory from BlobOffer responses
+            let inventory = self.peer_blob_inventory.lock().await;
+            let mut from_inventory: Vec<String> = Vec::new();
+            for (peer_id, hashes) in inventory.iter() {
+                if hashes.contains(&blob_ref.blake3)
+                    && peer_id != &self.local_node_id
+                    && peers.contains(peer_id)
+                {
+                    from_inventory.push(peer_id.clone());
+                }
+            }
+            if from_inventory.is_empty() {
+                tracing::debug!(
+                    blake3 = trunc(&blob_ref.blake3),
+                    filename = %blob_ref.filename,
+                    "no snatchedBy entries and no peer inventory matches, skipping"
+                );
+                return Err(SnatchError::NoPeers);
+            }
+            tracing::info!(
+                blake3 = trunc(&blob_ref.blake3),
+                peers_from_inventory = from_inventory.len(),
+                "using peer blob inventory (no snatchedBy)"
+            );
+            from_inventory
         };
 
         if target_peers.is_empty() {
             tracing::debug!(
                 blake3 = trunc(&blob_ref.blake3),
                 snatched_by_count = blob_ref.snatched_by.len(),
-                "snatchedBy peers not in canvas peers list or all are self, skipping"
+                "target peers empty after filtering, skipping"
             );
             return Err(SnatchError::NoPeers);
         }

@@ -7,6 +7,8 @@
 //! - computing and sending gossip digests on peer-online events
 //! - processing incoming gossip digests (canvas updates + pending invites)
 
+use std::collections::HashSet;
+
 use crate::protocol::messages::{
     CanvasRole, FriendzMessage, GossipDigestCanvasUpdate, GossipDigestPendingInvite,
 };
@@ -63,25 +65,29 @@ impl HubPeerService {
             }
         }
 
+        // include our canvas doc IDs so the peer can discover canvases they might be missing
+        let shared_canvas_ids: Vec<String> = doc_ids.clone();
+
         if canvas_updates.is_empty() && pending_invites.is_empty() {
             tracing::debug!(
                 peer = %peer_node_id,
                 canvas_count = doc_ids.len(),
-                "gossip digest: nothing to report"
+                "gossip digest: no updates or invites, but sending shared canvas IDs"
             );
-            return;
         }
 
         tracing::info!(
             peer = %peer_node_id,
             updates = canvas_updates.len(),
             invites = pending_invites.len(),
+            shared_canvases = shared_canvas_ids.len(),
             "sending gossip digest"
         );
 
         let digest = FriendzMessage::GossipDigest {
             canvas_updates,
             pending_invites,
+            shared_canvas_ids,
         };
 
         if let Err(e) = self.friendz.send_message(peer_node_id, &digest).await {
@@ -91,6 +97,10 @@ impl HubPeerService {
                 "failed to send gossip digest"
             );
         }
+
+        // after gossip, send a blob seek to this peer with our missing blob hashes.
+        // this helps populate the peer blob inventory for the snatcher.
+        self.send_blob_seek_to_peer(peer_node_id).await;
     }
 
     /// handle an incoming canvas invite from a friend.
@@ -394,6 +404,7 @@ impl HubPeerService {
         from_node_id: &str,
         canvas_updates: Vec<GossipDigestCanvasUpdate>,
         pending_invites: Vec<GossipDigestPendingInvite>,
+        shared_canvas_ids: Vec<String>,
     ) {
         tracing::info!(
             peer = %from_node_id,
@@ -498,6 +509,171 @@ impl HubPeerService {
                 trigger.notify_one();
                 tracing::info!("triggered blob snatcher scan after gossip digest invite");
             });
+        }
+
+        // process shared canvas IDs — discover canvases we should be on but aren't
+        if !shared_canvas_ids.is_empty() {
+            let our_ids: HashSet<String> = {
+                let ids = self.canvas_doc_ids.lock().await;
+                ids.clone()
+            };
+
+            for canvas_id in &shared_canvas_ids {
+                if our_ids.contains(canvas_id) {
+                    continue; // already tracking
+                }
+
+                // check if we're in this canvas's peers or pendingInvites
+                // by looking at the doc (if we have it)
+                let handle = match self.hub_repo.find(canvas_id).await {
+                    Some(h) => h,
+                    None => {
+                        tracing::debug!(
+                            canvas_doc_id = %canvas_id,
+                            peer = %from_node_id,
+                            "peer shared canvas we don't have — may need invite"
+                        );
+                        continue;
+                    }
+                };
+
+                let node_id = self.node_id_str.clone();
+                let canvas_id_owned = canvas_id.clone();
+                let should_track = tokio::task::spawn_blocking(move || {
+                    let mut result = false;
+                    handle.with_document(|doc| {
+                        use automerge::ReadDoc;
+                        // check if we're in the peers map
+                        if let Ok(Some((_, peers_obj))) = doc.get(automerge::ROOT, "peers") {
+                            if doc
+                                .get(&peers_obj, node_id.as_str())
+                                .ok()
+                                .flatten()
+                                .is_some()
+                            {
+                                result = true;
+                                return;
+                            }
+                        }
+                        // check if we're in pendingInvites
+                        if let Ok(Some((_, pending_obj))) =
+                            doc.get(automerge::ROOT, "pendingInvites")
+                        {
+                            if doc
+                                .get(&pending_obj, node_id.as_str())
+                                .ok()
+                                .flatten()
+                                .is_some()
+                            {
+                                result = true;
+                            }
+                        }
+                    });
+                    result
+                })
+                .await
+                .unwrap_or(false);
+
+                if should_track {
+                    tracing::info!(
+                        canvas_doc_id = %canvas_id_owned,
+                        peer = %from_node_id,
+                        "discovered untracked canvas via gossip — starting to track"
+                    );
+
+                    {
+                        let mut ids = self.canvas_doc_ids.lock().await;
+                        ids.insert(canvas_id_owned.clone());
+                    }
+
+                    // write ourselves into the canvas doc's peers map
+                    self.schedule_write_self_to_canvas(&canvas_id_owned);
+
+                    // trigger a blob snatch scan after a delay
+                    let trigger = self.snatch_trigger.clone();
+                    tokio::spawn(async move {
+                        tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+                        trigger.notify_one();
+                        tracing::info!(
+                            "triggered blob snatcher scan after gossip canvas discovery"
+                        );
+                    });
+                }
+            }
+        }
+    }
+
+    /// send a BlobSeek to a peer with all missing blob hashes.
+    ///
+    /// called after gossip digest exchange. the peer responds with BlobOffer
+    /// listing which blobs they have, populating the peer blob inventory.
+    pub(crate) async fn send_blob_seek_to_peer(&self, peer_node_id: &str) {
+        // collect missing blob blake3 hashes from the snatcher's perspective.
+        // scan all docs for file widgets that reference blobs we don't have.
+        let doc_ids = self.hub_repo.all_doc_ids().await;
+        if doc_ids.is_empty() {
+            return;
+        }
+
+        let mut missing_hashes: Vec<String> = Vec::new();
+
+        for doc_id in &doc_ids {
+            let handle = match self.hub_repo.find(doc_id).await {
+                Some(h) => h,
+                None => continue,
+            };
+
+            // read root-level blake3 (widget state docs have this at root)
+            let blake3 = tokio::task::spawn_blocking(move || {
+                let mut result = String::new();
+                handle.with_document(|doc| {
+                    use automerge::ReadDoc;
+                    if let Ok(Some((v, _))) = doc.get(automerge::ROOT, "blake3") {
+                        if let Some(s) = v.to_str() {
+                            result = s.to_string();
+                        }
+                    }
+                });
+                result
+            })
+            .await
+            .unwrap_or_default();
+
+            if blake3.is_empty() {
+                continue;
+            }
+
+            // check if we already have this blob
+            match grimoire::media_blobz::get_media_blob_by_blake3(&blake3).await {
+                Ok(_) => {} // already have it
+                Err(_) => {
+                    if !missing_hashes.contains(&blake3) {
+                        missing_hashes.push(blake3);
+                    }
+                }
+            }
+        }
+
+        if missing_hashes.is_empty() {
+            tracing::debug!(peer = %peer_node_id, "no missing blobs to seek");
+            return;
+        }
+
+        tracing::info!(
+            peer = %peer_node_id,
+            count = missing_hashes.len(),
+            "sending blob seek"
+        );
+
+        let seek = FriendzMessage::BlobSeek {
+            needed: missing_hashes,
+        };
+        if let Err(e) = self.friendz.send_message(peer_node_id, &seek).await {
+            tracing::warn!(
+                peer = %peer_node_id,
+                error = %e,
+                "failed to send blob seek"
+            );
         }
     }
 }
