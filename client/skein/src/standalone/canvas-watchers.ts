@@ -30,6 +30,19 @@ export async function syncCanvasMetadataToCards(
       const canvasStore = await CanvasStore.open(repo, cardDoc.canvasDocId as DocumentId);
       const meta = canvasStore.metadata();
 
+      // purge: auto-remove the card and all linked docs immediately.
+      // narthexStore.removeWidget triggers reconciliation → unmountWidget(permanent=true)
+      // → beforeRemoveHook which deletes the canvas doc + all widget state docs.
+      if (meta.deleted && meta.deleteMode === "purge") {
+        console.log(
+          "[skein] purge detected for canvas:",
+          (cardDoc.canvasDocId as string).slice(0, 16) + "...",
+          "— auto-removing card"
+        );
+        narthexStore.removeWidget(entry.id);
+        continue;
+      }
+
       // perform all updates in a single change() to avoid stale-snapshot bugs.
       // reading from the draft (d) instead of a pre-read cardDoc means the
       // hasUpdates decision sees the freshly-written metadata values.
@@ -189,6 +202,19 @@ export async function watchCanvasDocsForUpdates(
         // detect tombstone changes from remote peers — sync deletion
         // fields to the card so the narthex can reflect the state promptly
         if (canvasDoc.deleted) {
+          // purge: auto-remove the card immediately — the beforeRemoveHook
+          // cascade will clean up the canvas doc + all widget state docs
+          if (canvasDoc.deleteMode === "purge") {
+            console.log(
+              "[skein] purge detected via sync:",
+              canvasDocId.slice(0, 16) + "...",
+              "— auto-removing card"
+            );
+            narthexStore.removeWidget(entry.id);
+            canvasHandle.off("change", onChange);
+            return;
+          }
+
           cardHandle.change((draft: any) => {
             if (!draft.isDeleted) {
               draft.isDeleted = true;
