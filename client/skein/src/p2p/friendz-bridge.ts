@@ -257,6 +257,25 @@ export async function sendAclChange(
 }
 
 /**
+ * send a canvas-deleted notification to a peer.
+ * called when the local user deletes a canvas they own.
+ */
+export async function sendCanvasDeleted(
+  peerNodeId: string,
+  deleted: {
+    canvasDocId: string;
+    canvasTitle: string;
+    deletedBy: string;
+    deletedByUsername: string;
+    deleteMode: "soft" | "purge";
+    deletedAt: string;
+  }
+): Promise<void> {
+  if (!protocol) throw new Error("friendz bridge not initialized");
+  await protocol.sendCanvasDeleted(peerNodeId, deleted);
+}
+
+/**
  * send a friend-accept-ack to confirm receipt of a friend accept.
  */
 export async function sendFriendAcceptAck(peerNodeId: string): Promise<void> {

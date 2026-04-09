@@ -376,6 +376,25 @@ impl HubPeerService {
                 )
                 .await;
             }
+            FriendzMessage::CanvasDeleted {
+                canvas_doc_id,
+                canvas_title,
+                deleted_by,
+                deleted_by_username,
+                delete_mode,
+                deleted_at,
+            } => {
+                self.handle_canvas_deleted(
+                    from_node_id,
+                    &canvas_doc_id,
+                    &canvas_title,
+                    &deleted_by,
+                    &deleted_by_username,
+                    &delete_mode,
+                    &deleted_at,
+                )
+                .await;
+            }
             FriendzMessage::GossipDigest {
                 canvas_updates,
                 pending_invites,

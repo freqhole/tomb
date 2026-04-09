@@ -58,7 +58,7 @@ impl HubPeerService {
                     .await
                     .unwrap_or_default();
 
-            // tombstoned canvas — untrack and skip
+            // tombstoned canvas — untrack from hub
             if is_deleted {
                 tracing::info!(
                     doc_id = %doc_id_str,
@@ -66,6 +66,12 @@ impl HubPeerService {
                 );
                 self.canvas_doc_ids.lock().await.remove(doc_id_str);
                 self.hub_repo.remove_canvas_id(doc_id_str).await;
+                // if there's an update entry (peer was a participant), still
+                // include it in the gossip digest so the peer learns of deletion.
+                // but don't add to shared_canvas_ids.
+                if let Some(u) = update {
+                    canvas_updates.push(u);
+                }
                 continue;
             }
 
@@ -402,6 +408,85 @@ impl HubPeerService {
                 canvas_doc_id = %canvas_doc_id,
                 "received canvas update for untracked canvas — ignoring"
             );
+        }
+    }
+
+    /// handle a canvas-deleted notification from a peer.
+    ///
+    /// if the hub tracks this canvas, untrack it and relay the deletion
+    /// to other online friends who are on this canvas.
+    pub(crate) async fn handle_canvas_deleted(
+        &self,
+        from_node_id: &str,
+        canvas_doc_id: &str,
+        canvas_title: &str,
+        deleted_by: &str,
+        deleted_by_username: &str,
+        delete_mode: &str,
+        deleted_at: &str,
+    ) {
+        let is_tracked = {
+            let ids = self.canvas_doc_ids.lock().await;
+            ids.contains(canvas_doc_id)
+        };
+
+        if !is_tracked {
+            tracing::debug!(
+                peer = %from_node_id,
+                canvas_doc_id = %canvas_doc_id,
+                "received canvas-deleted for untracked canvas — ignoring"
+            );
+            return;
+        }
+
+        tracing::info!(
+            peer = %from_node_id,
+            canvas_doc_id = %canvas_doc_id,
+            canvas_title = %canvas_title,
+            deleted_by = %deleted_by,
+            deleted_by_username = %deleted_by_username,
+            delete_mode = %delete_mode,
+            deleted_at = %deleted_at,
+            "canvas deleted — untracking and relaying"
+        );
+
+        // untrack the canvas
+        {
+            let mut ids = self.canvas_doc_ids.lock().await;
+            ids.remove(canvas_doc_id);
+        }
+        self.hub_repo.remove_canvas_id(canvas_doc_id).await;
+
+        // relay to other online friends (not the sender, not the deleter)
+        let online_peers = self.friendz.get_online_peers().await;
+        for peer_id in &online_peers {
+            if peer_id == from_node_id || peer_id == deleted_by {
+                continue;
+            }
+            if !self.is_friend(peer_id).await {
+                continue;
+            }
+            let msg = FriendzMessage::CanvasDeleted {
+                canvas_doc_id: canvas_doc_id.to_string(),
+                canvas_title: canvas_title.to_string(),
+                deleted_by: deleted_by.to_string(),
+                deleted_by_username: deleted_by_username.to_string(),
+                delete_mode: delete_mode.to_string(),
+                deleted_at: deleted_at.to_string(),
+            };
+            if let Err(e) = self.friendz.send_message(peer_id, &msg).await {
+                tracing::debug!(
+                    peer = %peer_id,
+                    error = %e,
+                    "failed to relay canvas-deleted"
+                );
+            } else {
+                tracing::debug!(
+                    peer = %peer_id,
+                    canvas_doc_id = %canvas_doc_id,
+                    "relayed canvas-deleted"
+                );
+            }
         }
     }
 
@@ -948,6 +1033,39 @@ fn read_canvas_for_gossip(
                 delete_mode = %delete_mode,
                 "detected tombstone on canvas doc"
             );
+
+            // check if the peer is a participant so we can include
+            // a deletion entry in the gossip digest for them
+            let mut peer_was_participant = false;
+            if let Ok(Some((_, peers_obj))) = doc.get(automerge::ROOT, "peers") {
+                if doc.get(&peers_obj, peer_node_id).ok().flatten().is_some() {
+                    peer_was_participant = true;
+                }
+            }
+            if !peer_was_participant {
+                if let Ok(Some((_, pending_obj))) = doc.get(automerge::ROOT, "pendingInvites") {
+                    if doc.get(&pending_obj, peer_node_id).ok().flatten().is_some() {
+                        peer_was_participant = true;
+                    }
+                }
+            }
+
+            if peer_was_participant {
+                let last_modified = read_str(doc, &automerge::ROOT, "lastModified");
+                let last_modified_by = read_str(doc, &automerge::ROOT, "lastModifiedBy");
+                return (
+                    Some(GossipDigestCanvasUpdate {
+                        canvas_doc_id: canvas_doc_id.clone(),
+                        last_modified_at: last_modified,
+                        last_modified_by,
+                        deleted: Some(true),
+                    }),
+                    None,
+                    true,
+                    true,
+                );
+            }
+
             return (None, None, false, true);
         }
 
@@ -969,6 +1087,7 @@ fn read_canvas_for_gossip(
                         canvas_doc_id: canvas_doc_id.clone(),
                         last_modified_at: last_modified.clone(),
                         last_modified_by: last_modified_by.clone(),
+                        deleted: None,
                     });
                 }
             }

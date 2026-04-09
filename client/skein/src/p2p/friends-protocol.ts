@@ -143,6 +143,17 @@ export interface CanvasUpdateMessage {
   modifiedByUsername: string;
 }
 
+/** notify a peer that a shared canvas was deleted or purged. */
+export interface CanvasDeletedMessage {
+  type: "canvas-deleted";
+  canvasDocId: string;
+  canvasTitle: string;
+  deletedBy: string;
+  deletedByUsername: string;
+  deleteMode: "soft" | "purge";
+  deletedAt: string;
+}
+
 /** sent when a peer is about to go offline (tab close / app exit). */
 export interface OfflineAnnouncementMessage {
   type: "offline-announcement";
@@ -154,6 +165,7 @@ export interface GossipDigestCanvasUpdate {
   canvasDocId: string;
   lastModifiedAt: string;
   lastModifiedBy: string;
+  deleted?: boolean;
 }
 
 /** a pending invite entry in a gossip digest. */
@@ -210,6 +222,7 @@ export type FriendzMessage =
   | CanvasInviteDeclineMessage
   | AclChangeMessage
   | CanvasUpdateMessage
+  | CanvasDeletedMessage
   | OfflineAnnouncementMessage
   | GossipDigestMessage
   | BlobSeekMessage
@@ -279,6 +292,9 @@ export type OnAclChange = (change: AclChangeMessage, fromNodeId: string) => void
 
 /** callback for when a canvas update notification is received from a remote peer. */
 export type OnCanvasUpdate = (msg: CanvasUpdateMessage, fromNodeId: string) => void;
+
+/** callback for when a canvas-deleted notification is received from a remote peer. */
+export type OnCanvasDeleted = (msg: CanvasDeletedMessage, fromNodeId: string) => void;
 
 // ---------------------------------------------------------------------------
 // FriendzProtocol
@@ -412,6 +428,9 @@ export class FriendzProtocol {
 
   /** called when a canvas update notification is received. */
   onCanvasUpdate: OnCanvasUpdate | null = null;
+
+  /** called when a canvas-deleted notification is received. */
+  onCanvasDeleted: OnCanvasDeleted | null = null;
 
   /** called when a gossip digest is received from a peer that just came online. */
   onGossipDigest: ((msg: GossipDigestMessage, fromNodeId: string) => void) | null = null;
@@ -566,6 +585,10 @@ export class FriendzProtocol {
 
       case "canvas-update":
         this.onCanvasUpdate?.(msg, fromNodeId);
+        break;
+
+      case "canvas-deleted":
+        this.onCanvasDeleted?.(msg, fromNodeId);
         break;
 
       case "gossip-digest":
@@ -754,6 +777,15 @@ export class FriendzProtocol {
     update: Omit<CanvasUpdateMessage, "type">
   ): Promise<void> {
     const msg: CanvasUpdateMessage = { type: "canvas-update", ...update };
+    await this.sendMessage(peerNodeId, msg);
+  }
+
+  /** send a canvas-deleted notification to a peer. */
+  async sendCanvasDeleted(
+    peerNodeId: string,
+    deleted: Omit<CanvasDeletedMessage, "type">
+  ): Promise<void> {
+    const msg: CanvasDeletedMessage = { type: "canvas-deleted", ...deleted };
     await this.sendMessage(peerNodeId, msg);
   }
 

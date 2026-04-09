@@ -609,6 +609,7 @@ pub(crate) fn friendz_msg_type_name(msg: &FriendzMessage) -> &'static str {
         FriendzMessage::CanvasInviteDecline { .. } => "canvas-invite-decline",
         FriendzMessage::AclChange { .. } => "acl-change",
         FriendzMessage::CanvasUpdate { .. } => "canvas-update",
+        FriendzMessage::CanvasDeleted { .. } => "canvas-deleted",
         FriendzMessage::OfflineAnnouncement { .. } => "offline-announcement",
         FriendzMessage::GossipDigest { .. } => "gossip-digest",
         FriendzMessage::BlobSeek { .. } => "blob-seek",

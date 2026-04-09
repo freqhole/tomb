@@ -43,14 +43,28 @@ const canvasShareSchema = z.object({
   declined: z.boolean().default(false),
 });
 
+const canvasDeletedNotifSchema = z.object({
+  id: z.string(),
+  canvasDocId: z.string(),
+  canvasTitle: z.string().default(""),
+  canvasColor: z.number().catch(0),
+  deletedBy: z.string(),
+  deletedByUsername: z.string().default(""),
+  deleteMode: z.string().default("soft"),
+  deletedAt: z.string(),
+  status: z.enum(["unread", "dismissed"]).default("unread"),
+});
+
 export const messagezSchema = z.object({
   invites: z.array(canvasInviteSchema).default([]),
   shares: z.array(canvasShareSchema).default([]),
+  deletions: z.array(canvasDeletedNotifSchema).default([]),
   canvasInvitesFrom: z.enum(["everyone", "friends", "nobody"]).default("everyone"),
 });
 
 export type CanvasInvite = z.infer<typeof canvasInviteSchema>;
 export type CanvasShare = z.infer<typeof canvasShareSchema>;
+export type CanvasDeletedNotif = z.infer<typeof canvasDeletedNotifSchema>;
 export type MessagezState = z.infer<typeof messagezSchema>;
 
 // ---------------------------------------------------------------------------
@@ -1002,7 +1016,14 @@ export const messagezWidget: WidgetFactory<typeof messagezSchema> = {
           (s.accepted || s.declined) && s.sentAt && now - new Date(s.sentAt).getTime() > CLEANUP_MS
       );
 
-      if (staleInvites.length > 0 || staleShares.length > 0) {
+      const staleDeletions = (state.deletions ?? []).filter(
+        (d: CanvasDeletedNotif) =>
+          d.status === "dismissed" &&
+          d.deletedAt &&
+          now - new Date(d.deletedAt).getTime() > CLEANUP_MS
+      );
+
+      if (staleInvites.length > 0 || staleShares.length > 0 || staleDeletions.length > 0) {
         ctx.doc.change((draft) => {
           if (staleInvites.length > 0) {
             draft.invites = draft.invites.filter(
@@ -1020,12 +1041,23 @@ export const messagezWidget: WidgetFactory<typeof messagezSchema> = {
                 now - new Date(s.sentAt).getTime() <= CLEANUP_MS
             );
           }
+          if (staleDeletions.length > 0) {
+            draft.deletions = draft.deletions.filter(
+              (d: CanvasDeletedNotif) =>
+                d.status !== "dismissed" ||
+                !d.deletedAt ||
+                now - new Date(d.deletedAt).getTime() <= CLEANUP_MS
+            );
+          }
         });
       }
 
       const invites = state.invites ?? [];
       const shares = state.shares ?? [];
-      const pendingCount = invites.filter((inv: CanvasInvite) => inv.status === "pending").length;
+      const deletions = state.deletions ?? [];
+      const pendingCount =
+        invites.filter((inv: CanvasInvite) => inv.status === "pending").length +
+        deletions.filter((d: CanvasDeletedNotif) => d.status === "unread").length;
       const contentW = w - PADDING_X * 2;
       let y = PADDING_Y;
 
@@ -1086,16 +1118,178 @@ export const messagezWidget: WidgetFactory<typeof messagezSchema> = {
           ? invites
           : invites.filter((inv: CanvasInvite) => inv.status === "pending");
 
+        // filter deletions based on toggle
+        const visibleDeletions = deletions.filter(
+          (d: CanvasDeletedNotif) => showAccepted || d.status === "unread"
+        );
+
         // rebuild rows
         rebuildInboxRows(visibleInvites, contentW);
+
+        // append deletion notification rows below invites
+        if (visibleDeletions.length > 0) {
+          const delSorted = [...visibleDeletions].sort((a, b) => {
+            if (a.status === "unread" && b.status !== "unread") return -1;
+            if (a.status !== "unread" && b.status === "unread") return 1;
+            return new Date(b.deletedAt).getTime() - new Date(a.deletedAt).getTime();
+          });
+
+          const delStartY = totalInboxHeight;
+          for (let i = 0; i < delSorted.length; i++) {
+            const notif = delSorted[i];
+            const rowY = delStartY + i * ROW_HEIGHT;
+
+            const rowContainer = new Container();
+            rowContainer.eventMode = "static";
+            rowContainer.y = rowY;
+            inboxListInner.addChild(rowContainer);
+
+            // alternating row bg (continue from invite count)
+            const globalIdx = totalInboxHeight / ROW_HEIGHT + i;
+            const rowBg = new Graphics();
+            rowBg.eventMode = "none";
+            if (globalIdx % 2 === 1) {
+              rowBg.rect(0, 0, contentW, ROW_HEIGHT);
+              rowBg.fill({ color: ROW_ALT_BG, alpha: 0.5 });
+            }
+            rowContainer.addChild(rowBg);
+
+            // red color stripe for deletion
+            const stripe = new Graphics();
+            stripe.rect(0, 2, COLOR_STRIPE_WIDTH, ROW_HEIGHT - 4);
+            stripe.fill({ color: DECLINE_COLOR });
+            rowContainer.addChild(stripe);
+
+            // thumbnail — initial letter
+            const thumbColor = isTransparent(notif.canvasColor)
+              ? BORDER
+              : safeColor(notif.canvasColor);
+            const thumbX = COLOR_STRIPE_WIDTH + 4;
+            const thumbY = (ROW_HEIGHT - THUMB_SIZE) / 2;
+
+            const thumbBg = new Graphics();
+            thumbBg.roundRect(thumbX, thumbY, THUMB_SIZE, THUMB_SIZE, THUMB_RADIUS);
+            thumbBg.fill({ color: thumbColor, alpha: 0.3 });
+            rowContainer.addChild(thumbBg);
+
+            const titleInitial = (notif.canvasTitle || "?")[0].toUpperCase();
+            const thumbLetter = new Text({
+              text: titleInitial,
+              style: {
+                fontFamily: FONT,
+                fontSize: THUMB_SIZE * 0.5,
+                fontWeight: "bold",
+                fill: thumbColor,
+                align: "center",
+              },
+              resolution: RESOLUTION,
+            });
+            thumbLetter.x = thumbX + (THUMB_SIZE - thumbLetter.width) / 2;
+            thumbLetter.y = thumbY + (THUMB_SIZE - thumbLetter.height) / 2;
+            rowContainer.addChild(thumbLetter);
+
+            // text
+            const leftW = COLOR_STRIPE_WIDTH + 4 + THUMB_SIZE + THUMB_MARGIN;
+            const textX = leftW;
+            const isPurge = notif.deleteMode === "purge";
+            const actionLabel = isPurge ? "purged" : "deleted";
+            const displayName = notif.deletedByUsername || notif.deletedBy.slice(0, 12) + "...";
+
+            const titleText = new Text({
+              text: `${displayName} ${actionLabel} canvas`,
+              style: {
+                fontFamily: FONT,
+                fontSize: ROW_NAME_SIZE,
+                fontWeight: "bold",
+                fill: TEXT_COLOR,
+              },
+              resolution: RESOLUTION,
+            });
+            titleText.x = textX;
+            titleText.y = 8;
+            rowContainer.addChild(titleText);
+
+            const descText = new Text({
+              text: truncate(notif.canvasTitle || "untitled", 30),
+              style: { fontFamily: FONT, fontSize: ROW_SUB_SIZE, fill: MUTED_TEXT },
+              resolution: RESOLUTION,
+            });
+            descText.x = textX;
+            descText.y = titleText.y + titleText.height + 2;
+            rowContainer.addChild(descText);
+
+            const metaText = new Text({
+              text: relativeTime(notif.deletedAt),
+              style: { fontFamily: FONT, fontSize: ROW_SUB_SIZE, fill: MUTED_TEXT },
+              resolution: RESOLUTION,
+            });
+            metaText.x = textX;
+            metaText.y = descText.y + descText.height + 2;
+            rowContainer.addChild(metaText);
+
+            // dismiss button
+            if (notif.status === "unread") {
+              const dismissW = 60;
+              const dismissH = ACTION_BTN_SIZE;
+              const dismissBtn = new Container();
+              dismissBtn.eventMode = "static";
+              dismissBtn.cursor = "pointer";
+
+              const dismissBg = new Graphics();
+              dismissBg.roundRect(0, 0, dismissW, dismissH, 4);
+              dismissBg.fill({ color: DECLINE_COLOR });
+              dismissBg.stroke({ color: DECLINE_COLOR, width: 1 });
+              dismissBtn.addChild(dismissBg);
+
+              const dismissLabel = new Text({
+                text: "dismiss",
+                style: { fontFamily: FONT, fontSize: ROW_SUB_SIZE, fill: 0xffffff },
+                resolution: RESOLUTION,
+              });
+              dismissLabel.x = (dismissW - dismissLabel.width) / 2;
+              dismissLabel.y = (dismissH - dismissLabel.height) / 2;
+              dismissBtn.addChild(dismissLabel);
+
+              dismissBtn.x = contentW - dismissW - ROW_PADDING_X;
+              dismissBtn.y = (ROW_HEIGHT - dismissH) / 2;
+
+              const notifId = notif.id;
+              dismissBtn.on("pointertap", () => {
+                ctx.doc.change((draft: any) => {
+                  const del = (draft.deletions ?? []).find((d: any) => d.id === notifId);
+                  if (del) del.status = "dismissed";
+                });
+              });
+
+              rowContainer.addChild(dismissBtn);
+            } else {
+              const statusIcon = new Text({
+                text: "\u2713",
+                style: {
+                  fontFamily: FONT,
+                  fontSize: ROW_NAME_SIZE,
+                  fontWeight: "bold",
+                  fill: MUTED_TEXT,
+                },
+                resolution: RESOLUTION,
+              });
+              statusIcon.x = contentW - statusIcon.width - ROW_PADDING_X;
+              statusIcon.y = (ROW_HEIGHT - statusIcon.height) / 2;
+              rowContainer.addChild(statusIcon);
+            }
+          }
+
+          totalInboxHeight += delSorted.length * ROW_HEIGHT;
+        }
 
         // clamp scroll
         clampInboxScroll();
         inboxListInner.y = -scrollY;
 
         // empty state
-        if (visibleInvites.length === 0) {
-          inboxEmptyText.text = invites.length > 0 ? "all invites accepted" : "no invites yet";
+        if (visibleInvites.length === 0 && visibleDeletions.length === 0) {
+          inboxEmptyText.text =
+            invites.length > 0 || deletions.length > 0 ? "all resolved" : "no messages yet";
           inboxEmptyText.visible = true;
           inboxEmptyText.x = PADDING_X + (contentW - inboxEmptyText.width) / 2;
           inboxEmptyText.y = inboxAreaY + inboxAreaHeight / 2 - 6;

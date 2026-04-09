@@ -49,6 +49,9 @@ pub struct GossipDigestCanvasUpdate {
     pub canvas_doc_id: String,
     pub last_modified_at: String,
     pub last_modified_by: String,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub deleted: Option<bool>,
 }
 
 /// a pending invite entry in a gossip digest.
@@ -211,6 +214,22 @@ pub enum FriendzMessage {
         modified_by_node_id: String,
         #[serde(rename = "modifiedByUsername")]
         modified_by_username: String,
+    },
+
+    /// notify a peer that a shared canvas was deleted or purged.
+    CanvasDeleted {
+        #[serde(rename = "canvasDocId")]
+        canvas_doc_id: String,
+        #[serde(rename = "canvasTitle")]
+        canvas_title: String,
+        #[serde(rename = "deletedBy")]
+        deleted_by: String,
+        #[serde(rename = "deletedByUsername")]
+        deleted_by_username: String,
+        #[serde(rename = "deleteMode")]
+        delete_mode: String,
+        #[serde(rename = "deletedAt")]
+        deleted_at: String,
     },
 
     /// sent when a peer is about to go offline.
@@ -552,6 +571,7 @@ mod tests {
                 canvas_doc_id: "doc-1".to_string(),
                 last_modified_at: "2025-01-01T00:00:00Z".to_string(),
                 last_modified_by: "node-abc".to_string(),
+                deleted: None,
             }],
             pending_invites: vec![GossipDigestPendingInvite {
                 canvas_doc_id: "doc-2".to_string(),
@@ -700,6 +720,72 @@ mod tests {
             }
             _ => panic!("wrong variant"),
         }
+    }
+
+    #[test]
+    fn test_canvas_deleted_round_trip() {
+        let msg = FriendzMessage::CanvasDeleted {
+            canvas_doc_id: "doc-1".to_string(),
+            canvas_title: "my canvas".to_string(),
+            deleted_by: "node-abc".to_string(),
+            deleted_by_username: "alice".to_string(),
+            delete_mode: "soft".to_string(),
+            deleted_at: "2025-01-01T00:00:00Z".to_string(),
+        };
+
+        let json = serde_json::to_string(&msg).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed["type"], "canvas-deleted");
+        assert_eq!(parsed["canvasDocId"], "doc-1");
+        assert_eq!(parsed["canvasTitle"], "my canvas");
+        assert_eq!(parsed["deletedBy"], "node-abc");
+        assert_eq!(parsed["deletedByUsername"], "alice");
+        assert_eq!(parsed["deleteMode"], "soft");
+        assert_eq!(parsed["deletedAt"], "2025-01-01T00:00:00Z");
+
+        // round-trip
+        let deserialized: FriendzMessage = serde_json::from_str(&json).unwrap();
+        match deserialized {
+            FriendzMessage::CanvasDeleted {
+                canvas_doc_id,
+                canvas_title,
+                deleted_by,
+                delete_mode,
+                ..
+            } => {
+                assert_eq!(canvas_doc_id, "doc-1");
+                assert_eq!(canvas_title, "my canvas");
+                assert_eq!(deleted_by, "node-abc");
+                assert_eq!(delete_mode, "soft");
+            }
+            _ => panic!("expected CanvasDeleted"),
+        }
+    }
+
+    #[test]
+    fn test_gossip_digest_canvas_update_with_deleted() {
+        let update = GossipDigestCanvasUpdate {
+            canvas_doc_id: "doc-1".to_string(),
+            last_modified_at: "2025-01-01T00:00:00Z".to_string(),
+            last_modified_by: "node-abc".to_string(),
+            deleted: Some(true),
+        };
+
+        let json = serde_json::to_string(&update).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed["deleted"], true);
+
+        // without deleted flag — should not appear in JSON
+        let update_no_del = GossipDigestCanvasUpdate {
+            canvas_doc_id: "doc-1".to_string(),
+            last_modified_at: "2025-01-01T00:00:00Z".to_string(),
+            last_modified_by: "node-abc".to_string(),
+            deleted: None,
+        };
+
+        let json2 = serde_json::to_string(&update_no_del).unwrap();
+        let parsed2: serde_json::Value = serde_json::from_str(&json2).unwrap();
+        assert!(parsed2.get("deleted").is_none());
     }
 
     #[test]

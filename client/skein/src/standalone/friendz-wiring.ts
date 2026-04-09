@@ -708,6 +708,32 @@ export async function initFriendzWiring(
         const canvasDoc = canvasHandle?.doc() as CanvasDocument | undefined;
         const peers = canvasDoc?.peers ?? {};
 
+        // if the canvas was just deleted by us, send canvas-deleted instead of canvas-update
+        if ((canvasDoc as any)?.deleted && (canvasDoc as any)?.deletedBy === localNodeId) {
+          for (const peerNodeId of Object.keys(peers)) {
+            if (peerNodeId === localNodeId) continue;
+            if (!onlinePeers.includes(peerNodeId)) continue;
+
+            protocol
+              .sendCanvasDeleted(peerNodeId, {
+                canvasDocId: info.canvasDocId,
+                canvasTitle: (canvasDoc as any)?.title ?? "",
+                deletedBy: localNodeId,
+                deletedByUsername: localUsername,
+                deleteMode: (canvasDoc as any)?.deleteMode ?? "soft",
+                deletedAt: (canvasDoc as any)?.deletedAt ?? new Date().toISOString(),
+              })
+              .catch((err) => {
+                console.warn(
+                  "[friendz-wiring] canvas-deleted send failed for:",
+                  peerNodeId.slice(0, 16) + "...",
+                  err
+                );
+              });
+          }
+          continue; // skip the normal CanvasUpdate send
+        }
+
         for (const peerNodeId of Object.keys(peers)) {
           if (peerNodeId === localNodeId) continue;
           if (!onlinePeers.includes(peerNodeId)) continue;
@@ -764,6 +790,21 @@ export async function initFriendzWiring(
         const canvasHandle = repo.handles[canvasDocId as any];
         const canvasDoc = canvasHandle?.doc() as CanvasDocument | undefined;
         if (!canvasDoc) continue;
+
+        // include deletion info in gossip for tombstoned canvases
+        if ((canvasDoc as any).deleted) {
+          const peerIsParticipant =
+            !!canvasDoc.peers?.[peerNodeId] || !!canvasDoc.pendingInvites?.[peerNodeId];
+          if (peerIsParticipant) {
+            canvasUpdates.push({
+              canvasDocId,
+              lastModifiedAt: canvasDoc.lastModified ?? "",
+              lastModifiedBy: canvasDoc.lastModifiedBy ?? "",
+              deleted: true,
+            });
+          }
+          continue; // skip normal gossip processing for deleted canvas
+        }
 
         // only include in sharedCanvasIds if the peer is on this canvas
         // (in peers or pendingInvites) — don't leak canvas IDs to unrelated peers
@@ -878,6 +919,82 @@ export async function initFriendzWiring(
     }
   };
 
+  // handle incoming canvas-deleted notifications
+  protocol.onCanvasDeleted = (msg, fromNodeId) => {
+    console.log(
+      "[friendz-wiring] received canvas-deleted from:",
+      fromNodeId.slice(0, 16) + "...",
+      "canvas:",
+      msg.canvasDocId.slice(0, 16) + "...",
+      "mode:",
+      msg.deleteMode
+    );
+
+    // write deletion notification to messagez doc
+    if (messagezHandle) {
+      messagezHandle.change((draft: any) => {
+        if (!draft.deletions) draft.deletions = [];
+
+        // dedup by canvasDocId
+        const existing = (draft.deletions as any[]).some(
+          (d: any) => d.canvasDocId === msg.canvasDocId
+        );
+        if (existing) {
+          console.log("[friendz-wiring] duplicate deletion notification — skipping");
+          return;
+        }
+
+        draft.deletions.push({
+          id: crypto.randomUUID(),
+          canvasDocId: msg.canvasDocId,
+          canvasTitle: msg.canvasTitle ?? "",
+          canvasColor: 0,
+          deletedBy: msg.deletedBy,
+          deletedByUsername: msg.deletedByUsername ?? "",
+          deleteMode: msg.deleteMode ?? "soft",
+          deletedAt: msg.deletedAt ?? new Date().toISOString(),
+          status: "unread",
+        });
+
+        console.log(
+          "[friendz-wiring] wrote deletion notification to inbox — total:",
+          draft.deletions.length
+        );
+      });
+    }
+
+    // sync deletion state to the canvas card doc so it reflects immediately
+    // (the automerge sync will eventually catch up, but the friendz message
+    // arrives faster than doc sync in most cases)
+    try {
+      const narthexHandle = repo.handles[narthexDocId as any];
+      const narthexDoc = narthexHandle?.doc();
+      if (narthexDoc?.widgets) {
+        for (const [_cardId, card] of Object.entries(narthexDoc.widgets) as any[]) {
+          if (card?.type === "canvas-card" && card.docId) {
+            const cardHandle = repo.handles[card.docId as any];
+            const cardDoc = cardHandle?.doc() as Record<string, unknown> | undefined;
+            if (cardDoc?.canvasDocId === msg.canvasDocId) {
+              cardHandle.change((draft: any) => {
+                draft.isDeleted = true;
+                draft.deletedAt = msg.deletedAt ?? "";
+                draft.deletedBy = msg.deletedBy ?? "";
+                draft.deleteMode = msg.deleteMode ?? "soft";
+              });
+              console.log(
+                "[friendz-wiring] synced deletion state to canvas card:",
+                msg.canvasDocId.slice(0, 16) + "..."
+              );
+              break;
+            }
+          }
+        }
+      }
+    } catch (err) {
+      console.warn("[friendz-wiring] failed to sync card metadata after deletion:", err);
+    }
+  };
+
   // handle incoming gossip digests from peers that just came online
   protocol.onGossipDigest = (msg, fromNodeId) => {
     // process canvas update notifications
@@ -888,6 +1005,63 @@ export async function initFriendzWiring(
       // skip if currently viewing this canvas
       const currentHash = window.location.hash.replace(/^#/, "");
       if (currentHash === update.canvasDocId) continue;
+
+      // check if this is a deletion notification via gossip
+      if (update.deleted) {
+        console.log(
+          "[friendz-wiring] gossip: canvas deleted:",
+          update.canvasDocId.slice(0, 16) + "..."
+        );
+
+        // write deletion notification to messagez (dedup)
+        if (messagezHandle) {
+          messagezHandle.change((draft: any) => {
+            if (!draft.deletions) draft.deletions = [];
+            const existing = (draft.deletions as any[]).some(
+              (d: any) => d.canvasDocId === update.canvasDocId
+            );
+            if (existing) return;
+
+            draft.deletions.push({
+              id: crypto.randomUUID(),
+              canvasDocId: update.canvasDocId,
+              canvasTitle: "",
+              canvasColor: 0,
+              deletedBy: update.lastModifiedBy,
+              deletedByUsername: "",
+              deleteMode: "soft",
+              deletedAt: update.lastModifiedAt,
+              status: "unread",
+            });
+          });
+        }
+
+        // sync deletion state to canvas card
+        try {
+          const narthexHandle = repo.handles[narthexDocId as any];
+          const narthexDoc = narthexHandle?.doc();
+          if (narthexDoc?.widgets) {
+            for (const [_cardId, card] of Object.entries(narthexDoc.widgets) as any[]) {
+              if (card?.props?.canvasDocId === update.canvasDocId && card.docId) {
+                const cardHandle = repo.handles[card.docId as any];
+                if (cardHandle) {
+                  cardHandle.change((draft: any) => {
+                    draft.isDeleted = true;
+                    draft.deletedAt = update.lastModifiedAt ?? "";
+                    draft.deletedBy = update.lastModifiedBy ?? "";
+                    draft.deleteMode = "soft";
+                  });
+                }
+                break;
+              }
+            }
+          }
+        } catch {
+          // best effort
+        }
+
+        continue; // skip normal hasUpdates processing
+      }
 
       // find the narthex card and mark hasUpdates
       try {
