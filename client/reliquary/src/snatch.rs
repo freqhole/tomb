@@ -952,6 +952,13 @@ fn read_canvas_for_file_widgets(
     let mut peers: Vec<String> = Vec::new();
 
     handle.with_document(|doc| {
+        // skip deleted canvases
+        if let Ok(Some((automerge::Value::Scalar(s), _))) = doc.get(automerge::ROOT, "deleted") {
+            if s.as_ref() == &automerge::ScalarValue::Boolean(true) {
+                return;
+            }
+        }
+
         // extract peer node IDs from the "peers" map
         if let Ok(Some((_, peers_obj))) = doc.get(automerge::ROOT, "peers") {
             for key in doc.keys(&peers_obj) {

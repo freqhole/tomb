@@ -28,6 +28,10 @@ export const canvasCardSchema = z.object({
   hasUpdates: z.boolean().default(false),
   lastKnownModifiedAt: z.string().default(""),
   lastModifiedBy: z.string().default(""),
+  isDeleted: z.boolean().default(false),
+  deletedAt: z.string().default(""),
+  deletedBy: z.string().default(""),
+  deleteMode: z.string().default(""),
 });
 
 export type CanvasCardState = z.infer<typeof canvasCardSchema>;
@@ -67,6 +71,9 @@ const ROLE_EDITOR_COLOR = 0x22c55e;
 const ROLE_VIEWER_COLOR = 0xf59e0b;
 const REVOKED_OVERLAY_ALPHA = 0.7;
 const REVOKED_TEXT_COLOR = 0xff6b6b;
+const DELETED_OVERLAY_ALPHA = 0.65;
+const DELETED_TEXT_COLOR = 0xff8c42;
+const DELETED_SUBTEXT_COLOR = 0xaa7744;
 
 /**
  * truncate a string so it fits within a rough character budget.
@@ -351,6 +358,46 @@ export const canvasCardWidget: WidgetFactory<typeof canvasCardSchema> = {
     revokedText.zIndex = 101;
     container.addChild(revokedText);
 
+    // --- deleted overlay (soft-delete / purge visual treatment) ---
+
+    const deletedOverlay = new Graphics();
+    deletedOverlay.eventMode = "none";
+    deletedOverlay.visible = false;
+    deletedOverlay.zIndex = 90;
+    container.addChild(deletedOverlay);
+
+    const deletedText = new Text({
+      text: "canvas deleted",
+      style: {
+        fontFamily: "system-ui, sans-serif",
+        fontSize: 12,
+        fontWeight: "bold",
+        fill: DELETED_TEXT_COLOR,
+      },
+      resolution: 3,
+    });
+    deletedText.anchor.set(0.5);
+    deletedText.eventMode = "none";
+    deletedText.visible = false;
+    deletedText.zIndex = 91;
+    container.addChild(deletedText);
+
+    const deletedByText = new Text({
+      text: "",
+      style: {
+        fontFamily: "system-ui, sans-serif",
+        fontSize: 9,
+        fontWeight: "normal",
+        fill: DELETED_SUBTEXT_COLOR,
+      },
+      resolution: 3,
+    });
+    deletedByText.anchor.set(0.5);
+    deletedByText.eventMode = "none";
+    deletedByText.visible = false;
+    deletedByText.zIndex = 91;
+    container.addChild(deletedByText);
+
     // --- update pill (shows when a shared canvas has new activity) ---
 
     const updatePill = new Graphics();
@@ -634,6 +681,38 @@ export const canvasCardWidget: WidgetFactory<typeof canvasCardSchema> = {
       }
     };
 
+    const drawDeletedOverlay = (w: number, h: number, state: CanvasCardState) => {
+      deletedOverlay.clear();
+      if (state.isDeleted) {
+        deletedOverlay.roundRect(0, 0, w, h, CARD_RADIUS);
+        deletedOverlay.fill({ color: 0x000000, alpha: DELETED_OVERLAY_ALPHA });
+        deletedOverlay.visible = true;
+
+        // primary label — "canvas deleted" or "canvas purged"
+        const isPurge = state.deleteMode === "purge";
+        deletedText.text = isPurge ? "canvas purged" : "canvas deleted";
+        deletedText.x = w / 2;
+        deletedText.y = h / 2 - 8;
+        deletedText.visible = true;
+
+        // secondary label — who deleted it (truncated node id prefix)
+        if (state.deletedBy) {
+          const prefix =
+            state.deletedBy.length > 8 ? state.deletedBy.slice(0, 8) + "\u2026" : state.deletedBy;
+          deletedByText.text = "by " + prefix;
+          deletedByText.x = w / 2;
+          deletedByText.y = h / 2 + 8;
+          deletedByText.visible = true;
+        } else {
+          deletedByText.visible = false;
+        }
+      } else {
+        deletedOverlay.visible = false;
+        deletedText.visible = false;
+        deletedByText.visible = false;
+      }
+    };
+
     const drawUpdatePill = (w: number, state: CanvasCardState) => {
       updatePill.clear();
       if (state.hasUpdates) {
@@ -788,8 +867,19 @@ export const canvasCardWidget: WidgetFactory<typeof canvasCardSchema> = {
       // syncing indicator for newly accepted remote cards
       drawSyncingIndicator(w, h, state);
 
-      // cursor style — revoked cards shouldn't look clickable
-      container.cursor = state.isRemote && state.accessRevoked ? "not-allowed" : "pointer";
+      // deleted overlay — renders above the update pill
+      drawDeletedOverlay(w, h, state);
+
+      // cursor style — revoked and purged cards shouldn't look clickable
+      if (state.isRemote && state.accessRevoked) {
+        container.cursor = "not-allowed";
+      } else if (state.isDeleted && state.deleteMode === "purge") {
+        container.cursor = "not-allowed";
+      } else if (state.isDeleted) {
+        container.cursor = "default";
+      } else {
+        container.cursor = "pointer";
+      }
     };
 
     // --- initial draw ---
@@ -825,6 +915,8 @@ export const canvasCardWidget: WidgetFactory<typeof canvasCardSchema> = {
     container.on("pointertap", () => {
       const state = ctx.doc.current;
       if (state.accessRevoked) return;
+      // purged canvases are being auto-deleted, don't navigate
+      if (state.isDeleted && state.deleteMode === "purge") return;
       if (state.canvasDocId) {
         window.location.hash = state.canvasDocId;
       }

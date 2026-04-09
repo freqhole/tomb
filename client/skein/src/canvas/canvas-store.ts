@@ -137,6 +137,10 @@ export class CanvasStore {
     lastModifiedBy: string;
     color: number;
     previewUrl: string;
+    deleted?: boolean;
+    deletedAt?: string;
+    deletedBy?: string;
+    deleteMode?: "soft" | "purge";
   } {
     const doc = this.doc();
     return {
@@ -147,6 +151,10 @@ export class CanvasStore {
       lastModifiedBy: doc.lastModifiedBy ?? "",
       color: doc.color ?? 0,
       previewUrl: doc.previewUrl ?? "",
+      deleted: doc.deleted,
+      deletedAt: doc.deletedAt,
+      deletedBy: doc.deletedBy,
+      deleteMode: doc.deleteMode,
     };
   }
 
@@ -405,6 +413,25 @@ export class CanvasStore {
   /** get all widget entries that are children of the given parent. */
   getChildren(parentId: string): WidgetEntry[] {
     return Object.values(this.doc().widgets).filter((w) => w.parentId === parentId);
+  }
+
+  // -- deletion --------------------------------------------------------------
+
+  /** whether this canvas has been marked as deleted. */
+  get isDeleted(): boolean {
+    return this.doc().deleted === true;
+  }
+
+  /** mark this canvas as deleted with the given mode.
+   *  writes tombstone fields into the document so all peers see the deletion. */
+  deleteCanvas(mode: "soft" | "purge"): void {
+    this.handle.change((doc) => {
+      doc.deleted = true;
+      doc.deletedAt = new Date().toISOString();
+      doc.deletedBy = this._localNodeId;
+      doc.deleteMode = mode;
+      this.touchModified(doc);
+    });
   }
 
   /** subscribe to document changes. returns an unsubscribe function. */

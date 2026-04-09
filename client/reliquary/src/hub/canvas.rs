@@ -53,10 +53,21 @@ impl HubPeerService {
 
             // read the automerge doc to extract metadata
             let peer_id = peer_node_id_owned.clone();
-            let (update, invite, peer_is_participant) =
+            let (update, invite, peer_is_participant, is_deleted) =
                 tokio::task::spawn_blocking(move || read_canvas_for_gossip(&handle, &peer_id))
                     .await
                     .unwrap_or_default();
+
+            // tombstoned canvas — untrack and skip
+            if is_deleted {
+                tracing::info!(
+                    doc_id = %doc_id_str,
+                    "canvas is tombstoned, untracking from hub"
+                );
+                self.canvas_doc_ids.lock().await.remove(doc_id_str);
+                self.hub_repo.remove_canvas_id(doc_id_str).await;
+                continue;
+            }
 
             if peer_is_participant {
                 shared_canvas_ids.push(doc_id_str.clone());
@@ -890,8 +901,8 @@ fn write_self_to_canvas_doc(
 /// read a canvas document's automerge state to extract gossip-relevant data
 /// for a specific peer.
 ///
-/// returns (optional canvas update, optional pending invite) for gossip digest.
-/// runs inside spawn_blocking because doc access holds a lock.
+/// returns (optional canvas update, optional pending invite, peer_is_participant, is_deleted)
+/// for gossip digest. runs inside spawn_blocking because doc access holds a lock.
 fn read_canvas_for_gossip(
     handle: &crate::hub_repo::DocHandle,
     peer_node_id: &str,
@@ -899,6 +910,7 @@ fn read_canvas_for_gossip(
     Option<GossipDigestCanvasUpdate>,
     Option<GossipDigestPendingInvite>,
     bool, // peer_is_participant: true if peer is in peers or pendingInvites
+    bool, // is_deleted: true if canvas has been tombstoned
 ) {
     use automerge::ReadDoc;
 
@@ -920,6 +932,24 @@ fn read_canvas_for_gossip(
         let mut update: Option<GossipDigestCanvasUpdate> = None;
         let mut invite: Option<GossipDigestPendingInvite> = None;
         let mut peer_is_participant = false;
+
+        // check for tombstone
+        let is_deleted = match doc.get(automerge::ROOT, "deleted") {
+            Ok(Some((automerge::Value::Scalar(s), _))) => {
+                s.as_ref() == &automerge::ScalarValue::Boolean(true)
+            }
+            _ => false,
+        };
+
+        if is_deleted {
+            let delete_mode = read_str(doc, &automerge::ROOT, "deleteMode");
+            tracing::info!(
+                canvas_doc_id = %canvas_doc_id,
+                delete_mode = %delete_mode,
+                "detected tombstone on canvas doc"
+            );
+            return (None, None, false, true);
+        }
 
         // read lastModified
         let last_modified: String = read_str(doc, &automerge::ROOT, "lastModified");
@@ -1004,6 +1034,6 @@ fn read_canvas_for_gossip(
             }
         }
 
-        (update, invite, peer_is_participant)
+        (update, invite, peer_is_participant, false)
     })
 }

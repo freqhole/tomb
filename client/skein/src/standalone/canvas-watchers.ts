@@ -64,6 +64,39 @@ export async function syncCanvasMetadataToCards(
           changed = true;
         }
 
+        // sync tombstone fields from canvas doc — owner may have deleted
+        // (or un-deleted) the canvas since we last synced
+        if (meta.deleted) {
+          if (!d.isDeleted) {
+            d.isDeleted = true;
+            changed = true;
+          }
+          const deletedAt = meta.deletedAt || "";
+          if (deletedAt !== (d.deletedAt ?? "")) {
+            d.deletedAt = deletedAt;
+            changed = true;
+          }
+          const deletedBy = meta.deletedBy || "";
+          if (deletedBy !== (d.deletedBy ?? "")) {
+            d.deletedBy = deletedBy;
+            changed = true;
+          }
+          const deleteMode = meta.deleteMode || "soft";
+          if (deleteMode !== (d.deleteMode ?? "")) {
+            d.deleteMode = deleteMode;
+            changed = true;
+          }
+        } else {
+          // canvas is not deleted (or was un-deleted) — clear any stale tombstone fields
+          if (d.isDeleted) {
+            d.isDeleted = false;
+            d.deletedAt = "";
+            d.deletedBy = "";
+            d.deleteMode = "";
+            changed = true;
+          }
+        }
+
         // seed lastVisitedAt for pre-migration cards (one-time migration).
         // without this, cards created before the schema migration have
         // lastVisitedAt = "" which causes:
@@ -151,7 +184,34 @@ export async function watchCanvasDocsForUpdates(
 
       const onChange = () => {
         const canvasDoc = canvasHandle.doc() as CanvasDocument | undefined;
-        if (!canvasDoc?.lastModified) return;
+        if (!canvasDoc) return;
+
+        // detect tombstone changes from remote peers — sync deletion
+        // fields to the card so the narthex can reflect the state promptly
+        if (canvasDoc.deleted) {
+          cardHandle.change((draft: any) => {
+            if (!draft.isDeleted) {
+              draft.isDeleted = true;
+              draft.deletedAt = canvasDoc.deletedAt || "";
+              draft.deletedBy = canvasDoc.deletedBy || "";
+              draft.deleteMode = canvasDoc.deleteMode || "soft";
+            }
+          });
+          // no need to process update pills for a deleted canvas
+          return;
+        } else if (!canvasDoc.deleted) {
+          // canvas was un-deleted — clear tombstone fields on the card
+          cardHandle.change((draft: any) => {
+            if (draft.isDeleted) {
+              draft.isDeleted = false;
+              draft.deletedAt = "";
+              draft.deletedBy = "";
+              draft.deleteMode = "";
+            }
+          });
+        }
+
+        if (!canvasDoc.lastModified) return;
         if (canvasDoc.lastModified === lastSeenModified) return;
         lastSeenModified = canvasDoc.lastModified;
 

@@ -74,6 +74,16 @@ export interface CanvasDocument {
    *  keyed by target node ID. used for gossip relay — any peer on the canvas
    *  can read this and relay the invite when the target comes online. */
   pendingInvites?: Record<string, PendingCanvasInvite>;
+  /** access control list — maps nodeId to role */
+  acl?: Record<string, { role: "owner" | "editor" | "viewer" }>;
+  /** tombstone: canvas has been deleted by owner */
+  deleted?: boolean;
+  /** ISO timestamp of when the canvas was deleted */
+  deletedAt?: string;
+  /** node ID of the peer who deleted this canvas */
+  deletedBy?: string;
+  /** deletion mode — soft (read-only copy remains) or purge (auto-delete everywhere) */
+  deleteMode?: "soft" | "purge";
 }
 
 /**
