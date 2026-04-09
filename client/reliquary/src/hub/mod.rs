@@ -268,6 +268,19 @@ impl HubPeerService {
 
         let snatch_trigger = Arc::new(tokio::sync::Notify::new());
 
+        // load persisted canvas doc IDs from storage so we resume tracking
+        // canvases across restarts
+        let canvas_doc_ids = {
+            let persisted = hub_repo.load_canvas_ids().await;
+            if !persisted.is_empty() {
+                tracing::info!(
+                    count = persisted.len(),
+                    "loaded persisted canvas doc IDs from storage"
+                );
+            }
+            Arc::new(Mutex::new(persisted.into_iter().collect()))
+        };
+
         Ok(Self {
             endpoint,
             router,
@@ -280,7 +293,7 @@ impl HubPeerService {
             profile_username,
             profile_bio,
             profile_avatar_data_url: avatar_data_url,
-            canvas_doc_ids: Arc::new(Mutex::new(HashSet::new())),
+            canvas_doc_ids,
             blobs_downloader,
             snatch_trigger,
             peer_blob_inventory: Arc::new(Mutex::new(HashMap::new())),

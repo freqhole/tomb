@@ -182,6 +182,15 @@ impl HubDocStorage {
         .execute(&pool)
         .await?;
 
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS hub_canvas_ids (\
+                canvas_doc_id TEXT PRIMARY KEY, \
+                added_at TEXT NOT NULL DEFAULT (datetime('now'))\
+            )",
+        )
+        .execute(&pool)
+        .await?;
+
         Ok(Self { pool })
     }
 
@@ -214,6 +223,37 @@ impl HubDocStorage {
             .fetch_all(&self.pool)
             .await
             .unwrap_or_default()
+    }
+
+    /// load all persisted canvas doc IDs.
+    pub async fn load_canvas_ids(&self) -> Vec<String> {
+        sqlx::query_scalar::<_, String>("SELECT canvas_doc_id FROM hub_canvas_ids")
+            .fetch_all(&self.pool)
+            .await
+            .unwrap_or_default()
+    }
+
+    /// persist a canvas doc ID (idempotent — ignores duplicates).
+    pub async fn save_canvas_id(&self, canvas_doc_id: &str) {
+        if let Err(e) =
+            sqlx::query("INSERT OR IGNORE INTO hub_canvas_ids (canvas_doc_id) VALUES (?)")
+                .bind(canvas_doc_id)
+                .execute(&self.pool)
+                .await
+        {
+            tracing::warn!(canvas_doc_id, error = %e, "failed to persist canvas ID");
+        }
+    }
+
+    /// remove a canvas doc ID from persistence (e.g. when hub is removed from the canvas).
+    pub async fn remove_canvas_id(&self, canvas_doc_id: &str) {
+        if let Err(e) = sqlx::query("DELETE FROM hub_canvas_ids WHERE canvas_doc_id = ?")
+            .bind(canvas_doc_id)
+            .execute(&self.pool)
+            .await
+        {
+            tracing::warn!(canvas_doc_id, error = %e, "failed to remove canvas ID from storage");
+        }
     }
 }
 
@@ -588,6 +628,21 @@ impl HubRepo {
     /// list all document IDs currently held in memory.
     pub async fn all_doc_ids(&self) -> Vec<String> {
         self.documents.read().await.keys().cloned().collect()
+    }
+
+    /// load all persisted canvas doc IDs from storage.
+    pub async fn load_canvas_ids(&self) -> Vec<String> {
+        self.storage.load_canvas_ids().await
+    }
+
+    /// persist a canvas doc ID to storage (idempotent).
+    pub async fn save_canvas_id(&self, canvas_doc_id: &str) {
+        self.storage.save_canvas_id(canvas_doc_id).await;
+    }
+
+    /// remove a canvas doc ID from storage.
+    pub async fn remove_canvas_id(&self, canvas_doc_id: &str) {
+        self.storage.remove_canvas_id(canvas_doc_id).await;
     }
 
     /// subscribe to document change notifications.

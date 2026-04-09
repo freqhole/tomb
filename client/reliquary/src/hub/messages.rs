@@ -7,7 +7,7 @@
 use std::collections::HashSet;
 
 use crate::protocol::handler::FriendzEvent;
-use crate::protocol::messages::FriendzMessage;
+use crate::protocol::messages::{AclRole, FriendzMessage};
 
 use super::friendz_msg_type_name;
 use super::HubPeerService;
@@ -407,6 +407,22 @@ impl HubPeerService {
                     changed_by_username = %changed_by_username,
                     "received ACL change notification"
                 );
+
+                // if the hub was removed from this canvas, stop tracking it
+                if target_node_id == self.node_id_str && new_role == AclRole::Removed {
+                    tracing::info!(
+                        canvas_doc_id = %canvas_doc_id,
+                        canvas_title = %canvas_title,
+                        changed_by = %changed_by,
+                        "hub removed from canvas — untracking"
+                    );
+
+                    {
+                        let mut ids = self.canvas_doc_ids.lock().await;
+                        ids.remove(&canvas_doc_id);
+                    }
+                    self.hub_repo.remove_canvas_id(&canvas_doc_id).await;
+                }
             }
             FriendzMessage::FriendReject {
                 from_node_id: reject_node_id,

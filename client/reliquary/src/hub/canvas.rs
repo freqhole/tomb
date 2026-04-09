@@ -208,6 +208,7 @@ impl HubPeerService {
             let mut ids = self.canvas_doc_ids.lock().await;
             ids.insert(canvas_doc_id.to_string());
         }
+        self.hub_repo.save_canvas_id(canvas_doc_id).await;
         tracing::info!(
             canvas_doc_id = %canvas_doc_id,
             "canvas doc added to hub tracking set"
@@ -471,6 +472,7 @@ impl HubPeerService {
                 let mut ids = self.canvas_doc_ids.lock().await;
                 ids.insert(invite.canvas_doc_id.clone());
             }
+            self.hub_repo.save_canvas_id(&invite.canvas_doc_id).await;
 
             // send accept back to the inviter (if they're online and not the
             // relay peer, send to them; otherwise send to the relay peer)
@@ -588,6 +590,7 @@ impl HubPeerService {
                         let mut ids = self.canvas_doc_ids.lock().await;
                         ids.insert(canvas_id_owned.clone());
                     }
+                    self.hub_repo.save_canvas_id(&canvas_id_owned).await;
 
                     // write ourselves into the canvas doc's peers map
                     self.schedule_write_self_to_canvas(&canvas_id_owned);
