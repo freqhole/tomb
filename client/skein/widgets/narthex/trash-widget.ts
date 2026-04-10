@@ -502,7 +502,7 @@ export const trashWidget: WidgetFactory<typeof trashSchema> = {
  * read a canvas-card widget's doc to find the linked canvasDocId,
  * then open that canvas and soft-delete it.
  */
-async function softDeleteCanvasForWidget(
+export async function softDeleteCanvasForWidget(
   repo: Repo,
   narthexStore: CanvasStore,
   cardWidgetId: string
@@ -660,6 +660,25 @@ export async function moveCardToTrash(
     console.warn("[trash] failed to add card to trash items:", cardWidgetId, err);
     return false;
   }
+}
+
+/**
+ * soft-delete a canvas card and move it to the trash widget.
+ * combines softDeleteCanvasForWidget + moveCardToTrash in one call.
+ * if no trash widget exists, still soft-deletes the canvas — the card
+ * will show the deleted overlay in place and auto-collect when a trash
+ * widget is added later.
+ *
+ * this is used by the canvas-card's onBeforeClose hook to redirect
+ * the property tray "delete widget" action through the trash flow.
+ */
+export async function trashCanvasCard(
+  repo: Repo,
+  narthexStore: CanvasStore,
+  cardWidgetId: string
+): Promise<void> {
+  await softDeleteCanvasForWidget(repo, narthexStore, cardWidgetId);
+  await moveCardToTrash(repo, narthexStore, cardWidgetId);
 }
 
 // -----------------------------------------------------------------------

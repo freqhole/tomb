@@ -221,6 +221,17 @@ export interface WidgetFactory<S extends z.ZodType = z.ZodType> {
    * if omitted, tapping a compact card does nothing.
    */
   onCompactActivate?: (state: z.infer<S>) => void;
+  /**
+   * called before a widget is closed via the property tray delete button or
+   * frame close. if provided and returns true, the default close behavior
+   * (cascade-delete descendants + remove) is skipped — the factory handles
+   * the close itself.
+   *
+   * use for widgets that need custom close semantics, e.g. canvas-card
+   * redirects close to soft-delete + move to trash instead of hard-deleting
+   * the linked canvas document.
+   */
+  onBeforeClose?: (widgetId: string, store: CanvasStore) => boolean;
   /** create a widget instance given a mount context */
   create(ctx: WidgetMountContext<S>): WidgetController;
 }

@@ -416,16 +416,96 @@ export const canvasInfoWidget: WidgetFactory<typeof canvasInfoSchema> = {
       }
     };
 
+    // -- deleted status -------------------------------------------------------
+
+    const deletedBanner = new Container();
+    deletedBanner.visible = false;
+    detailsContainer.addChild(deletedBanner);
+
+    const deletedBannerBg = new Graphics();
+    deletedBanner.addChild(deletedBannerBg);
+
+    const deletedBannerText = new Text({
+      text: "this canvas has been deleted",
+      resolution: typeof window !== "undefined" ? Math.max(window.devicePixelRatio, 2) : 2,
+      style: {
+        fontFamily: "'Atkinson Hyperlegible Next', sans-serif",
+        fontSize: 11,
+        fill: 0xff8c42,
+        wordWrap: true,
+        wordWrapWidth: 200,
+      },
+    });
+    deletedBannerText.x = 8;
+    deletedBannerText.y = 6;
+    deletedBanner.addChild(deletedBannerText);
+
+    // -- delete canvas button -------------------------------------------------
+
+    const deleteBtn = new Container();
+    deleteBtn.eventMode = "static";
+    deleteBtn.cursor = "pointer";
+    detailsContainer.addChild(deleteBtn);
+
+    const deleteBtnBg = new Graphics();
+    deleteBtn.addChild(deleteBtnBg);
+
+    const deleteBtnText = new Text({
+      text: "delete canvas",
+      resolution: typeof window !== "undefined" ? Math.max(window.devicePixelRatio, 2) : 2,
+      style: {
+        fontFamily: "'Atkinson Hyperlegible Next', sans-serif",
+        fontSize: 11,
+        fill: 0xef4444,
+      },
+    });
+    deleteBtnText.x = 8;
+    deleteBtnText.y = 5;
+    deleteBtn.addChild(deleteBtnText);
+
+    deleteBtn.on("pointertap", () => {
+      if (canvasStore.isDeleted) return;
+      const confirmed = window.confirm("delete this canvas? it will be moved to the trash.");
+      if (!confirmed) return;
+      canvasStore.deleteCanvas("soft");
+      // navigate back to narthex
+      window.location.hash = "";
+    });
+
     // layout details content vertically
     const layoutDetails = () => {
       const availW = currentWidth - PADDING * 2;
-      titleText.style.wordWrapWidth = availW;
-      descText.style.wordWrapWidth = availW;
+      let y = 0;
 
+      // deleted banner at the top when visible
+      if (deletedBanner.visible) {
+        deletedBanner.y = y;
+        deletedBannerBg.clear();
+        deletedBannerBg.roundRect(0, 0, availW, 28, 4);
+        deletedBannerBg.fill({ color: 0x442200, alpha: 0.5 });
+        deletedBannerText.style.wordWrapWidth = availW - 16;
+        y += 28 + 8;
+      }
+
+      titleText.style.wordWrapWidth = availW;
+      titleText.y = y;
+
+      descText.style.wordWrapWidth = availW;
       descText.y = titleText.y + titleText.height + 8;
+
       colorLabel.y = descText.y + descText.height + 12;
       swatchContainer.y = colorLabel.y + colorLabel.height + 4;
       imageContainer.y = swatchContainer.y + SWATCH_RADIUS * 2 + 12;
+
+      // delete button at the bottom
+      if (deleteBtn.visible) {
+        const btnY = imageContainer.y + imageContainer.height + 12;
+        deleteBtn.y = btnY;
+        deleteBtnBg.clear();
+        deleteBtnBg.roundRect(0, 0, availW, 26, 4);
+        deleteBtnBg.fill({ color: 0x331111, alpha: 0.5 });
+        deleteBtnBg.stroke({ color: 0x662222, width: 1 });
+      }
     };
 
     // initial swatch draw and preview load
@@ -568,6 +648,15 @@ export const canvasInfoWidget: WidgetFactory<typeof canvasInfoSchema> = {
       descText.text = m.description || "no description";
       descText.style.fill = m.description ? TEXT_SECONDARY : TEXT_DIM;
       descText.style.fontStyle = m.description ? "normal" : "italic";
+
+      // update deleted status
+      const isDeleted = canvasStore.isDeleted;
+      deletedBanner.visible = isDeleted;
+      deleteBtn.visible = !isDeleted;
+      if (isDeleted) {
+        const mode = m.deleteMode === "purge" ? "purged" : "soft-deleted";
+        deletedBannerText.text = `this canvas has been ${mode}`;
+      }
 
       drawSwatches();
       layoutDetails();

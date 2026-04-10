@@ -1,5 +1,6 @@
 import { Assets, Container, Graphics, Sprite, Text, Texture } from "pixi.js";
 import { z } from "zod";
+import type { CanvasStore } from "../../src/canvas/canvas-store";
 import { formatRelativeTime, formatShortDate } from "../../src/widgets/format";
 import {
   isTransparent,
@@ -9,6 +10,7 @@ import {
   type WidgetFactory,
   type WidgetMountContext,
 } from "../../src/widgets/widget-types";
+import { trashCanvasCard } from "./trash-widget";
 
 export const canvasCardSchema = z.object({
   canvasDocId: z.string().default(""),
@@ -181,6 +183,15 @@ export const canvasCardWidget: WidgetFactory<typeof canvasCardSchema> = {
     if (state.canvasDocId) {
       window.location.hash = state.canvasDocId;
     }
+  },
+
+  onBeforeClose: (widgetId: string, store: CanvasStore): boolean => {
+    // redirect property tray "delete widget" to soft-delete + move to trash
+    // instead of cascade-deleting the linked canvas docs
+    trashCanvasCard(store.repo, store, widgetId).catch((err) => {
+      console.warn("[canvas-card] failed to trash canvas:", err);
+    });
+    return true; // handled — suppress default close behavior
   },
 
   create(ctx: WidgetMountContext<typeof canvasCardSchema>): WidgetController {

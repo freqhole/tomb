@@ -568,6 +568,15 @@ export class WidgetManager {
     if (this.inputRouter.selectedWidgetIds.has(widgetId)) {
       this.inputRouter.selectWidget(null);
     }
+
+    // check if the widget factory wants to handle close itself
+    const beforeCloseEntry = this.store.getWidget(widgetId);
+    const beforeCloseFactory = beforeCloseEntry ? this.registry.get(beforeCloseEntry.type) : null;
+    if (beforeCloseFactory?.onBeforeClose) {
+      const handled = beforeCloseFactory.onBeforeClose(widgetId, this.store);
+      if (handled) return;
+    }
+
     const collectDescendants = (id: string): string[] => {
       const children = this.store.getChildren(id);
       return children.flatMap((c) => [c.id, ...collectDescendants(c.id)]);
