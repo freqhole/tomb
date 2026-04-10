@@ -39,6 +39,7 @@ COPY . .
 # install npm dependencies
 RUN cd client/spume && npm ci
 RUN cd client/charnel && npm ci
+RUN cd client/skein && npm ci
 
 # build spume frontend
 RUN FREQHOLE_GIT_SHA=${FREQHOLE_GIT_SHA} cd client/spume && npm run build
