@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "build:deploy": "vite build --config vite.standalone.config.ts",
+    "build:cloudflare": "VITE_SKEIN_BASE=/skein/ vite build --config vite.standalone.config.ts && mv dist/skein.html dist/index.html",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
