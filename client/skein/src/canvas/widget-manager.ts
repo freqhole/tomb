@@ -572,8 +572,22 @@ export class WidgetManager {
       const children = this.store.getChildren(id);
       return children.flatMap((c) => [c.id, ...collectDescendants(c.id)]);
     };
-    for (const descendantId of collectDescendants(widgetId)) {
-      this.store.removeWidget(descendantId);
+    const descendants = collectDescendants(widgetId);
+
+    // check if this widget type preserves children on close (e.g. trash can).
+    // if so, un-parent descendants instead of cascade-deleting them.
+    const entry = this.store.getWidget(widgetId);
+    const factory = entry ? this.registry.get(entry.type) : null;
+    const preserve = factory?.metadata.preserveChildren === true;
+
+    if (preserve) {
+      for (const descendantId of descendants) {
+        this.store.setParentId(descendantId, null);
+      }
+    } else {
+      for (const descendantId of descendants) {
+        this.store.removeWidget(descendantId);
+      }
     }
     this.store.removeWidget(widgetId);
   }

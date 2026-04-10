@@ -24,6 +24,11 @@ export class CanvasStore {
     this._localNodeId = id;
   }
 
+  /** the local peer's node ID. used for attribution on edits and deletions. */
+  get localNodeId(): string {
+    return this._localNodeId;
+  }
+
   private constructor(repo: Repo, handle: DocHandle<CanvasDocument>) {
     this.repo = repo;
     this.handle = handle;
@@ -430,6 +435,20 @@ export class CanvasStore {
       doc.deletedAt = new Date().toISOString();
       doc.deletedBy = this._localNodeId;
       doc.deleteMode = mode;
+      this.touchModified(doc);
+    });
+  }
+
+  /** clear all tombstone fields to un-delete this canvas.
+   *  the canvas watchers will detect the un-deletion and clear
+   *  the card's tombstone mirror fields automatically. */
+  restoreCanvas(): void {
+    this.handle.change((doc) => {
+      doc.deleted = false;
+      doc.deletedAt = "";
+      doc.deletedBy = "";
+      // deleteMode is typed as "soft" | "purge" — use any cast to clear with ""
+      (doc as any).deleteMode = "";
       this.touchModified(doc);
     });
   }

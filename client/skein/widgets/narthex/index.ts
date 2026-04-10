@@ -6,6 +6,7 @@ import { canvasWizardWidget } from "./canvas-wizard";
 import { joinCanvasWidget } from "./join-canvas";
 import { messagezWidget } from "./messagez-widget";
 import { socialWidget } from "./social/social-widget";
+import { registerTrashWidget } from "./trash-widget";
 
 /**
  * a registry pre-loaded with the narthex (home screen) widgets.
@@ -21,6 +22,7 @@ export function createNarthexRegistry(): WidgetRegistry {
   registry.register(messagezWidget);
   registry.register(labelWidget);
   registerBinWidget(registry);
+  registerTrashWidget(registry);
   return registry;
 }
 

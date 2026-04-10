@@ -175,6 +175,15 @@ export interface WidgetMetadata {
    *  this instead of a random UUID so the per-widget automerge doc persists
    *  across close/reopen cycles. */
   singletonId?: string;
+  /** unique widgets are hidden from the flyout when one is already on the canvas,
+   *  but unlike singletons they can still be deleted. use for widgets where only
+   *  one instance makes sense (e.g. trash can) but the user may remove and re-add. */
+  unique?: boolean;
+  /** when true, closing this widget un-parents its children back to the canvas
+   *  instead of cascade-deleting them. use for container widgets whose contents
+   *  should survive the container being removed (e.g. trash can — cards spill
+   *  out onto the narthex instead of being permanently deleted). */
+  preserveChildren?: boolean;
   /** default width when placing the widget on the canvas */
   defaultWidth?: number;
   /** default height when placing the widget on the canvas */

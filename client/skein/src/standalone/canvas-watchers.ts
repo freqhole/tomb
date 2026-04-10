@@ -1,4 +1,5 @@
 import type { DocumentId, Repo } from "@automerge/automerge-repo";
+import { moveCardToTrash } from "../../widgets/narthex/trash-widget";
 import type { CanvasDocument } from "../canvas/canvas-doc";
 import { CanvasStore } from "../canvas/canvas-store";
 
@@ -148,6 +149,13 @@ export async function syncCanvasMetadataToCards(
       if (changed) {
         console.log("[skein] synced metadata to canvas-card:", entry.id);
       }
+
+      // auto-collect soft-deleted cards into the trash widget.
+      // moveCardToTrash is a no-op if the card is already in the trash
+      // or if no trash widget exists in the narthex.
+      if (meta.deleted && meta.deleteMode !== "purge" && !entry.parentId) {
+        await moveCardToTrash(repo, narthexStore, entry.id);
+      }
     } catch (err) {
       // if a canvas doc isn't reachable, skip silently
       console.warn("[skein] failed to sync metadata for card:", entry.id, err);
@@ -223,6 +231,14 @@ export async function watchCanvasDocsForUpdates(
               draft.deleteMode = canvasDoc.deleteMode || "soft";
             }
           });
+
+          // auto-collect into the trash widget if not already there
+          if (!entry.parentId) {
+            moveCardToTrash(repo, narthexStore, entry.id).catch((err) => {
+              console.warn("[skein] failed to auto-collect card into trash:", err);
+            });
+          }
+
           // no need to process update pills for a deleted canvas
           return;
         } else if (!canvasDoc.deleted) {

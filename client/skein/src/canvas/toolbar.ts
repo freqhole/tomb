@@ -207,8 +207,8 @@ export class Toolbar {
 
     const factories = this.registry.all().filter((f) => {
       if (f.metadata.hidden) return false;
-      // hide singleton types that are already placed on the canvas
-      if (f.metadata.singleton && typesOnCanvas.has(f.type)) return false;
+      // hide singleton/unique types that are already placed on the canvas
+      if ((f.metadata.singleton || f.metadata.unique) && typesOnCanvas.has(f.type)) return false;
       return true;
     });
     const itemPadH = 10;
