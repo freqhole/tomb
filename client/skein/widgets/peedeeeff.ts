@@ -161,6 +161,7 @@ export const peedeeeffWidget: WidgetFactory<typeof peedeeeffSchema> = {
     // -----------------------------------------------------------------------
 
     const bg = new Graphics();
+    bg.eventMode = "static";
     container.addChild(bg);
 
     const drawBg = (w: number, h: number) => {
@@ -331,11 +332,11 @@ export const peedeeeffWidget: WidgetFactory<typeof peedeeeffSchema> = {
 
     const loadPageTexture = async (pageIndex: number): Promise<PageSlot> => {
       const state = ctx.doc.current;
-      const url = state.pageBlobIds[pageIndex];
+      const blobId = state.pageBlobIds[pageIndex];
 
       // get or create the slot
       let slot = pageCache.get(pageIndex);
-      if (slot && slot.state === "loaded" && slot.assetKey === url) {
+      if (slot && slot.state === "loaded" && slot.assetKey && slot.assetKey === `blob:${blobId}`) {
         return slot;
       }
 
@@ -352,7 +353,7 @@ export const peedeeeffWidget: WidgetFactory<typeof peedeeeffSchema> = {
       };
       pageCache.set(pageIndex, slot);
 
-      if (!url) {
+      if (!blobId) {
         slot.state = "empty";
         return slot;
       }
@@ -360,14 +361,28 @@ export const peedeeeffWidget: WidgetFactory<typeof peedeeeffSchema> = {
       const abort = slot.abort!;
 
       try {
+        // resolve blob ID to a loadable URL
+        const { getLocalBlobUrl, getFullBlobDataUrl } = await import("../src/widgets/file-utils");
+
+        let resolvedUrl = await getLocalBlobUrl(blobId);
+        if (!resolvedUrl) {
+          // fall back to full blob data URL (no peers — page blobs are local)
+          resolvedUrl = await getFullBlobDataUrl(blobId);
+        }
+
+        if (!resolvedUrl || abort.signal.aborted) {
+          slot.state = "error";
+          return slot;
+        }
+
         let texture: Texture;
         let assetKey: string;
 
-        if (url.startsWith("data:")) {
-          texture = await Assets.load<Texture>(url);
-          assetKey = url;
+        if (resolvedUrl.startsWith("data:") || resolvedUrl.startsWith("asset:")) {
+          texture = await Assets.load<Texture>(resolvedUrl);
+          assetKey = resolvedUrl;
         } else {
-          const response = await fetch(url, { signal: abort.signal });
+          const response = await fetch(resolvedUrl, { signal: abort.signal });
           if (!response.ok) {
             throw new Error(`HTTP ${response.status}`);
           }
@@ -492,6 +507,9 @@ export const peedeeeffWidget: WidgetFactory<typeof peedeeeffSchema> = {
 
       // preload adjacent pages
       preloadAdjacent(startPage, ppv, total);
+
+      // show nav buttons when pages first become visible
+      showNav();
 
       renderInFlight = false;
     };
@@ -719,6 +737,10 @@ export const peedeeeffWidget: WidgetFactory<typeof peedeeeffSchema> = {
               draft.pageCount = totalPages;
               draft.currentPage = 0;
             });
+
+            // set widget title from filename (strip .pdf extension)
+            const title = picked.filename.replace(/\.pdf$/i, "");
+            ctx.canvasStore?.setWidgetTitle(ctx.widgetId, title);
 
             // the doc change subscription will trigger rendering
             return;

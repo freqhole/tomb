@@ -6,7 +6,7 @@ import {
   checkBlobLocality,
   formatFileSize,
   getDocumentPages,
-  getFullBlobDataUrl,
+  getLocalBlobUrl,
   getLocalNodeId,
   getThumbnailDataUrl,
   pickFiles,
@@ -750,7 +750,7 @@ export const fileWidget: WidgetFactory<typeof fileSchema> = {
       loadingText.visible = loadState === "loading";
       errorText.visible = loadState === "error";
       infoContainer.visible = loadState === "loaded";
-      fallbackIcon.visible = loadState === "loaded" && !hasThumbnail;
+      fallbackIcon.visible = false;
       if (thumbSprite) {
         thumbSprite.visible = loadState === "loaded" && hasThumbnail;
       }
@@ -921,11 +921,15 @@ export const fileWidget: WidgetFactory<typeof fileSchema> = {
             // texture failed to load — show fallback icon
             hasThumbnail = false;
             positionFallbackIcon(currentWidth, currentHeight);
+            drawHoverOverlay(currentWidth, currentHeight);
+            drawThumbHitArea(currentWidth, currentHeight);
           }
         } else {
           // no thumbnail available — show fallback icon with domain name
           hasThumbnail = false;
           positionFallbackIcon(currentWidth, currentHeight);
+          drawHoverOverlay(currentWidth, currentHeight);
+          drawThumbHitArea(currentWidth, currentHeight);
         }
 
         loadState = "loaded";
@@ -1215,6 +1219,7 @@ export const fileWidget: WidgetFactory<typeof fileSchema> = {
                     width: Math.max(selfEntry.width, 480),
                     height: Math.max(selfEntry.height, 640),
                     zIndex: selfEntry.zIndex,
+                    title: uploadFilename.replace(/\.pdf$/i, ""),
                     props: {
                       blobId: uploadBlobId,
                       filename: uploadFilename,
@@ -1533,8 +1538,8 @@ export const fileWidget: WidgetFactory<typeof fileSchema> = {
         }
 
         let src: string | null = null;
-        const peers = ctx.canvasStore?.peers() as PeersMap | undefined;
-        src = await getFullBlobDataUrl(state.blobId, peers);
+        // local-first: only preview from local sources, no peer fetch
+        src = await getLocalBlobUrl(state.blobId);
 
         if (!src) {
           console.warn("[file] could not resolve blob data for photo preview");
@@ -1566,11 +1571,11 @@ export const fileWidget: WidgetFactory<typeof fileSchema> = {
 
       // use the unified media URL resolver — handles asset:// on macOS,
       // blob: URL workaround on Linux WebKitGTK, and OPFS in browser mode
-      const peers = ctx.canvasStore?.peers() as PeersMap | undefined;
+      // local-first: try local URL without peer fallback
       const src = await getMediaPlaybackUrl(state.blobId, {
         category: overlayType as "video" | "audio",
-        peers,
         mime: state.mime,
+        // no peers — preview only uses local sources
       });
 
       if (!src) {

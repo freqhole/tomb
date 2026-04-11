@@ -1218,6 +1218,55 @@ export async function getBlobLocalPath(blobId: string): Promise<string | null> {
 // ---------------------------------------------------------------------------
 
 /**
+ * resolve a blob ID to a locally-available URL — no peer fallback.
+ * - Tauri: tries getBlobLocalPath → convertToAssetUrl (asset:// URL)
+ *   falls back to base64 data URL via IPC
+ * - browser: tries OPFS blob: URL via skein-blob-store
+ * returns null if the blob is not available locally.
+ */
+export async function getLocalBlobUrl(blobId: string): Promise<string | null> {
+  if (!blobId) return null;
+
+  if (isTauriMode()) {
+    // try filesystem path → asset:// URL first (avoids base64 for large files)
+    try {
+      const localPath = await getBlobLocalPath(blobId);
+      if (localPath) {
+        const assetUrl = await convertToAssetUrl(localPath);
+        return assetUrl;
+      }
+    } catch {
+      // fall through to data URL approach
+    }
+
+    // fall back to base64 data URL from blob_data endpoint
+    try {
+      const response = await tauriInvoke("api_call", {
+        path: `/api/blobs/${blobId}/data`,
+        body: {},
+      });
+
+      if (response?.success && response.data?.data && response.data?.mime) {
+        return `data:${response.data.mime};base64,${response.data.data}`;
+      }
+    } catch {
+      // not available locally
+    }
+
+    return null;
+  }
+
+  // browser mode: check OPFS
+  try {
+    const { getBlobObjectURL } = await import("../storage/skein-blob-store");
+    const url = await getBlobObjectURL(blobId);
+    return url;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * fetch the list of rendered page image blobs for a PDF document.
  * returns an array of page info objects, or an empty array if no pages
  * are available yet (the rendering job may still be running).
