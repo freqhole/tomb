@@ -224,6 +224,8 @@ export const fileWidget: WidgetFactory<typeof fileSchema> = {
     let loadedAssetKey = "";
     let activeOverlay: MediaOverlayHandle | null = null;
     let activePlayer: InlinePlayerHandle | null = null;
+    let hoverOverlay: Container | null = null;
+    let hoverOverlayVisible = false;
 
     // flag: true when the user uploaded the file through this widget instance.
     // prevents showing "save to disk" for files the user just uploaded.
@@ -244,6 +246,39 @@ export const fileWidget: WidgetFactory<typeof fileSchema> = {
       bg.stroke({ color: 0x2a2a3e, width: 1 });
     };
     drawBg(currentWidth, currentHeight);
+
+    // thumbnail hover hit area — shows the preview overlay on hover
+    const thumbHitArea = new Graphics();
+    thumbHitArea.eventMode = "static";
+    thumbHitArea.cursor = "pointer";
+    thumbHitArea.visible = false; // shown when loaded + previewable
+    container.addChild(thumbHitArea);
+
+    const drawThumbHitArea = (w: number, h: number) => {
+      const extra = actionBarExtra();
+      const thumbAreaH = h - INFO_BAR_HEIGHT - extra;
+      thumbHitArea.clear();
+      thumbHitArea.rect(0, 0, w, Math.max(0, thumbAreaH)).fill({ color: 0x000000, alpha: 0.001 });
+    };
+
+    thumbHitArea.on("pointerenter", () => {
+      const state = ctx.doc.current;
+      if (!isPreviewableDomain(state.domain || "file")) return;
+      if (loadState !== "loaded") return;
+      if (actionState !== "local" && actionState !== "snatched") return;
+      hoverOverlayVisible = true;
+      if (hoverOverlay) hoverOverlay.visible = true;
+    });
+
+    thumbHitArea.on("pointerleave", () => {
+      hoverOverlayVisible = false;
+      if (hoverOverlay) hoverOverlay.visible = false;
+    });
+
+    thumbHitArea.on("pointertap", (e: any) => {
+      e.stopPropagation();
+      handlePreview();
+    });
 
     // -- placeholder (empty state) --------------------------------------------
 
@@ -406,10 +441,6 @@ export const fileWidget: WidgetFactory<typeof fileSchema> = {
     );
     actionContainer.addChild(saveBtn.container);
 
-    // preview/play button — shown when blob is local and domain supports it
-    const previewBtn = createPillButton("view", 0x3a3a5a, handlePreview);
-    actionContainer.addChild(previewBtn.container);
-
     // -- fallback icon (when no thumbnail is available) -----------------------
 
     const fallbackIcon = new Container();
@@ -443,10 +474,9 @@ export const fileWidget: WidgetFactory<typeof fileSchema> = {
       if (actionState === "snatched") return true;
       if (actionState === "local" && !uploadedLocally) return true;
       if (actionState === "saving" || actionState === "snatching") return true;
-      // even when uploadedLocally, show actions if preview is available
+      // no action buttons when the user uploaded locally
       if (actionState === "local" && uploadedLocally) {
-        const domain = ctx.doc.current.domain || "file";
-        return isPreviewableDomain(domain);
+        return false;
       }
       return false;
     }
@@ -459,8 +489,6 @@ export const fileWidget: WidgetFactory<typeof fileSchema> = {
     /** sync action button visibility based on current actionState */
     function syncActionButtons() {
       if (destroyed) return;
-      const state = ctx.doc.current;
-      const domain = state.domain || "file";
 
       // snatch: visible when remote or actively snatching
       snatchBtn.setVisible(actionState === "remote" || actionState === "snatching");
@@ -485,11 +513,6 @@ export const fileWidget: WidgetFactory<typeof fileSchema> = {
         saveBtn.setLabel(isTauriMode() ? "reveal" : "save");
         saveBtn.setColor(0x27455a);
       }
-
-      // preview: visible when local or snatched, and domain supports it
-      const canPreview =
-        (actionState === "local" || actionState === "snatched") && isPreviewableDomain(domain);
-      previewBtn.setVisible(canPreview);
 
       actionContainer.visible = hasVisibleActions();
     }
@@ -534,7 +557,7 @@ export const fileWidget: WidgetFactory<typeof fileSchema> = {
         const actionY = h - ACTION_BAR_HEIGHT + 2;
         let xCursor = 8;
 
-        const buttons = [snatchBtn, saveBtn, previewBtn];
+        const buttons = [snatchBtn, saveBtn];
         for (const btn of buttons) {
           if (btn.container.visible) {
             btn.container.x = xCursor;
@@ -584,6 +607,81 @@ export const fileWidget: WidgetFactory<typeof fileSchema> = {
       thumbSprite.x = (w - thumbSprite.width) / 2;
       thumbSprite.y = (thumbAreaH - thumbSprite.height) / 2;
     };
+
+    /** draw (or redraw) the hover overlay for preview-eligible files */
+    function drawHoverOverlay(w: number, h: number): void {
+      const state = ctx.doc.current;
+      const domain = state.domain || "file";
+      if (!isPreviewableDomain(domain) || loadState !== "loaded") {
+        if (hoverOverlay) {
+          hoverOverlay.visible = false;
+        }
+        return;
+      }
+
+      const extra = actionBarExtra();
+      const thumbAreaH = h - INFO_BAR_HEIGHT - extra;
+      if (thumbAreaH <= 0) return;
+
+      // destroy and recreate on resize (simpler than rescaling icons)
+      if (hoverOverlay) {
+        container.removeChild(hoverOverlay);
+        hoverOverlay.destroy({ children: true });
+      }
+
+      hoverOverlay = new Container();
+      hoverOverlay.label = "file-hover-overlay";
+      hoverOverlay.visible = hoverOverlayVisible;
+      hoverOverlay.eventMode = "none"; // clicks pass through to thumbnail/bg
+
+      // semi-transparent background
+      const overlayBg = new Graphics();
+      overlayBg.rect(0, 0, w, thumbAreaH).fill({ color: 0x000000, alpha: 0.45 });
+      hoverOverlay.addChild(overlayBg);
+
+      const iconSize = Math.max(16, Math.min(w, thumbAreaH) * 0.3);
+      const cx = w / 2;
+      const cy = thumbAreaH / 2;
+
+      const icon = new Graphics();
+
+      if (domain === "audio" || domain === "video") {
+        // play triangle
+        const triH = iconSize;
+        const triW = iconSize * 0.866;
+        icon.poly([
+          { x: cx - triW / 3, y: cy - triH / 2 },
+          { x: cx + (triW * 2) / 3, y: cy },
+          { x: cx - triW / 3, y: cy + triH / 2 },
+        ]);
+        icon.fill({ color: 0xffffff, alpha: 0.9 });
+      } else {
+        // expand icon (diagonal arrow pointing upper-right + corner bracket)
+        const half = iconSize / 2;
+        const strokeW = Math.max(1.5, iconSize * 0.12);
+
+        icon.moveTo(cx - half, cy + half);
+        icon.lineTo(cx + half, cy - half);
+        icon.stroke({ width: strokeW, color: 0xffffff, alpha: 0.9 });
+
+        const headLen = half * 0.5;
+        icon.moveTo(cx + half - headLen, cy - half);
+        icon.lineTo(cx + half, cy - half);
+        icon.lineTo(cx + half, cy - half + headLen);
+        icon.stroke({ width: strokeW, color: 0xffffff, alpha: 0.9 });
+
+        const cornerLen = half * 0.35;
+        icon.moveTo(cx - half + cornerLen, cy + half);
+        icon.lineTo(cx - half, cy + half);
+        icon.lineTo(cx - half, cy + half - cornerLen);
+        icon.stroke({ width: strokeW, color: 0xffffff, alpha: 0.7 });
+      }
+      hoverOverlay.addChild(icon);
+
+      // insert above the thumbnail sprite but below the info container
+      const infoIdx = container.getChildIndex(infoContainer);
+      container.addChildAt(hoverOverlay, infoIdx);
+    }
 
     // max data URL length we're willing to hand to PixiJS (~10 MB base64)
     const MAX_DATA_URL_LENGTH = 10 * 1024 * 1024;
@@ -649,6 +747,13 @@ export const fileWidget: WidgetFactory<typeof fileSchema> = {
         thumbSprite.visible = loadState === "loaded" && hasThumbnail;
       }
       syncActionButtons();
+
+      // show thumb hit area when loaded + previewable
+      const domain = ctx.doc.current.domain || "file";
+      thumbHitArea.visible =
+        loadState === "loaded" &&
+        isPreviewableDomain(domain) &&
+        (actionState === "local" || actionState === "snatched");
     };
 
     // -- blob locality checking -----------------------------------------------
@@ -799,6 +904,9 @@ export const fileWidget: WidgetFactory<typeof fileSchema> = {
               e.stopPropagation();
               handlePreview();
             });
+
+            drawHoverOverlay(currentWidth, currentHeight);
+            drawThumbHitArea(currentWidth, currentHeight);
           } else {
             // texture failed to load — show fallback icon
             hasThumbnail = false;
@@ -907,6 +1015,8 @@ export const fileWidget: WidgetFactory<typeof fileSchema> = {
 
         syncVisibility();
         fitSprite(currentWidth, currentHeight);
+        drawHoverOverlay(currentWidth, currentHeight);
+        drawThumbHitArea(currentWidth, currentHeight);
       } catch {
         // unexpected error — fall back to the async thumbnail fetch
         loadThumbnail(ctx.doc.current.blobId);
@@ -1511,6 +1621,10 @@ export const fileWidget: WidgetFactory<typeof fileSchema> = {
         unsub();
         destroyed = true;
         destroySprite();
+        if (hoverOverlay) {
+          hoverOverlay.destroy({ children: true });
+          hoverOverlay = null;
+        }
         container.destroy({ children: true });
       },
       resize(width: number, height: number) {
@@ -1523,6 +1637,8 @@ export const fileWidget: WidgetFactory<typeof fileSchema> = {
           activePlayer.reposition(width, height);
         }
         fitSprite(width, height);
+        drawHoverOverlay(width, height);
+        drawThumbHitArea(width, height);
         if (loadState === "loaded") {
           syncActionButtons();
           positionInfoBar(width, height);

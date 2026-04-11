@@ -218,7 +218,15 @@ export class BinRenderer {
 
     // compute total content height for scroll
     const opts: SlotSizeOptions = { scale: this.scale };
-    const contentDims = contentDimensions(mode, Math.max(1, _cols), _rows, contentWidth, opts);
+    // in drawer mode, items are remapped to sequential rows — use actual item count
+    const effectiveRows = mode === "drawer" ? mappedItems.length : _rows;
+    const contentDims = contentDimensions(
+      mode,
+      Math.max(1, _cols),
+      effectiveRows,
+      contentWidth,
+      opts
+    );
     this.totalContentHeight = contentDims.height;
 
     // clamp scroll in case content shrank
@@ -458,6 +466,23 @@ export class BinRenderer {
       this.scrollInner.label = "drawer-scroll-inner";
       this.scrollInner.eventMode = "static";
       this.container.addChild(this.scrollInner);
+
+      // wheel handler on scrollInner — catches events that target cards or their
+      // children (action buttons, overlays) before they need to bubble to the
+      // container level. mirrors the handler on this.container.
+      this.scrollInner.on("wheel", (e: WheelEvent) => {
+        if (this.mode !== "drawer") return;
+        const canScroll = this.totalContentHeight > this.visibleHeight;
+        if (!canScroll) return;
+
+        e.stopPropagation();
+        if ((e as any).nativeEvent) (e as any).nativeEvent._skeinWidgetScroll = true;
+
+        const SCROLL_SPEED = 30;
+        this.scrollY += e.deltaY > 0 ? SCROLL_SPEED : -SCROLL_SPEED;
+        this.clampScroll();
+        this.positionScrollInner();
+      });
 
       // mask to clip content to the visible area
       this.scrollMask = new Graphics();

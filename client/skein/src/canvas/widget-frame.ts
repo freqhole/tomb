@@ -60,6 +60,8 @@ type HandlePosition = "nw" | "n" | "ne" | "e" | "se" | "s" | "sw" | "w";
  * when collapsed: content container is hidden, frame shows only the header.
  */
 export class WidgetFrame {
+  private static readonly HOVER_GRACE_MS = 450;
+
   readonly root: Container;
   readonly contentContainer: Container;
 
@@ -161,7 +163,7 @@ export class WidgetFrame {
         this._hovered = false;
         this.updateVisualState();
         this.draw();
-      }, 150);
+      }, WidgetFrame.HOVER_GRACE_MS);
     });
 
     // border/selection overlay (drawn behind everything)

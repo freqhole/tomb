@@ -3,7 +3,7 @@
 
 import { Container, Graphics, Sprite, Text } from "pixi.js";
 import { isTauriMode } from "../../src/p2p/tauri-transport";
-import { drawRevealIcon, drawSaveIcon, drawSnatchIcon } from "../../src/widgets/icons";
+import { drawRevealIcon, drawSaveIcon } from "../../src/widgets/icons";
 import {
   CRATE_FONT_SIZE,
   DEFAULT_ACCENT_COLOR,
@@ -52,7 +52,6 @@ function truncateLabel(label: string, maxChars: number): string {
 // -----------------------------------------------------------------------
 
 const ACTION_BTN_SIZE = 24;
-const ACTION_BTN_PAD = 3;
 const ACTION_BTN_BG = 0x2a2a2a;
 const ACTION_BTN_HOVER_BG = 0x444444;
 
@@ -160,54 +159,48 @@ function buildActionButtons(
 
   const row = new Container();
   row.label = "action-buttons";
-  let x = 0;
 
-  // snatch button — always available when there's a blobId
-  const snatchBtn = createActionButton(drawSnatchIcon, btnSize, "snatch", () => {
-    import("../../src/widgets/file-utils").then(({ snatchBlob }) => {
-      const peers = getPeers?.() ?? {};
-      snatchBlob(
-        {
-          blobId: String(info.blobId ?? ""),
-          filename: String(info.filename ?? "file"),
-          mime: String(info.mime ?? ""),
-          size: info.size ?? 0,
-          blake3: String(info.blake3 ?? ""),
-          domain: String(info.domain ?? ""),
-        },
-        peers as any
-      ).catch((err) => console.warn("[bin-actions] snatch failed:", err));
-    });
+  const isTauri = isTauriMode();
+  const iconDraw = isTauri ? drawRevealIcon : drawSaveIcon;
+  const tooltip = isTauri ? "reveal" : "save";
+
+  const btn = createActionButton(iconDraw, btnSize, tooltip, () => {
+    const blobId = String(info.blobId ?? "");
+    const filename = String(info.filename ?? "file");
+
+    import("../../src/widgets/file-utils").then(
+      async ({ checkBlobLocality, snatchBlob, saveBlobToDisk, revealBlobInFinder }) => {
+        try {
+          // ensure the blob is local before saving/revealing
+          const localityInfo = await checkBlobLocality(blobId, info.blake3 ?? undefined);
+          if (localityInfo.locality !== "local") {
+            const peers = getPeers?.() ?? {};
+            await snatchBlob(
+              {
+                blobId,
+                filename,
+                mime: String(info.mime ?? ""),
+                size: info.size ?? 0,
+                blake3: String(info.blake3 ?? ""),
+                domain: String(info.domain ?? ""),
+              },
+              peers as any
+            );
+          }
+
+          if (isTauri) {
+            await revealBlobInFinder(blobId);
+          } else {
+            await saveBlobToDisk(blobId, filename);
+          }
+        } catch (err) {
+          console.warn("[bin-actions] save/reveal failed:", err);
+        }
+      }
+    );
   });
-  snatchBtn.x = x;
-  row.addChild(snatchBtn);
-  x += btnSize + ACTION_BTN_PAD;
-
-  if (isTauriMode()) {
-    // reveal in finder (Tauri only)
-    const revealBtn = createActionButton(drawRevealIcon, btnSize, "reveal", () => {
-      import("../../src/widgets/file-utils").then(({ revealBlobInFinder }) => {
-        revealBlobInFinder(String(info.blobId ?? "")).catch((err) =>
-          console.warn("[bin-actions] reveal failed:", err)
-        );
-      });
-    });
-    revealBtn.x = x;
-    row.addChild(revealBtn);
-    x += btnSize + ACTION_BTN_PAD;
-  } else {
-    // save to disk (browser mode)
-    const saveBtn = createActionButton(drawSaveIcon, btnSize, "save", () => {
-      import("../../src/widgets/file-utils").then(({ saveBlobToDisk }) => {
-        saveBlobToDisk(String(info.blobId ?? ""), String(info.filename ?? "file")).catch((err) =>
-          console.warn("[bin-actions] save failed:", err)
-        );
-      });
-    });
-    saveBtn.x = x;
-    row.addChild(saveBtn);
-    x += btnSize + ACTION_BTN_PAD;
-  }
+  btn.x = 0;
+  row.addChild(btn);
 
   // hidden by default — shown on card hover
   row.visible = false;
