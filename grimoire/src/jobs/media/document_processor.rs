@@ -1,12 +1,11 @@
 //! document thumbnail generation job processor
 //!
-//! generates PDF page thumbnails using ImageMagick and extracts basic
-//! document metadata (page count) via pdfinfo when available
+//! generates PDF page thumbnails using ImageMagick. page count is determined
+//! downstream by the RenderDocumentPages job (counting magick output files).
 
 use crate::blob_data;
 use crate::config;
 use crate::jobs::{Job, JobError};
-use crate::media::documentz;
 use crate::media_blobz::BlobType;
 use serde_json::{json, Value};
 use tracing::{info, warn};
@@ -131,105 +130,45 @@ async fn generate_thumbnail_and_metadata(
 
     let preview_blob_id = resp.data;
 
-    // -- step 4: try to extract page count via pdfinfo (best-effort) --
-    let page_count = extract_page_count(source_path).await;
+    // -- step 4: queue full page rendering job --
+    // the renderer counts output files to determine page_count, so we
+    // always queue the job — no need for pdfinfo or a prior page count.
+    let render_params = json!({
+        "blob_id": blob_id,
+        "entity_id": entity_id,
+        "domain": "document",
+        "mime": "application/pdf",
+    });
 
-    // -- step 5: update document entity metadata --
-    match documentz::repository::update_document_metadata(
-        entity_id, None,       // author — not extracted here
-        page_count, // page_count from pdfinfo
-        None,       // doc_type
-        None,       // language
-    )
-    .await
-    {
-        Ok(doc) => {
-            info!(
-                "updated document metadata for {}: page_count={:?}",
-                doc.id, page_count
-            );
-        }
-        Err(e) => {
-            warn!(
-                "failed to update document metadata for {}: {}",
-                entity_id, e
-            );
-        }
-    }
+    let render_job = crate::jobs::create_job(crate::jobs::CreateJobRequest {
+        job_type: crate::jobs::JobType::RenderDocumentPages,
+        session_id: None,
+        parameters: render_params,
+        max_retries: Some(2),
+        scheduled_at: None,
+        created_by: created_by.map(|s| s.to_string()),
+    })
+    .await;
 
-    // -- step 6: queue full page rendering job if document has pages --
-    if page_count.unwrap_or(0) > 0 {
-        let render_params = json!({
-            "blob_id": blob_id,
-            "entity_id": entity_id,
-            "domain": "document",
-            "mime": "application/pdf",
-        });
-
-        let render_job = crate::jobs::create_job(crate::jobs::CreateJobRequest {
-            job_type: crate::jobs::JobType::RenderDocumentPages,
-            session_id: None,
-            parameters: render_params,
-            max_retries: Some(2),
-            scheduled_at: None,
-            created_by: created_by.map(|s| s.to_string()),
-        })
-        .await;
-
-        match render_job.data {
-            Some(ref job) => info!(
-                "queued RenderDocumentPages job {} for blob {}",
-                job.id, blob_id
-            ),
-            None => warn!(
-                "failed to queue RenderDocumentPages job for blob {}: {}",
-                blob_id, render_job.message
-            ),
-        }
+    match render_job.data {
+        Some(ref job) => info!(
+            "queued RenderDocumentPages job {} for blob {}",
+            job.id, blob_id
+        ),
+        None => warn!(
+            "failed to queue RenderDocumentPages job for blob {}: {}",
+            blob_id, render_job.message
+        ),
     }
 
     info!(
-        "GenerateDocumentThumbnail complete for blob {}: preview_blob_id={:?}, page_count={:?}",
-        blob_id, preview_blob_id, page_count
+        "GenerateDocumentThumbnail complete for blob {}: preview_blob_id={:?}",
+        blob_id, preview_blob_id
     );
 
     Ok(Some(json!({
         "blob_id": blob_id,
         "entity_id": entity_id,
         "preview_blob_id": preview_blob_id,
-        "page_count": page_count,
     })))
-}
-
-/// attempt to extract page count from a PDF using pdfinfo
-///
-/// this is best-effort — if pdfinfo is not installed or fails, returns None
-async fn extract_page_count(source_path: &str) -> Option<i64> {
-    let args = vec![source_path.to_string()];
-
-    match super::run_command("pdfinfo", &args, 15).await {
-        Ok((stdout, _stderr)) => {
-            let output = String::from_utf8_lossy(&stdout);
-            // pdfinfo outputs lines like "Pages:          42"
-            for line in output.lines() {
-                if let Some(rest) = line.strip_prefix("Pages:") {
-                    if let Ok(count) = rest.trim().parse::<i64>() {
-                        return Some(count);
-                    }
-                }
-            }
-            warn!(
-                "pdfinfo output did not contain a Pages line for {}",
-                source_path
-            );
-            None
-        }
-        Err(e) => {
-            warn!(
-                "pdfinfo failed for {} (skipping page count extraction): {}",
-                source_path, e
-            );
-            None
-        }
-    }
 }
