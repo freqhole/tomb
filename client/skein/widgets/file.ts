@@ -777,14 +777,22 @@ export const fileWidget: WidgetFactory<typeof fileSchema> = {
       syncActionButtons();
 
       const info = await checkBlobLocality(blobId, ctx.doc.current.blake3);
+      console.debug("[file:locality] checkBlobLocality result:", {
+        blobId,
+        locality: info.locality,
+        metadata: info.metadata,
+        blake3: ctx.doc.current.blake3,
+      });
       // make sure we're still looking at the same blob
       if (ctx.doc.current.blobId !== blobId) return;
 
-      // map locality: "unknown" stays as "checking" (no action buttons) to avoid
-      // showing a non-functional snatch button in browser mode
+      // treat both "remote" and "unknown" as remote — show the snatch button
+      // so the user always has an action available. "unknown" means the lookup
+      // failed (IPC error, OPFS exception, etc.) but that doesn't mean the
+      // blob is local, so offering snatch is the safe fallback.
       if (info.locality === "local") {
         actionState = "local";
-      } else if (info.locality === "remote") {
+      } else {
         actionState = "remote";
         // blob is not local — remove ourselves from snatchedBy so peers
         // don't try to download from us
@@ -800,9 +808,8 @@ export const fileWidget: WidgetFactory<typeof fileSchema> = {
             });
           }
         }
-      } else {
-        actionState = "checking";
       }
+      console.debug("[file:locality] final actionState:", actionState, "for blobId:", blobId);
       syncActionButtons();
 
       // re-layout to account for action bar height change
@@ -1521,10 +1528,29 @@ export const fileWidget: WidgetFactory<typeof fileSchema> = {
 
     async function handlePreview() {
       const state = ctx.doc.current;
-      if (!state.blobId || !isPreviewableDomain(state.domain)) return;
-      if (actionState !== "local" && actionState !== "snatched") return;
+      console.debug("[file:preview] handlePreview called", {
+        blobId: state.blobId,
+        domain: state.domain,
+        actionState,
+        loadState,
+        hasThumbnail,
+        isPreviewable: isPreviewableDomain(state.domain),
+      });
+      if (!state.blobId || !isPreviewableDomain(state.domain)) {
+        console.debug("[file:preview] bail: no blobId or not previewable domain");
+        return;
+      }
+      if (actionState !== "local" && actionState !== "snatched") {
+        console.debug(
+          "[file:preview] bail: actionState is",
+          actionState,
+          "(need local or snatched)"
+        );
+        return;
+      }
 
       const overlayType = domainToOverlayType(state.domain);
+      console.debug("[file:preview] overlayType:", overlayType);
 
       // photos use the fullscreen overlay — inline at widget scale isn't useful
       if (overlayType === "photo") {
@@ -1539,10 +1565,23 @@ export const fileWidget: WidgetFactory<typeof fileSchema> = {
 
         let src: string | null = null;
         // local-first: only preview from local sources, no peer fetch
-        src = await getLocalBlobUrl(state.blobId);
+        console.debug(
+          "[file:preview] photo: calling getLocalBlobUrl for",
+          state.blobId,
+          "blake3:",
+          state.blake3?.slice(0, 12)
+        );
+        src = await getLocalBlobUrl(state.blobId, state.blake3);
+        console.debug(
+          "[file:preview] photo: getLocalBlobUrl returned",
+          src ? `${src.slice(0, 80)}...` : null
+        );
 
         if (!src) {
-          console.warn("[file] could not resolve blob data for photo preview");
+          console.warn(
+            "[file:preview] could not resolve blob data for photo preview, blobId:",
+            state.blobId
+          );
           return;
         }
 
@@ -1572,14 +1611,30 @@ export const fileWidget: WidgetFactory<typeof fileSchema> = {
       // use the unified media URL resolver — handles asset:// on macOS,
       // blob: URL workaround on Linux WebKitGTK, and OPFS in browser mode
       // local-first: try local URL without peer fallback
+      console.debug(
+        "[file:preview] audio/video: calling getMediaPlaybackUrl for",
+        state.blobId,
+        "mime:",
+        state.mime
+      );
       const src = await getMediaPlaybackUrl(state.blobId, {
         category: overlayType as "video" | "audio",
         mime: state.mime,
+        blake3: state.blake3,
         // no peers — preview only uses local sources
       });
+      console.debug(
+        "[file:preview] audio/video: getMediaPlaybackUrl returned",
+        src ? `${src.slice(0, 80)}...` : null
+      );
 
       if (!src) {
-        console.warn("[file] could not resolve blob data for preview");
+        console.warn(
+          "[file:preview] could not resolve blob data for preview, blobId:",
+          state.blobId,
+          "domain:",
+          state.domain
+        );
         return;
       }
 

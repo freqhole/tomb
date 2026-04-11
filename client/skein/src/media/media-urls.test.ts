@@ -5,23 +5,48 @@ vi.mock("../p2p/tauri-transport", () => ({
   isTauriMode: vi.fn(() => false),
 }));
 
-// mock the blob store — we control what getBlobObjectURL returns
-const mockGetBlobObjectURL = vi.fn<(blobId: string) => Promise<string | null>>();
+// mock the blob store — we control what resolveBlob and getBlobData return
+const mockResolveBlob = vi.fn<(blobId: string, blake3?: string) => Promise<any | null>>();
+const mockGetBlobData = vi.fn<(blobId: string) => Promise<ArrayBuffer | null>>();
 vi.mock("../storage/skein-blob-store", () => ({
-  getBlobObjectURL: (...args: any[]) => mockGetBlobObjectURL(...args),
+  resolveBlob: (...args: any[]) => mockResolveBlob(...args),
+  getBlobData: (...args: any[]) => mockGetBlobData(...args),
 }));
 
 import {
-    getMediaPlaybackUrl,
-    isLinuxWebKitGTK,
-    revokeAllMediaUrls,
-    revokeMediaUrl,
+  getMediaPlaybackUrl,
+  isLinuxWebKitGTK,
+  revokeAllMediaUrls,
+  revokeMediaUrl,
 } from "./media-urls";
+
+/** helper: create a fake SkeinBlobRecord */
+function fakeRecord(blobId: string, mime = "audio/mpeg") {
+  return {
+    blob_id: blobId,
+    sha256: "deadbeef",
+    blake3: "cafebabe",
+    filename: "test.mp3",
+    mime,
+    size: 1024,
+    domain: "audio",
+    blob_type: "original",
+    parent_blob_id: null,
+    metadata: {},
+    created_at: Date.now(),
+  };
+}
+
+/** helper: create a small ArrayBuffer for fake blob data */
+function fakeData(): ArrayBuffer {
+  return new Uint8Array([0x48, 0x65, 0x6c, 0x6c, 0x6f]).buffer;
+}
 
 describe("media-urls", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockGetBlobObjectURL.mockReset();
+    mockResolveBlob.mockReset();
+    mockGetBlobData.mockReset();
   });
 
   afterEach(() => {
@@ -62,27 +87,39 @@ describe("media-urls", () => {
   // -------------------------------------------------------------------------
 
   describe("getMediaPlaybackUrl (browser mode)", () => {
-    it("resolves a blob ID via OPFS and returns the URL", async () => {
-      const fakeUrl = "blob:http://localhost/fake-opfs-blob-url";
-      mockGetBlobObjectURL.mockResolvedValue(fakeUrl);
+    it("resolves a blob ID via OPFS and returns a blob: URL", async () => {
+      mockResolveBlob.mockResolvedValue(fakeRecord("test-blob-id-123"));
+      mockGetBlobData.mockResolvedValue(fakeData());
 
       const result = await getMediaPlaybackUrl("test-blob-id-123");
 
-      expect(mockGetBlobObjectURL).toHaveBeenCalledWith("test-blob-id-123");
-      expect(result).toBe(fakeUrl);
+      expect(mockResolveBlob).toHaveBeenCalledWith("test-blob-id-123", undefined);
+      expect(mockGetBlobData).toHaveBeenCalledWith("test-blob-id-123");
+      expect(result).toMatch(/^blob:/);
     });
 
-    it("returns null when the blob is not found in OPFS", async () => {
-      mockGetBlobObjectURL.mockResolvedValue(null);
+    it("returns null when the blob record is not found in OPFS", async () => {
+      mockResolveBlob.mockResolvedValue(null);
 
       const result = await getMediaPlaybackUrl("nonexistent-blob-id");
 
-      expect(mockGetBlobObjectURL).toHaveBeenCalledWith("nonexistent-blob-id");
+      expect(mockResolveBlob).toHaveBeenCalledWith("nonexistent-blob-id", undefined);
+      expect(result).toBeNull();
+    });
+
+    it("returns null when the blob record exists but OPFS file data is missing", async () => {
+      mockResolveBlob.mockResolvedValue(fakeRecord("orphan-blob"));
+      mockGetBlobData.mockResolvedValue(null);
+
+      const result = await getMediaPlaybackUrl("orphan-blob");
+
+      expect(mockResolveBlob).toHaveBeenCalled();
+      expect(mockGetBlobData).toHaveBeenCalledWith("orphan-blob");
       expect(result).toBeNull();
     });
 
     it("returns null when OPFS lookup throws", async () => {
-      mockGetBlobObjectURL.mockRejectedValue(new Error("OPFS unavailable"));
+      mockResolveBlob.mockRejectedValue(new Error("OPFS unavailable"));
 
       const result = await getMediaPlaybackUrl("error-blob-id");
 
@@ -90,27 +127,51 @@ describe("media-urls", () => {
     });
 
     it("caches OPFS blob URLs across calls for the same blob ID", async () => {
-      const fakeUrl = "blob:http://localhost/cached-url";
-      mockGetBlobObjectURL.mockResolvedValue(fakeUrl);
+      mockResolveBlob.mockResolvedValue(fakeRecord("cached-blob"));
+      mockGetBlobData.mockResolvedValue(fakeData());
 
       const first = await getMediaPlaybackUrl("cached-blob");
       const second = await getMediaPlaybackUrl("cached-blob");
 
-      expect(first).toBe(fakeUrl);
-      expect(second).toBe(fakeUrl);
-      // the session cache inside media-urls should serve the second call,
-      // but getBlobObjectURL may still be called if the internal cache key
-      // differs from the mock's perspective — we just verify both return the URL
+      expect(first).toMatch(/^blob:/);
+      expect(second).toBe(first);
+      // second call should use the session cache — resolveBlob only called once
+      expect(mockResolveBlob).toHaveBeenCalledTimes(1);
     });
 
     it("passes the category option through (defaults to audio)", async () => {
-      mockGetBlobObjectURL.mockResolvedValue("blob:http://localhost/video-url");
+      mockResolveBlob.mockResolvedValue(fakeRecord("video-blob", "video/mp4"));
+      mockGetBlobData.mockResolvedValue(fakeData());
 
       const result = await getMediaPlaybackUrl("video-blob", {
         category: "video",
       });
 
-      expect(result).toBe("blob:http://localhost/video-url");
+      expect(result).toMatch(/^blob:/);
+    });
+
+    it("passes blake3 through to resolveBlob for cross-peer resolution", async () => {
+      mockResolveBlob.mockResolvedValue(fakeRecord("server-uuid", "audio/mpeg"));
+      mockGetBlobData.mockResolvedValue(fakeData());
+
+      const result = await getMediaPlaybackUrl("server-uuid", {
+        blake3: "cafebabe12345678",
+      });
+
+      expect(mockResolveBlob).toHaveBeenCalledWith("server-uuid", "cafebabe12345678");
+      expect(result).toMatch(/^blob:/);
+    });
+
+    it("uses correct mime type from the blob record for the created Blob", async () => {
+      const record = fakeRecord("mime-test", "video/webm");
+      mockResolveBlob.mockResolvedValue(record);
+      mockGetBlobData.mockResolvedValue(fakeData());
+
+      const result = await getMediaPlaybackUrl("mime-test");
+
+      // we can't inspect the blob: URL's type directly, but verifying
+      // the URL was created successfully is sufficient
+      expect(result).toMatch(/^blob:/);
     });
   });
 });

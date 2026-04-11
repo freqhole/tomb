@@ -1224,44 +1224,119 @@ export async function getBlobLocalPath(blobId: string): Promise<string | null> {
  * - browser: tries OPFS blob: URL via skein-blob-store
  * returns null if the blob is not available locally.
  */
-export async function getLocalBlobUrl(blobId: string): Promise<string | null> {
-  if (!blobId) return null;
+export async function getLocalBlobUrl(blobId: string, blake3?: string): Promise<string | null> {
+  if (!blobId) {
+    console.debug(TAG, "getLocalBlobUrl: no blobId provided");
+    return null;
+  }
+
+  console.debug(
+    TAG,
+    "getLocalBlobUrl:",
+    blobId,
+    "blake3:",
+    blake3?.slice(0, 12),
+    "isTauri:",
+    isTauriMode()
+  );
 
   if (isTauriMode()) {
+    // resolve the effective grimoire blob ID — the blobId in the automerge doc
+    // might be a browser-peer's SHA256 hash that doesn't exist in grimoire.
+    // try direct lookup first, fall back to blake3 to find the real ID.
+    let resolvedId = blobId;
+
     // try filesystem path → asset:// URL first (avoids base64 for large files)
     try {
-      const localPath = await getBlobLocalPath(blobId);
+      console.debug(TAG, "getLocalBlobUrl: trying getBlobLocalPath for", blobId);
+      let localPath = await getBlobLocalPath(blobId);
+
+      // direct ID failed — try blake3 lookup to find the real grimoire blob ID
+      if (!localPath && blake3) {
+        console.debug(TAG, "getLocalBlobUrl: direct ID miss, trying blake3:", blake3.slice(0, 12));
+        try {
+          const blake3Response = await tauriInvoke("api_call", {
+            path: "/api/blob_metadata_by_blake3",
+            body: { blake3 },
+          });
+          if (blake3Response?.success && blake3Response.data?.id) {
+            resolvedId = blake3Response.data.id;
+            console.debug(TAG, "getLocalBlobUrl: blake3 resolved to:", resolvedId);
+            localPath = await getBlobLocalPath(resolvedId);
+          }
+        } catch (err) {
+          console.debug(TAG, "getLocalBlobUrl: blake3 lookup threw:", err);
+        }
+      }
+
+      console.debug(TAG, "getLocalBlobUrl: getBlobLocalPath returned:", localPath);
       if (localPath) {
         const assetUrl = await convertToAssetUrl(localPath);
+        console.debug(TAG, "getLocalBlobUrl: asset URL:", assetUrl.slice(0, 80));
         return assetUrl;
       }
-    } catch {
+    } catch (err) {
+      console.debug(TAG, "getLocalBlobUrl: getBlobLocalPath threw:", err);
       // fall through to data URL approach
     }
 
     // fall back to base64 data URL from blob_data endpoint
     try {
+      console.debug(TAG, "getLocalBlobUrl: trying /api/blobs/data fallback for", resolvedId);
       const response = await tauriInvoke("api_call", {
-        path: `/api/blobs/${blobId}/data`,
+        path: `/api/blobs/${resolvedId}/data`,
         body: {},
+      });
+      console.debug(TAG, "getLocalBlobUrl: /data response:", {
+        success: response?.success,
+        hasData: !!response?.data?.data,
+        hasMime: !!response?.data?.mime,
       });
 
       if (response?.success && response.data?.data && response.data?.mime) {
+        console.debug(TAG, "getLocalBlobUrl: returning base64 data URL");
         return `data:${response.data.mime};base64,${response.data.data}`;
       }
-    } catch {
-      // not available locally
+    } catch (err) {
+      console.debug(TAG, "getLocalBlobUrl: /data fallback threw:", err);
     }
 
+    console.debug(TAG, "getLocalBlobUrl: tauri — all paths failed for", blobId);
     return null;
   }
 
-  // browser mode: check OPFS
+  // browser mode: check OPFS — use resolveBlob which tries blob_id, sha256,
+  // and blake3 indexes. getBlobObjectURL only passes blobId (no blake3) so
+  // it misses blobs uploaded by Tauri peers (whose server UUID doesn't match
+  // the browser's sha256-based primary key).
   try {
-    const { getBlobObjectURL } = await import("../storage/skein-blob-store");
-    const url = await getBlobObjectURL(blobId);
+    console.debug(TAG, "getLocalBlobUrl: browser — trying OPFS resolveBlob...");
+    const { resolveBlob, getBlobData } = await import("../storage/skein-blob-store");
+    const record = await resolveBlob(blobId, blake3);
+    console.debug(
+      TAG,
+      "getLocalBlobUrl: resolveBlob returned:",
+      record ? { blob_id: record.blob_id, filename: record.filename } : null
+    );
+    if (!record) return null;
+
+    const data = await getBlobData(record.blob_id);
+    if (!data) {
+      console.debug(
+        TAG,
+        "getLocalBlobUrl: OPFS file not found for resolved blob_id:",
+        record.blob_id
+      );
+      return null;
+    }
+
+    const mime = record.mime ?? "application/octet-stream";
+    const blob = new Blob([data], { type: mime });
+    const url = URL.createObjectURL(blob);
+    console.debug(TAG, "getLocalBlobUrl: OPFS blob URL created:", url.slice(0, 60));
     return url;
-  } catch {
+  } catch (err) {
+    console.debug(TAG, "getLocalBlobUrl: OPFS threw:", err);
     return null;
   }
 }
