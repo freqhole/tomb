@@ -68,6 +68,12 @@ export interface CompactInfo {
   thumbnailUrl?: string;
   /** accent color for spine/border tinting (pixi hex number) */
   accentColor?: number;
+  /** media domain hint for media-aware card rendering (e.g. "audio", "video", "photo") */
+  domain?: string;
+  /** blob ID for media playback (used by bin media controller) */
+  blobId?: string;
+  /** MIME type hint */
+  mime?: string;
 }
 
 /**

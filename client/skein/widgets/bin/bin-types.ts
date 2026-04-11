@@ -26,6 +26,14 @@ export interface RenderedCard {
   thumbSprite: Sprite | null;
   /** the loaded texture key (for asset cache cleanup) */
   textureKey: string | null;
+  /** media overlay container (play/pause icon + semi-transparent bg) — present for audio/video cards */
+  mediaOverlay: Container | null;
+  /** media domain hint from CompactInfo ("audio" | "video") — null for non-media cards */
+  mediaDomain: string | null;
+  /** blob ID for media playback — null for non-media cards */
+  mediaBlobId: string | null;
+  /** MIME type hint for media playback */
+  mediaMime: string | null;
 }
 
 // -----------------------------------------------------------------------

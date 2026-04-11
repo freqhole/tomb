@@ -15,6 +15,7 @@ import {
 } from "./bin-constants";
 import type { SlotSizeOptions } from "./bin-layout";
 import { slotRect } from "./bin-layout";
+import { createMediaOverlay, isMediaDomain } from "./bin-media";
 import type { CardBuildContext, CardRenderState, RenderedCard } from "./bin-types";
 
 const FONT_FAMILY = "'Atkinson Hyperlegible Next', sans-serif";
@@ -121,6 +122,14 @@ function buildGridCard(state: CardRenderState, ctx: CardBuildContext): RenderedC
     card.addChild(letterText);
   }
 
+  // media overlay — play/pause icon for audio/video cards
+  let mediaOverlay: Container | null = null;
+  if (isMediaDomain(info.domain)) {
+    const parts = createMediaOverlay(cellSize, cellSize);
+    mediaOverlay = parts.overlay;
+    card.addChild(mediaOverlay);
+  }
+
   // filename label below the cell
   // use full cell width for label — compute max chars dynamically
   const maxGridChars = Math.max(
@@ -146,7 +155,17 @@ function buildGridCard(state: CardRenderState, ctx: CardBuildContext): RenderedC
   // pointer interactions
   ctx.attachPointerHandlers(card, widgetId);
 
-  return { widgetId, slot, container: card, thumbSprite, textureKey };
+  return {
+    widgetId,
+    slot,
+    container: card,
+    thumbSprite,
+    textureKey,
+    mediaOverlay,
+    mediaDomain: info.domain ?? null,
+    mediaBlobId: info.blobId ?? null,
+    mediaMime: info.mime ?? null,
+  };
 }
 
 // -----------------------------------------------------------------------
@@ -257,9 +276,27 @@ function buildShelfCard(state: CardRenderState, ctx: CardBuildContext): Rendered
   }
   card.addChild(label);
 
+  // media overlay — play/pause icon for audio/video cards
+  let mediaOverlay: Container | null = null;
+  if (isMediaDomain(info.domain)) {
+    const parts = createMediaOverlay(spineW, endcapH);
+    mediaOverlay = parts.overlay;
+    card.addChild(mediaOverlay);
+  }
+
   ctx.attachPointerHandlers(card, widgetId);
 
-  return { widgetId, slot, container: card, thumbSprite, textureKey };
+  return {
+    widgetId,
+    slot,
+    container: card,
+    thumbSprite,
+    textureKey,
+    mediaOverlay,
+    mediaDomain: info.domain ?? null,
+    mediaBlobId: info.blobId ?? null,
+    mediaMime: info.mime ?? null,
+  };
 }
 
 // -----------------------------------------------------------------------
@@ -355,9 +392,27 @@ function buildCrateCard(state: CardRenderState, ctx: CardBuildContext): Rendered
   label.y = (slotH - label.height) / 2;
   card.addChild(label);
 
+  // media overlay — play/pause icon for audio/video cards
+  let mediaOverlay: Container | null = null;
+  if (isMediaDomain(info.domain)) {
+    const parts = createMediaOverlay(endcapW, slotH);
+    mediaOverlay = parts.overlay;
+    card.addChild(mediaOverlay);
+  }
+
   ctx.attachPointerHandlers(card, widgetId);
 
-  return { widgetId, slot, container: card, thumbSprite, textureKey };
+  return {
+    widgetId,
+    slot,
+    container: card,
+    thumbSprite,
+    textureKey,
+    mediaOverlay,
+    mediaDomain: info.domain ?? null,
+    mediaBlobId: info.blobId ?? null,
+    mediaMime: info.mime ?? null,
+  };
 }
 
 // -----------------------------------------------------------------------
@@ -453,7 +508,25 @@ function buildDrawerCard(state: CardRenderState, ctx: CardBuildContext): Rendere
   label.y = (slotH - label.height) / 2;
   container.addChild(label);
 
+  // media overlay — play/pause icon for audio/video cards
+  let mediaOverlay: Container | null = null;
+  if (isMediaDomain(info.domain)) {
+    const parts = createMediaOverlay(endcapW, slotH);
+    mediaOverlay = parts.overlay;
+    container.addChild(mediaOverlay);
+  }
+
   ctx.attachPointerHandlers(container, widgetId);
 
-  return { widgetId, slot, container, thumbSprite, textureKey };
+  return {
+    widgetId,
+    slot,
+    container,
+    thumbSprite,
+    textureKey,
+    mediaOverlay,
+    mediaDomain: info.domain ?? null,
+    mediaBlobId: info.blobId ?? null,
+    mediaMime: info.mime ?? null,
+  };
 }

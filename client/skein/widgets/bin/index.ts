@@ -22,6 +22,7 @@ import {
   type BinMode,
   type SlotSizeOptions,
 } from "./bin-layout";
+import { BinMediaController } from "./bin-media";
 import { BinRenderer, type CardInteractionCallbacks } from "./bin-renderer";
 
 // -----------------------------------------------------------------------
@@ -578,12 +579,22 @@ export const binWidget: WidgetFactory<typeof binSchema> = {
           })
         : {};
 
-    // add onCardTap: look up the child widget's factory and call
-    // onCompactActivate if the factory defines one (e.g., canvas-card
-    // navigates to the canvas). cardCallbacks is the same object returned
-    // by createBinDragHandler, so we just add the onCardTap property.
+    // media controller for audio/video playback on compact cards
+    let mediaController: BinMediaController | null = null;
+
+    // add onCardTap: for media cards (audio/video), route through the media
+    // controller for play/pause. for other cards, call onCompactActivate
+    // on the factory (e.g., canvas-card navigates to the canvas).
+    // cardCallbacks is the same object returned by createBinDragHandler,
+    // so we just add the onCardTap property.
     if (store && repo && registry) {
       (cardCallbacks as CardInteractionCallbacks).onCardTap = (widgetId: string) => {
+        // try media controller first — returns true if it handled the tap
+        if (mediaController?.handleTap(widgetId)) {
+          return;
+        }
+
+        // fall through to onCompactActivate for non-media cards
         const entry = store.getWidget(widgetId);
         if (!entry) return;
 
@@ -606,6 +617,17 @@ export const binWidget: WidgetFactory<typeof binSchema> = {
     if (repo && registry && store) {
       renderer = new BinRenderer(repo, registry, store, cardCallbacks);
       contentContainer.addChild(renderer.container);
+
+      // create media controller for audio/video card playback
+      mediaController = new BinMediaController({
+        canvasElement: ctx.canvasElement,
+        getCard: (wid) => renderer?.getCard(wid),
+        getPeers: () => {
+          const peers = ctx.canvasStore?.peers();
+          return peers as Record<string, { nodeId: string }> | undefined;
+        },
+      });
+      renderer.setMediaController(mediaController);
 
       // show slot outlines on hover so the user can see drop targets
       container.eventMode = "static";
@@ -644,6 +666,8 @@ export const binWidget: WidgetFactory<typeof binSchema> = {
       destroy() {
         destroyed = true;
         unsub();
+        mediaController?.destroy();
+        mediaController = null;
         renderer?.destroy();
         container.destroy({ children: true });
       },

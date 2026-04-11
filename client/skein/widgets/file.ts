@@ -1,11 +1,10 @@
 import { Assets, Container, Graphics, Sprite, Text, Texture } from "pixi.js";
 import { z } from "zod";
+import { getMediaPlaybackUrl } from "../src/media";
 import { isTauriMode } from "../src/p2p/tauri-transport";
 import {
   checkBlobLocality,
-  convertToAssetUrl,
   formatFileSize,
-  getBlobLocalPath,
   getFullBlobDataUrl,
   getLocalNodeId,
   getThumbnailDataUrl,
@@ -199,6 +198,9 @@ export const fileWidget: WidgetFactory<typeof fileSchema> = {
     label: state.filename || "untitled",
     thumbnailUrl: state.thumbnailDataUrl || undefined,
     accentColor: domainBadgeColor(state.domain),
+    domain: state.domain || undefined,
+    blobId: state.blobId || undefined,
+    mime: state.mime || undefined,
   }),
 
   create(ctx: WidgetMountContext<typeof fileSchema>): WidgetController {
@@ -1374,25 +1376,14 @@ export const fileWidget: WidgetFactory<typeof fileSchema> = {
         activePlayer = null;
       }
 
-      let src: string | null = null;
-
-      // for video/audio, prefer asset:// URL (supports range requests / streaming)
-      if (isTauriMode()) {
-        const localPath = await getBlobLocalPath(state.blobId);
-        if (localPath) {
-          try {
-            src = await convertToAssetUrl(localPath);
-          } catch {
-            // fall through to data URL approach
-          }
-        }
-      }
-
-      // fallback: fetch full blob data
-      if (!src) {
-        const peers = ctx.canvasStore?.peers() as PeersMap | undefined;
-        src = await getFullBlobDataUrl(state.blobId, peers);
-      }
+      // use the unified media URL resolver — handles asset:// on macOS,
+      // blob: URL workaround on Linux WebKitGTK, and OPFS in browser mode
+      const peers = ctx.canvasStore?.peers() as PeersMap | undefined;
+      const src = await getMediaPlaybackUrl(state.blobId, {
+        category: overlayType as "video" | "audio",
+        peers,
+        mime: state.mime,
+      });
 
       if (!src) {
         console.warn("[file] could not resolve blob data for preview");

@@ -6,6 +6,7 @@ import type { CompactInfo } from "../../src/widgets/widget-types";
 import { buildCard } from "./bin-card-builders";
 import type { BinMode, SlotPosition, SlotSizeOptions } from "./bin-layout";
 import { contentDimensions, slotRect } from "./bin-layout";
+import type { BinMediaController } from "./bin-media";
 import type {
   CardBuildContext,
   CardInteractionCallbacks,
@@ -41,6 +42,9 @@ export class BinRenderer {
 
   /** currently rendered cards, keyed by widgetId */
   private cards = new Map<string, RenderedCard>();
+
+  /** optional media controller for audio/video playback on cards */
+  private mediaController: BinMediaController | null = null;
 
   /** unsubscribe functions for child doc change listeners */
   private docUnsubs = new Map<string, () => void>();
@@ -291,6 +295,23 @@ export class BinRenderer {
   }
 
   /**
+   * get the full rendered card for a specific widget, or undefined.
+   * used by the media controller to access overlay and metadata.
+   */
+  getCard(widgetId: string): RenderedCard | undefined {
+    return this.cards.get(widgetId);
+  }
+
+  /**
+   * set the media controller for audio/video playback on cards.
+   * the controller is notified when cards are added, updated, or removed
+   * so it can attach/detach hover and playback behavior.
+   */
+  setMediaController(controller: BinMediaController | null): void {
+    this.mediaController = controller;
+  }
+
+  /**
    * clean up all cards, textures, and doc subscriptions.
    */
   destroy(): void {
@@ -315,6 +336,7 @@ export class BinRenderer {
     const card = this.buildCardFromState(state);
     this.cards.set(state.widgetId, card);
     this.cardParent.addChild(card.container);
+    this.mediaController?.attachToCard(card);
   }
 
   private updateCard(existing: RenderedCard, state: CardRenderState): void {
@@ -326,12 +348,14 @@ export class BinRenderer {
     const card = this.buildCardFromState(state);
     this.cards.set(state.widgetId, card);
     this.cardParent.addChild(card.container);
+    this.mediaController?.attachToCard(card);
   }
 
   private removeCard(widgetId: string): void {
     const card = this.cards.get(widgetId);
     if (!card) return;
 
+    this.mediaController?.detachFromCard(widgetId);
     this.cardParent.removeChild(card.container);
     this.cleanupCardResources(card);
     this.cards.delete(widgetId);

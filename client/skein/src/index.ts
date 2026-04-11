@@ -34,6 +34,22 @@ export type {
 export { resolveFriendDisplay, SqliteSocialDoc } from "./p2p/sqlite-social-doc";
 export { isTauriMode } from "./p2p/tauri-transport";
 
+// media
+export {
+  audioManager,
+  getMediaPlaybackUrl,
+  isLinuxWebKitGTK,
+  revokeAllMediaUrls,
+  revokeMediaUrl,
+} from "./media";
+export type {
+  AudioError,
+  AudioEventMap,
+  AudioPlaybackState,
+  AudioTimeUpdate,
+  MediaUrlOptions,
+} from "./media";
+
 // theme
 export { defaultTheme } from "./theme/skein-theme";
 export type { SkeinTheme } from "./theme/skein-theme";
