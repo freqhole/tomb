@@ -22,6 +22,10 @@ describe("canvasCardSchema", () => {
       hasUpdates: false,
       lastKnownModifiedAt: "",
       lastModifiedBy: "",
+      isDeleted: false,
+      deletedAt: "",
+      deletedBy: "",
+      deleteMode: "",
     });
   });
 

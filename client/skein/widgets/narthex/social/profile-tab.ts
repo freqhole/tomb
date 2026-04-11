@@ -736,8 +736,9 @@ export function createProfileTab(ctx: TabContext): TabController {
       setupDescText.style.wordWrapWidth = w;
       setupDescText.x = 0;
       setupDescText.y = 0;
+      setupDescText.visible = !importMode;
 
-      const btnY = setupDescText.height + 10;
+      const btnY = importMode ? 0 : setupDescText.height + 10;
 
       setupBtnBg.clear();
       setupBtnBg.roundRect(0, 0, w, BUTTON_HEIGHT, BUTTON_RADIUS);
