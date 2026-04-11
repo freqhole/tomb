@@ -554,6 +554,38 @@ class SkeinRouter {
               }
             }
           }
+          // build pending invites from canvas doc
+          const pendingInvitesMap = this.currentCanvas?.store.pendingInvites() ?? {};
+          const pendingInvitesList = Object.entries(pendingInvitesMap).map(
+            ([targetNodeId, invite]) => ({
+              targetNodeId,
+              invite,
+            })
+          );
+
+          // build declined invites from messagez outbox shares
+          const declinedInvites: Array<{
+            toNodeId: string;
+            toUsername: string;
+            canvasTitle: string;
+            sentAt: string;
+          }> = [];
+          if (this.messagezDocHandle) {
+            const mDoc = this.messagezDocHandle.doc() as any;
+            if (mDoc?.shares) {
+              for (const share of mDoc.shares) {
+                if (share.declined && share.canvasDocId === docId) {
+                  declinedInvites.push({
+                    toNodeId: share.toNodeId,
+                    toUsername: share.toUsername ?? "",
+                    canvasTitle: share.canvasTitle ?? "",
+                    sentAt: share.sentAt ?? "",
+                  });
+                }
+              }
+            }
+          }
+
           showShareDialog({
             app: this.currentCanvas.app,
             theme: this.currentCanvas.theme,
@@ -675,6 +707,15 @@ class SkeinRouter {
               }
 
               console.log("[skein] canvas invite sent to:", friend.nodeId.slice(0, 16) + "...");
+            },
+            pendingInvites: pendingInvitesList,
+            declinedInvites,
+            onCancelInvite: (targetNodeId: string) => {
+              this.currentCanvas?.store.removePendingInvite(targetNodeId);
+              console.log(
+                "[skein] cancelled pending invite for:",
+                targetNodeId.slice(0, 16) + "..."
+              );
             },
           });
         },

@@ -495,16 +495,20 @@ export const canvasInfoWidget: WidgetFactory<typeof canvasInfoSchema> = {
 
       colorLabel.y = descText.y + descText.height + 12;
       swatchContainer.y = colorLabel.y + colorLabel.height + 4;
-      imageContainer.y = swatchContainer.y + SWATCH_RADIUS * 2 + 12;
 
-      // delete button at the bottom
+      // delete button right after color swatches
       if (deleteBtn.visible) {
-        const btnY = imageContainer.y + imageContainer.height + 12;
+        const btnY = swatchContainer.y + SWATCH_RADIUS * 2 + 12;
         deleteBtn.y = btnY;
         deleteBtnBg.clear();
         deleteBtnBg.roundRect(0, 0, availW, 26, 4);
         deleteBtnBg.fill({ color: 0x331111, alpha: 0.5 });
         deleteBtnBg.stroke({ color: 0x662222, width: 1 });
+        // image container after delete button
+        imageContainer.y = btnY + 26 + 12;
+      } else {
+        // no delete button — image directly after swatches
+        imageContainer.y = swatchContainer.y + SWATCH_RADIUS * 2 + 12;
       }
     };
 
@@ -664,37 +668,73 @@ export const canvasInfoWidget: WidgetFactory<typeof canvasInfoSchema> = {
 
     // -- history tab ----------------------------------------------------------
 
+    const HISTORY_SCROLL_SPEED = 30;
+    let historyScrollY = 0;
+
     const historyContainer = new Container();
+    historyContainer.eventMode = "static";
     historyContainer.x = PADDING;
     historyContainer.y = contentY + PADDING;
-    historyContainer.mask = contentClip;
     historyContainer.visible = false;
     container.addChild(historyContainer);
+
+    const historyMask = new Graphics();
+    container.addChild(historyMask);
+    historyContainer.mask = historyMask;
+
+    const historyInner = new Container();
+    historyInner.eventMode = "static";
+    historyContainer.addChild(historyInner);
+
+    let historyAreaHeight = 0;
+    let totalHistoryHeight = 0;
+
+    const clampHistoryScroll = () => {
+      const maxScroll = Math.max(0, totalHistoryHeight - historyAreaHeight);
+      historyScrollY = Math.max(0, Math.min(historyScrollY, maxScroll));
+    };
+
+    historyContainer.on("wheel", (e: WheelEvent) => {
+      const canScroll = totalHistoryHeight > historyAreaHeight;
+      if (!canScroll) return;
+      e.stopPropagation();
+      if ((e as any).nativeEvent) (e as any).nativeEvent._skeinWidgetScroll = true;
+      historyScrollY += e.deltaY > 0 ? HISTORY_SCROLL_SPEED : -HISTORY_SCROLL_SPEED;
+      clampHistoryScroll();
+      historyInner.y = -historyScrollY;
+    });
+
+    const drawHistoryMask = (w: number, h: number) => {
+      historyMask.clear();
+      historyMask.rect(PADDING, contentY + PADDING, w - PADDING * 2, h - contentY - PADDING * 2);
+      historyMask.fill({ color: 0xffffff });
+    };
+    drawHistoryMask(currentWidth, currentHeight);
 
     const STAT_FONT = { fontFamily: "system-ui, sans-serif", fontSize: 12, fill: TEXT_SECONDARY };
     const DIM_FONT = { fontFamily: "monospace", fontSize: 10, fill: TEXT_DIM };
 
     const widgetCountText = new Text({ text: "", style: { ...STAT_FONT } });
-    historyContainer.addChild(widgetCountText);
+    historyInner.addChild(widgetCountText);
 
     const createdText = new Text({ text: "", style: { ...DIM_FONT } });
-    historyContainer.addChild(createdText);
+    historyInner.addChild(createdText);
 
     const modifiedText = new Text({ text: "", style: { ...DIM_FONT } });
-    historyContainer.addChild(modifiedText);
+    historyInner.addChild(modifiedText);
 
     const opsText = new Text({ text: "", style: { ...DIM_FONT } });
-    historyContainer.addChild(opsText);
+    historyInner.addChild(opsText);
 
     const changesText = new Text({ text: "", style: { ...DIM_FONT } });
-    historyContainer.addChild(changesText);
+    historyInner.addChild(changesText);
 
     const totalSizeText = new Text({ text: "", style: { ...STAT_FONT } });
-    historyContainer.addChild(totalSizeText);
+    historyInner.addChild(totalSizeText);
 
     // per-widget size breakdown (built dynamically)
     const breakdownContainer = new Container();
-    historyContainer.addChild(breakdownContainer);
+    historyInner.addChild(breakdownContainer);
 
     const layoutHistory = () => {
       let y = 0;
@@ -718,6 +758,17 @@ export const canvasInfoWidget: WidgetFactory<typeof canvasInfoSchema> = {
       y += totalSizeText.height + 6;
 
       breakdownContainer.y = y;
+
+      // compute total content height (including breakdown children)
+      let breakdownH = 0;
+      for (const child of breakdownContainer.children) {
+        breakdownH = Math.max(breakdownH, child.y + (child as any).height);
+      }
+      totalHistoryHeight = y + breakdownH;
+
+      historyAreaHeight = currentHeight - contentY - PADDING * 2;
+      clampHistoryScroll();
+      historyInner.y = -historyScrollY;
     };
 
     const refreshHistory = () => {
@@ -828,6 +879,7 @@ export const canvasInfoWidget: WidgetFactory<typeof canvasInfoSchema> = {
       if (activeTab === "details") {
         refreshDetailsFromStore();
       } else {
+        historyScrollY = 0;
         refreshHistory();
       }
     };
@@ -899,6 +951,7 @@ export const canvasInfoWidget: WidgetFactory<typeof canvasInfoSchema> = {
         drawTabSeparator(width);
         drawTabUnderline();
         drawContentClip(width, height);
+        drawHistoryMask(width, height);
 
         // re-layout details content with new width
         titleText.style.wordWrapWidth = width - PADDING * 2;

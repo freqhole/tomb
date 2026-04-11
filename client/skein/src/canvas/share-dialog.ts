@@ -42,6 +42,25 @@ export interface ShareDialogOptions {
   onClose?: () => void;
   /** optional map of nodeId -> display name for resolving peer names from friends list */
   peerDisplayNames?: Map<string, string>;
+  /** pending invites on this canvas (from canvas doc pendingInvites) */
+  pendingInvites?: Array<{
+    targetNodeId: string;
+    invite: {
+      invitedBy: string;
+      invitedByUsername: string;
+      role: string;
+      invitedAt: string;
+    };
+  }>;
+  /** callback when user cancels a pending invite */
+  onCancelInvite?: (targetNodeId: string) => void;
+  /** declined invites (from messagez outbox shares where declined === true) */
+  declinedInvites?: Array<{
+    toNodeId: string;
+    toUsername: string;
+    canvasTitle: string;
+    sentAt: string;
+  }>;
 }
 
 export interface ShareDialogHandle {
@@ -470,6 +489,150 @@ function buildFriendInviteRow(
 }
 
 // ---------------------------------------------------------------------------
+// helpers — pending invite row
+// ---------------------------------------------------------------------------
+
+function buildPendingInviteRow(
+  targetNodeId: string,
+  invite: { invitedBy: string; invitedByUsername: string; role: string; invitedAt: string },
+  theme: SkeinTheme,
+  scrollBoxWidth: number,
+  rowHeight: number,
+  _isRemoved: () => boolean,
+  onCancelInvite?: (targetNodeId: string) => void,
+  displayName?: string
+): Container {
+  const row = new Container();
+
+  // name or truncated node ID
+  const truncated = targetNodeId.slice(0, 8) + "..." + targetNodeId.slice(-8);
+  const label = displayName || truncated;
+  const nameText = new Text({
+    text: label,
+    style: {
+      fontFamily: theme.fontFamily,
+      fontSize: theme.fontSizeSmall,
+      fill: theme.frameHeaderText,
+      fontWeight: displayName ? "bold" : "normal",
+    },
+    resolution: theme.textResolution,
+  });
+  nameText.eventMode = "none";
+  nameText.y = (rowHeight - nameText.height) / 2;
+  row.addChild(nameText);
+
+  // "invited [date]" subtitle
+  const invitedDate = invite.invitedAt ? new Date(invite.invitedAt).toLocaleDateString() : "";
+  const dateText = new Text({
+    text: invitedDate ? `invited ${invitedDate}` : "invited",
+    style: {
+      fontFamily: theme.fontFamily,
+      fontSize: theme.fontSizeSmall - 1,
+      fill: 0x6b7280,
+    },
+    resolution: theme.textResolution,
+  });
+  dateText.eventMode = "none";
+  dateText.x = nameText.x + nameText.width + 8;
+  dateText.y = (rowHeight - dateText.height) / 2;
+  row.addChild(dateText);
+
+  // cancel button
+  if (onCancelInvite) {
+    const cancelBtnText = new Text({
+      text: "cancel",
+      style: {
+        fontFamily: theme.fontFamily,
+        fontSize: theme.fontSizeSmall,
+        fill: 0xef4444,
+      },
+      resolution: theme.textResolution,
+    });
+    cancelBtnText.eventMode = "none";
+
+    const cancelBtnBg = new Graphics();
+    const cancelW = cancelBtnText.width + 14 * 2;
+    const cancelH = cancelBtnText.height + 6 * 2;
+    cancelBtnBg.roundRect(0, 0, cancelW, cancelH, 4);
+    cancelBtnBg.fill({ color: 0x7f1d1d });
+
+    const cancelView = new Container();
+    cancelView.addChild(cancelBtnBg);
+    cancelBtnText.x = 14;
+    cancelBtnText.y = 6;
+    cancelView.addChild(cancelBtnText);
+
+    const cancelBtn = new ButtonContainer(cancelView);
+    cancelBtn.cursor = "pointer";
+    cancelBtn.x = scrollBoxWidth - cancelW;
+    cancelBtn.y = (rowHeight - cancelH) / 2;
+    row.addChild(cancelBtn);
+
+    cancelBtn.onPress.connect(() => {
+      onCancelInvite(targetNodeId);
+
+      // visual feedback
+      cancelBtnText.text = "cancelled";
+      cancelBtnText.style.fill = 0x6b7280;
+      cancelBtnBg.clear();
+      const feedbackW = cancelBtnText.width + 14 * 2;
+      cancelBtnBg.roundRect(0, 0, feedbackW, cancelH, 4);
+      cancelBtnBg.fill({ color: 0x1f1f1f });
+    });
+  }
+
+  return row;
+}
+
+// ---------------------------------------------------------------------------
+// helpers — declined invite row
+// ---------------------------------------------------------------------------
+
+function buildDeclinedRow(
+  toNodeId: string,
+  toUsername: string,
+  theme: SkeinTheme,
+  _scrollBoxWidth: number,
+  rowHeight: number,
+  displayName?: string
+): Container {
+  const row = new Container();
+
+  // name or truncated node ID
+  const truncated = toNodeId.slice(0, 8) + "..." + toNodeId.slice(-8);
+  const label = displayName || toUsername || truncated;
+  const nameText = new Text({
+    text: label,
+    style: {
+      fontFamily: theme.fontFamily,
+      fontSize: theme.fontSizeSmall,
+      fill: theme.frameHeaderText,
+    },
+    resolution: theme.textResolution,
+  });
+  nameText.eventMode = "none";
+  nameText.y = (rowHeight - nameText.height) / 2;
+  row.addChild(nameText);
+
+  // "declined" status label
+  const statusText = new Text({
+    text: "declined",
+    style: {
+      fontFamily: theme.fontFamily,
+      fontSize: theme.fontSizeSmall,
+      fill: 0x6b7280,
+    },
+    resolution: theme.textResolution,
+  });
+  statusText.eventMode = "none";
+  statusText.x = nameText.x + nameText.width + 8;
+  statusText.y = (rowHeight - statusText.height) / 2;
+  row.addChild(statusText);
+
+  return row;
+}
+
+// ---------------------------------------------------------------------------
 // helpers — DOM input overlays
 // ---------------------------------------------------------------------------
 
@@ -671,6 +834,89 @@ export function showShareDialog(options: ShareDialogOptions): ShareDialogHandle 
   }
 
   // -------------------------------------------------------------------------
+  // pending invites section
+  // -------------------------------------------------------------------------
+
+  const pendingSection = new Container();
+  const pendingLabel = makeLabel("pending invites", theme);
+  pendingSection.addChild(pendingLabel);
+
+  const pendingList = options.pendingInvites ?? [];
+  const nameMap = options.peerDisplayNames;
+
+  if (pendingList.length === 0) {
+    const noPendingText = new Text({
+      text: "no pending invites",
+      style: {
+        fontFamily: theme.fontFamily,
+        fontSize: theme.fontSizeSmall,
+        fill: 0x6b7280,
+      },
+      resolution: theme.textResolution,
+    });
+    noPendingText.eventMode = "none";
+    noPendingText.y = pendingLabel.height + LABEL_GAP;
+    pendingSection.addChild(noPendingText);
+  } else {
+    let pendingY = pendingLabel.height + LABEL_GAP;
+    for (const entry of pendingList) {
+      const pendingRow = buildPendingInviteRow(
+        entry.targetNodeId,
+        entry.invite,
+        theme,
+        scrollBoxWidth,
+        copyBtnH,
+        isRemoved,
+        options.onCancelInvite,
+        nameMap?.get(entry.targetNodeId)
+      );
+      pendingRow.y = pendingY;
+      pendingSection.addChild(pendingRow);
+      pendingY += copyBtnH + 4;
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // declined invites section
+  // -------------------------------------------------------------------------
+
+  const declinedSection = new Container();
+  const declinedLabel = makeLabel("declined", theme);
+  declinedSection.addChild(declinedLabel);
+
+  const declinedList = options.declinedInvites ?? [];
+
+  if (declinedList.length === 0) {
+    const noneText = new Text({
+      text: "none",
+      style: {
+        fontFamily: theme.fontFamily,
+        fontSize: theme.fontSizeSmall,
+        fill: 0x6b7280,
+      },
+      resolution: theme.textResolution,
+    });
+    noneText.eventMode = "none";
+    noneText.y = declinedLabel.height + LABEL_GAP;
+    declinedSection.addChild(noneText);
+  } else {
+    let declinedY = declinedLabel.height + LABEL_GAP;
+    for (const entry of declinedList) {
+      const declinedRow = buildDeclinedRow(
+        entry.toNodeId,
+        entry.toUsername,
+        theme,
+        scrollBoxWidth,
+        copyBtnH,
+        nameMap?.get(entry.toNodeId)
+      );
+      declinedRow.y = declinedY;
+      declinedSection.addChild(declinedRow);
+      declinedY += copyBtnH + 4;
+    }
+  }
+
+  // -------------------------------------------------------------------------
   // close button (FancyButton — required by Dialog's button API)
   // -------------------------------------------------------------------------
 
@@ -728,7 +974,17 @@ export function showShareDialog(options: ShareDialogOptions): ShareDialogHandle 
     peerLabel.height + LABEL_GAP + Math.max(1, peerList.length) * (copyBtnH + 4);
   const friendSectionHeight =
     friendLabel.height + LABEL_GAP + Math.max(1, friendList.length) * (copyBtnH + 4);
-  const contentNeeded = rowHeight * 2 + SECTION_GAP * 3 + peerSectionHeight + friendSectionHeight;
+  const pendingSectionHeight =
+    pendingLabel.height + LABEL_GAP + Math.max(1, pendingList.length) * (copyBtnH + 4);
+  const declinedSectionHeight =
+    declinedLabel.height + LABEL_GAP + Math.max(1, declinedList.length) * (copyBtnH + 4);
+  const contentNeeded =
+    rowHeight * 2 +
+    SECTION_GAP * 5 +
+    peerSectionHeight +
+    friendSectionHeight +
+    pendingSectionHeight +
+    declinedSectionHeight;
   const DIALOG_HEIGHT =
     DIALOG_PADDING * 2 + titleText.height + contentNeeded + closeBtnHeight + DIALOG_PADDING;
 
@@ -751,7 +1007,14 @@ export function showShareDialog(options: ShareDialogOptions): ShareDialogHandle 
     width: DIALOG_WIDTH,
     height: DIALOG_HEIGHT,
     padding: DIALOG_PADDING,
-    content: [row1.container, row2.container, peerSection, friendSection],
+    content: [
+      row1.container,
+      row2.container,
+      peerSection,
+      friendSection,
+      pendingSection,
+      declinedSection,
+    ],
     buttons: [closeButton],
     scrollBox: {
       background: 0x141414,
