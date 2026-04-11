@@ -1235,6 +1235,7 @@ export const fileWidget: WidgetFactory<typeof fileSchema> = {
                       size: uploadSize,
                       pageCount: totalPages,
                       pageBlobIds: blobIds,
+                      pageBlake3s: pages.map((p) => p.blake3 || ""),
                     },
                     collapsed: false,
                     docId: null,

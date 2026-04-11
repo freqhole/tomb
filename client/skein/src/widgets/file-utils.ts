@@ -873,6 +873,263 @@ async function snatchFromTauriPeer(
 }
 
 // ---------------------------------------------------------------------------
+// batch snatch
+// ---------------------------------------------------------------------------
+
+/** options for batch snatch operations */
+export interface BatchSnatchOptions {
+  /** called after each blob is successfully snatched (or confirmed local).
+   *  use for progressive rendering — display each blob as it becomes available. */
+  onBlobComplete?: (index: number, result: FileUploadResult) => void;
+  /** called with overall progress. completedCount includes already-local blobs.
+   *  blobProgress is 0-1 for the current download, or -1 between downloads. */
+  onProgress?: (completedCount: number, totalCount: number, blobProgress: number) => void;
+  /** abort signal */
+  signal?: AbortSignal;
+  /** check if a peer is currently connected */
+  isPeerOnline?: (nodeId: string) => boolean;
+  /** a representative blob to probe for when finding peers. if not provided,
+   *  the first blob in the array with a blake3 hash is used.
+   *  for peedeeeff: pass the first page blob (a peer with page 1 has all pages).
+   *  for bins: pass any representative blob. */
+  probeBlobInfo?: SnatchBlobInfo;
+}
+
+/**
+ * snatch multiple blobs from peers in a single batch.
+ * the key optimisation is: probe once, download many. instead of probing
+ * for each blob individually, we probe with a single representative blob
+ * and then download all pending blobs from the winning peer.
+ *
+ * already-local blobs are skipped (via locality cache or grimoire lookup).
+ * returns an array parallel to the input — null for blobs that couldn't
+ * be snatched from any peer.
+ */
+export async function snatchBlobBatch(
+  blobs: SnatchBlobInfo[],
+  peers: PeersMap,
+  options?: BatchSnatchOptions
+): Promise<(FileUploadResult | null)[]> {
+  const allPeerAddrs = await getPeerNodeIds(peers);
+  if (allPeerAddrs.length === 0) {
+    throw new Error("no peers available for batch snatch");
+  }
+
+  if (options?.signal?.aborted) {
+    throw new DOMException("cancelled", "AbortError");
+  }
+
+  const totalCount = blobs.length;
+  const results: (FileUploadResult | null)[] = new Array(totalCount).fill(null);
+  let completedCount = 0;
+
+  // coerce all blob info strings (automerge Text objects -> plain strings)
+  const coercedBlobs: SnatchBlobInfo[] = blobs.map((b) => ({
+    ...b,
+    blobId: coerceStr(b.blobId),
+    filename: coerceStr(b.filename),
+    mime: coerceStr(b.mime),
+    blake3: coerceStr(b.blake3),
+    domain: coerceStr(b.domain),
+  }));
+
+  // --- phase 1: skip already-local blobs ---
+  const pending: number[] = [];
+
+  for (let i = 0; i < coercedBlobs.length; i++) {
+    const info = coercedBlobs[i];
+
+    // check locality cache first (O(1) Map lookup)
+    const cached = localityCache.get(info.blobId);
+    if (cached && cached.locality === "local") {
+      const result: FileUploadResult = {
+        blobId: cached.metadata?.id ?? info.blobId,
+        domain: info.domain,
+        entityId: "",
+        jobId: null,
+        sha256: "",
+        blake3: cached.metadata?.blake3 ?? info.blake3 ?? null,
+        size: cached.metadata?.size ?? info.size ?? 0,
+        mime: cached.metadata?.mime ?? info.mime,
+        existing: true,
+      };
+      results[i] = result;
+      completedCount++;
+      options?.onBlobComplete?.(i, result);
+      options?.onProgress?.(completedCount, totalCount, -1);
+      continue;
+    }
+
+    // tauri mode with blake3: try a quick local grimoire check
+    if (isTauriMode() && info.blake3) {
+      try {
+        const localCheck = await tauriInvoke("api_call", {
+          path: "/api/blob_metadata_by_blake3",
+          body: { blake3: info.blake3 },
+        });
+        if (localCheck.success && localCheck.data) {
+          const d = localCheck.data;
+          console.log(
+            TAG,
+            `batch: blob ${i} found locally by blake3 (id=${String(d.id).slice(0, 8)}...)`
+          );
+          localityCache.set(info.blobId, { locality: "local" });
+          const result: FileUploadResult = {
+            blobId: d.id ?? d.blob_id ?? info.blobId,
+            domain: d.domain ?? info.domain,
+            entityId: d.entity_id ?? "",
+            jobId: null,
+            sha256: d.sha256 ?? "",
+            blake3: d.blake3 ?? info.blake3 ?? null,
+            size: d.size ?? info.size ?? 0,
+            mime: d.mime ?? info.mime,
+            existing: true,
+          };
+          results[i] = result;
+          completedCount++;
+          options?.onBlobComplete?.(i, result);
+          options?.onProgress?.(completedCount, totalCount, -1);
+          continue;
+        }
+      } catch (err) {
+        console.debug(TAG, `batch: local blake3 check failed for blob ${i}:`, err);
+      }
+    }
+
+    // non-tauri mode: use checkBlobLocality
+    if (!isTauriMode()) {
+      try {
+        const localInfo = await checkBlobLocality(info.blobId, info.blake3);
+        if (localInfo.locality === "local") {
+          console.log(TAG, `batch: blob ${i} already local`);
+          const result: FileUploadResult = {
+            blobId: localInfo.metadata?.id ?? info.blobId,
+            domain: info.domain,
+            entityId: "",
+            jobId: null,
+            sha256: "",
+            blake3: localInfo.metadata?.blake3 ?? info.blake3 ?? null,
+            size: localInfo.metadata?.size ?? info.size ?? 0,
+            mime: localInfo.metadata?.mime ?? info.mime,
+            existing: true,
+          };
+          results[i] = result;
+          completedCount++;
+          options?.onBlobComplete?.(i, result);
+          options?.onProgress?.(completedCount, totalCount, -1);
+          continue;
+        }
+      } catch (err) {
+        console.debug(TAG, `batch: locality check failed for blob ${i}:`, err);
+      }
+    }
+
+    pending.push(i);
+  }
+
+  console.log(
+    TAG,
+    `batch: ${completedCount}/${totalCount} already local, ${pending.length} to download`
+  );
+
+  // if everything is local, we're done
+  if (pending.length === 0) {
+    return results;
+  }
+
+  // --- phase 2: probe once, download many ---
+  let remaining = [...allPeerAddrs];
+
+  while (remaining.length > 0 && pending.length > 0) {
+    if (options?.signal?.aborted) {
+      throw new DOMException("cancelled", "AbortError");
+    }
+
+    // pick the probe blob: user-specified, or first pending blob with blake3
+    const probeBlob =
+      options?.probeBlobInfo ??
+      coercedBlobs[pending.find((i) => coercedBlobs[i].blake3) ?? pending[0]];
+
+    // probe with SnatchOptions-compatible options
+    const probeOpts: SnatchOptions = {
+      isPeerOnline: options?.isPeerOnline,
+      signal: options?.signal,
+    };
+    const bestPeer = await probePeersForBlob(probeBlob, remaining, probeOpts);
+
+    if (!bestPeer) {
+      console.debug(TAG, "batch: no peer responded to probe, aborting");
+      break;
+    }
+
+    console.log(
+      TAG,
+      `batch: probe winner ${bestPeer.slice(0, 16)}..., downloading ${pending.length} blob(s)`
+    );
+
+    const failedOnThisPeer: number[] = [];
+
+    for (let p = 0; p < pending.length; p++) {
+      const idx = pending[p];
+
+      if (options?.signal?.aborted) {
+        throw new DOMException("cancelled", "AbortError");
+      }
+
+      const info = coercedBlobs[idx];
+      const snatchOpts: SnatchOptions = {
+        signal: options?.signal,
+        isPeerOnline: options?.isPeerOnline,
+        onProgress: (fraction) => {
+          options?.onProgress?.(completedCount, totalCount, fraction);
+        },
+      };
+
+      try {
+        const result = isTauriMode()
+          ? await snatchFromTauriPeer(info, bestPeer, snatchOpts)
+          : await snatchFromBrowserPeer(info, bestPeer, snatchOpts);
+        results[idx] = result;
+        completedCount++;
+        options?.onBlobComplete?.(idx, result);
+        options?.onProgress?.(completedCount, totalCount, -1);
+      } catch (err) {
+        console.debug(
+          TAG,
+          `batch: download failed for blob ${idx} from ${bestPeer.slice(0, 16)}...:`,
+          err
+        );
+        failedOnThisPeer.push(idx);
+      }
+    }
+
+    // remove successfully downloaded blobs from pending, keep only failures
+    pending.length = 0;
+    pending.push(...failedOnThisPeer);
+
+    // exclude this peer and retry with remaining peers if there are failures
+    remaining = remaining.filter((p) => p !== bestPeer);
+
+    if (pending.length > 0 && remaining.length > 0) {
+      // re-enter the loop — probeBlob will pick from the updated pending list
+      // (which now only contains blobs that failed on the previous peer).
+      // if options.probeBlobInfo was set, re-probing with the same representative
+      // blob on a different peer is still valid.
+      console.log(
+        TAG,
+        `batch: ${pending.length} blob(s) failed, retrying with ${remaining.length} remaining peer(s)`
+      );
+    }
+  }
+
+  if (pending.length > 0) {
+    console.log(TAG, `batch: ${pending.length} blob(s) could not be snatched from any peer`);
+  }
+
+  return results;
+}
+
+// ---------------------------------------------------------------------------
 // save blob to disk
 // ---------------------------------------------------------------------------
 

@@ -6,7 +6,7 @@ import { imageWidget } from "./image";
 import { labelWidget } from "./label";
 import { markdownWidget } from "./markdown";
 import { notepadWidget } from "./notepad";
-import { peedeeeffWidget } from "./peedeeeff";
+import { peedeeeffWidget } from "./peedeeeff/index";
 
 /**
  * a registry pre-loaded with the built-in example widgets.
@@ -36,5 +36,5 @@ export { imageSchema, imageWidget } from "./image";
 export { labelSchema, labelWidget } from "./label";
 export { markdownSchema, markdownWidget } from "./markdown";
 export { notepadSchema, notepadWidget } from "./notepad";
-export { peedeeeffSchema, peedeeeffWidget } from "./peedeeeff";
-export type { PeedeeeffState } from "./peedeeeff";
+export { peedeeeffSchema, peedeeeffWidget } from "./peedeeeff/index";
+export type { PeedeeeffState } from "./peedeeeff/index";
