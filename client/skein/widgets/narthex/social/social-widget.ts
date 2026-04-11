@@ -147,6 +147,15 @@ export const socialWidget: WidgetFactory<typeof socialSchema> = {
       // card background
       drawCard(w, h);
 
+      // -- identity check ----------------------------------------------------
+
+      const hasIdentity = !!state.profile.nodeId;
+
+      // when there's no identity, force the profile tab and hide all tab labels
+      if (!hasIdentity) {
+        activeTab = "profile";
+      }
+
       // -- tab bar ----------------------------------------------------------
 
       // compute pending request count for the requests tab label
@@ -156,31 +165,40 @@ export const socialWidget: WidgetFactory<typeof socialSchema> = {
 
       tabTexts.requests.text = pendingCount > 0 ? `requests (${pendingCount})` : "requests";
 
-      // update tab text colors
-      for (const name of TAB_NAMES) {
-        tabTexts[name].style.fill = name === activeTab ? TAB_ACTIVE_COLOR : TAB_INACTIVE_COLOR;
+      if (hasIdentity) {
+        // update tab text colors
+        for (const name of TAB_NAMES) {
+          tabTexts[name].style.fill = name === activeTab ? TAB_ACTIVE_COLOR : TAB_INACTIVE_COLOR;
+        }
+
+        // position tab labels left-to-right
+        const tabGap = 16;
+        let tx = PADDING_X;
+        for (const name of TAB_NAMES) {
+          const t = tabTexts[name];
+          t.x = tx;
+          t.y = y + (TAB_HEIGHT - TAB_FONT_SIZE) / 2;
+          t.visible = true;
+          tx += t.width + tabGap;
+        }
+
+        // accent underline under the active tab
+        tabUnderline.clear();
+        const activeText = tabTexts[activeTab];
+        tabUnderline.moveTo(activeText.x, y + TAB_HEIGHT - 2);
+        tabUnderline.lineTo(activeText.x + activeText.width, y + TAB_HEIGHT - 2);
+        tabUnderline.stroke({ color: ACCENT, width: 2 });
+        tabUnderline.visible = true;
+
+        y += TAB_HEIGHT + 4;
+      } else {
+        // no identity — hide all tab labels and the underline
+        for (const name of TAB_NAMES) {
+          tabTexts[name].visible = false;
+        }
+        tabUnderline.clear();
+        tabUnderline.visible = false;
       }
-
-      // position tab labels left-to-right
-      const tabGap = 16;
-      let tx = PADDING_X;
-      for (const name of TAB_NAMES) {
-        const t = tabTexts[name];
-        t.x = tx;
-        t.y = y + (TAB_HEIGHT - TAB_FONT_SIZE) / 2;
-        t.visible = true;
-        tx += t.width + tabGap;
-      }
-
-      // accent underline under the active tab
-      tabUnderline.clear();
-      const activeText = tabTexts[activeTab];
-      tabUnderline.moveTo(activeText.x, y + TAB_HEIGHT - 2);
-      tabUnderline.lineTo(activeText.x + activeText.width, y + TAB_HEIGHT - 2);
-      tabUnderline.stroke({ color: ACCENT, width: 2 });
-      tabUnderline.visible = true;
-
-      y += TAB_HEIGHT + 4;
 
       // -- content area ------------------------------------------------------
 

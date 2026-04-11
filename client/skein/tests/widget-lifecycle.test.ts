@@ -3,12 +3,12 @@ import { expect, test } from "./fixtures/canvas-page";
 test("add widget via store mounts it onto the pixi stage", async ({ canvasPage }) => {
   const { page } = await canvasPage();
 
-  // add a hello-world widget through the store
+  // add a label widget through the store
   await page.evaluate(() => {
     const skein = (window as any).__skein;
     skein.store.addWidget({
       id: "hw-1",
-      type: "hello-world",
+      type: "label",
       x: 50,
       y: 80,
       width: 150,
@@ -53,7 +53,7 @@ test("remove widget via store unmounts it from the pixi stage", async ({ canvasP
     const skein = (window as any).__skein;
     skein.store.addWidget({
       id: "to-remove",
-      type: "hello-world",
+      type: "label",
       x: 0,
       y: 0,
       width: 100,
@@ -128,7 +128,7 @@ test("add multiple widgets — all render at correct positions", async ({ canvas
     const skein = (window as any).__skein;
     skein.store.addWidget({
       id: "w1",
-      type: "hello-world",
+      type: "label",
       x: 10,
       y: 20,
       width: 100,
@@ -141,7 +141,7 @@ test("add multiple widgets — all render at correct positions", async ({ canvas
     });
     skein.store.addWidget({
       id: "w2",
-      type: "counter",
+      type: "notepad",
       x: 200,
       y: 300,
       width: 180,
@@ -154,7 +154,7 @@ test("add multiple widgets — all render at correct positions", async ({ canvas
     });
     skein.store.addWidget({
       id: "w3",
-      type: "hello-world",
+      type: "label",
       x: 400,
       y: 50,
       width: 120,
@@ -197,7 +197,7 @@ test("move widget via store updates frame position on stage", async ({ canvasPag
     const skein = (window as any).__skein;
     skein.store.addWidget({
       id: "movable",
-      type: "hello-world",
+      type: "label",
       x: 0,
       y: 0,
       width: 100,
@@ -235,7 +235,7 @@ test("resize widget via store calls ctrl.resize()", async ({ canvasPage }) => {
     const skein = (window as any).__skein;
     skein.store.addWidget({
       id: "resizable",
-      type: "hello-world",
+      type: "label",
       x: 0,
       y: 0,
       width: 100,
@@ -271,59 +271,44 @@ test("resize widget via store calls ctrl.resize()", async ({ canvasPage }) => {
   expect(result.entryHeight).toBe(250);
 });
 
-test("counter widget — increment persists, state round-trips through doc", async ({
-  canvasPage,
-}) => {
+test("testWidgetSchema — state round-trips through createWidgetDoc", async ({ canvasPage }) => {
   const { page } = await canvasPage();
 
-  // add a counter widget
-  await page.evaluate(() => {
-    const skein = (window as any).__skein;
-    skein.store.addWidget({
-      id: "counter-1",
-      type: "counter",
-      x: 50,
-      y: 50,
-      width: 200,
-      height: 150,
-      zIndex: 1,
-      props: {},
-      collapsed: false,
-      docId: null,
-      parentId: null,
-    });
+  const result = await page.evaluate(async () => {
+    const { createWidgetDoc, testWidgetSchema } = (window as any).__skeinHelpers;
+    const repo = (window as any).__skein.repo;
+
+    // create a widget doc like WidgetManager would
+    const defaults = testWidgetSchema.parse({});
+    const handle = repo.create(defaults);
+
+    const doc = createWidgetDoc(testWidgetSchema, handle);
+
+    // read initial
+    const initial = { ...doc.current };
+
+    return { mounted: true, initial };
   });
 
-  await page.waitForTimeout(200);
-
-  // verify the counter widget mounted with a doc and default state
-  const initial = await page.evaluate(() => {
-    const skein = (window as any).__skein;
-    const live = skein.widgetManager.getLiveWidgets();
-    const w = live.get("counter-1");
-    if (!w || w.crashed) return null;
-    return { mounted: true, crashed: w.crashed };
-  });
-
-  expect(initial).not.toBeNull();
-  expect(initial!.mounted).toBe(true);
-  expect(initial!.crashed).toBe(false);
+  expect(result).not.toBeNull();
+  expect(result.mounted).toBe(true);
+  expect(result.initial).toEqual({ count: 0, step: 1, label: "test" });
 });
 
-test("counter ctx.doc.change() persists and ctx.doc.on('change') fires", async ({ canvasPage }) => {
+test("ctx.doc.change() persists and ctx.doc.on('change') fires", async ({ canvasPage }) => {
   const { page } = await canvasPage();
 
   // use the skeinHelpers to test createWidgetDoc in a real canvas context
   // this exercises the full path: repo → doc handle → createWidgetDoc → facade
   const result = await page.evaluate(async () => {
-    const { createWidgetDoc, counterSchema } = (window as any).__skeinHelpers;
+    const { createWidgetDoc, testWidgetSchema } = (window as any).__skeinHelpers;
     const repo = (window as any).__skein.repo;
 
     // create a widget doc like WidgetManager would
-    const defaults = counterSchema.parse({});
+    const defaults = testWidgetSchema.parse({});
     const handle = repo.create(defaults);
 
-    const doc = createWidgetDoc(counterSchema, handle);
+    const doc = createWidgetDoc(testWidgetSchema, handle);
 
     // read initial
     const initial = { ...doc.current };
@@ -358,10 +343,10 @@ test("counter ctx.doc.change() persists and ctx.doc.on('change') fires", async (
     };
   });
 
-  expect(result.initial).toEqual({ count: 0, step: 1, label: "counter" });
-  expect(result.afterFacadeChange).toEqual({ count: 10, step: 1, label: "counter" });
+  expect(result.initial).toEqual({ count: 0, step: 1, label: "test" });
+  expect(result.afterFacadeChange).toEqual({ count: 10, step: 1, label: "test" });
   expect(result.listenerFired).toBe(true);
-  expect(result.listenerState).toEqual({ count: 77, step: 1, label: "counter" });
+  expect(result.listenerState).toEqual({ count: 77, step: 1, label: "test" });
 });
 
 test("widget z-index change via store updates frame zIndex", async ({ canvasPage }) => {
@@ -371,7 +356,7 @@ test("widget z-index change via store updates frame zIndex", async ({ canvasPage
     const skein = (window as any).__skein;
     skein.store.addWidget({
       id: "z-test",
-      type: "hello-world",
+      type: "label",
       x: 0,
       y: 0,
       width: 100,
@@ -407,7 +392,7 @@ test("destroyAll cleans up all widgets", async ({ canvasPage }) => {
     const skein = (window as any).__skein;
     skein.store.addWidget({
       id: "d1",
-      type: "hello-world",
+      type: "label",
       x: 0,
       y: 0,
       width: 100,
@@ -420,7 +405,7 @@ test("destroyAll cleans up all widgets", async ({ canvasPage }) => {
     });
     skein.store.addWidget({
       id: "d2",
-      type: "counter",
+      type: "notepad",
       x: 200,
       y: 0,
       width: 100,

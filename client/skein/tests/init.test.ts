@@ -239,20 +239,20 @@ test("destroy removes the canvas from the DOM", async ({ canvasPage }) => {
   await expect(page.locator("#canvas-root canvas")).toHaveCount(0);
 });
 
-test("counter widget state round-trip via createWidgetDoc", async ({ canvasPage }) => {
+test("widget state round-trip via createWidgetDoc", async ({ canvasPage }) => {
   const { page } = await canvasPage();
 
   const result = await page.evaluate(async () => {
-    const { createWidgetDoc, counterSchema } = (window as any).__skeinHelpers;
+    const { createWidgetDoc, testWidgetSchema } = (window as any).__skeinHelpers;
     const repo = (window as any).__skein.repo;
 
-    // create a fresh doc handle for the counter state
+    // create a fresh doc handle for the test widget state
     const handle = repo.create();
-    const defaults = counterSchema.parse({});
+    const defaults = testWidgetSchema.parse({});
     handle.change((doc: any) => Object.assign(doc, defaults));
 
     // create the validated facade
-    const widgetDoc = createWidgetDoc(counterSchema, handle);
+    const widgetDoc = createWidgetDoc(testWidgetSchema, handle);
 
     // verify defaults
     const initial = { ...widgetDoc.current };
@@ -283,7 +283,7 @@ test("counter widget state round-trip via createWidgetDoc", async ({ canvasPage 
     };
   });
 
-  expect(result.initial).toEqual({ count: 0, step: 1, label: "counter" });
-  expect(result.afterChange).toEqual({ count: 42, step: 1, label: "counter" });
-  expect(result.listenerState).toEqual({ count: 99, step: 1, label: "counter" });
+  expect(result.initial).toEqual({ count: 0, step: 1, label: "test" });
+  expect(result.afterChange).toEqual({ count: 42, step: 1, label: "test" });
+  expect(result.listenerState).toEqual({ count: 99, step: 1, label: "test" });
 });

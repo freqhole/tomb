@@ -233,6 +233,148 @@ export async function ensureIdentity(): Promise<P2PIdentity> {
 }
 
 // ---------------------------------------------------------------------------
+// identity bundle serialization
+// ---------------------------------------------------------------------------
+
+/** convert a Uint8Array to a base64 string. */
+function uint8ToBase64(bytes: Uint8Array): string {
+  let binary = "";
+  for (let i = 0; i < bytes.length; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary);
+}
+
+/** convert a base64 string back to a Uint8Array. */
+function base64ToUint8(b64: string): Uint8Array {
+  const binary = atob(b64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
+}
+
+/** the shape of a decoded identity bundle. */
+export interface IdentityBundle {
+  secretKey: Uint8Array;
+  friendNodeIds: string[];
+  username?: string;
+  bio?: string;
+}
+
+/**
+ * encode an identity bundle as a compact string.
+ * format: "skein1:" + base64(JSON({ sk: base64(secretKey), f: [nodeId, ...] }))
+ */
+export function encodeIdentityBundle(
+  secretKey: Uint8Array,
+  friendNodeIds: string[],
+  profile?: { username?: string; bio?: string }
+): string {
+  const payload: Record<string, unknown> = {
+    sk: uint8ToBase64(secretKey),
+    f: friendNodeIds,
+  };
+  if (profile?.username) payload.u = profile.username;
+  if (profile?.bio) payload.b = profile.bio;
+  return "skein1:" + btoa(JSON.stringify(payload));
+}
+
+/**
+ * decode an identity bundle string back into its components.
+ * throws if the format is invalid.
+ */
+export function decodeIdentityBundle(bundle: string): IdentityBundle {
+  if (!bundle.startsWith("skein1:")) {
+    throw new Error("invalid identity bundle — expected 'skein1:' prefix");
+  }
+  const payloadStr = atob(bundle.slice("skein1:".length));
+  const payload = JSON.parse(payloadStr);
+
+  if (!payload.sk || typeof payload.sk !== "string") {
+    throw new Error("invalid identity bundle — missing secret key");
+  }
+
+  return {
+    secretKey: base64ToUint8(payload.sk),
+    friendNodeIds: Array.isArray(payload.f) ? payload.f : [],
+    username: typeof payload.u === "string" ? payload.u : undefined,
+    bio: typeof payload.b === "string" ? payload.b : undefined,
+  };
+}
+
+/**
+ * export the current identity and friend list as a compact bundle string.
+ * the bundle includes the secret key and all friend node IDs so the user
+ * can restore their identity and friend list on another device.
+ */
+export async function exportIdentityBundle(
+  friendNodeIds: string[],
+  profile?: { username?: string; bio?: string }
+): Promise<string> {
+  const identity = await getStoredIdentity();
+  if (!identity) throw new Error(TAG + " no identity to export");
+  if (!identity.secret_key || identity.secret_key.length === 0) {
+    throw new Error(TAG + " secret key not available (tauri mode?)");
+  }
+  return encodeIdentityBundle(identity.secret_key, friendNodeIds, profile);
+}
+
+/**
+ * import an identity from a raw secret key. tears down any existing midden
+ * node, creates a new one from the provided key, persists the identity, and
+ * notifies listeners.
+ *
+ * returns the full P2PIdentity with the derived node_id.
+ */
+export async function importIdentity(secretKey: Uint8Array): Promise<P2PIdentity> {
+  if (isTauriMode()) {
+    throw new Error(TAG + " identity import not supported in tauri mode");
+  }
+
+  // tear down existing node
+  middenNode = null;
+  middenNodePromise = null;
+
+  // start a new node from the provided key
+  const { MiddenNode } = await import("midden");
+  const node = await MiddenNode.create_from_key(secretKey);
+
+  const identity: P2PIdentity = {
+    secret_key: secretKey,
+    node_id: node.node_id(),
+    created_at: Date.now(),
+  };
+
+  await setMetaRecord<P2PIdentity>(IDENTITY_KEY, identity);
+  middenNode = node;
+
+  console.log(TAG, "imported identity:", identity.node_id.slice(0, 16) + "...");
+  notifyListeners(identity);
+
+  return identity;
+}
+
+/**
+ * import an identity from a bundle string (as produced by exportIdentityBundle).
+ * restores the secret key and returns the friend node IDs so the caller can
+ * re-add them to the social doc.
+ */
+export async function importIdentityFromBundle(
+  bundle: string
+): Promise<{ identity: P2PIdentity; friendNodeIds: string[]; username?: string; bio?: string }> {
+  const decoded = decodeIdentityBundle(bundle);
+  const identity = await importIdentity(decoded.secretKey);
+  return {
+    identity,
+    friendNodeIds: decoded.friendNodeIds,
+    username: decoded.username,
+    bio: decoded.bio,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // deletion / reset
 // ---------------------------------------------------------------------------
 

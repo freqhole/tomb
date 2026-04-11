@@ -54,12 +54,29 @@ export function createNarthexWithSeed(repo: Repo): CanvasStore {
   store.addWidget({
     id: MESSAGEZ_WIDGET_ID,
     type: "messagez",
-    x: 60,
-    y: 200,
+    x: 80,
+    y: 232,
     width: 560,
     height: 280,
     zIndex: 2,
     props: {},
+    collapsed: false,
+    docId: null,
+    parentId: null,
+  });
+
+  // seed with a welcome markdown widget below the inbox
+  store.addWidget({
+    id: crypto.randomUUID(),
+    type: "markdown",
+    x: 80,
+    y: 560,
+    width: 560,
+    height: 560,
+    zIndex: 3,
+    props: {
+      text: "# welcome to skein 👋\n\nthis is the **narthex**; yr home canvas where you can see all your other docz.\n\n## getting started\n\n- **create a canvas** by double-clicking any empty space in the canvas or using the `+` button in the top right\n- **drag and drop** widgetz to rearrange things however you like\n- **double-click** this widget to edit this text\n\n## connect with frenz\n\nset up yr **identity** in the social widget to enable peer-to-peer sharing. generate an identity, then share your **node id** (a 64-character string) with frenz so you can share with each other.\n\nonce connected, you can **share and collaborate** together. it's fully peer-to-peer — frenz need to be online at the same time to sync.\n\nyou will see incoming canvas invitez in the message widget above.\n\n## what is a canvas?\n\na canvas is like a shared zine — add text, images, video, audio, PDFz, or any type of file. everyone invited to a canvas can see and contribute to it.\n\n*double-click to edit the text in this widget, or drag it to the trash bin to remove it.*\n\n## what is a widget?\n\na widget can be a image, or a file, or bin of ...anything!\n\n\n---\n\n\nmade with <3 in NYC",
+    },
     collapsed: false,
     docId: null,
     parentId: null,

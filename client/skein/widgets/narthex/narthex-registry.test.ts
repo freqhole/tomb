@@ -13,7 +13,7 @@ describe("createNarthexRegistry", () => {
 
   it("has exactly 6 widget types", () => {
     const registry = createNarthexRegistry();
-    expect(registry.types().length).toBe(7);
+    expect(registry.types().length).toBe(8);
   });
 
   it("canvas-card is hidden", () => {
@@ -66,7 +66,7 @@ describe("createNarthexRegistry", () => {
   it("non-hidden widgets for palette", () => {
     const registry = createNarthexRegistry();
     const visible = registry.all().filter((f) => !f.metadata.hidden);
-    expect(visible.length).toBe(6);
+    expect(visible.length).toBe(7);
     const types = visible.map((f) => f.type);
     expect(types).toContain("canvas-wizard");
     expect(types).toContain("social");
@@ -74,5 +74,6 @@ describe("createNarthexRegistry", () => {
     expect(types).toContain("join-canvas");
     expect(types).toContain("messagez");
     expect(types).toContain("bin");
+    expect(types).toContain("markdown");
   });
 });
