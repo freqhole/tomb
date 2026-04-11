@@ -28,6 +28,10 @@ export function createPageCache() {
       }
       slot.assetKey = "";
     }
+    // for textures created directly (e.g. from ImageBitmap), destroy explicitly
+    if (slot.texture && !slot.assetKey) {
+      slot.texture.destroy(true);
+    }
     slot.texture = null;
     slot.state = "empty";
   }
@@ -40,11 +44,11 @@ export function createPageCache() {
   async function loadPageTexture(
     pageIndex: number,
     blobId: string,
-    blake3?: string,
+    blake3?: string
   ): Promise<PageSlot> {
     // check if already loaded with same blobId
     let slot = cache.get(pageIndex);
-    if (slot && slot.state === "loaded" && slot.assetKey) {
+    if (slot && slot.state === "loaded" && (slot.assetKey || slot.texture)) {
       return slot;
     }
 
@@ -91,15 +95,24 @@ export function createPageCache() {
           throw new Error(`HTTP ${response.status}`);
         }
         const blob = await response.blob();
-        const blobUrl = URL.createObjectURL(blob);
-        texture = await Assets.load<Texture>(blobUrl);
-        assetKey = blobUrl;
+        // revoke the incoming blob URL now that we've fetched its data
+        if (resolvedUrl.startsWith("blob:")) {
+          URL.revokeObjectURL(resolvedUrl);
+        }
+        // bypass PixiJS asset loader — it can't determine file type from blob URLs
+        const imageBitmap = await createImageBitmap(blob);
+        texture = Texture.from(imageBitmap);
+        assetKey = ""; // no Assets cache entry — cleanup handled by texture.destroy
       }
 
       if (abort.signal.aborted) {
-        Assets.unload(assetKey);
-        if (assetKey.startsWith("blob:")) {
-          URL.revokeObjectURL(assetKey);
+        if (assetKey) {
+          Assets.unload(assetKey);
+          if (assetKey.startsWith("blob:")) {
+            URL.revokeObjectURL(assetKey);
+          }
+        } else if (texture) {
+          texture.destroy(true);
         }
         return slot;
       }

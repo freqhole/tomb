@@ -840,21 +840,14 @@ export const peedeeeffWidget: WidgetFactory<typeof peedeeeffSchema> = {
             onPageComplete: (pageIndex, pageResult) => {
               if (snatchCancelled || destroyed) return;
 
-              // update doc with new blob ID if it changed
-              const currentBlobIds = ctx.doc.current.pageBlobIds;
+              // only update blake3 if missing — blake3 is the cross-peer content identifier.
+              // do NOT update pageBlobIds — those are the creator's local storage keys
+              // and must stay as-is for the creator peer to resolve.
               const currentBlake3s = ctx.doc.current.pageBlake3s || [];
-              if (
-                pageResult.blobId !== currentBlobIds[pageIndex] ||
-                (pageResult.blake3 && pageResult.blake3 !== currentBlake3s[pageIndex])
-              ) {
+              if (pageResult.blake3 && !currentBlake3s[pageIndex]) {
                 ctx.doc.change((draft) => {
-                  if (pageResult.blobId !== draft.pageBlobIds[pageIndex]) {
-                    draft.pageBlobIds[pageIndex] = pageResult.blobId;
-                  }
-                  if (pageResult.blake3) {
-                    if (!draft.pageBlake3s) draft.pageBlake3s = [];
-                    draft.pageBlake3s[pageIndex] = pageResult.blake3;
-                  }
+                  if (!draft.pageBlake3s) draft.pageBlake3s = [];
+                  draft.pageBlake3s[pageIndex] = pageResult.blake3!;
                 });
               }
 
@@ -867,12 +860,10 @@ export const peedeeeffWidget: WidgetFactory<typeof peedeeeffSchema> = {
 
         if (snatchCancelled || destroyed) return;
 
-        // update doc with PDF result if blob ID changed
-        if (result.pdfResult && result.pdfResult.blobId !== ctx.doc.current.blobId) {
+        // only update blake3 if it was missing — blake3 is the shared content identifier.
+        // do NOT update blobId/mime/size — those are the creator's local values.
+        if (result.pdfResult?.blake3 && !ctx.doc.current.blake3) {
           ctx.doc.change((draft) => {
-            draft.blobId = result.pdfResult!.blobId;
-            draft.mime = result.pdfResult!.mime;
-            draft.size = result.pdfResult!.size;
             draft.blake3 = result.pdfResult!.blake3 ?? "";
           });
         }
