@@ -5,6 +5,7 @@
 use crate::api_registry::{Domain, Method, RouteAuth, RouteInfo};
 use crate::blob_data::{self, find_existing_thumbnail};
 use crate::error::ErrorDetail;
+use crate::media::documentz;
 use crate::media_blobz::{get_media_blob, get_media_blob_by_blake3};
 use crate::offal::caller::Caller;
 use crate::response::GrimoireResponse;
@@ -60,6 +61,15 @@ pub const ROUTES: &[RouteInfo] = &[
         response_type: "String",
         auth: RouteAuth::Authenticated,
     },
+    RouteInfo {
+        name: "get_document_pages",
+        path: "/api/blobs/{id}/pages",
+        method: Method::GET,
+        domain: Domain::Music,
+        request_type: "String",
+        response_type: "Vec<DocumentPageImage>",
+        auth: RouteAuth::Authenticated,
+    },
 ];
 
 /// collect all route metadata from media_blobz domain
@@ -90,6 +100,12 @@ pub async fn dispatch(
     }
 
     let rest = path.strip_prefix("/api/blobs/")?;
+
+    // /api/blobs/{id}/pages - get rendered page images for a document
+    if rest.ends_with("/pages") {
+        let id = rest.strip_suffix("/pages").unwrap();
+        return Some(get_document_pages(caller, id).await);
+    }
 
     // /api/blobs/{id}/path - get filesystem path
     if rest.ends_with("/path") {
@@ -376,6 +392,39 @@ pub async fn get_thumbnail_data(_caller: &Caller, body: JsonValue) -> GrimoireRe
                 &format!("no displayable thumbnail found for blob {}", req.blob_id),
             )],
         ),
+    }
+}
+
+/// path: GET /api/blobs/{id}/pages
+///
+/// returns the list of page image blobs for a document identified by its
+/// media blob id. each entry includes the page blob id, page number,
+/// blake3 hash, and other metadata needed by the client.
+pub async fn get_document_pages(_caller: &Caller, blob_id: &str) -> GrimoireResponse<JsonValue> {
+    match documentz::repository::get_document_page_images_by_blob_id(blob_id).await {
+        Ok(pages) => {
+            let pages_json: Vec<JsonValue> = pages
+                .iter()
+                .map(|p| {
+                    serde_json::json!({
+                        "page_blob_id": p.page_blob_id,
+                        "page_number": p.page_number,
+                        "total_pages": p.total_pages,
+                        "blake3": p.blake3,
+                        "size": p.size,
+                        "mime": p.mime,
+                        "filename": p.filename,
+                    })
+                })
+                .collect();
+            GrimoireResponse::success(
+                format!("found {} page images", pages.len()),
+                serde_json::json!(pages_json),
+            )
+        }
+        Err(e) => {
+            GrimoireResponse::failure(&format!("failed to get document pages: {}", e), vec![])
+        }
     }
 }
 

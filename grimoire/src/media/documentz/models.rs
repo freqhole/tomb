@@ -39,3 +39,16 @@ pub struct CreateDocumentRequest {
     pub metadata: Option<String>,
     pub created_by: Option<String>,
 }
+
+/// a single page image from a rendered document
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema, FromRow)]
+pub struct DocumentPageImage {
+    pub document_id: String,
+    pub page_blob_id: String,
+    pub page_number: Option<i64>,
+    pub total_pages: Option<i64>,
+    pub blake3: Option<String>,
+    pub size: Option<i64>,
+    pub mime: Option<String>,
+    pub filename: Option<String>,
+}

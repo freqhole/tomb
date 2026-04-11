@@ -7,6 +7,7 @@
 
 pub mod audio_processor;
 pub mod document_processor;
+pub mod pdf_page_renderer;
 pub mod photo_processor;
 pub mod video_processor;
 

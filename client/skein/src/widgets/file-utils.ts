@@ -1213,6 +1213,51 @@ export async function getBlobLocalPath(blobId: string): Promise<string | null> {
   }
 }
 
+// ---------------------------------------------------------------------------
+// document pages (PDF rendered page images)
+// ---------------------------------------------------------------------------
+
+/**
+ * fetch the list of rendered page image blobs for a PDF document.
+ * returns an array of page info objects, or an empty array if no pages
+ * are available yet (the rendering job may still be running).
+ *
+ * only works in Tauri mode — browser peers don't have direct grimoire access.
+ */
+export interface DocumentPageInfo {
+  page_blob_id: string;
+  page_number: number | null;
+  total_pages: number | null;
+  blake3: string | null;
+  size: number | null;
+  mime: string | null;
+  filename: string | null;
+}
+
+export async function getDocumentPages(blobId: string): Promise<DocumentPageInfo[]> {
+  if (!isTauriMode()) {
+    return [];
+  }
+
+  try {
+    const response = await tauriInvoke("api_call", {
+      path: `/api/blobs/${blobId}/pages`,
+      body: {},
+    });
+
+    if (!response.success || !response.data) {
+      return [];
+    }
+
+    // response.data is a JSON array of page info objects
+    const pages = Array.isArray(response.data) ? response.data : [];
+    return pages as DocumentPageInfo[];
+  } catch (err) {
+    console.warn(TAG, "getDocumentPages failed:", err);
+    return [];
+  }
+}
+
 /**
  * convert a local filesystem path to a Tauri asset:// URL.
  * used for streaming video/audio from local storage without loading
@@ -1252,12 +1297,94 @@ export async function pickFiles(): Promise<PickedFile[]> {
 }
 
 /**
+ * open a file picker filtered to PDF files only.
+ * in Tauri mode, uses the native dialog with a .pdf extension filter.
+ * in browser mode, uses a hidden input with accept=".pdf".
+ * returns null if the user cancels.
+ */
+export async function pickPdfFile(): Promise<PickedFile | null> {
+  if (isTauriMode()) {
+    return pickPdfFileTauri();
+  }
+  return pickPdfFileBrowser();
+}
+
+async function pickPdfFileTauri(): Promise<PickedFile | null> {
+  try {
+    const { open } = await loadTauriDialog();
+    const result = await open({
+      multiple: false,
+      filters: [{ name: "PDF", extensions: ["pdf"] }],
+    });
+
+    if (result === null) return null;
+
+    const filePath = Array.isArray(result) ? result[0] : result;
+    if (!filePath) return null;
+
+    const filename = filePath.split(/[\\/]/).pop() ?? filePath;
+
+    return {
+      path: filePath,
+      filename,
+      size: 0,
+      file: null,
+    };
+  } catch (err) {
+    console.error(TAG, "PDF file picker failed:", err);
+    return null;
+  }
+}
+
+async function pickPdfFileBrowser(): Promise<PickedFile | null> {
+  const input = document.createElement("input");
+  input.type = "file";
+  input.accept = ".pdf,application/pdf";
+  input.style.display = "none";
+
+  document.body.appendChild(input);
+
+  try {
+    input.click();
+
+    const file = await new Promise<File | null>((resolve) => {
+      input.addEventListener("change", () => {
+        resolve(input.files?.[0] ?? null);
+      });
+
+      const onFocus = () => {
+        window.removeEventListener("focus", onFocus);
+        setTimeout(() => resolve(null), 300);
+      };
+      window.addEventListener("focus", onFocus);
+    });
+
+    if (!file) return null;
+
+    return {
+      path: null,
+      filename: file.name,
+      size: file.size,
+      file,
+    };
+  } catch (err) {
+    console.error(TAG, "browser PDF file picker failed:", err);
+    return null;
+  } finally {
+    input.remove();
+  }
+}
+
+/**
  * dynamically load the Tauri dialog plugin.
  * uses a variable module specifier so TypeScript doesn't try to resolve
  * the package at compile time (it's only available in Tauri builds).
  */
 async function loadTauriDialog(): Promise<{
-  open: (options?: { multiple?: boolean }) => Promise<string | string[] | null>;
+  open: (options?: {
+    multiple?: boolean;
+    filters?: Array<{ name: string; extensions: string[] }>;
+  }) => Promise<string | string[] | null>;
 }> {
   // @ts-ignore — @tauri-apps/plugin-dialog is only available in Tauri builds
   return import("@tauri-apps/plugin-dialog");

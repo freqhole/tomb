@@ -157,6 +157,37 @@ async fn generate_thumbnail_and_metadata(
         }
     }
 
+    // -- step 6: queue full page rendering job if document has pages --
+    if page_count.unwrap_or(0) > 0 {
+        let render_params = json!({
+            "blob_id": blob_id,
+            "entity_id": entity_id,
+            "domain": "document",
+            "mime": "application/pdf",
+        });
+
+        let render_job = crate::jobs::create_job(crate::jobs::CreateJobRequest {
+            job_type: crate::jobs::JobType::RenderDocumentPages,
+            session_id: None,
+            parameters: render_params,
+            max_retries: Some(2),
+            scheduled_at: None,
+            created_by: created_by.map(|s| s.to_string()),
+        })
+        .await;
+
+        match render_job.data {
+            Some(ref job) => info!(
+                "queued RenderDocumentPages job {} for blob {}",
+                job.id, blob_id
+            ),
+            None => warn!(
+                "failed to queue RenderDocumentPages job for blob {}: {}",
+                blob_id, render_job.message
+            ),
+        }
+    }
+
     info!(
         "GenerateDocumentThumbnail complete for blob {}: preview_blob_id={:?}, page_count={:?}",
         blob_id, preview_blob_id, page_count

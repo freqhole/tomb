@@ -1,6 +1,6 @@
 //! document repository — CRUD operations for the documentz table
 
-use super::models::{CreateDocumentRequest, Document};
+use super::models::{CreateDocumentRequest, Document, DocumentPageImage};
 use crate::database;
 use crate::error::GrimoireResult;
 
@@ -89,6 +89,96 @@ pub async fn get_document_by_blob_id(media_blob_id: &str) -> GrimoireResult<Docu
     .await?;
 
     Ok(document)
+}
+
+/// insert a document image association (page render or thumbnail)
+pub async fn insert_document_image(
+    document_id: &str,
+    media_blob_id: &str,
+    image_type: &str,
+    page_number: Option<i64>,
+    total_pages: Option<i64>,
+    is_primary: bool,
+) -> GrimoireResult<()> {
+    let pool = database::connect().await?;
+    sqlx::query!(
+        "INSERT OR IGNORE INTO document_imagez (document_id, media_blob_id, image_type, page_number, total_pages, is_primary)
+         VALUES (?, ?, ?, ?, ?, ?)",
+        document_id,
+        media_blob_id,
+        image_type,
+        page_number,
+        total_pages,
+        is_primary,
+    )
+    .execute(&pool)
+    .await?;
+    Ok(())
+}
+
+/// get all page render images for a document, ordered by page number
+pub async fn get_document_page_images(document_id: &str) -> GrimoireResult<Vec<DocumentPageImage>> {
+    let pool = database::connect().await?;
+    let rows = sqlx::query_as!(
+        DocumentPageImage,
+        "SELECT
+            di.document_id,
+            di.media_blob_id as page_blob_id,
+            di.page_number,
+            di.total_pages,
+            mb.blake3,
+            mb.size,
+            mb.mime,
+            mb.filename
+         FROM document_imagez di
+         JOIN media_blobz mb ON di.media_blob_id = mb.id
+         WHERE di.document_id = ? AND di.image_type = 'page_render' AND mb.deleted_at IS NULL
+         ORDER BY di.page_number",
+        document_id,
+    )
+    .fetch_all(&pool)
+    .await?;
+    Ok(rows)
+}
+
+/// get all page render images for a document by its media blob id
+pub async fn get_document_page_images_by_blob_id(
+    media_blob_id: &str,
+) -> GrimoireResult<Vec<DocumentPageImage>> {
+    let pool = database::connect().await?;
+    let rows = sqlx::query_as!(
+        DocumentPageImage,
+        "SELECT
+            di.document_id,
+            di.media_blob_id as page_blob_id,
+            di.page_number,
+            di.total_pages,
+            mb.blake3,
+            mb.size,
+            mb.mime,
+            mb.filename
+         FROM document_imagez di
+         JOIN documentz d ON di.document_id = d.id
+         JOIN media_blobz mb ON di.media_blob_id = mb.id
+         WHERE d.media_blob_id = ? AND di.image_type = 'page_render' AND mb.deleted_at IS NULL AND d.deleted_at IS NULL
+         ORDER BY di.page_number",
+        media_blob_id,
+    )
+    .fetch_all(&pool)
+    .await?;
+    Ok(rows)
+}
+
+/// delete all page render images for a document (for re-rendering)
+pub async fn delete_document_page_images(document_id: &str) -> GrimoireResult<u64> {
+    let pool = database::connect().await?;
+    let result = sqlx::query!(
+        "DELETE FROM document_imagez WHERE document_id = ? AND image_type = 'page_render'",
+        document_id,
+    )
+    .execute(&pool)
+    .await?;
+    Ok(result.rows_affected())
 }
 
 /// list document entities (non-deleted only)

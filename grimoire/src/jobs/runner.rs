@@ -4,6 +4,7 @@
 
 use super::media::audio_processor::process_media_file_job;
 use super::media::document_processor::process_generate_document_thumbnail_job;
+use super::media::pdf_page_renderer::process_render_document_pages_job;
 use super::media::photo_processor::process_generate_photo_thumbnail_job;
 use super::media::video_processor::process_generate_video_thumbnail_job;
 use super::models::{Job, JobResult, JobType};
@@ -46,6 +47,7 @@ pub async fn process_job(job: Job) -> GrimoireResponse<JobResult> {
         JobType::GeneratePhotoThumbnail => process_generate_photo_thumbnail_job(&job).await,
         JobType::GenerateVideoThumbnail => process_generate_video_thumbnail_job(&job).await,
         JobType::GenerateDocumentThumbnail => process_generate_document_thumbnail_job(&job).await,
+        JobType::RenderDocumentPages => process_render_document_pages_job(&job).await,
         JobType::ProcessMediaFile => process_media_file_job(&job).await,
     };
 

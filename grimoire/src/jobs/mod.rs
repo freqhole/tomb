@@ -74,5 +74,6 @@ pub use music::{
 // re-export media job processors (used by runner module)
 pub use media::audio_processor::process_media_file_job;
 pub use media::document_processor::process_generate_document_thumbnail_job;
+pub use media::pdf_page_renderer::process_render_document_pages_job;
 pub use media::photo_processor::process_generate_photo_thumbnail_job;
 pub use media::video_processor::process_generate_video_thumbnail_job;

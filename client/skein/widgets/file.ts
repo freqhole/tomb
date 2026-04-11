@@ -5,6 +5,7 @@ import { isTauriMode } from "../src/p2p/tauri-transport";
 import {
   checkBlobLocality,
   formatFileSize,
+  getDocumentPages,
   getFullBlobDataUrl,
   getLocalNodeId,
   getThumbnailDataUrl,
@@ -1173,6 +1174,70 @@ export const fileWidget: WidgetFactory<typeof fileSchema> = {
           loadingText.text = "uploading...";
 
           const result = await uploadFile(file, { waitForCompletion: true });
+
+          // if the uploaded file is a PDF (in Tauri mode), poll for rendered
+          // page images in the background. once pages are available, replace
+          // this file widget with a peedeeeff widget that has all pageBlobIds
+          // populated. the file widget stays visible as a normal file in the
+          // meantime (with thumbnail, filename, actions, etc.)
+          if (result.mime === "application/pdf" && ctx.canvasStore && isTauriMode()) {
+            const store = ctx.canvasStore;
+            const uploadBlobId = result.blobId;
+            const uploadFilename = file.filename;
+            const uploadMime = result.mime;
+            const uploadBlake3 = result.blake3 ?? "";
+            const uploadSize = result.size;
+
+            // fire-and-forget: poll for pages without blocking the upload flow
+            (async () => {
+              const maxAttempts = 120; // poll for up to ~2 minutes
+              const pollIntervalMs = 1000;
+
+              for (let attempt = 0; attempt < maxAttempts; attempt++) {
+                if (destroyed) return;
+                await new Promise((r) => setTimeout(r, pollIntervalMs));
+
+                const pages = await getDocumentPages(uploadBlobId);
+                if (pages.length > 0) {
+                  if (destroyed) return;
+                  const selfEntry = store.getWidget(ctx.widgetId);
+                  if (!selfEntry) return;
+
+                  const blobIds = pages.map((p) => p.page_blob_id);
+                  const totalPages = pages[0]?.total_pages ?? pages.length;
+
+                  const pdfId = crypto.randomUUID();
+                  store.addWidget({
+                    id: pdfId,
+                    type: "peedeeeff",
+                    x: selfEntry.x,
+                    y: selfEntry.y,
+                    width: Math.max(selfEntry.width, 480),
+                    height: Math.max(selfEntry.height, 640),
+                    zIndex: selfEntry.zIndex,
+                    props: {
+                      blobId: uploadBlobId,
+                      filename: uploadFilename,
+                      mime: uploadMime,
+                      blake3: uploadBlake3,
+                      size: uploadSize,
+                      pageCount: totalPages,
+                      pageBlobIds: blobIds,
+                    },
+                    collapsed: false,
+                    docId: null,
+                    parentId: null,
+                  });
+
+                  // remove this file widget — the peedeeeff widget replaces it
+                  store.removeWidget(ctx.widgetId);
+                  return;
+                }
+              }
+              // timed out — pages may still be rendering, leave file widget in place
+              console.warn("[file] PDF page rendering timed out for", uploadBlobId.slice(0, 8));
+            })();
+          }
 
           // mark as locally uploaded so we don't show "save to disk".
           // suppress the doc-change subscription by updating prevBlobId first,

@@ -104,6 +104,11 @@ pub struct MediaConfig {
     /// output should be a single WebP file of the first page
     #[serde(default = "default_magick_pdf_thumbnail_args")]
     pub magick_pdf_thumbnail_args: String,
+    /// args for rendering all PDF pages to individual WebP files (placeholders: {input}, {output})
+    /// output should use ImageMagick's multi-page output pattern (e.g. page-%03d.webp)
+    /// density controls rendering quality (150 is a good balance of quality and speed)
+    #[serde(default = "default_magick_pdf_pages_args")]
+    pub magick_pdf_pages_args: String,
     /// args for extracting a video frame for thumbnail (placeholders: {input}, {output}, {timestamp})
     /// timestamp is computed as ~10% into the video duration
     #[serde(default = "default_video_thumbnail_args")]
@@ -165,6 +170,10 @@ fn default_magick_path() -> String {
 
 fn default_magick_pdf_thumbnail_args() -> String {
     "-density 150 {input}[0] -resize 800x800> -quality 80 {output}".to_string()
+}
+
+fn default_magick_pdf_pages_args() -> String {
+    "-density 150 {input} -quality 80 {output}".to_string()
 }
 
 fn default_video_thumbnail_args() -> String {
@@ -1390,6 +1399,7 @@ mod tests {
                 thumbnail_on_demand_enabled: false,
                 magick_path: "magick".to_string(),
                 magick_pdf_thumbnail_args: default_magick_pdf_thumbnail_args(),
+                magick_pdf_pages_args: default_magick_pdf_pages_args(),
                 video_thumbnail_args: default_video_thumbnail_args(),
             },
             musicbrainz: MusicBrainzConfig { enabled: false },
@@ -1432,6 +1442,7 @@ mod tests {
                 thumbnail_on_demand_enabled: false,
                 magick_path: "magick".to_string(),
                 magick_pdf_thumbnail_args: default_magick_pdf_thumbnail_args(),
+                magick_pdf_pages_args: default_magick_pdf_pages_args(),
                 video_thumbnail_args: default_video_thumbnail_args(),
             },
             musicbrainz: MusicBrainzConfig { enabled: false },
@@ -1472,6 +1483,7 @@ mod tests {
                 thumbnail_on_demand_enabled: false,
                 magick_path: "magick".to_string(),
                 magick_pdf_thumbnail_args: default_magick_pdf_thumbnail_args(),
+                magick_pdf_pages_args: default_magick_pdf_pages_args(),
                 video_thumbnail_args: default_video_thumbnail_args(),
             },
             musicbrainz: MusicBrainzConfig { enabled: false },

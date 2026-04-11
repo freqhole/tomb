@@ -25,6 +25,7 @@ pub enum JobType {
     GeneratePhotoThumbnail,
     GenerateVideoThumbnail,
     GenerateDocumentThumbnail,
+    RenderDocumentPages,
     ProcessMediaFile,
 }
 

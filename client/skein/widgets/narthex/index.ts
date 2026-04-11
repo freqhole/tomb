@@ -2,6 +2,7 @@ import { WidgetRegistry } from "../../src/widgets/widget-registry";
 import { registerBinWidget } from "../bin/index";
 import { labelWidget } from "../label";
 import { markdownWidget } from "../markdown";
+
 import { canvasCardWidget } from "./canvas-card";
 import { canvasWizardWidget } from "./canvas-wizard";
 import { joinCanvasWidget } from "./join-canvas";
