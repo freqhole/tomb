@@ -11,8 +11,8 @@ import type {
 export const imageSchema = z.object({
   url: z.string().default(""),
   fit: z.string().default("contain"),
-  bgColor: z.number().default(0x1a1a2e),
-  borderColor: z.number().default(0x2a2a3e),
+  bgColor: z.number().default(-1),
+  borderColor: z.number().default(-1),
   borderRadius: z.number().default(4),
 });
 
@@ -45,8 +45,8 @@ export const imageWidget: WidgetFactory<typeof imageSchema> = {
       options: ["contain", "cover"],
       default: "contain",
     },
-    { key: "bgColor", label: "background", type: "color" as const, default: 0x1a1a2e },
-    { key: "borderColor", label: "border", type: "color" as const, default: 0x2a2a3e },
+    { key: "bgColor", label: "background", type: "color" as const, default: -1 },
+    { key: "borderColor", label: "border", type: "color" as const, default: -1 },
   ],
 
   getCompactInfo: (state: ImageState): CompactInfo => ({

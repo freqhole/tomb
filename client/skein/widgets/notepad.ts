@@ -1,5 +1,6 @@
 import { Container, Graphics, Text } from "pixi.js";
 import { z } from "zod";
+import { FONT_OPTIONS } from "../src/fonts/font-loader";
 import { createDomOverlay, type DomOverlayHandle } from "../src/widgets/dom-overlay";
 import { colorToCss } from "../src/widgets/format";
 import {
@@ -15,11 +16,22 @@ const PADDING = 10;
 const BORDER_EDITING_COLOR = 0xd946ef;
 const PLACEHOLDER_COLOR = 0x94a3b8;
 
+/** border colors that complement the dark notepad background */
+const NOTEPAD_BORDER_COLORS = [
+  0xcbd5e1, 0xa5b4fc, 0xc084fc, 0xf472b6, 0xfb923c, 0xfbbf24, 0x4ade80, 0x2dd4bf, 0x38bdf8,
+  0x818cf8, 0x94a3b8, 0x6366f1, 0x8b5cf6, 0xec4899, 0xf97316, 0x22c55e, 0x14b8a6, 0x3b82f6,
+  0xef4444, 0xeab308,
+];
+
+function randomBorderColor(): number {
+  return NOTEPAD_BORDER_COLORS[Math.floor(Math.random() * NOTEPAD_BORDER_COLORS.length)];
+}
+
 export const notepadSchema = z.object({
   text: z.string().default(""),
-  bgColor: z.number().default(0xfefefe),
-  textColor: z.number().default(0x1e293b),
-  borderColor: z.number().default(0xcbd5e1),
+  bgColor: z.number().default(0x1e1e2e),
+  textColor: z.number().default(0xf8fafc),
+  borderColor: z.number().default(() => randomBorderColor()),
   fontSize: z.number().default(13),
   fontFamily: z.string().default("system-ui, sans-serif"),
 });
@@ -36,15 +48,15 @@ export const notepadWidget: WidgetFactory<typeof notepadSchema> = {
   },
   schema: notepadSchema,
   editableProps: [
-    { key: "bgColor", label: "background", type: "color" as const, default: 0xfefefe },
-    { key: "textColor", label: "text color", type: "color" as const, default: 0x1e293b },
+    { key: "bgColor", label: "background", type: "color" as const, default: 0x1e1e2e },
+    { key: "textColor", label: "text color", type: "color" as const, default: 0xf8fafc },
     { key: "borderColor", label: "border", type: "color" as const, default: 0xcbd5e1 },
     { key: "fontSize", label: "font size", type: "number" as const, default: 13 },
     {
       key: "fontFamily",
       label: "font",
       type: "select" as const,
-      options: ["system-ui, sans-serif", "Georgia, serif", "Courier New, monospace", "cursive"],
+      options: FONT_OPTIONS,
       default: "system-ui, sans-serif",
     },
   ],

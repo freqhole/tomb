@@ -9,6 +9,7 @@ import { CanvasStore } from "../canvas/canvas-store";
 import type { ConnectionStateSource } from "../canvas/connection-status";
 import { initCanvas, type SkeinCanvas } from "../canvas/init";
 import { showShareDialog, type FriendInfo } from "../canvas/share-dialog";
+import { preloadFonts } from "../fonts/font-loader";
 import { handleFreqholeStream } from "../p2p/freqhole-handler";
 import type { FriendzProtocol } from "../p2p/friends-protocol";
 import {
@@ -1227,6 +1228,9 @@ class SkeinRouter {
 // ---------------------------------------------------------------------------
 
 async function boot(): Promise<void> {
+  // preload custom fonts before any PixiJS Text objects are created
+  await preloadFonts();
+
   const mountElement = document.getElementById("canvas-root");
   if (!mountElement) {
     throw new Error("mount element #canvas-root not found");

@@ -870,21 +870,68 @@ export class PropertyTray {
     };
     layout();
 
-    minusBtn.container.on("pointerdown", (e: FederatedPointerEvent) => {
-      e.stopPropagation();
-      this.closeActivePopup();
-      currentValue -= 1;
-      valueText.text = String(currentValue);
-      onChange(currentValue);
-    });
+    /** wire press-and-hold repeat behavior on a number button.
+     *  ramps up speed the longer the button is held. */
+    const wireHoldRepeat = (btn: Container, delta: number) => {
+      let holdTimer: ReturnType<typeof setTimeout> | null = null;
+      let repeatTimer: ReturnType<typeof setTimeout> | null = null;
+      let holdStartTime = 0;
 
-    plusBtn.container.on("pointerdown", (e: FederatedPointerEvent) => {
-      e.stopPropagation();
-      this.closeActivePopup();
-      currentValue += 1;
-      valueText.text = String(currentValue);
-      onChange(currentValue);
-    });
+      const applyDelta = () => {
+        currentValue += delta;
+        valueText.text = String(currentValue);
+        onChange(currentValue);
+      };
+
+      const getInterval = (): number => {
+        const elapsed = Date.now() - holdStartTime;
+        if (elapsed > 3000) return 30;
+        if (elapsed > 1500) return 80;
+        return 150;
+      };
+
+      const scheduleNext = () => {
+        repeatTimer = setTimeout(() => {
+          applyDelta();
+          scheduleNext();
+        }, getInterval());
+      };
+
+      const stopRepeat = () => {
+        if (holdTimer !== null) {
+          clearTimeout(holdTimer);
+          holdTimer = null;
+        }
+        if (repeatTimer !== null) {
+          clearTimeout(repeatTimer);
+          repeatTimer = null;
+        }
+      };
+
+      btn.on("pointerdown", (e: FederatedPointerEvent) => {
+        e.stopPropagation();
+        this.closeActivePopup();
+
+        // immediate single increment
+        applyDelta();
+
+        // start hold timer -- after 400ms, begin repeating
+        holdStartTime = Date.now();
+        holdTimer = setTimeout(() => {
+          holdTimer = null;
+          scheduleNext();
+        }, 400);
+      });
+
+      btn.on("pointerup", stopRepeat);
+      btn.on("pointerupoutside", stopRepeat);
+      btn.on("pointercancel", stopRepeat);
+      // also stop on pointerleave in case the pointer leaves the button
+      btn.on("pointerleave", stopRepeat);
+    };
+
+    wireHoldRepeat(minusBtn.container, -1);
+    wireHoldRepeat(plusBtn.container, 1);
 
     const totalHeight = fieldY + FIELD_HEIGHT;
 
