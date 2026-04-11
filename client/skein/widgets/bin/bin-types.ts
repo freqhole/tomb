@@ -38,6 +38,14 @@ export interface RenderedCard {
   mediaLabel: string | null;
   /** thumbnail URL — used as photo preview fallback when no blobId (image widget) */
   thumbnailUrl: string | null;
+  /** original filename for action buttons (save, snatch) */
+  filename: string | null;
+  /** blake3 content hash for verified snatch */
+  blake3: string | null;
+  /** file size in bytes for snatch progress */
+  fileSize: number | null;
+  /** node IDs that have snatched this blob (for targeting peer downloads) */
+  snatchedBy: string[] | null;
 }
 
 // -----------------------------------------------------------------------
@@ -84,4 +92,6 @@ export interface CardBuildContext {
   updateThumbSprite: (widgetId: string, sprite: Sprite) => void;
   /** attach pointer handlers (tap, drag) to a card container */
   attachPointerHandlers: (card: Container, widgetId: string) => void;
+  /** get connected canvas peers (for action button snatch targeting) */
+  getPeers?: () => Record<string, { nodeId: string }> | undefined;
 }

@@ -46,6 +46,9 @@ export class BinRenderer {
   /** optional media controller for audio/video playback on cards */
   private mediaController: BinMediaController | null = null;
 
+  /** callback to get connected canvas peers (for action button snatch targeting) */
+  private _getPeers: (() => Record<string, { nodeId: string }> | undefined) | null = null;
+
   /** unsubscribe functions for child doc change listeners */
   private docUnsubs = new Map<string, () => void>();
 
@@ -307,8 +310,13 @@ export class BinRenderer {
    * the controller is notified when cards are added, updated, or removed
    * so it can attach/detach hover and playback behavior.
    */
-  setMediaController(controller: BinMediaController | null): void {
+  setMediaController(controller: BinMediaController): void {
     this.mediaController = controller;
+  }
+
+  /** set the getPeers callback (called from bin index after creating the renderer) */
+  setGetPeers(fn: () => Record<string, { nodeId: string }> | undefined): void {
+    this._getPeers = fn;
   }
 
   /**
@@ -435,6 +443,7 @@ export class BinRenderer {
         if (card) card.thumbSprite = sprite;
       },
       attachPointerHandlers: (card, wid) => this.attachCardPointerHandlers(card, wid),
+      getPeers: this._getPeers ?? undefined,
     };
     return buildCard(state, ctx);
   }

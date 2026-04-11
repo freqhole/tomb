@@ -58,6 +58,7 @@ export function createMediaOverlay(w: number, h: number, rounded = true): MediaO
   overlay.label = "media-overlay";
   overlay.visible = false;
   overlay.eventMode = "none";
+  overlay.zIndex = 10;
 
   // semi-transparent background
   const bg = new Graphics();
@@ -113,6 +114,7 @@ export function createPreviewOverlay(w: number, h: number, rounded = true): Prev
   overlay.label = "preview-overlay";
   overlay.visible = false;
   overlay.eventMode = "none";
+  overlay.zIndex = 10;
 
   // semi-transparent background
   const bg = new Graphics();

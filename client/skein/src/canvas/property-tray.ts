@@ -281,8 +281,15 @@ export class PropertyTray {
     }
 
     const live = this.widgetManager.getLiveWidgets().get(selectedId);
-    if (!live || live.crashed) {
+    if (!live) {
       this.hide();
+      return;
+    }
+
+    if (live.crashed) {
+      // crashed widgets still get a minimal tray with title + delete button
+      this.showCrashed(selectedId, live.entry);
+      this.positionNextTo(live.frame.root.x, live.frame.root.y, live.entry.width);
       return;
     }
 
@@ -385,6 +392,44 @@ export class PropertyTray {
 
     // delete button at the bottom (skip for singletons)
     const isSingleton = factory.metadata.singleton === true;
+    this.deleteContainer = this.createDeleteButton(widgetId, isSingleton, fieldWidth);
+    this.contentContainer.addChild(this.deleteContainer);
+    if (!isSingleton) {
+      y += ROW_GAP;
+      this.deleteContainer.y = Math.round(y);
+    }
+
+    this.drawBackground();
+    this.drawResizeHandle();
+    this.root.visible = true;
+  }
+
+  /**
+   * show a minimal tray for a crashed widget — just the title + delete button.
+   * no editable props or widget actions since the widget failed to mount.
+   */
+  private showCrashed(widgetId: string, entry: WidgetEntry): void {
+    this.clearControls();
+
+    this.currentWidgetId = widgetId;
+
+    // try to get a display name from the factory, fall back to the entry type
+    const factory = this.registry.get(entry.type);
+    this.header.text = factory?.metadata.name ?? entry.type;
+
+    this.contentContainer.y = Math.round(this.header.y + this.header.height + ROW_GAP);
+
+    const fieldWidth = this.trayWidth - TRAY_PAD_H * 2;
+    let y = 0;
+
+    // title field — still useful for identification even if crashed
+    this.titleControl = this.createTitleControl(widgetId, entry.title ?? "", fieldWidth);
+    this.contentContainer.addChild(this.titleControl.container);
+    this.titleControl.container.y = Math.round(y);
+    y += this.titleControl.height + ROW_GAP;
+
+    // delete button — the main reason we show this tray
+    const isSingleton = factory?.metadata.singleton === true;
     this.deleteContainer = this.createDeleteButton(widgetId, isSingleton, fieldWidth);
     this.contentContainer.addChild(this.deleteContainer);
     if (!isSingleton) {

@@ -2,6 +2,8 @@
 // extracted from BinRenderer to keep modules under ~300 lines.
 
 import { Container, Graphics, Sprite, Text } from "pixi.js";
+import { isTauriMode } from "../../src/p2p/tauri-transport";
+import { drawRevealIcon, drawSaveIcon, drawSnatchIcon } from "../../src/widgets/icons";
 import {
   CRATE_FONT_SIZE,
   DEFAULT_ACCENT_COLOR,
@@ -46,6 +48,248 @@ function truncateLabel(label: string, maxChars: number): string {
 }
 
 // -----------------------------------------------------------------------
+// action button helpers
+// -----------------------------------------------------------------------
+
+const ACTION_BTN_SIZE = 24;
+const ACTION_BTN_PAD = 3;
+const ACTION_BTN_BG = 0x2a2a2a;
+const ACTION_BTN_HOVER_BG = 0x444444;
+
+/**
+ * create an icon button (snatch, save, or reveal) for a compact card.
+ * the button fires a callback on pointerup and has hover highlighting
+ * plus a tooltip label that appears above the button on hover.
+ * all pointer events are stopped so they don't cascade to the card
+ * (which would trigger audio/video playback or drag).
+ */
+function createActionButton(
+  iconDraw: (g: Graphics, x: number, y: number, size: number, color: number, alpha: number) => void,
+  size: number,
+  tooltipText: string,
+  onClick: () => void
+): Container {
+  const btn = new Container();
+  btn.eventMode = "static";
+  btn.cursor = "pointer";
+
+  const bg = new Graphics();
+  bg.roundRect(0, 0, size, size, 3).fill({ color: ACTION_BTN_BG, alpha: 0.8 });
+  btn.addChild(bg);
+
+  const iconPad = Math.max(2, Math.floor(size * 0.12));
+  const icon = new Graphics();
+  iconDraw(icon, iconPad, iconPad, size - iconPad * 2, 0xffffff, 0.85);
+  btn.addChild(icon);
+
+  // tooltip — small text label above the button, shown on hover
+  const tipBg = new Graphics();
+  tipBg.visible = false;
+  tipBg.eventMode = "none";
+  btn.addChild(tipBg);
+
+  const tooltip = new Text({
+    text: tooltipText,
+    style: {
+      fontFamily: FONT_FAMILY,
+      fontSize: 9,
+      fill: 0xffffff,
+    },
+    resolution: TEXT_RESOLUTION,
+  });
+  tooltip.anchor.set(0.5, 1);
+  tooltip.x = size / 2;
+  tooltip.y = -4;
+  tooltip.visible = false;
+  tooltip.eventMode = "none";
+  btn.addChild(tooltip);
+
+  btn.on("pointerenter", () => {
+    bg.clear();
+    bg.roundRect(0, 0, size, size, 3).fill({ color: ACTION_BTN_HOVER_BG, alpha: 0.95 });
+    tooltip.visible = true;
+    tipBg.visible = true;
+    tipBg.clear();
+    const tw = tooltip.width;
+    const th = tooltip.height;
+    tipBg
+      .roundRect(size / 2 - tw / 2 - 4, -4 - th - 2, tw + 8, th + 4, 3)
+      .fill({ color: 0x000000, alpha: 0.9 });
+  });
+  btn.on("pointerleave", () => {
+    bg.clear();
+    bg.roundRect(0, 0, size, size, 3).fill({ color: ACTION_BTN_BG, alpha: 0.8 });
+    tooltip.visible = false;
+    tipBg.visible = false;
+  });
+
+  // stop ALL pointer events from reaching the card — prevents triggering
+  // audio/video playback, drag-and-drop, or card tap handlers
+  btn.on("pointerdown", (e: any) => e.stopPropagation());
+  btn.on("pointerup", (e: any) => {
+    e.stopPropagation();
+    onClick();
+  });
+  btn.on("pointertap", (e: any) => e.stopPropagation());
+
+  return btn;
+}
+
+/** info needed to create file action buttons */
+interface ActionButtonInfo {
+  blobId?: string | null;
+  filename?: string | null;
+  mime?: string | null;
+  blake3?: string | null;
+  size?: number | null;
+  domain?: string | null;
+  snatchedBy?: string[] | null;
+}
+
+/**
+ * build the set of action buttons for a file card.
+ * returns a container with the buttons laid out horizontally.
+ * returns null if no buttons are applicable (non-file card, no blobId).
+ */
+function buildActionButtons(
+  info: ActionButtonInfo,
+  btnSize: number,
+  getPeers: (() => Record<string, { nodeId: string }> | undefined) | null
+): Container | null {
+  if (!info.blobId) return null;
+
+  const row = new Container();
+  row.label = "action-buttons";
+  let x = 0;
+
+  // snatch button — always available when there's a blobId
+  const snatchBtn = createActionButton(drawSnatchIcon, btnSize, "snatch", () => {
+    import("../../src/widgets/file-utils").then(({ snatchBlob }) => {
+      const peers = getPeers?.() ?? {};
+      snatchBlob(
+        {
+          blobId: String(info.blobId ?? ""),
+          filename: String(info.filename ?? "file"),
+          mime: String(info.mime ?? ""),
+          size: info.size ?? 0,
+          blake3: String(info.blake3 ?? ""),
+          domain: String(info.domain ?? ""),
+        },
+        peers as any
+      ).catch((err) => console.warn("[bin-actions] snatch failed:", err));
+    });
+  });
+  snatchBtn.x = x;
+  row.addChild(snatchBtn);
+  x += btnSize + ACTION_BTN_PAD;
+
+  if (isTauriMode()) {
+    // reveal in finder (Tauri only)
+    const revealBtn = createActionButton(drawRevealIcon, btnSize, "reveal", () => {
+      import("../../src/widgets/file-utils").then(({ revealBlobInFinder }) => {
+        revealBlobInFinder(String(info.blobId ?? "")).catch((err) =>
+          console.warn("[bin-actions] reveal failed:", err)
+        );
+      });
+    });
+    revealBtn.x = x;
+    row.addChild(revealBtn);
+    x += btnSize + ACTION_BTN_PAD;
+  } else {
+    // save to disk (browser mode)
+    const saveBtn = createActionButton(drawSaveIcon, btnSize, "save", () => {
+      import("../../src/widgets/file-utils").then(({ saveBlobToDisk }) => {
+        saveBlobToDisk(String(info.blobId ?? ""), String(info.filename ?? "file")).catch((err) =>
+          console.warn("[bin-actions] save failed:", err)
+        );
+      });
+    });
+    saveBtn.x = x;
+    row.addChild(saveBtn);
+    x += btnSize + ACTION_BTN_PAD;
+  }
+
+  // hidden by default — shown on card hover
+  row.visible = false;
+  row.zIndex = 11;
+
+  return row;
+}
+
+// -----------------------------------------------------------------------
+// shelf autofit helper
+// -----------------------------------------------------------------------
+
+/**
+ * find the largest font size that fits the text within the available length.
+ * the text is single-line (no word wrap), so we only check width.
+ * never goes below minSize and never above maxSize.
+ */
+function computeShelfFontSize(
+  text: string,
+  availableLength: number,
+  minSize: number,
+  maxSize: number
+): { fontSize: number; fits: boolean } {
+  if (availableLength <= 0) return { fontSize: minSize, fits: false };
+
+  // start at max and shrink down
+  let fontSize = maxSize;
+
+  const measure = new Text({
+    text,
+    style: {
+      fontFamily: FONT_FAMILY,
+      fontSize,
+    },
+    resolution: TEXT_RESOLUTION,
+  });
+
+  let fits = false;
+  let iterations = 0;
+  while (iterations < 15) {
+    measure.style.fontSize = fontSize;
+    const tw = measure.width;
+
+    if (tw <= availableLength) {
+      fits = true;
+      break;
+    }
+
+    if (fontSize <= minSize) break;
+
+    // shrink proportionally
+    const scale = availableLength / Math.max(tw, 1);
+    fontSize = Math.max(minSize, Math.floor(fontSize * scale * 0.95));
+    iterations++;
+  }
+
+  measure.destroy();
+  return { fontSize: Math.max(fontSize, minSize), fits };
+}
+
+/** helper to populate the common extra fields on RenderedCard from CompactInfo */
+function extraCardFields(info: {
+  label?: string;
+  thumbnailUrl?: string;
+  blobId?: string;
+  mime?: string;
+  filename?: string;
+  blake3?: string;
+  size?: number;
+  snatchedBy?: string[];
+}) {
+  return {
+    mediaLabel: info.label ?? null,
+    thumbnailUrl: info.thumbnailUrl ?? null,
+    filename: info.filename ?? null,
+    blake3: info.blake3 ?? null,
+    fileSize: info.size ?? null,
+    snatchedBy: info.snatchedBy ?? null,
+  };
+}
+
+// -----------------------------------------------------------------------
 // grid mode
 // -----------------------------------------------------------------------
 
@@ -62,6 +306,7 @@ function buildGridCard(state: CardRenderState, ctx: CardBuildContext): RenderedC
   card.y = rect.y;
   card.eventMode = "static";
   card.cursor = "pointer";
+  card.sortableChildren = true;
 
   // background
   const bg = new Graphics();
@@ -139,6 +384,23 @@ function buildGridCard(state: CardRenderState, ctx: CardBuildContext): RenderedC
     card.addChild(mediaOverlay);
   }
 
+  // action buttons (snatch, save/reveal) — below thumbnail, hidden until hover
+  if (info.blobId) {
+    const btnSize = Math.max(18, Math.min(ACTION_BTN_SIZE, Math.floor(cellSize * 0.25)));
+    const actions = buildActionButtons(info, btnSize, ctx.getPeers ?? null);
+    if (actions) {
+      actions.x = Math.round((cellSize - actions.width) / 2);
+      actions.y = cellSize - btnSize - 2;
+      card.addChild(actions);
+      card.on("pointerenter", () => {
+        actions.visible = true;
+      });
+      card.on("pointerleave", () => {
+        actions.visible = false;
+      });
+    }
+  }
+
   // filename label below the cell
   // use full cell width for label — compute max chars dynamically
   const maxGridChars = Math.max(
@@ -174,8 +436,7 @@ function buildGridCard(state: CardRenderState, ctx: CardBuildContext): RenderedC
     mediaDomain: info.domain ?? null,
     mediaBlobId: info.blobId ?? null,
     mediaMime: info.mime ?? null,
-    mediaLabel: info.label ?? null,
-    thumbnailUrl: info.thumbnailUrl ?? null,
+    ...extraCardFields(info),
   };
 }
 
@@ -199,6 +460,7 @@ function buildShelfCard(state: CardRenderState, ctx: CardBuildContext): Rendered
   card.y = rect.y;
   card.eventMode = "static";
   card.cursor = "pointer";
+  card.sortableChildren = true;
 
   // spine background
   const bg = new Graphics();
@@ -261,30 +523,40 @@ function buildShelfCard(state: CardRenderState, ctx: CardBuildContext): Rendered
   }
 
   // rotated text — direction based on shelfTextOrigin
-  const textAreaH = spineH - endcapH - 4;
-  const maxChars = Math.max(4, Math.floor(textAreaH / (SHELF_FONT_SIZE * 0.7)));
+  // autofit: try to use the largest font that fits, but never below SHELF_FONT_SIZE
+  const textAreaH = spineH - endcapH - 2;
+  const maxFontSize = Math.floor(spineW * 0.8);
+  const { fontSize: shelfFontSize, fits: textFits } = computeShelfFontSize(
+    info.label,
+    textAreaH,
+    SHELF_FONT_SIZE,
+    maxFontSize
+  );
+
+  // if autofit says the full text fits, use it; otherwise truncate at min size
+  let displayText: string;
+  if (textFits) {
+    displayText = info.label;
+  } else {
+    const maxChars = Math.max(4, Math.floor(textAreaH / (shelfFontSize * 0.7)));
+    displayText = truncateLabel(info.label, maxChars);
+  }
+
   const label = new Text({
-    text: truncateLabel(info.label, maxChars),
+    text: displayText,
     style: {
       fontFamily: FONT_FAMILY,
-      fontSize: SHELF_FONT_SIZE,
+      fontSize: shelfFontSize,
       fill: TEXT_COLOR,
     },
     resolution: TEXT_RESOLUTION,
   });
-  label.anchor.set(0, 0.5);
 
-  if (ctx.shelfTextOrigin === "top") {
-    // text reads top-to-bottom (clockwise rotation)
-    label.rotation = Math.PI / 2;
-    label.x = spineW / 2 - label.height / 2;
-    label.y = endcapH + 2;
-  } else {
-    // text reads bottom-to-top (counter-clockwise rotation — original behavior)
-    label.rotation = -Math.PI / 2;
-    label.x = spineW / 2 + label.height / 2;
-    label.y = spineH - 2;
-  }
+  // center anchor eliminates font-size-dependent positioning drift
+  label.anchor.set(0.5, 0.5);
+  label.rotation = ctx.shelfTextOrigin === "top" ? Math.PI / 2 : -Math.PI / 2;
+  label.x = spineW / 2;
+  label.y = endcapH + 1 + textAreaH / 2;
   card.addChild(label);
 
   // media overlay — play/pause icon for audio/video, expand icon for photos
@@ -311,8 +583,7 @@ function buildShelfCard(state: CardRenderState, ctx: CardBuildContext): Rendered
     mediaDomain: info.domain ?? null,
     mediaBlobId: info.blobId ?? null,
     mediaMime: info.mime ?? null,
-    mediaLabel: info.label ?? null,
-    thumbnailUrl: info.thumbnailUrl ?? null,
+    ...extraCardFields(info),
   };
 }
 
@@ -332,6 +603,7 @@ function buildCrateCard(state: CardRenderState, ctx: CardBuildContext): Rendered
   card.y = rect.y;
   card.eventMode = "static";
   card.cursor = "pointer";
+  card.sortableChildren = true;
 
   const slotW = rect.width;
   const slotH = rect.height;
@@ -392,9 +664,28 @@ function buildCrateCard(state: CardRenderState, ctx: CardBuildContext): Rendered
     card.addChild(letterText);
   }
 
-  // filename text — to the right of the endcap, full remaining width
+  // action buttons — at right end of row, hidden until hover
+  let actionBtnsW = 0;
+  if (info.blobId) {
+    const btnSize = Math.max(16, Math.min(22, slotH - 4));
+    const actions = buildActionButtons(info, btnSize, ctx.getPeers ?? null);
+    if (actions) {
+      actionBtnsW = actions.width + 6;
+      actions.x = slotW - actions.width - 4;
+      actions.y = Math.round((slotH - btnSize) / 2);
+      card.addChild(actions);
+      card.on("pointerenter", () => {
+        actions.visible = true;
+      });
+      card.on("pointerleave", () => {
+        actions.visible = false;
+      });
+    }
+  }
+
+  // filename text — to the right of the endcap
   const textX = endcapW + 6;
-  const maxLabelWidth = slotW - textX - 4;
+  const maxLabelWidth = slotW - textX - 4 - actionBtnsW;
   const maxChars = Math.max(6, Math.floor(maxLabelWidth / (CRATE_FONT_SIZE * 0.55)));
   const label = new Text({
     text: truncateLabel(info.label, maxChars),
@@ -433,8 +724,7 @@ function buildCrateCard(state: CardRenderState, ctx: CardBuildContext): Rendered
     mediaDomain: info.domain ?? null,
     mediaBlobId: info.blobId ?? null,
     mediaMime: info.mime ?? null,
-    mediaLabel: info.label ?? null,
-    thumbnailUrl: info.thumbnailUrl ?? null,
+    ...extraCardFields(info),
   };
 }
 
@@ -454,6 +744,7 @@ function buildDrawerCard(state: CardRenderState, ctx: CardBuildContext): Rendere
   container.y = rect.y;
   container.eventMode = "static";
   container.cursor = "pointer";
+  container.sortableChildren = true;
 
   const slotW = rect.width;
   const slotH = rect.height;
@@ -514,9 +805,28 @@ function buildDrawerCard(state: CardRenderState, ctx: CardBuildContext): Rendere
     container.addChild(letterText);
   }
 
-  // text label — to the right of the endcap, full remaining width
+  // action buttons — at right end of row, hidden until hover
+  let drawerActionBtnsW = 0;
+  if (info.blobId) {
+    const btnSize = Math.max(18, Math.min(ACTION_BTN_SIZE, slotH - 6));
+    const actions = buildActionButtons(info, btnSize, ctx.getPeers ?? null);
+    if (actions) {
+      drawerActionBtnsW = actions.width + 8;
+      actions.x = slotW - actions.width - 6;
+      actions.y = Math.round((slotH - btnSize) / 2);
+      container.addChild(actions);
+      container.on("pointerenter", () => {
+        actions.visible = true;
+      });
+      container.on("pointerleave", () => {
+        actions.visible = false;
+      });
+    }
+  }
+
+  // text label — to the right of the endcap
   const textX = endcapW + 8;
-  const maxLabelWidth = slotW - textX - 8;
+  const maxLabelWidth = slotW - textX - 8 - drawerActionBtnsW;
   const maxChars = Math.max(8, Math.floor(maxLabelWidth / (DRAWER_FONT_SIZE * 0.55)));
   const label = new Text({
     text: truncateLabel(info.label, maxChars),
@@ -555,7 +865,6 @@ function buildDrawerCard(state: CardRenderState, ctx: CardBuildContext): Rendere
     mediaDomain: info.domain ?? null,
     mediaBlobId: info.blobId ?? null,
     mediaMime: info.mime ?? null,
-    mediaLabel: info.label ?? null,
-    thumbnailUrl: info.thumbnailUrl ?? null,
+    ...extraCardFields(info),
   };
 }

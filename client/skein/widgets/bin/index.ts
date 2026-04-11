@@ -628,6 +628,10 @@ export const binWidget: WidgetFactory<typeof binSchema> = {
         },
       });
       renderer.setMediaController(mediaController);
+      renderer.setGetPeers(() => {
+        const peers = ctx.canvasStore?.peers();
+        return peers as Record<string, { nodeId: string }> | undefined;
+      });
 
       // show slot outlines on hover so the user can see drop targets
       container.eventMode = "static";

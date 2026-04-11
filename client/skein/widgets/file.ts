@@ -201,6 +201,10 @@ export const fileWidget: WidgetFactory<typeof fileSchema> = {
     domain: state.domain || undefined,
     blobId: state.blobId || undefined,
     mime: state.mime || undefined,
+    filename: state.filename || undefined,
+    blake3: state.blake3 || undefined,
+    size: state.size || undefined,
+    snatchedBy: state.snatchedBy?.length ? state.snatchedBy.map(String) : undefined,
   }),
 
   create(ctx: WidgetMountContext<typeof fileSchema>): WidgetController {

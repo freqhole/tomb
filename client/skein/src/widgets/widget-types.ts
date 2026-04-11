@@ -74,6 +74,14 @@ export interface CompactInfo {
   blobId?: string;
   /** MIME type hint */
   mime?: string;
+  /** original filename (used by action buttons — distinct from label which may be truncated) */
+  filename?: string;
+  /** blake3 content hash (needed for verified snatch from peers) */
+  blake3?: string;
+  /** file size in bytes (needed for snatch progress) */
+  size?: number;
+  /** node IDs that have snatched this blob (used to target peer downloads) */
+  snatchedBy?: string[];
 }
 
 /**
