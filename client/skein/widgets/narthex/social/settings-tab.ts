@@ -24,11 +24,81 @@ import {
   OPTION_PILL_GAP,
   OPTION_PILL_HEIGHT,
   OPTION_PILL_RADIUS,
+  REJECT_COLOR,
   RESOLUTION,
   SETTINGS_ROW_HEIGHT,
   TEXT_SIZE,
 } from "./constants";
 import type { TabContext, TabController } from "./types";
+
+// ---------------------------------------------------------------------------
+// destroy all local data — IndexedDB databases + OPFS directories
+// ---------------------------------------------------------------------------
+
+/** known IndexedDB database names used by skein */
+const INDEXEDDB_DATABASES = ["automerge", "skein-meta", "skein-blobs"];
+
+/** known OPFS directory names used by skein */
+const OPFS_DIRECTORIES = ["skein-blobs", "skein-blobs-bao"];
+
+/**
+ * delete all local data: IndexedDB databases and OPFS directories.
+ * after completion, reloads the page so the app starts fresh.
+ */
+async function destroyAllLocalData(): Promise<void> {
+  const errors: string[] = [];
+
+  // delete IndexedDB databases
+  for (const dbName of INDEXEDDB_DATABASES) {
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const req = indexedDB.deleteDatabase(dbName);
+        req.onsuccess = () => {
+          console.log(`[destroy] deleted IndexedDB database: ${dbName}`);
+          resolve();
+        };
+        req.onerror = () => {
+          console.warn(`[destroy] failed to delete IndexedDB database: ${dbName}`, req.error);
+          reject(req.error);
+        };
+        req.onblocked = () => {
+          console.warn(`[destroy] IndexedDB delete blocked (close other tabs?): ${dbName}`);
+          // resolve anyway — the delete will proceed once other connections close
+          resolve();
+        };
+      });
+    } catch (err) {
+      errors.push(`IndexedDB ${dbName}: ${(err as Error)?.message ?? err}`);
+    }
+  }
+
+  // delete OPFS directories
+  if (typeof navigator !== "undefined" && navigator.storage?.getDirectory) {
+    try {
+      const root = await navigator.storage.getDirectory();
+      for (const dirName of OPFS_DIRECTORIES) {
+        try {
+          await root.removeEntry(dirName, { recursive: true });
+          console.log(`[destroy] deleted OPFS directory: ${dirName}`);
+        } catch (err) {
+          // NotFoundError is fine — directory didn't exist
+          if ((err as DOMException)?.name !== "NotFoundError") {
+            errors.push(`OPFS ${dirName}: ${(err as Error)?.message ?? err}`);
+          }
+        }
+      }
+    } catch (err) {
+      errors.push(`OPFS root: ${(err as Error)?.message ?? err}`);
+    }
+  }
+
+  if (errors.length > 0) {
+    console.warn("[destroy] some deletions failed:", errors);
+  }
+
+  console.log("[destroy] all local data destroyed — reloading page");
+  window.location.reload();
+}
 
 // ---------------------------------------------------------------------------
 // pill builder — shared between both settings sections
@@ -349,6 +419,7 @@ export function createSettingsTab(ctx: TabContext): TabController {
         });
         hideBtnText.eventMode = "none";
         hideBtn.addChild(hideBtnText);
+        hideBtn.hitArea = new Rectangle(0, 0, hideBtnText.width + 8, 24);
         hideBtn.x = copyBtnW + 12;
         hideBtn.y = (24 - 10) / 2;
         copyRow.addChild(hideBtn);
@@ -379,6 +450,104 @@ export function createSettingsTab(ctx: TabContext): TabController {
         offsetY += 24 + 8;
       }
     }
+
+    // -----------------------------------------------------------
+    // 4. destroy everything — nuclear option
+    // -----------------------------------------------------------
+
+    offsetY += 16;
+
+    // separator line
+    const separator = new Graphics();
+    separator.rect(0, offsetY, 240, 1);
+    separator.fill({ color: FIELD_BORDER });
+    container.addChild(separator);
+    offsetY += 12;
+
+    // section label
+    const destroyLabel = new Text({
+      text: "danger zone",
+      style: { fontFamily: FONT, fontSize: LABEL_SIZE, fill: REJECT_COLOR },
+      resolution: RESOLUTION,
+    });
+    destroyLabel.eventMode = "none";
+    destroyLabel.x = 0;
+    destroyLabel.y = offsetY;
+    container.addChild(destroyLabel);
+    offsetY += LABEL_SIZE + 6;
+
+    // description
+    const destroyDesc = new Text({
+      text: "permanently delete all local data including your identity, canvases, files, and settings. this cannot be undone.",
+      style: {
+        fontFamily: FONT,
+        fontSize: 10,
+        fill: MUTED_TEXT,
+        wordWrap: true,
+        wordWrapWidth: 240,
+      },
+      resolution: RESOLUTION,
+    });
+    destroyDesc.eventMode = "none";
+    destroyDesc.x = 0;
+    destroyDesc.y = offsetY;
+    container.addChild(destroyDesc);
+    offsetY += destroyDesc.height + 8;
+
+    // destroy button
+    const destroyBtn = new Container();
+    destroyBtn.eventMode = "static";
+    destroyBtn.cursor = "pointer";
+
+    const destroyBtnW = 240;
+    const destroyBtnBg = new Graphics();
+    destroyBtnBg.roundRect(0, 0, destroyBtnW, BUTTON_HEIGHT, BUTTON_RADIUS);
+    destroyBtnBg.fill({ color: 0x7f1d1d });
+    destroyBtnBg.stroke({ color: REJECT_COLOR, width: 1 });
+    destroyBtn.addChild(destroyBtnBg);
+    destroyBtn.hitArea = new Rectangle(0, 0, destroyBtnW, BUTTON_HEIGHT);
+
+    const destroyBtnText = new Text({
+      text: "destroy everything",
+      style: { fontFamily: FONT, fontSize: TEXT_SIZE, fontWeight: "bold", fill: 0xffffff },
+      resolution: RESOLUTION,
+    });
+    destroyBtnText.eventMode = "none";
+    destroyBtnText.x = (destroyBtnW - destroyBtnText.width) / 2;
+    destroyBtnText.y = (BUTTON_HEIGHT - TEXT_SIZE) / 2;
+    destroyBtn.addChild(destroyBtnText);
+
+    destroyBtn.x = 0;
+    destroyBtn.y = offsetY;
+    container.addChild(destroyBtn);
+
+    destroyBtn.on("pointertap", (e) => {
+      e.stopPropagation();
+      const confirmed = window.confirm(
+        "are you sure? this will permanently delete ALL local data — identity, canvases, files, and settings. this cannot be undone."
+      );
+      if (!confirmed) return;
+
+      // second confirmation for extra safety
+      const reallyConfirmed = window.confirm(
+        "last chance — all data will be destroyed and the page will reload. continue?"
+      );
+      if (!reallyConfirmed) return;
+
+      destroyBtnText.text = "destroying...";
+      destroyBtnText.x = (destroyBtnW - destroyBtnText.width) / 2;
+      destroyBtn.eventMode = "none";
+
+      destroyAllLocalData().catch((err) => {
+        console.error("[destroy] unexpected error:", err);
+        destroyBtnText.text = "failed — try again";
+        destroyBtnText.style.fill = REJECT_COLOR;
+        destroyBtnText.x = (destroyBtnW - destroyBtnText.width) / 2;
+        destroyBtn.eventMode = "static";
+      });
+    });
+
+    offsetY += BUTTON_HEIGHT + 8;
   };
 
   // initial build
