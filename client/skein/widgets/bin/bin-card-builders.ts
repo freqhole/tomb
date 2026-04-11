@@ -679,12 +679,25 @@ function buildCrateCard(state: CardRenderState, ctx: CardBuildContext): Rendered
   // filename text — to the right of the endcap
   const textX = endcapW + 6;
   const maxLabelWidth = slotW - textX - 4 - actionBtnsW;
-  const maxChars = Math.max(6, Math.floor(maxLabelWidth / (CRATE_FONT_SIZE * 0.55)));
+  const crateMaxFont = Math.max(CRATE_FONT_SIZE, Math.floor(slotH * 0.55));
+  const { fontSize: crateFontSize, fits: crateFits } = computeShelfFontSize(
+    info.label,
+    maxLabelWidth,
+    CRATE_FONT_SIZE,
+    crateMaxFont
+  );
+  let crateDisplayText: string;
+  if (crateFits) {
+    crateDisplayText = info.label;
+  } else {
+    const maxChars = Math.max(6, Math.floor(maxLabelWidth / (crateFontSize * 0.55)));
+    crateDisplayText = truncateLabel(info.label, maxChars);
+  }
   const label = new Text({
-    text: truncateLabel(info.label, maxChars),
+    text: crateDisplayText,
     style: {
       fontFamily: FONT_FAMILY,
-      fontSize: CRATE_FONT_SIZE,
+      fontSize: crateFontSize,
       fill: TEXT_COLOR,
     },
     resolution: TEXT_RESOLUTION,
@@ -820,12 +833,25 @@ function buildDrawerCard(state: CardRenderState, ctx: CardBuildContext): Rendere
   // text label — to the right of the endcap
   const textX = endcapW + 8;
   const maxLabelWidth = slotW - textX - 8 - drawerActionBtnsW;
-  const maxChars = Math.max(8, Math.floor(maxLabelWidth / (DRAWER_FONT_SIZE * 0.55)));
+  const drawerMaxFont = Math.max(DRAWER_FONT_SIZE, Math.floor(slotH * 0.5));
+  const { fontSize: drawerFontSize, fits: drawerFits } = computeShelfFontSize(
+    info.label,
+    maxLabelWidth,
+    DRAWER_FONT_SIZE,
+    drawerMaxFont
+  );
+  let drawerDisplayText: string;
+  if (drawerFits) {
+    drawerDisplayText = info.label;
+  } else {
+    const maxChars = Math.max(8, Math.floor(maxLabelWidth / (drawerFontSize * 0.55)));
+    drawerDisplayText = truncateLabel(info.label, maxChars);
+  }
   const label = new Text({
-    text: truncateLabel(info.label, maxChars),
+    text: drawerDisplayText,
     style: {
       fontFamily: FONT_FAMILY,
-      fontSize: DRAWER_FONT_SIZE,
+      fontSize: drawerFontSize,
       fill: TEXT_COLOR,
     },
     resolution: TEXT_RESOLUTION,

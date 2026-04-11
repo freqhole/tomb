@@ -515,6 +515,13 @@ export const fileWidget: WidgetFactory<typeof fileSchema> = {
       }
 
       actionContainer.visible = hasVisibleActions();
+
+      // update thumbnail hover overlay visibility — depends on action state
+      const overlayDomain = ctx.doc.current.domain || "file";
+      thumbHitArea.visible =
+        loadState === "loaded" &&
+        isPreviewableDomain(overlayDomain) &&
+        (actionState === "local" || actionState === "snatched");
     }
 
     // -- layout helpers -------------------------------------------------------
@@ -804,6 +811,8 @@ export const fileWidget: WidgetFactory<typeof fileSchema> = {
         if (!hasThumbnail) {
           positionFallbackIcon(currentWidth, currentHeight);
         }
+        drawHoverOverlay(currentWidth, currentHeight);
+        drawThumbHitArea(currentWidth, currentHeight);
       }
     };
 
