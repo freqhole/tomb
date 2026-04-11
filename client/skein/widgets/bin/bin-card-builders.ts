@@ -15,7 +15,12 @@ import {
 } from "./bin-constants";
 import type { SlotSizeOptions } from "./bin-layout";
 import { slotRect } from "./bin-layout";
-import { createMediaOverlay, isMediaDomain } from "./bin-media";
+import {
+  createMediaOverlay,
+  createPreviewOverlay,
+  isMediaDomain,
+  isPhotoDomain,
+} from "./bin-media";
 import type { CardBuildContext, CardRenderState, RenderedCard } from "./bin-types";
 
 const FONT_FAMILY = "'Atkinson Hyperlegible Next', sans-serif";
@@ -122,10 +127,14 @@ function buildGridCard(state: CardRenderState, ctx: CardBuildContext): RenderedC
     card.addChild(letterText);
   }
 
-  // media overlay — play/pause icon for audio/video cards
+  // media overlay — play/pause icon for audio/video, expand icon for photos
   let mediaOverlay: Container | null = null;
   if (isMediaDomain(info.domain)) {
     const parts = createMediaOverlay(cellSize, cellSize);
+    mediaOverlay = parts.overlay;
+    card.addChild(mediaOverlay);
+  } else if (isPhotoDomain(info.domain)) {
+    const parts = createPreviewOverlay(cellSize, cellSize);
     mediaOverlay = parts.overlay;
     card.addChild(mediaOverlay);
   }
@@ -165,6 +174,8 @@ function buildGridCard(state: CardRenderState, ctx: CardBuildContext): RenderedC
     mediaDomain: info.domain ?? null,
     mediaBlobId: info.blobId ?? null,
     mediaMime: info.mime ?? null,
+    mediaLabel: info.label ?? null,
+    thumbnailUrl: info.thumbnailUrl ?? null,
   };
 }
 
@@ -276,10 +287,14 @@ function buildShelfCard(state: CardRenderState, ctx: CardBuildContext): Rendered
   }
   card.addChild(label);
 
-  // media overlay — play/pause icon for audio/video cards
+  // media overlay — play/pause icon for audio/video, expand icon for photos
   let mediaOverlay: Container | null = null;
   if (isMediaDomain(info.domain)) {
     const parts = createMediaOverlay(spineW, endcapH);
+    mediaOverlay = parts.overlay;
+    card.addChild(mediaOverlay);
+  } else if (isPhotoDomain(info.domain)) {
+    const parts = createPreviewOverlay(spineW, endcapH);
     mediaOverlay = parts.overlay;
     card.addChild(mediaOverlay);
   }
@@ -296,6 +311,8 @@ function buildShelfCard(state: CardRenderState, ctx: CardBuildContext): Rendered
     mediaDomain: info.domain ?? null,
     mediaBlobId: info.blobId ?? null,
     mediaMime: info.mime ?? null,
+    mediaLabel: info.label ?? null,
+    thumbnailUrl: info.thumbnailUrl ?? null,
   };
 }
 
@@ -392,10 +409,14 @@ function buildCrateCard(state: CardRenderState, ctx: CardBuildContext): Rendered
   label.y = (slotH - label.height) / 2;
   card.addChild(label);
 
-  // media overlay — play/pause icon for audio/video cards
+  // media overlay — play/pause icon for audio/video, expand icon for photos
   let mediaOverlay: Container | null = null;
   if (isMediaDomain(info.domain)) {
     const parts = createMediaOverlay(endcapW, slotH);
+    mediaOverlay = parts.overlay;
+    card.addChild(mediaOverlay);
+  } else if (isPhotoDomain(info.domain)) {
+    const parts = createPreviewOverlay(endcapW, slotH);
     mediaOverlay = parts.overlay;
     card.addChild(mediaOverlay);
   }
@@ -412,6 +433,8 @@ function buildCrateCard(state: CardRenderState, ctx: CardBuildContext): Rendered
     mediaDomain: info.domain ?? null,
     mediaBlobId: info.blobId ?? null,
     mediaMime: info.mime ?? null,
+    mediaLabel: info.label ?? null,
+    thumbnailUrl: info.thumbnailUrl ?? null,
   };
 }
 
@@ -508,10 +531,14 @@ function buildDrawerCard(state: CardRenderState, ctx: CardBuildContext): Rendere
   label.y = (slotH - label.height) / 2;
   container.addChild(label);
 
-  // media overlay — play/pause icon for audio/video cards
+  // media overlay — play/pause icon for audio/video, expand icon for photos
   let mediaOverlay: Container | null = null;
   if (isMediaDomain(info.domain)) {
     const parts = createMediaOverlay(endcapW, slotH);
+    mediaOverlay = parts.overlay;
+    container.addChild(mediaOverlay);
+  } else if (isPhotoDomain(info.domain)) {
+    const parts = createPreviewOverlay(endcapW, slotH);
     mediaOverlay = parts.overlay;
     container.addChild(mediaOverlay);
   }
@@ -528,5 +555,7 @@ function buildDrawerCard(state: CardRenderState, ctx: CardBuildContext): Rendere
     mediaDomain: info.domain ?? null,
     mediaBlobId: info.blobId ?? null,
     mediaMime: info.mime ?? null,
+    mediaLabel: info.label ?? null,
+    thumbnailUrl: info.thumbnailUrl ?? null,
   };
 }

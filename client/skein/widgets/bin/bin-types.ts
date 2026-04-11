@@ -34,6 +34,10 @@ export interface RenderedCard {
   mediaBlobId: string | null;
   /** MIME type hint for media playback */
   mediaMime: string | null;
+  /** display label for media previews (filename, title, etc.) */
+  mediaLabel: string | null;
+  /** thumbnail URL — used as photo preview fallback when no blobId (image widget) */
+  thumbnailUrl: string | null;
 }
 
 // -----------------------------------------------------------------------

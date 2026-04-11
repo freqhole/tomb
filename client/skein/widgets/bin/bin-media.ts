@@ -1,16 +1,19 @@
-// bin media controller — manages audio/video playback for compact cards in bins.
+// bin media controller — manages audio/video/photo playback for compact cards in bins.
 //
-// when a file widget with domain "audio" or "video" is rendered as a compact
-// card inside a bin, this controller adds:
-//   - a play/pause icon overlay on the card thumbnail
+// when a file widget with domain "audio", "video", or "photo" is rendered as a
+// compact card inside a bin, this controller handles:
+//   - a play/pause icon overlay on the card thumbnail (audio/video)
+//   - an expand/preview icon overlay on the card thumbnail (photo/image)
 //   - hover behavior to show/hide the overlay
 //   - tap-to-play/pause via the audioManager (audio) or DOM <video> (video)
 //   - double-tap to enter fullscreen (video)
+//   - tap to open fullscreen photo preview (photo/image)
 //
 // the controller is created per-bin and manages all media cards within that bin.
 
 import { Container, Graphics } from "pixi.js";
 import { audioManager, getMediaPlaybackUrl } from "../../src/media";
+import { createMediaOverlay as createFullscreenOverlay } from "../../src/widgets/media-overlay";
 import type { RenderedCard } from "./bin-types";
 
 const TAG = "[bin-media]";
@@ -19,9 +22,19 @@ const TAG = "[bin-media]";
 // helpers
 // ---------------------------------------------------------------------------
 
-/** check whether a CompactInfo represents a playable media type */
-export function isMediaDomain(domain?: string): boolean {
+/** check whether a CompactInfo represents a playable media type (audio/video with play/pause) */
+export function isMediaDomain(domain?: string | null): boolean {
   return domain === "audio" || domain === "video";
+}
+
+/** check whether a domain is previewable (photo/image — gets an expand icon) */
+export function isPhotoDomain(domain?: string | null): boolean {
+  return domain === "photo";
+}
+
+/** check whether a domain is handled by the media controller (audio/video/photo) */
+export function isInteractiveDomain(domain?: string | null): boolean {
+  return domain === "audio" || domain === "video" || domain === "photo";
 }
 
 // ---------------------------------------------------------------------------
@@ -86,6 +99,63 @@ export function createMediaOverlay(w: number, h: number, rounded = true): MediaO
   return { overlay, playIcon, pauseIcon };
 }
 
+/** parts of a preview overlay — just the expand icon, no play/pause */
+export interface PreviewOverlayParts {
+  overlay: Container;
+}
+
+/**
+ * create a preview overlay with an expand/arrow icon for photo/image cards.
+ * shown on hover to indicate the card is tappable for fullscreen preview.
+ */
+export function createPreviewOverlay(w: number, h: number, rounded = true): PreviewOverlayParts {
+  const overlay = new Container();
+  overlay.label = "preview-overlay";
+  overlay.visible = false;
+  overlay.eventMode = "none";
+
+  // semi-transparent background
+  const bg = new Graphics();
+  if (rounded) {
+    bg.roundRect(0, 0, w, h, 3).fill({ color: 0x000000, alpha: 0.4 });
+  } else {
+    bg.rect(0, 0, w, h).fill({ color: 0x000000, alpha: 0.4 });
+  }
+  overlay.addChild(bg);
+
+  const iconSize = Math.max(10, Math.min(w, h) * 0.3);
+  const cx = w / 2;
+  const cy = h / 2;
+
+  // expand icon — diagonal arrow pointing upper-right with a small box corner
+  const icon = new Graphics();
+  const half = iconSize / 2;
+  const strokeW = Math.max(1.5, iconSize * 0.12);
+
+  // arrow shaft: from lower-left to upper-right
+  icon.moveTo(cx - half, cy + half);
+  icon.lineTo(cx + half, cy - half);
+  icon.stroke({ width: strokeW, color: 0xffffff, alpha: 0.9 });
+
+  // arrowhead lines at upper-right
+  const headLen = half * 0.5;
+  icon.moveTo(cx + half - headLen, cy - half);
+  icon.lineTo(cx + half, cy - half);
+  icon.lineTo(cx + half, cy - half + headLen);
+  icon.stroke({ width: strokeW, color: 0xffffff, alpha: 0.9 });
+
+  // small corner bracket at lower-left to suggest "from box"
+  const cornerLen = half * 0.35;
+  icon.moveTo(cx - half + cornerLen, cy + half);
+  icon.lineTo(cx - half, cy + half);
+  icon.lineTo(cx - half, cy + half - cornerLen);
+  icon.stroke({ width: strokeW, color: 0xffffff, alpha: 0.7 });
+
+  overlay.addChild(icon);
+
+  return { overlay };
+}
+
 /** show the play icon and hide pause */
 export function showPlayIcon(parts: MediaOverlayParts): void {
   parts.playIcon.visible = true;
@@ -144,6 +214,24 @@ function createVideoTracker(
   vs.pointerEvents = "none";
   wrapper.appendChild(video);
 
+  // toggle pointer-events on fullscreen change so native controls are clickable
+  const onFullscreenChange = (): void => {
+    const fsEl = document.fullscreenElement ?? (document as any).webkitFullscreenElement;
+    if (fsEl === video || fsEl === wrapper) {
+      // entering fullscreen — enable pointer events so native controls work
+      ws.pointerEvents = "auto";
+      vs.pointerEvents = "auto";
+      video.controls = true;
+    } else {
+      // exiting fullscreen — restore pointer-events: none so pixi handles taps
+      ws.pointerEvents = "none";
+      vs.pointerEvents = "none";
+      video.controls = false;
+    }
+  };
+  document.addEventListener("fullscreenchange", onFullscreenChange);
+  document.addEventListener("webkitfullscreenchange", onFullscreenChange);
+
   document.body.appendChild(wrapper);
 
   let closed = false;
@@ -201,6 +289,13 @@ function createVideoTracker(
     if (closed) return;
     closed = true;
     if (rafId) cancelAnimationFrame(rafId);
+    document.removeEventListener("fullscreenchange", onFullscreenChange);
+    document.removeEventListener("webkitfullscreenchange", onFullscreenChange);
+    // exit fullscreen if this video is currently fullscreen
+    const fsEl = document.fullscreenElement ?? (document as any).webkitFullscreenElement;
+    if (fsEl === video || fsEl === wrapper) {
+      document.exitFullscreen?.().catch(() => {});
+    }
     video.pause();
     video.removeAttribute("src");
     video.load();
@@ -226,6 +321,10 @@ export class BinMediaController {
   private audioPlayingId: string | null = null;
   /** the widget currently playing video */
   private videoTracker: VideoTracker | null = null;
+
+  /** active fullscreen photo overlay (if any) */
+  private activePhotoOverlay: import("../../src/widgets/media-overlay").MediaOverlayHandle | null =
+    null;
 
   /** set of widget IDs that have hover listeners attached */
   private attachedCards = new Set<string>();
@@ -256,7 +355,8 @@ export class BinMediaController {
       audioManager.on("ended", () => this.onAudioEnded()),
       audioManager.on("stop", () => this.onAudioStopped()),
       audioManager.on("play", () => this.onAudioPlay()),
-      audioManager.on("pause", () => this.onAudioPause())
+      audioManager.on("pause", () => this.onAudioPause()),
+      audioManager.on("loading", (data) => this.onAudioLoading(data.blobId))
     );
   }
 
@@ -267,11 +367,16 @@ export class BinMediaController {
   /**
    * attach media overlay + hover behavior to a card.
    * called after a card is built or rebuilt.
-   * safe to call for non-media cards (returns immediately).
+   * safe to call for non-media and non-photo cards (returns immediately).
    */
   attachToCard(card: RenderedCard): void {
     if (this.destroyed) return;
-    if (!card.mediaDomain || !isMediaDomain(card.mediaDomain)) return;
+
+    const domain = card.mediaDomain;
+    const isAudioVideo = isMediaDomain(domain);
+    const isPhoto = isPhotoDomain(domain);
+
+    if (!isAudioVideo && !isPhoto) return;
 
     // remove any previous attachment for this widget
     this.detachFromCard(card.widgetId);
@@ -279,31 +384,36 @@ export class BinMediaController {
     const overlay = card.mediaOverlay;
     if (!overlay) return;
 
-    // find the overlay parts (play/pause icons) from the overlay container
-    const parts = this.findOverlayParts(overlay);
-    if (!parts) return;
+    if (isAudioVideo) {
+      // audio/video: find play/pause icon parts for state toggling
+      const parts = this.findOverlayParts(overlay);
+      if (!parts) return;
 
-    this.overlayParts.set(card.widgetId, parts);
+      this.overlayParts.set(card.widgetId, parts);
 
-    // set initial icon state — if this card's audio is currently playing,
-    // show the pause icon and keep the overlay visible
-    const isPlayingAudio =
-      card.mediaDomain === "audio" &&
-      this.audioPlayingId === card.widgetId &&
-      audioManager.isPlaying;
+      // set initial icon state — if this card's audio is currently playing,
+      // show the pause icon and keep the overlay visible
+      const isPlayingAudio =
+        card.mediaDomain === "audio" &&
+        this.audioPlayingId === card.widgetId &&
+        audioManager.isPlaying;
 
-    const isPlayingVideo =
-      card.mediaDomain === "video" && this.videoTracker?.widgetId === card.widgetId;
+      const isPlayingVideo =
+        card.mediaDomain === "video" && this.videoTracker?.widgetId === card.widgetId;
 
-    if (isPlayingAudio || isPlayingVideo) {
-      showPauseIcon(parts);
-      overlay.visible = true;
+      if (isPlayingAudio || isPlayingVideo) {
+        showPauseIcon(parts);
+        overlay.visible = true;
+      } else {
+        showPlayIcon(parts);
+        overlay.visible = false;
+      }
     } else {
-      showPlayIcon(parts);
+      // photo: overlay is just the expand icon, no play/pause state
       overlay.visible = false;
     }
 
-    // hover handlers
+    // hover handlers — show overlay on enter, hide on leave
     const onEnter = (): void => {
       if (card.container.destroyed) return;
       overlay.visible = true;
@@ -311,7 +421,12 @@ export class BinMediaController {
 
     const onLeave = (): void => {
       if (card.container.destroyed) return;
-      // keep visible if currently playing
+      if (isPhoto) {
+        // photo overlays always hide on leave (no "playing" state)
+        overlay.visible = false;
+        return;
+      }
+      // audio/video: keep visible if currently playing
       const playing =
         (card.mediaDomain === "audio" &&
           this.audioPlayingId === card.widgetId &&
@@ -355,7 +470,7 @@ export class BinMediaController {
    */
   handleTap(widgetId: string): boolean {
     const card = this.getCard(widgetId);
-    if (!card || !card.mediaDomain || !isMediaDomain(card.mediaDomain)) {
+    if (!card || !card.mediaDomain || !isInteractiveDomain(card.mediaDomain)) {
       return false;
     }
 
@@ -375,9 +490,72 @@ export class BinMediaController {
       this.handleAudioTap(widgetId, card);
     } else if (card.mediaDomain === "video") {
       this.handleVideoTap(widgetId, card);
+    } else if (card.mediaDomain === "photo") {
+      this.handlePhotoTap(card);
     }
 
     return true;
+  }
+
+  // -----------------------------------------------------------------------
+  // photo handling
+  // -----------------------------------------------------------------------
+
+  /**
+   * open a fullscreen photo preview for a compact card.
+   * resolves the blob to a data URL (file widget) or uses the thumbnailUrl
+   * directly (image widget) and opens the DOM media overlay.
+   */
+  private async handlePhotoTap(card: RenderedCard): Promise<void> {
+    const blobId = card.mediaBlobId;
+
+    let src: string | null = null;
+
+    if (blobId) {
+      // file widget with a blob — resolve via getFullBlobDataUrl
+      try {
+        const { getFullBlobDataUrl } = await import("../../src/widgets/file-utils");
+        const peers = this.getPeers();
+        src = await getFullBlobDataUrl(blobId, peers as any);
+      } catch (err) {
+        console.warn(TAG, "failed to resolve photo blob:", err);
+      }
+
+      if (!src) {
+        // fallback: try getMediaPlaybackUrl which handles tauri asset:// etc.
+        src = await getMediaPlaybackUrl(blobId, {
+          category: "video", // use video slot to avoid revoking any playing audio
+          peers: this.getPeers(),
+          mime: card.mediaMime ?? undefined,
+        });
+      }
+    }
+
+    if (!src && card.thumbnailUrl) {
+      // image widget (or file widget with embedded thumbnail) — use the
+      // thumbnail URL directly as the preview source
+      src = card.thumbnailUrl;
+    }
+
+    if (!src) {
+      console.warn(TAG, "could not resolve photo for preview");
+      return;
+    }
+
+    // close any existing photo overlay before opening a new one
+    if (this.activePhotoOverlay && !this.activePhotoOverlay.closed) {
+      this.activePhotoOverlay.close();
+    }
+
+    this.activePhotoOverlay = createFullscreenOverlay({
+      type: "photo",
+      src,
+      filename: card.mediaLabel ?? undefined,
+      mime: card.mediaMime ?? undefined,
+      onClose: () => {
+        this.activePhotoOverlay = null;
+      },
+    });
   }
 
   /** tear down everything */
@@ -404,6 +582,11 @@ export class BinMediaController {
       this.videoTracker = null;
     }
 
+    if (this.activePhotoOverlay && !this.activePhotoOverlay.closed) {
+      this.activePhotoOverlay.close();
+    }
+    this.activePhotoOverlay = null;
+
     this.overlayParts.clear();
     this.attachedCards.clear();
   }
@@ -429,12 +612,20 @@ export class BinMediaController {
       this.updateVideoCardIcon(null);
     }
 
+    // stop any existing audio first — this ensures the global audioManager
+    // emits a clean stop event so other BinMediaControllers can clear their
+    // state before we start our new track
+    if (audioManager.isPlaying || audioManager.currentBlob) {
+      audioManager.stop();
+    }
+
     // clear previous audio card's icon
     const prevId = this.audioPlayingId;
     this.audioPlayingId = widgetId;
 
     if (prevId && prevId !== widgetId) {
       this.setCardIcon(prevId, "play");
+      this.setOverlayVisible(prevId, false);
     }
 
     // show loading state (pause icon = "active")
@@ -456,18 +647,40 @@ export class BinMediaController {
   }
 
   private onAudioPlay(): void {
-    if (this.audioPlayingId) {
-      this.setCardIcon(this.audioPlayingId, "pause");
-      this.setOverlayVisible(this.audioPlayingId, true);
+    if (!this.audioPlayingId) return;
+
+    // check if another controller started playback for a different blob —
+    // audioManager is global, so the play event may not be for our blob
+    const card = this.getCard(this.audioPlayingId);
+    const ourBlobId = card?.mediaBlobId;
+    if (ourBlobId && !audioManager.isCurrentBlob(ourBlobId)) {
+      // another controller (or external caller) took over — clear our state
+      this.setCardIcon(this.audioPlayingId, "play");
+      this.setOverlayVisible(this.audioPlayingId, false);
+      this.audioPlayingId = null;
+      return;
     }
+
+    this.setCardIcon(this.audioPlayingId, "pause");
+    this.setOverlayVisible(this.audioPlayingId, true);
   }
 
   private onAudioPause(): void {
-    if (this.audioPlayingId) {
+    if (!this.audioPlayingId) return;
+
+    // if the pause is for a different blob, another controller has taken over
+    const card = this.getCard(this.audioPlayingId);
+    const ourBlobId = card?.mediaBlobId;
+    if (ourBlobId && !audioManager.isCurrentBlob(ourBlobId)) {
       this.setCardIcon(this.audioPlayingId, "play");
-      // keep overlay visible so the user can tap to resume
-      this.setOverlayVisible(this.audioPlayingId, true);
+      this.setOverlayVisible(this.audioPlayingId, false);
+      this.audioPlayingId = null;
+      return;
     }
+
+    this.setCardIcon(this.audioPlayingId, "play");
+    // keep overlay visible so the user can tap to resume
+    this.setOverlayVisible(this.audioPlayingId, true);
   }
 
   private onAudioEnded(): void {
@@ -480,6 +693,25 @@ export class BinMediaController {
 
   private onAudioStopped(): void {
     if (this.audioPlayingId) {
+      this.setCardIcon(this.audioPlayingId, "play");
+      this.setOverlayVisible(this.audioPlayingId, false);
+      this.audioPlayingId = null;
+    }
+  }
+
+  /**
+   * called when the audioManager starts loading a new blob.
+   * if the blobId doesn't match any card we're tracking, another controller
+   * (or external caller) has taken over playback — clear our state.
+   */
+  private onAudioLoading(blobId: string): void {
+    if (!this.audioPlayingId) return;
+
+    const card = this.getCard(this.audioPlayingId);
+    const ourBlobId = card?.mediaBlobId;
+
+    // if the loading blob is not ours, another controller took over
+    if (ourBlobId && blobId !== ourBlobId) {
       this.setCardIcon(this.audioPlayingId, "play");
       this.setOverlayVisible(this.audioPlayingId, false);
       this.audioPlayingId = null;

@@ -52,6 +52,7 @@ export const imageWidget: WidgetFactory<typeof imageSchema> = {
   getCompactInfo: (state: ImageState): CompactInfo => ({
     label: state.url ? "image" : "empty image",
     thumbnailUrl: state.url || undefined,
+    domain: state.url ? "photo" : undefined,
   }),
 
   create(ctx: WidgetMountContext<typeof imageSchema>): WidgetController {
