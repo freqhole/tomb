@@ -636,6 +636,17 @@ export function createMusicMethods(call: CallFn) {
       );
     },
 
+    deleteFeedEvent: (id: string) => {
+      return call(
+        "music", "delete_feed_event",
+        routes.music.delete_feed_event.resp,
+        routes.music.delete_feed_event.req,
+        routes.music.delete_feed_event.method,
+        routes.music.delete_feed_event.path,
+        { id },
+      );
+    },
+
     updateListenSessionProgress: (id: string, params: s.UpdateListenSessionProgressRequest) => {
       const path = routes.music.update_listen_session_progress.path.replace("{id}", id);
       return call(

@@ -722,7 +722,14 @@ export function AppLayout(props: AppLayoutProps) {
         mainNavSections={[
           {
             items: [
-              // feed is only available when hasFeedView() is true (remotes + Tauri local)
+              // aggregate feed — combines all remotes
+              {
+                label: "all feeds",
+                onClick: () => {
+                  navigate("/feed");
+                },
+              },
+              // per-remote feed is only available when hasFeedView() is true
               ...(hasFeedView()
                 ? [
                     {

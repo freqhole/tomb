@@ -45,7 +45,7 @@ pub const ROUTES: &[RouteInfo] = &[
         path: "/api/sync/sha256s",
         method: Method::GET,
         domain: Domain::Music,
-        request_type: "()",
+        request_type: "String",
         response_type: "Vec<String>",
         auth: RouteAuth::Role(UserRole::Member),
     },

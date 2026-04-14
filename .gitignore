@@ -19,6 +19,8 @@ data/dev.db
 *.profraw
 /freqhole-config.toml
 
+playlistz/
+
 /client/charnel/.vite
 /freqhole.net/dist
 /freqhole.net/.astro

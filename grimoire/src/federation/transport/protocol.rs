@@ -35,56 +35,6 @@ pub enum PeerMessage {
         body: String,
     },
 
-    /// request blob stream by blob_id
-    /// response will be BlobStreamResponse followed by raw bytes
-    BlobStreamRequest {
-        /// request id for correlation
-        id: u64,
-        /// blob_id to stream
-        blob_id: String,
-    },
-
-    /// blob stream response header - raw bytes follow
-    BlobStreamResponse {
-        /// request id for correlation
-        id: u64,
-        /// blob size in bytes (if known)
-        size: Option<u64>,
-        /// mime type (if known)
-        content_type: Option<String>,
-        /// error message if blob not found
-        error: Option<String>,
-    },
-
-    /// request to upload a blob
-    /// header is length-prefixed JSON, followed by raw bytes
-    BlobUploadRequest {
-        /// request id for correlation
-        id: u64,
-        /// original filename (for metadata extraction)
-        filename: String,
-        /// content type (mime)
-        content_type: String,
-        /// total size in bytes
-        size: u64,
-        /// optional association metadata (entity_type, entity_id, is_primary)
-        associate_with: Option<serde_json::Value>,
-    },
-
-    /// blob upload response (sent after receiving full blob)
-    BlobUploadResponse {
-        /// request id for correlation
-        id: u64,
-        /// created blob_id (if successful)
-        blob_id: Option<String>,
-        /// job_id for import processing
-        job_id: Option<String>,
-        /// error message if upload failed
-        error: Option<String>,
-        /// full server response body for client parsing
-        body: Option<String>,
-    },
-
     /// request server image (public, no auth required)
     /// used during "add remote" flow before user is authenticated
     HelloImageRequest {

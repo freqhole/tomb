@@ -12,6 +12,7 @@ import { setPageInfo, clearPageInfo, type FeedTypeFilter } from "../../app/servi
 import { useHistoryState } from "../../utils/historyState";
 import { getCurrentRemote, getCurrentUser, getDataSource, RemoteOfflineError } from "../data";
 import type { FeedItem } from "../data/types";
+import { isAdmin } from "../data/permissions";
 import {
   useActivityFeedInfiniteQuery,
   ALL_FEED_TYPES,
@@ -558,27 +559,27 @@ export function FeedView() {
         },
       });
 
-      // delete session (own sessions only)
-      if (isOwnSession && item.session_id) {
+      // delete session (own sessions, or admin can delete any)
+      if ((isOwnSession || isAdmin()) && item.session_id) {
         actions.push({ type: "separator" });
         actions.push({
           label: "delete session",
           icon: IconNames.delete,
           onClick: async () => {
             try {
-              if (item.session_id) {
-                const dataSource = getDataSource();
-                if (!dataSource.deleteListenSession) {
-                  toast.error("cannot delete session");
-                  return;
-                }
-                await dataSource.deleteListenSession(item.session_id);
-                toast.info("session deleted");
-                // invalidate feed queries to refresh
-                void queryClient.invalidateQueries({
-                  queryKey: queryKeys.analytics.all(),
-                });
+              const dataSource = getDataSource();
+              if (isOwnSession && dataSource.deleteListenSession) {
+                await dataSource.deleteListenSession(item.session_id!);
+              } else if (isAdmin() && dataSource.deleteFeedEvent) {
+                await dataSource.deleteFeedEvent(item.id);
+              } else {
+                toast.error("cannot delete session");
+                return;
               }
+              toast.info("session deleted");
+              void queryClient.invalidateQueries({
+                queryKey: queryKeys.analytics.all(),
+              });
             } catch {
               toast.error("failed to delete session");
             }
@@ -692,6 +693,29 @@ export function FeedView() {
     if (navActions.length > 0) {
       actions.push({ type: "separator" });
       actions.push(...navActions);
+    }
+
+    // admin can delete any feed item
+    if (isAdmin()) {
+      const dataSource = getDataSource();
+      if (dataSource.deleteFeedEvent) {
+        actions.push({ type: "separator" });
+        actions.push({
+          label: "delete feed item",
+          icon: IconNames.delete,
+          onClick: async () => {
+            try {
+              await dataSource.deleteFeedEvent!(item.id);
+              toast.info("feed item deleted");
+              void queryClient.invalidateQueries({
+                queryKey: queryKeys.analytics.all(),
+              });
+            } catch {
+              toast.error("failed to delete feed item");
+            }
+          },
+        });
+      }
     }
 
     return actions;

@@ -85,7 +85,7 @@ export function getDefaultRoute(remoteId?: string): string {
   
   // explicit remote ID
   if (remoteId) {
-    return `/${remoteId}/feed`;
+    return `/${remoteId}/albums`;
   }
   
   // use current context

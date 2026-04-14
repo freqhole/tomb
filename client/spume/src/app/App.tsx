@@ -3,86 +3,86 @@ import { HashRouter } from "@solidjs/router";
 import { useQueryClient } from "@tanstack/solid-query";
 import { createEffect, createSignal, on, onCleanup, onMount, Show } from "solid-js";
 import { EmptyState } from "../components/EmptyState";
-import { toast } from "../components/feedback/Toast";
 import { ConfigChangedToast } from "../components/feedback/ConfigChangedToast";
+import { toast } from "../components/feedback/Toast";
 import { UpdateAvailableToast } from "../components/feedback/UpdateAvailableToast";
 import { AddMusicModal } from "../components/modals/AddMusicModal";
 import { AddRemoteModal } from "../components/modals/AddRemoteModal";
 import { AlbumEditorModal } from "../components/modals/AlbumEditorModal";
 import { ArtistEditorModal } from "../components/modals/ArtistEditorModal";
-import { SongEditorModal } from "../components/modals/SongEditorModal";
 import { ImageCarouselModal } from "../components/modals/ImageCarouselModal";
+import { SongEditorModal } from "../components/modals/SongEditorModal";
 import { TagSelectorModal } from "../components/modals/TagSelectorModal";
 import { QueueFullModal } from "../music/components/QueueFullModal";
 import {
-  getDataSource,
   getCurrentRemote,
+  getDataSource,
   getRemoteClient,
   useLocalSource,
   useRemoteSource,
 } from "../music/data";
 import {
-  importMusicFiles,
-  getLocalImportProgress,
-  clearLocalImportProgress,
-  uploadFilesToRemote,
-  fetchUrlsOnRemote,
-  getUploadJobs,
-  clearCompletedJobs,
-} from "../music/import";
-import {
+  closeAddMusic,
   hideAlbumEditor,
   hideArtistEditor,
-  hideSongEditor,
   hideImageCarousel,
+  hideSongEditor,
   hideTagSelector,
+  openAddMusic,
   showSongEditor,
+  useAddMusicState,
   useAlbumEditorState,
   useArtistEditorState,
-  useSongEditorState,
   useImageCarouselState,
+  useSongEditorState,
   useTagSelectorState,
-  useAddMusicState,
-  openAddMusic,
-  closeAddMusic,
 } from "../music/hooks/modals";
-import { addToQueue } from "../music/services/queue/queue";
+import {
+  clearCompletedJobs,
+  clearLocalImportProgress,
+  fetchUrlsOnRemote,
+  getLocalImportProgress,
+  getUploadJobs,
+  importMusicFiles,
+  uploadFilesToRemote,
+} from "../music/import";
 import { togglePlayback } from "../music/services/audio/player";
 import {
   cleanupCacheNetworkHandlers,
-  initCacheNetworkHandlers,
   initCachedAudioURLs,
+  initCacheNetworkHandlers,
 } from "../music/services/cache/blobCache";
 import { initDownloadState } from "../music/services/download";
-import {
-  getAllRemotes,
-  upsertTauriRemote,
-  checkRemoteHealth,
-  refreshTauriRemoteTimestamp,
-  getRemoteByPeerAddr,
-  markRemoteOffline,
-} from "./services/remotes/remoteManager";
-import {
-  registerServiceWorker,
-  updateAvailable,
-  applyServiceWorkerUpdate,
-  dismissUpdate,
-} from "./services/serviceWorker";
-import { checkPendingKnocks, showKnockCreatedToast } from "./services/toastNotices";
+import { addToQueue } from "../music/services/queue/queue";
 import { initMusicDB } from "../music/services/storage/db";
 import type { Song } from "../music/services/storage/types";
-import { isP2PRemote } from "./services/storage/types";
+import { debug } from "../utils/logger";
 import { isMiddenReady } from "./api/client";
 import { routes } from "./routes";
-import { initAppDB, setSyncQueueToLocal } from "./services/storage/db";
-import { debug } from "../utils/logger";
 import {
-  isCharnelMode,
   getConfig,
+  isCharnelMode,
   onConfigChanged,
   onEvent,
   type TauriEvent,
 } from "./services/charnel";
+import {
+  checkRemoteHealth,
+  getAllRemotes,
+  getRemoteByPeerAddr,
+  markRemoteOffline,
+  refreshTauriRemoteTimestamp,
+  upsertTauriRemote,
+} from "./services/remotes/remoteManager";
+import {
+  applyServiceWorkerUpdate,
+  dismissUpdate,
+  registerServiceWorker,
+  updateAvailable,
+} from "./services/serviceWorker";
+import { initAppDB, setSyncQueueToLocal } from "./services/storage/db";
+import { isP2PRemote } from "./services/storage/types";
+import { checkPendingKnocks, showKnockCreatedToast } from "./services/toastNotices";
 
 export function App() {
   const queryClient = useQueryClient();
@@ -308,7 +308,7 @@ export function App() {
 
   // request persistent storage (only in prod web mode)
   async function requestPersistentStorage(): Promise<void> {
-    if (import.meta.env.DEV || isCharnelMode()) {
+    if (isCharnelMode()) {
       return;
     }
 
