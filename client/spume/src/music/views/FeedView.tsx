@@ -563,7 +563,7 @@ export function FeedView() {
       if ((isOwnSession || isAdmin()) && item.session_id) {
         actions.push({ type: "separator" });
         actions.push({
-          label: "delete session",
+          label: isOwnSession ? "delete session" : "delete feed item",
           icon: IconNames.delete,
           onClick: async () => {
             try {
@@ -573,15 +573,15 @@ export function FeedView() {
               } else if (isAdmin() && dataSource.deleteFeedEvent) {
                 await dataSource.deleteFeedEvent(item.id);
               } else {
-                toast.error("cannot delete session");
+                toast.error("cannot delete");
                 return;
               }
-              toast.info("session deleted");
+              toast.info(isOwnSession ? "session deleted" : "feed item deleted");
               void queryClient.invalidateQueries({
                 queryKey: queryKeys.analytics.all(),
               });
             } catch {
-              toast.error("failed to delete session");
+              toast.error(isOwnSession ? "failed to delete session" : "failed to delete feed item");
             }
           },
         });

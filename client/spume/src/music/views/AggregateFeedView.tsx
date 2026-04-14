@@ -622,13 +622,11 @@ export function AggregateFeedView() {
       const isOwnSession = remoteUser && item.user_id === remoteUser.userId;
       if (isOwnSession) {
         await client.music.deleteListenSession(item.session_id!);
-      } else {
-        await client.music.deleteFeedEvent(item.id);
-      }
-      // remove all items from this session
-      if (item.session_id) {
+        // own session deletion removes all items for that session
         removeFromCache((i) => i.session_id === item.session_id);
       } else {
+        await client.music.deleteFeedEvent(item.id);
+        // admin feed event deletion only removes the single item
         removeFromCache((i) => i.id === item.id);
       }
     } catch {

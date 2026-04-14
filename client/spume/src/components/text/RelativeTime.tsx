@@ -4,7 +4,7 @@
 //   1h - 1d:   every 30 minutes
 //   > 1 day:   no interval (static)
 
-import { createSignal, onCleanup } from "solid-js";
+import { createEffect, createSignal, on, onCleanup } from "solid-js";
 
 function formatRelative(timestamp: number): string {
   const seconds = Math.floor((Date.now() - timestamp) / 1000);
@@ -31,22 +31,28 @@ export function RelativeTime(props: { timestamp: number; class?: string }) {
   const [text, setText] = createSignal(formatRelative(props.timestamp));
   let intervalId: ReturnType<typeof setInterval> | undefined;
 
-  const setup = () => {
+  const setup = (ts: number) => {
     if (intervalId) clearInterval(intervalId);
-    const ms = getInterval(props.timestamp);
+    setText(formatRelative(ts));
+    const ms = getInterval(ts);
     if (ms) {
       intervalId = setInterval(() => {
-        setText(formatRelative(props.timestamp));
+        setText(formatRelative(ts));
         // check if we should switch to a slower interval or stop
-        const newMs = getInterval(props.timestamp);
+        const newMs = getInterval(ts);
         if (newMs !== ms) {
-          setup();
+          setup(ts);
         }
       }, ms);
     }
   };
 
-  setup();
+  createEffect(
+    on(
+      () => props.timestamp,
+      (ts) => setup(ts)
+    )
+  );
   onCleanup(() => {
     if (intervalId) clearInterval(intervalId);
   });

@@ -24,7 +24,9 @@ use crate::jobs::{
     create_job, create_job_session, get_job, list_jobs, CreateJobRequest, CreateJobSessionRequest,
     JobType, ProcessFileParams,
 };
-use crate::media_blobz::{create_media_blob, BlobType, CreateMediaBlobRequest};
+use crate::media_blobz::{
+    create_media_blob, get_media_blob_by_sha256, BlobType, CreateMediaBlobRequest,
+};
 use crate::music::scanner::{is_supported_audio_file, scan_directory};
 use crate::offal::caller::Caller;
 use crate::response::GrimoireResponse;
@@ -267,7 +269,10 @@ pub async fn upload_image(caller: &Caller, body: JsonValue) -> GrimoireResponse<
 
     let size = data.len() as i64;
 
-    // create media blob
+    // check for existing blob by sha256 before creating
+    let existing = get_media_blob_by_sha256(&hash).await.is_ok();
+
+    // create media blob (returns existing if sha256 matches)
     let blob = match create_media_blob(CreateMediaBlobRequest {
         sha256: hash.clone(),
         size: Some(size),
@@ -293,9 +298,6 @@ pub async fn upload_image(caller: &Caller, body: JsonValue) -> GrimoireResponse<
             return GrimoireResponse::failure("failed to create blob", vec![ErrorDetail::from(e)])
         }
     };
-
-    // check if this was a deduplicated blob
-    let existing = blob.created_at < (time::OffsetDateTime::now_utc().unix_timestamp() - 1);
 
     // create webp conversion + association job
     let mut job_payload = json!({
@@ -771,6 +773,30 @@ pub async fn upload_music_by_blake3(
         }
     };
 
+    // enforce max upload size from config before pulling
+    let config = get_config();
+    let max_upload_bytes = config
+        .federation
+        .as_ref()
+        .map(|f| f.max_upload_size_mb as u64 * 1024 * 1024)
+        .unwrap_or(500 * 1024 * 1024); // default 500MB
+
+    if let Some(declared_size) = req.size {
+        if declared_size > max_upload_bytes {
+            return GrimoireResponse::failure(
+                "file too large",
+                vec![ErrorDetail::new(
+                    "file_too_large",
+                    "file too large",
+                    &format!(
+                        "declared size {} bytes exceeds max upload size {} bytes",
+                        declared_size, max_upload_bytes
+                    ),
+                )],
+            );
+        }
+    }
+
     // pull the blob from the uploading peer via iroh-blobs verified streaming
     // timeout after 120 seconds to prevent indefinite hangs
     tracing::info!(
@@ -842,6 +868,22 @@ pub async fn upload_music_by_blake3(
         }
     }
 
+    // enforce max upload size on actual received data
+    if data.len() as u64 > max_upload_bytes {
+        return GrimoireResponse::failure(
+            "file too large",
+            vec![ErrorDetail::new(
+                "file_too_large",
+                "file too large",
+                &format!(
+                    "received {} bytes, max upload size is {} bytes",
+                    data.len(),
+                    max_upload_bytes
+                ),
+            )],
+        );
+    }
+
     // compute sha256 hash
     let mut hasher = Sha256::new();
     hasher.update(&data);
@@ -889,6 +931,9 @@ pub async fn upload_music_by_blake3(
     let size = data.len() as i64;
     let ext = detect_extension(&mime_type, &req.filename);
 
+    // check for existing blob by sha256 before creating
+    let existing = get_media_blob_by_sha256(&hash).await.is_ok();
+
     // create media blob entry (with deduplication via sha256 unique constraint)
     let blob = match create_media_blob(CreateMediaBlobRequest {
         sha256: hash.clone(),
@@ -924,9 +969,6 @@ pub async fn upload_music_by_blake3(
             return GrimoireResponse::failure("failed to create blob", vec![ErrorDetail::from(e)])
         }
     };
-
-    // check if this was a deduplicated blob
-    let existing = blob.created_at < (time::OffsetDateTime::now_utc().unix_timestamp() - 1);
 
     // get output directory from config
     let config = get_config();
