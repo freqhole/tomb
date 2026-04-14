@@ -1,10 +1,10 @@
 // remote import service - handles uploading music files and fetching urls on a remote server
 // tracks upload/fetch jobs reactively so the UI can show progress
-import { getClientForRemote } from "../../app/api/client";
 import { createStore, produce } from "solid-js/store";
+import { getClientForRemote } from "../../app/api/client";
+import { JobPoller } from "../../app/services/jobs/jobService";
 import { toast } from "../../components/feedback/Toast";
 import { getCurrentRemote, getCurrentUser } from "../data";
-import { JobPoller } from "../../app/services/jobs/jobService";
 
 // known error types from the server for structured error handling
 const ERROR_TYPE = {
@@ -74,7 +74,7 @@ function addTrackedJob(label: string, type: UploadJobType): string {
 function updateJobStatus(
   id: string,
   status: UploadJobStatus,
-  extra?: { jobId?: string; error?: string },
+  extra?: { jobId?: string; error?: string }
 ) {
   setUploadJobs(
     (j) => j.id === id,
@@ -82,7 +82,7 @@ function updateJobStatus(
       j.status = status;
       if (extra?.jobId) j.jobId = extra.jobId;
       if (extra?.error) j.error = extra.error;
-    }),
+    })
   );
 }
 
@@ -104,13 +104,13 @@ export interface RemoteUploadResult {
  */
 export async function uploadFilesToRemote(
   files: FileList,
-  onJobComplete?: () => void,
+  onJobComplete?: () => void
 ): Promise<void> {
   const remote = getCurrentRemote();
   if (!remote) throw new Error("no active remote");
 
   const fileArray = Array.from(files);
-  
+
   // shared poller for all uploads in this batch - polls every 3s
   const poller = new JobPoller(remote, 3000);
 
@@ -150,7 +150,77 @@ export async function uploadFilesToRemote(
           if (isDuplicate) {
             updateJobStatus(trackId, "failed", { error: "song already exists" });
           } else {
-            updateJobStatus(trackId, "failed", { error: pollResult.errorMessage || "processing failed" });
+            updateJobStatus(trackId, "failed", {
+              error: pollResult.errorMessage || "processing failed",
+            });
+          }
+        }
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : "unknown error";
+        updateJobStatus(trackId, "failed", { error: msg });
+      }
+    })();
+  }
+}
+
+/**
+ * upload music files by filesystem path to a P2P remote.
+ * uses iroh-blobs pull model: imports each file into local blobs store,
+ * then tells the remote peer to pull it via verified streaming.
+ * tracks jobs reactively like uploadFilesToRemote.
+ * @param paths filesystem paths (from tauri dialog)
+ * @param onJobComplete optional callback when any job finishes (for query invalidation)
+ */
+export async function uploadPathsToRemote(
+  paths: string[],
+  onJobComplete?: () => void
+): Promise<void> {
+  const remote = getCurrentRemote();
+  if (!remote) throw new Error("no active remote");
+
+  // shared poller for all uploads in this batch - polls every 3s
+  const poller = new JobPoller(remote, 3000);
+
+  for (const filePath of paths) {
+    // use filename as label
+    const filename = filePath.split("/").pop() || filePath.split("\\").pop() || filePath;
+    const trackId = addTrackedJob(filename, "file");
+
+    // fire off each upload + poll chain without blocking the others
+    (async () => {
+      try {
+        const client = await getClientForRemote(remote);
+        const result = await client.upload.musicByPath(filePath);
+        if (!result.success) {
+          const errMsg = result.error?.issues?.[0]?.message || "upload request failed";
+          updateJobStatus(trackId, "failed", { error: errMsg });
+          return;
+        }
+
+        const jobId = result.data.job_id;
+        updateJobStatus(trackId, "polling", { jobId });
+
+        // register with batch poller (120s timeout)
+        const pollResult = await poller.waitForJob(jobId, 120_000);
+        if (pollResult.status === "completed") {
+          updateJobStatus(trackId, "completed");
+          onJobComplete?.();
+        } else if (pollResult.status === "timeout") {
+          updateJobStatus(trackId, "timeout", { error: "taking a long time, check back later" });
+          toast.info(`upload of ${filename} is still processing — check back later`, {
+            title: "processing queued",
+          });
+        } else {
+          // check if the error is a duplicate using structured error_type
+          const isDuplicate = pollResult.errors?.some(
+            (e) => e.error_type === ERROR_TYPE.DUPLICATE_SONG
+          );
+          if (isDuplicate) {
+            updateJobStatus(trackId, "failed", { error: "song already exists" });
+          } else {
+            updateJobStatus(trackId, "failed", {
+              error: pollResult.errorMessage || "processing failed",
+            });
           }
         }
       } catch (error) {
@@ -171,15 +241,12 @@ export async function uploadFilesToRemote(
  * uses batched polling to reduce HTTP overhead when fetching multiple urls.
  * @param onJobComplete optional callback when any job finishes
  */
-export async function fetchUrlsOnRemote(
-  urls: string[],
-  onJobComplete?: () => void,
-): Promise<void> {
+export async function fetchUrlsOnRemote(urls: string[], onJobComplete?: () => void): Promise<void> {
   const remote = getCurrentRemote();
   if (!remote) throw new Error("no active remote");
 
   const userId = getCurrentUser()?.userId;
-  
+
   // shared poller for all fetches in this batch - polls every 3s
   const poller = new JobPoller(remote, 3000);
 
@@ -188,9 +255,9 @@ export async function fetchUrlsOnRemote(
     let label: string;
     try {
       const parsed = new URL(url);
-      label = parsed.hostname + (parsed.pathname.length > 30
-        ? "..." + parsed.pathname.slice(-27)
-        : parsed.pathname);
+      label =
+        parsed.hostname +
+        (parsed.pathname.length > 30 ? "..." + parsed.pathname.slice(-27) : parsed.pathname);
     } catch {
       label = url.length > 50 ? url.slice(0, 47) + "..." : url;
     }
@@ -231,7 +298,9 @@ export async function fetchUrlsOnRemote(
           if (isDuplicate) {
             updateJobStatus(trackId, "failed", { error: "song already exists" });
           } else {
-            updateJobStatus(trackId, "failed", { error: pollResult.errorMessage || "fetch failed" });
+            updateJobStatus(trackId, "failed", {
+              error: pollResult.errorMessage || "fetch failed",
+            });
           }
         }
       } catch (error) {

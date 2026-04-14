@@ -45,6 +45,7 @@ import {
   getUploadJobs,
   importMusicFiles,
   uploadFilesToRemote,
+  uploadPathsToRemote,
 } from "../music/import";
 import { togglePlayback } from "../music/services/audio/player";
 import {
@@ -496,12 +497,26 @@ export function App() {
     await fetchUrlsOnRemote(urls, onRemoteJobComplete);
   };
 
-  // handle paths selected via tauri dialog (tauri-managed remotes only)
+  // handle paths selected via tauri dialog
+  // supports both charnel-managed local remotes (musicByPaths) and P2P remotes (iroh-blobs upload)
   const handlePathsSelected = async (paths: string[]) => {
     const remote = getCurrentRemote();
 
-    if (!remote?.is_charnel_managed) {
-      toast.warning("path-based import is only available for local library", {
+    if (!remote) {
+      toast.warning("no active remote", { title: "not supported" });
+      return;
+    }
+
+    // P2P remote: upload each file via iroh-blobs pull model
+    // (import into local blobs store, then remote peer pulls via verified streaming)
+    if (remote.peer_addr) {
+      await uploadPathsToRemote(paths, onRemoteJobComplete);
+      return;
+    }
+
+    // charnel-managed local remote: send paths directly (server reads from disk)
+    if (!remote.is_charnel_managed) {
+      toast.warning("path-based import is only available for local or P2P remotes", {
         title: "not supported",
       });
       return;
@@ -590,7 +605,10 @@ export function App() {
         onPathsSelected={handlePathsSelected}
         onUrlsSubmitted={handleUrlsSubmitted}
         remoteName={getCurrentRemote()?.name}
-        useCharnelDialog={isCharnelMode() && getCurrentRemote()?.is_charnel_managed === true}
+        useCharnelDialog={
+          isCharnelMode() &&
+          (getCurrentRemote()?.is_charnel_managed === true || !!getCurrentRemote()?.peer_addr)
+        }
         uploadJobs={getUploadJobs()}
         localImportProgress={getLocalImportProgress()}
       />
