@@ -5,7 +5,7 @@
 use crate::api_registry::{Domain, Method, RouteAuth, RouteInfo};
 use crate::blob_data::{self, find_existing_thumbnail};
 use crate::error::ErrorDetail;
-use crate::media_blobz::{get_media_blob, get_media_blob_by_blake3};
+use crate::media_blobz::{get_media_blob, get_media_blob_by_blake3, BlobMetadataResponse};
 use crate::offal::caller::Caller;
 use crate::response::GrimoireResponse;
 use base64::Engine;
@@ -163,7 +163,10 @@ pub async fn get_metadata_by_blake3(
     };
 
     match get_media_blob_by_blake3(&req.blake3).await {
-        Ok(blob) => GrimoireResponse::success("blob metadata", serde_json::to_value(blob).unwrap()),
+        Ok(blob) => {
+            let response: BlobMetadataResponse = blob.into();
+            GrimoireResponse::success("blob metadata", serde_json::to_value(response).unwrap())
+        }
         Err(e) => GrimoireResponse::failure("blob not found by blake3", vec![ErrorDetail::from(e)]),
     }
 }

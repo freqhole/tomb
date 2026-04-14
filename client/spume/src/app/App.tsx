@@ -307,7 +307,7 @@ export function App() {
     }
   }
 
-  // request persistent storage (only in prod web mode)
+  // request persistent storage (web mode only, skipped in Tauri/charnel)
   async function requestPersistentStorage(): Promise<void> {
     if (isCharnelMode()) {
       return;

@@ -126,10 +126,6 @@ export function VirtualFeedList(props: VirtualFeedListProps) {
   const [vItems, setVItems] = createStore<VirtualItem[]>([]);
   createEffect(() => {
     const items = virtualizer.getVirtualItems();
-    if (items.length > 0) {
-      const range = `[${items[0].index}..${items[items.length - 1].index}]`;
-      console.log(`[feed-virt] reconcile: ${items.length} vItems ${range}, total=${count()}`);
-    }
     setVItems(reconcile(items, { key: "key", merge: false }));
   });
 
@@ -184,7 +180,6 @@ export function VirtualFeedList(props: VirtualFeedListProps) {
       const prev = prevCount;
       prevCount = len;
       if (len !== prev) {
-        console.log(`[feed-virt] count changed: ${prev} → ${len}`);
         // force recalc by scrolling to current position
         requestAnimationFrame(() => {
           if (!scrollRef) return;
@@ -201,9 +196,6 @@ export function VirtualFeedList(props: VirtualFeedListProps) {
     const items = virtualizer.getVirtualItems();
     if (items.length === 0) return;
     const lastItem = items[items.length - 1];
-    console.log(
-      `[feed-virt] checkNearEnd: lastVisible=${lastItem.index}, total=${count()}, threshold=${count() - 20}`
-    );
     if (lastItem && lastItem.index >= count() - 20) {
       loadMorePending = true;
       setTimeout(() => {

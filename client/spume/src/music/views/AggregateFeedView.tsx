@@ -375,7 +375,6 @@ export function AggregateFeedView() {
     const nonOffline = r.filter((rem) => !rem.is_offline);
     if (nonOffline.length === 0) return;
 
-    console.log("[aggregate-feed] starting staggered refresh interval (60s)");
     staggerIntervalId = setInterval(async () => {
       const remote = nonOffline[staggerIndex % nonOffline.length];
       staggerIndex++;
@@ -393,7 +392,6 @@ export function AggregateFeedView() {
 
   function stopStaggeredRefresh() {
     if (staggerIntervalId) {
-      console.log("[aggregate-feed] clearing staggered refresh interval");
       clearInterval(staggerIntervalId);
       staggerIntervalId = undefined;
     }
@@ -417,7 +415,6 @@ export function AggregateFeedView() {
 
   // clean up interval when leaving feed view
   onCleanup(() => {
-    console.log("[aggregate-feed] onCleanup — tearing down");
     stopStaggeredRefresh();
   });
 
@@ -724,7 +721,7 @@ export function AggregateFeedView() {
   });
 
   return (
-    <div class="flex flex-col h-full relative" ref={feedListRef!}>
+    <div class="flex flex-col h-full relative" ref={feedListRef}>
       {/* revalidation progress — shown when checking remotes on return */}
       <Show when={revalidationProgress()}>
         <div style={{ "padding-top": (remotes() ?? []).length > 1 ? "50px" : "0" }}>

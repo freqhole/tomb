@@ -75,7 +75,7 @@ export const routes = {
  * @param remoteId - remote ID, "local", or undefined for current context
  *   - undefined: uses current context (getCurrentRemote)
  *   - "local": returns local default (/local/feed for Tauri, /local/songs for browser)
- *   - string: returns remote default (/{remoteId}/feed)
+ *   - string: returns remote default (/{remoteId}/albums)
  */
 export function getDefaultRoute(remoteId?: string): string {
   // explicit "local"
