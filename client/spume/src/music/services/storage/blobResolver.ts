@@ -197,10 +197,6 @@ async function resolveP2PBlob(
     throw new Error("download cancelled");
   }
 
-  console.log(
-    `[resolveP2PBlob] blobId=${blobId.slice(0, 16)}, remoteId=${remote.remote_id.slice(0, 16)}, blake3=${blake3?.slice(0, 16) ?? "NONE"}, peer_addr=${remote.peer_addr?.slice(0, 16) ?? "NONE"}`
-  );
-
   // Tauri-managed remotes don't need Cache API - files are local
   if (isCharnelAvailable() && remote.is_charnel_managed) {
     const transport = await getTransportForRemote(remote);

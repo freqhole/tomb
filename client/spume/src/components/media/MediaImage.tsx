@@ -50,15 +50,6 @@ interface MediaImageProps {
 }
 
 export function MediaImage(props: MediaImageProps): JSX.Element {
-  // DEBUG: log props received
-  console.log("[MediaImage] props:", {
-    blobId: props.blobId,
-    imageUrl: props.imageUrl,
-    remoteBlobId: props.remoteBlobId,
-    remoteServerId: props.remoteServerId,
-    images: props.images?.length,
-  });
-
   // inject pan animation styles on first use
   if (props.enableAlbumHover) {
     injectPanStyles();
@@ -71,7 +62,6 @@ export function MediaImage(props: MediaImageProps): JSX.Element {
     const remoteUrl = bestImage?.remote_url || props.imageUrl;
     const remoteBlobId = bestImage?.remote_blob_id || props.remoteBlobId;
     const remoteServerId = bestImage?.remote_server_id || props.remoteServerId;
-    console.log("[MediaImage] initialSource:", { blobId, remoteUrl, remoteBlobId, remoteServerId });
     return { blobId, remoteUrl, remoteBlobId, remoteServerId };
   };
   const initialSource = getInitialSource();
@@ -247,12 +237,6 @@ export function MediaImage(props: MediaImageProps): JSX.Element {
 
   createEffect((prev: string | null | undefined) => {
     const url = resolvedUrl();
-    console.log(
-      "[MediaImage] resolvedUrl changed:",
-      url?.slice(0, 80),
-      "prev:",
-      prev?.slice(0, 80)
-    );
     if (url !== prev) {
       setImageError(false);
       setImageLoaded(false);

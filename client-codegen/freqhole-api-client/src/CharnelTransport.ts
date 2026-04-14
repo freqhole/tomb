@@ -204,17 +204,8 @@ export class CharnelTransport implements Transport {
 
     // only use iroh-blobs for music uploads
     if (path === "/api/upload/music") {
-      console.log(
-        "[CharnelTransport] importing file into local blobs store:",
-        filePath,
-      );
-
       // import file into local FsStore -> get blake3 hash
       const blake3 = (await inv("p2p_import_blob", { filePath })) as string;
-      console.log(
-        "[CharnelTransport] blob imported, blake3:",
-        blake3.slice(0, 16) + "...",
-      );
 
       // build request body for the remote peer
       const body: Record<string, unknown> = {
@@ -223,10 +214,6 @@ export class CharnelTransport implements Transport {
           filePath.split("/").pop() || filePath.split("\\").pop() || "music",
         ...metadata,
       };
-
-      console.log(
-        "[CharnelTransport] requesting remote pull via /api/upload/music-by-blake3",
-      );
 
       // tell the remote peer to pull the blob from us
       return this.request(
@@ -277,7 +264,9 @@ export class CharnelTransport implements Transport {
 
   /**
    * fetch a blob via P2P
-   * if blake3 is provided, uses iroh-blobs verified streaming
+   * if blake3 is provided, uses iroh-blobs verified streaming.
+   * for blobs without blake3 (images, waveforms, thumbnails), uses proxy_request
+   * to fetch base64-encoded data from the peer's /api/blobs/{id}/data endpoint.
    */
   async fetchBlob(blobId: string, blake3?: string): Promise<BlobData> {
     const inv = await ensureInvoke();
@@ -299,7 +288,26 @@ export class CharnelTransport implements Transport {
       };
     }
 
-    // no blake3 provided — ask the peer to compute it, then do verified download
+    // no blake3 — try proxy_request to get blob data from database
+    // this is the primary path for images (waveforms, thumbnails) stored in the database
+    try {
+      const result = await this.request("GET", `/api/blobs/${blobId}/data`);
+      if (result.status === 200) {
+        const parsed = JSON.parse(result.body);
+        if (parsed.success && parsed.data?.data) {
+          const bytes = base64ToBytes(parsed.data.data);
+          const contentType = parsed.data.mime || "application/octet-stream";
+          return { data: bytes, contentType };
+        }
+      }
+    } catch (e) {
+      const errorMessage = e instanceof Error ? e.message : String(e);
+      console.warn(
+        `[CharnelTransport] proxy blob data request failed, falling back to verified download: ${errorMessage}`,
+      );
+    }
+
+    // fallback: ask the peer to compute blake3, then do verified download
     const result = (await inv("p2p_fetch_blob_verified_by_id", {
       peerAddr: this.peerAddr,
       blobId,
@@ -314,7 +322,7 @@ export class CharnelTransport implements Transport {
     const bytes = base64ToBytes(result.data);
     return {
       data: bytes,
-      contentType: result.content_type ?? "audio/mpeg",
+      contentType: result.content_type ?? "application/octet-stream",
     };
   }
 

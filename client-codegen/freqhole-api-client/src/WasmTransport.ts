@@ -74,6 +74,25 @@ export type BlobProgressCallback = (received: number, total: number) => void;
 const DEFAULT_CACHE_NAME = "freqhole-blobs-v1";
 
 /**
+ * decode base64 string to Uint8Array
+ * handles both standard and URL-safe base64 encoding
+ */
+function base64ToBytes(base64: string): Uint8Array {
+  // convert URL-safe base64 to standard base64
+  let standardBase64 = base64.replace(/-/g, "+").replace(/_/g, "/");
+  // add padding if needed
+  const padLen = (4 - (standardBase64.length % 4)) % 4;
+  standardBase64 += "=".repeat(padLen);
+
+  const binaryString = atob(standardBase64);
+  const bytes = new Uint8Array(binaryString.length);
+  for (let i = 0; i < binaryString.length; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+  return bytes;
+}
+
+/**
  * WASM transport - uses midden for P2P connections
  *
  * usage:
@@ -176,14 +195,8 @@ export class WasmTransport implements Transport {
     formData: FormData,
   ): Promise<TransportResponse> {
     try {
-      console.log(
-        "[WasmTransport] importing file into iroh-blobs store...",
-        file.name,
-        file.size,
-      );
       const fileBytes = new Uint8Array(await file.arrayBuffer());
       const hash = await this.node.import_blob!(fileBytes);
-      console.log("[WasmTransport] blob imported, blake3:", hash);
 
       try {
         const body: Record<string, unknown> = {
@@ -214,15 +227,11 @@ export class WasmTransport implements Transport {
           }
         }
 
-        console.log(
-          "[WasmTransport] requesting remote pull via /api/upload/music-by-blake3",
-        );
         const response = await this.request(
           "POST",
           "/api/upload/music-by-blake3",
           JSON.stringify(body),
         );
-        console.log("[WasmTransport] upload response:", response.status);
         return response;
       } finally {
         // release TempTag so local GC can reclaim the blob
@@ -278,26 +287,15 @@ export class WasmTransport implements Transport {
   }
 
   async fetchBlob(blobId: string, blake3?: string): Promise<BlobData> {
-    console.log(
-      `[WasmTransport.fetchBlob] blobId=${blobId.slice(0, 16)}, blake3=${blake3?.slice(0, 16) ?? "NONE"}`,
-    );
     // check Cache API first
     const cache = await caches.open(this.cacheName);
-    // use just blobId as key (cache name already partitions by remote)
     const cached = await cache.match(blobId);
 
     if (cached) {
-      console.log(
-        `[WasmTransport.fetchBlob] CACHE HIT for ${blobId.slice(0, 16)}`,
-      );
       const data = new Uint8Array(await cached.arrayBuffer());
       const contentType =
         cached.headers.get("Content-Type") || "application/octet-stream";
       return { data, contentType };
-    } else {
-      console.log(
-        `[WasmTransport.fetchBlob] CACHE MISS for ${blobId.slice(0, 16)}, trying download...`,
-      );
     }
 
     // if blake3 is provided, try iroh-blobs verified download
@@ -328,19 +326,56 @@ export class WasmTransport implements Transport {
           console.warn(
             `[WasmTransport] verified download failed, falling back: ${errorMessage}`,
           );
-          // fall through to regular fetch_blob
+          // fall through to proxy fetch
         }
       }
-    } else if (this.node.download_verified_by_id) {
-      // no blake3 provided - try on-demand computation + verified download
+    }
+
+    // no blake3 (or verified download failed) — try proxy_request to get blob data
+    // this is the primary path for images (waveforms, thumbnails) stored in the database
+    try {
+      const result = await this.node.proxy_request(
+        this.peerAddr,
+        "GET",
+        `/api/blobs/${blobId}/data`,
+        null,
+      );
+      if (result.status === 200) {
+        const parsed = JSON.parse(result.body);
+        if (parsed.success && parsed.data?.data) {
+          const data = base64ToBytes(parsed.data.data);
+          const contentType = parsed.data.mime || "application/octet-stream";
+
+          // cache for future use with correct content type
+          const arrayBuffer = data.buffer.slice(
+            data.byteOffset,
+            data.byteOffset + data.byteLength,
+          ) as ArrayBuffer;
+          const response = new Response(arrayBuffer, {
+            headers: { "Content-Type": contentType },
+          });
+          await cache.put(blobId, response);
+
+          return { data, contentType };
+        }
+      }
+    } catch (e) {
+      const errorMessage = e instanceof Error ? e.message : String(e);
+      console.warn(
+        `[WasmTransport] proxy blob data request failed, falling back: ${errorMessage}`,
+      );
+    }
+
+    // fallback: try on-demand blake3 computation + verified download via iroh-blobs
+    if (!blake3 && this.node.download_verified_by_id) {
       try {
         const result = await this.node.download_verified_by_id(
           this.peerAddr,
           blobId,
         );
         const data = result[0] as Uint8Array;
-        // result[1] is the computed blake3 hash - could be cached for future verified downloads
-        const contentType = "audio/mpeg";
+        // result[1] is the computed blake3 hash
+        const contentType = "application/octet-stream";
 
         // cache for future use
         const arrayBuffer = data.buffer.slice(
@@ -358,7 +393,7 @@ export class WasmTransport implements Transport {
         console.warn(
           `[WasmTransport] on-demand verified download failed, falling back: ${errorMessage}`,
         );
-        // fall through to regular fetch_blob
+        // fall through to legacy fetch_blob
       }
     }
 
@@ -451,6 +486,43 @@ export class WasmTransport implements Transport {
           // fall through to regular fetch_blob
         }
       }
+    }
+
+    // no blake3 (or verified download failed) — try proxy_request to get blob data
+    try {
+      const result = await this.node.proxy_request(
+        this.peerAddr,
+        "GET",
+        `/api/blobs/${blobId}/data`,
+        null,
+      );
+      if (result.status === 200) {
+        const parsed = JSON.parse(result.body);
+        if (parsed.success && parsed.data?.data) {
+          const data = base64ToBytes(parsed.data.data);
+          const contentType = parsed.data.mime || "application/octet-stream";
+
+          // report 100% progress
+          onProgress(data.length, data.length);
+
+          // cache for future use with correct content type
+          const arrayBuffer = data.buffer.slice(
+            data.byteOffset,
+            data.byteOffset + data.byteLength,
+          ) as ArrayBuffer;
+          const response = new Response(arrayBuffer, {
+            headers: { "Content-Type": contentType },
+          });
+          await cache.put(blobId, response);
+
+          return { data, contentType };
+        }
+      }
+    } catch (e) {
+      const errorMessage = e instanceof Error ? e.message : String(e);
+      console.warn(
+        `[WasmTransport] proxy blob data request failed, falling back: ${errorMessage}`,
+      );
     }
 
     // fetch from peer using legacy protocol (if available)
