@@ -177,13 +177,18 @@ export function canRemoveSongsFromPlaylist(
 
 /**
  * check if user can delete a listen session.
- * listen sessions use Owner - strictly owner only, no admin override.
+ * listen sessions use OwnerOr(Admin) - owner or admin can delete.
  */
 export function canDeleteListenSession(
   userId: string,
   sessionOwnerId: string | null,
+  userRole: UserRoleName,
 ): boolean {
-  // listen sessions are Owner only - no role check needed
+  // listen sessions use OwnerOr(Admin) - owner or admin can delete
+  const auth = routes.music.delete_listen_session.auth;
+  if (auth.type === "owner_or") {
+    return canAccessOwnerOr(userId, sessionOwnerId, userRole, auth.role);
+  }
   return canAccessOwner(userId, sessionOwnerId);
 }
 

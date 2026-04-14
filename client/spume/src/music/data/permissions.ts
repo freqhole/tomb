@@ -6,7 +6,7 @@
 // SolidJS reactive context issues from createMemo at module scope.
 
 import { permissions } from "../../app/api/client";
-import { getCurrentUser, getCurrentRemote } from "./index";
+import { getCurrentRemote, getCurrentUser } from "./index";
 
 // helper: in local mode (no remote), all operations are permitted
 function isLocalMode(): boolean {
@@ -210,12 +210,12 @@ export function canReorderPlaylistSongs(playlistOwnerId: string | null): boolean
   return permissions.canReorderPlaylistSongs(user.userId, playlistOwnerId, user.role);
 }
 
-/** can user delete this listen session? requires ownership (no admin override, or local mode) */
+/** can user delete this listen session? owner or admin can delete */
 export function canDeleteListenSession(sessionOwnerId: string | null): boolean {
   if (isLocalMode()) return true;
   const user = getCurrentUser();
   if (!user) return false;
-  return permissions.canDeleteListenSession(user.userId, sessionOwnerId);
+  return permissions.canDeleteListenSession(user.userId, sessionOwnerId, user.role);
 }
 
 /** can user update this listen session? requires ownership (no admin override) */

@@ -61,7 +61,7 @@ export const routes = {
     delete_artist: { method: 'POST', path: '/api/artists/delete', req: s.DeleteArtistRequestSchema, resp: s.DeleteArtistResponseSchema, auth: { type: 'role', role: 'admin' } as const },
     delete_feed_event: { method: 'POST', path: '/api/analytics/feed/delete', req: s.DeleteFeedEventRequestSchema, resp: s.EmptyResponseSchema, auth: { type: 'authenticated' } as const },
     delete_image: { method: 'POST', path: '/api/music/images/delete', req: s.DeleteImageRequestSchema, resp: s.EmptyResponseSchema, auth: { type: 'role', role: 'admin' } as const },
-    delete_listen_session: { method: 'POST', path: '/api/analytics/sessions/delete', req: s.DeleteListenSessionRequestSchema, resp: s.EmptyResponseSchema, auth: { type: 'owner' } as const },
+    delete_listen_session: { method: 'POST', path: '/api/analytics/sessions/delete', req: s.DeleteListenSessionRequestSchema, resp: s.EmptyResponseSchema, auth: { type: 'owner_or', role: 'admin' } as const },
     delete_playlist: { method: 'POST', path: '/api/playlists/delete', req: s.DeletePlaylistRequestSchema, resp: s.EmptyResponseSchema, auth: { type: 'owner_or', role: 'admin' } as const },
     delete_song: { method: 'POST', path: '/api/songs/delete', req: s.DeleteSongRequestSchema, resp: s.DeleteSongResponseSchema, auth: { type: 'role', role: 'admin' } as const },
     delete_tag: { method: 'POST', path: '/api/tags/delete', req: s.DeleteTagRequestSchema, resp: s.EmptyResponseSchema, auth: { type: 'role', role: 'admin' } as const },
