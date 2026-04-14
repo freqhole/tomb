@@ -292,6 +292,24 @@ export class MiddenNode {
      * store this in IndexedDB to maintain the same identity across sessions
      */
     secret_key(): Uint8Array;
+    /**
+     * start a background accept loop that handles incoming iroh-blobs connections.
+     *
+     * call this once after creating the node to allow remote peers to pull blobs
+     * from this node (e.g., for P2P music upload where the server pulls from browser).
+     *
+     * only handles iroh-blobs connections — other ALPNs are ignored (dropped).
+     * safe to call multiple times (subsequent calls are no-ops).
+     *
+     * WARNING: if you also call `accept()` from JS, both loops will compete for
+     * incoming connections and each will only see a subset. use one or the other,
+     * not both. freqhole uses `start_blob_server()`, skein uses `accept()`.
+     *
+     * NOTE: no application-level peer auth is applied here. iroh-blobs transfers
+     * are content-addressed (blake3 verified), so a peer can only download blobs
+     * they already know the hash of. peer filtering can be added later if needed.
+     */
+    start_blob_server(): void;
 }
 
 /**

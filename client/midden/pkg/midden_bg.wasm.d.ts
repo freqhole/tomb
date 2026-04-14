@@ -37,6 +37,7 @@ export const middennode_open_bi: (a: number, b: number, c: number, d: number, e:
 export const middennode_proxy_request: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => any;
 export const middennode_release_blob: (a: number, b: number, c: number) => [number, number];
 export const middennode_secret_key: (a: number) => any;
+export const middennode_start_blob_server: (a: number) => void;
 export const start: () => void;
 export const __wbg_intounderlyingsource_free: (a: number, b: number) => void;
 export const intounderlyingsource_cancel: (a: number) => void;

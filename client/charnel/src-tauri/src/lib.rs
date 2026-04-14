@@ -456,6 +456,7 @@ pub fn run() {
             p2p_commands::p2p_fetch_blob_verified_by_id,
             p2p_commands::p2p_probe_blob,
             p2p_commands::p2p_fetch_hello_image,
+            p2p_commands::p2p_import_blob,
             p2p_commands::p2p_close_connection,
             p2p_commands::p2p_close_all_connections,
             // P2P state control commands

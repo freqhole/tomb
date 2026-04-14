@@ -214,8 +214,8 @@ pub async fn fetch_blob_verified(peer_addr: &str, blake3_hash: &str) -> Grimoire
     let hash_short = &blake3_hash[..16.min(blake3_hash.len())];
 
     info!(
-        "fetching verified blob {} from {}",
-        hash_short, node_id_short
+        "fetching verified blob {} from {} (addr: {})",
+        hash_short, node_id_short, peer_addr,
     );
 
     // get blobs state (downloader + store)
@@ -251,6 +251,11 @@ pub async fn fetch_blob_verified(peer_addr: &str, blake3_hash: &str) -> Grimoire
             message: format!("download stream failed: {}", e),
         })?;
 
+    debug!(
+        "iroh-blobs: download stream created for {}, consuming progress events...",
+        hash_short
+    );
+
     // consume progress stream, check for errors
     let mut had_error = false;
     let mut last_error: Option<String> = None;
@@ -260,17 +265,26 @@ pub async fn fetch_blob_verified(peer_addr: &str, blake3_hash: &str) -> Grimoire
             DownloadProgressItem::Error(e) => {
                 had_error = true;
                 last_error = Some(format!("{:?}", e));
+                tracing::error!("iroh-blobs: download error for {}: {:?}", hash_short, e);
             }
             DownloadProgressItem::DownloadError => {
                 had_error = true;
                 last_error = Some("download error".to_string());
+                tracing::error!("iroh-blobs: generic download error for {}", hash_short);
             }
             DownloadProgressItem::PartComplete { .. } => {
                 debug!("iroh-blobs: part complete for {}", hash_short);
             }
-            _ => {}
+            _ => {
+                debug!("iroh-blobs: progress event for {}", hash_short);
+            }
         }
     }
+
+    debug!(
+        "iroh-blobs: download stream completed for {} (had_error: {})",
+        hash_short, had_error
+    );
 
     if had_error {
         return Err(GrimoireError::FederationApiError {
@@ -381,6 +395,12 @@ pub async fn fetch_blob_verified_with_ensure(
     peer_addr: &str,
     blake3_hash: &str,
 ) -> GrimoireResult<Vec<u8>> {
+    info!(
+        "fetch_blob_verified_with_ensure: starting for {} from {}",
+        &blake3_hash[..16.min(blake3_hash.len())],
+        &peer_addr[..16.min(peer_addr.len())],
+    );
+
     // first attempt - might fail if blob not in FsStore
     match fetch_blob_verified(peer_addr, blake3_hash).await {
         Ok(data) => return Ok(data),
@@ -395,6 +415,13 @@ pub async fn fetch_blob_verified_with_ensure(
 
     // ensure blob is loaded into FsStore
     let available = ensure_blob(peer_addr, blake3_hash).await?;
+
+    info!(
+        "fetch_blob_verified_with_ensure: ensure_blob returned {} for {}",
+        available,
+        &blake3_hash[..16.min(blake3_hash.len())],
+    );
+
     if !available {
         return Err(GrimoireError::FederationApiError {
             message: format!(
@@ -405,6 +432,11 @@ pub async fn fetch_blob_verified_with_ensure(
     }
 
     // retry verified download
+    info!(
+        "fetch_blob_verified_with_ensure: retrying verified download for {}",
+        &blake3_hash[..16.min(blake3_hash.len())],
+    );
+
     fetch_blob_verified(peer_addr, blake3_hash).await
 }
 

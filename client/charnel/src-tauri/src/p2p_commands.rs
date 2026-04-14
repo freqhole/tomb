@@ -305,3 +305,32 @@ pub fn p2p_close_connection(peer_addr: String) -> Result<(), String> {
 pub fn p2p_close_all_connections() {
     grimoire::federation::p2p_client::close_all_connections();
 }
+
+/// import a local file into the iroh-blobs store for P2P serving
+///
+/// adds the file to FsStore using TryReference mode (no copy, just BAO tree).
+/// returns the blake3 hash which can be sent to remote peers for verified download.
+///
+/// used by CharnelTransport for P2P music upload:
+/// 1. user picks file -> call this command -> get blake3
+/// 2. send blake3 + metadata to remote peer via proxy_request
+/// 3. remote peer pulls file from our iroh endpoint
+#[tauri::command]
+pub async fn p2p_import_blob(file_path: String) -> Result<String, String> {
+    let path = Path::new(&file_path);
+
+    if !path.exists() {
+        return Err(format!("file not found: {}", file_path));
+    }
+
+    tracing::info!("importing file into blobs store: {}", file_path);
+
+    let hash = grimoire::blobz::add_file_to_store(path)
+        .await
+        .map_err(|e| format!("failed to import blob: {}", e))?;
+
+    let blake3 = hash.to_hex().to_string();
+    tracing::info!("imported blob: {} -> {}", file_path, &blake3[..16]);
+
+    Ok(blake3)
+}

@@ -45,6 +45,9 @@ export interface MiddenNodeLike {
   import_blob?(data: Uint8Array): Promise<string>;
   // release a blob's TempTag, allowing GC
   release_blob?(blake3_hash: string): void;
+  // start background accept loop for incoming iroh-blobs connections
+  // must be called once for remote peers to pull blobs from this node
+  start_blob_server?(): void;
   // download blob with iroh-blobs verified streaming - optional
   download_verified?(
     peer_addr: string,
@@ -172,45 +175,62 @@ export class WasmTransport implements Transport {
     file: File,
     formData: FormData,
   ): Promise<TransportResponse> {
-    const fileBytes = new Uint8Array(await file.arrayBuffer());
-    const hash = await this.node.import_blob!(fileBytes);
-
     try {
-      const body: Record<string, unknown> = {
-        blake3: hash,
-        filename: file.name,
-        size: fileBytes.length,
-      };
-
-      // include metadata if present (parsed as JSON)
-      const metadataStr = formData.get("metadata") as string | null;
-      if (metadataStr) {
-        try {
-          body.metadata = JSON.parse(metadataStr);
-        } catch {
-          // ignore parse errors
-        }
-      }
-
-      // include associate_with if present
-      const associateWithStr = formData.get("associate_with") as string | null;
-      if (associateWithStr) {
-        try {
-          body.associate_with = JSON.parse(associateWithStr);
-        } catch {
-          // ignore parse errors
-        }
-      }
-
-      const response = await this.request(
-        "POST",
-        "/api/upload/music-by-blake3",
-        JSON.stringify(body),
+      console.log(
+        "[WasmTransport] importing file into iroh-blobs store...",
+        file.name,
+        file.size,
       );
-      return response;
-    } finally {
-      // release TempTag so local GC can reclaim the blob
-      this.node.release_blob?.(hash);
+      const fileBytes = new Uint8Array(await file.arrayBuffer());
+      const hash = await this.node.import_blob!(fileBytes);
+      console.log("[WasmTransport] blob imported, blake3:", hash);
+
+      try {
+        const body: Record<string, unknown> = {
+          blake3: hash,
+          filename: file.name,
+          size: fileBytes.length,
+        };
+
+        // include metadata if present (parsed as JSON)
+        const metadataStr = formData.get("metadata") as string | null;
+        if (metadataStr) {
+          try {
+            body.metadata = JSON.parse(metadataStr);
+          } catch {
+            // ignore parse errors
+          }
+        }
+
+        // include associate_with if present
+        const associateWithStr = formData.get("associate_with") as
+          | string
+          | null;
+        if (associateWithStr) {
+          try {
+            body.associate_with = JSON.parse(associateWithStr);
+          } catch {
+            // ignore parse errors
+          }
+        }
+
+        console.log(
+          "[WasmTransport] requesting remote pull via /api/upload/music-by-blake3",
+        );
+        const response = await this.request(
+          "POST",
+          "/api/upload/music-by-blake3",
+          JSON.stringify(body),
+        );
+        console.log("[WasmTransport] upload response:", response.status);
+        return response;
+      } finally {
+        // release TempTag so local GC can reclaim the blob
+        this.node.release_blob?.(hash);
+      }
+    } catch (error) {
+      console.error("[WasmTransport] upload failed:", error);
+      throw error;
     }
   }
 
@@ -226,7 +246,7 @@ export class WasmTransport implements Transport {
   ): Promise<TransportResponse> {
     if (path === "/api/upload/music") {
       console.warn(
-        "[WasmTransport] iroh-blobs not available, falling back to base64 upload (may not work)",
+        "[WasmTransport] falling back to base64 upload for music (import_blob not available)",
       );
     }
 

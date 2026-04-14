@@ -22,7 +22,7 @@ use js_sys::{Function as JsFunction, Uint8Array};
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
 use tracing::level_filters::LevelFilter;
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 use tracing_subscriber_wasm::MakeConsoleWriter;
 use wasm_bindgen::{prelude::wasm_bindgen, JsError, JsValue};
 
@@ -353,6 +353,8 @@ pub struct MiddenNode {
     /// capped at 3 entries; oldest evicted when full.
     #[wasm_bindgen(skip)]
     pub active_tags: RefCell<IndexMap<Hash, TempTag>>,
+    /// guards against starting the blob server accept loop more than once
+    blob_server_running: RefCell<bool>,
 }
 
 #[wasm_bindgen]
@@ -423,6 +425,7 @@ impl MiddenNode {
             blobs_downloader,
             blobs_protocol,
             active_tags: RefCell::new(IndexMap::new()),
+            blob_server_running: RefCell::new(false),
         })
     }
 
@@ -499,6 +502,7 @@ impl MiddenNode {
             blobs_downloader,
             blobs_protocol,
             active_tags: RefCell::new(IndexMap::new()),
+            blob_server_running: RefCell::new(false),
         })
     }
 
@@ -536,6 +540,75 @@ impl MiddenNode {
             peer_node_id,
             alpn: alpn.to_string(),
         })
+    }
+
+    /// start a background accept loop that handles incoming iroh-blobs connections.
+    ///
+    /// call this once after creating the node to allow remote peers to pull blobs
+    /// from this node (e.g., for P2P music upload where the server pulls from browser).
+    ///
+    /// only handles iroh-blobs connections — other ALPNs are ignored (dropped).
+    /// safe to call multiple times (subsequent calls are no-ops).
+    ///
+    /// WARNING: if you also call `accept()` from JS, both loops will compete for
+    /// incoming connections and each will only see a subset. use one or the other,
+    /// not both. freqhole uses `start_blob_server()`, skein uses `accept()`.
+    ///
+    /// NOTE: no application-level peer auth is applied here. iroh-blobs transfers
+    /// are content-addressed (blake3 verified), so a peer can only download blobs
+    /// they already know the hash of. peer filtering can be added later if needed.
+    pub fn start_blob_server(&self) {
+        let mut running = self.blob_server_running.borrow_mut();
+        if *running {
+            info!("blob server already running, skipping");
+            return;
+        }
+        *running = true;
+
+        let endpoint = self.endpoint.clone();
+        let blobs = self.blobs_protocol.clone();
+
+        info!("starting blob server accept loop");
+
+        wasm_bindgen_futures::spawn_local(async move {
+            loop {
+                let incoming = match endpoint.accept().await {
+                    Some(incoming) => incoming,
+                    None => {
+                        info!("blob server: endpoint closed, stopping accept loop");
+                        break;
+                    }
+                };
+
+                let conn = match incoming.await {
+                    Ok(c) => c,
+                    Err(e) => {
+                        warn!("blob server: failed to accept connection: {}", e);
+                        continue;
+                    }
+                };
+
+                let alpn_bytes = conn.alpn().to_vec();
+
+                if alpn_bytes == iroh_blobs::ALPN {
+                    let peer_id = conn.remote_id().to_string();
+                    info!(
+                        "blob server: accepting iroh-blobs connection from {}",
+                        &peer_id[..std::cmp::min(16, peer_id.len())]
+                    );
+                    let blobs = blobs.clone();
+                    wasm_bindgen_futures::spawn_local(async move {
+                        if let Err(e) = blobs.accept(conn).await {
+                            warn!("blob server: iroh-blobs handler error: {}", e);
+                        }
+                    });
+                } else {
+                    let alpn = String::from_utf8_lossy(&alpn_bytes);
+                    debug!("blob server: ignoring connection on ALPN: {}", alpn);
+                    // drop the connection - not for us
+                }
+            }
+        });
     }
 
     /// accept the next incoming connection and bidirectional stream.

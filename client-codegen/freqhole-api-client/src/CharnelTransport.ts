@@ -133,12 +133,9 @@ export class CharnelTransport implements Transport {
   /**
    * upload via P2P
    *
-   * TODO: implement iroh-blobs pull model for CharnelTransport
-   * needs a new Tauri command to import file into local FsStore:
-   *   1. invoke("p2p_import_blob", { filePath }) -> blake3 hash
-   *   2. proxy_request POST /api/upload/music-by-blake3 { blake3, filename }
-   *   3. remote peer pulls blob via iroh-blobs from our endpoint
-   * for now, falls back to base64 which routes to /api/upload/music (not in offal, will 404)
+   * for music uploads, returns an error directing callers to use uploadByPath()
+   * which uses iroh-blobs pull model (file path -> FsStore import -> remote pull).
+   * for non-music uploads (images), uses base64 encoding (small enough to be fine).
    */
   async upload(path: string, formData: FormData): Promise<TransportResponse> {
     // extract file from form data
@@ -160,11 +157,105 @@ export class CharnelTransport implements Transport {
       };
     }
 
-    // read file and encode as base64
+    // for music uploads, FormData doesn't carry a file path so we can't use
+    // p2p_import_blob (which needs a filesystem path). callers should use
+    // uploadByPath() instead, which accepts a path from a file dialog.
+    if (path === "/api/upload/music") {
+      console.warn(
+        "[CharnelTransport] FormData music upload not supported over P2P.",
+        "use uploadByPath() with a filesystem path instead.",
+      );
+      return {
+        status: 400,
+        body: JSON.stringify({
+          success: false,
+          message:
+            "music upload via FormData not supported over P2P - use uploadByPath()",
+          errors: [
+            {
+              error_type: "upload_not_supported",
+              title: "use uploadByPath for P2P music upload",
+              detail:
+                "CharnelTransport cannot upload music from FormData. " +
+                "use uploadByPath() with a filesystem path from a file dialog instead.",
+            },
+          ],
+        }),
+      };
+    }
+
+    // for non-music uploads (images etc), use base64 (small enough)
+    return this.uploadViaBase64(path, file, formData);
+  }
+
+  /**
+   * upload a file by filesystem path via P2P using iroh-blobs pull model
+   *
+   * 1. imports file into local FsStore (gets blake3 hash)
+   * 2. tells remote peer to pull the blob via iroh-blobs
+   * 3. remote peer downloads verified, writes to disk, creates import job
+   */
+  async uploadByPath(
+    path: string,
+    filePath: string,
+    metadata?: Record<string, unknown>,
+  ): Promise<TransportResponse> {
+    const inv = await ensureInvoke();
+
+    // only use iroh-blobs for music uploads
+    if (path === "/api/upload/music") {
+      console.log(
+        "[CharnelTransport] importing file into local blobs store:",
+        filePath,
+      );
+
+      // import file into local FsStore -> get blake3 hash
+      const blake3 = (await inv("p2p_import_blob", { filePath })) as string;
+      console.log(
+        "[CharnelTransport] blob imported, blake3:",
+        blake3.slice(0, 16) + "...",
+      );
+
+      // build request body for the remote peer
+      const body: Record<string, unknown> = {
+        blake3,
+        filename:
+          filePath.split("/").pop() || filePath.split("\\").pop() || "music",
+        ...metadata,
+      };
+
+      console.log(
+        "[CharnelTransport] requesting remote pull via /api/upload/music-by-blake3",
+      );
+
+      // tell the remote peer to pull the blob from us
+      return this.request(
+        "POST",
+        "/api/upload/music-by-blake3",
+        JSON.stringify(body),
+      );
+    }
+
+    // for non-music uploads, send path + metadata via proxy_request
+    const body: Record<string, unknown> = {
+      file_path: filePath,
+      ...metadata,
+    };
+    return this.request("POST", path, JSON.stringify(body));
+  }
+
+  /**
+   * fallback upload via base64 encoding
+   * used for non-music uploads (images are small enough)
+   */
+  private async uploadViaBase64(
+    path: string,
+    file: File,
+    formData: FormData,
+  ): Promise<TransportResponse> {
     const bytes = new Uint8Array(await file.arrayBuffer());
     const base64 = bytesToBase64(bytes);
 
-    // build JSON body for dispatch
     const body: Record<string, unknown> = {
       data: base64,
       filename: file.name,

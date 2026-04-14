@@ -772,6 +772,7 @@ pub async fn upload_music_by_blake3(
     };
 
     // pull the blob from the uploading peer via iroh-blobs verified streaming
+    // timeout after 120 seconds to prevent indefinite hangs
     tracing::info!(
         "pulling blob {} from peer {} for upload by {}",
         &req.blake3[..16],
@@ -779,9 +780,24 @@ pub async fn upload_music_by_blake3(
         caller.username,
     );
 
-    let data = match p2p_client::fetch_blob_verified_with_ensure(&node_id, &req.blake3).await {
-        Ok(d) => d,
-        Err(e) => {
+    let fetch_future = p2p_client::fetch_blob_verified_with_ensure(&node_id, &req.blake3);
+    let data = match tokio::time::timeout(Duration::from_secs(120), fetch_future).await {
+        Ok(Ok(d)) => {
+            tracing::info!(
+                "received {} bytes for blob {} from peer {}",
+                d.len(),
+                &req.blake3[..16],
+                &node_id[..16.min(node_id.len())],
+            );
+            d
+        }
+        Ok(Err(e)) => {
+            tracing::error!(
+                "failed to fetch blob {} from peer {}: {}",
+                &req.blake3[..16],
+                &node_id[..16.min(node_id.len())],
+                e,
+            );
             return GrimoireResponse::failure(
                 "failed to fetch blob from peer",
                 vec![ErrorDetail::new(
@@ -789,7 +805,22 @@ pub async fn upload_music_by_blake3(
                     "failed to fetch blob from peer",
                     &e.to_string(),
                 )],
-            )
+            );
+        }
+        Err(_) => {
+            tracing::error!(
+                "timeout fetching blob {} from peer {} (120s)",
+                &req.blake3[..16],
+                &node_id[..16.min(node_id.len())],
+            );
+            return GrimoireResponse::failure(
+                "blob fetch timed out",
+                vec![ErrorDetail::new(
+                    "timeout",
+                    "blob fetch timed out",
+                    "failed to download blob from peer within 120 seconds. the peer may not be serving blobs (browser needs blob server running) or the connection may have dropped.",
+                )],
+            );
         }
     };
 
@@ -815,6 +846,11 @@ pub async fn upload_music_by_blake3(
     let mut hasher = Sha256::new();
     hasher.update(&data);
     let hash = format!("{:x}", hasher.finalize());
+    tracing::debug!(
+        "computed sha256 for blob {}: {}",
+        &req.blake3[..16],
+        &hash[..16]
+    );
 
     // verify blake3 matches what we computed (belt-and-suspenders with verified streaming)
     let computed_blake3 = compute_blake3_from_bytes(&data);
@@ -834,6 +870,11 @@ pub async fn upload_music_by_blake3(
 
     // detect mime type from filename and magic bytes
     let mime_type = detect_audio_mime_type(&req.filename, &data);
+    tracing::debug!(
+        "detected mime type for blob {}: {}",
+        &req.blake3[..16],
+        &mime_type
+    );
     if !mime_type.starts_with("audio/") {
         return GrimoireResponse::failure(
             "invalid audio file",
@@ -871,7 +912,14 @@ pub async fn upload_music_by_blake3(
     })
     .await
     {
-        Ok(b) => b,
+        Ok(b) => {
+            tracing::info!(
+                "created media blob {} for upload {}",
+                b.id,
+                &req.blake3[..16]
+            );
+            b
+        }
         Err(e) => {
             return GrimoireResponse::failure("failed to create blob", vec![ErrorDetail::from(e)])
         }
@@ -922,6 +970,7 @@ pub async fn upload_music_by_blake3(
             )],
         );
     }
+    tracing::info!("wrote {} bytes to {}", data.len(), full_path.display());
 
     // create ImportMusic job
     let job_payload = json!({
