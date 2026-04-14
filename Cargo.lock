@@ -2589,6 +2589,7 @@ dependencies = [
  "base64 0.21.7",
  "bigdecimal",
  "blake3",
+ "bytes",
  "clap",
  "csv",
  "dialoguer",

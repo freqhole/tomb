@@ -278,16 +278,26 @@ export class WasmTransport implements Transport {
   }
 
   async fetchBlob(blobId: string, blake3?: string): Promise<BlobData> {
+    console.log(
+      `[WasmTransport.fetchBlob] blobId=${blobId.slice(0, 16)}, blake3=${blake3?.slice(0, 16) ?? "NONE"}`,
+    );
     // check Cache API first
     const cache = await caches.open(this.cacheName);
     // use just blobId as key (cache name already partitions by remote)
     const cached = await cache.match(blobId);
 
     if (cached) {
+      console.log(
+        `[WasmTransport.fetchBlob] CACHE HIT for ${blobId.slice(0, 16)}`,
+      );
       const data = new Uint8Array(await cached.arrayBuffer());
       const contentType =
         cached.headers.get("Content-Type") || "application/octet-stream";
       return { data, contentType };
+    } else {
+      console.log(
+        `[WasmTransport.fetchBlob] CACHE MISS for ${blobId.slice(0, 16)}, trying download...`,
+      );
     }
 
     // if blake3 is provided, try iroh-blobs verified download
@@ -373,7 +383,7 @@ export class WasmTransport implements Transport {
       } catch (e) {
         const errorMessage = e instanceof Error ? e.message : String(e);
         console.warn(`[WasmTransport] P2P fetch_blob failed: ${errorMessage}`);
-        throw new Error(`connection failed: ${errorMessage}`);
+        throw new Error(`P2P fetch_blob failed: ${errorMessage}`);
       }
     }
 
@@ -474,7 +484,7 @@ export class WasmTransport implements Transport {
       } catch (e) {
         const errorMessage = e instanceof Error ? e.message : String(e);
         console.warn(`[WasmTransport] P2P fetch_blob failed: ${errorMessage}`);
-        throw new Error(`connection failed: ${errorMessage}`);
+        throw new Error(`P2P fetch_blob failed: ${errorMessage}`);
       }
     }
 

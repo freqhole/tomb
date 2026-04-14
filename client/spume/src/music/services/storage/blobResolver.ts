@@ -8,31 +8,23 @@
 //   const url = await resolveBlobUrl(blobId, remoteId, "audio");
 //   <img src={url} /> or <audio src={url} />
 
-import { createSignal, createMemo, type Accessor } from "solid-js";
+import { type BlobProgressCallback } from "freqhole-api-client";
+import { createMemo, createSignal, type Accessor } from "solid-js";
 import { createStore, reconcile } from "solid-js/store";
-import { getRemoteById } from "../../../app/services/remotes/remoteManager";
-import { getSyncQueueToLocal } from "../../../app/services/storage/db";
 import {
   getTransportForRemote,
-  isP2PTransportType,
   isCharnelAvailable,
+  isP2PTransportType,
   type Remote,
 } from "../../../app/api/client";
-import { type BlobProgressCallback } from "freqhole-api-client";
-import { debug } from "../../../utils/logger";
-import { 
-  getRemoteCacheName, 
-  saveP2PBlobMetadata, 
-  getCachedBlob,
-} from "../cache/blobCache";
-import {
-  updateLoadingProgress,
-  addToLoadingSet,
-  removeFromLoadingSet,
-} from "../download";
-import { syncSongToLocal, canSyncSong } from "../sync";
+import { getRemoteById } from "../../../app/services/remotes/remoteManager";
+import { getSyncQueueToLocal } from "../../../app/services/storage/db";
 import { queryClient } from "../../../queryClient";
+import { debug } from "../../../utils/logger";
 import { queryKeys } from "../../queries/queryKeys";
+import { getCachedBlob, getRemoteCacheName, saveP2PBlobMetadata } from "../cache/blobCache";
+import { addToLoadingSet, removeFromLoadingSet, updateLoadingProgress } from "../download";
+import { canSyncSong, syncSongToLocal } from "../sync";
 import type { Song } from "./types";
 
 // store of active blob URLs - provides granular reactivity per key
@@ -42,7 +34,10 @@ const [activeBlobUrls, setActiveBlobUrls] = createStore<Record<string, string>>(
 
 // helper to add a URL to the reactive store
 function addActiveBlobUrl(key: string, url: string) {
-  debug("blobResolver", `adding to activeBlobUrls store: ${key.split('/')[1]?.slice(0, 8) ?? key.slice(0, 8)}...`);
+  debug(
+    "blobResolver",
+    `adding to activeBlobUrls store: ${key.split("/")[1]?.slice(0, 8) ?? key.slice(0, 8)}...`
+  );
   setActiveBlobUrls(key, url);
 }
 
@@ -75,13 +70,13 @@ const inProgressAbortControllers = new Map<string, AbortController>();
 
 // re-export transport cache functions for backward compatibility
 export {
-  isP2PRemoteSync,
-  isCharnelManagedRemoteSync,
   cacheTransportType,
-  preCacheRemoteTransport,
-  isP2PRemote,
-  usesBlobResolver,
   getRemoteTransportType,
+  isCharnelManagedRemoteSync,
+  isP2PRemote,
+  isP2PRemoteSync,
+  preCacheRemoteTransport,
+  usesBlobResolver,
 } from "./transportCache";
 
 // import functions from transportCache for local use
@@ -107,13 +102,13 @@ export async function resolveBlobUrl(
   type: "audio" | "image" = "image",
   onProgress?: BlobProgressCallback,
   thumbnailSize?: ThumbnailSize,
-  blake3?: string,
+  blake3?: string
 ): Promise<string> {
   // include thumbnail size in cache key so different sizes are cached separately
-  const cacheKey = thumbnailSize 
+  const cacheKey = thumbnailSize
     ? `${remoteId}/${blobId}/thumb/${thumbnailSize}`
     : `${remoteId}/${blobId}`;
-  
+
   // check if we already have an active blob URL (fast path, no logging)
   const cached = activeBlobUrls[cacheKey];
   if (cached) {
@@ -139,21 +134,29 @@ export async function resolveBlobUrl(
       debug("blobResolver", `waiting for in-progress fetch: ${blobId.slice(0, 8)}...`);
       return inProgress;
     }
-    
+
     // only log when we're actually starting a new fetch
     const transportType = remote.is_charnel_managed ? "tauri" : "P2P";
     debug("blobResolver", `starting ${transportType} fetch for ${blobId.slice(0, 8)}...`);
-    
+
     // create AbortController for cancellable downloads
     const abortController = new AbortController();
     inProgressAbortControllers.set(cacheKey, abortController);
-    
+
     // start the fetch and track it
     // note: P2P thumbnail support requires proxy_request - use original blob for now
     // TODO: add P2P thumbnail support via proxy_request to /api/blobs/{id}/thumb/{size}
-    const fetchPromise = resolveP2PBlob(blobId, remote, cacheKey, type, onProgress, blake3, abortController.signal);
+    const fetchPromise = resolveP2PBlob(
+      blobId,
+      remote,
+      cacheKey,
+      type,
+      onProgress,
+      blake3,
+      abortController.signal
+    );
     inProgressP2PFetches.set(cacheKey, fetchPromise);
-    
+
     try {
       const url = await fetchPromise;
       return url;
@@ -187,12 +190,16 @@ async function resolveP2PBlob(
   type: "audio" | "image",
   onProgress?: BlobProgressCallback,
   blake3?: string,
-  signal?: AbortSignal,
+  signal?: AbortSignal
 ): Promise<string> {
   // check if already cancelled
   if (signal?.aborted) {
     throw new Error("download cancelled");
   }
+
+  console.log(
+    `[resolveP2PBlob] blobId=${blobId.slice(0, 16)}, remoteId=${remote.remote_id.slice(0, 16)}, blake3=${blake3?.slice(0, 16) ?? "NONE"}, peer_addr=${remote.peer_addr?.slice(0, 16) ?? "NONE"}`
+  );
 
   // Tauri-managed remotes don't need Cache API - files are local
   if (isCharnelAvailable() && remote.is_charnel_managed) {
@@ -201,7 +208,7 @@ async function resolveP2PBlob(
     addActiveBlobUrl(cacheKey, url);
     return url;
   }
-  
+
   // P2P remotes - check Cache API first, blob might be cached from a previous session
   // use getCachedBlob to properly check metadata status (filters out incomplete downloads)
   try {
@@ -223,18 +230,23 @@ async function resolveP2PBlob(
     throw new Error(`remote ${remote.remote_id} has no peer_addr for P2P transport`);
   }
 
-  debug("blobResolver", `fetching from peer: ${blobId.slice(0, 8)}...${blake3 ? ` (verified: ${blake3.slice(0, 8)}...)` : ""}`);
+  debug(
+    "blobResolver",
+    `fetching from peer: ${blobId.slice(0, 8)}...${blake3 ? ` (verified: ${blake3.slice(0, 8)}...)` : ""}`
+  );
 
   // get transport - handles wasm/app differences internally
   const transport = await getTransportForRemote(remote);
-  
+
   // create abort promise that rejects when signal fires
-  const abortPromise = signal 
+  const abortPromise = signal
     ? new Promise<never>((_, reject) => {
-        signal.addEventListener("abort", () => reject(new Error("download cancelled")), { once: true });
+        signal.addEventListener("abort", () => reject(new Error("download cancelled")), {
+          once: true,
+        });
       })
     : null;
-  
+
   // create download promise
   const downloadPromise = (async () => {
     // use progress-enabled fetch if callback provided and transport supports it
@@ -247,9 +259,9 @@ async function resolveP2PBlob(
     }
     return url;
   })();
-  
+
   // race download against abort signal
-  const url = abortPromise 
+  const url = abortPromise
     ? await Promise.race([downloadPromise, abortPromise])
     : await downloadPromise;
 
@@ -267,8 +279,12 @@ async function resolveP2PBlob(
  * revoke a cached blob URL to free memory.
  * call this when an image/audio element is removed from the DOM.
  */
-export function revokeBlobUrl(blobId: string, remoteId: string, thumbnailSize?: ThumbnailSize): void {
-  const cacheKey = thumbnailSize 
+export function revokeBlobUrl(
+  blobId: string,
+  remoteId: string,
+  thumbnailSize?: ThumbnailSize
+): void {
+  const cacheKey = thumbnailSize
     ? `${remoteId}/${blobId}/thumb/${thumbnailSize}`
     : `${remoteId}/${blobId}`;
   const url = activeBlobUrls[cacheKey];
@@ -285,8 +301,8 @@ export function revokeBlobUrl(blobId: string, remoteId: string, thumbnailSize?: 
 /**
  * cancel an in-progress P2P download.
  * call this when a song is removed from the queue to free network resources.
- * 
- * @param blobId - blob ID being downloaded  
+ *
+ * @param blobId - blob ID being downloaded
  * @param remoteId - remote ID the download is from
  */
 export function cancelP2PDownload(blobId: string, remoteId: string): void {
@@ -304,8 +320,12 @@ export function cancelP2PDownload(blobId: string, remoteId: string): void {
  * use this for instant render without async lookup.
  * reactive - components re-render when THIS key changes (granular tracking).
  */
-export function getCachedP2PBlobUrl(blobId: string, remoteId: string, thumbnailSize?: ThumbnailSize): string | null {
-  const cacheKey = thumbnailSize 
+export function getCachedP2PBlobUrl(
+  blobId: string,
+  remoteId: string,
+  thumbnailSize?: ThumbnailSize
+): string | null {
+  const cacheKey = thumbnailSize
     ? `${remoteId}/${blobId}/thumb/${thumbnailSize}`
     : `${remoteId}/${blobId}`;
   return activeBlobUrls[cacheKey] ?? null;
@@ -315,7 +335,11 @@ export function getCachedP2PBlobUrl(blobId: string, remoteId: string, thumbnailS
  * build an HTTP blob URL with optional thumbnail size.
  * use for direct HTTP remotes (not P2P).
  */
-export function buildHttpBlobUrl(baseUrl: string, blobId: string, thumbnailSize?: ThumbnailSize): string {
+export function buildHttpBlobUrl(
+  baseUrl: string,
+  blobId: string,
+  thumbnailSize?: ThumbnailSize
+): string {
   const basePath = `${baseUrl}/api/blobs/${blobId}`;
   return thumbnailSize ? `${basePath}/thumb/${thumbnailSize}` : basePath;
 }
@@ -323,11 +347,11 @@ export function buildHttpBlobUrl(baseUrl: string, blobId: string, thumbnailSize?
 /**
  * reactive hook for resolving P2P image URLs.
  * returns a memo that tracks the P2P cache and triggers fetch if needed.
- * 
+ *
  * usage:
  *   const url = useResolvedP2PImageUrl(() => ({ blobId, remoteId, httpFallback }));
  *   <div style={{ "background-image": `url(${url()})` }} />
- * 
+ *
  * @param source - accessor returning blob ID, remote ID, and optional HTTP fallback URL
  * @returns accessor that returns URL string or undefined
  */
@@ -338,22 +362,22 @@ export function useResolvedP2PImageUrl(
     const s = source();
     if (!s) return undefined;
     const { blobId, remoteId, httpFallback } = s;
-    
+
     // check P2P cache if we have both IDs
     if (blobId && remoteId) {
       const cached = getCachedP2PBlobUrl(blobId, remoteId);
       if (cached) return cached;
-      
+
       // not cached yet - trigger background fetch (fire-and-forget)
       // the memo will re-run when pre-caching completes and updates activeBlobUrls
       void preCacheP2PBlob(blobId, remoteId, undefined, "image");
     }
-    
+
     // fall back to HTTP URL if valid
     if (httpFallback && isValidHttpUrl(httpFallback)) {
       return httpFallback;
     }
-    
+
     return undefined;
   });
 }
@@ -379,7 +403,7 @@ export function clearAllBlobUrls(): void {
 export async function clearAllP2PCache(): Promise<void> {
   // clear in-memory blob URLs
   clearAllBlobUrls();
-  
+
   // note: P2P blobs are stored in per-remote caches (freqhole-blobs-{remoteId})
   // which are cleared by storageManager.clearCacheApiData()
   debug("blobResolver", "cleared P2P in-memory blob URLs");
@@ -392,7 +416,7 @@ export async function clearAllP2PCache(): Promise<void> {
 export async function evictP2PBlob(blobId: string, remoteId: string): Promise<void> {
   // clear in-memory URL
   revokeBlobUrl(blobId, remoteId);
-  
+
   // clear from per-remote Cache API (blobId is the key, not ${remoteId}/${blobId})
   try {
     const cacheName = getRemoteCacheName(remoteId);
@@ -415,7 +439,7 @@ export async function isP2PBlobCached(blobId: string, remoteId: string): Promise
   if (activeBlobUrls[cacheKey]) {
     return true;
   }
-  
+
   // check per-remote Cache API (blobId is the key)
   try {
     const cacheName = getRemoteCacheName(remoteId);
@@ -437,31 +461,32 @@ export async function preCacheP2PBlob(
   remoteId: string,
   sha256?: string,
   type: "audio" | "image" = "audio",
-  blake3?: string,
+  blake3?: string
 ): Promise<void> {
   // only pre-cache for P2P remotes or charnel-managed, skip for regular HTTP
   const remote = await getRemoteById(remoteId);
   if (!remote) return;
-  const needsPreCache = isP2PTransportType(remote) || (isCharnelAvailable() && !!remote.is_charnel_managed);
+  const needsPreCache =
+    isP2PTransportType(remote) || (isCharnelAvailable() && !!remote.is_charnel_managed);
   if (!needsPreCache) {
     // regular HTTP remotes don't need pre-caching, URLs work directly
     return;
   }
 
   const cacheKey = `${remoteId}/${blobId}`;
-  
+
   // check if already in memory
   if (activeBlobUrls[cacheKey]) {
     debug("blobResolver", `P2P blob already in memory: ${blobId.slice(0, 8)}...`);
     return;
   }
-  
+
   // check if fetch is already in progress (will be awaited by resolveBlobUrl)
   if (inProgressP2PFetches.has(cacheKey)) {
     debug("blobResolver", `P2P blob fetch already in progress: ${blobId.slice(0, 8)}...`);
     return;
   }
-  
+
   // check Cache API - if cached and complete, create blob URL from it
   // use getCachedBlob to properly check metadata status
   try {
@@ -477,30 +502,33 @@ export async function preCacheP2PBlob(
   } catch (err) {
     debug("blobResolver", `failed to check cache for ${blobId.slice(0, 8)}...: ${err}`);
   }
-  
+
   // track loading state for UI (use blobCache's unified loading set)
   if (sha256 && type === "audio") {
     addToLoadingSet(sha256);
     updateLoadingProgress(sha256, null); // indeterminate until we get total size
   }
-  
+
   try {
-    debug("blobResolver", `pre-caching P2P blob: ${blobId.slice(0, 8)}...${blake3 ? ` (verified)` : ""}`);
-    
+    debug(
+      "blobResolver",
+      `pre-caching P2P blob: ${blobId.slice(0, 8)}...${blake3 ? ` (verified)` : ""}`
+    );
+
     // create progress callback if we have sha256 for tracking
-    const onProgress: BlobProgressCallback | undefined = 
-      (sha256 && type === "audio") 
+    const onProgress: BlobProgressCallback | undefined =
+      sha256 && type === "audio"
         ? (received, total) => {
             if (total > 0) {
               updateLoadingProgress(sha256, received / total);
             }
           }
         : undefined;
-    
+
     // use resolveBlobUrl which handles in-progress tracking and deduplication
     // pass blake3 for verified streaming via iroh-blobs
     await resolveBlobUrl(blobId, remoteId, type, onProgress, undefined, blake3);
-    
+
     debug("blobResolver", `pre-cached P2P blob: ${blobId.slice(0, 8)}...`);
   } catch (err) {
     console.error(`failed to pre-cache P2P blob ${blobId}:`, err);
@@ -515,32 +543,32 @@ export async function preCacheP2PBlob(
  * pre-cache (or sync) next P2P songs from queue (rolling ~30 minute cache).
  * awaits the first song to ensure immediate playback works, then fires off the rest in parallel.
  * also pre-caches waveform images for P2P songs.
- * 
+ *
  * in browser mode with sync_queue_to_local enabled: syncs songs to local OPFS + IDB
  * otherwise: caches blobs to Cache API only
  */
 export async function preCacheNextP2PSongs(
   currentSongSha256: string | null,
   queue: Song[],
-  targetMinutes: number = 30,
+  targetMinutes: number = 30
 ): Promise<void> {
   if (!currentSongSha256 || queue.length === 0) {
     return;
   }
-  
+
   // check if sync mode is enabled - syncSongToLocal handles charnel vs browser mode internally
   const shouldSync = getSyncQueueToLocal();
-  
+
   // find current song index
   const currentIdx = queue.findIndex((s) => s.sha256 === currentSongSha256);
   if (currentIdx < 0) {
     return;
   }
-  
+
   // songs selected for caching/syncing (we need full Song for sync mode)
-  const songsToProcess: Array<{ 
-    song: Song;  // full song for sync mode
-    sha256: string; 
+  const songsToProcess: Array<{
+    song: Song; // full song for sync mode
+    sha256: string;
     remoteId: string;
     blake3?: string;
     waveformBlobId?: string;
@@ -550,10 +578,10 @@ export async function preCacheNextP2PSongs(
   }> = [];
   let totalSeconds = 0;
   const targetSeconds = targetMinutes * 60;
-  
+
   // cache isP2PRemote results to avoid repeated async lookups
   const p2pRemoteCache = new Map<string, boolean>();
-  
+
   // helper to check if remote is P2P (with caching)
   const checkP2PRemote = async (remoteId: string): Promise<boolean> => {
     let isP2P = p2pRemoteCache.get(remoteId);
@@ -563,21 +591,21 @@ export async function preCacheNextP2PSongs(
     }
     return isP2P;
   };
-  
+
   // iterate from CURRENT song onwards (include current for immediate waveform display)
   for (let i = currentIdx; i < queue.length; i++) {
     const song = queue[i];
-    
+
     // only cache P2P remote songs
     if (song.source_type !== "remote" || !song.remote_server_id) {
       continue;
     }
-    
+
     // check if remote is P2P (use cached result if available)
-    if (!await checkP2PRemote(song.remote_server_id)) {
+    if (!(await checkP2PRemote(song.remote_server_id))) {
       continue;
     }
-    
+
     // find waveform image info
     const waveformImg = song.images?.find((img) => img.blob_type === "waveform");
     let waveformBlobId: string | undefined;
@@ -588,12 +616,15 @@ export async function preCacheNextP2PSongs(
         waveformRemoteId = waveformImg.remote_server_id;
       }
     }
-    
+
     // debug: log if song has images but no waveform found
     if (song.images && song.images.length > 0 && !waveformImg) {
-      debug("blobResolver", `song ${song.sha256.slice(0, 8)}... has ${song.images.length} images but no waveform (types: ${song.images.map(i => i.blob_type).join(", ")})`);
+      debug(
+        "blobResolver",
+        `song ${song.sha256.slice(0, 8)}... has ${song.images.length} images but no waveform (types: ${song.images.map((i) => i.blob_type).join(", ")})`
+      );
     }
-    
+
     // find thumbnail image info
     const thumbnailImg = song.images?.find((img) => img.blob_type === "thumbnail");
     let thumbnailBlobId: string | undefined;
@@ -604,7 +635,7 @@ export async function preCacheNextP2PSongs(
         thumbnailRemoteId = thumbnailImg.remote_server_id;
       }
     }
-    
+
     songsToProcess.push({
       song, // keep full song for sync mode
       sha256: song.sha256,
@@ -615,26 +646,29 @@ export async function preCacheNextP2PSongs(
       thumbnailBlobId,
       thumbnailRemoteId,
     });
-    
+
     totalSeconds += song.duration_seconds || 0;
-    
+
     if (totalSeconds >= targetSeconds) {
       break;
     }
   }
-  
+
   if (songsToProcess.length === 0) {
     debug("blobResolver", "no P2P songs to pre-cache");
     return;
   }
-  
-  const waveformCount = songsToProcess.filter(s => s.waveformBlobId).length;
-  const thumbnailCount = songsToProcess.filter(s => s.thumbnailBlobId).length;
-  debug("blobResolver", `${shouldSync ? "syncing" : "pre-caching"} ${songsToProcess.length} P2P songs (~${targetMinutes} min) [${waveformCount} waveforms, ${thumbnailCount} thumbnails]`);
-  
+
+  const waveformCount = songsToProcess.filter((s) => s.waveformBlobId).length;
+  const thumbnailCount = songsToProcess.filter((s) => s.thumbnailBlobId).length;
+  debug(
+    "blobResolver",
+    `${shouldSync ? "syncing" : "pre-caching"} ${songsToProcess.length} P2P songs (~${targetMinutes} min) [${waveformCount} waveforms, ${thumbnailCount} thumbnails]`
+  );
+
   // await first song to ensure immediate next song is ready for playback
   const [firstEntry, ...restEntries] = songsToProcess;
-  
+
   try {
     if (shouldSync && canSyncSong(firstEntry.song)) {
       // sync mode: download to OPFS + create IDB records
@@ -646,7 +680,10 @@ export async function preCacheNextP2PSongs(
       });
       removeFromLoadingSet(firstEntry.sha256);
       if (result.success) {
-        debug("blobResolver", `first P2P song synced: ${firstEntry.sha256.slice(0, 8)}...${result.skipped ? " (already exists)" : ""}`);
+        debug(
+          "blobResolver",
+          `first P2P song synced: ${firstEntry.sha256.slice(0, 8)}...${result.skipped ? " (already exists)" : ""}`
+        );
         // invalidate queries so local views can show the new song
         if (!result.skipped) {
           void queryClient.invalidateQueries({ queryKey: queryKeys.songs.all() });
@@ -659,23 +696,45 @@ export async function preCacheNextP2PSongs(
       }
     } else {
       // cache mode: just cache the blob
-      await preCacheP2PBlob(firstEntry.sha256, firstEntry.remoteId, firstEntry.sha256, "audio", firstEntry.blake3);
-      debug("blobResolver", `first P2P song pre-cached: ${firstEntry.sha256.slice(0, 8)}...${firstEntry.blake3 ? " (verified)" : ""}`);
+      await preCacheP2PBlob(
+        firstEntry.sha256,
+        firstEntry.remoteId,
+        firstEntry.sha256,
+        "audio",
+        firstEntry.blake3
+      );
+      debug(
+        "blobResolver",
+        `first P2P song pre-cached: ${firstEntry.sha256.slice(0, 8)}...${firstEntry.blake3 ? " (verified)" : ""}`
+      );
     }
-    
+
     // also pre-cache first song's waveform and thumbnail (awaited for immediate display)
     if (firstEntry.waveformBlobId && firstEntry.waveformRemoteId) {
-      debug("blobResolver", `pre-caching first song waveform: ${firstEntry.waveformBlobId.slice(0, 8)}...`);
-      await preCacheP2PBlob(firstEntry.waveformBlobId, firstEntry.waveformRemoteId, undefined, "image");
+      debug(
+        "blobResolver",
+        `pre-caching first song waveform: ${firstEntry.waveformBlobId.slice(0, 8)}...`
+      );
+      await preCacheP2PBlob(
+        firstEntry.waveformBlobId,
+        firstEntry.waveformRemoteId,
+        undefined,
+        "image"
+      );
     }
     if (firstEntry.thumbnailBlobId && firstEntry.thumbnailRemoteId) {
-      await preCacheP2PBlob(firstEntry.thumbnailBlobId, firstEntry.thumbnailRemoteId, undefined, "image");
+      await preCacheP2PBlob(
+        firstEntry.thumbnailBlobId,
+        firstEntry.thumbnailRemoteId,
+        undefined,
+        "image"
+      );
     }
   } catch (err) {
     // log but don't fail the whole pre-cache
     console.warn(`failed to pre-cache first P2P song ${firstEntry.sha256}:`, err);
   }
-  
+
   // fire off the rest in parallel (fire and forget) - audio, waveform, and thumbnail images
   for (const entry of restEntries) {
     if (shouldSync && canSyncSong(entry.song)) {
@@ -685,27 +744,29 @@ export async function preCacheNextP2PSongs(
         if (total > 0) {
           updateLoadingProgress(entry.sha256, received / total);
         }
-      }).then((result) => {
-        removeFromLoadingSet(entry.sha256);
-        if (result.success) {
-          // invalidate queries so local views can show the new song
-          if (!result.skipped) {
-            void queryClient.invalidateQueries({ queryKey: queryKeys.songs.all() });
-            void queryClient.invalidateQueries({ queryKey: queryKeys.albums.all() });
+      })
+        .then((result) => {
+          removeFromLoadingSet(entry.sha256);
+          if (result.success) {
+            // invalidate queries so local views can show the new song
+            if (!result.skipped) {
+              void queryClient.invalidateQueries({ queryKey: queryKeys.songs.all() });
+              void queryClient.invalidateQueries({ queryKey: queryKeys.albums.all() });
+            }
+          } else {
+            // sync failed - when sync mode is enabled, we don't fall back to Cache API
+            // the song won't be pre-cached but will be fetched on-demand when played
+            console.warn(`failed to sync P2P song ${entry.sha256}:`, result.error);
           }
-        } else {
-          // sync failed - when sync mode is enabled, we don't fall back to Cache API
-          // the song won't be pre-cached but will be fetched on-demand when played
-          console.warn(`failed to sync P2P song ${entry.sha256}:`, result.error);
-        }
-      }).catch(() => {
-        removeFromLoadingSet(entry.sha256);
-      });
+        })
+        .catch(() => {
+          removeFromLoadingSet(entry.sha256);
+        });
     } else {
       // cache mode: just cache the blob
       void preCacheP2PBlob(entry.sha256, entry.remoteId, entry.sha256, "audio", entry.blake3);
     }
-    
+
     // always cache waveform and thumbnail images (they don't get synced as separate records)
     if (entry.waveformBlobId && entry.waveformRemoteId) {
       void preCacheP2PBlob(entry.waveformBlobId, entry.waveformRemoteId, undefined, "image");
@@ -720,8 +781,8 @@ export async function preCacheNextP2PSongs(
 // centralized logic for resolving image URLs across all transports
 // components should use resolveImageUrlSync() for instant render, letting pre-caching handle P2P fetches
 
-import type { ImageMetadata } from "./types";
 import { getCachedBlobObjectURL } from "./blobs";
+import type { ImageMetadata } from "./types";
 
 /**
  * check if a URL is a valid full HTTP(S) URL.
@@ -734,19 +795,19 @@ export function isValidHttpUrl(url: string | null | undefined): boolean {
 
 /**
  * synchronously resolve an image URL - for instant render without flicker.
- * 
+ *
  * priority order:
  * 1. local blob (OPFS cache)
  * 2. P2P cached blob (in-memory activeBlobUrls)
  * 3. valid HTTP URL (full URL with protocol, not relative paths)
- * 
+ *
  * returns null if no cached URL available - components should handle gracefully.
  * P2P images should be pre-cached by preCacheNextP2PSongs().
  */
 export function resolveImageUrlSync(
   image: ImageMetadata | null | undefined,
   legacyBlobId?: string | null,
-  legacyUrl?: string | null,
+  legacyUrl?: string | null
 ): string | null {
   // priority 1: local blob (OPFS cache)
   const localBlobId = image?.local_blob_id || legacyBlobId;
@@ -769,7 +830,10 @@ export function resolveImageUrlSync(
   const httpUrl = image?.remote_url || legacyUrl;
   if (isValidHttpUrl(httpUrl)) {
     if (isCharnelAvailable() && httpUrl!.includes("localhost")) {
-      debug("blobResolver", `skipping stale localhost URL in charnel mode: ${httpUrl!.slice(0, 50)}...`);
+      debug(
+        "blobResolver",
+        `skipping stale localhost URL in charnel mode: ${httpUrl!.slice(0, 50)}...`
+      );
       return null;
     }
     return httpUrl!;
@@ -783,7 +847,7 @@ export function resolveImageUrlSync(
  */
 export function imageNeedsAsyncResolution(
   image: ImageMetadata | null | undefined,
-  legacyBlobId?: string | null,
+  legacyBlobId?: string | null
 ): boolean {
   const localBlobId = image?.local_blob_id || legacyBlobId;
   if (!localBlobId) return false;

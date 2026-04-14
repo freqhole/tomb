@@ -358,6 +358,11 @@ async fn handle_stream(
             };
 
             // compute blake3 hash for blob (also adds to FsStore)
+            tracing::debug!(
+                "ComputeBlake3Request: about to compute blake3 for blob_id={} from peer {}",
+                blob_id,
+                node_id_short
+            );
             match blobz::ensure_blake3_hash(&blob_id).await {
                 Ok(blake3) => {
                     let resp = PeerMessage::ComputeBlake3Response {
@@ -368,6 +373,11 @@ async fn handle_stream(
                     send_response(&mut send, &resp).await?;
                 }
                 Err(e) => {
+                    tracing::warn!(
+                        "ComputeBlake3Request: ensure_blake3_hash failed for blob_id={}: {}",
+                        blob_id,
+                        e
+                    );
                     let resp = PeerMessage::ComputeBlake3Response {
                         id,
                         blake3: None,
