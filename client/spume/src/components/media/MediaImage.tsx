@@ -55,15 +55,6 @@ export function MediaImage(props: MediaImageProps): JSX.Element {
     injectPanStyles();
   }
 
-  // temporary debug logging for waveform image investigation
-  const hasWaveform = props.images?.some((img) => img.blob_type === "waveform");
-  if (hasWaveform) {
-    const waveImg = props.images?.find((img) => img.blob_type === "waveform");
-    console.warn(
-      `[DEBUG-WAVEFORM] MediaImage got waveform: remote_blob_id=${waveImg?.remote_blob_id?.slice(0, 12) ?? "NONE"}, remote_url=${waveImg?.remote_url?.slice(0, 40) ?? "NONE"}, remote_server_id=${waveImg?.remote_server_id?.slice(0, 12) ?? "NONE"}, local_blob_id=${waveImg?.local_blob_id ?? "NONE"}`
-    );
-  }
-
   // compute initial image source synchronously to avoid first-render flicker
   const getInitialSource = () => {
     const bestImage = pickBestImage(props.images);
@@ -192,10 +183,6 @@ export function MediaImage(props: MediaImageProps): JSX.Element {
           return;
         }
 
-        console.warn(
-          `[DEBUG-WAVEFORM] MediaImage effect: remoteBlobId=${source.remoteBlobId?.slice(0, 12) ?? "NONE"}, remoteServerId=${source.remoteServerId?.slice(0, 12) ?? "NONE"}, blobId=${source.blobId ?? "NONE"}, remoteUrl=${source.remoteUrl?.slice(0, 40) ?? "NONE"}`
-        );
-
         // priority 2: remote with server ID - check transport type
         if (source.remoteBlobId && source.remoteServerId) {
           const isP2P = isP2PRemoteSync(source.remoteServerId);
@@ -223,9 +210,6 @@ export function MediaImage(props: MediaImageProps): JSX.Element {
               "image",
               undefined,
               thumbSize
-            );
-            console.warn(
-              `[DEBUG-WAVEFORM] MediaImage resolved P2P image: url=${url?.slice(0, 60) ?? "NULL"}`
             );
             setResolvedUrl(url);
           } catch (err) {

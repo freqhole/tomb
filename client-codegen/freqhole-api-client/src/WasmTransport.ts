@@ -92,6 +92,13 @@ function base64ToBytes(base64: string): Uint8Array {
   return bytes;
 }
 
+// webkitgtk (linux) requires HTTP/HTTPS URLs for Cache API keys.
+// wrap bare blobIds with a synthetic URL prefix.
+// must match CharnelTransport's cacheKey format for consistency.
+function cacheKey(blobId: string): string {
+  return `https://blob.local/${blobId}`;
+}
+
 /**
  * WASM transport - uses midden for P2P connections
  *
@@ -289,7 +296,7 @@ export class WasmTransport implements Transport {
   async fetchBlob(blobId: string, blake3?: string): Promise<BlobData> {
     // check Cache API first
     const cache = await caches.open(this.cacheName);
-    const cached = await cache.match(blobId);
+    const cached = await cache.match(cacheKey(blobId));
 
     if (cached) {
       const data = new Uint8Array(await cached.arrayBuffer());
@@ -318,7 +325,7 @@ export class WasmTransport implements Transport {
           const response = new Response(arrayBuffer, {
             headers: { "Content-Type": contentType },
           });
-          await cache.put(blobId, response);
+          await cache.put(cacheKey(blobId), response);
 
           return { data, contentType };
         } catch (e) {
@@ -354,7 +361,7 @@ export class WasmTransport implements Transport {
           const response = new Response(arrayBuffer, {
             headers: { "Content-Type": contentType },
           });
-          await cache.put(blobId, response);
+          await cache.put(cacheKey(blobId), response);
 
           return { data, contentType };
         }
@@ -385,7 +392,7 @@ export class WasmTransport implements Transport {
         const response = new Response(arrayBuffer, {
           headers: { "Content-Type": contentType },
         });
-        await cache.put(blobId, response);
+        await cache.put(cacheKey(blobId), response);
 
         return { data, contentType };
       } catch (e) {
@@ -412,7 +419,7 @@ export class WasmTransport implements Transport {
         const response = new Response(arrayBuffer, {
           headers: { "Content-Type": contentType },
         });
-        await cache.put(blobId, response);
+        await cache.put(cacheKey(blobId), response);
 
         return { data, contentType };
       } catch (e) {
@@ -441,7 +448,7 @@ export class WasmTransport implements Transport {
   ): Promise<BlobData> {
     // check Cache API first
     const cache = await caches.open(this.cacheName);
-    const cached = await cache.match(blobId);
+    const cached = await cache.match(cacheKey(blobId));
 
     if (cached) {
       const data = new Uint8Array(await cached.arrayBuffer());
@@ -475,7 +482,7 @@ export class WasmTransport implements Transport {
           const response = new Response(arrayBuffer, {
             headers: { "Content-Type": contentType },
           });
-          await cache.put(blobId, response);
+          await cache.put(cacheKey(blobId), response);
 
           return { data, contentType };
         } catch (e) {
@@ -513,7 +520,7 @@ export class WasmTransport implements Transport {
           const response = new Response(arrayBuffer, {
             headers: { "Content-Type": contentType },
           });
-          await cache.put(blobId, response);
+          await cache.put(cacheKey(blobId), response);
 
           return { data, contentType };
         }
@@ -550,7 +557,7 @@ export class WasmTransport implements Transport {
         const response = new Response(arrayBuffer, {
           headers: { "Content-Type": contentType },
         });
-        await cache.put(blobId, response);
+        await cache.put(cacheKey(blobId), response);
 
         return { data, contentType };
       } catch (e) {

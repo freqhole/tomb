@@ -269,9 +269,6 @@ export class CharnelTransport implements Transport {
    * to fetch base64-encoded data from the peer's /api/blobs/{id}/data endpoint.
    */
   async fetchBlob(blobId: string, blake3?: string): Promise<BlobData> {
-    console.warn(
-      `[DEBUG-WAVEFORM] CharnelTransport.fetchBlob: blobId=${blobId.slice(0, 12)}, blake3=${blake3?.slice(0, 12) ?? "NONE"}`,
-    );
     const inv = await ensureInvoke();
     const tauri = await import("@tauri-apps/api/core");
     const onProgress = new tauri.Channel<{ bytes_downloaded: number }>();
@@ -295,17 +292,11 @@ export class CharnelTransport implements Transport {
     // this is the primary path for images (waveforms, thumbnails) stored in the database
     try {
       const result = await this.request("GET", `/api/blobs/${blobId}/data`);
-      console.warn(
-        `[DEBUG-WAVEFORM] CharnelTransport.fetchBlob proxy response: status=${result.status}, bodyLen=${result.body.length}`,
-      );
       if (result.status === 200) {
         const parsed = JSON.parse(result.body);
         if (parsed.success && parsed.data?.data) {
           const bytes = base64ToBytes(parsed.data.data);
           const contentType = parsed.data.mime || "application/octet-stream";
-          console.warn(
-            `[DEBUG-WAVEFORM] CharnelTransport.fetchBlob proxy SUCCESS: mime=${contentType}, dataLen=${bytes.length}`,
-          );
           return { data: bytes, contentType };
         }
       }
@@ -314,15 +305,9 @@ export class CharnelTransport implements Transport {
       console.warn(
         `[CharnelTransport] proxy blob data request failed, falling back to verified download: ${errorMessage}`,
       );
-      console.warn(
-        `[DEBUG-WAVEFORM] CharnelTransport.fetchBlob proxy FAILED: ${errorMessage}`,
-      );
     }
 
     // fallback: ask the peer to compute blake3, then do verified download
-    console.warn(
-      `[DEBUG-WAVEFORM] CharnelTransport.fetchBlob falling back to p2p_fetch_blob_verified_by_id`,
-    );
     const result = (await inv("p2p_fetch_blob_verified_by_id", {
       peerAddr: this.peerAddr,
       blobId,
@@ -349,9 +334,6 @@ export class CharnelTransport implements Transport {
     // check in-memory cache first
     const cached = urlCache.get(blobId);
     if (cached) {
-      console.warn(
-        `[DEBUG-WAVEFORM] CharnelTransport.getBlobUrl: urlCache HIT for ${blobId.slice(0, 12)}`,
-      );
       return cached;
     }
 
@@ -363,16 +345,10 @@ export class CharnelTransport implements Transport {
       const blob = await cachedResponse.blob();
       const url = URL.createObjectURL(blob);
       urlCache.set(blobId, url);
-      console.warn(
-        `[DEBUG-WAVEFORM] CharnelTransport.getBlobUrl: Cache API HIT for ${blobId.slice(0, 12)}, blob size=${blob.size}`,
-      );
       return url;
     }
 
     // fetch via P2P and cache (pass blake3 for verified download)
-    console.warn(
-      `[DEBUG-WAVEFORM] CharnelTransport.getBlobUrl: CACHE MISS for ${blobId.slice(0, 12)}, calling fetchBlob`,
-    );
     const blobData = await this.fetchBlob(blobId, blake3);
     const blob = new Blob([blobData.data.slice().buffer], {
       type: blobData.contentType,
