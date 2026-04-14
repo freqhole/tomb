@@ -112,6 +112,10 @@ export async function resolveBlobUrl(
   // check if we already have an active blob URL (fast path, no logging)
   const cached = activeBlobUrls[cacheKey];
   if (cached) {
+    debug(
+      "blobResolver",
+      `[DEBUG-WAVEFORM] activeBlobUrls cache hit for ${blobId.slice(0, 8)}, type=${type}`
+    );
     return cached;
   }
 
@@ -126,6 +130,9 @@ export async function resolveBlobUrl(
   // check if this is a P2P remote or Tauri-managed remote (both use transport for blobs)
   const isP2P = isP2PTransportType(remote);
   const isCharnel = isCharnelAvailable() && remote.is_charnel_managed;
+  console.warn(
+    `[DEBUG-WAVEFORM] resolveBlobUrl: blobId=${blobId.slice(0, 12)}, type=${type}, isP2P=${isP2P}, isCharnel=${isCharnel}, transport=${remote.transport}, is_charnel_managed=${remote.is_charnel_managed}, peer_addr=${remote.peer_addr?.slice(0, 12) ?? "NONE"}`
+  );
   if (isP2P || isCharnel) {
     // check if there's already a fetch in progress for this blob
     // if so, wait for it instead of starting a duplicate fetch
@@ -192,6 +199,9 @@ async function resolveP2PBlob(
   blake3?: string,
   signal?: AbortSignal
 ): Promise<string> {
+  console.warn(
+    `[DEBUG-WAVEFORM] resolveP2PBlob: blobId=${blobId.slice(0, 12)}, blake3=${blake3?.slice(0, 12) ?? "NONE"}, is_charnel_managed=${remote.is_charnel_managed}, transport=${remote.transport}`
+  );
   // check if already cancelled
   if (signal?.aborted) {
     throw new Error("download cancelled");
@@ -200,6 +210,9 @@ async function resolveP2PBlob(
   // Tauri-managed remotes don't need Cache API - files are local
   if (isCharnelAvailable() && remote.is_charnel_managed) {
     const transport = await getTransportForRemote(remote);
+    console.warn(
+      `[DEBUG-WAVEFORM] resolveP2PBlob: taking CHARNEL-LOCAL path, transport=${transport.constructor.name}`
+    );
     const url = await transport.getBlobUrl(blobId, blake3);
     addActiveBlobUrl(cacheKey, url);
     return url;
@@ -210,12 +223,40 @@ async function resolveP2PBlob(
   try {
     const response = await getCachedBlob(remote.remote_id, blobId);
     if (response) {
-      debug("blobResolver", `cache hit for P2P blob: ${blobId.slice(0, 8)}...`);
-      const blob = await response.blob();
-      const url = URL.createObjectURL(blob);
-      addActiveBlobUrl(cacheKey, url);
-      // metadata was already updated by getCachedBlob
-      return url;
+      const cachedContentType = response.headers.get("Content-Type") || "";
+      console.warn(
+        `[DEBUG-WAVEFORM] resolveP2PBlob: P2P Cache API HIT for ${blobId.slice(0, 12)}, content-type=${cachedContentType}`
+      );
+
+      // stale cache entries from the old iroh-blobs path have "audio/mpeg" or
+      // "application/octet-stream" content type for image blobs. delete them
+      // from BOTH key formats (bare blobId used by WasmTransport, and the
+      // https://blob.local/ prefix used by CharnelTransport/blobCache) and
+      // await so CharnelTransport's own cache check doesn't race past us.
+      if (
+        type === "image" &&
+        cachedContentType &&
+        (cachedContentType.startsWith("audio/") || cachedContentType === "application/octet-stream")
+      ) {
+        console.warn(
+          `[DEBUG-WAVEFORM] resolveP2PBlob: EVICTING stale cache entry for ${blobId.slice(0, 12)} (image cached as ${cachedContentType})`
+        );
+        const remoteCacheName = getRemoteCacheName(remote.remote_id);
+        const remoteCache = await caches.open(remoteCacheName);
+        await remoteCache.delete(`https://blob.local/${blobId}`);
+        await remoteCache.delete(blobId);
+        // fall through to fresh fetch below
+      } else {
+        debug("blobResolver", `cache hit for P2P blob: ${blobId.slice(0, 8)}...`);
+        const blob = await response.blob();
+        console.warn(
+          `[DEBUG-WAVEFORM] resolveP2PBlob: using cached blob for ${blobId.slice(0, 12)}, blob size=${blob.size}`
+        );
+        const url = URL.createObjectURL(blob);
+        addActiveBlobUrl(cacheKey, url);
+        // metadata was already updated by getCachedBlob
+        return url;
+      }
     }
   } catch (err) {
     debug("blobResolver", `cache check failed for ${blobId.slice(0, 8)}...: ${err}`);
@@ -248,6 +289,9 @@ async function resolveP2PBlob(
     // use progress-enabled fetch if callback provided and transport supports it
     // pass blake3 for verified streaming via iroh-blobs
     let url: string;
+    console.warn(
+      `[DEBUG-WAVEFORM] resolveP2PBlob: fetching via transport=${transport.constructor.name}`
+    );
     if (onProgress && transport.getBlobUrlWithProgress) {
       url = await transport.getBlobUrlWithProgress(blobId, onProgress, blake3);
     } else {
