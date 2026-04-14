@@ -51,12 +51,6 @@ pub struct P2pResponse {
     pub body: String,
 }
 
-/// progress event sent during blob download via tauri::ipc::Channel
-#[derive(Clone, Serialize)]
-pub struct DownloadProgress {
-    pub bytes_downloaded: u64,
-}
-
 /// blob response with base64 data
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct P2pBlobResponse {
