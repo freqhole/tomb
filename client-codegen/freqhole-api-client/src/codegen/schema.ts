@@ -1022,6 +1022,11 @@ export const GetArtistRequestSchema = z.object({
 });
 export type GetArtistRequest = z.infer<typeof GetArtistRequestSchema>;
 
+export const GetBlobMetadataByBlake3RequestSchema = z.object({
+  blake3: z.string()
+});
+export type GetBlobMetadataByBlake3Request = z.infer<typeof GetBlobMetadataByBlake3RequestSchema>;
+
 export const GetBlobMetadataRequestSchema = z.object({
   id: z.string()
 });
@@ -2953,6 +2958,23 @@ export const UpdateSongsResultSchema = z.object({
   tags_modified: z.boolean()
 });
 export type UpdateSongsResult = z.infer<typeof UpdateSongsResultSchema>;
+
+export const UploadMusicByBlake3RequestSchema = z.object({
+  blake3: z.string(),
+  filename: z.string(),
+  size: z.number().nullable(),
+  node_id: z.string().nullable(),
+  metadata: z.object({
+  artist: z.string().nullable(),
+  album: z.string().nullable(),
+  title: z.string().nullable(),
+  track_number: z.number().nullable(),
+  disc_number: z.number().nullable(),
+  year: z.number().nullable(),
+  genre: z.string().nullable()
+}).nullable()
+});
+export type UploadMusicByBlake3Request = z.infer<typeof UploadMusicByBlake3RequestSchema>;
 
 export const UserStatsSchema = z.object({
   user_id: z.string(),

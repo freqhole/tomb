@@ -212,8 +212,11 @@ pub mod type_registry {
         AcceptKnockRequest, DeleteKnockRequest, GetKnockRequest, RejectKnockRequest,
     };
 
-    // blob metadata request type
-    use crate::offal::media_blobz::GetBlobMetadataRequest;
+    // blob metadata request types
+    use crate::offal::media_blobz::{GetBlobMetadataByBlake3Request, GetBlobMetadataRequest};
+
+    // upload request types
+    use crate::offal::upload::UploadMusicByBlake3Request;
 
     // sync types
     use crate::offal::sync::{
@@ -752,6 +755,13 @@ pub mod type_registry {
         // blob metadata request type
         gen.add_schema::<GetBlobMetadataRequest>("GetBlobMetadataRequest");
         registered.insert("GetBlobMetadataRequest".to_string());
+
+        gen.add_schema::<GetBlobMetadataByBlake3Request>("GetBlobMetadataByBlake3Request");
+        registered.insert("GetBlobMetadataByBlake3Request".to_string());
+
+        // upload request types
+        gen.add_schema::<UploadMusicByBlake3Request>("UploadMusicByBlake3Request");
+        registered.insert("UploadMusicByBlake3Request".to_string());
 
         // sync types
         gen.add_schema::<SyncSongRequest>("SyncSongRequest");

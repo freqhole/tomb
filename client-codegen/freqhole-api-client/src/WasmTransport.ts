@@ -15,16 +15,6 @@ export interface BlobResultLike {
 }
 
 /**
- * upload result from midden
- */
-export interface UploadResultLike {
-  blob_id(): string | undefined;
-  job_id(): string | undefined;
-  /** full server response body for Zod validation */
-  body(): string | undefined;
-}
-
-/**
  * interface matching midden's MiddenNode WASM class
  * use this type when you don't want to import midden directly
  */
@@ -45,20 +35,16 @@ export interface MiddenNodeLike {
     blob_id: string,
     on_progress: (received: number, total: number) => void,
   ): Promise<BlobResultLike>;
-  // upload blob to peer - optional
-  // associate_with: optional JSON string with entity association metadata
-  upload_blob?(
-    peer_addr: string,
-    filename: string,
-    content_type: string,
-    data: Uint8Array,
-    associate_with?: string | null,
-  ): Promise<UploadResultLike>;
   // fetch server image (public, no auth required) - optional
   // returns HelloImageResult (properties: data, content_type) not BlobResultLike (methods)
   fetch_hello_image?(
     peer_addr: string,
   ): Promise<{ data: Uint8Array; content_type: string | undefined }>;
+  // import bytes into local iroh-blobs store, returns blake3 hash (64 hex chars)
+  // keeps a TempTag so GC won't collect it until release_blob is called
+  import_blob?(data: Uint8Array): Promise<string>;
+  // release a blob's TempTag, allowing GC
+  release_blob?(blake3_hash: string): void;
   // download blob with iroh-blobs verified streaming - optional
   download_verified?(
     peer_addr: string,
@@ -147,65 +133,128 @@ export class WasmTransport implements Transport {
     }
   }
 
-  async upload(_path: string, formData: FormData): Promise<TransportResponse> {
-    // check if upload is supported (requires midden rebuild)
-    if (!this.node.upload_blob) {
-      throw new Error(
-        "P2P upload requires midden rebuild with upload_blob support",
-      );
-    }
-
-    // extract file from form data
+  async upload(path: string, formData: FormData): Promise<TransportResponse> {
     const file = formData.get("file") as File | null;
     if (!file) {
       return {
         status: 400,
-        body: JSON.stringify({ error: "no file provided" }),
+        body: JSON.stringify({
+          success: false,
+          message: "no file provided",
+          errors: [
+            {
+              error_type: "bad_request",
+              title: "bad request",
+              detail: "no file provided",
+            },
+          ],
+        }),
       };
     }
 
-    // extract associate_with metadata if present (pass as JSON string to WASM)
-    const associateWith = formData.get("associate_with") as string | null;
+    // for music uploads, use iroh-blobs pull model if available
+    if (path === "/api/upload/music" && this.node.import_blob) {
+      return this.uploadViaIrohBlobs(file, formData);
+    }
 
-    // read file data
-    const data = new Uint8Array(await file.arrayBuffer());
-    const contentType = file.type || "application/octet-stream";
+    // fallback: base64 encode and send via proxy_request (works for image uploads)
+    return this.uploadViaBase64(path, file, formData);
+  }
+
+  /**
+   * upload via iroh-blobs pull model:
+   * 1. import file bytes into local iroh-blobs store (returns blake3 hash)
+   * 2. tell remote peer the hash via /api/upload/music-by-blake3
+   * 3. remote peer pulls the blob from us via iroh-blobs verified streaming
+   * 4. release the TempTag so local GC can reclaim the blob
+   */
+  private async uploadViaIrohBlobs(
+    file: File,
+    formData: FormData,
+  ): Promise<TransportResponse> {
+    const fileBytes = new Uint8Array(await file.arrayBuffer());
+    const hash = await this.node.import_blob!(fileBytes);
 
     try {
-      const result = await this.node.upload_blob(
-        this.peerAddr,
-        file.name,
-        contentType,
-        data,
-        associateWith,
-      );
+      const body: Record<string, unknown> = {
+        blake3: hash,
+        filename: file.name,
+        size: fileBytes.length,
+      };
 
-      // use full server response body if available (for proper Zod validation)
-      const serverBody = result.body();
-      if (serverBody) {
-        return {
-          status: 200,
-          body: serverBody,
-        };
+      // include metadata if present (parsed as JSON)
+      const metadataStr = formData.get("metadata") as string | null;
+      if (metadataStr) {
+        try {
+          body.metadata = JSON.parse(metadataStr);
+        } catch {
+          // ignore parse errors
+        }
       }
 
-      // fallback to minimal response (shouldn't happen with updated midden)
-      return {
-        status: 200,
-        body: JSON.stringify({
-          blob_id: result.blob_id(),
-          job_id: result.job_id(),
-          message: "upload successful",
-        }),
-      };
-    } catch (e) {
-      return {
-        status: 500,
-        body: JSON.stringify({
-          error: e instanceof Error ? e.message : String(e),
-        }),
-      };
+      // include associate_with if present
+      const associateWithStr = formData.get("associate_with") as string | null;
+      if (associateWithStr) {
+        try {
+          body.associate_with = JSON.parse(associateWithStr);
+        } catch {
+          // ignore parse errors
+        }
+      }
+
+      const response = await this.request(
+        "POST",
+        "/api/upload/music-by-blake3",
+        JSON.stringify(body),
+      );
+      return response;
+    } finally {
+      // release TempTag so local GC can reclaim the blob
+      this.node.release_blob?.(hash);
     }
+  }
+
+  /**
+   * fallback upload via base64 encoding
+   * used for image uploads (which work via offal dispatch) and when
+   * iroh-blobs import_blob is not available
+   */
+  private async uploadViaBase64(
+    path: string,
+    file: File,
+    formData: FormData,
+  ): Promise<TransportResponse> {
+    if (path === "/api/upload/music") {
+      console.warn(
+        "[WasmTransport] iroh-blobs not available, falling back to base64 upload (may not work)",
+      );
+    }
+
+    const arrayBuffer = await file.arrayBuffer();
+    const base64 = btoa(
+      new Uint8Array(arrayBuffer).reduce(
+        (data, byte) => data + String.fromCharCode(byte),
+        "",
+      ),
+    );
+
+    const body: Record<string, unknown> = {
+      data: base64,
+      filename: file.name,
+    };
+
+    // include associate_with if present
+    const associateWithStr = formData.get("associate_with") as string | null;
+    if (associateWithStr) {
+      try {
+        body.associate_with = JSON.parse(associateWithStr);
+      } catch {
+        // ignore parse errors
+      }
+    }
+
+    // send via proxy_request — routes through offal dispatch on the remote peer
+    return this.request("POST", path, JSON.stringify(body));
   }
 
   async fetchBlob(blobId: string, blake3?: string): Promise<BlobData> {

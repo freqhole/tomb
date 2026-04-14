@@ -169,9 +169,13 @@ async fn handle_stream(
                 .and_then(|b| serde_json::from_str(b).ok())
                 .unwrap_or(JsonValue::Null);
 
-            // inject node_id for public routes that need to know who's connecting
-            // (knock routes for pending requests, invite for linking peer to user)
-            if path == "/api/knock" || path == "/api/knock/status" || path == "/api/auth/invite" {
+            // inject node_id for routes that need to know who's connecting
+            // (knock/invite for pending requests, upload for iroh-blobs pull)
+            if path == "/api/knock"
+                || path == "/api/knock/status"
+                || path == "/api/auth/invite"
+                || path == "/api/upload/music-by-blake3"
+            {
                 if let Some(obj) = json_body.as_object_mut() {
                     obj.insert(
                         "node_id".to_string(),

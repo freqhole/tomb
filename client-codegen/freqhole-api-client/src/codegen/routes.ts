@@ -50,6 +50,7 @@ export const routes = {
     add_albums_tags: { method: 'POST', path: '/api/tags/albums/add', req: s.AddAlbumsTagsRequestSchema, resp: s.EmptyResponseSchema, auth: { type: 'role', role: 'admin' } as const },
     add_songs_to_playlist: { method: 'POST', path: '/api/playlists/add-songs', req: s.AddSongsToPlaylistRequestSchema, resp: s.EmptyResponseSchema, auth: { type: 'owner_or', role: 'admin' } as const },
     blob_metadata: { method: 'POST', path: '/api/blob_metadata', req: s.GetBlobMetadataRequestSchema, resp: s.BlobMetadataResponseSchema, auth: { type: 'authenticated' } as const },
+    blob_metadata_by_blake3: { method: 'POST', path: '/api/blob_metadata_by_blake3', req: s.GetBlobMetadataByBlake3RequestSchema, resp: s.BlobMetadataResponseSchema, auth: { type: 'authenticated' } as const },
     bulk_clear_song_artwork: { method: 'POST', path: '/api/songs/bulk-clear-artwork', req: s.BulkClearSongArtworkRequestSchema, resp: s.BulkClearSongArtworkResponseSchema, auth: { type: 'role', role: 'admin' } as const },
     bulk_delete_songs: { method: 'POST', path: '/api/songs/bulk-delete', req: s.BulkDeleteSongsRequestSchema, resp: s.BulkDeleteSongsResponseSchema, auth: { type: 'role', role: 'admin' } as const },
     create_artist: { method: 'POST', path: '/api/music/artists', req: s.CreateArtistRequestSchema, resp: s.ArtistSchema, auth: { type: 'role', role: 'admin' } as const },
@@ -122,5 +123,6 @@ export const routes = {
     update_songs: { method: 'POST', path: '/api/songs/update', req: s.UpdateSongsRequestSchema, resp: s.UpdateSongsResultSchema, auth: { type: 'role', role: 'admin' } as const },
     upload_image: { method: 'POST', path: '/api/upload/image', req: null, resp: s.ImageUploadResponseSchema, auth: { type: 'role', role: 'member' } as const },
     upload_music: { method: 'POST', path: '/api/upload/music', req: null, resp: s.MusicUploadResponseSchema, auth: { type: 'role', role: 'member' } as const },
+    upload_music_by_blake3: { method: 'POST', path: '/api/upload/music-by-blake3', req: s.UploadMusicByBlake3RequestSchema, resp: s.MusicUploadResponseSchema, auth: { type: 'role', role: 'member' } as const },
   },
 } as const;

@@ -132,73 +132,56 @@ export class CharnelTransport implements Transport {
 
   /**
    * upload via P2P
+   *
+   * TODO: implement iroh-blobs pull model for CharnelTransport
+   * needs a new Tauri command to import file into local FsStore:
+   *   1. invoke("p2p_import_blob", { filePath }) -> blake3 hash
+   *   2. proxy_request POST /api/upload/music-by-blake3 { blake3, filename }
+   *   3. remote peer pulls blob via iroh-blobs from our endpoint
+   * for now, falls back to base64 which routes to /api/upload/music (not in offal, will 404)
    */
-  async upload(_path: string, formData: FormData): Promise<TransportResponse> {
-    const inv = await ensureInvoke();
-
+  async upload(path: string, formData: FormData): Promise<TransportResponse> {
     // extract file from form data
     const file = formData.get("file") as File | null;
     if (!file) {
       return {
         status: 400,
-        body: JSON.stringify({ error: "no file provided" }),
+        body: JSON.stringify({
+          success: false,
+          message: "no file provided",
+          errors: [
+            {
+              error_type: "bad_request",
+              title: "bad request",
+              detail: "no file provided",
+            },
+          ],
+        }),
       };
     }
 
-    // extract associate_with metadata if present
+    // read file and encode as base64
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const base64 = bytesToBase64(bytes);
+
+    // build JSON body for dispatch
+    const body: Record<string, unknown> = {
+      data: base64,
+      filename: file.name,
+    };
+
+    // include associate_with if present
     const associateWithStr = formData.get("associate_with") as string | null;
-    let associateWith: object | null = null;
     if (associateWithStr) {
       try {
-        associateWith = JSON.parse(associateWithStr);
+        body.associate_with = JSON.parse(associateWithStr);
       } catch {
         // ignore parse errors
       }
     }
 
-    // read file and encode as base64 (tauri IPC requires this for binary data)
-    const bytes = new Uint8Array(await file.arrayBuffer());
-    const base64 = bytesToBase64(bytes);
-    const contentType = file.type || "application/octet-stream";
-
-    try {
-      const result = (await inv("p2p_upload_blob", {
-        peerAddr: this.peerAddr,
-        filename: file.name,
-        contentType,
-        data: base64,
-        associateWith,
-      })) as {
-        blob_id: string | null;
-        job_id: string | null;
-        body: string | null;
-      };
-
-      // use full server response body if available (for proper Zod validation)
-      if (result.body) {
-        return {
-          status: 200,
-          body: result.body,
-        };
-      }
-
-      // fallback to minimal response (shouldn't happen with updated server)
-      return {
-        status: 200,
-        body: JSON.stringify({
-          blob_id: result.blob_id,
-          job_id: result.job_id,
-          message: "upload successful",
-        }),
-      };
-    } catch (e) {
-      return {
-        status: 500,
-        body: JSON.stringify({
-          error: e instanceof Error ? e.message : String(e),
-        }),
-      };
-    }
+    // send via proxy_request — routes through offal dispatch on the remote peer
+    return this.request("POST", path, JSON.stringify(body));
   }
 
   /**
