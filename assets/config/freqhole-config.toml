@@ -124,6 +124,15 @@ thumbnail_sizes = [50, 200]
 # (default: false)
 thumbnail_on_demand_enabled = false
 
+# OPTIONAL: ImageMagick path and args for PDF processing
+# used for generating page thumbnail (first page) and rendering all PDF pages to WebP
+# magick_path is shared with thumbnail generation (default: "magick")
+# magick_pdf_pages_args is for rendering ALL pages of a PDF to individual WebP files
+# placeholders: {input} = PDF path, {output} = output pattern (e.g. /path/page-%03d.webp)
+# OPTIONAL (default: "-density 150 {input} -quality 80 {output}")
+magick_path = "magick"
+magick_pdf_pages_args = "-density 150 {input} -quality 80 {output}"
+
 # ============================================================================
 # MusicBrainz integration for metadata enrichment
 # ============================================================================
@@ -167,7 +176,7 @@ enabled = true
 # also used for session cookie name: "{name}_session" (sanitized: lowercase, no spaces/special chars)
 name = "freqhole"
 # REQUIRED: server version (you probably should never edit this)
-version = "0.1.13"
+version = "0.1.14"
 # OPTIONAL: server description (default: null)
 description = "get yr freq on"
 

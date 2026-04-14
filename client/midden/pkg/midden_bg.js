@@ -1,37 +1,183 @@
 //#region exports
 
 /**
- * blob fetch result
+ * a bidirectional QUIC stream for length-delimited message exchange.
+ *
+ * wraps an iroh (SendStream, RecvStream) pair. messages are framed with
+ * a 4-byte big-endian u32 length prefix, matching `LengthDelimitedCodec`
+ * from tokio-util.
+ *
+ * the send and recv halves use RefCell<Option<...>> so that async read
+ * and write operations can proceed concurrently (safe because WASM is
+ * single-threaded).
  */
-export class BlobResult {
+export class BiStream {
     constructor() {
         throw new Error('cannot invoke `new` directly');
     }
     static __wrap(ptr) {
         ptr = ptr >>> 0;
-        const obj = Object.create(BlobResult.prototype);
+        const obj = Object.create(BiStream.prototype);
         obj.__wbg_ptr = ptr;
-        BlobResultFinalization.register(obj, obj.__wbg_ptr, obj);
+        BiStreamFinalization.register(obj, obj.__wbg_ptr, obj);
         return obj;
     }
     __destroy_into_raw() {
         const ptr = this.__wbg_ptr;
         this.__wbg_ptr = 0;
-        BlobResultFinalization.unregister(this);
+        BiStreamFinalization.unregister(this);
         return ptr;
     }
     free() {
         const ptr = this.__destroy_into_raw();
-        wasm.__wbg_blobresult_free(ptr, 0);
+        wasm.__wbg_bistream_free(ptr, 0);
     }
     /**
-     * get content type (if known)
-     * @returns {string | undefined}
+     * the ALPN protocol this stream was established on.
+     * @returns {string}
      */
-    content_type() {
+    alpn() {
+        let deferred1_0;
+        let deferred1_1;
+        try {
+            if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
+            _assertNum(this.__wbg_ptr);
+            const ret = wasm.bistream_alpn(this.__wbg_ptr);
+            deferred1_0 = ret[0];
+            deferred1_1 = ret[1];
+            return getStringFromWasm0(ret[0], ret[1]);
+        } finally {
+            wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+        }
+    }
+    /**
+     * close the stream.
+     *
+     * finishes the send half and drops both halves.
+     */
+    close() {
         if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
         _assertNum(this.__wbg_ptr);
-        const ret = wasm.blobresult_content_type(this.__wbg_ptr);
+        wasm.bistream_close(this.__wbg_ptr);
+    }
+    /**
+     * the remote peer's node ID (iroh public key as hex string).
+     * @returns {string}
+     */
+    peer_node_id() {
+        let deferred1_0;
+        let deferred1_1;
+        try {
+            if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
+            _assertNum(this.__wbg_ptr);
+            const ret = wasm.bistream_peer_node_id(this.__wbg_ptr);
+            deferred1_0 = ret[0];
+            deferred1_1 = ret[1];
+            return getStringFromWasm0(ret[0], ret[1]);
+        } finally {
+            wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+        }
+    }
+    /**
+     * read a length-delimited message.
+     *
+     * reads a 4-byte big-endian u32 length prefix, then reads that many
+     * bytes of payload. returns the payload as a Uint8Array.
+     *
+     * returns null (JsValue::NULL) if the stream has been closed cleanly
+     * by the remote peer (EOF on the length prefix read).
+     * @returns {Promise<any>}
+     */
+    read_message() {
+        if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
+        _assertNum(this.__wbg_ptr);
+        const ret = wasm.bistream_read_message(this.__wbg_ptr);
+        return ret;
+    }
+    /**
+     * read all remaining bytes from the recv stream (no length prefix).
+     *
+     * reads until the remote peer finishes the stream or `max_size` bytes
+     * are read. this matches grimoire's `read_to_end()` framing where
+     * the message is terminated by the sender calling `finish()`.
+     * @param {number} max_size
+     * @returns {Promise<any>}
+     */
+    read_to_end(max_size) {
+        if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
+        _assertNum(this.__wbg_ptr);
+        _assertNum(max_size);
+        const ret = wasm.bistream_read_to_end(this.__wbg_ptr, max_size);
+        return ret;
+    }
+    /**
+     * write a length-delimited message.
+     *
+     * writes a 4-byte big-endian u32 length prefix followed by the payload.
+     * this matches the `LengthDelimitedCodec` framing used by the
+     * iroh-automerge-repo example.
+     * @param {Uint8Array} data
+     * @returns {Promise<void>}
+     */
+    write_message(data) {
+        if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
+        _assertNum(this.__wbg_ptr);
+        const ptr0 = passArray8ToWasm0(data, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.bistream_write_message(this.__wbg_ptr, ptr0, len0);
+        return ret;
+    }
+    /**
+     * write raw bytes without a length prefix, then finish the send stream.
+     *
+     * this matches grimoire's `send_response()` framing where the message
+     * is terminated by calling `finish()` on the send stream. the receiver
+     * uses `read_to_end()` to read all bytes.
+     * @param {Uint8Array} data
+     * @returns {Promise<void>}
+     */
+    write_raw_and_finish(data) {
+        if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
+        _assertNum(this.__wbg_ptr);
+        const ptr0 = passArray8ToWasm0(data, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.bistream_write_raw_and_finish(this.__wbg_ptr, ptr0, len0);
+        return ret;
+    }
+}
+if (Symbol.dispose) BiStream.prototype[Symbol.dispose] = BiStream.prototype.free;
+
+/**
+ * result from fetching the server hello image from a peer
+ */
+export class HelloImageResult {
+    constructor() {
+        throw new Error('cannot invoke `new` directly');
+    }
+    static __wrap(ptr) {
+        ptr = ptr >>> 0;
+        const obj = Object.create(HelloImageResult.prototype);
+        obj.__wbg_ptr = ptr;
+        HelloImageResultFinalization.register(obj, obj.__wbg_ptr, obj);
+        return obj;
+    }
+    __destroy_into_raw() {
+        const ptr = this.__wbg_ptr;
+        this.__wbg_ptr = 0;
+        HelloImageResultFinalization.unregister(this);
+        return ptr;
+    }
+    free() {
+        const ptr = this.__destroy_into_raw();
+        wasm.__wbg_helloimageresult_free(ptr, 0);
+    }
+    /**
+     * @returns {string | undefined}
+     */
+    get content_type() {
+        if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
+        _assertNum(this.__wbg_ptr);
+        const ret = wasm.helloimageresult_content_type(this.__wbg_ptr);
         let v1;
         if (ret[0] !== 0) {
             v1 = getStringFromWasm0(ret[0], ret[1]).slice();
@@ -40,27 +186,16 @@ export class BlobResult {
         return v1;
     }
     /**
-     * get blob data as Uint8Array
      * @returns {Uint8Array}
      */
-    data() {
+    get data() {
         if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
         _assertNum(this.__wbg_ptr);
-        const ret = wasm.blobresult_data(this.__wbg_ptr);
+        const ret = wasm.helloimageresult_data(this.__wbg_ptr);
         return ret;
     }
-    /**
-     * get blob size in bytes
-     * @returns {number}
-     */
-    size() {
-        if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
-        _assertNum(this.__wbg_ptr);
-        const ret = wasm.blobresult_size(this.__wbg_ptr);
-        return ret >>> 0;
-    }
 }
-if (Symbol.dispose) BlobResult.prototype[Symbol.dispose] = BlobResult.prototype.free;
+if (Symbol.dispose) HelloImageResult.prototype[Symbol.dispose] = HelloImageResult.prototype.free;
 
 export class IntoUnderlyingByteSource {
     constructor() {
@@ -231,6 +366,34 @@ export class MiddenNode {
         wasm.__wbg_middennode_free(ptr, 0);
     }
     /**
+     * accept the next incoming connection and bidirectional stream.
+     *
+     * blocks until an incoming connection arrives on any registered ALPN.
+     * returns a BiStream with the peer's node ID and the negotiated ALPN.
+     *
+     * returns null (JsValue::NULL) if the endpoint has been closed.
+     *
+     * the caller should check `stream.alpn()` to route the connection
+     * to the appropriate handler.
+     * @returns {Promise<any>}
+     */
+    accept() {
+        if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
+        _assertNum(this.__wbg_ptr);
+        const ret = wasm.middennode_accept(this.__wbg_ptr);
+        return ret;
+    }
+    /**
+     * return the number of blobs currently held in the store via active TempTags.
+     * @returns {number}
+     */
+    active_blob_count() {
+        if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
+        _assertNum(this.__wbg_ptr);
+        const ret = wasm.middennode_active_blob_count(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
      * compute blake3 hash for a blob on demand
      *
      * use this when the client doesn't have the blake3 hash yet (not in API response).
@@ -271,6 +434,21 @@ export class MiddenNode {
         const ptr0 = passArray8ToWasm0(key_bytes, wasm.__wbindgen_malloc);
         const len0 = WASM_VECTOR_LEN;
         const ret = wasm.middennode_create_from_key(ptr0, len0);
+        return ret;
+    }
+    /**
+     * create a node from existing secret key with additional ALPN protocols.
+     *
+     * `extra_alpns` is a JS array of strings (e.g. ["iroh/automerge-repo/1"]).
+     * the node always registers "freqhole/1" plus whatever extra ALPNs are given.
+     * @param {Uint8Array} key_bytes
+     * @param {Array<any>} extra_alpns
+     * @returns {Promise<MiddenNode>}
+     */
+    static create_with_alpns(key_bytes, extra_alpns) {
+        const ptr0 = passArray8ToWasm0(key_bytes, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.middennode_create_with_alpns(ptr0, len0, extra_alpns);
         return ret;
     }
     /**
@@ -319,6 +497,27 @@ export class MiddenNode {
         return ret;
     }
     /**
+     * full pipeline from blob_id with progress reporting
+     *
+     * computes blake3 on demand, then uses verified download with progress.
+     * returns [data: Uint8Array, blake3: string].
+     * @param {string} peer_addr
+     * @param {string} blob_id
+     * @param {number} total_size
+     * @param {Function} on_progress
+     * @returns {Promise<Array<any>>}
+     */
+    download_verified_by_id_progress(peer_addr, blob_id, total_size, on_progress) {
+        if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
+        _assertNum(this.__wbg_ptr);
+        const ptr0 = passStringToWasm0(peer_addr, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passStringToWasm0(blob_id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ret = wasm.middennode_download_verified_by_id_progress(this.__wbg_ptr, ptr0, len0, ptr1, len1, total_size, on_progress);
+        return ret;
+    }
+    /**
      * download a blob using iroh-blobs with automatic ensure + retry
      *
      * tries download_verified first. if blob not in peer's FsStore,
@@ -335,6 +534,49 @@ export class MiddenNode {
         const ptr1 = passStringToWasm0(blake3_hash, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
         const len1 = WASM_VECTOR_LEN;
         const ret = wasm.middennode_download_verified_with_ensure(this.__wbg_ptr, ptr0, len0, ptr1, len1);
+        return ret;
+    }
+    /**
+     * download with ensure + retry and progress reporting
+     *
+     * tries download first; if blob not in peer's FsStore, calls ensure_blob
+     * then retries. progress callback receives fraction (0.0 to 1.0).
+     * @param {string} peer_addr
+     * @param {string} blake3_hash
+     * @param {number} total_size
+     * @param {Function} on_progress
+     * @returns {Promise<Uint8Array>}
+     */
+    download_verified_with_ensure_progress(peer_addr, blake3_hash, total_size, on_progress) {
+        if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
+        _assertNum(this.__wbg_ptr);
+        const ptr0 = passStringToWasm0(peer_addr, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passStringToWasm0(blake3_hash, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ret = wasm.middennode_download_verified_with_ensure_progress(this.__wbg_ptr, ptr0, len0, ptr1, len1, total_size, on_progress);
+        return ret;
+    }
+    /**
+     * download a blob with progress reporting via JS callback
+     *
+     * same as download_verified but calls on_progress(fraction) where
+     * fraction is bytes_received / total_size (0.0 to 1.0).
+     * total_size should come from the automerge doc's size field.
+     * @param {string} peer_addr
+     * @param {string} blake3_hash
+     * @param {number} total_size
+     * @param {Function} on_progress
+     * @returns {Promise<Uint8Array>}
+     */
+    download_verified_with_progress(peer_addr, blake3_hash, total_size, on_progress) {
+        if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
+        _assertNum(this.__wbg_ptr);
+        const ptr0 = passStringToWasm0(peer_addr, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passStringToWasm0(blake3_hash, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ret = wasm.middennode_download_verified_with_progress(this.__wbg_ptr, ptr0, len0, ptr1, len1, total_size, on_progress);
         return ret;
     }
     /**
@@ -359,48 +601,11 @@ export class MiddenNode {
         return ret;
     }
     /**
-     * fetch a blob from a peer
-     * peer_addr can be plain node_id or full endpoint JSON with relay/IP hints
-     * returns BlobResult with data and metadata
-     * @param {string} peer_addr
-     * @param {string} blob_id
-     * @returns {Promise<BlobResult>}
-     */
-    fetch_blob(peer_addr, blob_id) {
-        if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
-        _assertNum(this.__wbg_ptr);
-        const ptr0 = passStringToWasm0(peer_addr, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
-        const len0 = WASM_VECTOR_LEN;
-        const ptr1 = passStringToWasm0(blob_id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
-        const len1 = WASM_VECTOR_LEN;
-        const ret = wasm.middennode_fetch_blob(this.__wbg_ptr, ptr0, len0, ptr1, len1);
-        return ret;
-    }
-    /**
-     * fetch a blob from a peer with progress callback
-     * callback is called with (received_bytes, total_bytes) as arguments
-     * if total_bytes is 0, the size is unknown
-     * @param {string} peer_addr
-     * @param {string} blob_id
-     * @param {Function} on_progress
-     * @returns {Promise<BlobResult>}
-     */
-    fetch_blob_with_progress(peer_addr, blob_id, on_progress) {
-        if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
-        _assertNum(this.__wbg_ptr);
-        const ptr0 = passStringToWasm0(peer_addr, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
-        const len0 = WASM_VECTOR_LEN;
-        const ptr1 = passStringToWasm0(blob_id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
-        const len1 = WASM_VECTOR_LEN;
-        const ret = wasm.middennode_fetch_blob_with_progress(this.__wbg_ptr, ptr0, len0, ptr1, len1, on_progress);
-        return ret;
-    }
-    /**
      * fetch server image from a peer (public, no auth required)
      * used during "add remote" flow before user is authenticated
      * peer_addr can be plain node_id or full endpoint JSON with relay/IP hints
      * @param {string} peer_addr
-     * @returns {Promise<BlobResult>}
+     * @returns {Promise<HelloImageResult>}
      */
     fetch_hello_image(peer_addr) {
         if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
@@ -408,6 +613,77 @@ export class MiddenNode {
         const ptr0 = passStringToWasm0(peer_addr, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
         const len0 = WASM_VECTOR_LEN;
         const ret = wasm.middennode_fetch_hello_image(this.__wbg_ptr, ptr0, len0);
+        return ret;
+    }
+    /**
+     * check whether a blob with the given blake3 hash is currently held in the MemStore
+     * via an active TempTag. avoids expensive OPFS read + bao recomputation when the
+     * blob is already loaded.
+     * @param {string} blake3_hash
+     * @returns {boolean}
+     */
+    has_active_blob(blake3_hash) {
+        if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
+        _assertNum(this.__wbg_ptr);
+        const ptr0 = passStringToWasm0(blake3_hash, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.middennode_has_active_blob(this.__wbg_ptr, ptr0, len0);
+        return ret !== 0;
+    }
+    /**
+     * import a blob from its pre-computed bao-encoded bytes, skipping the
+     * expensive bao tree computation. `blake3_hash` is the 64-char hex hash,
+     * `bao_data` is the bao-encoded bytes previously returned by
+     * `import_blob_and_export_bao`.
+     *
+     * uses `import_bao_bytes` (iroh-blobs internal API) to feed the pre-computed
+     * bao stream directly into the store, then creates a global TempTag via
+     * `Tags::temp_tag` to prevent GC.
+     * @param {string} blake3_hash
+     * @param {Uint8Array} bao_data
+     * @returns {Promise<string>}
+     */
+    import_bao(blake3_hash, bao_data) {
+        if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
+        _assertNum(this.__wbg_ptr);
+        const ptr0 = passStringToWasm0(blake3_hash, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passArray8ToWasm0(bao_data, wasm.__wbindgen_malloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ret = wasm.middennode_import_bao(this.__wbg_ptr, ptr0, len0, ptr1, len1);
+        return ret;
+    }
+    /**
+     * import raw bytes into the iroh-blobs store, returning the blake3 hash.
+     * this makes the blob available for verified download by peers.
+     * the blob stays in the store as long as its TempTag is held in active_tags.
+     * call release_blob() to allow GC, or it will be evicted when the map exceeds 3 entries.
+     * @param {Uint8Array} data
+     * @returns {Promise<string>}
+     */
+    import_blob(data) {
+        if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
+        _assertNum(this.__wbg_ptr);
+        const ptr0 = passArray8ToWasm0(data, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.middennode_import_blob(this.__wbg_ptr, ptr0, len0);
+        return ret;
+    }
+    /**
+     * import raw bytes into the iroh-blobs store, returning both the blake3 hash
+     * AND the bao-encoded bytes. the bao bytes can be cached in OPFS and later
+     * fed to `import_bao` to skip the expensive bao tree recomputation on re-import.
+     *
+     * returns a JS object: `{ hash: string, bao: Uint8Array }`
+     * @param {Uint8Array} data
+     * @returns {Promise<any>}
+     */
+    import_blob_and_export_bao(data) {
+        if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
+        _assertNum(this.__wbg_ptr);
+        const ptr0 = passArray8ToWasm0(data, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.middennode_import_blob_and_export_bao(this.__wbg_ptr, ptr0, len0);
         return ret;
     }
     /**
@@ -427,6 +703,28 @@ export class MiddenNode {
         } finally {
             wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
         }
+    }
+    /**
+     * open a bidirectional stream to a peer on a specific ALPN.
+     *
+     * `peer_addr` can be a plain node_id hex string or a full endpoint
+     * address JSON (same format as proxy_request). `alpn` is the protocol
+     * to negotiate (e.g. "iroh/automerge-repo/1").
+     *
+     * returns a BiStream for length-delimited message exchange.
+     * @param {string} peer_addr
+     * @param {string} alpn
+     * @returns {Promise<BiStream>}
+     */
+    open_bi(peer_addr, alpn) {
+        if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
+        _assertNum(this.__wbg_ptr);
+        const ptr0 = passStringToWasm0(peer_addr, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passStringToWasm0(alpn, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ret = wasm.middennode_open_bi(this.__wbg_ptr, ptr0, len0, ptr1, len1);
+        return ret;
     }
     /**
      * send an API request to a peer
@@ -452,6 +750,21 @@ export class MiddenNode {
         return ret;
     }
     /**
+     * release a blob's TempTag, allowing the store to garbage-collect it.
+     * blake3_hash should be the 64-char hex string returned by import_blob.
+     * @param {string} blake3_hash
+     */
+    release_blob(blake3_hash) {
+        if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
+        _assertNum(this.__wbg_ptr);
+        const ptr0 = passStringToWasm0(blake3_hash, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.middennode_release_blob(this.__wbg_ptr, ptr0, len0);
+        if (ret[1]) {
+            throw takeFromExternrefTable0(ret[0]);
+        }
+    }
+    /**
      * get the secret key bytes for persistence (32 bytes)
      * store this in IndexedDB to maintain the same identity across sessions
      * @returns {Uint8Array}
@@ -462,108 +775,29 @@ export class MiddenNode {
         const ret = wasm.middennode_secret_key(this.__wbg_ptr);
         return ret;
     }
-    /**
-     * upload a blob to a peer
-     * peer_addr can be plain node_id or full endpoint JSON with relay/IP hints
-     * associate_with: optional JSON string with entity association metadata
-     * returns UploadResult with blob_id and job_id on success
-     * @param {string} peer_addr
-     * @param {string} filename
-     * @param {string} content_type
-     * @param {Uint8Array} data
-     * @param {string | null} [associate_with]
-     * @returns {Promise<UploadResult>}
-     */
-    upload_blob(peer_addr, filename, content_type, data, associate_with) {
-        if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
-        _assertNum(this.__wbg_ptr);
-        const ptr0 = passStringToWasm0(peer_addr, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
-        const len0 = WASM_VECTOR_LEN;
-        const ptr1 = passStringToWasm0(filename, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
-        const len1 = WASM_VECTOR_LEN;
-        const ptr2 = passStringToWasm0(content_type, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
-        const len2 = WASM_VECTOR_LEN;
-        const ptr3 = passArray8ToWasm0(data, wasm.__wbindgen_malloc);
-        const len3 = WASM_VECTOR_LEN;
-        var ptr4 = isLikeNone(associate_with) ? 0 : passStringToWasm0(associate_with, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
-        var len4 = WASM_VECTOR_LEN;
-        const ret = wasm.middennode_upload_blob(this.__wbg_ptr, ptr0, len0, ptr1, len1, ptr2, len2, ptr3, len3, ptr4, len4);
-        return ret;
-    }
 }
 if (Symbol.dispose) MiddenNode.prototype[Symbol.dispose] = MiddenNode.prototype.free;
 
 /**
- * upload result
+ * compute the blake3 hash of the given bytes and return as a hex string.
+ * this runs entirely in the browser — no network call needed.
+ * @param {Uint8Array} data
+ * @returns {string}
  */
-export class UploadResult {
-    constructor() {
-        throw new Error('cannot invoke `new` directly');
-    }
-    static __wrap(ptr) {
-        ptr = ptr >>> 0;
-        const obj = Object.create(UploadResult.prototype);
-        obj.__wbg_ptr = ptr;
-        UploadResultFinalization.register(obj, obj.__wbg_ptr, obj);
-        return obj;
-    }
-    __destroy_into_raw() {
-        const ptr = this.__wbg_ptr;
-        this.__wbg_ptr = 0;
-        UploadResultFinalization.unregister(this);
-        return ptr;
-    }
-    free() {
-        const ptr = this.__destroy_into_raw();
-        wasm.__wbg_uploadresult_free(ptr, 0);
-    }
-    /**
-     * get the created blob_id (if successful)
-     * @returns {string | undefined}
-     */
-    blob_id() {
-        if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
-        _assertNum(this.__wbg_ptr);
-        const ret = wasm.uploadresult_blob_id(this.__wbg_ptr);
-        let v1;
-        if (ret[0] !== 0) {
-            v1 = getStringFromWasm0(ret[0], ret[1]).slice();
-            wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
-        }
-        return v1;
-    }
-    /**
-     * get the full server response body (for Zod validation)
-     * @returns {string | undefined}
-     */
-    body() {
-        if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
-        _assertNum(this.__wbg_ptr);
-        const ret = wasm.uploadresult_body(this.__wbg_ptr);
-        let v1;
-        if (ret[0] !== 0) {
-            v1 = getStringFromWasm0(ret[0], ret[1]).slice();
-            wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
-        }
-        return v1;
-    }
-    /**
-     * get the import job_id
-     * @returns {string | undefined}
-     */
-    job_id() {
-        if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
-        _assertNum(this.__wbg_ptr);
-        const ret = wasm.uploadresult_job_id(this.__wbg_ptr);
-        let v1;
-        if (ret[0] !== 0) {
-            v1 = getStringFromWasm0(ret[0], ret[1]).slice();
-            wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
-        }
-        return v1;
+export function hash_blake3(data) {
+    let deferred2_0;
+    let deferred2_1;
+    try {
+        const ptr0 = passArray8ToWasm0(data, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.hash_blake3(ptr0, len0);
+        deferred2_0 = ret[0];
+        deferred2_1 = ret[1];
+        return getStringFromWasm0(ret[0], ret[1]);
+    } finally {
+        wasm.__wbindgen_free(deferred2_0, deferred2_1, 1);
     }
 }
-if (Symbol.dispose) UploadResult.prototype[Symbol.dispose] = UploadResult.prototype.free;
 
 export function start() {
     wasm.start();
@@ -649,8 +883,8 @@ export function __wbg_arrayBuffer_eb8e9ca620af2a19() { return handleError(functi
     const ret = arg0.arrayBuffer();
     return ret;
 }, arguments); }
-export function __wbg_blobresult_new() { return logError(function (arg0) {
-    const ret = BlobResult.__wrap(arg0);
+export function __wbg_bistream_new() { return logError(function (arg0) {
+    const ret = BiStream.__wrap(arg0);
     return ret;
 }, arguments); }
 export function __wbg_body_ac1dad652946e6da() { return logError(function (arg0) {
@@ -677,10 +911,6 @@ export function __wbg_byteOffset_b26b63681c83856c() { return logError(function (
 }, arguments); }
 export function __wbg_call_2d781c1f4d5c0ef8() { return handleError(function (arg0, arg1, arg2) {
     const ret = arg0.call(arg1, arg2);
-    return ret;
-}, arguments); }
-export function __wbg_call_dcc2662fa17a72cf() { return handleError(function (arg0, arg1, arg2, arg3) {
-    const ret = arg0.call(arg1, arg2, arg3);
     return ret;
 }, arguments); }
 export function __wbg_call_e133b57c9155d22c() { return handleError(function (arg0, arg1) {
@@ -788,6 +1018,10 @@ export function __wbg_get_3ef1eba1850ade27() { return handleError(function (arg0
     const ret = Reflect.get(arg0, arg1);
     return ret;
 }, arguments); }
+export function __wbg_get_a8ee5c45dabc1b3b() { return logError(function (arg0, arg1) {
+    const ret = arg0[arg1 >>> 0];
+    return ret;
+}, arguments); }
 export function __wbg_get_done_d0ab690f8df5501f() { return logError(function (arg0) {
     const ret = arg0.done;
     if (!isLikeNone(ret)) {
@@ -806,6 +1040,10 @@ export function __wbg_has_926ef2ff40b308cf() { return handleError(function (arg0
 }, arguments); }
 export function __wbg_headers_eb2234545f9ff993() { return logError(function (arg0) {
     const ret = arg0.headers;
+    return ret;
+}, arguments); }
+export function __wbg_helloimageresult_new() { return logError(function (arg0) {
+    const ret = HelloImageResult.__wrap(arg0);
     return ret;
 }, arguments); }
 export function __wbg_instanceof_ArrayBuffer_101e2bf31071a9f6() { return logError(function (arg0) {
@@ -843,6 +1081,11 @@ export function __wbg_instanceof_Response_9b4d9fd451e051b1() { return logError(f
 }, arguments); }
 export function __wbg_iterator_d8f549ec8fb061b1() { return logError(function () {
     const ret = Symbol.iterator;
+    return ret;
+}, arguments); }
+export function __wbg_length_b3416cf66a5452c8() { return logError(function (arg0) {
+    const ret = arg0.length;
+    _assertNum(ret);
     return ret;
 }, arguments); }
 export function __wbg_length_ea16607d7b61445b() { return logError(function (arg0) {
@@ -1055,6 +1298,11 @@ export function __wbg_setTimeout_f757f00851f76c42() { return logError(function (
 export function __wbg_set_6be42768c690e380() { return logError(function (arg0, arg1, arg2) {
     arg0[arg1] = arg2;
 }, arguments); }
+export function __wbg_set_7eaa4f96924fd6b3() { return handleError(function (arg0, arg1, arg2) {
+    const ret = Reflect.set(arg0, arg1, arg2);
+    _assertBoolean(ret);
+    return ret;
+}, arguments); }
 export function __wbg_set_8c0b3ffcf05d61c2() { return logError(function (arg0, arg1, arg2) {
     arg0.set(getArrayU8FromWasm0(arg1, arg2));
 }, arguments); }
@@ -1145,10 +1393,6 @@ export function __wbg_then_9e335f6dd892bc11() { return logError(function (arg0, 
     const ret = arg0.then(arg1, arg2);
     return ret;
 }, arguments); }
-export function __wbg_uploadresult_new() { return logError(function (arg0) {
-    const ret = UploadResult.__wrap(arg0);
-    return ret;
-}, arguments); }
 export function __wbg_url_778f9516ea867e17() { return logError(function (arg0, arg1) {
     const ret = arg1.url;
     const ptr1 = passStringToWasm0(ret, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
@@ -1186,42 +1430,42 @@ export function __wbg_wasClean_69f68dc4ed2d2cc7() { return logError(function (ar
     return ret;
 }, arguments); }
 export function __wbindgen_cast_0000000000000001() { return logError(function (arg0, arg1) {
-    // Cast intrinsic for `Closure(Closure { dtor_idx: 1959, function: Function { arguments: [NamedExternref("CloseEvent")], shim_idx: 1960, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+    // Cast intrinsic for `Closure(Closure { dtor_idx: 2120, function: Function { arguments: [NamedExternref("CloseEvent")], shim_idx: 2121, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
     const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen__closure__destroy__h04df11150c2ec967, wasm_bindgen__convert__closures_____invoke__hab17faabe688f6d8);
     return ret;
 }, arguments); }
 export function __wbindgen_cast_0000000000000002() { return logError(function (arg0, arg1) {
-    // Cast intrinsic for `Closure(Closure { dtor_idx: 2399, function: Function { arguments: [], shim_idx: 2400, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+    // Cast intrinsic for `Closure(Closure { dtor_idx: 2555, function: Function { arguments: [], shim_idx: 2556, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
     const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen__closure__destroy__ha7f394643b1887b3, wasm_bindgen__convert__closures_____invoke__he5a7fdd38fa79d5e);
     return ret;
 }, arguments); }
 export function __wbindgen_cast_0000000000000003() { return logError(function (arg0, arg1) {
-    // Cast intrinsic for `Closure(Closure { dtor_idx: 2458, function: Function { arguments: [Externref], shim_idx: 2459, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+    // Cast intrinsic for `Closure(Closure { dtor_idx: 2617, function: Function { arguments: [Externref], shim_idx: 2618, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
     const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen__closure__destroy__h62030f04146461fd, wasm_bindgen__convert__closures_____invoke__h66dcf80ecdfd60a9);
     return ret;
 }, arguments); }
 export function __wbindgen_cast_0000000000000004() { return logError(function (arg0, arg1) {
-    // Cast intrinsic for `Closure(Closure { dtor_idx: 2482, function: Function { arguments: [], shim_idx: 2483, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+    // Cast intrinsic for `Closure(Closure { dtor_idx: 2641, function: Function { arguments: [], shim_idx: 2642, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
     const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen__closure__destroy__h662eff4f51ac122f, wasm_bindgen__convert__closures_____invoke__ha42ef89cec163d20);
     return ret;
 }, arguments); }
 export function __wbindgen_cast_0000000000000005() { return logError(function (arg0, arg1) {
-    // Cast intrinsic for `Closure(Closure { dtor_idx: 2487, function: Function { arguments: [], shim_idx: 2488, ret: Unit, inner_ret: Some(Unit) }, mutable: false }) -> Externref`.
+    // Cast intrinsic for `Closure(Closure { dtor_idx: 2646, function: Function { arguments: [], shim_idx: 2647, ret: Unit, inner_ret: Some(Unit) }, mutable: false }) -> Externref`.
     const ret = makeClosure(arg0, arg1, wasm.wasm_bindgen__closure__destroy__h94ada4b4ca07a4ba, wasm_bindgen__convert__closures_____invoke__h8e48a5c06956cc7f);
     return ret;
 }, arguments); }
 export function __wbindgen_cast_0000000000000006() { return logError(function (arg0, arg1) {
-    // Cast intrinsic for `Closure(Closure { dtor_idx: 2884, function: Function { arguments: [NamedExternref("MessageEvent")], shim_idx: 2885, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+    // Cast intrinsic for `Closure(Closure { dtor_idx: 3033, function: Function { arguments: [NamedExternref("MessageEvent")], shim_idx: 3034, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
     const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen__closure__destroy__h8a10a08b2dea436a, wasm_bindgen__convert__closures_____invoke__hf0f0900181bab35b);
     return ret;
 }, arguments); }
 export function __wbindgen_cast_0000000000000007() { return logError(function (arg0, arg1) {
-    // Cast intrinsic for `Closure(Closure { dtor_idx: 4416, function: Function { arguments: [], shim_idx: 4417, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+    // Cast intrinsic for `Closure(Closure { dtor_idx: 4548, function: Function { arguments: [], shim_idx: 4549, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
     const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen__closure__destroy__hf45afd2339ecd0b0, wasm_bindgen__convert__closures_____invoke__h527d1a328962d6ec);
     return ret;
 }, arguments); }
 export function __wbindgen_cast_0000000000000008() { return logError(function (arg0, arg1) {
-    // Cast intrinsic for `Closure(Closure { dtor_idx: 4427, function: Function { arguments: [Externref], shim_idx: 4459, ret: Result(Unit), inner_ret: Some(Result(Unit)) }, mutable: true }) -> Externref`.
+    // Cast intrinsic for `Closure(Closure { dtor_idx: 4559, function: Function { arguments: [Externref], shim_idx: 4591, ret: Result(Unit), inner_ret: Some(Result(Unit)) }, mutable: true }) -> Externref`.
     const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen__closure__destroy__h80c7527661a50b70, wasm_bindgen__convert__closures_____invoke__ha84b42b578005502);
     return ret;
 }, arguments); }
@@ -1329,9 +1573,12 @@ const __wbindgen_enum_RequestCredentials = ["omit", "same-origin", "include"];
 
 
 const __wbindgen_enum_RequestMode = ["same-origin", "no-cors", "cors", "navigate"];
-const BlobResultFinalization = (typeof FinalizationRegistry === 'undefined')
+const BiStreamFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
-    : new FinalizationRegistry(ptr => wasm.__wbg_blobresult_free(ptr >>> 0, 1));
+    : new FinalizationRegistry(ptr => wasm.__wbg_bistream_free(ptr >>> 0, 1));
+const HelloImageResultFinalization = (typeof FinalizationRegistry === 'undefined')
+    ? { register: () => {}, unregister: () => {} }
+    : new FinalizationRegistry(ptr => wasm.__wbg_helloimageresult_free(ptr >>> 0, 1));
 const IntoUnderlyingByteSourceFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_intounderlyingbytesource_free(ptr >>> 0, 1));
@@ -1344,9 +1591,6 @@ const IntoUnderlyingSourceFinalization = (typeof FinalizationRegistry === 'undef
 const MiddenNodeFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_middennode_free(ptr >>> 0, 1));
-const UploadResultFinalization = (typeof FinalizationRegistry === 'undefined')
-    ? { register: () => {}, unregister: () => {} }
-    : new FinalizationRegistry(ptr => wasm.__wbg_uploadresult_free(ptr >>> 0, 1));
 
 
 //#region intrinsics

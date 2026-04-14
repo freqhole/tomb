@@ -7,9 +7,8 @@
 //!
 //! the endpoint must be initialized via `set_federation_endpoint()` before use.
 //!
-//! supports two blob fetching methods:
-//! - `fetch_blob`: old protocol (freqhole/1) - streams via custom protocol
-//! - `fetch_blob_verified`: iroh-blobs protocol - blake3 verified streaming
+//! blob fetching uses iroh-blobs protocol with blake3 verified streaming
+//! via `fetch_blob_verified` and related functions.
 
 use std::sync::{Arc, Mutex};
 
@@ -48,15 +47,6 @@ pub struct P2pBlobData {
     pub data: Vec<u8>,
     pub content_type: Option<String>,
     pub size: u64,
-}
-
-/// upload result with blob and job ids
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct P2pUploadResult {
-    pub blob_id: Option<String>,
-    pub job_id: Option<String>,
-    /// full server response body for client parsing
-    pub body: Option<String>,
 }
 
 /// set the federation endpoint for client operations
@@ -209,42 +199,6 @@ pub async fn proxy_request(
     Ok(P2pProxyResponse {
         status: response.status,
         body: response.body,
-    })
-}
-
-/// fetch a blob from a remote peer
-///
-/// streams the blob data and returns it along with metadata.
-/// returns error if blob not found or connection fails.
-pub async fn fetch_blob(peer_addr: &str, blob_id: &str) -> GrimoireResult<P2pBlobData> {
-    let endpoint = get_endpoint()?;
-    let addr = parse_peer_address(peer_addr)?;
-    let node_id_short = &addr.id.to_string()[..16];
-    let blob_id_short = &blob_id[..16.min(blob_id.len())];
-
-    info!("fetching blob {} from {}", blob_id_short, node_id_short);
-
-    let conn = connect_to_peer(&endpoint, &addr).await?;
-    let (info, mut stream) = conn.stream_blob(blob_id).await?;
-
-    // read all blob data (100MB max)
-    let data = stream.read_to_end(100 * 1024 * 1024).await.map_err(|e| {
-        GrimoireError::FederationApiError {
-            message: format!("failed to read blob data: {}", e),
-        }
-    })?;
-
-    info!(
-        "received {} bytes for blob {} from {}",
-        data.len(),
-        blob_id_short,
-        node_id_short
-    );
-
-    Ok(P2pBlobData {
-        data,
-        content_type: info.content_type,
-        size: info.size,
     })
 }
 
@@ -510,45 +464,6 @@ pub async fn fetch_hello_image(peer_addr: &str) -> GrimoireResult<P2pBlobData> {
         data,
         content_type: info.content_type,
         size: info.size,
-    })
-}
-
-/// upload a blob to a remote peer
-///
-/// sends the blob data to the peer's server for import.
-/// returns blob_id and job_id on success.
-pub async fn upload_blob(
-    peer_addr: &str,
-    filename: &str,
-    content_type: &str,
-    data: &[u8],
-    associate_with: Option<serde_json::Value>,
-) -> GrimoireResult<P2pUploadResult> {
-    let endpoint = get_endpoint()?;
-    let addr = parse_peer_address(peer_addr)?;
-    let node_id_short = &addr.id.to_string()[..16];
-
-    info!(
-        "uploading {} ({} bytes) to {}",
-        filename,
-        data.len(),
-        node_id_short
-    );
-
-    let conn = connect_to_peer(&endpoint, &addr).await?;
-    let result = conn
-        .upload_blob(filename, content_type, data, associate_with)
-        .await?;
-
-    info!(
-        "upload complete: blob_id={:?}, job_id={:?}",
-        result.blob_id, result.job_id
-    );
-
-    Ok(P2pUploadResult {
-        blob_id: result.blob_id,
-        job_id: result.job_id,
-        body: result.body,
     })
 }
 

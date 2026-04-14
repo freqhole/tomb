@@ -443,6 +443,10 @@ pub fn convert_to_webp(image_data: &[u8]) -> Result<Vec<u8>, GrimoireError> {
         message: format!("Failed to decode image: {}", e),
     })?;
 
+    // convert to 8-bit RGBA — ImageMagick can produce 16-bit PNGs (e.g. from PDF
+    // rendering) and the WebP encoder only supports 8-bit color types
+    let img = image::DynamicImage::ImageRgba8(img.to_rgba8());
+
     // Convert to WebP
     let mut webp_data = Vec::new();
     let mut cursor = Cursor::new(&mut webp_data);

@@ -12,7 +12,7 @@ exclude = [
 resolver = "2"
 
 [workspace.package]
-version = "0.1.13"
+version = "0.1.14"
 
 [workspace.dependencies]
 anyhow = "1.0"
@@ -36,11 +36,9 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 sqlx = { version = "0.8", features = [
     "runtime-tokio-rustls",
-    "postgres",
     "uuid",
     "time",
     "json",
-    "bigdecimal",
     "migrate",
 ] }
 thiserror = "1.0"
@@ -94,7 +92,7 @@ blake3 = "1.5"
 
 # release profile optimizations for smaller binaries
 [profile.release]
-lto = "thin"           # faster than "fat" LTO, still good size reduction  
+lto = "thin"           # faster than "fat" LTO, still good size reduction
 strip = "symbols"      # strip debug symbols
 panic = "abort"        # smaller than unwinding
 codegen-units = 1      # better optimization, slower compile

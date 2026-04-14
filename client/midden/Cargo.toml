@@ -1,6 +1,6 @@
 [package]
 name = "midden"
-version = "0.1.13"
+version = "0.1.14"
 edition = "2021"
 description = "WASM bindings for freqhole P2P client (iroh-based)"
 
@@ -9,7 +9,10 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 anyhow = "1"
+bao-tree = { version = "0.16", default-features = false, features = ["experimental-mixed", "tokio_fsm", "validate", "serde"] }
+blake3 = "1.5"
 bytes = "1.10"
+indexmap = "2"
 console_error_panic_hook = "0.1.7"
 getrandom = { version = "0.2", features = ["js"] }
 iroh = { version = "0.97", default-features = false }
