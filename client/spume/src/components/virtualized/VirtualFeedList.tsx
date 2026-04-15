@@ -1,7 +1,21 @@
 // virtualized feed list — infinite scrolling list of feed events
+// uses the same virtualizer patterns as ChannelThread (measure patch,
+// resizeItem trap, reconciled store, settlement)
 
 import { createVirtualizer } from "@tanstack/solid-virtual";
-import { createMemo, createSignal, onCleanup, onMount, Show, For } from "solid-js";
+import {
+  createEffect,
+  createMemo,
+  createSignal,
+  For,
+  on,
+  onCleanup,
+  onMount,
+  Show,
+  untrack,
+} from "solid-js";
+import { createStore, reconcile } from "solid-js/store";
+import type { VirtualItem } from "@tanstack/virtual-core";
 import type { FeedItem, FeedItemType } from "../../music/data/types";
 import { Icon, type IconName } from "../icons/registry";
 import { MediaThumbnail } from "../media/MediaThumbnail";
@@ -10,35 +24,19 @@ import { ContextMenu, type MenuAction } from "../overlays/ContextMenu";
 import { MarqueeText } from "../text/MarqueeText";
 import { formatLongDuration } from "../../utils/formatDuration";
 import { entityColors } from "../../design-system/colors";
-import { useNavigate } from "@solidjs/router";
-import { routes } from "../../music/utils/routing";
 import { FavoriteToggle } from "../../utils/FavoriteToggle";
 import { isTouchDevice } from "../../utils/isMobile";
 import type { FavoriteTarget } from "../../music/queries/favorites";
 import { getCurrentUser } from "../../music/data";
 import { EntityLinks } from "../media/EntityLinks";
+import { RelativeTime } from "../text/RelativeTime";
 
-const ROW_HEIGHT = 100;
-const IMAGE_SIZE = ROW_HEIGHT - 12; // 6px padding top + bottom
+const ESTIMATE_ROW_HEIGHT = 120;
+const IMAGE_SIZE = 88;
 const OVERSCAN = 8;
 
 // scroll position cache
 const scrollCache = new Map<string, number>();
-
-// relative time formatting
-function timeAgo(timestamp: number): string {
-  const seconds = Math.floor((Date.now() - timestamp) / 1000);
-  if (seconds < 60) return "just now";
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  if (days < 7) return `${days}d ago`;
-  const weeks = Math.floor(days / 7);
-  if (weeks < 30) return `${weeks}w ago`;
-  return new Date(timestamp).toLocaleDateString();
-}
 
 // feed type display info
 function feedTypeInfo(type: FeedItemType): { color: string; icon: IconName } {
@@ -83,12 +81,13 @@ export interface VirtualFeedListProps {
   onAddToQueue?: (item: FeedItem) => void;
   getContextMenuActions?: (item: FeedItem) => MenuAction[];
   onNearEnd?: () => void;
+  onGenreClick?: (genreId: string) => void;
   scrollKey?: string;
   onScroll?: (scrollTop: number) => void;
 }
 
 export function VirtualFeedList(props: VirtualFeedListProps) {
-  let scrollContainerRef: HTMLDivElement | undefined;
+  let scrollRef: HTMLDivElement | undefined;
 
   const count = createMemo(() => props.items.length);
 
@@ -96,38 +95,113 @@ export function VirtualFeedList(props: VirtualFeedListProps) {
     get count() {
       return count();
     },
-    getScrollElement: () => scrollContainerRef ?? null,
-    estimateSize: () => ROW_HEIGHT,
+    getScrollElement: () => scrollRef ?? null,
+    estimateSize: () => ESTIMATE_ROW_HEIGHT,
     overscan: OVERSCAN,
+    getItemKey: (index) => untrack(() => props.items[index]?.id ?? index),
   });
+
+  // patch measure() — the solid adapter calls it on every reactive change,
+  // wiping ALL cached sizes. replace with notify-only to preserve cache.
+  const origNotify = (virtualizer as any).notify.bind(virtualizer);
+  (virtualizer as any).measure = function () {
+    origNotify(false);
+  };
+
+  // trap resizeItem() — during settlement, re-scroll so positions converge
+  const origResizeItem = (virtualizer as any).resizeItem;
+  let settling = false;
+  let settleTimer: ReturnType<typeof setTimeout> | null = null;
+  (virtualizer as any).resizeItem = function (index: number, size: number) {
+    const result = origResizeItem.call(this, index, size);
+    if (settling) {
+      scrollToSaved();
+      resetSettleTimer();
+    }
+    return result;
+  };
+
+  // reconcile virtual items into a store so <For> can diff by key
+  // and reuse DOM nodes — prevents the measureElement cascade
+  const [vItems, setVItems] = createStore<VirtualItem[]>([]);
+  createEffect(() => {
+    const items = virtualizer.getVirtualItems();
+    setVItems(reconcile(items, { key: "key", merge: false }));
+  });
+
+  onCleanup(() => {
+    if (settleTimer) clearTimeout(settleTimer);
+    // save scroll position
+    if (props.scrollKey && scrollRef) {
+      scrollCache.set(props.scrollKey, scrollRef.scrollTop);
+    }
+  });
+
+  // settle timer: 300ms without a measurement → scroll is stable
+  function resetSettleTimer() {
+    if (settleTimer) clearTimeout(settleTimer);
+    settleTimer = setTimeout(() => {
+      settling = false;
+    }, 300);
+  }
+
+  function scrollToSaved() {
+    if (!scrollRef) return;
+    if (props.scrollKey) {
+      const saved = scrollCache.get(props.scrollKey);
+      if (saved !== undefined && saved > 0) {
+        scrollRef.scrollTo({ top: saved });
+        return;
+      }
+    }
+    // default: stay at top
+  }
+
+  // begin settlement: one initial scroll, then resizeItem re-scrolls on each measurement
+  function beginSettle() {
+    settling = true;
+    requestAnimationFrame(() => {
+      scrollToSaved();
+      resetSettleTimer();
+    });
+  }
 
   // restore scroll position on mount
   onMount(() => {
-    if (props.scrollKey && scrollContainerRef) {
-      const savedPos = scrollCache.get(props.scrollKey);
-      if (savedPos !== undefined && savedPos > 0) {
+    beginSettle();
+  });
+
+  // when item count changes, force virtualizer to recalculate visible window.
+  // the measure() patch (origNotify) doesn't do a full recalc, so new items
+  // appended beyond the current window won't appear without this.
+  let prevCount = props.items.length;
+  createEffect(
+    on(count, (len) => {
+      const prev = prevCount;
+      prevCount = len;
+      if (len !== prev) {
+        // force recalc by scrolling to current position
         requestAnimationFrame(() => {
-          scrollContainerRef?.scrollTo({ top: savedPos });
+          if (!scrollRef) return;
+          virtualizer.scrollToOffset(scrollRef.scrollTop, { align: "start" });
         });
       }
-    }
-  });
-
-  // save scroll position on cleanup
-  onCleanup(() => {
-    if (props.scrollKey && scrollContainerRef) {
-      scrollCache.set(props.scrollKey, scrollContainerRef.scrollTop);
-    }
-  });
+    })
+  );
 
   // near-end detection for infinite scroll
+  let loadMorePending = false;
   const checkNearEnd = () => {
-    if (!props.onNearEnd) return;
+    if (!props.onNearEnd || loadMorePending) return;
     const items = virtualizer.getVirtualItems();
     if (items.length === 0) return;
     const lastItem = items[items.length - 1];
     if (lastItem && lastItem.index >= count() - 20) {
-      props.onNearEnd();
+      loadMorePending = true;
+      setTimeout(() => {
+        props.onNearEnd?.();
+        loadMorePending = false;
+      }, 0);
     }
   };
 
@@ -137,20 +211,21 @@ export function VirtualFeedList(props: VirtualFeedListProps) {
       ? props.scrollPaddingTop
       : 0;
 
+  const handleScroll = () => {
+    if (!scrollRef) return;
+    checkNearEnd();
+    props.onScroll?.(scrollRef.scrollTop);
+  };
+
   return (
     <div
-      ref={scrollContainerRef!}
+      ref={scrollRef}
       class="overflow-auto"
       style={{
         height: `${props.height}px`,
         "padding-top": scrollPad() ? `${scrollPad()}px` : undefined,
       }}
-      onScroll={() => {
-        checkNearEnd();
-        if (props.onScroll && scrollContainerRef) {
-          props.onScroll(scrollContainerRef.scrollTop);
-        }
-      }}
+      onScroll={handleScroll}
     >
       {/* centered gutter container — constrain width on desktop */}
       <div class="mx-auto max-w-3xl">
@@ -161,39 +236,50 @@ export function VirtualFeedList(props: VirtualFeedListProps) {
             position: "relative",
           }}
         >
-          {virtualizer.getVirtualItems().map((virtualRow) => {
-            const item = props.items[virtualRow.index];
-            if (!item) return null;
+          <For each={vItems}>
+            {(vRow) => {
+              const item = () => props.items[vRow.index];
+              const actions = () => props.getContextMenuActions?.(item()) ?? [];
 
-            const actions = () => props.getContextMenuActions?.(item) ?? [];
-
-            const rowContent = (
-              <FeedRow
-                item={item}
-                onClick={() => props.onItemClick?.(item)}
-                onImageClick={() => props.onImageClick?.(item)}
-                onAddToQueue={props.onAddToQueue ? () => props.onAddToQueue!(item) : undefined}
-              />
-            );
-
-            return (
-              <div
-                data-index={virtualRow.index}
-                style={{
-                  position: "absolute",
-                  top: 0,
-                  left: 0,
-                  width: "100%",
-                  height: `${virtualRow.size}px`,
-                  transform: `translateY(${virtualRow.start}px)`,
-                }}
-              >
-                <Show when={actions().length > 0} fallback={rowContent}>
-                  <ContextMenu actions={actions()}>{rowContent}</ContextMenu>
+              const rowContent = () => (
+                <Show when={item()}>
+                  <FeedRow
+                    item={item()!}
+                    onClick={() => props.onItemClick?.(item()!)}
+                    onImageClick={() => props.onImageClick?.(item()!)}
+                    onAddToQueue={
+                      props.onAddToQueue ? () => props.onAddToQueue!(item()!) : undefined
+                    }
+                    onGenreClick={props.onGenreClick}
+                  />
                 </Show>
-              </div>
-            );
-          })}
+              );
+
+              return (
+                <div
+                  ref={(el) => {
+                    if (!el) return;
+                    el.setAttribute("data-index", String(vRow.index));
+                    requestAnimationFrame(() => {
+                      if (!el.isConnected) return;
+                      virtualizer.measureElement(el);
+                    });
+                  }}
+                  style={{
+                    position: "absolute",
+                    top: 0,
+                    left: 0,
+                    width: "100%",
+                    transform: `translateY(${vRow.start}px)`,
+                  }}
+                >
+                  <Show when={actions().length > 0} fallback={rowContent()}>
+                    <ContextMenu actions={actions()}>{rowContent()}</ContextMenu>
+                  </Show>
+                </div>
+              );
+            }}
+          </For>
         </div>
       </div>
     </div>
@@ -206,8 +292,8 @@ function FeedRow(props: {
   onClick: () => void;
   onImageClick: () => void;
   onAddToQueue?: () => void;
+  onGenreClick?: (genreId: string) => void;
 }) {
-  const navigate = useNavigate();
   const [isRowHovered, setIsRowHovered] = createSignal(false);
   const [isThumbHovered, setIsThumbHovered] = createSignal(false);
 
@@ -353,7 +439,7 @@ function FeedRow(props: {
 
   return (
     <div
-      class="w-full h-full flex items-stretch gap-2 wide:gap-3 px-2 wide:px-4 text-left transition-colors hover:bg-[var(--color-accent-500)]/5 cursor-pointer"
+      class="w-full flex items-stretch gap-2 wide:gap-3 px-2 wide:px-4 py-1.5 text-left transition-colors hover:bg-[var(--color-accent-500)]/5 cursor-pointer"
       onClick={() => props.onClick()}
       onMouseEnter={() => setIsRowHovered(true)}
       onMouseLeave={() => setIsRowHovered(false)}
@@ -437,21 +523,26 @@ function FeedRow(props: {
       {/* content area */}
       <div class="flex-1 min-w-0 py-3 flex flex-col justify-center gap-0.5">
         {/* line 1: action text — "edward ♥ a song" or "new album" */}
-        <div
-          class="flex items-center gap-1 text-xs wide:text-sm"
-          style={{ color: typeInfo().color }}
-        >
+        <div class="text-xs wide:text-sm leading-snug" style={{ color: typeInfo().color }}>
           <Show when={actionText().user}>
-            <span class="font-bold">{actionText().user}</span>
+            <span class="font-bold">{actionText().user} </span>
           </Show>
           <Show when={actionText().verb}>
-            <Show when={actionText().verb === "\u2665"} fallback={<span>{actionText().verb}</span>}>
-              <Icon name="favorite" size={14} color={entityColors.favorite} />
+            <Show
+              when={actionText().verb === "\u2665"}
+              fallback={<span>{actionText().verb} </span>}
+            >
+              <Icon
+                name="favorite"
+                size={14}
+                color={entityColors.favorite}
+                className="inline align-text-bottom"
+              />{" "}
             </Show>
           </Show>
           <span>{actionText().entity}</span>
           <Show when={props.item.rating != null}>
-            <span class="ml-1 flex items-center gap-0.5">
+            <span class="ml-1 inline-flex items-center gap-0.5 align-text-bottom">
               <Icon name="star" size={11} color={entityColors.rating} />
               {props.item.rating}/5
             </span>
@@ -496,8 +587,8 @@ function FeedRow(props: {
                 class="px-1.5 py-px rounded-full flex-shrink-0 cursor-pointer hover:brightness-125 transition-all"
                 onClick={(e) => {
                   e.stopPropagation();
-                  if (props.item.genre_id) {
-                    navigate(routes.genre(props.item.genre_id));
+                  if (props.item.genre_id && props.onGenreClick) {
+                    props.onGenreClick(props.item.genre_id);
                   }
                 }}
                 title={`go to ${props.item.genre}`}
@@ -571,9 +662,14 @@ function FeedRow(props: {
         </Show>
       </div>
 
-      {/* right side: timestamp + actions */}
+      {/* right side: timestamp + remote badge + actions */}
       <div class="flex flex-col items-end flex-shrink-0 gap-1 py-3 justify-start">
-        <span class="text-[11px] text-[var(--color-text-muted)]">{timeAgo(createdAt())}</span>
+        <RelativeTime timestamp={createdAt()} class="text-[11px] text-[var(--color-text-muted)]" />
+        <Show when={props.item.remote_name}>
+          <span class="text-[10px] px-1.5 py-px rounded-full bg-[var(--color-bg-elevated)] text-[var(--color-text-secondary)] truncate max-w-[80px]">
+            {props.item.remote_name}
+          </span>
+        </Show>
         <Show when={props.item.play_count && props.item.play_count > 1}>
           <span class="text-[10px] text-[var(--color-text-muted)]">
             {props.item.play_count} plays

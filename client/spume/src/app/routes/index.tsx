@@ -20,6 +20,7 @@ import { AlbumsView } from "../../music/views/AlbumsView";
 import { ArtistsView } from "../../music/views/ArtistsView";
 import { FavoritesView } from "../../music/views/FavoritesView";
 import { FeedView } from "../../music/views/FeedView";
+import { AggregateFeedView } from "../../music/views/AggregateFeedView";
 import { GenresView } from "../../music/views/GenresView";
 import { PlaylistsView } from "../../music/views/PlaylistsView";
 import { SongsView } from "../../music/views/SongsView";
@@ -96,6 +97,9 @@ export function routes(props: RoutesProps) {
       <Route path="/" component={AppLayout}>
         {/* root redirect - goes to last active remote or local */}
         <Route path="/" component={RootRedirect} />
+
+        {/* aggregate feed - combines all remotes */}
+        <Route path="/feed" component={AggregateFeedView} />
 
         {/* local context routes - hidden in tauri mode (always uses remote server) */}
         {!isCharnelMode() && (

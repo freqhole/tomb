@@ -8,23 +8,31 @@
 //! - `wait_for_completion`: block until job completes instead of returning job_id
 
 use base64::Engine;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value as JsonValue};
 use sha2::{Digest, Sha256};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use tokio::time::{sleep, Duration};
+use zod_gen_derive::ZodSchema;
 
 use crate::api_registry::{Domain, Method, RouteAuth, RouteInfo};
-use crate::error::ErrorDetail;
+use crate::config::get_config;
+use crate::error::{ErrorDetail, GrimoireError};
+use crate::federation::p2p_client;
 use crate::jobs::{
     create_job, create_job_session, get_job, list_jobs, CreateJobRequest, CreateJobSessionRequest,
     JobType, ProcessFileParams,
 };
-use crate::media_blobz::{create_media_blob, BlobType, CreateMediaBlobRequest};
+use crate::media_blobz::{
+    create_media_blob, get_media_blob_by_sha256, BlobType, CreateMediaBlobRequest,
+};
 use crate::music::scanner::{is_supported_audio_file, scan_directory};
 use crate::offal::caller::Caller;
 use crate::response::GrimoireResponse;
-use crate::upload::{AssociationHint, AssociationInfo, ImageUploadResponse, MusicImportResponse};
+use crate::upload::{
+    AssociationHint, AssociationInfo, ImageUploadResponse, MusicImportResponse, MusicMetadataHints,
+    MusicUploadResponse,
+};
 use crate::users::UserRole;
 use crate::Bytes;
 
@@ -65,6 +73,15 @@ pub const ROUTES: &[RouteInfo] = &[
         request_type: "SetPrimaryImageRequest",
         response_type: "EmptyResponse",
         auth: RouteAuth::Role(UserRole::Admin),
+    },
+    RouteInfo {
+        name: "upload_music_by_blake3",
+        path: "/api/upload/music-by-blake3",
+        method: Method::POST,
+        domain: Domain::Music,
+        request_type: "UploadMusicByBlake3Request",
+        response_type: "MusicUploadResponse",
+        auth: RouteAuth::Role(UserRole::Member),
     },
 ];
 
@@ -110,6 +127,7 @@ pub async fn dispatch(
     match path {
         "/api/upload/image" => Some(upload_image(caller, body.clone()).await),
         "/api/upload/music-paths" => Some(import_music_paths(caller, body.clone()).await),
+        "/api/upload/music-by-blake3" => Some(upload_music_by_blake3(caller, body.clone()).await),
         _ => None,
     }
 }
@@ -250,7 +268,10 @@ pub async fn upload_image(caller: &Caller, body: JsonValue) -> GrimoireResponse<
 
     let size = data.len() as i64;
 
-    // create media blob
+    // check for existing blob by sha256 before creating
+    let existing = get_media_blob_by_sha256(&hash).await.is_ok();
+
+    // create media blob (returns existing if sha256 matches)
     let blob = match create_media_blob(CreateMediaBlobRequest {
         sha256: hash.clone(),
         size: Some(size),
@@ -276,9 +297,6 @@ pub async fn upload_image(caller: &Caller, body: JsonValue) -> GrimoireResponse<
             return GrimoireResponse::failure("failed to create blob", vec![ErrorDetail::from(e)])
         }
     };
-
-    // check if this was a deduplicated blob
-    let existing = blob.created_at < (time::OffsetDateTime::now_utc().unix_timestamp() - 1);
 
     // create webp conversion + association job
     let mut job_payload = json!({
@@ -667,6 +685,482 @@ fn detect_image_mime_type(filename: &str, data: &[u8]) -> String {
         "svg" => "image/svg+xml",
         "ico" => "image/x-icon",
         _ => "application/octet-stream",
+    }
+    .to_string()
+}
+
+/// request for music upload via iroh-blobs pull model
+///
+/// the client imports the file into their local iroh-blobs store (gets blake3 hash),
+/// then sends this request. the server pulls the blob via verified streaming.
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct UploadMusicByBlake3Request {
+    /// blake3 hash of the file (64 hex chars) - the client has this blob in their iroh store
+    pub blake3: String,
+    /// original filename (for mime detection)
+    pub filename: String,
+    /// file size in bytes (for validation)
+    pub size: Option<u64>,
+    /// the node_id of the uploading peer (injected by transport handler, not sent by client)
+    pub node_id: Option<String>,
+    /// optional metadata hints for processing
+    pub metadata: Option<MusicMetadataHints>,
+}
+
+/// upload music via iroh-blobs pull model
+///
+/// the client imports the file into their local iroh-blobs store, gets the blake3 hash,
+/// then sends a request with the hash. the server pulls the blob via verified streaming.
+///
+/// this route only works over P2P transport - node_id is injected by the transport handler.
+///
+/// path: POST /api/upload/music-by-blake3
+pub async fn upload_music_by_blake3(
+    caller: &Caller,
+    body: JsonValue,
+) -> GrimoireResponse<JsonValue> {
+    // check role - only member or admin can upload
+    if !matches!(caller.role, UserRole::Admin | UserRole::Member) {
+        return GrimoireResponse::failure(
+            "forbidden",
+            vec![ErrorDetail::new(
+                "forbidden",
+                "forbidden",
+                "only members can upload music",
+            )],
+        );
+    }
+
+    let req: UploadMusicByBlake3Request = match serde_json::from_value(body) {
+        Ok(r) => r,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "bad request",
+                vec![ErrorDetail::new(
+                    "bad_request",
+                    "bad request",
+                    &e.to_string(),
+                )],
+            )
+        }
+    };
+
+    // validate blake3 hash format (64 hex chars)
+    if req.blake3.len() != 64 || !req.blake3.chars().all(|c| c.is_ascii_hexdigit()) {
+        return GrimoireResponse::failure(
+            "invalid blake3 hash",
+            vec![ErrorDetail::new(
+                "bad_request",
+                "invalid blake3 hash",
+                "blake3 hash must be exactly 64 hex characters",
+            )],
+        );
+    }
+
+    // node_id is required - this route only works over P2P transport
+    let node_id = match &req.node_id {
+        Some(id) => id.clone(),
+        None => {
+            return GrimoireResponse::failure(
+                "P2P transport required",
+                vec![ErrorDetail::new(
+                    "bad_request",
+                    "P2P transport required",
+                    "this route only works over P2P transport (node_id must be set)",
+                )],
+            )
+        }
+    };
+
+    // enforce max upload size from config before pulling
+    let config = get_config();
+    let max_upload_bytes = config
+        .federation
+        .as_ref()
+        .map(|f| f.max_upload_size_mb as u64 * 1024 * 1024)
+        .unwrap_or(500 * 1024 * 1024); // default 500MB
+
+    if let Some(declared_size) = req.size {
+        if declared_size > max_upload_bytes {
+            return GrimoireResponse::failure(
+                "file too large",
+                vec![ErrorDetail::new(
+                    "file_too_large",
+                    "file too large",
+                    &format!(
+                        "declared size {} bytes exceeds max upload size {} bytes",
+                        declared_size, max_upload_bytes
+                    ),
+                )],
+            );
+        }
+    }
+
+    // pull the blob from the uploading peer via iroh-blobs verified streaming
+    // streams directly to disk via FsStore export — no full-file memory buffering.
+    // timeout after 120 seconds to prevent indefinite hangs
+    tracing::info!(
+        "pulling blob {} from peer {} for upload by {}",
+        &req.blake3[..16],
+        &node_id[..16.min(node_id.len())],
+        caller.username,
+    );
+
+    // determine output path before downloading so we can stream directly to it
+    let output_dir = config
+        .server
+        .as_ref()
+        .and_then(|s| s.fetch_music.as_ref())
+        .and_then(|f| f.output_dir.as_ref())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| config.data_dir.join("fetch"));
+
+    let ext = detect_extension(
+        &mime_guess::from_path(&req.filename)
+            .first()
+            .map(|m| m.to_string())
+            .unwrap_or_default(),
+        &req.filename,
+    );
+    let now = time::OffsetDateTime::now_utc();
+    let year = now.year();
+    let month = now.month() as u8;
+
+    // use a temp filename based on blake3 hash (will rename after blob record creation)
+    let temp_filename = format!("{}.{}", &req.blake3[..16], ext);
+    let temp_path = output_dir.join(format!("{:04}/{:02}/{}", year, month, temp_filename));
+
+    // ensure directory exists
+    if let Some(parent) = temp_path.parent() {
+        if let Err(e) = tokio::fs::create_dir_all(parent).await {
+            return GrimoireResponse::failure(
+                "failed to create directory",
+                vec![ErrorDetail::new(
+                    "internal_error",
+                    "failed to create directory",
+                    &e.to_string(),
+                )],
+            );
+        }
+    }
+
+    let fetch_future =
+        p2p_client::fetch_blob_verified_to_file_with_ensure(&node_id, &req.blake3, &temp_path);
+    let file_size = match tokio::time::timeout(Duration::from_secs(120), fetch_future).await {
+        Ok(Ok(size)) => {
+            tracing::info!(
+                "exported {} bytes for blob {} from peer {} to {}",
+                size,
+                &req.blake3[..16],
+                &node_id[..16.min(node_id.len())],
+                temp_path.display(),
+            );
+            size
+        }
+        Ok(Err(e)) => {
+            tracing::error!(
+                "failed to fetch blob {} from peer {}: {}",
+                &req.blake3[..16],
+                &node_id[..16.min(node_id.len())],
+                e,
+            );
+            return GrimoireResponse::failure(
+                "failed to fetch blob from peer",
+                vec![ErrorDetail::new(
+                    "fetch_failed",
+                    "failed to fetch blob from peer",
+                    &e.to_string(),
+                )],
+            );
+        }
+        Err(_) => {
+            tracing::error!(
+                "timeout fetching blob {} from peer {} (120s)",
+                &req.blake3[..16],
+                &node_id[..16.min(node_id.len())],
+            );
+            return GrimoireResponse::failure(
+                "blob fetch timed out",
+                vec![ErrorDetail::new(
+                    "timeout",
+                    "blob fetch timed out",
+                    "failed to download blob from peer within 120 seconds. the peer may not be serving blobs (browser needs blob server running) or the connection may have dropped.",
+                )],
+            );
+        }
+    };
+
+    // validate size if provided
+    if let Some(expected_size) = req.size {
+        if file_size != expected_size {
+            let _ = tokio::fs::remove_file(&temp_path).await;
+            return GrimoireResponse::failure(
+                "size mismatch",
+                vec![ErrorDetail::new(
+                    "bad_request",
+                    "size mismatch",
+                    &format!(
+                        "expected {} bytes but received {} bytes",
+                        expected_size, file_size
+                    ),
+                )],
+            );
+        }
+    }
+
+    // compute sha256 by streaming from the file on disk (no full-file memory load)
+    let hash = {
+        use tokio::io::AsyncReadExt;
+        let mut file = match tokio::fs::File::open(&temp_path).await {
+            Ok(f) => f,
+            Err(e) => {
+                return GrimoireResponse::failure(
+                    "failed to read downloaded file",
+                    vec![ErrorDetail::from(GrimoireError::ProcessingFailed {
+                        message: e.to_string(),
+                    })],
+                )
+            }
+        };
+        let mut hasher = Sha256::new();
+        let mut buf = vec![0u8; 64 * 1024]; // 64KB chunks
+        loop {
+            let n = match file.read(&mut buf).await {
+                Ok(0) => break,
+                Ok(n) => n,
+                Err(e) => {
+                    let _ = tokio::fs::remove_file(&temp_path).await;
+                    return GrimoireResponse::failure(
+                        "failed to read downloaded file",
+                        vec![ErrorDetail::from(GrimoireError::ProcessingFailed {
+                            message: e.to_string(),
+                        })],
+                    );
+                }
+            };
+            hasher.update(&buf[..n]);
+        }
+        format!("{:x}", hasher.finalize())
+    };
+    tracing::debug!(
+        "computed sha256 for blob {}: {}",
+        &req.blake3[..16],
+        &hash[..16]
+    );
+
+    // detect mime type from filename and file header (read first 12 bytes)
+    let header = {
+        use tokio::io::AsyncReadExt;
+        let mut f = tokio::fs::File::open(&temp_path).await.unwrap_or_else(|_| {
+            // shouldn't happen since we just wrote/read the file
+            panic!("failed to reopen temp file for mime detection");
+        });
+        let mut buf = [0u8; 12];
+        let _ = f.read(&mut buf).await;
+        buf
+    };
+    let mime_type = detect_audio_mime_type(&req.filename, &header);
+    tracing::debug!(
+        "detected mime type for blob {}: {}",
+        &req.blake3[..16],
+        &mime_type
+    );
+    if !mime_type.starts_with("audio/") {
+        let _ = tokio::fs::remove_file(&temp_path).await;
+        return GrimoireResponse::failure(
+            "invalid audio file",
+            vec![ErrorDetail::new(
+                "bad_request",
+                "invalid audio file",
+                "file is not a valid audio file",
+            )],
+        );
+    }
+
+    let size = file_size as i64;
+
+    // check for existing blob by sha256 before creating
+    let existing = get_media_blob_by_sha256(&hash).await.is_ok();
+
+    // create media blob entry (with deduplication via sha256 unique constraint)
+    let blob = match create_media_blob(CreateMediaBlobRequest {
+        sha256: hash.clone(),
+        size: Some(size),
+        mime: Some(mime_type.clone()),
+        source_client_id: None,
+        local_path: None, // will be set after writing to disk
+        filename: Some(req.filename.clone()),
+        parent_blob_id: None,
+        blob_type: Some(BlobType::Original),
+        metadata: json!({
+            "original_filename": req.filename,
+            "upload_method": "blake3_pull",
+            "source_node_id": node_id,
+        }),
+        created_by: Some(caller.user_id.clone()),
+        data: None,
+        width: None,
+        height: None,
+        blake3: Some(req.blake3.clone()),
+    })
+    .await
+    {
+        Ok(b) => {
+            tracing::info!(
+                "created media blob {} for upload {}",
+                b.id,
+                &req.blake3[..16]
+            );
+            b
+        }
+        Err(e) => {
+            let _ = tokio::fs::remove_file(&temp_path).await;
+            return GrimoireResponse::failure("failed to create blob", vec![ErrorDetail::from(e)]);
+        }
+    };
+
+    // rename temp file to final path with blob id
+    let rel_path = format!("{:04}/{:02}/{}.{}", year, month, blob.id, ext);
+    let full_path = output_dir.join(&rel_path);
+
+    if temp_path != full_path {
+        if let Err(_) = tokio::fs::rename(&temp_path, &full_path).await {
+            // fall back to copy+delete if rename fails (cross-device)
+            if let Err(e) = tokio::fs::copy(&temp_path, &full_path).await {
+                return GrimoireResponse::failure(
+                    "failed to move file",
+                    vec![ErrorDetail::new(
+                        "internal_error",
+                        "failed to move file",
+                        &e.to_string(),
+                    )],
+                );
+            }
+            let _ = tokio::fs::remove_file(&temp_path).await;
+        }
+    }
+    tracing::info!("file at {}", full_path.display());
+
+    // create ImportMusic job
+    let job_payload = json!({
+        "blob_id": blob.id,
+        "local_path": full_path.to_string_lossy(),
+        "mime_type": mime_type,
+        "filename": req.filename,
+        "user_hints": req.metadata,
+    });
+
+    let job_response = create_job(CreateJobRequest {
+        job_type: JobType::ImportMusic,
+        session_id: None,
+        parameters: job_payload,
+        max_retries: Some(3),
+        scheduled_at: None,
+        created_by: Some(caller.user_id.clone()),
+    })
+    .await;
+
+    let job = match job_response.data {
+        Some(j) => j,
+        None => {
+            return GrimoireResponse::failure(
+                "failed to create import job",
+                job_response
+                    .errors
+                    .into_iter()
+                    .map(ErrorDetail::from)
+                    .collect(),
+            )
+        }
+    };
+
+    tracing::info!(
+        "created ImportMusic job: {} for blob {} (file: {}, via blake3 pull from {})",
+        job.id,
+        blob.id,
+        req.filename,
+        &node_id[..16.min(node_id.len())],
+    );
+
+    let message = if existing {
+        "existing music file found (deduplicated), import job scheduled".to_string()
+    } else {
+        "music file received via P2P, import job scheduled".to_string()
+    };
+
+    let response = MusicUploadResponse {
+        blob_id: blob.id,
+        job_id: job.id,
+        sha256: hash,
+        size,
+        mime: mime_type,
+        existing,
+        message,
+    };
+
+    GrimoireResponse::success(
+        "music upload complete",
+        serde_json::to_value(response).unwrap(),
+    )
+}
+
+/// detect audio mime type from filename and magic bytes
+fn detect_audio_mime_type(filename: &str, data: &[u8]) -> String {
+    // try filename extension first
+    let mime = mime_guess::from_path(filename).first();
+    if let Some(mime) = mime {
+        let mime_str = mime.to_string();
+        if mime_str.starts_with("audio/") {
+            return mime_str;
+        }
+    }
+
+    // fallback to magic bytes
+    if data.len() >= 4 {
+        // mp3
+        if data.starts_with(b"ID3") || (data[0] == 0xFF && (data[1] & 0xE0) == 0xE0) {
+            return "audio/mpeg".to_string();
+        }
+        // flac
+        if data.starts_with(b"fLaC") {
+            return "audio/flac".to_string();
+        }
+        // ogg
+        if data.starts_with(b"OggS") {
+            return "audio/ogg".to_string();
+        }
+        // wav/riff
+        if data.starts_with(b"RIFF") && data.len() >= 12 && &data[8..12] == b"WAVE" {
+            return "audio/wav".to_string();
+        }
+        // m4a/mp4
+        if data.len() >= 12 && &data[4..8] == b"ftyp" {
+            return "audio/mp4".to_string();
+        }
+    }
+
+    "application/octet-stream".to_string()
+}
+
+/// detect file extension from mime type or filename
+fn detect_extension(mime_type: &str, filename: &str) -> String {
+    // try to get extension from filename first
+    if let Some(ext) = filename.rsplit('.').next() {
+        if ext.len() <= 5 && !ext.is_empty() && ext != filename {
+            return ext.to_lowercase();
+        }
+    }
+
+    // fallback to mime type mapping
+    match mime_type {
+        "audio/mpeg" => "mp3",
+        "audio/flac" => "flac",
+        "audio/ogg" | "audio/vorbis" => "ogg",
+        "audio/opus" => "opus",
+        "audio/wav" | "audio/wave" => "wav",
+        "audio/aac" => "aac",
+        "audio/m4a" | "audio/mp4" => "m4a",
+        _ => "bin",
     }
     .to_string()
 }

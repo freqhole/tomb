@@ -77,7 +77,7 @@ pub const ROUTES: &[RouteInfo] = &[
         domain: Domain::Music,
         request_type: "DeleteListenSessionRequest",
         response_type: "EmptyResponse",
-        auth: RouteAuth::Owner,
+        auth: RouteAuth::OwnerOr(UserRole::Admin),
     },
 ];
 

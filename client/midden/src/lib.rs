@@ -7,21 +7,33 @@
 //! - freqhole/1: custom protocol for API proxying and small blob streaming
 //! - freqhole-blobz: iroh-blobs protocol for verified streaming of audio files
 
+use bao_tree::ChunkRanges;
+use indexmap::IndexMap;
 use iroh::endpoint::presets;
 use iroh::endpoint::{Connection, RecvStream, SendStream};
+use iroh::protocol::ProtocolHandler;
 use iroh::{Endpoint, EndpointAddr, PublicKey, SecretKey};
 use iroh_blobs::api::downloader::Downloader;
 use iroh_blobs::api::Store;
-use iroh_blobs::{Hash, HashAndFormat};
-use js_sys::Uint8Array;
+use iroh_blobs::api::TempTag;
+use iroh_blobs::store::GcConfig;
+use iroh_blobs::{BlobsProtocol, Hash, HashAndFormat};
+use js_sys::{Function as JsFunction, Uint8Array};
 use serde::{Deserialize, Serialize};
+use std::cell::RefCell;
 use tracing::level_filters::LevelFilter;
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 use tracing_subscriber_wasm::MakeConsoleWriter;
 use wasm_bindgen::{prelude::wasm_bindgen, JsError, JsValue};
 
 /// ALPN protocol identifier (must match grimoire's FREQHOLE_ALPN)
 const FREQHOLE_ALPN: &[u8] = b"freqhole/1";
+
+/// ALPN for automerge-repo document sync (used by skein canvas P2P)
+const AUTOMERGE_ALPN: &[u8] = b"iroh/automerge-repo/1";
+
+/// ALPN for friend requests, profile sharing, and presence heartbeat (used by skein social layer)
+const FRIENDZ_ALPN: &[u8] = b"freqhole-friendz/1";
 
 /// protocol messages (must match grimoire's PeerMessage)
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -38,30 +50,7 @@ enum PeerMessage {
         status: u16,
         body: String,
     },
-    BlobStreamRequest {
-        id: u64,
-        blob_id: String,
-    },
-    BlobStreamResponse {
-        id: u64,
-        size: Option<u64>,
-        content_type: Option<String>,
-        error: Option<String>,
-    },
-    BlobUploadRequest {
-        id: u64,
-        filename: String,
-        content_type: String,
-        size: u64,
-        associate_with: Option<serde_json::Value>,
-    },
-    BlobUploadResponse {
-        id: u64,
-        blob_id: Option<String>,
-        job_id: Option<String>,
-        error: Option<String>,
-        body: Option<String>,
-    },
+
     HelloImageRequest {
         id: u64,
     },
@@ -94,6 +83,26 @@ enum PeerMessage {
     },
 }
 
+/// result from fetching the server hello image from a peer
+#[wasm_bindgen]
+pub struct HelloImageResult {
+    data: Vec<u8>,
+    content_type: Option<String>,
+}
+
+#[wasm_bindgen]
+impl HelloImageResult {
+    #[wasm_bindgen(getter)]
+    pub fn data(&self) -> Uint8Array {
+        Uint8Array::from(&self.data[..])
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn content_type(&self) -> Option<String> {
+        self.content_type.clone()
+    }
+}
+
 /// response from proxy_request
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProxyResponse {
@@ -101,55 +110,187 @@ pub struct ProxyResponse {
     pub body: String,
 }
 
-/// upload result
+/// a bidirectional QUIC stream for length-delimited message exchange.
+///
+/// wraps an iroh (SendStream, RecvStream) pair. messages are framed with
+/// a 4-byte big-endian u32 length prefix, matching `LengthDelimitedCodec`
+/// from tokio-util.
+///
+/// the send and recv halves use RefCell<Option<...>> so that async read
+/// and write operations can proceed concurrently (safe because WASM is
+/// single-threaded).
 #[wasm_bindgen]
-pub struct UploadResult {
-    blob_id: Option<String>,
-    job_id: Option<String>,
-    /// full server response body for client parsing
-    body: Option<String>,
+pub struct BiStream {
+    send: RefCell<Option<SendStream>>,
+    recv: RefCell<Option<RecvStream>>,
+    peer_node_id: String,
+    alpn: String,
 }
 
 #[wasm_bindgen]
-impl UploadResult {
-    /// get the created blob_id (if successful)
-    pub fn blob_id(&self) -> Option<String> {
-        self.blob_id.clone()
+impl BiStream {
+    /// the remote peer's node ID (iroh public key as hex string).
+    pub fn peer_node_id(&self) -> String {
+        self.peer_node_id.clone()
     }
 
-    /// get the import job_id
-    pub fn job_id(&self) -> Option<String> {
-        self.job_id.clone()
+    /// the ALPN protocol this stream was established on.
+    pub fn alpn(&self) -> String {
+        self.alpn.clone()
     }
 
-    /// get the full server response body (for Zod validation)
-    pub fn body(&self) -> Option<String> {
-        self.body.clone()
+    /// write a length-delimited message.
+    ///
+    /// writes a 4-byte big-endian u32 length prefix followed by the payload.
+    /// this matches the `LengthDelimitedCodec` framing used by the
+    /// iroh-automerge-repo example.
+    pub async fn write_message(&self, data: &[u8]) -> Result<(), JsError> {
+        let mut send = self
+            .send
+            .borrow_mut()
+            .take()
+            .ok_or_else(|| JsError::new("send stream busy or closed"))?;
+
+        let len = data.len() as u32;
+        let result = async {
+            send.write_all(&len.to_be_bytes())
+                .await
+                .map_err(to_js_err)?;
+            send.write_all(data).await.map_err(to_js_err)?;
+            Ok::<(), JsError>(())
+        }
+        .await;
+
+        // always put the send stream back (unless it errored fatally)
+        *self.send.borrow_mut() = Some(send);
+
+        result
     }
-}
 
-/// blob fetch result
-#[wasm_bindgen]
-pub struct BlobResult {
-    data: Vec<u8>,
-    content_type: Option<String>,
-}
+    /// read a length-delimited message.
+    ///
+    /// reads a 4-byte big-endian u32 length prefix, then reads that many
+    /// bytes of payload. returns the payload as a Uint8Array.
+    ///
+    /// returns null (JsValue::NULL) if the stream has been closed cleanly
+    /// by the remote peer (EOF on the length prefix read).
+    pub async fn read_message(&self) -> Result<JsValue, JsError> {
+        let mut recv = self
+            .recv
+            .borrow_mut()
+            .take()
+            .ok_or_else(|| JsError::new("recv stream busy or closed"))?;
 
-#[wasm_bindgen]
-impl BlobResult {
-    /// get blob data as Uint8Array
-    pub fn data(&self) -> Uint8Array {
-        Uint8Array::from(&self.data[..])
+        // read 4-byte length prefix
+        let mut len_buf = [0u8; 4];
+        let read_result = recv.read_exact(&mut len_buf).await;
+
+        match read_result {
+            Ok(()) => {}
+            Err(e) => {
+                // put stream back before returning
+                *self.recv.borrow_mut() = Some(recv);
+
+                // check if this is a clean stream close (FinishedEarly with 0 bytes)
+                let err_str = e.to_string();
+                if err_str.contains("finished")
+                    || err_str.contains("closed")
+                    || err_str.contains("eof")
+                {
+                    return Ok(JsValue::NULL);
+                }
+                return Err(to_js_err(e));
+            }
+        }
+
+        let len = u32::from_be_bytes(len_buf) as usize;
+
+        // sanity check: reject absurdly large messages (256 MB)
+        if len > 256 * 1024 * 1024 {
+            *self.recv.borrow_mut() = Some(recv);
+            return Err(JsError::new(&format!("message too large: {} bytes", len)));
+        }
+
+        let mut buf = vec![0u8; len];
+        let payload_result = recv.read_exact(&mut buf).await;
+
+        // put stream back
+        *self.recv.borrow_mut() = Some(recv);
+
+        match payload_result {
+            Ok(()) => Ok(Uint8Array::from(&buf[..]).into()),
+            Err(e) => Err(to_js_err(e)),
+        }
     }
 
-    /// get blob size in bytes
-    pub fn size(&self) -> u32 {
-        self.data.len() as u32
+    /// read all remaining bytes from the recv stream (no length prefix).
+    ///
+    /// reads until the remote peer finishes the stream or `max_size` bytes
+    /// are read. this matches grimoire's `read_to_end()` framing where
+    /// the message is terminated by the sender calling `finish()`.
+    pub async fn read_to_end(&self, max_size: u32) -> Result<JsValue, JsError> {
+        let mut recv = self
+            .recv
+            .borrow_mut()
+            .take()
+            .ok_or_else(|| JsError::new("recv stream busy or closed"))?;
+
+        let result = recv.read_to_end(max_size as usize).await;
+
+        // put stream back
+        *self.recv.borrow_mut() = Some(recv);
+
+        match result {
+            Ok(bytes) => Ok(Uint8Array::from(&bytes[..]).into()),
+            Err(e) => {
+                let err_str = e.to_string();
+                if err_str.contains("finished")
+                    || err_str.contains("closed")
+                    || err_str.contains("eof")
+                {
+                    // clean close — return empty array
+                    return Ok(Uint8Array::new_with_length(0).into());
+                }
+                Err(to_js_err(e))
+            }
+        }
     }
 
-    /// get content type (if known)
-    pub fn content_type(&self) -> Option<String> {
-        self.content_type.clone()
+    /// write raw bytes without a length prefix, then finish the send stream.
+    ///
+    /// this matches grimoire's `send_response()` framing where the message
+    /// is terminated by calling `finish()` on the send stream. the receiver
+    /// uses `read_to_end()` to read all bytes.
+    pub async fn write_raw_and_finish(&self, data: &[u8]) -> Result<(), JsError> {
+        let mut send = self
+            .send
+            .borrow_mut()
+            .take()
+            .ok_or_else(|| JsError::new("send stream busy or closed"))?;
+
+        let result = async {
+            send.write_all(data).await.map_err(to_js_err)?;
+            send.finish().map_err(to_js_err)?;
+            Ok::<(), JsError>(())
+        }
+        .await;
+
+        // put stream back even on error
+        *self.send.borrow_mut() = Some(send);
+
+        result
+    }
+
+    /// close the stream.
+    ///
+    /// finishes the send half and drops both halves.
+    pub fn close(&self) {
+        if let Some(mut send) = self.send.borrow_mut().take() {
+            // finish() signals intent to close — returns Result which we discard
+            let _ = send.finish();
+        }
+        // drop the recv half
+        self.recv.borrow_mut().take();
     }
 }
 
@@ -165,6 +306,13 @@ fn start() {
         .init();
 
     info!("midden initialized");
+}
+
+/// compute the blake3 hash of the given bytes and return as a hex string.
+/// this runs entirely in the browser — no network call needed.
+#[wasm_bindgen]
+pub fn hash_blake3(data: &[u8]) -> String {
+    blake3::hash(data).to_hex().to_string()
 }
 
 /// parse peer address - accepts either:
@@ -200,6 +348,13 @@ pub struct MiddenNode {
     // iroh-blobs components
     blobs_store: Store,
     blobs_downloader: Downloader,
+    blobs_protocol: BlobsProtocol,
+    /// active TempTags keyed by blob hash — prevents GC of imported blobs.
+    /// capped at 3 entries; oldest evicted when full.
+    #[wasm_bindgen(skip)]
+    pub active_tags: RefCell<IndexMap<Hash, TempTag>>,
+    /// guards against starting the blob server accept loop more than once
+    blob_server_running: RefCell<bool>,
 }
 
 #[wasm_bindgen]
@@ -234,15 +389,28 @@ impl MiddenNode {
         // use N0 preset for relay + DNS discovery (peers can find each other)
         let endpoint = Endpoint::builder(presets::N0)
             .secret_key(secret_key)
-            .alpns(vec![FREQHOLE_ALPN.to_vec()])
+            .alpns(vec![
+                FREQHOLE_ALPN.to_vec(),
+                AUTOMERGE_ALPN.to_vec(),
+                FRIENDZ_ALPN.to_vec(),
+                iroh_blobs::ALPN.to_vec(),
+            ])
             .bind()
             .await
             .map_err(to_js_err)?;
 
-        // setup iroh-blobs with MemStore (no persistence in browser)
-        let mem_store = iroh_blobs::store::mem::MemStore::default();
+        // setup iroh-blobs with MemStore + GC (blobs served on-demand from OPFS,
+        // GC reclaims memory after TempTags are dropped)
+        let mem_store =
+            iroh_blobs::store::mem::MemStore::new_with_opts(iroh_blobs::store::mem::Options {
+                gc_config: Some(GcConfig {
+                    interval: std::time::Duration::from_secs(30),
+                    add_protected: None,
+                }),
+            });
         let blobs_downloader = Downloader::new(&mem_store, &endpoint);
         let blobs_store = mem_store.as_ref().clone();
+        let blobs_protocol = BlobsProtocol::new(&blobs_store, None);
 
         // wait for relay connection
         endpoint.online().await;
@@ -255,6 +423,9 @@ impl MiddenNode {
             secret_key_bytes: bytes,
             blobs_store,
             blobs_downloader,
+            blobs_protocol,
+            active_tags: RefCell::new(IndexMap::new()),
+            blob_server_running: RefCell::new(false),
         })
     }
 
@@ -267,6 +438,240 @@ impl MiddenNode {
     /// get our node_id (iroh public key)
     pub fn node_id(&self) -> String {
         self.endpoint.secret_key().public().to_string()
+    }
+
+    /// create a node from existing secret key with additional ALPN protocols.
+    ///
+    /// `extra_alpns` is a JS array of strings (e.g. ["iroh/automerge-repo/1"]).
+    /// the node always registers "freqhole/1" plus whatever extra ALPNs are given.
+    pub async fn create_with_alpns(
+        key_bytes: &[u8],
+        extra_alpns: &js_sys::Array,
+    ) -> Result<MiddenNode, JsError> {
+        if key_bytes.len() != 32 {
+            return Err(JsError::new("secret key must be exactly 32 bytes"));
+        }
+
+        let mut bytes = [0u8; 32];
+        bytes.copy_from_slice(key_bytes);
+
+        // collect extra ALPNs from JS array
+        let mut alpns = vec![
+            FREQHOLE_ALPN.to_vec(),
+            AUTOMERGE_ALPN.to_vec(),
+            FRIENDZ_ALPN.to_vec(),
+            iroh_blobs::ALPN.to_vec(),
+        ];
+        for i in 0..extra_alpns.length() {
+            let alpn_str = extra_alpns
+                .get(i)
+                .as_string()
+                .ok_or_else(|| JsError::new("each ALPN must be a string"))?;
+            alpns.push(alpn_str.into_bytes());
+        }
+
+        let secret_key = SecretKey::from_bytes(&bytes);
+
+        let endpoint = Endpoint::builder(presets::N0)
+            .secret_key(secret_key)
+            .alpns(alpns)
+            .bind()
+            .await
+            .map_err(to_js_err)?;
+
+        let mem_store =
+            iroh_blobs::store::mem::MemStore::new_with_opts(iroh_blobs::store::mem::Options {
+                gc_config: Some(GcConfig {
+                    interval: std::time::Duration::from_secs(30),
+                    add_protected: None,
+                }),
+            });
+        let blobs_downloader = Downloader::new(&mem_store, &endpoint);
+        let blobs_store = mem_store.as_ref().clone();
+        let blobs_protocol = BlobsProtocol::new(&blobs_store, None);
+
+        endpoint.online().await;
+
+        let node_id = endpoint.secret_key().public().to_string();
+        info!("midden node ready (with extra ALPNs): {}", &node_id[..16]);
+
+        Ok(MiddenNode {
+            endpoint,
+            secret_key_bytes: bytes,
+            blobs_store,
+            blobs_downloader,
+            blobs_protocol,
+            active_tags: RefCell::new(IndexMap::new()),
+            blob_server_running: RefCell::new(false),
+        })
+    }
+
+    /// open a bidirectional stream to a peer on a specific ALPN.
+    ///
+    /// `peer_addr` can be a plain node_id hex string or a full endpoint
+    /// address JSON (same format as proxy_request). `alpn` is the protocol
+    /// to negotiate (e.g. "iroh/automerge-repo/1").
+    ///
+    /// returns a BiStream for length-delimited message exchange.
+    pub async fn open_bi(&self, peer_addr: &str, alpn: &str) -> Result<BiStream, JsError> {
+        let addr = parse_peer_addr(peer_addr).map_err(|e| JsError::new(&e))?;
+        let alpn_bytes = alpn.as_bytes();
+
+        let conn = self
+            .endpoint
+            .connect(addr.clone(), alpn_bytes)
+            .await
+            .map_err(to_js_err)?;
+
+        let (send, recv) = conn.open_bi().await.map_err(to_js_err)?;
+
+        // iroh 0.97: Connection::remote_id() returns EndpointId (= PublicKey)
+        let peer_node_id = conn.remote_id().to_string();
+
+        info!(
+            "opened bi stream to {} on ALPN {}",
+            &peer_node_id[..std::cmp::min(16, peer_node_id.len())],
+            alpn
+        );
+
+        Ok(BiStream {
+            send: RefCell::new(Some(send)),
+            recv: RefCell::new(Some(recv)),
+            peer_node_id,
+            alpn: alpn.to_string(),
+        })
+    }
+
+    /// start a background accept loop that handles incoming iroh-blobs connections.
+    ///
+    /// call this once after creating the node to allow remote peers to pull blobs
+    /// from this node (e.g., for P2P music upload where the server pulls from browser).
+    ///
+    /// only handles iroh-blobs connections — other ALPNs are ignored (dropped).
+    /// safe to call multiple times (subsequent calls are no-ops).
+    ///
+    /// WARNING: if you also call `accept()` from JS, both loops will compete for
+    /// incoming connections and each will only see a subset. use one or the other,
+    /// not both. freqhole uses `start_blob_server()`, skein uses `accept()`.
+    ///
+    /// NOTE: no application-level peer auth is applied here. iroh-blobs transfers
+    /// are content-addressed (blake3 verified), so a peer can only download blobs
+    /// they already know the hash of. peer filtering can be added later if needed.
+    pub fn start_blob_server(&self) {
+        let mut running = self.blob_server_running.borrow_mut();
+        if *running {
+            info!("blob server already running, skipping");
+            return;
+        }
+        *running = true;
+
+        let endpoint = self.endpoint.clone();
+        let blobs = self.blobs_protocol.clone();
+
+        info!("starting blob server accept loop");
+
+        wasm_bindgen_futures::spawn_local(async move {
+            loop {
+                let incoming = match endpoint.accept().await {
+                    Some(incoming) => incoming,
+                    None => {
+                        info!("blob server: endpoint closed, stopping accept loop");
+                        break;
+                    }
+                };
+
+                let conn = match incoming.await {
+                    Ok(c) => c,
+                    Err(e) => {
+                        warn!("blob server: failed to accept connection: {}", e);
+                        continue;
+                    }
+                };
+
+                let alpn_bytes = conn.alpn().to_vec();
+
+                if alpn_bytes == iroh_blobs::ALPN {
+                    let peer_id = conn.remote_id().to_string();
+                    info!(
+                        "blob server: accepting iroh-blobs connection from {}",
+                        &peer_id[..std::cmp::min(16, peer_id.len())]
+                    );
+                    let blobs = blobs.clone();
+                    wasm_bindgen_futures::spawn_local(async move {
+                        if let Err(e) = blobs.accept(conn).await {
+                            warn!("blob server: iroh-blobs handler error: {}", e);
+                        }
+                    });
+                } else {
+                    let alpn = String::from_utf8_lossy(&alpn_bytes);
+                    debug!("blob server: ignoring connection on ALPN: {}", alpn);
+                    // drop the connection - not for us
+                }
+            }
+        });
+    }
+
+    /// accept the next incoming connection and bidirectional stream.
+    ///
+    /// blocks until an incoming connection arrives on any registered ALPN.
+    /// returns a BiStream with the peer's node ID and the negotiated ALPN.
+    ///
+    /// returns null (JsValue::NULL) if the endpoint has been closed.
+    ///
+    /// the caller should check `stream.alpn()` to route the connection
+    /// to the appropriate handler.
+    pub async fn accept(&self) -> Result<JsValue, JsError> {
+        loop {
+            // wait for the next incoming connection
+            let incoming = match self.endpoint.accept().await {
+                Some(incoming) => incoming,
+                None => return Ok(JsValue::NULL), // endpoint closed
+            };
+
+            // accept the connection (completes TLS handshake)
+            let conn = incoming.await.map_err(to_js_err)?;
+
+            // extract ALPN before deciding how to handle
+            let alpn_bytes = conn.alpn().to_vec();
+
+            // iroh-blobs connections are handled entirely in Rust —
+            // spawn the BlobsProtocol handler and loop back to accept more
+            if alpn_bytes == iroh_blobs::ALPN {
+                let blobs = self.blobs_protocol.clone();
+                let peer_id = conn.remote_id().to_string();
+                info!(
+                    "accepting iroh-blobs connection from {}",
+                    &peer_id[..std::cmp::min(16, peer_id.len())]
+                );
+                wasm_bindgen_futures::spawn_local(async move {
+                    if let Err(e) = blobs.accept(conn).await {
+                        warn!("iroh-blobs accept error: {}", e);
+                    }
+                });
+                continue; // loop back to accept the next connection
+            }
+
+            // for other ALPNs, return a BiStream to JS as before
+            let alpn = String::from_utf8_lossy(&alpn_bytes).to_string();
+            let peer_node_id = conn.remote_id().to_string();
+
+            let (send, recv) = conn.accept_bi().await.map_err(to_js_err)?;
+
+            info!(
+                "accepted bi stream from {} on ALPN {}",
+                &peer_node_id[..std::cmp::min(16, peer_node_id.len())],
+                &alpn
+            );
+
+            let stream = BiStream {
+                send: RefCell::new(Some(send)),
+                recv: RefCell::new(Some(recv)),
+                peer_node_id,
+                alpn,
+            };
+
+            return Ok(stream.into());
+        }
     }
 
     /// connect to a peer
@@ -323,146 +728,10 @@ impl MiddenNode {
         }
     }
 
-    /// fetch a blob from a peer
-    /// peer_addr can be plain node_id or full endpoint JSON with relay/IP hints
-    /// returns BlobResult with data and metadata
-    pub async fn fetch_blob(&self, peer_addr: &str, blob_id: &str) -> Result<BlobResult, JsError> {
-        let addr = parse_peer_addr(peer_addr).map_err(|e| JsError::new(&e))?;
-
-        // connect to peer
-        let conn = self.connect_to_peer(&addr).await?;
-
-        let (mut send, mut recv): (SendStream, RecvStream) =
-            conn.open_bi().await.map_err(to_js_err)?;
-
-        // send request
-        let request = PeerMessage::BlobStreamRequest {
-            id: 1,
-            blob_id: blob_id.to_string(),
-        };
-        let bytes = serde_json::to_vec(&request).map_err(to_js_err)?;
-        send.write_all(&bytes).await.map_err(to_js_err)?;
-        send.finish().map_err(to_js_err)?;
-
-        // read length-prefixed header
-        let mut len_buf = [0u8; 4];
-        recv.read_exact(&mut len_buf).await.map_err(to_js_err)?;
-        let header_len = u32::from_be_bytes(len_buf) as usize;
-
-        let mut header_buf = vec![0u8; header_len];
-        recv.read_exact(&mut header_buf).await.map_err(to_js_err)?;
-
-        let response: PeerMessage = serde_json::from_slice(&header_buf).map_err(to_js_err)?;
-
-        match response {
-            PeerMessage::BlobStreamResponse {
-                size: _,
-                content_type,
-                error,
-                ..
-            } => {
-                if let Some(err) = error {
-                    return Err(JsError::new(&err));
-                }
-
-                // read all blob data
-                let data: Vec<u8> = recv
-                    .read_to_end(100 * 1024 * 1024) // 100MB max
-                    .await
-                    .map_err(to_js_err)?;
-
-                Ok(BlobResult { data, content_type })
-            }
-            _ => Err(JsError::new("unexpected response type")),
-        }
-    }
-
-    /// fetch a blob from a peer with progress callback
-    /// callback is called with (received_bytes, total_bytes) as arguments
-    /// if total_bytes is 0, the size is unknown
-    pub async fn fetch_blob_with_progress(
-        &self,
-        peer_addr: &str,
-        blob_id: &str,
-        on_progress: &js_sys::Function,
-    ) -> Result<BlobResult, JsError> {
-        let addr = parse_peer_addr(peer_addr).map_err(|e| JsError::new(&e))?;
-
-        // connect to peer
-        let conn = self.connect_to_peer(&addr).await?;
-
-        let (mut send, mut recv): (SendStream, RecvStream) =
-            conn.open_bi().await.map_err(to_js_err)?;
-
-        // send request
-        let request = PeerMessage::BlobStreamRequest {
-            id: 1,
-            blob_id: blob_id.to_string(),
-        };
-        let bytes = serde_json::to_vec(&request).map_err(to_js_err)?;
-        send.write_all(&bytes).await.map_err(to_js_err)?;
-        send.finish().map_err(to_js_err)?;
-
-        // read length-prefixed header
-        let mut len_buf = [0u8; 4];
-        recv.read_exact(&mut len_buf).await.map_err(to_js_err)?;
-        let header_len = u32::from_be_bytes(len_buf) as usize;
-
-        let mut header_buf = vec![0u8; header_len];
-        recv.read_exact(&mut header_buf).await.map_err(to_js_err)?;
-
-        let response: PeerMessage = serde_json::from_slice(&header_buf).map_err(to_js_err)?;
-
-        match response {
-            PeerMessage::BlobStreamResponse {
-                size,
-                content_type,
-                error,
-                ..
-            } => {
-                if let Some(err) = error {
-                    return Err(JsError::new(&err));
-                }
-
-                let total_size = size.unwrap_or(0);
-
-                // read in chunks with progress callback
-                let chunk_size = 64 * 1024; // 64KB chunks
-                let mut data = Vec::with_capacity(total_size as usize);
-                let mut received: u64 = 0;
-
-                loop {
-                    let mut chunk = vec![0u8; chunk_size];
-                    let bytes_read = recv.read(&mut chunk).await.map_err(to_js_err)?;
-
-                    if let Some(n) = bytes_read {
-                        if n == 0 {
-                            break;
-                        }
-                        data.extend_from_slice(&chunk[..n]);
-                        received += n as u64;
-
-                        // call progress callback
-                        let this = JsValue::null();
-                        let received_js = JsValue::from_f64(received as f64);
-                        let total_js = JsValue::from_f64(total_size as f64);
-                        let _ = on_progress.call2(&this, &received_js, &total_js);
-                    } else {
-                        // stream closed
-                        break;
-                    }
-                }
-
-                Ok(BlobResult { data, content_type })
-            }
-            _ => Err(JsError::new("unexpected response type")),
-        }
-    }
-
     /// fetch server image from a peer (public, no auth required)
     /// used during "add remote" flow before user is authenticated
     /// peer_addr can be plain node_id or full endpoint JSON with relay/IP hints
-    pub async fn fetch_hello_image(&self, peer_addr: &str) -> Result<BlobResult, JsError> {
+    pub async fn fetch_hello_image(&self, peer_addr: &str) -> Result<HelloImageResult, JsError> {
         let addr = parse_peer_addr(peer_addr).map_err(|e| JsError::new(&e))?;
 
         // connect to peer
@@ -504,80 +773,7 @@ impl MiddenNode {
                     .await
                     .map_err(to_js_err)?;
 
-                Ok(BlobResult { data, content_type })
-            }
-            _ => Err(JsError::new("unexpected response type")),
-        }
-    }
-
-    /// upload a blob to a peer
-    /// peer_addr can be plain node_id or full endpoint JSON with relay/IP hints
-    /// associate_with: optional JSON string with entity association metadata
-    /// returns UploadResult with blob_id and job_id on success
-    pub async fn upload_blob(
-        &self,
-        peer_addr: &str,
-        filename: &str,
-        content_type: &str,
-        data: &[u8],
-        associate_with: Option<String>,
-    ) -> Result<UploadResult, JsError> {
-        let addr = parse_peer_addr(peer_addr).map_err(|e| JsError::new(&e))?;
-
-        // connect to peer
-        let conn = self.connect_to_peer(&addr).await?;
-
-        let (mut send, mut recv): (SendStream, RecvStream) =
-            conn.open_bi().await.map_err(to_js_err)?;
-
-        // parse associate_with if provided
-        let associate_with_value: Option<serde_json::Value> = associate_with
-            .as_ref()
-            .and_then(|s| serde_json::from_str(s).ok());
-
-        // send length-prefixed header
-        let request = PeerMessage::BlobUploadRequest {
-            id: 1,
-            filename: filename.to_string(),
-            content_type: content_type.to_string(),
-            size: data.len() as u64,
-            associate_with: associate_with_value,
-        };
-        let header_bytes = serde_json::to_vec(&request).map_err(to_js_err)?;
-        let header_len = header_bytes.len() as u32;
-
-        // write length prefix
-        send.write_all(&header_len.to_be_bytes())
-            .await
-            .map_err(to_js_err)?;
-        // write header
-        send.write_all(&header_bytes).await.map_err(to_js_err)?;
-        // write blob data
-        send.write_all(data).await.map_err(to_js_err)?;
-        send.finish().map_err(to_js_err)?;
-
-        // read response (no length prefix, read to end)
-        let response_bytes: Vec<u8> = recv.read_to_end(1024 * 1024).await.map_err(to_js_err)?;
-
-        let response: PeerMessage = serde_json::from_slice(&response_bytes).map_err(to_js_err)?;
-
-        match response {
-            PeerMessage::BlobUploadResponse {
-                blob_id,
-                job_id,
-                error,
-                body,
-                ..
-            } => {
-                if let Some(err) = error {
-                    return Err(JsError::new(&err));
-                }
-
-                Ok(UploadResult {
-                    blob_id,
-                    job_id,
-                    body,
-                })
+                Ok(HelloImageResult { data, content_type })
             }
             _ => Err(JsError::new("unexpected response type")),
         }
@@ -661,6 +857,76 @@ impl MiddenNode {
         Ok(array)
     }
 
+    /// download a blob with progress reporting via JS callback
+    ///
+    /// same as download_verified but calls on_progress(fraction) where
+    /// fraction is bytes_received / total_size (0.0 to 1.0).
+    /// total_size should come from the automerge doc's size field.
+    pub async fn download_verified_with_progress(
+        &self,
+        peer_addr: &str,
+        blake3_hash: &str,
+        total_size: f64,
+        on_progress: &JsFunction,
+    ) -> Result<Uint8Array, JsError> {
+        let addr = parse_peer_addr(peer_addr).map_err(|e| JsError::new(&e))?;
+
+        let hash: Hash = blake3_hash
+            .parse()
+            .map_err(|e| JsError::new(&format!("invalid blake3 hash: {}", e)))?;
+
+        let hash_and_format = HashAndFormat::raw(hash);
+        let progress = self.blobs_downloader.download(hash_and_format, [addr.id]);
+
+        use iroh_blobs::api::downloader::DownloadProgressItem;
+        use n0_future::StreamExt;
+
+        let mut stream = progress
+            .stream()
+            .await
+            .map_err(|e| JsError::new(&format!("download stream failed: {}", e)))?;
+
+        let mut had_error = false;
+        let mut last_error: Option<String> = None;
+
+        while let Some(event) = stream.next().await {
+            match &event {
+                DownloadProgressItem::Progress(bytes) => {
+                    if total_size > 0.0 {
+                        let fraction = (*bytes as f64 / total_size).min(1.0);
+                        let _ = on_progress.call1(&JsValue::NULL, &JsValue::from_f64(fraction));
+                    }
+                }
+                DownloadProgressItem::Error(e) => {
+                    had_error = true;
+                    last_error = Some(format!("{:?}", e));
+                }
+                DownloadProgressItem::DownloadError => {
+                    had_error = true;
+                    last_error = Some("download error".to_string());
+                }
+                _ => {}
+            }
+        }
+
+        if had_error {
+            return Err(JsError::new(&format!(
+                "download failed: {}",
+                last_error.unwrap_or_else(|| "unknown error".to_string())
+            )));
+        }
+
+        let bytes = self
+            .blobs_store
+            .get_bytes(hash)
+            .await
+            .map_err(|e| JsError::new(&format!("failed to read blob from store: {}", e)))?;
+
+        let array = Uint8Array::new_with_length(bytes.len() as u32);
+        array.copy_from(&bytes);
+        Ok(array)
+    }
+
     /// ensure a blob is loaded into the peer's FsStore by blake3 hash
     ///
     /// call this before retrying download_verified if the first attempt fails.
@@ -732,6 +998,42 @@ impl MiddenNode {
 
         // retry verified download
         self.download_verified(peer_addr, blake3_hash).await
+    }
+
+    /// download with ensure + retry and progress reporting
+    ///
+    /// tries download first; if blob not in peer's FsStore, calls ensure_blob
+    /// then retries. progress callback receives fraction (0.0 to 1.0).
+    pub async fn download_verified_with_ensure_progress(
+        &self,
+        peer_addr: &str,
+        blake3_hash: &str,
+        total_size: f64,
+        on_progress: &JsFunction,
+    ) -> Result<Uint8Array, JsError> {
+        // first attempt
+        match self
+            .download_verified_with_progress(peer_addr, blake3_hash, total_size, on_progress)
+            .await
+        {
+            Ok(data) => return Ok(data),
+            Err(_e) => {
+                // retry with ensure_blob (normal for first download)
+            }
+        }
+
+        // ensure blob is loaded into FsStore
+        let available = self.ensure_blob(peer_addr, blake3_hash).await?;
+        if !available {
+            return Err(JsError::new(&format!(
+                "blob {} not available on peer",
+                &blake3_hash[..16.min(blake3_hash.len())]
+            )));
+        }
+
+        // retry verified download with progress
+        self.download_verified_with_progress(peer_addr, blake3_hash, total_size, on_progress)
+            .await
     }
 
     /// compute blake3 hash for a blob on demand
@@ -813,6 +1115,204 @@ impl MiddenNode {
         result.push(&data);
         result.push(&JsValue::from_str(&blake3));
         Ok(result)
+    }
+
+    /// full pipeline from blob_id with progress reporting
+    ///
+    /// computes blake3 on demand, then uses verified download with progress.
+    /// returns [data: Uint8Array, blake3: string].
+    pub async fn download_verified_by_id_progress(
+        &self,
+        peer_addr: &str,
+        blob_id: &str,
+        total_size: f64,
+        on_progress: &JsFunction,
+    ) -> Result<js_sys::Array, JsError> {
+        let blake3 = self
+            .compute_blake3(peer_addr, blob_id)
+            .await?
+            .ok_or_else(|| JsError::new("blob not found on peer"))?;
+
+        let data = self
+            .download_verified_with_ensure_progress(peer_addr, &blake3, total_size, on_progress)
+            .await?;
+
+        let result = js_sys::Array::new();
+        result.push(&data.into());
+        result.push(&JsValue::from_str(&blake3));
+        Ok(result)
+    }
+
+    /// import raw bytes into the iroh-blobs store, returning the blake3 hash.
+    /// this makes the blob available for verified download by peers.
+    /// the blob stays in the store as long as its TempTag is held in active_tags.
+    /// call release_blob() to allow GC, or it will be evicted when the map exceeds 3 entries.
+    #[wasm_bindgen]
+    pub async fn import_blob(&self, data: &[u8]) -> Result<String, JsError> {
+        // check active_tags first to avoid the expensive add_bytes + bao computation
+        let hash_bytes = blake3::hash(data);
+        let hash = Hash::from_bytes(*hash_bytes.as_bytes());
+
+        {
+            let tags = self.active_tags.borrow();
+            if tags.contains_key(&hash) {
+                return Ok(hash.to_hex().to_string());
+            }
+        }
+
+        let bytes_data = bytes::Bytes::from(data.to_vec());
+        let tt = self
+            .blobs_store
+            .blobs()
+            .add_bytes(bytes_data)
+            .temp_tag()
+            .await
+            .map_err(|e| JsError::new(&format!("failed to import blob: {}", e)))?;
+
+        let mut tags = self.active_tags.borrow_mut();
+
+        // cap at 3 entries — evict oldest before inserting the 4th.
+        // blobs are served on-demand from OPFS; small cap keeps memory bounded.
+        // GC (30s interval) reclaims MemStore memory after TempTags are dropped.
+        if tags.len() >= 3 {
+            let evict_key = *tags.keys().next().unwrap();
+            tags.shift_remove(&evict_key);
+        }
+
+        tags.insert(hash, tt);
+        Ok(hash.to_hex().to_string())
+    }
+
+    /// import raw bytes into the iroh-blobs store, returning both the blake3 hash
+    /// AND the bao-encoded bytes. the bao bytes can be cached in OPFS and later
+    /// fed to `import_bao` to skip the expensive bao tree recomputation on re-import.
+    ///
+    /// returns a JS object: `{ hash: string, bao: Uint8Array }`
+    #[wasm_bindgen]
+    pub async fn import_blob_and_export_bao(&self, data: &[u8]) -> Result<JsValue, JsError> {
+        let hash_bytes = blake3::hash(data);
+        let hash = Hash::from_bytes(*hash_bytes.as_bytes());
+        let hash_str = hash.to_hex().to_string();
+
+        // import the blob (computes bao tree internally)
+        let bytes_data = bytes::Bytes::from(data.to_vec());
+        let tt = self
+            .blobs_store
+            .blobs()
+            .add_bytes(bytes_data)
+            .temp_tag()
+            .await
+            .map_err(|e| JsError::new(&format!("failed to import blob: {}", e)))?;
+
+        // export the bao-encoded stream (data + tree interleaved).
+        // this is the format accepted by import_bao_bytes for re-import.
+        let bao_bytes = self
+            .blobs_store
+            .blobs()
+            .export_bao(hash, ChunkRanges::all())
+            .bao_to_vec()
+            .await
+            .map_err(|e| JsError::new(&format!("failed to export bao: {}", e)))?;
+
+        // store TempTag (with eviction)
+        let mut tags = self.active_tags.borrow_mut();
+        if tags.len() >= 3 {
+            let evict_key = *tags.keys().next().unwrap();
+            tags.shift_remove(&evict_key);
+        }
+        tags.insert(hash, tt);
+
+        // return { hash, bao } to JS
+        let bao_array = Uint8Array::new_with_length(bao_bytes.len() as u32);
+        bao_array.copy_from(&bao_bytes);
+
+        let result = js_sys::Object::new();
+        js_sys::Reflect::set(&result, &"hash".into(), &hash_str.into())
+            .map_err(|_| JsError::new("failed to set hash on result object"))?;
+        js_sys::Reflect::set(&result, &"bao".into(), &bao_array.into())
+            .map_err(|_| JsError::new("failed to set bao on result object"))?;
+        Ok(result.into())
+    }
+
+    /// import a blob from its pre-computed bao-encoded bytes, skipping the
+    /// expensive bao tree computation. `blake3_hash` is the 64-char hex hash,
+    /// `bao_data` is the bao-encoded bytes previously returned by
+    /// `import_blob_and_export_bao`.
+    ///
+    /// uses `import_bao_bytes` (iroh-blobs internal API) to feed the pre-computed
+    /// bao stream directly into the store, then creates a global TempTag via
+    /// `Tags::temp_tag` to prevent GC.
+    #[wasm_bindgen]
+    pub async fn import_bao(&self, blake3_hash: &str, bao_data: &[u8]) -> Result<String, JsError> {
+        let hash: Hash = blake3_hash
+            .parse()
+            .map_err(|_| JsError::new("invalid blake3 hash"))?;
+
+        // check active_tags first — no need to re-import
+        {
+            let tags = self.active_tags.borrow();
+            if tags.contains_key(&hash) {
+                return Ok(hash.to_hex().to_string());
+            }
+        }
+
+        // import the bao-encoded bytes (data + outboard tree interleaved).
+        // this skips the bao tree computation that add_bytes() would do.
+        let bao_bytes = bytes::Bytes::from(bao_data.to_vec());
+        self.blobs_store
+            .blobs()
+            .import_bao_bytes(hash, ChunkRanges::all(), bao_bytes)
+            .await
+            .map_err(|e| JsError::new(&format!("failed to import bao: {}", e)))?;
+
+        // create a global-scope TempTag to prevent GC.
+        // Tags::temp_tag creates a TempTag independent of any Batch scope,
+        // so it survives as long as we hold it in active_tags.
+        let tt = self
+            .blobs_store
+            .tags()
+            .temp_tag(HashAndFormat::raw(hash))
+            .await
+            .map_err(|e| JsError::new(&format!("failed to create temp tag: {}", e)))?;
+
+        // store TempTag (with eviction)
+        let mut tags = self.active_tags.borrow_mut();
+        if tags.len() >= 3 {
+            let evict_key = *tags.keys().next().unwrap();
+            tags.shift_remove(&evict_key);
+        }
+        tags.insert(hash, tt);
+
+        Ok(hash.to_hex().to_string())
+    }
+
+    /// release a blob's TempTag, allowing the store to garbage-collect it.
+    /// blake3_hash should be the 64-char hex string returned by import_blob.
+    #[wasm_bindgen]
+    pub fn release_blob(&self, blake3_hash: &str) -> Result<(), JsError> {
+        let hash: Hash = blake3_hash
+            .parse()
+            .map_err(|_| JsError::new("invalid blake3 hash"))?;
+        self.active_tags.borrow_mut().shift_remove(&hash);
+        Ok(())
+    }
+
+    /// return the number of blobs currently held in the store via active TempTags.
+    #[wasm_bindgen]
+    pub fn active_blob_count(&self) -> usize {
+        self.active_tags.borrow().len()
+    }
+
+    /// check whether a blob with the given blake3 hash is currently held in the MemStore
+    /// via an active TempTag. avoids expensive OPFS read + bao recomputation when the
+    /// blob is already loaded.
+    #[wasm_bindgen]
+    pub fn has_active_blob(&self, blake3_hash: &str) -> bool {
+        let hash: Hash = match blake3_hash.parse() {
+            Ok(h) => h,
+            Err(_) => return false,
+        };
+        self.active_tags.borrow().contains_key(&hash)
     }
 }
 

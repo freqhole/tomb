@@ -3,7 +3,7 @@
 // uses Tauri IPC commands to make P2P requests via the server's
 // app iroh endpoint. no WASM needed.
 
-import type { Transport, TransportResponse, BlobData } from "./transport.js";
+import type { BlobData, Transport, TransportResponse } from "./transport.js";
 
 // tauri invoke function type
 type InvokeFn = (cmd: string, args?: unknown) => Promise<unknown>;
@@ -51,11 +51,11 @@ const urlCache = new Map<string, string>();
  */
 function base64ToBytes(base64: string): Uint8Array {
   // convert URL-safe base64 to standard base64
-  let standardBase64 = base64.replace(/-/g, '+').replace(/_/g, '/');
+  let standardBase64 = base64.replace(/-/g, "+").replace(/_/g, "/");
   // add padding if needed
   const padLen = (4 - (standardBase64.length % 4)) % 4;
-  standardBase64 += '='.repeat(padLen);
-  
+  standardBase64 += "=".repeat(padLen);
+
   const binaryString = atob(standardBase64);
   const bytes = new Uint8Array(binaryString.length);
   for (let i = 0; i < binaryString.length; i++) {
@@ -68,7 +68,7 @@ function base64ToBytes(base64: string): Uint8Array {
  * encode Uint8Array to base64 string
  */
 function bytesToBase64(bytes: Uint8Array): string {
-  let binary = '';
+  let binary = "";
   for (let i = 0; i < bytes.length; i++) {
     binary += String.fromCharCode(bytes[i]);
   }
@@ -113,7 +113,11 @@ export class CharnelTransport implements Transport {
   /**
    * make an API request via P2P
    */
-  async request(method: string, path: string, body?: string): Promise<TransportResponse> {
+  async request(
+    method: string,
+    path: string,
+    body?: string,
+  ): Promise<TransportResponse> {
     const inv = await ensureInvoke();
 
     const result = (await inv("p2p_proxy_request", {
@@ -128,124 +132,194 @@ export class CharnelTransport implements Transport {
 
   /**
    * upload via P2P
+   *
+   * for music uploads, returns an error directing callers to use uploadByPath()
+   * which uses iroh-blobs pull model (file path -> FsStore import -> remote pull).
+   * for non-music uploads (images), uses base64 encoding (small enough to be fine).
    */
-  async upload(_path: string, formData: FormData): Promise<TransportResponse> {
-    const inv = await ensureInvoke();
-
+  async upload(path: string, formData: FormData): Promise<TransportResponse> {
     // extract file from form data
     const file = formData.get("file") as File | null;
     if (!file) {
       return {
         status: 400,
-        body: JSON.stringify({ error: "no file provided" }),
+        body: JSON.stringify({
+          success: false,
+          message: "no file provided",
+          errors: [
+            {
+              error_type: "bad_request",
+              title: "bad request",
+              detail: "no file provided",
+            },
+          ],
+        }),
       };
     }
 
-    // extract associate_with metadata if present
+    // for music uploads, FormData doesn't carry a file path so we can't use
+    // p2p_import_blob (which needs a filesystem path). callers should use
+    // uploadByPath() instead, which accepts a path from a file dialog.
+    if (path === "/api/upload/music") {
+      console.warn(
+        "[CharnelTransport] FormData music upload not supported over P2P.",
+        "use uploadByPath() with a filesystem path instead.",
+      );
+      return {
+        status: 400,
+        body: JSON.stringify({
+          success: false,
+          message:
+            "music upload via FormData not supported over P2P - use uploadByPath()",
+          errors: [
+            {
+              error_type: "upload_not_supported",
+              title: "use uploadByPath for P2P music upload",
+              detail:
+                "CharnelTransport cannot upload music from FormData. " +
+                "use uploadByPath() with a filesystem path from a file dialog instead.",
+            },
+          ],
+        }),
+      };
+    }
+
+    // for non-music uploads (images etc), use base64 (small enough)
+    return this.uploadViaBase64(path, file, formData);
+  }
+
+  /**
+   * upload a file by filesystem path via P2P using iroh-blobs pull model
+   *
+   * 1. imports file into local FsStore (gets blake3 hash)
+   * 2. tells remote peer to pull the blob via iroh-blobs
+   * 3. remote peer downloads verified, writes to disk, creates import job
+   */
+  async uploadByPath(
+    path: string,
+    filePath: string,
+    metadata?: Record<string, unknown>,
+  ): Promise<TransportResponse> {
+    const inv = await ensureInvoke();
+
+    // only use iroh-blobs for music uploads
+    if (path === "/api/upload/music") {
+      // import file into local FsStore -> get blake3 hash
+      const blake3 = (await inv("p2p_import_blob", { filePath })) as string;
+
+      // build request body for the remote peer
+      const body: Record<string, unknown> = {
+        blake3,
+        filename:
+          filePath.split("/").pop() || filePath.split("\\").pop() || "music",
+        ...metadata,
+      };
+
+      // tell the remote peer to pull the blob from us
+      return this.request(
+        "POST",
+        "/api/upload/music-by-blake3",
+        JSON.stringify(body),
+      );
+    }
+
+    // for non-music uploads, send path + metadata via proxy_request
+    const body: Record<string, unknown> = {
+      file_path: filePath,
+      ...metadata,
+    };
+    return this.request("POST", path, JSON.stringify(body));
+  }
+
+  /**
+   * fallback upload via base64 encoding
+   * used for non-music uploads (images are small enough)
+   */
+  private async uploadViaBase64(
+    path: string,
+    file: File,
+    formData: FormData,
+  ): Promise<TransportResponse> {
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const base64 = bytesToBase64(bytes);
+
+    const body: Record<string, unknown> = {
+      data: base64,
+      filename: file.name,
+    };
+
+    // include associate_with if present
     const associateWithStr = formData.get("associate_with") as string | null;
-    let associateWith: object | null = null;
     if (associateWithStr) {
       try {
-        associateWith = JSON.parse(associateWithStr);
+        body.associate_with = JSON.parse(associateWithStr);
       } catch {
         // ignore parse errors
       }
     }
 
-    // read file and encode as base64 (tauri IPC requires this for binary data)
-    const bytes = new Uint8Array(await file.arrayBuffer());
-    const base64 = bytesToBase64(bytes);
-    const contentType = file.type || "application/octet-stream";
-
-    try {
-      const result = (await inv("p2p_upload_blob", {
-        peerAddr: this.peerAddr,
-        filename: file.name,
-        contentType,
-        data: base64,
-        associateWith,
-      })) as { blob_id: string | null; job_id: string | null; body: string | null };
-
-      // use full server response body if available (for proper Zod validation)
-      if (result.body) {
-        return {
-          status: 200,
-          body: result.body,
-        };
-      }
-
-      // fallback to minimal response (shouldn't happen with updated server)
-      return {
-        status: 200,
-        body: JSON.stringify({
-          blob_id: result.blob_id,
-          job_id: result.job_id,
-          message: "upload successful",
-        }),
-      };
-    } catch (e) {
-      return {
-        status: 500,
-        body: JSON.stringify({
-          error: e instanceof Error ? e.message : String(e),
-        }),
-      };
-    }
+    // send via proxy_request — routes through offal dispatch on the remote peer
+    return this.request("POST", path, JSON.stringify(body));
   }
 
   /**
    * fetch a blob via P2P
-   * if blake3 is provided, uses iroh-blobs verified streaming
+   * if blake3 is provided, uses iroh-blobs verified streaming.
+   * for blobs without blake3 (images, waveforms, thumbnails), uses proxy_request
+   * to fetch base64-encoded data from the peer's /api/blobs/{id}/data endpoint.
    */
   async fetchBlob(blobId: string, blake3?: string): Promise<BlobData> {
     const inv = await ensureInvoke();
+    const tauri = await import("@tauri-apps/api/core");
+    const onProgress = new tauri.Channel<{ bytes_downloaded: number }>();
 
-    // if blake3 is provided, use verified iroh-blobs download
     if (blake3) {
-      try {
-        const result = (await inv("p2p_fetch_blob_verified", {
-          peerAddr: this.peerAddr,
-          blake3Hash: blake3,
-        })) as { data: string; content_type: string | null; size: number };
+      // blake3 known — use verified iroh-blobs download
+      const result = (await inv("p2p_fetch_blob_verified", {
+        peerAddr: this.peerAddr,
+        blake3Hash: blake3,
+        onProgress,
+      })) as { data: string; content_type: string | null; size: number };
 
-        const bytes = base64ToBytes(result.data);
-        return {
-          data: bytes,
-          contentType: result.content_type ?? "audio/mpeg",
-        };
-      } catch (e) {
-        const errorMessage = e instanceof Error ? e.message : String(e);
-        console.warn(`[CharnelTransport] verified download failed, falling back: ${errorMessage}`);
-        // fall through to regular fetch_blob
-      }
-    } else {
-      // no blake3 provided - try on-demand computation + verified download
-      try {
-        const result = (await inv("p2p_fetch_blob_verified_by_id", {
-          peerAddr: this.peerAddr,
-          blobId,
-        })) as { data: string; content_type: string | null; size: number; blake3: string };
-
-        const bytes = base64ToBytes(result.data);
-        return {
-          data: bytes,
-          contentType: result.content_type ?? "audio/mpeg",
-        };
-      } catch (e) {
-        const errorMessage = e instanceof Error ? e.message : String(e);
-        console.warn(`[CharnelTransport] on-demand verified download failed, falling back: ${errorMessage}`);
-        // fall through to regular fetch_blob
-      }
+      const bytes = base64ToBytes(result.data);
+      return {
+        data: bytes,
+        contentType: result.content_type ?? "audio/mpeg",
+      };
     }
 
-    const result = (await inv("p2p_fetch_blob", {
+    // no blake3 — try proxy_request to get blob data from database
+    // this is the primary path for images (waveforms, thumbnails) stored in the database
+    try {
+      const result = await this.request("GET", `/api/blobs/${blobId}/data`);
+      if (result.status === 200) {
+        const parsed = JSON.parse(result.body);
+        if (parsed.success && parsed.data?.data) {
+          const bytes = base64ToBytes(parsed.data.data);
+          const contentType = parsed.data.mime || "application/octet-stream";
+          return { data: bytes, contentType };
+        }
+      }
+    } catch (e) {
+      const errorMessage = e instanceof Error ? e.message : String(e);
+      console.warn(
+        `[CharnelTransport] proxy blob data request failed, falling back to verified download: ${errorMessage}`,
+      );
+    }
+
+    // fallback: ask the peer to compute blake3, then do verified download
+    const result = (await inv("p2p_fetch_blob_verified_by_id", {
       peerAddr: this.peerAddr,
       blobId,
-    })) as { data: string; content_type: string | null };
+      onProgress,
+    })) as {
+      data: string;
+      content_type: string | null;
+      size: number;
+      blake3: string;
+    };
 
-    // decode base64 data (handles URL-safe encoding)
     const bytes = base64ToBytes(result.data);
-
     return {
       data: bytes,
       contentType: result.content_type ?? "application/octet-stream",
@@ -276,7 +350,9 @@ export class CharnelTransport implements Transport {
 
     // fetch via P2P and cache (pass blake3 for verified download)
     const blobData = await this.fetchBlob(blobId, blake3);
-    const blob = new Blob([blobData.data.slice().buffer], { type: blobData.contentType });
+    const blob = new Blob([blobData.data.slice().buffer], {
+      type: blobData.contentType,
+    });
 
     // store in Cache API (HTTP URL key for webkitgtk compatibility)
     const response = new Response(blob, {
@@ -344,7 +420,10 @@ const transportCache = new Map<string, CharnelTransport>();
  * get or create a CharnelTransport for a peer (async)
  * initializes transport before returning
  */
-export async function createCharnelTransport(peerAddr: string, cacheName?: string): Promise<CharnelTransport> {
+export async function createCharnelTransport(
+  peerAddr: string,
+  cacheName?: string,
+): Promise<CharnelTransport> {
   // include cacheName in cache key so different remotes get different transports
   const cacheKey = cacheName ? `${peerAddr}:${cacheName}` : peerAddr;
   const existing = transportCache.get(cacheKey);
@@ -361,7 +440,10 @@ export async function createCharnelTransport(peerAddr: string, cacheName?: strin
 /**
  * get or create a CharnelTransport (alias for createCharnelTransport)
  */
-export async function getCharnelTransport(peerAddr: string, cacheName?: string): Promise<CharnelTransport> {
+export async function getCharnelTransport(
+  peerAddr: string,
+  cacheName?: string,
+): Promise<CharnelTransport> {
   return createCharnelTransport(peerAddr, cacheName);
 }
 

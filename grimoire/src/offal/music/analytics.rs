@@ -80,6 +80,15 @@ pub const ROUTES: &[RouteInfo] = &[
         response_type: "FeedResponse",
         auth: RouteAuth::Authenticated,
     },
+    RouteInfo {
+        name: "delete_feed_event",
+        path: "/api/analytics/feed/delete",
+        method: Method::POST,
+        domain: Domain::Music,
+        request_type: "DeleteFeedEventRequest",
+        response_type: "EmptyResponse",
+        auth: RouteAuth::Authenticated,
+    },
 ];
 
 /// record a play event (canonical endpoint)
@@ -387,4 +396,51 @@ pub async fn feed(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValu
             "total": total
         })
     })
+}
+
+/// delete a feed event by id
+///
+/// path: POST /api/analytics/feed/delete
+pub async fn delete_feed_event(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
+    let req: crate::music::analytics::DeleteFeedEventRequest = match serde_json::from_value(body) {
+        Ok(r) => r,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "bad request",
+                vec![ErrorDetail::new(
+                    "bad_request",
+                    "bad request",
+                    &e.to_string(),
+                )],
+            )
+        }
+    };
+
+    // look up owner first for permission check
+    let owner_result = crate::music::analytics::feed_events::get_feed_event_owner(&req.id).await;
+
+    let owner_user_id = match owner_result.data {
+        Some(uid) => uid,
+        None => return GrimoireResponse::failure(&owner_result.message, owner_result.errors),
+    };
+
+    // permission check: own items always deletable, admin can delete any
+    if owner_user_id != caller.user_id && caller.role != UserRole::Admin {
+        return GrimoireResponse::failure(
+            "forbidden",
+            vec![ErrorDetail::new(
+                "forbidden",
+                "forbidden",
+                "you can only delete your own feed events",
+            )],
+        );
+    }
+
+    let delete_result =
+        crate::music::analytics::feed_events::delete_feed_event_by_id(&req.id).await;
+
+    match delete_result.data {
+        Some(_) => GrimoireResponse::success("feed event deleted", serde_json::json!({})),
+        None => GrimoireResponse::failure(&delete_result.message, delete_result.errors),
+    }
 }

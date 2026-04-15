@@ -10,6 +10,7 @@ import {
 import type { P2PIdentity } from "../../app/services/storage/types";
 import { toast } from "../../components/feedback/Toast";
 import { formatDateTime } from "../../utils/dateTime";
+import { exportFederationBackup, importFederationBackup } from "../utils/federationBackup";
 
 // confirmation dialog component
 function ConfirmDialog(props: {
@@ -53,6 +54,10 @@ export function FederationSettingsView() {
   const [isInitializing, setIsInitializing] = createSignal(false);
   const [showResetConfirm, setShowResetConfirm] = createSignal(false);
   const [copied, setCopied] = createSignal(false);
+  const [backupString, setBackupString] = createSignal("");
+  const [importString, setImportString] = createSignal("");
+  const [isExporting, setIsExporting] = createSignal(false);
+  const [isImporting, setIsImporting] = createSignal(false);
 
   const isTauri = isCharnelAvailable();
 
@@ -125,6 +130,54 @@ export function FederationSettingsView() {
   // get current node ID for display
   const currentNodeId = () => (isTauri ? tauriNodeId() : identity()?.node_id);
   const hasIdentity = () => (isTauri ? !!tauriNodeId() : !!identity());
+
+  // export federation backup
+  const handleExport = async () => {
+    setIsExporting(true);
+    try {
+      const encoded = await exportFederationBackup();
+      setBackupString(encoded);
+      toast.success("backup exported — copy the string below");
+    } catch (err) {
+      console.error("export failed:", err);
+      toast.error("failed to export backup");
+    }
+    setIsExporting(false);
+  };
+
+  // import federation backup
+  const handleImport = async () => {
+    const input = importString().trim();
+    if (!input) {
+      toast.error("paste a backup string first");
+      return;
+    }
+    setIsImporting(true);
+    try {
+      const result = await importFederationBackup(input);
+      const parts: string[] = [];
+      if (result.identityRestored) parts.push("identity restored");
+      if (result.remotesAdded > 0) parts.push(`${result.remotesAdded} remote(s) added`);
+      if (result.pendingAdded > 0) parts.push(`${result.pendingAdded} pending remote(s) added`);
+      if (result.skippedRemotes.length > 0) parts.push(`${result.skippedRemotes.length} skipped`);
+      toast.success(parts.length > 0 ? parts.join(", ") : "nothing to import");
+      setImportString("");
+      // reload identity and start P2P node if identity was restored
+      if (result.identityRestored) {
+        const updated = await getP2PIdentity();
+        setIdentity(updated);
+        try {
+          await getMiddenNode();
+        } catch {
+          // node start is best-effort — identity is already saved
+        }
+      }
+    } catch (err) {
+      console.error("import failed:", err);
+      toast.error("failed to import backup — invalid string?");
+    }
+    setIsImporting(false);
+  };
 
   return (
     <div class="p-6 max-w-2xl">
@@ -249,6 +302,64 @@ export function FederationSettingsView() {
                 </button>
               </div>
             </Show>
+          </div>
+        </Show>
+
+        {/* backup & restore - browser only, always visible */}
+        <Show when={!isTauri}>
+          <div class="bg-[var(--color-bg-secondary)] border border-[var(--color-border-subtle)] rounded-lg p-6 mt-6">
+            <h2 class="text-sm font-semibold text-[var(--color-text-muted)] uppercase tracking-wider mb-3">
+              backup & restore
+            </h2>
+            <p class="text-xs text-[var(--color-text-muted)] mb-4">
+              export your P2P identity and remote configs as a compact string. import on another
+              browser to restore your federation setup.
+            </p>
+
+            {/* export */}
+            <Show when={hasIdentity()}>
+              <div class="mb-4">
+                <button
+                  class="px-4 py-2 text-sm font-medium rounded-lg border border-[var(--color-border-default)] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  onClick={handleExport}
+                  disabled={isExporting()}
+                >
+                  {isExporting() ? "exporting..." : "export backup"}
+                </button>
+              </div>
+
+              <Show when={backupString()}>
+                <div class="mb-4">
+                  <textarea
+                    class="w-full font-mono text-xs bg-[var(--color-bg-tertiary)] text-[var(--color-text-primary)] border border-[var(--color-border-default)] rounded-lg p-3 resize-none select-all"
+                    rows={3}
+                    readOnly
+                    value={backupString()}
+                    onClick={(e) => (e.target as HTMLTextAreaElement).select()}
+                  />
+                </div>
+              </Show>
+            </Show>
+
+            {/* import */}
+            <div
+              class={hasIdentity() ? "border-t border-[var(--color-border-subtle)] pt-4 mt-4" : ""}
+            >
+              <textarea
+                class="w-full font-mono text-xs bg-[var(--color-bg-tertiary)] text-[var(--color-text-primary)] border border-[var(--color-border-default)] rounded-lg p-3 resize-none mb-3"
+                rows={3}
+                placeholder="paste backup string here..."
+                value={importString()}
+                onInput={(e) => setImportString(e.currentTarget.value)}
+              />
+              <button
+                class="px-4 py-2 text-sm font-medium rounded-lg border border-[var(--color-border-default)] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                onClick={handleImport}
+                disabled={isImporting() || !importString().trim()}
+              >
+                {isImporting() ? "importing..." : "import backup"}
+              </button>
+            </div>
           </div>
         </Show>
       </Show>

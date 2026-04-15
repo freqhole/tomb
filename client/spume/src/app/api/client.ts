@@ -9,15 +9,15 @@
 // - enable future transport swaps (HTTP → P2P) in one place
 
 import {
-  createHttpClient,
-  isAuthError,
-  isNetworkError,
   FreqholeClient,
   HttpTransport,
   WasmTransport,
-  createCharnelTransport,
-  getCharnelNodeId,
   createCharnelLocalTransport,
+  createCharnelTransport,
+  createHttpClient,
+  getCharnelNodeId,
+  isAuthError,
+  isNetworkError,
   type MiddenNodeLike,
   type Transport,
 } from "freqhole-api-client";
@@ -25,8 +25,7 @@ import { isCharnelMode } from "../services/charnel";
 
 // re-export for call sites that still need direct access
 // note: isCharnelAvailable uses local isCharnelMode which checks both env var and window.__TAURI__
-export { createHttpClient, isAuthError, isNetworkError };
-export { isCharnelMode as isCharnelAvailable };
+export { createHttpClient, isAuthError, isCharnelMode as isCharnelAvailable, isNetworkError };
 
 // client type (inferred from factory function)
 export type { FreqholeClient } from "freqhole-api-client";
@@ -35,11 +34,7 @@ export type { FreqholeClient } from "freqhole-api-client";
 export type { SafeParseResult } from "freqhole-api-client";
 
 // transport types (for future P2P transport)
-export type {
-  Transport,
-  TransportResponse,
-  BlobData,
-} from "freqhole-api-client";
+export type { BlobData, Transport, TransportResponse } from "freqhole-api-client";
 
 // permission helpers
 export { permissions } from "freqhole-api-client";
@@ -61,11 +56,17 @@ import type { createHttpClient as CreateHttpClientFn } from "freqhole-api-client
 export type ApiClient = ReturnType<typeof CreateHttpClientFn>;
 
 // re-export TransportType and Remote for consumers
-import type { TransportType, Remote, RemoteRef, HttpRemote, P2PRemote } from "../services/storage/types";
-import { isHttpRemote, isP2PRemote, toRemoteRef } from "../services/storage/types";
 import { getRemoteCacheName } from "../../music/services/cache/cacheNames";
-export type { TransportType, Remote, RemoteRef, HttpRemote, P2PRemote };
+import type {
+  HttpRemote,
+  P2PRemote,
+  Remote,
+  RemoteRef,
+  TransportType,
+} from "../services/storage/types";
+import { isHttpRemote, isP2PRemote, toRemoteRef } from "../services/storage/types";
 export { isHttpRemote, isP2PRemote, toRemoteRef };
+export type { HttpRemote, P2PRemote, Remote, RemoteRef, TransportType };
 
 // ============================================================================
 // transport factory - THE place where transport selection happens
@@ -123,7 +124,10 @@ export async function getMiddenNode(): Promise<MiddenNodeLike> {
     let node: MiddenNodeLike;
     if (existingIdentity) {
       // restore from persisted key
-      console.log("[midden] restoring identity from IndexedDB:", existingIdentity.node_id.slice(0, 16) + "...");
+      console.log(
+        "[midden] restoring identity from IndexedDB:",
+        existingIdentity.node_id.slice(0, 16) + "..."
+      );
       node = await MiddenNode.create_from_key(existingIdentity.secret_key);
     } else {
       // create new identity and persist it
@@ -137,6 +141,14 @@ export async function getMiddenNode(): Promise<MiddenNodeLike> {
     middenNode = node;
     const nodeId = node.node_id();
     console.log("[midden] node ready, node_id:", nodeId);
+
+    // start blob server to accept incoming iroh-blobs connections
+    // (allows remote peers to pull blobs from us during P2P upload)
+    if (typeof node.start_blob_server === "function") {
+      node.start_blob_server();
+      console.log("[midden] blob server started (accepting iroh-blobs connections)");
+    }
+
     return node;
   })();
 
@@ -229,31 +241,31 @@ export async function getClientForRemote(remote: RemoteLike): Promise<ApiClient>
   const transportType = resolveTransport(remote);
   const peerAddr = resolvePeerAddr(remote);
   const baseUrl = resolveBaseUrl(remote);
-  
+
   switch (transportType) {
-    case 'app':
+    case "app":
       if (!peerAddr) {
-        throw new Error('peer_addr required for app transport');
+        throw new Error("peer_addr required for app transport");
       }
       return new FreqholeClient(await createCharnelTransport(peerAddr));
-      
-    case 'wasm':
+
+    case "wasm":
       if (!peerAddr) {
-        throw new Error('peer_addr required for wasm transport');
+        throw new Error("peer_addr required for wasm transport");
       }
       const clientNode = await getMiddenNode();
       const clientCacheName = remote.remote_id ? getRemoteCacheName(remote.remote_id) : undefined;
       return new FreqholeClient(new WasmTransport(clientNode, peerAddr, clientCacheName));
-      
-    case 'http':
+
+    case "http":
     default:
       // charnel-managed remotes use IPC (no base_url needed)
       if (isCharnelMode() && remote.is_charnel_managed) {
-        console.log('[client] using CharnelLocalTransport for tauri-managed remote');
+        console.log("[client] using CharnelLocalTransport for tauri-managed remote");
         return new FreqholeClient(createCharnelLocalTransport(""));
       }
       if (!baseUrl) {
-        throw new Error('base_url required for http transport');
+        throw new Error("base_url required for http transport");
       }
       return new FreqholeClient(new HttpTransport(baseUrl, remote.api_key));
   }
@@ -267,7 +279,7 @@ export async function getClientForRemote(remote: RemoteLike): Promise<ApiClient>
  * get a transport for a remote (async).
  * use this when you need direct transport access for blob operations.
  * the Transport interface abstracts away wasm/app/http differences.
- * 
+ *
  * NOTE: dispatch transport doesn't support blobs yet, so we still use
  * HttpTransport for blob operations even in Tauri mode.
  */
@@ -275,31 +287,33 @@ export async function getTransportForRemote(remote: RemoteLike): Promise<Transpo
   const transportType = resolveTransport(remote);
   const peerAddr = resolvePeerAddr(remote);
   const baseUrl = resolveBaseUrl(remote);
-  
+
   switch (transportType) {
-    case 'app':
+    case "app":
       if (!peerAddr) {
-        throw new Error('peer_addr required for app transport');
+        throw new Error("peer_addr required for app transport");
       }
       const appCacheName = remote.remote_id ? getRemoteCacheName(remote.remote_id) : undefined;
       return createCharnelTransport(peerAddr, appCacheName);
-      
-    case 'wasm':
+
+    case "wasm":
       if (!peerAddr) {
-        throw new Error('peer_addr required for wasm transport');
+        throw new Error("peer_addr required for wasm transport");
       }
       const transportNode = await getMiddenNode();
-      const transportCacheName = remote.remote_id ? getRemoteCacheName(remote.remote_id) : undefined;
+      const transportCacheName = remote.remote_id
+        ? getRemoteCacheName(remote.remote_id)
+        : undefined;
       return new WasmTransport(transportNode, peerAddr, transportCacheName);
-      
-    case 'http':
+
+    case "http":
     default:
       // charnel-managed remotes use IPC (no base_url needed)
       if (isCharnelMode() && remote.is_charnel_managed) {
         return createCharnelLocalTransport("");
       }
       if (!baseUrl) {
-        throw new Error('base_url required for http transport');
+        throw new Error("base_url required for http transport");
       }
       return new HttpTransport(baseUrl, remote.api_key);
   }
@@ -310,5 +324,5 @@ export async function getTransportForRemote(remote: RemoteLike): Promise<Transpo
  */
 export function isP2PTransportType(remote: RemoteLike): boolean {
   const transportType = resolveTransport(remote);
-  return transportType === 'wasm' || transportType === 'app';
+  return transportType === "wasm" || transportType === "app";
 }

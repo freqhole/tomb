@@ -134,6 +134,9 @@ pub async fn dispatch(
         "/api/analytics/top-albums" => Some(analytics::top_albums(caller, body.clone()).await),
         "/api/analytics/top-artists" => Some(analytics::top_artists(caller, body.clone()).await),
         "/api/analytics/feed" => Some(analytics::feed(caller, body.clone()).await),
+        "/api/analytics/feed/delete" => {
+            Some(analytics::delete_feed_event(caller, body.clone()).await)
+        }
 
         // listen sessions
         "/api/analytics/sessions" => Some(sessions::create(caller, body.clone()).await),
@@ -143,9 +146,7 @@ pub async fn dispatch(
         "/api/analytics/sessions/progress" => {
             Some(sessions::update_progress(caller, body.clone()).await)
         }
-        "/api/analytics/sessions/songs" => {
-            Some(sessions::update_songs(caller, body.clone()).await)
-        }
+        "/api/analytics/sessions/songs" => Some(sessions::update_songs(caller, body.clone()).await),
         "/api/analytics/sessions/status" => {
             Some(sessions::update_status(caller, body.clone()).await)
         }
@@ -160,6 +161,7 @@ pub async fn dispatch(
 
         // blob metadata
         "/api/blob_metadata" => super::media_blobz::dispatch(path, caller, body).await,
+        "/api/blob_metadata_by_blake3" => super::media_blobz::dispatch(path, caller, body).await,
 
         // blobs: streaming routes still use path params
         _ if path.starts_with("/api/blobs/") => {

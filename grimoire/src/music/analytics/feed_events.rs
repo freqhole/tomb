@@ -105,6 +105,12 @@ pub struct TagRef {
     pub name: String,
 }
 
+/// request for deleting a feed event
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct DeleteFeedEventRequest {
+    pub id: String,
+}
+
 /// a feed event from the database
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct FeedEvent {
@@ -2068,5 +2074,60 @@ pub async fn delete_feed_events_for_artist(artist_id: &str) -> GrimoireResponse<
             r.rows_affected(),
         ),
         Err(e) => GrimoireResponse::failure("failed to delete feed events", vec![e.into()]),
+    }
+}
+
+/// delete a single feed event by id
+pub async fn delete_feed_event_by_id(id: &str) -> GrimoireResponse<()> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure("failed to connect to database", vec![e.into()])
+        }
+    };
+
+    match sqlx::query!("DELETE FROM feed_eventz WHERE id = ?", id)
+        .execute(&pool)
+        .await
+    {
+        Ok(r) if r.rows_affected() == 0 => GrimoireResponse::failure(
+            "feed event not found",
+            vec![crate::error::ErrorDetail::new(
+                "not_found",
+                "feed event not found",
+                &format!("no feed event with id {id}"),
+            )],
+        ),
+        Ok(_) => GrimoireResponse::success("feed event deleted", ()),
+        Err(e) => GrimoireResponse::failure("failed to delete feed event", vec![e.into()]),
+    }
+}
+
+/// look up the owner of a feed event (for permission checks before deletion)
+pub async fn get_feed_event_owner(id: &str) -> GrimoireResponse<String> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure("failed to connect to database", vec![e.into()])
+        }
+    };
+
+    match sqlx::query_scalar!(
+        "SELECT created_by_user_id FROM feed_eventz WHERE id = ?",
+        id
+    )
+    .fetch_optional(&pool)
+    .await
+    {
+        Ok(Some(uid)) => GrimoireResponse::success("found", uid),
+        Ok(None) => GrimoireResponse::failure(
+            "feed event not found",
+            vec![crate::error::ErrorDetail::new(
+                "not_found",
+                "feed event not found",
+                &format!("no feed event with id {id}"),
+            )],
+        ),
+        Err(e) => GrimoireResponse::failure("failed to look up feed event", vec![e.into()]),
     }
 }
