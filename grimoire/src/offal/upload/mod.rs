@@ -16,9 +16,8 @@ use tokio::time::{sleep, Duration};
 use zod_gen_derive::ZodSchema;
 
 use crate::api_registry::{Domain, Method, RouteAuth, RouteInfo};
-use crate::blobz::compute_blake3_from_bytes;
 use crate::config::get_config;
-use crate::error::ErrorDetail;
+use crate::error::{ErrorDetail, GrimoireError};
 use crate::federation::p2p_client;
 use crate::jobs::{
     create_job, create_job_session, get_job, list_jobs, CreateJobRequest, CreateJobSessionRequest,
@@ -798,6 +797,7 @@ pub async fn upload_music_by_blake3(
     }
 
     // pull the blob from the uploading peer via iroh-blobs verified streaming
+    // streams directly to disk via FsStore export — no full-file memory buffering.
     // timeout after 120 seconds to prevent indefinite hangs
     tracing::info!(
         "pulling blob {} from peer {} for upload by {}",
@@ -806,16 +806,56 @@ pub async fn upload_music_by_blake3(
         caller.username,
     );
 
-    let fetch_future = p2p_client::fetch_blob_verified_with_ensure(&node_id, &req.blake3);
-    let data = match tokio::time::timeout(Duration::from_secs(120), fetch_future).await {
-        Ok(Ok(d)) => {
+    // determine output path before downloading so we can stream directly to it
+    let output_dir = config
+        .server
+        .as_ref()
+        .and_then(|s| s.fetch_music.as_ref())
+        .and_then(|f| f.output_dir.as_ref())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| config.data_dir.join("fetch"));
+
+    let ext = detect_extension(
+        &mime_guess::from_path(&req.filename)
+            .first()
+            .map(|m| m.to_string())
+            .unwrap_or_default(),
+        &req.filename,
+    );
+    let now = time::OffsetDateTime::now_utc();
+    let year = now.year();
+    let month = now.month() as u8;
+
+    // use a temp filename based on blake3 hash (will rename after blob record creation)
+    let temp_filename = format!("{}.{}", &req.blake3[..16], ext);
+    let temp_path = output_dir.join(format!("{:04}/{:02}/{}", year, month, temp_filename));
+
+    // ensure directory exists
+    if let Some(parent) = temp_path.parent() {
+        if let Err(e) = tokio::fs::create_dir_all(parent).await {
+            return GrimoireResponse::failure(
+                "failed to create directory",
+                vec![ErrorDetail::new(
+                    "internal_error",
+                    "failed to create directory",
+                    &e.to_string(),
+                )],
+            );
+        }
+    }
+
+    let fetch_future =
+        p2p_client::fetch_blob_verified_to_file_with_ensure(&node_id, &req.blake3, &temp_path);
+    let file_size = match tokio::time::timeout(Duration::from_secs(120), fetch_future).await {
+        Ok(Ok(size)) => {
             tracing::info!(
-                "received {} bytes for blob {} from peer {}",
-                d.len(),
+                "exported {} bytes for blob {} from peer {} to {}",
+                size,
                 &req.blake3[..16],
                 &node_id[..16.min(node_id.len())],
+                temp_path.display(),
             );
-            d
+            size
         }
         Ok(Err(e)) => {
             tracing::error!(
@@ -852,7 +892,8 @@ pub async fn upload_music_by_blake3(
 
     // validate size if provided
     if let Some(expected_size) = req.size {
-        if data.len() as u64 != expected_size {
+        if file_size != expected_size {
+            let _ = tokio::fs::remove_file(&temp_path).await;
             return GrimoireResponse::failure(
                 "size mismatch",
                 vec![ErrorDetail::new(
@@ -860,64 +901,72 @@ pub async fn upload_music_by_blake3(
                     "size mismatch",
                     &format!(
                         "expected {} bytes but received {} bytes",
-                        expected_size,
-                        data.len()
+                        expected_size, file_size
                     ),
                 )],
             );
         }
     }
 
-    // enforce max upload size on actual received data
-    if data.len() as u64 > max_upload_bytes {
-        return GrimoireResponse::failure(
-            "file too large",
-            vec![ErrorDetail::new(
-                "file_too_large",
-                "file too large",
-                &format!(
-                    "received {} bytes, max upload size is {} bytes",
-                    data.len(),
-                    max_upload_bytes
-                ),
-            )],
-        );
-    }
-
-    // compute sha256 hash
-    let mut hasher = Sha256::new();
-    hasher.update(&data);
-    let hash = format!("{:x}", hasher.finalize());
+    // compute sha256 by streaming from the file on disk (no full-file memory load)
+    let hash = {
+        use tokio::io::AsyncReadExt;
+        let mut file = match tokio::fs::File::open(&temp_path).await {
+            Ok(f) => f,
+            Err(e) => {
+                return GrimoireResponse::failure(
+                    "failed to read downloaded file",
+                    vec![ErrorDetail::from(GrimoireError::ProcessingFailed {
+                        message: e.to_string(),
+                    })],
+                )
+            }
+        };
+        let mut hasher = Sha256::new();
+        let mut buf = vec![0u8; 64 * 1024]; // 64KB chunks
+        loop {
+            let n = match file.read(&mut buf).await {
+                Ok(0) => break,
+                Ok(n) => n,
+                Err(e) => {
+                    let _ = tokio::fs::remove_file(&temp_path).await;
+                    return GrimoireResponse::failure(
+                        "failed to read downloaded file",
+                        vec![ErrorDetail::from(GrimoireError::ProcessingFailed {
+                            message: e.to_string(),
+                        })],
+                    );
+                }
+            };
+            hasher.update(&buf[..n]);
+        }
+        format!("{:x}", hasher.finalize())
+    };
     tracing::debug!(
         "computed sha256 for blob {}: {}",
         &req.blake3[..16],
         &hash[..16]
     );
 
-    // verify blake3 matches what we computed (belt-and-suspenders with verified streaming)
-    let computed_blake3 = compute_blake3_from_bytes(&data);
-    if computed_blake3 != req.blake3 {
-        return GrimoireResponse::failure(
-            "blake3 hash mismatch",
-            vec![ErrorDetail::new(
-                "integrity_error",
-                "blake3 hash mismatch",
-                &format!(
-                    "computed blake3 {} does not match requested {}",
-                    computed_blake3, req.blake3
-                ),
-            )],
-        );
-    }
-
-    // detect mime type from filename and magic bytes
-    let mime_type = detect_audio_mime_type(&req.filename, &data);
+    // detect mime type from filename and file header (read first 12 bytes)
+    let header = {
+        use tokio::io::AsyncReadExt;
+        let mut f = tokio::fs::File::open(&temp_path).await.unwrap_or_else(|_| {
+            // shouldn't happen since we just wrote/read the file
+            panic!("failed to reopen temp file for mime detection");
+        });
+        let mut buf = [0u8; 12];
+        let _ = f.read(&mut buf).await;
+        buf
+    };
+    let mime_type = detect_audio_mime_type(&req.filename, &header);
     tracing::debug!(
         "detected mime type for blob {}: {}",
         &req.blake3[..16],
         &mime_type
     );
     if !mime_type.starts_with("audio/") {
+        let _ = tokio::fs::remove_file(&temp_path).await;
         return GrimoireResponse::failure(
             "invalid audio file",
             vec![ErrorDetail::new(
@@ -928,8 +977,7 @@ pub async fn upload_music_by_blake3(
         );
     }
 
-    let size = data.len() as i64;
-    let ext = detect_extension(&mime_type, &req.filename);
+    let size = file_size as i64;
 
     // check for existing blob by sha256 before creating
     let existing = get_media_blob_by_sha256(&hash).await.is_ok();
@@ -966,53 +1014,32 @@ pub async fn upload_music_by_blake3(
             b
         }
         Err(e) => {
+            let _ = tokio::fs::remove_file(&temp_path).await;
             return GrimoireResponse::failure("failed to create blob", vec![ErrorDetail::from(e)])
         }
     };
 
-    // get output directory from config
-    let config = get_config();
-    let output_dir = config
-        .server
-        .as_ref()
-        .and_then(|s| s.fetch_music.as_ref())
-        .and_then(|f| f.output_dir.as_ref())
-        .map(PathBuf::from)
-        .unwrap_or_else(|| config.data_dir.join("fetch"));
-
-    // generate path with date-based subdirectory and blob id
-    let now = time::OffsetDateTime::now_utc();
-    let year = now.year();
-    let month = now.month() as u8;
+    // rename temp file to final path with blob id
     let rel_path = format!("{:04}/{:02}/{}.{}", year, month, blob.id, ext);
     let full_path = output_dir.join(&rel_path);
 
-    // ensure directory exists
-    if let Some(parent) = full_path.parent() {
-        if let Err(e) = tokio::fs::create_dir_all(parent).await {
-            return GrimoireResponse::failure(
-                "failed to create directory",
-                vec![ErrorDetail::new(
-                    "internal_error",
-                    "failed to create directory",
-                    &e.to_string(),
-                )],
-            );
+    if temp_path != full_path {
+        if let Err(_) = tokio::fs::rename(&temp_path, &full_path).await {
+            // fall back to copy+delete if rename fails (cross-device)
+            if let Err(e) = tokio::fs::copy(&temp_path, &full_path).await {
+                return GrimoireResponse::failure(
+                    "failed to move file",
+                    vec![ErrorDetail::new(
+                        "internal_error",
+                        "failed to move file",
+                        &e.to_string(),
+                    )],
+                );
+            }
+            let _ = tokio::fs::remove_file(&temp_path).await;
         }
     }
-
-    // write blob data to disk
-    if let Err(e) = tokio::fs::write(&full_path, &data).await {
-        return GrimoireResponse::failure(
-            "failed to write file",
-            vec![ErrorDetail::new(
-                "internal_error",
-                "failed to write file",
-                &e.to_string(),
-            )],
-        );
-    }
-    tracing::info!("wrote {} bytes to {}", data.len(), full_path.display());
+    tracing::info!("file at {}", full_path.display());
 
     // create ImportMusic job
     let job_payload = json!({
