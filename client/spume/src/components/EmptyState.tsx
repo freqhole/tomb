@@ -31,6 +31,13 @@ export function EmptyState(props: EmptyStateProps) {
             add remote
           </Button>
         </div>
+
+        <a
+          href="#/settings"
+          class="inline-block mt-4 text-sm text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)] italic transition-colors"
+        >
+          ...or go to settings
+        </a>
       </div>
     </div>
   );
