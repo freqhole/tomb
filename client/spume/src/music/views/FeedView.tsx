@@ -1,42 +1,42 @@
 // feed view — single infinite scrolling list of all activity events
 import { useNavigate } from "@solidjs/router";
+import { useQueryClient } from "@tanstack/solid-query";
 import { createEffect, createMemo, createSignal, on, onCleanup, Show } from "solid-js";
-import { useViewportHeight, getNavHeight } from "../../utils/viewport";
-import { Icon, IconNames } from "../../components/icons/registry";
-import { Button } from "../../components/buttons/Button";
-import { LoadingState, LoadingMoreIndicator } from "../../components/feedback";
-import { VirtualFeedList } from "../../components/virtualized/VirtualFeedList";
-import type { MenuAction } from "../../components/overlays/ContextMenu";
-import { appState } from "../../app/services/storage/db";
-import { setPageInfo, clearPageInfo, type FeedTypeFilter } from "../../app/services/pageInfo";
-import { useHistoryState } from "../../utils/historyState";
-import { getCurrentRemote, getCurrentUser, getDataSource, RemoteOfflineError } from "../data";
-import type { FeedItem } from "../data/types";
-import { isAdmin } from "../data/permissions";
-import {
-  useActivityFeedInfiniteQuery,
-  ALL_FEED_TYPES,
-  FEED_TYPE_LABELS,
-  type FeedItemTypeFilter,
-} from "../queries/analytics";
-import { routes } from "../utils/routing";
-import { playQueue, addToQueue, resumeHistoryEntry } from "../services/queue/queue";
-import { resumeServerSession } from "../services/queue/serverSession";
-import { activeHistoryEntryId } from "../services/queue/listenProgress";
-import { queueHistory, updateHistoryServerSession } from "../services/queue/queueHistory";
-import { toast } from "../../components/feedback/Toast";
 import { confirm } from "../../app/services/confirmState";
+import { clearPageInfo, setPageInfo, type FeedTypeFilter } from "../../app/services/pageInfo";
+import { appState } from "../../app/services/storage/db";
+import { Button } from "../../components/buttons/Button";
+import { LoadingMoreIndicator, LoadingState } from "../../components/feedback";
+import { toast } from "../../components/feedback/Toast";
+import { Icon, IconNames } from "../../components/icons/registry";
+import type { MenuAction } from "../../components/overlays/ContextMenu";
+import { VirtualFeedList } from "../../components/virtualized/VirtualFeedList";
+import { useHistoryState } from "../../utils/historyState";
+import { getNavHeight, useViewportHeight } from "../../utils/viewport";
+import { getCurrentRemote, getCurrentUser, getDataSource, RemoteOfflineError } from "../data";
+import { isAdmin } from "../data/permissions";
+import type { FeedItem } from "../data/types";
 import {
-  showImageCarousel,
-  showSongEditor,
   showAlbumEditor,
   showArtistEditor,
+  showImageCarousel,
+  showSongEditor,
 } from "../hooks/modals";
 import { showPlaylistSelector } from "../hooks/playlistSelectorState";
-import { setHighlightedSongId } from "../state/highlightedSong";
-import { useQueryClient } from "@tanstack/solid-query";
+import {
+  ALL_FEED_TYPES,
+  FEED_TYPE_LABELS,
+  useActivityFeedInfiniteQuery,
+  type FeedItemTypeFilter,
+} from "../queries/analytics";
 import { queryKeys } from "../queries/queryKeys";
+import { activeHistoryEntryId } from "../services/queue/listenProgress";
+import { addToQueue, playQueue, resumeHistoryEntry } from "../services/queue/queue";
+import { queueHistory, updateHistoryServerSession } from "../services/queue/queueHistory";
+import { resumeServerSession } from "../services/queue/serverSession";
 import { resolveBlobUrl, usesBlobResolver } from "../services/storage/blobResolver";
+import { setHighlightedSongId } from "../state/highlightedSong";
+import { routes } from "../utils/routing";
 
 export function FeedView() {
   const navigate = useNavigate();

@@ -3,6 +3,7 @@
 // resizeItem trap, reconciled store, settlement)
 
 import { createVirtualizer } from "@tanstack/solid-virtual";
+import type { VirtualItem } from "@tanstack/virtual-core";
 import {
   createEffect,
   createMemo,
@@ -15,20 +16,19 @@ import {
   untrack,
 } from "solid-js";
 import { createStore, reconcile } from "solid-js/store";
-import type { VirtualItem } from "@tanstack/virtual-core";
+import { entityColors } from "../../design-system/colors";
+import { getCurrentUser } from "../../music/data";
 import type { FeedItem, FeedItemType } from "../../music/data/types";
+import type { FavoriteTarget } from "../../music/queries/favorites";
+import { FavoriteToggle } from "../../utils/FavoriteToggle";
+import { formatLongDuration } from "../../utils/formatDuration";
+import { isTouchDevice } from "../../utils/isMobile";
 import { Icon, type IconName } from "../icons/registry";
-import { MediaThumbnail } from "../media/MediaThumbnail";
+import { EntityLinks } from "../media/EntityLinks";
 import { ImageCollageGrid } from "../media/ImageCollageGrid";
+import { MediaThumbnail } from "../media/MediaThumbnail";
 import { ContextMenu, type MenuAction } from "../overlays/ContextMenu";
 import { MarqueeText } from "../text/MarqueeText";
-import { formatLongDuration } from "../../utils/formatDuration";
-import { entityColors } from "../../design-system/colors";
-import { FavoriteToggle } from "../../utils/FavoriteToggle";
-import { isTouchDevice } from "../../utils/isMobile";
-import type { FavoriteTarget } from "../../music/queries/favorites";
-import { getCurrentUser } from "../../music/data";
-import { EntityLinks } from "../media/EntityLinks";
 import { RelativeTime } from "../text/RelativeTime";
 
 const ESTIMATE_ROW_HEIGHT = 120;
@@ -122,10 +122,22 @@ export function VirtualFeedList(props: VirtualFeedListProps) {
   };
 
   // reconcile virtual items into a store so <For> can diff by key
-  // and reuse DOM nodes — prevents the measureElement cascade
+  // and reuse DOM nodes — prevents the measureElement cascade.
   const [vItems, setVItems] = createStore<VirtualItem[]>([]);
   createEffect(() => {
+    void count();
     const items = virtualizer.getVirtualItems();
+    // the solid adapter updates its internal store via reconcile (which reads
+    // under untrack), so this effect has no reactive dependency on individual
+    // item properties by default. without these explicit reads, the effect
+    // never re-runs when the adapter shifts the visible window on scroll —
+    // it only re-runs on count changes. touching the first and last item's
+    // index forces SolidJS to track those store paths, making the effect
+    // re-fire whenever the visible range shifts.
+    if (items.length > 0) {
+      void (items[0] as any)?.index;
+      void (items[items.length - 1] as any)?.index;
+    }
     setVItems(reconcile(items, { key: "key", merge: false }));
   });
 
