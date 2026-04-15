@@ -253,11 +253,12 @@ pub async fn fetch_blob_verified_to_file(
             message: format!("failed to export blob to file: {}", e),
         })?;
 
-    let metadata = tokio::fs::metadata(target).await.map_err(|e| {
-        GrimoireError::FederationApiError {
-            message: format!("failed to read exported file metadata: {}", e),
-        }
-    })?;
+    let metadata =
+        tokio::fs::metadata(target)
+            .await
+            .map_err(|e| GrimoireError::FederationApiError {
+                message: format!("failed to read exported file metadata: {}", e),
+            })?;
 
     info!(
         "exported {} bytes for blob {} from {} to {}",

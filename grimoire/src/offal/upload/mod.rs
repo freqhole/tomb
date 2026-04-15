@@ -1015,7 +1015,7 @@ pub async fn upload_music_by_blake3(
         }
         Err(e) => {
             let _ = tokio::fs::remove_file(&temp_path).await;
-            return GrimoireResponse::failure("failed to create blob", vec![ErrorDetail::from(e)])
+            return GrimoireResponse::failure("failed to create blob", vec![ErrorDetail::from(e)]);
         }
     };
 
