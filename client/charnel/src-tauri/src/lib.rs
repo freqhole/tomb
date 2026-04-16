@@ -505,6 +505,7 @@ pub fn run() {
             Ok(())
         })
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_opener::init());
 
     #[cfg(desktop)]
@@ -584,6 +585,7 @@ pub fn run() {
             p2p_commands::p2p_probe_blob,
             p2p_commands::p2p_fetch_hello_image,
             p2p_commands::p2p_import_blob,
+            p2p_commands::p2p_import_blob_bytes,
             p2p_commands::p2p_close_connection,
             p2p_commands::p2p_close_all_connections,
             // P2P state control commands

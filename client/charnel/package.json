@@ -7,7 +7,7 @@
     "start": "vite",
     "dev": "vite",
     "dev:wizard": "vite --port 1421",
-    "dev:all": "concurrently -n wizard,spume -c cyan,magenta \"npm run dev:wizard\" \"cd ../spume && VITE_CHARNEL_MODE=true npm run dev -- --port 1420\"",
+    "dev:all": "concurrently -n wizard,spume -c cyan,magenta \"npm run dev:wizard\" \"cd ../spume && VITE_CHARNEL_MODE=true npm run dev -- --port 1420 --host\"",
     "build": "vite build",
     "build:wizard": "vite build --outDir dist/wizard",
     "serve": "vite preview",

@@ -54,7 +54,8 @@ export function ImageCarouselModal(props: ImageCarouselModalProps) {
   return (
     <div
       ref={containerRef}
-      class="fixed inset-0 z-[1100] flex items-center justify-center bg-black/90 outline-none"
+      class="flex items-center justify-center bg-black/90 outline-none"
+      style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, "z-index": 1100 }}
       onClick={props.onClose}
       onKeyDown={handleKeyDown}
       tabIndex={-1}

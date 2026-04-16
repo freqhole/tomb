@@ -172,12 +172,13 @@ export function BulkEditSongsModal(props: BulkEditSongsModalProps) {
   return (
     <Show when={props.isOpen}>
       <div
-        class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 pb-20"
+        class="flex items-center justify-center bg-black/60"
+        style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, "z-index": 50 }}
         onClick={(e) => {
           if (e.target === e.currentTarget) props.onClose();
         }}
       >
-        <div class="bg-[var(--color-bg-secondary)] border border-[var(--color-border-default)] rounded-lg shadow-xl w-full max-w-md mx-4 max-h-[calc(100dvh-96px)] flex flex-col">
+        <div class="bg-[var(--color-bg-secondary)] wide:border wide:border-[var(--color-border-default)] wide:rounded-lg shadow-xl w-full h-full wide:h-auto wide:max-w-md wide:mx-4 wide:max-h-[calc(100dvh-96px)] flex flex-col overflow-y-auto">
           {/* header */}
           <div class="flex items-center justify-between px-4 py-3 border-b border-[var(--color-border-default)] shrink-0">
             <h2 class="text-lg font-medium text-[var(--color-text-primary)]">

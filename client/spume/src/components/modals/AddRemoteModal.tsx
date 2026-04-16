@@ -1184,12 +1184,22 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
 
       {/* backdrop */}
       <div
-        class="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-0 sm:p-4"
+        class="bg-black/50 flex items-center justify-center p-0 wide:p-4"
+        style={{
+          position: "fixed",
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          "z-index": 50,
+          "margin-top": "var(--nav-height)",
+          height: "calc(100% - var(--nav-height))",
+        }}
         onClick={handleClose}
       >
         {/* modal */}
         <div
-          class="bg-[var(--color-bg-primary)] shadow-xl w-full border border-[var(--color-border-default)] flex flex-col h-[100dvh] max-h-[100dvh] rounded-none sm:rounded-lg sm:max-w-md sm:max-h-[80dvh] sm:h-auto"
+          class="bg-[var(--color-bg-primary)] shadow-xl w-full wide:border wide:border-[var(--color-border-default)] flex flex-col h-full wide:rounded-lg wide:max-w-md wide:max-h-[80dvh] wide:h-auto"
           onClick={(e) => e.stopPropagation()}
         >
           {/* header */}

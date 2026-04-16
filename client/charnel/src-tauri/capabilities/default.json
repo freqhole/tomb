@@ -16,6 +16,8 @@
     "core:window:allow-get-all-windows",
     "core:webview:allow-webview-close",
     "dialog:default",
+    "fs:default",
+    "fs:allow-read-file",
     "opener:default"
   ]
 }

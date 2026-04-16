@@ -497,13 +497,50 @@ export function App() {
     await fetchUrlsOnRemote(urls, onRemoteJobComplete);
   };
 
-  // handle paths selected via tauri dialog
-  // supports both charnel-managed local remotes (musicByPaths) and P2P remotes (iroh-blobs upload)
+  // handle paths selected via tauri dialog (desktop only, Android uses file input)
+  // supports local import (no remote), charnel-managed local remotes, and P2P remotes
   const handlePathsSelected = async (paths: string[]) => {
     const remote = getCurrentRemote();
 
     if (!remote) {
-      toast.warning("no active remote", { title: "not supported" });
+      // local import from file paths: read files via tauri-plugin-fs and import locally
+      try {
+        const fsModule = (await import("@tauri-apps/plugin-fs" as any)) as {
+          readFile: (path: string) => Promise<Uint8Array>;
+        };
+
+        const files: File[] = [];
+        for (const filePath of paths) {
+          try {
+            const data = await fsModule.readFile(filePath);
+            const filename = filePath.split("/").pop() || filePath.split("\\").pop() || "audio.mp3";
+            // guess mime from extension
+            const ext = filename.split(".").pop()?.toLowerCase() || "";
+            const mimeMap: Record<string, string> = {
+              mp3: "audio/mpeg",
+              flac: "audio/flac",
+              wav: "audio/wav",
+              m4a: "audio/mp4",
+              ogg: "audio/ogg",
+              aac: "audio/aac",
+              alac: "audio/alac",
+              wma: "audio/x-ms-wma",
+            };
+            files.push(new File([data], filename, { type: mimeMap[ext] || "audio/mpeg" }));
+          } catch (err) {
+            console.error("failed to read file:", filePath, err);
+          }
+        }
+
+        if (files.length > 0) {
+          const dt = new DataTransfer();
+          files.forEach((f) => dt.items.add(f));
+          await handleFilesSelected(dt.files);
+        }
+      } catch (error) {
+        console.error("failed to import local paths:", error);
+        toast.error("failed to read files", { title: "import error" });
+      }
       return;
     }
 
@@ -605,10 +642,7 @@ export function App() {
         onPathsSelected={handlePathsSelected}
         onUrlsSubmitted={handleUrlsSubmitted}
         remoteName={getCurrentRemote()?.name}
-        useCharnelDialog={
-          isCharnelMode() &&
-          (getCurrentRemote()?.is_charnel_managed === true || !!getCurrentRemote()?.peer_addr)
-        }
+        useCharnelDialog={isCharnelMode()}
         uploadJobs={getUploadJobs()}
         localImportProgress={getLocalImportProgress()}
       />

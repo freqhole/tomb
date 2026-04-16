@@ -366,8 +366,44 @@ export function TopNav(props: TopNavProps) {
               </KobalteNav.Trigger>
 
               <KobalteNav.Portal>
-                <KobalteNav.Content class="bg-[var(--color-bg-elevated)] border border-[var(--color-border-default)] rounded-lg shadow-xl z-[1001] data-[expanded]:animate-in data-[closed]:animate-out overflow-y-auto">
-                  <div class="flex flex-col wide:grid wide:grid-cols-2 gap-4 wide:gap-6 min-w-[280px] wide:min-w-[560px] max-h-[70dvh]">
+                <KobalteNav.Content
+                  class="bg-[var(--color-bg-elevated)] border border-[var(--color-border-default)] rounded-lg shadow-xl z-[1001] data-[expanded]:animate-in data-[closed]:animate-out"
+                  ref={(el: HTMLElement) => {
+                    // intercept pointerleave in capture phase before Kobalte sees it.
+                    // Kobalte's NavigationMenu.Content calls startLeaveTimer() on
+                    // pointerleave without checking pointerType, so touch scrolling
+                    // closes the menu on Android. we swallow the event for touch.
+                    el.addEventListener(
+                      "pointerleave",
+                      (e) => {
+                        if (e.pointerType === "touch") {
+                          e.stopImmediatePropagation();
+                        }
+                      },
+                      { capture: true }
+                    );
+                  }}
+                >
+                  <div
+                    class="flex flex-col wide:grid wide:grid-cols-2 gap-4 wide:gap-6 min-w-[280px] wide:min-w-[560px]"
+                    style={{
+                      "max-height": "70vh",
+                      "overflow-y": "auto",
+                      "-webkit-overflow-scrolling": "touch",
+                      "touch-action": "pan-y",
+                      "overscroll-behavior": "contain",
+                    }}
+                    ref={(el) => {
+                      // prevent touchmove from being eaten by parent/Kobalte handlers
+                      el.addEventListener(
+                        "touchmove",
+                        (e) => {
+                          e.stopPropagation();
+                        },
+                        { passive: true }
+                      );
+                    }}
+                  >
                     {/* column 1: brand info + source management */}
                     <div class="flex flex-col p-4 wide:p-6">
                       <div class="flex items-start justify-between mb-6">

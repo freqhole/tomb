@@ -478,10 +478,17 @@ export function SongEditorModal(props: SongEditorModalProps) {
 
   return (
     <div
-      class="fixed inset-0 flex items-center justify-center bg-black/50"
-      classList={{ "z-50": !props.disableNestedModals, "z-[60]": props.disableNestedModals }}
+      class="flex items-center justify-center bg-black/50"
+      style={{
+        position: "fixed",
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        "z-index": props.disableNestedModals ? 60 : 50,
+      }}
     >
-      <div class="bg-[var(--color-bg-primary)] rounded-lg shadow-xl w-full max-w-2xl h-[90dvh] wide:h-[600px] overflow-hidden flex flex-col">
+      <div class="bg-[var(--color-bg-primary)] wide:rounded-lg shadow-xl w-full wide:max-w-2xl h-full wide:h-[600px] overflow-hidden flex flex-col">
         {/* header */}
         <div class="flex items-center justify-between p-4">
           <h2 class="text-lg font-semibold text-[var(--color-text-primary)]">edit song</h2>
