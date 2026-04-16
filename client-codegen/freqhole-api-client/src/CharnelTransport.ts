@@ -95,12 +95,18 @@ export class CharnelTransport implements Transport {
   async init(): Promise<void> {
     const inv = await ensureInvoke();
 
+    console.debug(
+      "[P2P] init: checking p2p_is_available for peer",
+      this.peerAddr,
+    );
     const available = (await inv("p2p_is_available")) as boolean;
+    console.debug("[P2P] init: p2p_is_available =", available);
     if (!available) {
       throw new Error("P2P not available - federation endpoint not running");
     }
 
     this.nodeId = (await inv("p2p_get_node_id")) as string;
+    console.debug("[P2P] init: got node_id =", this.nodeId);
   }
 
   /**
@@ -120,14 +126,39 @@ export class CharnelTransport implements Transport {
   ): Promise<TransportResponse> {
     const inv = await ensureInvoke();
 
-    const result = (await inv("p2p_proxy_request", {
+    console.debug("[P2P] p2p_proxy_request ->", {
       peerAddr: this.peerAddr,
       method,
       path,
-      body: body ?? null,
-    })) as { status: number; body: string };
+      bodyLength: body?.length ?? 0,
+    });
 
-    return result;
+    try {
+      const result = (await inv("p2p_proxy_request", {
+        peerAddr: this.peerAddr,
+        method,
+        path,
+        body: body ?? null,
+      })) as { status: number; body: string };
+
+      console.debug(
+        "[P2P] p2p_proxy_request <- status",
+        result.status,
+        "for",
+        method,
+        path,
+      );
+      return result;
+    } catch (err) {
+      console.debug(
+        "[P2P] p2p_proxy_request ERROR for",
+        method,
+        path,
+        ":",
+        err,
+      );
+      throw err;
+    }
   }
 
   /**
@@ -204,8 +235,10 @@ export class CharnelTransport implements Transport {
 
     // only use iroh-blobs for music uploads
     if (path === "/api/upload/music") {
+      console.debug("[P2P] uploadByPath: importing blob from", filePath);
       // import file into local FsStore -> get blake3 hash
       const blake3 = (await inv("p2p_import_blob", { filePath })) as string;
+      console.debug("[P2P] uploadByPath: imported blob, blake3 =", blake3);
 
       // build request body for the remote peer
       const body: Record<string, unknown> = {
@@ -273,8 +306,17 @@ export class CharnelTransport implements Transport {
     const tauri = await import("@tauri-apps/api/core");
     const onProgress = new tauri.Channel<{ bytes_downloaded: number }>();
 
+    console.debug("[P2P] fetchBlob:", {
+      blobId,
+      blake3: blake3 ?? "(none)",
+      peerAddr: this.peerAddr,
+    });
+
     if (blake3) {
       // blake3 known — use verified iroh-blobs download
+      console.debug(
+        "[P2P] fetchBlob: using verified iroh-blobs download (blake3 known)",
+      );
       const result = (await inv("p2p_fetch_blob_verified", {
         peerAddr: this.peerAddr,
         blake3Hash: blake3,
@@ -290,6 +332,9 @@ export class CharnelTransport implements Transport {
 
     // no blake3 — try proxy_request to get blob data from database
     // this is the primary path for images (waveforms, thumbnails) stored in the database
+    console.debug(
+      "[P2P] fetchBlob: no blake3, trying proxy_request for blob data",
+    );
     try {
       const result = await this.request("GET", `/api/blobs/${blobId}/data`);
       if (result.status === 200) {
@@ -308,6 +353,10 @@ export class CharnelTransport implements Transport {
     }
 
     // fallback: ask the peer to compute blake3, then do verified download
+    console.debug(
+      "[P2P] fetchBlob: falling back to p2p_fetch_blob_verified_by_id for",
+      blobId,
+    );
     const result = (await inv("p2p_fetch_blob_verified_by_id", {
       peerAddr: this.peerAddr,
       blobId,
@@ -394,6 +443,7 @@ export class CharnelTransport implements Transport {
   async fetchHelloImage(): Promise<BlobData | null> {
     const inv = await ensureInvoke();
 
+    console.debug("[P2P] fetchHelloImage: requesting from peer", this.peerAddr);
     try {
       const result = (await inv("p2p_fetch_hello_image", {
         peerAddr: this.peerAddr,

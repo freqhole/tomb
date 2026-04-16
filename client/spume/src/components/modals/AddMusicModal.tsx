@@ -178,7 +178,7 @@ export function AddMusicModal(props: AddMusicModalProps) {
     <Show when={props.isOpen}>
       {/* overlay */}
       <div
-        class="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-8"
+        class="fixed inset-0 bg-black/50 z-[100] flex items-center justify-center p-8"
         onClick={() => props.onClose()}
       >
         {/* modal content */}

@@ -13,11 +13,11 @@ import {
   updatePendingRemote,
 } from "../../app/services/storage/db";
 import type { PendingRemote } from "../../app/services/storage/types";
+import { debug } from "../../utils/logger";
 import { AuthForm } from "../auth/AuthForm";
 import { Button } from "../buttons/Button";
-import { MediaImage } from "../media/MediaImage";
 import { QrScanner } from "../inputs/QrScanner";
-import { debug } from "../../utils/logger";
+import { MediaImage } from "../media/MediaImage";
 
 // format error messages from API responses
 // handles Zod validation errors (JSON arrays) and plain strings
@@ -1184,12 +1184,12 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
 
       {/* backdrop */}
       <div
-        class="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
+        class="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-0 sm:p-4"
         onClick={handleClose}
       >
         {/* modal */}
         <div
-          class="bg-[var(--color-bg-primary)] rounded-lg shadow-xl max-w-md w-full border border-[var(--color-border-default)] flex flex-col max-h-[80dvh]"
+          class="bg-[var(--color-bg-primary)] shadow-xl w-full border border-[var(--color-border-default)] flex flex-col h-[100dvh] max-h-[100dvh] rounded-none sm:rounded-lg sm:max-w-md sm:max-h-[80dvh] sm:h-auto"
           onClick={(e) => e.stopPropagation()}
         >
           {/* header */}

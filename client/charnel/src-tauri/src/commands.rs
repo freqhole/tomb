@@ -1653,6 +1653,7 @@ pub async fn toggle_federation_enabled(
     }
 
     // refresh the app menu to show/hide P2P controls
+    #[cfg(desktop)]
     crate::menu::refresh_app_menu(&app_handle);
 
     // notify UI of the federation state change (uses same event as config save)
@@ -1699,6 +1700,7 @@ pub async fn reload_config(
     }
 
     // refresh the app menu
+    #[cfg(desktop)]
     crate::menu::refresh_app_menu(&app_handle);
 
     // notify that config was reloaded

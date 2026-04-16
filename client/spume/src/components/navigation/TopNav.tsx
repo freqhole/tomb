@@ -1,19 +1,19 @@
 import { NavigationMenu as KobalteNav } from "@kobalte/core/navigation-menu";
 import { createResource, createSignal, For, onCleanup, onMount, Show, type JSX } from "solid-js";
-import { Icon } from "../icons/registry";
-import { toast } from "../feedback/Toast";
-import { TopNavSearchContainer } from "../../utils/TopNavSearchContainer";
-import MediaImage from "../media/MediaImage";
-import { ViewSelector, type ViewOption } from "./ViewSelector";
+import { isCharnelMode } from "../../app/services/charnel";
 import { getPageInfo } from "../../app/services/pageInfo";
-import { Badge } from "../badges/Badge";
+import { isNarrowViewport, isSmallViewport } from "../../config/breakpoints";
+import { canCreatePlaylist, canUploadMusic } from "../../music/data/permissions";
+import { resolveBlobUrl } from "../../music/services/storage/blobResolver";
 import type { ImageMetadata } from "../../music/services/storage/types";
 import { routes } from "../../music/utils/routing";
-import { canUploadMusic, canCreatePlaylist } from "../../music/data/permissions";
 import { formatRelativeTime } from "../../utils/dateTime";
-import { isCharnelMode } from "../../app/services/charnel";
-import { isNarrowViewport, isSmallViewport } from "../../config/breakpoints";
-import { resolveBlobUrl } from "../../music/services/storage/blobResolver";
+import { TopNavSearchContainer } from "../../utils/TopNavSearchContainer";
+import { Badge } from "../badges/Badge";
+import { toast } from "../feedback/Toast";
+import { Icon } from "../icons/registry";
+import MediaImage from "../media/MediaImage";
+import { ViewSelector, type ViewOption } from "./ViewSelector";
 
 export interface NavMenuItem {
   /** menu item label */
@@ -336,7 +336,10 @@ export function TopNav(props: TopNavProps) {
           "fixed top-2 left-6 bg-black/20 backdrop-blur-sm px-2 py-1.5 rounded-lg border border-white/10 shadow-lg":
             !isNarrow(),
         }}
-        style={{ height: isNarrow() ? "var(--nav-height, 56px)" : "auto" }}
+        style={{
+          height: isNarrow() ? "var(--nav-height, 56px)" : "auto",
+          "padding-top": isNarrow() ? "var(--safe-area-top, 0px)" : undefined,
+        }}
         onMouseEnter={() => setNavHovered(true)}
         onMouseLeave={() => setNavHovered(false)}
       >

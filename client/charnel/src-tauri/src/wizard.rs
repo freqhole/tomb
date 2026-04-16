@@ -6,14 +6,19 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use tauri::webview::Color;
-use tauri::{
-    AppHandle, Emitter, Manager, Theme, TitleBarStyle, WebviewUrl, WebviewWindowBuilder, Wry,
-};
+#[cfg(desktop)]
+use tauri::TitleBarStyle;
+use tauri::{AppHandle, Emitter, Manager, Theme, WebviewUrl, WebviewWindowBuilder, Wry};
 
+#[cfg(not(desktop))]
+use crate::app_config::save_server_config_path;
+#[cfg(desktop)]
 use crate::app_config::{save_server_config_path, FreqholeAppConfig};
+use crate::commands;
 use crate::p2p_state::P2pState;
 use crate::ShutdownToken;
-use crate::{commands, menu, tray};
+#[cfg(desktop)]
+use crate::{menu, tray};
 
 /// tauri command to open setup wizard at specified route (defaults to /setup)
 #[tauri::command]
@@ -25,40 +30,48 @@ pub async fn open_setup_wizard(app: AppHandle<Wry>, route: Option<String>) -> Re
 /// open setup wizard window at a specific route
 pub fn open_setup_wizard_at_route(app: AppHandle<Wry>, route: &str) -> Result<(), String> {
     // build URL with hash route
-    #[cfg(debug_assertions)]
+    // on mobile, always use bundled assets (no dev server)
+    #[cfg(all(debug_assertions, desktop))]
     let url_str = format!("http://localhost:1421#{}", route);
-    #[cfg(not(debug_assertions))]
+    #[cfg(not(all(debug_assertions, desktop)))]
     let url_str = format!("wizard/index.html#{}", route);
 
     // check if wizard is already open
     if let Some(window) = app.get_webview_window("setup-wizard") {
         // navigate to requested route and focus
-        #[cfg(debug_assertions)]
+        #[cfg(all(debug_assertions, desktop))]
         let url: url::Url = url_str.parse().unwrap();
-        #[cfg(not(debug_assertions))]
+        #[cfg(not(all(debug_assertions, desktop)))]
         let url: url::Url = format!("tauri://localhost/{}", url_str).parse().unwrap();
 
         let _ = window.navigate(url);
-        let _ = window.show();
-        let _ = window.set_focus();
+        #[cfg(desktop)]
+        {
+            let _ = window.show();
+            let _ = window.set_focus();
+        }
         return Ok(());
     }
 
     // create new window with route in URL
-    #[cfg(debug_assertions)]
+    #[cfg(all(debug_assertions, desktop))]
     let wizard_url = WebviewUrl::External(url_str.parse().unwrap());
-    #[cfg(not(debug_assertions))]
+    #[cfg(not(all(debug_assertions, desktop)))]
     let wizard_url = WebviewUrl::App(PathBuf::from(url_str));
 
-    WebviewWindowBuilder::new(&app, "setup-wizard", wizard_url)
-        .title("freqhole wizard")
-        .inner_size(800.0, 600.0)
+    let win_builder = WebviewWindowBuilder::new(&app, "setup-wizard", wizard_url);
+    #[cfg(desktop)]
+    let win_builder = win_builder
         .resizable(true)
         .center()
+        .inner_size(800.0, 600.0)
+        .title("freqhole wizard")
         .theme(Some(Theme::Dark))
-        .background_color(Color(0, 0, 0, 255))
+        .background_color(Color(0, 0, 0, 255));
+
+    win_builder
         .build()
-        .map_err(|e| e.to_string())?;
+        .map_err(|e: tauri::Error| e.to_string())?;
 
     Ok(())
 }
@@ -227,18 +240,21 @@ pub async fn close_setup_wizard(
             P2pState::start_status_watcher(app.state::<Arc<P2pState>>().inner().clone());
 
             // setup tray if enabled
-            let app_config = FreqholeAppConfig::load(&app).unwrap_or_default();
-            if app_config.tray_enabled {
-                #[cfg(target_os = "linux")]
-                if let Err(e) = tray::setup_tray(&app) {
-                    tracing::warn!(
-                        error = %e,
-                        "tray setup failed (install libayatana-appindicator3-dev)"
-                    );
-                }
-                #[cfg(not(target_os = "linux"))]
-                if let Err(e) = tray::setup_tray(&app) {
-                    tracing::warn!(error = %e, "tray setup failed");
+            #[cfg(desktop)]
+            {
+                let app_config = FreqholeAppConfig::load(&app).unwrap_or_default();
+                if app_config.tray_enabled {
+                    #[cfg(target_os = "linux")]
+                    if let Err(e) = tray::setup_tray(&app) {
+                        tracing::warn!(
+                            error = %e,
+                            "tray setup failed (install libayatana-appindicator3-dev)"
+                        );
+                    }
+                    #[cfg(not(target_os = "linux"))]
+                    if let Err(e) = tray::setup_tray(&app) {
+                        tracing::warn!(error = %e, "tray setup failed");
+                    }
                 }
             }
         }
@@ -252,6 +268,7 @@ pub async fn close_setup_wizard(
         });
 
         // setup application menu (always, regardless of federation)
+        #[cfg(desktop)]
         if let Err(e) = menu::setup_app_menu(&app) {
             tracing::warn!(error = %e, "menu setup failed");
         }
@@ -259,6 +276,7 @@ pub async fn close_setup_wizard(
 
     // close wizard window
     if let Some(wizard) = app.get_webview_window("setup-wizard") {
+        #[cfg(desktop)]
         wizard.close().map_err(|e| e.to_string())?;
     }
 
@@ -269,25 +287,31 @@ pub async fn close_setup_wizard(
     if app.get_webview_window("main").is_none() {
         tracing::info!(route = %target_route, "creating main window");
 
-        #[cfg(debug_assertions)]
+        #[cfg(all(debug_assertions, desktop))]
         let url_str = format!("http://localhost:1420#{}", target_route);
-        #[cfg(not(debug_assertions))]
+        #[cfg(not(all(debug_assertions, desktop)))]
         let url_str = format!("index.html#{}", target_route);
 
-        #[cfg(debug_assertions)]
+        #[cfg(all(debug_assertions, desktop))]
         let webview_url = WebviewUrl::External(url_str.parse().unwrap());
-        #[cfg(not(debug_assertions))]
+        #[cfg(not(all(debug_assertions, desktop)))]
         let webview_url = WebviewUrl::App(PathBuf::from(url_str));
 
-        let win_builder = WebviewWindowBuilder::new(&app, "main", webview_url)
-            .title("")
+        let win_builder = WebviewWindowBuilder::new(&app, "main", webview_url);
+        #[cfg(desktop)]
+        let win_builder = win_builder
             .inner_size(800.0, 600.0)
+            .title("")
             .theme(Some(Theme::Dark));
 
         #[cfg(target_os = "macos")]
         let win_builder = win_builder.title_bar_style(TitleBarStyle::Transparent);
 
-        let window = win_builder.build().map_err(|e| e.to_string())?;
+        let window = win_builder
+            .build()
+            .map_err(|e: tauri::Error| e.to_string())?;
+        // suppress unused variable warning on non-macOS
+        let _ = &window;
 
         #[cfg(target_os = "macos")]
         #[allow(deprecated)]

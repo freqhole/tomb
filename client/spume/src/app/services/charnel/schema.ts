@@ -19,7 +19,7 @@ export const FreqholeConfigSchema = z.object({
   /** server URL (e.g. http://localhost:8686) */
   server_url: z.string(),
   /** absolute file path of server image (for convertFileSrc) */
-  server_image_path: z.string().optional(),
+  server_image_path: z.string().nullish(),
   /** whether to disable backdrop blur (performance setting) */
   disable_backdrop_blur: z.boolean().optional(),
   /** whether to sync queue songs from remotes to local library (default: true) */

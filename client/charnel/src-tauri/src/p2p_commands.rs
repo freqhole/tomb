@@ -174,17 +174,22 @@ pub async fn p2p_proxy_request(
     path: String,
     body: Option<String>,
 ) -> Result<P2pResponse, String> {
+    tracing::info!(peer = %peer_addr, method = %method, path = %path, "p2p proxy request");
+
     let response =
         grimoire::federation::p2p_client::proxy_request(&peer_addr, &method, &path, body)
             .await
             .map_err(|e| {
                 let error_msg = e.to_string();
+                tracing::warn!(peer = %peer_addr, method = %method, path = %path, error = %error_msg, "p2p proxy request failed");
                 // emit peer-offline event for connection failures
                 if is_connection_error(&error_msg) {
                     let _ = notify_peer_offline(&app_handle, &peer_addr, &error_msg);
                 }
                 error_msg
             })?;
+
+    tracing::info!(peer = %peer_addr, method = %method, path = %path, status = response.status, "p2p proxy response");
 
     Ok(P2pResponse {
         status: response.status,
@@ -205,12 +210,15 @@ pub async fn p2p_fetch_blob_verified(
 ) -> Result<P2pBlobResponse, String> {
     use base64::{engine::general_purpose::STANDARD, Engine};
 
+    tracing::info!(peer = %peer_addr, blake3 = %blake3_hash, "fetching verified blob");
+
     // use fetch_blob_verified_with_ensure which handles on-demand loading
     let data =
         grimoire::federation::p2p_client::fetch_blob_verified_with_ensure(&peer_addr, &blake3_hash)
             .await
             .map_err(|e| {
                 let error_msg = e.to_string();
+                tracing::warn!(peer = %peer_addr, blake3 = %blake3_hash, error = %error_msg, "fetch verified blob failed");
                 if is_connection_error(&error_msg) {
                     let _ = notify_peer_offline(&app_handle, &peer_addr, &error_msg);
                 }
@@ -237,11 +245,14 @@ pub async fn p2p_fetch_blob_verified_by_id(
 ) -> Result<P2pBlobWithBlake3Response, String> {
     use base64::{engine::general_purpose::STANDARD, Engine};
 
+    tracing::info!(peer = %peer_addr, blob_id = %blob_id, "fetching verified blob by id");
+
     let (data, blake3) =
         grimoire::federation::p2p_client::fetch_blob_verified_by_id(&peer_addr, &blob_id)
             .await
             .map_err(|e| {
                 let error_msg = e.to_string();
+                tracing::warn!(peer = %peer_addr, blob_id = %blob_id, error = %error_msg, "fetch verified blob by id failed");
                 if is_connection_error(&error_msg) {
                     let _ = notify_peer_offline(&app_handle, &peer_addr, &error_msg);
                 }
@@ -267,10 +278,13 @@ pub async fn p2p_fetch_hello_image(
 ) -> Result<P2pBlobResponse, String> {
     use base64::{engine::general_purpose::STANDARD, Engine};
 
+    tracing::info!(peer = %peer_addr, "fetching hello image");
+
     let blob = grimoire::federation::p2p_client::fetch_hello_image(&peer_addr)
         .await
         .map_err(|e| {
             let error_msg = e.to_string();
+            tracing::warn!(peer = %peer_addr, error = %error_msg, "fetch hello image failed");
             if is_connection_error(&error_msg) {
                 let _ = notify_peer_offline(&app_handle, &peer_addr, &error_msg);
             }

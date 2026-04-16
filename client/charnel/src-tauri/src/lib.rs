@@ -2,11 +2,13 @@
 
 mod app_config;
 mod commands;
+#[cfg(desktop)]
 mod menu;
 mod p2p_commands;
 mod p2p_state;
 mod server_controls;
 mod spume_bridge;
+#[cfg(desktop)]
 mod tray;
 mod wizard;
 
@@ -15,7 +17,9 @@ use std::sync::Arc;
 
 use app_config::{get_server_config_path_resolved, is_setup_complete, FreqholeAppConfig};
 use tauri::webview::Color;
-use tauri::{Emitter, Manager, RunEvent, Theme, TitleBarStyle, WebviewUrl, WebviewWindowBuilder};
+#[cfg(target_os = "macos")]
+use tauri::TitleBarStyle;
+use tauri::{Emitter, Manager, RunEvent, Theme, WebviewUrl, WebviewWindowBuilder};
 use tokio_util::sync::CancellationToken;
 
 use p2p_state::P2pState;
@@ -52,6 +56,14 @@ const DEFAULT_MAX_LOG_LINES: usize = 10000;
 /// get the app data directory path (without needing an AppHandle)
 /// this is needed because tracing setup happens before tauri::Builder is run
 fn get_app_data_dir() -> Option<PathBuf> {
+    #[cfg(target_os = "android")]
+    {
+        // on android, use the app's internal data directory via environment
+        // tauri sets this up; fall back to a reasonable default
+        std::env::var_os("HOME")
+            .or_else(|| std::env::var_os("TMPDIR"))
+            .map(|h| PathBuf::from(h).join(APP_IDENTIFIER))
+    }
     #[cfg(target_os = "macos")]
     {
         std::env::var_os("HOME").map(|h| {
@@ -150,21 +162,124 @@ fn setup_tracing() {
         .init();
 }
 
+/// on mobile, run the same setup wizard logic headlessly with sensible defaults.
+/// uses SetupService::run_setup which handles: directories, config, database creation,
+/// migrations, wordlist, and root user — the same path the desktop wizard takes.
+#[cfg(mobile)]
+fn mobile_auto_init(app_handle: &tauri::AppHandle) -> Result<(), Box<dyn std::error::Error>> {
+    let app_data_dir = app_handle.path().app_data_dir()?;
+    let data_dir = app_data_dir.join("data");
+    let config_path = app_data_dir.join("freqhole-config.toml");
+
+    tracing::info!(
+        config_path = %config_path.display(),
+        data_dir = %data_dir.display(),
+        "starting mobile auto-init (headless wizard)"
+    );
+
+    // run the same setup service the desktop wizard uses
+    let setup_config = grimoire::setup::SetupConfig {
+        config_path: config_path.clone(),
+        data_dir: data_dir.clone(),
+        server_name: "freqhole".to_string(),
+        server_port: 8081,
+        image_path: None,
+        admin_username: None,
+        generate_api_key: false,
+        generate_invite_code: false,
+        ytdlp_available: false,
+        fetch_music_dir: None,
+        initial_scan_dirs: Vec::new(),
+        allowed_origins: Some(vec!["tauri://localhost".to_string()]),
+        ffmpeg_path: None,
+        ffprobe_path: None,
+        ytdlp_path: None,
+        server_enabled: Some(false),
+        federation_enabled: Some(true),
+        knocking_enabled: Some(false),
+    };
+
+    let service = grimoire::setup::SetupService::new();
+    let result = tauri::async_runtime::block_on(service.run_setup(setup_config));
+
+    if result.success {
+        tracing::info!(
+            config_path = %result.config_path,
+            data_dir = %result.data_dir,
+            root_user = ?result.root_username,
+            errors = ?result.errors,
+            "mobile auto-init setup complete"
+        );
+
+        // create a default admin user for mobile
+        let user_service = grimoire::users::UserService::new();
+        let admin_request = grimoire::users::CreateUserRequest {
+            username: "admin".to_string(),
+            role: Some(grimoire::users::UserRole::Admin),
+            invite_code: None,
+        };
+        match tauri::async_runtime::block_on(user_service.register_user(&admin_request)).data {
+            Some(user) => {
+                if let Err(e) = app_config::save_admin_user(app_handle, &user.id, &user.username) {
+                    tracing::warn!(error = %e, "failed to save admin user to app config");
+                }
+                tracing::info!(username = %user.username, user_id = %user.id, "created mobile admin user");
+            }
+            None => {
+                tracing::warn!("failed to create mobile admin user");
+            }
+        }
+    } else {
+        let err_msg = result.errors.join("; ");
+        tracing::error!(errors = %err_msg, "mobile auto-init setup failed");
+        return Err(err_msg.into());
+    }
+
+    // save config path to charnel-config.toml so is_setup_complete returns true
+    app_config::save_server_config_path(app_handle, &config_path.display().to_string())
+        .map_err(|e| format!("failed to save server config path: {}", e))?;
+
+    // generate iroh keypair for P2P identity
+    match grimoire::federation::load_or_generate_keypair() {
+        Ok(secret_key) => {
+            let node_id = secret_key.public();
+            tracing::info!(%node_id, "iroh keypair ready");
+        }
+        Err(e) => {
+            tracing::warn!(error = %e, "failed to generate iroh keypair (non-fatal)");
+        }
+    }
+
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     setup_tracing();
 
     let p2p_state = Arc::new(P2pState::new());
 
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .manage(ShutdownToken::new())
         .manage(p2p_state.clone())
         .setup(|app| {
             // load app config
             let app_config = FreqholeAppConfig::load(app.handle()).unwrap_or_default();
 
-            // check if setup wizard should run
+            // on mobile, auto-initialize if needed (skip wizard entirely)
+            #[cfg(mobile)]
+            if !is_setup_complete(app.handle()) {
+                if let Err(e) = mobile_auto_init(app.handle()) {
+                    tracing::error!(error = %e, "mobile auto-init failed");
+                    // still continue — the else branch will fail gracefully
+                }
+            }
+
+            // on mobile, wizard is never shown (auto-init handles setup)
+            #[cfg(desktop)]
             let needs_setup = !is_setup_complete(app.handle());
+            #[cfg(mobile)]
+            let needs_setup = false;
 
             // silently upgrade app config if needed (with backup)
             if !needs_setup && app_config::app_config_needs_upgrade(app.handle()) {
@@ -186,19 +301,22 @@ pub fn run() {
             if needs_setup {
                 // setup wizard runs on port 1421 (tauri UI)
                 // main app (spume) runs on port 1420
-                #[cfg(debug_assertions)]
+                // on mobile, always use bundled assets (no dev server)
+                #[cfg(all(debug_assertions, desktop))]
                 let wizard_url = WebviewUrl::External("http://localhost:1421".parse().unwrap());
-                #[cfg(not(debug_assertions))]
+                #[cfg(not(all(debug_assertions, desktop)))]
                 let wizard_url = WebviewUrl::App(PathBuf::from("wizard/index.html"));
 
-                let _wizard = WebviewWindowBuilder::new(app, "setup-wizard", wizard_url)
-                    .title("freqhole setup")
-                    .inner_size(800.0, 600.0)
+                let wizard_builder = WebviewWindowBuilder::new(app, "setup-wizard", wizard_url);
+                #[cfg(desktop)]
+                let wizard_builder = wizard_builder
                     .resizable(true)
                     .center()
+                    .inner_size(800.0, 600.0)
+                    .title("freqhole setup")
                     .theme(Some(Theme::Dark))
-                    .background_color(Color(0, 0, 0, 255))
-                    .build()?;
+                    .background_color(Color(0, 0, 0, 255));
+                let _wizard = wizard_builder.build()?;
 
                 // wizard will start server when setup completes
             } else {
@@ -329,9 +447,11 @@ pub fn run() {
 
                 // show main window (spume will call getConfig on startup)
                 tracing::info!("creating main window...");
-                let win_builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::default())
-                    .title("freqhole")
+                let win_builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::default());
+                #[cfg(desktop)]
+                let win_builder = win_builder
                     .inner_size(800.0, 600.0)
+                    .title("freqhole")
                     .theme(Some(Theme::Dark))
                     .background_color(Color(0, 0, 0, 255));
 
@@ -363,31 +483,38 @@ pub fn run() {
                     .map(|f| f.enabled)
                     .unwrap_or(false);
 
-                if app_config.tray_enabled && federation_enabled {
-                    #[cfg(target_os = "linux")]
-                    if let Err(e) = tray::setup_tray(app.handle()) {
-                        tracing::warn!(
-                            error = %e,
-                            "system tray setup failed (install libayatana-appindicator3-dev)"
-                        );
+                #[cfg(desktop)]
+                {
+                    if app_config.tray_enabled && federation_enabled {
+                        #[cfg(target_os = "linux")]
+                        if let Err(e) = tray::setup_tray(app.handle()) {
+                            tracing::warn!(
+                                error = %e,
+                                "system tray setup failed (install libayatana-appindicator3-dev)"
+                            );
+                        }
+                        #[cfg(not(target_os = "linux"))]
+                        tray::setup_tray(app.handle())?;
                     }
-                    #[cfg(not(target_os = "linux"))]
-                    tray::setup_tray(app.handle())?;
-                }
 
-                // setup application menu
-                menu::setup_app_menu(app.handle())?;
+                    // setup application menu
+                    menu::setup_app_menu(app.handle())?;
+                }
             }
 
             Ok(())
         })
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_opener::init())
-        .plugin(
-            tauri_plugin_window_state::Builder::new()
-                .with_denylist(&["setup-wizard"])
-                .build(),
-        )
+        .plugin(tauri_plugin_opener::init());
+
+    #[cfg(desktop)]
+    let builder = builder.plugin(
+        tauri_plugin_window_state::Builder::new()
+            .with_denylist(&["setup-wizard"])
+            .build(),
+    );
+
+    builder
         .invoke_handler(tauri::generate_handler![
             commands::check_setup_status,
             commands::check_dependencies,
