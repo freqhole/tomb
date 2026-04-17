@@ -254,160 +254,160 @@ export function AddMusicModal(props: AddMusicModalProps) {
             {/* progress regions — pinned below tabs, can scroll internally if they
                 grow too tall to fit alongside the tabs area */}
             <div class="flex-shrink-0 overflow-y-auto max-h-[50dvh]">
-            {/* local import progress section */}
-            <Show when={isLocalImporting()}>
-              <div class="border-t border-[var(--color-border-default)] px-4 py-3">
-                <div class="flex items-center gap-2 mb-2">
-                  <Show
-                    when={localProgress()?.phase !== "done" && localProgress()?.phase !== "error"}
-                    fallback={
-                      <Show
-                        when={localProgress()?.phase === "done"}
-                        fallback={
-                          <div class="flex items-center gap-1.5">
-                            <Icon name="close" size={14} color="var(--color-error)" />
-                            <span class="body-xs text-red-400">{localPhaseLabel()}</span>
-                          </div>
-                        }
-                      >
-                        <div class="flex items-center gap-1.5">
-                          <Icon name="check" size={14} color="var(--color-success)" />
-                          <span class="body-xs text-[var(--color-text-secondary)]">
-                            {localPhaseLabel()}
-                          </span>
-                        </div>
-                      </Show>
-                    }
-                  >
-                    <div class="flex items-center gap-1.5">
-                      <div class="w-2 h-2 rounded-full bg-[var(--color-accent-500)] animate-pulse" />
-                      <span class="body-xs text-[var(--color-text-secondary)]">
-                        {localPhaseLabel()}
-                      </span>
-                    </div>
-                  </Show>
-                </div>
-
-                {/* progress bar */}
-                <Show
-                  when={
-                    localProgress()?.phase !== "done" &&
-                    localProgress()?.phase !== "error" &&
-                    localProgress()?.phase !== "processing"
-                  }
-                >
-                  <div class="h-1.5 bg-[var(--color-accent-500)]/20 rounded-full overflow-hidden mb-2">
-                    <div
-                      class="h-full bg-[var(--color-accent-500)] rounded-full transition-all duration-300"
-                      style={{ width: `${localProgressPercent()}%` }}
-                    />
-                  </div>
-                </Show>
-
-                {/* processing phase gets indeterminate bar */}
-                <Show when={localProgress()?.phase === "processing"}>
-                  <div class="h-1.5 bg-[var(--color-accent-500)]/20 rounded-full overflow-hidden mb-2">
-                    <div class="h-full w-1/3 bg-[var(--color-accent-500)] rounded-full animate-[indeterminate_1.5s_ease-in-out_infinite]" />
-                  </div>
-                </Show>
-
-                {/* current file name */}
-                <Show when={localProgress()?.currentFile && localProgress()?.phase !== "done"}>
-                  <p class="body-xs text-[var(--color-text-tertiary)] truncate">
-                    {localProgress()?.currentFile}
-                  </p>
-                </Show>
-
-                <Show
-                  when={localProgress()?.phase !== "done" && localProgress()?.phase !== "error"}
-                >
-                  <p class="body-xs text-[var(--color-text-tertiary)] mt-1">
-                    you can close this modal or add more files
-                  </p>
-                </Show>
-              </div>
-            </Show>
-
-            {/* upload progress section - always visible at bottom regardless of tab */}
-            <Show when={hasJobs()}>
-              <div class="border-t border-[var(--color-border-default)] px-4 py-3">
-                {/* status summary */}
-                <div class="flex items-center gap-2 mb-2">
-                  <Show when={activeJobs().length > 0}>
-                    <div class="flex items-center gap-1.5">
-                      <div class="w-2 h-2 rounded-full bg-blue-400 animate-pulse" />
-                      <span class="body-xs text-[var(--color-text-secondary)]">
-                        processing {activeJobs().length} job{activeJobs().length !== 1 ? "s" : ""}
-                      </span>
-                    </div>
-                  </Show>
-                  <Show when={completedJobs().length > 0}>
-                    <span class="body-xs text-[var(--color-text-tertiary)]">
-                      {completedJobs().length} done
-                    </span>
-                  </Show>
-                  <Show when={failedJobs().length > 0}>
-                    <span class="body-xs text-red-400">{failedJobs().length} failed</span>
-                  </Show>
-                  <Show when={timedOutJobs().length > 0}>
-                    <span class="body-xs text-amber-400">{timedOutJobs().length} queued</span>
-                  </Show>
-                </div>
-
-                <Show when={activeJobs().length > 0}>
-                  <p class="body-xs text-[var(--color-text-tertiary)] mb-2">
-                    processing uploads — you can close this modal or add more music
-                  </p>
-                </Show>
-
-                {/* job list */}
-                <div class="max-h-32 overflow-y-auto space-y-1">
-                  <For each={props.uploadJobs ?? []}>
-                    {(job) => (
-                      <div class="flex items-center gap-2 py-0.5">
-                        {/* status indicator */}
-                        <div class="flex-shrink-0 w-4 h-4 flex items-center justify-center">
-                          {job.status === "uploading" || job.status === "polling" ? (
-                            <div class="w-2 h-2 rounded-full bg-blue-400 animate-pulse" />
-                          ) : job.status === "completed" ? (
-                            <Icon name="check" size={14} color="var(--color-success)" />
-                          ) : job.status === "timeout" ? (
-                            <Icon name="recent" size={14} color="var(--color-warning, #f59e0b)" />
-                          ) : (
-                            <Icon name="close" size={14} color="var(--color-error)" />
-                          )}
-                        </div>
-                        {/* label */}
-                        <span
-                          class="body-xs truncate flex-1"
-                          classList={{
-                            "text-[var(--color-text-secondary)]":
-                              job.status === "uploading" || job.status === "polling",
-                            "text-[var(--color-text-tertiary)]": job.status === "completed",
-                            "text-amber-400": job.status === "timeout",
-                            "text-red-400": job.status === "failed",
-                          }}
+              {/* local import progress section */}
+              <Show when={isLocalImporting()}>
+                <div class="border-t border-[var(--color-border-default)] px-4 py-3">
+                  <div class="flex items-center gap-2 mb-2">
+                    <Show
+                      when={localProgress()?.phase !== "done" && localProgress()?.phase !== "error"}
+                      fallback={
+                        <Show
+                          when={localProgress()?.phase === "done"}
+                          fallback={
+                            <div class="flex items-center gap-1.5">
+                              <Icon name="close" size={14} color="var(--color-error)" />
+                              <span class="body-xs text-red-400">{localPhaseLabel()}</span>
+                            </div>
+                          }
                         >
-                          {job.label}
-                        </span>
-                        {/* status text */}
-                        <span class="body-xs flex-shrink-0 text-[var(--color-text-tertiary)]">
-                          {job.status === "uploading"
-                            ? "uploading..."
-                            : job.status === "polling"
-                              ? "processing..."
-                              : job.status === "completed"
-                                ? "done"
-                                : job.status === "timeout"
-                                  ? "queued, check back later"
-                                  : (job.error ?? "failed")}
+                          <div class="flex items-center gap-1.5">
+                            <Icon name="check" size={14} color="var(--color-success)" />
+                            <span class="body-xs text-[var(--color-text-secondary)]">
+                              {localPhaseLabel()}
+                            </span>
+                          </div>
+                        </Show>
+                      }
+                    >
+                      <div class="flex items-center gap-1.5">
+                        <div class="w-2 h-2 rounded-full bg-[var(--color-accent-500)] animate-pulse" />
+                        <span class="body-xs text-[var(--color-text-secondary)]">
+                          {localPhaseLabel()}
                         </span>
                       </div>
-                    )}
-                  </For>
+                    </Show>
+                  </div>
+
+                  {/* progress bar */}
+                  <Show
+                    when={
+                      localProgress()?.phase !== "done" &&
+                      localProgress()?.phase !== "error" &&
+                      localProgress()?.phase !== "processing"
+                    }
+                  >
+                    <div class="h-1.5 bg-[var(--color-accent-500)]/20 rounded-full overflow-hidden mb-2">
+                      <div
+                        class="h-full bg-[var(--color-accent-500)] rounded-full transition-all duration-300"
+                        style={{ width: `${localProgressPercent()}%` }}
+                      />
+                    </div>
+                  </Show>
+
+                  {/* processing phase gets indeterminate bar */}
+                  <Show when={localProgress()?.phase === "processing"}>
+                    <div class="h-1.5 bg-[var(--color-accent-500)]/20 rounded-full overflow-hidden mb-2">
+                      <div class="h-full w-1/3 bg-[var(--color-accent-500)] rounded-full animate-[indeterminate_1.5s_ease-in-out_infinite]" />
+                    </div>
+                  </Show>
+
+                  {/* current file name */}
+                  <Show when={localProgress()?.currentFile && localProgress()?.phase !== "done"}>
+                    <p class="body-xs text-[var(--color-text-tertiary)] truncate">
+                      {localProgress()?.currentFile}
+                    </p>
+                  </Show>
+
+                  <Show
+                    when={localProgress()?.phase !== "done" && localProgress()?.phase !== "error"}
+                  >
+                    <p class="body-xs text-[var(--color-text-tertiary)] mt-1">
+                      you can close this modal or add more files
+                    </p>
+                  </Show>
                 </div>
-              </div>
-            </Show>
+              </Show>
+
+              {/* upload progress section - always visible at bottom regardless of tab */}
+              <Show when={hasJobs()}>
+                <div class="border-t border-[var(--color-border-default)] px-4 py-3">
+                  {/* status summary */}
+                  <div class="flex items-center gap-2 mb-2">
+                    <Show when={activeJobs().length > 0}>
+                      <div class="flex items-center gap-1.5">
+                        <div class="w-2 h-2 rounded-full bg-blue-400 animate-pulse" />
+                        <span class="body-xs text-[var(--color-text-secondary)]">
+                          processing {activeJobs().length} job{activeJobs().length !== 1 ? "s" : ""}
+                        </span>
+                      </div>
+                    </Show>
+                    <Show when={completedJobs().length > 0}>
+                      <span class="body-xs text-[var(--color-text-tertiary)]">
+                        {completedJobs().length} done
+                      </span>
+                    </Show>
+                    <Show when={failedJobs().length > 0}>
+                      <span class="body-xs text-red-400">{failedJobs().length} failed</span>
+                    </Show>
+                    <Show when={timedOutJobs().length > 0}>
+                      <span class="body-xs text-amber-400">{timedOutJobs().length} queued</span>
+                    </Show>
+                  </div>
+
+                  <Show when={activeJobs().length > 0}>
+                    <p class="body-xs text-[var(--color-text-tertiary)] mb-2">
+                      processing uploads — you can close this modal or add more music
+                    </p>
+                  </Show>
+
+                  {/* job list */}
+                  <div class="max-h-32 overflow-y-auto space-y-1">
+                    <For each={props.uploadJobs ?? []}>
+                      {(job) => (
+                        <div class="flex items-center gap-2 py-0.5">
+                          {/* status indicator */}
+                          <div class="flex-shrink-0 w-4 h-4 flex items-center justify-center">
+                            {job.status === "uploading" || job.status === "polling" ? (
+                              <div class="w-2 h-2 rounded-full bg-blue-400 animate-pulse" />
+                            ) : job.status === "completed" ? (
+                              <Icon name="check" size={14} color="var(--color-success)" />
+                            ) : job.status === "timeout" ? (
+                              <Icon name="recent" size={14} color="var(--color-warning, #f59e0b)" />
+                            ) : (
+                              <Icon name="close" size={14} color="var(--color-error)" />
+                            )}
+                          </div>
+                          {/* label */}
+                          <span
+                            class="body-xs truncate flex-1"
+                            classList={{
+                              "text-[var(--color-text-secondary)]":
+                                job.status === "uploading" || job.status === "polling",
+                              "text-[var(--color-text-tertiary)]": job.status === "completed",
+                              "text-amber-400": job.status === "timeout",
+                              "text-red-400": job.status === "failed",
+                            }}
+                          >
+                            {job.label}
+                          </span>
+                          {/* status text */}
+                          <span class="body-xs flex-shrink-0 text-[var(--color-text-tertiary)]">
+                            {job.status === "uploading"
+                              ? "uploading..."
+                              : job.status === "polling"
+                                ? "processing..."
+                                : job.status === "completed"
+                                  ? "done"
+                                  : job.status === "timeout"
+                                    ? "queued, check back later"
+                                    : (job.error ?? "failed")}
+                          </span>
+                        </div>
+                      )}
+                    </For>
+                  </div>
+                </div>
+              </Show>
             </div>
           </div>
         </div>
