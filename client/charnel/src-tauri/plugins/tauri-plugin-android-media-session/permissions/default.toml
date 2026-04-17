@@ -1,0 +1,22 @@
+"$schema" = "schemas/schema.json"
+
+[default]
+description = "default permissions: all media-session commands enabled"
+permissions = [
+    "allow-set-metadata",
+    "allow-set-playback-state",
+    "allow-set-position",
+    "allow-clear",
+    "allow-register-listener",
+    "allow-remove-listener",
+]
+
+[[permission]]
+identifier = "allow-register-listener"
+description = "allow subscribing to plugin events via addPluginListener"
+commands.allow = ["registerListener"]
+
+[[permission]]
+identifier = "allow-remove-listener"
+description = "allow unsubscribing from plugin events"
+commands.allow = ["removeListener"]

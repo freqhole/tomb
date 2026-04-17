@@ -25,3 +25,4 @@ playlistz/
 /freqhole.net/dist
 /freqhole.net/.astro
 flatpak/freqhole.deb
+/client/charnel/src-tauri/plugins/tauri-plugin-android-media-session/android/build

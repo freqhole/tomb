@@ -24,6 +24,9 @@ import { cleanupAudioURL, getAudioURL, isPlayingDirectURL, refreshBlobURL, trySw
 import type { Song } from "../storage/types";
 import { debug } from "../../../utils/logger";
 import { getMediaSessionArtwork } from "./mediaSessionArtwork";
+// install android lock-screen / media notification shim.
+// no-op on non-android and non-tauri platforms.
+import "./androidMediaSession";
 import {
   isPlaying,
   setIsPlaying,
