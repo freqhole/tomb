@@ -20,6 +20,7 @@ import { Icon, IconNames } from "../icons/registry";
 import { Tabs, TabList, Tab, TabPanel } from "../navigation/Tabs";
 import { EntityImages } from "../layout/EntityImages";
 import { MetadataDisplay } from "../layout/MetadataDisplay";
+import { Modal } from "./Modal";
 import { formatDateTime } from "../../utils/dateTime";
 import { error as errorLog } from "../../utils/logger";
 
@@ -477,440 +478,417 @@ export function SongEditorModal(props: SongEditorModalProps) {
   };
 
   return (
-    <div
-      class="flex items-center justify-center bg-black/50"
-      style={{
-        position: "fixed",
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
-        "z-index": props.disableNestedModals ? 60 : 50,
-      }}
+    <Modal
+      isOpen={true}
+      onClose={props.onClose}
+      title="edit song"
+      size="lg"
+      elevated={props.disableNestedModals}
+      headerActions={
+        <Show when={hasChanges()}>
+          <Button onClick={handleResetAll} variant="ghost" size="sm">
+            reset all
+          </Button>
+        </Show>
+      }
     >
-      <div class="bg-[var(--color-bg-primary)] wide:rounded-lg shadow-xl w-full wide:max-w-2xl h-full wide:h-[600px] overflow-hidden flex flex-col">
-        {/* header */}
-        <div class="flex items-center justify-between p-4">
-          <h2 class="text-lg font-semibold text-[var(--color-text-primary)]">edit song</h2>
-          <div class="flex items-center gap-2">
-            <Show when={hasChanges()}>
-              <Button onClick={handleResetAll} variant="ghost" size="sm">
-                reset all
-              </Button>
-            </Show>
-            <button
-              onClick={() => props.onClose()}
-              class="p-1 hover:bg-[var(--color-bg-hover)] transition-colors"
-            >
-              <Icon name={IconNames.close} size={20} />
-            </button>
+      {/* song info banner */}
+      <Show when={initialData()}>
+        <div class="bg-[var(--color-bg-elevated)] p-3 flex-shrink-0">
+          <div class="text-sm text-[var(--color-text-secondary)]">
+            editing: {formData().title} - {formData().artist_name}
+          </div>
+          <div class="text-xs text-[var(--color-text-tertiary)] mt-0.5">
+            {formData().album_title}
           </div>
         </div>
+      </Show>
 
-        {/* song info banner */}
-        <Show when={initialData()}>
-          <div class="bg-[var(--color-bg-elevated)] p-3 mb-2">
-            <div class="text-sm text-[var(--color-text-secondary)]">
-              editing: {formData().title} - {formData().artist_name}
-            </div>
-            <div class="text-xs text-[var(--color-text-tertiary)] mt-0.5">
-              {formData().album_title}
-            </div>
-          </div>
-        </Show>
+      {/* tabs */}
+      <Tabs activeTab={activeTab()} onTabChange={setActiveTab} class="flex-1 flex flex-col min-h-0">
+        <TabList class="px-4">
+          <Tab id="info" label="info" />
+          <Tab
+            id="images"
+            label="images"
+            badge={songImages().length + albumImages().length || undefined}
+          />
+          <Tab id="metadata" label="metadata" />
+        </TabList>
 
-        {/* tabs */}
-        <Tabs
-          activeTab={activeTab()}
-          onTabChange={setActiveTab}
-          class="flex-1 flex flex-col min-h-0"
-        >
-          <TabList class="px-4">
-            <Tab id="info" label="info" />
-            <Tab
-              id="images"
-              label="images"
-              badge={songImages().length + albumImages().length || undefined}
-            />
-            <Tab id="metadata" label="metadata" />
-          </TabList>
-
-          {/* info tab */}
-          <TabPanel id="info" class="flex-1 overflow-y-auto">
-            <div class="p-4">
-              <Show
-                when={initialData()}
-                fallback={
-                  <div class="flex items-center justify-center py-8 text-[var(--color-text-secondary)]">
-                    loading...
+        {/* info tab */}
+        <TabPanel id="info" class="flex-1 overflow-y-auto">
+          <div class="p-4">
+            <Show
+              when={initialData()}
+              fallback={
+                <div class="flex items-center justify-center py-8 text-[var(--color-text-secondary)]">
+                  loading...
+                </div>
+              }
+            >
+              <div class="space-y-4">
+                {/* title */}
+                <div class="flex items-center gap-2">
+                  <div class="flex-1">
+                    <label class="block text-sm text-[var(--color-text-secondary)] mb-1">
+                      title *
+                    </label>
+                    <TextInput
+                      value={formData().title}
+                      oninput={(e) => handleFieldChange("title", e.currentTarget.value)}
+                      placeholder="song title"
+                    />
                   </div>
-                }
-              >
-                <div class="space-y-4">
-                  {/* title */}
+                  <Show when={initialData() && formData().title !== initialData()!.title}>
+                    <button
+                      onClick={() => handleReset("title")}
+                      class="mt-6 px-2 py-1 text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] transition-colors"
+                    >
+                      reset
+                    </button>
+                  </Show>
+                </div>
+
+                {/* artist */}
+                <div class="flex items-center gap-2">
+                  <div class="flex-1">
+                    <ArtistAutocomplete
+                      label="artist"
+                      value={formData().artist_name}
+                      onSelect={(artist) => {
+                        const current = formData();
+                        setFormData({ ...current, artist_name: artist.name });
+                        setArtistId(artist.id);
+                      }}
+                    />
+                  </div>
+                  <Show when={!props.disableNestedModals && artistId()}>
+                    <button
+                      onClick={() =>
+                        showArtistEditor({
+                          artistId: artistId()!,
+                          disableNestedModals: true,
+                        })
+                      }
+                      class="mt-6 p-1 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] transition-colors"
+                      title="edit artist info"
+                    >
+                      <Icon name={IconNames.edit} size={16} />
+                    </button>
+                  </Show>
+                  <Show
+                    when={
+                      initialData() &&
+                      (formData().artist_name !== initialData()!.artist_name ||
+                        artistId() !== initialArtistId())
+                    }
+                  >
+                    <button
+                      onClick={() => handleReset("artist_name")}
+                      class="mt-6 px-2 py-1 text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] transition-colors"
+                    >
+                      reset
+                    </button>
+                  </Show>
+                </div>
+
+                {/* track artist (only for compilation albums) */}
+                <Show when={songQuery.data?.album_type === "compilation"}>
                   <div class="flex items-center gap-2">
                     <div class="flex-1">
                       <label class="block text-sm text-[var(--color-text-secondary)] mb-1">
-                        title *
+                        track artist
                       </label>
                       <TextInput
-                        value={formData().title}
-                        oninput={(e) => handleFieldChange("title", e.currentTarget.value)}
-                        placeholder="song title"
+                        value={formData().track_artist}
+                        oninput={(e) => handleFieldChange("track_artist", e.currentTarget.value)}
+                        placeholder="per-track artist (for compilations)"
                       />
                     </div>
-                    <Show when={initialData() && formData().title !== initialData()!.title}>
-                      <button
-                        onClick={() => handleReset("title")}
-                        class="mt-6 px-2 py-1 text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] transition-colors"
-                      >
-                        reset
-                      </button>
-                    </Show>
-                  </div>
-
-                  {/* artist */}
-                  <div class="flex items-center gap-2">
-                    <div class="flex-1">
-                      <ArtistAutocomplete
-                        label="artist"
-                        value={formData().artist_name}
-                        onSelect={(artist) => {
-                          const current = formData();
-                          setFormData({ ...current, artist_name: artist.name });
-                          setArtistId(artist.id);
-                        }}
-                      />
-                    </div>
-                    <Show when={!props.disableNestedModals && artistId()}>
-                      <button
-                        onClick={() =>
-                          showArtistEditor({
-                            artistId: artistId()!,
-                            disableNestedModals: true,
-                          })
-                        }
-                        class="mt-6 p-1 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] transition-colors"
-                        title="edit artist info"
-                      >
-                        <Icon name={IconNames.edit} size={16} />
-                      </button>
-                    </Show>
                     <Show
                       when={
-                        initialData() &&
-                        (formData().artist_name !== initialData()!.artist_name ||
-                          artistId() !== initialArtistId())
+                        initialData() && formData().track_artist !== initialData()!.track_artist
                       }
                     >
                       <button
-                        onClick={() => handleReset("artist_name")}
+                        onClick={() => handleReset("track_artist")}
                         class="mt-6 px-2 py-1 text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] transition-colors"
                       >
                         reset
                       </button>
                     </Show>
                   </div>
+                </Show>
 
-                  {/* track artist (only for compilation albums) */}
-                  <Show when={songQuery.data?.album_type === "compilation"}>
-                    <div class="flex items-center gap-2">
+                {/* album */}
+                <div class="flex items-center gap-2">
+                  <div class="flex-1">
+                    <AlbumAutocomplete
+                      label="album"
+                      value={formData().album_title}
+                      onSelect={(album) => {
+                        handleFieldChange("album_title", album.title);
+                        setAlbumId(album.id);
+                      }}
+                    />
+                  </div>
+                  <Show when={!props.disableNestedModals && albumId()}>
+                    <button
+                      onClick={() =>
+                        showAlbumEditor({
+                          albumId: albumId()!,
+                          disableNestedModals: true,
+                        })
+                      }
+                      class="mt-6 p-1 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] transition-colors"
+                      title="edit album info"
+                    >
+                      <Icon name={IconNames.edit} size={16} />
+                    </button>
+                  </Show>
+                  <Show
+                    when={
+                      initialData() &&
+                      (formData().album_title !== initialData()!.album_title ||
+                        albumId() !== initialAlbumId())
+                    }
+                  >
+                    <button
+                      onClick={() => handleReset("album_title")}
+                      class="mt-6 px-2 py-1 text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] transition-colors"
+                    >
+                      reset
+                    </button>
+                  </Show>
+                </div>
+
+                {/* disc, track, year, bpm, key - all on one row */}
+                <div class="flex gap-2">
+                  {/* disc number */}
+                  <div class="flex items-center gap-2 w-20">
+                    <div class="flex-1">
+                      <label class="block text-sm text-[var(--color-text-secondary)] mb-1">
+                        disc
+                      </label>
+                      <input
+                        type="number"
+                        value={formData().disc_number}
+                        oninput={(e) =>
+                          handleFieldChange("disc_number", parseInt(e.currentTarget.value) || 1)
+                        }
+                        min="1"
+                        class="w-full px-2 py-2 bg-[var(--color-bg-elevated)] text-[var(--color-text-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--color-accent-500)]"
+                      />
+                    </div>
+                    <Show
+                      when={initialData() && formData().disc_number !== initialData()!.disc_number}
+                    >
+                      <button
+                        onClick={() => handleReset("disc_number")}
+                        class="mt-6 px-1 py-1 text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] transition-colors"
+                      >
+                        ×
+                      </button>
+                    </Show>
+                  </div>
+
+                  {/* track number */}
+                  <div class="flex items-center gap-2 w-20">
+                    <div class="flex-1">
+                      <label class="block text-sm text-[var(--color-text-secondary)] mb-1">
+                        track
+                      </label>
+                      <input
+                        type="number"
+                        value={formData().track_number}
+                        oninput={(e) =>
+                          handleFieldChange("track_number", parseInt(e.currentTarget.value) || 1)
+                        }
+                        min="1"
+                        class="w-full px-2 py-2 bg-[var(--color-bg-elevated)] text-[var(--color-text-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--color-accent-500)]"
+                      />
+                    </div>
+                    <Show
+                      when={
+                        initialData() && formData().track_number !== initialData()!.track_number
+                      }
+                    >
+                      <button
+                        onClick={() => handleReset("track_number")}
+                        class="mt-6 px-1 py-1 text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] transition-colors"
+                      >
+                        ×
+                      </button>
+                    </Show>
+                  </div>
+
+                  {/* bpm */}
+                  <div class="flex items-center gap-2 w-20">
+                    <div class="flex-1">
+                      <label class="block text-sm text-[var(--color-text-secondary)] mb-1">
+                        bpm
+                      </label>
+                      <input
+                        type="number"
+                        value={formData().bpm || ""}
+                        oninput={(e) =>
+                          handleFieldChange(
+                            "bpm",
+                            e.currentTarget.value ? parseInt(e.currentTarget.value) : null
+                          )
+                        }
+                        min="1"
+                        placeholder="120"
+                        class="w-full px-2 py-2 bg-[var(--color-bg-elevated)] text-[var(--color-text-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--color-accent-500)]"
+                      />
+                    </div>
+                    <Show when={initialData() && formData().bpm !== initialData()!.bpm}>
+                      <button
+                        onClick={() => handleReset("bpm")}
+                        class="mt-6 px-1 py-1 text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] transition-colors"
+                      >
+                        ×
+                      </button>
+                    </Show>
+                  </div>
+                </div>
+
+                {/* entity URLs */}
+                <div class="mt-4">
+                  <EntityUrlz urls={entityUrls()} onChange={setEntityUrls} />
+                </div>
+
+                {/* lyrics accordion */}
+                <div>
+                  <button
+                    onClick={() => setLyricsExpanded(!lyricsExpanded())}
+                    class="flex items-center justify-between w-full p-2 text-sm text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] transition-colors"
+                  >
+                    <span>lyrics</span>
+                    <Icon
+                      name={lyricsExpanded() ? IconNames.chevronUp : IconNames.chevronDown}
+                      size={16}
+                    />
+                  </button>
+                  <Show when={lyricsExpanded()}>
+                    <div class="flex items-start gap-2 mt-2">
                       <div class="flex-1">
-                        <label class="block text-sm text-[var(--color-text-secondary)] mb-1">
-                          track artist
-                        </label>
-                        <TextInput
-                          value={formData().track_artist}
-                          oninput={(e) => handleFieldChange("track_artist", e.currentTarget.value)}
-                          placeholder="per-track artist (for compilations)"
+                        <textarea
+                          value={formData().lyrics}
+                          oninput={(e) => handleFieldChange("lyrics", e.currentTarget.value)}
+                          placeholder="song lyrics..."
+                          rows={10}
+                          class="w-full px-3 py-2 bg-[var(--color-bg-elevated)] text-[var(--color-text-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--color-accent-500)] resize-none"
                         />
                       </div>
-                      <Show
-                        when={
-                          initialData() && formData().track_artist !== initialData()!.track_artist
-                        }
-                      >
+                      <Show when={initialData() && formData().lyrics !== initialData()!.lyrics}>
                         <button
-                          onClick={() => handleReset("track_artist")}
-                          class="mt-6 px-2 py-1 text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] transition-colors"
+                          onClick={() => handleReset("lyrics")}
+                          class="px-2 py-1 text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] transition-colors"
                         >
                           reset
                         </button>
                       </Show>
                     </div>
                   </Show>
-
-                  {/* album */}
-                  <div class="flex items-center gap-2">
-                    <div class="flex-1">
-                      <AlbumAutocomplete
-                        label="album"
-                        value={formData().album_title}
-                        onSelect={(album) => {
-                          handleFieldChange("album_title", album.title);
-                          setAlbumId(album.id);
-                        }}
-                      />
-                    </div>
-                    <Show when={!props.disableNestedModals && albumId()}>
-                      <button
-                        onClick={() =>
-                          showAlbumEditor({
-                            albumId: albumId()!,
-                            disableNestedModals: true,
-                          })
-                        }
-                        class="mt-6 p-1 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] transition-colors"
-                        title="edit album info"
-                      >
-                        <Icon name={IconNames.edit} size={16} />
-                      </button>
-                    </Show>
-                    <Show
-                      when={
-                        initialData() &&
-                        (formData().album_title !== initialData()!.album_title ||
-                          albumId() !== initialAlbumId())
-                      }
-                    >
-                      <button
-                        onClick={() => handleReset("album_title")}
-                        class="mt-6 px-2 py-1 text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] transition-colors"
-                      >
-                        reset
-                      </button>
-                    </Show>
-                  </div>
-
-                  {/* disc, track, year, bpm, key - all on one row */}
-                  <div class="flex gap-2">
-                    {/* disc number */}
-                    <div class="flex items-center gap-2 w-20">
-                      <div class="flex-1">
-                        <label class="block text-sm text-[var(--color-text-secondary)] mb-1">
-                          disc
-                        </label>
-                        <input
-                          type="number"
-                          value={formData().disc_number}
-                          oninput={(e) =>
-                            handleFieldChange("disc_number", parseInt(e.currentTarget.value) || 1)
-                          }
-                          min="1"
-                          class="w-full px-2 py-2 bg-[var(--color-bg-elevated)] text-[var(--color-text-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--color-accent-500)]"
-                        />
-                      </div>
-                      <Show
-                        when={
-                          initialData() && formData().disc_number !== initialData()!.disc_number
-                        }
-                      >
-                        <button
-                          onClick={() => handleReset("disc_number")}
-                          class="mt-6 px-1 py-1 text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] transition-colors"
-                        >
-                          ×
-                        </button>
-                      </Show>
-                    </div>
-
-                    {/* track number */}
-                    <div class="flex items-center gap-2 w-20">
-                      <div class="flex-1">
-                        <label class="block text-sm text-[var(--color-text-secondary)] mb-1">
-                          track
-                        </label>
-                        <input
-                          type="number"
-                          value={formData().track_number}
-                          oninput={(e) =>
-                            handleFieldChange("track_number", parseInt(e.currentTarget.value) || 1)
-                          }
-                          min="1"
-                          class="w-full px-2 py-2 bg-[var(--color-bg-elevated)] text-[var(--color-text-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--color-accent-500)]"
-                        />
-                      </div>
-                      <Show
-                        when={
-                          initialData() && formData().track_number !== initialData()!.track_number
-                        }
-                      >
-                        <button
-                          onClick={() => handleReset("track_number")}
-                          class="mt-6 px-1 py-1 text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] transition-colors"
-                        >
-                          ×
-                        </button>
-                      </Show>
-                    </div>
-
-                    {/* bpm */}
-                    <div class="flex items-center gap-2 w-20">
-                      <div class="flex-1">
-                        <label class="block text-sm text-[var(--color-text-secondary)] mb-1">
-                          bpm
-                        </label>
-                        <input
-                          type="number"
-                          value={formData().bpm || ""}
-                          oninput={(e) =>
-                            handleFieldChange(
-                              "bpm",
-                              e.currentTarget.value ? parseInt(e.currentTarget.value) : null
-                            )
-                          }
-                          min="1"
-                          placeholder="120"
-                          class="w-full px-2 py-2 bg-[var(--color-bg-elevated)] text-[var(--color-text-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--color-accent-500)]"
-                        />
-                      </div>
-                      <Show when={initialData() && formData().bpm !== initialData()!.bpm}>
-                        <button
-                          onClick={() => handleReset("bpm")}
-                          class="mt-6 px-1 py-1 text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] transition-colors"
-                        >
-                          ×
-                        </button>
-                      </Show>
-                    </div>
-                  </div>
-
-                  {/* entity URLs */}
-                  <div class="mt-4">
-                    <EntityUrlz urls={entityUrls()} onChange={setEntityUrls} />
-                  </div>
-
-                  {/* lyrics accordion */}
-                  <div>
-                    <button
-                      onClick={() => setLyricsExpanded(!lyricsExpanded())}
-                      class="flex items-center justify-between w-full p-2 text-sm text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] transition-colors"
-                    >
-                      <span>lyrics</span>
-                      <Icon
-                        name={lyricsExpanded() ? IconNames.chevronUp : IconNames.chevronDown}
-                        size={16}
-                      />
-                    </button>
-                    <Show when={lyricsExpanded()}>
-                      <div class="flex items-start gap-2 mt-2">
-                        <div class="flex-1">
-                          <textarea
-                            value={formData().lyrics}
-                            oninput={(e) => handleFieldChange("lyrics", e.currentTarget.value)}
-                            placeholder="song lyrics..."
-                            rows={10}
-                            class="w-full px-3 py-2 bg-[var(--color-bg-elevated)] text-[var(--color-text-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--color-accent-500)] resize-none"
-                          />
-                        </div>
-                        <Show when={initialData() && formData().lyrics !== initialData()!.lyrics}>
-                          <button
-                            onClick={() => handleReset("lyrics")}
-                            class="px-2 py-1 text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] transition-colors"
-                          >
-                            reset
-                          </button>
-                        </Show>
-                      </div>
-                    </Show>
-                  </div>
                 </div>
-              </Show>
-            </div>
-          </TabPanel>
-
-          {/* images tab */}
-          <TabPanel id="images" class="flex-1 overflow-y-auto p-6 space-y-6">
-            {/* song images - editable */}
-            <EntityImages
-              title="song images"
-              images={songImages()}
-              onUpload={(file) => handleImageUpload({ file })}
-              onUploadPath={handleImageSelectPath}
-              onDelete={handleRemoveImage}
-              onSetPrimary={handleTogglePrimary}
-              uploading={!!processingJob()}
-            />
-
-            {/* album images - read-only context */}
-            <Show when={albumImages().length > 0}>
-              <EntityImages title="album images" images={albumImages()} />
+              </div>
             </Show>
-          </TabPanel>
-          {/* metadata tab - raw JSON display */}
-          <TabPanel id="metadata" class="flex-1 overflow-y-auto p-6 space-y-4">
-            {/* timestamps and user info */}
-            <div class="space-y-1">
-              <Show when={songQuery.data?.created_at}>
-                <div class="text-sm">
-                  <span class="text-[var(--color-text-tertiary)]">created: </span>
+          </div>
+        </TabPanel>
+
+        {/* images tab */}
+        <TabPanel id="images" class="flex-1 overflow-y-auto p-6 space-y-6">
+          {/* song images - editable */}
+          <EntityImages
+            title="song images"
+            images={songImages()}
+            onUpload={(file) => handleImageUpload({ file })}
+            onUploadPath={handleImageSelectPath}
+            onDelete={handleRemoveImage}
+            onSetPrimary={handleTogglePrimary}
+            uploading={!!processingJob()}
+          />
+
+          {/* album images - read-only context */}
+          <Show when={albumImages().length > 0}>
+            <EntityImages title="album images" images={albumImages()} />
+          </Show>
+        </TabPanel>
+        {/* metadata tab - raw JSON display */}
+        <TabPanel id="metadata" class="flex-1 overflow-y-auto p-6 space-y-4">
+          {/* timestamps and user info */}
+          <div class="space-y-1">
+            <Show when={songQuery.data?.created_at}>
+              <div class="text-sm">
+                <span class="text-[var(--color-text-tertiary)]">created: </span>
+                <span class="text-[var(--color-text-secondary)]">
+                  {formatDateTime(songQuery.data!.created_at * 1000)}
+                </span>
+                <Show when={songQuery.data?.created_by_username}>
+                  <span class="text-[var(--color-text-tertiary)]"> by </span>
                   <span class="text-[var(--color-text-secondary)]">
-                    {formatDateTime(songQuery.data!.created_at * 1000)}
+                    {songQuery.data!.created_by_username}
                   </span>
-                  <Show when={songQuery.data?.created_by_username}>
-                    <span class="text-[var(--color-text-tertiary)]"> by </span>
-                    <span class="text-[var(--color-text-secondary)]">
-                      {songQuery.data!.created_by_username}
-                    </span>
-                  </Show>
-                </div>
-              </Show>
-              <Show
-                when={
-                  songQuery.data?.updated_at &&
-                  songQuery.data.updated_at !== songQuery.data.created_at
-                }
-              >
-                <div class="text-sm">
-                  <span class="text-[var(--color-text-tertiary)]">updated: </span>
-                  <span class="text-[var(--color-text-secondary)]">
-                    {formatDateTime(songQuery.data!.updated_at * 1000)}
-                  </span>
-                  <Show when={songQuery.data?.updated_by_username}>
-                    <span class="text-[var(--color-text-tertiary)]"> by </span>
-                    <span class="text-[var(--color-text-secondary)]">
-                      {songQuery.data!.updated_by_username}
-                    </span>
-                  </Show>
-                </div>
-              </Show>
-            </div>
+                </Show>
+              </div>
+            </Show>
             <Show
-              when={songQuery.data?.metadata}
-              fallback={
-                <div class="text-sm text-[var(--color-text-tertiary)]">no metadata available</div>
+              when={
+                songQuery.data?.updated_at &&
+                songQuery.data.updated_at !== songQuery.data.created_at
               }
             >
-              <MetadataDisplay data={songQuery.data!.metadata} />
+              <div class="text-sm">
+                <span class="text-[var(--color-text-tertiary)]">updated: </span>
+                <span class="text-[var(--color-text-secondary)]">
+                  {formatDateTime(songQuery.data!.updated_at * 1000)}
+                </span>
+                <Show when={songQuery.data?.updated_by_username}>
+                  <span class="text-[var(--color-text-tertiary)]"> by </span>
+                  <span class="text-[var(--color-text-secondary)]">
+                    {songQuery.data!.updated_by_username}
+                  </span>
+                </Show>
+              </div>
             </Show>
-          </TabPanel>
-        </Tabs>
-
-        {/* footer - only show on info tab */}
-        <Show when={activeTab() === "info"}>
-          <div class="flex items-center justify-between gap-2 p-4">
-            <Show when={canDeleteSong()}>
-              <Button onClick={handleDelete} variant="danger">
-                delete
-              </Button>
-            </Show>
-            <div class="flex items-center gap-2">
-              <Button onClick={props.onClose} variant="ghost">
-                cancel
-              </Button>
-              <Show when={canUpdateSong()}>
-                <Button
-                  onClick={handleSave}
-                  variant="primary"
-                  disabled={!hasChanges() || updateMutation.isPending}
-                >
-                  {updateMutation.isPending ? "saving..." : "save"}
-                </Button>
-              </Show>
-            </div>
           </div>
-        </Show>
-      </div>
-    </div>
+          <Show
+            when={songQuery.data?.metadata}
+            fallback={
+              <div class="text-sm text-[var(--color-text-tertiary)]">no metadata available</div>
+            }
+          >
+            <MetadataDisplay data={songQuery.data!.metadata} />
+          </Show>
+        </TabPanel>
+      </Tabs>
+
+      {/* footer - only show on info tab */}
+      <Show when={activeTab() === "info"}>
+        <div class="flex items-center justify-between gap-2 p-4 border-t border-[var(--color-border-default)] flex-shrink-0">
+          <Show when={canDeleteSong()}>
+            <Button onClick={handleDelete} variant="danger">
+              delete
+            </Button>
+          </Show>
+          <div class="flex items-center gap-2">
+            <Button onClick={props.onClose} variant="ghost">
+              cancel
+            </Button>
+            <Show when={canUpdateSong()}>
+              <Button
+                onClick={handleSave}
+                variant="primary"
+                disabled={!hasChanges() || updateMutation.isPending}
+              >
+                {updateMutation.isPending ? "saving..." : "save"}
+              </Button>
+            </Show>
+          </div>
+        </div>
+      </Show>
+    </Modal>
   );
 }

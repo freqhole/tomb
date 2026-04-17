@@ -39,23 +39,25 @@ export function AddMusicModal(props: AddMusicModalProps) {
   const useNativeDialog = () => !!props.useCharnelDialog;
 
   const handleSelectFiles = async () => {
-    // unified picker: chooses html input on web, tauri dialog on desktop
-    // (paths, no bytes read), tauri dialog on android (content uris, bytes
-    // read eagerly). when a caller provides onPathsSelected (desktop p2p
-    // "file in place" mode) and we're running under a native dialog, prefer
-    // paths. otherwise route bytes through onFilesSelected.
-    const pathMode = useNativeDialog() && !!props.onPathsSelected;
+    // unified picker. desktop tauri returns real paths; android tauri
+    // returns content:// uris (unusable as paths) and eagerly reads bytes
+    // into `File` objects; web returns `File` objects. we always ask for
+    // bytes so that android can still dispatch file-based handlers, then
+    // dispatch based on what the picker actually surfaced.
     const picked = await pickFiles({
       kind: "audio",
       multiple: true,
-      readBytes: !pathMode,
+      readBytes: true,
       title: "select music files",
     });
     if (picked.length === 0) return;
 
-    if (pathMode) {
-      const paths = picked.map((p) => p.path).filter((p): p is string => !!p);
-      if (paths.length > 0) props.onPathsSelected?.(paths);
+    // prefer path mode when the caller supports it AND we actually got
+    // real filesystem paths (desktop tauri). on android, picked entries
+    // only carry `contentUri` + `file`, so this branch is skipped.
+    const paths = picked.map((p) => p.path).filter((p): p is string => !!p);
+    if (props.onPathsSelected && paths.length > 0 && paths.length === picked.length) {
+      props.onPathsSelected(paths);
       return;
     }
 
@@ -139,16 +141,16 @@ export function AddMusicModal(props: AddMusicModalProps) {
            var(--spacing) calc breaking on older Android WebView */}
         <div
           class="bg-black/50 flex items-center justify-center p-0 wide:p-8"
-          style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, "z-index": 100 }}
+          style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, "z-index": 1100 }}
           onClick={() => props.onClose()}
         >
           {/* modal content - full screen on narrow, constrained on wide */}
           <div
             class={`w-full wide:max-w-3xl wide:h-auto wide:max-h-[80dvh] bg-[var(--color-bg-secondary)] wide:border wide:border-[var(--color-border-default)] wide:rounded-lg overflow-hidden flex flex-col ${props.class || ""}`}
             style={{
-              height: "calc(100% - var(--nav-height, 56px))",
-              "max-height": "calc(100% - var(--nav-height, 56px))",
-              "margin-top": "var(--nav-height, 56px)",
+              height: "calc(100% - env(safe-area-inset-top, 0px))",
+              "max-height": "calc(100% - env(safe-area-inset-top, 0px))",
+              "margin-top": "env(safe-area-inset-top, 0px)",
             }}
             onClick={(e) => e.stopPropagation()}
           >
@@ -249,6 +251,9 @@ export function AddMusicModal(props: AddMusicModalProps) {
               </Tabs>
             </div>
 
+            {/* progress regions — pinned below tabs, can scroll internally if they
+                grow too tall to fit alongside the tabs area */}
+            <div class="flex-shrink-0 overflow-y-auto max-h-[50dvh]">
             {/* local import progress section */}
             <Show when={isLocalImporting()}>
               <div class="border-t border-[var(--color-border-default)] px-4 py-3">
@@ -403,6 +408,7 @@ export function AddMusicModal(props: AddMusicModalProps) {
                 </div>
               </div>
             </Show>
+            </div>
           </div>
         </div>
       </Portal>

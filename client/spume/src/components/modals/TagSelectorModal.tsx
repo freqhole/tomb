@@ -220,11 +220,16 @@ export function TagSelectorModal(props: TagSelectorModalProps) {
   return (
     <div
       class="flex items-center justify-center bg-black/50"
-      style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, "z-index": 50 }}
+      style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, "z-index": 1050 }}
       onClick={() => props.onClose()}
     >
       <div
         class="bg-[var(--color-bg-primary)] wide:rounded-lg shadow-xl w-full h-full wide:h-auto wide:max-w-md wide:max-h-[80dvh] flex flex-col"
+        style={{
+          "margin-top": "env(safe-area-inset-top, 0px)",
+          height: "calc(100% - env(safe-area-inset-top, 0px))",
+          "max-height": "calc(100% - env(safe-area-inset-top, 0px))",
+        }}
         onClick={(e) => e.stopPropagation()}
       >
         {/* header */}

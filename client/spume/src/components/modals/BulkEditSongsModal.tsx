@@ -173,7 +173,7 @@ export function BulkEditSongsModal(props: BulkEditSongsModalProps) {
     <Show when={props.isOpen}>
       <div
         class="flex items-center justify-center bg-black/60"
-        style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, "z-index": 50 }}
+        style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, "z-index": 1050 }}
         onClick={(e) => {
           if (e.target === e.currentTarget) props.onClose();
         }}
