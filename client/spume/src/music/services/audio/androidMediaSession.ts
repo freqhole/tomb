@@ -19,9 +19,6 @@ import { invoke, addPluginListener, type PluginListener } from "@tauri-apps/api/
 import { isCharnelMode } from "../../../app/services/charnel";
 import { debug } from "../../../utils/logger";
 
-// unconditional marker so we can confirm this module is reached at all.
-console.info("[androidMediaSession] module loaded");
-
 const NS = "plugin:android-media-session";
 
 let installed = false;
@@ -145,23 +142,19 @@ export function installAndroidMediaSessionShim(): boolean {
   const hasNav = typeof navigator !== "undefined";
   const charnel = isCharnelMode();
   const android = hasNav && isAndroid();
-  console.info(
-    `[androidMediaSession] install check: hasNav=${hasNav} isCharnelMode=${charnel} isAndroid=${android} ua="${hasNav ? navigator.userAgent.slice(0, 120) : "n/a"}"`,
-  );
   if (!hasNav) return false;
   if (!charnel || !android) {
     // non-android: rely on browser-native mediaSession
     return false;
   }
 
-  console.info("[androidMediaSession] installing polyfill");
+  debug("androidMediaSession", "installing polyfill");
 
   // if the MediaMetadata constructor is missing, install a polyfill so
   // `new MediaMetadata({...})` in existing code still works.
   if (typeof (window as unknown as { MediaMetadata?: unknown }).MediaMetadata !== "function") {
     (window as unknown as { MediaMetadata: typeof PolyfillMediaMetadata }).MediaMetadata =
       PolyfillMediaMetadata;
-    console.info("[androidMediaSession] installed MediaMetadata polyfill");
   }
 
   // build a polyfill mediaSession object that forwards to the native plugin.
@@ -174,9 +167,6 @@ export function installAndroidMediaSessionShim(): boolean {
     },
     set metadata(value: MediaMetadata | null) {
       currentMetadata = value;
-      console.info(
-        `[androidMediaSession] metadata set: ${value ? value.title : "null"}`,
-      );
       if (!value) return;
       const artSrc = pickArtwork(value.artwork);
       void (async () => {
@@ -194,7 +184,6 @@ export function installAndroidMediaSessionShim(): boolean {
     },
     set playbackState(value: MediaSessionPlaybackState) {
       currentPlaybackState = value;
-      console.info(`[androidMediaSession] playbackState set: ${value}`);
       const mapped: NativePlaybackState =
         value === "playing" ? "playing" : value === "paused" ? "paused" : "stopped";
       void nativeSetPlaybackState(mapped);
@@ -229,7 +218,7 @@ export function installAndroidMediaSessionShim(): boolean {
       value: polyfill,
     });
   } catch (e) {
-    console.warn("[androidMediaSession] failed to define navigator.mediaSession:", e);
+    debug("androidMediaSession", "failed to define navigator.mediaSession:", e);
     // fallback: direct assignment
     (navigator as unknown as { mediaSession: unknown }).mediaSession = polyfill;
   }
@@ -242,7 +231,6 @@ export function installAndroidMediaSessionShim(): boolean {
         "action",
         (ev: unknown) => {
           const e = ev as { action: string; positionMs?: number };
-          console.info(`[androidMediaSession] native action: ${e.action}`);
           const key = String(e.action).toLowerCase();
           const handler = handlers.get(key);
           if (!handler) {
@@ -263,9 +251,8 @@ export function installAndroidMediaSessionShim(): boolean {
           }
         },
       );
-      console.info("[androidMediaSession] plugin listener registered");
     } catch (e) {
-      console.warn("[androidMediaSession] failed to register plugin listener:", e);
+      debug("androidMediaSession", "failed to register plugin listener:", e);
     }
   })();
 

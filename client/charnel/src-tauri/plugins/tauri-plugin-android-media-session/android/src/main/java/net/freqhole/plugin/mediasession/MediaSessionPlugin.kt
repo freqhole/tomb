@@ -62,11 +62,9 @@ class MediaSessionPlugin(private val activity: Activity) : Plugin(activity) {
 
     override fun load(webView: WebView) {
         super.load(webView)
-        Log.i(TAG, "plugin loading")
         createNotificationChannel()
         requestNotificationPermission()
         initSession()
-        Log.i(TAG, "plugin ready (sessionToken=${mediaSession?.sessionToken != null})")
     }
 
     private fun requestNotificationPermission() {
@@ -77,11 +75,7 @@ class MediaSessionPlugin(private val activity: Activity) : Plugin(activity) {
         val granted = ActivityCompat.checkSelfPermission(
             activity, Manifest.permission.POST_NOTIFICATIONS,
         ) == PackageManager.PERMISSION_GRANTED
-        if (granted) {
-            Log.i(TAG, "POST_NOTIFICATIONS already granted")
-            return
-        }
-        Log.i(TAG, "requesting POST_NOTIFICATIONS")
+        if (granted) return
         try {
             ActivityCompat.requestPermissions(
                 activity,
@@ -131,7 +125,6 @@ class MediaSessionPlugin(private val activity: Activity) : Plugin(activity) {
     }
 
     private fun emitAction(name: String) {
-        Log.i(TAG, "emitAction: $name")
         val o = JSObject()
         o.put("action", name)
         trigger("action", o)
@@ -140,7 +133,6 @@ class MediaSessionPlugin(private val activity: Activity) : Plugin(activity) {
     @Command
     fun setMetadata(invoke: Invoke) {
         val args = invoke.parseArgs(MetadataArgs::class.java)
-        Log.i(TAG, "setMetadata: title='${args.title}' artist='${args.artist}' hasArt=${args.artworkBase64 != null}")
         val b = MediaMetadataCompat.Builder()
         b.putString(MediaMetadataCompat.METADATA_KEY_TITLE, args.title)
         args.artist?.let { b.putString(MediaMetadataCompat.METADATA_KEY_ARTIST, it) }
@@ -162,7 +154,6 @@ class MediaSessionPlugin(private val activity: Activity) : Plugin(activity) {
     @Command
     fun setPlaybackState(invoke: Invoke) {
         val args = invoke.parseArgs(PlaybackStateArgs::class.java)
-        Log.i(TAG, "setPlaybackState: ${args.state}")
         currentState = when (args.state) {
             "playing" -> PlaybackStateCompat.STATE_PLAYING
             "paused" -> PlaybackStateCompat.STATE_PAUSED
@@ -307,7 +298,6 @@ class MediaSessionPlugin(private val activity: Activity) : Plugin(activity) {
             } else {
                 activity.startService(svc)
             }
-            Log.i(TAG, "notification posted (isPlaying=$isPlaying)")
         } catch (t: Throwable) {
             // background-start restrictions on android 12+ can throw; ignore.
             // the session is still updated so system media controls still reflect state.

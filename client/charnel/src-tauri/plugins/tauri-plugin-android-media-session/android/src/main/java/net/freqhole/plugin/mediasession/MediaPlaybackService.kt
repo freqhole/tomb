@@ -6,7 +6,6 @@ import android.content.Intent
 import android.os.Build
 import android.os.IBinder
 import android.support.v4.media.session.MediaSessionCompat
-import android.util.Log
 import androidx.media.session.MediaButtonReceiver
 
 /**
@@ -25,17 +24,13 @@ class MediaPlaybackService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        Log.i(TAG, "onStartCommand: action=${intent?.action} hasSession=${activeSession != null}")
         // first: forward media button intents to the active session so that
         // notification action buttons (prev/play-pause/next) actually do
         // something. this is a no-op for our own "post the notification"
         // intent because that one has no ACTION_MEDIA_BUTTON action.
         val session = activeSession
         if (session != null && intent != null) {
-            val handled = MediaButtonReceiver.handleIntent(session, intent)
-            if (intent.action == Intent.ACTION_MEDIA_BUTTON) {
-                Log.i(TAG, "media button handled=$handled")
-            }
+            MediaButtonReceiver.handleIntent(session, intent)
         }
 
         @Suppress("DEPRECATION")
@@ -77,7 +72,6 @@ class MediaPlaybackService : Service() {
         const val EXTRA_NOTIFICATION = "notification"
         const val EXTRA_IS_PLAYING = "is_playing"
         const val NOTIFICATION_ID = 0x1337
-        private const val TAG = "MediaPlaybackSvc"
 
         // set by MediaSessionPlugin on load; used by onStartCommand to
         // dispatch ACTION_MEDIA_BUTTON events to the session callback.
