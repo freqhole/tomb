@@ -7,15 +7,16 @@ import { Icon } from "../icons/registry";
 import { Tab, TabList, TabPanel, Tabs } from "../navigation/Tabs";
 import type { UploadJob } from "../../music/import";
 import type { LocalImportProgress } from "../../music/import";
+import { pickDirectory, pickFiles } from "../../utils/filePicker";
 
 export interface AddMusicModalProps {
   /** whether modal is open */
   isOpen: boolean;
   /** callback when close button clicked */
   onClose: () => void;
-  /** callback when files are selected (standard browser file input) */
+  /** callback when files are selected (always provided on web / android) */
   onFilesSelected?: (files: FileList) => void;
-  /** callback when paths are selected (tauri dialog - files or directories) */
+  /** callback when paths are selected (desktop tauri - files or directories) */
   onPathsSelected?: (paths: string[]) => void;
   /** callback when urls are submitted */
   onUrlsSubmitted?: (urls: string[]) => void;
@@ -34,145 +35,41 @@ export interface AddMusicModalProps {
 export function AddMusicModal(props: AddMusicModalProps) {
   const [uploadMode, setUploadMode] = createSignal("files");
   const [urlText, setUrlText] = createSignal("");
-  let fileInputRef: HTMLInputElement | undefined;
 
-  // tauri dialog open function type
-  type TauriDialogOpenFn = (options: {
-    multiple?: boolean;
-    directory?: boolean;
-    filters?: { name: string; extensions: string[] }[];
-    title?: string;
-  }) => Promise<string | string[] | null>;
-
-  // on Android, Tauri's file dialog returns content:// URIs that can't be read
-  // on Android, Tauri's file dialog returns content:// URIs that can't be
-  // used as filesystem paths, fetched, or read in the WebView. use Tauri's
-  // dialog + fs plugin to read the file on the native side.
-  const isAndroid = /android/i.test(navigator.userAgent);
   const useNativeDialog = () => !!props.useCharnelDialog;
 
-  const handleSelectFiles = () => {
-    if (useNativeDialog()) {
-      // Android + desktop: use tauri dialog
-      if (isAndroid) {
-        handleAndroidTauriPick();
-      } else if (props.onPathsSelected) {
-        handleTauriFilesPick();
-      }
+  const handleSelectFiles = async () => {
+    // unified picker: chooses html input on web, tauri dialog on desktop
+    // (paths, no bytes read), tauri dialog on android (content uris, bytes
+    // read eagerly). when a caller provides onPathsSelected (desktop p2p
+    // "file in place" mode) and we're running under a native dialog, prefer
+    // paths. otherwise route bytes through onFilesSelected.
+    const pathMode = useNativeDialog() && !!props.onPathsSelected;
+    const picked = await pickFiles({
+      kind: "audio",
+      multiple: true,
+      readBytes: !pathMode,
+      title: "select music files",
+    });
+    if (picked.length === 0) return;
+
+    if (pathMode) {
+      const paths = picked.map((p) => p.path).filter((p): p is string => !!p);
+      if (paths.length > 0) props.onPathsSelected?.(paths);
       return;
     }
-    // browser mode: standard file input
-    fileInputRef?.click();
+
+    const files = picked.map((p) => p.file).filter((f): f is File => !!f);
+    if (files.length === 0) return;
+    const dt = new DataTransfer();
+    files.forEach((f) => dt.items.add(f));
+    props.onFilesSelected?.(dt.files);
   };
 
   const handleSelectDirectory = async () => {
     if (!useNativeDialog() || !props.onPathsSelected) return;
-
-    try {
-      // dynamically import dialog plugin (only available in tauri runtime)
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const dialogModule = (await import("@tauri-apps/plugin-dialog" as any)) as {
-        open: TauriDialogOpenFn;
-      };
-
-      const selected = await dialogModule.open({
-        multiple: false,
-        directory: true,
-        title: "select music folder",
-      });
-
-      if (selected && typeof selected === "string") {
-        props.onPathsSelected([selected]);
-      }
-    } catch (err) {
-      console.error("failed to open directory dialog:", err);
-    }
-  };
-
-  const handleTauriFilesPick = async () => {
-    if (!props.onPathsSelected) return;
-
-    try {
-      // dynamically import dialog plugin (only available in tauri runtime)
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const dialogModule = (await import("@tauri-apps/plugin-dialog" as any)) as {
-        open: TauriDialogOpenFn;
-      };
-
-      const selected = await dialogModule.open({
-        multiple: true,
-        filters: [
-          { name: "audio", extensions: ["mp3", "flac", "wav", "m4a", "ogg", "aac", "alac", "wma"] },
-        ],
-        title: "select music files",
-      });
-
-      if (selected) {
-        const paths = Array.isArray(selected) ? selected : [selected];
-        if (paths.length > 0) {
-          props.onPathsSelected(paths);
-        }
-      }
-    } catch (err) {
-      console.error("failed to open file dialog:", err);
-    }
-  };
-
-  // Android + Tauri: open dialog, read content:// URIs via tauri-plugin-fs
-  const handleAndroidTauriPick = async () => {
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const dialogModule = (await import("@tauri-apps/plugin-dialog" as any)) as {
-        open: TauriDialogOpenFn;
-      };
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const fsModule = (await import("@tauri-apps/plugin-fs" as any)) as {
-        readFile: (path: string) => Promise<Uint8Array>;
-      };
-
-      const selected = await dialogModule.open({
-        multiple: true,
-        filters: [
-          { name: "audio", extensions: ["mp3", "flac", "wav", "m4a", "ogg", "aac", "alac", "wma"] },
-        ],
-        title: "select music files",
-      });
-
-      if (!selected) return;
-      const uris = Array.isArray(selected) ? selected : [selected];
-      if (uris.length === 0) return;
-
-      console.debug("[AddMusic] android dialog returned", uris.length, "URIs:", uris);
-
-      const files: File[] = [];
-      for (const uri of uris) {
-        try {
-          console.debug("[AddMusic] reading via tauri-plugin-fs:", uri);
-          const data = await fsModule.readFile(uri);
-          const filename = decodeURIComponent(uri.split("/").pop() || "audio.mp3");
-          console.debug("[AddMusic] read OK:", filename, "bytes:", data.byteLength);
-          files.push(new File([data], filename, { type: "audio/mpeg" }));
-        } catch (err) {
-          console.error("[AddMusic] failed to read URI:", uri, err);
-        }
-      }
-
-      if (files.length > 0) {
-        const dt = new DataTransfer();
-        files.forEach((f) => dt.items.add(f));
-        props.onFilesSelected?.(dt.files);
-      }
-    } catch (err) {
-      console.error("[AddMusic] android tauri pick failed:", err);
-    }
-  };
-
-  const handleFileChange = (e: Event) => {
-    const target = e.target as HTMLInputElement;
-    if (target.files && target.files.length > 0) {
-      props.onFilesSelected?.(target.files);
-      target.value = "";
-    }
+    const selected = await pickDirectory("select music folder");
+    if (selected) props.onPathsSelected([selected]);
   };
 
   const handleDownloadUrls = () => {
@@ -309,18 +206,6 @@ export function AddMusicModal(props: AddMusicModalProps) {
                           </Button>
                         </Show>
                       </div>
-
-                      {/* hidden file input - used in browser mode and on Android */}
-                      <Show when={!useNativeDialog()}>
-                        <input
-                          ref={fileInputRef}
-                          type="file"
-                          accept="audio/*,.mp3,.flac,.wav,.m4a,.ogg"
-                          multiple
-                          class="hidden"
-                          onChange={handleFileChange}
-                        />
-                      </Show>
                     </div>
                   </TabPanel>
 
