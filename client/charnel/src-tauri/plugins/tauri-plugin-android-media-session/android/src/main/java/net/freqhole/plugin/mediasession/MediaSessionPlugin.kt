@@ -10,9 +10,6 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
-import android.media.AudioAttributes
-import android.media.AudioFocusRequest
-import android.media.AudioManager
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -66,31 +63,24 @@ class MediaSessionPlugin(private val activity: Activity) : Plugin(activity) {
     private var currentBitmap: Bitmap? = null
     private var currentDurationMs: Long = 0L
 
-    // audio focus state.
-    private var audioManager: AudioManager? = null
-    private var audioFocusRequest: AudioFocusRequest? = null
-    private var hasAudioFocus: Boolean = false
-    private val focusListener = AudioManager.OnAudioFocusChangeListener { change ->
-        when (change) {
-            AudioManager.AUDIOFOCUS_LOSS -> {
-                hasAudioFocus = false
-                emitAction("pause")
-            }
-            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT,
-            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
-                // pause for transient loss too. (we could implement ducking
-                // by emitting a separate action, but most music apps just
-                // pause to be safe.)
-                emitAction("pause")
-            }
-            AudioManager.AUDIOFOCUS_GAIN -> {
-                hasAudioFocus = true
-                // only resume if we were playing before; the js side tracks
-                // user-pause intent so it can decide whether to honor this.
-                emitAction("play")
-            }
-        }
-    }
+    // last notification signature (title|artist|album|isPlaying|art-id),
+    // used to skip redundant rebuilds. see updateNotification().
+    private var lastNotificationSignature: String? = null
+
+    // NOTE: we deliberately do NOT manage audio focus in this plugin.
+    // chromium's WebView already requests/abandons audio focus on behalf
+    // of every <audio> element via its internal AudioFocusDelegate. if
+    // we *also* request focus here, the two clients race the system
+    // AudioManager: whichever asks last wins, and the loser receives
+    // AUDIOFOCUS_LOSS and silently pauses its media. concretely: when
+    // the plugin requested focus after chromium, chromium would lose
+    // focus and pause the <audio> element ~30-50ms later — manifesting
+    // as a play-then-immediate-pause from lock-screen controls.
+    //
+    // by keeping focus management entirely on chromium's side, real
+    // interruptions (calls, alarms, other media apps) still pause our
+    // <audio> via the standard html5 path, which fires the JS 'pause'
+    // event and propagates to MediaSession state correctly.
 
     // native track-end watchdog. when the playback state goes to "playing"
     // with a known position+duration, we schedule a callback for the
@@ -103,7 +93,6 @@ class MediaSessionPlugin(private val activity: Activity) : Plugin(activity) {
 
     override fun load(webView: WebView) {
         super.load(webView)
-        audioManager = activity.getSystemService(Context.AUDIO_SERVICE) as AudioManager
         createNotificationChannel()
         requestNotificationPermission()
         initSession()
@@ -149,9 +138,18 @@ class MediaSessionPlugin(private val activity: Activity) : Plugin(activity) {
     private fun initSession() {
         val session = MediaSessionCompat(activity, "freqhole-media-session")
         session.setCallback(object : MediaSessionCompat.Callback() {
-            override fun onPlay() { emitAction("play") }
-            override fun onPause() { emitAction("pause") }
-            override fun onStop() { emitAction("pause") }
+            override fun onPlay() {
+                Log.i(TAG, "MediaSession.Callback.onPlay (currentState=$currentState)")
+                emitAction("play")
+            }
+            override fun onPause() {
+                Log.i(TAG, "MediaSession.Callback.onPause (currentState=$currentState)")
+                emitAction("pause")
+            }
+            override fun onStop() {
+                Log.i(TAG, "MediaSession.Callback.onStop (currentState=$currentState)")
+                emitAction("pause")
+            }
             override fun onSkipToNext() { emitAction("nexttrack") }
             override fun onSkipToPrevious() { emitAction("previoustrack") }
             override fun onSeekTo(pos: Long) {
@@ -167,55 +165,10 @@ class MediaSessionPlugin(private val activity: Activity) : Plugin(activity) {
     }
 
     private fun emitAction(name: String) {
+        Log.i(TAG, "emitAction: name=$name (currentState=$currentState)")
         val o = JSObject()
         o.put("action", name)
         trigger("action", o)
-    }
-
-    /**
-     * request audio focus for music playback. on api 26+ uses the modern
-     * AudioFocusRequest api; on older versions falls back to the
-     * deprecated requestAudioFocus(listener, stream, durationHint) form.
-     * idempotent — returns true if focus is held after the call.
-     */
-    private fun requestAudioFocus(): Boolean {
-        if (hasAudioFocus) return true
-        val am = audioManager ?: return false
-        val result: Int = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val attrs = AudioAttributes.Builder()
-                .setUsage(AudioAttributes.USAGE_MEDIA)
-                .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
-                .build()
-            val req = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
-                .setAudioAttributes(attrs)
-                .setOnAudioFocusChangeListener(focusListener, mainHandler)
-                .setWillPauseWhenDucked(false)
-                .setAcceptsDelayedFocusGain(false)
-                .build()
-            audioFocusRequest = req
-            am.requestAudioFocus(req)
-        } else {
-            @Suppress("DEPRECATION")
-            am.requestAudioFocus(
-                focusListener,
-                AudioManager.STREAM_MUSIC,
-                AudioManager.AUDIOFOCUS_GAIN,
-            )
-        }
-        hasAudioFocus = result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
-        return hasAudioFocus
-    }
-
-    private fun abandonAudioFocus() {
-        if (!hasAudioFocus) return
-        val am = audioManager ?: return
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            audioFocusRequest?.let { am.abandonAudioFocusRequest(it) }
-        } else {
-            @Suppress("DEPRECATION")
-            am.abandonAudioFocus(focusListener)
-        }
-        hasAudioFocus = false
     }
 
     /**
@@ -290,12 +243,6 @@ class MediaSessionPlugin(private val activity: Activity) : Plugin(activity) {
             else -> PlaybackStateCompat.STATE_NONE
         }
         currentSpeed = if (currentState == PlaybackStateCompat.STATE_PLAYING) 1f else 0f
-        // manage audio focus alongside playback state.
-        if (currentState == PlaybackStateCompat.STATE_PLAYING) {
-            requestAudioFocus()
-        } else {
-            abandonAudioFocus()
-        }
         applyPlaybackState()
         rescheduleEndWatchdog()
         updateNotification()
@@ -323,7 +270,7 @@ class MediaSessionPlugin(private val activity: Activity) : Plugin(activity) {
         applyPlaybackState()
         endWatchdog?.let { mainHandler.removeCallbacks(it) }
         endWatchdog = null
-        abandonAudioFocus()
+        lastNotificationSignature = null
         try {
             activity.stopService(Intent(activity, MediaPlaybackService::class.java))
         } catch (_: Throwable) {
@@ -365,6 +312,24 @@ class MediaSessionPlugin(private val activity: Activity) : Plugin(activity) {
             ?: md.getBitmap(MediaMetadataCompat.METADATA_KEY_ALBUM_ART)
 
         val isPlaying = currentState == PlaybackStateCompat.STATE_PLAYING
+
+        // coalesce: skip rebuild + service-restart if nothing material
+        // changed since last time. without this, every JS-side state
+        // tick (setMetadata, setPlaybackState, setPosition with duration)
+        // restarts the foreground service \u2014 we observed 28 onStartCommand
+        // calls in 5 minutes, several within 5ms of each other, which
+        // causes service-binder thrash and contributed to a webview crash.
+        // coalesce: skip rebuild + service-restart if nothing material
+        // changed since last time. without this, every JS-side state
+        // tick (setMetadata, setPlaybackState, setPosition with duration)
+        // restarts the foreground service — we observed 28 onStartCommand
+        // calls in 5 minutes, several within 5ms of each other, which
+        // causes service-binder thrash and contributed to a webview crash.
+        val signature = "$title|$artist|$album|$isPlaying|${art?.generationId ?: 0}"
+        if (signature == lastNotificationSignature) {
+            return
+        }
+        lastNotificationSignature = signature
 
         val playPauseIcon = if (isPlaying) {
             android.R.drawable.ic_media_pause
@@ -436,13 +401,16 @@ class MediaSessionPlugin(private val activity: Activity) : Plugin(activity) {
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 activity.startForegroundService(svc)
+                Log.i(TAG, "updateNotification: startForegroundService dispatched (isPlaying=$isPlaying)")
             } else {
                 activity.startService(svc)
+                Log.i(TAG, "updateNotification: startService dispatched (isPlaying=$isPlaying)")
             }
         } catch (t: Throwable) {
-            // background-start restrictions on android 12+ can throw; ignore.
-            // the session is still updated so system media controls still reflect state.
-            Log.w(TAG, "startForegroundService failed", t)
+            // background-start restrictions on android 12+ can throw
+            // (ForegroundServiceStartNotAllowedException). log the
+            // concrete exception class so it's obvious in logcat.
+            Log.w(TAG, "updateNotification: startForegroundService FAILED type=${t.javaClass.simpleName} msg=${t.message}")
         }
     }
 

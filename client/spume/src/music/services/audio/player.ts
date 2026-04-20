@@ -77,6 +77,31 @@ function initAudio(): HTMLAudioElement {
   audioElement.setAttribute('playsinline', '');
   audioElement.setAttribute('webkit-playsinline', '');
 
+  // [android-debug] wrap pause() so we see EVERY caller, including any
+  // we don't expect (extensions, browser internals via setters, etc).
+  const origPause = audioElement.pause.bind(audioElement);
+  audioElement.pause = function () {
+    console.log("[android-debug] audio.pause() called via wrapper", {
+      paused: audioElement?.paused,
+      readyState: audioElement?.readyState,
+      currentTime: audioElement?.currentTime,
+      stack: new Error().stack?.split("\n").slice(1, 8).join(" | "),
+    });
+    return origPause();
+  };
+
+  // [android-debug] log diagnostic media events to see browser-side decisions
+  for (const evtName of ["playing", "suspend", "stalled", "emptied", "abort", "loadeddata", "canplaythrough", "ratechange", "volumechange"]) {
+    audioElement.addEventListener(evtName, () => {
+      console.log(`[android-debug] <audio> '${evtName}' event`, {
+        paused: audioElement?.paused,
+        readyState: audioElement?.readyState,
+        networkState: audioElement?.networkState,
+        currentTime: audioElement?.currentTime,
+      });
+    });
+  }
+
   // time update
   audioElement.addEventListener("timeupdate", () => {
     const ct = audioElement!.currentTime;
@@ -161,6 +186,12 @@ function initAudio(): HTMLAudioElement {
 
   // playback started
   audioElement.addEventListener("play", () => {
+    console.log("[android-debug] <audio> 'play' event", {
+      paused: audioElement?.paused,
+      readyState: audioElement?.readyState,
+      networkState: audioElement?.networkState,
+      currentTime: audioElement?.currentTime,
+    });
     setIsPlaying(true);
     // only update media session if not in a loading state (avoid double-update)
     if (!isLoading()) {
@@ -170,6 +201,13 @@ function initAudio(): HTMLAudioElement {
 
   // playback paused
   audioElement.addEventListener("pause", () => {
+    console.log("[android-debug] <audio> 'pause' event", {
+      paused: audioElement?.paused,
+      readyState: audioElement?.readyState,
+      networkState: audioElement?.networkState,
+      currentTime: audioElement?.currentTime,
+      ended: audioElement?.ended,
+    });
     setIsPlaying(false);
     updateMediaSession();
 
@@ -190,11 +228,25 @@ function initAudio(): HTMLAudioElement {
 
   // song ended
   audioElement.addEventListener("ended", async () => {
+    console.log("[android-debug] <audio> ended event", {
+      src: audioElement?.src?.slice(0, 120),
+      currentTime: audioElement?.currentTime,
+      duration: audioElement?.duration,
+    });
     await handleSongEnded();
   });
 
   // error during playback - skip to next song (unless we're intentionally reloading)
   audioElement.addEventListener("error", async () => {
+    console.log("[android-debug] <audio> error event fired", {
+      isIntentionalReload,
+      readyState: audioElement?.readyState,
+      networkState: audioElement?.networkState,
+      errorCode: audioElement?.error?.code,
+      errorMessage: audioElement?.error?.message,
+      src: audioElement?.src?.slice(0, 120),
+      paused: audioElement?.paused,
+    });
     // ignore errors during intentional reload (stale blob URL errors)
     if (isIntentionalReload) {
       return;
@@ -281,10 +333,23 @@ async function updateMediaSession() {
 
   // register action handlers (re-register on every update for iOS compatibility)
   navigator.mediaSession.setActionHandler("play", () => {
+    console.log("[android-debug] mediaSession action: play", {
+      isPlaying: isPlaying(),
+      audioPaused: audioElement?.paused,
+      audioReadyState: audioElement?.readyState,
+      audioSrc: audioElement?.src?.slice(0, 120),
+    });
     void togglePlayback('mediaSession');
   });
 
   navigator.mediaSession.setActionHandler("pause", () => {
+    console.log("[android-debug] mediaSession action: pause", {
+      isPlaying: isPlaying(),
+      audioPaused: audioElement?.paused,
+      audioReadyState: audioElement?.readyState,
+      audioSrc: audioElement?.src?.slice(0, 120),
+      stack: new Error().stack?.split("\n").slice(0, 6).join(" | "),
+    });
     pause();
   });
 
@@ -606,6 +671,17 @@ export async function playSong(
 // source: 'ui' = app controls, 'mediaSession' = lock screen/control center
 export async function togglePlayback(_source: 'ui' | 'mediaSession' = 'ui'): Promise<void> {
   const audio = initAudio();
+  console.log("[android-debug] togglePlayback entry", {
+    source: _source,
+    isPlayingNow: isPlaying(),
+    audioPaused: audio.paused,
+    audioReadyState: audio.readyState,
+    audioSrc: audio.src?.slice(0, 80),
+    userExplicitlyPaused,
+    visibilityState: typeof document !== 'undefined' ? document.visibilityState : 'n/a',
+    docHidden: typeof document !== 'undefined' ? document.hidden : 'n/a',
+    hasFocus: typeof document !== 'undefined' && typeof document.hasFocus === 'function' ? document.hasFocus() : 'n/a',
+  });
 
   if (isPlaying()) {
     // user explicitly paused - set flag so pending songs don't auto-play
@@ -652,9 +728,17 @@ export async function togglePlayback(_source: 'ui' | 'mediaSession' = 'ui'): Pro
       // try to play directly first - this preserves iOS user gesture context
       // only reload blob URLs if play() actually fails
       try {
+        console.log("[android-debug] togglePlayback calling audio.play()");
         await audio.play();
+        console.log("[android-debug] togglePlayback audio.play() resolved OK");
         return;
       } catch (playError) {
+        console.log("[android-debug] togglePlayback audio.play() REJECTED", {
+          error: playError instanceof Error ? `${playError.name}: ${playError.message}` : String(playError),
+          paused: audio.paused,
+          readyState: audio.readyState,
+          src: audio.src?.slice(0, 80),
+        });
         // if it's a blob URL and play failed, the blob might be revoked by iOS
         // try to re-create the blob URL from cached data
         if (audio.src.startsWith('blob:') && current_sha256) {
@@ -722,6 +806,13 @@ export async function togglePlayback(_source: 'ui' | 'mediaSession' = 'ui'): Pro
 // pause playback
 export function pause(): void {
   const audio = initAudio();
+  console.log("[android-debug] pause() called", {
+    audioPaused: audio.paused,
+    audioReadyState: audio.readyState,
+    isPlayingState: isPlaying(),
+    audioSrc: audio.src?.slice(0, 80),
+    stack: new Error().stack?.split("\n").slice(1, 5).join(" | "),
+  });
   // user explicitly paused - set flag so pending songs don't auto-play
   userExplicitlyPaused = true;
   audio.pause();

@@ -71,6 +71,7 @@ class MediaPlaybackService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        Log.i(TAG, "onStartCommand: action=${intent?.action} startId=$startId")
         // first: forward media button intents to the active session so that
         // notification action buttons (prev/play-pause/next) actually do
         // something. this is a no-op for our own "post the notification"
@@ -88,16 +89,22 @@ class MediaPlaybackService : Service() {
                 intent?.getParcelableExtra(EXTRA_NOTIFICATION)
             }
         val isPlaying = intent?.getBooleanExtra(EXTRA_IS_PLAYING, false) ?: false
+        Log.i(TAG, "onStartCommand: notification=${notification != null} isPlaying=$isPlaying")
 
         if (notification != null) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                startForeground(
-                    NOTIFICATION_ID,
-                    notification,
-                    android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK,
-                )
-            } else {
-                startForeground(NOTIFICATION_ID, notification)
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    startForeground(
+                        NOTIFICATION_ID,
+                        notification,
+                        android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK,
+                    )
+                } else {
+                    startForeground(NOTIFICATION_ID, notification)
+                }
+                Log.i(TAG, "onStartCommand: startForeground OK")
+            } catch (t: Throwable) {
+                Log.w(TAG, "onStartCommand: startForeground failed", t)
             }
 
             // hold a partial wake lock while playing so the webview js
@@ -109,16 +116,15 @@ class MediaPlaybackService : Service() {
                 releaseWakeLock()
             }
 
-            // when paused, detach from foreground so the user can swipe the
-            // notification away. the MediaSession remains active regardless.
-            if (!isPlaying) {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                    stopForeground(STOP_FOREGROUND_DETACH)
-                } else {
-                    @Suppress("DEPRECATION")
-                    stopForeground(false)
-                }
-            }
+            // IMPORTANT: do not call stopForeground here, even when paused.
+            // detaching from foreground state lets android kill the service
+            // after a few minutes idle, and a backgrounded app can't restart
+            // a foreground service (ForegroundServiceStartNotAllowedException).
+            // keeping the service foreground while paused means the
+            // notification stays sticky (good — user can resume from it) and
+            // subsequent metadata/state updates don't need to re-create the
+            // service from background. it's torn down only by clear() /
+            // explicit stop from the plugin.
         }
 
         return START_NOT_STICKY

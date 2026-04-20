@@ -47,6 +47,7 @@ async function nativeSetMetadata(p: NativeSetMetadata): Promise<void> {
 }
 
 async function nativeSetPlaybackState(state: NativePlaybackState): Promise<void> {
+  console.log("[android-debug] nativeSetPlaybackState", { state, timestamp: Date.now() });
   try {
     await invoke(`${NS}|set_playback_state`, { payload: { state } });
   } catch (e) {
@@ -231,6 +232,11 @@ export function installAndroidMediaSessionShim(): boolean {
         "action",
         (ev: unknown) => {
           const e = ev as { action: string; positionMs?: number };
+          console.log("[android-debug] native action received", {
+            action: e.action,
+            positionMs: e.positionMs,
+            timestamp: Date.now(),
+          });
           const key = String(e.action).toLowerCase();
           const handler = handlers.get(key);
           if (!handler) {
