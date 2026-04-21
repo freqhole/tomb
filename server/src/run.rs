@@ -133,6 +133,26 @@ pub async fn run_server(options: ServerOptions) -> anyhow::Result<()> {
         }
     });
 
+    // register a graceful shutdown hook for admin_dispatch::server_restart.
+    // takes the same shutdown_tx as the signal handler. first sender wins
+    // (signal or admin command). ignore the error if a hook is somehow
+    // already registered (e.g. tests reusing process state).
+    {
+        let shutdown_tx_admin = shutdown_tx.clone();
+        let job_token_admin = job_cancellation_token.clone();
+        let _ = grimoire::shutdown::register_shutdown_hook(move |reason| {
+            tracing::warn!("[admin] shutdown requested: {}", reason);
+            let tx = shutdown_tx_admin.clone();
+            let token = job_token_admin.clone();
+            tokio::spawn(async move {
+                if let Some(sender) = tx.lock().await.take() {
+                    let _ = sender.send(());
+                }
+                token.cancel();
+            });
+        });
+    }
+
     // load config first (before tracing)
     grimoire::config::init_config(Some(options.config_path.clone()))
         .map_err(|e| anyhow::anyhow!("failed to initialize config: {}", e))?;

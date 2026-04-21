@@ -28,6 +28,7 @@ pub mod response;
 pub mod search;
 pub mod sessions;
 pub mod setup;
+pub mod shutdown;
 pub mod upload;
 pub mod users;
 pub mod wordlist;
