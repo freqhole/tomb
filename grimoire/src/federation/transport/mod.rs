@@ -7,11 +7,16 @@
 //! which means no HTTP server is required for P2P functionality.
 
 mod connection;
+mod admin_handler;
+mod admin_iroh;
+mod admin_protocol;
 mod endpoint;
 mod freqhole_protocol;
 mod handler;
 mod protocol;
 
+pub use admin_iroh::AdminProtocol;
+pub use admin_protocol::{AdminMessage, ADMIN_ALPN};
 pub use connection::{BlobStreamInfo, PeerConnection, ProxyResponse};
 pub use endpoint::FederationEndpoint;
 pub use freqhole_protocol::FreqholeProtocol;

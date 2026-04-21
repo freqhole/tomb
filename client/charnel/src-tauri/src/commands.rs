@@ -47,6 +47,15 @@ fn ensure_config_initialized(config_path: &PathBuf) -> Result<(), String> {
 
 /// ensure config and database are ready (call at start of commands that need them)
 async fn ensure_initialized(app_handle: &tauri::AppHandle) -> Result<(), String> {
+    ensure_initialized_inner(app_handle).await
+}
+
+/// public alias of `ensure_initialized` for use by sibling command modules
+pub async fn ensure_initialized_pub(app_handle: &tauri::AppHandle) -> Result<(), String> {
+    ensure_initialized_inner(app_handle).await
+}
+
+async fn ensure_initialized_inner(app_handle: &tauri::AppHandle) -> Result<(), String> {
     let config_path = get_server_config_path_resolved(app_handle)
         .ok_or_else(|| "server config not found - run setup first".to_string())?;
 

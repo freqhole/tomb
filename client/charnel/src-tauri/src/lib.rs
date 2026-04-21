@@ -6,6 +6,7 @@ mod commands;
 mod menu;
 mod p2p_commands;
 mod p2p_state;
+mod remotez_commands;
 mod server_controls;
 mod spume_bridge;
 #[cfg(desktop)]
@@ -594,6 +595,13 @@ pub fn run() {
             p2p_state::p2p_start,
             p2p_state::p2p_stop,
             p2p_state::p2p_restart,
+            // shared remote registry (used by spume + wizard)
+            remotez_commands::remotez_list,
+            remotez_commands::remotez_get,
+            remotez_commands::remotez_get_by_peer_addr,
+            remotez_commands::remotez_upsert,
+            remotez_commands::remotez_remove,
+            remotez_commands::remotez_mark_active,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

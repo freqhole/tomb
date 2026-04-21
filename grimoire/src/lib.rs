@@ -5,6 +5,7 @@
 //! grimoire library
 //! core business logic and database operations
 
+pub mod admin_dispatch;
 pub mod analytics;
 pub mod api_registry;
 pub mod blob_data;
@@ -22,6 +23,7 @@ pub mod media_blobz;
 pub mod metadata;
 pub mod music;
 pub mod offal;
+pub mod remotez;
 pub mod response;
 pub mod search;
 pub mod sessions;

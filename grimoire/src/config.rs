@@ -212,6 +212,50 @@ pub struct FederationConfig {
     /// the same port should be forwarded on the router (UDP, external:same -> internal:same)
     #[serde(default)]
     pub bind_port: Option<u16>,
+    /// remote admin configuration (`freqhole-admin/1` ALPN).
+    /// when absent or `enabled = false`, incoming admin connections are
+    /// rejected. see docs/wizard-remote-admin.md.
+    #[serde(default)]
+    pub remote_admin: Option<RemoteAdminConfig>,
+}
+
+/// remote admin configuration for the `freqhole-admin/1` ALPN
+///
+/// opt-in. when `enabled = false` (default), the admin ALPN handler rejects
+/// all incoming connections regardless of role. when `enabled = true`, the
+/// connecting peer must (a) resolve to a User with `role == Admin` and
+/// (b) appear in `allowed_node_ids` if that list is non-empty.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct RemoteAdminConfig {
+    /// master switch for the admin ALPN (default: false)
+    #[serde(default)]
+    pub enabled: bool,
+    /// optional explicit allowlist of admin peer node IDs.
+    /// empty list = allow any peer that resolves to an admin user.
+    /// non-empty list = require both role==admin AND node_id membership.
+    #[serde(default)]
+    pub allowed_node_ids: Vec<String>,
+    /// maximum admin message size in mb (default: 16)
+    #[serde(default = "default_admin_max_message_size_mb")]
+    pub max_message_size_mb: u32,
+}
+
+fn default_admin_max_message_size_mb() -> u32 {
+    16
+}
+
+impl RemoteAdminConfig {
+    /// max message size in bytes
+    pub fn max_message_size_bytes(&self) -> usize {
+        (self.max_message_size_mb as usize) * 1024 * 1024
+    }
+
+    /// is this peer node id allowed?
+    /// returns true when the allowlist is empty (admin role check still
+    /// applies elsewhere) or when the node id is explicitly listed.
+    pub fn is_allowed_node(&self, node_id: &str) -> bool {
+        self.allowed_node_ids.is_empty() || self.allowed_node_ids.iter().any(|n| n == node_id)
+    }
 }
 
 fn default_federation_role() -> String {

@@ -75,6 +75,7 @@ import {
   refreshTauriRemoteTimestamp,
   upsertTauriRemote,
 } from "./services/remotes/remoteManager";
+import { drainIdbRemotesToSqlite } from "./services/remotes/drainIdbToSqlite";
 import {
   applyServiceWorkerUpdate,
   dismissUpdate,
@@ -363,6 +364,11 @@ export function App() {
     try {
       await initAppDB();
       await initMusicDB();
+
+      // tauri-only: one-shot drain of IDB remotes into shared sqlite table.
+      // no-op outside tauri or after first successful drain.
+      // see docs/wizard-remote-admin.md.
+      await drainIdbRemotesToSqlite();
 
       // auto-setup remote from tauri bridge (for desktop app)
       // this is fast since it's local IPC

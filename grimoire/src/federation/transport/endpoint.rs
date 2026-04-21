@@ -11,6 +11,8 @@ use crate::blobz::{get_blobs_store, BLOBS_ALPN};
 use crate::config::get_config;
 use crate::error::{GrimoireError, GrimoireResult};
 use crate::federation::identity;
+use crate::federation::transport::admin_iroh::AdminProtocol;
+use crate::federation::transport::admin_protocol::ADMIN_ALPN;
 use crate::federation::transport::freqhole_protocol::FreqholeProtocol;
 use crate::federation::transport::protocol::FREQHOLE_ALPN;
 use iroh::endpoint::presets;
@@ -140,6 +142,20 @@ impl FederationEndpoint {
         let builder = Router::builder(self.endpoint.clone())
             .accept(FREQHOLE_ALPN, freqhole_handler)
             .accept(BLOBS_ALPN, blobs_handler);
+
+        // optional: admin ALPN, only when [remote_admin].enabled = true.
+        // see docs/wizard-remote-admin.md.
+        let admin_enabled = get_config()
+            .federation
+            .as_ref()
+            .and_then(|f| f.remote_admin.as_ref())
+            .is_some_and(|a| a.enabled);
+        let builder = if admin_enabled {
+            info!("[p2p-endpoint] registering freqhole-admin/1 ALPN");
+            builder.accept(ADMIN_ALPN, AdminProtocol::new())
+        } else {
+            builder
+        };
 
         // let caller add extra protocol handlers
         let builder = customize(builder);
