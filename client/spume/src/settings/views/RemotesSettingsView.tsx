@@ -19,7 +19,9 @@ import { debug } from "../../utils/logger";
 import { toast } from "../../components/feedback/Toast";
 import { Icon } from "../../components/icons/registry";
 import { ReauthModal } from "../../components/auth/ReauthModal";
+import { CopyButton } from "../../components/buttons/CopyButton";
 import { formatDate } from "../../utils/dateTime";
+import { truncateMiddle } from "../../utils/truncate";
 import { resolveBlobUrl } from "../../music/services/storage/blobResolver";
 import {
   getRemoteCacheStats,
@@ -27,6 +29,19 @@ import {
   type RemoteCacheStats,
 } from "../../music/services/cache/blobCache";
 import { formatBytes } from "../services/storageManager";
+
+// extract a 64-hex node id from `peer_addr`, which may be the bare id or a
+// json blob `{ "node_id": "...", ... }`. falls back to the raw value.
+function extractNodeId(peerAddr: string): string {
+  if (/^[0-9a-f]{64}$/i.test(peerAddr)) return peerAddr;
+  try {
+    const parsed = JSON.parse(peerAddr);
+    if (typeof parsed?.node_id === "string") return parsed.node_id;
+  } catch {
+    // ignore - not json
+  }
+  return peerAddr;
+}
 
 // confirmation dialog component
 function ConfirmDialog(props: {
@@ -553,9 +568,20 @@ export function RemotesSettingsView() {
                           </p>
                         </Show>
                         <Show when={remote.peer_addr}>
-                          <p class="text-xs text-[var(--color-text-muted)] truncate mb-2 font-mono">
-                            node: {remote.peer_addr}
-                          </p>
+                          <div class="flex items-center gap-2 mb-2">
+                            <p
+                              class="text-xs text-[var(--color-text-muted)] font-mono flex-1 min-w-0"
+                              title={extractNodeId(remote.peer_addr!)}
+                            >
+                              node id: {truncateMiddle(extractNodeId(remote.peer_addr!), 24)}
+                            </p>
+                            <CopyButton
+                              text={extractNodeId(remote.peer_addr!)}
+                              label="copy"
+                              copiedLabel="copied!"
+                              title="copy node id"
+                            />
+                          </div>
                         </Show>
                         {/* logged in user info */}
                         {(() => {

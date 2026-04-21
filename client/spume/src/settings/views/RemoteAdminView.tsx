@@ -25,7 +25,9 @@ import {
   type AdminPeerSummary,
 } from "freqhole-api-client";
 import { toast } from "../../components/feedback/Toast";
+import { CopyButton } from "../../components/buttons/CopyButton";
 import { formatDate } from "../../utils/dateTime";
+import { truncateMiddle } from "../../utils/truncate";
 import { UserAutocomplete, type UserSelection } from "./UserAutocomplete";
 
 interface KnockRow {
@@ -113,9 +115,8 @@ export function RemoteAdminView() {
         <div class="flex flex-col gap-8">
           <NodeIdSection remote={remote()!} />
           <KnocksSection client={adminClient()!} remote={remote()!} />
-          <UsersSection client={adminClient()!} />
+          <UsersSection client={adminClient()!} remote={remote()!} />
           <InvitesSection client={adminClient()!} />
-          <PeersSection client={adminClient()!} remote={remote()!} />
         </div>
       </Show>
     </div>
@@ -164,15 +165,6 @@ function NodeIdSection(props: { remote: Remote }) {
     }
   };
 
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(nodeId());
-      toast.success("node id copied");
-    } catch {
-      toast.error("clipboard write failed");
-    }
-  };
-
   return (
     <section class="rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-elevated)] p-5">
       <h2 class="text-lg font-semibold text-[var(--color-text-primary)] mb-3">remote node id</h2>
@@ -183,14 +175,15 @@ function NodeIdSection(props: { remote: Remote }) {
         <code class="flex-1 break-all rounded bg-[var(--color-bg-tertiary)] px-3 py-2 text-xs text-[var(--color-text-secondary)]">
           {nodeId()}
         </code>
+        <CopyButton
+          text={nodeId()}
+          label="copy"
+          copiedLabel="copied!"
+          title="copy node id"
+          class="px-3 py-1.5 text-xs font-medium rounded-lg border transition-all duration-150 disabled:opacity-50 active:scale-95"
+        />
         <button
-          class="px-3 py-1.5 text-xs font-medium rounded-lg bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-bg-quaternary)] text-[var(--color-text-secondary)] border border-[var(--color-border-subtle)] transition-colors"
-          onClick={copy}
-        >
-          copy
-        </button>
-        <button
-          class="px-3 py-1.5 text-xs font-medium rounded-lg bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-bg-quaternary)] text-[var(--color-text-secondary)] border border-[var(--color-border-subtle)] transition-colors"
+          class="px-3 py-1.5 text-xs font-medium rounded-lg bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-bg-quaternary)] text-[var(--color-text-secondary)] border border-[var(--color-border-subtle)] transition-all duration-150 active:scale-95"
           onClick={generate}
         >
           {showQr() ? "hide qr" : "show qr"}
@@ -406,9 +399,16 @@ function KnocksSection(props: { client: AdminClient; remote: Remote }) {
                           {knock.message}
                         </p>
                       </Show>
-                      <div class="text-xs text-[var(--color-text-muted)] flex flex-wrap gap-3">
-                        <span>
-                          node: <code>{knock.node_id.slice(0, 16)}...</code>
+                      <div class="text-xs text-[var(--color-text-muted)] flex flex-wrap items-center gap-x-3 gap-y-1">
+                        <span class="flex items-center gap-1.5">
+                          node id:{" "}
+                          <code title={knock.node_id}>{truncateMiddle(knock.node_id, 20)}</code>
+                          <CopyButton
+                            text={knock.node_id}
+                            label="copy"
+                            copiedLabel="copied!"
+                            title="copy node id"
+                          />
                         </span>
                         <span>requested {formatDate(knock.created_at)}</span>
                         <Show when={knock.processed_at}>
@@ -514,17 +514,10 @@ function KnocksSection(props: { client: AdminClient; remote: Remote }) {
 }
 
 // ------------------------------------------------------------------
-// users
+// shared helpers
 // ------------------------------------------------------------------
 
 type RoleOption = "admin" | "member" | "viewer";
-
-function copyToClipboard(text: string, label: string) {
-  navigator.clipboard
-    .writeText(text)
-    .then(() => toast.success(`${label} copied`))
-    .catch(() => toast.error("clipboard write failed"));
-}
 
 function adminErrMessage(e: unknown): string {
   if (e instanceof AdminCommandError) {
@@ -535,29 +528,51 @@ function adminErrMessage(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
 
-function UsersSection(props: { client: AdminClient }) {
+// ------------------------------------------------------------------
+// users (with peer nodes grouped under each user)
+// ------------------------------------------------------------------
+
+function UsersSection(props: { client: AdminClient; remote: Remote }) {
   const [includeDeleted, setIncludeDeleted] = createSignal(false);
-  const [users, { refetch }] = createResource(
-    () => ({ deleted: includeDeleted() }),
+  const [refreshTick, setRefreshTick] = createSignal(0);
+
+  const [data, { refetch }] = createResource(
+    () => ({ deleted: includeDeleted(), tick: refreshTick() }),
     async ({ deleted }) => {
       try {
-        return await props.client.dispatchOrThrow("users_list", {
-          include_deleted: deleted,
-          limit: null,
-          offset: null,
-          username: null,
-          role: null,
-        });
+        const [users, peers] = await Promise.all([
+          props.client.dispatchOrThrow("users_list", {
+            include_deleted: deleted,
+            limit: null,
+            offset: null,
+            username: null,
+            role: null,
+          }),
+          props.client.dispatchOrThrow("peers_list_all", undefined),
+        ]);
+        const peersByUser = new Map<string, AdminPeerSummary[]>();
+        for (const p of peers) {
+          const arr = peersByUser.get(p.user_id) ?? [];
+          arr.push(p);
+          peersByUser.set(p.user_id, arr);
+        }
+        return { users, peersByUser };
       } catch (e) {
-        toast.error(`users list failed: ${adminErrMessage(e)}`);
-        return [] as AdminUserSummary[];
+        toast.error(`users load failed: ${adminErrMessage(e)}`);
+        return {
+          users: [] as AdminUserSummary[],
+          peersByUser: new Map<string, AdminPeerSummary[]>(),
+        };
       }
     }
   );
 
+  const refresh = () => setRefreshTick((n) => n + 1);
+
   const [updating, setUpdating] = createSignal<string | null>(null);
   const [deleting, setDeleting] = createSignal<string | null>(null);
-  const [linking, setLinking] = createSignal<string | null>(null);
+  const [removingPeer, setRemovingPeer] = createSignal<string | null>(null);
+  const [showAllowForm, setShowAllowForm] = createSignal(false);
 
   const handleRoleChange = async (user: AdminUserSummary, role: string) => {
     if (role === user.role) return;
@@ -565,7 +580,7 @@ function UsersSection(props: { client: AdminClient }) {
     try {
       await props.client.dispatchOrThrow("users_update_role", { user_id: user.id, role });
       toast.success(`${user.username} is now ${role}`);
-      await refetch();
+      refresh();
     } catch (e) {
       toast.error(`update role failed: ${adminErrMessage(e)}`);
     } finally {
@@ -579,7 +594,7 @@ function UsersSection(props: { client: AdminClient }) {
     try {
       await props.client.dispatchOrThrow("users_delete", { user_id: user.id });
       toast.success(`${user.username} deleted`);
-      await refetch();
+      refresh();
     } catch (e) {
       toast.error(`delete failed: ${adminErrMessage(e)}`);
     } finally {
@@ -587,24 +602,35 @@ function UsersSection(props: { client: AdminClient }) {
     }
   };
 
-  const handleGenerateLink = async (user: AdminUserSummary) => {
-    setLinking(user.id);
+  const generateLink = async (user: AdminUserSummary): Promise<string> => {
+    const resp = await props.client.dispatchOrThrow("users_generate_account_link", {
+      user_id: user.id,
+    });
+    return resp.code;
+  };
+
+  const handleRemovePeer = async (peer: AdminPeerSummary) => {
+    const key = `${peer.user_id}:${peer.node_id}`;
+    if (!confirm(`remove peer ${truncateMiddle(peer.node_id, 16)} from ${peer.username}?`)) return;
+    setRemovingPeer(key);
     try {
-      const resp = await props.client.dispatchOrThrow("users_generate_account_link", {
-        user_id: user.id,
+      await props.client.dispatchOrThrow("peers_remove", {
+        user_id: peer.user_id,
+        node_id: peer.node_id,
       });
-      copyToClipboard(resp.code, `account link for ${user.username}`);
+      toast.success("peer removed");
+      refresh();
     } catch (e) {
-      toast.error(`generate link failed: ${adminErrMessage(e)}`);
+      toast.error(`remove failed: ${adminErrMessage(e)}`);
     } finally {
-      setLinking(null);
+      setRemovingPeer(null);
     }
   };
 
   return (
     <section class="rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-elevated)] p-5">
       <div class="flex items-center justify-between mb-4">
-        <h2 class="text-lg font-semibold text-[var(--color-text-primary)]">users</h2>
+        <h2 class="text-lg font-semibold text-[var(--color-text-primary)]">users &amp; peers</h2>
         <div class="flex items-center gap-2">
           <label class="flex items-center gap-2 text-xs text-[var(--color-text-muted)]">
             <input
@@ -615,7 +641,13 @@ function UsersSection(props: { client: AdminClient }) {
             include deleted
           </label>
           <button
-            class="px-3 py-1.5 text-xs font-medium rounded-lg bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-bg-quaternary)] text-[var(--color-text-secondary)] border border-[var(--color-border-subtle)] transition-colors"
+            class="px-3 py-1.5 text-xs font-medium rounded-lg bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-bg-quaternary)] text-[var(--color-text-secondary)] border border-[var(--color-border-subtle)] transition-colors active:scale-95"
+            onClick={() => setShowAllowForm((v) => !v)}
+          >
+            {showAllowForm() ? "cancel allow peer" : "allow peer"}
+          </button>
+          <button
+            class="px-3 py-1.5 text-xs font-medium rounded-lg bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-bg-quaternary)] text-[var(--color-text-secondary)] border border-[var(--color-border-subtle)] transition-colors active:scale-95"
             onClick={() => refetch()}
           >
             refresh
@@ -623,82 +655,243 @@ function UsersSection(props: { client: AdminClient }) {
         </div>
       </div>
 
+      <Show when={showAllowForm()}>
+        <AllowPeerForm
+          client={props.client}
+          remote={props.remote}
+          onAllowed={() => {
+            setShowAllowForm(false);
+            refresh();
+          }}
+        />
+      </Show>
+
       <Show
-        when={!users.loading}
+        when={!data.loading}
         fallback={<div class="text-sm text-[var(--color-text-muted)]">loading users...</div>}
       >
         <Show
-          when={(users() ?? []).length > 0}
+          when={(data()?.users ?? []).length > 0}
           fallback={<div class="text-sm text-[var(--color-text-muted)]">no users</div>}
         >
           <div class="flex flex-col gap-2">
-            <For each={users() ?? []}>
-              {(user) => (
-                <div class="rounded-lg border border-[var(--color-border-subtle)] bg-[var(--color-bg-secondary)] p-3">
-                  <div class="flex items-center justify-between gap-4 flex-wrap">
-                    <div class="min-w-0 flex-1">
-                      <div class="flex items-center gap-2">
-                        <span class="font-medium text-[var(--color-text-primary)]">
-                          {user.username}
-                        </span>
-                        <Show when={user.deleted_at}>
-                          <span class="text-xs px-2 py-0.5 rounded bg-red-600/20 text-red-400">
-                            deleted
+            <For each={data()!.users}>
+              {(user) => {
+                const peers = () => data()!.peersByUser.get(user.id) ?? [];
+                return (
+                  <div class="rounded-lg border border-[var(--color-border-subtle)] bg-[var(--color-bg-secondary)] p-3">
+                    <div class="flex items-center justify-between gap-4 flex-wrap">
+                      <div class="min-w-0 flex-1">
+                        <div class="flex items-center gap-2 flex-wrap">
+                          <span class="font-medium text-[var(--color-text-primary)]">
+                            {user.username}
                           </span>
-                        </Show>
-                        <Show when={user.haruspex_user_id}>
-                          <span class="text-xs px-2 py-0.5 rounded bg-blue-600/20 text-blue-400">
-                            linked
+                          <span class="text-xs px-2 py-0.5 rounded bg-[var(--color-bg-tertiary)] text-[var(--color-text-secondary)]">
+                            {user.role}
                           </span>
-                        </Show>
+                          <Show when={peers().length > 0}>
+                            <span class="text-xs px-2 py-0.5 rounded bg-blue-600/20 text-blue-400">
+                              {peers().length} peer{peers().length === 1 ? "" : "s"}
+                            </span>
+                          </Show>
+                          <Show when={user.deleted_at}>
+                            <span class="text-xs px-2 py-0.5 rounded bg-red-600/20 text-red-400">
+                              deleted
+                            </span>
+                          </Show>
+                          <Show when={user.haruspex_user_id}>
+                            <span class="text-xs px-2 py-0.5 rounded bg-purple-600/20 text-purple-400">
+                              haruspex
+                            </span>
+                          </Show>
+                        </div>
+                        <div class="text-xs text-[var(--color-text-muted)] mt-1 flex items-center gap-2 flex-wrap">
+                          <span class="flex items-center gap-1">
+                            user id: <code title={user.id}>{truncateMiddle(user.id, 16)}</code>
+                            <CopyButton
+                              text={user.id}
+                              label="copy"
+                              copiedLabel="copied!"
+                              title="copy user id"
+                            />
+                          </span>
+                          <span>created {formatDate(user.created_at)}</span>
+                        </div>
                       </div>
-                      <div class="text-xs text-[var(--color-text-muted)] mt-1">
-                        <code class="mr-2">{user.id.slice(0, 12)}...</code>
-                        created {formatDate(user.created_at)}
+                      <div class="flex items-center gap-2 shrink-0">
+                        <select
+                          class="text-xs px-2 py-1 rounded border border-[var(--color-border-subtle)] bg-[var(--color-bg-tertiary)] text-[var(--color-text-primary)] disabled:opacity-50"
+                          value={user.role}
+                          disabled={
+                            updating() === user.id || user.role === "root" || !!user.deleted_at
+                          }
+                          onChange={(e) => handleRoleChange(user, e.currentTarget.value)}
+                        >
+                          <Show when={user.role === "root"}>
+                            <option value="root">root</option>
+                          </Show>
+                          <option value="admin">admin</option>
+                          <option value="member">member</option>
+                          <option value="viewer">viewer</option>
+                        </select>
+                        <CopyButton
+                          getText={() => generateLink(user)}
+                          label="account link"
+                          pendingLabel="generating..."
+                          copiedLabel="link copied!"
+                          title="generate a one-time account link code and copy it"
+                          disabled={!!user.deleted_at}
+                        />
+                        <button
+                          class="px-2 py-1 text-xs font-medium rounded bg-red-600/20 hover:bg-red-600/30 text-red-400 border border-red-600/30 transition-all duration-150 disabled:opacity-50 active:scale-95"
+                          disabled={
+                            deleting() === user.id || user.role === "root" || !!user.deleted_at
+                          }
+                          onClick={() => handleDelete(user)}
+                        >
+                          {deleting() === user.id ? "..." : "delete"}
+                        </button>
                       </div>
                     </div>
-                    <div class="flex items-center gap-2 shrink-0">
-                      <select
-                        class="text-xs px-2 py-1 rounded border border-[var(--color-border-subtle)] bg-[var(--color-bg-tertiary)] text-[var(--color-text-primary)] disabled:opacity-50"
-                        value={user.role}
-                        disabled={
-                          updating() === user.id || user.role === "root" || !!user.deleted_at
-                        }
-                        onChange={(e) => handleRoleChange(user, e.currentTarget.value)}
-                      >
-                        <Show when={user.role === "root"}>
-                          <option value="root">root</option>
-                        </Show>
-                        <option value="admin">admin</option>
-                        <option value="member">member</option>
-                        <option value="viewer">viewer</option>
-                      </select>
-                      <button
-                        class="px-2 py-1 text-xs font-medium rounded bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-bg-quaternary)] text-[var(--color-text-secondary)] border border-[var(--color-border-subtle)] transition-colors disabled:opacity-50"
-                        disabled={linking() === user.id || !!user.deleted_at}
-                        onClick={() => handleGenerateLink(user)}
-                        title="generate a one-time account link code"
-                      >
-                        {linking() === user.id ? "..." : "account link"}
-                      </button>
-                      <button
-                        class="px-2 py-1 text-xs font-medium rounded bg-red-600/20 hover:bg-red-600/30 text-red-400 border border-red-600/30 transition-colors disabled:opacity-50"
-                        disabled={
-                          deleting() === user.id || user.role === "root" || !!user.deleted_at
-                        }
-                        onClick={() => handleDelete(user)}
-                      >
-                        {deleting() === user.id ? "..." : "delete"}
-                      </button>
-                    </div>
+
+                    <Show when={peers().length > 0}>
+                      <div class="mt-3 ml-3 pl-3 border-l border-[var(--color-border-subtle)] flex flex-col gap-1.5">
+                        <For each={peers()}>
+                          {(peer) => {
+                            const key = `${peer.user_id}:${peer.node_id}`;
+                            return (
+                              <div class="flex items-center gap-2 text-xs flex-wrap">
+                                <span class="text-[var(--color-text-muted)]">node id:</span>
+                                <code
+                                  class="flex-1 min-w-0 truncate text-[var(--color-text-secondary)]"
+                                  title={peer.node_id}
+                                >
+                                  {truncateMiddle(peer.node_id, 28)}
+                                </code>
+                                <Show when={peer.instance_name}>
+                                  <span class="text-[var(--color-text-muted)]">
+                                    ({peer.instance_name})
+                                  </span>
+                                </Show>
+                                <span class="text-[var(--color-text-muted)]">
+                                  added {formatDate(peer.created_at)}
+                                </span>
+                                <Show when={peer.last_seen_at}>
+                                  <span class="text-[var(--color-text-muted)]">
+                                    seen {formatDate(peer.last_seen_at!)}
+                                  </span>
+                                </Show>
+                                <CopyButton
+                                  text={peer.node_id}
+                                  label="copy"
+                                  copiedLabel="copied!"
+                                  title="copy node id"
+                                />
+                                <button
+                                  class="px-2 py-1 text-xs font-medium rounded bg-red-600/20 hover:bg-red-600/30 text-red-400 border border-red-600/30 transition-all duration-150 disabled:opacity-50 active:scale-95"
+                                  disabled={removingPeer() === key}
+                                  onClick={() => handleRemovePeer(peer)}
+                                >
+                                  {removingPeer() === key ? "..." : "remove"}
+                                </button>
+                              </div>
+                            );
+                          }}
+                        </For>
+                      </div>
+                    </Show>
                   </div>
-                </div>
-              )}
+                );
+              }}
             </For>
           </div>
         </Show>
       </Show>
     </section>
+  );
+}
+
+// inline form to allow a peer node by linking to (or creating) a user.
+// rendered above the users list when toggled on.
+function AllowPeerForm(props: { client: AdminClient; remote: Remote; onAllowed: () => void }) {
+  const [nodeId, setNodeId] = createSignal("");
+  const [selection, setSelection] = createSignal<UserSelection | null>(null);
+  const [role, setRole] = createSignal<RoleOption>("viewer");
+  const [allowing, setAllowing] = createSignal(false);
+
+  const handleAllow = async () => {
+    const nid = nodeId().trim();
+    if (nid.length !== 64 || !/^[0-9a-f]{64}$/i.test(nid)) {
+      toast.error("node id must be 64 hex characters");
+      return;
+    }
+    const sel = selection();
+    const chosenRole = sel?.isExisting ? sel.role : (sel?.role ?? role());
+    const username = sel?.username?.trim() || null;
+    const userId = sel?.isExisting ? (sel.id ?? null) : null;
+    setAllowing(true);
+    try {
+      const resp = await props.client.dispatchOrThrow("peers_allow", {
+        node_id: nid,
+        role: chosenRole,
+        username,
+        user_id: userId,
+      });
+      toast.success(
+        resp.created_user
+          ? `created ${resp.username} and allowed peer`
+          : `allowed peer for ${resp.username}`
+      );
+      setNodeId("");
+      setSelection(null);
+      props.onAllowed();
+    } catch (e) {
+      toast.error(`allow failed: ${adminErrMessage(e)}`);
+    } finally {
+      setAllowing(false);
+    }
+  };
+
+  return (
+    <div class="mb-4 rounded-lg border border-[var(--color-border-subtle)] bg-[var(--color-bg-secondary)] p-3">
+      <div class="text-xs font-medium text-[var(--color-text-secondary)] mb-2">allow peer</div>
+      <div class="flex flex-col gap-2">
+        <input
+          type="text"
+          placeholder="node id (64 hex)"
+          class="w-full px-2 py-1 text-sm font-mono rounded border border-[var(--color-border-subtle)] bg-[var(--color-bg-tertiary)] text-[var(--color-text-primary)]"
+          value={nodeId()}
+          onInput={(e) => setNodeId(e.currentTarget.value)}
+        />
+        <div class="flex items-end gap-2 flex-wrap">
+          <div class="flex-1 min-w-48">
+            <UserAutocomplete
+              remote={props.remote}
+              placeholder="username (existing or new)..."
+              defaultRole={role()}
+              onSelect={(sel) => setSelection(sel)}
+            />
+          </div>
+          <select
+            class="text-xs px-2 py-1 rounded border border-[var(--color-border-subtle)] bg-[var(--color-bg-tertiary)] text-[var(--color-text-primary)] disabled:opacity-50"
+            value={selection()?.isExisting ? selection()!.role : role()}
+            disabled={selection()?.isExisting ?? false}
+            onChange={(e) => setRole(e.currentTarget.value as RoleOption)}
+          >
+            <option value="viewer">viewer</option>
+            <option value="member">member</option>
+            <option value="admin">admin</option>
+          </select>
+          <button
+            class="px-3 py-1.5 text-xs font-medium rounded-lg bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-600)] text-white transition-all duration-150 disabled:opacity-50 active:scale-95"
+            disabled={allowing() || !nodeId().trim()}
+            onClick={handleAllow}
+          >
+            {allowing() ? "allowing..." : "allow"}
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -802,13 +995,13 @@ function InvitesSection(props: { client: AdminClient }) {
             active only
           </label>
           <button
-            class="px-3 py-1.5 text-xs font-medium rounded-lg bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-bg-quaternary)] text-[var(--color-text-secondary)] border border-[var(--color-border-subtle)] transition-colors"
+            class="px-3 py-1.5 text-xs font-medium rounded-lg bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-bg-quaternary)] text-[var(--color-text-secondary)] border border-[var(--color-border-subtle)] transition-colors active:scale-95"
             onClick={() => refetch()}
           >
             refresh
           </button>
           <button
-            class="px-3 py-1.5 text-xs font-medium rounded-lg bg-red-600/20 hover:bg-red-600/30 text-red-400 border border-red-600/30 transition-colors"
+            class="px-3 py-1.5 text-xs font-medium rounded-lg bg-red-600/20 hover:bg-red-600/30 text-red-400 border border-red-600/30 transition-colors active:scale-95"
             onClick={handleRevokeAll}
           >
             revoke all
@@ -869,7 +1062,7 @@ function InvitesSection(props: { client: AdminClient }) {
             />
           </label>
           <button
-            class="px-3 py-1.5 text-xs font-medium rounded-lg bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-600)] text-white transition-colors disabled:opacity-50"
+            class="px-3 py-1.5 text-xs font-medium rounded-lg bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-600)] text-white transition-all duration-150 disabled:opacity-50 active:scale-95"
             disabled={generating()}
             onClick={handleGenerate}
           >
@@ -883,12 +1076,7 @@ function InvitesSection(props: { client: AdminClient }) {
               {(code) => (
                 <div class="flex items-center gap-2 text-xs font-mono">
                   <code class="flex-1 break-all">{code}</code>
-                  <button
-                    class="px-2 py-0.5 rounded bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-bg-quaternary)] text-[var(--color-text-secondary)] border border-[var(--color-border-subtle)]"
-                    onClick={() => copyToClipboard(code, "invite code")}
-                  >
-                    copy
-                  </button>
+                  <CopyButton text={code} />
                 </div>
               )}
             </For>
@@ -952,213 +1140,16 @@ function InvitesSection(props: { client: AdminClient }) {
                         <option value="member">member</option>
                         <option value="admin">admin</option>
                       </select>
-                      <button
-                        class="px-2 py-1 text-xs font-medium rounded bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-bg-quaternary)] text-[var(--color-text-secondary)] border border-[var(--color-border-subtle)] transition-colors"
-                        onClick={() => copyToClipboard(invite.code, "invite code")}
-                      >
-                        copy
-                      </button>
+                      <CopyButton text={invite.code} title="copy invite code" />
                       <Show when={invite.is_active}>
                         <button
-                          class="px-2 py-1 text-xs font-medium rounded bg-red-600/20 hover:bg-red-600/30 text-red-400 border border-red-600/30 transition-colors disabled:opacity-50"
+                          class="px-2 py-1 text-xs font-medium rounded bg-red-600/20 hover:bg-red-600/30 text-red-400 border border-red-600/30 transition-all duration-150 disabled:opacity-50 active:scale-95"
                           disabled={revoking() === invite.code}
                           onClick={() => handleRevoke(invite)}
                         >
                           {revoking() === invite.code ? "..." : "revoke"}
                         </button>
                       </Show>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </For>
-          </div>
-        </Show>
-      </Show>
-    </section>
-  );
-}
-
-// ------------------------------------------------------------------
-// peers
-// ------------------------------------------------------------------
-
-function PeersSection(props: { client: AdminClient; remote: Remote }) {
-  const [peers, { refetch }] = createResource(
-    () => ({ tick: 0 }),
-    async () => {
-      try {
-        return await props.client.dispatchOrThrow("peers_list_all", undefined);
-      } catch (e) {
-        toast.error(`peers list failed: ${adminErrMessage(e)}`);
-        return [] as AdminPeerSummary[];
-      }
-    }
-  );
-
-  const [removing, setRemoving] = createSignal<string | null>(null);
-
-  const rowKey = (p: AdminPeerSummary) => `${p.user_id}:${p.node_id}`;
-
-  const handleRemove = async (peer: AdminPeerSummary) => {
-    if (!confirm(`remove peer ${peer.node_id.slice(0, 12)}... from ${peer.username}?`)) return;
-    setRemoving(rowKey(peer));
-    try {
-      await props.client.dispatchOrThrow("peers_remove", {
-        user_id: peer.user_id,
-        node_id: peer.node_id,
-      });
-      toast.success("peer removed");
-      await refetch();
-    } catch (e) {
-      toast.error(`remove failed: ${adminErrMessage(e)}`);
-    } finally {
-      setRemoving(null);
-    }
-  };
-
-  // manual allow form
-  const [nodeId, setNodeId] = createSignal("");
-  const [allowSelection, setAllowSelection] = createSignal<UserSelection | null>(null);
-  const [allowRole, setAllowRole] = createSignal<RoleOption>("viewer");
-  const [allowing, setAllowing] = createSignal(false);
-
-  const handleAllow = async () => {
-    const nid = nodeId().trim();
-    if (nid.length !== 64 || !/^[0-9a-f]{64}$/i.test(nid)) {
-      toast.error("node id must be 64 hex characters");
-      return;
-    }
-    const sel = allowSelection();
-    const role = sel?.isExisting ? sel.role : (sel?.role ?? allowRole());
-    const username = sel?.username?.trim() || null;
-    const userId = sel?.isExisting ? (sel.id ?? null) : null;
-    setAllowing(true);
-    try {
-      const resp = await props.client.dispatchOrThrow("peers_allow", {
-        node_id: nid,
-        role,
-        username,
-        user_id: userId,
-      });
-      toast.success(
-        resp.created_user
-          ? `created ${resp.username} and allowed peer`
-          : `allowed peer for ${resp.username}`
-      );
-      setNodeId("");
-      setAllowSelection(null);
-      await refetch();
-    } catch (e) {
-      toast.error(`allow failed: ${adminErrMessage(e)}`);
-    } finally {
-      setAllowing(false);
-    }
-  };
-
-  return (
-    <section class="rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-elevated)] p-5">
-      <div class="flex items-center justify-between mb-4">
-        <h2 class="text-lg font-semibold text-[var(--color-text-primary)]">peers</h2>
-        <button
-          class="px-3 py-1.5 text-xs font-medium rounded-lg bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-bg-quaternary)] text-[var(--color-text-secondary)] border border-[var(--color-border-subtle)] transition-colors"
-          onClick={() => refetch()}
-        >
-          refresh
-        </button>
-      </div>
-
-      <div class="mb-4 rounded-lg border border-[var(--color-border-subtle)] bg-[var(--color-bg-secondary)] p-3">
-        <div class="text-xs font-medium text-[var(--color-text-secondary)] mb-2">
-          allow peer manually
-        </div>
-        <div class="flex flex-col gap-2">
-          <input
-            type="text"
-            placeholder="node id (64 hex)"
-            class="w-full px-2 py-1 text-sm font-mono rounded border border-[var(--color-border-subtle)] bg-[var(--color-bg-tertiary)] text-[var(--color-text-primary)]"
-            value={nodeId()}
-            onInput={(e) => setNodeId(e.currentTarget.value)}
-          />
-          <div class="flex items-end gap-2 flex-wrap">
-            <div class="flex-1 min-w-48">
-              <UserAutocomplete
-                remote={props.remote}
-                placeholder="username (existing or new)..."
-                defaultRole={allowRole()}
-                onSelect={(sel) => setAllowSelection(sel)}
-              />
-            </div>
-            <select
-              class="text-xs px-2 py-1 rounded border border-[var(--color-border-subtle)] bg-[var(--color-bg-tertiary)] text-[var(--color-text-primary)] disabled:opacity-50"
-              value={allowSelection()?.isExisting ? allowSelection()!.role : allowRole()}
-              disabled={allowSelection()?.isExisting ?? false}
-              onChange={(e) => setAllowRole(e.currentTarget.value as RoleOption)}
-            >
-              <option value="viewer">viewer</option>
-              <option value="member">member</option>
-              <option value="admin">admin</option>
-            </select>
-            <button
-              class="px-3 py-1.5 text-xs font-medium rounded-lg bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-600)] text-white transition-colors disabled:opacity-50"
-              disabled={allowing() || !nodeId().trim()}
-              onClick={handleAllow}
-            >
-              {allowing() ? "allowing..." : "allow"}
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <Show
-        when={!peers.loading}
-        fallback={<div class="text-sm text-[var(--color-text-muted)]">loading peers...</div>}
-      >
-        <Show
-          when={(peers() ?? []).length > 0}
-          fallback={<div class="text-sm text-[var(--color-text-muted)]">no peers</div>}
-        >
-          <div class="flex flex-col gap-2">
-            <For each={peers() ?? []}>
-              {(peer) => (
-                <div class="rounded-lg border border-[var(--color-border-subtle)] bg-[var(--color-bg-secondary)] p-3">
-                  <div class="flex items-center justify-between gap-3 flex-wrap">
-                    <div class="min-w-0 flex-1">
-                      <div class="flex items-center gap-2 flex-wrap">
-                        <span class="font-medium text-[var(--color-text-primary)]">
-                          {peer.username}
-                        </span>
-                        <span class="text-xs px-2 py-0.5 rounded bg-[var(--color-bg-tertiary)] text-[var(--color-text-secondary)]">
-                          {peer.role}
-                        </span>
-                        <Show when={peer.instance_name}>
-                          <span class="text-xs text-[var(--color-text-muted)]">
-                            ({peer.instance_name})
-                          </span>
-                        </Show>
-                      </div>
-                      <div class="text-xs text-[var(--color-text-muted)] mt-1 flex flex-wrap gap-3">
-                        <code>{peer.node_id.slice(0, 16)}...</code>
-                        <span>added {formatDate(peer.created_at)}</span>
-                        <Show when={peer.last_seen_at}>
-                          <span>last seen {formatDate(peer.last_seen_at!)}</span>
-                        </Show>
-                      </div>
-                    </div>
-                    <div class="flex items-center gap-2 shrink-0">
-                      <button
-                        class="px-2 py-1 text-xs font-medium rounded bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-bg-quaternary)] text-[var(--color-text-secondary)] border border-[var(--color-border-subtle)] transition-colors"
-                        onClick={() => copyToClipboard(peer.node_id, "node id")}
-                      >
-                        copy id
-                      </button>
-                      <button
-                        class="px-2 py-1 text-xs font-medium rounded bg-red-600/20 hover:bg-red-600/30 text-red-400 border border-red-600/30 transition-colors disabled:opacity-50"
-                        disabled={removing() === rowKey(peer)}
-                        onClick={() => handleRemove(peer)}
-                      >
-                        {removing() === rowKey(peer) ? "..." : "remove"}
-                      </button>
                     </div>
                   </div>
                 </div>

@@ -25,6 +25,7 @@ import {
 import { getAllRemotes } from "../../app/services/remotes/remoteManager";
 import type { Remote } from "../../app/services/storage/types";
 import { appState, setSyncQueueToLocal } from "../../app/services/storage/db";
+import { truncateMiddle } from "../../utils/truncate";
 
 // confirmation dialog component
 function ConfirmDialog(props: {
@@ -492,7 +493,7 @@ export function StorageSettingsView() {
                       <For each={remoteCacheStats().filter((s) => s.totalSize > 0)}>
                         {(stats) => {
                           const remote = remotes().find((r) => r.remote_id === stats.remoteId);
-                          const remoteName = remote?.name || stats.remoteId.slice(0, 8) + "...";
+                          const remoteName = remote?.name || truncateMiddle(stats.remoteId, 12);
                           return (
                             <div class="flex items-center justify-between text-xs">
                               <div class="flex items-center gap-2 min-w-0 flex-1">

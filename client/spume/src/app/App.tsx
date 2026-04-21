@@ -176,7 +176,7 @@ export function App() {
             await upsertTauriRemote({
               name: newConfig.server_name,
               base_url: newConfig.server_url,
-              server_image_path: newConfig.server_image_path,
+              server_image_path: newConfig.server_image_path ?? undefined,
             });
             console.log("[handleTauriEvent] server-image-updated: refreshed remote");
           } else {
@@ -277,7 +277,7 @@ export function App() {
       const remote = await upsertTauriRemote({
         name: config.server_name,
         base_url: config.server_url,
-        server_image_path: config.server_image_path,
+        server_image_path: config.server_image_path ?? undefined,
       });
       // use useRemoteSource to properly switch data source AND set active_remote_id
       await useRemoteSource(remote);
@@ -291,7 +291,7 @@ export function App() {
           const updatedRemote = await upsertTauriRemote({
             name: newConfig.server_name,
             base_url: newConfig.server_url,
-            server_image_path: newConfig.server_image_path,
+            server_image_path: newConfig.server_image_path ?? undefined,
           });
           await useRemoteSource(updatedRemote);
           queryClient.invalidateQueries();
@@ -532,7 +532,9 @@ export function App() {
               alac: "audio/alac",
               wma: "audio/x-ms-wma",
             };
-            files.push(new File([data], filename, { type: mimeMap[ext] || "audio/mpeg" }));
+            files.push(
+              new File([data as BlobPart], filename, { type: mimeMap[ext] || "audio/mpeg" })
+            );
           } catch (err) {
             console.error("failed to read file:", filePath, err);
           }
