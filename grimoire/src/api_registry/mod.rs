@@ -232,7 +232,9 @@ pub mod type_registry {
     };
 
     // blob metadata request types
-    use crate::offal::media_blobz::{GetBlobMetadataByBlake3Request, GetBlobMetadataRequest};
+    use crate::offal::media_blobz::{
+        GetBlobMetadataByBlake3Request, GetBlobMetadataRequest, HasBlobsRequest, HasBlobsResponse,
+    };
 
     // upload request types
     use crate::offal::upload::UploadMusicByBlake3Request;
@@ -840,6 +842,11 @@ pub mod type_registry {
 
         gen.add_schema::<GetBlobMetadataByBlake3Request>("GetBlobMetadataByBlake3Request");
         registered.insert("GetBlobMetadataByBlake3Request".to_string());
+
+        gen.add_schema::<HasBlobsRequest>("HasBlobsRequest");
+        registered.insert("HasBlobsRequest".to_string());
+        gen.add_schema::<HasBlobsResponse>("HasBlobsResponse");
+        registered.insert("HasBlobsResponse".to_string());
 
         // upload request types
         gen.add_schema::<UploadMusicByBlake3Request>("UploadMusicByBlake3Request");

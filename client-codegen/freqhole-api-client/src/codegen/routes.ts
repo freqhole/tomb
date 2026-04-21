@@ -81,6 +81,7 @@ export const routes = {
     get_playlist_images: { method: 'POST', path: '/api/playlists/images', req: s.GetPlaylistRequestSchema, resp: z.string().array(), auth: { type: 'authenticated' } as const },
     get_rating_stats: { method: 'POST', path: '/api/ratings/stats', req: s.GetRatingStatsRequestSchema, resp: s.RatingStatsSchema, auth: { type: 'authenticated' } as const },
     get_tag: { method: 'POST', path: '/api/tags/get', req: s.GetTagRequestSchema, resp: s.TagSchema, auth: { type: 'authenticated' } as const },
+    has_blobs: { method: 'POST', path: '/api/blobz/has', req: s.HasBlobsRequestSchema, resp: s.HasBlobsResponseSchema, auth: { type: 'authenticated' } as const },
     list_favorites: { method: 'POST', path: '/api/favorites/list', req: s.ListFavoritesRequestSchema, resp: s.ListFavoritesResponseSchema, auth: { type: 'role', role: 'member' } as const },
     list_jobs: { method: 'POST', path: '/api/jobs/list', req: s.ListJobsRequestSchema, resp: s.JobResponseSchema.array(), auth: { type: 'authenticated' } as const },
     list_listen_sessions: { method: 'POST', path: '/api/analytics/sessions/list', req: s.ListListenSessionsRequestSchema, resp: s.ListListenSessionsResponseSchema, auth: { type: 'authenticated' } as const },

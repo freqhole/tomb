@@ -1265,6 +1265,20 @@ export const GetTagRequestSchema = z.object({
 });
 export type GetTagRequest = z.infer<typeof GetTagRequestSchema>;
 
+export const HasBlobsRequestSchema = z.object({
+  blake3s: z.array(z.string()),
+  sha256s: z.array(z.string())
+});
+export type HasBlobsRequest = z.infer<typeof HasBlobsRequestSchema>;
+
+export const HasBlobsResponseSchema = z.object({
+  blake3s_present: z.array(z.string()),
+  blake3s_missing: z.array(z.string()),
+  sha256s_present: z.array(z.string()),
+  sha256s_missing: z.array(z.string())
+});
+export type HasBlobsResponse = z.infer<typeof HasBlobsResponseSchema>;
+
 export const HealthResponseSchema = z.object({
   status: z.string(),
   database: z.string()

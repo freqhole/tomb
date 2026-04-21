@@ -527,3 +527,52 @@ pub async fn list_blobs_needing_blake3(limit: i64) -> GrimoireResult<Vec<MediaBl
 
     Ok(blobs_with_metadata)
 }
+
+/// return the subset of `blake3s` for which a non-deleted media_blob row exists.
+///
+/// used by the send-to-remote dedupe negotiation step to avoid re-shipping
+/// audio blobs the destination already has.
+pub async fn find_present_blake3s(blake3s: &[String]) -> GrimoireResult<Vec<String>> {
+    if blake3s.is_empty() {
+        return Ok(Vec::new());
+    }
+    let pool = database::connect().await?;
+
+    // bind the hash list as a single json array and unpack it via
+    // `json_each` so we keep compile-time-checked sql via `query_scalar!`.
+    let hashes_json = serde_json::to_string(blake3s).unwrap_or_else(|_| "[]".to_string());
+    let rows: Vec<String> = sqlx::query_scalar!(
+        r#"SELECT blake3 as "blake3!"
+           FROM media_blobz
+           WHERE blake3 IS NOT NULL
+             AND deleted_at IS NULL
+             AND blake3 IN (SELECT value FROM json_each(?))"#,
+        hashes_json
+    )
+    .fetch_all(&pool)
+    .await?;
+    Ok(rows)
+}
+
+/// return the subset of `sha256s` for which a non-deleted media_blob row exists.
+///
+/// used by the send-to-remote dedupe negotiation step for image blobs and any
+/// other content addressed by sha256 rather than blake3.
+pub async fn find_present_sha256s(sha256s: &[String]) -> GrimoireResult<Vec<String>> {
+    if sha256s.is_empty() {
+        return Ok(Vec::new());
+    }
+    let pool = database::connect().await?;
+
+    let hashes_json = serde_json::to_string(sha256s).unwrap_or_else(|_| "[]".to_string());
+    let rows: Vec<String> = sqlx::query_scalar!(
+        r#"SELECT sha256 as "sha256!"
+           FROM media_blobz
+           WHERE deleted_at IS NULL
+             AND sha256 IN (SELECT value FROM json_each(?))"#,
+        hashes_json
+    )
+    .fetch_all(&pool)
+    .await?;
+    Ok(rows)
+}
