@@ -1,4 +1,4 @@
-import { createSignal, onMount, Show } from "solid-js";
+import { createSignal, createEffect, on, onMount, Show } from "solid-js";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { resolvePath } from "../util/resolvePath";
@@ -61,7 +61,25 @@ export default function SettingsView() {
     await loadSyncSettings();
   });
 
+  // retarget when the active admin scope changes (local <-> remote).
+  createEffect(
+    on(
+      () => admin.current(),
+      () => {
+        // clear stale state so the user sees something change immediately
+        setServerConfig(null);
+        setImageThumbnail(null);
+        setImageMessage("");
+        setInfoMessage("");
+        loadServerConfig();
+      },
+      { defer: true },
+    ),
+  );
+
   async function loadSyncSettings() {
+    // sync settings are charnel-app-local, not server-scoped
+    if (admin.isRemote()) return;
     try {
       const enabled = await invoke<boolean>("get_sync_queue_to_local");
       setSyncQueueToLocal(enabled);
@@ -84,7 +102,9 @@ export default function SettingsView() {
 
   async function loadServerConfig() {
     try {
-      const config = await invoke<ServerConfig>("get_server_config");
+      const config = admin.isRemote()
+        ? await admin.dispatchOrThrow<ServerConfig>("server_get_config", {})
+        : await invoke<ServerConfig>("get_server_config");
       setServerConfig(config);
       setEditName(config.name);
       setEditDescription(config.description || "");
@@ -92,11 +112,21 @@ export default function SettingsView() {
       // load thumbnail if we have an image (blob_id or image_path)
       if (config.image_blob_id || config.image_path) {
         try {
-          const thumbnail = await invoke<string>("get_server_image_thumbnail");
+          const thumbnail = admin.isRemote()
+            ? (
+                await admin.dispatchOrThrow<{ data: string }>(
+                  "server_get_image_thumbnail",
+                  { size: 128 },
+                )
+              ).data
+            : await invoke<string>("get_server_image_thumbnail");
           setImageThumbnail(thumbnail);
         } catch (e) {
           console.error("failed to load thumbnail:", e);
+          setImageThumbnail(null);
         }
+      } else {
+        setImageThumbnail(null);
       }
     } catch (e) {
       console.error("failed to load server config:", e);
@@ -117,10 +147,15 @@ export default function SettingsView() {
     setInfoIsError(false);
 
     try {
-      await invoke("update_server_info", {
+      const args = {
         name: nameChanged ? editName() : null,
         description: descChanged ? editDescription() : null,
-      });
+      };
+      if (admin.isRemote()) {
+        await admin.dispatchOrThrow("server_update_info", args);
+      } else {
+        await invoke("update_server_info", args);
+      }
       setInfoMessage("server info updated");
       setInfoIsError(false);
       await loadServerConfig();
@@ -424,65 +459,70 @@ export default function SettingsView() {
             </Show>
           </div>
 
-          <div class="settings-section" style={{ "margin-top": "2rem" }}>
-            <h2>
-              sync setting<span class="pinky">s</span>
-            </h2>
+          <Show when={!admin.isRemote()}>
+            <div class="settings-section" style={{ "margin-top": "2rem" }}>
+              <h2>
+                sync setting<span class="pinky">s</span>
+              </h2>
 
-            <div
-              style={{
-                display: "flex",
-                "align-items": "center",
-                gap: "1rem",
-                "margin-top": "1rem",
-              }}
-            >
-              <button
-                class={`toggle-button ${syncQueueToLocal() ? "active" : ""}`}
-                onClick={toggleSyncQueueToLocal}
+              <div
                 style={{
-                  flex: "none",
-                  width: "44px",
-                  height: "24px",
-                  "border-radius": "12px",
-                  border: "none",
-                  padding: "0",
-                  background: syncQueueToLocal()
-                    ? "var(--color-accent-500, #ff69b4)"
-                    : "var(--color-bg-tertiary, #333)",
-                  cursor: "pointer",
-                  position: "relative",
-                  transition: "background 0.2s",
-                  "flex-shrink": "0",
+                  display: "flex",
+                  "align-items": "center",
+                  gap: "1rem",
+                  "margin-top": "1rem",
                 }}
               >
-                <div
+                <button
+                  class={`toggle-button ${syncQueueToLocal() ? "active" : ""}`}
+                  onClick={toggleSyncQueueToLocal}
                   style={{
-                    position: "absolute",
-                    top: "4px",
-                    left: syncQueueToLocal() ? "24px" : "4px",
-                    width: "16px",
-                    height: "16px",
-                    "border-radius": "50%",
-                    background: "white",
-                    transition: "left 0.2s",
-                  }}
-                />
-              </button>
-              <div>
-                <div style={{ "font-weight": "500" }}>sync queue to local</div>
-                <div
-                  style={{
-                    "font-size": "0.875rem",
-                    color: "var(--color-text-secondary, #888)",
-                    "margin-top": "0.25rem",
+                    flex: "none",
+                    width: "44px",
+                    height: "24px",
+                    "border-radius": "12px",
+                    border: "none",
+                    padding: "0",
+                    background: syncQueueToLocal()
+                      ? "var(--color-accent-500, #ff69b4)"
+                      : "var(--color-bg-tertiary, #333)",
+                    cursor: "pointer",
+                    position: "relative",
+                    transition: "background 0.2s",
+                    "flex-shrink": "0",
                   }}
                 >
-                  automatically download remote songs in queue to local library
+                  <div
+                    style={{
+                      position: "absolute",
+                      top: "4px",
+                      left: syncQueueToLocal() ? "24px" : "4px",
+                      width: "16px",
+                      height: "16px",
+                      "border-radius": "50%",
+                      background: "white",
+                      transition: "left 0.2s",
+                    }}
+                  />
+                </button>
+                <div>
+                  <div style={{ "font-weight": "500" }}>
+                    sync queue to local
+                  </div>
+                  <div
+                    style={{
+                      "font-size": "0.875rem",
+                      color: "var(--color-text-secondary, #888)",
+                      "margin-top": "0.25rem",
+                    }}
+                  >
+                    automatically download remote songs in queue to local
+                    library
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
+          </Show>
         </div>
       </Show>
 

@@ -73,6 +73,9 @@ pub async fn handle(
         "config_set" => config_set(args).await,
         "server_restart" => server_restart(args).await,
         "server_info" => crate::offal::public::health::server_info().await,
+        "server_get_config" => server_get_config().await,
+        "server_get_image_thumbnail" => server_get_image_thumbnail(args).await,
+        "server_update_info" => server_update_info(args).await,
         "server_update_image" => server_update_image(args).await,
 
         _ => command_not_found(command),
@@ -648,6 +651,134 @@ async fn server_update_image(args: JsonValue) -> GrimoireResponse<JsonValue> {
             "filename": filename,
             "image_path": dest_str,
             "image_blob_id": blob_id,
+        }),
+    )
+}
+
+/// read the server-display fields out of the running config.
+/// shape mirrors the local `get_server_config` tauri command so the wizard
+/// can use one shape for both targets.
+async fn server_get_config() -> GrimoireResponse<JsonValue> {
+    let cfg = get_config();
+    let server = cfg.server.as_ref();
+    let name = server
+        .map(|s| s.name.clone())
+        .unwrap_or_else(|| "freqhole".to_string());
+    let description = server.and_then(|s| s.description.clone());
+    let image_path = server
+        .and_then(|s| s.image_path.as_ref())
+        .map(|p| p.display().to_string());
+    let image_blob_id = server.and_then(|s| s.image_blob_id.clone());
+    GrimoireResponse::success(
+        "ok",
+        json!({
+            "name": name,
+            "description": description,
+            "image_path": image_path,
+            "image_blob_id": image_blob_id,
+        }),
+    )
+}
+
+/// return the server image as base64. tries a 128px thumbnail first, then
+/// falls back to the original blob, then to `[server].image_path` on disk.
+/// args: optional `{ size: u32 }` (default 128).
+async fn server_get_image_thumbnail(args: JsonValue) -> GrimoireResponse<JsonValue> {
+    use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
+
+    let size = args
+        .get("size")
+        .and_then(|v| v.as_u64())
+        .map(|v| v as u32)
+        .unwrap_or(128);
+
+    let cfg = get_config();
+    let server = match cfg.server.as_ref() {
+        Some(s) => s,
+        None => return bad_request("no server config"),
+    };
+
+    // prefer blob_id (has thumbnails)
+    if let Some(blob_id) = &server.image_blob_id {
+        let path = match crate::blob_data::find_existing_thumbnail(blob_id, size).await {
+            Some(t) => t.local_path,
+            None => crate::media_blobz::get_media_blob(blob_id)
+                .await
+                .ok()
+                .and_then(|b| b.local_path),
+        };
+        if let Some(p) = path {
+            match std::fs::read(&p) {
+                Ok(bytes) => {
+                    return GrimoireResponse::success("ok", json!({ "data": B64.encode(&bytes) }));
+                }
+                Err(e) => return internal(format!("failed to read image: {}", e)),
+            }
+        }
+    }
+
+    // fall back to image_path
+    if let Some(image_path) = &server.image_path {
+        let full = if image_path.is_absolute() {
+            image_path.clone()
+        } else {
+            cfg.data_dir.join(image_path)
+        };
+        if full.exists() {
+            match std::fs::read(&full) {
+                Ok(bytes) => {
+                    return GrimoireResponse::success("ok", json!({ "data": B64.encode(&bytes) }));
+                }
+                Err(e) => return internal(format!("failed to read image: {}", e)),
+            }
+        }
+    }
+
+    GrimoireResponse::failure(
+        "no server image configured",
+        vec![ErrorDetail::new(
+            "no_server_image",
+            "no server image configured",
+            "neither image_blob_id nor image_path resolved to a readable file",
+        )],
+    )
+}
+
+/// update `[server].name` and/or `[server].description`. either field
+/// may be omitted to leave it unchanged.
+async fn server_update_info(args: JsonValue) -> GrimoireResponse<JsonValue> {
+    let name = opt_str(&args, "name");
+    let description = opt_str(&args, "description");
+    if name.is_none() && description.is_none() {
+        return bad_request("must provide at least one of: name, description");
+    }
+
+    let config_path = match find_config(None) {
+        Ok(p) => p,
+        Err(e) => return internal(format!("could not locate config file: {}", e)),
+    };
+
+    let mut updates: Vec<(&str, toml_edit::Value)> = Vec::new();
+    if let Some(n) = &name {
+        updates.push(("server.name", n.clone().into()));
+    }
+    if let Some(d) = &description {
+        updates.push(("server.description", d.clone().into()));
+    }
+    if let Err(e) = crate::config::set_config_values(&config_path, &updates) {
+        return internal(format!("failed to update config: {}", e));
+    }
+
+    // reload cached CONFIG so subsequent reads see the new values
+    if let Err(e) = crate::config::init_config(Some(config_path.clone())) {
+        return internal(format!("config written but reload failed: {}", e));
+    }
+
+    GrimoireResponse::success(
+        "server info updated",
+        json!({
+            "name": name,
+            "description": description,
         }),
     )
 }

@@ -1,6 +1,14 @@
-import { createSignal, onMount, onCleanup, Show } from "solid-js";
+import {
+  createSignal,
+  createEffect,
+  on,
+  onMount,
+  onCleanup,
+  Show,
+} from "solid-js";
 import { invoke } from "@tauri-apps/api/core";
 import * as monaco from "monaco-editor";
+import { useAdminTransport } from "../admin/context";
 
 interface SaveConfigResult {
   success: boolean;
@@ -28,6 +36,7 @@ export interface ConfigViewProps {
 
 export default function ConfigView(props: ConfigViewProps = {}) {
   const embedded = () => props.embedded ?? false;
+  const admin = useAdminTransport();
   const [configPath, setConfigPath] = createSignal("");
   const [isSaving, setIsSaving] = createSignal(false);
   const [saveMessage, setSaveMessage] = createSignal("");
@@ -70,10 +79,55 @@ export default function ConfigView(props: ConfigViewProps = {}) {
     editor?.dispose();
   });
 
+  // retarget when active admin scope changes (local <-> remote).
+  createEffect(
+    on(
+      () => admin.current(),
+      async () => {
+        setSaveMessage("");
+        setSaveErrors([]);
+        setIsError(false);
+        await loadConfigPath();
+        if (editor) {
+          // editor already mounted - just swap contents
+          try {
+            const content = await fetchConfigContent();
+            editor.setValue(content);
+          } catch (e) {
+            setSaveMessage(`failed to load config: ${e}`);
+            setIsError(true);
+          }
+        } else {
+          await loadConfigContent();
+        }
+        await checkConfigUpgrade();
+      },
+      { defer: true },
+    ),
+  );
+
+  async function fetchConfigContent(): Promise<string> {
+    if (admin.isRemote()) {
+      const result = await admin.dispatchOrThrow<{
+        path: string;
+        toml: string;
+      }>("config_get", {});
+      // also opportunistically refresh path display
+      setConfigPath(result.path);
+      return result.toml;
+    }
+    return await invoke<string>("read_config_file");
+  }
+
   async function loadConfigPath() {
     try {
-      const path = await invoke<string>("get_config_path");
-      setConfigPath(path);
+      if (admin.isRemote()) {
+        // path comes back from config_get; placeholder until then
+        setConfigPath("(remote)");
+      } else {
+        const path = await invoke<string>("get_config_path");
+        setConfigPath(path);
+      }
     } catch (e) {
       console.error("failed to load config path:", e);
     }
@@ -81,7 +135,7 @@ export default function ConfigView(props: ConfigViewProps = {}) {
 
   async function loadConfigContent() {
     try {
-      const content = await invoke<string>("read_config_file");
+      const content = await fetchConfigContent();
       initEditor(content);
     } catch (e) {
       console.error("failed to load config content:", e);
@@ -93,6 +147,11 @@ export default function ConfigView(props: ConfigViewProps = {}) {
   }
 
   async function checkConfigUpgrade() {
+    // upgrade logic only applies to the local config file
+    if (admin.isRemote()) {
+      setUpgradeStatus(null);
+      return;
+    }
     try {
       const status = await invoke<ConfigUpgradeStatus>(
         "check_config_needs_upgrade",
@@ -198,26 +257,33 @@ export default function ConfigView(props: ConfigViewProps = {}) {
     const content = editor.getValue();
 
     try {
-      const result = await invoke<SaveConfigResult>("save_config_file", {
-        content,
-      });
-
-      if (result.success) {
-        setSaveMessage(result.message);
+      if (admin.isRemote()) {
+        // config_set validates + writes + reloads in one call
+        await admin.dispatchOrThrow("config_set", { toml: content });
+        setSaveMessage("remote config saved & reloaded");
         setIsError(false);
+      } else {
+        const result = await invoke<SaveConfigResult>("save_config_file", {
+          content,
+        });
 
-        // reload config and restart P2P endpoint after successful save
-        try {
-          await invoke("reload_config");
-          setSaveMessage(`${result.message} - config reloaded`);
-        } catch (e) {
-          setSaveMessage(`${result.message} - failed to reload config: ${e}`);
+        if (result.success) {
+          setSaveMessage(result.message);
+          setIsError(false);
+
+          // reload config and restart P2P endpoint after successful save
+          try {
+            await invoke("reload_config");
+            setSaveMessage(`${result.message} - config reloaded`);
+          } catch (e) {
+            setSaveMessage(`${result.message} - failed to reload config: ${e}`);
+            setIsError(true);
+          }
+        } else {
+          setSaveMessage(result.message);
+          setSaveErrors(result.validation_errors);
           setIsError(true);
         }
-      } else {
-        setSaveMessage(result.message);
-        setSaveErrors(result.validation_errors);
-        setIsError(true);
       }
     } catch (e) {
       setSaveMessage(`failed to save config: ${e}`);
@@ -232,9 +298,13 @@ export default function ConfigView(props: ConfigViewProps = {}) {
     if (!editor) return;
 
     try {
-      const content = await invoke<string>("read_config_file");
+      const content = await fetchConfigContent();
       editor.setValue(content);
-      setSaveMessage("config reloaded from disk");
+      setSaveMessage(
+        admin.isRemote()
+          ? "remote config reloaded"
+          : "config reloaded from disk",
+      );
       setSaveErrors([]);
       setIsError(false);
     } catch (e) {
@@ -297,7 +367,7 @@ export default function ConfigView(props: ConfigViewProps = {}) {
         >
           reload
         </button>
-        <Show when={configPath()}>
+        <Show when={configPath() && !admin.isRemote()}>
           <button
             class="secondary small"
             onClick={openConfigDir}
