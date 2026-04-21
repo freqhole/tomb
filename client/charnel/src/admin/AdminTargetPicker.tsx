@@ -91,6 +91,25 @@ export function AdminTargetPicker() {
     return match?.remote_id ?? "local";
   };
 
+  async function removeCurrentRemote() {
+    const c = transport.current();
+    if (c.kind !== "remote") return;
+    const match = remotes().find((r) => r.peer_addr === c.peerAddr);
+    if (!match) return;
+    const ok = confirm(
+      `remove remote "${match.name || shortPeerAddr(c.peerAddr ?? "")}" from this device?\n\n` +
+        `the remote freqhole instance is unaffected. you can re-add it later with the same node id.`,
+    );
+    if (!ok) return;
+    try {
+      await invoke<boolean>("remotez_remove", { remoteId: match.remote_id });
+      transport.setCurrent(LOCAL_TARGET);
+      await load();
+    } catch (e) {
+      setError(`failed to remove remote: ${e}`);
+    }
+  }
+
   function resetAddForm() {
     setAddName("");
     setAddPeerAddr("");
@@ -200,6 +219,16 @@ export function AdminTargetPicker() {
           )}
         </For>
       </select>
+      <Show when={transport.isRemote()}>
+        <button
+          type="button"
+          class="admin-target-remove"
+          onClick={removeCurrentRemote}
+          title="remove this remote from the local registry"
+        >
+          remove this remote
+        </button>
+      </Show>
       <Show when={error()}>
         <div class="admin-target-error">{error()}</div>
       </Show>

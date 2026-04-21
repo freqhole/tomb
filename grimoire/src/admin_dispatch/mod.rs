@@ -73,6 +73,7 @@ pub async fn handle(
         "config_set" => config_set(args).await,
         "server_restart" => server_restart(args).await,
         "server_info" => crate::offal::public::health::server_info().await,
+        "server_update_image" => server_update_image(args).await,
 
         _ => command_not_found(command),
     }
@@ -571,6 +572,82 @@ async fn server_restart(args: JsonValue) -> GrimoireResponse<JsonValue> {
         "graceful shutdown initiated; supervisor must respawn the process",
         json!({
             "reason": reason,
+        }),
+    )
+}
+
+/// upload a new server image. accepts base64-encoded raw image data + the
+/// original filename (used only for logging / mime hint). resizes to a
+/// 200x200 webp, persists it under `data_dir/freqhole-icon.webp`, updates
+/// `[server].image_path`, and refreshes `image_blob_id`.
+///
+/// this is the remote-target counterpart to the local
+/// `update_server_image` tauri command — that one reads from a local file
+/// path the user picked; this one accepts the bytes directly so the
+/// wizard can talk to a remote freqhole instance.
+async fn server_update_image(args: JsonValue) -> GrimoireResponse<JsonValue> {
+    use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
+
+    let data_b64 = match require_str(&args, "data") {
+        Ok(v) => v,
+        Err(r) => return r,
+    };
+    let filename = opt_str(&args, "filename").unwrap_or_else(|| "image".to_string());
+
+    // strip optional data url prefix
+    let raw_b64 = data_b64
+        .split_once(",")
+        .map(|(prefix, rest)| {
+            if prefix.starts_with("data:") {
+                rest
+            } else {
+                data_b64.as_str()
+            }
+        })
+        .unwrap_or(data_b64.as_str());
+
+    let bytes = match B64.decode(raw_b64) {
+        Ok(b) => b,
+        Err(e) => return bad_request(format!("invalid base64 image data: {}", e)),
+    };
+
+    // resize to 200x200 webp using grimoire helper
+    let webp = match crate::blob_data::resize_to_square_webp(&bytes, 200) {
+        Ok(b) => b,
+        Err(e) => return internal(format!("failed to resize image: {}", e)),
+    };
+
+    let cfg = get_config();
+    let dest = cfg.data_dir.join("freqhole-icon.webp");
+    if let Err(e) = std::fs::write(&dest, &webp) {
+        return internal(format!("failed to write image: {}", e));
+    }
+    let dest_str = dest.display().to_string();
+
+    // persist absolute path into the config file
+    let config_path = match find_config(None) {
+        Ok(p) => p,
+        Err(e) => return internal(format!("could not locate config file: {}", e)),
+    };
+    if let Err(e) = crate::config::set_config_values(
+        &config_path,
+        &[("server.image_path", dest_str.clone().into())],
+    ) {
+        return internal(format!("failed to update config: {}", e));
+    }
+
+    // (re)create the blob and capture its id
+    let blob_id = match crate::config::ensure_server_image_blob(&config_path).await {
+        Ok(id) => id,
+        Err(e) => return internal(format!("failed to create image blob: {}", e)),
+    };
+
+    GrimoireResponse::success(
+        "server image updated",
+        json!({
+            "filename": filename,
+            "image_path": dest_str,
+            "image_blob_id": blob_id,
         }),
     )
 }

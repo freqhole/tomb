@@ -19,8 +19,22 @@ interface UpdateServerImageResult {
   image_blob_id: string;
 }
 
+/** encode an ArrayBuffer to base64 in chunks (avoids call-stack blowups
+ * on large buffers when using `String.fromCharCode(...arr)`). */
+function arrayBufferToBase64(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer);
+  const chunkSize = 0x8000;
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    const chunk = bytes.subarray(i, i + chunkSize);
+    binary += String.fromCharCode(...chunk);
+  }
+  return btoa(binary);
+}
+
 export default function SettingsView() {
   const admin = useAdminTransport();
+  let remoteFileInput: HTMLInputElement | undefined;
   const [activeTab, setActiveTab] = createSignal<"settings" | "config">(
     "settings",
   );
@@ -119,6 +133,12 @@ export default function SettingsView() {
   }
 
   async function handleSelectImage() {
+    if (admin.isRemote()) {
+      // remote target: use a browser file picker, base64 the bytes, ship
+      // them over admin_dispatch. avoids needing a server-local path.
+      remoteFileInput?.click();
+      return;
+    }
     try {
       const selected = await open({
         multiple: false,
@@ -162,6 +182,35 @@ export default function SettingsView() {
       }
     } catch (e) {
       console.error("failed to open file dialog:", e);
+    }
+  }
+
+  async function handleRemoteImageSelected(e: Event) {
+    const input = e.currentTarget as HTMLInputElement;
+    const file = input.files?.[0];
+    // reset value so picking the same file again still triggers change
+    input.value = "";
+    if (!file) return;
+    setIsUpdating(true);
+    setImageMessage("");
+    setImageIsError(false);
+    try {
+      const buffer = await file.arrayBuffer();
+      const data = arrayBufferToBase64(buffer);
+      const result = await admin.dispatchOrThrow<{
+        image_path: string;
+        image_blob_id: string;
+      }>("server_update_image", { data, filename: file.name });
+      setImageMessage(
+        `remote server image updated (blob ${result.image_blob_id})`,
+      );
+      setImageIsError(false);
+      await loadServerConfig();
+    } catch (err) {
+      setImageMessage(`failed to update image: ${err}`);
+      setImageIsError(true);
+    } finally {
+      setIsUpdating(false);
     }
   }
 
@@ -340,15 +389,17 @@ export default function SettingsView() {
                 <button
                   class="button"
                   onClick={handleSelectImage}
-                  disabled={isUpdating() || admin.isRemote()}
-                  title={
-                    admin.isRemote()
-                      ? "local file picker disabled while managing a remote target. switch to local to upload images."
-                      : undefined
-                  }
+                  disabled={isUpdating()}
                 >
                   {isUpdating() ? "updating..." : "choose image"}
                 </button>
+                <input
+                  ref={remoteFileInput}
+                  type="file"
+                  accept="image/png,image/jpeg,image/gif,image/webp"
+                  style={{ display: "none" }}
+                  onChange={handleRemoteImageSelected}
+                />
 
                 <Show when={serverConfig()?.image_path}>
                   <span

@@ -461,3 +461,35 @@ knocking_enabled = false
 #
 # set to 0 to disable (use random port) - this is the default behavior
 bind_port = 0
+
+# ============================================================================
+# OPTIONAL: remote admin over P2P
+# this entire section is optional (default: disabled)
+#
+# when enabled, the server registers a dedicated `freqhole-admin/1` ALPN on
+# its iroh endpoint. authenticated admin users can then drive admin
+# operations (knocks, users, invites, peer-list mgmt, library, config, etc.)
+# from a remote charnel/tauri wizard without going through the HTTP API.
+#
+# auth: the incoming connection's node_id is resolved to a freqhole user.
+# only users with `role == "admin"` are accepted. the optional
+# `allowed_node_ids` allowlist further restricts which admin node_ids may
+# connect (empty = allow any admin user).
+#
+# requires `[federation].enabled = true` (the iroh endpoint comes from
+# federation setup). nothing changes for the HTTP API surface.
+# ============================================================================
+[federation.remote_admin]
+# REQUIRED when section exists: enable the remote admin ALPN (default: false)
+enabled = false
+
+# OPTIONAL: extra allowlist of node_ids permitted to use remote admin.
+# empty array = allow any user with `role == "admin"`.
+# non-empty = only the listed node_ids (still must also be admin users).
+allowed_node_ids = []
+
+# OPTIONAL: maximum admin message size in MB (default: 16)
+# admin requests/responses are JSON over a single bi-stream. this caps the
+# size of any single message — relevant mostly for image uploads via
+# `library_image_upload` (base64-encoded blob in the request).
+max_message_size_mb = 16
