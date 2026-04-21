@@ -1,5 +1,6 @@
 import { createSignal, onMount, For, Show } from "solid-js";
 import { invoke } from "@tauri-apps/api/core";
+import { dispatchOrThrow } from "../admin/transport";
 
 interface User {
   id: string;
@@ -66,7 +67,9 @@ export default function UsersView() {
     setLoading(true);
     setError("");
     try {
-      const result = await invoke<User[]>("list_users");
+      const result = await dispatchOrThrow<User[]>("users_list", {
+        include_deleted: false,
+      });
       setUsers(result);
     } catch (e) {
       setError(String(e));
@@ -91,7 +94,10 @@ export default function UsersView() {
 
   async function updateRole(userId: string, newRole: string) {
     try {
-      await invoke("update_user_role", { userId, role: newRole });
+      await dispatchOrThrow("users_update_role", {
+        user_id: userId,
+        role: newRole,
+      });
       await loadUsers();
     } catch (e) {
       setError(String(e));
@@ -101,7 +107,7 @@ export default function UsersView() {
   async function deleteUser(userId: string, username: string) {
     if (!confirm(`delete user "${username}"? this cannot be undone.`)) return;
     try {
-      await invoke("delete_user", { userId });
+      await dispatchOrThrow("users_delete", { user_id: userId });
       await loadUsers();
     } catch (e) {
       setError(String(e));
@@ -122,7 +128,7 @@ export default function UsersView() {
 
   async function deactivateInvite(code: string) {
     try {
-      await invoke("deactivate_invite", { code });
+      await dispatchOrThrow("invites_revoke", { code });
       await loadInvites();
     } catch (e) {
       setError(String(e));

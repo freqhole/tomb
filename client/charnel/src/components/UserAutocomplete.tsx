@@ -9,7 +9,7 @@ import {
   onCleanup,
   createEffect,
 } from "solid-js";
-import { invoke } from "@tauri-apps/api/core";
+import { dispatchOrThrow } from "../admin/transport";
 
 interface UserInfo {
   id: string;
@@ -77,7 +77,9 @@ export function UserAutocomplete(props: UserAutocompleteProps) {
   async function loadUsers() {
     setLoading(true);
     try {
-      const result = await invoke<UserInfo[]>("list_users");
+      const result = await dispatchOrThrow<UserInfo[]>("users_list", {
+        include_deleted: false,
+      });
       setUsers(result);
     } catch (e) {
       console.error("failed to load users:", e);

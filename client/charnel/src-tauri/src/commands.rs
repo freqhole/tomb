@@ -564,16 +564,6 @@ pub fn save_config_file(app_handle: tauri::AppHandle, content: String) -> SaveCo
     }
 }
 
-/// user info for listing
-#[derive(Debug, Serialize)]
-pub struct UserInfo {
-    pub id: String,
-    pub username: String,
-    pub role: String,
-    pub has_api_key: bool,
-    pub created_at: i64,
-}
-
 /// get the first root user for Tauri admin operations
 async fn get_root_user() -> Result<grimoire::users::User, String> {
     let service = grimoire::users::UserService::new();
@@ -581,87 +571,6 @@ async fn get_root_user() -> Result<grimoire::users::User, String> {
     response
         .data
         .ok_or_else(|| "no root user found - run setup first".to_string())
-}
-
-/// list all users
-#[tauri::command]
-pub async fn list_users(app_handle: tauri::AppHandle) -> Result<Vec<UserInfo>, String> {
-    ensure_initialized(&app_handle).await?;
-    let service = grimoire::users::UserService::new();
-    let root_user = get_root_user().await?;
-
-    let result = service
-        .list_users(
-            &grimoire::users::UserQueryParams {
-                include_deleted: Some(false),
-                ..Default::default()
-            },
-            &root_user,
-        )
-        .await;
-
-    match result.data {
-        Some(users) => Ok(users
-            .into_iter()
-            .map(|u| UserInfo {
-                id: u.id,
-                username: u.username,
-                role: format!("{:?}", u.role).to_lowercase(),
-                has_api_key: u.api_key.is_some(),
-                created_at: u.created_at,
-            })
-            .collect()),
-        None => Err(result.message),
-    }
-}
-
-/// update a user's role
-#[tauri::command]
-pub async fn update_user_role(
-    app_handle: tauri::AppHandle,
-    user_id: String,
-    role: String,
-) -> Result<(), String> {
-    ensure_initialized(&app_handle).await?;
-    let service = grimoire::users::UserService::new();
-
-    // prevent setting role to root via UI
-    let user_role = match role.to_lowercase().as_str() {
-        "root" => return Err("cannot set user role to root".to_string()),
-        "admin" => grimoire::users::UserRole::Admin,
-        "viewer" => grimoire::users::UserRole::Viewer,
-        _ => grimoire::users::UserRole::Member,
-    };
-
-    let update_request = grimoire::users::UpdateUserRequest {
-        role: Some(user_role),
-    };
-
-    let root_user = get_root_user().await?;
-    let result = service
-        .update_user(&user_id, &update_request, &root_user)
-        .await;
-
-    if result.is_success() {
-        Ok(())
-    } else {
-        Err(result.message)
-    }
-}
-
-/// delete a user (soft delete)
-#[tauri::command]
-pub async fn delete_user(app_handle: tauri::AppHandle, user_id: String) -> Result<(), String> {
-    ensure_initialized(&app_handle).await?;
-    let service = grimoire::users::UserService::new();
-    let root_user = get_root_user().await?;
-    let result = service.delete_user(&user_id, &root_user).await;
-
-    if result.is_success() {
-        Ok(())
-    } else {
-        Err(result.message)
-    }
 }
 
 /// invite code info for listing
@@ -790,21 +699,6 @@ pub async fn generate_invites(
     match result.data {
         Some(codes) => Ok(codes.into_iter().map(|c| c.code).collect()),
         None => Err(result.message),
-    }
-}
-
-/// deactivate an invite code
-#[tauri::command]
-pub async fn deactivate_invite(app_handle: tauri::AppHandle, code: String) -> Result<(), String> {
-    ensure_initialized(&app_handle).await?;
-    let service = grimoire::users::UserService::new();
-    let root_user = get_root_user().await?;
-    let result = service.deactivate_invite_code(&code, &root_user).await;
-
-    if result.is_success() {
-        Ok(())
-    } else {
-        Err(result.message)
     }
 }
 
@@ -1853,25 +1747,6 @@ pub async fn list_peer_nodes(app_handle: tauri::AppHandle) -> Result<Vec<PeerNod
     }
 }
 
-/// remove a peer node by user_id and node_id
-#[tauri::command]
-pub async fn remove_peer_node(
-    app_handle: tauri::AppHandle,
-    user_id: String,
-    node_id: String,
-) -> Result<(), String> {
-    ensure_initialized(&app_handle).await?;
-
-    let service = grimoire::users::UserService::new();
-    let result = service.remove_peer_node(&user_id, &node_id).await;
-
-    if result.data.is_some() {
-        Ok(())
-    } else {
-        Err(result.message)
-    }
-}
-
 // ============================================================================
 // config upgrade commands
 // ============================================================================
@@ -1986,85 +1861,6 @@ pub async fn list_knocks(
             .collect()),
         None => Err(result.message),
     }
-}
-
-/// result of accepting a knock request
-#[derive(Debug, Serialize)]
-pub struct AcceptKnockResult {
-    pub user_id: String,
-    pub username: String,
-    pub node_id: String,
-    pub role: String,
-    pub created_user: bool,
-}
-
-/// accept a knock request - creates user and peer node mapping
-#[tauri::command]
-pub async fn accept_knock(
-    app_handle: tauri::AppHandle,
-    knock_id: String,
-    username: Option<String>,
-    role: String,
-    user_id: Option<String>,
-) -> Result<AcceptKnockResult, String> {
-    ensure_initialized(&app_handle).await?;
-
-    // get admin user id from app config
-    let app_config = crate::app_config::FreqholeAppConfig::load(&app_handle)
-        .ok_or_else(|| "app config not found".to_string())?;
-    let admin_user_id = app_config
-        .admin_user
-        .user_id
-        .ok_or_else(|| "admin user id not configured".to_string())?;
-
-    let request = grimoire::federation::knock::ProcessKnockRequest {
-        username,
-        role: role.clone(),
-        user_id: user_id.clone(),
-    };
-
-    let result =
-        grimoire::federation::knock::accept_knock(&knock_id, request, &admin_user_id).await;
-
-    match result {
-        Ok(knock) => Ok(AcceptKnockResult {
-            user_id: knock.processed_by.unwrap_or_default(),
-            username: knock.username,
-            node_id: knock.node_id,
-            role,
-            created_user: user_id.is_none(),
-        }),
-        Err(e) => Err(format!("failed to accept knock: {}", e)),
-    }
-}
-
-/// reject a knock request
-#[tauri::command]
-pub async fn reject_knock(app_handle: tauri::AppHandle, knock_id: String) -> Result<(), String> {
-    ensure_initialized(&app_handle).await?;
-
-    // get admin user id from app config
-    let app_config = crate::app_config::FreqholeAppConfig::load(&app_handle)
-        .ok_or_else(|| "app config not found".to_string())?;
-    let admin_user_id = app_config
-        .admin_user
-        .user_id
-        .ok_or_else(|| "admin user id not configured".to_string())?;
-
-    grimoire::federation::knock::reject_knock(&knock_id, &admin_user_id)
-        .await
-        .map(|_| ())
-        .map_err(|e| format!("failed to reject knock: {}", e))
-}
-
-/// delete a knock request
-#[tauri::command]
-pub async fn delete_knock(app_handle: tauri::AppHandle, knock_id: String) -> Result<(), String> {
-    ensure_initialized(&app_handle).await?;
-
-    grimoire::federation::knock::delete_knock(&knock_id)
-        .await
-        .map_err(|e| format!("failed to delete knock: {}", e))
 }
 
 /// reject all pending knock requests
