@@ -1,11 +1,12 @@
 // remotes settings view - displays configured remotes and allows deletion
 import { createSignal, createResource, onMount, Show, For } from "solid-js";
+import { useNavigate } from "@solidjs/router";
 import {
   getAllRemotes,
   deleteRemote,
   checkRemoteHealth,
 } from "../../app/services/remotes/remoteManager";
-import { logout, whoami } from "../../app/services/remotes/authService";
+import { logout, whoami, whoamiForRemote } from "../../app/services/remotes/authService";
 import { initAppDB } from "../../app/services/storage/db";
 import {
   STORE_QUEUE_HISTORY,
@@ -147,6 +148,7 @@ interface AuthInfo {
 }
 
 export function RemotesSettingsView() {
+  const navigate = useNavigate();
   const [remotes, setRemotes] = createSignal<Remote[]>([]);
   const [loading, setLoading] = createSignal(true);
   const [error, setError] = createSignal<string | null>(null);
@@ -213,13 +215,27 @@ export function RemotesSettingsView() {
     // check each remote in parallel (HTTP only - P2P and charnel-managed remotes don't use auth)
     await Promise.all(
       remoteList.map(async (remote) => {
-        // skip P2P remotes - they don't use HTTP auth
+        // P2P remotes: query whoami over the P2P client to learn the role.
+        // needed for admin-button gating; falls back to loggedIn:false on any failure.
         if (!isHttpRemote(remote)) {
-          setAuthStatus((prev) => {
-            const next = new Map(prev);
-            next.set(remote.remote_id, { loggedIn: false });
-            return next;
-          });
+          try {
+            const result = await whoamiForRemote(remote);
+            setAuthStatus((prev) => {
+              const next = new Map(prev);
+              next.set(remote.remote_id, {
+                loggedIn: result.success,
+                username: result.username,
+                role: result.role,
+              });
+              return next;
+            });
+          } catch {
+            setAuthStatus((prev) => {
+              const next = new Map(prev);
+              next.set(remote.remote_id, { loggedIn: false });
+              return next;
+            });
+          }
           return;
         }
         // skip charnel-managed remotes - they use embedded auth
@@ -255,13 +271,26 @@ export function RemotesSettingsView() {
   };
 
   const checkSingleAuthStatus = async (remote: Remote) => {
-    // skip P2P remotes - they don't use HTTP auth
+    // P2P remotes: see checkAllAuthStatus for rationale.
     if (!isHttpRemote(remote)) {
-      setAuthStatus((prev) => {
-        const next = new Map(prev);
-        next.set(remote.remote_id, { loggedIn: false });
-        return next;
-      });
+      try {
+        const result = await whoamiForRemote(remote);
+        setAuthStatus((prev) => {
+          const next = new Map(prev);
+          next.set(remote.remote_id, {
+            loggedIn: result.success,
+            username: result.username,
+            role: result.role,
+          });
+          return next;
+        });
+      } catch {
+        setAuthStatus((prev) => {
+          const next = new Map(prev);
+          next.set(remote.remote_id, { loggedIn: false });
+          return next;
+        });
+      }
       return;
     }
     // skip charnel-managed remotes - they use embedded auth
@@ -625,6 +654,20 @@ export function RemotesSettingsView() {
                         >
                           {rechecking() === remote.remote_id ? "checking..." : "check status"}
                         </button>
+                        {/* admin button: P2P remotes where the caller is an admin */}
+                        <Show
+                          when={
+                            isP2PRemote(remote) &&
+                            authStatus().get(remote.remote_id)?.role === "admin"
+                          }
+                        >
+                          <button
+                            class="px-3 py-1.5 text-xs font-medium rounded-lg bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-600)] text-white transition-colors"
+                            onClick={() => navigate(`/settings/remotes/${remote.remote_id}/admin`)}
+                          >
+                            admin
+                          </button>
+                        </Show>
                         <button
                           class="px-3 py-1.5 text-xs font-medium rounded-lg bg-red-600/20 hover:bg-red-600/30 text-red-400 border border-red-600/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                           onClick={() => showDeleteConfirm(remote)}

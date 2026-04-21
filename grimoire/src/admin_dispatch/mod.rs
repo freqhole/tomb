@@ -11,6 +11,12 @@
 //!
 //! see docs/wizard-remote-admin.md for the full plan and command list.
 
+pub mod registry;
+pub mod types;
+
+use crate::admin_dispatch::types::knocks::{
+    KnocksAcceptRequest, KnocksDeleteRequest, KnocksRejectAllResponse, KnocksRejectRequest,
+};
 use crate::config::{find_config, get_config, get_config_path, read_config_from_file};
 use crate::error::ErrorDetail;
 use crate::federation::knock;
@@ -39,8 +45,24 @@ pub async fn handle(
 
     match command {
         // -- knocks --
-        "knocks_list" => to_value(knock::list_knocks(false).await),
-        "knocks_list_all" => to_value(knock::list_knocks(true).await),
+        "knocks_list" => {
+            let resp = knock::list_knocks(false).await;
+            tracing::info!(
+                "[admin-dispatch] knocks_list success={} count={}",
+                resp.success,
+                resp.data.as_ref().map(|v| v.len()).unwrap_or(0)
+            );
+            to_value(resp)
+        }
+        "knocks_list_all" => {
+            let resp = knock::list_knocks(true).await;
+            tracing::info!(
+                "[admin-dispatch] knocks_list_all success={} count={}",
+                resp.success,
+                resp.data.as_ref().map(|v| v.len()).unwrap_or(0)
+            );
+            to_value(resp)
+        }
         "knocks_accept" => knocks_accept(args, caller).await,
         "knocks_reject" => knocks_reject(args, caller).await,
         "knocks_delete" => knocks_delete(args).await,
@@ -212,45 +234,38 @@ async fn fetch_caller_user(caller: &Caller) -> Result<User, GrimoireResponse<Jso
 // =========================================================================
 
 async fn knocks_accept(args: JsonValue, caller: &Caller) -> GrimoireResponse<JsonValue> {
-    let knock_id = match require_str(&args, "knock_id") {
+    let req: KnocksAcceptRequest = match decode(args) {
         Ok(v) => v,
         Err(r) => return r,
     };
-    let role = match require_str(&args, "role") {
-        Ok(v) => v,
-        Err(r) => return r,
+    let process = knock::ProcessKnockRequest {
+        username: req.username,
+        role: req.role,
+        user_id: req.user_id,
     };
-    let username = opt_str(&args, "username");
-    let user_id = opt_str(&args, "user_id");
-
-    let req = knock::ProcessKnockRequest {
-        username,
-        role,
-        user_id,
-    };
-    match knock::accept_knock(&knock_id, req, &caller.user_id).await {
+    match knock::accept_knock(&req.knock_id, process, &caller.user_id).await {
         Ok(k) => to_value(GrimoireResponse::success("knock accepted", k)),
         Err(e) => GrimoireResponse::failure("failed to accept knock", vec![e.into()]),
     }
 }
 
 async fn knocks_reject(args: JsonValue, caller: &Caller) -> GrimoireResponse<JsonValue> {
-    let knock_id = match require_str(&args, "knock_id") {
+    let req: KnocksRejectRequest = match decode(args) {
         Ok(v) => v,
         Err(r) => return r,
     };
-    match knock::reject_knock(&knock_id, &caller.user_id).await {
+    match knock::reject_knock(&req.knock_id, &caller.user_id).await {
         Ok(k) => to_value(GrimoireResponse::success("knock rejected", k)),
         Err(e) => GrimoireResponse::failure("failed to reject knock", vec![e.into()]),
     }
 }
 
 async fn knocks_delete(args: JsonValue) -> GrimoireResponse<JsonValue> {
-    let knock_id = match require_str(&args, "knock_id") {
+    let req: KnocksDeleteRequest = match decode(args) {
         Ok(v) => v,
         Err(r) => return r,
     };
-    match knock::delete_knock(&knock_id).await {
+    match knock::delete_knock(&req.knock_id).await {
         Ok(()) => GrimoireResponse::success("knock deleted", JsonValue::Null),
         Err(e) => GrimoireResponse::failure("failed to delete knock", vec![e.into()]),
     }
@@ -269,10 +284,11 @@ async fn knocks_reject_all(caller: &Caller) -> GrimoireResponse<JsonValue> {
             rejected += 1;
         }
     }
-    GrimoireResponse::success(
+    let body = KnocksRejectAllResponse { rejected };
+    to_value(GrimoireResponse::success(
         format!("rejected {} knocks", rejected),
-        json!({ "rejected": rejected }),
-    )
+        body,
+    ))
 }
 
 // =========================================================================

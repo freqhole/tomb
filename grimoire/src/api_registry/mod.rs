@@ -212,6 +212,11 @@ pub mod type_registry {
         AcceptKnockRequest, DeleteKnockRequest, GetKnockRequest, RejectKnockRequest,
     };
 
+    // admin dispatch (freqhole-admin/1 ALPN) typed envelopes
+    use crate::admin_dispatch::types::knocks::{
+        KnocksAcceptRequest, KnocksDeleteRequest, KnocksRejectAllResponse, KnocksRejectRequest,
+    };
+
     // blob metadata request types
     use crate::offal::media_blobz::{GetBlobMetadataByBlake3Request, GetBlobMetadataRequest};
 
@@ -738,6 +743,19 @@ pub mod type_registry {
 
         gen.add_schema::<DeleteKnockRequest>("DeleteKnockRequest");
         registered.insert("DeleteKnockRequest".to_string());
+
+        // admin dispatch (freqhole-admin/1 ALPN) typed envelopes
+        gen.add_schema::<KnocksAcceptRequest>("KnocksAcceptRequest");
+        registered.insert("KnocksAcceptRequest".to_string());
+
+        gen.add_schema::<KnocksRejectRequest>("KnocksRejectRequest");
+        registered.insert("KnocksRejectRequest".to_string());
+
+        gen.add_schema::<KnocksDeleteRequest>("KnocksDeleteRequest");
+        registered.insert("KnocksDeleteRequest".to_string());
+
+        gen.add_schema::<KnocksRejectAllResponse>("KnocksRejectAllResponse");
+        registered.insert("KnocksRejectAllResponse".to_string());
 
         // listen session request types
         gen.add_schema::<GetListenSessionRequest>("GetListenSessionRequest");

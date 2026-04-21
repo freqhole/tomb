@@ -61,6 +61,14 @@ export interface MiddenNodeLike {
   // download blob by ID with on-demand blake3 computation - optional
   // returns [Uint8Array, string] but typed as any[] for wasm-bindgen compatibility
   download_verified_by_id?(peer_addr: string, blob_id: string): Promise<any[]>;
+  // dispatch a freqhole-admin/1 ALPN command to a peer.
+  // returns the grimoire response envelope `{ success, message, data, errors }`.
+  // `args` is a json-encoded string (use "null" for commands with no payload).
+  proxy_admin?(
+    peer_addr: string,
+    command: string,
+    args: string,
+  ): Promise<unknown>;
 }
 
 /**

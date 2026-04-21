@@ -278,6 +278,15 @@ export class MiddenNode {
      */
     open_bi(peer_addr: string, alpn: string): Promise<BiStream>;
     /**
+     * dispatch a typed admin command to a peer over the freqhole-admin/1 ALPN.
+     *
+     * `args` is a JSON string (the literal `"null"` is accepted for no-payload
+     * commands). returns a JS object envelope `{ success, message, data, errors }`
+     * matching the wire format. validation of `data` against the per-command
+     * schema happens in the spume `AdminClient`.
+     */
+    proxy_admin(peer_addr: string, command: string, args: string): Promise<any>;
+    /**
      * send an API request to a peer
      * peer_addr can be plain node_id or full endpoint JSON with relay/IP hints
      */
