@@ -126,13 +126,6 @@ export class CharnelTransport implements Transport {
   ): Promise<TransportResponse> {
     const inv = await ensureInvoke();
 
-    console.debug("[P2P] p2p_proxy_request ->", {
-      peerAddr: this.peerAddr,
-      method,
-      path,
-      bodyLength: body?.length ?? 0,
-    });
-
     try {
       const result = (await inv("p2p_proxy_request", {
         peerAddr: this.peerAddr,
@@ -141,13 +134,6 @@ export class CharnelTransport implements Transport {
         body: body ?? null,
       })) as { status: number; body: string };
 
-      console.debug(
-        "[P2P] p2p_proxy_request <- status",
-        result.status,
-        "for",
-        method,
-        path,
-      );
       return result;
     } catch (err) {
       console.debug(
@@ -317,17 +303,8 @@ export class CharnelTransport implements Transport {
     const tauri = await import("@tauri-apps/api/core");
     const onProgress = new tauri.Channel<{ bytes_downloaded: number }>();
 
-    console.debug("[P2P] fetchBlob:", {
-      blobId,
-      blake3: blake3 ?? "(none)",
-      peerAddr: this.peerAddr,
-    });
-
     if (blake3) {
       // blake3 known — use verified iroh-blobs download
-      console.debug(
-        "[P2P] fetchBlob: using verified iroh-blobs download (blake3 known)",
-      );
       const result = (await inv("p2p_fetch_blob_verified", {
         peerAddr: this.peerAddr,
         blake3Hash: blake3,
@@ -343,9 +320,6 @@ export class CharnelTransport implements Transport {
 
     // no blake3 — try proxy_request to get blob data from database
     // this is the primary path for images (waveforms, thumbnails) stored in the database
-    console.debug(
-      "[P2P] fetchBlob: no blake3, trying proxy_request for blob data",
-    );
     try {
       const result = await this.request("GET", `/api/blobs/${blobId}/data`);
       if (result.status === 200) {
@@ -364,10 +338,6 @@ export class CharnelTransport implements Transport {
     }
 
     // fallback: ask the peer to compute blake3, then do verified download
-    console.debug(
-      "[P2P] fetchBlob: falling back to p2p_fetch_blob_verified_by_id for",
-      blobId,
-    );
     const result = (await inv("p2p_fetch_blob_verified_by_id", {
       peerAddr: this.peerAddr,
       blobId,

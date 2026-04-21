@@ -71,7 +71,6 @@ class MediaPlaybackService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        Log.i(TAG, "onStartCommand: action=${intent?.action} startId=$startId")
         // first: forward media button intents to the active session so that
         // notification action buttons (prev/play-pause/next) actually do
         // something. this is a no-op for our own "post the notification"
@@ -89,7 +88,6 @@ class MediaPlaybackService : Service() {
                 intent?.getParcelableExtra(EXTRA_NOTIFICATION)
             }
         val isPlaying = intent?.getBooleanExtra(EXTRA_IS_PLAYING, false) ?: false
-        Log.i(TAG, "onStartCommand: notification=${notification != null} isPlaying=$isPlaying")
 
         if (notification != null) {
             try {
@@ -102,7 +100,6 @@ class MediaPlaybackService : Service() {
                 } else {
                     startForeground(NOTIFICATION_ID, notification)
                 }
-                Log.i(TAG, "onStartCommand: startForeground OK")
             } catch (t: Throwable) {
                 Log.w(TAG, "onStartCommand: startForeground failed", t)
             }

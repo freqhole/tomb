@@ -139,15 +139,12 @@ class MediaSessionPlugin(private val activity: Activity) : Plugin(activity) {
         val session = MediaSessionCompat(activity, "freqhole-media-session")
         session.setCallback(object : MediaSessionCompat.Callback() {
             override fun onPlay() {
-                Log.i(TAG, "MediaSession.Callback.onPlay (currentState=$currentState)")
                 emitAction("play")
             }
             override fun onPause() {
-                Log.i(TAG, "MediaSession.Callback.onPause (currentState=$currentState)")
                 emitAction("pause")
             }
             override fun onStop() {
-                Log.i(TAG, "MediaSession.Callback.onStop (currentState=$currentState)")
                 emitAction("pause")
             }
             override fun onSkipToNext() { emitAction("nexttrack") }
@@ -165,7 +162,6 @@ class MediaSessionPlugin(private val activity: Activity) : Plugin(activity) {
     }
 
     private fun emitAction(name: String) {
-        Log.i(TAG, "emitAction: name=$name (currentState=$currentState)")
         val o = JSObject()
         o.put("action", name)
         trigger("action", o)
@@ -401,10 +397,8 @@ class MediaSessionPlugin(private val activity: Activity) : Plugin(activity) {
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 activity.startForegroundService(svc)
-                Log.i(TAG, "updateNotification: startForegroundService dispatched (isPlaying=$isPlaying)")
             } else {
                 activity.startService(svc)
-                Log.i(TAG, "updateNotification: startService dispatched (isPlaying=$isPlaying)")
             }
         } catch (t: Throwable) {
             // background-start restrictions on android 12+ can throw

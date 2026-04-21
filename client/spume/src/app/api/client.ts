@@ -203,35 +203,17 @@ export function isMiddenInitialized(): boolean {
 function resolveTransport(remote: RemoteLike): "http" | "wasm" | "app" {
   // new discriminated format
   if ("transport" in remote && remote.transport) {
-    console.debug(
-      "[Transport] resolveTransport: using discriminated format, transport =",
-      remote.transport,
-      { remote }
-    );
     return remote.transport;
   }
   // legacy format - infer from fields
   if ("transport_type" in remote && remote.transport_type) {
-    console.debug(
-      "[Transport] resolveTransport: using legacy transport_type =",
-      remote.transport_type,
-      { remote }
-    );
     return remote.transport_type;
   }
   // fallback: infer from presence of peer_addr vs base_url
   if ("peer_addr" in remote && remote.peer_addr) {
     const inferred = isCharnelMode() ? "app" : "wasm";
-    console.debug(
-      "[Transport] resolveTransport: inferred from peer_addr, transport =",
-      inferred,
-      "isCharnelMode =",
-      isCharnelMode(),
-      { remote }
-    );
     return inferred;
   }
-  console.debug("[Transport] resolveTransport: fallback to http", { remote });
   return "http";
 }
 
@@ -261,31 +243,17 @@ export async function getClientForRemote(remote: RemoteLike): Promise<ApiClient>
   const peerAddr = resolvePeerAddr(remote);
   const baseUrl = resolveBaseUrl(remote);
 
-  console.debug("[Transport] getClientForRemote: transportType =", transportType, {
-    peerAddr,
-    baseUrl,
-    remote,
-  });
-
   switch (transportType) {
     case "app":
       if (!peerAddr) {
         throw new Error("peer_addr required for app transport");
       }
-      console.debug(
-        "[Transport] getClientForRemote: creating CharnelTransport (app P2P) for peerAddr =",
-        peerAddr
-      );
       return new FreqholeClient(await createCharnelTransport(peerAddr));
 
     case "wasm":
       if (!peerAddr) {
         throw new Error("peer_addr required for wasm transport");
       }
-      console.debug(
-        "[Transport] getClientForRemote: creating WasmTransport (midden P2P) for peerAddr =",
-        peerAddr
-      );
       const clientNode = await getMiddenNode();
       const clientCacheName = remote.remote_id ? getRemoteCacheName(remote.remote_id) : undefined;
       return new FreqholeClient(new WasmTransport(clientNode, peerAddr, clientCacheName));
@@ -294,15 +262,11 @@ export async function getClientForRemote(remote: RemoteLike): Promise<ApiClient>
     default:
       // charnel-managed remotes use IPC (no base_url needed)
       if (isCharnelMode() && remote.is_charnel_managed) {
-        console.debug(
-          "[Transport] getClientForRemote: using CharnelLocalTransport for tauri-managed remote"
-        );
         return new FreqholeClient(createCharnelLocalTransport(""));
       }
       if (!baseUrl) {
         throw new Error("base_url required for http transport");
       }
-      console.debug("[Transport] getClientForRemote: using HttpTransport for baseUrl =", baseUrl);
       return new FreqholeClient(new HttpTransport(baseUrl, remote.api_key));
   }
 }
@@ -324,21 +288,11 @@ export async function getTransportForRemote(remote: RemoteLike): Promise<Transpo
   const peerAddr = resolvePeerAddr(remote);
   const baseUrl = resolveBaseUrl(remote);
 
-  console.debug("[Transport] getTransportForRemote: transportType =", transportType, {
-    peerAddr,
-    baseUrl,
-    remote,
-  });
-
   switch (transportType) {
     case "app":
       if (!peerAddr) {
         throw new Error("peer_addr required for app transport");
       }
-      console.debug(
-        "[Transport] getTransportForRemote: creating CharnelTransport (app P2P) for peerAddr =",
-        peerAddr
-      );
       const appCacheName = remote.remote_id ? getRemoteCacheName(remote.remote_id) : undefined;
       return createCharnelTransport(peerAddr, appCacheName);
 
@@ -346,10 +300,6 @@ export async function getTransportForRemote(remote: RemoteLike): Promise<Transpo
       if (!peerAddr) {
         throw new Error("peer_addr required for wasm transport");
       }
-      console.debug(
-        "[Transport] getTransportForRemote: creating WasmTransport (midden P2P) for peerAddr =",
-        peerAddr
-      );
       const transportNode = await getMiddenNode();
       const transportCacheName = remote.remote_id
         ? getRemoteCacheName(remote.remote_id)
@@ -360,18 +310,11 @@ export async function getTransportForRemote(remote: RemoteLike): Promise<Transpo
     default:
       // charnel-managed remotes use IPC (no base_url needed)
       if (isCharnelMode() && remote.is_charnel_managed) {
-        console.debug(
-          "[Transport] getTransportForRemote: using CharnelLocalTransport for tauri-managed remote"
-        );
         return createCharnelLocalTransport("");
       }
       if (!baseUrl) {
         throw new Error("base_url required for http transport");
       }
-      console.debug(
-        "[Transport] getTransportForRemote: using HttpTransport for baseUrl =",
-        baseUrl
-      );
       return new HttpTransport(baseUrl, remote.api_key);
   }
 }
