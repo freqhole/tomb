@@ -1,5 +1,4 @@
 import { createSignal, createEffect, For, Show } from "solid-js";
-import { invoke } from "@tauri-apps/api/core";
 import { useAdminTransport } from "../admin/context";
 
 interface User {
@@ -84,8 +83,8 @@ export default function UsersView() {
   async function loadInvites() {
     setInvitesLoading(true);
     try {
-      const result = await invoke<InviteCode[]>("list_invites", {
-        activeOnly: false,
+      const result = await admin.dispatchOrThrow<InviteCode[]>("invites_list", {
+        active_only: false,
       });
       setInvites(result);
     } catch (e) {
@@ -120,7 +119,7 @@ export default function UsersView() {
   async function generateInvite() {
     setGenerating(true);
     try {
-      await invoke("generate_invites", { count: 1 });
+      await admin.dispatchOrThrow("invites_generate", { count: 1 });
       await loadInvites();
     } catch (e) {
       setError(String(e));
@@ -142,7 +141,7 @@ export default function UsersView() {
     setDeactivatingAll(true);
     setConfirmDeactivateAll(false);
     try {
-      await invoke("deactivate_all_invites");
+      await admin.dispatchOrThrow("invites_revoke_all", {});
       await loadInvites();
     } catch (e) {
       setError(String(e));
@@ -153,7 +152,7 @@ export default function UsersView() {
 
   async function updateInviteRole(code: string, role: string) {
     try {
-      await invoke("update_invite_role", { code, role });
+      await admin.dispatchOrThrow("invites_update_role", { code, role });
       await loadInvites();
     } catch (e) {
       setError(String(e));
@@ -175,9 +174,11 @@ export default function UsersView() {
   async function generateAccountLink(userId: string) {
     setError("");
     try {
-      const code = await invoke<string>("generate_account_link_code", {
-        userId,
-      });
+      const result = await admin.dispatchOrThrow<{ code: string }>(
+        "users_generate_account_link",
+        { user_id: userId },
+      );
+      const code = result.code;
       console.log("generated account link code:", code);
       // show feedback immediately - code is generated and visible in invites list
       setLinkCopiedUserId(userId);
@@ -186,7 +187,10 @@ export default function UsersView() {
       try {
         await navigator.clipboard.writeText(code);
       } catch (e) {
-        console.log("clipboard copy failed (expected after async invoke):", e);
+        console.log(
+          "clipboard copy failed (expected after async dispatch):",
+          e,
+        );
       }
       await loadInvites();
     } catch (e) {

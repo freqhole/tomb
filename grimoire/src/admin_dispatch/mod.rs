@@ -17,8 +17,8 @@ use crate::federation::knock;
 use crate::offal::Caller;
 use crate::response::GrimoireResponse;
 use crate::users::{
-    CreateInviteCodeRequest, CreateUserRequest, UpdateUserRequest, User, UserQueryParams, UserRole,
-    UserService,
+    CreateInviteCodeRequest, CreateUserRequest, InviteCodeType, UpdateUserRequest, User,
+    UserQueryParams, UserRole, UserService,
 };
 use serde::{de::DeserializeOwned, Serialize};
 use serde_json::{json, Value as JsonValue};
@@ -52,11 +52,14 @@ pub async fn handle(
         "users_create" => users_create(args).await,
         "users_update_role" => users_update_role(args, caller).await,
         "users_delete" => users_delete(args, caller).await,
+        "users_generate_account_link" => users_generate_account_link(args, caller).await,
 
         // -- invites --
         "invites_list" => invites_list(args, caller).await,
         "invites_generate" => invites_generate(args, caller).await,
         "invites_revoke" => invites_revoke(args, caller).await,
+        "invites_revoke_all" => invites_revoke_all(caller).await,
+        "invites_update_role" => invites_update_role(args, caller).await,
 
         // -- peers --
         "peers_list_all" => to_value(UserService::new().get_all_peer_nodes().await),
@@ -332,6 +335,52 @@ async fn users_delete(args: JsonValue, caller: &Caller) -> GrimoireResponse<Json
     to_value(UserService::new().delete_user(&user_id, &admin).await)
 }
 
+/// generate a 24-hour account-link code for an existing user (lets them
+/// add a new passkey). returns `{ code: String }`.
+async fn users_generate_account_link(
+    args: JsonValue,
+    caller: &Caller,
+) -> GrimoireResponse<JsonValue> {
+    let user_id = match require_str(&args, "user_id") {
+        Ok(v) => v,
+        Err(r) => return r,
+    };
+    let admin = match fetch_caller_user(caller).await {
+        Ok(u) => u,
+        Err(r) => return r,
+    };
+    let service = UserService::new();
+
+    // refuse for root accounts
+    let user_resp = service.get_user(&user_id).await;
+    match &user_resp.data {
+        Some(u) if u.role == UserRole::Root => {
+            return bad_request("cannot create account-link codes for root user".to_string());
+        }
+        None => return bad_request("user not found".to_string()),
+        _ => {}
+    }
+
+    let req = CreateInviteCodeRequest {
+        code_type: Some(InviteCodeType::AccountLink),
+        link_for_user_id: Some(user_id),
+        expires_hours: Some(24),
+        grants_role: None,
+    };
+    let response = service.generate_invite_codes(&req, 1, 4, &admin).await;
+    match response.data {
+        Some(codes) if !codes.is_empty() => {
+            GrimoireResponse::success(response.message, json!({ "code": codes[0].code }))
+        }
+        _ => GrimoireResponse {
+            success: false,
+            message: response.message,
+            data: None,
+            errors: response.errors,
+        },
+    }
+}
+
 // =========================================================================
 // invites
 // =========================================================================
@@ -342,9 +391,106 @@ async fn invites_list(args: JsonValue, caller: &Caller) -> GrimoireResponse<Json
         Ok(u) => u,
         Err(r) => return r,
     };
+    let service = UserService::new();
+    let response = service.list_invite_codes(active_only, &admin).await;
+    let codes = match response.data {
+        Some(c) => c,
+        None => {
+            return GrimoireResponse {
+                success: response.success,
+                message: response.message,
+                data: None,
+                errors: response.errors,
+            };
+        }
+    };
+
+    // build a lookup table for usernames referenced by used_by_id and link_for_user_id
+    let mut username_map: std::collections::HashMap<String, String> =
+        std::collections::HashMap::new();
+    let needs_lookup = codes
+        .iter()
+        .any(|c| c.used_by_id.is_some() || c.link_for_user_id.is_some());
+    if needs_lookup {
+        let users_resp = service
+            .list_users(
+                &UserQueryParams {
+                    include_deleted: Some(true),
+                    ..Default::default()
+                },
+                &admin,
+            )
+            .await;
+        if let Some(users) = users_resp.data {
+            for u in users {
+                username_map.insert(u.id.clone(), u.username);
+            }
+        }
+    }
+
+    // map to UI-shaped objects (matches legacy InviteInfo)
+    let infos: Vec<JsonValue> = codes
+        .into_iter()
+        .map(|c| {
+            let used_by_username = c
+                .used_by_id
+                .as_ref()
+                .and_then(|id| username_map.get(id).cloned());
+            let link_for_username = c
+                .link_for_user_id
+                .as_ref()
+                .and_then(|id| username_map.get(id).cloned());
+            serde_json::json!({
+                "code": c.code,
+                "code_type": format!("{:?}", c.code_type).to_lowercase(),
+                "grants_role": c.grants_role.to_string(),
+                "created_at": c.created_at,
+                "expires_at": c.link_expires_at,
+                "used_at": c.used_at,
+                "used_by": c.used_by_id,
+                "used_by_username": used_by_username,
+                "link_for_user_id": c.link_for_user_id,
+                "link_for_username": link_for_username,
+                "is_active": c.is_active,
+            })
+        })
+        .collect();
+
+    GrimoireResponse::success(response.message, JsonValue::Array(infos))
+}
+
+async fn invites_revoke_all(caller: &Caller) -> GrimoireResponse<JsonValue> {
+    let admin = match fetch_caller_user(caller).await {
+        Ok(u) => u,
+        Err(r) => return r,
+    };
     to_value(
         UserService::new()
-            .list_invite_codes(active_only, &admin)
+            .deactivate_all_active_invites(&admin)
+            .await,
+    )
+}
+
+async fn invites_update_role(args: JsonValue, caller: &Caller) -> GrimoireResponse<JsonValue> {
+    let code = match require_str(&args, "code") {
+        Ok(v) => v,
+        Err(r) => return r,
+    };
+    let role_str = match require_str(&args, "role") {
+        Ok(v) => v,
+        Err(r) => return r,
+    };
+    let role: UserRole = role_str.as_str().into();
+    if role == UserRole::Root {
+        return bad_request("cannot set invite to grant root role".to_string());
+    }
+    let admin = match fetch_caller_user(caller).await {
+        Ok(u) => u,
+        Err(r) => return r,
+    };
+    to_value(
+        UserService::new()
+            .update_invite_role(&code, role, &admin)
             .await,
     )
 }
