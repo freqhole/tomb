@@ -12,7 +12,7 @@ use zod_gen_derive::ZodSchema;
 
 use crate::api_registry::{Domain, Method, RouteAuth, RouteInfo};
 use crate::config;
-use crate::error::ErrorDetail;
+use crate::error::{ErrorDetail, GrimoireError, GrimoireResult};
 use crate::media_blobz::{create_media_blob, BlobType, CreateMediaBlobRequest};
 use crate::music::crud::create_or_update::import_song_with_metadata;
 use crate::music::crud::ImportSongRequest;
@@ -47,6 +47,15 @@ pub const ROUTES: &[RouteInfo] = &[
         domain: Domain::Music,
         request_type: "String",
         response_type: "Vec<String>",
+        auth: RouteAuth::Role(UserRole::Member),
+    },
+    RouteInfo {
+        name: "sync_album",
+        path: "/api/sync/album",
+        method: Method::POST,
+        domain: Domain::Music,
+        request_type: "SyncAlbumRequest",
+        response_type: "SyncAlbumResponse",
         auth: RouteAuth::Role(UserRole::Member),
     },
 ];
@@ -176,6 +185,7 @@ pub async fn dispatch(
         "/api/sync/song" => Some(sync_song(caller, body.clone()).await),
         "/api/sync/playlist" => Some(sync_playlist(caller, body.clone()).await),
         "/api/sync/sha256s" => Some(get_synced_sha256s(caller).await),
+        "/api/sync/album" => Some(sync_album(caller, body.clone()).await),
         _ => None,
     }
 }
@@ -869,4 +879,348 @@ pub async fn sync_playlist(caller: &Caller, body: JsonValue) -> GrimoireResponse
         ),
         serde_json::to_value(response).unwrap_or_default(),
     )
+}
+
+// ============================================================================
+// sync_album: receive an album shell with metadata + cover images.
+// see docs/SEND_TO_REMOTE_PLAN.md.
+// ============================================================================
+
+/// hash-addressed image payload used by the new send-to-remote pipeline.
+///
+/// `data_base64` is omitted when the destination already has a media_blob with
+/// matching `content_sha256` (negotiated up-front via `POST /api/blobz/has`).
+/// when omitted, the destination links the existing blob by sha256 instead of
+/// writing new bytes.
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct SyncImageRef {
+    /// sha256 hash of the image bytes (always set). this is the dedupe key.
+    pub content_sha256: String,
+    /// base64-encoded image bytes. omitted when the destination already has
+    /// the blob (negotiated via /api/blobz/has).
+    #[serde(default)]
+    pub data_base64: Option<String>,
+    /// mime type (e.g. "image/jpeg")
+    pub mime_type: String,
+    /// whether this is the primary image
+    pub is_primary: bool,
+    /// blob type ("thumbnail" | "original"). defaults to "original" when None.
+    #[serde(default)]
+    pub blob_type: Option<String>,
+}
+
+/// request for syncing an album shell from a source remote to local grimoire.
+///
+/// the album row is created on the destination if missing; otherwise the
+/// existing row is reused (idempotent). songs are not transferred here —
+/// the caller follows up with one `POST /api/sync/song-by-blake3` per song.
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct SyncAlbumRequest {
+    /// optional source remote id (for provenance / future logging)
+    #[serde(default)]
+    pub source_remote_id: Option<String>,
+    /// optional source iroh node id (the destination uses it later to pull songs)
+    #[serde(default)]
+    pub source_node_id: Option<String>,
+    /// the source's album id. used purely for provenance / deterministic mapping.
+    pub remote_album_id: String,
+    /// album title
+    pub title: String,
+    /// canonical "album artist" name (the artist linked to the album on s).
+    /// used as part of the destination dedupe key.
+    pub artist_name: String,
+    /// album type ("album" | "single" | "compilation" | "ep" | ...).
+    /// defaults to "album" when None.
+    #[serde(default)]
+    pub album_type: Option<String>,
+    /// release date string (YYYY, YYYY-MM, or YYYY-MM-DD)
+    #[serde(default)]
+    pub release_date: Option<String>,
+    /// label / publisher
+    #[serde(default)]
+    pub label: Option<String>,
+    /// genre names. resolved/created by name on the destination.
+    #[serde(default)]
+    pub genres: Vec<String>,
+    /// external urls (e.g. bandcamp/discogs/musicbrainz). currently informational only.
+    #[serde(default)]
+    pub urls: Vec<String>,
+    /// musicbrainz release id (informational only — not persisted yet)
+    #[serde(default)]
+    pub mb_release_id: Option<String>,
+    /// musicbrainz release-group id (informational only — not persisted yet)
+    #[serde(default)]
+    pub mb_release_group_id: Option<String>,
+    /// tag names to attach to the album on the destination
+    #[serde(default)]
+    pub tags: Vec<String>,
+    /// album cover images (with optional inline base64 per blobz/has negotiation)
+    #[serde(default)]
+    pub images_base64: Vec<SyncImageRef>,
+    /// blake3 hashes of the songs the source plans to send next. hint only;
+    /// the destination does not enforce or pre-create song rows here.
+    #[serde(default)]
+    pub expected_song_blake3s: Vec<String>,
+    /// remote display name (used as a tag on the album for provenance)
+    pub remote_name: String,
+}
+
+/// response for syncing an album shell.
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct SyncAlbumResponse {
+    /// destination album id (existing or newly created)
+    pub album_id: String,
+    /// destination artist id (existing or newly created)
+    pub artist_id: String,
+    /// true if the album row already existed on d, false if it was just created
+    pub existing: bool,
+    /// number of images that were linked (existing blob found by sha256 or
+    /// newly written from inline base64)
+    pub images_linked: i64,
+    /// sha256s the request claimed had inline data but were missing from
+    /// `data_base64` and not present locally — these are skipped, not fatal.
+    pub missing_image_sha256s: Vec<String>,
+}
+
+/// sync an album shell to local grimoire storage.
+///
+/// path: POST /api/sync/album
+pub async fn sync_album(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
+    use crate::music::crud::create_or_update::{
+        find_or_create_album_for_artist, find_or_create_artist, find_or_create_genre,
+    };
+    use crate::music::crud::{AlbumImportRequest, ArtistImportRequest};
+
+    let req: SyncAlbumRequest = match serde_json::from_value(body) {
+        Ok(r) => r,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "bad request",
+                vec![ErrorDetail::new(
+                    "bad_request",
+                    "bad request",
+                    &e.to_string(),
+                )],
+            )
+        }
+    };
+
+    // 1. resolve / create the album artist by name (case-insensitive)
+    let artist_resp = find_or_create_artist(ArtistImportRequest {
+        name: req.artist_name.clone(),
+        created_by: Some(caller.user_id.clone()),
+    })
+    .await;
+    if !artist_resp.success {
+        return GrimoireResponse::failure("failed to resolve artist", artist_resp.errors);
+    }
+    let (artist, _artist_was_new) = match artist_resp.data {
+        Some(d) => d,
+        None => {
+            return GrimoireResponse::failure(
+                "artist resolve returned no data",
+                vec![ErrorDetail::new(
+                    "internal_error",
+                    "artist resolve",
+                    "no artist returned",
+                )],
+            )
+        }
+    };
+
+    // 2. resolve genre names → genre_ids (best-effort; skip any that fail)
+    let mut genre_ids: Vec<String> = Vec::new();
+    for name in &req.genres {
+        let trimmed = name.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let resp = find_or_create_genre(trimmed.to_string()).await;
+        if let Some((genre, _)) = resp.data {
+            genre_ids.push(genre.id);
+        } else {
+            tracing::warn!(
+                "sync_album: failed to resolve genre {}: {}",
+                trimmed,
+                resp.message
+            );
+        }
+    }
+    let genre_ids_opt = if genre_ids.is_empty() {
+        None
+    } else {
+        Some(genre_ids)
+    };
+
+    // 3. dedupe / create album by (artist_id, lower(title)).
+    //    find_or_create_album_for_artist also auto-updates album_type if it differs.
+    let album_req = AlbumImportRequest {
+        title: req.title.clone(),
+        album_type: req.album_type.clone(),
+        release_date: req.release_date.clone(),
+        label: req.label.clone(),
+        genre_ids: genre_ids_opt,
+        created_by: Some(caller.user_id.clone()),
+    };
+    let (album, was_created) = match find_or_create_album_for_artist(album_req, &artist.id).await {
+        Ok(t) => t,
+        Err(e) => {
+            return GrimoireResponse::failure("failed to find or create album", vec![e.into()])
+        }
+    };
+    let existing = !was_created;
+
+    // TODO: when existing=true, merge missing fields (release_date, label, urls)
+    // into the existing row. for now we leave existing rows untouched to keep
+    // step 3 small. mb_release_id / mb_release_group_id / urls aren't persisted
+    // on the album row at all yet.
+
+    // 4. import album cover images.
+    //    each ref is either inline base64 (decode + dedupe by sha256) or a
+    //    pure reference (look up existing blob by sha256). missing referenced
+    //    blobs are skipped, not fatal.
+    let mut images_linked: i64 = 0;
+    let mut missing_image_sha256s: Vec<String> = Vec::new();
+    for (idx, img) in req.images_base64.iter().enumerate() {
+        let blob_id_opt =
+            match resolve_sync_image_ref(img, &format!("album-{}-{}", album.id, idx)).await {
+                Ok(Some(id)) => Some(id),
+                Ok(None) => {
+                    missing_image_sha256s.push(img.content_sha256.clone());
+                    None
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        "sync_album: failed to import image {} for album {}: {}",
+                        img.content_sha256,
+                        album.id,
+                        e
+                    );
+                    None
+                }
+            };
+        if let Some(blob_id) = blob_id_opt {
+            let is_primary = img.is_primary || idx == 0;
+            let add_result = crate::music::entities::albums::add_album_image(
+                &album.id, &blob_id, is_primary, None,
+            )
+            .await;
+            if add_result.success {
+                images_linked += 1;
+            } else {
+                tracing::warn!(
+                    "sync_album: failed to add image {} to album {}: {}",
+                    blob_id,
+                    album.id,
+                    add_result.message
+                );
+            }
+        }
+    }
+
+    // 5. attach tags (provenance + caller-supplied). idempotent.
+    let mut tag_names: Vec<String> = Vec::with_capacity(1 + req.tags.len());
+    tag_names.push(req.remote_name.clone());
+    tag_names.extend(req.tags.iter().cloned());
+    let tag_names: Vec<String> = tag_names
+        .into_iter()
+        .filter(|n| !n.trim().is_empty())
+        .collect();
+    if !tag_names.is_empty() {
+        let tag_result = crate::music::entities::tags::add_albums_tags(
+            crate::music::entities::tags::AddAlbumsTagsRequest {
+                album_ids: vec![album.id.clone()],
+                tag_ids: vec![],
+                tag_names,
+            },
+        )
+        .await;
+        if !tag_result.success {
+            tracing::warn!(
+                "sync_album: failed to add tags to album {}: {}",
+                album.id,
+                tag_result.message
+            );
+        }
+    }
+
+    let response = SyncAlbumResponse {
+        album_id: album.id.clone(),
+        artist_id: artist.id,
+        existing,
+        images_linked,
+        missing_image_sha256s,
+    };
+
+    GrimoireResponse::success(
+        if existing {
+            "album already existed"
+        } else {
+            "album synced successfully"
+        },
+        serde_json::to_value(response).unwrap_or_default(),
+    )
+}
+
+/// resolve a `SyncImageRef` to a media_blob id.
+///
+/// - inline `data_base64`: decode, verify sha256 matches `content_sha256`,
+///   then create the blob (or dedupe to an existing one). returns `Ok(Some(id))`.
+/// - omitted `data_base64`: look up an existing blob by sha256.
+///     - found → `Ok(Some(id))`.
+///     - missing → `Ok(None)` (caller treats as "skipped, not fatal").
+/// - decode/hash mismatch → `Err`.
+async fn resolve_sync_image_ref(
+    img: &SyncImageRef,
+    name_prefix: &str,
+) -> GrimoireResult<Option<String>> {
+    if let Some(data_b64) = &img.data_base64 {
+        // inline path: decode, verify, create-or-dedupe
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(data_b64)
+            .map_err(|e| GrimoireError::ProcessingFailed {
+                message: format!("invalid base64 image data for {}: {}", name_prefix, e),
+            })?;
+
+        let mut hasher = Sha256::new();
+        hasher.update(&bytes);
+        let computed = format!("{:x}", hasher.finalize());
+        if computed != img.content_sha256 {
+            return Err(GrimoireError::ProcessingFailed {
+                message: format!(
+                    "image sha256 mismatch for {}: claimed {}, computed {}",
+                    name_prefix, img.content_sha256, computed
+                ),
+            });
+        }
+
+        // dedupe via create_media_blob (sha256 unique constraint)
+        let blob = create_media_blob(CreateMediaBlobRequest {
+            sha256: img.content_sha256.clone(),
+            size: Some(bytes.len() as i64),
+            mime: Some(img.mime_type.clone()),
+            source_client_id: None,
+            local_path: None,
+            filename: Some(format!("{}.bin", name_prefix)),
+            parent_blob_id: None,
+            blob_type: Some(match img.blob_type.as_deref() {
+                Some("thumbnail") => BlobType::Thumbnail,
+                _ => BlobType::Original,
+            }),
+            metadata: serde_json::json!({}),
+            created_by: None,
+            data: Some(crate::Bytes(bytes)),
+            width: None,
+            height: None,
+            blake3: None,
+        })
+        .await?;
+        Ok(Some(blob.id))
+    } else {
+        // reference-only path: look up by sha256
+        match crate::media_blobz::get_media_blob_by_sha256(&img.content_sha256).await {
+            Ok(blob) => Ok(Some(blob.id)),
+            Err(_) => Ok(None),
+        }
+    }
 }

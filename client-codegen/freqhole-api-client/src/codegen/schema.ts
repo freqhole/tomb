@@ -2819,6 +2819,50 @@ export const SuggestionsResponseSchema = z.object({
 });
 export type SuggestionsResponse = z.infer<typeof SuggestionsResponseSchema>;
 
+export const SyncAlbumRequestSchema = z.object({
+  source_remote_id: z.string().nullish(),
+  source_node_id: z.string().nullish(),
+  remote_album_id: z.string(),
+  title: z.string(),
+  artist_name: z.string(),
+  album_type: z.string().nullish(),
+  release_date: z.string().nullish(),
+  label: z.string().nullish(),
+  genres: z.array(z.string()),
+  urls: z.array(z.string()),
+  mb_release_id: z.string().nullish(),
+  mb_release_group_id: z.string().nullish(),
+  tags: z.array(z.string()),
+  images_base64: z.array(z.object({
+  content_sha256: z.string(),
+  data_base64: z.string().nullish(),
+  mime_type: z.string(),
+  is_primary: z.boolean(),
+  blob_type: z.string().nullish()
+})),
+  expected_song_blake3s: z.array(z.string()),
+  remote_name: z.string()
+});
+export type SyncAlbumRequest = z.infer<typeof SyncAlbumRequestSchema>;
+
+export const SyncAlbumResponseSchema = z.object({
+  album_id: z.string(),
+  artist_id: z.string(),
+  existing: z.boolean(),
+  images_linked: z.number(),
+  missing_image_sha256s: z.array(z.string())
+});
+export type SyncAlbumResponse = z.infer<typeof SyncAlbumResponseSchema>;
+
+export const SyncImageRefSchema = z.object({
+  content_sha256: z.string(),
+  data_base64: z.string().nullish(),
+  mime_type: z.string(),
+  is_primary: z.boolean(),
+  blob_type: z.string().nullish()
+});
+export type SyncImageRef = z.infer<typeof SyncImageRefSchema>;
+
 export const SyncPlaylistRequestSchema = z.object({
   remote_playlist_id: z.string(),
   title: z.string(),

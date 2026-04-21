@@ -109,6 +109,7 @@ export const routes = {
     song_analytics: { method: 'POST', path: '/api/analytics/song-stats', req: s.SongAnalyticsRequestSchema, resp: s.PlayAnalyticsSchema, auth: { type: 'authenticated' } as const },
     stream_blob: { method: 'GET', path: '/api/blobs/{id}', req: null, resp: null, auth: { type: 'authenticated' } as const },
     suggestions: { method: 'POST', path: '/api/music/suggestions', req: s.SuggestionsRequestSchema, resp: s.SuggestionsResponseSchema, auth: { type: 'authenticated' } as const },
+    sync_album: { method: 'POST', path: '/api/sync/album', req: s.SyncAlbumRequestSchema, resp: s.SyncAlbumResponseSchema, auth: { type: 'role', role: 'member' } as const },
     sync_playlist: { method: 'POST', path: '/api/sync/playlist', req: s.SyncPlaylistRequestSchema, resp: s.SyncPlaylistResponseSchema, auth: { type: 'role', role: 'member' } as const },
     sync_song: { method: 'POST', path: '/api/sync/song', req: s.SyncSongRequestSchema, resp: s.SyncSongResponseSchema, auth: { type: 'role', role: 'member' } as const },
     synced_sha256s: { method: 'GET', path: '/api/sync/sha256s', req: null, resp: z.string().array(), auth: { type: 'role', role: 'member' } as const },
