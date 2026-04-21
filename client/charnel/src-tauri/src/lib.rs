@@ -1,5 +1,6 @@
 //! freqhole tauri app
 
+mod admin_commands;
 mod app_config;
 mod commands;
 #[cfg(desktop)]
@@ -602,6 +603,8 @@ pub fn run() {
             remotez_commands::remotez_upsert,
             remotez_commands::remotez_remove,
             remotez_commands::remotez_mark_active,
+            // single dispatch entry-point for wizard / settings admin ops
+            admin_commands::admin_dispatch,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
