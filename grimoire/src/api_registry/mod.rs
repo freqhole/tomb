@@ -213,8 +213,22 @@ pub mod type_registry {
     };
 
     // admin dispatch (freqhole-admin/1 ALPN) typed envelopes
+    use crate::admin_dispatch::types::invites::{
+        AdminGeneratedInvite, AdminInviteInfo, AdminInvitesGenerateRequest,
+        AdminInvitesGenerateResponse, AdminInvitesListRequest, AdminInvitesRevokeAllResponse,
+        AdminInvitesRevokeRequest, AdminInvitesUpdateRoleRequest,
+    };
     use crate::admin_dispatch::types::knocks::{
         KnocksAcceptRequest, KnocksDeleteRequest, KnocksRejectAllResponse, KnocksRejectRequest,
+    };
+    use crate::admin_dispatch::types::peers::{
+        AdminPeerNodeSummary, AdminPeerSummary, AdminPeersAllowRequest, AdminPeersAllowResponse,
+        AdminPeersListForUserRequest, AdminPeersRemoveRequest,
+    };
+    use crate::admin_dispatch::types::users::{
+        AdminAccountLinkResponse, AdminUserSummary, AdminUsersDeleteRequest,
+        AdminUsersGenerateAccountLinkRequest, AdminUsersGetRequest, AdminUsersListRequest,
+        AdminUsersUpdateRoleRequest,
     };
 
     // blob metadata request types
@@ -756,6 +770,56 @@ pub mod type_registry {
 
         gen.add_schema::<KnocksRejectAllResponse>("KnocksRejectAllResponse");
         registered.insert("KnocksRejectAllResponse".to_string());
+
+        // admin dispatch: users
+        gen.add_schema::<AdminUserSummary>("AdminUserSummary");
+        registered.insert("AdminUserSummary".to_string());
+        gen.add_schema::<AdminUsersListRequest>("AdminUsersListRequest");
+        registered.insert("AdminUsersListRequest".to_string());
+        gen.add_schema::<AdminUsersGetRequest>("AdminUsersGetRequest");
+        registered.insert("AdminUsersGetRequest".to_string());
+        gen.add_schema::<AdminUsersUpdateRoleRequest>("AdminUsersUpdateRoleRequest");
+        registered.insert("AdminUsersUpdateRoleRequest".to_string());
+        gen.add_schema::<AdminUsersDeleteRequest>("AdminUsersDeleteRequest");
+        registered.insert("AdminUsersDeleteRequest".to_string());
+        gen.add_schema::<AdminUsersGenerateAccountLinkRequest>(
+            "AdminUsersGenerateAccountLinkRequest",
+        );
+        registered.insert("AdminUsersGenerateAccountLinkRequest".to_string());
+        gen.add_schema::<AdminAccountLinkResponse>("AdminAccountLinkResponse");
+        registered.insert("AdminAccountLinkResponse".to_string());
+
+        // admin dispatch: invites
+        gen.add_schema::<AdminInviteInfo>("AdminInviteInfo");
+        registered.insert("AdminInviteInfo".to_string());
+        gen.add_schema::<AdminInvitesListRequest>("AdminInvitesListRequest");
+        registered.insert("AdminInvitesListRequest".to_string());
+        gen.add_schema::<AdminInvitesGenerateRequest>("AdminInvitesGenerateRequest");
+        registered.insert("AdminInvitesGenerateRequest".to_string());
+        gen.add_schema::<AdminGeneratedInvite>("AdminGeneratedInvite");
+        registered.insert("AdminGeneratedInvite".to_string());
+        gen.add_schema::<AdminInvitesGenerateResponse>("AdminInvitesGenerateResponse");
+        registered.insert("AdminInvitesGenerateResponse".to_string());
+        gen.add_schema::<AdminInvitesRevokeRequest>("AdminInvitesRevokeRequest");
+        registered.insert("AdminInvitesRevokeRequest".to_string());
+        gen.add_schema::<AdminInvitesRevokeAllResponse>("AdminInvitesRevokeAllResponse");
+        registered.insert("AdminInvitesRevokeAllResponse".to_string());
+        gen.add_schema::<AdminInvitesUpdateRoleRequest>("AdminInvitesUpdateRoleRequest");
+        registered.insert("AdminInvitesUpdateRoleRequest".to_string());
+
+        // admin dispatch: peers
+        gen.add_schema::<AdminPeerSummary>("AdminPeerSummary");
+        registered.insert("AdminPeerSummary".to_string());
+        gen.add_schema::<AdminPeerNodeSummary>("AdminPeerNodeSummary");
+        registered.insert("AdminPeerNodeSummary".to_string());
+        gen.add_schema::<AdminPeersListForUserRequest>("AdminPeersListForUserRequest");
+        registered.insert("AdminPeersListForUserRequest".to_string());
+        gen.add_schema::<AdminPeersRemoveRequest>("AdminPeersRemoveRequest");
+        registered.insert("AdminPeersRemoveRequest".to_string());
+        gen.add_schema::<AdminPeersAllowRequest>("AdminPeersAllowRequest");
+        registered.insert("AdminPeersAllowRequest".to_string());
+        gen.add_schema::<AdminPeersAllowResponse>("AdminPeersAllowResponse");
+        registered.insert("AdminPeersAllowResponse".to_string());
 
         // listen session request types
         gen.add_schema::<GetListenSessionRequest>("GetListenSessionRequest");

@@ -8,4 +8,7 @@
 //! existing domain types (e.g. `KnockRequest`) are reused directly when
 //! their wire shape already matches what dispatch returns.
 
+pub mod invites;
 pub mod knocks;
+pub mod peers;
+pub mod users;

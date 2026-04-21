@@ -22,6 +22,159 @@ export const AddSongsToPlaylistRequestSchema = z.object({
 });
 export type AddSongsToPlaylistRequest = z.infer<typeof AddSongsToPlaylistRequestSchema>;
 
+export const AdminAccountLinkResponseSchema = z.object({
+  code: z.string()
+});
+export type AdminAccountLinkResponse = z.infer<typeof AdminAccountLinkResponseSchema>;
+
+export const AdminGeneratedInviteSchema = z.object({
+  code: z.string(),
+  grants_role: z.string(),
+  expires_at: z.number().nullish()
+});
+export type AdminGeneratedInvite = z.infer<typeof AdminGeneratedInviteSchema>;
+
+export const AdminInviteInfoSchema = z.object({
+  code: z.string(),
+  code_type: z.string(),
+  grants_role: z.string(),
+  created_at: z.number(),
+  expires_at: z.number().nullish(),
+  used_at: z.number().nullish(),
+  used_by: z.string().nullish(),
+  used_by_username: z.string().nullish(),
+  link_for_user_id: z.string().nullish(),
+  link_for_username: z.string().nullish(),
+  is_active: z.boolean()
+});
+export type AdminInviteInfo = z.infer<typeof AdminInviteInfoSchema>;
+
+export const AdminInvitesGenerateRequestSchema = z.object({
+  count: z.number().nullish(),
+  word_count: z.number().nullish(),
+  role: z.string().nullish(),
+  expires_hours: z.number().nullish()
+});
+export type AdminInvitesGenerateRequest = z.infer<typeof AdminInvitesGenerateRequestSchema>;
+
+export const AdminInvitesGenerateResponseSchema = z.object({
+  codes: z.array(z.object({
+  code: z.string(),
+  grants_role: z.string(),
+  expires_at: z.number().nullish()
+}))
+});
+export type AdminInvitesGenerateResponse = z.infer<typeof AdminInvitesGenerateResponseSchema>;
+
+export const AdminInvitesListRequestSchema = z.object({
+  active_only: z.boolean().nullish()
+});
+export type AdminInvitesListRequest = z.infer<typeof AdminInvitesListRequestSchema>;
+
+export const AdminInvitesRevokeAllResponseSchema = z.object({
+  revoked: z.number()
+});
+export type AdminInvitesRevokeAllResponse = z.infer<typeof AdminInvitesRevokeAllResponseSchema>;
+
+export const AdminInvitesRevokeRequestSchema = z.object({
+  code: z.string()
+});
+export type AdminInvitesRevokeRequest = z.infer<typeof AdminInvitesRevokeRequestSchema>;
+
+export const AdminInvitesUpdateRoleRequestSchema = z.object({
+  code: z.string(),
+  role: z.string()
+});
+export type AdminInvitesUpdateRoleRequest = z.infer<typeof AdminInvitesUpdateRoleRequestSchema>;
+
+export const AdminPeerNodeSummarySchema = z.object({
+  user_id: z.string(),
+  node_id: z.string(),
+  instance_name: z.string().nullish(),
+  created_at: z.number(),
+  last_seen_at: z.number().nullish()
+});
+export type AdminPeerNodeSummary = z.infer<typeof AdminPeerNodeSummarySchema>;
+
+export const AdminPeerSummarySchema = z.object({
+  user_id: z.string(),
+  node_id: z.string(),
+  instance_name: z.string().nullish(),
+  created_at: z.number(),
+  last_seen_at: z.number().nullish(),
+  username: z.string(),
+  role: z.string()
+});
+export type AdminPeerSummary = z.infer<typeof AdminPeerSummarySchema>;
+
+export const AdminPeersAllowRequestSchema = z.object({
+  node_id: z.string(),
+  user_id: z.string().nullish(),
+  username: z.string().nullish(),
+  role: z.string().nullish()
+});
+export type AdminPeersAllowRequest = z.infer<typeof AdminPeersAllowRequestSchema>;
+
+export const AdminPeersAllowResponseSchema = z.object({
+  user_id: z.string(),
+  username: z.string(),
+  node_id: z.string(),
+  created_user: z.boolean()
+});
+export type AdminPeersAllowResponse = z.infer<typeof AdminPeersAllowResponseSchema>;
+
+export const AdminPeersListForUserRequestSchema = z.object({
+  user_id: z.string()
+});
+export type AdminPeersListForUserRequest = z.infer<typeof AdminPeersListForUserRequestSchema>;
+
+export const AdminPeersRemoveRequestSchema = z.object({
+  user_id: z.string(),
+  node_id: z.string()
+});
+export type AdminPeersRemoveRequest = z.infer<typeof AdminPeersRemoveRequestSchema>;
+
+export const AdminUserSummarySchema = z.object({
+  id: z.string(),
+  username: z.string(),
+  role: z.string(),
+  created_at: z.number(),
+  updated_at: z.number(),
+  deleted_at: z.number().nullish(),
+  haruspex_user_id: z.string().nullish()
+});
+export type AdminUserSummary = z.infer<typeof AdminUserSummarySchema>;
+
+export const AdminUsersDeleteRequestSchema = z.object({
+  user_id: z.string()
+});
+export type AdminUsersDeleteRequest = z.infer<typeof AdminUsersDeleteRequestSchema>;
+
+export const AdminUsersGenerateAccountLinkRequestSchema = z.object({
+  user_id: z.string()
+});
+export type AdminUsersGenerateAccountLinkRequest = z.infer<typeof AdminUsersGenerateAccountLinkRequestSchema>;
+
+export const AdminUsersGetRequestSchema = z.object({
+  user_id: z.string()
+});
+export type AdminUsersGetRequest = z.infer<typeof AdminUsersGetRequestSchema>;
+
+export const AdminUsersListRequestSchema = z.object({
+  include_deleted: z.boolean().nullish(),
+  limit: z.number().nullish(),
+  offset: z.number().nullish(),
+  username: z.string().nullish(),
+  role: z.string().nullish()
+});
+export type AdminUsersListRequest = z.infer<typeof AdminUsersListRequestSchema>;
+
+export const AdminUsersUpdateRoleRequestSchema = z.object({
+  user_id: z.string(),
+  role: z.string()
+});
+export type AdminUsersUpdateRoleRequest = z.infer<typeof AdminUsersUpdateRoleRequestSchema>;
+
 export const AlbumSchema = z.object({
   id: z.string(),
   title: z.string(),

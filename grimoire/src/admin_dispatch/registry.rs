@@ -86,6 +86,93 @@ pub const ADMIN_COMMANDS: &[AdminCommandInfo] = &[
         response_type: "KnocksRejectAllResponse",
         auth: AdminAuth::Admin,
     },
+    // -- users --
+    AdminCommandInfo {
+        name: "users_list",
+        request_type: "AdminUsersListRequest",
+        response_type: "Vec<AdminUserSummary>",
+        auth: AdminAuth::Admin,
+    },
+    AdminCommandInfo {
+        name: "users_get",
+        request_type: "AdminUsersGetRequest",
+        response_type: "AdminUserSummary",
+        auth: AdminAuth::Admin,
+    },
+    AdminCommandInfo {
+        name: "users_update_role",
+        request_type: "AdminUsersUpdateRoleRequest",
+        response_type: "EmptyResponse",
+        auth: AdminAuth::Admin,
+    },
+    AdminCommandInfo {
+        name: "users_delete",
+        request_type: "AdminUsersDeleteRequest",
+        response_type: "EmptyResponse",
+        auth: AdminAuth::Admin,
+    },
+    AdminCommandInfo {
+        name: "users_generate_account_link",
+        request_type: "AdminUsersGenerateAccountLinkRequest",
+        response_type: "AdminAccountLinkResponse",
+        auth: AdminAuth::Admin,
+    },
+    // -- invites --
+    AdminCommandInfo {
+        name: "invites_list",
+        request_type: "AdminInvitesListRequest",
+        response_type: "Vec<AdminInviteInfo>",
+        auth: AdminAuth::Admin,
+    },
+    AdminCommandInfo {
+        name: "invites_generate",
+        request_type: "AdminInvitesGenerateRequest",
+        response_type: "AdminInvitesGenerateResponse",
+        auth: AdminAuth::Admin,
+    },
+    AdminCommandInfo {
+        name: "invites_revoke",
+        request_type: "AdminInvitesRevokeRequest",
+        response_type: "EmptyResponse",
+        auth: AdminAuth::Admin,
+    },
+    AdminCommandInfo {
+        name: "invites_revoke_all",
+        request_type: "EmptyRequest",
+        response_type: "AdminInvitesRevokeAllResponse",
+        auth: AdminAuth::Admin,
+    },
+    AdminCommandInfo {
+        name: "invites_update_role",
+        request_type: "AdminInvitesUpdateRoleRequest",
+        response_type: "EmptyResponse",
+        auth: AdminAuth::Admin,
+    },
+    // -- peers --
+    AdminCommandInfo {
+        name: "peers_list_all",
+        request_type: "EmptyRequest",
+        response_type: "Vec<AdminPeerSummary>",
+        auth: AdminAuth::Admin,
+    },
+    AdminCommandInfo {
+        name: "peers_list_for_user",
+        request_type: "AdminPeersListForUserRequest",
+        response_type: "Vec<AdminPeerNodeSummary>",
+        auth: AdminAuth::Admin,
+    },
+    AdminCommandInfo {
+        name: "peers_remove",
+        request_type: "AdminPeersRemoveRequest",
+        response_type: "EmptyResponse",
+        auth: AdminAuth::Admin,
+    },
+    AdminCommandInfo {
+        name: "peers_allow",
+        request_type: "AdminPeersAllowRequest",
+        response_type: "AdminPeersAllowResponse",
+        auth: AdminAuth::Admin,
+    },
 ];
 
 /// accessor mirroring `offal::all_routes()` for use by codegen.
