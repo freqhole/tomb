@@ -46,8 +46,9 @@ export function UserAutocomplete(props: UserAutocompleteProps) {
   const [loading, setLoading] = createSignal(false);
   let containerRef: HTMLDivElement | undefined;
 
-  // load users on mount
+  // load users on mount + whenever the active admin target changes
   createEffect(() => {
+    admin.current();
     loadUsers();
   });
 

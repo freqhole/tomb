@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { resolvePath } from "../util/resolvePath";
 import ConfigView from "./ConfigView";
+import { useAdminTransport } from "../admin/context";
 
 interface ServerConfig {
   name: string;
@@ -19,6 +20,7 @@ interface UpdateServerImageResult {
 }
 
 export default function SettingsView() {
+  const admin = useAdminTransport();
   const [activeTab, setActiveTab] = createSignal<"settings" | "config">(
     "settings",
   );
@@ -338,7 +340,12 @@ export default function SettingsView() {
                 <button
                   class="button"
                   onClick={handleSelectImage}
-                  disabled={isUpdating()}
+                  disabled={isUpdating() || admin.isRemote()}
+                  title={
+                    admin.isRemote()
+                      ? "local file picker disabled while managing a remote target. switch to local to upload images."
+                      : undefined
+                  }
                 >
                   {isUpdating() ? "updating..." : "choose image"}
                 </button>

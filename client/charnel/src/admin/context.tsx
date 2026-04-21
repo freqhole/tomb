@@ -11,7 +11,9 @@
 
 import {
   createContext,
+  createEffect,
   createSignal,
+  on,
   useContext,
   type Accessor,
   type JSX,
@@ -40,6 +42,14 @@ const LOCAL_TARGET: AdminTargetInfo = {
   label: "local",
 };
 
+/** connection lifecycle status for the active target. */
+export type AdminTargetStatus =
+  | "idle"
+  | "connecting"
+  | "online"
+  | "offline"
+  | "unauthorized";
+
 interface AdminTransportContextValue {
   /** currently selected target info */
   current: Accessor<AdminTargetInfo>;
@@ -48,6 +58,10 @@ interface AdminTransportContextValue {
   setCurrent: Setter<AdminTargetInfo>;
   /** is the current target remote? convenience */
   isRemote: Accessor<boolean>;
+  /** lifecycle status for the active target. local is always `online`. */
+  status: Accessor<AdminTargetStatus>;
+  /** human-readable error from the last failed connection probe, if any. */
+  statusError: Accessor<string | null>;
   /** dispatch a command against the current target */
   dispatch<T = unknown>(
     command: string,
@@ -61,6 +75,8 @@ const AdminTransportContext = createContext<AdminTransportContextValue>();
 
 export function AdminTransportProvider(props: { children: JSX.Element }) {
   const [current, setCurrent] = createSignal<AdminTargetInfo>(LOCAL_TARGET);
+  const [status, setStatus] = createSignal<AdminTargetStatus>("online");
+  const [statusError, setStatusError] = createSignal<string | null>(null);
 
   function targetForDispatch(): AdminTarget {
     const t = current();
@@ -70,10 +86,60 @@ export function AdminTransportProvider(props: { children: JSX.Element }) {
     return { kind: "local" };
   }
 
+  // probe reachability whenever the active target changes
+  createEffect(
+    on(current, async (t) => {
+      if (t.kind === "local") {
+        setStatus("online");
+        setStatusError(null);
+        return;
+      }
+      if (!t.peerAddr) {
+        setStatus("offline");
+        setStatusError("missing peer address");
+        return;
+      }
+      setStatus("connecting");
+      setStatusError(null);
+      try {
+        const response = await rawDispatch(
+          "server_info",
+          {},
+          {
+            kind: "remote",
+            peerAddr: t.peerAddr,
+          },
+        );
+        if (response.success) {
+          setStatus("online");
+          setStatusError(null);
+        } else {
+          const errType = response.errors?.[0]?.error_type;
+          if (errType === "unauthorized" || errType === "forbidden") {
+            setStatus("unauthorized");
+          } else {
+            setStatus("offline");
+          }
+          setStatusError(response.message || "verification failed");
+        }
+      } catch (e) {
+        const msg = String(e);
+        if (/unauthor|forbid|admin/i.test(msg)) {
+          setStatus("unauthorized");
+        } else {
+          setStatus("offline");
+        }
+        setStatusError(msg);
+      }
+    }),
+  );
+
   const value: AdminTransportContextValue = {
     current,
     setCurrent,
     isRemote: () => current().kind === "remote",
+    status,
+    statusError,
     dispatch: <T,>(command: string, args: unknown = null) =>
       rawDispatch<T>(command, args, targetForDispatch()),
     dispatchOrThrow: <T,>(command: string, args: unknown = null) =>

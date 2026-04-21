@@ -1,4 +1,4 @@
-import { createSignal, onMount, For, Show } from "solid-js";
+import { createSignal, createEffect, For, Show } from "solid-js";
 import { invoke } from "@tauri-apps/api/core";
 import { useAdminTransport } from "../admin/context";
 
@@ -60,8 +60,10 @@ export default function UsersView() {
     null,
   );
 
-  onMount(async () => {
-    await Promise.all([loadUsers(), loadInvites()]);
+  // reload whenever the active admin target changes (incl. initial mount)
+  createEffect(() => {
+    admin.current();
+    void Promise.all([loadUsers(), loadInvites()]);
   });
 
   async function loadUsers() {

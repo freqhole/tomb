@@ -2,6 +2,7 @@ import { createSignal, onMount, For, Show } from "solid-js";
 import { open } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
 import { resolvePath } from "../util/resolvePath";
+import { useAdminTransport } from "../admin/context";
 
 interface ScannedDir {
   id: string;
@@ -18,6 +19,7 @@ interface ScanResult {
 }
 
 export default function LibraryView() {
+  const admin = useAdminTransport();
   const [directories, setDirectories] = createSignal<ScannedDir[]>([]);
   const [loading, setLoading] = createSignal(true);
   const [showAddModal, setShowAddModal] = createSignal(false);
@@ -201,7 +203,16 @@ export default function LibraryView() {
         </Show>
 
         <div class="button-row">
-          <button class="secondary" onClick={browseDirectory}>
+          <button
+            class="secondary"
+            onClick={browseDirectory}
+            disabled={admin.isRemote()}
+            title={
+              admin.isRemote()
+                ? "local file picker disabled while managing a remote target. switch to local to add directories."
+                : undefined
+            }
+          >
             add directory
           </button>
           <Show when={directories().length > 0}>

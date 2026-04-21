@@ -1,4 +1,4 @@
-import { createSignal, onMount, Show, For, createEffect, on } from "solid-js";
+import { createSignal, Show, For, createEffect, on } from "solid-js";
 import { invoke } from "@tauri-apps/api/core";
 import { useAdminTransport } from "../admin/context";
 import {
@@ -144,10 +144,14 @@ export default function FederationView() {
     null,
   );
 
-  onMount(async () => {
-    await loadStatus();
-    await loadPeers();
-    await loadKnocks();
+  // reload whenever the active admin target changes (incl. initial mount)
+  createEffect(() => {
+    admin.current();
+    void (async () => {
+      await loadStatus();
+      await loadPeers();
+      await loadKnocks();
+    })();
   });
 
   // auto-refresh knocks periodically when federation is enabled
