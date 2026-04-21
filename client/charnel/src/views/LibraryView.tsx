@@ -61,12 +61,10 @@ export default function LibraryView() {
   async function loadDirectories() {
     setLoading(true);
     try {
-      const dirs = admin.isRemote()
-        ? await admin.dispatchOrThrow<ScannedDir[]>(
-            "library_list_directories",
-            {},
-          )
-        : await invoke<ScannedDir[]>("list_scanned_directories");
+      const dirs = await admin.dispatchOrThrow<ScannedDir[]>(
+        "library_list_directories",
+        {},
+      );
       setDirectories(dirs);
     } catch (e) {
       console.error("failed to load directories:", e);
@@ -167,11 +165,7 @@ export default function LibraryView() {
 
   async function removeDirectory(path: string) {
     try {
-      if (admin.isRemote()) {
-        await admin.dispatchOrThrow("library_remove_directory", { path });
-      } else {
-        await invoke("remove_scanned_directory", { path });
-      }
+      await admin.dispatchOrThrow("library_remove_directory", { path });
       await loadDirectories();
     } catch (e) {
       console.error("failed to remove directory:", e);
@@ -206,6 +200,9 @@ export default function LibraryView() {
     setLastResult("");
 
     try {
+      // local: invoke the tauri command so the polling task fires
+      // scan-progress/scan-complete events for the spume webview.
+      // remote: just dispatch — no spume side to notify.
       const result = admin.isRemote()
         ? await admin.dispatchOrThrow<ScanResult>("library_rescan_all", {})
         : await invoke<ScanResult>("rescan_directories");

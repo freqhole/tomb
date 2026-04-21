@@ -108,9 +108,10 @@ export default function SettingsView() {
 
   async function loadServerConfig() {
     try {
-      const config = admin.isRemote()
-        ? await admin.dispatchOrThrow<ServerConfig>("server_get_config", {})
-        : await invoke<ServerConfig>("get_server_config");
+      const config = await admin.dispatchOrThrow<ServerConfig>(
+        "server_get_config",
+        {},
+      );
       setServerConfig(config);
       setEditName(config.name);
       setEditDescription(config.description || "");
@@ -118,15 +119,11 @@ export default function SettingsView() {
       // load thumbnail if we have an image (blob_id or image_path)
       if (config.image_blob_id || config.image_path) {
         try {
-          const thumbnail = admin.isRemote()
-            ? (
-                await admin.dispatchOrThrow<{ data: string }>(
-                  "server_get_image_thumbnail",
-                  { size: 128 },
-                )
-              ).data
-            : await invoke<string>("get_server_image_thumbnail");
-          setImageThumbnail(thumbnail);
+          const result = await admin.dispatchOrThrow<{ data: string }>(
+            "server_get_image_thumbnail",
+            { size: 128 },
+          );
+          setImageThumbnail(result.data);
         } catch (e) {
           console.error("failed to load thumbnail:", e);
           setImageThumbnail(null);
