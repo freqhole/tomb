@@ -169,6 +169,14 @@ export default function FederationView() {
   );
 
   async function loadStatus() {
+    // federation setup (haruspex creds, identity keypair, sync) is a
+    // charnel-app-local concern; the remote already has its own identity.
+    // skip the panel entirely when managing a remote target.
+    if (admin.isRemote()) {
+      setLoading(false);
+      setStatus(null);
+      return;
+    }
     setLoading(true);
     setError("");
     try {
@@ -278,12 +286,15 @@ export default function FederationView() {
 
     try {
       const selection = peerUserSelection();
-      const result = await invoke<AllowPeerResult>("allow_peer", {
-        nodeId: peerNodeId(),
-        username: selection?.username || peerUsername() || undefined,
-        role: selection?.isExisting ? selection.role : peerRole(),
-        userId: selection?.isExisting ? selection.id : undefined,
-      });
+      const result = await admin.dispatchOrThrow<AllowPeerResult>(
+        "peers_allow",
+        {
+          node_id: peerNodeId(),
+          username: selection?.username || peerUsername() || undefined,
+          role: selection?.isExisting ? selection.role : peerRole(),
+          user_id: selection?.isExisting ? selection.id : undefined,
+        },
+      );
       setSuccess(
         result.created_user
           ? `peer allowed: created user "${result.username}"`
@@ -304,7 +315,10 @@ export default function FederationView() {
   async function loadPeers() {
     setPeersLoading(true);
     try {
-      const peers = await invoke<PeerNodeInfo[]>("list_peer_nodes");
+      const peers = await admin.dispatchOrThrow<PeerNodeInfo[]>(
+        "peers_list_all",
+        {},
+      );
       setPeerNodes(peers);
     } catch (e) {
       console.error("failed to load peers:", e);
@@ -335,9 +349,10 @@ export default function FederationView() {
   async function loadKnocks() {
     setKnocksLoading(true);
     try {
-      const result = await invoke<KnockInfo[]>("list_knocks", {
-        includeAll: false,
-      });
+      const result = await admin.dispatchOrThrow<KnockInfo[]>(
+        "knocks_list",
+        {},
+      );
       setKnocks(result);
     } catch (e) {
       console.error("failed to load knocks:", e);
@@ -420,8 +435,11 @@ export default function FederationView() {
     setConfirmRejectAll(false);
 
     try {
-      const rejected = await invoke<number>("reject_all_knocks");
-      setSuccess(`rejected ${rejected} pending knock request(s)`);
+      const result = await admin.dispatchOrThrow<{ rejected: number }>(
+        "knocks_reject_all",
+        {},
+      );
+      setSuccess(`rejected ${result.rejected} pending knock request(s)`);
       await loadKnocks();
     } catch (e) {
       setError(String(e));
@@ -577,8 +595,10 @@ export default function FederationView() {
           </Show>
         </section>
 
-        {/* access requests and allowed peers - only show when federation is enabled */}
-        <Show when={isConfigured()}>
+        {/* access requests and allowed peers - show when federation is
+            enabled locally OR when managing a remote (the remote handles
+            its own federation enablement). */}
+        <Show when={isConfigured() || admin.isRemote()}>
           {/* access requests (knocks) - show pending knock requests */}
           <section class="status-section">
             <h2>access requests</h2>

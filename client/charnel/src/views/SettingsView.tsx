@@ -56,6 +56,12 @@ export default function SettingsView() {
   // sync settings
   const [syncQueueToLocal, setSyncQueueToLocal] = createSignal(true);
 
+  // remote server lifecycle
+  const [restartConfirm, setRestartConfirm] = createSignal(false);
+  const [restartLoading, setRestartLoading] = createSignal(false);
+  const [restartMessage, setRestartMessage] = createSignal("");
+  const [restartIsError, setRestartIsError] = createSignal(false);
+
   onMount(async () => {
     await loadServerConfig();
     await loadSyncSettings();
@@ -246,6 +252,27 @@ export default function SettingsView() {
       setImageIsError(true);
     } finally {
       setIsUpdating(false);
+    }
+  }
+
+  async function handleServerRestart() {
+    setRestartLoading(true);
+    setRestartMessage("");
+    setRestartIsError(false);
+    try {
+      await admin.dispatchOrThrow("server_restart", {
+        reason: "wizard requested",
+      });
+      setRestartMessage(
+        "graceful shutdown initiated; supervisor must respawn the process",
+      );
+      setRestartIsError(false);
+    } catch (e) {
+      setRestartMessage(`restart failed: ${e}`);
+      setRestartIsError(true);
+    } finally {
+      setRestartLoading(false);
+      setRestartConfirm(false);
     }
   }
 
@@ -521,6 +548,76 @@ export default function SettingsView() {
                   </div>
                 </div>
               </div>
+            </div>
+          </Show>
+
+          <Show when={admin.isRemote()}>
+            <div class="settings-section" style={{ "margin-top": "2rem" }}>
+              <h2>
+                server lifecycl<span class="pinky">e</span>
+              </h2>
+              <p
+                class="hint"
+                style={{
+                  "font-size": "0.875rem",
+                  color: "var(--color-text-secondary, #888)",
+                }}
+              >
+                request the remote server to gracefully shut down. it must be
+                respawned by an external supervisor (systemd, launchd, etc).
+              </p>
+              <div
+                style={{
+                  display: "flex",
+                  gap: "0.5rem",
+                  "align-items": "center",
+                  "margin-top": "0.75rem",
+                }}
+              >
+                <Show when={!restartConfirm()}>
+                  <button
+                    class="button"
+                    onClick={() => setRestartConfirm(true)}
+                    disabled={restartLoading()}
+                  >
+                    restart server
+                  </button>
+                </Show>
+                <Show when={restartConfirm()}>
+                  <span style={{ "font-size": "0.875rem" }}>
+                    really restart?
+                  </span>
+                  <button
+                    class="button danger"
+                    onClick={handleServerRestart}
+                    disabled={restartLoading()}
+                  >
+                    {restartLoading() ? "restarting..." : "yes, restart"}
+                  </button>
+                  <button
+                    class="button secondary"
+                    onClick={() => setRestartConfirm(false)}
+                    disabled={restartLoading()}
+                  >
+                    cancel
+                  </button>
+                </Show>
+              </div>
+              <Show when={restartMessage()}>
+                <div
+                  class={`wizard-notification ${restartIsError() ? "error" : "success"}`}
+                  style={{ "margin-top": "0.75rem" }}
+                >
+                  <span class="message-text">{restartMessage()}</span>
+                  <button
+                    class="dismiss-btn"
+                    onClick={() => setRestartMessage("")}
+                    title="dismiss"
+                  >
+                    ×
+                  </button>
+                </div>
+              </Show>
             </div>
           </Show>
         </div>

@@ -44,6 +44,7 @@ pub async fn handle(
         "knocks_accept" => knocks_accept(args, caller).await,
         "knocks_reject" => knocks_reject(args, caller).await,
         "knocks_delete" => knocks_delete(args).await,
+        "knocks_reject_all" => knocks_reject_all(caller).await,
 
         // -- users --
         "users_list" => users_list(args, caller).await,
@@ -61,12 +62,16 @@ pub async fn handle(
         "peers_list_all" => to_value(UserService::new().get_all_peer_nodes().await),
         "peers_list_for_user" => peers_list_for_user(args).await,
         "peers_remove" => peers_remove(args).await,
+        "peers_allow" => peers_allow(args).await,
 
         // -- library --
         "library_validate_path" => library_validate_path(args).await,
         "library_scan" => library_scan(args).await,
         "library_scan_status" => library_scan_status(args).await,
         "library_image_upload" => library_image_upload(args, caller).await,
+        "library_list_directories" => library_list_directories().await,
+        "library_remove_directory" => library_remove_directory(args).await,
+        "library_rescan_all" => library_rescan_all(caller).await,
 
         // -- config / server --
         "config_get" => config_get().await,
@@ -234,6 +239,25 @@ async fn knocks_delete(args: JsonValue) -> GrimoireResponse<JsonValue> {
         Ok(()) => GrimoireResponse::success("knock deleted", JsonValue::Null),
         Err(e) => GrimoireResponse::failure("failed to delete knock", vec![e.into()]),
     }
+}
+
+/// reject every currently-pending knock. returns `{ rejected: <count> }`.
+async fn knocks_reject_all(caller: &Caller) -> GrimoireResponse<JsonValue> {
+    let list = knock::list_knocks(false).await;
+    let knocks = match list.data {
+        Some(k) => k,
+        None => return GrimoireResponse::failure("failed to list knocks", list.errors),
+    };
+    let mut rejected = 0u32;
+    for k in knocks {
+        if knock::reject_knock(&k.id, &caller.user_id).await.is_ok() {
+            rejected += 1;
+        }
+    }
+    GrimoireResponse::success(
+        format!("rejected {} knocks", rejected),
+        json!({ "rejected": rejected }),
+    )
 }
 
 // =========================================================================
@@ -404,6 +428,79 @@ async fn peers_remove(args: JsonValue) -> GrimoireResponse<JsonValue> {
     )
 }
 
+/// allow a peer node by linking (or creating) a user with the given role.
+/// args: `{ node_id, username?, role?, user_id? }`
+/// - if `user_id` is set, links to that existing user
+/// - else if `username` matches an existing user, links to it
+/// - else creates a new user (`username` defaults to `peer_<first8>`)
+/// returns `{ user_id, username, node_id, created_user }` to mirror the
+/// legacy `allow_peer` tauri command shape.
+async fn peers_allow(args: JsonValue) -> GrimoireResponse<JsonValue> {
+    let node_id = match require_str(&args, "node_id") {
+        Ok(v) => v,
+        Err(r) => return r,
+    };
+
+    if node_id.len() != 64 || !node_id.chars().all(|c| c.is_ascii_hexdigit()) {
+        return bad_request("invalid node_id: expected 64 hex characters");
+    }
+
+    let role_str = opt_str(&args, "role").unwrap_or_else(|| "viewer".to_string());
+    let user_role = match role_str.as_str() {
+        "admin" => UserRole::Admin,
+        "member" => UserRole::Member,
+        "viewer" => UserRole::Viewer,
+        other => {
+            return bad_request(format!(
+                "invalid role '{}': expected admin, member, or viewer",
+                other
+            ));
+        }
+    };
+
+    let service = UserService::new();
+    let (user, created_user) = if let Some(uid) = opt_str(&args, "user_id") {
+        match service.get_user(&uid).await.data {
+            Some(u) => (u, false),
+            None => return bad_request(format!("user not found: {}", uid)),
+        }
+    } else {
+        let username =
+            opt_str(&args, "username").unwrap_or_else(|| format!("peer_{}", &node_id[..8]));
+
+        if let Some(existing) = service.get_user_by_username(&username).await.data {
+            (existing, false)
+        } else {
+            let req = CreateUserRequest {
+                username: username.clone(),
+                role: Some(user_role),
+                invite_code: None,
+            };
+            match service.register_user(&req).await {
+                GrimoireResponse { data: Some(u), .. } => (u, true),
+                resp => {
+                    return GrimoireResponse::failure("failed to create user", resp.errors);
+                }
+            }
+        }
+    };
+
+    let peer_resp = service.upsert_peer_node(&user.id, &node_id, None).await;
+    if peer_resp.data.is_none() {
+        return GrimoireResponse::failure("failed to link peer node", peer_resp.errors);
+    }
+
+    GrimoireResponse::success(
+        "peer node linked",
+        json!({
+            "user_id": user.id,
+            "username": user.username,
+            "node_id": node_id,
+            "created_user": created_user,
+        }),
+    )
+}
+
 // =========================================================================
 // library
 // =========================================================================
@@ -444,32 +541,67 @@ async fn library_scan(args: JsonValue) -> GrimoireResponse<JsonValue> {
         Err(r) => return r,
     };
     let recursive = opt_bool(&args, "recursive").unwrap_or(true);
-    let session_id = opt_str(&args, "session_id").unwrap_or_else(|| {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
-        format!("admin-scan-{}", now)
-    });
+
+    // optional tag list to apply to the directory
+    let tags: Vec<String> = args
+        .get("tags")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .collect()
+        })
+        .unwrap_or_default();
+
+    // session id can be supplied; otherwise create a fresh job session so
+    // the scan inherits a real session row (foreign-key requirement).
+    let session_id = match opt_str(&args, "session_id") {
+        Some(s) => s,
+        None => {
+            let req = crate::jobs::CreateJobSessionRequest {
+                job_type: crate::jobs::JobType::ProcessFile,
+                batch_size: None,
+                created_by: Some("admin-dispatch-scan".to_string()),
+            };
+            let sess = crate::jobs::create_job_session(req).await;
+            match sess.data {
+                Some(s) => s.id,
+                None => {
+                    return GrimoireResponse::failure("failed to create scan session", sess.errors);
+                }
+            }
+        }
+    };
+
+    if !tags.is_empty() {
+        let _ = crate::jobs::add_directory_tags(
+            &path,
+            tags.clone(),
+            Some("admin-dispatch-scan".to_string()),
+        )
+        .await;
+    }
 
     let resp = crate::music::scan_directory(&path, &session_id, recursive, None, None, false).await;
 
-    // wrap result to also expose the session_id we used
-    let GrimoireResponse {
-        success,
-        message,
-        data,
-        errors,
-    } = resp;
-    let data_json = json!({
-        "session_id": session_id,
-        "files_discovered": data.unwrap_or(0),
-    });
-    GrimoireResponse {
-        success,
-        message,
-        data: Some(data_json),
-        errors,
+    let count = resp.data.unwrap_or(0);
+    if count > 0 {
+        let _ = crate::jobs::record_scanned_directory(&path, count as i64, None).await;
+    }
+
+    if resp.success {
+        GrimoireResponse::success(
+            format!("created {} import jobs", count),
+            json!({
+                "session_id": session_id,
+                "files_discovered": count,
+                "jobs_created": count,
+                "success": true,
+                "message": format!("created {} import jobs", count),
+            }),
+        )
+    } else {
+        GrimoireResponse::failure(resp.message, resp.errors)
     }
 }
 
@@ -485,6 +617,80 @@ async fn library_image_upload(args: JsonValue, caller: &Caller) -> GrimoireRespo
     // delegate to existing upload handler. body shape mirrors UploadImageRequest:
     // { filename?, mime?, data: base64, associate_with?, wait_for_completion? }
     crate::offal::upload::upload_image(caller, args).await
+}
+
+/// list every directory ever scanned, with the tags applied via
+/// directory tag rules. shape mirrors the legacy `list_scanned_directories`
+/// tauri command so the UI can use one shape for both targets.
+async fn library_list_directories() -> GrimoireResponse<JsonValue> {
+    let list = crate::jobs::list_scanned_directories().await;
+    let dirs = match list.data {
+        Some(d) => d,
+        None => return GrimoireResponse::failure("failed to list directories", list.errors),
+    };
+    let mut out = Vec::with_capacity(dirs.len());
+    for d in dirs {
+        let tags_resp = crate::jobs::list_directory_tags(&d.path).await;
+        let tags: Vec<String> = tags_resp
+            .data
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|r| r.tag_name)
+            .collect();
+        out.push(json!({
+            "id": d.id,
+            "path": d.path,
+            "file_count": d.file_count,
+            "last_scanned_at": d.last_scanned_at,
+            "tags": tags,
+        }));
+    }
+    GrimoireResponse::success(
+        format!("found {} directories", out.len()),
+        JsonValue::Array(out),
+    )
+}
+
+/// stop tracking a previously-scanned directory.
+async fn library_remove_directory(args: JsonValue) -> GrimoireResponse<JsonValue> {
+    let path = match require_str(&args, "path") {
+        Ok(v) => v,
+        Err(r) => return r,
+    };
+    let resp = crate::jobs::remove_scanned_directory(&path).await;
+    if resp.success {
+        GrimoireResponse::success("directory removed", JsonValue::Null)
+    } else {
+        GrimoireResponse::failure(resp.message, resp.errors)
+    }
+}
+
+/// kick off a `RescanDirectories` background job. mirrors the legacy
+/// `rescan_directories` tauri command shape (`{ success, jobs_created,
+/// message }`); `jobs_created` is always 1 here (the rescan job itself)
+/// since the per-directory work happens inside the job.
+async fn library_rescan_all(caller: &Caller) -> GrimoireResponse<JsonValue> {
+    let req = crate::jobs::CreateJobRequest {
+        job_type: crate::jobs::JobType::RescanDirectories,
+        session_id: None,
+        parameters: json!({}),
+        max_retries: Some(0),
+        scheduled_at: None,
+        created_by: Some(caller.user_id.clone()),
+    };
+    let resp = crate::jobs::create_job(req).await;
+    if resp.success {
+        GrimoireResponse::success(
+            "rescan started",
+            json!({
+                "success": true,
+                "jobs_created": 1,
+                "message": "rescan job created",
+            }),
+        )
+    } else {
+        GrimoireResponse::failure(resp.message, resp.errors)
+    }
 }
 
 // =========================================================================
