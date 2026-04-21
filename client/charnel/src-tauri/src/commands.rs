@@ -1359,7 +1359,7 @@ pub async fn api_call(
 }
 
 /// get caller identity from app config admin user
-fn get_caller_from_app_config(
+pub(crate) fn get_caller_from_app_config(
     app_handle: &tauri::AppHandle,
 ) -> Result<grimoire::offal::Caller, String> {
     let app_config = FreqholeAppConfig::load(app_handle)

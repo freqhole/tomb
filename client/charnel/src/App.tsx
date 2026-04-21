@@ -8,20 +8,10 @@ import {
 } from "solid-js";
 import { A, useLocation, useNavigate } from "@solidjs/router";
 import { invoke } from "@tauri-apps/api/core";
-import { emit } from "@tauri-apps/api/event";
 import { VERSION } from "./version";
 import { AdminTransportProvider } from "./admin/context";
 import { AdminTargetPicker, AdminScopeBanner } from "./admin/AdminTargetPicker";
 import "./App.css";
-
-interface ServerStatus {
-  running: boolean;
-  pid: number | null;
-  uptime_secs: number | null;
-  restart_count: number;
-  config_path: string | null;
-  server_url: string | null;
-}
 
 interface P2pStatus {
   status: string; // "stopped", "starting...", "online", "offline", "connecting..."
@@ -53,15 +43,9 @@ export function useAppContext() {
 function App(props: ParentProps) {
   const location = useLocation();
   const navigate = useNavigate();
-  const [serverStatus, setServerStatus] = createSignal<ServerStatus | null>(
-    null,
-  );
   const [p2pStatus, setP2pStatus] = createSignal<P2pStatus | null>(null);
   const [setupComplete, setSetupComplete] = createSignal(false);
   const [checkingSetup, setCheckingSetup] = createSignal(true);
-
-  // track restart count to detect server restarts
-  let lastRestartCount: number | null = null;
 
   // determine if we're on an admin route (not setup)
   const isAdminRoute = () => {
@@ -113,33 +97,10 @@ function App(props: ParentProps) {
       setCheckingSetup(false);
     }
 
-    // poll server status
-    updateServerStatus();
+    // poll P2P status
     updateP2pStatus();
-    setInterval(updateServerStatus, 5000);
     setInterval(updateP2pStatus, 3000);
   });
-
-  async function updateServerStatus() {
-    try {
-      const status = await invoke<ServerStatus>("server_status");
-      setServerStatus(status);
-
-      // detect server restart and notify spume via tauri event system
-      if (
-        lastRestartCount !== null &&
-        status.restart_count > lastRestartCount
-      ) {
-        console.log(
-          "[App] server restart detected, emitting config-updated event",
-        );
-        emit("freqhole:config-updated");
-      }
-      lastRestartCount = status.restart_count;
-    } catch (e) {
-      console.error("failed to get status:", e);
-    }
-  }
 
   async function updateP2pStatus() {
     try {
@@ -240,39 +201,7 @@ function App(props: ParentProps) {
                 </div>
 
                 <div class="sidebar-footer">
-                  <Show when={serverStatus()}>
-                    {(status) => (
-                      <div class="server-status">
-                        <div>
-                          <span
-                            class={`status-dot ${status().running ? "running" : "stopped"}`}
-                          />
-                          <span class="status-text">
-                            http {status().running ? "running" : "stopped"}
-                          </span>
-                          <Show when={status().running && status().uptime_secs}>
-                            <span class="uptime">
-                              ({Math.floor(status().uptime_secs! / 60)}m)
-                            </span>
-                          </Show>
-                        </div>
-
-                        <Show when={status().running && status().server_url}>
-                          <div class="server-url-row">
-                            <a
-                              href={status().server_url!}
-                              target="_blank"
-                              class="server-url"
-                            >
-                              {status().server_url}
-                            </a>
-                          </div>
-                        </Show>
-                      </div>
-                    )}
-                  </Show>
-
-                  {/* P2P status - independent of HTTP server, only show if federation enabled */}
+                  {/* P2P status - only show if federation enabled */}
                   <Show when={p2pStatus()?.federation_enabled}>
                     <div class="server-status">
                       <div class="p2p-status-row">

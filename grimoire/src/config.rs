@@ -31,6 +31,12 @@ pub struct GrimoireConfig {
     /// Federation/P2P configuration (optional - for peer-to-peer music sharing)
     #[serde(default)]
     pub federation: Option<FederationConfig>,
+
+    /// Path this config was loaded from. Set by `init_config`; not
+    /// (de)serialized. Used by admin handlers that need to write changes
+    /// back to disk without re-running cwd-based config discovery.
+    #[serde(default, skip)]
+    pub loaded_from: Option<PathBuf>,
 }
 
 /// Database configuration
@@ -595,7 +601,8 @@ impl GrimoireConfig {
 /// allowing runtime config changes (e.g., toggling federation).
 pub fn init_config(path: Option<PathBuf>) -> Result<(), ConfigError> {
     let config_path = find_config(path)?;
-    let config = GrimoireConfig::load(config_path)?;
+    let mut config = GrimoireConfig::load(&config_path)?;
+    config.loaded_from = Some(config_path);
 
     match CONFIG.get() {
         Some(lock) => {
@@ -608,6 +615,14 @@ pub fn init_config(path: Option<PathBuf>) -> Result<(), ConfigError> {
         }
     }
     Ok(())
+}
+
+/// Get the path to the currently-loaded config file (set by init_config).
+/// Returns None if config hasn't been initialized yet.
+pub fn get_config_path() -> Option<PathBuf> {
+    CONFIG
+        .get()
+        .and_then(|lock| lock.read().unwrap().loaded_from.clone())
 }
 
 /// Check if config has been initialized

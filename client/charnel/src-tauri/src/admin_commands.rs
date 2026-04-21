@@ -5,15 +5,15 @@
 //! against the local grimoire instance, replacing many per-operation
 //! tauri commands.
 //!
-//! transport: this is the *local* path. the resolved caller is always
-//! `Caller::local_admin()` because being able to `invoke` into our own
+//! transport: this is the *local* path. the resolved caller is loaded from
+//! charnel's app config (`charnel-config.toml` -> `admin_user`), which is
+//! seeded during the setup wizard. being able to `invoke` into our own
 //! tauri process is itself the auth boundary (the OS user is the admin).
 //!
 //! see docs/wizard-remote-admin.md for the full plan.
 
-use crate::commands::ensure_initialized_pub;
+use crate::commands::{ensure_initialized_pub, get_caller_from_app_config};
 use grimoire::admin_dispatch;
-use grimoire::offal::Caller;
 use serde_json::Value as JsonValue;
 
 /// dispatch an admin command against the local grimoire instance.
@@ -34,7 +34,7 @@ pub async fn admin_dispatch(
         .await
         .map_err(|e| e.to_string())?;
 
-    let caller = Caller::local_admin();
+    let caller = get_caller_from_app_config(&app_handle)?;
     let args = args.unwrap_or(JsonValue::Null);
     let response = admin_dispatch::handle(&command, args, &caller).await;
 

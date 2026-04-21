@@ -11,7 +11,7 @@
 //!
 //! see docs/wizard-remote-admin.md for the full plan and command list.
 
-use crate::config::{find_config, get_config, read_config_from_file};
+use crate::config::{find_config, get_config, get_config_path, read_config_from_file};
 use crate::error::ErrorDetail;
 use crate::federation::knock;
 use crate::offal::Caller;
@@ -136,6 +136,18 @@ fn internal(detail: impl Into<String>) -> GrimoireResponse<JsonValue> {
             &detail.into(),
         )],
     )
+}
+
+/// resolve the active config file path. prefers the path captured by
+/// `init_config()` (set by tauri/cli/server bootstrap) and falls back to
+/// the legacy `./freqhole-config.toml` cwd lookup.
+fn resolve_config_path() -> Result<PathBuf, crate::config::ConfigError> {
+    if let Some(p) = get_config_path() {
+        if p.exists() {
+            return Ok(p);
+        }
+    }
+    find_config(None)
 }
 
 /// decode args into a typed struct or return a bad_request response
@@ -844,7 +856,7 @@ async fn library_rescan_all(caller: &Caller) -> GrimoireResponse<JsonValue> {
 // =========================================================================
 
 async fn config_get() -> GrimoireResponse<JsonValue> {
-    let path = match find_config(None) {
+    let path = match resolve_config_path() {
         Ok(p) => p,
         Err(e) => return internal(format!("could not locate config file: {}", e)),
     };
@@ -876,7 +888,7 @@ async fn config_set(args: JsonValue) -> GrimoireResponse<JsonValue> {
     if let Err(e) = toml::from_str::<crate::config::GrimoireConfig>(&toml_str) {
         return bad_request(format!("invalid toml: {}", e));
     }
-    let path: PathBuf = match find_config(None) {
+    let path: PathBuf = match resolve_config_path() {
         Ok(p) => p,
         Err(e) => return internal(format!("could not locate config file: {}", e)),
     };
@@ -980,7 +992,7 @@ async fn server_update_image(args: JsonValue) -> GrimoireResponse<JsonValue> {
     let dest_str = dest.display().to_string();
 
     // persist absolute path into the config file
-    let config_path = match find_config(None) {
+    let config_path = match resolve_config_path() {
         Ok(p) => p,
         Err(e) => return internal(format!("could not locate config file: {}", e)),
     };
@@ -1105,7 +1117,7 @@ async fn server_update_info(args: JsonValue) -> GrimoireResponse<JsonValue> {
         return bad_request("must provide at least one of: name, description");
     }
 
-    let config_path = match find_config(None) {
+    let config_path = match resolve_config_path() {
         Ok(p) => p,
         Err(e) => return internal(format!("could not locate config file: {}", e)),
     };

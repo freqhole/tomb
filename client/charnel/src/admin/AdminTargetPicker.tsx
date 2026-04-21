@@ -10,8 +10,9 @@
 //
 // see docs/wizard-remote-admin.md.
 
-import { createSignal, onMount, For, Show } from "solid-js";
+import { createSignal, onMount, onCleanup, For, Show } from "solid-js";
 import { invoke } from "@tauri-apps/api/core";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   useAdminTransport,
   LOCAL_TARGET,
@@ -65,7 +66,26 @@ export function AdminTargetPicker() {
     }
   }
 
-  onMount(load);
+  onMount(() => {
+    load();
+    // refresh periodically so newly-added remotes (e.g. added in spume)
+    // show up without requiring a wizard reload
+    const interval = window.setInterval(load, 5000);
+    // and immediately on window focus
+    let unlistenFocus: (() => void) | undefined;
+    getCurrentWindow()
+      .onFocusChanged(({ payload: focused }) => {
+        if (focused) load();
+      })
+      .then((un) => {
+        unlistenFocus = un;
+      })
+      .catch(() => {});
+    onCleanup(() => {
+      window.clearInterval(interval);
+      unlistenFocus?.();
+    });
+  });
 
   function onChange(value: string) {
     if (value === "local") {
@@ -323,13 +343,12 @@ export function AdminScopeBanner() {
             </span>
           </Show>
         </span>
-        <button
-          type="button"
+        <span
           class="admin-scope-disconnect"
           onClick={() => transport.setCurrent(LOCAL_TARGET)}
         >
           back to local
-        </button>
+        </span>
       </div>
     </Show>
   );

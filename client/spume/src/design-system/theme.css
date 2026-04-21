@@ -186,6 +186,13 @@ body {
   -webkit-user-select: none;
 }
 
+/* re-enable text selection inside opt-in regions (e.g. settings views) */
+[data-allow-select],
+[data-allow-select] * {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
 /* disable backdrop-filter blur (for linux/webkitgtk compatibility)
    set via freqhole-app-config.toml: disable_backdrop_blur = true
    also adds solid background fallbacks since transparent + no blur looks broken */

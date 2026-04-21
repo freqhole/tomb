@@ -512,88 +512,93 @@ export default function FederationView() {
         <div class="loading">loading federation status...</div>
       </Show>
 
-      <Show when={!loading() && status()}>
-        {/* configuration & identity status */}
-        <section class="status-section">
-          <h2>configuration</h2>
-          <Show
-            when={isConfigured()}
-            fallback={
-              <div class="status-content">
-                <div class="status-message warning">federation is disabled</div>
+      <Show when={!loading() && (status() || admin.isRemote())}>
+        {/* configuration & identity status (local-only - the remote handles
+            its own federation enablement; we only show peer/knock mgmt) */}
+        <Show when={!admin.isRemote()}>
+          <section class="status-section">
+            <h2>configuration</h2>
+            <Show
+              when={isConfigured()}
+              fallback={
+                <div class="status-content">
+                  <div class="status-message warning">
+                    federation is disabled
+                  </div>
+                  <button
+                    class="small"
+                    onClick={handleToggle}
+                    disabled={toggling()}
+                  >
+                    {toggling() ? "enabling..." : "enable federation"}
+                  </button>
+                </div>
+              }
+            >
+              <div class="status-grid">
+                <Show when={status()?.config?.haruspex_url}>
+                  <div class="status-item">
+                    <span class="label">haruspex url</span>
+                    <span class="value mono">
+                      {status()?.config?.haruspex_url}
+                    </span>
+                  </div>
+                </Show>
+                <div class="status-item">
+                  <span class="label">auto create users</span>
+                  <span class="value">
+                    {status()?.config?.auto_create_users ? "yes" : "no"}
+                  </span>
+                </div>
+                <div class="status-item">
+                  <span class="label">default role</span>
+                  <span class="value">{status()?.config?.default_role}</span>
+                </div>
+                <div class="status-item full-width">
+                  <span class="label">keypair</span>
+                  <span class="value mono small">
+                    {hasKeypair()
+                      ? status()?.identity.keypair_path
+                      : "not generated"}
+                  </span>
+                </div>
+                <Show when={hasKeypair()}>
+                  <div class="status-item full-width">
+                    <span class="label">node id</span>
+                    <span class="value mono small">
+                      {status()?.identity.node_id}
+                    </span>
+                    <div class="node-id-actions">
+                      <button
+                        class="secondary small"
+                        onClick={async () => {
+                          const nodeId = status()?.identity.node_id;
+                          if (nodeId) {
+                            await navigator.clipboard.writeText(nodeId);
+                            setNodeIdCopied(true);
+                            setTimeout(() => setNodeIdCopied(false), 5000);
+                          }
+                        }}
+                      >
+                        {nodeIdCopied() ? "copied!" : "copy"}
+                      </button>
+                    </div>
+                    <QrCodeDisplay nodeId={status()?.identity.node_id || ""} />
+                  </div>
+                </Show>
+              </div>
+              <div class="section-actions">
                 <button
-                  class="small"
+                  class="secondary small"
                   onClick={handleToggle}
                   disabled={toggling()}
                 >
-                  {toggling() ? "enabling..." : "enable federation"}
+                  {toggling() ? "disabling..." : "disable federation"}
                 </button>
               </div>
-            }
-          >
-            <div class="status-grid">
-              <Show when={status()?.config?.haruspex_url}>
-                <div class="status-item">
-                  <span class="label">haruspex url</span>
-                  <span class="value mono">
-                    {status()?.config?.haruspex_url}
-                  </span>
-                </div>
-              </Show>
-              <div class="status-item">
-                <span class="label">auto create users</span>
-                <span class="value">
-                  {status()?.config?.auto_create_users ? "yes" : "no"}
-                </span>
-              </div>
-              <div class="status-item">
-                <span class="label">default role</span>
-                <span class="value">{status()?.config?.default_role}</span>
-              </div>
-              <div class="status-item full-width">
-                <span class="label">keypair</span>
-                <span class="value mono small">
-                  {hasKeypair()
-                    ? status()?.identity.keypair_path
-                    : "not generated"}
-                </span>
-              </div>
-              <Show when={hasKeypair()}>
-                <div class="status-item full-width">
-                  <span class="label">node id</span>
-                  <span class="value mono small">
-                    {status()?.identity.node_id}
-                  </span>
-                  <div class="node-id-actions">
-                    <button
-                      class="secondary small"
-                      onClick={async () => {
-                        const nodeId = status()?.identity.node_id;
-                        if (nodeId) {
-                          await navigator.clipboard.writeText(nodeId);
-                          setNodeIdCopied(true);
-                          setTimeout(() => setNodeIdCopied(false), 5000);
-                        }
-                      }}
-                    >
-                      {nodeIdCopied() ? "copied!" : "copy"}
-                    </button>
-                  </div>
-                  <QrCodeDisplay nodeId={status()?.identity.node_id || ""} />
-                </div>
-              </Show>
-            </div>
-            <div class="section-actions">
-              <button
-                class="secondary small"
-                onClick={handleToggle}
-                disabled={toggling()}
-              >
-                {toggling() ? "disabling..." : "disable federation"}
-              </button>
-            </div>
-          </Show>
-        </section>
+            </Show>
+          </section>
+        </Show>
 
         {/* access requests and allowed peers - show when federation is
             enabled locally OR when managing a remote (the remote handles

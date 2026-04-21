@@ -9,7 +9,7 @@
 //! IMPORTANT: pools are singletons - created once, reused for all requests.
 
 use sqlx::sqlite::SqlitePoolOptions;
-use sqlx::SqlitePool;
+use sqlx::{Executor, SqlitePool};
 use tokio::sync::OnceCell;
 
 use crate::config::get_config;
@@ -58,18 +58,16 @@ async fn run_migrations_internal(pool: &SqlitePool) -> GrimoireResult<()> {
     // run migrations
     sqlx::migrate!("../migrations").run(pool).await?;
 
-    // create views in dependency order (each .sql has DROP IF EXISTS + CREATE)
-    sqlx::query(views::ARTIST_QUERY_VIEW).execute(pool).await?;
-    sqlx::query(views::ALBUM_QUERY_VIEW).execute(pool).await?;
-    sqlx::query(views::GENRE_QUERY_VIEW).execute(pool).await?;
-    sqlx::query(views::SONG_QUERY_VIEW).execute(pool).await?;
-    sqlx::query(views::PLAYLIST_QUERY_VIEW)
-        .execute(pool)
-        .await?;
-    sqlx::query(views::PLAYLIST_SONG_QUERY_VIEW)
-        .execute(pool)
-        .await?;
-    sqlx::query(views::FEED_QUERY_VIEW).execute(pool).await?;
+    // create views in dependency order (each .sql has DROP IF EXISTS + CREATE,
+    // so we use Executor::execute on the raw &str which runs all statements
+    // in the script - sqlx::query() only runs the first statement).
+    pool.execute(views::ARTIST_QUERY_VIEW).await?;
+    pool.execute(views::ALBUM_QUERY_VIEW).await?;
+    pool.execute(views::GENRE_QUERY_VIEW).await?;
+    pool.execute(views::SONG_QUERY_VIEW).await?;
+    pool.execute(views::PLAYLIST_QUERY_VIEW).await?;
+    pool.execute(views::PLAYLIST_SONG_QUERY_VIEW).await?;
+    pool.execute(views::FEED_QUERY_VIEW).await?;
 
     // initialize blob_data database (separate file for raw binary storage)
     let blob_pool = connect_blob_data().await?;

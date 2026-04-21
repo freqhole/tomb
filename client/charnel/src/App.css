@@ -2051,7 +2051,7 @@ button.danger:hover {
 
 .admin-scope-disconnect {
   background: transparent;
-  border: 1px solid #78350f;
+
   color: #fde68a;
   border-radius: 4px;
   padding: 0.25rem 0.625rem;
@@ -2060,7 +2060,7 @@ button.danger:hover {
 }
 
 .admin-scope-disconnect:hover {
-  background: #78350f;
+  text-decoration: underline;
 }
 
 .admin-target-add-toggle {
