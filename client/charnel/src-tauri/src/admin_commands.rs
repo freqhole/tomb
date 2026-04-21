@@ -40,3 +40,30 @@ pub async fn admin_dispatch(
 
     serde_json::to_value(response).map_err(|e| e.to_string())
 }
+
+/// dispatch an admin command to a remote freqhole instance over the
+/// `freqhole-admin/1` ALPN.
+///
+/// `peer_addr` is either a 64-char node id or full endpoint json (same
+/// format accepted by the rest of the P2P client surface).
+///
+/// the federation endpoint must already be initialized — this is the same
+/// requirement as `p2p_proxy_request` and friends. on the wire, the request
+/// is framed as `AdminMessage::Request` and the response as
+/// `AdminMessage::Response`; we re-shape it to a `GrimoireResponse`-style
+/// JSON envelope so the TS side can treat local and remote responses the
+/// same way.
+#[tauri::command]
+pub async fn admin_dispatch_remote(
+    peer_addr: String,
+    command: String,
+    args: Option<JsonValue>,
+) -> Result<JsonValue, String> {
+    let args = args.unwrap_or(JsonValue::Null);
+
+    let response = grimoire::federation::transport::send_admin_request(&peer_addr, &command, args)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    serde_json::to_value(response).map_err(|e| e.to_string())
+}

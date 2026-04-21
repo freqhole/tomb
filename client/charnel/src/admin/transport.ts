@@ -23,34 +23,40 @@ export interface AdminResponse<T = unknown> {
   errors?: AdminErrorDetail[];
 }
 
-/** transport target. only `local` is implemented in slice 4. */
+/** transport target. `local` calls into the in-process grimoire, `remote`
+ * sends over the `freqhole-admin/1` ALPN to the given peer.
+ *
+ * `peerAddr` is either a plain 64-char node id or an endpoint json blob
+ * (matches what `remotez.peer_addr` stores and what the rest of the P2P
+ * client surface accepts).
+ */
 export type AdminTarget =
   | { kind: "local" }
-  | { kind: "remote"; remoteId: string };
+  | { kind: "remote"; peerAddr: string };
 
 /**
  * dispatch an admin command.
  *
  * for `kind: "local"` this calls the tauri `admin_dispatch` invoke handler.
- * for `kind: "remote"` (slice 5) this will send an `AdminMessage::Request`
- * over the `freqhole-admin/1` ALPN to the named remote — for now it throws
- * so call-sites can be written with the same signature.
+ * for `kind: "remote"` this calls `admin_dispatch_remote` which routes the
+ * request over the `freqhole-admin/1` ALPN to the named peer.
  */
 export async function dispatch<T = unknown>(
   command: string,
   args: unknown = null,
   target: AdminTarget = { kind: "local" },
 ): Promise<AdminResponse<T>> {
-  if (target.kind === "remote") {
-    throw new Error(
-      "remote admin transport not implemented yet (slice 5)",
-    );
-  }
-
-  const raw = await invoke<unknown>("admin_dispatch", {
-    command,
-    args,
-  });
+  const raw =
+    target.kind === "remote"
+      ? await invoke<unknown>("admin_dispatch_remote", {
+          peerAddr: target.peerAddr,
+          command,
+          args,
+        })
+      : await invoke<unknown>("admin_dispatch", {
+          command,
+          args,
+        });
 
   // basic shape check; the rust side always returns this structure.
   if (

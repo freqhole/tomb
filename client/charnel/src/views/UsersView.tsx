@@ -1,6 +1,6 @@
 import { createSignal, onMount, For, Show } from "solid-js";
 import { invoke } from "@tauri-apps/api/core";
-import { dispatchOrThrow } from "../admin/transport";
+import { useAdminTransport } from "../admin/context";
 
 interface User {
   id: string;
@@ -43,6 +43,7 @@ function formatDateTime(timestamp: number): string {
 }
 
 export default function UsersView() {
+  const admin = useAdminTransport();
   const [users, setUsers] = createSignal<User[]>([]);
   const [invites, setInvites] = createSignal<InviteCode[]>([]);
   const [loading, setLoading] = createSignal(true);
@@ -67,7 +68,7 @@ export default function UsersView() {
     setLoading(true);
     setError("");
     try {
-      const result = await dispatchOrThrow<User[]>("users_list", {
+      const result = await admin.dispatchOrThrow<User[]>("users_list", {
         include_deleted: false,
       });
       setUsers(result);
@@ -94,7 +95,7 @@ export default function UsersView() {
 
   async function updateRole(userId: string, newRole: string) {
     try {
-      await dispatchOrThrow("users_update_role", {
+      await admin.dispatchOrThrow("users_update_role", {
         user_id: userId,
         role: newRole,
       });
@@ -107,7 +108,7 @@ export default function UsersView() {
   async function deleteUser(userId: string, username: string) {
     if (!confirm(`delete user "${username}"? this cannot be undone.`)) return;
     try {
-      await dispatchOrThrow("users_delete", { user_id: userId });
+      await admin.dispatchOrThrow("users_delete", { user_id: userId });
       await loadUsers();
     } catch (e) {
       setError(String(e));
@@ -128,7 +129,7 @@ export default function UsersView() {
 
   async function deactivateInvite(code: string) {
     try {
-      await dispatchOrThrow("invites_revoke", { code });
+      await admin.dispatchOrThrow("invites_revoke", { code });
       await loadInvites();
     } catch (e) {
       setError(String(e));

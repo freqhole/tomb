@@ -1,6 +1,6 @@
 import { createSignal, onMount, Show, For, createEffect, on } from "solid-js";
 import { invoke } from "@tauri-apps/api/core";
-import { dispatchOrThrow } from "../admin/transport";
+import { useAdminTransport } from "../admin/context";
 import {
   UserAutocomplete,
   type UserSelection,
@@ -83,6 +83,7 @@ interface KnockInfo {
 }
 
 export default function FederationView() {
+  const admin = useAdminTransport();
   const [status, setStatus] = createSignal<FederationStatus | null>(null);
   const [loading, setLoading] = createSignal(true);
   const [error, setError] = createSignal("");
@@ -313,7 +314,7 @@ export default function FederationView() {
     setError("");
 
     try {
-      await dispatchOrThrow("peers_remove", {
+      await admin.dispatchOrThrow("peers_remove", {
         user_id: userId,
         node_id: nodeId,
       });
@@ -356,7 +357,7 @@ export default function FederationView() {
       const role = selection?.isExisting ? selection.role : acceptKnockRole();
       const userId = selection?.isExisting ? selection.id : undefined;
 
-      await dispatchOrThrow("knocks_accept", {
+      await admin.dispatchOrThrow("knocks_accept", {
         knock_id: knock.id,
         username,
         role,
@@ -385,7 +386,7 @@ export default function FederationView() {
     setError("");
 
     try {
-      await dispatchOrThrow("knocks_reject", { knock_id: knockId });
+      await admin.dispatchOrThrow("knocks_reject", { knock_id: knockId });
       setSuccess("knock request rejected");
       await loadKnocks();
     } catch (e) {
@@ -400,7 +401,7 @@ export default function FederationView() {
     setError("");
 
     try {
-      await dispatchOrThrow("knocks_delete", { knock_id: knockId });
+      await admin.dispatchOrThrow("knocks_delete", { knock_id: knockId });
       await loadKnocks();
     } catch (e) {
       setError(String(e));

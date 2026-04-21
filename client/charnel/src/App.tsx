@@ -10,6 +10,8 @@ import { A, useLocation, useNavigate } from "@solidjs/router";
 import { invoke } from "@tauri-apps/api/core";
 import { emit } from "@tauri-apps/api/event";
 import { VERSION } from "./version";
+import { AdminTransportProvider } from "./admin/context";
+import { AdminTargetPicker, AdminScopeBanner } from "./admin/AdminTargetPicker";
 import "./App.css";
 
 interface ServerStatus {
@@ -171,124 +173,133 @@ function App(props: ParentProps) {
   // use Show components for proper SolidJS reactivity (if statements don't re-render)
   return (
     <AppContext.Provider value={contextValue}>
-      <Show
-        when={!checkingSetup()}
-        fallback={
-          <div class="loading-screen">
-            <div class="spinner" />
-          </div>
-        }
-      >
+      <AdminTransportProvider>
         <Show
-          when={!isInSetupFlow()}
+          when={!checkingSetup()}
           fallback={
-            <div class="setup-layout">
-              <main class="setup-content">{props.children}</main>
+            <div class="loading-screen">
+              <div class="spinner" />
             </div>
           }
         >
-          {/* admin layout with sidebar */}
-          <div class="wizard-layout">
-            <nav class="sidebar">
-              <div class="sidebar-header">
-                <span class="logo">freqhole</span>
-                <span class="logo-sub">wizard</span>
+          <Show
+            when={!isInSetupFlow()}
+            fallback={
+              <div class="setup-layout">
+                <main class="setup-content">{props.children}</main>
               </div>
+            }
+          >
+            {/* admin layout with sidebar */}
+            <div class="wizard-layout">
+              <nav class="sidebar">
+                <div class="sidebar-header">
+                  <span class="logo">freqhole</span>
+                  <span class="logo-sub">wizard</span>
+                </div>
 
-              <div class="nav-links">
-                <A
-                  href="/library"
-                  class={`nav-link ${isActive("/library") ? "active" : ""}`}
-                >
-                  library
-                </A>
-                <A
-                  href="/users"
-                  class={`nav-link ${isActive("/users") ? "active" : ""}`}
-                >
-                  user<span class="pinky">z</span>
-                </A>
-                <A
-                  href="/federation"
-                  class={`nav-link ${isActive("/federation") ? "active" : ""}`}
-                >
-                  federation
-                </A>
-                <A
-                  href="/settings"
-                  class={`nav-link ${isActive("/settings") ? "active" : ""}`}
-                >
-                  setting<span class="pinky">z</span>
-                </A>
-                <A
-                  href="/config"
-                  class={`nav-link ${isActive("/config") ? "active" : ""}`}
-                >
-                  confi<span class="pinky">g</span>
-                </A>
-                <A
-                  href="/logs"
-                  class={`nav-link ${isActive("/logs") ? "active" : ""}`}
-                >
-                  log<span class="pinky">z</span>
-                </A>
-              </div>
+                <AdminTargetPicker />
 
-              <div class="sidebar-footer">
-                <Show when={serverStatus()}>
-                  {(status) => (
-                    <div class="server-status">
-                      <div>
-                        <span
-                          class={`status-dot ${status().running ? "running" : "stopped"}`}
-                        />
-                        <span class="status-text">
-                          http {status().running ? "running" : "stopped"}
-                        </span>
-                        <Show when={status().running && status().uptime_secs}>
-                          <span class="uptime">
-                            ({Math.floor(status().uptime_secs! / 60)}m)
+                <div class="nav-links">
+                  <A
+                    href="/library"
+                    class={`nav-link ${isActive("/library") ? "active" : ""}`}
+                  >
+                    library
+                  </A>
+                  <A
+                    href="/users"
+                    class={`nav-link ${isActive("/users") ? "active" : ""}`}
+                  >
+                    user<span class="pinky">z</span>
+                  </A>
+                  <A
+                    href="/federation"
+                    class={`nav-link ${isActive("/federation") ? "active" : ""}`}
+                  >
+                    federation
+                  </A>
+                  <A
+                    href="/settings"
+                    class={`nav-link ${isActive("/settings") ? "active" : ""}`}
+                  >
+                    setting<span class="pinky">z</span>
+                  </A>
+                  <A
+                    href="/config"
+                    class={`nav-link ${isActive("/config") ? "active" : ""}`}
+                  >
+                    confi<span class="pinky">g</span>
+                  </A>
+                  <A
+                    href="/logs"
+                    class={`nav-link ${isActive("/logs") ? "active" : ""}`}
+                  >
+                    log<span class="pinky">z</span>
+                  </A>
+                </div>
+
+                <div class="sidebar-footer">
+                  <Show when={serverStatus()}>
+                    {(status) => (
+                      <div class="server-status">
+                        <div>
+                          <span
+                            class={`status-dot ${status().running ? "running" : "stopped"}`}
+                          />
+                          <span class="status-text">
+                            http {status().running ? "running" : "stopped"}
                           </span>
+                          <Show when={status().running && status().uptime_secs}>
+                            <span class="uptime">
+                              ({Math.floor(status().uptime_secs! / 60)}m)
+                            </span>
+                          </Show>
+                        </div>
+
+                        <Show when={status().running && status().server_url}>
+                          <div class="server-url-row">
+                            <a
+                              href={status().server_url!}
+                              target="_blank"
+                              class="server-url"
+                            >
+                              {status().server_url}
+                            </a>
+                          </div>
                         </Show>
                       </div>
+                    )}
+                  </Show>
 
-                      <Show when={status().running && status().server_url}>
-                        <div class="server-url-row">
-                          <a
-                            href={status().server_url!}
-                            target="_blank"
-                            class="server-url"
-                          >
-                            {status().server_url}
-                          </a>
-                        </div>
-                      </Show>
+                  {/* P2P status - independent of HTTP server, only show if federation enabled */}
+                  <Show when={p2pStatus()?.federation_enabled}>
+                    <div class="server-status">
+                      <div class="p2p-status-row">
+                        <span
+                          class={`status-dot ${p2pStatus()?.status === "online" ? "running" : p2pStatus()?.status === "connecting..." || p2pStatus()?.status === "starting..." ? "connecting" : "stopped"}`}
+                        />
+                        <span class="status-text">
+                          p2p {p2pStatus()?.status}
+                        </span>
+                      </div>
                     </div>
-                  )}
-                </Show>
+                  </Show>
 
-                {/* P2P status - independent of HTTP server, only show if federation enabled */}
-                <Show when={p2pStatus()?.federation_enabled}>
-                  <div class="server-status">
-                    <div class="p2p-status-row">
-                      <span
-                        class={`status-dot ${p2pStatus()?.status === "online" ? "running" : p2pStatus()?.status === "connecting..." || p2pStatus()?.status === "starting..." ? "connecting" : "stopped"}`}
-                      />
-                      <span class="status-text">p2p {p2pStatus()?.status}</span>
-                    </div>
+                  <div class="section">
+                    <p class="version">version {VERSION}</p>
                   </div>
-                </Show>
-
-                <div class="section">
-                  <p class="version">version {VERSION}</p>
                 </div>
-              </div>
-            </nav>
+              </nav>
 
-            <main class="main-content">{props.children}</main>
-          </div>
+              <main class="main-content">
+                <AdminScopeBanner />
+                {props.children}
+              </main>
+            </div>
+          </Show>
         </Show>
-      </Show>
+      </AdminTransportProvider>
     </AppContext.Provider>
   );
 }

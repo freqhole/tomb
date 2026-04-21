@@ -597,6 +597,7 @@ pub fn run() {
             remotez_commands::remotez_mark_active,
             // single dispatch entry-point for wizard / settings admin ops
             admin_commands::admin_dispatch,
+            admin_commands::admin_dispatch_remote,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

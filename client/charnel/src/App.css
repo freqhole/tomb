@@ -1990,3 +1990,75 @@ button.danger:hover {
   color: #71717a;
   line-height: 1.4;
 }
+
+/* admin target picker (sidebar) */
+.admin-target-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.5rem 1rem 0.75rem;
+  border-bottom: 1px solid #27272a;
+}
+
+.admin-target-label {
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #71717a;
+}
+
+.admin-target-select {
+  width: 100%;
+  background: #18181b;
+  color: #e4e4e7;
+  border: 1px solid #3f3f46;
+  border-radius: 4px;
+  padding: 0.3125rem 0.5rem;
+  font-size: 0.8125rem;
+}
+
+.admin-target-error {
+  font-size: 0.6875rem;
+  color: #f87171;
+}
+
+/* admin scope banner (top of main content when remote target active) */
+.admin-scope-banner {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 1rem;
+  background: #422006;
+  border-bottom: 1px solid #78350f;
+  color: #fde68a;
+  font-size: 0.875rem;
+}
+
+.admin-scope-icon {
+  font-weight: bold;
+  color: #fbbf24;
+}
+
+.admin-scope-text {
+  flex: 1;
+}
+
+.admin-scope-id {
+  color: #a1a1aa;
+  font-family: monospace;
+  font-size: 0.75rem;
+}
+
+.admin-scope-disconnect {
+  background: transparent;
+  border: 1px solid #78350f;
+  color: #fde68a;
+  border-radius: 4px;
+  padding: 0.25rem 0.625rem;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.admin-scope-disconnect:hover {
+  background: #78350f;
+}
