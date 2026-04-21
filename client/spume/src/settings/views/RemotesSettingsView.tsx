@@ -6,7 +6,13 @@ import {
   deleteRemote,
   checkRemoteHealth,
 } from "../../app/services/remotes/remoteManager";
-import { logout, whoami, whoamiForRemote } from "../../app/services/remotes/authService";
+import { logout } from "../../app/services/remotes/authService";
+import {
+  getAuthStatus,
+  refreshAll as refreshAllAuthStatus,
+  refreshOne as refreshOneAuthStatus,
+  setLoggedOut as setAuthStatusLoggedOut,
+} from "../../app/services/remotes/authStatusStore";
 import { initAppDB } from "../../app/services/storage/db";
 import {
   STORE_QUEUE_HISTORY,
@@ -155,13 +161,6 @@ async function deleteQueueHistoryForRemote(remoteId: string): Promise<number> {
   return entriesToDelete.length;
 }
 
-// auth info for a remote
-interface AuthInfo {
-  loggedIn: boolean;
-  username?: string;
-  role?: string;
-}
-
 export function RemotesSettingsView() {
   const navigate = useNavigate();
   const [remotes, setRemotes] = createSignal<Remote[]>([]);
@@ -170,8 +169,10 @@ export function RemotesSettingsView() {
   const [deleting, setDeleting] = createSignal<string | null>(null);
   const [loggingOut, setLoggingOut] = createSignal<string | null>(null);
   const [rechecking, setRechecking] = createSignal<string | null>(null);
-  // auth status per remote: null = checking, AuthInfo = resolved
-  const [authStatus, setAuthStatus] = createSignal<Map<string, AuthInfo | null>>(new Map());
+  // auth status per remote: null = checking, AuthInfo = resolved.
+  // sourced from the global authStatusStore so other views (share modal,
+  // eligible-remotes service, etc.) see the same data.
+  const authStatus = getAuthStatus();
   // reauth modal state
   const [reauthRemote, setReauthRemote] = createSignal<Remote | null>(null);
   // cache stats per remote
@@ -193,8 +194,9 @@ export function RemotesSettingsView() {
     try {
       const data = await getAllRemotes();
       setRemotes(data);
-      // check auth status for each remote
-      checkAllAuthStatus(data);
+      // check auth status for each remote (fire-and-forget; store updates
+      // are reactive)
+      void refreshAllAuthStatus(data);
       // fetch cache stats for each remote
       refreshCacheStats(data);
     } catch (err) {
@@ -217,124 +219,6 @@ export function RemotesSettingsView() {
       })
     );
     setCacheStats(statsMap);
-  };
-
-  const checkAllAuthStatus = async (remoteList: Remote[]) => {
-    // initialize all as checking (null)
-    const initial = new Map<string, AuthInfo | null>();
-    for (const r of remoteList) {
-      initial.set(r.remote_id, null);
-    }
-    setAuthStatus(initial);
-
-    // check each remote in parallel (HTTP only - P2P and charnel-managed remotes don't use auth)
-    await Promise.all(
-      remoteList.map(async (remote) => {
-        // P2P remotes: query whoami over the P2P client to learn the role.
-        // needed for admin-button gating; falls back to loggedIn:false on any failure.
-        if (!isHttpRemote(remote)) {
-          try {
-            const result = await whoamiForRemote(remote);
-            setAuthStatus((prev) => {
-              const next = new Map(prev);
-              next.set(remote.remote_id, {
-                loggedIn: result.success,
-                username: result.username,
-                role: result.role,
-              });
-              return next;
-            });
-          } catch {
-            setAuthStatus((prev) => {
-              const next = new Map(prev);
-              next.set(remote.remote_id, { loggedIn: false });
-              return next;
-            });
-          }
-          return;
-        }
-        // skip charnel-managed remotes - they use embedded auth
-        if (remote.is_charnel_managed || !remote.base_url) {
-          setAuthStatus((prev) => {
-            const next = new Map(prev);
-            next.set(remote.remote_id, { loggedIn: false });
-            return next;
-          });
-          return;
-        }
-        try {
-          const result = await whoami(remote.base_url);
-          setAuthStatus((prev) => {
-            const next = new Map(prev);
-            next.set(remote.remote_id, {
-              loggedIn: result.success,
-              username: result.username,
-              role: result.role,
-            });
-            return next;
-          });
-        } catch {
-          // network error - assume not logged in
-          setAuthStatus((prev) => {
-            const next = new Map(prev);
-            next.set(remote.remote_id, { loggedIn: false });
-            return next;
-          });
-        }
-      })
-    );
-  };
-
-  const checkSingleAuthStatus = async (remote: Remote) => {
-    // P2P remotes: see checkAllAuthStatus for rationale.
-    if (!isHttpRemote(remote)) {
-      try {
-        const result = await whoamiForRemote(remote);
-        setAuthStatus((prev) => {
-          const next = new Map(prev);
-          next.set(remote.remote_id, {
-            loggedIn: result.success,
-            username: result.username,
-            role: result.role,
-          });
-          return next;
-        });
-      } catch {
-        setAuthStatus((prev) => {
-          const next = new Map(prev);
-          next.set(remote.remote_id, { loggedIn: false });
-          return next;
-        });
-      }
-      return;
-    }
-    // skip charnel-managed remotes - they use embedded auth
-    if (remote.is_charnel_managed || !remote.base_url) {
-      setAuthStatus((prev) => {
-        const next = new Map(prev);
-        next.set(remote.remote_id, { loggedIn: false });
-        return next;
-      });
-      return;
-    }
-    try {
-      const result = await whoami(remote.base_url);
-      setAuthStatus((prev) => {
-        const next = new Map(prev);
-        next.set(remote.remote_id, {
-          loggedIn: result.success,
-          username: result.username,
-          role: result.role,
-        });
-        return next;
-      });
-    } catch {
-      setAuthStatus((prev) => {
-        const next = new Map(prev);
-        next.set(remote.remote_id, { loggedIn: false });
-        return next;
-      });
-    }
   };
 
   onMount(() => {
@@ -417,11 +301,7 @@ export function RemotesSettingsView() {
 
       toast.success(`logged out from ${remote.name}`);
       // update auth status
-      setAuthStatus((prev) => {
-        const next = new Map(prev);
-        next.set(remote.remote_id, { loggedIn: false });
-        return next;
-      });
+      setAuthStatusLoggedOut(remote.remote_id);
 
       // refresh remotes list
       const updated = await getAllRemotes();
@@ -463,7 +343,7 @@ export function RemotesSettingsView() {
     if (remote) {
       toast.success(`signed in to ${remote.name}`);
       // re-fetch auth status to get username/role
-      await checkSingleAuthStatus(remote);
+      await refreshOneAuthStatus(remote);
     }
     setReauthRemote(null);
   };
