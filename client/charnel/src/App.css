@@ -2066,7 +2066,7 @@ button.danger:hover {
 .admin-target-add-toggle {
   background: transparent;
   border: 1px dashed #3f3f46;
-  color: #a1a1aa;
+  color: #eeddee;
   border-radius: 4px;
   padding: 0.3125rem 0.5rem;
   font-size: 0.75rem;
@@ -2075,9 +2075,9 @@ button.danger:hover {
 }
 
 .admin-target-add-toggle:hover {
-  border-color: #52525b;
+  border-color: #eeddee;
   border-style: solid;
-  color: #e4e4e7;
+  color: #ff1a9e;
 }
 
 .admin-target-add-form {
@@ -2119,13 +2119,13 @@ button.danger:hover {
 }
 
 .admin-target-add-submit {
-  background: #1d4ed8;
-  color: #f4f4f5;
-  border-color: #1d4ed8;
+  background: transparent;
+  color: #eeddee;
+  border-color: #eeddee;
 }
 
 .admin-target-add-submit:hover:not(:disabled) {
-  background: #2563eb;
+  background: #ff1a9e;
 }
 
 .admin-target-add-cancel {
