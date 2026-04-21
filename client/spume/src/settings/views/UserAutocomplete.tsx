@@ -8,15 +8,7 @@
 // `UserSelection` describing whether it's an existing user (with id and
 // current role) or a new one (with the chosen default role).
 
-import {
-  createSignal,
-  createMemo,
-  createEffect,
-  onMount,
-  onCleanup,
-  For,
-  Show,
-} from "solid-js";
+import { createSignal, createMemo, createEffect, onMount, onCleanup, For, Show } from "solid-js";
 import { adminRawDispatch } from "../../app/api/adminClient";
 import type { Remote } from "../../app/services/storage/schemas/remote";
 
@@ -58,11 +50,9 @@ export function UserAutocomplete(props: UserAutocompleteProps) {
     setLoading(true);
     setLoadError(null);
     try {
-      const result = await adminRawDispatch<UserInfo[]>(
-        props.remote,
-        "users_list",
-        { include_deleted: false },
-      );
+      const result = await adminRawDispatch<UserInfo[]>(props.remote, "users_list", {
+        include_deleted: false,
+      });
       setUsers(Array.isArray(result) ? result : []);
     } catch (e) {
       console.error("[user-autocomplete] users_list failed", e);
@@ -89,9 +79,7 @@ export function UserAutocomplete(props: UserAutocompleteProps) {
     matchedInitial = true;
     const initial = props.initialValue;
     if (!initial) return;
-    const match = list.find(
-      (u) => u.username.toLowerCase() === initial.toLowerCase(),
-    );
+    const match = list.find((u) => u.username.toLowerCase() === initial.toLowerCase());
     if (match) {
       setSelectedUser(match);
       props.onSelect({
@@ -125,9 +113,7 @@ export function UserAutocomplete(props: UserAutocompleteProps) {
     setInputValue(value);
     setIsOpen(true);
     const trimmed = value.trim();
-    const match = users().find(
-      (u) => u.username.toLowerCase() === trimmed.toLowerCase(),
-    );
+    const match = users().find((u) => u.username.toLowerCase() === trimmed.toLowerCase());
     if (match) {
       setSelectedUser(match);
       props.onSelect({
@@ -212,9 +198,7 @@ export function UserAutocomplete(props: UserAutocompleteProps) {
       </div>
 
       <Show when={loadError()}>
-        <div class="mt-1 text-[10px] text-red-400">
-          users load failed: {loadError()}
-        </div>
+        <div class="mt-1 text-[10px] text-red-400">users load failed: {loadError()}</div>
       </Show>
 
       <Show
@@ -231,14 +215,11 @@ export function UserAutocomplete(props: UserAutocompleteProps) {
               class="w-full text-left px-2 py-1.5 text-xs hover:bg-[var(--color-bg-secondary)] text-[var(--color-accent-400)] border-b border-[var(--color-border-subtle)]"
               onClick={handleSelectCreateNew}
             >
-              <span class="text-[var(--color-text-muted)]">create new:</span>{" "}
-              {inputValue().trim()}
+              <span class="text-[var(--color-text-muted)]">create new:</span> {inputValue().trim()}
             </button>
           </Show>
           <Show when={loading()}>
-            <div class="px-2 py-1.5 text-xs text-[var(--color-text-muted)]">
-              loading...
-            </div>
+            <div class="px-2 py-1.5 text-xs text-[var(--color-text-muted)]">loading...</div>
           </Show>
           <For each={filteredUsers()}>
             {(user) => (
@@ -246,14 +227,11 @@ export function UserAutocomplete(props: UserAutocompleteProps) {
                 type="button"
                 class="w-full text-left px-2 py-1.5 text-xs hover:bg-[var(--color-bg-secondary)] flex items-center justify-between gap-2"
                 classList={{
-                  "bg-[var(--color-bg-secondary)]":
-                    selectedUser()?.id === user.id,
+                  "bg-[var(--color-bg-secondary)]": selectedUser()?.id === user.id,
                 }}
                 onClick={() => handleSelectUser(user)}
               >
-                <span class="text-[var(--color-text-primary)]">
-                  {user.username}
-                </span>
+                <span class="text-[var(--color-text-primary)]">{user.username}</span>
                 <span class="text-[10px] px-1.5 py-0.5 rounded bg-[var(--color-bg-tertiary)] text-[var(--color-text-muted)]">
                   {user.role}
                 </span>

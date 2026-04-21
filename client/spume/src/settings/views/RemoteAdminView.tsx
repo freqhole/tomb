@@ -235,9 +235,9 @@ function KnocksSection(props: { client: AdminClient; remote: Remote }) {
   const [rejecting, setRejecting] = createSignal<string | null>(null);
   const [deleting, setDeleting] = createSignal<string | null>(null);
   const [acceptRole, setAcceptRole] = createSignal<Record<string, string>>({});
-  const [acceptSelection, setAcceptSelection] = createSignal<
-    Record<string, UserSelection | null>
-  >({});
+  const [acceptSelection, setAcceptSelection] = createSignal<Record<string, UserSelection | null>>(
+    {}
+  );
 
   // per-knock inline errors keyed by knock id. cleared on retry/success.
   type KnockErr = { action: string; title?: string; detail: string; error_type?: string };
@@ -269,10 +269,7 @@ function KnocksSection(props: { client: AdminClient; remote: Remote }) {
       const role = selection?.isExisting
         ? selection.role
         : (selection?.role ?? acceptRole()[knock.id] ?? "viewer");
-      const username =
-        selection?.username?.trim() ||
-        knock.username ||
-        null;
+      const username = selection?.username?.trim() || knock.username || null;
       const userId = selection?.isExisting ? (selection.id ?? null) : null;
       await props.client.dispatchOrThrow("knocks_accept", {
         knock_id: knock.id,
@@ -280,9 +277,7 @@ function KnocksSection(props: { client: AdminClient; remote: Remote }) {
         username,
         user_id: userId,
       });
-      toast.success(
-        `accepted knock from ${username ?? knock.username} as ${role}`,
-      );
+      toast.success(`accepted knock from ${username ?? knock.username} as ${role}`);
       await refetch();
     } catch (e) {
       setRowError(knock.id, "accept", e);
@@ -435,9 +430,7 @@ function KnocksSection(props: { client: AdminClient; remote: Remote }) {
                               ? acceptSelection()[knock.id]!.role
                               : (acceptRole()[knock.id] ?? "viewer")
                           }
-                          disabled={
-                            acceptSelection()[knock.id]?.isExisting ?? false
-                          }
+                          disabled={acceptSelection()[knock.id]?.isExisting ?? false}
                           onChange={(e) =>
                             setAcceptRole({
                               ...acceptRole(),
