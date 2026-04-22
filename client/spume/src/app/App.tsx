@@ -12,6 +12,7 @@ import { AlbumEditorModal } from "../components/modals/AlbumEditorModal";
 import { ArtistEditorModal } from "../components/modals/ArtistEditorModal";
 import { ImageCarouselModal } from "../components/modals/ImageCarouselModal";
 import { ResolveShareModal } from "../components/modals/ResolveShareModal";
+import { ShareModal } from "../components/modals/ShareModal";
 import { SongEditorModal } from "../components/modals/SongEditorModal";
 import { TagSelectorModal } from "../components/modals/TagSelectorModal";
 import { QueueFullModal } from "../music/components/QueueFullModal";
@@ -29,12 +30,14 @@ import {
   hideImageCarousel,
   hideSongEditor,
   hideTagSelector,
+  hideShareModal,
   openAddMusic,
   showSongEditor,
   useAddMusicState,
   useAlbumEditorState,
   useArtistEditorState,
   useImageCarouselState,
+  useShareModalState,
   useSongEditorState,
   useTagSelectorState,
 } from "../music/hooks/modals";
@@ -792,6 +795,19 @@ export function App() {
               state().onSave?.();
               hideTagSelector();
             }}
+          />
+        )}
+      </Show>
+
+      <Show when={useShareModalState()()}>
+        {(state) => (
+          <ShareModal
+            isOpen={true}
+            onClose={hideShareModal}
+            target={state().target}
+            source={state().source()}
+            buildSendPayload={state().buildSendPayload}
+            webHost={state().webHost}
           />
         )}
       </Show>

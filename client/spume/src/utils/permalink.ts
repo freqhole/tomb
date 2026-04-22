@@ -36,6 +36,12 @@ export interface SharePayloadV1 {
   k: ShareTargetKind;
   /** entity id on the source remote. */
   i: string;
+  /**
+   * optional parent entity id — used today only for `k: "song"` to carry
+   * the album id so the resolver can navigate to the album view and
+   * highlight the song row. ignored for other kinds.
+   */
+  p?: string;
   /** optional human display title — for nicer toasts; not trusted. */
   t?: string;
 }
@@ -144,6 +150,7 @@ export function decodeShareToken(token: string): SharePayloadV1 {
     },
     k: obj.k as ShareTargetKind,
     i: typeof obj.i === "string" ? obj.i : "",
+    p: typeof obj.p === "string" ? obj.p : undefined,
     t: typeof obj.t === "string" ? obj.t : undefined,
   };
   validatePayload(out);

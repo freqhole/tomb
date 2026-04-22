@@ -8,8 +8,11 @@ import type { MenuAction } from "../../components/overlays/ContextMenu";
 import { queryClient } from "../../queryClient";
 import { confirm } from "../../app/services/confirmState";
 import { showPlaylistSelector } from "./playlistSelectorState";
-import { showTagSelector } from "./modals";
-import { getDataSource } from "../data";
+import { showTagSelector, showShareModal } from "./modals";
+import { getDataSource, getCurrentRemote } from "../data";
+import { getRemoteById } from "../../app/services/remotes/remoteManager";
+import type { ShareTarget } from "../../components/share/types";
+import type { SendPayload } from "../services/send/sendToRemote";
 import type { Song } from "../data/types";
 import { showAlbumEditor, showArtistEditor, showSongEditor } from "./modals";
 import {
@@ -89,6 +92,39 @@ export interface ContextMenuOptions {
   onShuffle?: () => void | Promise<void>;
   /** callback when add to queue is clicked (for artists/genres) */
   onAddToQueue?: () => void | Promise<void>;
+}
+
+/**
+ * shared helper that opens the global share modal for a given target.
+ * snapshots the current remote at click time and passes it as the source.
+ * for kinds without a send-to scope (song / artist) `buildSendPayload` is
+ * omitted and the modal will hide its send-to section automatically.
+ */
+export function createShareMenuAction(
+  target: ShareTarget,
+  buildSendPayload?: () => SendPayload,
+): MenuAction {
+  return {
+    label: "share...",
+    icon: IconNames.share,
+    onClick: async () => {
+      const info = getCurrentRemote();
+      if (!info) {
+        toast.error("share is only available on a remote");
+        return;
+      }
+      const remote = await getRemoteById(info.remote_id);
+      if (!remote) {
+        toast.error("could not find current remote");
+        return;
+      }
+      showShareModal({
+        target,
+        source: () => remote,
+        buildSendPayload,
+      });
+    },
+  };
 }
 
 // build context menu actions for a single song
@@ -225,6 +261,18 @@ export function useSongContextMenu(
       showPlaylistSelector([song.id]);
     },
   });
+
+  // share — drops a permalink that lands on the album view with this song
+  // row highlighted (when album_id is known). send-to scope omitted; song
+  // sends are not yet supported by the orchestrator.
+  actions.push(
+    createShareMenuAction({
+      kind: "song",
+      id: song.id,
+      displayTitle: song.title,
+      parentId: song.album_id || undefined,
+    }),
+  );
 
   // tags
   if (song.album_id && canManageTags()) {
@@ -533,6 +581,16 @@ export function useAlbumContextMenu(
     },
   });
 
+  // share — permalink + open-in-app. send-to scope omitted here; the album
+  // detail view's toolbar share button carries the full send-to flow.
+  actions.push(
+    createShareMenuAction({
+      kind: "album",
+      id: album.id,
+      displayTitle: album.title,
+    }),
+  );
+
   // tags - only for admins
   if (canManageTags()) {
     actions.push({
@@ -641,6 +699,16 @@ export function usePlaylistContextMenu(
       playlist.id,
       options.isFavorite ?? false,
     ),
+  );
+
+  // share — permalink + open-in-app. send-to scope omitted here; the
+  // playlists view toolbar share button carries the full send-to flow.
+  actions.push(
+    createShareMenuAction({
+      kind: "playlist",
+      id: playlist.id,
+      displayTitle: playlist.title,
+    }),
   );
 
   // edit - only for owner or admin

@@ -49,6 +49,7 @@ export function buildSharePayload(
     s,
     k: target.kind,
     i: target.id,
+    p: target.parentId || undefined,
     t: target.displayTitle || undefined,
   };
 }

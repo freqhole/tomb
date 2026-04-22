@@ -20,6 +20,7 @@ import { Modal } from "./Modal";
 import { decodeShareToken, type SharePayloadV1 } from "../../utils/permalink";
 import { getRemoteByPeerAddr } from "../../app/services/remotes/remoteManager";
 import { getDefaultRoute } from "../../music/utils/routing";
+import { setHighlightedSongId } from "../../music/state/highlightedSong";
 import { debug } from "../../utils/logger";
 
 export interface ResolveShareModalProps {
@@ -58,6 +59,11 @@ export const ResolveShareModal: Component<ResolveShareModalProps> = (props) => {
         if (remote) {
           const targetUrl = entityRouteFor(payload, remote.remote_id);
           debug("ResolveShareModal", `matched remote ${remote.name} -> ${targetUrl}`);
+          // for song shares with parent album id, prime the highlight signal
+          // before navigating so AlbumDetailView picks it up on mount.
+          if (payload.k === "song" && payload.p) {
+            setHighlightedSongId(payload.i);
+          }
           // auto-navigate. setting hash here triggers HashRouter; the modal
           // closes itself on the next tick via the effect below.
           setTimeout(() => {
@@ -181,7 +187,11 @@ function entityRouteFor(payload: SharePayloadV1, remoteId: string): string {
     case "artist":
       return `/${remoteId}/artists/${encodeURIComponent(payload.i)}`;
     case "song":
-      // no song-detail route exists — drop to feed/songs view on that remote.
+      // song-detail route doesn't exist — land on the album page when we
+      // know it (highlight is set separately), otherwise drop to feed.
+      if (payload.p) {
+        return `/${remoteId}/albums/${encodeURIComponent(payload.p)}`;
+      }
       return getDefaultRoute(remoteId);
     default:
       return getDefaultRoute(remoteId);

@@ -12,4 +12,10 @@ export interface ShareTarget {
   id: string;
   /** user-facing label for headers and toasts. */
   displayTitle: string;
+  /**
+   * optional parent entity id used by the resolver to land on a useful page.
+   * for `kind: "song"` this should be the album id so the recipient sees the
+   * album view with the song row highlighted (no song-detail route exists).
+   */
+  parentId?: string;
 }
