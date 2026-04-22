@@ -2864,12 +2864,14 @@ export const SyncImageRefSchema = z.object({
 export type SyncImageRef = z.infer<typeof SyncImageRefSchema>;
 
 export const SyncPlaylistRequestSchema = z.object({
+  source_remote_id: z.string().nullish(),
   remote_playlist_id: z.string(),
   title: z.string(),
   description: z.string().nullish(),
-  song_sha256s: z.array(z.string()),
+  song_blake3s: z.array(z.string()),
   images: z.array(z.object({
-  data: z.string(),
+  content_sha256: z.string(),
+  data_base64: z.string().nullish(),
   mime_type: z.string(),
   is_primary: z.boolean(),
   blob_type: z.string().nullish()
@@ -2881,13 +2883,21 @@ export type SyncPlaylistRequest = z.infer<typeof SyncPlaylistRequestSchema>;
 export const SyncPlaylistResponseSchema = z.object({
   playlist_id: z.string(),
   songs_added: z.number(),
-  songs_missing: z.number()
+  missing_song_blake3s: z.array(z.string()),
+  song_stubs_created: z.number(),
+  images_linked: z.number(),
+  missing_image_sha256s: z.array(z.string())
 });
 export type SyncPlaylistResponse = z.infer<typeof SyncPlaylistResponseSchema>;
 
-export const SyncSongRequestSchema = z.object({
+export const SyncSongByBlake3RequestSchema = z.object({
+  blake3: z.string(),
   sha256: z.string(),
-  blake3: z.string().nullish(),
+  size: z.number().nullish(),
+  filename: z.string(),
+  source_node_id: z.string(),
+  source_remote_id: z.string().nullish(),
+  remote_name: z.string(),
   title: z.string(),
   artist_name: z.string(),
   album_title: z.string(),
@@ -2899,40 +2909,29 @@ export const SyncSongRequestSchema = z.object({
   track_artist: z.string().nullish(),
   lyrics: z.string().nullish(),
   metadata: z.string().nullish(),
-  audio_data: z.string(),
-  audio_mime_type: z.string(),
-  song_images: z.array(z.object({
-  data: z.string(),
-  mime_type: z.string(),
-  is_primary: z.boolean(),
-  blob_type: z.string().nullish()
-})),
-  album_images: z.array(z.object({
-  data: z.string(),
-  mime_type: z.string(),
-  is_primary: z.boolean(),
-  blob_type: z.string().nullish()
-})),
-  artist_images: z.array(z.object({
-  data: z.string(),
-  mime_type: z.string(),
-  is_primary: z.boolean(),
-  blob_type: z.string().nullish()
-})),
-  remote_name: z.string(),
-  album_tags: z.array(z.string()),
   genre_name: z.string().nullish(),
-  skip_feed_events: z.boolean()
+  song_images: z.array(z.object({
+  content_sha256: z.string(),
+  data_base64: z.string().nullish(),
+  mime_type: z.string(),
+  is_primary: z.boolean(),
+  blob_type: z.string().nullish()
+})),
+  is_compilation: z.boolean()
 });
-export type SyncSongRequest = z.infer<typeof SyncSongRequestSchema>;
+export type SyncSongByBlake3Request = z.infer<typeof SyncSongByBlake3RequestSchema>;
 
-export const SyncSongResponseSchema = z.object({
-  already_existed: z.boolean(),
+export const SyncSongByBlake3ResponseSchema = z.object({
   song_id: z.string(),
+  media_blob_id: z.string(),
   file_path: z.string(),
-  media_blob_id: z.string()
+  sha256: z.string(),
+  blake3: z.string(),
+  existing: z.boolean(),
+  images_linked: z.number(),
+  missing_image_sha256s: z.array(z.string())
 });
-export type SyncSongResponse = z.infer<typeof SyncSongResponseSchema>;
+export type SyncSongByBlake3Response = z.infer<typeof SyncSongByBlake3ResponseSchema>;
 
 export const TagSchema = z.object({
   id: z.string(),

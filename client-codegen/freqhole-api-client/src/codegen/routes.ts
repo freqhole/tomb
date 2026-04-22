@@ -111,7 +111,7 @@ export const routes = {
     suggestions: { method: 'POST', path: '/api/music/suggestions', req: s.SuggestionsRequestSchema, resp: s.SuggestionsResponseSchema, auth: { type: 'authenticated' } as const },
     sync_album: { method: 'POST', path: '/api/sync/album', req: s.SyncAlbumRequestSchema, resp: s.SyncAlbumResponseSchema, auth: { type: 'role', role: 'member' } as const },
     sync_playlist: { method: 'POST', path: '/api/sync/playlist', req: s.SyncPlaylistRequestSchema, resp: s.SyncPlaylistResponseSchema, auth: { type: 'role', role: 'member' } as const },
-    sync_song: { method: 'POST', path: '/api/sync/song', req: s.SyncSongRequestSchema, resp: s.SyncSongResponseSchema, auth: { type: 'role', role: 'member' } as const },
+    sync_song_by_blake3: { method: 'POST', path: '/api/sync/song-by-blake3', req: s.SyncSongByBlake3RequestSchema, resp: s.SyncSongByBlake3ResponseSchema, auth: { type: 'role', role: 'member' } as const },
     synced_sha256s: { method: 'GET', path: '/api/sync/sha256s', req: null, resp: z.string().array(), auth: { type: 'role', role: 'member' } as const },
     top_albums: { method: 'POST', path: '/api/analytics/top-albums', req: s.TopAlbumsRequestSchema, resp: s.TopAlbumSchema.array(), auth: { type: 'authenticated' } as const },
     top_artists: { method: 'POST', path: '/api/analytics/top-artists', req: s.TopArtistsRequestSchema, resp: s.TopArtistSchema.array(), auth: { type: 'authenticated' } as const },

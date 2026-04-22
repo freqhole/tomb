@@ -242,7 +242,7 @@ pub mod type_registry {
     // sync types
     use crate::offal::sync::{
         SyncAlbumRequest, SyncAlbumResponse, SyncImageRef, SyncPlaylistRequest,
-        SyncPlaylistResponse, SyncSongRequest, SyncSongResponse,
+        SyncPlaylistResponse, SyncSongByBlake3Request, SyncSongByBlake3Response,
     };
 
     pub fn register_all_types(gen: &mut ZodGenerator, registered: &mut HashSet<String>) {
@@ -854,10 +854,10 @@ pub mod type_registry {
         registered.insert("UploadMusicByBlake3Request".to_string());
 
         // sync types
-        gen.add_schema::<SyncSongRequest>("SyncSongRequest");
-        registered.insert("SyncSongRequest".to_string());
-        gen.add_schema::<SyncSongResponse>("SyncSongResponse");
-        registered.insert("SyncSongResponse".to_string());
+        gen.add_schema::<SyncSongByBlake3Request>("SyncSongByBlake3Request");
+        registered.insert("SyncSongByBlake3Request".to_string());
+        gen.add_schema::<SyncSongByBlake3Response>("SyncSongByBlake3Response");
+        registered.insert("SyncSongByBlake3Response".to_string());
         gen.add_schema::<SyncPlaylistRequest>("SyncPlaylistRequest");
         registered.insert("SyncPlaylistRequest".to_string());
         gen.add_schema::<SyncPlaylistResponse>("SyncPlaylistResponse");
