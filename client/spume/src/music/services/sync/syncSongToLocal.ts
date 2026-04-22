@@ -1,10 +1,16 @@
 // sync remote song to local storage
-// downloads audio blob to OPFS and creates local IDB records
-// in charnel mode, delegates to grimoire via offal route
+// in browser mode: downloads audio blob to OPFS and creates IDB records
+//   (transport handles iroh-blobs verified streaming under the hood)
+// in charnel mode: delegates to the local grimoire via the new
+//   /api/sync/song-by-blake3 offal route — the local grimoire pulls the
+//   audio directly from the source remote's iroh node id by blake3.
+//   no base64; no inline audio bytes.
 
 import { getClientForRemote, getTransportForRemote } from "../../../app/api/client";
 import { getRemoteById } from "../../../app/services/remotes/remoteManager";
 import { isCharnelMode } from "../../../app/services/charnel";
+import { extractNodeIdStrict } from "../../../app/services/remotes/peerAddr";
+import { isP2PRemote } from "../../../app/services/storage/schemas/remote";
 import { debug } from "../../../utils/logger";
 import { writeAudioToOPFS } from "../opfs/helpers";
 import {
@@ -27,210 +33,113 @@ import type { GenreRef, ImageMetadata, Song } from "../storage/types";
 import type { Remote } from "../../../app/services/storage/schemas/remote";
 
 /**
- * convert Blob to base64 string for IPC transfer
+ * sync a song to the local charnel-managed grimoire via the iroh-blobs path.
+ *
+ * the local grimoire receives metadata + the source remote's iroh node id,
+ * then pulls the audio directly from the source by blake3 (verified). no
+ * inline audio bytes are shipped over IPC.
+ *
+ * requires:
+ *  - song.blake3 + song.sha256
+ *  - source remote is a p2p remote with a usable peer_addr
  */
-async function blobToBase64(blob: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      const dataUrl = reader.result as string;
-      // strip "data:...;base64," prefix
-      const base64 = dataUrl.split(",")[1] || "";
-      resolve(base64);
-    };
-    reader.onerror = reject;
-    reader.readAsDataURL(blob);
-  });
-}
-
-/**
- * convert ImageMetadata to SyncImageData for IPC transfer
- */
-interface SyncImageData {
-  data: string;
-  mime_type: string;
-  is_primary: boolean;
-  blob_type?: string;
-}
-
-/**
- * sync song to grimoire via offal route (charnel mode only)
- * downloads images and audio, converts to base64, calls the sync route
- */
-async function syncSongViaOffal(
+async function syncSongViaLocalGrimoire(
   song: SyncableSong,
-  audioBlob: Blob,
-  mimeType: string,
   remote: Remote,
 ): Promise<SyncResult> {
+  if (!song.blake3) {
+    return { success: false, error: "song missing blake3 (cannot pull via iroh)" };
+  }
+  if (!isP2PRemote(remote)) {
+    return {
+      success: false,
+      error: "source remote is not p2p — cannot resolve iroh node id",
+    };
+  }
+  const sourceNodeId = extractNodeIdStrict(remote.peer_addr);
+  if (!sourceNodeId) {
+    return { success: false, error: "source remote has no usable iroh node id" };
+  }
+
   try {
-    // dynamically import tauri invoke
     const { invoke } = await import("@tauri-apps/api/core");
 
-    // convert audio to base64
-    const audioBase64 = await blobToBase64(audioBlob);
+    // build SyncSongByBlake3Request shape (matches grimoire offal/sync types).
+    // image refs are sha256-only today (ImageMetadata has no sha256); the
+    // dest will report missing image sha256s in the response.
+    const body = {
+      blake3: song.blake3,
+      sha256: song.sha256,
+      size: null,
+      filename: `${song.title || song.sha256}.bin`,
+      source_node_id: sourceNodeId,
+      source_remote_id: remote.remote_id,
+      remote_name: remote.name,
+      title: song.title,
+      artist_name: song.artist_name || "unknown artist",
+      album_title: song.album_title || "unknown album",
+      track_number: song.track_number ?? 0,
+      disc_number: song.disc_number ?? 1,
+      duration_ms:
+        song.duration_seconds != null
+          ? Math.round(song.duration_seconds * 1000)
+          : null,
+      year: song.year ?? null,
+      bpm: song.bpm ?? null,
+      track_artist: song.track_artist ?? null,
+      lyrics: song.lyrics ?? null,
+      metadata: song.metadata ?? null,
+      genre_name: song.album_genres?.[0]?.name ?? null,
+      song_images: [] as Array<{
+        content_sha256: string;
+        data_base64: string | null;
+        mime_type: string;
+        is_primary: boolean;
+        blob_type: string | null;
+      }>,
+      is_compilation: false,
+    };
 
-    // prepare image data (song images - we skip album images for now, grimoire handles them)
-    const songImages: SyncImageData[] = [];
-    const albumImages: SyncImageData[] = [];
-    const artistImages: SyncImageData[] = [];
-
-    // download and convert song images
-    if (song.images?.length) {
-      const transport = await getTransportForRemote(remote);
-      for (const img of song.images) {
-        if (!img.remote_blob_id) continue;
-        try {
-          const blobUrl = await transport.getBlobUrl(img.remote_blob_id);
-          const response = await fetch(blobUrl);
-          if (response.ok) {
-            const blob = await response.blob();
-            songImages.push({
-              data: await blobToBase64(blob),
-              mime_type: blob.type || "image/jpeg",
-              is_primary: img.is_primary === true,
-              blob_type: img.blob_type,
-            });
-          }
-        } catch (e) {
-          debug("syncSongViaOffal", `failed to download song image: ${e}`);
-        }
-      }
-    }
-
-    // download and convert album images
-    debug("syncSongViaOffal", `album_images: ${song.album_images?.length ?? 0} images available, remote_blob_ids: ${song.album_images?.map(i => i.remote_blob_id).join(', ') ?? 'none'}`);
-    if (song.album_images?.length) {
-      const transport = await getTransportForRemote(remote);
-      for (const img of song.album_images) {
-        if (!img.remote_blob_id) continue;
-        try {
-          const blobUrl = await transport.getBlobUrl(img.remote_blob_id);
-          const response = await fetch(blobUrl);
-          if (response.ok) {
-            const blob = await response.blob();
-            albumImages.push({
-              data: await blobToBase64(blob),
-              mime_type: blob.type || "image/jpeg",
-              is_primary: img.is_primary === true,
-              blob_type: img.blob_type,
-            });
-          }
-        } catch (e) {
-          debug("syncSongViaOffal", `failed to download album image: ${e}`);
-        }
-      }
-    }
-
-    // download and convert artist images
-    // if artist_images provided, use them; otherwise fetch from remote if artist_id available
-    if (song.artist_images?.length) {
-      const transport = await getTransportForRemote(remote);
-      for (const img of song.artist_images) {
-        if (!img.remote_blob_id) continue;
-        try {
-          const blobUrl = await transport.getBlobUrl(img.remote_blob_id);
-          const response = await fetch(blobUrl);
-          if (response.ok) {
-            const blob = await response.blob();
-            artistImages.push({
-              data: await blobToBase64(blob),
-              mime_type: blob.type || "image/jpeg",
-              is_primary: img.is_primary === true,
-              blob_type: img.blob_type,
-            });
-          }
-        } catch (e) {
-          debug("syncSongViaOffal", `failed to download artist image: ${e}`);
-        }
-      }
-    } else if (song.artist_id) {
-      // artist_images not embedded - fetch from remote API
-      try {
-        const { RemoteMusicDataSource } = await import("../../data/remote/remoteSource");
-        // convert Remote to RemoteRef format expected by RemoteMusicDataSource
-        const remoteRef = {
-          ...remote,
-          remote_id: remote.remote_id, // ensure remote_id is present
-        };
-        const remoteSource = new RemoteMusicDataSource(remoteRef);
-        const artistImageUrls = await remoteSource.getEntityImages({
-          entityType: 'artist',
-          entityId: song.artist_id,
-        });
-        const transport = await getTransportForRemote(remote);
-        for (const url of artistImageUrls) {
-          try {
-            // extract blob_id from URL (format: .../blobs/{id}/...)
-            const blobIdMatch = url.match(/blobs\/([^/]+)/);
-            if (!blobIdMatch) continue;
-            const blobId = blobIdMatch[1];
-            const blobUrl = await transport.getBlobUrl(blobId);
-            const response = await fetch(blobUrl);
-            if (response.ok) {
-              const blob = await response.blob();
-              artistImages.push({
-                data: await blobToBase64(blob),
-                mime_type: blob.type || "image/jpeg",
-                is_primary: artistImages.length === 0, // first is primary
-                blob_type: "original",
-              });
-            }
-          } catch (e) {
-            debug("syncSongViaOffal", `failed to download fetched artist image: ${e}`);
-          }
-        }
-      } catch (e) {
-        debug("syncSongViaOffal", `failed to fetch artist images: ${e}`);
-      }
-    }
-
-    // call the sync offal route via api_call
-    const response = await invoke("api_call", {
-      path: "/api/sync/song",
-      body: {
-        sha256: song.sha256,
-        blake3: song.blake3 ?? null,
-        title: song.title,
-        artist_name: song.artist_name || "unknown artist",
-        album_title: song.album_title || "unknown album",
-        track_number: song.track_number || 0,
-        disc_number: song.disc_number || 1,
-        duration_ms: song.duration_seconds ? Math.round(song.duration_seconds * 1000) : null,
-        year: song.year ?? null,
-        bpm: song.bpm ?? null,
-        track_artist: song.track_artist ?? null,
-        lyrics: song.lyrics ?? null,
-        metadata: song.metadata ?? null,
-        audio_data: audioBase64,
-        audio_mime_type: mimeType,
-        song_images: songImages,
-        album_images: albumImages,
-        artist_images: artistImages,
-        remote_name: remote.name,
-        album_tags: song.album_tags || [],
-        genre_name: song.album_genres?.[0]?.name ?? null,
-        skip_feed_events: song.skip_feed_events ?? false,
-      },
-    }) as { success: boolean; message: string; data?: { song_id: string; already_existed: boolean } };
+    const response = (await invoke("api_call", {
+      path: "/api/sync/song-by-blake3",
+      body,
+    })) as {
+      success: boolean;
+      message: string;
+      data?: {
+        song_id: string;
+        media_blob_id: string;
+        file_path: string;
+        sha256: string;
+        blake3: string;
+        existing: boolean;
+        images_linked: number;
+        missing_image_sha256s: string[];
+      };
+    };
 
     if (!response.success) {
-      console.error(`[syncSongToLocal] sync failed for ${song.title}:`, response.message);
+      console.error(
+        `[syncSongToLocal] sync_song_by_blake3 failed for ${song.title}:`,
+        response.message,
+      );
       return { success: false, error: response.message };
     }
 
-    const result = response.data;
+    const data = response.data;
     markSongSynced(song.sha256);
-
-    debug("syncSongViaOffal", `synced song ${song.title} to grimoire`);
+    debug(
+      "syncSongViaLocalGrimoire",
+      `synced song ${song.title} via iroh (existing=${data?.existing ?? false})`,
+    );
     return {
       success: true,
-      localSongId: result?.song_id ?? song.sha256,
-      skipped: result?.already_existed ?? false,
+      localSongId: data?.song_id ?? song.sha256,
+      skipped: data?.existing ?? false,
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    console.error(`failed to sync song via offal:`, error);
+    console.error(`failed to sync song via local grimoire:`, error);
     return { success: false, error: message };
   }
 }
@@ -464,6 +373,17 @@ export async function syncSongToLocal(
 
     debug("syncSongToLocal", `syncing song ${song.title} (${sha256.slice(0, 8)}...) from ${remote.name}`);
 
+    // in charnel mode, delegate to the local grimoire via the iroh-blobs
+    // path. the local grimoire pulls audio directly from the source remote's
+    // iroh node id by blake3; no audio bytes cross the IPC boundary.
+    if (isCharnelMode()) {
+      return syncSongViaLocalGrimoire(song, remote);
+    }
+
+    // browser mode: fetch via transport and persist to OPFS + IDB.
+    // (transport handles iroh-blobs verified streaming under the hood when
+    // the remote is p2p and a blake3 is available.)
+
     // get transport for fetching
     const transport = await getTransportForRemote(remote);
 
@@ -494,11 +414,6 @@ export async function syncSongToLocal(
     }
 
     const blob = await response.blob();
-
-    // in charnel mode, delegate to grimoire via offal route
-    if (isCharnelMode()) {
-      return syncSongViaOffal(song, blob, mimeType, remote);
-    }
 
     // browser mode: save to OPFS and IndexedDB
 

@@ -20,6 +20,7 @@ import {
   Show,
   type Component,
 } from "solid-js";
+import { Portal } from "solid-js/web";
 import { toast } from "../feedback/Toast";
 import { Icon } from "../icons/registry";
 import {
@@ -61,12 +62,16 @@ export const SendToRemoteFlyout: Component<SendToRemoteFlyoutProps> = (props) =>
   let containerRef: HTMLDivElement | undefined;
   let panelRef: HTMLDivElement | undefined;
   let triggerRef: HTMLButtonElement | undefined;
+  let panelResizeObserver: ResizeObserver | undefined;
 
   // panel position in viewport coords (fixed). recomputed on open + resize.
-  const [panelPos, setPanelPos] = createSignal<{ left: number; top: number }>({
-    left: 0,
-    top: 0,
-  });
+  // `measured` gates visibility so we never paint the panel at (0,0) before
+  // the first measurement lands.
+  const [panelPos, setPanelPos] = createSignal<{
+    left: number;
+    top: number;
+    measured: boolean;
+  }>({ left: 0, top: 0, measured: false });
 
   const repositionPanel = () => {
     if (!triggerRef || !panelRef) return;
@@ -83,13 +88,30 @@ export const SendToRemoteFlyout: Component<SendToRemoteFlyoutProps> = (props) =>
     if (left < margin) left = margin;
 
     // prefer below trigger; flip above when it would overflow bottom.
+    // also flip when there's more room above than below (covers the case
+    // where the trigger is in the lower half of the viewport but `below`
+    // technically fits — we still want the panel anchored visibly).
+    const spaceBelow = vh - margin - (trig.bottom + gap);
+    const spaceAbove = trig.top - gap - margin;
+    const wantsFlip =
+      panel.height > spaceBelow || (panel.height > spaceBelow * 0.9 && spaceAbove > spaceBelow);
+
     let top = trig.bottom + gap;
-    if (top + panel.height > vh - margin) {
+    if (wantsFlip) {
       const above = trig.top - gap - panel.height;
-      top = above >= margin ? above : Math.max(margin, vh - margin - panel.height);
+      if (above >= margin) {
+        top = above;
+      } else if (spaceAbove > spaceBelow) {
+        // not enough room above either, but above has more room — pin to
+        // top margin (panel's max-height clamp will scroll its body).
+        top = margin;
+      } else {
+        // pin to bottom margin (panel's max-height clamp will scroll).
+        top = Math.max(margin, vh - margin - panel.height);
+      }
     }
 
-    setPanelPos({ left, top });
+    setPanelPos({ left, top, measured: true });
   };
 
   const onDocClick = (e: MouseEvent) => {
@@ -111,16 +133,36 @@ export const SendToRemoteFlyout: Component<SendToRemoteFlyoutProps> = (props) =>
     document.removeEventListener("mousedown", onDocClick);
     window.removeEventListener("resize", onWinChange);
     window.removeEventListener("scroll", onWinChange, true);
+    panelResizeObserver?.disconnect();
   });
 
-  // reposition whenever the panel mounts or the eligible list changes size.
+  // reset measurement state when the panel closes so the next open
+  // re-measures from scratch (and stays hidden until we have real coords).
+  createEffect(() => {
+    if (!open()) {
+      setPanelPos({ left: 0, top: 0, measured: false });
+      panelResizeObserver?.disconnect();
+      panelResizeObserver = undefined;
+    }
+  });
+
+  // reposition after the panel is mounted and laid out. uses rAF so the
+  // browser has actually performed layout before we measure (microtasks
+  // can fire too early). also hooks a ResizeObserver so any later content
+  // size change (e.g. progress text expanding the row) reflows the panel.
   createEffect(() => {
     if (!open()) return;
-    // touch the deps that affect panel size.
+    // touch deps that affect panel size so the effect re-runs.
     void eligible().length;
     void progress();
-    // wait a tick so the panel is laid out before measuring.
-    queueMicrotask(repositionPanel);
+    requestAnimationFrame(() => {
+      repositionPanel();
+      // attach resize observer once.
+      if (!panelResizeObserver && panelRef && typeof ResizeObserver !== "undefined") {
+        panelResizeObserver = new ResizeObserver(() => repositionPanel());
+        panelResizeObserver.observe(panelRef);
+      }
+    });
   });
 
   const handleSend = async (entry: EligibleRemote) => {
@@ -180,49 +222,61 @@ export const SendToRemoteFlyout: Component<SendToRemoteFlyoutProps> = (props) =>
           <Icon name="send" size={18} />
         </button>
         <Show when={open()}>
-          <div
-            ref={panelRef}
-            style={{
-              position: "fixed",
-              left: `${panelPos().left}px`,
-              top: `${panelPos().top}px`,
-              "max-height": `calc(100vh - 16px)`,
-              "overflow-y": "auto",
-            }}
-            class="z-50 min-w-[16rem] max-w-xs bg-[var(--color-bg-elevated)] border border-[var(--color-border-default)] rounded-lg shadow-xl py-1"
-          >
-            <div class="px-3 py-2 text-xs uppercase tracking-wide text-[var(--color-text-tertiary)] border-b border-[var(--color-border-default)]">
-              send to remote
-            </div>
-            <For each={eligible()}>
-              {(entry) => {
-                const isActive = () => activeDestId() === entry.remote.remote_id;
-                const p = () => progress();
-                return (
-                  <button
-                    type="button"
-                    disabled={!!activeDestId()}
-                    onClick={() => handleSend(entry)}
-                    class="w-full flex items-center justify-between gap-3 px-3 py-2 text-sm text-left hover:bg-[var(--color-bg-tertiary)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    <div class="min-w-0">
-                      <div class="truncate text-[var(--color-text-primary)]">
-                        {entry.remote.name ?? entry.remote.remote_id}
-                      </div>
-                      <div class="truncate text-xs text-[var(--color-text-tertiary)]">
-                        {entry.role}
-                      </div>
-                    </div>
-                    <Show when={isActive() && p()}>
-                      <span class="text-xs text-[var(--color-text-secondary)] whitespace-nowrap">
-                        {p()!.phase} {p()!.syncedSongs}/{p()!.totalSongs}
-                      </span>
-                    </Show>
-                  </button>
-                );
+          {/*
+            portal into <body> so the fixed-positioned panel escapes any
+            ancestor that creates a containing block for fixed elements
+            (transform/filter/backdrop-filter/will-change/contain). without
+            this, the toolbar's `backdrop-blur-sm` traps the panel and our
+            "fixed" coords end up resolving relative to the toolbar, not
+            the viewport.
+          */}
+          <Portal>
+            <div
+              ref={panelRef}
+              style={{
+                position: "fixed",
+                left: `${panelPos().left}px`,
+                top: `${panelPos().top}px`,
+                "max-height": `calc(100vh - 16px)`,
+                "overflow-y": "auto",
+                // hide until first measurement to avoid a (0,0) flicker.
+                visibility: panelPos().measured ? "visible" : "hidden",
               }}
-            </For>
-          </div>
+              class="z-50 min-w-[16rem] max-w-xs bg-[var(--color-bg-elevated)] border border-[var(--color-border-default)] rounded-lg shadow-xl py-1"
+            >
+              <div class="px-3 py-2 text-xs uppercase tracking-wide text-[var(--color-text-tertiary)] border-b border-[var(--color-border-default)]">
+                send to remote
+              </div>
+              <For each={eligible()}>
+                {(entry) => {
+                  const isActive = () => activeDestId() === entry.remote.remote_id;
+                  const p = () => progress();
+                  return (
+                    <button
+                      type="button"
+                      disabled={!!activeDestId()}
+                      onClick={() => handleSend(entry)}
+                      class="w-full flex items-center justify-between gap-3 px-3 py-2 text-sm text-left hover:bg-[var(--color-bg-tertiary)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <div class="min-w-0">
+                        <div class="truncate text-[var(--color-text-primary)]">
+                          {entry.remote.name ?? entry.remote.remote_id}
+                        </div>
+                        <div class="truncate text-xs text-[var(--color-text-tertiary)]">
+                          {entry.role}
+                        </div>
+                      </div>
+                      <Show when={isActive() && p()}>
+                        <span class="text-xs text-[var(--color-text-secondary)] whitespace-nowrap">
+                          {p()!.phase} {p()!.syncedSongs}/{p()!.totalSongs}
+                        </span>
+                      </Show>
+                    </button>
+                  );
+                }}
+              </For>
+            </div>
+          </Portal>
         </Show>
       </div>
     </Show>
