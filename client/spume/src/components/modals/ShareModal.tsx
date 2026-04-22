@@ -31,10 +31,12 @@ export interface ShareModalProps {
   /** the source remote — null until it resolves; modal stays gated until then. */
   source: Remote | null | undefined;
   /**
-   * lazily build the send-to-remote payload. omit for share targets that
-   * don't yet support send-to (song/artist) — the section will hide.
+   * lazily build the send-to-remote payload. may return a promise so
+   * context-menu shares can defer fetching the song list until the
+   * modal opens. omit entirely for share targets that don't support
+   * send-to (e.g. artists) — the section will hide.
    */
-  buildSendPayload?: () => SendPayload;
+  buildSendPayload?: () => SendPayload | Promise<SendPayload>;
   /** override the default web mirror host. */
   webHost?: string;
 }

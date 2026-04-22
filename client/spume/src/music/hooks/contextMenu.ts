@@ -103,7 +103,7 @@ export interface ContextMenuOptions {
  */
 export function createShareMenuAction(
   target: ShareTarget,
-  buildSendPayload?: () => SendPayload,
+  buildSendPayload?: () => SendPayload | Promise<SendPayload>,
 ): MenuAction {
   return {
     label: "share...",
@@ -264,9 +264,9 @@ export function useSongContextMenu(
   });
 
   // share — drops a permalink that lands on the album view with this song
-  // row highlighted (when album_id is known). also exposes "send to remote"
-  // when the song carries a blake3 (orchestrator pulls a single song via
-  // sync_song_by_blake3 on the destination).
+  // row highlighted (when album_id is known). always include the send-to
+  // builder — the modal will badge destinations that already have the
+  // blob and disable rows where the song lacks a blake3.
   actions.push(
     createShareMenuAction(
       {
@@ -275,14 +275,12 @@ export function useSongContextMenu(
         displayTitle: song.title,
         parentId: song.album_id || undefined,
       },
-      song.blake3
-        ? () => ({
-            kind: "song",
-            // RemoteSong is a strict subset of Song; the orchestrator only
-            // touches blake3/sha256/title/album fields, all present here.
-            song: song as unknown as RemoteSong,
-          })
-        : undefined,
+      () => ({
+        kind: "song",
+        // RemoteSong is a strict subset of Song; the orchestrator only
+        // touches blake3/sha256/title/album fields, all present here.
+        song: song as unknown as RemoteSong,
+      }),
     ),
   );
 
@@ -593,14 +591,34 @@ export function useAlbumContextMenu(
     },
   });
 
-  // share — permalink + open-in-app. send-to scope omitted here; the album
-  // detail view's toolbar share button carries the full send-to flow.
+  // share — permalink + send-to. send-to builder fetches the album's
+  // song list lazily (only when the modal opens) so the menu click stays
+  // snappy and we don't waste the fetch on permalink-only shares.
   actions.push(
-    createShareMenuAction({
-      kind: "album",
-      id: album.id,
-      displayTitle: album.title,
-    }),
+    createShareMenuAction(
+      {
+        kind: "album",
+        id: album.id,
+        displayTitle: album.title,
+      },
+      async (): Promise<SendPayload> => {
+        const dataSource = getDataSource();
+        if (!dataSource.getAlbumSongs) throw new Error("album fetch not supported");
+        const response = await dataSource.getAlbumSongs(album.id);
+        const songList = response.items;
+        return {
+          kind: "album",
+          albumId: album.id,
+          title: album.title,
+          artistName: album.artist_name ?? songList[0]?.artist_name ?? "unknown artist",
+          albumType: songList[0]?.album_type ?? null,
+          releaseDate: null,
+          label: null,
+          genres: songList[0]?.album_genres?.map((g) => g.name).filter(Boolean) ?? [],
+          songs: songList as unknown as RemoteSong[],
+        };
+      },
+    ),
   );
 
   // tags - only for admins
@@ -713,14 +731,28 @@ export function usePlaylistContextMenu(
     ),
   );
 
-  // share — permalink + open-in-app. send-to scope omitted here; the
-  // playlists view toolbar share button carries the full send-to flow.
+  // share — permalink + send-to. send-to builder fetches the playlist's
+  // song list lazily so the menu click stays snappy.
   actions.push(
-    createShareMenuAction({
-      kind: "playlist",
-      id: playlist.id,
-      displayTitle: playlist.title,
-    }),
+    createShareMenuAction(
+      {
+        kind: "playlist",
+        id: playlist.id,
+        displayTitle: playlist.title,
+      },
+      async (): Promise<SendPayload> => {
+        const dataSource = getDataSource();
+        if (!dataSource.getPlaylistSongs) throw new Error("playlist fetch not supported");
+        const response = await dataSource.getPlaylistSongs(playlist.id);
+        return {
+          kind: "playlist",
+          playlistId: playlist.id,
+          title: playlist.title,
+          description: null,
+          songs: response.items as unknown as RemoteSong[],
+        };
+      },
+    ),
   );
 
   // edit - only for owner or admin

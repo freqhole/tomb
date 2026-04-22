@@ -16,7 +16,7 @@ export interface ShareButtonProps {
   /** lazily evaluated source remote. */
   source: () => Remote | null | undefined;
   /** lazily build the send-to-remote payload (album/playlist scope). */
-  buildSendPayload?: () => SendPayload;
+  buildSendPayload?: () => SendPayload | Promise<SendPayload>;
   /** trigger button class override. */
   class?: string;
   /** override the default web mirror host. */

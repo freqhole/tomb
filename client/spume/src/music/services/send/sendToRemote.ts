@@ -101,7 +101,7 @@ export type SendPayload = SendAlbumPayload | SendPlaylistPayload | SendSongPaylo
 export interface SendOptions {
   /** how many `sync_song_by_blake3` requests to run concurrently. default 2. */
   concurrency?: number;
-  /** if true, pre-check dest with `/api/has_blobs` and skip songs already present. default true. */
+  /** if true, pre-check dest with `/api/blobz/has` and skip songs already present. default true. */
   skipExisting?: boolean;
   /** progress callback fired after each phase change and each song result. */
   onProgress?: (progress: SendProgress) => void;
@@ -214,11 +214,13 @@ export async function sendToRemote(
       const blake3s = eligibleSongs.map((s) => s.blake3 as string);
       const resp = await destTransport.request(
         "POST",
-        "/api/has_blobs",
+        "/api/blobz/has",
         JSON.stringify({ blake3s }),
       );
       if (resp.status >= 200 && resp.status < 300) {
-        const parsed = HasBlobsResponseSchema.safeParse(JSON.parse(resp.body));
+        const raw = JSON.parse(resp.body) as { data?: unknown };
+        const inner = raw?.data ?? raw;
+        const parsed = HasBlobsResponseSchema.safeParse(inner);
         if (parsed.success) {
           alreadyPresent = new Set(parsed.data.blake3s_present);
           debug(
@@ -264,9 +266,13 @@ export async function sendToRemote(
       if (resp.status < 200 || resp.status >= 300) {
         throw new Error(`http ${resp.status}: ${resp.body}`);
       }
-      const parsed = SyncAlbumResponseSchema.safeParse(JSON.parse(resp.body));
+      const raw = JSON.parse(resp.body) as { data?: unknown; success?: boolean; errors?: Array<{ detail?: string }> };
+      if (raw?.success === false) {
+        throw new Error(raw.errors?.[0]?.detail ?? "server reported failure");
+      }
+      const parsed = SyncAlbumResponseSchema.safeParse(raw?.data ?? raw);
       if (!parsed.success) {
-        throw new Error("invalid sync_album response shape");
+        throw new Error(`invalid sync_album response shape: ${parsed.error.message}`);
       }
     } catch (e) {
       progress.phase = "failed";
@@ -310,11 +316,13 @@ export async function sendToRemote(
       if (resp.status < 200 || resp.status >= 300) {
         throw new Error(`http ${resp.status}: ${resp.body}`);
       }
-      const parsed = SyncSongByBlake3ResponseSchema.safeParse(
-        JSON.parse(resp.body),
-      );
+      const raw = JSON.parse(resp.body) as { data?: unknown; success?: boolean; errors?: Array<{ detail?: string }> };
+      if (raw?.success === false) {
+        throw new Error(raw.errors?.[0]?.detail ?? "server reported failure");
+      }
+      const parsed = SyncSongByBlake3ResponseSchema.safeParse(raw?.data ?? raw);
       if (!parsed.success) {
-        throw new Error("invalid sync_song_by_blake3 response shape");
+        throw new Error(`invalid sync_song_by_blake3 response shape: ${parsed.error.message}`);
       }
       progress.syncedSongs += 1;
       progress.syncedBlake3s.push(blake3);
@@ -359,9 +367,13 @@ export async function sendToRemote(
       if (resp.status < 200 || resp.status >= 300) {
         throw new Error(`http ${resp.status}: ${resp.body}`);
       }
-      const parsed = SyncPlaylistResponseSchema.safeParse(JSON.parse(resp.body));
+      const raw = JSON.parse(resp.body) as { data?: unknown; success?: boolean; errors?: Array<{ detail?: string }> };
+      if (raw?.success === false) {
+        throw new Error(raw.errors?.[0]?.detail ?? "server reported failure");
+      }
+      const parsed = SyncPlaylistResponseSchema.safeParse(raw?.data ?? raw);
       if (!parsed.success) {
-        throw new Error("invalid sync_playlist response shape");
+        throw new Error(`invalid sync_playlist response shape: ${parsed.error.message}`);
       }
     } catch (e) {
       progress.phase = "failed";

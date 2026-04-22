@@ -187,8 +187,11 @@ export interface ShareModalOptions {
   target: ShareTarget;
   /** lazily resolved source remote — null until loaded. */
   source: () => Remote | null | undefined;
-  /** lazily build the send-to-remote payload (album/playlist scope). */
-  buildSendPayload?: () => SendPayload;
+  /**
+   * lazily build the send-to-remote payload. may be async so context-menu
+   * shares can defer the song-list fetch until the modal opens.
+   */
+  buildSendPayload?: () => SendPayload | Promise<SendPayload>;
   /** override default web mirror host. */
   webHost?: string;
 }
