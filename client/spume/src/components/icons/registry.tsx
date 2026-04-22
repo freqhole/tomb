@@ -230,6 +230,12 @@ export const ImageIcon = (props: IconProps) => (
   </BaseIcon>
 );
 
+export const SendIcon = (props: IconProps) => (
+  <BaseIcon {...props} aria-label={props["aria-label"] ?? "Send"}>
+    <path d="M2,21L23,12L2,3V10L17,12L2,14V21Z" />
+  </BaseIcon>
+);
+
 export const CheckIcon = (props: IconProps) => (
   <BaseIcon {...props} aria-label={props["aria-label"] ?? "Check"}>
     <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" />
@@ -481,6 +487,7 @@ export const IconRegistry = {
   info: InfoIcon,
   upload: UploadIcon,
   image: ImageIcon,
+  send: SendIcon,
   check: CheckIcon,
   x: XIcon,
   alertTriangle: AlertTriangleIcon,
@@ -577,6 +584,7 @@ export const IconNames = {
   info: "info",
   upload: "upload",
   image: "image",
+  send: "send",
   check: "check",
   x: "x",
   alertTriangle: "alertTriangle",

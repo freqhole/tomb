@@ -36,18 +36,7 @@ import {
 } from "../../music/services/cache/blobCache";
 import { formatBytes } from "../services/storageManager";
 
-// extract a 64-hex node id from `peer_addr`, which may be the bare id or a
-// json blob `{ "node_id": "...", ... }`. falls back to the raw value.
-function extractNodeId(peerAddr: string): string {
-  if (/^[0-9a-f]{64}$/i.test(peerAddr)) return peerAddr;
-  try {
-    const parsed = JSON.parse(peerAddr);
-    if (typeof parsed?.node_id === "string") return parsed.node_id;
-  } catch {
-    // ignore - not json
-  }
-  return peerAddr;
-}
+import { extractNodeId } from "../../app/services/remotes/peerAddr";
 
 // confirmation dialog component
 function ConfirmDialog(props: {

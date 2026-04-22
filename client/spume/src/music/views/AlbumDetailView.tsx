@@ -28,6 +28,10 @@ import { sortSongsCanonical } from "../utils/songSort";
 import { EntityLinks } from "../../components/media/EntityLinks";
 import MarqueeText from "../../components/text/MarqueeText";
 import { resolveBlobUrl, usesBlobResolver } from "../services/storage/blobResolver";
+import { SendToRemoteFlyout } from "../../components/share/SendToRemoteFlyout";
+import { createCurrentRemoteFull } from "../../app/services/remotes/currentRemoteFull";
+import type { SendPayload } from "../services/send/sendToRemote";
+import type { RemoteSong } from "../data/remote/adapters";
 
 export function AlbumDetailView() {
   const params = useParams<{ id: string }>();
@@ -88,6 +92,26 @@ export function AlbumDetailView() {
 
   // fetch album songs using tanstack query (works with local + remote)
   const albumSongsQuery = useAlbumSongsQuery(() => params.id);
+
+  // current remote (full Remote record) — used as the source for "send to remote".
+  const currentRemoteFull = createCurrentRemoteFull();
+
+  // build a SendPayload describing this album for the send-to-remote flyout.
+  const buildSendPayload = (): SendPayload => {
+    const songList = songs();
+    const info = albumInfo();
+    return {
+      kind: "album",
+      albumId: info?.album_id ?? params.id,
+      title: info?.title ?? songList[0]?.album_title ?? "unknown album",
+      artistName: songList[0]?.artist_name ?? "unknown artist",
+      albumType: songList[0]?.album_type ?? null,
+      releaseDate: null,
+      label: null,
+      genres: songList[0]?.album_genres?.map((g) => g.name).filter(Boolean) ?? [],
+      songs: songList as unknown as RemoteSong[],
+    };
+  };
 
   // map and sort songs
   const songs = createMemo(() => {
@@ -377,6 +401,10 @@ export function AlbumDetailView() {
                     <FavoriteHeart
                       isFavorite={albumQuery.data?.is_favorite ?? false}
                       onToggle={handleAlbumFavoriteToggle}
+                    />
+                    <SendToRemoteFlyout
+                      source={() => currentRemoteFull()}
+                      buildPayload={buildSendPayload}
                     />
                     <Rating
                       rating={albumQuery.data?.user_rating ?? 0}
