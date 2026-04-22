@@ -1,10 +1,11 @@
 [Desktop Entry]
 Name={{name}}
 Comment=music library server
-Exec=env WEBKIT_DISABLE_COMPOSITING_MODE=1 {{exec}}
+Exec=env WEBKIT_DISABLE_COMPOSITING_MODE=1 {{exec}} %u
 Icon={{icon}}
 Terminal=false
 Type=Application
 Categories=AudioVideo;Audio;Player;Music;
 Keywords=music;audio;library;server;
+MimeType=x-scheme-handler/freqhole;
 StartupWMClass={{name}}

@@ -70,6 +70,9 @@ import {
   isCharnelMode,
   onConfigChanged,
   onEvent,
+  takePendingDeepLinks,
+  fetchLocalNodeId,
+  setLocalNodeIdValue,
   type TauriEvent,
 } from "./services/charnel";
 import {
@@ -143,6 +146,37 @@ export function App() {
     handle();
     window.addEventListener("hashchange", handle);
     onCleanup(() => window.removeEventListener("hashchange", handle));
+  });
+
+  // tauri cold-start: drain any deep-link urls received before the spume
+  // event listener was wired up. step 16 of SEND_TO_REMOTE_PLAN.
+  onMount(() => {
+    if (!isCharnelMode()) return;
+    void (async () => {
+      const urls = await takePendingDeepLinks();
+      for (const url of urls) {
+        const token = extractDeepLinkShareToken(url);
+        if (token) {
+          debug("App", `cold-start deep link token: ${token.slice(0, 16)}...`);
+          setShareToken(token);
+          // only one resolver modal at a time; subsequent urls are dropped.
+          break;
+        }
+      }
+    })();
+  });
+
+  // tauri: cache the local iroh node id so share links + send-to-remote
+  // work from the charnel-managed local remote (which has no peer_addr
+  // of its own — it dispatches over IPC, but the same binary runs an
+  // iroh endpoint we can hand out).
+  onMount(() => {
+    if (!isCharnelMode()) return;
+    void (async () => {
+      const id = await fetchLocalNodeId();
+      setLocalNodeIdValue(id);
+      if (id) debug("App", `local node id: ${id.slice(0, 16)}...`);
+    })();
   });
 
   // strip the share param out of `window.location.hash` once the modal closes
@@ -286,6 +320,19 @@ export function App() {
           }
         })();
         break;
+
+      case "share-link-received": {
+        // os handed off a `freqhole://o/<token>` url. extract token and
+        // route through the same ResolveShareModal flow used for web urls.
+        const token = extractDeepLinkShareToken(event.data.url);
+        if (token) {
+          debug("App", `deep link share token: ${token.slice(0, 16)}...`);
+          setShareToken(token);
+        } else {
+          debug("App", `deep link without share token: ${event.data.url}`);
+        }
+        break;
+      }
     }
   }
 
@@ -819,3 +866,17 @@ export function App() {
 }
 
 export default App;
+
+/**
+ * extract a share token from a `freqhole://` deep-link url.
+ * accepts both `freqhole://o/<token>` and `freqhole://share/<token>` shapes
+ * for forward-compat. returns null if the url isn't recognized.
+ */
+function extractDeepLinkShareToken(url: string): string | null {
+  if (!url) return null;
+  // strip scheme — `URL` parsing on custom schemes is inconsistent across
+  // platforms, so do it by hand.
+  const stripped = url.replace(/^freqhole:\/\//i, "");
+  const m = stripped.match(/^(?:o|share)\/([^?#/]+)/i);
+  return m ? m[1] : null;
+}

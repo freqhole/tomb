@@ -34,6 +34,7 @@ const {
 } = schema;
 import { getTransportForRemote, isP2PTransportType } from "../../../app/api/client";
 import { extractNodeIdStrict } from "../../../app/services/remotes/peerAddr";
+import { getLocalNodeId } from "../../../app/services/charnel";
 import {
   isP2PRemote,
   type Remote,
@@ -90,7 +91,12 @@ export interface SendPlaylistPayload {
   songs: RemoteSong[];
 }
 
-export type SendPayload = SendAlbumPayload | SendPlaylistPayload;
+export interface SendSongPayload {
+  kind: "song";
+  song: RemoteSong;
+}
+
+export type SendPayload = SendAlbumPayload | SendPlaylistPayload | SendSongPayload;
 
 export interface SendOptions {
   /** how many `sync_song_by_blake3` requests to run concurrently. default 2. */
@@ -133,7 +139,11 @@ export async function sendToRemote(
   const skipExisting = opts.skipExisting ?? true;
   const retrySet = opts.retryBlake3s ? new Set(opts.retryBlake3s) : null;
 
-  const songs = payload.songs;
+  // normalize: song-kind payload becomes a one-element songs array so the
+  // existing concurrency-limited loop can reuse it. envelope phases are
+  // skipped for songs (only album/playlist have an envelope).
+  const songs =
+    payload.kind === "song" ? [payload.song] : payload.songs;
   const progress: SendProgress = {
     phase: "preparing",
     totalSongs: songs.length,
@@ -148,19 +158,26 @@ export async function sendToRemote(
   emit();
 
   // validate transports + node id up front.
-  if (!isP2PTransportType(dest)) {
+  // dest must be reachable over a p2p-pull-capable transport: that's any
+  // p2p transport OR the local charnel-managed remote (its IPC dispatch
+  // hits a grimoire that runs the same iroh-blobs puller as a p2p server).
+  const destOk = isP2PTransportType(dest) || dest.is_charnel_managed === true;
+  if (!destOk) {
     throw new SendToRemoteError(
-      "destination must be a p2p remote (wasm or app transport)",
+      "destination must be a p2p remote or the local charnel app",
       progress,
     );
   }
-  if (!isP2PRemote(source)) {
-    throw new SendToRemoteError(
-      "source must be a p2p remote with a peer address",
-      progress,
-    );
+  // source must expose an iroh node id so dest can pull from it. that's
+  // either a normal p2p remote's peer_addr OR the local node id when
+  // sharing FROM the charnel-managed local remote.
+  let sourceNodeId: string | null = null;
+  if (isP2PRemote(source)) {
+    sourceNodeId = extractNodeIdStrict(source.peer_addr);
   }
-  const sourceNodeId = extractNodeIdStrict(source.peer_addr);
+  if (!sourceNodeId && source.is_charnel_managed) {
+    sourceNodeId = getLocalNodeId();
+  }
   if (!sourceNodeId) {
     throw new SendToRemoteError(
       "source remote has no usable iroh node id",

@@ -21,6 +21,7 @@ import { decodeShareToken, type SharePayloadV1 } from "../../utils/permalink";
 import { getRemoteByPeerAddr } from "../../app/services/remotes/remoteManager";
 import { getDefaultRoute } from "../../music/utils/routing";
 import { setHighlightedSongId } from "../../music/state/highlightedSong";
+import { isCharnelMode } from "../../app/services/charnel";
 import { debug } from "../../utils/logger";
 
 export interface ResolveShareModalProps {
@@ -153,12 +154,14 @@ export const ResolveShareModal: Component<ResolveShareModalProps> = (props) => {
                       add remote
                     </button>
                   </Show>
-                  <a
-                    href={`freqhole://o/${props.token ?? ""}`}
-                    class="px-3 py-2 text-sm rounded-md bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-bg-hover)] text-[var(--color-text-primary)] border border-[var(--color-border-default)]"
-                  >
-                    open in app
-                  </a>
+                  <Show when={!isCharnelMode()}>
+                    <a
+                      href={`freqhole://o/${props.token ?? ""}`}
+                      class="px-3 py-2 text-sm rounded-md bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-bg-hover)] text-[var(--color-text-primary)] border border-[var(--color-border-default)]"
+                    >
+                      open in app
+                    </a>
+                  </Show>
                   <button
                     type="button"
                     onClick={props.onClose}

@@ -38,6 +38,19 @@
         "depends": ["libayatana-appindicator-gtk3"],
         "desktopTemplate": "freqhole.desktop"
       }
+    },
+    "macOS": {
+      "infoPlistPath": "./Info.plist"
+    }
+  },
+  "plugins": {
+    "deep-link": {
+      "mobile": [
+        { "host": "*", "scheme": ["freqhole"] }
+      ],
+      "desktop": {
+        "schemes": ["freqhole"]
+      }
     }
   }
 }

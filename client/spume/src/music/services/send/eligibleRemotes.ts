@@ -1,7 +1,9 @@
 // derived signal: list of remotes eligible to receive `send to remote`.
 //
 // a remote is eligible when:
-//   - it is a p2p remote (`wasm` or `app` transport)
+//   - it is a p2p remote (`wasm` or `app` transport) OR the local
+//     charnel-managed remote (which dispatches over IPC into the same
+//     grimoire that runs the iroh-blobs puller)
 //   - it is not the source remote
 //   - it is not flagged offline
 //   - the local user is logged in to it as `admin` or `member`
@@ -65,7 +67,10 @@ export function createEligibleRemotes(
 
     const out: EligibleRemote[] = [];
     for (const remote of all) {
-      if (!isP2PRemote(remote)) continue;
+      // p2p remotes can receive sync directly; the charnel-managed local
+      // remote can too (IPC dispatch hits a grimoire with iroh-blobs).
+      const eligibleTransport = isP2PRemote(remote) || remote.is_charnel_managed === true;
+      if (!eligibleTransport) continue;
       if (sourceId && remote.remote_id === sourceId) continue;
       if (remote.is_offline) continue;
       const auth = status.get(remote.remote_id);

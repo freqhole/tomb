@@ -352,6 +352,15 @@ pub fn get_app_version() -> String {
     crate::app_config::get_binary_version().to_string()
 }
 
+/// drain any deep-link urls (`freqhole://...`) received before the frontend's
+/// event listener was ready. spume calls this on startup to handle cold-start
+/// share links. urls received after this call arrive via the
+/// `freqhole:event` channel as `share-link-received`.
+#[tauri::command]
+pub fn take_pending_deep_links(state: tauri::State<crate::PendingDeepLinks>) -> Vec<String> {
+    state.drain()
+}
+
 /// get the config file path (from app config or legacy location)
 #[tauri::command]
 pub fn get_config_path(app_handle: tauri::AppHandle) -> Option<String> {

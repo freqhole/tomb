@@ -19,6 +19,7 @@ import { Modal } from "./Modal";
 import { PermalinkSection } from "../share/PermalinkSection";
 import { SendToRemoteSection } from "../share/SendToRemoteSection";
 import { OpenInAppButton } from "../share/OpenInAppButton";
+import { isCharnelMode } from "../../app/services/charnel";
 import type { ShareTarget } from "../share/types";
 import type { Remote } from "../../app/services/storage/schemas/remote";
 import type { SendPayload } from "../../music/services/send/sendToRemote";
@@ -58,7 +59,9 @@ export const ShareModal: Component<ShareModalProps> = (props) => {
           {(src) => (
             <>
               <PermalinkSection target={props.target} source={src()} webHost={props.webHost} />
-              <OpenInAppButton target={props.target} source={src()} />
+              <Show when={!isCharnelMode()}>
+                <OpenInAppButton target={props.target} source={src()} />
+              </Show>
               <Show when={props.buildSendPayload}>
                 <div class="border-t border-[var(--color-border-default)] pt-6">
                   <SendToRemoteSection source={src()} buildPayload={props.buildSendPayload!} />

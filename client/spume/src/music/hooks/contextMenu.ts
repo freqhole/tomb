@@ -13,6 +13,7 @@ import { getDataSource, getCurrentRemote } from "../data";
 import { getRemoteById } from "../../app/services/remotes/remoteManager";
 import type { ShareTarget } from "../../components/share/types";
 import type { SendPayload } from "../services/send/sendToRemote";
+import type { RemoteSong } from "../data/remote/adapters";
 import type { Song } from "../data/types";
 import { showAlbumEditor, showArtistEditor, showSongEditor } from "./modals";
 import {
@@ -263,15 +264,26 @@ export function useSongContextMenu(
   });
 
   // share — drops a permalink that lands on the album view with this song
-  // row highlighted (when album_id is known). send-to scope omitted; song
-  // sends are not yet supported by the orchestrator.
+  // row highlighted (when album_id is known). also exposes "send to remote"
+  // when the song carries a blake3 (orchestrator pulls a single song via
+  // sync_song_by_blake3 on the destination).
   actions.push(
-    createShareMenuAction({
-      kind: "song",
-      id: song.id,
-      displayTitle: song.title,
-      parentId: song.album_id || undefined,
-    }),
+    createShareMenuAction(
+      {
+        kind: "song",
+        id: song.id,
+        displayTitle: song.title,
+        parentId: song.album_id || undefined,
+      },
+      song.blake3
+        ? () => ({
+            kind: "song",
+            // RemoteSong is a strict subset of Song; the orchestrator only
+            // touches blake3/sha256/title/album fields, all present here.
+            song: song as unknown as RemoteSong,
+          })
+        : undefined,
+    ),
   );
 
   // tags

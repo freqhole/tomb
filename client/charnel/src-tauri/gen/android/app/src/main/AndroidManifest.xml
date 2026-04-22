@@ -29,6 +29,16 @@
                 <!-- AndroidTV support -->
                 <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
             </intent-filter>
+
+            <!-- freqhole:// deep-link scheme. matches `plugins.deep-link.mobile`
+                 in tauri.conf.json. tauri-plugin-deep-link parses these and
+                 forwards the url to on_open_url at runtime. -->
+            <intent-filter android:autoVerify="false">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="freqhole" />
+            </intent-filter>
         </activity>
 
         <provider

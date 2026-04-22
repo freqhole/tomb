@@ -15,16 +15,40 @@ mod tray;
 mod wizard;
 
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use app_config::{get_server_config_path_resolved, is_setup_complete, FreqholeAppConfig};
 use tauri::webview::Color;
 #[cfg(target_os = "macos")]
 use tauri::TitleBarStyle;
 use tauri::{Emitter, Manager, RunEvent, Theme, WebviewUrl, WebviewWindowBuilder};
+use tauri_plugin_deep_link::DeepLinkExt;
 use tokio_util::sync::CancellationToken;
 
 use p2p_state::P2pState;
+
+/// pending deep-link URLs received before the main window's JS listeners were
+/// ready. spume drains this on startup via the `take_pending_deep_links`
+/// command. urls received after the window is up are emitted as
+/// `freqhole:event` (type: "share-link-received"), so this only matters for
+/// cold-start handoff (clicking a `freqhole://` link with the app closed).
+#[derive(Default, Clone)]
+pub struct PendingDeepLinks(pub Arc<Mutex<Vec<String>>>);
+
+impl PendingDeepLinks {
+    pub fn push(&self, url: String) {
+        if let Ok(mut guard) = self.0.lock() {
+            guard.push(url);
+        }
+    }
+
+    pub fn drain(&self) -> Vec<String> {
+        self.0
+            .lock()
+            .map(|mut g| std::mem::take(&mut *g))
+            .unwrap_or_default()
+    }
+}
 
 /// shutdown token for cancelling background tasks on app exit
 #[derive(Clone)]
@@ -264,7 +288,47 @@ pub fn run() {
     let builder = tauri::Builder::default()
         .manage(ShutdownToken::new())
         .manage(p2p_state.clone())
+        .manage(PendingDeepLinks::default())
         .setup(|app| {
+            // ---- deep-link plugin -----------------------------------------
+            // register `freqhole://` handler. on_open_url fires for runtime
+            // url opens; cold-start urls are drained from the pending queue
+            // by spume on startup. on linux/windows, runtime registration is
+            // required so the os knows to dispatch the scheme to us.
+            #[cfg(any(target_os = "linux", windows))]
+            {
+                if let Err(e) = app.deep_link().register("freqhole") {
+                    tracing::warn!(error = %e, "failed to register freqhole:// scheme at runtime");
+                }
+            }
+            // capture cold-start url, if any.
+            if let Ok(Some(urls)) = app.deep_link().get_current() {
+                let pending = app.state::<PendingDeepLinks>().inner().clone();
+                for url in urls {
+                    tracing::info!(url = %url, "deep link cold start");
+                    pending.push(url.to_string());
+                }
+            }
+            // runtime url handler
+            let url_handle = app.handle().clone();
+            app.deep_link().on_open_url(move |event| {
+                let pending = url_handle.state::<PendingDeepLinks>().inner().clone();
+                for url in event.urls() {
+                    let url_string = url.to_string();
+                    tracing::info!(url = %url_string, "deep link received");
+                    // always queue so a slow main-window startup still picks it up.
+                    pending.push(url_string.clone());
+                    // emit immediately too — the listener may already be live.
+                    let payload = serde_json::json!({
+                        "type": "share-link-received",
+                        "data": { "url": url_string }
+                    });
+                    if let Err(e) = url_handle.emit("freqhole:event", payload) {
+                        tracing::warn!(error = %e, "failed to emit deep link event");
+                    }
+                }
+            });
+
             // load app config
             let app_config = FreqholeAppConfig::load(app.handle()).unwrap_or_default();
 
@@ -509,6 +573,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_android_media_session::init());
 
     #[cfg(desktop)]
@@ -529,6 +594,7 @@ pub fn run() {
             commands::resolve_path,
             commands::get_os_username,
             commands::get_app_version,
+            commands::take_pending_deep_links,
             commands::get_config_path,
             commands::get_data_dir,
             commands::get_freqhole_config,
