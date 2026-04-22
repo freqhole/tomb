@@ -1,5 +1,5 @@
 // artist editor modal - edit artist metadata
-import { createEffect, createMemo, createSignal, onMount, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, Show } from "solid-js";
 import { useQueryClient } from "@tanstack/solid-query";
 import type { ImageMetadata } from "../../music/services/storage/types";
 import { getDataSource, getCurrentRemote } from "../../music/data";
@@ -16,7 +16,6 @@ import { TextInput } from "../forms/TextInput";
 import { Tabs, TabList, Tab, TabPanel } from "../navigation/Tabs";
 import { EntityImages } from "../layout/EntityImages";
 import { Modal } from "./Modal";
-import { pushModal, popModal } from "../../music/hooks/modals";
 import { EntityUrlz, type EntityUrlFormItem } from "../forms/EntityUrlz";
 import { error as errorLog } from "../../utils/logger";
 
@@ -91,13 +90,6 @@ export function ArtistEditorModal(props: ArtistEditorModalProps) {
 
       setLoadedArtistId(props.artistId);
     }
-  });
-
-  // register modal in stack for esc key handling
-  onMount(() => {
-    const modalId = `artist-${props.artistId}`;
-    pushModal(modalId, props.onClose);
-    return () => popModal(modalId);
   });
 
   // helper to check if entity URLs have changed

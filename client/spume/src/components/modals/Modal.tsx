@@ -13,22 +13,11 @@
 import { Show, createEffect, onCleanup, type JSX } from "solid-js";
 import { Portal } from "solid-js/web";
 import { Icon } from "../icons/registry";
+import { pushModal, popModal } from "../../music/hooks/modals";
 
-// stack of currently-open modal close handlers. on escape, only the topmost
-// (most recently opened) modal closes — matches typical desktop ux and lets
-// nested modals (e.g. share modal opened from tag selector) work intuitively.
-const escapeStack: Array<() => void> = [];
-
-if (typeof window !== "undefined") {
-  window.addEventListener("keydown", (e) => {
-    if (e.key !== "Escape") return;
-    const top = escapeStack[escapeStack.length - 1];
-    if (!top) return;
-    e.preventDefault();
-    e.stopPropagation();
-    top();
-  });
-}
+// per-instance modal id — used by the shared modal stack in
+// `music/hooks/modals.ts` so escape closes the topmost open modal.
+let nextModalId = 0;
 
 export type ModalSize = "sm" | "md" | "lg" | "xl";
 
@@ -69,16 +58,15 @@ export function Modal(props: ModalProps) {
     if (e.target === e.currentTarget) props.onClose();
   };
 
-  // register/unregister this modal's close handler on the escape stack
-  // while open. allows escape to close the topmost open modal.
+  // register/unregister this modal on the shared modal stack while open.
+  // the stack lives in `music/hooks/modals.ts` and owns the global escape
+  // listener — keeping a single source of truth avoids double-fires when a
+  // wrapping component also calls pushModal directly.
   createEffect(() => {
     if (!props.isOpen) return;
-    const handler = () => props.onClose();
-    escapeStack.push(handler);
-    onCleanup(() => {
-      const idx = escapeStack.lastIndexOf(handler);
-      if (idx !== -1) escapeStack.splice(idx, 1);
-    });
+    const id = `modal-shell-${++nextModalId}`;
+    pushModal(id, () => props.onClose());
+    onCleanup(() => popModal(id));
   });
 
   return (
