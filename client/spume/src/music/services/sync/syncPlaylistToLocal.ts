@@ -1,107 +1,45 @@
 // sync playlist to local storage when playing from remote
 import { getSyncQueueToLocal } from "../../../app/services/storage/db";
-import { isCharnelAvailable, getTransportForRemote } from "../../../app/api/client";
+import { isCharnelAvailable } from "../../../app/api/client";
 import { getRemoteById } from "../../../app/services/remotes/remoteManager";
 import { initMusicDB } from "../storage/db";
 import { upsertLocalPlaylistWithSongs } from "../storage/playlists";
 import { downloadAndStoreImages, syncSongToLocal, canSyncSong } from "./syncSongToLocal";
 import type { QueueSourceContext } from "../../../app/services/storage/types";
 import type { Song, ImageMetadata } from "../storage/types";
-import type { Remote } from "../../../app/services/storage/schemas/remote";
 import { debug, error as errorLog } from "../../../utils/logger";
 
 /**
- * convert Blob to base64 string for IPC transfer
+ * sync playlist to the local charnel-managed grimoire via the iroh-blobs
+ * path. songs are synced first via the new /api/sync/song-by-blake3 route
+ * (the local grimoire pulls each blake3 directly from the source remote).
+ * the playlist is then created via /api/sync/playlist with the list of
+ * synced song blake3s — no audio bytes cross the IPC boundary.
+ *
+ * image refs in the playlist request are sha256-only today (ImageMetadata
+ * has no sha256); the dest will report missing image sha256s in the
+ * response. step 11 of the send-to-remote plan plumbs sha256 through.
  */
-async function blobToBase64(blob: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      const dataUrl = reader.result as string;
-      // strip "data:...;base64," prefix
-      const base64 = dataUrl.split(",")[1] || "";
-      resolve(base64);
-    };
-    reader.onerror = reject;
-    reader.readAsDataURL(blob);
-  });
-}
-
-/**
- * image data for IPC transfer
- */
-interface SyncImageData {
-  data: string;
-  mime_type: string;
-  is_primary: boolean;
-  blob_type?: string;
-}
-
-/**
- * download images and convert to base64 for IPC
- */
-async function prepareImagesForOffal(
-  remote: Remote,
-  images: ImageMetadata[] | undefined,
-): Promise<SyncImageData[]> {
-  if (!images?.length) return [];
-
-  const results: SyncImageData[] = [];
-  const transport = await getTransportForRemote(remote);
-
-  for (const img of images) {
-    if (!img.remote_blob_id) continue;
-    try {
-      const blobUrl = await transport.getBlobUrl(img.remote_blob_id);
-      const response = await fetch(blobUrl);
-      if (response.ok) {
-        const blob = await response.blob();
-        results.push({
-          data: await blobToBase64(blob),
-          mime_type: blob.type || "image/jpeg",
-          is_primary: img.is_primary === true,
-          blob_type: img.blob_type,
-        });
-      }
-    } catch (e) {
-      debug("syncPlaylistViaOffal", `failed to download image: ${e}`);
-    }
-  }
-
-  return results;
-}
-
-/**
- * sync playlist to grimoire via offal route (charnel mode only)
- */
-async function syncPlaylistViaOffal(
+async function syncPlaylistViaLocalGrimoire(
   songs: Song[],
   source: QueueSourceContext,
-  remote: Remote,
+  remote: { remote_id: string; name: string },
 ): Promise<void> {
   try {
     const { invoke } = await import("@tauri-apps/api/core");
 
-    // collect sha256s from songs
-    const songSha256s = songs
-      .filter((s) => s.sha256)
-      .map((s) => s.sha256 as string);
-
-    if (songSha256s.length === 0) {
-      debug("syncPlaylistViaOffal", "no songs with sha256 to sync");
-      return;
-    }
-
-    // sync songs first so they exist locally when we create the playlist
-    // mark songs to skip feed events (playlist gets one feed event at the end)
-    const songsToSync = songs.filter((s) => canSyncSong(s)).map((s) => ({
-      ...s,
-      skip_feed_events: true,
-    }));
+    // sync each song first so the local grimoire can resolve blake3 → song.
+    // mark songs to skip individual feed events (the playlist itself emits one).
+    const songsToSync = songs
+      .filter((s) => canSyncSong(s))
+      .map((s) => ({ ...s, skip_feed_events: true }));
 
     if (songsToSync.length > 0) {
-      debug("syncPlaylistViaOffal", `syncing ${songsToSync.length} songs before playlist`);
-      // sync songs in parallel (batch of 5 to avoid overwhelming)
+      debug(
+        "syncPlaylistViaLocalGrimoire",
+        `syncing ${songsToSync.length} songs before playlist`,
+      );
+      // batch of 5 to avoid overwhelming the iroh transport.
       const batchSize = 5;
       for (let i = 0; i < songsToSync.length; i += batchSize) {
         const batch = songsToSync.slice(i, i + batchSize);
@@ -109,55 +47,68 @@ async function syncPlaylistViaOffal(
       }
     }
 
-    // collect images from source or first song
-    let sourceImages: ImageMetadata[] | undefined;
-    if (source.image) {
-      sourceImages = [source.image];
-    } else {
-      // find first song with album images
-      for (const song of songs) {
-        if (song.album_images?.length) {
-          sourceImages = [song.album_images[0]];
-          break;
-        }
-        if (song.images?.length) {
-          const thumbnail = song.images.find((img) => img.blob_type === "thumbnail");
-          if (thumbnail) {
-            sourceImages = [thumbnail];
-            break;
-          }
-        }
-      }
-    }
+    // collect blake3s for the playlist body. songs without blake3 cannot be
+    // referenced; the dest will report any missing ones in the response.
+    const songBlake3s = songs
+      .map((s) => s.blake3)
+      .filter((b): b is string => !!b);
 
-    // download and convert images
-    const images = await prepareImagesForOffal(remote, sourceImages);
-
-    // call the sync playlist offal route
-    const response = await invoke("api_call", {
-      path: "/api/sync/playlist",
-      body: {
-        remote_playlist_id: source.entity_id,
-        title: source.label,
-        description: null,
-        song_sha256s: songSha256s,
-        images,
-        remote_name: remote.name,
-      },
-    }) as { success: boolean; message: string; data?: { playlist_id: string; songs_added: number; songs_missing: number } };
-
-    if (!response.success) {
-      errorLog("syncPlaylistViaOffal", "failed to sync playlist:", response.message);
+    if (songBlake3s.length === 0) {
+      debug(
+        "syncPlaylistViaLocalGrimoire",
+        "no songs with blake3 to include in playlist",
+      );
       return;
     }
 
-    const result = response.data;
+    const response = (await invoke("api_call", {
+      path: "/api/sync/playlist",
+      body: {
+        source_remote_id: remote.remote_id,
+        remote_playlist_id: source.entity_id,
+        title: source.label,
+        description: null,
+        song_blake3s: songBlake3s,
+        images: [] as Array<{
+          content_sha256: string;
+          data_base64: string | null;
+          mime_type: string;
+          is_primary: boolean;
+          blob_type: string | null;
+        }>,
+        remote_name: remote.name,
+      },
+    })) as {
+      success: boolean;
+      message: string;
+      data?: {
+        playlist_id: string;
+        songs_added: number;
+        missing_song_blake3s: string[];
+        song_stubs_created: number;
+        images_linked: number;
+        missing_image_sha256s: string[];
+      };
+    };
+
+    if (!response.success) {
+      errorLog(
+        "syncPlaylistViaLocalGrimoire",
+        "failed to sync playlist:",
+        response.message,
+      );
+      return;
+    }
+
+    const data = response.data;
     debug(
-      "syncPlaylistViaOffal",
-      `synced playlist "${source.label}" - ${result?.songs_added} songs added, ${result?.songs_missing} missing, ${images.length} images`,
+      "syncPlaylistViaLocalGrimoire",
+      `synced playlist "${source.label}" — ${data?.songs_added ?? 0} added, ` +
+        `${data?.song_stubs_created ?? 0} stubs created, ` +
+        `${data?.missing_song_blake3s.length ?? 0} missing`,
     );
   } catch (err) {
-    errorLog("syncPlaylistViaOffal", "error syncing playlist:", err);
+    errorLog("syncPlaylistViaLocalGrimoire", "error syncing playlist:", err);
   }
 }
 
@@ -209,9 +160,9 @@ export async function syncPlaylistToLocalFromQueue(
     return;
   }
 
-  // in charnel mode, sync to grimoire via offal route
+  // in charnel mode, sync via the local grimoire over the iroh-blobs path
   if (isCharnelAvailable()) {
-    await syncPlaylistViaOffal(songs, source, remote);
+    await syncPlaylistViaLocalGrimoire(songs, source, remote);
     return;
   }
 

@@ -20,4 +20,10 @@ export class MiddenNode {
   secret_key(): Uint8Array {
     throw new Error("midden WASM not available in Tauri - use CharnelTransport");
   }
+
+  proxy_admin(_peer: string, _command: string, _args: string): Promise<unknown> {
+    return Promise.reject(
+      new Error("midden WASM not available in Tauri - use CharnelAdminTransport"),
+    );
+  }
 }

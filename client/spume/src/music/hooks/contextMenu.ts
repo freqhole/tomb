@@ -8,8 +8,12 @@ import type { MenuAction } from "../../components/overlays/ContextMenu";
 import { queryClient } from "../../queryClient";
 import { confirm } from "../../app/services/confirmState";
 import { showPlaylistSelector } from "./playlistSelectorState";
-import { showTagSelector } from "./modals";
-import { getDataSource } from "../data";
+import { showTagSelector, showShareModal } from "./modals";
+import { getDataSource, getCurrentRemote } from "../data";
+import { getRemoteById } from "../../app/services/remotes/remoteManager";
+import type { ShareTarget } from "../../components/share/types";
+import type { SendPayload } from "../services/send/sendToRemote";
+import type { RemoteSong } from "../data/remote/adapters";
 import type { Song } from "../data/types";
 import { showAlbumEditor, showArtistEditor, showSongEditor } from "./modals";
 import {
@@ -89,6 +93,39 @@ export interface ContextMenuOptions {
   onShuffle?: () => void | Promise<void>;
   /** callback when add to queue is clicked (for artists/genres) */
   onAddToQueue?: () => void | Promise<void>;
+}
+
+/**
+ * shared helper that opens the global share modal for a given target.
+ * snapshots the current remote at click time and passes it as the source.
+ * for kinds without a send-to scope (song / artist) `buildSendPayload` is
+ * omitted and the modal will hide its send-to section automatically.
+ */
+export function createShareMenuAction(
+  target: ShareTarget,
+  buildSendPayload?: () => SendPayload | Promise<SendPayload>,
+): MenuAction {
+  return {
+    label: "share...",
+    icon: IconNames.share,
+    onClick: async () => {
+      const info = getCurrentRemote();
+      if (!info) {
+        toast.error("share is only available on a remote");
+        return;
+      }
+      const remote = await getRemoteById(info.remote_id);
+      if (!remote) {
+        toast.error("could not find current remote");
+        return;
+      }
+      showShareModal({
+        target,
+        source: () => remote,
+        buildSendPayload,
+      });
+    },
+  };
 }
 
 // build context menu actions for a single song
@@ -225,6 +262,27 @@ export function useSongContextMenu(
       showPlaylistSelector([song.id]);
     },
   });
+
+  // share — drops a permalink that lands on the album view with this song
+  // row highlighted (when album_id is known). always include the send-to
+  // builder — the modal will badge destinations that already have the
+  // blob and disable rows where the song lacks a blake3.
+  actions.push(
+    createShareMenuAction(
+      {
+        kind: "song",
+        id: song.id,
+        displayTitle: song.title,
+        parentId: song.album_id || undefined,
+      },
+      () => ({
+        kind: "song",
+        // RemoteSong is a strict subset of Song; the orchestrator only
+        // touches blake3/sha256/title/album fields, all present here.
+        song: song as unknown as RemoteSong,
+      }),
+    ),
+  );
 
   // tags
   if (song.album_id && canManageTags()) {
@@ -533,6 +591,36 @@ export function useAlbumContextMenu(
     },
   });
 
+  // share — permalink + send-to. send-to builder fetches the album's
+  // song list lazily (only when the modal opens) so the menu click stays
+  // snappy and we don't waste the fetch on permalink-only shares.
+  actions.push(
+    createShareMenuAction(
+      {
+        kind: "album",
+        id: album.id,
+        displayTitle: album.title,
+      },
+      async (): Promise<SendPayload> => {
+        const dataSource = getDataSource();
+        if (!dataSource.getAlbumSongs) throw new Error("album fetch not supported");
+        const response = await dataSource.getAlbumSongs(album.id);
+        const songList = response.items;
+        return {
+          kind: "album",
+          albumId: album.id,
+          title: album.title,
+          artistName: album.artist_name ?? songList[0]?.artist_name ?? "unknown artist",
+          albumType: songList[0]?.album_type ?? null,
+          releaseDate: null,
+          label: null,
+          genres: songList[0]?.album_genres?.map((g) => g.name).filter(Boolean) ?? [],
+          songs: songList as unknown as RemoteSong[],
+        };
+      },
+    ),
+  );
+
   // tags - only for admins
   if (canManageTags()) {
     actions.push({
@@ -640,6 +728,30 @@ export function usePlaylistContextMenu(
       "playlist",
       playlist.id,
       options.isFavorite ?? false,
+    ),
+  );
+
+  // share — permalink + send-to. send-to builder fetches the playlist's
+  // song list lazily so the menu click stays snappy.
+  actions.push(
+    createShareMenuAction(
+      {
+        kind: "playlist",
+        id: playlist.id,
+        displayTitle: playlist.title,
+      },
+      async (): Promise<SendPayload> => {
+        const dataSource = getDataSource();
+        if (!dataSource.getPlaylistSongs) throw new Error("playlist fetch not supported");
+        const response = await dataSource.getPlaylistSongs(playlist.id);
+        return {
+          kind: "playlist",
+          playlistId: playlist.id,
+          title: playlist.title,
+          description: null,
+          songs: response.items as unknown as RemoteSong[],
+        };
+      },
     ),
   );
 

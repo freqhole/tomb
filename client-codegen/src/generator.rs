@@ -183,11 +183,89 @@ pub fn generate_all() -> Result<(), Box<dyn std::error::Error>> {
     std::fs::create_dir_all("freqhole-api-client/src/codegen")?;
 
     let schema = generate_schema_file(&routes)?;
+    // zod_gen 1.x emits `Option<T>` as `.nullable()`, which rejects undefined/
+    // missing keys. Rust `Option::None` round-tripping through
+    // serde_wasm_bindgen / JSON can surface as undefined on the JS side, so
+    // relax to `.nullish()` (null OR undefined). `.nullish()` is a strict
+    // superset of `.nullable()` — always safe to substitute.
+    let schema = schema.replace(".nullable()", ".nullish()");
     std::fs::write("freqhole-api-client/src/codegen/schema.ts", schema)?;
 
     let routes_config = generate_routes_file(&routes);
     std::fs::write("freqhole-api-client/src/codegen/routes.ts", routes_config)?;
 
-    println!("generated codegen/schema.ts and codegen/routes.ts");
+    let admin_commands = generate_admin_commands_file();
+    std::fs::write(
+        "freqhole-api-client/src/codegen/admin_commands.ts",
+        admin_commands,
+    )?;
+
+    println!("generated codegen/schema.ts, codegen/routes.ts, and codegen/admin_commands.ts");
     Ok(())
+}
+
+/// emit the freqhole-admin/1 ALPN command map.
+///
+/// each entry exposes:
+/// - `req`: zod schema for the request payload (or `z.void()` for empty)
+/// - `resp`: zod schema for the response data
+/// - `auth`: required role on the remote
+fn generate_admin_commands_file() -> String {
+    use grimoire::admin_dispatch::registry::{all_commands, AdminCommandInfo};
+
+    let mut output = String::from(
+        "// generated freqhole-admin/1 ALPN command map\n\
+         //\n\
+         // do not edit by hand: regenerate with `cd client-codegen && make all`.\n\
+         import * as s from './schema';\n\
+         import { z } from 'zod';\n\n\
+         export type AdminAuthType = 'admin';\n\n\
+         export type AdminAuth = { type: AdminAuthType };\n\n",
+    );
+
+    output.push_str("export const adminCommands = {\n");
+
+    let mut commands: Vec<&AdminCommandInfo> = all_commands().iter().collect();
+    commands.sort_by_key(|c| c.name);
+
+    for cmd in commands {
+        let req = admin_schema_ref(cmd.request_type);
+        let resp = admin_schema_ref(cmd.response_type);
+        output.push_str(&format!(
+            "  {}: {{ req: {}, resp: {}, auth: {{ type: '{}' }} as const }},\n",
+            cmd.name,
+            req,
+            resp,
+            cmd.auth.as_str(),
+        ));
+    }
+
+    output.push_str("} as const;\n\n");
+    output.push_str("export type AdminCommandName = keyof typeof adminCommands;\n");
+    output
+}
+
+/// schema reference for an admin command type. mirrors `schema_ref` for
+/// HTTP routes but with admin-specific empty/void handling.
+fn admin_schema_ref(rust_type: &str) -> String {
+    match rust_type {
+        "EmptyRequest" | "()" => return "z.void().optional()".to_string(),
+        "EmptyResponse" => return "z.unknown().optional()".to_string(),
+        "serde_json::Value" => return "z.any()".to_string(),
+        "bool" => return "z.boolean()".to_string(),
+        "i32" | "i64" | "u32" | "u64" | "f32" | "f64" => return "z.number()".to_string(),
+        "String" => return "z.string()".to_string(),
+        _ => {}
+    }
+
+    let clean = rust_type.split("::").last().unwrap_or(rust_type);
+
+    if let Some(inner) = clean.strip_prefix("Vec<").and_then(|s| s.strip_suffix('>')) {
+        if inner == "String" {
+            return "z.string().array()".to_string();
+        }
+        return format!("s.{}Schema.array()", inner);
+    }
+
+    format!("s.{}Schema", clean)
 }

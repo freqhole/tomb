@@ -98,6 +98,12 @@ enum Commands {
         action: plumbing::BlobzAction,
     },
 
+    /// Sync operations (send-to-remote: album/song/playlist receive routes)
+    Sync {
+        #[command(subcommand)]
+        action: plumbing::SyncAction,
+    },
+
     /// Start HTTP server and/or P2P endpoint based on config
     Serve {
         /// Path to configuration file (overrides --config global flag)
@@ -160,10 +166,13 @@ async fn main() -> Result<()> {
         grimoire::init_config(cli.config.clone())
             .map_err(|e| anyhow::anyhow!("Failed to initialize config: {}", e))?;
 
-        // initialize database (migrations + views) once at startup
+        // initialize database (pool warmup + migrations + views) once at startup
         grimoire::database::initialize()
             .await
             .map_err(|e| anyhow::anyhow!("Failed to initialize database: {}", e))?;
+        grimoire::database::run_migrations()
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to run migrations: {}", e))?;
     }
 
     // Initialize tracing (use config log level if available, else default to "info")
@@ -226,6 +235,9 @@ async fn main() -> Result<()> {
         }
         Commands::Blobz { action } => {
             plumbing::handle_blobz(action, json_output).await?;
+        }
+        Commands::Sync { action } => {
+            plumbing::handle_sync(action, json_output).await?;
         }
         Commands::Serve { .. } | Commands::Http { .. } | Commands::P2p { .. } => {
             // handled above with early return

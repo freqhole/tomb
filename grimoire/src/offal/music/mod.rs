@@ -162,6 +162,7 @@ pub async fn dispatch(
         // blob metadata
         "/api/blob_metadata" => super::media_blobz::dispatch(path, caller, body).await,
         "/api/blob_metadata_by_blake3" => super::media_blobz::dispatch(path, caller, body).await,
+        "/api/blobz/has" => super::media_blobz::dispatch(path, caller, body).await,
 
         // blobs: streaming routes still use path params
         _ if path.starts_with("/api/blobs/") => {

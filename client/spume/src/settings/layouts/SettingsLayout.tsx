@@ -34,6 +34,7 @@ export function SettingsLayout(props: { children: JSX.Element }) {
 
   return (
     <div
+      data-allow-select
       class="min-h-screen bg-[var(--color-bg-primary)]"
       style={{ "padding-top": "env(safe-area-inset-top, 0px)" }}
     >

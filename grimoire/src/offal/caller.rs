@@ -23,15 +23,6 @@ impl Caller {
         }
     }
 
-    /// create a local admin caller (for Tauri/CLI when no auth needed)
-    pub fn local_admin() -> Self {
-        Self {
-            user_id: "local".to_string(),
-            username: "local".to_string(),
-            role: UserRole::Admin,
-        }
-    }
-
     pub fn is_admin(&self) -> bool {
         self.role == UserRole::Admin
     }

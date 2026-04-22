@@ -35,6 +35,27 @@ const AUTOMERGE_ALPN: &[u8] = b"iroh/automerge-repo/1";
 /// ALPN for friend requests, profile sharing, and presence heartbeat (used by skein social layer)
 const FRIENDZ_ALPN: &[u8] = b"freqhole-friendz/1";
 
+/// ALPN for admin command dispatch (must match grimoire's ADMIN_ALPN)
+const ADMIN_ALPN: &[u8] = b"freqhole-admin/1";
+
+/// admin protocol messages (must match grimoire's AdminMessage)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+enum AdminMessage {
+    Request {
+        id: u64,
+        command: String,
+        args: serde_json::Value,
+    },
+    Response {
+        id: u64,
+        success: bool,
+        data: Option<serde_json::Value>,
+        message: String,
+        errors: Vec<serde_json::Value>,
+    },
+}
+
 /// protocol messages (must match grimoire's PeerMessage)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -393,6 +414,7 @@ impl MiddenNode {
                 FREQHOLE_ALPN.to_vec(),
                 AUTOMERGE_ALPN.to_vec(),
                 FRIENDZ_ALPN.to_vec(),
+                ADMIN_ALPN.to_vec(),
                 iroh_blobs::ALPN.to_vec(),
             ])
             .bind()
@@ -725,6 +747,92 @@ impl MiddenNode {
                 Ok(serde_wasm_bindgen::to_value(&result)?)
             }
             _ => Err(JsError::new("unexpected response type")),
+        }
+    }
+
+    /// dispatch a typed admin command to a peer over the freqhole-admin/1 ALPN.
+    ///
+    /// `args` is a JSON string (the literal `"null"` is accepted for no-payload
+    /// commands). returns a JS object envelope `{ success, message, data, errors }`
+    /// matching the wire format. validation of `data` against the per-command
+    /// schema happens in the spume `AdminClient`.
+    pub async fn proxy_admin(
+        &self,
+        peer_addr: &str,
+        command: &str,
+        args: &str,
+    ) -> Result<JsValue, JsError> {
+        info!(
+            "[admin-p2p] proxy_admin start: peer={} command={}",
+            peer_addr, command
+        );
+        let addr = parse_peer_addr(peer_addr).map_err(|e| JsError::new(&e))?;
+
+        let parsed_args: serde_json::Value = serde_json::from_str(args)
+            .map_err(|e| JsError::new(&format!("invalid args json: {e}")))?;
+
+        // open admin alpn connection
+        let conn = self
+            .endpoint
+            .connect(addr.clone(), ADMIN_ALPN)
+            .await
+            .map_err(to_js_err)?;
+        info!("[admin-p2p] proxy_admin connected to {}", addr.id);
+
+        let (mut send, mut recv): (SendStream, RecvStream) =
+            conn.open_bi().await.map_err(to_js_err)?;
+
+        let request = AdminMessage::Request {
+            id: 1,
+            command: command.to_string(),
+            args: parsed_args,
+        };
+        let bytes = serde_json::to_vec(&request).map_err(to_js_err)?;
+        info!("[admin-p2p] proxy_admin sending {} bytes", bytes.len());
+        send.write_all(&bytes).await.map_err(to_js_err)?;
+        send.finish().map_err(to_js_err)?;
+
+        // read response (no length prefix). 16 MiB cap for large list responses.
+        let response_bytes: Vec<u8> = recv
+            .read_to_end(16 * 1024 * 1024)
+            .await
+            .map_err(to_js_err)?;
+        info!(
+            "[admin-p2p] proxy_admin read {} bytes",
+            response_bytes.len()
+        );
+        let response: AdminMessage = serde_json::from_slice(&response_bytes).map_err(to_js_err)?;
+
+        match response {
+            AdminMessage::Response {
+                success,
+                data,
+                message,
+                errors,
+                ..
+            } => {
+                let data_kind = match &data {
+                    Some(serde_json::Value::Array(a)) => format!("array[{}]", a.len()),
+                    Some(serde_json::Value::Null) | None => "none".to_string(),
+                    Some(_) => "object".to_string(),
+                };
+                info!(
+                    "[admin-p2p] proxy_admin got response: success={} data={} message={}",
+                    success, data_kind, message
+                );
+                let envelope = serde_json::json!({
+                    "success": success,
+                    "message": message,
+                    "data": data,
+                    "errors": errors,
+                });
+                // serialize_maps_as_objects: otherwise `Value::Object` becomes a JS `Map`
+                // which has no `.success` property, and the spume side rejects the shape.
+                let serializer =
+                    serde_wasm_bindgen::Serializer::new().serialize_maps_as_objects(true);
+                Ok(envelope.serialize(&serializer)?)
+            }
+            _ => Err(JsError::new("unexpected admin response type")),
         }
     }
 

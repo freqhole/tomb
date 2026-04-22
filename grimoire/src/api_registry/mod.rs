@@ -212,15 +212,37 @@ pub mod type_registry {
         AcceptKnockRequest, DeleteKnockRequest, GetKnockRequest, RejectKnockRequest,
     };
 
+    // admin dispatch (freqhole-admin/1 ALPN) typed envelopes
+    use crate::admin_dispatch::types::invites::{
+        AdminGeneratedInvite, AdminInviteInfo, AdminInvitesGenerateRequest,
+        AdminInvitesGenerateResponse, AdminInvitesListRequest, AdminInvitesRevokeAllResponse,
+        AdminInvitesRevokeRequest, AdminInvitesUpdateRoleRequest,
+    };
+    use crate::admin_dispatch::types::knocks::{
+        KnocksAcceptRequest, KnocksDeleteRequest, KnocksRejectAllResponse, KnocksRejectRequest,
+    };
+    use crate::admin_dispatch::types::peers::{
+        AdminPeerNodeSummary, AdminPeerSummary, AdminPeersAllowRequest, AdminPeersAllowResponse,
+        AdminPeersListForUserRequest, AdminPeersRemoveRequest,
+    };
+    use crate::admin_dispatch::types::users::{
+        AdminAccountLinkResponse, AdminUserSummary, AdminUsersDeleteRequest,
+        AdminUsersGenerateAccountLinkRequest, AdminUsersGetRequest, AdminUsersListRequest,
+        AdminUsersUpdateRoleRequest,
+    };
+
     // blob metadata request types
-    use crate::offal::media_blobz::{GetBlobMetadataByBlake3Request, GetBlobMetadataRequest};
+    use crate::offal::media_blobz::{
+        GetBlobMetadataByBlake3Request, GetBlobMetadataRequest, HasBlobsRequest, HasBlobsResponse,
+    };
 
     // upload request types
     use crate::offal::upload::UploadMusicByBlake3Request;
 
     // sync types
     use crate::offal::sync::{
-        SyncPlaylistRequest, SyncPlaylistResponse, SyncSongRequest, SyncSongResponse,
+        SyncAlbumRequest, SyncAlbumResponse, SyncImageRef, SyncPlaylistRequest,
+        SyncPlaylistResponse, SyncSongByBlake3Request, SyncSongByBlake3Response,
     };
 
     pub fn register_all_types(gen: &mut ZodGenerator, registered: &mut HashSet<String>) {
@@ -739,6 +761,69 @@ pub mod type_registry {
         gen.add_schema::<DeleteKnockRequest>("DeleteKnockRequest");
         registered.insert("DeleteKnockRequest".to_string());
 
+        // admin dispatch (freqhole-admin/1 ALPN) typed envelopes
+        gen.add_schema::<KnocksAcceptRequest>("KnocksAcceptRequest");
+        registered.insert("KnocksAcceptRequest".to_string());
+
+        gen.add_schema::<KnocksRejectRequest>("KnocksRejectRequest");
+        registered.insert("KnocksRejectRequest".to_string());
+
+        gen.add_schema::<KnocksDeleteRequest>("KnocksDeleteRequest");
+        registered.insert("KnocksDeleteRequest".to_string());
+
+        gen.add_schema::<KnocksRejectAllResponse>("KnocksRejectAllResponse");
+        registered.insert("KnocksRejectAllResponse".to_string());
+
+        // admin dispatch: users
+        gen.add_schema::<AdminUserSummary>("AdminUserSummary");
+        registered.insert("AdminUserSummary".to_string());
+        gen.add_schema::<AdminUsersListRequest>("AdminUsersListRequest");
+        registered.insert("AdminUsersListRequest".to_string());
+        gen.add_schema::<AdminUsersGetRequest>("AdminUsersGetRequest");
+        registered.insert("AdminUsersGetRequest".to_string());
+        gen.add_schema::<AdminUsersUpdateRoleRequest>("AdminUsersUpdateRoleRequest");
+        registered.insert("AdminUsersUpdateRoleRequest".to_string());
+        gen.add_schema::<AdminUsersDeleteRequest>("AdminUsersDeleteRequest");
+        registered.insert("AdminUsersDeleteRequest".to_string());
+        gen.add_schema::<AdminUsersGenerateAccountLinkRequest>(
+            "AdminUsersGenerateAccountLinkRequest",
+        );
+        registered.insert("AdminUsersGenerateAccountLinkRequest".to_string());
+        gen.add_schema::<AdminAccountLinkResponse>("AdminAccountLinkResponse");
+        registered.insert("AdminAccountLinkResponse".to_string());
+
+        // admin dispatch: invites
+        gen.add_schema::<AdminInviteInfo>("AdminInviteInfo");
+        registered.insert("AdminInviteInfo".to_string());
+        gen.add_schema::<AdminInvitesListRequest>("AdminInvitesListRequest");
+        registered.insert("AdminInvitesListRequest".to_string());
+        gen.add_schema::<AdminInvitesGenerateRequest>("AdminInvitesGenerateRequest");
+        registered.insert("AdminInvitesGenerateRequest".to_string());
+        gen.add_schema::<AdminGeneratedInvite>("AdminGeneratedInvite");
+        registered.insert("AdminGeneratedInvite".to_string());
+        gen.add_schema::<AdminInvitesGenerateResponse>("AdminInvitesGenerateResponse");
+        registered.insert("AdminInvitesGenerateResponse".to_string());
+        gen.add_schema::<AdminInvitesRevokeRequest>("AdminInvitesRevokeRequest");
+        registered.insert("AdminInvitesRevokeRequest".to_string());
+        gen.add_schema::<AdminInvitesRevokeAllResponse>("AdminInvitesRevokeAllResponse");
+        registered.insert("AdminInvitesRevokeAllResponse".to_string());
+        gen.add_schema::<AdminInvitesUpdateRoleRequest>("AdminInvitesUpdateRoleRequest");
+        registered.insert("AdminInvitesUpdateRoleRequest".to_string());
+
+        // admin dispatch: peers
+        gen.add_schema::<AdminPeerSummary>("AdminPeerSummary");
+        registered.insert("AdminPeerSummary".to_string());
+        gen.add_schema::<AdminPeerNodeSummary>("AdminPeerNodeSummary");
+        registered.insert("AdminPeerNodeSummary".to_string());
+        gen.add_schema::<AdminPeersListForUserRequest>("AdminPeersListForUserRequest");
+        registered.insert("AdminPeersListForUserRequest".to_string());
+        gen.add_schema::<AdminPeersRemoveRequest>("AdminPeersRemoveRequest");
+        registered.insert("AdminPeersRemoveRequest".to_string());
+        gen.add_schema::<AdminPeersAllowRequest>("AdminPeersAllowRequest");
+        registered.insert("AdminPeersAllowRequest".to_string());
+        gen.add_schema::<AdminPeersAllowResponse>("AdminPeersAllowResponse");
+        registered.insert("AdminPeersAllowResponse".to_string());
+
         // listen session request types
         gen.add_schema::<GetListenSessionRequest>("GetListenSessionRequest");
         registered.insert("GetListenSessionRequest".to_string());
@@ -759,18 +844,29 @@ pub mod type_registry {
         gen.add_schema::<GetBlobMetadataByBlake3Request>("GetBlobMetadataByBlake3Request");
         registered.insert("GetBlobMetadataByBlake3Request".to_string());
 
+        gen.add_schema::<HasBlobsRequest>("HasBlobsRequest");
+        registered.insert("HasBlobsRequest".to_string());
+        gen.add_schema::<HasBlobsResponse>("HasBlobsResponse");
+        registered.insert("HasBlobsResponse".to_string());
+
         // upload request types
         gen.add_schema::<UploadMusicByBlake3Request>("UploadMusicByBlake3Request");
         registered.insert("UploadMusicByBlake3Request".to_string());
 
         // sync types
-        gen.add_schema::<SyncSongRequest>("SyncSongRequest");
-        registered.insert("SyncSongRequest".to_string());
-        gen.add_schema::<SyncSongResponse>("SyncSongResponse");
-        registered.insert("SyncSongResponse".to_string());
+        gen.add_schema::<SyncSongByBlake3Request>("SyncSongByBlake3Request");
+        registered.insert("SyncSongByBlake3Request".to_string());
+        gen.add_schema::<SyncSongByBlake3Response>("SyncSongByBlake3Response");
+        registered.insert("SyncSongByBlake3Response".to_string());
         gen.add_schema::<SyncPlaylistRequest>("SyncPlaylistRequest");
         registered.insert("SyncPlaylistRequest".to_string());
         gen.add_schema::<SyncPlaylistResponse>("SyncPlaylistResponse");
         registered.insert("SyncPlaylistResponse".to_string());
+        gen.add_schema::<SyncImageRef>("SyncImageRef");
+        registered.insert("SyncImageRef".to_string());
+        gen.add_schema::<SyncAlbumRequest>("SyncAlbumRequest");
+        registered.insert("SyncAlbumRequest".to_string());
+        gen.add_schema::<SyncAlbumResponse>("SyncAlbumResponse");
+        registered.insert("SyncAlbumResponse".to_string());
     }
 }

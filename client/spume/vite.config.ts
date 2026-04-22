@@ -110,8 +110,6 @@ export default defineConfig({
     __IS_CHARNEL__: JSON.stringify(isCharnelBuild),
   },
   build: {
-    // android tauri targets older chromium WebView; transpile newer JS down so
-    // bundled code runs there. web/desktop ship to modern browsers (default es target).
     target: "esnext",
     // generate sourcemaps for debugging prod errors
     sourcemap: true,

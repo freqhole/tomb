@@ -1,5 +1,6 @@
-import { createSignal, onMount, Show, For, createEffect, on } from "solid-js";
+import { createSignal, Show, For, createEffect, on } from "solid-js";
 import { invoke } from "@tauri-apps/api/core";
+import { useAdminTransport } from "../admin/context";
 import {
   UserAutocomplete,
   type UserSelection,
@@ -82,6 +83,7 @@ interface KnockInfo {
 }
 
 export default function FederationView() {
+  const admin = useAdminTransport();
   const [status, setStatus] = createSignal<FederationStatus | null>(null);
   const [loading, setLoading] = createSignal(true);
   const [error, setError] = createSignal("");
@@ -142,10 +144,14 @@ export default function FederationView() {
     null,
   );
 
-  onMount(async () => {
-    await loadStatus();
-    await loadPeers();
-    await loadKnocks();
+  // reload whenever the active admin target changes (incl. initial mount)
+  createEffect(() => {
+    admin.current();
+    void (async () => {
+      await loadStatus();
+      await loadPeers();
+      await loadKnocks();
+    })();
   });
 
   // auto-refresh knocks periodically when federation is enabled
@@ -163,6 +169,14 @@ export default function FederationView() {
   );
 
   async function loadStatus() {
+    // federation setup (haruspex creds, identity keypair, sync) is a
+    // charnel-app-local concern; the remote already has its own identity.
+    // skip the panel entirely when managing a remote target.
+    if (admin.isRemote()) {
+      setLoading(false);
+      setStatus(null);
+      return;
+    }
     setLoading(true);
     setError("");
     try {
@@ -272,12 +286,15 @@ export default function FederationView() {
 
     try {
       const selection = peerUserSelection();
-      const result = await invoke<AllowPeerResult>("allow_peer", {
-        nodeId: peerNodeId(),
-        username: selection?.username || peerUsername() || undefined,
-        role: selection?.isExisting ? selection.role : peerRole(),
-        userId: selection?.isExisting ? selection.id : undefined,
-      });
+      const result = await admin.dispatchOrThrow<AllowPeerResult>(
+        "peers_allow",
+        {
+          node_id: peerNodeId(),
+          username: selection?.username || peerUsername() || undefined,
+          role: selection?.isExisting ? selection.role : peerRole(),
+          user_id: selection?.isExisting ? selection.id : undefined,
+        },
+      );
       setSuccess(
         result.created_user
           ? `peer allowed: created user "${result.username}"`
@@ -298,7 +315,10 @@ export default function FederationView() {
   async function loadPeers() {
     setPeersLoading(true);
     try {
-      const peers = await invoke<PeerNodeInfo[]>("list_peer_nodes");
+      const peers = await admin.dispatchOrThrow<PeerNodeInfo[]>(
+        "peers_list_all",
+        {},
+      );
       setPeerNodes(peers);
     } catch (e) {
       console.error("failed to load peers:", e);
@@ -312,7 +332,10 @@ export default function FederationView() {
     setError("");
 
     try {
-      await invoke("remove_peer_node", { userId, nodeId });
+      await admin.dispatchOrThrow("peers_remove", {
+        user_id: userId,
+        node_id: nodeId,
+      });
       await loadPeers();
       setSuccess("peer removed");
     } catch (e) {
@@ -326,9 +349,10 @@ export default function FederationView() {
   async function loadKnocks() {
     setKnocksLoading(true);
     try {
-      const result = await invoke<KnockInfo[]>("list_knocks", {
-        includeAll: false,
-      });
+      const result = await admin.dispatchOrThrow<KnockInfo[]>(
+        "knocks_list",
+        {},
+      );
       setKnocks(result);
     } catch (e) {
       console.error("failed to load knocks:", e);
@@ -352,11 +376,11 @@ export default function FederationView() {
       const role = selection?.isExisting ? selection.role : acceptKnockRole();
       const userId = selection?.isExisting ? selection.id : undefined;
 
-      await invoke("accept_knock", {
-        knockId: knock.id,
+      await admin.dispatchOrThrow("knocks_accept", {
+        knock_id: knock.id,
         username,
         role,
-        userId,
+        user_id: userId,
       });
       setSuccess(
         `accepted knock from "${username || knock.username}" as ${role}`,
@@ -381,7 +405,7 @@ export default function FederationView() {
     setError("");
 
     try {
-      await invoke("reject_knock", { knockId });
+      await admin.dispatchOrThrow("knocks_reject", { knock_id: knockId });
       setSuccess("knock request rejected");
       await loadKnocks();
     } catch (e) {
@@ -396,7 +420,7 @@ export default function FederationView() {
     setError("");
 
     try {
-      await invoke("delete_knock", { knockId });
+      await admin.dispatchOrThrow("knocks_delete", { knock_id: knockId });
       await loadKnocks();
     } catch (e) {
       setError(String(e));
@@ -411,8 +435,11 @@ export default function FederationView() {
     setConfirmRejectAll(false);
 
     try {
-      const rejected = await invoke<number>("reject_all_knocks");
-      setSuccess(`rejected ${rejected} pending knock request(s)`);
+      const result = await admin.dispatchOrThrow<{ rejected: number }>(
+        "knocks_reject_all",
+        {},
+      );
+      setSuccess(`rejected ${result.rejected} pending knock request(s)`);
       await loadKnocks();
     } catch (e) {
       setError(String(e));
@@ -485,91 +512,98 @@ export default function FederationView() {
         <div class="loading">loading federation status...</div>
       </Show>
 
-      <Show when={!loading() && status()}>
-        {/* configuration & identity status */}
-        <section class="status-section">
-          <h2>configuration</h2>
-          <Show
-            when={isConfigured()}
-            fallback={
-              <div class="status-content">
-                <div class="status-message warning">federation is disabled</div>
+      <Show when={!loading() && (status() || admin.isRemote())}>
+        {/* configuration & identity status (local-only - the remote handles
+            its own federation enablement; we only show peer/knock mgmt) */}
+        <Show when={!admin.isRemote()}>
+          <section class="status-section">
+            <h2>configuration</h2>
+            <Show
+              when={isConfigured()}
+              fallback={
+                <div class="status-content">
+                  <div class="status-message warning">
+                    federation is disabled
+                  </div>
+                  <button
+                    class="small"
+                    onClick={handleToggle}
+                    disabled={toggling()}
+                  >
+                    {toggling() ? "enabling..." : "enable federation"}
+                  </button>
+                </div>
+              }
+            >
+              <div class="status-grid">
+                <Show when={status()?.config?.haruspex_url}>
+                  <div class="status-item">
+                    <span class="label">haruspex url</span>
+                    <span class="value mono">
+                      {status()?.config?.haruspex_url}
+                    </span>
+                  </div>
+                </Show>
+                <div class="status-item">
+                  <span class="label">auto create users</span>
+                  <span class="value">
+                    {status()?.config?.auto_create_users ? "yes" : "no"}
+                  </span>
+                </div>
+                <div class="status-item">
+                  <span class="label">default role</span>
+                  <span class="value">{status()?.config?.default_role}</span>
+                </div>
+                <div class="status-item full-width">
+                  <span class="label">keypair</span>
+                  <span class="value mono small">
+                    {hasKeypair()
+                      ? status()?.identity.keypair_path
+                      : "not generated"}
+                  </span>
+                </div>
+                <Show when={hasKeypair()}>
+                  <div class="status-item full-width">
+                    <span class="label">node id</span>
+                    <span class="value mono small">
+                      {status()?.identity.node_id}
+                    </span>
+                    <div class="node-id-actions">
+                      <button
+                        class="secondary small"
+                        onClick={async () => {
+                          const nodeId = status()?.identity.node_id;
+                          if (nodeId) {
+                            await navigator.clipboard.writeText(nodeId);
+                            setNodeIdCopied(true);
+                            setTimeout(() => setNodeIdCopied(false), 5000);
+                          }
+                        }}
+                      >
+                        {nodeIdCopied() ? "copied!" : "copy"}
+                      </button>
+                    </div>
+                    <QrCodeDisplay nodeId={status()?.identity.node_id || ""} />
+                  </div>
+                </Show>
+              </div>
+              <div class="section-actions">
                 <button
-                  class="small"
+                  class="secondary small"
                   onClick={handleToggle}
                   disabled={toggling()}
                 >
-                  {toggling() ? "enabling..." : "enable federation"}
+                  {toggling() ? "disabling..." : "disable federation"}
                 </button>
               </div>
-            }
-          >
-            <div class="status-grid">
-              <Show when={status()?.config?.haruspex_url}>
-                <div class="status-item">
-                  <span class="label">haruspex url</span>
-                  <span class="value mono">
-                    {status()?.config?.haruspex_url}
-                  </span>
-                </div>
-              </Show>
-              <div class="status-item">
-                <span class="label">auto create users</span>
-                <span class="value">
-                  {status()?.config?.auto_create_users ? "yes" : "no"}
-                </span>
-              </div>
-              <div class="status-item">
-                <span class="label">default role</span>
-                <span class="value">{status()?.config?.default_role}</span>
-              </div>
-              <div class="status-item full-width">
-                <span class="label">keypair</span>
-                <span class="value mono small">
-                  {hasKeypair()
-                    ? status()?.identity.keypair_path
-                    : "not generated"}
-                </span>
-              </div>
-              <Show when={hasKeypair()}>
-                <div class="status-item full-width">
-                  <span class="label">node id</span>
-                  <span class="value mono small">
-                    {status()?.identity.node_id}
-                  </span>
-                  <div class="node-id-actions">
-                    <button
-                      class="secondary small"
-                      onClick={async () => {
-                        const nodeId = status()?.identity.node_id;
-                        if (nodeId) {
-                          await navigator.clipboard.writeText(nodeId);
-                          setNodeIdCopied(true);
-                          setTimeout(() => setNodeIdCopied(false), 5000);
-                        }
-                      }}
-                    >
-                      {nodeIdCopied() ? "copied!" : "copy"}
-                    </button>
-                  </div>
-                  <QrCodeDisplay nodeId={status()?.identity.node_id || ""} />
-                </div>
-              </Show>
-            </div>
-            <div class="section-actions">
-              <button
-                class="secondary small"
-                onClick={handleToggle}
-                disabled={toggling()}
-              >
-                {toggling() ? "disabling..." : "disable federation"}
-              </button>
-            </div>
-          </Show>
-        </section>
+            </Show>
+          </section>
+        </Show>
 
-        {/* access requests and allowed peers - only show when federation is enabled */}
-        <Show when={isConfigured()}>
+        {/* access requests and allowed peers - show when federation is
+            enabled locally OR when managing a remote (the remote handles
+            its own federation enablement). */}
+        <Show when={isConfigured() || admin.isRemote()}>
           {/* access requests (knocks) - show pending knock requests */}
           <section class="status-section">
             <h2>access requests</h2>

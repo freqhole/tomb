@@ -1,5 +1,5 @@
 // album editor modal - edit album metadata
-import { createEffect, createMemo, createSignal, For, onMount, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
 import { useQueryClient } from "@tanstack/solid-query";
 import type { ImageMetadata, Song } from "../../music/services/storage/types";
 import { getDataSource, getCurrentRemote } from "../../music/data";
@@ -21,7 +21,6 @@ import { Tabs, TabList, Tab, TabPanel } from "../navigation/Tabs";
 import { EntityImages } from "../layout/EntityImages";
 import { MusicBrainzPanel } from "../musicbrainz/MusicBrainzPanel";
 import { Modal } from "./Modal";
-import { pushModal, popModal } from "../../music/hooks/modals";
 import { EntityUrlz, type EntityUrlFormItem } from "../forms/EntityUrlz";
 import { formatDuration } from "../../utils/formatDuration";
 import { formatDateTime } from "../../utils/dateTime";
@@ -222,13 +221,6 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
       setLoadedAlbumId(props.albumId);
       setMergeTargetAlbumId(undefined);
     }
-  });
-
-  // register modal in stack for esc key handling
-  onMount(() => {
-    const modalId = `album-${props.albumId}`;
-    pushModal(modalId, props.onClose);
-    return () => popModal(modalId);
   });
 
   // helper to check if entity URLs have changed

@@ -10,9 +10,14 @@
 // uses inline `position: fixed` + explicit insets because some older android
 // webviews miscompute `fixed inset-0` when tailwind's `var(--spacing)` calc
 // is in play (same workaround applied in AddMusicModal / AddRemoteModal).
-import { Show, type JSX } from "solid-js";
+import { Show, createEffect, onCleanup, type JSX } from "solid-js";
 import { Portal } from "solid-js/web";
 import { Icon } from "../icons/registry";
+import { pushModal, popModal } from "../../music/hooks/modals";
+
+// per-instance modal id — used by the shared modal stack in
+// `music/hooks/modals.ts` so escape closes the topmost open modal.
+let nextModalId = 0;
 
 export type ModalSize = "sm" | "md" | "lg" | "xl";
 
@@ -52,6 +57,17 @@ export function Modal(props: ModalProps) {
     // only close when the backdrop itself is clicked, not bubbled events
     if (e.target === e.currentTarget) props.onClose();
   };
+
+  // register/unregister this modal on the shared modal stack while open.
+  // the stack lives in `music/hooks/modals.ts` and owns the global escape
+  // listener — keeping a single source of truth avoids double-fires when a
+  // wrapping component also calls pushModal directly.
+  createEffect(() => {
+    if (!props.isOpen) return;
+    const id = `modal-shell-${++nextModalId}`;
+    pushModal(id, () => props.onClose());
+    onCleanup(() => popModal(id));
+  });
 
   return (
     <Show when={props.isOpen}>

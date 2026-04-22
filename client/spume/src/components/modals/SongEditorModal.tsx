@@ -1,10 +1,10 @@
 // song editor modal - edit single song metadata
-import { createEffect, createMemo, createSignal, onMount, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, Show } from "solid-js";
 import type { ImageMetadata } from "../../music/services/storage/types";
 import { getDataSource, getCurrentRemote } from "../../music/data";
 import { getRemoteMediaUrl } from "../../utils/urls";
 import { canUpdateSong, canDeleteSong } from "../../music/data/permissions";
-import { showAlbumEditor, showArtistEditor, pushModal, popModal } from "../../music/hooks/modals";
+import { showAlbumEditor, showArtistEditor } from "../../music/hooks/modals";
 import { useSongQuery, useUpdateSongsMutation } from "../../music/queries/songs";
 import { queryClient } from "../../queryClient";
 import { queryKeys } from "../../music/queries/queryKeys";
@@ -127,12 +127,6 @@ export function SongEditorModal(props: SongEditorModalProps) {
   // they are initialized inside the guarded loadedSongId effect above
   // to prevent refetchOnWindowFocus from wiping unsaved state.
   // images are refreshed explicitly after upload/delete operations.
-  // register modal in stack for esc key handling
-  onMount(() => {
-    const modalId = `song-${props.songId}`;
-    pushModal(modalId, props.onClose);
-    return () => popModal(modalId);
-  });
 
   // helper to check if entity URLs have changed
   const urlsChanged = () => {

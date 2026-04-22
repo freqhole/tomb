@@ -175,3 +175,38 @@ export function closeAddMusic() {
 export function useAddMusicState() {
   return addMusicOpen;
 }
+
+// share modal — global mount, opened from toolbars and context menus.
+// kept generic via a `source` accessor so callers can pass either a
+// reactive `createCurrentRemoteFull()` or a one-shot snapshot getter.
+import type { ShareTarget } from "../../components/share/types";
+import type { Remote } from "../../app/services/storage/schemas/remote";
+import type { SendPayload } from "../services/send/sendToRemote";
+
+export interface ShareModalOptions {
+  target: ShareTarget;
+  /** lazily resolved source remote — null until loaded. */
+  source: () => Remote | null | undefined;
+  /**
+   * lazily build the send-to-remote payload. may be async so context-menu
+   * shares can defer the song-list fetch until the modal opens.
+   */
+  buildSendPayload?: () => SendPayload | Promise<SendPayload>;
+  /** override default web mirror host. */
+  webHost?: string;
+}
+
+const [shareModalState, setShareModalState] =
+  createSignal<ShareModalOptions | null>(null);
+
+export function showShareModal(options: ShareModalOptions) {
+  setShareModalState(options);
+}
+
+export function hideShareModal() {
+  setShareModalState(null);
+}
+
+export function useShareModalState() {
+  return shareModalState;
+}

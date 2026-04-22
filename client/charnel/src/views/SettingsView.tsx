@@ -1,8 +1,9 @@
-import { createSignal, onMount, Show } from "solid-js";
+import { createSignal, createEffect, on, onMount, Show } from "solid-js";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { resolvePath } from "../util/resolvePath";
 import ConfigView from "./ConfigView";
+import { useAdminTransport } from "../admin/context";
 
 interface ServerConfig {
   name: string;
@@ -18,7 +19,22 @@ interface UpdateServerImageResult {
   image_blob_id: string;
 }
 
+/** encode an ArrayBuffer to base64 in chunks (avoids call-stack blowups
+ * on large buffers when using `String.fromCharCode(...arr)`). */
+function arrayBufferToBase64(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer);
+  const chunkSize = 0x8000;
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    const chunk = bytes.subarray(i, i + chunkSize);
+    binary += String.fromCharCode(...chunk);
+  }
+  return btoa(binary);
+}
+
 export default function SettingsView() {
+  const admin = useAdminTransport();
+  let remoteFileInput: HTMLInputElement | undefined;
   const [activeTab, setActiveTab] = createSignal<"settings" | "config">(
     "settings",
   );
@@ -40,12 +56,36 @@ export default function SettingsView() {
   // sync settings
   const [syncQueueToLocal, setSyncQueueToLocal] = createSignal(true);
 
+  // remote server lifecycle
+  const [restartConfirm, setRestartConfirm] = createSignal(false);
+  const [restartLoading, setRestartLoading] = createSignal(false);
+  const [restartMessage, setRestartMessage] = createSignal("");
+  const [restartIsError, setRestartIsError] = createSignal(false);
+
   onMount(async () => {
     await loadServerConfig();
     await loadSyncSettings();
   });
 
+  // retarget when the active admin scope changes (local <-> remote).
+  createEffect(
+    on(
+      () => admin.current(),
+      () => {
+        // clear stale state so the user sees something change immediately
+        setServerConfig(null);
+        setImageThumbnail(null);
+        setImageMessage("");
+        setInfoMessage("");
+        loadServerConfig();
+      },
+      { defer: true },
+    ),
+  );
+
   async function loadSyncSettings() {
+    // sync settings are charnel-app-local, not server-scoped
+    if (admin.isRemote()) return;
     try {
       const enabled = await invoke<boolean>("get_sync_queue_to_local");
       setSyncQueueToLocal(enabled);
@@ -68,7 +108,10 @@ export default function SettingsView() {
 
   async function loadServerConfig() {
     try {
-      const config = await invoke<ServerConfig>("get_server_config");
+      const config = await admin.dispatchOrThrow<ServerConfig>(
+        "server_get_config",
+        {},
+      );
       setServerConfig(config);
       setEditName(config.name);
       setEditDescription(config.description || "");
@@ -76,11 +119,17 @@ export default function SettingsView() {
       // load thumbnail if we have an image (blob_id or image_path)
       if (config.image_blob_id || config.image_path) {
         try {
-          const thumbnail = await invoke<string>("get_server_image_thumbnail");
-          setImageThumbnail(thumbnail);
+          const result = await admin.dispatchOrThrow<{ data: string }>(
+            "server_get_image_thumbnail",
+            { size: 128 },
+          );
+          setImageThumbnail(result.data);
         } catch (e) {
           console.error("failed to load thumbnail:", e);
+          setImageThumbnail(null);
         }
+      } else {
+        setImageThumbnail(null);
       }
     } catch (e) {
       console.error("failed to load server config:", e);
@@ -101,10 +150,15 @@ export default function SettingsView() {
     setInfoIsError(false);
 
     try {
-      await invoke("update_server_info", {
+      const args = {
         name: nameChanged ? editName() : null,
         description: descChanged ? editDescription() : null,
-      });
+      };
+      if (admin.isRemote()) {
+        await admin.dispatchOrThrow("server_update_info", args);
+      } else {
+        await invoke("update_server_info", args);
+      }
       setInfoMessage("server info updated");
       setInfoIsError(false);
       await loadServerConfig();
@@ -117,6 +171,12 @@ export default function SettingsView() {
   }
 
   async function handleSelectImage() {
+    if (admin.isRemote()) {
+      // remote target: use a browser file picker, base64 the bytes, ship
+      // them over admin_dispatch. avoids needing a server-local path.
+      remoteFileInput?.click();
+      return;
+    }
     try {
       const selected = await open({
         multiple: false,
@@ -160,6 +220,56 @@ export default function SettingsView() {
       }
     } catch (e) {
       console.error("failed to open file dialog:", e);
+    }
+  }
+
+  async function handleRemoteImageSelected(e: Event) {
+    const input = e.currentTarget as HTMLInputElement;
+    const file = input.files?.[0];
+    // reset value so picking the same file again still triggers change
+    input.value = "";
+    if (!file) return;
+    setIsUpdating(true);
+    setImageMessage("");
+    setImageIsError(false);
+    try {
+      const buffer = await file.arrayBuffer();
+      const data = arrayBufferToBase64(buffer);
+      const result = await admin.dispatchOrThrow<{
+        image_path: string;
+        image_blob_id: string;
+      }>("server_update_image", { data, filename: file.name });
+      setImageMessage(
+        `remote server image updated (blob ${result.image_blob_id})`,
+      );
+      setImageIsError(false);
+      await loadServerConfig();
+    } catch (err) {
+      setImageMessage(`failed to update image: ${err}`);
+      setImageIsError(true);
+    } finally {
+      setIsUpdating(false);
+    }
+  }
+
+  async function handleServerRestart() {
+    setRestartLoading(true);
+    setRestartMessage("");
+    setRestartIsError(false);
+    try {
+      await admin.dispatchOrThrow("server_restart", {
+        reason: "wizard requested",
+      });
+      setRestartMessage(
+        "graceful shutdown initiated; supervisor must respawn the process",
+      );
+      setRestartIsError(false);
+    } catch (e) {
+      setRestartMessage(`restart failed: ${e}`);
+      setRestartIsError(true);
+    } finally {
+      setRestartLoading(false);
+      setRestartConfirm(false);
     }
   }
 
@@ -342,6 +452,13 @@ export default function SettingsView() {
                 >
                   {isUpdating() ? "updating..." : "choose image"}
                 </button>
+                <input
+                  ref={remoteFileInput}
+                  type="file"
+                  accept="image/png,image/jpeg,image/gif,image/webp"
+                  style={{ display: "none" }}
+                  onChange={handleRemoteImageSelected}
+                />
 
                 <Show when={serverConfig()?.image_path}>
                   <span
@@ -366,65 +483,140 @@ export default function SettingsView() {
             </Show>
           </div>
 
-          <div class="settings-section" style={{ "margin-top": "2rem" }}>
-            <h2>
-              sync setting<span class="pinky">s</span>
-            </h2>
+          <Show when={!admin.isRemote()}>
+            <div class="settings-section" style={{ "margin-top": "2rem" }}>
+              <h2>
+                sync setting<span class="pinky">s</span>
+              </h2>
 
-            <div
-              style={{
-                display: "flex",
-                "align-items": "center",
-                gap: "1rem",
-                "margin-top": "1rem",
-              }}
-            >
-              <button
-                class={`toggle-button ${syncQueueToLocal() ? "active" : ""}`}
-                onClick={toggleSyncQueueToLocal}
+              <div
                 style={{
-                  flex: "none",
-                  width: "44px",
-                  height: "24px",
-                  "border-radius": "12px",
-                  border: "none",
-                  padding: "0",
-                  background: syncQueueToLocal()
-                    ? "var(--color-accent-500, #ff69b4)"
-                    : "var(--color-bg-tertiary, #333)",
-                  cursor: "pointer",
-                  position: "relative",
-                  transition: "background 0.2s",
-                  "flex-shrink": "0",
+                  display: "flex",
+                  "align-items": "center",
+                  gap: "1rem",
+                  "margin-top": "1rem",
                 }}
               >
-                <div
+                <button
+                  class={`toggle-button ${syncQueueToLocal() ? "active" : ""}`}
+                  onClick={toggleSyncQueueToLocal}
                   style={{
-                    position: "absolute",
-                    top: "4px",
-                    left: syncQueueToLocal() ? "24px" : "4px",
-                    width: "16px",
-                    height: "16px",
-                    "border-radius": "50%",
-                    background: "white",
-                    transition: "left 0.2s",
-                  }}
-                />
-              </button>
-              <div>
-                <div style={{ "font-weight": "500" }}>sync queue to local</div>
-                <div
-                  style={{
-                    "font-size": "0.875rem",
-                    color: "var(--color-text-secondary, #888)",
-                    "margin-top": "0.25rem",
+                    flex: "none",
+                    width: "44px",
+                    height: "24px",
+                    "border-radius": "12px",
+                    border: "none",
+                    padding: "0",
+                    background: syncQueueToLocal()
+                      ? "var(--color-accent-500, #ff69b4)"
+                      : "var(--color-bg-tertiary, #333)",
+                    cursor: "pointer",
+                    position: "relative",
+                    transition: "background 0.2s",
+                    "flex-shrink": "0",
                   }}
                 >
-                  automatically download remote songs in queue to local library
+                  <div
+                    style={{
+                      position: "absolute",
+                      top: "4px",
+                      left: syncQueueToLocal() ? "24px" : "4px",
+                      width: "16px",
+                      height: "16px",
+                      "border-radius": "50%",
+                      background: "white",
+                      transition: "left 0.2s",
+                    }}
+                  />
+                </button>
+                <div>
+                  <div style={{ "font-weight": "500" }}>
+                    sync queue to local
+                  </div>
+                  <div
+                    style={{
+                      "font-size": "0.875rem",
+                      color: "var(--color-text-secondary, #888)",
+                      "margin-top": "0.25rem",
+                    }}
+                  >
+                    automatically download remote songs in queue to local
+                    library
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
+          </Show>
+
+          <Show when={admin.isRemote()}>
+            <div class="settings-section" style={{ "margin-top": "2rem" }}>
+              <h2>
+                server lifecycl<span class="pinky">e</span>
+              </h2>
+              <p
+                class="hint"
+                style={{
+                  "font-size": "0.875rem",
+                  color: "var(--color-text-secondary, #888)",
+                }}
+              >
+                request the remote server to gracefully shut down. it must be
+                respawned by an external supervisor (systemd, launchd, etc).
+              </p>
+              <div
+                style={{
+                  display: "flex",
+                  gap: "0.5rem",
+                  "align-items": "center",
+                  "margin-top": "0.75rem",
+                }}
+              >
+                <Show when={!restartConfirm()}>
+                  <button
+                    class="button"
+                    onClick={() => setRestartConfirm(true)}
+                    disabled={restartLoading()}
+                  >
+                    restart server
+                  </button>
+                </Show>
+                <Show when={restartConfirm()}>
+                  <span style={{ "font-size": "0.875rem" }}>
+                    really restart?
+                  </span>
+                  <button
+                    class="button danger"
+                    onClick={handleServerRestart}
+                    disabled={restartLoading()}
+                  >
+                    {restartLoading() ? "restarting..." : "yes, restart"}
+                  </button>
+                  <button
+                    class="button secondary"
+                    onClick={() => setRestartConfirm(false)}
+                    disabled={restartLoading()}
+                  >
+                    cancel
+                  </button>
+                </Show>
+              </div>
+              <Show when={restartMessage()}>
+                <div
+                  class={`wizard-notification ${restartIsError() ? "error" : "success"}`}
+                  style={{ "margin-top": "0.75rem" }}
+                >
+                  <span class="message-text">{restartMessage()}</span>
+                  <button
+                    class="dismiss-btn"
+                    onClick={() => setRestartMessage("")}
+                    title="dismiss"
+                  >
+                    ×
+                  </button>
+                </div>
+              </Show>
+            </div>
+          </Show>
         </div>
       </Show>
 

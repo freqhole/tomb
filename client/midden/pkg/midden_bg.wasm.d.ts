@@ -34,6 +34,7 @@ export const middennode_import_blob: (a: number, b: number, c: number) => any;
 export const middennode_import_blob_and_export_bao: (a: number, b: number, c: number) => any;
 export const middennode_node_id: (a: number) => [number, number];
 export const middennode_open_bi: (a: number, b: number, c: number, d: number, e: number) => any;
+export const middennode_proxy_admin: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => any;
 export const middennode_proxy_request: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => any;
 export const middennode_release_blob: (a: number, b: number, c: number) => [number, number];
 export const middennode_secret_key: (a: number) => any;
