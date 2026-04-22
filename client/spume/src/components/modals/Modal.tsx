@@ -10,9 +10,25 @@
 // uses inline `position: fixed` + explicit insets because some older android
 // webviews miscompute `fixed inset-0` when tailwind's `var(--spacing)` calc
 // is in play (same workaround applied in AddMusicModal / AddRemoteModal).
-import { Show, type JSX } from "solid-js";
+import { Show, createEffect, onCleanup, type JSX } from "solid-js";
 import { Portal } from "solid-js/web";
 import { Icon } from "../icons/registry";
+
+// stack of currently-open modal close handlers. on escape, only the topmost
+// (most recently opened) modal closes — matches typical desktop ux and lets
+// nested modals (e.g. share modal opened from tag selector) work intuitively.
+const escapeStack: Array<() => void> = [];
+
+if (typeof window !== "undefined") {
+  window.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape") return;
+    const top = escapeStack[escapeStack.length - 1];
+    if (!top) return;
+    e.preventDefault();
+    e.stopPropagation();
+    top();
+  });
+}
 
 export type ModalSize = "sm" | "md" | "lg" | "xl";
 
@@ -52,6 +68,18 @@ export function Modal(props: ModalProps) {
     // only close when the backdrop itself is clicked, not bubbled events
     if (e.target === e.currentTarget) props.onClose();
   };
+
+  // register/unregister this modal's close handler on the escape stack
+  // while open. allows escape to close the topmost open modal.
+  createEffect(() => {
+    if (!props.isOpen) return;
+    const handler = () => props.onClose();
+    escapeStack.push(handler);
+    onCleanup(() => {
+      const idx = escapeStack.lastIndexOf(handler);
+      if (idx !== -1) escapeStack.splice(idx, 1);
+    });
+  });
 
   return (
     <Show when={props.isOpen}>
