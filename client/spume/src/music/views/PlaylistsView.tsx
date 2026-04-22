@@ -33,7 +33,7 @@ import { useToggleFavoriteMutation } from "../queries/favorites";
 import { usePlaylistContextMenu, useSongContextMenu } from "../hooks/contextMenu";
 import { getBlobObjectURL } from "../services/storage/blobs";
 import { resolveBlobUrl } from "../services/storage/blobResolver";
-import { SendToRemoteFlyout } from "../../components/share/SendToRemoteFlyout";
+import { ShareButton } from "../../components/buttons/ShareButton";
 import { createCurrentRemoteFull } from "../../app/services/remotes/currentRemoteFull";
 import type { SendPayload } from "../services/send/sendToRemote";
 import type { RemoteSong } from "../data/remote/adapters";
@@ -1054,9 +1054,14 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
                                   targetId={selectedPlaylist()?.playlist_id || ""}
                                   isFavorite={selectedPlaylist()?.is_favorite ?? false}
                                 />
-                                <SendToRemoteFlyout
+                                <ShareButton
+                                  target={{
+                                    kind: "playlist",
+                                    id: selectedPlaylist()?.playlist_id || "",
+                                    displayTitle: selectedPlaylist()?.title || "",
+                                  }}
                                   source={() => currentRemoteFull()}
-                                  buildPayload={buildPlaylistSendPayload}
+                                  buildSendPayload={buildPlaylistSendPayload}
                                 />
                               </div>
                             </Show>
@@ -1100,9 +1105,14 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
                               targetId={selectedPlaylist()?.playlist_id || ""}
                               isFavorite={selectedPlaylist()?.is_favorite ?? false}
                             />
-                            <SendToRemoteFlyout
+                            <ShareButton
+                              target={{
+                                kind: "playlist",
+                                id: selectedPlaylist()?.playlist_id || "",
+                                displayTitle: selectedPlaylist()?.title || "",
+                              }}
                               source={() => currentRemoteFull()}
-                              buildPayload={buildPlaylistSendPayload}
+                              buildSendPayload={buildPlaylistSendPayload}
                             />
                           </div>
                         </Show>

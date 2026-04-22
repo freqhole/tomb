@@ -28,7 +28,7 @@ import { sortSongsCanonical } from "../utils/songSort";
 import { EntityLinks } from "../../components/media/EntityLinks";
 import MarqueeText from "../../components/text/MarqueeText";
 import { resolveBlobUrl, usesBlobResolver } from "../services/storage/blobResolver";
-import { SendToRemoteFlyout } from "../../components/share/SendToRemoteFlyout";
+import { ShareButton } from "../../components/buttons/ShareButton";
 import { createCurrentRemoteFull } from "../../app/services/remotes/currentRemoteFull";
 import type { SendPayload } from "../services/send/sendToRemote";
 import type { RemoteSong } from "../data/remote/adapters";
@@ -402,9 +402,14 @@ export function AlbumDetailView() {
                       isFavorite={albumQuery.data?.is_favorite ?? false}
                       onToggle={handleAlbumFavoriteToggle}
                     />
-                    <SendToRemoteFlyout
+                    <ShareButton
+                      target={{
+                        kind: "album",
+                        id: albumInfo()?.album_id ?? params.id,
+                        displayTitle: albumInfo()?.title ?? "",
+                      }}
                       source={() => currentRemoteFull()}
-                      buildPayload={buildSendPayload}
+                      buildSendPayload={buildSendPayload}
                     />
                     <Rating
                       rating={albumQuery.data?.user_rating ?? 0}

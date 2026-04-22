@@ -11,6 +11,7 @@ import { AddRemoteModal } from "../components/modals/AddRemoteModal";
 import { AlbumEditorModal } from "../components/modals/AlbumEditorModal";
 import { ArtistEditorModal } from "../components/modals/ArtistEditorModal";
 import { ImageCarouselModal } from "../components/modals/ImageCarouselModal";
+import { ResolveShareModal } from "../components/modals/ResolveShareModal";
 import { SongEditorModal } from "../components/modals/SongEditorModal";
 import { TagSelectorModal } from "../components/modals/TagSelectorModal";
 import { QueueFullModal } from "../music/components/QueueFullModal";
@@ -58,6 +59,7 @@ import { addToQueue } from "../music/services/queue/queue";
 import { initMusicDB } from "../music/services/storage/db";
 import type { Song } from "../music/services/storage/types";
 import { debug } from "../utils/logger";
+import { extractShareTokenFromHash, SHARE_HASH_PARAM } from "../utils/permalink";
 import { isMiddenReady } from "./api/client";
 import { routes } from "./routes";
 import {
@@ -91,6 +93,7 @@ export function App() {
   const isAddMusicOpen = useAddMusicState();
   const [isAddRemoteOpen, setIsAddRemoteOpen] = createSignal(false);
   const [addRemoteInitialValue, setAddRemoteInitialValue] = createSignal<string | undefined>();
+  const [shareToken, setShareToken] = createSignal<string | null>(null);
   const [hasSongs, setHasSongs] = createSignal(false);
   const [hasRemotes, setHasRemotes] = createSignal(false);
   const [isInitializing, setIsInitializing] = createSignal(true);
@@ -122,6 +125,43 @@ export function App() {
       setIsAddRemoteOpen(true);
     }
   });
+
+  // check for #?share=<token> in the url hash on every load + hash change.
+  // see SEND_TO_REMOTE_PLAN step 15 — ResolveShareModal handles decode +
+  // routing; this just spots the token and forwards it.
+  onMount(() => {
+    const handle = () => {
+      const token = extractShareTokenFromHash(window.location.hash);
+      if (token && token !== shareToken()) {
+        debug("App", `found share token: ${token.slice(0, 16)}...`);
+        setShareToken(token);
+      }
+    };
+    handle();
+    window.addEventListener("hashchange", handle);
+    onCleanup(() => window.removeEventListener("hashchange", handle));
+  });
+
+  // strip the share param out of `window.location.hash` once the modal closes
+  // (success, dismiss, or unmatched + add-remote handoff).
+  const clearShareToken = () => {
+    setShareToken(null);
+    const hash = window.location.hash;
+    const stripped = hash.startsWith("#") ? hash.slice(1) : hash;
+    const qIdx = stripped.indexOf("?");
+    if (qIdx < 0) return;
+    const path = stripped.slice(0, qIdx);
+    const params = new URLSearchParams(stripped.slice(qIdx + 1));
+    params.delete(SHARE_HASH_PARAM);
+    const rest = params.toString();
+    const newHash = path + (rest ? `?${rest}` : "");
+    // history.replaceState avoids triggering hashchange listeners.
+    history.replaceState(
+      null,
+      "",
+      `${window.location.pathname}${window.location.search}${newHash ? `#${newHash}` : ""}`
+    );
+  };
 
   // global keyboard shortcuts
   onMount(() => {
@@ -679,6 +719,15 @@ export function App() {
           })();
         }}
         initialValue={addRemoteInitialValue()}
+      />
+
+      <ResolveShareModal
+        token={shareToken()}
+        onClose={clearShareToken}
+        onAddRemote={(nodeId) => {
+          setAddRemoteInitialValue(nodeId);
+          setIsAddRemoteOpen(true);
+        }}
       />
 
       <Show when={useSongEditorState()()}>
