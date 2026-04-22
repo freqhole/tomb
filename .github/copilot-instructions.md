@@ -168,7 +168,6 @@ Follow this order (see [docs/HOW_TO_ADD_FEATURES.md](docs/HOW_TO_ADD_FEATURES.md
 
 - `data_dir`: Base directory for all data (default: `data/`)
 - `database.filename`: SQLite database file (default: `grimoire.db`)
-- `database.auto_run_migrations`: Auto-run migrations on startup (default: `true`)
 - `server.host` / `server.port`: Server bind address (CLI doesn't need this)
 
 **Environment**: `.env` file supported via `dotenvy` crate. Makefile automatically includes it.

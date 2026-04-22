@@ -44,8 +44,6 @@ pub struct GrimoireConfig {
 pub struct DatabaseConfig {
     /// SQLite database filename (stored in data_dir)
     pub filename: String,
-    /// Automatically run migrations on startup
-    pub auto_run_migrations: bool,
     /// Maximum number of connections in the pool (default: 5)
     #[serde(default = "default_max_connections")]
     pub max_connections: u32,
@@ -859,9 +857,6 @@ fn generate_config_template(
     // update data_dir
     doc["data_dir"] = value(data_dir.display().to_string());
 
-    // enable auto migrations - server will run migrations on startup
-    doc["database"]["auto_run_migrations"] = value(false);
-
     // update media section with absolute paths if provided
     if let Some(media) = doc["media"].as_table_mut() {
         if let Some(path) = ffmpeg_path {
@@ -1368,7 +1363,6 @@ mod tests {
             data_dir: PathBuf::from("/data"),
             database: DatabaseConfig {
                 filename: "test.db".to_string(),
-                auto_run_migrations: true,
                 max_connections: default_max_connections(),
                 acquire_timeout_seconds: default_acquire_timeout_seconds(),
                 idle_timeout_seconds: default_idle_timeout_seconds(),
@@ -1394,6 +1388,7 @@ mod tests {
             },
             server: None,
             federation: None,
+            loaded_from: None,
         };
 
         assert_eq!(config.database_path(), PathBuf::from("/data/test.db"));
@@ -1407,7 +1402,6 @@ mod tests {
             data_dir: PathBuf::from("/data"),
             database: DatabaseConfig {
                 filename: "test.db".to_string(),
-                auto_run_migrations: true,
                 max_connections: default_max_connections(),
                 acquire_timeout_seconds: default_acquire_timeout_seconds(),
                 idle_timeout_seconds: default_idle_timeout_seconds(),
@@ -1433,6 +1427,7 @@ mod tests {
             },
             server: None,
             federation: None,
+            loaded_from: None,
         };
 
         assert!(config.validate().is_err());
@@ -1444,7 +1439,6 @@ mod tests {
             data_dir: PathBuf::from("/data"),
             database: DatabaseConfig {
                 filename: "".to_string(),
-                auto_run_migrations: true,
                 max_connections: default_max_connections(),
                 acquire_timeout_seconds: default_acquire_timeout_seconds(),
                 idle_timeout_seconds: default_idle_timeout_seconds(),
@@ -1470,6 +1464,7 @@ mod tests {
             },
             server: None,
             federation: None,
+            loaded_from: None,
         };
 
         assert!(config.validate().is_err());

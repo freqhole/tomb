@@ -3,7 +3,6 @@ data_dir = "../data"
 
 [database]
 filename = "test.db"
-auto_run_migrations = true
 
 [media]
 max_fs_file_size = 104857600

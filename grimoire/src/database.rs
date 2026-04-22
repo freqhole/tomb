@@ -33,16 +33,11 @@ mod views {
     pub const FEED_QUERY_VIEW: &str = include_str!("../../migrations/views/feed_query_view.sql");
 }
 
-/// initialize database - call ONCE at application startup (server/cli main)
-/// runs migrations and creates views if auto_run_migrations is enabled
+/// initialize database - call ONCE at application startup (server/cli main).
+/// pre-warms the singleton pool. migrations are NOT run here — call
+/// `run_migrations()` explicitly at startup if needed.
 pub async fn initialize() -> GrimoireResult<()> {
-    let config = get_config();
-    let pool = connect().await?;
-
-    if config.database.auto_run_migrations {
-        run_migrations_internal(&pool).await?;
-    }
-
+    let _pool = connect().await?;
     Ok(())
 }
 

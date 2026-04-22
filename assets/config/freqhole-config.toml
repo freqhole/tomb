@@ -30,10 +30,6 @@ data_dir = "./data"
 # the full path will be: {data_dir}/{filename}
 filename = "grimoire.db"
 
-# REQUIRED: automatically run database migrations on startup
-# set to false if you want to run migrations manually
-auto_run_migrations = true
-
 # OPTIONAL: connection pool settings
 # each database operation creates a short-lived connection pool.
 # these settings control pool behavior and can help with slow hardware.

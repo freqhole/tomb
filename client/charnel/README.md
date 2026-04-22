@@ -54,7 +54,7 @@ bundles the app with the `freqhole` binary included. output in `src-tauri/target
 - **sidecar server**: spawns `freqhole serve --config <path>` as child process
 - **log capture**: server stdout/stderr captured and viewable in logs view
 - **config location**: user-specified during setup (defaults to app data dir), path saved in `freqhole-app-config.toml`
-- **migrations**: run explicitly during setup wizard (`auto_run_migrations: false` in config)
+- **migrations**: run explicitly during setup wizard
 
 ## tauri commands
 

@@ -277,10 +277,13 @@ pub async fn run_server(options: ServerOptions) -> anyhow::Result<()> {
     tracing::info!("mode: {:?}", options.mode);
     tracing::info!("start HTTP: {}, start P2P: {}", start_http, start_p2p);
 
-    // initialize database (migrations + views) once at startup
+    // initialize database (pool warmup + migrations + views) once at startup
     grimoire::database::initialize()
         .await
         .map_err(|e| anyhow::anyhow!("failed to initialize database: {}", e))?;
+    grimoire::database::run_migrations()
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to run migrations: {}", e))?;
 
     // HTTP server setup (only if starting HTTP)
     let http_state = if start_http {
