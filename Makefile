@@ -49,6 +49,9 @@ build-all:
 	$(MAKE) build-tauri-mac-intel
 	$(MAKE) build-tauri-linux-intel
 	$(MAKE) build-tauri-linux-arm64
+	$(MAKE)	build-flatpak-intel
+	$(MAKE)	build-flatpak-arm64
+	$(MAKE) build-tauri-android
 	@echo ""
 	@echo "all targets built! artifacts in $(BUILD_DIR)/$(VERSION)/:"
 	@find $(BUILD_DIR)/$(VERSION) -type f | sort | sed 's|^|  |'
