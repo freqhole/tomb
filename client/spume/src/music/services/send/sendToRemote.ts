@@ -99,6 +99,13 @@ export interface SendOptions {
   skipExisting?: boolean;
   /** progress callback fired after each phase change and each song result. */
   onProgress?: (progress: SendProgress) => void;
+  /**
+   * if set, restrict the song-pull loop to these blake3s and skip the
+   * album/playlist envelope phases. used by the retry-failed affordance —
+   * the album/playlist row already exists on dest from the original run,
+   * so we only need to re-pull the songs that failed.
+   */
+  retryBlake3s?: string[];
 }
 
 export class SendToRemoteError extends Error {
@@ -124,6 +131,7 @@ export async function sendToRemote(
 ): Promise<SendProgress> {
   const concurrency = Math.max(1, opts.concurrency ?? 2);
   const skipExisting = opts.skipExisting ?? true;
+  const retrySet = opts.retryBlake3s ? new Set(opts.retryBlake3s) : null;
 
   const songs = payload.songs;
   const progress: SendProgress = {
@@ -165,8 +173,15 @@ export async function sendToRemote(
   const sourceRemoteId = source.remote_id;
 
   // collect songs that have a blake3; non-blake3 songs cannot be pulled.
-  const eligibleSongs = songs.filter((s) => !!s.blake3 && !!s.sha256);
-  const skippedNoHash = songs.length - eligibleSongs.length;
+  // when retrying, narrow further to the requested subset.
+  let eligibleSongs = songs.filter((s) => !!s.blake3 && !!s.sha256);
+  if (retrySet) {
+    eligibleSongs = eligibleSongs.filter((s) => retrySet.has(s.blake3 as string));
+  }
+  // totalSongs reflects what THIS run will attempt (matters for retry runs
+  // so progress percentages line up with the visible work).
+  progress.totalSongs = eligibleSongs.length;
+  const skippedNoHash = retrySet ? 0 : songs.length - eligibleSongs.length;
   if (skippedNoHash > 0) {
     progress.skippedSongs += skippedNoHash;
     progress.errors.push(
@@ -202,7 +217,8 @@ export async function sendToRemote(
   }
 
   // ---- ALBUM ----
-  if (payload.kind === "album") {
+  // skip envelope on retry runs — the album row already exists on dest.
+  if (payload.kind === "album" && !retrySet) {
     progress.phase = "syncing-album";
     emit();
 
@@ -298,7 +314,8 @@ export async function sendToRemote(
   });
 
   // ---- PLAYLIST tail ----
-  if (payload.kind === "playlist") {
+  // skip envelope on retry runs — the playlist row already exists on dest.
+  if (payload.kind === "playlist" && !retrySet) {
     progress.phase = "syncing-playlist";
     emit();
 
