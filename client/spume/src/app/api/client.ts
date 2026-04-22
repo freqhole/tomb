@@ -211,7 +211,8 @@ function resolveTransport(remote: RemoteLike): "http" | "wasm" | "app" {
   }
   // fallback: infer from presence of peer_addr vs base_url
   if ("peer_addr" in remote && remote.peer_addr) {
-    return isCharnelMode() ? "app" : "wasm";
+    const inferred = isCharnelMode() ? "app" : "wasm";
+    return inferred;
   }
   return "http";
 }
@@ -261,7 +262,6 @@ export async function getClientForRemote(remote: RemoteLike): Promise<ApiClient>
     default:
       // charnel-managed remotes use IPC (no base_url needed)
       if (isCharnelMode() && remote.is_charnel_managed) {
-        console.log("[client] using CharnelLocalTransport for tauri-managed remote");
         return new FreqholeClient(createCharnelLocalTransport(""));
       }
       if (!baseUrl) {

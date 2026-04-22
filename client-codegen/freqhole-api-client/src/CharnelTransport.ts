@@ -95,12 +95,18 @@ export class CharnelTransport implements Transport {
   async init(): Promise<void> {
     const inv = await ensureInvoke();
 
+    console.debug(
+      "[P2P] init: checking p2p_is_available for peer",
+      this.peerAddr,
+    );
     const available = (await inv("p2p_is_available")) as boolean;
+    console.debug("[P2P] init: p2p_is_available =", available);
     if (!available) {
       throw new Error("P2P not available - federation endpoint not running");
     }
 
     this.nodeId = (await inv("p2p_get_node_id")) as string;
+    console.debug("[P2P] init: got node_id =", this.nodeId);
   }
 
   /**
@@ -120,14 +126,25 @@ export class CharnelTransport implements Transport {
   ): Promise<TransportResponse> {
     const inv = await ensureInvoke();
 
-    const result = (await inv("p2p_proxy_request", {
-      peerAddr: this.peerAddr,
-      method,
-      path,
-      body: body ?? null,
-    })) as { status: number; body: string };
+    try {
+      const result = (await inv("p2p_proxy_request", {
+        peerAddr: this.peerAddr,
+        method,
+        path,
+        body: body ?? null,
+      })) as { status: number; body: string };
 
-    return result;
+      return result;
+    } catch (err) {
+      console.debug(
+        "[P2P] p2p_proxy_request ERROR for",
+        method,
+        path,
+        ":",
+        err,
+      );
+      throw err;
+    }
   }
 
   /**
@@ -157,31 +174,11 @@ export class CharnelTransport implements Transport {
       };
     }
 
-    // for music uploads, FormData doesn't carry a file path so we can't use
-    // p2p_import_blob (which needs a filesystem path). callers should use
-    // uploadByPath() instead, which accepts a path from a file dialog.
+    // for music uploads, import bytes into iroh-blobs store and use the
+    // blake3 pull model (same as uploadByPath but from in-memory bytes).
+    // this supports Android where file picker returns File objects, not paths.
     if (path === "/api/upload/music") {
-      console.warn(
-        "[CharnelTransport] FormData music upload not supported over P2P.",
-        "use uploadByPath() with a filesystem path instead.",
-      );
-      return {
-        status: 400,
-        body: JSON.stringify({
-          success: false,
-          message:
-            "music upload via FormData not supported over P2P - use uploadByPath()",
-          errors: [
-            {
-              error_type: "upload_not_supported",
-              title: "use uploadByPath for P2P music upload",
-              detail:
-                "CharnelTransport cannot upload music from FormData. " +
-                "use uploadByPath() with a filesystem path from a file dialog instead.",
-            },
-          ],
-        }),
-      };
+      return this.uploadMusicViaBytes(file);
     }
 
     // for non-music uploads (images etc), use base64 (small enough)
@@ -204,8 +201,10 @@ export class CharnelTransport implements Transport {
 
     // only use iroh-blobs for music uploads
     if (path === "/api/upload/music") {
+      console.debug("[P2P] uploadByPath: importing blob from", filePath);
       // import file into local FsStore -> get blake3 hash
       const blake3 = (await inv("p2p_import_blob", { filePath })) as string;
+      console.debug("[P2P] uploadByPath: imported blob, blake3 =", blake3);
 
       // build request body for the remote peer
       const body: Record<string, unknown> = {
@@ -260,6 +259,37 @@ export class CharnelTransport implements Transport {
 
     // send via proxy_request — routes through offal dispatch on the remote peer
     return this.request("POST", path, JSON.stringify(body));
+  }
+
+  /**
+   * upload music via in-memory bytes using iroh-blobs pull model
+   *
+   * reads the File into bytes, imports into local blobs store via
+   * p2p_import_blob_bytes, then tells the remote peer to pull via blake3.
+   * used on Android where the file picker gives File objects, not paths.
+   */
+  private async uploadMusicViaBytes(
+    file: File,
+  ): Promise<TransportResponse> {
+    const inv = await ensureInvoke();
+
+    console.debug("[P2P] uploadMusicViaBytes: reading file bytes for", file.name);
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const b64 = bytesToBase64(bytes);
+
+    // import bytes into local iroh-blobs store -> get blake3 hash
+    const blake3 = (await inv("p2p_import_blob_bytes", {
+      data: b64,
+    })) as string;
+    console.debug("[P2P] uploadMusicViaBytes: imported blob, blake3 =", blake3);
+
+    // tell the remote peer to pull the blob from us
+    const body = { blake3, filename: file.name };
+    return this.request(
+      "POST",
+      "/api/upload/music-by-blake3",
+      JSON.stringify(body),
+    );
   }
 
   /**
@@ -394,6 +424,7 @@ export class CharnelTransport implements Transport {
   async fetchHelloImage(): Promise<BlobData | null> {
     const inv = await ensureInvoke();
 
+    console.debug("[P2P] fetchHelloImage: requesting from peer", this.peerAddr);
     try {
       const result = (await inv("p2p_fetch_hello_image", {
         peerAddr: this.peerAddr,

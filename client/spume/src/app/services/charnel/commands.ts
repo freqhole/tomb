@@ -83,3 +83,42 @@ export async function setWindowTitle(title: string): Promise<void> {
     // silently fail - not critical
   }
 }
+
+/**
+ * drain any pending deep-link urls (`freqhole://...`) received before this
+ * frontend's event listeners were attached. used on cold start to handle the
+ * case where the app was launched by clicking a `freqhole://o/<token>` link.
+ *
+ * urls received after this call arrive as `share-link-received` tauri events.
+ */
+export async function takePendingDeepLinks(): Promise<string[]> {
+  try {
+    const invoke = await getInvoke();
+    const result = await invoke<string[]>("take_pending_deep_links");
+    return Array.isArray(result) ? result : [];
+  } catch (error) {
+    console.error("[tauri/commands] failed to drain pending deep links:", error);
+    return [];
+  }
+}
+
+/**
+ * fetch this charnel app's local iroh node id (64-hex). returns null when
+ * p2p isn't initialized (e.g. federation disabled in config). used to populate
+ * `localNodeId` so share links + send-to-remote can work from the local
+ * "charnel-managed" remote, which has no `peer_addr` of its own.
+ */
+export async function fetchLocalNodeId(): Promise<string | null> {
+  try {
+    const invoke = await getInvoke();
+    const result = await invoke<string>("p2p_get_node_id");
+    if (typeof result === "string" && /^[0-9a-f]{64}$/i.test(result)) {
+      return result.toLowerCase();
+    }
+    return null;
+  } catch (error) {
+    // p2p not initialized — config has federation disabled or endpoint failed.
+    // not actually an error, just nothing to share with.
+    return null;
+  }
+}

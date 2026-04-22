@@ -1,5 +1,5 @@
-import { createSignal, onMount, For, Show } from "solid-js";
-import { invoke } from "@tauri-apps/api/core";
+import { createSignal, createEffect, For, Show } from "solid-js";
+import { useAdminTransport } from "../admin/context";
 
 interface User {
   id: string;
@@ -42,6 +42,7 @@ function formatDateTime(timestamp: number): string {
 }
 
 export default function UsersView() {
+  const admin = useAdminTransport();
   const [users, setUsers] = createSignal<User[]>([]);
   const [invites, setInvites] = createSignal<InviteCode[]>([]);
   const [loading, setLoading] = createSignal(true);
@@ -58,15 +59,19 @@ export default function UsersView() {
     null,
   );
 
-  onMount(async () => {
-    await Promise.all([loadUsers(), loadInvites()]);
+  // reload whenever the active admin target changes (incl. initial mount)
+  createEffect(() => {
+    admin.current();
+    void Promise.all([loadUsers(), loadInvites()]);
   });
 
   async function loadUsers() {
     setLoading(true);
     setError("");
     try {
-      const result = await invoke<User[]>("list_users");
+      const result = await admin.dispatchOrThrow<User[]>("users_list", {
+        include_deleted: false,
+      });
       setUsers(result);
     } catch (e) {
       setError(String(e));
@@ -78,8 +83,8 @@ export default function UsersView() {
   async function loadInvites() {
     setInvitesLoading(true);
     try {
-      const result = await invoke<InviteCode[]>("list_invites", {
-        activeOnly: false,
+      const result = await admin.dispatchOrThrow<InviteCode[]>("invites_list", {
+        active_only: false,
       });
       setInvites(result);
     } catch (e) {
@@ -91,7 +96,10 @@ export default function UsersView() {
 
   async function updateRole(userId: string, newRole: string) {
     try {
-      await invoke("update_user_role", { userId, role: newRole });
+      await admin.dispatchOrThrow("users_update_role", {
+        user_id: userId,
+        role: newRole,
+      });
       await loadUsers();
     } catch (e) {
       setError(String(e));
@@ -101,7 +109,7 @@ export default function UsersView() {
   async function deleteUser(userId: string, username: string) {
     if (!confirm(`delete user "${username}"? this cannot be undone.`)) return;
     try {
-      await invoke("delete_user", { userId });
+      await admin.dispatchOrThrow("users_delete", { user_id: userId });
       await loadUsers();
     } catch (e) {
       setError(String(e));
@@ -111,7 +119,7 @@ export default function UsersView() {
   async function generateInvite() {
     setGenerating(true);
     try {
-      await invoke("generate_invites", { count: 1 });
+      await admin.dispatchOrThrow("invites_generate", { count: 1 });
       await loadInvites();
     } catch (e) {
       setError(String(e));
@@ -122,7 +130,7 @@ export default function UsersView() {
 
   async function deactivateInvite(code: string) {
     try {
-      await invoke("deactivate_invite", { code });
+      await admin.dispatchOrThrow("invites_revoke", { code });
       await loadInvites();
     } catch (e) {
       setError(String(e));
@@ -133,7 +141,7 @@ export default function UsersView() {
     setDeactivatingAll(true);
     setConfirmDeactivateAll(false);
     try {
-      await invoke("deactivate_all_invites");
+      await admin.dispatchOrThrow("invites_revoke_all", {});
       await loadInvites();
     } catch (e) {
       setError(String(e));
@@ -144,7 +152,7 @@ export default function UsersView() {
 
   async function updateInviteRole(code: string, role: string) {
     try {
-      await invoke("update_invite_role", { code, role });
+      await admin.dispatchOrThrow("invites_update_role", { code, role });
       await loadInvites();
     } catch (e) {
       setError(String(e));
@@ -166,9 +174,11 @@ export default function UsersView() {
   async function generateAccountLink(userId: string) {
     setError("");
     try {
-      const code = await invoke<string>("generate_account_link_code", {
-        userId,
-      });
+      const result = await admin.dispatchOrThrow<{ code: string }>(
+        "users_generate_account_link",
+        { user_id: userId },
+      );
+      const code = result.code;
       console.log("generated account link code:", code);
       // show feedback immediately - code is generated and visible in invites list
       setLinkCopiedUserId(userId);
@@ -177,7 +187,10 @@ export default function UsersView() {
       try {
         await navigator.clipboard.writeText(code);
       } catch (e) {
-        console.log("clipboard copy failed (expected after async invoke):", e);
+        console.log(
+          "clipboard copy failed (expected after async dispatch):",
+          e,
+        );
       }
       await loadInvites();
     } catch (e) {

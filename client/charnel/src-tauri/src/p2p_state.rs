@@ -126,8 +126,9 @@ impl P2pState {
         self.set_status(P2pStatus::Connecting);
 
         // check if endpoint came up - use online() with timeout
+        // (30s timeout tuned for mobile networks where relay/QUIC connections may be slow)
         match self
-            .check_online_with_timeout(Duration::from_secs(10))
+            .check_online_with_timeout(Duration::from_secs(30))
             .await
         {
             Ok(true) => {
@@ -205,13 +206,17 @@ impl P2pState {
                         break;
                     }
 
-                    // check online status with a short timeout
-                    let is_online =
-                        match tokio::time::timeout(Duration::from_secs(2), endpoint.online()).await
-                        {
-                            Ok(()) => true,
-                            Err(_) => false,
-                        };
+                    // check online status with a generous timeout
+                    // (10s tuned for mobile networks where relay/QUIC connections may be slow)
+                    let is_online = match tokio::time::timeout(
+                        Duration::from_secs(10),
+                        endpoint.online(),
+                    )
+                    .await
+                    {
+                        Ok(()) => true,
+                        Err(_) => false,
+                    };
 
                     let current = state.status();
                     if current != P2pStatus::Stopped && current != P2pStatus::Starting {
@@ -225,8 +230,8 @@ impl P2pState {
                         }
                     }
 
-                    // poll every 5 seconds
-                    tokio::time::sleep(Duration::from_secs(5)).await;
+                    // poll every 15 seconds (tuned for mobile networks to reduce overhead)
+                    tokio::time::sleep(Duration::from_secs(15)).await;
                 }
 
                 // endpoint was closed, wait before trying again

@@ -11,6 +11,7 @@ pub fn quit_app(app: &AppHandle<Wry>) {
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
         // explicitly remove tray icon before exit (prevents panel crashes on linux)
+        #[cfg(desktop)]
         if let Some(tray) = app.tray_by_id("main") {
             // clear menu and icon before removal
             let _ = tray.set_menu(None::<tauri::menu::Menu<Wry>>);
@@ -28,16 +29,20 @@ pub fn quit_app(app: &AppHandle<Wry>) {
 pub fn open_wizard_at_route(app: &AppHandle<Wry>, route: &str) {
     if let Some(window) = app.get_webview_window("setup-wizard") {
         // navigate to the route using proper URL
-        #[cfg(debug_assertions)]
+        // on mobile, always use bundled assets (no dev server)
+        #[cfg(all(debug_assertions, desktop))]
         let url: url::Url = format!("http://localhost:1421#{}", route).parse().unwrap();
-        #[cfg(not(debug_assertions))]
+        #[cfg(not(all(debug_assertions, desktop)))]
         let url: url::Url = format!("tauri://localhost/wizard/index.html#{}", route)
             .parse()
             .unwrap();
 
         let _ = window.navigate(url);
-        let _ = window.show();
-        let _ = window.set_focus();
+        #[cfg(desktop)]
+        {
+            let _ = window.show();
+            let _ = window.set_focus();
+        }
         return;
     }
     let _ = open_setup_wizard_at_route(app.clone(), route);

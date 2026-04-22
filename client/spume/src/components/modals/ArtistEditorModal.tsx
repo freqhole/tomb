@@ -1,5 +1,5 @@
 // artist editor modal - edit artist metadata
-import { createEffect, createMemo, createSignal, onMount, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, Show } from "solid-js";
 import { useQueryClient } from "@tanstack/solid-query";
 import type { ImageMetadata } from "../../music/services/storage/types";
 import { getDataSource, getCurrentRemote } from "../../music/data";
@@ -13,10 +13,9 @@ import { confirm } from "../../app/services/confirmState";
 import { Button } from "../buttons/Button";
 import { toast } from "../feedback/Toast";
 import { TextInput } from "../forms/TextInput";
-import { Icon, IconNames } from "../icons/registry";
 import { Tabs, TabList, Tab, TabPanel } from "../navigation/Tabs";
 import { EntityImages } from "../layout/EntityImages";
-import { pushModal, popModal } from "../../music/hooks/modals";
+import { Modal } from "./Modal";
 import { EntityUrlz, type EntityUrlFormItem } from "../forms/EntityUrlz";
 import { error as errorLog } from "../../utils/logger";
 
@@ -91,13 +90,6 @@ export function ArtistEditorModal(props: ArtistEditorModalProps) {
 
       setLoadedArtistId(props.artistId);
     }
-  });
-
-  // register modal in stack for esc key handling
-  onMount(() => {
-    const modalId = `artist-${props.artistId}`;
-    pushModal(modalId, props.onClose);
-    return () => popModal(modalId);
   });
 
   // helper to check if entity URLs have changed
@@ -368,149 +360,139 @@ export function ArtistEditorModal(props: ArtistEditorModalProps) {
   };
 
   return (
-    <div
-      class="fixed inset-0 bg-black/50 flex items-center justify-center"
-      classList={{ "z-50": !props.disableNestedModals, "z-[60]": props.disableNestedModals }}
+    <Modal
+      isOpen={true}
+      onClose={props.onClose}
+      title="edit artist"
+      size="lg"
+      elevated={props.disableNestedModals}
     >
-      <div class="bg-[var(--color-bg-primary)] rounded-lg shadow-xl w-full max-w-2xl h-[90dvh] wide:h-[600px] overflow-hidden flex flex-col">
-        {/* header */}
-        <div class="flex items-center justify-between p-6">
-          <h2 class="text-xl font-semibold text-[var(--color-text-primary)]">edit artist</h2>
-          <button
-            onClick={props.onClose}
-            class="text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]"
-          >
-            <Icon name={IconNames.close} />
-          </button>
-        </div>
-
-        {/* content */}
-        <Show
-          when={initialData()}
-          fallback={
-            <div class="flex-1 flex items-center justify-center p-6">
-              <div class="text-[var(--color-text-secondary)]">loading...</div>
-            </div>
-          }
+      {/* content */}
+      <Show
+        when={initialData()}
+        fallback={
+          <div class="flex-1 flex items-center justify-center p-6">
+            <div class="text-[var(--color-text-secondary)]">loading...</div>
+          </div>
+        }
+      >
+        <Tabs
+          activeTab={activeTab()}
+          onTabChange={setActiveTab}
+          class="flex-1 flex flex-col min-h-0"
         >
-          <Tabs
-            activeTab={activeTab()}
-            onTabChange={setActiveTab}
-            class="flex-1 flex flex-col min-h-0"
-          >
-            <TabList class="px-6">
-              <Tab id="info" label="info" />
-              <Tab id="images" label="images" badge={images().length || undefined} />
-            </TabList>
+          <TabList class="px-6">
+            <Tab id="info" label="info" />
+            <Tab id="images" label="images" badge={images().length || undefined} />
+          </TabList>
 
-            <TabPanel id="info" class="flex-1 overflow-y-auto p-6 space-y-6">
-              {/* artist name */}
-              <div class="space-y-2">
-                <div class="flex items-center justify-between">
-                  <label class="block text-sm font-medium text-[var(--color-text-primary)]">
-                    artist name
-                  </label>
-                  <Show when={formData().name !== initialData()?.name}>
-                    <button
-                      onClick={() => handleResetField("name")}
-                      class="text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]"
-                    >
-                      reset
-                    </button>
-                  </Show>
-                </div>
-                <TextInput
-                  value={formData().name}
-                  onInput={(e) =>
-                    setFormData((prev) => ({
-                      ...prev,
-                      name: e.currentTarget.value,
-                    }))
-                  }
-                  placeholder="artist name"
-                  class="w-full"
-                />
+          <TabPanel id="info" class="flex-1 overflow-y-auto p-6 space-y-6">
+            {/* artist name */}
+            <div class="space-y-2">
+              <div class="flex items-center justify-between">
+                <label class="block text-sm font-medium text-[var(--color-text-primary)]">
+                  artist name
+                </label>
+                <Show when={formData().name !== initialData()?.name}>
+                  <button
+                    onClick={() => handleResetField("name")}
+                    class="text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]"
+                  >
+                    reset
+                  </button>
+                </Show>
               </div>
+              <TextInput
+                value={formData().name}
+                onInput={(e) =>
+                  setFormData((prev) => ({
+                    ...prev,
+                    name: e.currentTarget.value,
+                  }))
+                }
+                placeholder="artist name"
+                class="w-full"
+              />
+            </div>
 
-              {/* artist bio */}
-              <div class="space-y-2">
-                <div class="flex items-center justify-between">
-                  <label class="block text-sm font-medium text-[var(--color-text-primary)]">
-                    biography
-                  </label>
-                  <Show when={formData().bio !== initialData()?.bio}>
-                    <button
-                      onClick={() => handleResetField("bio")}
-                      class="text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]"
-                    >
-                      reset
-                    </button>
-                  </Show>
-                </div>
-                <textarea
-                  value={formData().bio}
-                  onInput={(e) =>
-                    setFormData((prev) => ({
-                      ...prev,
-                      bio: e.currentTarget.value,
-                    }))
-                  }
-                  placeholder="artist biography..."
-                  class="w-full min-h-[120px] px-3 py-2 bg-[var(--color-bg-base)] border border-[var(--color-border-default)] rounded-md text-[var(--color-text-primary)] placeholder-[var(--color-text-tertiary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-accent-500)] resize-vertical"
-                  rows={5}
-                />
+            {/* artist bio */}
+            <div class="space-y-2">
+              <div class="flex items-center justify-between">
+                <label class="block text-sm font-medium text-[var(--color-text-primary)]">
+                  biography
+                </label>
+                <Show when={formData().bio !== initialData()?.bio}>
+                  <button
+                    onClick={() => handleResetField("bio")}
+                    class="text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]"
+                  >
+                    reset
+                  </button>
+                </Show>
               </div>
+              <textarea
+                value={formData().bio}
+                onInput={(e) =>
+                  setFormData((prev) => ({
+                    ...prev,
+                    bio: e.currentTarget.value,
+                  }))
+                }
+                placeholder="artist biography..."
+                class="w-full min-h-[120px] px-3 py-2 bg-[var(--color-bg-base)] border border-[var(--color-border-default)] rounded-md text-[var(--color-text-primary)] placeholder-[var(--color-text-tertiary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-accent-500)] resize-vertical"
+                rows={5}
+              />
+            </div>
 
-              {/* entity URLs */}
-              <div class="mt-4">
-                <EntityUrlz urls={entityUrls()} onChange={setEntityUrls} />
-              </div>
-            </TabPanel>
+            {/* entity URLs */}
+            <div class="mt-4">
+              <EntityUrlz urls={entityUrls()} onChange={setEntityUrls} />
+            </div>
+          </TabPanel>
 
-            <TabPanel id="images" class="flex-1 overflow-y-auto p-6">
-              <div class="space-y-6">
-                <EntityImages
-                  images={images()}
-                  onUpload={(file) => handleImageUpload({ file })}
-                  onUploadPath={handleImageSelectPath}
-                  onDelete={handleRemoveImage}
-                  onSetPrimary={handleTogglePrimary}
-                  uploading={!!processingJob()}
-                />
-              </div>
-            </TabPanel>
-          </Tabs>
-        </Show>
+          <TabPanel id="images" class="flex-1 overflow-y-auto p-6">
+            <div class="space-y-6">
+              <EntityImages
+                images={images()}
+                onUpload={(file) => handleImageUpload({ file })}
+                onUploadPath={handleImageSelectPath}
+                onDelete={handleRemoveImage}
+                onSetPrimary={handleTogglePrimary}
+                uploading={!!processingJob()}
+              />
+            </div>
+          </TabPanel>
+        </Tabs>
+      </Show>
 
-        {/* footer */}
-        <Show when={initialData() && activeTab() === "info"}>
-          <div class="flex items-center justify-between p-6">
-            <Show when={canDeleteArtist()}>
-              <Button onClick={handleDelete} variant="danger">
-                delete
+      {/* footer */}
+      <Show when={initialData() && activeTab() === "info"}>
+        <div class="flex items-center justify-between p-6 border-t border-[var(--color-border-default)] flex-shrink-0">
+          <Show when={canDeleteArtist()}>
+            <Button onClick={handleDelete} variant="danger">
+              delete
+            </Button>
+          </Show>
+          <div class="flex items-center gap-3">
+            <Show when={hasChanges() && canUpdateArtist()}>
+              <button
+                onClick={handleReset}
+                class="text-sm text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]"
+              >
+                reset all
+              </button>
+            </Show>
+            <Button variant="secondary" onClick={props.onClose}>
+              cancel
+            </Button>
+            <Show when={canUpdateArtist()}>
+              <Button variant="primary" onClick={handleSave} disabled={!hasChanges()}>
+                save changes
               </Button>
             </Show>
-            <div class="flex items-center gap-3">
-              <Show when={hasChanges() && canUpdateArtist()}>
-                <button
-                  onClick={handleReset}
-                  class="text-sm text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]"
-                >
-                  reset all
-                </button>
-              </Show>
-              <Button variant="secondary" onClick={props.onClose}>
-                cancel
-              </Button>
-              <Show when={canUpdateArtist()}>
-                <Button variant="primary" onClick={handleSave} disabled={!hasChanges()}>
-                  save changes
-                </Button>
-              </Show>
-            </div>
           </div>
-        </Show>
-      </div>
-    </div>
+        </div>
+      </Show>
+    </Modal>
   );
 }

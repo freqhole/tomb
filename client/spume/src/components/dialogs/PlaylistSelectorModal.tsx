@@ -13,7 +13,7 @@ import { Button } from "../buttons/Button";
 import { toast } from "../feedback/Toast";
 import { TextInput } from "../forms/TextInput";
 import { Icon, IconNames } from "../icons/registry";
-import { Modal } from "../overlays/Modal";
+import { Modal } from "../modals/Modal";
 
 export interface PlaylistSelectorModalProps {
   /** whether the modal is open */
@@ -124,7 +124,7 @@ export function PlaylistSelectorModal(props: PlaylistSelectorModalProps) {
       title={isCreatingNew() ? "create new playlist" : "add to playlist"}
       size="md"
     >
-      <div class="space-y-4">
+      <div class="flex-1 min-h-0 overflow-y-auto p-4 space-y-4">
         <Show
           when={!isCreatingNew()}
           fallback={

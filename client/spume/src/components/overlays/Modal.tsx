@@ -25,17 +25,17 @@ export function Modal(props: ModalProps) {
   const sizeClasses = () => {
     switch (size()) {
       case "sm":
-        return "max-w-md";
+        return "sm:max-w-md";
       case "md":
-        return "max-w-lg";
+        return "sm:max-w-lg";
       case "lg":
-        return "max-w-2xl";
+        return "sm:max-w-2xl";
       case "xl":
-        return "max-w-4xl";
+        return "sm:max-w-4xl";
       case "full":
-        return "max-w-[95vw]";
+        return "sm:max-w-[95vw]";
       default:
-        return "max-w-lg";
+        return "sm:max-w-lg";
     }
   };
 
@@ -95,16 +95,18 @@ export function Modal(props: ModalProps) {
           bg-[var(--color-bg-secondary)]
           border
           border-[var(--color-border-default)]
-          rounded-lg
           shadow-2xl
           overflow-hidden
           animate-[modal-slide-up_0.2s_ease-out]
+          flex flex-col
+          h-[100dvh] max-h-[100dvh] rounded-none
+          sm:rounded-lg sm:max-h-[80dvh] sm:h-auto
         `}
         onClick={(e) => e.stopPropagation()}
       >
         {/* header */}
         <Show when={props.title || showCloseButton()}>
-          <div class="flex items-center justify-between p-4 border-b border-[var(--color-border-default)]">
+          <div class="flex items-center justify-between p-4 border-b border-[var(--color-border-default)] flex-shrink-0">
             <Show when={props.title}>
               <h2 class="heading-5 text-[var(--color-text-primary)]">{props.title}</h2>
             </Show>
@@ -120,7 +122,7 @@ export function Modal(props: ModalProps) {
         </Show>
 
         {/* content */}
-        <div class="p-6 overflow-y-auto max-h-[70dvh]">{props.children}</div>
+        <div class="p-6 overflow-y-auto flex-1 min-h-0">{props.children}</div>
       </div>
     </dialog>
   );

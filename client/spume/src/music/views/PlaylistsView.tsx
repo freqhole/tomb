@@ -33,6 +33,10 @@ import { useToggleFavoriteMutation } from "../queries/favorites";
 import { usePlaylistContextMenu, useSongContextMenu } from "../hooks/contextMenu";
 import { getBlobObjectURL } from "../services/storage/blobs";
 import { resolveBlobUrl } from "../services/storage/blobResolver";
+import { ShareButton } from "../../components/buttons/ShareButton";
+import { createCurrentRemoteFull } from "../../app/services/remotes/currentRemoteFull";
+import type { SendPayload } from "../services/send/sendToRemote";
+import type { RemoteSong } from "../data/remote/adapters";
 import { canUpdatePlaylist } from "../data/permissions";
 import { getPlaylistById } from "../services/storage/db";
 import { type Playlist } from "../services/storage/types";
@@ -291,6 +295,22 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
     if (!pages) return [];
     return pages.flatMap((page) => page.items);
   });
+
+  // current remote (full Remote record) — used as the source for "send to remote".
+  const currentRemoteFull = createCurrentRemoteFull();
+
+  // build a SendPayload describing the selected playlist for the flyout.
+  const buildPlaylistSendPayload = (): SendPayload => {
+    const pl = selectedPlaylist();
+    const list = playlistSongs();
+    return {
+      kind: "playlist",
+      playlistId: pl?.playlist_id ?? "",
+      title: pl?.title ?? "untitled playlist",
+      description: pl?.description ?? null,
+      songs: list as unknown as RemoteSong[],
+    };
+  };
 
   // get selected playlist metadata
   // for local playlists, fetch full record from db
@@ -1034,6 +1054,15 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
                                   targetId={selectedPlaylist()?.playlist_id || ""}
                                   isFavorite={selectedPlaylist()?.is_favorite ?? false}
                                 />
+                                <ShareButton
+                                  target={{
+                                    kind: "playlist",
+                                    id: selectedPlaylist()?.playlist_id || "",
+                                    displayTitle: selectedPlaylist()?.title || "",
+                                  }}
+                                  source={() => currentRemoteFull()}
+                                  buildSendPayload={buildPlaylistSendPayload}
+                                />
                               </div>
                             </Show>
                           </div>
@@ -1075,6 +1104,15 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
                               targetType="playlist"
                               targetId={selectedPlaylist()?.playlist_id || ""}
                               isFavorite={selectedPlaylist()?.is_favorite ?? false}
+                            />
+                            <ShareButton
+                              target={{
+                                kind: "playlist",
+                                id: selectedPlaylist()?.playlist_id || "",
+                                displayTitle: selectedPlaylist()?.title || "",
+                              }}
+                              source={() => currentRemoteFull()}
+                              buildSendPayload={buildPlaylistSendPayload}
                             />
                           </div>
                         </Show>

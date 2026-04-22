@@ -33,7 +33,11 @@ export function SettingsLayout(props: { children: JSX.Element }) {
   });
 
   return (
-    <div class="min-h-screen bg-[var(--color-bg-primary)]">
+    <div
+      data-allow-select
+      class="min-h-screen bg-[var(--color-bg-primary)]"
+      style={{ "padding-top": "env(safe-area-inset-top, 0px)" }}
+    >
       {/* mobile header */}
       <div class="lg:hidden border-b border-[var(--color-border-subtle)] bg-[var(--color-bg-secondary)]">
         <div class="p-4">

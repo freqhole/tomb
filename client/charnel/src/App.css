@@ -1990,3 +1990,218 @@ button.danger:hover {
   color: #71717a;
   line-height: 1.4;
 }
+
+/* admin target picker (sidebar) */
+.admin-target-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.5rem 1rem 0.75rem;
+  border-bottom: 1px solid #27272a;
+}
+
+.admin-target-label {
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #71717a;
+}
+
+.admin-target-select {
+  width: 100%;
+  background: #18181b;
+  color: #e4e4e7;
+  border: 1px solid #3f3f46;
+  border-radius: 4px;
+  padding: 0.3125rem 0.5rem;
+  font-size: 0.8125rem;
+}
+
+.admin-target-error {
+  font-size: 0.6875rem;
+  color: #f87171;
+}
+
+/* admin scope banner (top of main content when remote target active) */
+.admin-scope-banner {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 1rem;
+  background: #422006;
+  border-bottom: 1px solid #78350f;
+  color: #fde68a;
+  font-size: 0.875rem;
+}
+
+.admin-scope-icon {
+  font-weight: bold;
+  color: #fbbf24;
+}
+
+.admin-scope-text {
+  flex: 1;
+}
+
+.admin-scope-id {
+  color: #a1a1aa;
+  font-family: monospace;
+  font-size: 0.75rem;
+}
+
+.admin-scope-disconnect {
+  background: transparent;
+
+  color: #fde68a;
+  border-radius: 4px;
+  padding: 0.25rem 0.625rem;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.admin-scope-disconnect:hover {
+  text-decoration: underline;
+}
+
+.admin-target-add-toggle {
+  background: transparent;
+  border: 1px dashed #3f3f46;
+  color: #eeddee;
+  border-radius: 4px;
+  padding: 0.3125rem 0.5rem;
+  font-size: 0.75rem;
+  cursor: pointer;
+  margin-top: 0.25rem;
+}
+
+.admin-target-add-toggle:hover {
+  border-color: #eeddee;
+  border-style: solid;
+  color: #ff1a9e;
+}
+
+.admin-target-add-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  margin-top: 0.25rem;
+  padding: 0.5rem;
+  background: #18181b;
+  border: 1px solid #27272a;
+  border-radius: 4px;
+}
+
+.admin-target-add-input {
+  width: 100%;
+  background: #09090b;
+  color: #e4e4e7;
+  border: 1px solid #3f3f46;
+  border-radius: 4px;
+  padding: 0.3125rem 0.5rem;
+  font-size: 0.75rem;
+  font-family: inherit;
+  box-sizing: border-box;
+}
+
+.admin-target-add-actions {
+  display: flex;
+  gap: 0.375rem;
+}
+
+.admin-target-add-submit,
+.admin-target-add-cancel {
+  flex: 1;
+  border-radius: 4px;
+  padding: 0.3125rem 0.5rem;
+  font-size: 0.75rem;
+  cursor: pointer;
+  border: 1px solid #3f3f46;
+}
+
+.admin-target-add-submit {
+  background: transparent;
+  color: #eeddee;
+  border-color: #eeddee;
+}
+
+.admin-target-add-submit:hover:not(:disabled) {
+  background: #ff1a9e;
+}
+
+.admin-target-add-cancel {
+  background: transparent;
+  color: #a1a1aa;
+}
+
+.admin-target-add-cancel:hover:not(:disabled) {
+  border-color: #52525b;
+  color: #e4e4e7;
+}
+
+.admin-target-notice {
+  font-size: 0.6875rem;
+  color: #4ade80;
+}
+
+.admin-scope-status {
+  font-weight: 500;
+  text-transform: lowercase;
+}
+
+.admin-scope-status-detail {
+  color: #a1a1aa;
+  font-size: 0.75rem;
+}
+
+/* status-tinted banner variants override the default amber */
+.admin-scope-banner.admin-scope-connecting {
+  background: #1e3a8a;
+  border-bottom-color: #1e40af;
+  color: #bfdbfe;
+}
+.admin-scope-banner.admin-scope-connecting .admin-scope-icon {
+  color: #60a5fa;
+}
+
+.admin-scope-banner.admin-scope-online {
+  background: #14532d;
+  border-bottom-color: #166534;
+  color: #bbf7d0;
+}
+.admin-scope-banner.admin-scope-online .admin-scope-icon {
+  color: #4ade80;
+}
+
+.admin-scope-banner.admin-scope-offline {
+  background: #4b1d1d;
+  border-bottom-color: #7f1d1d;
+  color: #fecaca;
+}
+.admin-scope-banner.admin-scope-offline .admin-scope-icon {
+  color: #f87171;
+}
+
+.admin-scope-banner.admin-scope-unauthorized {
+  background: #581c87;
+  border-bottom-color: #6b21a8;
+  color: #e9d5ff;
+}
+.admin-scope-banner.admin-scope-unauthorized .admin-scope-icon {
+  color: #c084fc;
+}
+
+.admin-target-remove {
+  background: transparent;
+  border: 1px solid #7f1d1d;
+  color: #fca5a5;
+  border-radius: 4px;
+  padding: 0.25rem 0.5rem;
+  font-size: 0.6875rem;
+  cursor: pointer;
+  margin-top: 0.125rem;
+}
+
+.admin-target-remove:hover {
+  background: #7f1d1d;
+  color: #fee2e2;
+}

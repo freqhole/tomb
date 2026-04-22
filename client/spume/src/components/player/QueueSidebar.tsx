@@ -355,9 +355,9 @@ export function QueueSidebar(props: QueueSidebarProps) {
       <div
         class={`${getBackgroundConfig() ? "bg-[var(--color-bg-primary)]/60" : "bg-[var(--color-bg-primary)]/95 backdrop-blur-xl"} flex flex-col ${
           isOverlay()
-            ? /* narrow: bottom sheet above player bar */
+            ? /* narrow: bottom sheet above player bar, clears system status bar */
               `fixed z-1140 transition-transform duration-300 ease-out
-               inset-x-0 bottom-[var(--player-height)] top-0
+               inset-x-0 bottom-[var(--player-height)] top-[env(safe-area-inset-top,0px)]
                wide:inset-x-auto wide:top-0 wide:right-0 wide:bottom-0 wide:h-auto wide:w-72 lg:w-80 xl:w-96
                ${
                  props.isOpen

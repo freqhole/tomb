@@ -357,6 +357,28 @@ pub async fn get_song_by_sha256(sha256: &str) -> GrimoireResult<Option<String>> 
     Ok(song_id)
 }
 
+/// get a song ID by media blob blake3
+///
+/// returns the song ID if a non-deleted song exists with a media blob matching the blake3
+pub async fn get_song_by_blake3(blake3: &str) -> GrimoireResult<Option<String>> {
+    let pool = database::connect().await?;
+
+    let song_id: Option<String> = sqlx::query_scalar!(
+        r#"
+        SELECT s.id as "id!"
+        FROM songz s
+        JOIN media_blobz mb ON s.media_blob_id = mb.id
+        WHERE mb.blake3 = ? AND s.deleted_at IS NULL
+        LIMIT 1
+        "#,
+        blake3
+    )
+    .fetch_optional(&pool)
+    .await?;
+
+    Ok(song_id)
+}
+
 /// get all sha256 hashes for synced songs
 ///
 /// returns all sha256s from media blobs that are linked to non-deleted songs

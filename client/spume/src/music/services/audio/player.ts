@@ -24,6 +24,9 @@ import { cleanupAudioURL, getAudioURL, isPlayingDirectURL, refreshBlobURL, trySw
 import type { Song } from "../storage/types";
 import { debug } from "../../../utils/logger";
 import { getMediaSessionArtwork } from "./mediaSessionArtwork";
+// install android lock-screen / media notification shim.
+// no-op on non-android and non-tauri platforms.
+import "./androidMediaSession";
 import {
   isPlaying,
   setIsPlaying,
@@ -306,6 +309,41 @@ async function updateMediaSession() {
       seek(details.seekTime);
     }
   });
+
+  // custom action emitted by the android plugin: a native-side watchdog
+  // fires shortly after the expected end of the current track. used as a
+  // backup trigger to advance the queue when the webview has throttled
+  // js execution (screen-off / doze) and the `<audio>` `ended` event
+  // didn't fire on time. ignored if the audio element already ended on
+  // its own (the common case).
+  try {
+    navigator.mediaSession.setActionHandler(
+      "expectedend" as MediaSessionAction,
+      () => {
+        if (isIntentionalReload) return;
+        const a = audioElement;
+        if (!a) return;
+        // already handled by the native `ended` event — nothing to do.
+        if (a.ended) return;
+        // if we're not supposed to be playing, the watchdog is stale.
+        if (!isPlaying()) return;
+        // sanity check: only auto-advance if we're actually near the end.
+        // protects against bad duration metadata triggering early advance.
+        const dur = a.duration;
+        if (Number.isFinite(dur) && dur > 0 && a.currentTime < dur - 2) {
+          debug(
+            "player",
+            `expectedend ignored — currentTime=${a.currentTime.toFixed(2)} duration=${dur.toFixed(2)}`,
+          );
+          return;
+        }
+        debug("player", "expectedend watchdog firing — advancing queue");
+        void handleSongEnded();
+      },
+    );
+  } catch {
+    // some browsers reject unknown action names; safe to ignore.
+  }
 
   // update position state if we have valid duration
   if (duration() > 0) {
@@ -744,13 +782,27 @@ export async function playNext(): Promise<void> {
   const maxAttempts = 5; // prevent infinite loop
   let attempts = 0;
 
+  // hard cap on per-song setup so a hung getAudioURL or audio.play()
+  // can't wedge the whole queue while the screen is off. 20s is enough
+  // for slow p2p downloads but bounded enough that we recover and try
+  // the next song reliably.
+  const PLAY_SONG_TIMEOUT_MS = 20_000;
+
   while (currentIdx < queue.length - 1 && attempts < maxAttempts) {
     const nextIdx = currentIdx + 1;
     const nextSong = queue[nextIdx];
     attempts++;
 
     try {
-      await playSong(nextSong);
+      await Promise.race([
+        playSong(nextSong),
+        new Promise<never>((_, reject) =>
+          setTimeout(
+            () => reject(new Error(`playSong timed out after ${PLAY_SONG_TIMEOUT_MS}ms`)),
+            PLAY_SONG_TIMEOUT_MS,
+          ),
+        ),
+      ]);
       return; // success!
     } catch (error) {
       console.warn(

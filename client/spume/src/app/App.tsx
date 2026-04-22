@@ -11,6 +11,8 @@ import { AddRemoteModal } from "../components/modals/AddRemoteModal";
 import { AlbumEditorModal } from "../components/modals/AlbumEditorModal";
 import { ArtistEditorModal } from "../components/modals/ArtistEditorModal";
 import { ImageCarouselModal } from "../components/modals/ImageCarouselModal";
+import { ResolveShareModal } from "../components/modals/ResolveShareModal";
+import { ShareModal } from "../components/modals/ShareModal";
 import { SongEditorModal } from "../components/modals/SongEditorModal";
 import { TagSelectorModal } from "../components/modals/TagSelectorModal";
 import { QueueFullModal } from "../music/components/QueueFullModal";
@@ -28,12 +30,14 @@ import {
   hideImageCarousel,
   hideSongEditor,
   hideTagSelector,
+  hideShareModal,
   openAddMusic,
   showSongEditor,
   useAddMusicState,
   useAlbumEditorState,
   useArtistEditorState,
   useImageCarouselState,
+  useShareModalState,
   useSongEditorState,
   useTagSelectorState,
 } from "../music/hooks/modals";
@@ -58,6 +62,7 @@ import { addToQueue } from "../music/services/queue/queue";
 import { initMusicDB } from "../music/services/storage/db";
 import type { Song } from "../music/services/storage/types";
 import { debug } from "../utils/logger";
+import { extractShareTokenFromHash, SHARE_HASH_PARAM } from "../utils/permalink";
 import { isMiddenReady } from "./api/client";
 import { routes } from "./routes";
 import {
@@ -65,6 +70,9 @@ import {
   isCharnelMode,
   onConfigChanged,
   onEvent,
+  takePendingDeepLinks,
+  fetchLocalNodeId,
+  setLocalNodeIdValue,
   type TauriEvent,
 } from "./services/charnel";
 import {
@@ -75,6 +83,7 @@ import {
   refreshTauriRemoteTimestamp,
   upsertTauriRemote,
 } from "./services/remotes/remoteManager";
+import { drainIdbRemotesToSqlite } from "./services/remotes/drainIdbToSqlite";
 import {
   applyServiceWorkerUpdate,
   dismissUpdate,
@@ -90,6 +99,7 @@ export function App() {
   const isAddMusicOpen = useAddMusicState();
   const [isAddRemoteOpen, setIsAddRemoteOpen] = createSignal(false);
   const [addRemoteInitialValue, setAddRemoteInitialValue] = createSignal<string | undefined>();
+  const [shareToken, setShareToken] = createSignal<string | null>(null);
   const [hasSongs, setHasSongs] = createSignal(false);
   const [hasRemotes, setHasRemotes] = createSignal(false);
   const [isInitializing, setIsInitializing] = createSignal(true);
@@ -121,6 +131,74 @@ export function App() {
       setIsAddRemoteOpen(true);
     }
   });
+
+  // check for #?share=<token> in the url hash on every load + hash change.
+  // see SEND_TO_REMOTE_PLAN step 15 — ResolveShareModal handles decode +
+  // routing; this just spots the token and forwards it.
+  onMount(() => {
+    const handle = () => {
+      const token = extractShareTokenFromHash(window.location.hash);
+      if (token && token !== shareToken()) {
+        debug("App", `found share token: ${token.slice(0, 16)}...`);
+        setShareToken(token);
+      }
+    };
+    handle();
+    window.addEventListener("hashchange", handle);
+    onCleanup(() => window.removeEventListener("hashchange", handle));
+  });
+
+  // tauri cold-start: drain any deep-link urls received before the spume
+  // event listener was wired up. step 16 of SEND_TO_REMOTE_PLAN.
+  onMount(() => {
+    if (!isCharnelMode()) return;
+    void (async () => {
+      const urls = await takePendingDeepLinks();
+      for (const url of urls) {
+        const token = extractDeepLinkShareToken(url);
+        if (token) {
+          debug("App", `cold-start deep link token: ${token.slice(0, 16)}...`);
+          setShareToken(token);
+          // only one resolver modal at a time; subsequent urls are dropped.
+          break;
+        }
+      }
+    })();
+  });
+
+  // tauri: cache the local iroh node id so share links + send-to-remote
+  // work from the charnel-managed local remote (which has no peer_addr
+  // of its own — it dispatches over IPC, but the same binary runs an
+  // iroh endpoint we can hand out).
+  onMount(() => {
+    if (!isCharnelMode()) return;
+    void (async () => {
+      const id = await fetchLocalNodeId();
+      setLocalNodeIdValue(id);
+      if (id) debug("App", `local node id: ${id.slice(0, 16)}...`);
+    })();
+  });
+
+  // strip the share param out of `window.location.hash` once the modal closes
+  // (success, dismiss, or unmatched + add-remote handoff).
+  const clearShareToken = () => {
+    setShareToken(null);
+    const hash = window.location.hash;
+    const stripped = hash.startsWith("#") ? hash.slice(1) : hash;
+    const qIdx = stripped.indexOf("?");
+    if (qIdx < 0) return;
+    const path = stripped.slice(0, qIdx);
+    const params = new URLSearchParams(stripped.slice(qIdx + 1));
+    params.delete(SHARE_HASH_PARAM);
+    const rest = params.toString();
+    const newHash = path + (rest ? `?${rest}` : "");
+    // history.replaceState avoids triggering hashchange listeners.
+    history.replaceState(
+      null,
+      "",
+      `${window.location.pathname}${window.location.search}${newHash ? `#${newHash}` : ""}`
+    );
+  };
 
   // global keyboard shortcuts
   onMount(() => {
@@ -175,7 +253,7 @@ export function App() {
             await upsertTauriRemote({
               name: newConfig.server_name,
               base_url: newConfig.server_url,
-              server_image_path: newConfig.server_image_path,
+              server_image_path: newConfig.server_image_path ?? undefined,
             });
             console.log("[handleTauriEvent] server-image-updated: refreshed remote");
           } else {
@@ -242,6 +320,19 @@ export function App() {
           }
         })();
         break;
+
+      case "share-link-received": {
+        // os handed off a `freqhole://o/<token>` url. extract token and
+        // route through the same ResolveShareModal flow used for web urls.
+        const token = extractDeepLinkShareToken(event.data.url);
+        if (token) {
+          debug("App", `deep link share token: ${token.slice(0, 16)}...`);
+          setShareToken(token);
+        } else {
+          debug("App", `deep link without share token: ${event.data.url}`);
+        }
+        break;
+      }
     }
   }
 
@@ -276,7 +367,7 @@ export function App() {
       const remote = await upsertTauriRemote({
         name: config.server_name,
         base_url: config.server_url,
-        server_image_path: config.server_image_path,
+        server_image_path: config.server_image_path ?? undefined,
       });
       // use useRemoteSource to properly switch data source AND set active_remote_id
       await useRemoteSource(remote);
@@ -290,7 +381,7 @@ export function App() {
           const updatedRemote = await upsertTauriRemote({
             name: newConfig.server_name,
             base_url: newConfig.server_url,
-            server_image_path: newConfig.server_image_path,
+            server_image_path: newConfig.server_image_path ?? undefined,
           });
           await useRemoteSource(updatedRemote);
           queryClient.invalidateQueries();
@@ -363,6 +454,11 @@ export function App() {
     try {
       await initAppDB();
       await initMusicDB();
+
+      // tauri-only: one-shot drain of IDB remotes into shared sqlite table.
+      // no-op outside tauri or after first successful drain.
+      // see docs/wizard-remote-admin.md.
+      await drainIdbRemotesToSqlite();
 
       // auto-setup remote from tauri bridge (for desktop app)
       // this is fast since it's local IPC
@@ -497,13 +593,52 @@ export function App() {
     await fetchUrlsOnRemote(urls, onRemoteJobComplete);
   };
 
-  // handle paths selected via tauri dialog
-  // supports both charnel-managed local remotes (musicByPaths) and P2P remotes (iroh-blobs upload)
+  // handle paths selected via tauri dialog (desktop only, Android uses file input)
+  // supports local import (no remote), charnel-managed local remotes, and P2P remotes
   const handlePathsSelected = async (paths: string[]) => {
     const remote = getCurrentRemote();
 
     if (!remote) {
-      toast.warning("no active remote", { title: "not supported" });
+      // local import from file paths: read files via tauri-plugin-fs and import locally
+      try {
+        const fsModule = (await import("@tauri-apps/plugin-fs" as any)) as {
+          readFile: (path: string) => Promise<Uint8Array>;
+        };
+
+        const files: File[] = [];
+        for (const filePath of paths) {
+          try {
+            const data = await fsModule.readFile(filePath);
+            const filename = filePath.split("/").pop() || filePath.split("\\").pop() || "audio.mp3";
+            // guess mime from extension
+            const ext = filename.split(".").pop()?.toLowerCase() || "";
+            const mimeMap: Record<string, string> = {
+              mp3: "audio/mpeg",
+              flac: "audio/flac",
+              wav: "audio/wav",
+              m4a: "audio/mp4",
+              ogg: "audio/ogg",
+              aac: "audio/aac",
+              alac: "audio/alac",
+              wma: "audio/x-ms-wma",
+            };
+            files.push(
+              new File([data as BlobPart], filename, { type: mimeMap[ext] || "audio/mpeg" })
+            );
+          } catch (err) {
+            console.error("failed to read file:", filePath, err);
+          }
+        }
+
+        if (files.length > 0) {
+          const dt = new DataTransfer();
+          files.forEach((f) => dt.items.add(f));
+          await handleFilesSelected(dt.files);
+        }
+      } catch (error) {
+        console.error("failed to import local paths:", error);
+        toast.error("failed to read files", { title: "import error" });
+      }
       return;
     }
 
@@ -605,10 +740,7 @@ export function App() {
         onPathsSelected={handlePathsSelected}
         onUrlsSubmitted={handleUrlsSubmitted}
         remoteName={getCurrentRemote()?.name}
-        useCharnelDialog={
-          isCharnelMode() &&
-          (getCurrentRemote()?.is_charnel_managed === true || !!getCurrentRemote()?.peer_addr)
-        }
+        useCharnelDialog={isCharnelMode()}
         uploadJobs={getUploadJobs()}
         localImportProgress={getLocalImportProgress()}
       />
@@ -637,6 +769,15 @@ export function App() {
           })();
         }}
         initialValue={addRemoteInitialValue()}
+      />
+
+      <ResolveShareModal
+        token={shareToken()}
+        onClose={clearShareToken}
+        onAddRemote={(nodeId) => {
+          setAddRemoteInitialValue(nodeId);
+          setIsAddRemoteOpen(true);
+        }}
       />
 
       <Show when={useSongEditorState()()}>
@@ -705,6 +846,19 @@ export function App() {
         )}
       </Show>
 
+      <Show when={useShareModalState()()}>
+        {(state) => (
+          <ShareModal
+            isOpen={true}
+            onClose={hideShareModal}
+            target={state().target}
+            source={state().source()}
+            buildSendPayload={state().buildSendPayload}
+            webHost={state().webHost}
+          />
+        )}
+      </Show>
+
       {/* queue full modal (global, managed by queue service) */}
       <QueueFullModal />
     </>
@@ -712,3 +866,17 @@ export function App() {
 }
 
 export default App;
+
+/**
+ * extract a share token from a `freqhole://` deep-link url.
+ * accepts both `freqhole://o/<token>` and `freqhole://share/<token>` shapes
+ * for forward-compat. returns null if the url isn't recognized.
+ */
+function extractDeepLinkShareToken(url: string): string | null {
+  if (!url) return null;
+  // strip scheme — `URL` parsing on custom schemes is inconsistent across
+  // platforms, so do it by hand.
+  const stripped = url.replace(/^freqhole:\/\//i, "");
+  const m = stripped.match(/^(?:o|share)\/([^?#/]+)/i);
+  return m ? m[1] : null;
+}

@@ -1,3 +1,6 @@
+// polyfill crypto.randomUUID() for old WebView (must run before any other imports)
+import "./utils/uuid";
+
 import { QueryClientProvider } from "@tanstack/solid-query";
 import { render } from "solid-js/web";
 import { App } from "./app/App";
@@ -17,5 +20,5 @@ render(
       <App />
     </QueryClientProvider>
   ),
-  root,
+  root
 );

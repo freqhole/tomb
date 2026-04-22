@@ -1,13 +1,13 @@
-import { Show, createSignal, createMemo, createEffect, onMount, onCleanup } from "solid-js";
+import { Show, createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js";
+import { getBackgroundConfig } from "../../app/services/backgroundImage";
+import type { ImageMetadata } from "../../music/services/storage/types";
+import { formatDuration } from "../../utils/formatDuration";
+import { getSongDisplayImages, getWaveformImage } from "../../utils/images";
 import { Icon, IconNames } from "../icons/registry";
+import MediaImage from "../media/MediaImage";
 import { FavoriteHeart } from "../ratings/FavoriteHeart";
 import { MarqueeText } from "../text/MarqueeText";
 import { VolumeControl } from "./VolumeControl";
-import MediaImage from "../media/MediaImage";
-import { formatDuration } from "../../utils/formatDuration";
-import { getBackgroundConfig } from "../../app/services/backgroundImage";
-import { getSongDisplayImages, getWaveformImage } from "../../utils/images";
-import type { ImageMetadata } from "../../music/services/storage/types";
 
 export interface PlayerBarSong {
   /** song id */
@@ -203,7 +203,7 @@ export function PlayerBar(props: PlayerBarProps) {
   return (
     <div
       class={`fixed bottom-0 left-0 right-0 ${getBackgroundConfig() ? "bg-[var(--color-bg-primary)]/40" : "bg-[var(--color-bg-primary)]/90 backdrop-blur-xl"} z-50 ${props.class || ""}`}
-      style={{ height: "var(--player-height)" }}
+      style={{ height: "var(--player-height)", "padding-bottom": "var(--safe-area-bottom, 0px)" }}
     >
       {/* narrow layout: 2 rows — seekbar on top to avoid iOS swipe-up gesture */}
       <div class="flex flex-col h-full wide:hidden p-2 gap-1">

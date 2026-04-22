@@ -13,11 +13,11 @@ import {
   updatePendingRemote,
 } from "../../app/services/storage/db";
 import type { PendingRemote } from "../../app/services/storage/types";
+import { debug } from "../../utils/logger";
 import { AuthForm } from "../auth/AuthForm";
 import { Button } from "../buttons/Button";
-import { MediaImage } from "../media/MediaImage";
 import { QrScanner } from "../inputs/QrScanner";
-import { debug } from "../../utils/logger";
+import { MediaImage } from "../media/MediaImage";
 
 // format error messages from API responses
 // handles Zod validation errors (JSON arrays) and plain strings
@@ -413,7 +413,7 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
             transport: isCharnelAvailable() ? "app" : "wasm",
             stage: "connected",
             server_name: info.name,
-            server_description: info.description,
+            server_description: info.description ?? null,
             server_version: info.version,
             server_image_data: imageData?.data ?? null,
             server_image_type: imageData?.type ?? null,
@@ -524,7 +524,7 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
                   transport: isCharnelAvailable() ? "app" : "wasm",
                   stage: "connected",
                   server_name: info.name,
-                  server_description: info.description,
+                  server_description: info.description ?? null,
                   server_version: info.version,
                   server_image_data: imageData?.data ?? null,
                   server_image_type: imageData?.type ?? null,
@@ -718,7 +718,7 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
           transport: "http",
           stage: "connected",
           server_name: info.name,
-          server_description: info.description,
+          server_description: info.description ?? null,
           server_version: info.version,
           server_image_data: null, // HTTP remotes fetch images via URL
           server_image_type: null,
@@ -1184,12 +1184,22 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
 
       {/* backdrop */}
       <div
-        class="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
+        class="bg-black/50 flex items-center justify-center p-0 wide:p-4"
+        style={{
+          position: "fixed",
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          "z-index": 1050,
+          "margin-top": "env(safe-area-inset-top, 0px)",
+          height: "calc(100% - env(safe-area-inset-top, 0px))",
+        }}
         onClick={handleClose}
       >
         {/* modal */}
         <div
-          class="bg-[var(--color-bg-primary)] rounded-lg shadow-xl max-w-md w-full border border-[var(--color-border-default)] flex flex-col max-h-[80dvh]"
+          class="bg-[var(--color-bg-primary)] shadow-xl w-full wide:border wide:border-[var(--color-border-default)] flex flex-col h-full wide:rounded-lg wide:max-w-md wide:max-h-[80dvh] wide:h-auto"
           onClick={(e) => e.stopPropagation()}
         >
           {/* header */}

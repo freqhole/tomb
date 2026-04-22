@@ -1,19 +1,19 @@
 import { NavigationMenu as KobalteNav } from "@kobalte/core/navigation-menu";
 import { createResource, createSignal, For, onCleanup, onMount, Show, type JSX } from "solid-js";
-import { Icon } from "../icons/registry";
-import { toast } from "../feedback/Toast";
-import { TopNavSearchContainer } from "../../utils/TopNavSearchContainer";
-import MediaImage from "../media/MediaImage";
-import { ViewSelector, type ViewOption } from "./ViewSelector";
+import { isCharnelMode } from "../../app/services/charnel";
 import { getPageInfo } from "../../app/services/pageInfo";
-import { Badge } from "../badges/Badge";
+import { isNarrowViewport, isSmallViewport } from "../../config/breakpoints";
+import { canCreatePlaylist, canUploadMusic } from "../../music/data/permissions";
+import { resolveBlobUrl } from "../../music/services/storage/blobResolver";
 import type { ImageMetadata } from "../../music/services/storage/types";
 import { routes } from "../../music/utils/routing";
-import { canUploadMusic, canCreatePlaylist } from "../../music/data/permissions";
 import { formatRelativeTime } from "../../utils/dateTime";
-import { isCharnelMode } from "../../app/services/charnel";
-import { isNarrowViewport, isSmallViewport } from "../../config/breakpoints";
-import { resolveBlobUrl } from "../../music/services/storage/blobResolver";
+import { TopNavSearchContainer } from "../../utils/TopNavSearchContainer";
+import { Badge } from "../badges/Badge";
+import { toast } from "../feedback/Toast";
+import { Icon } from "../icons/registry";
+import MediaImage from "../media/MediaImage";
+import { ViewSelector, type ViewOption } from "./ViewSelector";
 
 export interface NavMenuItem {
   /** menu item label */
@@ -336,7 +336,10 @@ export function TopNav(props: TopNavProps) {
           "fixed top-2 left-6 bg-black/20 backdrop-blur-sm px-2 py-1.5 rounded-lg border border-white/10 shadow-lg":
             !isNarrow(),
         }}
-        style={{ height: isNarrow() ? "var(--nav-height, 56px)" : "auto" }}
+        style={{
+          height: isNarrow() ? "var(--nav-height, 56px)" : "auto",
+          "padding-top": isNarrow() ? "var(--safe-area-top, 0px)" : undefined,
+        }}
         onMouseEnter={() => setNavHovered(true)}
         onMouseLeave={() => setNavHovered(false)}
       >
@@ -363,8 +366,44 @@ export function TopNav(props: TopNavProps) {
               </KobalteNav.Trigger>
 
               <KobalteNav.Portal>
-                <KobalteNav.Content class="bg-[var(--color-bg-elevated)] border border-[var(--color-border-default)] rounded-lg shadow-xl z-[1001] data-[expanded]:animate-in data-[closed]:animate-out overflow-y-auto">
-                  <div class="flex flex-col wide:grid wide:grid-cols-2 gap-4 wide:gap-6 min-w-[280px] wide:min-w-[560px] max-h-[70dvh]">
+                <KobalteNav.Content
+                  class="bg-[var(--color-bg-elevated)] border border-[var(--color-border-default)] rounded-lg shadow-xl z-[1001] data-[expanded]:animate-in data-[closed]:animate-out"
+                  ref={(el: HTMLElement) => {
+                    // intercept pointerleave in capture phase before Kobalte sees it.
+                    // Kobalte's NavigationMenu.Content calls startLeaveTimer() on
+                    // pointerleave without checking pointerType, so touch scrolling
+                    // closes the menu on Android. we swallow the event for touch.
+                    el.addEventListener(
+                      "pointerleave",
+                      (e) => {
+                        if (e.pointerType === "touch") {
+                          e.stopImmediatePropagation();
+                        }
+                      },
+                      { capture: true }
+                    );
+                  }}
+                >
+                  <div
+                    class="flex flex-col wide:grid wide:grid-cols-2 gap-4 wide:gap-6 min-w-[280px] wide:min-w-[560px]"
+                    style={{
+                      "max-height": "70vh",
+                      "overflow-y": "auto",
+                      "-webkit-overflow-scrolling": "touch",
+                      "touch-action": "pan-y",
+                      "overscroll-behavior": "contain",
+                    }}
+                    ref={(el) => {
+                      // prevent touchmove from being eaten by parent/Kobalte handlers
+                      el.addEventListener(
+                        "touchmove",
+                        (e) => {
+                          e.stopPropagation();
+                        },
+                        { passive: true }
+                      );
+                    }}
+                  >
                     {/* column 1: brand info + source management */}
                     <div class="flex flex-col p-4 wide:p-6">
                       <div class="flex items-start justify-between mb-6">
