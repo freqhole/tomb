@@ -162,6 +162,7 @@
         <p class="sub" id="np-artist">—</p>
         <p class="sub" id="np-album">—</p>
         <p class="listeners" id="np-listeners">listeners: —</p>
+        <p class="listeners" id="np-duration">duration: —</p>
       </div>
     </div>
 
@@ -186,6 +187,7 @@
       const npArtist = $("np-artist");
       const npAlbum = $("np-album");
       const npListeners = $("np-listeners");
+      const npDuration = $("np-duration");
       const artSlot = $("art-slot");
 
       const log = (msg) => {
@@ -256,6 +258,14 @@
         }
       };
 
+      const fmtDuration = (ms) => {
+        if (ms == null || !isFinite(ms) || ms <= 0) return "—";
+        const total = Math.round(ms / 1000);
+        const m = Math.floor(total / 60);
+        const s = total % 60;
+        return `${m}:${s.toString().padStart(2, "0")}`;
+      };
+
       const renderNowPlaying = (np, listenerCount) => {
         npCard.classList.add("visible");
         npTitle.textContent = np.title || "(untitled)";
@@ -264,6 +274,7 @@
         if (listenerCount != null) {
           npListeners.textContent = `listeners: ${listenerCount}`;
         }
+        npDuration.textContent = `duration: ${fmtDuration(np.duration_ms)}`;
         renderArt(np.art);
       };
 
@@ -289,6 +300,11 @@
         let sb = null;
         const queue = [];
         let seekedToLive = false;
+        // pending meta updates keyed by their init_seq. applied when a
+        // chunk with is_init=true and a matching seq is appended, so the
+        // displayed track changes when audio actually crosses into the
+        // new track (catchup ring + MSE buffer can be 10+ seconds).
+        const pendingMeta = new Map();
 
         const drain = () => {
           if (!sb || sb.updating) return;
@@ -348,11 +364,20 @@
         const onMeta = (json) => {
           try {
             const msg = JSON.parse(json);
+            const initSeq = msg.init_seq;
             log(
-              `[meta] now playing: ${msg.now_playing?.title || "?"} ` +
-                `(listeners: ${msg.listener_count})`,
+              `[meta] queued: ${msg.now_playing?.title || "?"} ` +
+                `(listeners: ${msg.listener_count}, init_seq: ${initSeq})`,
             );
-            renderNowPlaying(msg.now_playing, msg.listener_count);
+            if (typeof initSeq === "number") {
+              pendingMeta.set(initSeq, {
+                now_playing: msg.now_playing,
+                listener_count: msg.listener_count,
+              });
+            } else {
+              // protocol drift: no init_seq → apply immediately.
+              renderNowPlaying(msg.now_playing, msg.listener_count);
+            }
           } catch (e) {
             log(`[meta] parse failed: ${e}`);
           }
@@ -364,6 +389,13 @@
           if (!firstChunkAt) firstChunkAt = performance.now();
           if (isInit) {
             log(`chunk ${seq} INIT (${bytes.length} bytes) — new track`);
+            // latch any queued meta update whose init_seq matches.
+            if (pendingMeta.has(seq)) {
+              const m = pendingMeta.get(seq);
+              pendingMeta.delete(seq);
+              log(`[meta] applied for init_seq=${seq}: ${m.now_playing?.title}`);
+              renderNowPlaying(m.now_playing, m.listener_count);
+            }
           } else if (chunkCount % 20 === 0) {
             log(`chunk ${seq} (${bytes.length} bytes)`);
           }

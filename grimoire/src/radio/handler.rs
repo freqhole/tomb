@@ -3,22 +3,20 @@
 //! flow for a new listener:
 //!
 //! 1. server `accept_bi()` for the control stream
-//! 2. server reads one `Tune` control message
-//! 3. server subscribes to the global [`Broadcaster`] and writes a `Hello`
-//!    on the control stream (codec, current track, listener count, seqs)
+//! 2. server reads one `Tune` control message; uses `tune.station_id` (or
+//!    the default station when absent) to look up the broadcaster
+//! 3. server subscribes + writes a `Hello` on the control stream
 //! 4. server `open_uni()` for the audio stream
 //! 5. server writes the current init chunk + cached catchup chunks
-//! 6. server fans live audio chunks out from `chunk_rx` to the audio stream
-//!    and live meta updates from `meta_rx` to the control stream
-//!
-//! the two forwarding loops run concurrently via `tokio::select!`; whichever
-//! one finishes first (peer disconnect, lag, error) tears down the whole
-//! session.
+//! 6. server fans live audio chunks + meta updates concurrently
 
 use crate::error::{GrimoireError, GrimoireResult};
-use crate::radio::broadcaster::{get_broadcaster, Broadcaster};
+use crate::radio::broadcaster::{
+    get_default as get_default_broadcaster, get_station as get_broadcaster, Broadcaster,
+    MetaUpdate,
+};
 use crate::radio::chunk::Chunk;
-use crate::radio::messages::{ControlMessage, HelloMessage, MetaMessage, NowPlaying, RADIO_CODEC};
+use crate::radio::messages::{ControlMessage, HelloMessage, MetaMessage, RADIO_CODEC};
 use crate::radio::protocol::{read_control_message, write_chunk, write_control_message};
 use iroh::endpoint::{Connection, SendStream};
 use std::sync::Arc;
@@ -37,11 +35,7 @@ pub async fn handle_connection(conn: Connection) {
 }
 
 async fn run_session(conn: &Connection) -> GrimoireResult<()> {
-    let bc = get_broadcaster().ok_or_else(|| GrimoireError::ProcessingFailed {
-        message: "radio: broadcaster not initialized".to_string(),
-    })?;
-
-    // 1. accept the control bidi stream the client opens immediately.
+    // 1. accept the control bidi stream.
     let (mut ctrl_send, mut ctrl_recv) =
         conn.accept_bi()
             .await
@@ -49,10 +43,9 @@ async fn run_session(conn: &Connection) -> GrimoireResult<()> {
                 message: format!("radio: failed to accept control stream: {e}"),
             })?;
 
-    // 2. read the Tune message. enforce the message type so we don't blindly
-    //    forward whatever the client sends.
-    match read_control_message(&mut ctrl_recv).await? {
-        Some(ControlMessage::Tune(_)) => {}
+    // 2. read Tune; pick broadcaster by station_id (or default).
+    let requested_station = match read_control_message(&mut ctrl_recv).await? {
+        Some(ControlMessage::Tune(t)) => t.station_id,
         Some(other) => {
             return Err(GrimoireError::FederationApiError {
                 message: format!("radio: expected Tune, got {other:?}"),
@@ -63,10 +56,22 @@ async fn run_session(conn: &Connection) -> GrimoireResult<()> {
                 message: "radio: control stream closed before Tune".to_string(),
             });
         }
-    }
+    };
 
-    // 3. subscribe + send Hello. listener count is bumped inside the guard
-    //    so it auto-decrements on any return path below.
+    let bc = match requested_station.as_deref() {
+        Some(id) => get_broadcaster(id).await.ok_or_else(|| {
+            GrimoireError::FederationApiError {
+                message: format!("radio: no broadcaster for station '{id}'"),
+            }
+        })?,
+        None => get_default_broadcaster().await.ok_or_else(|| {
+            GrimoireError::FederationApiError {
+                message: "radio: no default station configured".to_string(),
+            }
+        })?,
+    };
+
+    // 3. subscribe + send Hello.
     let _guard = ListenerGuard::new(bc.clone());
     let listener_count = bc.listener_count();
     let mut sub = bc.subscribe().await;
@@ -88,8 +93,7 @@ async fn run_session(conn: &Connection) -> GrimoireResult<()> {
                 message: format!("radio: failed to open audio stream: {e}"),
             })?;
 
-    // 5. write current init + catchup chunks. if there's no init yet (server
-    //    is still warming up) the live chunk loop will pick up the next one.
+    // 5. write current init + catchup chunks.
     if let Some(init) = sub.init.as_ref() {
         write_chunk(&mut audio_send, init).await?;
     }
@@ -97,8 +101,7 @@ async fn run_session(conn: &Connection) -> GrimoireResult<()> {
         write_chunk(&mut audio_send, chunk).await?;
     }
 
-    // 6. concurrent audio + meta forwarding. either ending means the session
-    //    is over.
+    // 6. concurrent audio + meta forwarding.
     tokio::select! {
         res = forward_audio(&mut sub.chunk_rx, &mut audio_send) => res,
         res = forward_meta(&mut sub.meta_rx, &mut ctrl_send, bc.clone()) => res,
@@ -113,44 +116,37 @@ async fn forward_audio(
         match rx.recv().await {
             Ok(chunk) => write_chunk(send, &chunk).await?,
             Err(RecvError::Lagged(n)) => {
-                // listener fell behind. simplest recovery: disconnect them so
-                // they reconnect and re-sync via the catchup window. phase 2
-                // can implement a soft "skip-to-live" with a Lag control msg.
                 return Err(GrimoireError::FederationApiError {
                     message: format!("radio: listener lagged {n} chunks; disconnecting"),
                 });
             }
-            Err(RecvError::Closed) => {
-                // broadcaster channel closed (= broadcaster dropped). this
-                // shouldn't happen at runtime since the broadcaster is global,
-                // but treat it as a clean shutdown.
-                return Ok(());
-            }
+            Err(RecvError::Closed) => return Ok(()),
         }
     }
 }
 
 async fn forward_meta(
-    rx: &mut tokio::sync::broadcast::Receiver<Arc<NowPlaying>>,
+    rx: &mut tokio::sync::broadcast::Receiver<MetaUpdate>,
     send: &mut SendStream,
     bc: Arc<Broadcaster>,
 ) -> GrimoireResult<()> {
     loop {
         match rx.recv().await {
-            Ok(np) => {
+            Ok(update) => {
                 let msg = ControlMessage::Meta(MetaMessage {
-                    now_playing: (*np).clone(),
+                    now_playing: (*update.now_playing).clone(),
                     listener_count: bc.listener_count(),
+                    init_seq: update.init_seq,
                 });
                 write_control_message(send, &msg).await?;
             }
             Err(RecvError::Lagged(_)) => {
-                // we missed some meta updates. send the current snapshot so
-                // the client doesn't display stale info.
+                // missed updates — push the current snapshot.
                 let sub = bc.subscribe().await;
                 let msg = ControlMessage::Meta(MetaMessage {
                     now_playing: (*sub.now_playing).clone(),
                     listener_count: bc.listener_count(),
+                    init_seq: sub.init_seq,
                 });
                 write_control_message(send, &msg).await?;
             }

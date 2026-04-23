@@ -56,6 +56,13 @@ pub struct HelloMessage {
 pub struct MetaMessage {
     pub now_playing: NowPlaying,
     pub listener_count: u32,
+    /// seq of the init chunk that starts this track. clients use this to
+    /// latch the meta until playback actually crosses into the new track
+    /// (the catchup ring + their own MSE buffer can be ~12+ seconds, so
+    /// applying meta on receipt would change the displayed title well
+    /// before the audio actually does).
+    #[serde(default)]
+    pub init_seq: u32,
 }
 
 /// the data backing the now-playing card. kept flat so phase 2 can extend
@@ -70,6 +77,20 @@ pub struct NowPlaying {
     pub album: Option<String>,
     #[serde(default)]
     pub art: Option<ArtData>,
+    /// total track duration in milliseconds, when known. lets the client
+    /// render a position scrubber. null for tracks without duration
+    /// metadata (rare).
+    #[serde(default)]
+    pub duration_ms: Option<i64>,
+    /// blob_id of the song's waveform image (if any). client fetches via
+    /// the existing media-blob endpoint; populated independently from
+    /// `art` (which is the album/artist cover).
+    #[serde(default)]
+    pub waveform_blob_id: Option<String>,
+    /// id of the station currently playing this track (lets the client
+    /// validate it's still tuned to the right channel after a reconnect).
+    #[serde(default)]
+    pub station_id: Option<String>,
 }
 
 /// inline base64-encoded art bytes. the `mime` field tells the client what

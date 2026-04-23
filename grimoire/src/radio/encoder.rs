@@ -8,7 +8,7 @@
 use crate::config::get_config;
 use crate::error::{GrimoireError, GrimoireResult};
 use crate::radio::chunk::{BoxParser, Chunk};
-use crate::radio::config::{DEFAULT_BITRATE_KBPS, DEFAULT_FRAG_DURATION_US};
+use crate::radio::config::effective as radio_cfg;
 use std::process::Stdio;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -73,37 +73,25 @@ impl Encoder {
     /// chunks are pulled lazily via [`Encoder::next_chunk`].
     pub fn start(input_path: &str) -> GrimoireResult<Self> {
         let ffmpeg = get_config().media.ffmpeg_path.clone();
+        let cfg = radio_cfg();
 
-        let bitrate = format!("{}k", DEFAULT_BITRATE_KBPS);
-        let frag_dur = DEFAULT_FRAG_DURATION_US.to_string();
+        // parse args FIRST (so quoted strings stay intact), then substitute
+        // {input}. mirrors the pattern used by extract_album_art_args /
+        // generate_waveform_args in MediaConfig.
+        let mut args =
+            shell_words::split(&cfg.encode_args).map_err(|e| GrimoireError::ProcessingFailed {
+                message: format!("radio: failed to parse encode_args: {e}"),
+            })?;
+        for arg in args.iter_mut() {
+            if arg.contains("{input}") {
+                *arg = arg.replace("{input}", input_path);
+            }
+        }
 
         debug!("[radio-encoder] spawning ffmpeg for {input_path}");
 
         let mut child = Command::new(&ffmpeg)
-            .args([
-                "-hide_banner",
-                "-loglevel",
-                "error",
-                // pace output to wall-clock playback rate so we don't blast
-                // an entire song through the wire in seconds. without this
-                // the listener's MSE buffer balloons and song boundaries
-                // arrive faster than they can be played.
-                "-re",
-                "-i",
-                input_path,
-                "-vn",
-                "-c:a",
-                "aac",
-                "-b:a",
-                &bitrate,
-                "-movflags",
-                "frag_keyframe+empty_moov+default_base_moof",
-                "-frag_duration",
-                &frag_dur,
-                "-f",
-                "mp4",
-                "pipe:1",
-            ])
+            .args(&args)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .stdin(Stdio::null())

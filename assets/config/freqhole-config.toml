@@ -480,3 +480,29 @@ allowed_node_ids = []
 # size of any single message — relevant mostly for image uploads via
 # `library_image_upload` (base64-encoded blob in the request).
 max_message_size_mb = 16
+
+# ============================================================================
+# RADIO BROADCAST (Optional - radio over iroh)
+# ============================================================================
+# the radio is intentionally minimal at the toml layer: only `enabled` and
+# `encode_args` live here. everything per-station (name, public/private,
+# which songs play) is configured via the ui and stored in sqlite, so you
+# can run any number of radio "channels" without restarting the server.
+#
+# requires `[federation].enabled = true` (the iroh endpoint comes from
+# federation setup).
+# ============================================================================
+[radio]
+# REQUIRED when section exists: master switch (default: false)
+enabled = false
+
+# OPTIONAL: ffmpeg command-line template. supports `{input}` placeholder.
+# output is always pipe:1 (stdout). default: fragmented MP4 with AAC-LC at
+# 192 kbps and 3-second fragments — what the spume / midden client expect.
+# notes:
+#   * `-re` is required for live pacing; without it ffmpeg blasts the whole
+#     song through stdout in seconds and the client buffer drowns
+#   * `frag_keyframe+empty_moov+default_base_moof` makes MSE-friendly fMP4
+#   * if you change the codec/profile, also update the station's codec
+#     string in the radio_stationz table
+encode_args = "-hide_banner -loglevel error -re -i {input} -vn -c:a aac -b:a 192k -movflags frag_keyframe+empty_moov+default_base_moof -frag_duration 3000000 -f mp4 pipe:1"

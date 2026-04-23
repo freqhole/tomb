@@ -34,6 +34,22 @@ async fn serve() -> CommandOutput<serde_json::Value> {
     info!("[radio] starting radio broadcaster...");
     eprintln!("starting radio broadcaster...");
 
+    // refuse to start if `[radio].enabled = false` (or the section is
+    // absent). everything else is configured per-station in the db.
+    let radio_cfg = grimoire::radio::config::effective();
+    if !radio_cfg.enabled {
+        let msg = "radio is disabled — set `[radio] enabled = true` in freqhole-config.toml";
+        return CommandOutput::failure(
+            msg.to_string(),
+            vec![ErrorDetail {
+                error_type: "radio_disabled".to_string(),
+                title: "radio disabled".to_string(),
+                detail: msg.to_string(),
+            }],
+            serde_json::json!({}),
+        );
+    }
+
     // build the federation endpoint manually so we can register the radio
     // ALPN via the customize hook. unlike `start_federation_endpoint`, this
     // does not require federation to be enabled in config — radio only needs
@@ -51,11 +67,17 @@ async fn serve() -> CommandOutput<serde_json::Value> {
 
     let node_id = endpoint.node_id().to_string();
 
-    // spin up the global broadcaster before accepting any listeners. it
-    // immediately starts encoding the first random song so connecting
-    // listeners get audio without waiting for the first encode pass.
-    let _bc = init_broadcaster();
-    info!("[radio] broadcaster initialized");
+    // initialize broadcaster registry — spawns one ffmpeg pipeline per
+    // enabled station in radio_stationz. listeners attach via tune.station_id
+    // (or the default station, which is the first enabled row by created_at).
+    if let Err(e) = init_broadcaster().await {
+        return CommandOutput::failure(
+            format!("failed to start radio broadcaster registry: {e}"),
+            vec![],
+            serde_json::json!({ "node_id": node_id }),
+        );
+    }
+    info!("[radio] broadcaster registry initialized");
 
     if let Err(e) = endpoint
         .start_router_with(|builder| builder.accept(RADIO_ALPN, RadioProtocol::new()))

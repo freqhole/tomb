@@ -31,6 +31,9 @@ pub struct GrimoireConfig {
     /// Federation/P2P configuration (optional - for peer-to-peer music sharing)
     #[serde(default)]
     pub federation: Option<FederationConfig>,
+    /// Radio streaming configuration (optional - only when broadcasting).
+    #[serde(default)]
+    pub radio: Option<crate::radio::config::RadioConfig>,
 
     /// Path this config was loaded from. Set by `init_config`; not
     /// (de)serialized. Used by admin handlers that need to write changes
