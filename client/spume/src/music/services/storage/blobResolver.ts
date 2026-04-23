@@ -104,7 +104,8 @@ export async function resolveBlobUrl(
   onProgress?: BlobProgressCallback,
   thumbnailSize?: ThumbnailSize,
   blake3?: string,
-  totalBytes?: number
+  totalBytes?: number,
+  mimeType?: string
 ): Promise<string> {
   // include thumbnail size in cache key so different sizes are cached separately
   const cacheKey = thumbnailSize
@@ -156,7 +157,8 @@ export async function resolveBlobUrl(
       onProgress,
       blake3,
       abortController.signal,
-      totalBytes
+      totalBytes,
+      mimeType
     );
     inProgressP2PFetches.set(cacheKey, fetchPromise);
 
@@ -194,7 +196,8 @@ async function resolveP2PBlob(
   onProgress?: BlobProgressCallback,
   blake3?: string,
   signal?: AbortSignal,
-  totalBytes?: number
+  totalBytes?: number,
+  mimeType?: string
 ): Promise<string> {
   // check if already cancelled
   if (signal?.aborted) {
@@ -253,7 +256,7 @@ async function resolveP2PBlob(
     // pass blake3 for verified streaming via iroh-blobs
     let url: string;
     if (onProgress && transport.getBlobUrlWithProgress) {
-      url = await transport.getBlobUrlWithProgress(blobId, onProgress, blake3, totalBytes);
+      url = await transport.getBlobUrlWithProgress(blobId, onProgress, blake3, totalBytes, mimeType);
     } else {
       url = await transport.getBlobUrl(blobId, blake3);
     }

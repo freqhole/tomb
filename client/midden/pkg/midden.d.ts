@@ -188,13 +188,6 @@ export class MiddenNode {
      */
     download_verified_by_id(peer_addr: string, blob_id: string): Promise<Array<any>>;
     /**
-     * full pipeline from blob_id with progress reporting
-     *
-     * computes blake3 on demand, then uses verified download with progress.
-     * returns [data: Uint8Array, blake3: string].
-     */
-    download_verified_by_id_progress(peer_addr: string, blob_id: string, total_size: number, on_progress: Function): Promise<Array<any>>;
-    /**
      * download a verified blob and stream chunks to JS via callback
      *
      * this is the preferred path for large blobs (audio files). instead of
@@ -228,21 +221,6 @@ export class MiddenNode {
      * calls ensure_blob to load it, then retries.
      */
     download_verified_with_ensure(peer_addr: string, blake3_hash: string): Promise<Uint8Array>;
-    /**
-     * download with ensure + retry and progress reporting
-     *
-     * tries download first; if blob not in peer's FsStore, calls ensure_blob
-     * then retries. progress callback receives fraction (0.0 to 1.0).
-     */
-    download_verified_with_ensure_progress(peer_addr: string, blake3_hash: string, total_size: number, on_progress: Function): Promise<Uint8Array>;
-    /**
-     * download a blob with progress reporting via JS callback
-     *
-     * same as download_verified but calls on_progress(fraction) where
-     * fraction is bytes_received / total_size (0.0 to 1.0).
-     * total_size should come from the automerge doc's size field.
-     */
-    download_verified_with_progress(peer_addr: string, blake3_hash: string, total_size: number, on_progress: Function): Promise<Uint8Array>;
     /**
      * ensure a blob is loaded into the peer's FsStore by blake3 hash
      *

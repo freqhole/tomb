@@ -469,6 +469,10 @@ export class WasmTransport implements Transport {
    *   `total` argument to onProgress so the UI can render an accurate 0-100%
    *   progress bar (the underlying iroh-blobs stream does not always report
    *   total size before bytes start flowing)
+   * @param mimeType - optional content type. midden's streaming path doesn't
+   *   surface the source mime, so callers should pass it when known
+   *   (e.g. song.mime_type). defaults to audio/mpeg in the streaming branch
+   *   and application/octet-stream in fallback branches.
    * @returns blob data with content type
    */
   async fetchBlobWithProgress(
@@ -476,6 +480,7 @@ export class WasmTransport implements Transport {
     onProgress: BlobProgressCallback,
     blake3?: string,
     totalBytes?: number,
+    mimeType?: string,
   ): Promise<BlobData> {
     // check Cache API first
     const cache = await caches.open(this.cacheName);
@@ -535,11 +540,17 @@ export class WasmTransport implements Transport {
             },
           );
 
-          // assemble a Blob from chunks (zero-copy concat at the platform level)
-          const contentType = "audio/mpeg";
-          const blob = new Blob(chunks as BlobPart[], { type: contentType });
-          const arrayBuffer = await blob.arrayBuffer();
-          const data = new Uint8Array(arrayBuffer);
+          // concat chunks into a single Uint8Array. one allocation
+          // sized exactly to totalReceived (vs the previous Blob → arrayBuffer
+          // → Uint8Array round-trip which transiently held ~3x the bytes).
+          const contentType = mimeType ?? "audio/mpeg";
+          const data = new Uint8Array(totalReceived);
+          let offset = 0;
+          for (const c of chunks) {
+            data.set(c, offset);
+            offset += c.length;
+          }
+          chunks.length = 0; // free per-chunk refs early
 
           // cache for future use
           const cacheArrayBuffer = data.buffer.slice(
@@ -705,6 +716,8 @@ export class WasmTransport implements Transport {
    * @param blobId - the blob ID to fetch
    * @param onProgress - callback with (received, total) bytes
    * @param blake3 - optional blake3 hash for verified streaming via iroh-blobs
+   * @param totalBytes - optional known total size in bytes
+   * @param mimeType - optional content type for the assembled blob
    * @returns URL usable in <audio>/<img> src
    */
   async getBlobUrlWithProgress(
@@ -712,6 +725,7 @@ export class WasmTransport implements Transport {
     onProgress: BlobProgressCallback,
     blake3?: string,
     totalBytes?: number,
+    mimeType?: string,
   ): Promise<string> {
     // check in-memory cache first
     const cached = this.blobUrlCache.get(blobId);
@@ -727,6 +741,7 @@ export class WasmTransport implements Transport {
       onProgress,
       blake3,
       totalBytes,
+      mimeType,
     );
     const arrayBuffer = data.buffer.slice(
       data.byteOffset,

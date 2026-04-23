@@ -1014,131 +1014,6 @@ impl MiddenNode {
         Ok(array)
     }
 
-    /// download a blob with progress reporting via JS callback
-    ///
-    /// same as download_verified but calls on_progress(fraction) where
-    /// fraction is bytes_received / total_size (0.0 to 1.0).
-    /// total_size should come from the automerge doc's size field.
-    pub async fn download_verified_with_progress(
-        &self,
-        peer_addr: &str,
-        blake3_hash: &str,
-        total_size: f64,
-        on_progress: &JsFunction,
-    ) -> Result<Uint8Array, JsError> {
-        let addr = parse_peer_addr(peer_addr).map_err(|e| JsError::new(&e))?;
-
-        let hash: Hash = blake3_hash
-            .parse()
-            .map_err(|e| JsError::new(&format!("invalid blake3 hash: {}", e)))?;
-
-        info!(
-            "download_verified_with_progress: START hash={} total_size={} peer={}",
-            &blake3_hash[..16.min(blake3_hash.len())],
-            total_size,
-            &addr.id.to_string()[..16]
-        );
-
-        let hash_and_format = HashAndFormat::raw(hash);
-        let progress = self.blobs_downloader.download(hash_and_format, [addr.id]);
-
-        use iroh_blobs::api::downloader::DownloadProgressItem;
-        use n0_future::StreamExt;
-
-        let mut stream = progress
-            .stream()
-            .await
-            .map_err(|e| JsError::new(&format!("download stream failed: {}", e)))?;
-
-        let mut had_error = false;
-        let mut last_error: Option<String> = None;
-        let mut last_progress_bytes: u64 = 0;
-        let mut progress_event_count: u64 = 0;
-
-        while let Some(event) = stream.next().await {
-            match &event {
-                DownloadProgressItem::Progress(bytes) => {
-                    progress_event_count += 1;
-                    last_progress_bytes = *bytes;
-                    if total_size > 0.0 {
-                        let fraction = (*bytes as f64 / total_size).min(1.0);
-                        let _ = on_progress.call1(&JsValue::NULL, &JsValue::from_f64(fraction));
-                    }
-                }
-                DownloadProgressItem::Error(e) => {
-                    had_error = true;
-                    last_error = Some(format!("{:?}", e));
-                    warn!(
-                        "download_verified_with_progress: stream error for {} after {} bytes: {:?}",
-                        &blake3_hash[..16.min(blake3_hash.len())],
-                        last_progress_bytes,
-                        e
-                    );
-                }
-                DownloadProgressItem::DownloadError => {
-                    had_error = true;
-                    last_error = Some("download error".to_string());
-                    warn!(
-                        "download_verified_with_progress: DownloadError for {} after {} bytes",
-                        &blake3_hash[..16.min(blake3_hash.len())],
-                        last_progress_bytes
-                    );
-                }
-                _ => {}
-            }
-        }
-
-        if had_error {
-            return Err(JsError::new(&format!(
-                "download failed: {}",
-                last_error.unwrap_or_else(|| "unknown error".to_string())
-            )));
-        }
-
-        info!(
-            "download_verified_with_progress: stream OK for {} ({} progress events, last_bytes={})",
-            &blake3_hash[..16.min(blake3_hash.len())],
-            progress_event_count,
-            last_progress_bytes
-        );
-
-        // extract the assembled blob from MemStore. for large blobs (>16MB)
-        // get_bytes can fail in wasm because data_to_bytes builds a single
-        // contiguous Bytes from all chunks, doubling peak memory.
-        let bytes = match self.blobs_store.get_bytes(hash).await {
-            Ok(b) => b,
-            Err(e) => {
-                // log the full error chain so we can see what's actually failing
-                let mut chain = format!("{}", e);
-                let mut src: Option<&dyn std::error::Error> = std::error::Error::source(&e);
-                while let Some(s) = src {
-                    chain.push_str(&format!(" -> {}", s));
-                    src = s.source();
-                }
-                warn!(
-                    "download_verified_with_progress: get_bytes FAILED for {} (size={}): {}",
-                    &blake3_hash[..16.min(blake3_hash.len())],
-                    last_progress_bytes,
-                    chain
-                );
-                return Err(JsError::new(&format!(
-                    "failed to read blob from store: {} (chain: {})",
-                    e, chain
-                )));
-            }
-        };
-
-        info!(
-            "download_verified_with_progress: get_bytes OK for {} ({} bytes), copying to Uint8Array",
-            &blake3_hash[..16.min(blake3_hash.len())],
-            bytes.len()
-        );
-
-        let array = Uint8Array::new_with_length(bytes.len() as u32);
-        array.copy_from(&bytes);
-        Ok(array)
-    }
-
     /// download a verified blob and stream chunks to JS via callback
     ///
     /// this is the preferred path for large blobs (audio files). instead of
@@ -1175,7 +1050,7 @@ impl MiddenNode {
             .map_err(|e| JsError::new(&format!("invalid blake3 hash: {}", e)))?;
 
         let short = &blake3_hash[..16.min(blake3_hash.len())];
-        info!(
+        debug!(
             "download_verified_streaming: START hash={} total_size={} peer={}",
             short,
             total_size,
@@ -1209,7 +1084,7 @@ impl MiddenNode {
                     last_dl_bytes = *bytes;
                     // log every ~2 MB of progress so we can see if the stream stalls
                     if *bytes >= last_log_bytes + 2 * 1024 * 1024 || *bytes < last_log_bytes {
-                        info!(
+                        debug!(
                             "download_verified_streaming: progress for {} -> {} bytes (event #{})",
                             short, bytes, event_count
                         );
@@ -1238,14 +1113,14 @@ impl MiddenNode {
                     );
                 }
                 other => {
-                    info!(
+                    debug!(
                         "download_verified_streaming: event #{} for {} (dl={} bytes): {:?}",
                         event_count, short, last_dl_bytes, other
                     );
                 }
             }
         }
-        info!(
+        debug!(
             "download_verified_streaming: download stream ended for {} after {} events ({} bytes, had_error={})",
             short, event_count, last_dl_bytes, had_error
         );
@@ -1257,7 +1132,7 @@ impl MiddenNode {
             )));
         }
 
-        info!(
+        debug!(
             "download_verified_streaming: download phase complete for {} (downloaded={} bytes), observing bitfield",
             short, last_dl_bytes
         );
@@ -1267,7 +1142,7 @@ impl MiddenNode {
         // final entries into MemStore, leaving the entry incomplete when we try to read.
         match self.blobs_store.observe(hash).await {
             Ok(bitfield) => {
-                info!(
+                debug!(
                     "download_verified_streaming: bitfield for {}: size={} complete={} ranges={:?}",
                     short,
                     bitfield.size(),
@@ -1280,7 +1155,7 @@ impl MiddenNode {
                         short
                     );
                     match self.blobs_store.observe(hash).await_completion().await {
-                        Ok(bf) => info!(
+                        Ok(bf) => debug!(
                             "download_verified_streaming: bitfield COMPLETED for {} size={}",
                             short,
                             bf.size()
@@ -1306,7 +1181,7 @@ impl MiddenNode {
             }
         }
 
-        info!("download_verified_streaming: opening reader for {}", short);
+        debug!("download_verified_streaming: opening reader for {}", short);
 
         // step 2: open streaming reader and pull chunks to JS
         const CHUNK_SIZE: usize = 256 * 1024; // 256 KB chunks
@@ -1364,7 +1239,7 @@ impl MiddenNode {
             }
         }
 
-        info!(
+        debug!(
             "download_verified_streaming: COMPLETE for {} ({} bytes in {} chunks)",
             short, total_read, chunks_sent
         );
@@ -1388,8 +1263,15 @@ impl MiddenNode {
             .await
         {
             Ok(n) => return Ok(n),
-            Err(_) => {
-                // retry with ensure_blob
+            Err(e) => {
+                // first attempt failed (often: blob not yet in peer's store).
+                // log the cause then retry via ensure_blob so that genuine
+                // failures (bad hash, transport error) aren't silently masked.
+                warn!(
+                    "download_verified_streaming_with_ensure: first attempt failed for {}, calling ensure_blob: {:?}",
+                    &blake3_hash[..16.min(blake3_hash.len())],
+                    e
+                );
             }
         }
 
@@ -1460,8 +1342,12 @@ impl MiddenNode {
         // first attempt
         match self.download_verified(peer_addr, blake3_hash).await {
             Ok(data) => return Ok(data),
-            Err(_e) => {
-                // retry with ensure_blob (normal for first download)
+            Err(e) => {
+                warn!(
+                    "download_verified_with_ensure: first attempt failed for {}, calling ensure_blob: {:?}",
+                    &blake3_hash[..16.min(blake3_hash.len())],
+                    e
+                );
             }
         }
 
@@ -1476,42 +1362,6 @@ impl MiddenNode {
 
         // retry verified download
         self.download_verified(peer_addr, blake3_hash).await
-    }
-
-    /// download with ensure + retry and progress reporting
-    ///
-    /// tries download first; if blob not in peer's FsStore, calls ensure_blob
-    /// then retries. progress callback receives fraction (0.0 to 1.0).
-    pub async fn download_verified_with_ensure_progress(
-        &self,
-        peer_addr: &str,
-        blake3_hash: &str,
-        total_size: f64,
-        on_progress: &JsFunction,
-    ) -> Result<Uint8Array, JsError> {
-        // first attempt
-        match self
-            .download_verified_with_progress(peer_addr, blake3_hash, total_size, on_progress)
-            .await
-        {
-            Ok(data) => return Ok(data),
-            Err(_e) => {
-                // retry with ensure_blob (normal for first download)
-            }
-        }
-
-        // ensure blob is loaded into FsStore
-        let available = self.ensure_blob(peer_addr, blake3_hash).await?;
-        if !available {
-            return Err(JsError::new(&format!(
-                "blob {} not available on peer",
-                &blake3_hash[..16.min(blake3_hash.len())]
-            )));
-        }
-
-        // retry verified download with progress
-        self.download_verified_with_progress(peer_addr, blake3_hash, total_size, on_progress)
-            .await
     }
 
     /// compute blake3 hash for a blob on demand
@@ -1591,32 +1441,6 @@ impl MiddenNode {
         // return [data, blake3] as JS array
         let result = js_sys::Array::new();
         result.push(&data);
-        result.push(&JsValue::from_str(&blake3));
-        Ok(result)
-    }
-
-    /// full pipeline from blob_id with progress reporting
-    ///
-    /// computes blake3 on demand, then uses verified download with progress.
-    /// returns [data: Uint8Array, blake3: string].
-    pub async fn download_verified_by_id_progress(
-        &self,
-        peer_addr: &str,
-        blob_id: &str,
-        total_size: f64,
-        on_progress: &JsFunction,
-    ) -> Result<js_sys::Array, JsError> {
-        let blake3 = self
-            .compute_blake3(peer_addr, blob_id)
-            .await?
-            .ok_or_else(|| JsError::new("blob not found on peer"))?;
-
-        let data = self
-            .download_verified_with_ensure_progress(peer_addr, &blake3, total_size, on_progress)
-            .await?;
-
-        let result = js_sys::Array::new();
-        result.push(&data.into());
         result.push(&JsValue::from_str(&blake3));
         Ok(result)
     }
