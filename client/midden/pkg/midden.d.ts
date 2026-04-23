@@ -324,6 +324,32 @@ export class MiddenNode {
      * they already know the hash of. peer filtering can be added later if needed.
      */
     start_blob_server(): void;
+    /**
+     * connect to a freqhole radio broadcaster and start receiving audio chunks.
+     *
+     * `on_chunk(seq: number, is_init: boolean, bytes: Uint8Array)` is
+     * invoked once per chunk. `seq` is the broadcaster's sequence counter
+     * (resets per connection in phase 0). `is_init = true` marks the start
+     * of a new track — the JS side should soft-reset MSE before appending.
+     *
+     * returns a [`RadioHandle`] — keep a reference to it; dropping it stops
+     * playback and closes the iroh connection.
+     */
+    tune_radio(peer_addr: string, on_chunk: Function): Promise<RadioHandle>;
+}
+
+/**
+ * handle returned to JS for a tuned-in radio session. dropping the handle
+ * (or calling `leave()`) cancels the read loop and closes the connection.
+ */
+export class RadioHandle {
+    private constructor();
+    free(): void;
+    [Symbol.dispose](): void;
+    /**
+     * stop receiving audio and close the connection.
+     */
+    leave(): void;
 }
 
 /**

@@ -23,6 +23,7 @@ pub mod media_blobz;
 pub mod metadata;
 pub mod music;
 pub mod offal;
+pub mod radio;
 pub mod remotez;
 pub mod response;
 pub mod search;

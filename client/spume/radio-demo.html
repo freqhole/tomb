@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>freqhole radio demo</title>
+    <style>
+      body {
+        font-family:
+          system-ui,
+          -apple-system,
+          sans-serif;
+        background: #0a0a0a;
+        color: #eee;
+        max-width: 640px;
+        margin: 2rem auto;
+        padding: 1rem;
+        line-height: 1.4;
+      }
+      h1 {
+        font-weight: 300;
+        letter-spacing: 0.05em;
+      }
+      label {
+        display: block;
+        margin-top: 1rem;
+        font-size: 0.85rem;
+        opacity: 0.7;
+      }
+      input,
+      button {
+        font: inherit;
+        background: #1a1a1a;
+        color: #eee;
+        border: 1px solid #333;
+        padding: 0.5rem 0.75rem;
+        border-radius: 4px;
+        margin-top: 0.25rem;
+      }
+      input {
+        width: 100%;
+        font-family: ui-monospace, monospace;
+        font-size: 0.85rem;
+      }
+      button {
+        cursor: pointer;
+        margin-right: 0.5rem;
+      }
+      button:hover:not(:disabled) {
+        background: #2a2a2a;
+      }
+      button:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+      }
+      audio {
+        width: 100%;
+        margin-top: 1rem;
+      }
+      #log {
+        margin-top: 1rem;
+        background: #050505;
+        border: 1px solid #222;
+        border-radius: 4px;
+        padding: 0.75rem;
+        font-family: ui-monospace, monospace;
+        font-size: 0.75rem;
+        height: 240px;
+        overflow-y: auto;
+        white-space: pre-wrap;
+      }
+      .row {
+        margin-top: 1rem;
+      }
+      .stats {
+        font-family: ui-monospace, monospace;
+        font-size: 0.8rem;
+        opacity: 0.7;
+        margin-top: 0.5rem;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>freqhole radio demo</h1>
+    <p style="opacity: 0.7; font-size: 0.9rem">
+      paste the node id printed by <code>freqhole radio serve</code> and hit
+      tune.
+    </p>
+
+    <label for="node-id">broadcaster node id</label>
+    <input
+      id="node-id"
+      placeholder="64-char hex node id"
+      autocomplete="off"
+      spellcheck="false"
+    />
+
+    <div class="row">
+      <button id="tune-btn">tune in</button>
+      <button id="leave-btn" disabled>leave</button>
+    </div>
+
+    <audio id="audio" controls autoplay></audio>
+    <div class="stats" id="stats"></div>
+
+    <div id="log"></div>
+
+    <script type="module">
+      // dynamic import so vite handles wasm + bare specifier resolution
+      const { MiddenNode } = await import("midden");
+
+      const $ = (id) => document.getElementById(id);
+      const logEl = $("log");
+      const statsEl = $("stats");
+      const audio = $("audio");
+      const tuneBtn = $("tune-btn");
+      const leaveBtn = $("leave-btn");
+      const nodeIdInput = $("node-id");
+
+      const log = (msg) => {
+        const ts = new Date().toISOString().slice(11, 23);
+        logEl.textContent += `[${ts}] ${msg}\n`;
+        logEl.scrollTop = logEl.scrollHeight;
+      };
+
+      log("loading midden wasm...");
+      const node = await MiddenNode.create();
+      log(`midden ready, our node id: ${node.node_id().slice(0, 16)}...`);
+
+      let session = null;
+      let chunkCount = 0;
+      let bytesReceived = 0;
+      let firstChunkAt = null;
+
+      const updateStats = () => {
+        const now = performance.now();
+        const elapsed = firstChunkAt ? (now - firstChunkAt) / 1000 : 0;
+        const kbps = elapsed > 0 ? (bytesReceived * 8) / 1000 / elapsed : 0;
+        statsEl.textContent =
+          `chunks: ${chunkCount}  bytes: ${bytesReceived.toLocaleString()}  ` +
+          `~${kbps.toFixed(1)} kbps  buffered: ${
+            audio.buffered.length > 0
+              ? (
+                  audio.buffered.end(audio.buffered.length - 1) -
+                  audio.currentTime
+                ).toFixed(1) + "s"
+              : "-"
+          }`;
+      };
+
+      const tune = async () => {
+        const nodeId = nodeIdInput.value.trim();
+        if (!nodeId) {
+          log("error: node id required");
+          return;
+        }
+
+        tuneBtn.disabled = true;
+
+        // set up MediaSource. we (re)create one per tune so a previous
+        // session's source-buffer state can't leak.
+        const ms = new MediaSource();
+        audio.src = URL.createObjectURL(ms);
+
+        const sourceOpen = new Promise((resolve) =>
+          ms.addEventListener("sourceopen", resolve, { once: true }),
+        );
+        await sourceOpen;
+
+        let sb = ms.addSourceBuffer('audio/mp4; codecs="mp4a.40.2"');
+        const queue = [];
+
+        const drain = () => {
+          if (sb.updating) return;
+          const next = queue.shift();
+          if (next) {
+            try {
+              sb.appendBuffer(next);
+            } catch (e) {
+              log(`[mse] appendBuffer failed: ${e}`);
+            }
+          }
+        };
+        sb.addEventListener("updateend", drain);
+
+        log(`tuning into ${nodeId.slice(0, 16)}...`);
+        try {
+          session = await node.tune_radio(nodeId, (seq, isInit, bytes) => {
+            chunkCount++;
+            bytesReceived += bytes.length;
+            if (!firstChunkAt) firstChunkAt = performance.now();
+            if (isInit) {
+              log(
+                `chunk ${seq} INIT (${bytes.length} bytes) — new track`,
+              );
+              // mse accepts new init segments mid-stream as long as the
+              // codec stays compatible. just queue it like any other chunk.
+              queue.push(bytes);
+            } else if (chunkCount % 10 === 0) {
+              log(`chunk ${seq} (${bytes.length} bytes)`);
+              queue.push(bytes);
+            } else {
+              queue.push(bytes);
+            }
+            drain();
+            updateStats();
+          });
+          leaveBtn.disabled = false;
+          log("tuned in. audio should start within a few seconds.");
+        } catch (e) {
+          log(`tune failed: ${e}`);
+          tuneBtn.disabled = false;
+        }
+      };
+
+      const leave = () => {
+        if (session) {
+          session.leave();
+          session = null;
+        }
+        tuneBtn.disabled = false;
+        leaveBtn.disabled = true;
+        log("left station.");
+      };
+
+      tuneBtn.addEventListener("click", tune);
+      leaveBtn.addEventListener("click", leave);
+
+      // refresh stats periodically while playing
+      setInterval(() => {
+        if (session) updateStats();
+      }, 1000);
+    </script>
+  </body>
+</html>
