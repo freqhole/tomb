@@ -326,6 +326,18 @@
             log(`[hello] codec=${codec} listeners=${msg.listener_count}`);
             // create the SourceBuffer using the codec from the server.
             sb = ms.addSourceBuffer(codec);
+            // 'sequence' mode tells MSE to rewrite each appended segment's
+            // timestamps so it continues from where the previous one ended,
+            // ignoring the segment's own media timestamps. without this:
+            //   - catchup chunks land at their mid-track media timestamps
+            //     (e.g. 100s into the song) while currentTime is at 0,
+            //     leaving the playhead in an unbuffered range
+            //   - on track change, the new track's chunks restart at
+            //     timestamp 0 while the playhead is still ~100s into the
+            //     previous track, creating a second buffered range that
+            //     the playhead can't reach
+            // sequence mode collapses both into a single contiguous range.
+            sb.mode = "sequence";
             sb.addEventListener("updateend", drain);
             renderNowPlaying(msg.now_playing, msg.listener_count);
           } catch (e) {
