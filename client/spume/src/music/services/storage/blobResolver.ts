@@ -25,6 +25,7 @@ import { queryKeys } from "../../queries/queryKeys";
 import { evictCachedBlob, getCachedBlob, isCached, saveP2PBlobMetadata } from "../cache/blobCache";
 import { addToLoadingSet, removeFromLoadingSet, updateLoadingProgress } from "../download";
 import { canSyncSong, syncSongToLocal } from "../sync";
+import type { SyncableSong } from "../sync";
 import type { Song } from "./types";
 
 // store of active blob URLs - provides granular reactivity per key
@@ -102,7 +103,8 @@ export async function resolveBlobUrl(
   type: "audio" | "image" = "image",
   onProgress?: BlobProgressCallback,
   thumbnailSize?: ThumbnailSize,
-  blake3?: string
+  blake3?: string,
+  totalBytes?: number
 ): Promise<string> {
   // include thumbnail size in cache key so different sizes are cached separately
   const cacheKey = thumbnailSize
@@ -153,7 +155,8 @@ export async function resolveBlobUrl(
       type,
       onProgress,
       blake3,
-      abortController.signal
+      abortController.signal,
+      totalBytes
     );
     inProgressP2PFetches.set(cacheKey, fetchPromise);
 
@@ -190,7 +193,8 @@ async function resolveP2PBlob(
   type: "audio" | "image",
   onProgress?: BlobProgressCallback,
   blake3?: string,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  totalBytes?: number
 ): Promise<string> {
   // check if already cancelled
   if (signal?.aborted) {
@@ -249,7 +253,7 @@ async function resolveP2PBlob(
     // pass blake3 for verified streaming via iroh-blobs
     let url: string;
     if (onProgress && transport.getBlobUrlWithProgress) {
-      url = await transport.getBlobUrlWithProgress(blobId, onProgress, blake3);
+      url = await transport.getBlobUrlWithProgress(blobId, onProgress, blake3, totalBytes);
     } else {
       url = await transport.getBlobUrl(blobId, blake3);
     }
@@ -442,7 +446,8 @@ export async function preCacheP2PBlob(
   remoteId: string,
   sha256?: string,
   type: "audio" | "image" = "audio",
-  blake3?: string
+  blake3?: string,
+  totalBytes?: number
 ): Promise<void> {
   // only pre-cache for P2P remotes or charnel-managed, skip for regular HTTP
   const remote = await getRemoteById(remoteId);
@@ -507,8 +512,9 @@ export async function preCacheP2PBlob(
         : undefined;
 
     // use resolveBlobUrl which handles in-progress tracking and deduplication
-    // pass blake3 for verified streaming via iroh-blobs
-    await resolveBlobUrl(blobId, remoteId, type, onProgress, undefined, blake3);
+    // pass blake3 for verified streaming via iroh-blobs, and totalBytes so the
+    // progress callback reports a real received/total ratio
+    await resolveBlobUrl(blobId, remoteId, type, onProgress, undefined, blake3, totalBytes);
 
     debug("blobResolver", `pre-cached P2P blob: ${blobId.slice(0, 8)}...`);
   } catch (err) {
@@ -682,7 +688,8 @@ export async function preCacheNextP2PSongs(
         firstEntry.remoteId,
         firstEntry.sha256,
         "audio",
-        firstEntry.blake3
+        firstEntry.blake3,
+        firstEntry.song?.file_size ?? undefined
       );
       debug(
         "blobResolver",
@@ -716,36 +723,18 @@ export async function preCacheNextP2PSongs(
     console.warn(`failed to pre-cache first P2P song ${firstEntry.sha256}:`, err);
   }
 
-  // fire off the rest in parallel (fire and forget) - audio, waveform, and thumbnail images
+  // sync-mode audio downloads must run sequentially: the wasm iroh-blobs
+  // store hits "encode error" when multiple verified downloads run
+  // concurrently. cache-mode audio and image pre-caches stay parallel
+  // (fire-and-forget) since they're cheaper and don't share the same code path.
+  const syncEntries: { sha256: string; song: Song & SyncableSong }[] = [];
   for (const entry of restEntries) {
     if (shouldSync && canSyncSong(entry.song)) {
-      // sync mode: download to OPFS + create IDB records
-      addToLoadingSet(entry.sha256);
-      void syncSongToLocal(entry.song, (received, total) => {
-        if (total > 0) {
-          updateLoadingProgress(entry.sha256, received / total);
-        }
-      })
-        .then((result) => {
-          removeFromLoadingSet(entry.sha256);
-          if (result.success) {
-            // invalidate queries so local views can show the new song
-            if (!result.skipped) {
-              void queryClient.invalidateQueries({ queryKey: queryKeys.songs.all() });
-              void queryClient.invalidateQueries({ queryKey: queryKeys.albums.all() });
-            }
-          } else {
-            // sync failed - when sync mode is enabled, we don't fall back to Cache API
-            // the song won't be pre-cached but will be fetched on-demand when played
-            console.warn(`failed to sync P2P song ${entry.sha256}:`, result.error);
-          }
-        })
-        .catch(() => {
-          removeFromLoadingSet(entry.sha256);
-        });
+      // queue for sequential sync below (canSyncSong narrows entry.song)
+      syncEntries.push({ sha256: entry.sha256, song: entry.song });
     } else {
       // cache mode: just cache the blob
-      void preCacheP2PBlob(entry.sha256, entry.remoteId, entry.sha256, "audio", entry.blake3);
+      void preCacheP2PBlob(entry.sha256, entry.remoteId, entry.sha256, "audio", entry.blake3, entry.song?.file_size ?? undefined);
     }
 
     // always cache waveform and thumbnail images (they don't get synced as separate records)
@@ -755,6 +744,37 @@ export async function preCacheNextP2PSongs(
     if (entry.thumbnailBlobId && entry.thumbnailRemoteId) {
       void preCacheP2PBlob(entry.thumbnailBlobId, entry.thumbnailRemoteId, undefined, "image");
     }
+  }
+
+  // process sync-mode audio downloads one at a time to avoid concurrent
+  // verified-download conflicts in the wasm iroh-blobs store.
+  if (syncEntries.length > 0) {
+    void (async () => {
+      for (const entry of syncEntries) {
+        addToLoadingSet(entry.sha256);
+        try {
+          const result = await syncSongToLocal(entry.song, (received, total) => {
+            if (total > 0) {
+              updateLoadingProgress(entry.sha256, received / total);
+            }
+          });
+          if (result.success) {
+            if (!result.skipped) {
+              void queryClient.invalidateQueries({ queryKey: queryKeys.songs.all() });
+              void queryClient.invalidateQueries({ queryKey: queryKeys.albums.all() });
+            }
+          } else {
+            // sync failed - when sync mode is enabled, we don't fall back to Cache API
+            // the song won't be pre-cached but will be fetched on-demand when played
+            console.warn(`failed to sync P2P song ${entry.sha256}:`, result.error);
+          }
+        } catch (err) {
+          console.warn(`failed to sync P2P song ${entry.sha256}:`, err);
+        } finally {
+          removeFromLoadingSet(entry.sha256);
+        }
+      }
+    })();
   }
 }
 

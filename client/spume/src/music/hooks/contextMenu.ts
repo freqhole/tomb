@@ -615,6 +615,9 @@ export function useAlbumContextMenu(
           releaseDate: null,
           label: null,
           genres: songList[0]?.album_genres?.map((g) => g.name).filter(Boolean) ?? [],
+          // album-level images live on each song (denormalized). use the first
+          // song's copy so dest gets cover art alongside the album row.
+          images: songList[0]?.album_images ?? [],
           songs: songList as unknown as RemoteSong[],
         };
       },

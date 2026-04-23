@@ -96,8 +96,18 @@ export async function getAudioURL(song: Song): Promise<string> {
         };
         // use media_blob_id (short blob ID) for server lookup, fall back to sha256
         // pass blake3 for verified streaming via iroh-blobs (6th param, 5th is thumbnailSize)
+        // pass file_size as 7th param so the progress callback can report a real
+        // received/total ratio (iroh-blobs streaming doesn't supply size up front)
         const blobId = song.media_blob_id ?? song.sha256;
-        const url = await resolveBlobUrl(blobId, song.remote_server_id, "audio", onProgress, undefined, song.blake3 ?? undefined);
+        const url = await resolveBlobUrl(
+          blobId,
+          song.remote_server_id,
+          "audio",
+          onProgress,
+          undefined,
+          song.blake3 ?? undefined,
+          song.file_size ?? undefined,
+        );
         activeBlobURLs.set(song.sha256, { url, remoteId: song.remote_server_id, blobId });
         return url;
       } catch (error) {

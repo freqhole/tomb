@@ -238,6 +238,12 @@ pub async fn has_blobs(_caller: &Caller, body: JsonValue) -> GrimoireResponse<Js
         }
     };
 
+    tracing::debug!(
+        "blobz/has: asked about {} blake3s, {} sha256s",
+        req.blake3s.len(),
+        req.sha256s.len(),
+    );
+
     let blake3s_present = match find_present_blake3s(&req.blake3s).await {
         Ok(v) => v,
         Err(e) => {
@@ -281,6 +287,13 @@ pub async fn has_blobs(_caller: &Caller, body: JsonValue) -> GrimoireResponse<Js
         sha256s_present,
         sha256s_missing,
     };
+    tracing::debug!(
+        "blobz/has: blake3 {}/{} present; sha256 {}/{} present",
+        response.blake3s_present.len(),
+        req.blake3s.len(),
+        response.sha256s_present.len(),
+        req.sha256s.len(),
+    );
     GrimoireResponse::success("blob presence", serde_json::to_value(response).unwrap())
 }
 

@@ -295,16 +295,21 @@ async fn handle_stream(
         }
 
         PeerMessage::EnsureBlobRequest { id, blake3_hash } => {
-            debug!(
-                "ensure blob request: {} from {}",
+            tracing::info!(
+                "ensure_blob_request: received from peer {} for blake3 {}",
+                node_id_short,
                 &blake3_hash[..16.min(blake3_hash.len())],
-                node_id_short
             );
 
             // require auth
             let _caller = match get_caller_for_peer(node_id_str).await {
                 Some(c) => c,
                 None => {
+                    tracing::warn!(
+                        "ensure_blob_request: UNAUTHORIZED peer {} asked for blake3 {}",
+                        node_id_short,
+                        &blake3_hash[..16.min(blake3_hash.len())],
+                    );
                     let resp = PeerMessage::EnsureBlobResponse {
                         id,
                         available: false,
@@ -318,6 +323,12 @@ async fn handle_stream(
             // ensure blob is loaded into FsStore
             match blobz::ensure_blob_by_blake3(&blake3_hash).await {
                 Ok(available) => {
+                    tracing::info!(
+                        "ensure_blob_request: result for peer {} blake3 {} -> available={}",
+                        node_id_short,
+                        &blake3_hash[..16.min(blake3_hash.len())],
+                        available,
+                    );
                     let resp = PeerMessage::EnsureBlobResponse {
                         id,
                         available,
@@ -326,6 +337,12 @@ async fn handle_stream(
                     send_response(&mut send, &resp).await?;
                 }
                 Err(e) => {
+                    tracing::error!(
+                        "ensure_blob_request: FAIL for peer {} blake3 {}: {}",
+                        node_id_short,
+                        &blake3_hash[..16.min(blake3_hash.len())],
+                        e,
+                    );
                     let resp = PeerMessage::EnsureBlobResponse {
                         id,
                         available: false,

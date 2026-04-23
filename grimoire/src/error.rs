@@ -150,6 +150,9 @@ pub enum GrimoireError {
     #[error("federation api error: {message}")]
     FederationApiError { message: String },
 
+    #[error("peer {peer} unauthorized to access blob {blake3}")]
+    PeerUnauthorized { peer: String, blake3: String },
+
     #[error("federation not configured")]
     FederationNotConfigured,
 
@@ -243,6 +246,7 @@ impl GrimoireError {
             GrimoireError::FederationAuthFailed { .. } => false, // bad credentials
             GrimoireError::FederationTokenRefreshFailed { .. } => true, // token may have expired
             GrimoireError::FederationApiError { .. } => true,    // network issues
+            GrimoireError::PeerUnauthorized { .. } => false,     // needs knock, not retry
             GrimoireError::FederationNotConfigured => false,
             GrimoireError::FederationCredentialsNotFound => false,
             GrimoireError::FederationCredentialsInvalid { .. } => false,
@@ -278,6 +282,8 @@ impl GrimoireError {
             | GrimoireError::MediaBlobNotFound { .. }
             | GrimoireError::KnockNotFound { .. }
             | GrimoireError::FileNotFound { .. } => 404,
+            // peer auth — client can react by showing knock message
+            GrimoireError::PeerUnauthorized { .. } => 403,
             // everything else is internal error
             _ => 500,
         }

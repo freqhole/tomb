@@ -17,6 +17,7 @@ SELECT
     mb.sha256 as media_blob_sha256,
     mb.blake3 as media_blob_blake3,
     mb.mime as media_blob_mime,
+    mb.size as media_blob_size,
 
     s.title as song_title,
     s.track_number as song_track_number,

@@ -290,8 +290,10 @@ pub async fn p2p_fetch_hello_image(
 /// used for parallel peer probing before committing to a full download.
 #[tauri::command]
 pub async fn p2p_probe_blob(peer_addr: String, blake3_hash: String) -> Result<bool, String> {
+    use grimoire::federation::transport::EnsureBlobOutcome;
     grimoire::federation::p2p_client::ensure_blob(&peer_addr, &blake3_hash)
         .await
+        .map(|outcome| matches!(outcome, EnsureBlobOutcome::Available))
         .map_err(|e| e.to_string())
 }
 

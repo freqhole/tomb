@@ -374,8 +374,13 @@ async fn download_blob_to_store(
 /// and adds it to FsStore for verified streaming. use this before retrying
 /// iroh-blobs download if the first attempt fails.
 ///
-/// returns true if blob is now available, false if not found.
-pub async fn ensure_blob(peer_addr: &str, blake3_hash: &str) -> GrimoireResult<bool> {
+/// returns the `EnsureBlobOutcome` from the peer. `Unauthorized` means we
+/// aren't a registered federation peer and should create a knock request.
+pub async fn ensure_blob(
+    peer_addr: &str,
+    blake3_hash: &str,
+) -> GrimoireResult<crate::federation::transport::EnsureBlobOutcome> {
+    use crate::federation::transport::EnsureBlobOutcome;
     let endpoint = get_endpoint()?;
     let addr = parse_peer_address(peer_addr)?;
     let node_id_short = &addr.id.to_string()[..16];
@@ -387,18 +392,30 @@ pub async fn ensure_blob(peer_addr: &str, blake3_hash: &str) -> GrimoireResult<b
     );
 
     let conn = connect_to_peer(&endpoint, &addr).await?;
-    let available = conn.ensure_blob(blake3_hash).await?;
+    let outcome = conn.ensure_blob(blake3_hash).await?;
 
-    if available {
-        info!(
-            "ensure_blob: {} now available on {}",
-            hash_short, node_id_short
-        );
-    } else {
-        debug!("ensure_blob: {} not found on {}", hash_short, node_id_short);
+    match outcome {
+        EnsureBlobOutcome::Available => {
+            info!(
+                "ensure_blob: {} now available on {}",
+                hash_short, node_id_short
+            );
+        }
+        EnsureBlobOutcome::NotAvailable => {
+            tracing::warn!(
+                "ensure_blob: source {} said NOT AVAILABLE for blake3 {} (source has no media_blob row, or local file missing -- check source logs)",
+                node_id_short, hash_short
+            );
+        }
+        EnsureBlobOutcome::Unauthorized => {
+            tracing::warn!(
+                "ensure_blob: source {} said UNAUTHORIZED for blake3 {} (we aren't a registered federation peer; a knock request is needed)",
+                node_id_short, hash_short
+            );
+        }
     }
 
-    Ok(available)
+    Ok(outcome)
 }
 
 /// compute blake3 hash for a blob on demand
@@ -469,21 +486,31 @@ pub async fn fetch_blob_verified_with_ensure(
     }
 
     // ensure blob is loaded into FsStore
-    let available = ensure_blob(peer_addr, blake3_hash).await?;
+    let outcome = ensure_blob(peer_addr, blake3_hash).await?;
 
     info!(
-        "fetch_blob_verified_with_ensure: ensure_blob returned {} for {}",
-        available,
+        "fetch_blob_verified_with_ensure: ensure_blob returned {:?} for {}",
+        outcome,
         &blake3_hash[..16.min(blake3_hash.len())],
     );
 
-    if !available {
-        return Err(GrimoireError::FederationApiError {
-            message: format!(
-                "blob {} not available on peer",
-                &blake3_hash[..16.min(blake3_hash.len())]
-            ),
-        });
+    use crate::federation::transport::EnsureBlobOutcome;
+    match outcome {
+        EnsureBlobOutcome::Available => {}
+        EnsureBlobOutcome::NotAvailable => {
+            return Err(GrimoireError::FederationApiError {
+                message: format!(
+                    "blob {} not available on peer",
+                    &blake3_hash[..16.min(blake3_hash.len())]
+                ),
+            });
+        }
+        EnsureBlobOutcome::Unauthorized => {
+            return Err(GrimoireError::PeerUnauthorized {
+                peer: peer_addr.to_string(),
+                blake3: blake3_hash.to_string(),
+            });
+        }
     }
 
     // retry verified download
@@ -517,29 +544,56 @@ pub async fn fetch_blob_verified_to_file_with_ensure(
         Ok(size) => return Ok(size),
         Err(e) => {
             let hash_short = &blake3_hash[..16.min(blake3_hash.len())];
-            debug!(
-                "verified download to file failed for {}, trying ensure: {}",
-                hash_short, e
+            tracing::warn!(
+                "fetch_blob_verified_to_file_with_ensure: first attempt FAILED for {} from {} -- will try ensure+retry. error: {}",
+                hash_short,
+                &peer_addr[..16.min(peer_addr.len())],
+                e,
             );
         }
     }
 
     // ensure blob is loaded into FsStore
-    let available = ensure_blob(peer_addr, blake3_hash).await?;
+    tracing::info!(
+        "fetch_blob_verified_to_file_with_ensure: calling ensure_blob on {} for {}",
+        &peer_addr[..16.min(peer_addr.len())],
+        &blake3_hash[..16.min(blake3_hash.len())],
+    );
+    let outcome = ensure_blob(peer_addr, blake3_hash).await?;
 
     info!(
-        "fetch_blob_verified_to_file_with_ensure: ensure_blob returned {} for {}",
-        available,
+        "fetch_blob_verified_to_file_with_ensure: ensure_blob returned {:?} for {}",
+        outcome,
         &blake3_hash[..16.min(blake3_hash.len())],
     );
 
-    if !available {
-        return Err(GrimoireError::FederationApiError {
-            message: format!(
-                "blob {} not available on peer",
-                &blake3_hash[..16.min(blake3_hash.len())]
-            ),
-        });
+    use crate::federation::transport::EnsureBlobOutcome;
+    match outcome {
+        EnsureBlobOutcome::Available => {}
+        EnsureBlobOutcome::NotAvailable => {
+            tracing::warn!(
+                "fetch_blob_verified_to_file_with_ensure: source peer {} REPORTS BLOB {} NOT AVAILABLE -- source db lookup returned false (see source-side ensure_blob_by_blake3 logs)",
+                &peer_addr[..16.min(peer_addr.len())],
+                &blake3_hash[..16.min(blake3_hash.len())],
+            );
+            return Err(GrimoireError::FederationApiError {
+                message: format!(
+                    "blob {} not available on peer",
+                    &blake3_hash[..16.min(blake3_hash.len())]
+                ),
+            });
+        }
+        EnsureBlobOutcome::Unauthorized => {
+            tracing::warn!(
+                "fetch_blob_verified_to_file_with_ensure: source peer {} says we are UNAUTHORIZED for blob {} -- caller should create a knock request",
+                &peer_addr[..16.min(peer_addr.len())],
+                &blake3_hash[..16.min(blake3_hash.len())],
+            );
+            return Err(GrimoireError::PeerUnauthorized {
+                peer: peer_addr.to_string(),
+                blake3: blake3_hash.to_string(),
+            });
+        }
     }
 
     // retry

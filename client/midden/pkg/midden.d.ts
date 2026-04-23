@@ -195,6 +195,33 @@ export class MiddenNode {
      */
     download_verified_by_id_progress(peer_addr: string, blob_id: string, total_size: number, on_progress: Function): Promise<Array<any>>;
     /**
+     * download a verified blob and stream chunks to JS via callback
+     *
+     * this is the preferred path for large blobs (audio files). instead of
+     * materializing the full blob in wasm linear memory (which fails around
+     * 32MB+ due to allocator pressure on a single contiguous Bytes), this:
+     *
+     * 1. downloads the blob into MemStore using the verified iroh-blobs path
+     * 2. opens a streaming reader and pulls chunks
+     * 3. delivers each chunk to the JS callback as a Uint8Array
+     *
+     * JS side accumulates chunks (e.g. into a Blob via array of BlobParts) and
+     * can release each chunk as it goes. wasm peak memory stays bounded by
+     * chunk_size + the original MemStore copy.
+     *
+     * callback signature: `on_chunk(chunk: Uint8Array, offset: u64) -> void`
+     * progress callback: `on_progress(fraction: f64) -> void`
+     *
+     * returns total bytes streamed.
+     */
+    download_verified_streaming(peer_addr: string, blake3_hash: string, total_size: number, on_chunk: Function, on_progress: Function): Promise<number>;
+    /**
+     * streaming download with auto ensure+retry. first attempts the streaming
+     * download; if the verified download fails (blob not in peer's store), calls
+     * ensure_blob to load it, then retries.
+     */
+    download_verified_streaming_with_ensure(peer_addr: string, blake3_hash: string, total_size: number, on_chunk: Function, on_progress: Function): Promise<number>;
+    /**
      * download a blob using iroh-blobs with automatic ensure + retry
      *
      * tries download_verified first. if blob not in peer's FsStore,

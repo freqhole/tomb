@@ -61,6 +61,24 @@ export interface MiddenNodeLike {
   // download blob by ID with on-demand blake3 computation - optional
   // returns [Uint8Array, string] but typed as any[] for wasm-bindgen compatibility
   download_verified_by_id?(peer_addr: string, blob_id: string): Promise<any[]>;
+  // download blob and stream chunks via callback - preferred for large files
+  // on_chunk receives (chunk: Uint8Array, offset: number)
+  // on_progress receives (fraction: number) in [0, 1]
+  // returns total bytes streamed
+  download_verified_streaming?(
+    peer_addr: string,
+    blake3_hash: string,
+    total_size: number,
+    on_chunk: (chunk: Uint8Array, offset: number) => void,
+    on_progress: (fraction: number) => void,
+  ): Promise<number>;
+  download_verified_streaming_with_ensure?(
+    peer_addr: string,
+    blake3_hash: string,
+    total_size: number,
+    on_chunk: (chunk: Uint8Array, offset: number) => void,
+    on_progress: (fraction: number) => void,
+  ): Promise<number>;
   // dispatch a freqhole-admin/1 ALPN command to a peer.
   // returns the grimoire response envelope `{ success, message, data, errors }`.
   // `args` is a json-encoded string (use "null" for commands with no payload).
@@ -447,12 +465,17 @@ export class WasmTransport implements Transport {
    * @param blobId - the blob ID to fetch
    * @param onProgress - callback with (received, total) bytes
    * @param blake3 - optional blake3 hash for verified streaming via iroh-blobs
+   * @param totalBytes - optional known total size; if provided, used as the
+   *   `total` argument to onProgress so the UI can render an accurate 0-100%
+   *   progress bar (the underlying iroh-blobs stream does not always report
+   *   total size before bytes start flowing)
    * @returns blob data with content type
    */
   async fetchBlobWithProgress(
     blobId: string,
     onProgress: BlobProgressCallback,
     blake3?: string,
+    totalBytes?: number,
   ): Promise<BlobData> {
     // check Cache API first
     const cache = await caches.open(this.cacheName);
@@ -468,9 +491,76 @@ export class WasmTransport implements Transport {
     }
 
     // if blake3 is provided, try iroh-blobs verified download
-    // prefer download_verified_with_ensure (handles on-demand loading)
-    // note: download_verified doesn't support progress yet, but we can still use it
+    // prefer streaming path (chunk-by-chunk into a Blob) for large files —
+    // it avoids materializing the whole blob in wasm linear memory which
+    // fails around 32MB+ with "encode error".
     if (blake3) {
+      const streamingFn =
+        this.node.download_verified_streaming_with_ensure ??
+        this.node.download_verified_streaming;
+
+      if (streamingFn) {
+        try {
+          const chunks: Uint8Array[] = [];
+          let totalReceived = 0;
+          await streamingFn.call(
+            this.node,
+            this.peerAddr,
+            blake3,
+            totalBytes ?? 0,
+            (chunk: Uint8Array, _offset: number) => {
+              // chunk is a wasm-owned Uint8Array view — copy to detach
+              const owned = new Uint8Array(chunk.length);
+              owned.set(chunk);
+              chunks.push(owned);
+              totalReceived += owned.length;
+              // when totalBytes is unknown, drive UI from chunk arrivals
+              // (consumer treats received==total as indeterminate)
+              if (!totalBytes || totalBytes <= 0) {
+                onProgress(totalReceived, totalReceived);
+              }
+            },
+            (fraction: number) => {
+              // unified progress: midden reports fraction across both phases
+              // (download = 0..0.5, read = 0.5..1.0). use as the source of
+              // truth for the UI when totalBytes is known so we get a smooth
+              // 0..100% even before chunks start flowing in the read phase.
+              if (totalBytes && totalBytes > 0) {
+                const received = Math.min(
+                  totalBytes,
+                  Math.floor(fraction * totalBytes),
+                );
+                onProgress(received, totalBytes);
+              }
+            },
+          );
+
+          // assemble a Blob from chunks (zero-copy concat at the platform level)
+          const contentType = "audio/mpeg";
+          const blob = new Blob(chunks as BlobPart[], { type: contentType });
+          const arrayBuffer = await blob.arrayBuffer();
+          const data = new Uint8Array(arrayBuffer);
+
+          // cache for future use
+          const cacheArrayBuffer = data.buffer.slice(
+            data.byteOffset,
+            data.byteOffset + data.byteLength,
+          ) as ArrayBuffer;
+          const response = new Response(cacheArrayBuffer, {
+            headers: { "Content-Type": contentType },
+          });
+          await cache.put(cacheKey(blobId), response);
+
+          return { data, contentType };
+        } catch (e) {
+          const errorMessage = e instanceof Error ? e.message : String(e);
+          console.warn(
+            `[WasmTransport] streaming verified download failed, trying non-streaming: ${errorMessage}`,
+          );
+          // fall through to non-streaming verified path
+        }
+      }
+
       const downloadFn =
         this.node.download_verified_with_ensure ?? this.node.download_verified;
 
@@ -504,6 +594,7 @@ export class WasmTransport implements Transport {
     }
 
     // no blake3 (or verified download failed) — try proxy_request to get blob data
+    let proxyFailureReason: string | null = null;
     try {
       const result = await this.node.proxy_request(
         this.peerAddr,
@@ -532,9 +623,15 @@ export class WasmTransport implements Transport {
 
           return { data, contentType };
         }
+        proxyFailureReason = `success=false in proxy response body for blob ${blobId}`;
+        console.warn(`[WasmTransport] ${proxyFailureReason}`);
+      } else {
+        proxyFailureReason = `proxy returned status ${result.status} for blob ${blobId}`;
+        console.warn(`[WasmTransport] ${proxyFailureReason}`);
       }
     } catch (e) {
       const errorMessage = e instanceof Error ? e.message : String(e);
+      proxyFailureReason = `proxy request threw: ${errorMessage}`;
       console.warn(
         `[WasmTransport] proxy blob data request failed, falling back: ${errorMessage}`,
       );
@@ -576,7 +673,10 @@ export class WasmTransport implements Transport {
     }
 
     throw new Error(
-      "no download method available for this blob (no blake3 hash and no legacy fetch_blob)",
+      `no download method available for blob ${blobId} ` +
+        `(blake3=${blake3 ? "yes" : "no"}, ` +
+        `proxy=${proxyFailureReason ?? "not attempted"}, ` +
+        `legacy_fetch_blob=${this.node.fetch_blob ? "available" : "missing"})`,
     );
   }
 
@@ -611,6 +711,7 @@ export class WasmTransport implements Transport {
     blobId: string,
     onProgress: BlobProgressCallback,
     blake3?: string,
+    totalBytes?: number,
   ): Promise<string> {
     // check in-memory cache first
     const cached = this.blobUrlCache.get(blobId);
@@ -625,6 +726,7 @@ export class WasmTransport implements Transport {
       blobId,
       onProgress,
       blake3,
+      totalBytes,
     );
     const arrayBuffer = data.buffer.slice(
       data.byteOffset,

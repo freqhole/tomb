@@ -24,7 +24,8 @@ use crate::jobs::{
     JobType, ProcessFileParams,
 };
 use crate::media_blobz::{
-    create_media_blob, get_media_blob_by_sha256, BlobType, CreateMediaBlobRequest, MediaBlob,
+    create_media_blob, get_media_blob_by_sha256, update_blob_local_path, BlobType,
+    CreateMediaBlobRequest, MediaBlob,
 };
 use crate::music::scanner::{is_supported_audio_file, scan_directory};
 use crate::offal::caller::Caller;
@@ -558,8 +559,24 @@ pub async fn upload_image(caller: &Caller, body: JsonValue) -> GrimoireResponse<
         }
     };
 
+    tracing::info!(
+        "upload_image(offal): START from {} filename=\"{}\" size={} associate={:?} wait_for_completion={}",
+        caller.username,
+        filename,
+        data.len(),
+        req.associate_with.as_ref().map(|a| format!("{}:{}", a.entity_type, a.entity_id)),
+        req.wait_for_completion,
+    );
+
     // check file size
     if data.len() as u64 > MAX_IMAGE_SIZE {
+        tracing::warn!(
+            "upload_image(offal): REJECT from {} filename=\"{}\" size={} exceeds max {}",
+            caller.username,
+            filename,
+            data.len(),
+            MAX_IMAGE_SIZE,
+        );
         return GrimoireResponse::failure(
             "image too large",
             vec![ErrorDetail::new(
@@ -647,6 +664,11 @@ pub async fn upload_image(caller: &Caller, body: JsonValue) -> GrimoireResponse<
     let job = match job_response.data {
         Some(j) => j,
         None => {
+            tracing::error!(
+                "upload_image(offal): FAIL to create job for blob {} sha256={}",
+                blob.id,
+                &hash[..16.min(hash.len())],
+            );
             return GrimoireResponse::failure(
                 "failed to create job",
                 job_response
@@ -654,9 +676,20 @@ pub async fn upload_image(caller: &Caller, body: JsonValue) -> GrimoireResponse<
                     .into_iter()
                     .map(ErrorDetail::from)
                     .collect(),
-            )
+            );
         }
     };
+
+    tracing::info!(
+        "upload_image(offal): OK from {} filename=\"{}\" blob_id={} sha256={} existing={} associate={:?} job_id={}",
+        caller.username,
+        filename,
+        blob.id,
+        &hash[..16.min(hash.len())],
+        existing,
+        req.associate_with.as_ref().map(|a| format!("{}:{}", a.entity_type, a.entity_id)),
+        job.id,
+    );
 
     let message = if existing {
         if req.associate_with.is_some() {
@@ -1191,6 +1224,9 @@ pub enum PullAudioBlobError {
     CreateDirFailed(String),
     /// iroh-blobs fetch failed
     FetchFailed(String),
+    /// source peer refused because we aren't a registered federation peer.
+    /// caller should create a knock request before retrying.
+    PeerUnauthorized { peer: String, blake3: String },
     /// iroh-blobs fetch took longer than 120s wall-clock
     Timeout,
     /// downloaded byte count didn't match the declared size
@@ -1247,6 +1283,21 @@ impl PullAudioBlobError {
                     &msg,
                 )],
             ),
+            PullAudioBlobError::PeerUnauthorized { peer, blake3 } => {
+                let peer_short = &peer[..16.min(peer.len())];
+                let blake3_short = &blake3[..16.min(blake3.len())];
+                GrimoireResponse::failure(
+                    "peer unauthorized",
+                    vec![ErrorDetail::new(
+                        "peer_unauthorized",
+                        "peer refused access",
+                        &format!(
+                            "source peer {} refused access to blob {} — a knock request is required before retrying.",
+                            peer_short, blake3_short,
+                        ),
+                    )],
+                )
+            }
             PullAudioBlobError::Timeout => GrimoireResponse::failure(
                 "blob fetch timed out",
                 vec![ErrorDetail::new(
@@ -1344,10 +1395,11 @@ pub async fn pull_audio_blob_to_local_storage(
     // streams directly to disk via FsStore export — no full-file memory buffering.
     // timeout after 120 seconds to prevent indefinite hangs.
     tracing::info!(
-        "pulling blob {} from peer {} for {}",
+        "pulling blob {} from peer {} for {} (full_node_id={})",
         &blake3[..16],
         &source_node_id[..16.min(source_node_id.len())],
         caller.username,
+        source_node_id,
     );
 
     // determine output path before downloading so we can stream directly to it
@@ -1401,6 +1453,9 @@ pub async fn pull_audio_blob_to_local_storage(
                 &source_node_id[..16.min(source_node_id.len())],
                 e,
             );
+            if let GrimoireError::PeerUnauthorized { peer, blake3: b } = e {
+                return Err(PullAudioBlobError::PeerUnauthorized { peer, blake3: b });
+            }
             return Err(PullAudioBlobError::FetchFailed(e.to_string()));
         }
         Err(_) => {
@@ -1542,6 +1597,32 @@ pub async fn pull_audio_blob_to_local_storage(
         }
     }
     tracing::info!("file at {}", full_path.display());
+
+    // persist local_path on the media_blob row so future requests
+    // (e.g. ensure_blob_by_blake3, blob data serving) can locate the file.
+    // skip when dedup'd to a pre-existing blob that already has a path set.
+    let blob = if blob.local_path.as_deref() != Some(full_path.to_string_lossy().as_ref()) {
+        match update_blob_local_path(
+            &blob.id,
+            &full_path.to_string_lossy(),
+            Some(caller.user_id.clone()),
+        )
+        .await
+        {
+            Ok(updated) => updated,
+            Err(e) => {
+                tracing::warn!(
+                    "pull_audio_blob: failed to persist local_path for blob {}: {} (file is on disk at {} but row will not point to it)",
+                    blob.id,
+                    e,
+                    full_path.display(),
+                );
+                blob
+            }
+        }
+    } else {
+        blob
+    };
 
     Ok(PullAudioBlobResult {
         blob,

@@ -63,11 +63,15 @@ export interface Transport {
    * @param blobId - the blob ID to fetch
    * @param onProgress - callback with (received, total) bytes
    * @param blake3 - optional blake3 hash for verified streaming via iroh-blobs
+   * @param totalBytes - optional known total size of the blob in bytes; used so
+   *   the progress callback reports a correct received/total ratio even when
+   *   the underlying iroh-blobs stream doesn't supply size up front
    */
   getBlobUrlWithProgress?(
     blobId: string,
     onProgress: (received: number, total: number) => void,
     blake3?: string,
+    totalBytes?: number,
   ): Promise<string>;
 
   /**

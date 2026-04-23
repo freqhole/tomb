@@ -19,7 +19,7 @@ mod protocol;
 pub use admin_client::send_admin_request;
 pub use admin_iroh::AdminProtocol;
 pub use admin_protocol::{AdminMessage, ADMIN_ALPN};
-pub use connection::{BlobStreamInfo, PeerConnection, ProxyResponse};
+pub use connection::{BlobStreamInfo, EnsureBlobOutcome, PeerConnection, ProxyResponse};
 pub use endpoint::FederationEndpoint;
 pub use freqhole_protocol::FreqholeProtocol;
 pub use handler::handle_incoming;
