@@ -4,6 +4,7 @@
 
 pub mod health;
 pub mod knock;
+pub mod radio;
 
 use crate::api_registry::RouteInfo;
 use crate::offal::caller::Caller;
@@ -15,6 +16,7 @@ pub fn routes() -> Vec<RouteInfo> {
     let mut all = Vec::new();
     all.extend_from_slice(health::ROUTES);
     all.extend_from_slice(knock::ROUTES);
+    all.extend_from_slice(radio::ROUTES);
     all
 }
 
@@ -33,6 +35,10 @@ pub async fn dispatch(
         // knock system (P2P access requests)
         "/api/knock" => Some(knock::create(body.clone()).await),
         "/api/knock/status" => Some(knock::status(body.clone()).await),
+
+        // radio discovery
+        "/api/radio/info" => Some(radio::info().await),
+        "/api/radio/stations" => Some(radio::stations().await),
 
         _ => None,
     }

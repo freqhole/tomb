@@ -87,6 +87,26 @@ export interface MiddenNodeLike {
     command: string,
     args: string,
   ): Promise<unknown>;
+  // tune into a freqhole radio broadcaster (freqhole-radio/1 ALPN).
+  // callbacks:
+  //   on_hello(json: string)   — HelloMessage as JSON, fires once on connect
+  //   on_meta(json: string)    — MetaMessage as JSON, fires on each track change
+  //   on_chunk(seq, isInit, bytes) — fMP4 audio chunk
+  // returns a handle whose `.leave()` closes the connection and stops audio.
+  tune_radio?(
+    peer_addr: string,
+    on_hello: (json: string) => void,
+    on_meta: (json: string) => void,
+    on_chunk: (seq: number, is_init: boolean, bytes: Uint8Array) => void,
+  ): Promise<RadioHandleLike>;
+}
+
+/**
+ * handle returned from tune_radio. dropping or calling leave() closes
+ * the iroh connection and stops the audio + meta callbacks.
+ */
+export interface RadioHandleLike {
+  leave(): void;
 }
 
 /**

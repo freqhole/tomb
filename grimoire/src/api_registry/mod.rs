@@ -245,6 +245,11 @@ pub mod type_registry {
         SyncPlaylistResponse, SyncSongByBlake3Request, SyncSongByBlake3Response,
     };
 
+    // radio public types
+    use crate::offal::public::radio::{
+        PublicNowPlaying, PublicStation, RadioInfoResponse, RadioStationsResponse,
+    };
+
     pub fn register_all_types(gen: &mut ZodGenerator, registered: &mut HashSet<String>) {
         // auth types
         gen.add_schema::<WhoAmIResponse>("WhoAmIResponse");
@@ -263,6 +268,16 @@ pub mod type_registry {
 
         gen.add_schema::<ServerInfoResponse>("ServerInfoResponse");
         registered.insert("ServerInfoResponse".to_string());
+
+        // radio discovery types
+        gen.add_schema::<PublicNowPlaying>("PublicNowPlaying");
+        registered.insert("PublicNowPlaying".to_string());
+        gen.add_schema::<PublicStation>("PublicStation");
+        registered.insert("PublicStation".to_string());
+        gen.add_schema::<RadioInfoResponse>("RadioInfoResponse");
+        registered.insert("RadioInfoResponse".to_string());
+        gen.add_schema::<RadioStationsResponse>("RadioStationsResponse");
+        registered.insert("RadioStationsResponse".to_string());
 
         gen.add_schema::<ApiKeyStatusResponse>("ApiKeyStatusResponse");
         registered.insert("ApiKeyStatusResponse".to_string());

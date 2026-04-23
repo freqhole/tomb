@@ -24,6 +24,26 @@ export function createAppMethods(call: CallFn) {
         routes.app.server_info.path,
       );
     },
+
+    radioInfo: () => {
+      return call(
+        "app", "radio_info",
+        routes.app.radio_info.resp,
+        routes.app.radio_info.req,
+        routes.app.radio_info.method,
+        routes.app.radio_info.path,
+      );
+    },
+
+    radioStations: () => {
+      return call(
+        "app", "radio_stations",
+        routes.app.radio_stations.resp,
+        routes.app.radio_stations.req,
+        routes.app.radio_stations.method,
+        routes.app.radio_stations.path,
+      );
+    },
   };
 }
 

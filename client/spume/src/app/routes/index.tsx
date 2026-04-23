@@ -24,6 +24,7 @@ import { AggregateFeedView } from "../../music/views/AggregateFeedView";
 import { GenresView } from "../../music/views/GenresView";
 import { PlaylistsView } from "../../music/views/PlaylistsView";
 import { SongsView } from "../../music/views/SongsView";
+import { RadioView } from "../../music/views/RadioView";
 import { AppLayout } from "../AppLayout";
 import {
   SettingsLayout,
@@ -102,6 +103,9 @@ export function routes(props: RoutesProps) {
 
         {/* aggregate feed - combines all remotes */}
         <Route path="/feed" component={AggregateFeedView} />
+
+        {/* radio - works with zero remotes; ?node_id=… can deep-link a peer */}
+        <Route path="/radio" component={RadioView} />
 
         {/* local context routes - hidden in tauri mode (always uses remote server) */}
         {!isCharnelMode() && (
