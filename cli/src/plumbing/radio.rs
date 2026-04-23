@@ -11,7 +11,7 @@
 use crate::plumbing::utils::CommandOutput;
 use clap::Subcommand;
 use grimoire::error::ErrorDetail;
-use grimoire::radio::{RadioProtocol, RADIO_ALPN};
+use grimoire::radio::{init_broadcaster, RadioProtocol, RADIO_ALPN};
 use tokio::signal;
 use tracing::info;
 
@@ -50,6 +50,12 @@ async fn serve() -> CommandOutput<serde_json::Value> {
     };
 
     let node_id = endpoint.node_id().to_string();
+
+    // spin up the global broadcaster before accepting any listeners. it
+    // immediately starts encoding the first random song so connecting
+    // listeners get audio without waiting for the first encode pass.
+    let _bc = init_broadcaster();
+    info!("[radio] broadcaster initialized");
 
     if let Err(e) = endpoint
         .start_router_with(|builder| builder.accept(RADIO_ALPN, RadioProtocol::new()))

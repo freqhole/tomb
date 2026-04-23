@@ -15,6 +15,7 @@
 
 use crate::error::{GrimoireError, GrimoireResult};
 use crate::radio::chunk::Chunk;
+use crate::radio::messages::ControlMessage;
 use iroh::endpoint::{RecvStream, SendStream};
 
 /// ALPN identifier for the radio protocol.
@@ -27,6 +28,10 @@ const INIT_FLAG: u32 = 0x8000_0000;
 /// 3s `frag_duration` are ~50 kB; allow plenty of headroom but reject obvious
 /// garbage so a malformed peer can't make us allocate gigabytes.
 const MAX_CHUNK_BYTES: u32 = 16 * 1024 * 1024;
+
+/// hard cap on a single control message. art payloads are capped at ~256 kB
+/// raw (~340 kB base64 + JSON wrapping), so 1 MB is comfy headroom.
+const MAX_CONTROL_BYTES: u32 = 1024 * 1024;
 
 /// write a single chunk to a uni stream using the framing above.
 pub async fn write_chunk(stream: &mut SendStream, chunk: &Chunk) -> GrimoireResult<()> {
@@ -102,4 +107,78 @@ pub async fn read_chunk(stream: &mut RecvStream) -> GrimoireResult<Option<Chunk>
         is_init,
         bytes: body.into(),
     }))
+}
+
+/// write one length-prefixed JSON control message to a stream.
+///
+/// framing: `[u32 BE len][len bytes utf-8 JSON]`. callers MUST flush /
+/// finish via the underlying `SendStream` if they want immediate delivery
+/// — iroh streams buffer until close.
+pub async fn write_control_message(
+    stream: &mut SendStream,
+    msg: &ControlMessage,
+) -> GrimoireResult<()> {
+    let body = serde_json::to_vec(msg).map_err(|e| GrimoireError::ProcessingFailed {
+        message: format!("radio: failed to serialize control message: {e}"),
+    })?;
+    let len = body.len() as u32;
+    if len > MAX_CONTROL_BYTES {
+        return Err(GrimoireError::ProcessingFailed {
+            message: format!(
+                "radio: control message too large: {len} bytes (max {MAX_CONTROL_BYTES})"
+            ),
+        });
+    }
+    stream
+        .write_all(&len.to_be_bytes())
+        .await
+        .map_err(|e| GrimoireError::FederationApiError {
+            message: format!("radio: failed to write control len: {e}"),
+        })?;
+    stream
+        .write_all(&body)
+        .await
+        .map_err(|e| GrimoireError::FederationApiError {
+            message: format!("radio: failed to write control body: {e}"),
+        })?;
+    Ok(())
+}
+
+/// read one length-prefixed JSON control message off a stream. returns
+/// `Ok(None)` on a clean EOF between messages.
+pub async fn read_control_message(
+    stream: &mut RecvStream,
+) -> GrimoireResult<Option<ControlMessage>> {
+    let mut header = [0u8; 4];
+    match stream.read_exact(&mut header).await {
+        Ok(_) => {}
+        Err(e) => {
+            let s = e.to_string();
+            if s.contains("finished") || s.contains("closed") || s.contains("eof") {
+                return Ok(None);
+            }
+            return Err(GrimoireError::FederationApiError {
+                message: format!("radio: failed to read control len: {e}"),
+            });
+        }
+    }
+    let len = u32::from_be_bytes(header);
+    if len > MAX_CONTROL_BYTES {
+        return Err(GrimoireError::FederationApiError {
+            message: format!(
+                "radio: control message too large: {len} bytes (max {MAX_CONTROL_BYTES})"
+            ),
+        });
+    }
+    let mut body = vec![0u8; len as usize];
+    stream
+        .read_exact(&mut body)
+        .await
+        .map_err(|e| GrimoireError::FederationApiError {
+            message: format!("radio: failed to read control body ({len} bytes): {e}"),
+        })?;
+    let msg = serde_json::from_slice(&body).map_err(|e| GrimoireError::ProcessingFailed {
+        message: format!("radio: failed to parse control message: {e}"),
+    })?;
+    Ok(Some(msg))
 }

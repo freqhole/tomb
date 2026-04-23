@@ -65,7 +65,7 @@
         padding: 0.75rem;
         font-family: ui-monospace, monospace;
         font-size: 0.75rem;
-        height: 240px;
+        height: 200px;
         overflow-y: auto;
         white-space: pre-wrap;
       }
@@ -77,6 +77,61 @@
         font-size: 0.8rem;
         opacity: 0.7;
         margin-top: 0.5rem;
+      }
+      .now-playing {
+        display: none;
+        margin-top: 1.5rem;
+        padding: 1rem;
+        background: #111;
+        border: 1px solid #222;
+        border-radius: 6px;
+        gap: 1rem;
+        align-items: center;
+      }
+      .now-playing.visible {
+        display: flex;
+      }
+      .now-playing img,
+      .now-playing .art-placeholder {
+        width: 96px;
+        height: 96px;
+        border-radius: 4px;
+        background: #222;
+        flex-shrink: 0;
+        object-fit: cover;
+      }
+      .now-playing .art-placeholder {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 0.7rem;
+        color: #555;
+      }
+      .now-playing .meta {
+        flex: 1;
+        min-width: 0;
+      }
+      .now-playing .title {
+        font-size: 1.1rem;
+        font-weight: 500;
+        margin: 0 0 0.25rem 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .now-playing .sub {
+        font-size: 0.85rem;
+        opacity: 0.75;
+        margin: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .now-playing .listeners {
+        font-size: 0.7rem;
+        opacity: 0.5;
+        margin-top: 0.5rem;
+        font-family: ui-monospace, monospace;
       }
     </style>
   </head>
@@ -100,6 +155,16 @@
       <button id="leave-btn" disabled>leave</button>
     </div>
 
+    <div class="now-playing" id="now-playing">
+      <div id="art-slot"></div>
+      <div class="meta">
+        <p class="title" id="np-title">—</p>
+        <p class="sub" id="np-artist">—</p>
+        <p class="sub" id="np-album">—</p>
+        <p class="listeners" id="np-listeners">listeners: —</p>
+      </div>
+    </div>
+
     <audio id="audio" controls autoplay></audio>
     <div class="stats" id="stats"></div>
 
@@ -116,6 +181,12 @@
       const tuneBtn = $("tune-btn");
       const leaveBtn = $("leave-btn");
       const nodeIdInput = $("node-id");
+      const npCard = $("now-playing");
+      const npTitle = $("np-title");
+      const npArtist = $("np-artist");
+      const npAlbum = $("np-album");
+      const npListeners = $("np-listeners");
+      const artSlot = $("art-slot");
 
       const log = (msg) => {
         const ts = new Date().toISOString().slice(11, 23);
@@ -131,6 +202,8 @@
       let chunkCount = 0;
       let bytesReceived = 0;
       let firstChunkAt = null;
+      let currentArtUrl = null;
+      let currentArtBlobId = null;
 
       const updateStats = () => {
         const now = performance.now();
@@ -148,6 +221,52 @@
           }`;
       };
 
+      // turn an ArtData {mime, blob_id, data: base64} into an <img>. dedupes
+      // by blob_id so identical art across consecutive tracks doesn't churn
+      // the DOM or leak Blob URLs.
+      const renderArt = (art) => {
+        if (!art) {
+          if (currentArtUrl) URL.revokeObjectURL(currentArtUrl);
+          currentArtUrl = null;
+          currentArtBlobId = null;
+          artSlot.innerHTML = '<div class="art-placeholder">no art</div>';
+          return;
+        }
+        if (art.blob_id === currentArtBlobId) return;
+
+        try {
+          const bin = atob(art.data);
+          const bytes = new Uint8Array(bin.length);
+          for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+          const blob = new Blob([bytes], { type: art.mime || "image/webp" });
+          const url = URL.createObjectURL(blob);
+
+          if (currentArtUrl) URL.revokeObjectURL(currentArtUrl);
+          currentArtUrl = url;
+          currentArtBlobId = art.blob_id;
+
+          artSlot.innerHTML = "";
+          const img = document.createElement("img");
+          img.src = url;
+          img.alt = "album art";
+          artSlot.appendChild(img);
+        } catch (e) {
+          log(`[meta] art render failed: ${e}`);
+          artSlot.innerHTML = '<div class="art-placeholder">art err</div>';
+        }
+      };
+
+      const renderNowPlaying = (np, listenerCount) => {
+        npCard.classList.add("visible");
+        npTitle.textContent = np.title || "(untitled)";
+        npArtist.textContent = np.artist || "—";
+        npAlbum.textContent = np.album || "—";
+        if (listenerCount != null) {
+          npListeners.textContent = `listeners: ${listenerCount}`;
+        }
+        renderArt(np.art);
+      };
+
       const tune = async () => {
         const nodeId = nodeIdInput.value.trim();
         if (!nodeId) {
@@ -157,8 +276,8 @@
 
         tuneBtn.disabled = true;
 
-        // set up MediaSource. we (re)create one per tune so a previous
-        // session's source-buffer state can't leak.
+        // set up MediaSource. one per tune so a previous session's
+        // source-buffer state can't leak.
         const ms = new MediaSource();
         audio.src = URL.createObjectURL(ms);
 
@@ -167,11 +286,12 @@
         );
         await sourceOpen;
 
-        let sb = ms.addSourceBuffer('audio/mp4; codecs="mp4a.40.2"');
+        let sb = null;
         const queue = [];
+        let seekedToLive = false;
 
         const drain = () => {
-          if (sb.updating) return;
+          if (!sb || sb.updating) return;
           const next = queue.shift();
           if (next) {
             try {
@@ -179,32 +299,70 @@
             } catch (e) {
               log(`[mse] appendBuffer failed: ${e}`);
             }
+            return;
+          }
+          // nothing queued — if we have buffered media but the playhead is
+          // behind it (catchup chunks have non-zero media timestamps from
+          // the middle of the current track), jump to the start of the
+          // buffered range so playback actually begins.
+          if (!seekedToLive && sb.buffered.length > 0) {
+            const start = sb.buffered.start(0);
+            if (audio.currentTime < start) {
+              audio.currentTime = start;
+              log(`[mse] seeked to live edge: ${start.toFixed(2)}s`);
+            }
+            seekedToLive = true;
           }
         };
-        sb.addEventListener("updateend", drain);
+
+        const onHello = (json) => {
+          try {
+            const msg = JSON.parse(json);
+            const hello = msg.payload || msg; // tolerate enum repr drift
+            // server sends `{ "type": "hello", ...HelloMessage flat }` via
+            // serde tag="type" with rename_all snake_case + variant fields
+            // flattened, so msg itself has codec, now_playing, etc.
+            const codec = msg.codec || "audio/mp4; codecs=\"mp4a.40.2\"";
+            log(`[hello] codec=${codec} listeners=${msg.listener_count}`);
+            // create the SourceBuffer using the codec from the server.
+            sb = ms.addSourceBuffer(codec);
+            sb.addEventListener("updateend", drain);
+            renderNowPlaying(msg.now_playing, msg.listener_count);
+          } catch (e) {
+            log(`[hello] parse failed: ${e}`);
+          }
+        };
+
+        const onMeta = (json) => {
+          try {
+            const msg = JSON.parse(json);
+            log(
+              `[meta] now playing: ${msg.now_playing?.title || "?"} ` +
+                `(listeners: ${msg.listener_count})`,
+            );
+            renderNowPlaying(msg.now_playing, msg.listener_count);
+          } catch (e) {
+            log(`[meta] parse failed: ${e}`);
+          }
+        };
+
+        const onChunk = (seq, isInit, bytes) => {
+          chunkCount++;
+          bytesReceived += bytes.length;
+          if (!firstChunkAt) firstChunkAt = performance.now();
+          if (isInit) {
+            log(`chunk ${seq} INIT (${bytes.length} bytes) — new track`);
+          } else if (chunkCount % 20 === 0) {
+            log(`chunk ${seq} (${bytes.length} bytes)`);
+          }
+          queue.push(bytes);
+          drain();
+          updateStats();
+        };
 
         log(`tuning into ${nodeId.slice(0, 16)}...`);
         try {
-          session = await node.tune_radio(nodeId, (seq, isInit, bytes) => {
-            chunkCount++;
-            bytesReceived += bytes.length;
-            if (!firstChunkAt) firstChunkAt = performance.now();
-            if (isInit) {
-              log(
-                `chunk ${seq} INIT (${bytes.length} bytes) — new track`,
-              );
-              // mse accepts new init segments mid-stream as long as the
-              // codec stays compatible. just queue it like any other chunk.
-              queue.push(bytes);
-            } else if (chunkCount % 10 === 0) {
-              log(`chunk ${seq} (${bytes.length} bytes)`);
-              queue.push(bytes);
-            } else {
-              queue.push(bytes);
-            }
-            drain();
-            updateStats();
-          });
+          session = await node.tune_radio(nodeId, onHello, onMeta, onChunk);
           leaveBtn.disabled = false;
           log("tuned in. audio should start within a few seconds.");
         } catch (e) {
@@ -220,6 +378,12 @@
         }
         tuneBtn.disabled = false;
         leaveBtn.disabled = true;
+        npCard.classList.remove("visible");
+        if (currentArtUrl) {
+          URL.revokeObjectURL(currentArtUrl);
+          currentArtUrl = null;
+          currentArtBlobId = null;
+        }
         log("left station.");
       };
 

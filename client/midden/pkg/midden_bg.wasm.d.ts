@@ -2,7 +2,7 @@
 /* eslint-disable */
 export const memory: WebAssembly.Memory;
 export const __wbg_radiohandle_free: (a: number, b: number) => void;
-export const middennode_tune_radio: (a: number, b: number, c: number, d: any) => any;
+export const middennode_tune_radio: (a: number, b: number, c: number, d: any, e: any, f: any) => any;
 export const radiohandle_leave: (a: number) => void;
 export const __wbg_bistream_free: (a: number, b: number) => void;
 export const __wbg_helloimageresult_free: (a: number, b: number) => void;

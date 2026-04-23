@@ -325,29 +325,34 @@ export class MiddenNode {
      */
     start_blob_server(): void;
     /**
-     * connect to a freqhole radio broadcaster and start receiving audio chunks.
+     * connect to a freqhole radio broadcaster.
      *
-     * `on_chunk(seq: number, is_init: boolean, bytes: Uint8Array)` is
-     * invoked once per chunk. `seq` is the broadcaster's sequence counter
-     * (resets per connection in phase 0). `is_init = true` marks the start
-     * of a new track — the JS side should soft-reset MSE before appending.
+     * callbacks (all called from JS land):
+     * - `on_hello(json: string)` — fires once when the server's Hello
+     *   message arrives. payload is the JSON-encoded `HelloMessage`.
+     * - `on_meta(json: string)` — fires on each track change with the
+     *   JSON-encoded `MetaMessage`.
+     * - `on_chunk(seq: number, is_init: boolean, bytes: Uint8Array)` —
+     *   fires per audio chunk. `is_init = true` marks the start of a new
+     *   track; the JS side should append it to the same SourceBuffer.
      *
      * returns a [`RadioHandle`] — keep a reference to it; dropping it stops
      * playback and closes the iroh connection.
      */
-    tune_radio(peer_addr: string, on_chunk: Function): Promise<RadioHandle>;
+    tune_radio(peer_addr: string, on_hello: Function, on_meta: Function, on_chunk: Function): Promise<RadioHandle>;
 }
 
 /**
  * handle returned to JS for a tuned-in radio session. dropping the handle
- * (or calling `leave()`) cancels the read loop and closes the connection.
+ * (or calling `leave()`) closes the iroh connection, which tears down both
+ * read loops.
  */
 export class RadioHandle {
     private constructor();
     free(): void;
     [Symbol.dispose](): void;
     /**
-     * stop receiving audio and close the connection.
+     * stop receiving audio + meta and close the connection.
      */
     leave(): void;
 }
