@@ -12,6 +12,8 @@ import {
   radioError,
   radioListenerCount,
   radioNowPlaying,
+  radioPause,
+  radioResume,
   radioStatus,
   setRadioAudioSink,
 } from "../../app/services/radio/radioService";
@@ -167,7 +169,24 @@ export function RadioBar(props: RadioBarProps) {
             </div>
           </Show>
 
-          {/* stop */}
+          {/* play/pause — pauses the audio element without leaving the
+              session. clicked again to resume. NOTE: 2c-iii will move
+              this into the unified PlayerBar; for now it lives here as
+              a stub so users have a play/pause without a "stop" button. */}
+          <button
+            class="px-2 py-1 rounded text-xs font-medium border border-[var(--color-border-subtle)] hover:bg-[var(--color-bg-hover)] cursor-pointer"
+            onClick={() => {
+              if (radioStatus() === "paused") radioResume();
+              else if (radioStatus() === "playing") radioPause();
+            }}
+            title={radioStatus() === "paused" ? "resume" : "pause"}
+          >
+            {radioStatus() === "paused" ? "play" : "pause"}
+          </button>
+
+          {/* stop — tear down the iroh session. kept for now until 2c-iii
+              merges this bar into PlayerBar; the player's main play/pause
+              will be the only "stop" affordance once that ships. */}
           <button
             class="px-3 py-1 rounded text-xs font-medium border border-[var(--color-border-subtle)] hover:bg-[var(--color-bg-hover)] cursor-pointer"
             onClick={() => leaveRadio()}

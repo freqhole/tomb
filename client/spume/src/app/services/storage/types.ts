@@ -113,7 +113,7 @@ export interface P2PIdentity {
 
 // database schema version
 export const APP_DB_NAME = "freqhole_app";
-export const APP_DB_VERSION = 6; // renamed pending_knocks → pending_remotes
+export const APP_DB_VERSION = 7; // added radio_history store
 
 // app store names
 export const STORE_APP_STATE = "app_state"; // also stores P2PIdentity with id: "p2p_identity"
@@ -121,6 +121,25 @@ export const STORE_REMOTES = "remotes";
 export const STORE_QUEUE_HISTORY = "queue_history";
 export const STORE_ANALYTICS_EVENTS = "analytics_events";
 export const STORE_PENDING_REMOTES = "pending_remotes";
+export const STORE_RADIO_HISTORY = "radio_history";
+
+// radio history entry — one per (station, song_id) transition observed by
+// the listener. capped at MAX_RADIO_HISTORY rows by radioHistory module.
+export interface RadioHistoryEntry {
+  id: string;                       // uuid
+  played_at: number;                // ms epoch (sort key)
+  station_id: string | null;
+  station_name: string | null;
+  peer_addr: string;                // remote that served the stream
+  song_id: string | null;
+  title: string;
+  artist: string | null;
+  album: string | null;
+  duration_ms: number | null;
+  art_blob_id: string | null;
+  art_thumb_b64: string | null;     // optional inline thumb (option A)
+  art_thumb_mime: string | null;
+}
 
 // pending remote stage - tracks progress of adding a new remote
 export type PendingRemoteStage =

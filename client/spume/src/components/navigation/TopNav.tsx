@@ -241,6 +241,9 @@ export function TopNav(props: TopNavProps) {
 
   // hide view selector, search, sort, and source selector on aggregate feed route
   const isAggregateFeedRoute = () => (props.currentPath ?? "").startsWith("/feed");
+  // also hide search input and the music sub-nav (songs/albums/playlists/etc)
+  // on the radio route — radio has its own list-and-detail layout.
+  const isRadioRoute = () => (props.currentPath ?? "").startsWith("/radio");
   let sortCloseTimeout: ReturnType<typeof setTimeout> | undefined;
   let tagCloseTimeout: ReturnType<typeof setTimeout> | undefined;
   let feedFilterCloseTimeout: ReturnType<typeof setTimeout> | undefined;
@@ -764,10 +767,11 @@ export function TopNav(props: TopNavProps) {
             <KobalteNav.Viewport />
           </KobalteNav>
 
-          {/* view selector flyout - hidden when search is expanded on small screens, hidden on aggregate feed */}
+          {/* view selector flyout - hidden when search is expanded on small screens, hidden on aggregate feed and radio */}
           <Show
             when={
               !isAggregateFeedRoute() &&
+              !isRadioRoute() &&
               props.viewOptions?.length &&
               (!isSmall() || !searchExpanded())
             }
@@ -782,8 +786,8 @@ export function TopNav(props: TopNavProps) {
             </div>
           </Show>
 
-          {/* search - last item on right, grows to fill remaining space (hidden on aggregate feed) */}
-          <Show when={!isAggregateFeedRoute()}>
+          {/* search - last item on right, grows to fill remaining space (hidden on aggregate feed + radio) */}
+          <Show when={!isAggregateFeedRoute() && !isRadioRoute()}>
             <div class="flex-1 order-last">
               <Show
                 when={props.searchComponent !== undefined}
@@ -802,10 +806,11 @@ export function TopNav(props: TopNavProps) {
             </div>
           </Show>
 
-          {/* sort controls - when view has sorting, hidden when search expanded on small, hidden on aggregate feed */}
+          {/* sort controls - when view has sorting, hidden when search expanded on small, hidden on aggregate feed + radio */}
           <Show
             when={
               !isAggregateFeedRoute() &&
+              !isRadioRoute() &&
               info().sortFields?.length &&
               (!isSmall() || !searchExpanded())
             }
@@ -874,8 +879,12 @@ export function TopNav(props: TopNavProps) {
             </div>
           </Show>
 
-          {/* tag filter icon - when view has tags, hidden when search expanded on small */}
-          <Show when={info().availableTags?.length && (!isSmall() || !searchExpanded())}>
+          {/* tag filter icon - when view has tags, hidden when search expanded on small, hidden on radio */}
+          <Show
+            when={
+              !isRadioRoute() && info().availableTags?.length && (!isSmall() || !searchExpanded())
+            }
+          >
             <div
               class="relative flex-shrink-0 order-2"
               onMouseEnter={() => {

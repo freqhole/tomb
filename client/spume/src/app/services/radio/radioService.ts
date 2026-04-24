@@ -17,10 +17,11 @@ import {
   registerStopRadio,
   stopMusicForRadio,
 } from "../playbackCoordinator";
+import { recordHistoryEntry } from "./radioHistory";
 
 const MSE_CODEC = 'audio/mp4; codecs="mp4a.40.2"';
 
-export type RadioStatus = "idle" | "connecting" | "playing" | "error";
+export type RadioStatus = "idle" | "connecting" | "playing" | "paused" | "error";
 
 interface RadioSession {
   peerAddr: string;
@@ -76,6 +77,39 @@ export function setRadioAudioSink(el: HTMLAudioElement | null): void {
   audioSink = el;
 }
 
+/**
+ * pause radio playback without tearing down the iroh session. resume with
+ * `radioResume()`. used by the unified player bar (2c-iii) so the play
+ * button can pause/resume radio just like local music. NOTE: this only
+ * pauses *playback*; chunks keep arriving and are buffered — long pauses
+ * may overflow MSE’s SourceBuffer; expected use is brief (seconds, not
+ * minutes). for true “stop”, call `leaveRadio()`.
+ */
+export function radioPause(): void {
+  if (status() !== "playing") return;
+  if (audioSink) {
+    try {
+      audioSink.pause();
+    } catch (e) {
+      console.warn("[radio] pause failed:", e);
+    }
+  }
+  setStatus("paused");
+}
+
+/** resume radio playback after `radioPause()`. no-op when not paused. */
+export function radioResume(): void {
+  if (status() !== "paused") return;
+  if (audioSink) {
+    try {
+      void audioSink.play();
+    } catch (e) {
+      console.warn("[radio] resume failed:", e);
+    }
+  }
+  setStatus("playing");
+}
+
 /** stop the current radio session if any. safe to call when idle. */
 export function leaveRadio(): void {
   if (activeSession) {
@@ -107,6 +141,17 @@ function swapArtUrl(next: string | null): void {
     }
   }
   setArtUrl(next);
+}
+
+// extract raw inline art metadata (`{mime, data}` base64) from the raw
+// now_playing payload, for storing in history. returns null if absent.
+function rawArtMetaFrom(raw: unknown): { mime: string; data: string } | null {
+  if (!raw || typeof raw !== "object") return null;
+  const art = (raw as { art?: unknown }).art;
+  if (!art || typeof art !== "object") return null;
+  const a = art as { mime?: unknown; data?: unknown };
+  if (typeof a.mime !== "string" || typeof a.data !== "string") return null;
+  return { mime: a.mime, data: a.data };
 }
 
 // build a Blob URL from inline ArtData (`{mime, blob_id, data}`) on the
@@ -192,6 +237,34 @@ export async function tuneIntoRadio(
   const queue: Uint8Array[] = [];
   let seekedToLive = false;
 
+  // ---- history scope ---------------------------------------------------
+  // tracked per-session so we only record one history row per actual
+  // (station, song_id) transition. resets on leaveRadio via the new
+  // session reset path.
+  let lastHistorySongId: string | null = null;
+  const sessionPeerAddr = peerAddr;
+  const sessionStationName = opts.stationName ?? null;
+  const maybeRecordHistory = (np: PublicNowPlaying, rawArt: { mime?: string; data?: string } | null) => {
+    const songId = np.song_id ?? null;
+    // only record on actual song-id transitions; ignore initial null and
+    // duplicate meta updates within the same track.
+    if (!songId || songId === lastHistorySongId) return;
+    lastHistorySongId = songId;
+    void recordHistoryEntry({
+      station_id: currentStationId(),
+      station_name: sessionStationName,
+      peer_addr: sessionPeerAddr,
+      song_id: songId,
+      title: np.title,
+      artist: np.artist ?? null,
+      album: np.album ?? null,
+      duration_ms: np.duration_ms ?? null,
+      art_blob_id: np.art_blob_id ?? null,
+      art_thumb_b64: rawArt?.data ?? null,
+      art_thumb_mime: rawArt?.mime ?? null,
+    }).catch((e) => console.warn("[radio] history write failed:", e));
+  };
+
   const drain = () => {
     if (!sb || sb.updating) return;
     const next = queue.shift();
@@ -233,6 +306,7 @@ export async function tuneIntoRadio(
     {
       now_playing: PublicNowPlaying;
       art_url: string | null;
+      raw_art: { mime: string; data: string } | null;
       listener_count: number;
     }
   >();
@@ -249,7 +323,9 @@ export async function tuneIntoRadio(
         const np = coerceNowPlaying(msg.now_playing);
         if (np) {
           setNowPlaying(np);
+          const rawArt = rawArtMetaFrom(msg.now_playing);
           swapArtUrl(artUrlFromRaw(msg.now_playing));
+          maybeRecordHistory(np, rawArt);
         }
       }
       if (typeof msg?.listener_count === "number") {
@@ -277,24 +353,29 @@ export async function tuneIntoRadio(
         // server tags it with the *current* init_seq so we apply it now.
         if (lastAppliedInit !== null && initSeq <= lastAppliedInit) {
           setNowPlaying(np);
+          const rawArt = rawArtMetaFrom(msg.now_playing);
           swapArtUrl(artUrlFromRaw(msg.now_playing));
           if (typeof msg?.listener_count === "number") {
             setListenerCount(msg.listener_count);
           }
+          maybeRecordHistory(np, rawArt);
         } else {
           pendingMeta.set(initSeq, {
             now_playing: np,
             art_url: artUrlFromRaw(msg.now_playing),
+            raw_art: rawArtMetaFrom(msg.now_playing),
             listener_count: msg.listener_count ?? listenerCount(),
           });
         }
       } else if (np) {
         // protocol drift: no init_seq → apply right away.
         setNowPlaying(np);
+        const rawArt = rawArtMetaFrom(msg.now_playing);
         swapArtUrl(artUrlFromRaw(msg.now_playing));
         if (typeof msg?.listener_count === "number") {
           setListenerCount(msg.listener_count);
         }
+        maybeRecordHistory(np, rawArt);
       }
     } catch (e) {
       console.warn("[radio] meta parse failed:", e);
@@ -308,6 +389,7 @@ export async function tuneIntoRadio(
       setNowPlaying(m.now_playing);
       swapArtUrl(m.art_url ?? null);
       setListenerCount(m.listener_count);
+      maybeRecordHistory(m.now_playing, m.raw_art);
     }
     if (isInit) lastAppliedInit = seq;
     queue.push(bytes);

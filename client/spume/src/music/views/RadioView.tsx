@@ -1,19 +1,25 @@
-// /radio root view
+// /radio root view (two-column layout).
 //
-// shows the listener-side radio browser: a grid of stations across all
-// configured + pending remotes, plus any peer addr passed via the
-// ?node_id=... query param. clicking a tile tunes the audio service
-// into that station.
+// left column: discovered station list (rows with thumb, name, listener
+// count). selecting a station tunes the audio service into it and
+// surfaces detail in the right column. groups by source label.
+//
+// right column: tuned-station detail — large art, now-playing meta,
+// description, and infinite-scrolling track history (RadioHistoryList).
+//
+// stop control lives in the player bar (see 2c-iii); this view never
+// renders one.
 
 import { createMemo, createSignal, For, onMount, Show } from "solid-js";
 import { useNavigate, useSearchParams } from "@solidjs/router";
+import { TwoColumnLayout } from "../../components/layout/TwoColumnLayout";
+import { isNarrowViewport } from "../../config/breakpoints";
 import {
   discoverStations,
   type DiscoveredStation,
   type SourceRef,
 } from "../../app/services/radio/radioDiscovery";
 import {
-  leaveRadio,
   radioArtUrl,
   radioCurrentPeerAddr,
   radioCurrentStationId,
@@ -27,12 +33,11 @@ import {
   createPendingRemote,
   deletePendingRemoteByPeerAddr,
   getPendingRemoteByPeerAddr,
-  appState,
 } from "../../app/services/storage/db";
 import { createRemote } from "../../app/services/remotes/remoteManager";
 import { isCharnelMode } from "../../app/services/charnel";
 import { debug } from "../../utils/logger";
-import { getNavHeight, useViewportHeight } from "../../utils/viewport";
+import { RadioHistoryList } from "./RadioHistoryList";
 
 export function RadioView() {
   const [searchParams] = useSearchParams();
@@ -47,8 +52,6 @@ export function RadioView() {
 
   // record any query-param peers as pending remotes so they survive
   // a page refresh and can be promoted to full remotes from settings.
-  // refetch after writing so the new pending row gets picked up by
-  // the discovery sweep (which reads pending remotes at call time).
   onMount(async () => {
     const addrs = queryPeerAddrs();
     let inserted = false;
@@ -75,15 +78,9 @@ export function RadioView() {
         console.warn("[radio-view] could not save pending remote:", e);
       }
     }
-    if (inserted) {
-      // pending rows changed; re-sweep so they show up in the grid.
-      refetch();
-    }
+    if (inserted) refetch();
   });
 
-  // progressive discovery: stations stream in as each source responds.
-  // we hold the latest cumulative array in `stations` and a coarse
-  // `sweeping` flag for the spinner.
   const [stations, setStations] = createSignal<DiscoveredStation[]>([]);
   const [sweeping, setSweeping] = createSignal(false);
 
@@ -103,12 +100,10 @@ export function RadioView() {
     }
   };
 
-  // initial sweep.
   onMount(() => {
     refetch();
   });
 
-  // group stations by their source label so the grid stays scannable.
   const grouped = createMemo(() => {
     const map = new Map<string, DiscoveredStation[]>();
     for (const s of stations()) {
@@ -119,11 +114,8 @@ export function RadioView() {
     return [...map.entries()].sort(([a], [b]) => a.localeCompare(b));
   });
 
-  // wire the audio element from the radio service into a stable container
-  // so navigating away from /radio doesn't kill playback. for now we just
-  // keep it inline; a future "player bar" slice can move it to AppLayout.
-  // playback now happens inside the global RadioBar (mounted in AppLayout),
-  // so this view never owns an <audio> element.
+  // narrow-mode detail toggle.
+  const [showDetail, setShowDetail] = createSignal(false);
 
   const handleTune = async (station: DiscoveredStation) => {
     const peer = station.source.peer_addr ?? station.source.base_url;
@@ -136,6 +128,7 @@ export function RadioView() {
         stationId: station.station_id,
         stationName: station.name,
       });
+      if (isNarrowViewport()) setShowDetail(true);
     } catch (e) {
       console.error("[radio-view] tune failed:", e);
     }
@@ -150,10 +143,7 @@ export function RadioView() {
     );
   };
 
-  // tracks which source is currently being promoted to a real remote
-  // so the button can show a loading state.
   const [promoting, setPromoting] = createSignal<string | null>(null);
-
   const promoteToRemote = async (src: SourceRef, suggestedName: string) => {
     const peer = src.peer_addr ?? src.base_url;
     if (!peer) return;
@@ -164,14 +154,11 @@ export function RadioView() {
         peer_addr: src.base_url ? undefined : peer,
         base_url: src.base_url,
       });
-      // clean up the pending row if there was one — createRemote already
-      // verified the server is reachable.
       try {
         await deletePendingRemoteByPeerAddr(peer);
       } catch (e) {
         debug("radio-view", "no pending row to clean up:", e);
       }
-      // re-scan so the source is now under its real remote label.
       refetch();
     } catch (e) {
       console.error("[radio-view] promote failed:", e);
@@ -181,195 +168,200 @@ export function RadioView() {
     }
   };
 
-  // viewport math: compute scroll-area height like the other music views
-  // so the station grid scrolls within its container instead of the page
-  // pushing under the radio bar / player bar.
-  const viewportHeight = useViewportHeight();
-  const playerBarPx = () => ((appState()?.queue.length || 0) > 0 ? 80 : 0);
-  const radioBarPx = () => (radioStatus() !== "idle" ? 64 : 0);
-  const scrollHeight = () => viewportHeight() - getNavHeight() - playerBarPx() - radioBarPx();
+  const currentStationObj = createMemo(() => stations().find((s) => isCurrent(s)) ?? null);
 
-  return (
-    <div class="flex flex-col w-full" style={{ height: `${scrollHeight()}px` }}>
-      <div class="flex-1 overflow-y-auto">
-        <div class="px-4 sm:px-6 py-6 max-w-6xl mx-auto">
-          <header class="flex items-start sm:items-center justify-between gap-3 mb-6 flex-col sm:flex-row">
-            <div>
-              <h1 class="text-3xl font-bold">radio</h1>
-              <p class="text-sm text-neutral-400 mt-1">stations broadcast by your remotes</p>
-            </div>
-            <div class="flex gap-2 self-end sm:self-auto">
-              <button
-                class="px-3 py-1 rounded bg-neutral-800 hover:bg-neutral-700 text-sm"
-                onClick={() => refetch()}
-                disabled={sweeping()}
+  // ---------------------------------------------------------------------
+  // left column — station list
+  // ---------------------------------------------------------------------
+  const leftColumn = (
+    <div class="flex flex-col h-full">
+      <header class="flex items-center justify-between gap-2 px-3 py-3 border-b border-neutral-800">
+        <h1 class="text-lg font-bold">radio</h1>
+        <button
+          class="text-xs px-2 py-1 rounded bg-neutral-800 hover:bg-neutral-700"
+          onClick={() => refetch()}
+          disabled={sweeping()}
+        >
+          {sweeping() ? "scanning…" : "refresh"}
+        </button>
+      </header>
+
+      <div class="flex-1 overflow-y-auto p-2">
+        <Show
+          when={stations().length > 0}
+          fallback={
+            <div class="text-sm text-neutral-400 p-3">
+              <Show
+                when={sweeping()}
+                fallback={
+                  <Show
+                    when={queryPeerAddrs().length === 0}
+                    fallback={<span>no stations found on those peers.</span>}
+                  >
+                    no stations found.{" "}
+                    <button class="underline" onClick={() => navigate("/settings/remotes")}>
+                      add a remote
+                    </button>
+                    .
+                  </Show>
+                }
               >
-                {sweeping() ? "scanning…" : "refresh"}
-              </button>
-              <Show when={radioStatus() !== "idle"}>
-                <button
-                  class="px-3 py-1 rounded bg-red-700 hover:bg-red-600 text-sm"
-                  onClick={() => leaveRadio()}
-                >
-                  stop
-                </button>
+                scanning remotes…
+              </Show>
+            </div>
+          }
+        >
+          <For each={grouped()}>
+            {([label, stns]) => {
+              const src = stns[0]?.source;
+              const isTransient = src && (src.kind === "pending" || src.kind === "query_param");
+              return (
+                <section class="mb-4">
+                  <div class="flex items-center justify-between px-2 mb-1">
+                    <h2 class="text-[11px] uppercase tracking-wide text-neutral-500 truncate">
+                      {label}
+                    </h2>
+                    <Show when={isTransient && src}>
+                      <button
+                        class="text-[10px] px-1.5 py-0.5 rounded border border-neutral-700 hover:border-neutral-500"
+                        onClick={() => promoteToRemote(src!, label)}
+                        disabled={promoting() === src!.id}
+                      >
+                        {promoting() === src!.id ? "saving…" : "save"}
+                      </button>
+                    </Show>
+                  </div>
+                  <ul>
+                    <For each={stns}>
+                      {(station) => (
+                        <li>
+                          <button
+                            class="w-full text-left flex items-center gap-2 p-2 rounded transition border"
+                            classList={{
+                              "bg-emerald-900/40 border-emerald-700": isCurrent(station),
+                              "hover:bg-neutral-900 border-transparent": !isCurrent(station),
+                            }}
+                            onClick={() => handleTune(station)}
+                          >
+                            <div class="flex-shrink-0 w-10 h-10 rounded overflow-hidden bg-gradient-to-br from-purple-700 to-indigo-900 flex items-center justify-center">
+                              <Show
+                                when={isCurrent(station) && radioArtUrl()}
+                                fallback={
+                                  <span class="text-[8px] font-bold tracking-widest opacity-60 text-white">
+                                    radio
+                                  </span>
+                                }
+                              >
+                                {(url) => (
+                                  <img src={url()} alt="" class="w-full h-full object-cover" />
+                                )}
+                              </Show>
+                            </div>
+                            <div class="flex-1 min-w-0">
+                              <div class="text-sm font-medium truncate">{station.name}</div>
+                              <div class="text-[11px] text-neutral-400 truncate">
+                                {station.listener_count} listening
+                                <Show when={station.now_playing}>
+                                  {(np) => <> · {np().title}</>}
+                                </Show>
+                              </div>
+                            </div>
+                          </button>
+                        </li>
+                      )}
+                    </For>
+                  </ul>
+                </section>
+              );
+            }}
+          </For>
+        </Show>
+      </div>
+    </div>
+  );
+
+  // ---------------------------------------------------------------------
+  // right column — tuned-station detail + history
+  // ---------------------------------------------------------------------
+  const rightColumn = (
+    <div class="flex flex-col h-full overflow-y-auto">
+      <Show
+        when={radioStatus() !== "idle"}
+        fallback={
+          <div class="flex-1 flex flex-col items-center text-center p-8 text-neutral-400">
+            <div class="w-32 h-32 rounded-lg bg-gradient-to-br from-purple-700 to-indigo-900 flex items-center justify-center mb-4">
+              <span class="text-xs font-bold tracking-widest opacity-60 text-white">radio</span>
+            </div>
+            <p class="text-sm max-w-xs mb-8">
+              pick a station from the list to tune in. while you listen, every track that plays is
+              logged below.
+            </p>
+            <div class="w-full max-w-md">
+              <RadioHistoryList />
+            </div>
+          </div>
+        }
+      >
+        <div class="p-6 max-w-3xl mx-auto w-full">
+          <header class="flex items-start gap-4 mb-6">
+            <div class="flex-shrink-0 w-32 h-32 sm:w-40 sm:h-40 rounded-lg overflow-hidden bg-gradient-to-br from-purple-700 to-indigo-900 flex items-center justify-center">
+              <Show
+                when={radioArtUrl()}
+                fallback={
+                  <span class="text-sm font-bold tracking-widest opacity-60 text-white">radio</span>
+                }
+              >
+                {(url) => <img src={url()} alt="" class="w-full h-full object-cover" />}
+              </Show>
+            </div>
+            <div class="flex-1 min-w-0">
+              <div class="text-xs uppercase tracking-wide text-neutral-500 mb-1">
+                {radioStatus() === "connecting" ? "connecting…" : "now playing"}
+              </div>
+              <Show when={radioNowPlaying()} fallback={<div>—</div>}>
+                {(np) => (
+                  <>
+                    <div class="text-2xl font-bold truncate">{np().title}</div>
+                    <div class="text-base text-neutral-300 truncate">
+                      {np().artist ?? "unknown artist"}
+                      <Show when={np().album}> — {np().album}</Show>
+                    </div>
+                  </>
+                )}
+              </Show>
+              <Show when={currentStationObj()}>
+                {(s) => (
+                  <div class="mt-3 text-sm text-neutral-400">
+                    <div class="font-medium">{s().name}</div>
+                    <Show when={s().description}>
+                      <div class="text-xs">{s().description}</div>
+                    </Show>
+                    <div class="text-xs mt-1">
+                      {radioListenerCount()} listener
+                      {radioListenerCount() === 1 ? "" : "s"}
+                    </div>
+                  </div>
+                )}
+              </Show>
+              <Show when={radioError()}>
+                <div class="mt-2 text-xs text-red-400">{radioError()}</div>
               </Show>
             </div>
           </header>
 
-          {/* now-playing strip — only shown on narrow viewports; on wide
-              the global RadioBar at the bottom carries the same info. */}
-          <Show when={radioStatus() !== "idle"}>
-            <section class="mb-6 p-4 rounded-lg bg-neutral-900 border border-neutral-800 sm:hidden">
-              <div class="text-xs uppercase tracking-wide text-neutral-500 mb-1">
-                {radioStatus() === "connecting" ? "connecting…" : "now playing"}
-              </div>
-              <div class="flex items-start gap-3">
-                <div class="flex-shrink-0 w-16 h-16 rounded overflow-hidden bg-gradient-to-br from-purple-700 to-indigo-900 flex items-center justify-center">
-                  <Show
-                    when={radioArtUrl()}
-                    fallback={
-                      <span class="text-[10px] font-bold tracking-widest opacity-70 text-white">
-                        radio
-                      </span>
-                    }
-                  >
-                    {(url) => (
-                      <img src={url()} alt="album art" class="w-full h-full object-cover" />
-                    )}
-                  </Show>
-                </div>
-                <div class="flex-1 min-w-0">
-                  <Show when={radioNowPlaying()} fallback={<div>—</div>}>
-                    {(np) => (
-                      <div>
-                        <div class="text-lg font-semibold truncate">{np().title}</div>
-                        <div class="text-sm text-neutral-400 truncate">
-                          {np().artist ?? "unknown artist"}
-                          <Show when={np().album}>
-                            {" — "}
-                            {np().album}
-                          </Show>
-                        </div>
-                      </div>
-                    )}
-                  </Show>
-                  <div class="text-xs text-neutral-500 mt-2">
-                    {radioListenerCount()} listener
-                    {radioListenerCount() === 1 ? "" : "s"}
-                  </div>
-                </div>
-              </div>
-              <Show when={radioError()}>
-                <div class="mt-2 text-xs text-red-400">{radioError()}</div>
-              </Show>
-            </section>
-          </Show>
-
-          {/* station grid — show partial results as they stream in */}
-          <Show
-            when={stations().length > 0 || !sweeping()}
-            fallback={<div class="text-neutral-400">scanning remotes…</div>}
-          >
-            <Show
-              when={stations().length > 0}
-              fallback={
-                <div class="text-neutral-400 text-sm">
-                  no stations found.{" "}
-                  <Show when={queryPeerAddrs().length === 0}>
-                    add a remote in{" "}
-                    <button class="underline" onClick={() => navigate("/settings/remotes")}>
-                      settings → remotes
-                    </button>{" "}
-                    or open a shared link with <code class="text-xs">?node_id=…</code>.
-                  </Show>
-                </div>
-              }
-            >
-              <For each={grouped()}>
-                {([label, stations]) => {
-                  const src = stations[0]?.source;
-                  const isTransient = src && (src.kind === "pending" || src.kind === "query_param");
-                  return (
-                    <section class="mb-8">
-                      <div class="flex items-center justify-between mb-2">
-                        <h2 class="text-sm uppercase tracking-wide text-neutral-500">
-                          {label}
-                          <Show when={src?.kind === "query_param"}>
-                            <span class="ml-2 text-[10px] normal-case text-amber-400">
-                              (from link)
-                            </span>
-                          </Show>
-                          <Show when={src?.kind === "pending"}>
-                            <span class="ml-2 text-[10px] normal-case text-neutral-400">
-                              (pending)
-                            </span>
-                          </Show>
-                        </h2>
-                        <Show when={isTransient && src}>
-                          <button
-                            class="text-xs px-2 py-0.5 rounded border border-neutral-700 hover:border-neutral-500 hover:bg-neutral-800"
-                            onClick={() => promoteToRemote(src!, label)}
-                            disabled={promoting() === src!.id}
-                          >
-                            {promoting() === src!.id ? "saving…" : "save as remote"}
-                          </button>
-                        </Show>
-                      </div>
-                      <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
-                        <For each={stations}>
-                          {(station) => (
-                            <button
-                              class={`text-left p-4 rounded-lg border transition ${
-                                isCurrent(station)
-                                  ? "bg-emerald-900/50 border-emerald-600"
-                                  : "bg-neutral-900 border-neutral-800 hover:border-neutral-600"
-                              }`}
-                              onClick={() => handleTune(station)}
-                            >
-                              <div class="aspect-square rounded bg-gradient-to-br from-purple-700 to-indigo-900 mb-3 flex items-center justify-center text-2xl font-bold tracking-widest opacity-60 overflow-hidden">
-                                <Show
-                                  when={isCurrent(station) && radioArtUrl()}
-                                  fallback={<>radio</>}
-                                >
-                                  {(url) => (
-                                    <img
-                                      src={url()}
-                                      alt="album art"
-                                      class="w-full h-full object-cover opacity-100"
-                                    />
-                                  )}
-                                </Show>
-                              </div>
-                              <div class="font-semibold truncate">{station.name}</div>
-                              <Show when={station.description}>
-                                <div class="text-xs text-neutral-400 truncate mt-1">
-                                  {station.description}
-                                </div>
-                              </Show>
-                              <div class="text-xs text-neutral-500 mt-2">
-                                {station.listener_count} listening
-                                <Show when={station.is_default}> • default</Show>
-                              </div>
-                              <Show when={station.now_playing}>
-                                {(np) => (
-                                  <div class="text-xs text-neutral-300 truncate mt-1">
-                                    now: {np().title}
-                                  </div>
-                                )}
-                              </Show>
-                            </button>
-                          )}
-                        </For>
-                      </div>
-                    </section>
-                  );
-                }}
-              </For>
-            </Show>
-          </Show>
+          <RadioHistoryList />
         </div>
-      </div>
+      </Show>
     </div>
+  );
+
+  return (
+    <TwoColumnLayout
+      leftColumn={leftColumn}
+      rightColumn={rightColumn}
+      leftColumnWidth={320}
+      showDetail={showDetail()}
+      onBack={() => setShowDetail(false)}
+    />
   );
 }
