@@ -803,7 +803,7 @@ export const FavoriteArtistResultSchema = z.object({
 });
 export type FavoriteArtistResult = z.infer<typeof FavoriteArtistResultSchema>;
 
-export const FavoriteItemSchema = z.discriminatedUnion('type', [z.intersection(z.object({
+export const FavoriteItemSchema = z.union([z.intersection(z.object({
   type: z.literal('Song')
 }), z.object({
   favorited_at: z.number(),
@@ -1661,7 +1661,7 @@ export const ListFavoritesRequestSchema = z.object({
 export type ListFavoritesRequest = z.infer<typeof ListFavoritesRequestSchema>;
 
 export const ListFavoritesResponseSchema = z.object({
-  favorites: z.array(z.discriminatedUnion('type', [z.intersection(z.object({
+  favorites: z.array(z.union([z.intersection(z.object({
   type: z.literal('Song')
 }), z.object({
   favorited_at: z.number(),

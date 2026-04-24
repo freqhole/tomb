@@ -189,6 +189,13 @@ pub fn generate_all() -> Result<(), Box<dyn std::error::Error>> {
     // relax to `.nullish()` (null OR undefined). `.nullish()` is a strict
     // superset of `.nullable()` — always safe to substitute.
     let schema = schema.replace(".nullable()", ".nullish()");
+    // zod_gen 1.x emits `z.discriminatedUnion('disc', [z.intersection(...)])`
+    // for tagged enums whose variants carry inlined struct payloads. zod v4's
+    // `discriminatedUnion` rejects `ZodIntersection` members (the discriminator
+    // can't be statically extracted through an intersection wrapper). fall
+    // back to `z.union(...)`: same accepted inputs, just no discriminator
+    // optimization. drops the leading `'disc',` argument.
+    let schema = regex_replace_disc_union(&schema);
     std::fs::write("freqhole-api-client/src/codegen/schema.ts", schema)?;
 
     let routes_config = generate_routes_file(&routes);
@@ -268,4 +275,27 @@ fn admin_schema_ref(rust_type: &str) -> String {
     }
 
     format!("s.{}Schema", clean)
+}
+
+/// rewrite every `z.discriminatedUnion('disc', [` occurrence to `z.union([`.
+/// zod v4 rejects `ZodIntersection` inside `discriminatedUnion`, and zod_gen
+/// emits intersections for tagged enums whose variants carry inlined struct
+/// payloads. union accepts the same inputs (just no discriminator fast-path).
+fn regex_replace_disc_union(input: &str) -> String {
+    let needle = "z.discriminatedUnion(";
+    let mut out = String::with_capacity(input.len());
+    let mut rest = input;
+    while let Some(idx) = rest.find(needle) {
+        out.push_str(&rest[..idx]);
+        let after = &rest[idx + needle.len()..];
+        if let Some(bracket) = after.find(", [") {
+            out.push_str("z.union([");
+            rest = &after[bracket + ", [".len()..];
+        } else {
+            out.push_str(needle);
+            rest = after;
+        }
+    }
+    out.push_str(rest);
+    out
 }
