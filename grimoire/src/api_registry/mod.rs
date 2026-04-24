@@ -225,7 +225,10 @@ pub mod type_registry {
         AdminPeerNodeSummary, AdminPeerSummary, AdminPeersAllowRequest, AdminPeersAllowResponse,
         AdminPeersListForUserRequest, AdminPeersRemoveRequest,
     };
-    use crate::admin_dispatch::types::radio::RadioStationsByIdRequest;
+    use crate::admin_dispatch::types::radio::{
+        RadioFiltersAddRequest, RadioFiltersRemoveRequest, RadioSongsAddRequest,
+        RadioSongsRemoveRequest, RadioStationByStationIdRequest, RadioStationsByIdRequest,
+    };
     use crate::admin_dispatch::types::users::{
         AdminAccountLinkResponse, AdminUserSummary, AdminUsersDeleteRequest,
         AdminUsersGenerateAccountLinkRequest, AdminUsersGetRequest, AdminUsersListRequest,
@@ -253,7 +256,7 @@ pub mod type_registry {
 
     // radio admin types
     use crate::radio::stations::models::{
-        CreateStationRequest, RadioStation, UpdateStationRequest,
+        CreateStationRequest, RadioStation, StationFilter, StationSong, UpdateStationRequest,
     };
 
     pub fn register_all_types(gen: &mut ZodGenerator, registered: &mut HashSet<String>) {
@@ -854,6 +857,20 @@ pub mod type_registry {
         registered.insert("UpdateStationRequest".to_string());
         gen.add_schema::<RadioStationsByIdRequest>("RadioStationsByIdRequest");
         registered.insert("RadioStationsByIdRequest".to_string());
+        gen.add_schema::<RadioStationByStationIdRequest>("RadioStationByStationIdRequest");
+        registered.insert("RadioStationByStationIdRequest".to_string());
+        gen.add_schema::<RadioFiltersAddRequest>("RadioFiltersAddRequest");
+        registered.insert("RadioFiltersAddRequest".to_string());
+        gen.add_schema::<RadioFiltersRemoveRequest>("RadioFiltersRemoveRequest");
+        registered.insert("RadioFiltersRemoveRequest".to_string());
+        gen.add_schema::<RadioSongsAddRequest>("RadioSongsAddRequest");
+        registered.insert("RadioSongsAddRequest".to_string());
+        gen.add_schema::<RadioSongsRemoveRequest>("RadioSongsRemoveRequest");
+        registered.insert("RadioSongsRemoveRequest".to_string());
+        gen.add_schema::<StationFilter>("StationFilter");
+        registered.insert("StationFilter".to_string());
+        gen.add_schema::<StationSong>("StationSong");
+        registered.insert("StationSong".to_string());
 
         // listen session request types
         gen.add_schema::<GetListenSessionRequest>("GetListenSessionRequest");

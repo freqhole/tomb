@@ -18,6 +18,7 @@ import {
   stopMusicForRadio,
 } from "../playbackCoordinator";
 import { recordHistoryEntry } from "./radioHistory";
+import { getRemoteByPeerAddr } from "../remotes/remoteManager";
 
 const MSE_CODEC = 'audio/mp4; codecs="mp4a.40.2"';
 
@@ -44,6 +45,12 @@ const [currentPeerAddr, setCurrentPeerAddr] = createSignal<string | null>(null);
 const [currentStationId, setCurrentStationId] = createSignal<string | null>(
   null,
 );
+// resolved remote_server_id for the currently-tuned peer (used by the player
+// bar to fetch the waveform blob from the right backend). null while
+// resolving or when no matching remote is configured locally.
+const [currentRemoteServerId, setCurrentRemoteServerId] = createSignal<
+  string | null
+>(null);
 
 // in-track elapsed time signal (milliseconds since the current track's
 // init segment latched). consumed by the future unified player bar (2c-iii)
@@ -89,6 +96,7 @@ export const radioArtUrl = artUrl;
 export const radioListenerCount = listenerCount;
 export const radioCurrentPeerAddr = currentPeerAddr;
 export const radioCurrentStationId = currentStationId;
+export const radioCurrentRemoteServerId = currentRemoteServerId;
 export const radioElapsedMs = elapsedMs;
 
 export function currentRadioSession(): RadioSession | null {
@@ -158,6 +166,7 @@ export function leaveRadio(): void {
   setListenerCount(0);
   setCurrentPeerAddr(null);
   setCurrentStationId(null);
+  setCurrentRemoteServerId(null);
   stopElapsedTicker();
 }
 
@@ -232,6 +241,12 @@ export async function tuneIntoRadio(
   setStatus("connecting");
   setCurrentPeerAddr(peerAddr);
   setCurrentStationId(opts.stationId ?? null);
+  // resolve the matching local remote (if any) so the player bar can
+  // fetch waveform blobs from the right backend. fire-and-forget;
+  // missing or pending remotes just leave the signal null.
+  void getRemoteByPeerAddr(peerAddr)
+    .then((r) => setCurrentRemoteServerId(r?.remote_id ?? null))
+    .catch(() => setCurrentRemoteServerId(null));
 
   // pick transport: charnel/tauri uses the native iroh path via
   // `radio_tune` IPC commands; everywhere else uses midden wasm.

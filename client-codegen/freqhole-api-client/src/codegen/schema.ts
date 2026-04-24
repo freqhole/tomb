@@ -2693,7 +2693,9 @@ export const PublicNowPlayingSchema = z.object({
   album: z.string().nullish(),
   art_blob_id: z.string().nullish(),
   waveform_blob_id: z.string().nullish(),
-  duration_ms: z.number().nullish()
+  duration_ms: z.number().nullish(),
+  art_thumb_b64: z.string().nullish(),
+  art_thumb_mime: z.string().nullish()
 });
 export type PublicNowPlaying = z.infer<typeof PublicNowPlayingSchema>;
 
@@ -2710,7 +2712,9 @@ export const PublicStationSchema = z.object({
   album: z.string().nullish(),
   art_blob_id: z.string().nullish(),
   waveform_blob_id: z.string().nullish(),
-  duration_ms: z.number().nullish()
+  duration_ms: z.number().nullish(),
+  art_thumb_b64: z.string().nullish(),
+  art_thumb_mime: z.string().nullish()
 })
 });
 export type PublicStation = z.infer<typeof PublicStationSchema>;
@@ -2755,6 +2759,19 @@ export const QueryTagsRequestSchema = z.object({
 });
 export type QueryTagsRequest = z.infer<typeof QueryTagsRequestSchema>;
 
+export const RadioFiltersAddRequestSchema = z.object({
+  station_id: z.string(),
+  filter_type: z.string(),
+  filter_value: z.string(),
+  mode: z.string()
+});
+export type RadioFiltersAddRequest = z.infer<typeof RadioFiltersAddRequestSchema>;
+
+export const RadioFiltersRemoveRequestSchema = z.object({
+  filter_id: z.string()
+});
+export type RadioFiltersRemoveRequest = z.infer<typeof RadioFiltersRemoveRequestSchema>;
+
 export const RadioInfoResponseSchema = z.object({
   enabled: z.boolean(),
   default_station: z.object({
@@ -2770,12 +2787,27 @@ export const RadioInfoResponseSchema = z.object({
   album: z.string().nullish(),
   art_blob_id: z.string().nullish(),
   waveform_blob_id: z.string().nullish(),
-  duration_ms: z.number().nullish()
+  duration_ms: z.number().nullish(),
+  art_thumb_b64: z.string().nullish(),
+  art_thumb_mime: z.string().nullish()
 })
 }).nullish(),
   station_count: z.number()
 });
 export type RadioInfoResponse = z.infer<typeof RadioInfoResponseSchema>;
+
+export const RadioSongsAddRequestSchema = z.object({
+  station_id: z.string(),
+  song_id: z.string(),
+  sort_order: z.number().nullish()
+});
+export type RadioSongsAddRequest = z.infer<typeof RadioSongsAddRequestSchema>;
+
+export const RadioSongsRemoveRequestSchema = z.object({
+  station_id: z.string(),
+  song_id: z.string()
+});
+export type RadioSongsRemoveRequest = z.infer<typeof RadioSongsRemoveRequestSchema>;
 
 export const RadioStationSchema = z.object({
   id: z.string(),
@@ -2790,6 +2822,11 @@ export const RadioStationSchema = z.object({
   updated_at: z.number()
 });
 export type RadioStation = z.infer<typeof RadioStationSchema>;
+
+export const RadioStationByStationIdRequestSchema = z.object({
+  station_id: z.string()
+});
+export type RadioStationByStationIdRequest = z.infer<typeof RadioStationByStationIdRequestSchema>;
 
 export const RadioStationsByIdRequestSchema = z.object({
   id: z.string()
@@ -2811,7 +2848,9 @@ export const RadioStationsResponseSchema = z.object({
   album: z.string().nullish(),
   art_blob_id: z.string().nullish(),
   waveform_blob_id: z.string().nullish(),
-  duration_ms: z.number().nullish()
+  duration_ms: z.number().nullish(),
+  art_thumb_b64: z.string().nullish(),
+  art_thumb_mime: z.string().nullish()
 })
 }))
 });
@@ -3415,6 +3454,24 @@ export const StartLoginRequestSchema = z.object({
   username: z.string()
 });
 export type StartLoginRequest = z.infer<typeof StartLoginRequestSchema>;
+
+export const StationFilterSchema = z.object({
+  id: z.string(),
+  station_id: z.string(),
+  filter_type: z.string(),
+  filter_value: z.string(),
+  mode: z.string(),
+  created_at: z.number()
+});
+export type StationFilter = z.infer<typeof StationFilterSchema>;
+
+export const StationSongSchema = z.object({
+  station_id: z.string(),
+  song_id: z.string(),
+  sort_order: z.number(),
+  added_at: z.number()
+});
+export type StationSong = z.infer<typeof StationSongSchema>;
 
 export const SuggestionSchema = z.object({
   value: z.string(),

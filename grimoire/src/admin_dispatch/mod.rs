@@ -26,7 +26,10 @@ use crate::admin_dispatch::types::peers::{
     AdminPeerNodeSummary, AdminPeerSummary, AdminPeersAllowRequest, AdminPeersAllowResponse,
     AdminPeersListForUserRequest, AdminPeersRemoveRequest,
 };
-use crate::admin_dispatch::types::radio::RadioStationsByIdRequest;
+use crate::admin_dispatch::types::radio::{
+    RadioFiltersAddRequest, RadioFiltersRemoveRequest, RadioSongsAddRequest,
+    RadioSongsRemoveRequest, RadioStationByStationIdRequest, RadioStationsByIdRequest,
+};
 use crate::admin_dispatch::types::users::{
     AdminAccountLinkResponse, AdminUserSummary, AdminUsersDeleteRequest,
     AdminUsersGenerateAccountLinkRequest, AdminUsersGetRequest, AdminUsersListRequest,
@@ -139,6 +142,12 @@ pub async fn handle(
         "radio_stations_create" => radio_stations_create(args).await,
         "radio_stations_update" => radio_stations_update(args).await,
         "radio_stations_delete" => radio_stations_delete(args).await,
+        "radio_filters_list" => radio_filters_list(args).await,
+        "radio_filters_add" => radio_filters_add(args).await,
+        "radio_filters_remove" => radio_filters_remove(args).await,
+        "radio_songs_list" => radio_songs_list(args).await,
+        "radio_songs_add" => radio_songs_add(args).await,
+        "radio_songs_remove" => radio_songs_remove(args).await,
 
         _ => command_not_found(command),
     }
@@ -1329,5 +1338,79 @@ async fn radio_stations_delete(args: JsonValue) -> GrimoireResponse<JsonValue> {
     match radio_stations::delete_station(&req.id).await {
         Ok(()) => GrimoireResponse::success("radio station deleted", JsonValue::Null),
         Err(e) => GrimoireResponse::failure("failed to delete radio station", vec![e.into()]),
+    }
+}
+
+async fn radio_filters_list(args: JsonValue) -> GrimoireResponse<JsonValue> {
+    let req: RadioStationByStationIdRequest = match decode(args) {
+        Ok(v) => v,
+        Err(r) => return r,
+    };
+    match radio_stations::list_filters(&req.station_id).await {
+        Ok(filters) => to_value(GrimoireResponse::success("filters listed", filters)),
+        Err(e) => GrimoireResponse::failure("failed to list filters", vec![e.into()]),
+    }
+}
+
+async fn radio_filters_add(args: JsonValue) -> GrimoireResponse<JsonValue> {
+    let req: RadioFiltersAddRequest = match decode(args) {
+        Ok(v) => v,
+        Err(r) => return r,
+    };
+    match radio_stations::add_filter(
+        &req.station_id,
+        &req.filter_type,
+        &req.filter_value,
+        &req.mode,
+    )
+    .await
+    {
+        Ok(f) => to_value(GrimoireResponse::success("filter added", f)),
+        Err(e) => GrimoireResponse::failure("failed to add filter", vec![e.into()]),
+    }
+}
+
+async fn radio_filters_remove(args: JsonValue) -> GrimoireResponse<JsonValue> {
+    let req: RadioFiltersRemoveRequest = match decode(args) {
+        Ok(v) => v,
+        Err(r) => return r,
+    };
+    match radio_stations::remove_filter(&req.filter_id).await {
+        Ok(()) => GrimoireResponse::success("filter removed", JsonValue::Null),
+        Err(e) => GrimoireResponse::failure("failed to remove filter", vec![e.into()]),
+    }
+}
+
+async fn radio_songs_list(args: JsonValue) -> GrimoireResponse<JsonValue> {
+    let req: RadioStationByStationIdRequest = match decode(args) {
+        Ok(v) => v,
+        Err(r) => return r,
+    };
+    match radio_stations::list_songs(&req.station_id).await {
+        Ok(songs) => to_value(GrimoireResponse::success("songs listed", songs)),
+        Err(e) => GrimoireResponse::failure("failed to list songs", vec![e.into()]),
+    }
+}
+
+async fn radio_songs_add(args: JsonValue) -> GrimoireResponse<JsonValue> {
+    let req: RadioSongsAddRequest = match decode(args) {
+        Ok(v) => v,
+        Err(r) => return r,
+    };
+    let sort_order = req.sort_order.unwrap_or(0);
+    match radio_stations::add_song(&req.station_id, &req.song_id, sort_order).await {
+        Ok(()) => GrimoireResponse::success("song added", JsonValue::Null),
+        Err(e) => GrimoireResponse::failure("failed to add song", vec![e.into()]),
+    }
+}
+
+async fn radio_songs_remove(args: JsonValue) -> GrimoireResponse<JsonValue> {
+    let req: RadioSongsRemoveRequest = match decode(args) {
+        Ok(v) => v,
+        Err(r) => return r,
+    };
+    match radio_stations::remove_song(&req.station_id, &req.song_id).await {
+        Ok(()) => GrimoireResponse::success("song removed", JsonValue::Null),
+        Err(e) => GrimoireResponse::failure("failed to remove song", vec![e.into()]),
     }
 }

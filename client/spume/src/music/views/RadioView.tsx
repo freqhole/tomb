@@ -268,9 +268,24 @@ export function RadioView() {
                               <Show
                                 when={isCurrent(station) && radioArtUrl()}
                                 fallback={
-                                  <span class="text-[8px] font-bold tracking-widest opacity-60 text-white">
-                                    radio
-                                  </span>
+                                  <Show
+                                    when={station.now_playing?.art_thumb_b64}
+                                    fallback={
+                                      <span class="text-[8px] font-bold tracking-widest opacity-60 text-white">
+                                        radio
+                                      </span>
+                                    }
+                                  >
+                                    {(b64) => (
+                                      <img
+                                        src={`data:${
+                                          station.now_playing?.art_thumb_mime ?? "image/jpeg"
+                                        };base64,${b64()}`}
+                                        alt=""
+                                        class="w-full h-full object-cover"
+                                      />
+                                    )}
+                                  </Show>
                                 }
                               >
                                 {(url) => (

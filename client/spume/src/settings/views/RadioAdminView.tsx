@@ -26,6 +26,8 @@ import {
   type RadioStation,
   type CreateStationRequest,
   type UpdateStationRequest,
+  type StationFilter,
+  type StationSong,
 } from "freqhole-api-client";
 import { toast } from "../../components/feedback/Toast";
 
@@ -126,6 +128,7 @@ function StationsSection(props: { client: AdminClient }) {
   });
 
   const [savingId, setSavingId] = createSignal<string | null>(null);
+  const [expandedId, setExpandedId] = createSignal<string | null>(null);
 
   const togglePublic = async (s: RadioStation) => {
     setSavingId(s.id);
@@ -211,63 +214,80 @@ function StationsSection(props: { client: AdminClient }) {
             <tbody>
               <For each={stations() ?? []}>
                 {(s) => (
-                  <tr class="border-t border-[var(--color-border-subtle)]">
-                    <td class="py-2 pr-4">
-                      <div class="font-medium text-[var(--color-text-primary)]">{s.name}</div>
-                      <Show when={s.description}>
-                        <div class="text-xs text-[var(--color-text-muted)]">{s.description}</div>
-                      </Show>
-                    </td>
-                    <td class="py-2 pr-4">
-                      <span
-                        class={
-                          s.is_public
-                            ? "px-2 py-0.5 text-xs rounded-full bg-emerald-600/20 text-emerald-400"
-                            : "px-2 py-0.5 text-xs rounded-full bg-neutral-700/40 text-neutral-400"
-                        }
-                      >
-                        {s.is_public ? "public" : "private"}
-                      </span>
-                    </td>
-                    <td class="py-2 pr-4">
-                      <span
-                        class={
-                          s.is_enabled
-                            ? "px-2 py-0.5 text-xs rounded-full bg-emerald-600/20 text-emerald-400"
-                            : "px-2 py-0.5 text-xs rounded-full bg-red-600/20 text-red-400"
-                        }
-                      >
-                        {s.is_enabled ? "on" : "off"}
-                      </span>
-                    </td>
-                    <td class="py-2 pr-4 text-xs text-[var(--color-text-muted)]">{s.codec}</td>
-                    <td class="py-2 pr-4 text-xs text-[var(--color-text-muted)]">{s.play_mode}</td>
-                    <td class="py-2 pr-4">
-                      <div class="flex items-center justify-end gap-2">
-                        <button
-                          class="px-2 py-1 text-xs rounded bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-bg-quaternary)] text-[var(--color-text-secondary)] disabled:opacity-50"
-                          onClick={() => togglePublic(s)}
-                          disabled={savingId() === s.id}
+                  <>
+                    <tr class="border-t border-[var(--color-border-subtle)]">
+                      <td class="py-2 pr-4">
+                        <div class="font-medium text-[var(--color-text-primary)]">{s.name}</div>
+                        <Show when={s.description}>
+                          <div class="text-xs text-[var(--color-text-muted)]">{s.description}</div>
+                        </Show>
+                      </td>
+                      <td class="py-2 pr-4">
+                        <span
+                          class={
+                            s.is_public
+                              ? "px-2 py-0.5 text-xs rounded-full bg-emerald-600/20 text-emerald-400"
+                              : "px-2 py-0.5 text-xs rounded-full bg-neutral-700/40 text-neutral-400"
+                          }
                         >
-                          {s.is_public ? "make private" : "make public"}
-                        </button>
-                        <button
-                          class="px-2 py-1 text-xs rounded bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-bg-quaternary)] text-[var(--color-text-secondary)] disabled:opacity-50"
-                          onClick={() => toggleEnabled(s)}
-                          disabled={savingId() === s.id}
+                          {s.is_public ? "public" : "private"}
+                        </span>
+                      </td>
+                      <td class="py-2 pr-4">
+                        <span
+                          class={
+                            s.is_enabled
+                              ? "px-2 py-0.5 text-xs rounded-full bg-emerald-600/20 text-emerald-400"
+                              : "px-2 py-0.5 text-xs rounded-full bg-red-600/20 text-red-400"
+                          }
                         >
-                          {s.is_enabled ? "disable" : "enable"}
-                        </button>
-                        <button
-                          class="px-2 py-1 text-xs rounded bg-red-600/20 hover:bg-red-600/30 text-red-400 border border-red-600/30 disabled:opacity-50"
-                          onClick={() => deleteStation(s)}
-                          disabled={savingId() === s.id}
-                        >
-                          delete
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
+                          {s.is_enabled ? "on" : "off"}
+                        </span>
+                      </td>
+                      <td class="py-2 pr-4 text-xs text-[var(--color-text-muted)]">{s.codec}</td>
+                      <td class="py-2 pr-4 text-xs text-[var(--color-text-muted)]">
+                        {s.play_mode}
+                      </td>
+                      <td class="py-2 pr-4">
+                        <div class="flex items-center justify-end gap-2">
+                          <button
+                            class="px-2 py-1 text-xs rounded bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-bg-quaternary)] text-[var(--color-text-secondary)]"
+                            onClick={() => setExpandedId((cur) => (cur === s.id ? null : s.id))}
+                          >
+                            {expandedId() === s.id ? "close seed" : "edit seed"}
+                          </button>
+                          <button
+                            class="px-2 py-1 text-xs rounded bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-bg-quaternary)] text-[var(--color-text-secondary)] disabled:opacity-50"
+                            onClick={() => togglePublic(s)}
+                            disabled={savingId() === s.id}
+                          >
+                            {s.is_public ? "make private" : "make public"}
+                          </button>
+                          <button
+                            class="px-2 py-1 text-xs rounded bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-bg-quaternary)] text-[var(--color-text-secondary)] disabled:opacity-50"
+                            onClick={() => toggleEnabled(s)}
+                            disabled={savingId() === s.id}
+                          >
+                            {s.is_enabled ? "disable" : "enable"}
+                          </button>
+                          <button
+                            class="px-2 py-1 text-xs rounded bg-red-600/20 hover:bg-red-600/30 text-red-400 border border-red-600/30 disabled:opacity-50"
+                            onClick={() => deleteStation(s)}
+                            disabled={savingId() === s.id}
+                          >
+                            delete
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                    <Show when={expandedId() === s.id}>
+                      <tr class="border-t border-[var(--color-border-subtle)]">
+                        <td colspan={6} class="py-3 pr-4">
+                          <StationSeedEditor stationId={s.id} client={props.client} />
+                        </td>
+                      </tr>
+                    </Show>
+                  </>
                 )}
               </For>
             </tbody>
@@ -399,5 +419,255 @@ function CreateStationSection(props: { client: AdminClient }) {
         </div>
       </form>
     </section>
+  );
+}
+
+// ------------------------------------------------------------------
+// per-station seed editor (filters + explicit songs)
+// ------------------------------------------------------------------
+
+const FILTER_TYPES = ["tag", "genre", "artist", "album"];
+const FILTER_MODES = ["include", "exclude"];
+
+function StationSeedEditor(props: { stationId: string; client: AdminClient }) {
+  const [filters, { refetch: refetchFilters }] = createResource<StationFilter[]>(async () => {
+    try {
+      const data = await props.client.dispatchOrThrow("radio_filters_list", {
+        station_id: props.stationId,
+      });
+      return (data ?? []) as StationFilter[];
+    } catch (e) {
+      const msg =
+        e instanceof AdminCommandError ? e.message : e instanceof Error ? e.message : String(e);
+      toast.error(`failed to load filters: ${msg}`);
+      return [];
+    }
+  });
+
+  const [songs, { refetch: refetchSongs }] = createResource<StationSong[]>(async () => {
+    try {
+      const data = await props.client.dispatchOrThrow("radio_songs_list", {
+        station_id: props.stationId,
+      });
+      return (data ?? []) as StationSong[];
+    } catch (e) {
+      const msg =
+        e instanceof AdminCommandError ? e.message : e instanceof Error ? e.message : String(e);
+      toast.error(`failed to load songs: ${msg}`);
+      return [];
+    }
+  });
+
+  const [busy, setBusy] = createSignal(false);
+  const [fType, setFType] = createSignal("tag");
+  const [fValue, setFValue] = createSignal("");
+  const [fMode, setFMode] = createSignal("include");
+  const [songId, setSongId] = createSignal("");
+
+  const addFilter = async (e: Event) => {
+    e.preventDefault();
+    if (!fValue().trim()) {
+      toast.error("filter value required");
+      return;
+    }
+    setBusy(true);
+    try {
+      await props.client.dispatchOrThrow("radio_filters_add", {
+        station_id: props.stationId,
+        filter_type: fType(),
+        filter_value: fValue().trim(),
+        mode: fMode(),
+      });
+      setFValue("");
+      await refetchFilters();
+    } catch (e) {
+      const msg =
+        e instanceof AdminCommandError ? e.message : e instanceof Error ? e.message : String(e);
+      toast.error(`failed to add filter: ${msg}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const removeFilter = async (filterId: string) => {
+    setBusy(true);
+    try {
+      await props.client.dispatchOrThrow("radio_filters_remove", { filter_id: filterId });
+      await refetchFilters();
+    } catch (e) {
+      const msg =
+        e instanceof AdminCommandError ? e.message : e instanceof Error ? e.message : String(e);
+      toast.error(`failed to remove filter: ${msg}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const addSong = async (e: Event) => {
+    e.preventDefault();
+    if (!songId().trim()) {
+      toast.error("song id required");
+      return;
+    }
+    setBusy(true);
+    try {
+      await props.client.dispatchOrThrow("radio_songs_add", {
+        station_id: props.stationId,
+        song_id: songId().trim(),
+      });
+      setSongId("");
+      await refetchSongs();
+    } catch (e) {
+      const msg =
+        e instanceof AdminCommandError ? e.message : e instanceof Error ? e.message : String(e);
+      toast.error(`failed to add song: ${msg}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const removeSong = async (sid: string) => {
+    setBusy(true);
+    try {
+      await props.client.dispatchOrThrow("radio_songs_remove", {
+        station_id: props.stationId,
+        song_id: sid,
+      });
+      await refetchSongs();
+    } catch (e) {
+      const msg =
+        e instanceof AdminCommandError ? e.message : e instanceof Error ? e.message : String(e);
+      toast.error(`failed to remove song: ${msg}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div class="rounded-md border border-[var(--color-border-subtle)] bg-[var(--color-bg-base)] p-4">
+      <div class="text-xs text-[var(--color-text-muted)] mb-3">
+        seed query — explicit songs are always played; filters narrow (include) or remove (exclude)
+        candidates from your library.
+      </div>
+
+      {/* filters */}
+      <div class="mb-4">
+        <h3 class="text-sm font-semibold text-[var(--color-text-primary)] mb-2">filters</h3>
+        <Show
+          when={!filters.loading && (filters()?.length ?? 0) > 0}
+          fallback={
+            <div class="text-xs text-[var(--color-text-muted)] mb-2">
+              {filters.loading ? "loading..." : "no filters yet"}
+            </div>
+          }
+        >
+          <ul class="flex flex-col gap-1 mb-2">
+            <For each={filters() ?? []}>
+              {(f) => (
+                <li class="flex items-center justify-between gap-2 text-xs px-2 py-1 rounded bg-[var(--color-bg-tertiary)]">
+                  <span>
+                    <span
+                      class={
+                        f.mode === "include"
+                          ? "px-1.5 py-0.5 rounded bg-emerald-600/20 text-emerald-400 mr-2"
+                          : "px-1.5 py-0.5 rounded bg-red-600/20 text-red-400 mr-2"
+                      }
+                    >
+                      {f.mode}
+                    </span>
+                    <code class="text-[var(--color-text-secondary)]">{f.filter_type}</code>
+                    <span class="text-[var(--color-text-muted)]"> = </span>
+                    <code class="text-[var(--color-text-primary)]">{f.filter_value}</code>
+                  </span>
+                  <button
+                    class="px-2 py-0.5 text-xs rounded bg-red-600/20 hover:bg-red-600/30 text-red-400 disabled:opacity-50"
+                    onClick={() => removeFilter(f.id)}
+                    disabled={busy()}
+                  >
+                    remove
+                  </button>
+                </li>
+              )}
+            </For>
+          </ul>
+        </Show>
+        <form class="flex flex-wrap items-end gap-2" onSubmit={addFilter}>
+          <select
+            class="text-xs px-2 py-1 rounded bg-[var(--color-bg-tertiary)] border border-[var(--color-border-subtle)] text-[var(--color-text-primary)]"
+            value={fMode()}
+            onChange={(e) => setFMode(e.currentTarget.value)}
+          >
+            <For each={FILTER_MODES}>{(m) => <option value={m}>{m}</option>}</For>
+          </select>
+          <select
+            class="text-xs px-2 py-1 rounded bg-[var(--color-bg-tertiary)] border border-[var(--color-border-subtle)] text-[var(--color-text-primary)]"
+            value={fType()}
+            onChange={(e) => setFType(e.currentTarget.value)}
+          >
+            <For each={FILTER_TYPES}>{(t) => <option value={t}>{t}</option>}</For>
+          </select>
+          <input
+            class="flex-1 min-w-[10rem] text-xs px-2 py-1 rounded bg-[var(--color-bg-tertiary)] border border-[var(--color-border-subtle)] text-[var(--color-text-primary)]"
+            type="text"
+            placeholder="value"
+            value={fValue()}
+            onInput={(e) => setFValue(e.currentTarget.value)}
+          />
+          <button
+            type="submit"
+            class="px-3 py-1 text-xs rounded bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 border border-emerald-600/30 disabled:opacity-50"
+            disabled={busy()}
+          >
+            + add filter
+          </button>
+        </form>
+      </div>
+
+      {/* explicit songs */}
+      <div>
+        <h3 class="text-sm font-semibold text-[var(--color-text-primary)] mb-2">explicit songs</h3>
+        <Show
+          when={!songs.loading && (songs()?.length ?? 0) > 0}
+          fallback={
+            <div class="text-xs text-[var(--color-text-muted)] mb-2">
+              {songs.loading ? "loading..." : "no explicit songs yet"}
+            </div>
+          }
+        >
+          <ul class="flex flex-col gap-1 mb-2">
+            <For each={songs() ?? []}>
+              {(s) => (
+                <li class="flex items-center justify-between gap-2 text-xs px-2 py-1 rounded bg-[var(--color-bg-tertiary)]">
+                  <code class="text-[var(--color-text-primary)]">{s.song_id}</code>
+                  <button
+                    class="px-2 py-0.5 text-xs rounded bg-red-600/20 hover:bg-red-600/30 text-red-400 disabled:opacity-50"
+                    onClick={() => removeSong(s.song_id)}
+                    disabled={busy()}
+                  >
+                    remove
+                  </button>
+                </li>
+              )}
+            </For>
+          </ul>
+        </Show>
+        <form class="flex items-end gap-2" onSubmit={addSong}>
+          <input
+            class="flex-1 text-xs px-2 py-1 rounded bg-[var(--color-bg-tertiary)] border border-[var(--color-border-subtle)] text-[var(--color-text-primary)]"
+            type="text"
+            placeholder="song id (uuid)"
+            value={songId()}
+            onInput={(e) => setSongId(e.currentTarget.value)}
+          />
+          <button
+            type="submit"
+            class="px-3 py-1 text-xs rounded bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 border border-emerald-600/30 disabled:opacity-50"
+            disabled={busy()}
+          >
+            + add song
+          </button>
+        </form>
+      </div>
+    </div>
   );
 }

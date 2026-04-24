@@ -108,6 +108,7 @@ import {
   leaveRadio,
   radioArtUrl,
   radioCurrentPeerAddr,
+  radioCurrentRemoteServerId,
   radioElapsedMs,
   radioListenerCount,
   radioNowPlaying,
@@ -941,12 +942,29 @@ export function AppLayout(props: AppLayoutProps) {
             if (isRadio()) {
               const np = radioNowPlaying();
               if (!np) return undefined;
+              const remoteId = radioCurrentRemoteServerId();
+              // synthesize an `images` array so PlayerBar's waveform
+              // pipeline can render the overlay just like in music mode.
+              // requires a resolved local remote (so MediaImage knows
+              // which backend to fetch from).
+              const images =
+                np.waveform_blob_id && remoteId
+                  ? [
+                      {
+                        remote_blob_id: np.waveform_blob_id,
+                        remote_server_id: remoteId,
+                        is_primary: false,
+                        blob_type: "waveform" as const,
+                      },
+                    ]
+                  : undefined;
               return {
                 id: np.song_id || "radio",
                 title: np.title || "untitled",
                 artist: np.artist ?? "unknown artist",
                 album: np.album ?? undefined,
                 thumbnailUrl: radioArtUrl() ?? undefined,
+                images,
                 isFavorite: false,
               };
             }
