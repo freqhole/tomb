@@ -240,6 +240,24 @@ pub const ADMIN_COMMANDS: &[AdminCommandInfo] = &[
         response_type: "EmptyResponse",
         auth: AdminAuth::Admin,
     },
+    AdminCommandInfo {
+        name: "radio_seed_suggest",
+        request_type: "RadioSeedSuggestRequest",
+        response_type: "Vec<RadioSeedSuggestion>",
+        auth: AdminAuth::Admin,
+    },
+    AdminCommandInfo {
+        name: "radio_config_get",
+        request_type: "EmptyRequest",
+        response_type: "RadioConfigPayload",
+        auth: AdminAuth::Admin,
+    },
+    AdminCommandInfo {
+        name: "radio_config_set",
+        request_type: "RadioConfigPayload",
+        response_type: "RadioConfigPayload",
+        auth: AdminAuth::Admin,
+    },
 ];
 
 /// accessor mirroring `offal::all_routes()` for use by codegen.

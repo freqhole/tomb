@@ -2759,6 +2759,12 @@ export const QueryTagsRequestSchema = z.object({
 });
 export type QueryTagsRequest = z.infer<typeof QueryTagsRequestSchema>;
 
+export const RadioConfigPayloadSchema = z.object({
+  enabled: z.boolean(),
+  encode_args: z.string()
+});
+export type RadioConfigPayload = z.infer<typeof RadioConfigPayloadSchema>;
+
 export const RadioFiltersAddRequestSchema = z.object({
   station_id: z.string(),
   filter_type: z.string(),
@@ -2795,6 +2801,20 @@ export const RadioInfoResponseSchema = z.object({
   station_count: z.number()
 });
 export type RadioInfoResponse = z.infer<typeof RadioInfoResponseSchema>;
+
+export const RadioSeedSuggestRequestSchema = z.object({
+  kind: z.string(),
+  query: z.string(),
+  limit: z.number().nullish()
+});
+export type RadioSeedSuggestRequest = z.infer<typeof RadioSeedSuggestRequestSchema>;
+
+export const RadioSeedSuggestionSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  subtitle: z.string().nullish()
+});
+export type RadioSeedSuggestion = z.infer<typeof RadioSeedSuggestionSchema>;
 
 export const RadioSongsAddRequestSchema = z.object({
   station_id: z.string(),

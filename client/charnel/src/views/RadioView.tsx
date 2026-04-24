@@ -1,4 +1,4 @@
-import { createEffect, createSignal, For, Show } from "solid-js";
+import { createEffect, createSignal, For, onCleanup, Show } from "solid-js";
 import { useAdminTransport } from "../admin/context";
 
 interface RadioStation {
@@ -159,6 +159,8 @@ export default function RadioView() {
       <Show when={error()}>
         <p class="error">{error()}</p>
       </Show>
+
+      <RadioConfigSection dispatch={admin.dispatchOrThrow} />
 
       {/* stations section */}
       <div class="section">
@@ -559,12 +561,12 @@ function StationSeedEditor(props: StationSeedEditorProps) {
               {(t) => <option value={t}>{t}</option>}
             </For>
           </select>
-          <input
-            type="text"
+          <SeedSuggestInput
+            kind={fType() as "tag" | "genre" | "artist" | "album"}
             value={fValue()}
-            onInput={(e) => setFValue(e.currentTarget.value)}
-            placeholder="value"
-            style={{ flex: "1", "min-width": "10rem" }}
+            onChange={setFValue}
+            dispatch={props.dispatch}
+            placeholder={`${fType()} name`}
           />
           <button type="submit" class="btn-primary" disabled={busy()}>
             + add filter
@@ -605,16 +607,277 @@ function StationSeedEditor(props: StationSeedEditorProps) {
             "margin-top": "0.5rem",
           }}
         >
-          <input
-            type="text"
+          <SongSuggestInput
             value={songId()}
-            onInput={(e) => setSongId(e.currentTarget.value)}
-            placeholder="song id (uuid)"
-            style={{ flex: "1" }}
+            onChange={setSongId}
+            dispatch={props.dispatch}
           />
           <button type="submit" class="btn-primary" disabled={busy()}>
             + add song
           </button>
+        </form>
+      </Show>
+    </div>
+  );
+}
+
+// ------------------------------------------------------------------
+// seed value autocomplete helpers (mirror of spume RadioAdminView)
+// ------------------------------------------------------------------
+//
+// debounced datalist-driven inputs that query `radio_seed_suggest` over
+// the active wizard transport so suggestions come from whatever node
+// the wizard is currently targeting.
+
+interface RadioSeedSuggestion {
+  id: string;
+  name: string;
+  subtitle?: string | null;
+}
+
+interface SeedSuggestInputProps {
+  kind: "tag" | "genre" | "artist" | "album";
+  value: string;
+  onChange: (v: string) => void;
+  dispatch: Dispatch;
+  placeholder?: string;
+}
+
+function SeedSuggestInput(props: SeedSuggestInputProps) {
+  const listId = `seed-suggest-${Math.random().toString(36).slice(2, 9)}`;
+  const [items, setItems] = createSignal<RadioSeedSuggestion[]>([]);
+  let timer: number | null = null;
+
+  const fetchSuggestions = (q: string) => {
+    if (timer !== null) window.clearTimeout(timer);
+    if (q.trim().length === 0) {
+      setItems([]);
+      return;
+    }
+    timer = window.setTimeout(async () => {
+      try {
+        const data = await props.dispatch<RadioSeedSuggestion[]>(
+          "radio_seed_suggest",
+          { kind: props.kind, query: q.trim(), limit: 15 },
+        );
+        setItems(data ?? []);
+      } catch {
+        setItems([]);
+      }
+    }, 200);
+  };
+
+  onCleanup(() => {
+    if (timer !== null) window.clearTimeout(timer);
+  });
+
+  return (
+    <>
+      <input
+        type="text"
+        list={listId}
+        value={props.value}
+        placeholder={props.placeholder ?? "value"}
+        autocomplete="off"
+        style={{ flex: "1", "min-width": "10rem" }}
+        onInput={(e) => {
+          props.onChange(e.currentTarget.value);
+          fetchSuggestions(e.currentTarget.value);
+        }}
+        onFocus={(e) => fetchSuggestions(e.currentTarget.value)}
+      />
+      <datalist id={listId}>
+        <For each={items()}>
+          {(it) => <option value={it.name}>{it.subtitle ?? ""}</option>}
+        </For>
+      </datalist>
+    </>
+  );
+}
+
+interface SongSuggestInputProps {
+  value: string;
+  onChange: (songId: string) => void;
+  dispatch: Dispatch;
+}
+
+function SongSuggestInput(props: SongSuggestInputProps) {
+  const listId = `song-suggest-${Math.random().toString(36).slice(2, 9)}`;
+  const [items, setItems] = createSignal<RadioSeedSuggestion[]>([]);
+  const [text, setText] = createSignal("");
+  let timer: number | null = null;
+
+  createEffect(() => {
+    if (props.value === "") setText("");
+  });
+
+  const fetchSuggestions = (q: string) => {
+    if (timer !== null) window.clearTimeout(timer);
+    if (q.trim().length === 0) {
+      setItems([]);
+      return;
+    }
+    timer = window.setTimeout(async () => {
+      try {
+        const data = await props.dispatch<RadioSeedSuggestion[]>(
+          "radio_seed_suggest",
+          { kind: "song", query: q.trim(), limit: 15 },
+        );
+        setItems(data ?? []);
+      } catch {
+        setItems([]);
+      }
+    }, 200);
+  };
+
+  const resolve = (typed: string) => {
+    const match = items().find((it) => it.name === typed);
+    props.onChange(match ? match.id : typed.trim());
+  };
+
+  onCleanup(() => {
+    if (timer !== null) window.clearTimeout(timer);
+  });
+
+  return (
+    <>
+      <input
+        type="text"
+        list={listId}
+        value={text()}
+        placeholder="song title or uuid"
+        autocomplete="off"
+        style={{ flex: "1" }}
+        onInput={(e) => {
+          setText(e.currentTarget.value);
+          fetchSuggestions(e.currentTarget.value);
+          resolve(e.currentTarget.value);
+        }}
+        onFocus={(e) => fetchSuggestions(e.currentTarget.value)}
+      />
+      <datalist id={listId}>
+        <For each={items()}>
+          {(it) => <option value={it.name}>{it.subtitle ?? ""}</option>}
+        </For>
+      </datalist>
+    </>
+  );
+}
+
+// ------------------------------------------------------------------
+// node-wide [radio] config editor
+// ------------------------------------------------------------------
+
+interface RadioConfigPayload {
+  enabled: boolean;
+  encode_args: string;
+}
+
+function RadioConfigSection(props: { dispatch: Dispatch }) {
+  const [enabled, setEnabled] = createSignal(false);
+  const [encodeArgs, setEncodeArgs] = createSignal("");
+  const [loading, setLoading] = createSignal(true);
+  const [busy, setBusy] = createSignal(false);
+  const [err, setErr] = createSignal("");
+
+  async function load() {
+    setLoading(true);
+    setErr("");
+    try {
+      const cfg = await props.dispatch<RadioConfigPayload>(
+        "radio_config_get",
+        undefined,
+      );
+      setEnabled(cfg.enabled);
+      setEncodeArgs(cfg.encode_args);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  createEffect(() => {
+    void load();
+  });
+
+  async function save(e: Event) {
+    e.preventDefault();
+    setBusy(true);
+    setErr("");
+    try {
+      await props.dispatch<RadioConfigPayload>("radio_config_set", {
+        enabled: enabled(),
+        encode_args: encodeArgs(),
+      });
+      await load();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div class="section">
+      <div class="section-header">
+        <h2>
+          radio confi<span class="pinky">g</span>
+        </h2>
+      </div>
+      <Show when={err()}>
+        <p class="error">{err()}</p>
+      </Show>
+      <Show when={loading()} fallback={null}>
+        <p class="item-meta">loading config...</p>
+      </Show>
+      <Show when={!loading()}>
+        <form class="card" onSubmit={save}>
+          <div class="form-row">
+            <label
+              style={{
+                display: "flex",
+                "align-items": "center",
+                gap: "0.5rem",
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={enabled()}
+                onChange={(e) => setEnabled(e.currentTarget.checked)}
+                disabled={busy()}
+              />
+              <span class="label">enabled (master switch)</span>
+            </label>
+          </div>
+          <div class="form-row">
+            <label>
+              <span class="label">
+                ffmpeg encode args (use <code>{"{input}"}</code> for the song
+                path)
+              </span>
+              <textarea
+                value={encodeArgs()}
+                onInput={(e) => setEncodeArgs(e.currentTarget.value)}
+                disabled={busy()}
+                spellcheck={false}
+                style={{
+                  width: "100%",
+                  "min-height": "6rem",
+                  "font-family": "monospace",
+                  "font-size": "0.8rem",
+                }}
+              />
+            </label>
+          </div>
+          <div class="form-row">
+            <button type="submit" class="btn-primary" disabled={busy()}>
+              {busy() ? "saving..." : "save"}
+            </button>
+            <span class="item-meta" style={{ "margin-left": "1rem" }}>
+              changes apply on next broadcaster start
+            </span>
+          </div>
         </form>
       </Show>
     </div>

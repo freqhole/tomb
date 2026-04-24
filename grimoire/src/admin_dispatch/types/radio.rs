@@ -60,3 +60,40 @@ pub struct RadioSongsRemoveRequest {
     pub station_id: String,
     pub song_id: String,
 }
+
+/// request for `radio_seed_suggest`. powers the wizard's autocomplete
+/// helpers — the dispatch layer maps `kind` to the right repository
+/// search and returns up to `limit` matches.
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct RadioSeedSuggestRequest {
+    /// one of `"tag"`, `"genre"`, `"artist"`, `"album"`, `"song"`
+    pub kind: String,
+    /// search prefix; empty string returns top results when supported
+    pub query: String,
+    /// max suggestions to return (server caps at 50)
+    #[serde(default)]
+    pub limit: Option<u32>,
+}
+
+/// single suggestion row returned by `radio_seed_suggest`.
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct RadioSeedSuggestion {
+    /// stable id (uuid) — for songs always required, for tag/genre/artist/album
+    /// it's the canonical id; filters store either id or name.
+    pub id: String,
+    /// human-readable label (tag name, genre name, artist name, "title — artist" for songs).
+    pub name: String,
+    /// secondary line, when meaningful (artist for albums, album for songs).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subtitle: Option<String>,
+}
+
+/// node-wide `[radio]` config block. mirrors `RadioConfig` for codegen.
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct RadioConfigPayload {
+    /// master switch — when false, the broadcaster doesn't start at boot
+    /// and `freqhole radio serve` refuses to run.
+    pub enabled: bool,
+    /// ffmpeg encoder template (`{input}` placeholder, output to `pipe:1`).
+    pub encode_args: String,
+}

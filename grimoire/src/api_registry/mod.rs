@@ -226,7 +226,8 @@ pub mod type_registry {
         AdminPeersListForUserRequest, AdminPeersRemoveRequest,
     };
     use crate::admin_dispatch::types::radio::{
-        RadioFiltersAddRequest, RadioFiltersRemoveRequest, RadioSongsAddRequest,
+        RadioConfigPayload, RadioFiltersAddRequest, RadioFiltersRemoveRequest,
+        RadioSeedSuggestRequest, RadioSeedSuggestion, RadioSongsAddRequest,
         RadioSongsRemoveRequest, RadioStationByStationIdRequest, RadioStationsByIdRequest,
     };
     use crate::admin_dispatch::types::users::{
@@ -867,6 +868,12 @@ pub mod type_registry {
         registered.insert("RadioSongsAddRequest".to_string());
         gen.add_schema::<RadioSongsRemoveRequest>("RadioSongsRemoveRequest");
         registered.insert("RadioSongsRemoveRequest".to_string());
+        gen.add_schema::<RadioSeedSuggestRequest>("RadioSeedSuggestRequest");
+        registered.insert("RadioSeedSuggestRequest".to_string());
+        gen.add_schema::<RadioSeedSuggestion>("RadioSeedSuggestion");
+        registered.insert("RadioSeedSuggestion".to_string());
+        gen.add_schema::<RadioConfigPayload>("RadioConfigPayload");
+        registered.insert("RadioConfigPayload".to_string());
         gen.add_schema::<StationFilter>("StationFilter");
         registered.insert("StationFilter".to_string());
         gen.add_schema::<StationSong>("StationSong");

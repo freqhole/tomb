@@ -14,7 +14,15 @@
 // view double-checks via `whoamiForRemote` and renders a "not admin"
 // state if the role changed.
 
-import { createSignal, createResource, onMount, Show, For } from "solid-js";
+import {
+  createSignal,
+  createResource,
+  createEffect,
+  onCleanup,
+  onMount,
+  Show,
+  For,
+} from "solid-js";
 import { useNavigate, useParams } from "@solidjs/router";
 import { getRemoteById } from "../../app/services/remotes/remoteManager";
 import { whoamiForRemote } from "../../app/services/remotes/authService";
@@ -28,6 +36,8 @@ import {
   type UpdateStationRequest,
   type StationFilter,
   type StationSong,
+  type RadioSeedSuggestion,
+  type RadioConfigPayload,
 } from "freqhole-api-client";
 import { toast } from "../../components/feedback/Toast";
 
@@ -102,11 +112,111 @@ export function RadioAdminView() {
 
       <Show when={!loading() && !error() && adminClient()}>
         <div class="flex flex-col gap-8">
+          <RadioConfigSection client={adminClient()!} />
           <StationsSection client={adminClient()!} />
           <CreateStationSection client={adminClient()!} />
         </div>
       </Show>
     </div>
+  );
+}
+
+// ------------------------------------------------------------------
+// node-wide [radio] config
+// ------------------------------------------------------------------
+
+function RadioConfigSection(props: { client: AdminClient }) {
+  const [cfg, { refetch }] = createResource<RadioConfigPayload | null>(async () => {
+    try {
+      const data = await props.client.dispatchOrThrow("radio_config_get", undefined);
+      return (data ?? null) as RadioConfigPayload | null;
+    } catch (e) {
+      const msg =
+        e instanceof AdminCommandError ? e.message : e instanceof Error ? e.message : String(e);
+      toast.error(`failed to load radio config: ${msg}`);
+      return null;
+    }
+  });
+
+  const [enabled, setEnabled] = createSignal(false);
+  const [encodeArgs, setEncodeArgs] = createSignal("");
+  const [busy, setBusy] = createSignal(false);
+
+  // hydrate the form whenever the resource resolves with fresh data.
+  createEffect(() => {
+    const c = cfg();
+    if (c) {
+      setEnabled(c.enabled);
+      setEncodeArgs(c.encode_args);
+    }
+  });
+
+  const save = async (e: Event) => {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      await props.client.dispatchOrThrow("radio_config_set", {
+        enabled: enabled(),
+        encode_args: encodeArgs(),
+      });
+      toast.success("radio config saved");
+      await refetch();
+    } catch (e) {
+      const msg =
+        e instanceof AdminCommandError ? e.message : e instanceof Error ? e.message : String(e);
+      toast.error(`failed to save radio config: ${msg}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <section class="rounded-lg border border-[var(--color-border-subtle)] bg-[var(--color-bg-secondary)] p-4">
+      <h2 class="text-lg font-semibold text-[var(--color-text-primary)] mb-1">radio config</h2>
+      <p class="text-xs text-[var(--color-text-muted)] mb-4">
+        node-wide <code>[radio]</code> section in the toml. changes are written atomically and the
+        broadcaster picks them up on next start. flipping
+        <code class="mx-1">enabled</code> to false will not stop a running broadcaster — restart the
+        server to apply.
+      </p>
+      <Show
+        when={!cfg.loading}
+        fallback={<div class="text-xs text-[var(--color-text-muted)]">loading config...</div>}
+      >
+        <form class="flex flex-col gap-3" onSubmit={save}>
+          <label class="flex items-center gap-2 text-sm text-[var(--color-text-primary)]">
+            <input
+              type="checkbox"
+              checked={enabled()}
+              onChange={(e) => setEnabled(e.currentTarget.checked)}
+              disabled={busy()}
+            />
+            <span>enabled (master switch)</span>
+          </label>
+          <label class="flex flex-col gap-1">
+            <span class="text-xs text-[var(--color-text-secondary)]">
+              ffmpeg encode args (use <code>{"{input}"}</code> for the song path)
+            </span>
+            <textarea
+              class="font-mono text-xs px-2 py-1 rounded bg-[var(--color-bg-tertiary)] border border-[var(--color-border-subtle)] text-[var(--color-text-primary)] min-h-[6rem]"
+              value={encodeArgs()}
+              onInput={(e) => setEncodeArgs(e.currentTarget.value)}
+              disabled={busy()}
+              spellcheck={false}
+            />
+          </label>
+          <div>
+            <button
+              type="submit"
+              class="px-3 py-1 text-sm rounded bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 border border-emerald-600/30 disabled:opacity-50"
+              disabled={busy()}
+            >
+              {busy() ? "saving..." : "save"}
+            </button>
+          </div>
+        </form>
+      </Show>
+    </section>
   );
 }
 
@@ -606,12 +716,12 @@ function StationSeedEditor(props: { stationId: string; client: AdminClient }) {
           >
             <For each={FILTER_TYPES}>{(t) => <option value={t}>{t}</option>}</For>
           </select>
-          <input
-            class="flex-1 min-w-[10rem] text-xs px-2 py-1 rounded bg-[var(--color-bg-tertiary)] border border-[var(--color-border-subtle)] text-[var(--color-text-primary)]"
-            type="text"
-            placeholder="value"
+          <SeedSuggestInput
+            client={props.client}
+            kind={fType() as "tag" | "genre" | "artist" | "album"}
             value={fValue()}
-            onInput={(e) => setFValue(e.currentTarget.value)}
+            onChange={setFValue}
+            placeholder={`${fType()} name`}
           />
           <button
             type="submit"
@@ -652,13 +762,7 @@ function StationSeedEditor(props: { stationId: string; client: AdminClient }) {
           </ul>
         </Show>
         <form class="flex items-end gap-2" onSubmit={addSong}>
-          <input
-            class="flex-1 text-xs px-2 py-1 rounded bg-[var(--color-bg-tertiary)] border border-[var(--color-border-subtle)] text-[var(--color-text-primary)]"
-            type="text"
-            placeholder="song id (uuid)"
-            value={songId()}
-            onInput={(e) => setSongId(e.currentTarget.value)}
-          />
+          <SongSuggestInput client={props.client} value={songId()} onChange={setSongId} />
           <button
             type="submit"
             class="px-3 py-1 text-xs rounded bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 border border-emerald-600/30 disabled:opacity-50"
@@ -669,5 +773,156 @@ function StationSeedEditor(props: { stationId: string; client: AdminClient }) {
         </form>
       </div>
     </div>
+  );
+}
+
+// ------------------------------------------------------------------
+// seed value autocomplete helpers
+// ------------------------------------------------------------------
+//
+// both inputs query `radio_seed_suggest` over the active admin transport
+// (debounced ~200ms) so suggestions come from the same library the
+// station is being configured against — not the local spume cache. uses
+// the native <datalist> for keyboard nav + accessibility; for songs we
+// keep a label↔id map so the user picks by title but we still submit
+// the uuid that `radio_songs_add` requires.
+
+interface SeedSuggestInputProps {
+  client: AdminClient;
+  kind: "tag" | "genre" | "artist" | "album";
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+  disabled?: boolean;
+}
+
+function SeedSuggestInput(props: SeedSuggestInputProps) {
+  const listId = `seed-suggest-${Math.random().toString(36).slice(2, 9)}`;
+  const [items, setItems] = createSignal<RadioSeedSuggestion[]>([]);
+  let timer: number | null = null;
+
+  const fetchSuggestions = (q: string) => {
+    if (timer !== null) window.clearTimeout(timer);
+    if (q.trim().length === 0) {
+      setItems([]);
+      return;
+    }
+    timer = window.setTimeout(async () => {
+      try {
+        const data = await props.client.dispatchOrThrow("radio_seed_suggest", {
+          kind: props.kind,
+          query: q.trim(),
+          limit: 15,
+        });
+        setItems((data ?? []) as RadioSeedSuggestion[]);
+      } catch {
+        // silent: autocomplete is opportunistic, manual entry still works.
+        setItems([]);
+      }
+    }, 200);
+  };
+
+  onCleanup(() => {
+    if (timer !== null) window.clearTimeout(timer);
+  });
+
+  return (
+    <>
+      <input
+        class="flex-1 min-w-[10rem] text-xs px-2 py-1 rounded bg-[var(--color-bg-tertiary)] border border-[var(--color-border-subtle)] text-[var(--color-text-primary)]"
+        type="text"
+        list={listId}
+        placeholder={props.placeholder ?? "value"}
+        value={props.value}
+        disabled={props.disabled}
+        autocomplete="off"
+        onInput={(e) => {
+          const v = e.currentTarget.value;
+          props.onChange(v);
+          fetchSuggestions(v);
+        }}
+        onFocus={(e) => fetchSuggestions(e.currentTarget.value)}
+      />
+      <datalist id={listId}>
+        <For each={items()}>
+          {(it) => <option value={it.name}>{it.subtitle ? `${it.subtitle}` : ""}</option>}
+        </For>
+      </datalist>
+    </>
+  );
+}
+
+interface SongSuggestInputProps {
+  client: AdminClient;
+  value: string;
+  onChange: (songId: string) => void;
+  disabled?: boolean;
+}
+
+function SongSuggestInput(props: SongSuggestInputProps) {
+  const listId = `song-suggest-${Math.random().toString(36).slice(2, 9)}`;
+  const [items, setItems] = createSignal<RadioSeedSuggestion[]>([]);
+  // local input shows the human label; props.value tracks the resolved id.
+  const [text, setText] = createSignal("");
+  let timer: number | null = null;
+
+  // when caller resets value (e.g. after submit), clear the visible text too.
+  createEffect(() => {
+    if (props.value === "") setText("");
+  });
+
+  const fetchSuggestions = (q: string) => {
+    if (timer !== null) window.clearTimeout(timer);
+    if (q.trim().length === 0) {
+      setItems([]);
+      return;
+    }
+    timer = window.setTimeout(async () => {
+      try {
+        const data = await props.client.dispatchOrThrow("radio_seed_suggest", {
+          kind: "song",
+          query: q.trim(),
+          limit: 15,
+        });
+        setItems((data ?? []) as RadioSeedSuggestion[]);
+      } catch {
+        setItems([]);
+      }
+    }, 200);
+  };
+
+  // resolve typed text → id: prefer exact label match in current items, else
+  // pass through (allowing pasted uuids).
+  const resolve = (typed: string) => {
+    const match = items().find((it) => it.name === typed);
+    props.onChange(match ? match.id : typed.trim());
+  };
+
+  onCleanup(() => {
+    if (timer !== null) window.clearTimeout(timer);
+  });
+
+  return (
+    <>
+      <input
+        class="flex-1 text-xs px-2 py-1 rounded bg-[var(--color-bg-tertiary)] border border-[var(--color-border-subtle)] text-[var(--color-text-primary)]"
+        type="text"
+        list={listId}
+        placeholder="song title or uuid"
+        value={text()}
+        disabled={props.disabled}
+        autocomplete="off"
+        onInput={(e) => {
+          const v = e.currentTarget.value;
+          setText(v);
+          fetchSuggestions(v);
+          resolve(v);
+        }}
+        onFocus={(e) => fetchSuggestions(e.currentTarget.value)}
+      />
+      <datalist id={listId}>
+        <For each={items()}>{(it) => <option value={it.name}>{it.subtitle ?? ""}</option>}</For>
+      </datalist>
+    </>
   );
 }
