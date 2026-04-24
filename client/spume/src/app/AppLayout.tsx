@@ -25,6 +25,7 @@ import {
 import { TopNav } from "../components/navigation/TopNav";
 import type { ViewOption } from "../components/navigation/ViewSelector";
 import { PlayerBar } from "../components/player/PlayerBar";
+import { RadioBar } from "../components/player/RadioBar";
 import { QueueSidebar } from "../components/player/QueueSidebar";
 import { getCurrentRemote, getCurrentUser, getDataSource, useLocalSource } from "../music/data";
 import { useRouteDataSource } from "../music/hooks/useRouteDataSource";
@@ -956,6 +957,13 @@ export function AppLayout(props: AppLayoutProps) {
           canGoPrevious={canGoPrevious()}
         />
       </Show>
+
+      {/* radio bar — persistent across navigation; stacks above PlayerBar
+          when both are visible so the regular player isn't covered. */}
+      <RadioBar
+        bottomOffset={(appState()?.queue.length || 0) > 0 ? "var(--player-height)" : "0px"}
+        onOpenRadioView={() => navigate("/radio")}
+      />
 
       {/* add remote modal */}
       <AddRemoteModal

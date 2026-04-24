@@ -137,9 +137,42 @@ impl Broadcaster {
                     "[radio-broadcaster] station {} song failed: {e}; retrying in {RETRY_PAUSE:?}",
                     self.station_id
                 );
+                self.announce_interstitial("switching tracks…").await;
                 tokio::time::sleep(RETRY_PAUSE).await;
+            } else {
+                // brief gap between songs (between ffmpeg exit + next spawn)
+                // — give listeners a heads-up so the player bar can render
+                // a "switching" affordance instead of a stale title.
+                self.announce_interstitial("switching tracks…").await;
             }
         }
+    }
+
+    /// push a transient meta update tagged with the **current** init_seq.
+    /// clients that already received that init chunk treat the update as
+    /// "apply now" (see radioService.ts latching), so the player bar can
+    /// show a "switching tracks…" banner during the gap before the next
+    /// song's init chunk arrives.
+    async fn announce_interstitial(self: &Arc<Self>, title: &str) {
+        let (init_seq, station_id) = {
+            let s = self.state.read().await;
+            (s.init_seq, s.now_playing.station_id.clone())
+        };
+        let placeholder = Arc::new(NowPlaying {
+            title: title.to_string(),
+            station_id,
+            ..Default::default()
+        });
+        // also stash on shared state so newly-joining listeners see the
+        // placeholder in their `hello` snapshot.
+        {
+            let mut s = self.state.write().await;
+            s.now_playing = placeholder.clone();
+        }
+        let _ = self.meta_tx.send(MetaUpdate {
+            now_playing: placeholder,
+            init_seq,
+        });
     }
 
     async fn play_one_song(self: &Arc<Self>) -> GrimoireResult<()> {
@@ -221,10 +254,15 @@ impl Broadcaster {
         };
         let started = std::time::Instant::now();
 
-        loop {
-            match encoder.next_chunk().await? {
-                None => break,
-                Some(chunk) => {
+        // pull chunks until ffmpeg signals EOF (clean song end). if it
+        // errors mid-song we still want to close out the play history row
+        // and roll straight into the next track without the inter-song
+        // RETRY_PAUSE — the listener has already been on this station for
+        // a while, no point making them wait an extra 3s.
+        let mid_song_err = loop {
+            match encoder.next_chunk().await {
+                Ok(None) => break None,
+                Ok(Some(chunk)) => {
                     let seq = self.next_seq.fetch_add(1, Ordering::Relaxed);
                     let arc = Arc::new(Chunk {
                         seq,
@@ -240,8 +278,9 @@ impl Broadcaster {
                     }
                     let _ = self.chunk_tx.send(arc);
                 }
+                Err(e) => break Some(e),
             }
-        }
+        };
 
         if let Some(pid) = play_id {
             let dur = started.elapsed().as_millis() as i64;
@@ -251,6 +290,14 @@ impl Broadcaster {
                     self.station_id
                 );
             }
+        }
+
+        if let Some(e) = mid_song_err {
+            warn!(
+                "[radio-broadcaster] station {} mid-song failure on '{}': {e}; rolling to next track",
+                self.station_id, track.title
+            );
+            return Ok(());
         }
 
         info!(

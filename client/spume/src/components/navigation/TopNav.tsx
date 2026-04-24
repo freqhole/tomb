@@ -475,6 +475,26 @@ export function TopNav(props: TopNavProps) {
                         <span class="text-sm">all feeds</span>
                       </button>
 
+                      {/* radio link — works with zero remotes */}
+                      <button
+                        class="w-full flex items-center gap-2 px-3 py-2 mb-4 rounded transition-colors border-none bg-transparent cursor-pointer"
+                        classList={{
+                          "text-[var(--color-accent-500)] bg-[var(--color-accent-500)]/10":
+                            props.currentPath === "/radio",
+                          "text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]":
+                            props.currentPath !== "/radio",
+                        }}
+                        onClick={() => props.onNavigate?.("/radio")}
+                      >
+                        <Show
+                          when={props.currentPath === "/radio"}
+                          fallback={<Icon name="recent" size={14} />}
+                        >
+                          <Icon name="check" size={14} color="var(--color-accent-500)" />
+                        </Show>
+                        <span class="text-sm">radio</span>
+                      </button>
+
                       {/* source selector */}
                       <div class="mb-4">
                         <h4 class="text-xs text-[var(--color-text-muted)] uppercase tracking-wide font-medium m-0 mb-2">

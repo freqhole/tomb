@@ -34,11 +34,107 @@ export interface SourceRef {
  *
  * silently skips sources that error or have radio disabled — the ui
  * doesn't need to show every failure here, just the stations that work.
+ *
+ * uses a two-phase sweep: every source races against a short
+ * `quickTimeoutMs` deadline; whatever responds inside the window lands
+ * in the first pass. sources that miss the window keep running for up
+ * to `deepTimeoutMs` and stream their results through `onPartial` as
+ * they arrive.
  */
-export async function discoverStations(opts: {
-  /** extra peer addrs from ?node_id query param, etc. */
-  extraPeerAddrs?: string[];
-} = {}): Promise<DiscoveredStation[]> {
+export async function discoverStations(
+  opts: {
+    /** extra peer addrs from ?node_id query param, etc. */
+    extraPeerAddrs?: string[];
+    /**
+     * fired after the first sweep settles and again every time a slow
+     * source finally responds. callers can rebuild their station list
+     * from the cumulative array on each call.
+     */
+    onPartial?: (stations: DiscoveredStation[]) => void;
+    /** quick-pass timeout per source (default 1500ms). */
+    quickTimeoutMs?: number;
+    /** deep-pass timeout per source (default 8000ms). */
+    deepTimeoutMs?: number;
+  } = {},
+): Promise<DiscoveredStation[]> {
+  const quickTimeoutMs = opts.quickTimeoutMs ?? 1500;
+  const deepTimeoutMs = opts.deepTimeoutMs ?? 8000;
+
+  const sources = await collectSources(opts.extraPeerAddrs);
+
+  // accumulator shared across both phases so onPartial sees every result.
+  const cumulative: DiscoveredStation[] = [];
+  const pushStations = (next: DiscoveredStation[]) => {
+    if (next.length === 0) return;
+    cumulative.push(...next);
+    opts.onPartial?.(cumulative.slice());
+  };
+
+  // kick off every source once with the deep timeout. each task either
+  // resolves with stations (or []) or rejects on timeout/error.
+  const slowPromises = sources.map((src) =>
+    runSource(src, deepTimeoutMs).then(
+      (stations) => ({ src, stations, error: null as unknown }),
+      (error) => ({ src, stations: [] as DiscoveredStation[], error }),
+    ),
+  );
+
+  // wrap each slow promise with a quick-window race. winners of the
+  // race land in the first onPartial call; losers come back later.
+  const quickResults = await Promise.all(
+    slowPromises.map((p) =>
+      Promise.race<
+        | { kind: "ready"; stations: DiscoveredStation[] }
+        | { kind: "pending"; later: typeof p }
+      >([
+        p.then((r) => ({ kind: "ready" as const, stations: r.stations })),
+        new Promise((resolve) =>
+          setTimeout(
+            () => resolve({ kind: "pending" as const, later: p }),
+            quickTimeoutMs,
+          ),
+        ),
+      ]),
+    ),
+  );
+
+  // first pass: collect everything that responded inside the quick window.
+  const quickStations: DiscoveredStation[] = [];
+  const slowOnes: typeof slowPromises = [];
+  for (const r of quickResults) {
+    if (r.kind === "ready") {
+      quickStations.push(...r.stations);
+    } else {
+      slowOnes.push(r.later);
+    }
+  }
+  pushStations(quickStations);
+
+  if (slowOnes.length === 0) {
+    return cumulative;
+  }
+
+  // second pass: stream slow ones in as they arrive. wait for all so the
+  // returned promise represents "fully done".
+  await Promise.all(
+    slowOnes.map(async (p) => {
+      const r = await p;
+      if (r.error) {
+        console.warn(
+          `[radio-discovery] slow source ${r.src.label} failed:`,
+          r.error instanceof Error ? r.error.message : r.error,
+        );
+      }
+      pushStations(r.stations);
+    }),
+  );
+
+  return cumulative;
+}
+
+async function collectSources(
+  extraPeerAddrs: string[] | undefined,
+): Promise<SourceRef[]> {
   const sources: SourceRef[] = [];
 
   // 1. all configured remotes (active or not — radio is read-only browsing).
@@ -47,10 +143,13 @@ export async function discoverStations(opts: {
     sources.push(remoteToSource(r));
   }
 
-  // 2. pending remotes (still in setup flow but reachable).
+  // 2. pending remotes (still in setup flow but reachable). includes any
+  // ?node_id rows just inserted by the radio view.
   const pending = await getAllPendingRemotes();
   for (const p of pending) {
-    if (sources.some((s) => s.peer_addr === p.peer_addr)) continue;
+    if (sources.some((s) => s.peer_addr === p.peer_addr || s.base_url === p.peer_addr)) {
+      continue;
+    }
     sources.push({
       kind: "pending",
       id: p.peer_addr,
@@ -61,7 +160,7 @@ export async function discoverStations(opts: {
   }
 
   // 3. one-shot peer addrs from query string / deep link.
-  for (const addr of opts.extraPeerAddrs ?? []) {
+  for (const addr of extraPeerAddrs ?? []) {
     if (!addr) continue;
     if (sources.some((s) => s.peer_addr === addr || s.base_url === addr)) {
       continue;
@@ -75,9 +174,15 @@ export async function discoverStations(opts: {
     });
   }
 
-  // fan out: hit each source in parallel, swallow individual errors.
-  const results = await Promise.all(
-    sources.map(async (src) => {
+  return sources;
+}
+
+async function runSource(
+  src: SourceRef,
+  timeoutMs: number,
+): Promise<DiscoveredStation[]> {
+  return await Promise.race<DiscoveredStation[]>([
+    (async () => {
       try {
         const stations = await fetchStationsForSource(src);
         return stations.map<DiscoveredStation>((s) => ({ ...s, source: src }));
@@ -88,9 +193,11 @@ export async function discoverStations(opts: {
         );
         return [];
       }
-    }),
-  );
-  return results.flat();
+    })(),
+    new Promise<DiscoveredStation[]>((_, reject) =>
+      setTimeout(() => reject(new Error(`timeout after ${timeoutMs}ms`)), timeoutMs),
+    ),
+  ]);
 }
 
 async function fetchStationsForSource(

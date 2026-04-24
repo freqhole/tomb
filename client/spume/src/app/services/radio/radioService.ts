@@ -11,7 +11,8 @@
 import { createSignal } from "solid-js";
 import { schema, type PublicNowPlaying } from "freqhole-api-client";
 import type { RadioHandleLike } from "freqhole-api-client";
-import { getMiddenNode } from "../../api/client";
+import { getMiddenNode, isCharnelAvailable } from "../../api/client";
+import { tuneRadioCharnel } from "./charnelRadioAdapter";
 
 const MSE_CODEC = 'audio/mp4; codecs="mp4a.40.2"';
 
@@ -36,6 +37,11 @@ const [currentStationId, setCurrentStationId] = createSignal<string | null>(
 );
 
 let activeSession: RadioSession | null = null;
+// optional persistent <audio> element supplied by RadioBar. when set, new
+// tunes attach their MediaSource to it instead of creating a fresh element.
+// keeps playback alive across navigation and gives the global player bar a
+// stable target for volume + visibility.
+let audioSink: HTMLAudioElement | null = null;
 
 export const radioStatus = status;
 export const radioError = error;
@@ -46,6 +52,15 @@ export const radioCurrentStationId = currentStationId;
 
 export function currentRadioSession(): RadioSession | null {
   return activeSession;
+}
+
+/**
+ * register a persistent <audio> element to receive radio playback. pass
+ * null to unregister. safe to call before any tune; tuneIntoRadio reads
+ * the sink at call time.
+ */
+export function setRadioAudioSink(el: HTMLAudioElement | null): void {
+  audioSink = el;
 }
 
 /** stop the current radio session if any. safe to call when idle. */
@@ -90,22 +105,34 @@ export async function tuneIntoRadio(
   setCurrentPeerAddr(peerAddr);
   setCurrentStationId(opts.stationId ?? null);
 
-  const node = await getMiddenNode();
-  if (typeof node.tune_radio !== "function") {
-    setStatus("error");
-    setError("midden build missing tune_radio");
-    throw new Error(
-      "this midden build does not expose tune_radio (rebuild client/midden)",
-    );
+  // pick transport: charnel/tauri uses the native iroh path via
+  // `radio_tune` IPC commands; everywhere else uses midden wasm.
+  const useCharnel = isCharnelAvailable();
+  let node: { tune_radio: NonNullable<Awaited<ReturnType<typeof getMiddenNode>>["tune_radio"]> } | null = null;
+  if (!useCharnel) {
+    const middenNode = await getMiddenNode();
+    if (typeof middenNode.tune_radio !== "function") {
+      setStatus("error");
+      setError("midden build missing tune_radio");
+      throw new Error(
+        "this midden build does not expose tune_radio (rebuild client/midden)",
+      );
+    }
+    node = { tune_radio: middenNode.tune_radio.bind(middenNode) };
   }
 
   // ---- mse setup -------------------------------------------------------
-  const audio = document.createElement("audio");
+  // prefer a persistent sink (mounted in the global RadioBar) so navigation
+  // doesn't tear down the audio element. fall back to a transient element
+  // for callers without a registered sink.
+  const audio = audioSink ?? document.createElement("audio");
+  const ownsAudio = audio !== audioSink;
   audio.autoplay = true;
   audio.preload = "auto";
-  // keep at moderate volume by default; the player-bar layout slice will
-  // wire this to the existing volume control.
-  audio.volume = 1.0;
+  if (ownsAudio) {
+    // only override volume on transient elements; the sink owns volume.
+    audio.volume = 1.0;
+  }
 
   const ms = new MediaSource();
   audio.src = URL.createObjectURL(ms);
@@ -154,6 +181,11 @@ export async function tuneIntoRadio(
     number,
     { now_playing: PublicNowPlaying; listener_count: number }
   >();
+  // most recent init_seq we've actually applied. interstitial / banner
+  // meta updates from the broadcaster (e.g. "switching tracks…") arrive
+  // tagged with the current init_seq so listeners see them immediately
+  // rather than waiting for the next track's init chunk.
+  let lastAppliedInit: number | null = null;
 
   const applyHello = (helloJson: string) => {
     try {
@@ -164,6 +196,12 @@ export async function tuneIntoRadio(
       }
       if (typeof msg?.listener_count === "number") {
         setListenerCount(msg.listener_count);
+      }
+      // seed the latch from the hello so any interstitial meta (init_seq
+      // matching the current track) applies immediately even if it
+      // arrives before the next chunk.
+      if (typeof msg?.init_seq === "number") {
+        lastAppliedInit = msg.init_seq;
       }
       setStatus("playing");
     } catch (e) {
@@ -177,10 +215,19 @@ export async function tuneIntoRadio(
       const initSeq = msg?.init_seq;
       const np = coerceNowPlaying(msg?.now_playing);
       if (typeof initSeq === "number" && np) {
-        pendingMeta.set(initSeq, {
-          now_playing: np,
-          listener_count: msg.listener_count ?? listenerCount(),
-        });
+        // interstitial / late-binding update for an already-playing track:
+        // server tags it with the *current* init_seq so we apply it now.
+        if (lastAppliedInit !== null && initSeq <= lastAppliedInit) {
+          setNowPlaying(np);
+          if (typeof msg?.listener_count === "number") {
+            setListenerCount(msg.listener_count);
+          }
+        } else {
+          pendingMeta.set(initSeq, {
+            now_playing: np,
+            listener_count: msg.listener_count ?? listenerCount(),
+          });
+        }
       } else if (np) {
         // protocol drift: no init_seq → apply right away.
         setNowPlaying(np);
@@ -200,6 +247,7 @@ export async function tuneIntoRadio(
       setNowPlaying(m.now_playing);
       setListenerCount(m.listener_count);
     }
+    if (isInit) lastAppliedInit = seq;
     queue.push(bytes);
     drain();
   };
@@ -207,7 +255,9 @@ export async function tuneIntoRadio(
   // ---- iroh tune -------------------------------------------------------
   let handle: RadioHandleLike;
   try {
-    handle = await node.tune_radio(peerAddr, applyHello, applyMeta, onChunk);
+    handle = useCharnel
+      ? await tuneRadioCharnel(peerAddr, applyHello, applyMeta, onChunk)
+      : await node!.tune_radio(peerAddr, applyHello, applyMeta, onChunk);
   } catch (e) {
     setStatus("error");
     setError(`tune failed: ${e}`);

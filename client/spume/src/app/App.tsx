@@ -108,9 +108,11 @@ export function App() {
   // track unlisten functions for cleanup
   let tauriUnlisteners: (() => void)[] = [];
 
-  // track current hash reactively (allows settings in empty state)
+  // track current hash reactively (allows settings + radio in empty state)
   const [currentHash, setCurrentHash] = createSignal(window.location.hash);
   const isSettingsRoute = () => currentHash().startsWith("#/settings");
+  // radio works with zero remotes (anyone with a node id can listen)
+  const isRadioRoute = () => currentHash().startsWith("#/radio");
 
   // listen for hash changes to update reactive state
   onMount(() => {
@@ -714,7 +716,7 @@ export function App() {
         }
       >
         <Show
-          when={hasSongs() || hasRemotes() || isSettingsRoute()}
+          when={hasSongs() || hasRemotes() || isSettingsRoute() || isRadioRoute()}
           fallback={
             <div class="h-screen flex items-center justify-center bg-[var(--color-bg-primary)]">
               <EmptyState
