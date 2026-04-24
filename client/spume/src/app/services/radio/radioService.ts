@@ -526,8 +526,12 @@ export async function tuneIntoRadio(
       return true;
     }
     if (msg.type === "chunk_ready") {
-      // heartbeat — no-op for now. future: compare to lastSeenSeq for
-      // hung-uni-stream detection.
+      const beat = msg as { listener_count?: unknown };
+      if (typeof beat.listener_count === "number") {
+        setListenerCount(beat.listener_count);
+      }
+      // heartbeat — future: compare seq to lastSeenSeq for hung stream
+      // detection. for now it also refreshes listener_count.
       return true;
     }
     return false;

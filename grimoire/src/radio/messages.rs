@@ -55,6 +55,11 @@ pub struct LagMessage {
 pub struct ChunkReadyMessage {
     /// most recent chunk seq the broadcaster has produced.
     pub seq: u32,
+    /// current listener count at the moment the heartbeat was emitted.
+    /// this lets paused/left listeners see the badge settle quickly
+    /// without waiting for the next track change.
+    #[serde(default)]
+    pub listener_count: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

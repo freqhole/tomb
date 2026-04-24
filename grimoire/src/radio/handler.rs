@@ -30,7 +30,7 @@ use tracing::{info, warn};
 
 /// optional heartbeat cadence. lets clients detect a wedged uni stream
 /// while the control stream stays alive over QUIC keepalives.
-const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(10);
+const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(5);
 
 pub async fn handle_connection(conn: Connection) {
     let peer_id = conn.remote_id();
@@ -175,7 +175,10 @@ async fn heartbeat(tx: mpsc::Sender<ControlMessage>, bc: Arc<Broadcaster>) -> Gr
         tick.tick().await;
         let seq = bc.current_seq();
         if tx
-            .send(ControlMessage::ChunkReady(ChunkReadyMessage { seq }))
+            .send(ControlMessage::ChunkReady(ChunkReadyMessage {
+                seq,
+                listener_count: bc.listener_count(),
+            }))
             .await
             .is_err()
         {
