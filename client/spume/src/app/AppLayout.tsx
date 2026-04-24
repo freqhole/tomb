@@ -15,6 +15,7 @@ import { ConfirmDialog } from "../components/dialogs/ConfirmDialog";
 import { PlaylistSelectorModal } from "../components/dialogs/PlaylistSelectorModal";
 import { AddToStationModal } from "../components/radio/AddToStationModal";
 import { ToastRegion } from "../components/feedback/Toast";
+import { toast } from "../components/feedback/Toast";
 import { AddRemoteModal } from "../components/modals/AddRemoteModal";
 import { ConnectionProgressModal } from "../components/modals/ConnectionProgressModal";
 import {
@@ -78,6 +79,7 @@ import type { ImageMetadata, Song } from "../music/services/storage/types";
 import {
   type Remote,
   type QueueHistoryEntry,
+  type RadioStationRef,
   isHttpRemote,
   isP2PRemote,
 } from "./services/storage/types";
@@ -86,7 +88,7 @@ import { IconNames, type IconName } from "../components/icons/registry";
 import { routes, matchRoute, getDefaultRoute, hasFeedView } from "../music/utils/routing";
 import { confirmState, closeConfirm, resolveConfirm, confirm } from "./services/confirmState";
 import { playlistSelectorState, closePlaylistSelector } from "../music/hooks/playlistSelectorState";
-import { showImageCarousel, openAddMusic } from "../music/hooks/modals";
+import { showImageCarousel, openAddMusic, showShareModal } from "../music/hooks/modals";
 import { appState, setCurrentSong, setQueueOpen } from "./services/storage/db";
 import { getPageInfo } from "./services/pageInfo";
 import {
@@ -94,6 +96,7 @@ import {
   loadQueueHistory,
   removeHistoryEntry,
   clearQueueHistory,
+  addRadioStationHistoryEntry,
 } from "../music/services/queue/queueHistory";
 import { addToQueue, resumeHistoryEntry } from "../music/services/queue/queue";
 import { loadProgressFromStorage, progressMap } from "../music/services/queue/queueProgress";
@@ -569,6 +572,76 @@ export function AppLayout(props: AppLayoutProps) {
     await setQueueOpen(!queueOpen());
   };
 
+  const resolveShareSourceRemote = (station: RadioStationRef): Remote | null => {
+    if (station.is_local) {
+      return remotes().find((r) => r.is_charnel_managed) ?? null;
+    }
+    return (
+      remotes().find((r) => {
+        if (isP2PRemote(r)) return r.peer_addr === station.peer_addr;
+        if (isHttpRemote(r)) return r.base_url === station.peer_addr;
+        return false;
+      }) ?? null
+    );
+  };
+
+  const openRadioShareModal = (station: RadioStationRef) => {
+    if (!station.station_id) {
+      toast.error("this station cannot be shared yet");
+      return;
+    }
+
+    const source = resolveShareSourceRemote(station);
+    if (!source) {
+      toast.error("could not resolve source for sharing");
+      return;
+    }
+
+    showShareModal({
+      target: {
+        kind: "radio_station",
+        id: station.station_id,
+        displayTitle: station.station_name,
+      },
+      source: () => source,
+    });
+  };
+
+  const getRadioQueueContextMenuActions = (station: RadioStationRef): MenuAction[] => [
+    {
+      label: "resume",
+      icon: IconNames.play,
+      onClick: () => {
+        void tuneIntoRadio(station.peer_addr, {
+          stationId: station.station_id,
+          stationName: station.station_name,
+          isLocal: station.is_local,
+        });
+      },
+    },
+    {
+      label: "save to history",
+      icon: IconNames.recent,
+      onClick: () => {
+        void addRadioStationHistoryEntry({
+          peer_addr: station.peer_addr,
+          station_id: station.station_id,
+          station_name: station.station_name,
+          is_local: station.is_local,
+          art_thumb_b64: station.art_thumb_b64,
+          art_thumb_mime: station.art_thumb_mime,
+        });
+      },
+    },
+    { type: "separator" },
+    {
+      label: "share...",
+      icon: IconNames.share,
+      disabled: !station.station_id,
+      onClick: () => openRadioShareModal(station),
+    },
+  ];
+
   // build context menu actions for a history entry
   const getHistoryContextMenuActions = (entry: QueueHistoryEntry): MenuAction[] => {
     const actions: MenuAction[] = [];
@@ -911,6 +984,7 @@ export function AppLayout(props: AppLayoutProps) {
               isLocal: station.is_local,
             });
           }}
+          getRadioQueueContextMenuActions={getRadioQueueContextMenuActions}
           onResumeDownloads={() => {
             resumeAutoDownload();
           }}

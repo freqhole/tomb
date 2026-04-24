@@ -128,7 +128,7 @@ export interface P2PIdentity {
 
 // database schema version
 export const APP_DB_NAME = "freqhole_app";
-export const APP_DB_VERSION = 7; // added radio_history store
+export const APP_DB_VERSION = 8; // added shared_items store
 
 // app store names
 export const STORE_APP_STATE = "app_state"; // also stores P2PIdentity with id: "p2p_identity"
@@ -137,6 +137,30 @@ export const STORE_QUEUE_HISTORY = "queue_history";
 export const STORE_ANALYTICS_EVENTS = "analytics_events";
 export const STORE_PENDING_REMOTES = "pending_remotes";
 export const STORE_RADIO_HISTORY = "radio_history";
+export const STORE_SHARED_ITEMS = "shared_items";
+
+export type SharedItemKind =
+  | "album"
+  | "playlist"
+  | "song"
+  | "artist"
+  | "radio_station";
+
+export interface SharedItemEntry {
+  // deterministic dedupe key from (kind, id, parent, source)
+  id: string;
+  // canonical base64url token for reopening the share
+  token: string;
+  kind: SharedItemKind;
+  entity_id: string;
+  parent_id?: string;
+  title?: string;
+  source_node_id?: string;
+  source_http_origin?: string;
+  first_seen_at: number;
+  last_seen_at: number;
+  seen_count: number;
+}
 
 // radio history entry — one per (station, song_id) transition observed by
 // the listener. capped at MAX_RADIO_HISTORY rows by radioHistory module.

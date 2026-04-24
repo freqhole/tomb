@@ -12,6 +12,7 @@ import {
   STORE_REMOTES,
   STORE_PENDING_REMOTES,
   STORE_RADIO_HISTORY,
+  STORE_SHARED_ITEMS,
   type AppState,
   type P2PIdentity,
   type PendingRemote,
@@ -84,6 +85,15 @@ async function initAppDB(): Promise<IDBPDatabase> {
         });
         radioStore.createIndex("by_played_at", "played_at");
         radioStore.createIndex("by_station_id", "station_id");
+      }
+
+      // create shared_items store (v8)
+      if (!db.objectStoreNames.contains(STORE_SHARED_ITEMS)) {
+        const sharedStore = db.createObjectStore(STORE_SHARED_ITEMS, {
+          keyPath: "id",
+        });
+        sharedStore.createIndex("by_last_seen_at", "last_seen_at");
+        sharedStore.createIndex("by_kind", "kind");
       }
     },
   });

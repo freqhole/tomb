@@ -14,7 +14,7 @@
 // matches the visual language of TagSelectorModal / AddMusicModal via the
 // shared `Modal` shell.
 
-import { Show, type Component } from "solid-js";
+import { createMemo, Show, type Component } from "solid-js";
 import { Modal } from "./Modal";
 import { PermalinkSection } from "../share/PermalinkSection";
 import { SendToRemoteSection } from "../share/SendToRemoteSection";
@@ -23,6 +23,8 @@ import { isCharnelMode } from "../../app/services/charnel";
 import type { ShareTarget } from "../share/types";
 import type { Remote } from "../../app/services/storage/schemas/remote";
 import type { SendPayload } from "../../music/services/send/sendToRemote";
+import { buildSharePayload } from "../share/buildSharePayload";
+import { startSharedRadioStation } from "../share/startSharedRadioStation";
 
 export interface ShareModalProps {
   isOpen: boolean;
@@ -42,6 +44,23 @@ export interface ShareModalProps {
 }
 
 export const ShareModal: Component<ShareModalProps> = (props) => {
+  const playableRadioShare = createMemo(() => {
+    if (props.target.kind !== "radio_station") return null;
+    if (!props.source) return null;
+
+    try {
+      const payload = buildSharePayload(props.target, props.source);
+      if (!payload.s.n) return null;
+      return {
+        nodeId: payload.s.n,
+        stationId: props.target.id,
+        stationName: props.target.displayTitle,
+      };
+    } catch {
+      return null;
+    }
+  });
+
   return (
     <Modal
       isOpen={props.isOpen}
@@ -61,6 +80,21 @@ export const ShareModal: Component<ShareModalProps> = (props) => {
           {(src) => (
             <>
               <PermalinkSection target={props.target} source={src()} webHost={props.webHost} />
+              <Show when={playableRadioShare()}>
+                {(radio) => (
+                  <div class="flex justify-end">
+                    <button
+                      type="button"
+                      class="px-3 py-2 text-sm rounded-md bg-[var(--color-accent)] text-white border border-transparent hover:opacity-90"
+                      onClick={() => {
+                        void startSharedRadioStation(radio()).finally(() => props.onClose());
+                      }}
+                    >
+                      play station
+                    </button>
+                  </div>
+                )}
+              </Show>
               <Show when={!isCharnelMode()}>
                 <OpenInAppButton target={props.target} source={src()} />
               </Show>

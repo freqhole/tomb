@@ -102,6 +102,8 @@ export interface QueueSidebarProps {
   currentRadioRemoteImage?: ImageMetadata;
   /** callback when radio queue entry is clicked */
   onRadioQueueEntryClick?: (station: RadioStationRef) => void;
+  /** callback to get context menu actions for the radio queue entry */
+  getRadioQueueContextMenuActions?: (station: RadioStationRef) => MenuAction[];
   /** callback to get context menu actions for a history entry */
   getHistoryContextMenuActions?: (entry: QueueHistoryEntry) => MenuAction[];
   /** additional classes */
@@ -491,49 +493,59 @@ export function QueueSidebar(props: QueueSidebarProps) {
         {/* current radio station display */}
         <Show when={activeTab() === "queue" && props.currentRadioStation}>
           <div class="px-3 py-2">
-            <button
-              class="w-full text-left flex items-center gap-2 px-2 py-2 rounded-lg bg-[var(--color-accent-500)]/10 hover:bg-[var(--color-accent-500)]/20 transition-colors"
-              onClick={() =>
-                props.currentRadioStation &&
-                props.onRadioQueueEntryClick?.(props.currentRadioStation)
-              }
-              title="resume radio station"
-            >
-              <Show
-                when={props.currentRadioStation?.art_thumb_b64}
-                fallback={
-                  <MediaThumbnail
-                    images={
-                      props.currentRadioRemoteImage ? [props.currentRadioRemoteImage] : undefined
+            {(() => {
+              const station = props.currentRadioStation!;
+              const radioCard = (
+                <button
+                  class="w-full text-left flex items-center gap-2 px-2 py-2 rounded-lg bg-[var(--color-accent-500)]/10 hover:bg-[var(--color-accent-500)]/20 transition-colors"
+                  onClick={() => props.onRadioQueueEntryClick?.(station)}
+                  title="resume radio station"
+                >
+                  <Show
+                    when={station.art_thumb_b64}
+                    fallback={
+                      <MediaThumbnail
+                        images={
+                          props.currentRadioRemoteImage
+                            ? [props.currentRadioRemoteImage]
+                            : undefined
+                        }
+                        size={40}
+                        showPlayIcon={false}
+                        enablePlayClick={false}
+                        hideIndex
+                        class="mr-1"
+                      />
                     }
-                    size={40}
-                    showPlayIcon={false}
-                    enablePlayClick={false}
-                    hideIndex
-                    class="mr-1"
-                  />
-                }
-              >
-                {(b64) => (
-                  <div class="w-10 h-10 rounded overflow-hidden bg-gray-800/50 flex-shrink-0 mr-1">
-                    <img
-                      src={`data:${props.currentRadioStation?.art_thumb_mime ?? "image/jpeg"};base64,${b64()}`}
-                      alt=""
-                      class="w-full h-full object-cover"
-                    />
+                  >
+                    {(b64) => (
+                      <div class="w-10 h-10 rounded overflow-hidden bg-gray-800/50 flex-shrink-0 mr-1">
+                        <img
+                          src={`data:${station.art_thumb_mime ?? "image/jpeg"};base64,${b64()}`}
+                          alt=""
+                          class="w-full h-full object-cover"
+                        />
+                      </div>
+                    )}
+                  </Show>
+                  <div class="flex-1 min-w-0">
+                    <div class="text-sm font-medium text-[var(--color-text-primary)] truncate">
+                      {station.station_name}
+                    </div>
+                    <div class="text-xs text-[var(--color-text-secondary)] truncate">
+                      {props.currentRadioRemoteName ?? (station.is_local ? "local" : "remote")}
+                    </div>
                   </div>
-                )}
-              </Show>
-              <div class="flex-1 min-w-0">
-                <div class="text-sm font-medium text-[var(--color-text-primary)] truncate">
-                  {props.currentRadioStation?.station_name}
-                </div>
-                <div class="text-xs text-[var(--color-text-secondary)] truncate">
-                  {props.currentRadioRemoteName ??
-                    (props.currentRadioStation?.is_local ? "local" : "remote")}
-                </div>
-              </div>
-            </button>
+                </button>
+              );
+
+              const actions = props.getRadioQueueContextMenuActions?.(station);
+              return actions && actions.length > 0 ? (
+                <ContextMenu actions={actions}>{radioCard}</ContextMenu>
+              ) : (
+                radioCard
+              );
+            })()}
           </div>
         </Show>
 

@@ -10,10 +10,12 @@
 // stop control lives in the player bar (see 2c-iii); this view never
 // renders one.
 
-import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { useNavigate, useSearchParams } from "@solidjs/router";
+import { toast } from "../../components/feedback/Toast";
 import { TwoColumnLayout } from "../../components/layout/TwoColumnLayout";
 import { MediaThumbnail } from "../../components/media/MediaThumbnail";
+import { ContextMenu, type MenuAction } from "../../components/overlays/ContextMenu";
 import { isNarrowViewport } from "../../config/breakpoints";
 import {
   discoverStations,
@@ -39,6 +41,7 @@ import { createRemote, getAllRemotes } from "../../app/services/remotes/remoteMa
 import { isCharnelMode } from "../../app/services/charnel";
 import { debug } from "../../utils/logger";
 import { RadioHistoryList } from "./RadioHistoryList";
+import { showShareModal } from "../hooks/modals";
 import { addRadioStationHistoryEntry } from "../services/queue/queueHistory";
 import { type Remote, isHttpRemote, isP2PRemote } from "../../app/services/storage/types";
 import type { ImageMetadata } from "../services/storage/types";
@@ -52,6 +55,13 @@ export function RadioView() {
     const raw = searchParams.node_id;
     if (!raw) return [];
     return Array.isArray(raw) ? raw.filter(Boolean) : [raw];
+  });
+
+  const queryStationId = createMemo<string | null>(() => {
+    const raw = searchParams.station_id;
+    if (!raw) return null;
+    if (Array.isArray(raw)) return raw[0] ?? null;
+    return raw;
   });
 
   // record any query-param peers as pending remotes so they survive
@@ -149,6 +159,9 @@ export function RadioView() {
   });
 
   const remoteForSource = (source: SourceRef): Remote | null => {
+    if (source.kind === "self") {
+      return knownRemotes().find((r) => r.is_charnel_managed) ?? null;
+    }
     if (source.kind === "remote") {
       return knownRemotes().find((r) => r.remote_id === source.id) ?? null;
     }
@@ -208,6 +221,27 @@ export function RadioView() {
       console.error("[radio-view] tune failed:", e);
     }
   };
+
+  // auto-tune when a shared link includes station_id and discovery finds a match.
+  const [attemptedSharedTune, setAttemptedSharedTune] = createSignal(false);
+  createEffect(() => {
+    const stationId = queryStationId();
+    const candidates = stations();
+    if (!stationId || candidates.length === 0 || attemptedSharedTune()) return;
+
+    const expectedSources = new Set(queryPeerAddrs());
+    const match = candidates.find((s) => {
+      if (s.station_id !== stationId) return false;
+      if (expectedSources.size === 0) return true;
+      const sourceId = s.source.peer_addr ?? s.source.base_url ?? s.source.id;
+      return expectedSources.has(sourceId);
+    });
+
+    if (match) {
+      setAttemptedSharedTune(true);
+      void handleTune(match);
+    }
+  });
 
   const isCurrent = (s: DiscoveredStation) => {
     const peer =
@@ -283,6 +317,81 @@ export function RadioView() {
     }
   };
 
+  const bookmarkStation = async (station: DiscoveredStation) => {
+    const isLocal = station.source.kind === "self";
+    const peer = isLocal
+      ? station.source.id || "self"
+      : (station.source.peer_addr ?? station.source.base_url ?? "");
+    if (!peer) return;
+    try {
+      const current = currentStationObj();
+      const currentNp = radioNowPlaying();
+      const isCurrentStation =
+        !!current &&
+        current.station_id === station.station_id &&
+        current.source.id === station.source.id;
+      const np = isCurrentStation ? currentNp : station.now_playing;
+      await addRadioStationHistoryEntry({
+        peer_addr: peer,
+        station_id: station.station_id,
+        station_name: station.name,
+        is_local: isLocal,
+        art_thumb_b64: np?.art_thumb_b64 ?? undefined,
+        art_thumb_mime: np?.art_thumb_mime ?? undefined,
+      });
+      toast.success("saved station to history");
+    } catch (e) {
+      console.warn("[radio-view] bookmark failed:", e);
+      toast.error("failed to save station");
+    }
+  };
+
+  const openStationShare = (station: DiscoveredStation) => {
+    if (!station.station_id) {
+      toast.error("this station cannot be shared yet");
+      return;
+    }
+    const source = remoteForSource(station.source);
+    if (!source) {
+      toast.error("could not resolve source for sharing");
+      return;
+    }
+    showShareModal({
+      target: {
+        kind: "radio_station",
+        id: station.station_id,
+        displayTitle: station.name,
+      },
+      source: () => source,
+    });
+  };
+
+  const stationMenuActions = (station: DiscoveredStation): MenuAction[] => [
+    {
+      label: isCurrent(station) ? "resume" : "tune in",
+      icon: "play",
+      onClick: () => {
+        void handleTune(station);
+      },
+    },
+    {
+      label: "save to history",
+      icon: "recent",
+      onClick: () => {
+        void bookmarkStation(station);
+      },
+    },
+    {
+      type: "separator",
+    },
+    {
+      label: "share...",
+      icon: "share",
+      disabled: !station.station_id,
+      onClick: () => openStationShare(station),
+    },
+  ];
+
   // ---------------------------------------------------------------------
   // left column — station list
   // ---------------------------------------------------------------------
@@ -348,69 +457,73 @@ export function RadioView() {
                     <For each={stns}>
                       {(station) => (
                         <li>
-                          <button
-                            class="w-full text-left flex items-center gap-2 p-2 rounded transition border"
-                            classList={{
-                              "bg-emerald-900/40 border-emerald-700": isCurrent(station),
-                              "hover:bg-neutral-900 border-transparent": !isCurrent(station),
-                            }}
-                            onClick={() => handleTune(station)}
-                          >
-                            <div class="flex-shrink-0 w-10 h-10 rounded overflow-hidden bg-gradient-to-br from-purple-700 to-indigo-900 flex items-center justify-center">
-                              <Show
-                                when={isCurrent(station) && radioArtUrl()}
-                                fallback={
-                                  <Show
-                                    when={station.now_playing?.art_thumb_b64}
-                                    fallback={
-                                      <Show
-                                        when={remoteImageMetaForSource(station.source)}
-                                        fallback={
-                                          <span class="text-[8px] font-bold tracking-widest opacity-60 text-white">
-                                            radio
-                                          </span>
-                                        }
-                                      >
-                                        {(img) => (
-                                          <MediaThumbnail
-                                            images={[img()]}
-                                            size={40}
-                                            showPlayIcon={false}
-                                            enablePlayClick={false}
-                                            hideIndex
-                                          />
-                                        )}
-                                      </Show>
-                                    }
-                                  >
-                                    {(b64) => (
-                                      <img
-                                        src={`data:${
-                                          station.now_playing?.art_thumb_mime ?? "image/jpeg"
-                                        };base64,${b64()}`}
-                                        alt=""
-                                        class="w-full h-full object-cover"
-                                      />
-                                    )}
-                                  </Show>
-                                }
-                              >
-                                {(url) => (
-                                  <img src={url()} alt="" class="w-full h-full object-cover" />
-                                )}
-                              </Show>
-                            </div>
-                            <div class="flex-1 min-w-0">
-                              <div class="text-sm font-medium truncate">{station.name}</div>
-                              <div class="text-[11px] text-neutral-400 truncate">
-                                {isCurrent(station) ? radioListenerCount() : station.listener_count}{" "}
-                                listening
-                                <Show when={station.now_playing}>
-                                  {(np) => <> · {np().title}</>}
+                          <ContextMenu actions={stationMenuActions(station)}>
+                            <button
+                              class="w-full text-left flex items-center gap-2 p-2 rounded transition border"
+                              classList={{
+                                "bg-emerald-900/40 border-emerald-700": isCurrent(station),
+                                "hover:bg-neutral-900 border-transparent": !isCurrent(station),
+                              }}
+                              onClick={() => handleTune(station)}
+                            >
+                              <div class="flex-shrink-0 w-10 h-10 rounded overflow-hidden bg-gradient-to-br from-purple-700 to-indigo-900 flex items-center justify-center">
+                                <Show
+                                  when={isCurrent(station) && radioArtUrl()}
+                                  fallback={
+                                    <Show
+                                      when={station.now_playing?.art_thumb_b64}
+                                      fallback={
+                                        <Show
+                                          when={remoteImageMetaForSource(station.source)}
+                                          fallback={
+                                            <span class="text-[8px] font-bold tracking-widest opacity-60 text-white">
+                                              radio
+                                            </span>
+                                          }
+                                        >
+                                          {(img) => (
+                                            <MediaThumbnail
+                                              images={[img()]}
+                                              size={40}
+                                              showPlayIcon={false}
+                                              enablePlayClick={false}
+                                              hideIndex
+                                            />
+                                          )}
+                                        </Show>
+                                      }
+                                    >
+                                      {(b64) => (
+                                        <img
+                                          src={`data:${
+                                            station.now_playing?.art_thumb_mime ?? "image/jpeg"
+                                          };base64,${b64()}`}
+                                          alt=""
+                                          class="w-full h-full object-cover"
+                                        />
+                                      )}
+                                    </Show>
+                                  }
+                                >
+                                  {(url) => (
+                                    <img src={url()} alt="" class="w-full h-full object-cover" />
+                                  )}
                                 </Show>
                               </div>
-                            </div>
-                          </button>
+                              <div class="flex-1 min-w-0">
+                                <div class="text-sm font-medium truncate">{station.name}</div>
+                                <div class="text-[11px] text-neutral-400 truncate">
+                                  {isCurrent(station)
+                                    ? radioListenerCount()
+                                    : station.listener_count}{" "}
+                                  listening
+                                  <Show when={station.now_playing}>
+                                    {(np) => <> · {np().title}</>}
+                                  </Show>
+                                </div>
+                              </div>
+                            </button>
+                          </ContextMenu>
                         </li>
                       )}
                     </For>
@@ -528,6 +641,14 @@ export function RadioView() {
                         : bookmarking()
                           ? "saving…"
                           : "save to history"}
+                    </button>
+                    <button
+                      class="mt-2 ml-2 text-xs px-2 py-1 rounded border border-neutral-700 hover:border-neutral-500 hover:text-neutral-200 transition-colors"
+                      onClick={() => openStationShare(s())}
+                      disabled={!s().station_id}
+                      title="share station"
+                    >
+                      share
                     </button>
                   </div>
                 )}

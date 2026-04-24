@@ -244,9 +244,11 @@ export function TopNav(props: TopNavProps) {
   // also hide search input and the music sub-nav (songs/albums/playlists/etc)
   // on the radio route — radio has its own list-and-detail layout.
   const isRadioRoute = () => (props.currentPath ?? "").startsWith("/radio");
+  const isSharedRoute = () => (props.currentPath ?? "").startsWith("/shared");
   const isLocalSourceActive = () =>
     !isAggregateFeedRoute() &&
     !isRadioRoute() &&
+    !isSharedRoute() &&
     (props.currentSourceName === "local library" || !props.currentSourceName);
   let sortCloseTimeout: ReturnType<typeof setTimeout> | undefined;
   let tagCloseTimeout: ReturnType<typeof setTimeout> | undefined;
@@ -467,9 +469,9 @@ export function TopNav(props: TopNavProps) {
                         class="w-full flex items-center gap-2 px-3 py-2 mb-4 rounded transition-colors border-none bg-transparent cursor-pointer"
                         classList={{
                           "text-[var(--color-accent-500)] bg-[var(--color-accent-500)]/10":
-                            props.currentPath === "/feed",
+                            props.currentPath?.startsWith("/feed") ?? false,
                           "text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]":
-                            props.currentPath !== "/feed",
+                            !(props.currentPath?.startsWith("/feed") ?? false),
                         }}
                         onClick={() => props.onNavigate?.("/feed")}
                       >
@@ -487,14 +489,29 @@ export function TopNav(props: TopNavProps) {
                         class="w-full flex items-center gap-2 px-3 py-2 mb-4 rounded transition-colors border-none bg-transparent cursor-pointer"
                         classList={{
                           "text-[var(--color-accent-500)] bg-[var(--color-accent-500)]/10":
-                            props.currentPath === "/radio",
+                            props.currentPath?.startsWith("/radio") ?? false,
                           "text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]":
-                            props.currentPath !== "/radio",
+                            !(props.currentPath?.startsWith("/radio") ?? false),
                         }}
                         onClick={() => props.onNavigate?.("/radio")}
                       >
                         <Icon name="radioTower" size={14} />
                         <span class="text-sm">radio</span>
+                      </button>
+
+                      {/* shared links route */}
+                      <button
+                        class="w-full flex items-center gap-2 px-3 py-2 mb-4 rounded transition-colors border-none bg-transparent cursor-pointer"
+                        classList={{
+                          "text-[var(--color-accent-500)] bg-[var(--color-accent-500)]/10":
+                            props.currentPath?.startsWith("/shared") ?? false,
+                          "text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]":
+                            !(props.currentPath?.startsWith("/shared") ?? false),
+                        }}
+                        onClick={() => props.onNavigate?.(routes.shared())}
+                      >
+                        <Icon name="share" size={14} />
+                        <span class="text-sm">shared</span>
                       </button>
 
                       {/* source selector */}
@@ -513,6 +530,7 @@ export function TopNav(props: TopNavProps) {
                                 "text-[var(--color-text-secondary)] cursor-pointer hover:bg-[var(--color-accent-500)]/10":
                                   isAggregateFeedRoute() ||
                                   isRadioRoute() ||
+                                  isSharedRoute() ||
                                   (!!props.currentSourceName &&
                                     props.currentSourceName !== "local library"),
                               }}
@@ -760,6 +778,7 @@ export function TopNav(props: TopNavProps) {
             when={
               !isAggregateFeedRoute() &&
               !isRadioRoute() &&
+              !isSharedRoute() &&
               props.viewOptions?.length &&
               (!isSmall() || !searchExpanded())
             }
@@ -775,7 +794,7 @@ export function TopNav(props: TopNavProps) {
           </Show>
 
           {/* search - last item on right, grows to fill remaining space (hidden on aggregate feed + radio) */}
-          <Show when={!isAggregateFeedRoute() && !isRadioRoute()}>
+          <Show when={!isAggregateFeedRoute() && !isRadioRoute() && !isSharedRoute()}>
             <div class="flex-1 order-last">
               <Show
                 when={props.searchComponent !== undefined}
@@ -799,6 +818,7 @@ export function TopNav(props: TopNavProps) {
             when={
               !isAggregateFeedRoute() &&
               !isRadioRoute() &&
+              !isSharedRoute() &&
               info().sortFields?.length &&
               (!isSmall() || !searchExpanded())
             }

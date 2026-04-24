@@ -23,6 +23,10 @@ import { getDefaultRoute } from "../../music/utils/routing";
 import { setHighlightedSongId } from "../../music/state/highlightedSong";
 import { isCharnelMode } from "../../app/services/charnel";
 import { debug } from "../../utils/logger";
+import {
+  ensurePendingRemoteForNode,
+  startSharedRadioStation,
+} from "../share/startSharedRadioStation";
 
 export interface ResolveShareModalProps {
   /** the raw token from the share param. modal stays mounted until cleared. */
@@ -55,6 +59,9 @@ export const ResolveShareModal: Component<ResolveShareModalProps> = (props) => {
       // node-id match takes precedence — http origin matching could be a
       // future addition (would need to query remotes by base_url).
       const nodeId = payload.s.n;
+      if (payload.k === "radio_station" && nodeId) {
+        await ensurePendingRemoteForNode(nodeId);
+      }
       if (nodeId) {
         const remote = await getRemoteByPeerAddr(nodeId);
         if (remote) {
@@ -141,6 +148,22 @@ export const ResolveShareModal: Component<ResolveShareModalProps> = (props) => {
                   </p>
                 </Show>
                 <div class="flex flex-wrap gap-2 pt-2">
+                  <Show when={s.payload.k === "radio_station" && !!nodeId}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        void startSharedRadioStation({
+                          nodeId: nodeId!,
+                          stationId: s.payload.i,
+                          stationName: title,
+                        });
+                        props.onClose();
+                      }}
+                      class="px-3 py-2 text-sm rounded-md bg-[var(--color-accent)] text-white border border-transparent hover:opacity-90"
+                    >
+                      play station
+                    </button>
+                  </Show>
                   <Show when={nodeId}>
                     <button
                       type="button"
@@ -196,6 +219,20 @@ function entityRouteFor(payload: SharePayloadV1, remoteId: string): string {
         return `/${remoteId}/albums/${encodeURIComponent(payload.p)}`;
       }
       return getDefaultRoute(remoteId);
+    case "radio_station": {
+      const params = new URLSearchParams();
+      // source identity is optional, but node id gives the radio view
+      // enough context to discover the right peer automatically.
+      if (payload.s.n) {
+        params.append("node_id", payload.s.n);
+      } else if (payload.s.h) {
+        params.append("node_id", payload.s.h);
+      }
+      params.append("station_id", payload.i);
+      if (payload.t) params.append("station_name", payload.t);
+      const q = params.toString();
+      return q ? `/radio?${q}` : "/radio";
+    }
     default:
       return getDefaultRoute(remoteId);
   }

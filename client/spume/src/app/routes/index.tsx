@@ -25,6 +25,7 @@ import { GenresView } from "../../music/views/GenresView";
 import { PlaylistsView } from "../../music/views/PlaylistsView";
 import { SongsView } from "../../music/views/SongsView";
 import { RadioView } from "../../music/views/RadioView";
+import { SharedItemsView } from "../../music/views/SharedItemsView";
 import { AppLayout } from "../AppLayout";
 import {
   SettingsLayout,
@@ -110,6 +111,9 @@ export function routes(props: RoutesProps) {
 
         {/* radio - works with zero remotes; ?node_id=… can deep-link a peer */}
         <Route path="/radio" component={RadioView} />
+
+        {/* shared links history (persisted in app IndexedDB) */}
+        <Route path="/shared" component={SharedItemsView} />
 
         {/* local context routes - hidden in tauri mode (always uses remote server) */}
         {!isCharnelMode() && (
