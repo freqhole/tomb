@@ -173,6 +173,37 @@ pub const ADMIN_COMMANDS: &[AdminCommandInfo] = &[
         response_type: "AdminPeersAllowResponse",
         auth: AdminAuth::Admin,
     },
+    // -- radio --
+    AdminCommandInfo {
+        name: "radio_stations_list",
+        request_type: "EmptyRequest",
+        response_type: "Vec<RadioStation>",
+        auth: AdminAuth::Admin,
+    },
+    AdminCommandInfo {
+        name: "radio_stations_get",
+        request_type: "RadioStationsByIdRequest",
+        response_type: "RadioStation",
+        auth: AdminAuth::Admin,
+    },
+    AdminCommandInfo {
+        name: "radio_stations_create",
+        request_type: "CreateStationRequest",
+        response_type: "RadioStation",
+        auth: AdminAuth::Admin,
+    },
+    AdminCommandInfo {
+        name: "radio_stations_update",
+        request_type: "UpdateStationRequest",
+        response_type: "RadioStation",
+        auth: AdminAuth::Admin,
+    },
+    AdminCommandInfo {
+        name: "radio_stations_delete",
+        request_type: "RadioStationsByIdRequest",
+        response_type: "EmptyResponse",
+        auth: AdminAuth::Admin,
+    },
 ];
 
 /// accessor mirroring `offal::all_routes()` for use by codegen.

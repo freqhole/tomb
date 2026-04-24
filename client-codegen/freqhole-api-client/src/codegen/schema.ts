@@ -592,6 +592,17 @@ export const CreatePlaylistRequestSchema = z.object({
 });
 export type CreatePlaylistRequest = z.infer<typeof CreatePlaylistRequestSchema>;
 
+export const CreateStationRequestSchema = z.object({
+  name: z.string(),
+  description: z.string().nullish(),
+  is_public: z.boolean().nullish(),
+  is_enabled: z.boolean().nullish(),
+  encode_args: z.string().nullish(),
+  codec: z.string().nullish(),
+  play_mode: z.string().nullish()
+});
+export type CreateStationRequest = z.infer<typeof CreateStationRequestSchema>;
+
 export const CreateTagRequestSchema = z.object({
   name: z.string()
 });
@@ -2766,6 +2777,25 @@ export const RadioInfoResponseSchema = z.object({
 });
 export type RadioInfoResponse = z.infer<typeof RadioInfoResponseSchema>;
 
+export const RadioStationSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  description: z.string().nullish(),
+  is_public: z.number(),
+  is_enabled: z.number(),
+  encode_args: z.string().nullish(),
+  codec: z.string(),
+  play_mode: z.string(),
+  created_at: z.number(),
+  updated_at: z.number()
+});
+export type RadioStation = z.infer<typeof RadioStationSchema>;
+
+export const RadioStationsByIdRequestSchema = z.object({
+  id: z.string()
+});
+export type RadioStationsByIdRequest = z.infer<typeof RadioStationsByIdRequestSchema>;
+
 export const RadioStationsResponseSchema = z.object({
   enabled: z.boolean(),
   stations: z.array(z.object({
@@ -3813,6 +3843,18 @@ export const UpdateSongsResultSchema = z.object({
   tags_modified: z.boolean()
 });
 export type UpdateSongsResult = z.infer<typeof UpdateSongsResultSchema>;
+
+export const UpdateStationRequestSchema = z.object({
+  id: z.string(),
+  name: z.string().nullish(),
+  description: z.string().nullish(),
+  is_public: z.boolean().nullish(),
+  is_enabled: z.boolean().nullish(),
+  encode_args: z.string().nullish(),
+  codec: z.string().nullish(),
+  play_mode: z.string().nullish()
+});
+export type UpdateStationRequest = z.infer<typeof UpdateStationRequestSchema>;
 
 export const UploadMusicByBlake3RequestSchema = z.object({
   blake3: z.string(),

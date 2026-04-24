@@ -9,6 +9,7 @@ import UsersView from "./views/UsersView";
 import SettingsView from "./views/SettingsView";
 import ConfigView from "./views/ConfigView";
 import FederationView from "./views/FederationView";
+import RadioView from "./views/RadioView";
 
 // wrapper component to use ConfigView as a route
 function ConfigViewRoute() {
@@ -26,6 +27,7 @@ render(
       <Route path="/settings" component={SettingsView} />
       <Route path="/config" component={ConfigViewRoute} />
       <Route path="/federation" component={FederationView} />
+      <Route path="/radio" component={RadioView} />
     </HashRouter>
   ),
   document.getElementById("root") as HTMLElement,

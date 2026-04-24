@@ -26,6 +26,7 @@ use crate::admin_dispatch::types::peers::{
     AdminPeerNodeSummary, AdminPeerSummary, AdminPeersAllowRequest, AdminPeersAllowResponse,
     AdminPeersListForUserRequest, AdminPeersRemoveRequest,
 };
+use crate::admin_dispatch::types::radio::RadioStationsByIdRequest;
 use crate::admin_dispatch::types::users::{
     AdminAccountLinkResponse, AdminUserSummary, AdminUsersDeleteRequest,
     AdminUsersGenerateAccountLinkRequest, AdminUsersGetRequest, AdminUsersListRequest,
@@ -35,6 +36,8 @@ use crate::config::{find_config, get_config, get_config_path, read_config_from_f
 use crate::error::ErrorDetail;
 use crate::federation::knock;
 use crate::offal::Caller;
+use crate::radio::stations::models::{CreateStationRequest, UpdateStationRequest};
+use crate::radio::stations::repository as radio_stations;
 use crate::response::GrimoireResponse;
 use crate::users::{
     CreateInviteCodeRequest, CreateUserRequest, InviteCodeType, UpdateUserRequest, User,
@@ -129,6 +132,13 @@ pub async fn handle(
         "server_get_image_thumbnail" => server_get_image_thumbnail(args).await,
         "server_update_info" => server_update_info(args).await,
         "server_update_image" => server_update_image(args).await,
+
+        // -- radio --
+        "radio_stations_list" => radio_stations_list().await,
+        "radio_stations_get" => radio_stations_get(args).await,
+        "radio_stations_create" => radio_stations_create(args).await,
+        "radio_stations_update" => radio_stations_update(args).await,
+        "radio_stations_delete" => radio_stations_delete(args).await,
 
         _ => command_not_found(command),
     }
@@ -373,7 +383,10 @@ async fn users_list(args: JsonValue, caller: &Caller) -> GrimoireResponse<JsonVa
     };
     let resp = UserService::new().list_users(&params, &user).await;
     to_value(map_response(resp, |users| {
-        users.into_iter().map(AdminUserSummary::from).collect::<Vec<_>>()
+        users
+            .into_iter()
+            .map(AdminUserSummary::from)
+            .collect::<Vec<_>>()
     }))
 }
 
@@ -574,8 +587,8 @@ async fn invites_revoke_all(caller: &Caller) -> GrimoireResponse<JsonValue> {
     let resp = UserService::new()
         .deactivate_all_active_invites(&admin)
         .await;
-    to_value(map_response(resp, |revoked| AdminInvitesRevokeAllResponse {
-        revoked,
+    to_value(map_response(resp, |revoked| {
+        AdminInvitesRevokeAllResponse { revoked }
     }))
 }
 
@@ -1254,4 +1267,67 @@ async fn server_update_info(args: JsonValue) -> GrimoireResponse<JsonValue> {
             "description": description,
         }),
     )
+}
+
+// =========================================================================
+// radio
+// =========================================================================
+
+async fn radio_stations_list() -> GrimoireResponse<JsonValue> {
+    match radio_stations::list_stations().await {
+        Ok(stations) => to_value(GrimoireResponse::success("radio stations listed", stations)),
+        Err(e) => GrimoireResponse::failure("failed to list radio stations", vec![e.into()]),
+    }
+}
+
+async fn radio_stations_get(args: JsonValue) -> GrimoireResponse<JsonValue> {
+    let req: RadioStationsByIdRequest = match decode(args) {
+        Ok(v) => v,
+        Err(r) => return r,
+    };
+    match radio_stations::get_station(&req.id).await {
+        Ok(Some(s)) => to_value(GrimoireResponse::success("radio station found", s)),
+        Ok(None) => GrimoireResponse::failure(
+            "radio station not found",
+            vec![ErrorDetail::new(
+                "not_found",
+                "radio station not found",
+                &format!("no station with id {}", req.id),
+            )],
+        ),
+        Err(e) => GrimoireResponse::failure("failed to get radio station", vec![e.into()]),
+    }
+}
+
+async fn radio_stations_create(args: JsonValue) -> GrimoireResponse<JsonValue> {
+    let req: CreateStationRequest = match decode(args) {
+        Ok(v) => v,
+        Err(r) => return r,
+    };
+    match radio_stations::create_station(req).await {
+        Ok(s) => to_value(GrimoireResponse::success("radio station created", s)),
+        Err(e) => GrimoireResponse::failure("failed to create radio station", vec![e.into()]),
+    }
+}
+
+async fn radio_stations_update(args: JsonValue) -> GrimoireResponse<JsonValue> {
+    let req: UpdateStationRequest = match decode(args) {
+        Ok(v) => v,
+        Err(r) => return r,
+    };
+    match radio_stations::update_station(req).await {
+        Ok(s) => to_value(GrimoireResponse::success("radio station updated", s)),
+        Err(e) => GrimoireResponse::failure("failed to update radio station", vec![e.into()]),
+    }
+}
+
+async fn radio_stations_delete(args: JsonValue) -> GrimoireResponse<JsonValue> {
+    let req: RadioStationsByIdRequest = match decode(args) {
+        Ok(v) => v,
+        Err(r) => return r,
+    };
+    match radio_stations::delete_station(&req.id).await {
+        Ok(()) => GrimoireResponse::success("radio station deleted", JsonValue::Null),
+        Err(e) => GrimoireResponse::failure("failed to delete radio station", vec![e.into()]),
+    }
 }

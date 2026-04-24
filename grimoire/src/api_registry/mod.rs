@@ -225,6 +225,7 @@ pub mod type_registry {
         AdminPeerNodeSummary, AdminPeerSummary, AdminPeersAllowRequest, AdminPeersAllowResponse,
         AdminPeersListForUserRequest, AdminPeersRemoveRequest,
     };
+    use crate::admin_dispatch::types::radio::RadioStationsByIdRequest;
     use crate::admin_dispatch::types::users::{
         AdminAccountLinkResponse, AdminUserSummary, AdminUsersDeleteRequest,
         AdminUsersGenerateAccountLinkRequest, AdminUsersGetRequest, AdminUsersListRequest,
@@ -248,6 +249,11 @@ pub mod type_registry {
     // radio public types
     use crate::offal::public::radio::{
         PublicNowPlaying, PublicStation, RadioInfoResponse, RadioStationsResponse,
+    };
+
+    // radio admin types
+    use crate::radio::stations::models::{
+        CreateStationRequest, RadioStation, UpdateStationRequest,
     };
 
     pub fn register_all_types(gen: &mut ZodGenerator, registered: &mut HashSet<String>) {
@@ -838,6 +844,16 @@ pub mod type_registry {
         registered.insert("AdminPeersAllowRequest".to_string());
         gen.add_schema::<AdminPeersAllowResponse>("AdminPeersAllowResponse");
         registered.insert("AdminPeersAllowResponse".to_string());
+
+        // radio admin types
+        gen.add_schema::<RadioStation>("RadioStation");
+        registered.insert("RadioStation".to_string());
+        gen.add_schema::<CreateStationRequest>("CreateStationRequest");
+        registered.insert("CreateStationRequest".to_string());
+        gen.add_schema::<UpdateStationRequest>("UpdateStationRequest");
+        registered.insert("UpdateStationRequest".to_string());
+        gen.add_schema::<RadioStationsByIdRequest>("RadioStationsByIdRequest");
+        registered.insert("RadioStationsByIdRequest".to_string());
 
         // listen session request types
         gen.add_schema::<GetListenSessionRequest>("GetListenSessionRequest");

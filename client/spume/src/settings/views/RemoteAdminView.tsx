@@ -16,6 +16,7 @@ import QRCode from "qrcode";
 import { getRemoteById } from "../../app/services/remotes/remoteManager";
 import { whoamiForRemote } from "../../app/services/remotes/authService";
 import { adminClientFor } from "../../app/api/adminClient";
+import { isCharnelMode } from "../../app/services/charnel";
 import { isP2PRemote, type Remote } from "../../app/services/storage/schemas/remote";
 import {
   AdminClient,
@@ -98,6 +99,17 @@ export function RemoteAdminView() {
           <p class="text-sm text-[var(--color-text-muted)]">
             manage users, invites, knock requests, and peers
           </p>
+        </div>
+        <div class="flex items-center gap-2">
+          <Show when={!isCharnelMode()}>
+            <button
+              class="px-3 py-1.5 text-xs font-medium rounded-lg bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-bg-quaternary)] text-[var(--color-text-secondary)] border border-[var(--color-border-subtle)] transition-colors"
+              onClick={() => navigate(`/settings/remotes/${params.remoteId}/radio`)}
+              title="manage radio stations on this remote"
+            >
+              manage radio
+            </button>
+          </Show>
         </div>
       </div>
 

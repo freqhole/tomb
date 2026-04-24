@@ -15,21 +15,22 @@ const navItems: SettingsNavItem[] = [
   { path: "/settings/storage", label: "storage", icon: "" },
   { path: "/settings/remotes", label: "remotes", icon: "" },
   { path: "/settings/federation", label: "federation", icon: "" },
-  // charnel-only — radio station admin needs a local broadcaster.
-  { path: "/settings/radio", label: "radio", icon: "" },
   // future items:
   // { path: "/settings/playback", label: "playback", icon: "" },
   // { path: "/settings/appearance", label: "appearance", icon: "" },
 ];
 
-const CHARNEL_ONLY_PATHS = new Set(["/settings/radio"]);
+// items that are hidden in charnel/tauri mode because the charnel wizard
+// handles them. (kept here as a placeholder — empty for now since the
+// removed `/settings/radio` page is gone entirely.)
+const CHARNEL_HIDES_PATHS = new Set<string>([]);
 
 export function SettingsLayout(props: { children: JSX.Element }) {
   const location = useLocation();
 
-  // filter out charnel-only items when running in the web bundle.
+  // hide entries the charnel wizard already covers when in charnel mode.
   const visibleNavItems = () =>
-    navItems.filter((item) => isCharnelMode() || !CHARNEL_ONLY_PATHS.has(item.path));
+    navItems.filter((item) => !isCharnelMode() || !CHARNEL_HIDES_PATHS.has(item.path));
 
   // set window/document title for settings
   onMount(() => {

@@ -144,15 +144,18 @@ async function collectSources(
     sources.push(remoteToSource(r));
   }
 
-  // 2. pending remotes (still in setup flow but reachable). includes any
-  // ?node_id rows just inserted by the radio view.
-  // skip stages where we know the peer is unreachable; everything else is
-  // worth a quick scan (the source's own short timeout will discard it
-  // if it doesn't respond).
+  // 2. pending remotes (still in setup flow but reachable).
+  //
+  // only scan stages where the peer can actually answer API calls. a
+  // pending in `knock_pending` (waiting for approval) or `testing`
+  // (mid-handshake) won't authenticate, so hitting it just spams the
+  // remote and clogs the discovery log with `!success` noise. once the
+  // knock is accepted on the other side the row flips to
+  // `knock_accepted` / `connected` and gets picked up on the next pass.
   const pending = await getAllPendingRemotes();
-  const skipStages = new Set(["failed", "knock_rejected"]);
+  const allowedStages = new Set(["connected", "knock_accepted"]);
   for (const p of pending) {
-    if (skipStages.has(p.stage)) continue;
+    if (!allowedStages.has(p.stage)) continue;
     if (sources.some((s) => s.peer_addr === p.peer_addr || s.base_url === p.peer_addr)) {
       continue;
     }
@@ -230,9 +233,14 @@ async function fetchStationsForSource(
   const client = await getClientForRemote(ref);
   const resp = await client.app.radioStations();
   if (!resp.success) {
+    const errs = (resp as { errors?: Array<{ error_type?: string; detail?: string; title?: string }> }).errors;
+    const first = errs?.[0];
     debug(
       "radio-discovery",
-      `[${src.kind}] ${src.label}: api call returned !success`,
+      `[${src.kind}] ${src.label}: api call returned !success` +
+        (first
+          ? ` error_type=${first.error_type ?? "?"} detail=${first.detail ?? first.title ?? "?"}`
+          : ` message=${(resp as { message?: string }).message ?? "?"}`),
       resp,
     );
     return [];
