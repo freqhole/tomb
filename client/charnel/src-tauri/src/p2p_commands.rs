@@ -123,9 +123,12 @@ pub async fn init_p2p_client(config_path: &Path) -> Result<(), String> {
     let node_id = endpoint.node_id();
     tracing::info!(node_id = %node_id, "P2P endpoint ready");
 
-    // when radio is enabled, spawn one broadcaster per enabled station
-    // before the router accepts connections so the first incoming
-    // listener has something to attach to.
+    // when radio is enabled at startup, spawn one broadcaster per
+    // enabled station. when disabled, the registry stays empty and
+    // incoming radio connections will get a "no broadcaster" error
+    // until the operator flips the toggle (which calls init_registry
+    // dynamically — broadcasters can come and go without a restart
+    // because the RADIO_ALPN handler is always attached below).
     if radio_enabled {
         if let Err(e) = grimoire::radio::init_broadcaster().await {
             tracing::warn!(error = %e, "failed to init radio broadcasters; radio disabled for this session");
@@ -137,22 +140,22 @@ pub async fn init_p2p_client(config_path: &Path) -> Result<(), String> {
     // always start router on charnel — the app needs to accept incoming
     // blob download requests from remote peers (iroh-blobs pull model).
     // without the router, uploads via music-by-blake3 fail because the
-    // server can't connect back to pull the blob. when radio is enabled
-    // we also wire in the RADIO_ALPN handler so peers can tune in.
-    tracing::info!("starting router for blob serving");
-    let router_result = if radio_enabled {
-        endpoint
-            .start_router_with(|builder| {
-                builder.accept(
-                    grimoire::radio::RADIO_ALPN,
-                    grimoire::radio::RadioProtocol::new(),
-                )
-            })
-            .await
-    } else {
-        endpoint.start_router().await
-    };
-    router_result.map_err(|e| format!("failed to start P2P router: {}", e))?;
+    // server can't connect back to pull the blob. the RADIO_ALPN handler
+    // is always wired in too: when the registry is empty (radio disabled
+    // or all stations stopped) it returns "no broadcaster" to the
+    // listener; this lets us toggle radio on/off at runtime without a
+    // router rebuild (iroh's Router has no runtime add/remove protocol
+    // API as of 0.98).
+    tracing::info!("starting router for blob serving + radio");
+    endpoint
+        .start_router_with(|builder| {
+            builder.accept(
+                grimoire::radio::RADIO_ALPN,
+                grimoire::radio::RadioProtocol::new(),
+            )
+        })
+        .await
+        .map_err(|e| format!("failed to start P2P router: {}", e))?;
 
     // register endpoint for P2P client operations (stores reference for outbound)
     grimoire::federation::p2p_client::set_federation_endpoint(endpoint.endpoint());

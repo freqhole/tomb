@@ -637,6 +637,7 @@ pub fn run() {
             p2p_commands::p2p_close_all_connections,
             // radio listener (freqhole-radio/1)
             radio_commands::radio_tune,
+            radio_commands::radio_tune_local,
             radio_commands::radio_leave,
             // P2P state control commands
             p2p_state::p2p_get_status,

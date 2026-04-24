@@ -139,7 +139,11 @@ export function RadioView() {
   const [showDetail, setShowDetail] = createSignal(false);
 
   const handleTune = async (station: DiscoveredStation) => {
-    const peer = station.source.peer_addr ?? station.source.base_url;
+    const isLocal = station.source.kind === "self";
+    // self source has no peer_addr — local tune subscribes in-process.
+    const peer = isLocal
+      ? station.source.id || "self"
+      : (station.source.peer_addr ?? station.source.base_url);
     if (!peer) {
       console.warn("[radio-view] station has no peer addr", station);
       return;
@@ -148,6 +152,7 @@ export function RadioView() {
       await tuneIntoRadio(peer, {
         stationId: station.station_id,
         stationName: station.name,
+        isLocal,
       });
       if (isNarrowViewport()) setShowDetail(true);
     } catch (e) {
@@ -156,7 +161,8 @@ export function RadioView() {
   };
 
   const isCurrent = (s: DiscoveredStation) => {
-    const peer = s.source.peer_addr ?? s.source.base_url;
+    const peer =
+      s.source.kind === "self" ? s.source.id || "self" : (s.source.peer_addr ?? s.source.base_url);
     return (
       radioStatus() !== "idle" &&
       radioCurrentPeerAddr() === peer &&

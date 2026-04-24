@@ -19,7 +19,7 @@ use crate::radio::messages::{ArtData, NowPlaying};
 use crate::radio::playlist::pick_for_station;
 use crate::radio::stations;
 use std::collections::{HashMap, VecDeque};
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicI64, AtomicU32, Ordering};
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 use tokio::sync::{broadcast, RwLock};
@@ -83,6 +83,10 @@ pub struct Broadcaster {
     /// the run loop uses this with the per-station
     /// `bumper_frequency_seconds` to decide when to slot a bumper in.
     last_bumper_at: std::sync::atomic::AtomicI64,
+    /// epoch-millis timestamp of when the current track's init chunk was
+    /// pushed. `0` until the first track starts. used to compute
+    /// `current_track_elapsed_ms` for fresh listeners (see HelloMessage).
+    track_started_at_ms: AtomicI64,
 }
 
 impl Broadcaster {
@@ -97,6 +101,7 @@ impl Broadcaster {
             next_seq: AtomicU32::new(0),
             listener_count: AtomicU32::new(0),
             last_bumper_at: std::sync::atomic::AtomicI64::new(0),
+            track_started_at_ms: AtomicI64::new(0),
         }
     }
 
@@ -142,6 +147,23 @@ impl Broadcaster {
     /// useful for the `ChunkReady` heartbeat.
     pub fn current_seq(&self) -> u32 {
         self.next_seq.load(Ordering::Relaxed)
+    }
+
+    /// elapsed playback time of the current track in milliseconds, as
+    /// measured from when the broadcaster pushed its init chunk. returns
+    /// `0` until the first track starts. used by the radio handler to
+    /// populate `HelloMessage.current_track_elapsed_ms` so fresh
+    /// listeners can position their scrubber at the live edge.
+    pub fn current_track_elapsed_ms(&self) -> u64 {
+        let started = self.track_started_at_ms.load(Ordering::Relaxed);
+        if started == 0 {
+            return 0;
+        }
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as i64)
+            .unwrap_or(started);
+        (now.saturating_sub(started)).max(0) as u64
     }
 
     async fn run(self: Arc<Self>) {
@@ -325,6 +347,15 @@ impl Broadcaster {
             is_init: true,
             bytes: first.bytes,
         });
+
+        // stamp the track start *before* publishing the init chunk so
+        // late subscribers that race in between the chunk push + the
+        // listener join still get a sensible elapsed_ms.
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as i64)
+            .unwrap_or(0);
+        self.track_started_at_ms.store(now_ms, Ordering::Relaxed);
 
         {
             let mut s = self.state.write().await;
@@ -563,11 +594,11 @@ pub async fn start_station(station_id: &str) -> GrimoireResult<()> {
             return Ok(());
         }
     }
-    let st = stations::get_station(station_id)
-        .await?
-        .ok_or_else(|| GrimoireError::ProcessingFailed {
+    let st = stations::get_station(station_id).await?.ok_or_else(|| {
+        GrimoireError::ProcessingFailed {
             message: format!("station '{}' not found", station_id),
-        })?;
+        }
+    })?;
     if st.is_enabled == 0 {
         return Err(GrimoireError::ProcessingFailed {
             message: format!(
@@ -616,12 +647,7 @@ pub async fn stop_station(station_id: &str) -> GrimoireResult<()> {
     drop(bc);
     // if we just removed the default, pick a new one.
     if DEFAULT_STATION_ID.get().map(|s| s.as_str()) == Some(station_id) {
-        let next = registry()
-            .read()
-            .await
-            .keys()
-            .next()
-            .cloned();
+        let next = registry().read().await.keys().next().cloned();
         let mut ovr = default_override().write().await;
         *ovr = next;
     }

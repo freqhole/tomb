@@ -183,6 +183,7 @@ pub async fn radio_tune(peer_addr: String, events: Channel<RadioEvent>) -> Resul
 #[tauri::command]
 pub fn radio_leave(session_id: String) -> Result<(), String> {
     drop_session(&session_id);
+    drop_local_session(&session_id);
     Ok(())
 }
 
@@ -194,6 +195,197 @@ fn drop_session(session_id: &str) {
             // iroh connection cleanly; the spawned loops will see the
             // stream finish on their next read.
             session._conn.close(0u32.into(), b"client leaving");
+        }
+    }
+}
+
+// ---------- self-listen: in-process tune to a local broadcaster --------
+
+/// active local sessions keyed by opaque session id. dropping the entry
+/// triggers the cancel token; the spawned tasks notice and tear down the
+/// in-process subscription on their next await point.
+struct LocalSession {
+    cancel: CancellationToken,
+}
+
+static LOCAL_SESSIONS: Mutex<Option<HashMap<String, LocalSession>>> = Mutex::new(None);
+
+fn local_sessions() -> std::sync::MutexGuard<'static, Option<HashMap<String, LocalSession>>> {
+    let mut guard = LOCAL_SESSIONS.lock().unwrap();
+    if guard.is_none() {
+        *guard = Some(HashMap::new());
+    }
+    guard
+}
+
+fn drop_local_session(session_id: &str) {
+    if let Some(map) = local_sessions().as_mut() {
+        if let Some(session) = map.remove(session_id) {
+            session.cancel.cancel();
+        }
+    }
+}
+
+/// subscribe directly to a local broadcaster (no iroh hop). lets the
+/// charnel app listen to its own stations without round-tripping through
+/// iroh's "you can't dial yourself" check. emits the same RadioEvent
+/// stream as `radio_tune`, so the spume side can reuse its event loop.
+#[tauri::command]
+pub async fn radio_tune_local(
+    station_id: Option<String>,
+    events: Channel<RadioEvent>,
+) -> Result<String, String> {
+    use grimoire::radio::broadcaster::{get_default, get_station};
+    use grimoire::radio::messages::{ControlMessage, HelloMessage, RADIO_CODEC};
+
+    let bc = match station_id.as_deref() {
+        Some(id) => get_station(id)
+            .await
+            .ok_or_else(|| format!("no broadcaster for station '{id}'"))?,
+        None => get_default()
+            .await
+            .ok_or_else(|| "no default station available".to_string())?,
+    };
+
+    // join *before* snapshotting so listener_count in Hello reflects us.
+    let new_count = bc.join();
+    let sub = bc.subscribe().await;
+
+    let hello = ControlMessage::Hello(HelloMessage {
+        codec: RADIO_CODEC.to_string(),
+        now_playing: (*sub.now_playing).clone(),
+        listener_count: new_count,
+        current_seq: sub.next_seq,
+        init_seq: sub.init_seq,
+        current_track_elapsed_ms: bc.current_track_elapsed_ms(),
+    });
+    let hello_json = serde_json::to_string(&hello).map_err(|e| e.to_string())?;
+    let _ = events.send(RadioEvent::Hello { json: hello_json });
+
+    // catchup chunks (init first, then ring contents).
+    if let Some(init) = sub.init.as_ref() {
+        let _ = events.send(RadioEvent::Chunk {
+            seq: init.seq,
+            is_init: init.is_init,
+            bytes_b64: B64.encode(&init.bytes),
+        });
+    }
+    for chunk in &sub.catchup {
+        let _ = events.send(RadioEvent::Chunk {
+            seq: chunk.seq,
+            is_init: chunk.is_init,
+            bytes_b64: B64.encode(&chunk.bytes),
+        });
+    }
+
+    let session_id = next_session_id();
+    let cancel = CancellationToken::new();
+
+    // split out the receivers so each loop owns one half.
+    let mut chunk_rx = sub.chunk_rx;
+    let mut meta_rx = sub.meta_rx;
+    let bc_for_leave = bc.clone();
+    let bc_for_meta = bc.clone();
+
+    // audio loop
+    {
+        let cancel = cancel.clone();
+        let events = events.clone();
+        let session_id = session_id.clone();
+        tokio::spawn(async move {
+            let reason = run_local_audio_loop(&mut chunk_rx, &events, &cancel).await;
+            bc_for_leave.leave();
+            let _ = events.send(RadioEvent::Closed {
+                reason: reason.clone(),
+            });
+            drop_local_session(&session_id);
+            tracing::debug!(session = %session_id, reason, "[radio-charnel-local] audio loop ended");
+        });
+    }
+
+    // meta loop
+    {
+        let cancel = cancel.clone();
+        let events = events.clone();
+        let session_id = session_id.clone();
+        tokio::spawn(async move {
+            let reason = run_local_meta_loop(&mut meta_rx, &events, &cancel, bc_for_meta).await;
+            tracing::debug!(session = %session_id, reason, "[radio-charnel-local] meta loop ended");
+        });
+    }
+
+    local_sessions()
+        .as_mut()
+        .unwrap()
+        .insert(session_id.clone(), LocalSession { cancel });
+
+    Ok(session_id)
+}
+
+async fn run_local_audio_loop(
+    rx: &mut tokio::sync::broadcast::Receiver<std::sync::Arc<grimoire::radio::chunk::Chunk>>,
+    events: &Channel<RadioEvent>,
+    cancel: &CancellationToken,
+) -> String {
+    use tokio::sync::broadcast::error::RecvError;
+    loop {
+        tokio::select! {
+            _ = cancel.cancelled() => return "cancelled".into(),
+            res = rx.recv() => match res {
+                Ok(chunk) => {
+                    let bytes_b64 = B64.encode(&chunk.bytes);
+                    if events.send(RadioEvent::Chunk {
+                        seq: chunk.seq,
+                        is_init: chunk.is_init,
+                        bytes_b64,
+                    }).is_err() {
+                        return "channel closed".into();
+                    }
+                }
+                Err(RecvError::Lagged(n)) => {
+                    tracing::warn!("[radio-charnel-local] chunk rx lagged by {n}");
+                    // keep going; ring buffer will resync on next init.
+                }
+                Err(RecvError::Closed) => return "broadcaster gone".into(),
+            },
+        }
+    }
+}
+
+async fn run_local_meta_loop(
+    rx: &mut tokio::sync::broadcast::Receiver<grimoire::radio::broadcaster::MetaUpdate>,
+    events: &Channel<RadioEvent>,
+    cancel: &CancellationToken,
+    bc: std::sync::Arc<grimoire::radio::broadcaster::Broadcaster>,
+) -> String {
+    use grimoire::radio::messages::{ControlMessage, MetaMessage};
+    use tokio::sync::broadcast::error::RecvError;
+    loop {
+        tokio::select! {
+            _ = cancel.cancelled() => return "cancelled".into(),
+            res = rx.recv() => match res {
+                Ok(update) => {
+                    let msg = ControlMessage::Meta(MetaMessage {
+                        now_playing: (*update.now_playing).clone(),
+                        listener_count: bc.listener_count(),
+                        init_seq: update.init_seq,
+                    });
+                    match serde_json::to_string(&msg) {
+                        Ok(json) => {
+                            if events.send(RadioEvent::Meta { json }).is_err() {
+                                return "channel closed".into();
+                            }
+                        }
+                        Err(e) => {
+                            tracing::warn!(error = %e, "[radio-charnel-local] meta serialize failed");
+                        }
+                    }
+                }
+                Err(RecvError::Lagged(n)) => {
+                    tracing::warn!("[radio-charnel-local] meta rx lagged by {n}");
+                }
+                Err(RecvError::Closed) => return "broadcaster gone".into(),
+            },
         }
     }
 }

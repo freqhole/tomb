@@ -76,6 +76,13 @@ pub struct HelloMessage {
     /// seq of the current track's init chunk. clients receiving the audio
     /// stream will see this seq with `is_init = true`.
     pub init_seq: u32,
+    /// elapsed playback time within the current track, in milliseconds,
+    /// measured from when the broadcaster pushed the init chunk.
+    /// clients use this to position their scrubber at the live edge so a
+    /// fresh listener sees roughly the same playhead as everyone else.
+    /// `0` when the broadcaster hasn't started a track yet.
+    #[serde(default)]
+    pub current_track_elapsed_ms: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

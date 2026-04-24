@@ -12,7 +12,7 @@ import { createSignal } from "solid-js";
 import { schema, type PublicNowPlaying } from "freqhole-api-client";
 import type { RadioHandleLike } from "freqhole-api-client";
 import { getMiddenNode, isCharnelAvailable } from "../../api/client";
-import { tuneRadioCharnel } from "./charnelRadioAdapter";
+import { tuneRadioCharnel, tuneRadioCharnelLocal } from "./charnelRadioAdapter";
 import {
   registerStopRadio,
   stopMusicForRadio,
@@ -29,9 +29,21 @@ interface RadioSession {
   peerAddr: string;
   stationId: string | null;
   stationName: string | null;
+  isLocal: boolean;
   audio: HTMLAudioElement;
   leave: () => void;
 }
+
+// when the user pauses radio we fully drop the iroh session (so the
+// broadcaster decrements its listener count) but stash enough context to
+// re-tune on resume. cleared by leaveRadio + by a successful resume.
+interface PausedContext {
+  peerAddr: string;
+  stationId: string | null;
+  stationName: string | null;
+  isLocal: boolean;
+}
+let pausedContext: PausedContext | null = null;
 
 // module-level singletons. only one radio session at a time.
 const [status, setStatus] = createSignal<RadioStatus>("idle");
@@ -69,6 +81,11 @@ const [currentFavorite, setCurrentFavorite] = createSignal<boolean | null>(
 // `audio.currentTime - trackStartAtAudioTime`.
 const [elapsedMs, setElapsedMs] = createSignal<number>(0);
 let trackStartAtAudioTime = 0;
+// initial offset (ms) reported by the broadcaster's Hello so a fresh
+// listener's scrubber starts at the live edge instead of 0:00. cleared
+// whenever a new track's init segment lands via pendingMeta (real track
+// transitions reset elapsed back to 0).
+let helloElapsedOffsetMs = 0;
 let elapsedTickHandle: number | null = null;
 
 const startElapsedTicker = () => {
@@ -77,7 +94,9 @@ const startElapsedTicker = () => {
     if (!audioSink) return;
     const np = nowPlaying();
     const dur = np?.duration_ms ?? null;
-    let ms = Math.max(0, (audioSink.currentTime - trackStartAtAudioTime) * 1000);
+    let ms =
+      Math.max(0, (audioSink.currentTime - trackStartAtAudioTime) * 1000) +
+      helloElapsedOffsetMs;
     if (dur != null && ms > dur) ms = dur;
     setElapsedMs(ms);
   }, 250);
@@ -89,6 +108,7 @@ const stopElapsedTicker = () => {
   }
   setElapsedMs(0);
   trackStartAtAudioTime = 0;
+  helloElapsedOffsetMs = 0;
 };
 
 let activeSession: RadioSession | null = null;
@@ -127,40 +147,75 @@ export function setRadioAudioSink(el: HTMLAudioElement | null): void {
 }
 
 /**
- * pause radio playback without tearing down the iroh session. resume with
- * `radioResume()`. used by the unified player bar (2c-iii) so the play
- * button can pause/resume radio just like local music. NOTE: this only
- * pauses *playback*; chunks keep arriving and are buffered — long pauses
- * may overflow MSE’s SourceBuffer; expected use is brief (seconds, not
- * minutes). for true “stop”, call `leaveRadio()`.
+ * set the radio sink's volume (0..1). no-op when no sink is registered
+ * or the value is non-finite. clamps to [0,1].
+ */
+export function setRadioVolume(vol: number): void {
+  if (!audioSink) return;
+  if (!Number.isFinite(vol)) return;
+  const clamped = Math.max(0, Math.min(1, vol));
+  try {
+    audioSink.volume = clamped;
+  } catch (e) {
+    console.warn("[radio] setRadioVolume failed:", e);
+  }
+}
+
+/**
+ * pause radio playback. fully drops the iroh session so the broadcaster
+ * decrements its listener count ("pause as unlisten"). preserves the
+ * displayed station + now-playing card so the player bar stays useful.
+ * resume re-tunes from scratch and lands at the new live edge.
  */
 export function radioPause(): void {
-  if (status() !== "playing") return;
-  if (audioSink) {
-    try {
-      audioSink.pause();
-    } catch (e) {
-      console.warn("[radio] pause failed:", e);
-    }
+  if (status() !== "playing" && status() !== "connecting") return;
+  if (!activeSession) return;
+  // remember enough to resume.
+  pausedContext = {
+    peerAddr: activeSession.peerAddr,
+    stationId: activeSession.stationId,
+    stationName: activeSession.stationName,
+    isLocal: activeSession.isLocal,
+  };
+  // drop the iroh session entirely (this signals leave to the
+  // broadcaster). we don't call leaveRadio() because that resets the
+  // displayed metadata; we want the bar to keep showing the station so
+  // the user knows what they paused.
+  try {
+    activeSession.leave();
+  } catch (e) {
+    console.warn("[radio] pause: handle.leave threw:", e);
   }
+  activeSession = null;
+  stopElapsedTicker();
   setStatus("paused");
 }
 
-/** resume radio playback after `radioPause()`. no-op when not paused. */
+/**
+ * resume after `radioPause()`. re-tunes to the same station; the
+ * server-assigned position is the new live edge (live radio doesn't
+ * rewind). no-op when not paused.
+ */
 export function radioResume(): void {
   if (status() !== "paused") return;
-  if (audioSink) {
-    try {
-      void audioSink.play();
-    } catch (e) {
-      console.warn("[radio] resume failed:", e);
-    }
+  const ctx = pausedContext;
+  if (!ctx) {
+    setStatus("idle");
+    return;
   }
-  setStatus("playing");
+  pausedContext = null;
+  void tuneIntoRadio(ctx.peerAddr, {
+    stationId: ctx.stationId ?? undefined,
+    stationName: ctx.stationName ?? undefined,
+    isLocal: ctx.isLocal,
+  }).catch((e) => {
+    console.warn("[radio] resume re-tune failed:", e);
+  });
 }
 
 /** stop the current radio session if any. safe to call when idle. */
 export function leaveRadio(): void {
+  pausedContext = null;
   if (activeSession) {
     try {
       activeSession.leave();
@@ -231,6 +286,12 @@ interface TuneOptions {
   stationId?: string;
   /** display name to show while connecting (replaced by hello when it arrives). */
   stationName?: string;
+  /**
+   * skip the iroh dial and subscribe to the local broadcaster directly.
+   * used by charnel when tuning into one of its own stations (iroh
+   * refuses to dial yourself). requires `isCharnelMode()`.
+   */
+  isLocal?: boolean;
 }
 
 /**
@@ -260,8 +321,10 @@ export async function tuneIntoRadio(
     .catch(() => setCurrentRemoteServerId(null));
 
   // pick transport: charnel/tauri uses the native iroh path via
-  // `radio_tune` IPC commands; everywhere else uses midden wasm.
+  // `radio_tune` IPC commands (or `radio_tune_local` for self-listen);
+  // everywhere else uses midden wasm.
   const useCharnel = isCharnelAvailable();
+  const useLocal = !!opts.isLocal && useCharnel;
   let node: { tune_radio: NonNullable<Awaited<ReturnType<typeof getMiddenNode>>["tune_radio"]> } | null = null;
   if (!useCharnel) {
     const middenNode = await getMiddenNode();
@@ -511,6 +574,14 @@ export async function tuneIntoRadio(
       if (typeof msg?.init_seq === "number") {
         lastAppliedInit = msg.init_seq;
       }
+      // server tells us how far into the current track it is so the
+      // scrubber can position at the live edge for fresh listeners. we
+      // add a tiny fudge for the connection round-trip so the bar lines
+      // up with what the user is about to hear (the catchup ring covers
+      // ~10s of pre-live audio that we'll burn through in <1s).
+      if (typeof msg?.current_track_elapsed_ms === "number") {
+        helloElapsedOffsetMs = Math.max(0, msg.current_track_elapsed_ms);
+      }
       setStatus("playing");
     } catch (e) {
       console.warn("[radio] hello parse failed:", e);
@@ -579,8 +650,10 @@ export async function tuneIntoRadio(
       // latch the audio-element timeline at the moment this track's init
       // segment was applied. elapsed = audio.currentTime - this. done
       // after the metadata swap so duration_ms is in scope when the
-      // ticker reads it.
+      // ticker reads it. real track transition — reset the hello offset
+      // since the new track starts at 0.
       trackStartAtAudioTime = audio.currentTime;
+      helloElapsedOffsetMs = 0;
       startElapsedTicker();
     } else if (isInit) {
       // first track / no pending meta (the catchup init lands before
@@ -598,9 +671,11 @@ export async function tuneIntoRadio(
   // ---- iroh tune -------------------------------------------------------
   let handle: RadioHandleLike;
   try {
-    handle = useCharnel
-      ? await tuneRadioCharnel(peerAddr, applyHello, applyMeta, onChunk)
-      : await node!.tune_radio(peerAddr, applyHello, applyMeta, onChunk);
+    handle = useLocal
+      ? await tuneRadioCharnelLocal(opts.stationId, applyHello, applyMeta, onChunk)
+      : useCharnel
+        ? await tuneRadioCharnel(peerAddr, applyHello, applyMeta, onChunk)
+        : await node!.tune_radio(peerAddr, applyHello, applyMeta, onChunk);
   } catch (e) {
     setStatus("error");
     setError(`tune failed: ${e}`);
@@ -614,6 +689,7 @@ export async function tuneIntoRadio(
     peerAddr,
     stationId: opts.stationId ?? null,
     stationName: opts.stationName ?? null,
+    isLocal: useLocal,
     audio,
     leave: () => {
       try {

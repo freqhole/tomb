@@ -122,3 +122,61 @@ export async function tuneRadioCharnel(
     },
   };
 }
+
+/**
+ * tune into a *local* broadcaster running in the same tauri process.
+ * skips the iroh round-trip entirely (iroh refuses to dial yourself),
+ * so the charnel app can listen to its own stations.
+ *
+ * `stationId` is optional — when omitted the broadcaster registry's
+ * default station is used.
+ */
+export async function tuneRadioCharnelLocal(
+  stationId: string | undefined,
+  on_hello: (json: string) => void,
+  on_meta: (json: string) => void,
+  on_chunk: (seq: number, isInit: boolean, bytes: Uint8Array) => void,
+): Promise<RadioHandleLike> {
+  if (!isCharnelMode()) {
+    throw new Error("tuneRadioCharnelLocal called outside tauri");
+  }
+  const invoke = await getInvoke();
+  const { Channel } = await import("@tauri-apps/api/core");
+
+  const events = new Channel<RadioEvent>();
+  events.onmessage = (msg) => {
+    try {
+      switch (msg.kind) {
+        case "hello":
+          on_hello(msg.json);
+          break;
+        case "meta":
+        case "lag":
+        case "chunk_ready":
+          on_meta(msg.json);
+          break;
+        case "chunk":
+          on_chunk(msg.seq, msg.is_init, base64ToBytes(msg.bytes_b64));
+          break;
+        case "closed":
+          console.info("[radio-charnel-local] session closed:", msg.reason);
+          break;
+      }
+    } catch (e) {
+      console.warn("[radio-charnel-local] callback threw:", e);
+    }
+  };
+
+  const sessionId = (await invoke("radio_tune_local", {
+    stationId: stationId ?? null,
+    events,
+  })) as string;
+
+  return {
+    leave() {
+      invoke("radio_leave", { sessionId }).catch((e) =>
+        console.warn("[radio-charnel-local] radio_leave failed:", e),
+      );
+    },
+  };
+}

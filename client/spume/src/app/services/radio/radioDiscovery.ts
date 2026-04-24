@@ -6,7 +6,7 @@ import {
   type PublicStation,
   type RadioStationsResponse,
 } from "freqhole-api-client";
-import { getClientForRemote, isCharnelAvailable } from "../../api/client";
+import { getClientForRemote, getLocalNodeIdAsync, isCharnelAvailable } from "../../api/client";
 import type { Remote, RemoteRef } from "../../api/client";
 import { isP2PRemote, isHttpRemote } from "../../services/storage/types";
 import { getAllRemotes } from "../remotes/remoteManager";
@@ -19,12 +19,14 @@ export interface DiscoveredStation extends PublicStation {
 }
 
 export interface SourceRef {
-  kind: "remote" | "pending" | "query_param";
-  /** remote_id when kind = "remote", peer_addr otherwise. */
+  kind: "remote" | "pending" | "query_param" | "self";
+  /** remote_id when kind = "remote", peer_addr otherwise. for "self"
+   * this is the local node_id (or "self" if unknown). */
   id: string;
   /** display name for grouping (server name when known). */
   label: string;
-  /** peer_addr (P2P) or base_url (HTTP). */
+  /** peer_addr (P2P) or base_url (HTTP). undefined for "self" — the
+   * tune path uses `radio_tune_local` IPC instead of dialing iroh. */
   peer_addr?: string;
   base_url?: string;
 }
@@ -138,6 +140,19 @@ async function collectSources(
 ): Promise<SourceRef[]> {
   const sources: SourceRef[] = [];
 
+  // 0. self source (charnel only). lets the app discover + listen to
+  // its own local broadcasters without dialing iroh (iroh refuses to
+  // dial yourself). when radio is disabled locally the api call returns
+  // enabled:false and the source contributes zero stations.
+  if (isCharnelAvailable()) {
+    const localNodeId = await getLocalNodeIdAsync().catch(() => null);
+    sources.push({
+      kind: "self",
+      id: localNodeId ?? "self",
+      label: "this device",
+    });
+  }
+
   // 1. all configured remotes (active or not — radio is read-only browsing).
   const remotes = await getAllRemotes();
   for (const r of remotes) {
@@ -218,8 +233,11 @@ async function fetchStationsForSource(
   src: SourceRef,
 ): Promise<PublicStation[]> {
   // build a RemoteRef the api client can talk to without needing a
-  // persisted remote row.
-  const ref: RemoteRef = src.base_url
+  // persisted remote row. "self" routes through the charnel-local
+  // transport (in-process dispatch — no iroh, no http).
+  const ref: RemoteRef = src.kind === "self"
+    ? { transport: "http", is_charnel_managed: true }
+    : src.base_url
     ? { transport: "http", base_url: src.base_url }
     : {
         transport: isCharnelAvailable() ? "app" : "wasm",

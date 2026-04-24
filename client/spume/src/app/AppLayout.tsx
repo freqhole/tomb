@@ -1174,6 +1174,13 @@ function RadioAudioSink() {
     return el;
   })();
   setRadioAudioSink(audioEl);
+  // initial volume sync — RadioAudioSink mounts after player.ts has
+  // restored the persisted volume, so seed the new sink to match.
+  try {
+    audioEl.volume = Math.max(0, Math.min(1, volume()));
+  } catch {
+    // ignore — element may not be ready yet.
+  }
   onMount(() => {
     if (mount && audioEl.parentElement !== mount) mount.appendChild(audioEl);
   });

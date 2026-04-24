@@ -784,6 +784,15 @@ export function setPlayerVolume(vol: number): void {
 
   const audio = initAudio();
   audio.volume = clampedVolume;
+
+  // mirror the volume onto the radio sink so the slider acts as a
+  // unified output volume regardless of which source is playing. lazy
+  // import to dodge the circular dep (radioService imports from music).
+  void import("../../../app/services/radio/radioService")
+    .then((m) => m.setRadioVolume(clampedVolume))
+    .catch(() => {
+      // radio service unavailable (e.g. tests); ignore.
+    });
 }
 
 // play next song in queue (with retry logic for unplayable songs)

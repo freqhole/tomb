@@ -111,6 +111,7 @@ async fn run_session(conn: &Connection) -> GrimoireResult<()> {
         listener_count,
         current_seq: sub.next_seq,
         init_seq: sub.init_seq,
+        current_track_elapsed_ms: bc.current_track_elapsed_ms(),
     });
     write_control_message(&mut ctrl_send, &hello).await?;
 
@@ -165,10 +166,7 @@ async fn run_session(conn: &Connection) -> GrimoireResult<()> {
 /// emit a `ChunkReady { seq }` every `HEARTBEAT_INTERVAL`. lets clients
 /// detect a hung uni stream when audio has gone silent but the control
 /// stream is still alive (e.g. QUIC stalls past one direction).
-async fn heartbeat(
-    tx: mpsc::Sender<ControlMessage>,
-    bc: Arc<Broadcaster>,
-) -> GrimoireResult<()> {
+async fn heartbeat(tx: mpsc::Sender<ControlMessage>, bc: Arc<Broadcaster>) -> GrimoireResult<()> {
     let mut tick = tokio::time::interval(HEARTBEAT_INTERVAL);
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     // skip the immediate initial tick — Hello already carried current_seq.
