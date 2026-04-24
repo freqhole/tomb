@@ -447,6 +447,11 @@ export async function tuneIntoRadio(
   const recentLags: number[] = [];
   const RAPID_LAG_THRESHOLD = 3;
   const RAPID_LAG_WINDOW_MS = 60_000;
+  // trim the server-reported elapsed offset on fresh tune so the UI
+  // reflects what the listener actually hears (not the broadcaster's
+  // absolute live-edge clock). this avoids "next track" flipping early
+  // while the client is still burning through catchup.
+  const HELLO_OFFSET_TRIM_MS = 800;
   // adaptive buffer: when MediaElement fires `waiting` / `stalled` we
   // bump the live-edge target back so the SourceBuffer has more headroom
   // before the playhead crosses into the unbuffered zone. starts at the
@@ -466,6 +471,22 @@ export async function tuneIntoRadio(
       console.info(
         `[radio] stall #${stallCount} — bumping live-edge buffer to ${liveEdgeBufferMs}ms`,
       );
+    }
+    // best-effort underflow recovery: if we have buffered media but the
+    // playhead is hugging/falling out of range, jump back to our current
+    // live-edge target instead of waiting for autoplay heuristics.
+    try {
+      if (!sb || sb.buffered.length === 0) return;
+      const start = sb.buffered.start(0);
+      const end = sb.buffered.end(sb.buffered.length - 1);
+      const targetFromEnd = Math.max(start, end - liveEdgeBufferMs / 1000);
+      const nearEnd = end - audio.currentTime < 0.25;
+      const outOfRange = audio.currentTime < start || audio.currentTime > end;
+      if (nearEnd || outOfRange) {
+        audio.currentTime = targetFromEnd;
+      }
+    } catch (e) {
+      console.warn("[radio] stall seek recovery failed:", e);
     }
   };
   audio.addEventListener("waiting", onStall);
@@ -599,7 +620,10 @@ export async function tuneIntoRadio(
       // up with what the user is about to hear (the catchup ring covers
       // ~10s of pre-live audio that we'll burn through in <1s).
       if (typeof msg?.current_track_elapsed_ms === "number") {
-        helloElapsedOffsetMs = Math.max(0, msg.current_track_elapsed_ms);
+        helloElapsedOffsetMs = Math.max(
+          0,
+          msg.current_track_elapsed_ms - HELLO_OFFSET_TRIM_MS,
+        );
       }
       setStatus("playing");
     } catch (e) {
@@ -620,13 +644,29 @@ export async function tuneIntoRadio(
         // interstitial / late-binding update for an already-playing track:
         // server tags it with the *current* init_seq so we apply it now.
         if (lastAppliedInit !== null && initSeq <= lastAppliedInit) {
-          setNowPlaying(np);
-          const rawArt = rawArtMetaFrom(msg.now_playing);
-          swapArtUrl(artUrlFromRaw(msg.now_playing));
-          if (typeof msg?.listener_count === "number") {
-            setListenerCount(msg.listener_count);
+          // only apply immediately when this is a metadata refresh for the
+          // same song. if song_id changes here, applying early would make
+          // the playerbar jump to the next track before its init chunk is
+          // actually rendered.
+          const currentSongId = nowPlaying()?.song_id ?? null;
+          const incomingSongId = np.song_id ?? null;
+          if (
+            !currentSongId ||
+            !incomingSongId ||
+            incomingSongId === currentSongId
+          ) {
+            setNowPlaying(np);
+            const rawArt = rawArtMetaFrom(msg.now_playing);
+            swapArtUrl(artUrlFromRaw(msg.now_playing));
+            if (typeof msg?.listener_count === "number") {
+              setListenerCount(msg.listener_count);
+            }
+            maybeRecordHistory(np, rawArt);
+          } else {
+            console.info(
+              `[radio] deferring early meta for new song_id ${incomingSongId} (current ${currentSongId})`,
+            );
           }
-          maybeRecordHistory(np, rawArt);
         } else {
           pendingMeta.set(initSeq, {
             now_playing: np,

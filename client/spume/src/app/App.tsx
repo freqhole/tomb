@@ -722,6 +722,9 @@ export function App() {
               <EmptyState
                 onAddMusic={() => openAddMusic()}
                 onAddRemote={() => setIsAddRemoteOpen(true)}
+                onGoToRadio={() => {
+                  window.location.hash = `/radio`;
+                }}
               />
             </div>
           }
