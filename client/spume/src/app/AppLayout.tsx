@@ -74,7 +74,7 @@ import {
   onRemoteStatusChange,
   onSwitchToLocal,
 } from "./services/remotes/remoteManager";
-import type { Song } from "../music/services/storage/types";
+import type { ImageMetadata, Song } from "../music/services/storage/types";
 import {
   type Remote,
   type QueueHistoryEntry,
@@ -167,6 +167,46 @@ export function AppLayout(props: AppLayoutProps) {
 
   // automatically switch data source based on route context
   const routeContext = useRouteDataSource();
+
+  // radio queue entry metadata: resolve station peer_addr to remote name/image.
+  const currentRadioRemote = createMemo(() => {
+    const station = currentRadioStation();
+    if (!station) return null;
+    return (
+      remotes().find((r) => {
+        if (isP2PRemote(r)) return r.peer_addr === station.peer_addr;
+        if (isHttpRemote(r)) return r.base_url === station.peer_addr;
+        return false;
+      }) ?? null
+    );
+  });
+
+  const currentRadioRemoteName = createMemo(() => {
+    const station = currentRadioStation();
+    if (!station) return undefined;
+    return currentRadioRemote()?.name ?? (station.is_local ? "local" : undefined);
+  });
+
+  const currentRadioRemoteImage = createMemo<ImageMetadata | undefined>(() => {
+    const remote = currentRadioRemote();
+    if (!remote) return undefined;
+    const raw = remote.image_url ?? undefined;
+    const remoteUrl = raw
+      ? raw.startsWith("asset://") || raw.startsWith("http://") || raw.startsWith("https://")
+        ? raw
+        : isHttpRemote(remote) && remote.base_url
+          ? `${remote.base_url}${raw}`
+          : undefined
+      : undefined;
+    if (!remote.image_blob_id && !remoteUrl) return undefined;
+    return {
+      remote_blob_id: remote.image_blob_id ?? undefined,
+      remote_server_id: remote.remote_id,
+      remote_url: remoteUrl,
+      blob_type: "thumbnail",
+      is_primary: true,
+    };
+  });
 
   // update window/document title (freqhole ▸ remote ▸ route)
   createEffect(() => {
@@ -954,6 +994,8 @@ export function AppLayout(props: AppLayoutProps) {
           }}
           getHistoryContextMenuActions={getHistoryContextMenuActions}
           currentRadioStation={currentRadioStation()}
+          currentRadioRemoteName={currentRadioRemoteName()}
+          currentRadioRemoteImage={currentRadioRemoteImage()}
         />
       </div>
 
@@ -1094,7 +1136,7 @@ export function AppLayout(props: AppLayoutProps) {
           const statusBadge = () =>
             isRadio() ? (
               <div
-                class="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-black/60 backdrop-blur text-[10px] font-bold uppercase tracking-wider"
+                class="flex items-center gap-1 pr-1.5 py-0 rounded-full bg-black/60 backdrop-blur text-[9px] font-bold uppercase tracking-wide leading-none"
                 classList={{
                   "text-red-400": radioStatus() === "playing",
                   "text-amber-400": radioStatus() === "connecting",
@@ -1103,15 +1145,6 @@ export function AppLayout(props: AppLayoutProps) {
                 }}
                 title={radioCurrentPeerAddr() ?? ""}
               >
-                <span
-                  class="w-1.5 h-1.5 rounded-full"
-                  classList={{
-                    "bg-red-500 animate-pulse": radioStatus() === "playing",
-                    "bg-amber-400 animate-pulse": radioStatus() === "connecting",
-                    "bg-neutral-400": radioStatus() === "paused",
-                    "bg-red-500": radioStatus() === "error",
-                  }}
-                />
                 <span>
                   {radioStatus() === "playing"
                     ? "live"
@@ -1123,6 +1156,15 @@ export function AppLayout(props: AppLayoutProps) {
                           ? "ready"
                           : "error"}
                 </span>
+                <span
+                  class="w-1 h-1 rounded-full"
+                  classList={{
+                    "bg-red-500 animate-pulse": radioStatus() === "playing",
+                    "bg-amber-400 animate-pulse": radioStatus() === "connecting",
+                    "bg-neutral-400": radioStatus() === "paused",
+                    "bg-red-500": radioStatus() === "error",
+                  }}
+                />
                 <span class="opacity-70 normal-case font-medium tabular-nums">
                   · {radioListenerCount()} listening
                 </span>

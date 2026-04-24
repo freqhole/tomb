@@ -430,53 +430,41 @@ export function PlayerBar(props: PlayerBarProps) {
       >
         {/* song info - left side with flex-1 */}
         <div class="flex items-center gap-4 flex-1 min-w-0">
-          {/* status badge stacked above the thumbnail + favorite cluster
-              on wide layout. badge is centered over the pair so it
-              doesn't shift the rest of the row when toggled on/off. */}
-          <div class="flex flex-col items-center gap-1 flex-shrink-0">
-            <Show when={props.statusBadge}>
-              <div>{props.statusBadge}</div>
-            </Show>
-            <div class="flex items-center gap-4">
-              {/* thumbnail */}
-              <div
-                class={`relative group w-12 h-12 flex-shrink-0 ${props.onImageClick ? "cursor-pointer hover:opacity-80 transition-opacity" : ""}`}
-                onClick={() => props.onImageClick?.()}
-              >
-                <MediaImage
-                  images={props.song ? getSongDisplayImages(props.song) : undefined}
-                  blobId={props.song?.thumbnailBlobId}
-                  imageUrl={props.song?.thumbnailUrl}
-                  alt={props.song?.title || "song artwork"}
-                  domainType="song"
-                  thumbnailSize={50}
-                  class="w-12 h-12 rounded object-cover"
-                />
-                <Show when={props.onImageClick && props.song}>
-                  <div class="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100 rounded">
-                    <Icon
-                      name={IconNames.carousel}
-                      size={20}
-                      className="text-white drop-shadow-lg"
-                    />
-                  </div>
-                </Show>
-              </div>
-
-              {/* favorite button */}
-              <Show when={props.song}>
-                {(song) => (
-                  <div class="flex-shrink-0">
-                    <FavoriteHeart
-                      isFavorite={song().isFavorite || false}
-                      onToggle={() => props.onFavoriteToggle?.(song().id)}
-                      size="md"
-                      class="opacity-80 hover:opacity-100"
-                    />
-                  </div>
-                )}
+          <div class="flex items-center gap-4 flex-shrink-0">
+            {/* thumbnail */}
+            <div
+              class={`relative group w-12 h-12 flex-shrink-0 ${props.onImageClick ? "cursor-pointer hover:opacity-80 transition-opacity" : ""}`}
+              onClick={() => props.onImageClick?.()}
+            >
+              <MediaImage
+                images={props.song ? getSongDisplayImages(props.song) : undefined}
+                blobId={props.song?.thumbnailBlobId}
+                imageUrl={props.song?.thumbnailUrl}
+                alt={props.song?.title || "song artwork"}
+                domainType="song"
+                thumbnailSize={50}
+                class="w-12 h-12 rounded object-cover"
+              />
+              <Show when={props.onImageClick && props.song}>
+                <div class="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100 rounded">
+                  <Icon name={IconNames.carousel} size={20} className="text-white drop-shadow-lg" />
+                </div>
               </Show>
             </div>
+
+            {/* favorite button */}
+            <Show when={props.song}>
+              {(song) => (
+                <div class="flex-shrink-0">
+                  <FavoriteHeart
+                    isFavorite={song().isFavorite || false}
+                    onToggle={() => props.onFavoriteToggle?.(song().id)}
+                    size="md"
+                    class="opacity-80 hover:opacity-100"
+                  />
+                </div>
+              )}
+            </Show>
           </div>
 
           {/* title and artist - fills remaining space */}
@@ -506,6 +494,10 @@ export function PlayerBar(props: PlayerBarProps) {
                 }
                 class="text-[var(--color-text-secondary)] font-light text-sm"
               />
+            </Show>
+
+            <Show when={props.statusBadge}>
+              <div class="mt-0.5 leading-none">{props.statusBadge}</div>
             </Show>
           </div>
         </div>

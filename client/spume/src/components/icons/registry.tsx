@@ -323,6 +323,19 @@ export const HeadphonesIcon = (props: IconProps) => (
   </BaseIcon>
 );
 
+export const RadioTowerIcon = (props: IconProps) => (
+  <StrokeBaseIcon {...props} aria-label={props["aria-label"] ?? "Radio tower"}>
+    <circle cx="12" cy="4" r="1.5" />
+    <path d="M12 6v12" />
+    <path d="M9 18h6" />
+    <path d="M8 21h8" />
+    <path d="M7 8.5a7 7 0 0 0 0 7" />
+    <path d="M17 8.5a7 7 0 0 1 0 7" />
+    <path d="M4.5 6.5a10 10 0 0 0 0 11" />
+    <path d="M19.5 6.5a10 10 0 0 1 0 11" />
+  </StrokeBaseIcon>
+);
+
 export const CarouselIcon = (props: IconProps) => (
   <BaseIcon {...props} aria-label={props["aria-label"] ?? "Image carousel"}>
     {/* merry-go-round: conical top, center pole, platform, hanging elements */}
@@ -501,6 +514,7 @@ export const IconRegistry = {
   loader: LoaderIcon,
   database: DatabaseIcon,
   headphones: HeadphonesIcon,
+  radioTower: RadioTowerIcon,
   carousel: CarouselIcon,
   externalLink: ExternalLinkIcon,
   autoDownload: AutoDownloadIcon,
@@ -599,6 +613,7 @@ export const IconNames = {
   loader: "loader",
   database: "database",
   headphones: "headphones",
+  radioTower: "radioTower",
   carousel: "carousel",
   externalLink: "externalLink",
   autoDownload: "autoDownload",

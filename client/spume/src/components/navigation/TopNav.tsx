@@ -244,6 +244,10 @@ export function TopNav(props: TopNavProps) {
   // also hide search input and the music sub-nav (songs/albums/playlists/etc)
   // on the radio route — radio has its own list-and-detail layout.
   const isRadioRoute = () => (props.currentPath ?? "").startsWith("/radio");
+  const isLocalSourceActive = () =>
+    !isAggregateFeedRoute() &&
+    !isRadioRoute() &&
+    (props.currentSourceName === "local library" || !props.currentSourceName);
   let sortCloseTimeout: ReturnType<typeof setTimeout> | undefined;
   let tagCloseTimeout: ReturnType<typeof setTimeout> | undefined;
   let feedFilterCloseTimeout: ReturnType<typeof setTimeout> | undefined;
@@ -489,12 +493,7 @@ export function TopNav(props: TopNavProps) {
                         }}
                         onClick={() => props.onNavigate?.("/radio")}
                       >
-                        <Show
-                          when={props.currentPath === "/radio"}
-                          fallback={<Icon name="recent" size={14} />}
-                        >
-                          <Icon name="check" size={14} color="var(--color-accent-500)" />
-                        </Show>
+                        <Icon name="radioTower" size={14} />
                         <span class="text-sm">radio</span>
                       </button>
 
@@ -510,29 +509,18 @@ export function TopNav(props: TopNavProps) {
                               class="w-full px-3 py-2 text-left text-sm flex items-center gap-2 rounded transition-colors border-none bg-transparent"
                               classList={{
                                 "text-[var(--color-text-primary)] bg-[var(--color-accent-500)]/10 cursor-default":
-                                  !isAggregateFeedRoute() &&
-                                  (props.currentSourceName === "local library" ||
-                                    !props.currentSourceName),
+                                  isLocalSourceActive(),
                                 "text-[var(--color-text-secondary)] cursor-pointer hover:bg-[var(--color-accent-500)]/10":
                                   isAggregateFeedRoute() ||
+                                  isRadioRoute() ||
                                   (!!props.currentSourceName &&
                                     props.currentSourceName !== "local library"),
                               }}
-                              disabled={
-                                !!(
-                                  !isAggregateFeedRoute() &&
-                                  (props.currentSourceName === "local library" ||
-                                    !props.currentSourceName)
-                                )
-                              }
+                              disabled={!!isLocalSourceActive()}
                               onClick={() => props.onSwitchToLocal?.()}
                             >
                               <Show
-                                when={
-                                  !isAggregateFeedRoute() &&
-                                  (props.currentSourceName === "local library" ||
-                                    !props.currentSourceName)
-                                }
+                                when={isLocalSourceActive()}
                                 fallback={
                                   <span class="w-2 h-2 rounded-full bg-[var(--color-accent-primary)]" />
                                 }

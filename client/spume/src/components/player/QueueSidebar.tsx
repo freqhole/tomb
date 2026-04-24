@@ -2,6 +2,7 @@ import { createVirtualizer } from "@tanstack/solid-virtual";
 import { createEffect, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import type { Song } from "../../music/data/types";
 import type { QueueHistoryEntry, RadioStationRef } from "../../app/services/storage/types";
+import type { ImageMetadata } from "../../music/services/storage/types";
 import { isMobile } from "../../utils/isMobile";
 import { formatDuration } from "../../utils/formatDuration";
 import { getSongDisplayImages, getWaveformImage } from "../../utils/images";
@@ -95,6 +96,10 @@ export interface QueueSidebarProps {
   onClearHistory?: () => void;
   /** currently tuned radio station (if any) */
   currentRadioStation?: RadioStationRef | null;
+  /** resolved name for the radio station source remote */
+  currentRadioRemoteName?: string;
+  /** resolved remote/server image for radio fallback */
+  currentRadioRemoteImage?: ImageMetadata;
   /** callback when radio queue entry is clicked */
   onRadioQueueEntryClick?: (station: RadioStationRef) => void;
   /** callback to get context menu actions for a history entry */
@@ -494,13 +499,38 @@ export function QueueSidebar(props: QueueSidebarProps) {
               }
               title="resume radio station"
             >
-              <Icon name="headphones" size={16} color="var(--color-accent-500)" />
+              <Show
+                when={props.currentRadioStation?.art_thumb_b64}
+                fallback={
+                  <MediaThumbnail
+                    images={
+                      props.currentRadioRemoteImage ? [props.currentRadioRemoteImage] : undefined
+                    }
+                    size={40}
+                    showPlayIcon={false}
+                    enablePlayClick={false}
+                    hideIndex
+                    class="mr-1"
+                  />
+                }
+              >
+                {(b64) => (
+                  <div class="w-10 h-10 rounded overflow-hidden bg-gray-800/50 flex-shrink-0 mr-1">
+                    <img
+                      src={`data:${props.currentRadioStation?.art_thumb_mime ?? "image/jpeg"};base64,${b64()}`}
+                      alt=""
+                      class="w-full h-full object-cover"
+                    />
+                  </div>
+                )}
+              </Show>
               <div class="flex-1 min-w-0">
                 <div class="text-sm font-medium text-[var(--color-text-primary)] truncate">
-                  now tuned
+                  {props.currentRadioStation?.station_name}
                 </div>
                 <div class="text-xs text-[var(--color-text-secondary)] truncate">
-                  {props.currentRadioStation?.station_name}
+                  {props.currentRadioRemoteName ??
+                    (props.currentRadioStation?.is_local ? "local" : "remote")}
                 </div>
               </div>
             </button>

@@ -13,6 +13,7 @@
 import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { useNavigate, useSearchParams } from "@solidjs/router";
 import { TwoColumnLayout } from "../../components/layout/TwoColumnLayout";
+import { MediaThumbnail } from "../../components/media/MediaThumbnail";
 import { isNarrowViewport } from "../../config/breakpoints";
 import {
   discoverStations,
@@ -34,11 +35,13 @@ import {
   deletePendingRemoteByPeerAddr,
   getPendingRemoteByPeerAddr,
 } from "../../app/services/storage/db";
-import { createRemote } from "../../app/services/remotes/remoteManager";
+import { createRemote, getAllRemotes } from "../../app/services/remotes/remoteManager";
 import { isCharnelMode } from "../../app/services/charnel";
 import { debug } from "../../utils/logger";
 import { RadioHistoryList } from "./RadioHistoryList";
 import { addRadioStationHistoryEntry } from "../services/queue/queueHistory";
+import { type Remote, isHttpRemote, isP2PRemote } from "../../app/services/storage/types";
+import type { ImageMetadata } from "../services/storage/types";
 
 export function RadioView() {
   const [searchParams] = useSearchParams();
@@ -84,6 +87,7 @@ export function RadioView() {
 
   const [stations, setStations] = createSignal<DiscoveredStation[]>([]);
   const [sweeping, setSweeping] = createSignal(false);
+  const [knownRemotes, setKnownRemotes] = createSignal<Remote[]>([]);
 
   const refetch = async () => {
     setSweeping(true);
@@ -126,6 +130,14 @@ export function RadioView() {
     onCleanup(() => window.clearInterval(interval));
   });
 
+  onMount(async () => {
+    try {
+      setKnownRemotes(await getAllRemotes());
+    } catch (e) {
+      debug("radio-view", "failed to load remotes for image fallback:", e);
+    }
+  });
+
   const grouped = createMemo(() => {
     const map = new Map<string, DiscoveredStation[]>();
     for (const s of stations()) {
@@ -135,6 +147,42 @@ export function RadioView() {
     }
     return [...map.entries()].sort(([a], [b]) => a.localeCompare(b));
   });
+
+  const remoteForSource = (source: SourceRef): Remote | null => {
+    if (source.kind === "remote") {
+      return knownRemotes().find((r) => r.remote_id === source.id) ?? null;
+    }
+    const addr = source.peer_addr ?? source.base_url;
+    if (!addr) return null;
+    return (
+      knownRemotes().find((r) => {
+        if (isP2PRemote(r)) return r.peer_addr === addr;
+        if (isHttpRemote(r)) return r.base_url === addr;
+        return false;
+      }) ?? null
+    );
+  };
+
+  const remoteImageMetaForSource = (source: SourceRef): ImageMetadata | undefined => {
+    const remote = remoteForSource(source);
+    if (!remote) return undefined;
+    const raw = remote.image_url ?? undefined;
+    const remoteUrl = raw
+      ? raw.startsWith("asset://") || raw.startsWith("http://") || raw.startsWith("https://")
+        ? raw
+        : isHttpRemote(remote) && remote.base_url
+          ? `${remote.base_url}${raw}`
+          : undefined
+      : undefined;
+    if (!remote.image_blob_id && !remoteUrl) return undefined;
+    return {
+      remote_blob_id: remote.image_blob_id ?? undefined,
+      remote_server_id: remote.remote_id,
+      remote_url: remoteUrl,
+      blob_type: "thumbnail",
+      is_primary: true,
+    };
+  };
 
   // narrow-mode detail toggle.
   const [showDetail, setShowDetail] = createSignal(false);
@@ -315,9 +363,24 @@ export function RadioView() {
                                   <Show
                                     when={station.now_playing?.art_thumb_b64}
                                     fallback={
-                                      <span class="text-[8px] font-bold tracking-widest opacity-60 text-white">
-                                        radio
-                                      </span>
+                                      <Show
+                                        when={remoteImageMetaForSource(station.source)}
+                                        fallback={
+                                          <span class="text-[8px] font-bold tracking-widest opacity-60 text-white">
+                                            radio
+                                          </span>
+                                        }
+                                      >
+                                        {(img) => (
+                                          <MediaThumbnail
+                                            images={[img()]}
+                                            size={40}
+                                            showPlayIcon={false}
+                                            enablePlayClick={false}
+                                            hideIndex
+                                          />
+                                        )}
+                                      </Show>
                                     }
                                   >
                                     {(b64) => (
@@ -399,7 +462,26 @@ export function RadioView() {
               <Show
                 when={radioArtUrl()}
                 fallback={
-                  <span class="text-sm font-bold tracking-widest opacity-60 text-white">radio</span>
+                  <Show
+                    when={
+                      currentStationObj() && remoteImageMetaForSource(currentStationObj()!.source)
+                    }
+                    fallback={
+                      <span class="text-sm font-bold tracking-widest opacity-60 text-white">
+                        radio
+                      </span>
+                    }
+                  >
+                    {(img) => (
+                      <MediaThumbnail
+                        images={[img()]}
+                        size={160}
+                        showPlayIcon={false}
+                        enablePlayClick={false}
+                        hideIndex
+                      />
+                    )}
+                  </Show>
                 }
               >
                 {(url) => <img src={url()} alt="" class="w-full h-full object-cover" />}
