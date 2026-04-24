@@ -18,6 +18,7 @@ import {
   stopMusicForRadio,
 } from "../playbackCoordinator";
 import { recordHistoryEntry } from "./radioHistory";
+import { setCurrentRadioStationPersisted } from "../storage/currentRadioStation";
 import { getRemoteByPeerAddr } from "../remotes/remoteManager";
 import { getClientForRemote } from "../../api/client";
 
@@ -234,6 +235,9 @@ export function leaveRadio(): void {
   setCurrentRemoteServerId(null);
   setCurrentFavorite(null);
   stopElapsedTicker();
+  
+  // clear persisted radio station
+  void setCurrentRadioStationPersisted(null);
 }
 
 // replace the current art URL with a new one (or null), revoking the
@@ -729,6 +733,16 @@ export async function tuneIntoRadio(
     },
   };
   activeSession = session;
+
+  // persist the current radio station for resume on page reload
+  const stationRef = {
+    peer_addr: peerAddr,
+    station_id: opts.stationId ?? undefined,
+    station_name: opts.stationName ?? "(untitled station)",
+    is_local: useLocal,
+  };
+  void setCurrentRadioStationPersisted(stationRef);
+
   return audio;
 }
 

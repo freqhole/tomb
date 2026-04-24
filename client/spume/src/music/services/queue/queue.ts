@@ -19,6 +19,8 @@ import { createServerSession, stopServerSession, updateServerSessionSongs, activ
 import { QUEUE_SIZE_LIMIT, showQueueFullModal } from "./queueLimit";
 import { syncPlaylistToLocalFromQueue } from "../sync";
 import type { Song } from "../storage/types";
+import { leaveRadio } from "../../../app/services/radio/radioService";
+import { clearCurrentRadioStation } from "../../../app/services/storage/currentRadioStation";
 
 // re-export queue state so consumers can import everything from queue.ts
 export {
@@ -597,6 +599,10 @@ export async function clearQueue(): Promise<void> {
   clearPendingUpNext();
   void stopServerSession("abandoned");
   await setCurrentSong(null);
+
+  // stop radio if currently tuned
+  leaveRadio();
+  void clearCurrentRadioStation();
 
   // evict cached audio for all remote songs in the queue
   if (state?.queue) {

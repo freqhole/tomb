@@ -1,7 +1,7 @@
 import { createVirtualizer } from "@tanstack/solid-virtual";
 import { createEffect, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import type { Song } from "../../music/data/types";
-import type { QueueHistoryEntry } from "../../app/services/storage/types";
+import type { QueueHistoryEntry, RadioStationRef } from "../../app/services/storage/types";
 import { isMobile } from "../../utils/isMobile";
 import { formatDuration } from "../../utils/formatDuration";
 import { getSongDisplayImages, getWaveformImage } from "../../utils/images";
@@ -93,6 +93,10 @@ export interface QueueSidebarProps {
   onRemoveHistoryEntry?: (id: string) => void;
   /** callback to clear all history */
   onClearHistory?: () => void;
+  /** currently tuned radio station (if any) */
+  currentRadioStation?: RadioStationRef | null;
+  /** callback when radio queue entry is clicked */
+  onRadioQueueEntryClick?: (station: RadioStationRef) => void;
   /** callback to get context menu actions for a history entry */
   getHistoryContextMenuActions?: (entry: QueueHistoryEntry) => MenuAction[];
   /** additional classes */
@@ -124,6 +128,8 @@ export function QueueSidebar(props: QueueSidebarProps) {
   const [activeTab, setActiveTab] = createSignal<QueueTab>("queue");
   const [draggedIndex, setDraggedIndex] = createSignal<number | null>(null);
   const [dropTargetIndex, setDropTargetIndex] = createSignal<number | null>(null);
+  const hasRadioQueueEntry = () => !!props.currentRadioStation;
+  const queueEntryCount = () => props.songs.length + (hasRadioQueueEntry() ? 1 : 0);
 
   // auto-download toggle state
   const [autoDownloadOn, setAutoDownloadOn] = createSignal(getAutoDownloadEnabled());
@@ -389,7 +395,7 @@ export function QueueSidebar(props: QueueSidebarProps) {
               }`}
               onClick={() => setActiveTab("queue")}
             >
-              queue{props.songs.length > 0 ? ` (${props.songs.length})` : ""}
+              queue{queueEntryCount() > 0 ? ` (${queueEntryCount()})` : ""}
             </button>
             <button
               class={`px-3 py-1.5 text-sm font-medium rounded transition-colors ${
@@ -426,7 +432,7 @@ export function QueueSidebar(props: QueueSidebarProps) {
 
             <Show
               when={
-                (activeTab() === "queue" && props.songs.length > 0) ||
+                (activeTab() === "queue" && (props.songs.length > 0 || hasRadioQueueEntry())) ||
                 (activeTab() === "history" && props.historyEntries.length > 0)
               }
             >
@@ -477,6 +483,27 @@ export function QueueSidebar(props: QueueSidebarProps) {
           </div>
         </Show>
 
+        {/* current radio station display */}
+        <Show when={activeTab() === "queue" && props.currentRadioStation}>
+          <div class="px-3 py-2">
+            <button
+              class="w-full text-left flex items-center gap-2 px-2 py-2 rounded-lg bg-[var(--color-accent-500)]/10 hover:bg-[var(--color-accent-500)]/20 transition-colors"
+              onClick={() => props.currentRadioStation && props.onRadioQueueEntryClick?.(props.currentRadioStation)}
+              title="resume radio station"
+            >
+              <Icon name="headphones" size={16} color="var(--color-accent-500)" />
+              <div class="flex-1 min-w-0">
+                <div class="text-sm font-medium text-[var(--color-text-primary)] truncate">
+                  now tuned
+                </div>
+                <div class="text-xs text-[var(--color-text-secondary)] truncate">
+                  {props.currentRadioStation?.station_name}
+                </div>
+              </div>
+            </button>
+          </div>
+        </Show>
+
         {/* queue tab content */}
         <div
           ref={scrollElementRef}
@@ -490,13 +517,29 @@ export function QueueSidebar(props: QueueSidebarProps) {
           <Show
             when={props.songs.length > 0}
             fallback={
-              <div class="flex flex-col items-center justify-center h-full text-center px-8">
-                <div class="w-16 h-16 mb-4 bg-[var(--color-accent-500)]/10 flex items-center justify-center">
-                  <Icon name="queue" size={32} color="var(--color-accent-500)" />
+              <Show
+                when={!hasRadioQueueEntry()}
+                fallback={
+                  <div class="flex flex-col items-center justify-center h-full text-center px-8">
+                    <p class="text-[var(--color-text-secondary)] text-sm m-0 mb-2">
+                      no songs queued
+                    </p>
+                    <p class="text-[var(--color-text-muted)] text-xs m-0">
+                      radio is saved above as a queue entry
+                    </p>
+                  </div>
+                }
+              >
+                <div class="flex flex-col items-center justify-center h-full text-center px-8">
+                  <div class="w-16 h-16 mb-4 bg-[var(--color-accent-500)]/10 flex items-center justify-center">
+                    <Icon name="queue" size={32} color="var(--color-accent-500)" />
+                  </div>
+                  <p class="text-[var(--color-text-secondary)] text-sm m-0 mb-2">queue is empty</p>
+                  <p class="text-[var(--color-text-muted)] text-xs m-0">
+                    add songs to see them here
+                  </p>
                 </div>
-                <p class="text-[var(--color-text-secondary)] text-sm m-0 mb-2">queue is empty</p>
-                <p class="text-[var(--color-text-muted)] text-xs m-0">add songs to see them here</p>
-              </div>
+              </Show>
             }
           >
             <div

@@ -121,6 +121,7 @@ import {
   setRadioFavorite,
   tuneIntoRadio,
 } from "./services/radio/radioService";
+import { currentRadioStation, loadCurrentRadioStation } from "./services/storage/currentRadioStation";
 
 interface AppLayoutProps {
   children?: JSX.Element;
@@ -203,6 +204,9 @@ export function AppLayout(props: AppLayoutProps) {
 
     // load queue history from idb
     await loadQueueHistory();
+
+    // load persisted radio queue entry (display only; no autoplay)
+    await loadCurrentRadioStation();
 
     // load queue progress from storage
     loadProgressFromStorage();
@@ -857,6 +861,13 @@ export function AppLayout(props: AppLayoutProps) {
           onClearAll={() => {
             void clearQueue();
           }}
+          onRadioQueueEntryClick={(station) => {
+            void tuneIntoRadio(station.peer_addr, {
+              stationId: station.station_id,
+              stationName: station.station_name,
+              isLocal: station.is_local,
+            });
+          }}
           onResumeDownloads={() => {
             resumeAutoDownload();
           }}
@@ -939,13 +950,16 @@ export function AppLayout(props: AppLayoutProps) {
             }
           }}
           getHistoryContextMenuActions={getHistoryContextMenuActions}
+          currentRadioStation={currentRadioStation()}
         />
       </div>
 
       {/* unified player bar — handles both music (queue) and radio modes.
           radio audio element lives here so playback survives navigation;
           `setRadioAudioSink` is called once on mount. */}
-      <Show when={(appState()?.queue.length || 0) > 0 || radioStatus() !== "idle"}>
+      <Show
+        when={(appState()?.queue.length || 0) > 0 || radioStatus() !== "idle" || !!currentRadioStation()}
+      >
         {(() => {
           const isRadio = () => playbackMode() === "radio";
 
@@ -954,7 +968,17 @@ export function AppLayout(props: AppLayoutProps) {
           const barSong = () => {
             if (isRadio()) {
               const np = radioNowPlaying();
-              if (!np) return undefined;
+              if (!np) {
+                const station = currentRadioStation();
+                if (!station) return undefined;
+                return {
+                  id: station.station_id || station.peer_addr || "radio",
+                  title: station.station_name || "radio station",
+                  artist: "radio",
+                  album: "ready to resume",
+                  thumbnailUrl: undefined,
+                };
+              }
               const remoteId = radioCurrentRemoteServerId();
               // synthesize an `images` array so PlayerBar's waveform
               // pipeline can render the overlay just like in music mode.
@@ -1014,6 +1038,15 @@ export function AppLayout(props: AppLayoutProps) {
               if (radioStatus() === "paused") radioResume();
               else if (radioStatus() === "playing") radioPause();
               else if (radioStatus() === "error") leaveRadio();
+              else if (radioStatus() === "idle") {
+                const station = currentRadioStation();
+                if (!station) return;
+                void tuneIntoRadio(station.peer_addr, {
+                  stationId: station.station_id,
+                  stationName: station.station_name,
+                  isLocal: station.is_local,
+                });
+              }
               return;
             }
             togglePlayback();
@@ -1081,7 +1114,9 @@ export function AppLayout(props: AppLayoutProps) {
                       ? "tuning"
                       : radioStatus() === "paused"
                         ? "paused"
-                        : "error"}
+                        : radioStatus() === "idle"
+                          ? "ready"
+                          : "error"}
                 </span>
                 <span class="opacity-70 normal-case font-medium tabular-nums">
                   · {radioListenerCount()} listening

@@ -15,6 +15,8 @@ export interface AppState {
   sync_queue_to_local?: boolean;
   // when true, auto-downloads all queue songs in background (default: false)
   auto_download_enabled?: boolean;
+  // currently tuned radio station (for resume on page reload)
+  current_radio_station?: RadioStationRef | null;
 }
 
 // queue history entry — represents one "add to queue" action
