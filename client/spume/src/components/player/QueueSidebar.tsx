@@ -488,7 +488,10 @@ export function QueueSidebar(props: QueueSidebarProps) {
           <div class="px-3 py-2">
             <button
               class="w-full text-left flex items-center gap-2 px-2 py-2 rounded-lg bg-[var(--color-accent-500)]/10 hover:bg-[var(--color-accent-500)]/20 transition-colors"
-              onClick={() => props.currentRadioStation && props.onRadioQueueEntryClick?.(props.currentRadioStation)}
+              onClick={() =>
+                props.currentRadioStation &&
+                props.onRadioQueueEntryClick?.(props.currentRadioStation)
+              }
               title="resume radio station"
             >
               <Icon name="headphones" size={16} color="var(--color-accent-500)" />

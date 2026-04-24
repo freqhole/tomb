@@ -121,7 +121,10 @@ import {
   setRadioFavorite,
   tuneIntoRadio,
 } from "./services/radio/radioService";
-import { currentRadioStation, loadCurrentRadioStation } from "./services/storage/currentRadioStation";
+import {
+  currentRadioStation,
+  loadCurrentRadioStation,
+} from "./services/storage/currentRadioStation";
 
 interface AppLayoutProps {
   children?: JSX.Element;
@@ -958,7 +961,9 @@ export function AppLayout(props: AppLayoutProps) {
           radio audio element lives here so playback survives navigation;
           `setRadioAudioSink` is called once on mount. */}
       <Show
-        when={(appState()?.queue.length || 0) > 0 || radioStatus() !== "idle" || !!currentRadioStation()}
+        when={
+          (appState()?.queue.length || 0) > 0 || radioStatus() !== "idle" || !!currentRadioStation()
+        }
       >
         {(() => {
           const isRadio = () => playbackMode() === "radio";
