@@ -32,6 +32,7 @@ import {
   RemotesSettingsView,
   FederationSettingsView,
   RemoteAdminView,
+  RadioSettingsView,
 } from "../../settings";
 import { isCharnelMode } from "../services/charnel";
 import { getDefaultRoute } from "../../music/utils/routing";
@@ -86,6 +87,7 @@ export function routes(props: RoutesProps) {
         <Route path="/remotes" component={RemotesSettingsView} />
         <Route path="/remotes/:remoteId/admin" component={RemoteAdminView} />
         <Route path="/federation" component={FederationSettingsView} />
+        <Route path="/radio" component={RadioSettingsView} />
         {/* redirect /settings to /settings/storage */}
         <Route
           path="/"

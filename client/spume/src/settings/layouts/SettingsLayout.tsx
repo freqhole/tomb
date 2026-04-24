@@ -10,17 +10,26 @@ interface SettingsNavItem {
   icon: string;
 }
 
+// note: charnel-only items are filtered at render time below.
 const navItems: SettingsNavItem[] = [
   { path: "/settings/storage", label: "storage", icon: "" },
   { path: "/settings/remotes", label: "remotes", icon: "" },
   { path: "/settings/federation", label: "federation", icon: "" },
+  // charnel-only — radio station admin needs a local broadcaster.
+  { path: "/settings/radio", label: "radio", icon: "" },
   // future items:
   // { path: "/settings/playback", label: "playback", icon: "" },
   // { path: "/settings/appearance", label: "appearance", icon: "" },
 ];
 
+const CHARNEL_ONLY_PATHS = new Set(["/settings/radio"]);
+
 export function SettingsLayout(props: { children: JSX.Element }) {
   const location = useLocation();
+
+  // filter out charnel-only items when running in the web bundle.
+  const visibleNavItems = () =>
+    navItems.filter((item) => isCharnelMode() || !CHARNEL_ONLY_PATHS.has(item.path));
 
   // set window/document title for settings
   onMount(() => {
@@ -49,7 +58,7 @@ export function SettingsLayout(props: { children: JSX.Element }) {
           </A>
         </div>
         <nav class="flex overflow-x-auto px-4 pb-2 gap-2">
-          <For each={navItems}>
+          <For each={visibleNavItems()}>
             {(item) => (
               <A
                 href={item.path}
@@ -83,7 +92,7 @@ export function SettingsLayout(props: { children: JSX.Element }) {
               settings
             </h2>
             <nav class="space-y-1">
-              <For each={navItems}>
+              <For each={visibleNavItems()}>
                 {(item) => (
                   <A
                     href={item.path}

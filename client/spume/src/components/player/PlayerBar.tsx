@@ -1,4 +1,5 @@
 import { Show, createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js";
+import type { JSX } from "solid-js";
 import { getBackgroundConfig } from "../../app/services/backgroundImage";
 import type { ImageMetadata } from "../../music/services/storage/types";
 import { formatDuration } from "../../utils/formatDuration";
@@ -73,6 +74,9 @@ export interface PlayerBarProps {
   hideQueueToggle?: boolean;
   /** callback when thumbnail image is clicked */
   onImageClick?: () => void;
+  /** optional status chip rendered in the top-right corner of the bar
+   * (e.g., the radio "live · N listening" indicator). */
+  statusBadge?: JSX.Element;
   /** additional classes */
   class?: string;
 }
@@ -205,6 +209,12 @@ export function PlayerBar(props: PlayerBarProps) {
       class={`fixed bottom-0 left-0 right-0 ${getBackgroundConfig() ? "bg-[var(--color-bg-primary)]/40" : "bg-[var(--color-bg-primary)]/90 backdrop-blur-xl"} z-50 ${props.class || ""}`}
       style={{ height: "var(--player-height)", "padding-bottom": "var(--safe-area-bottom, 0px)" }}
     >
+      {/* status badge — used by radio mode for the live + listener-count chip.
+          absolutely positioned so it doesn't perturb the existing responsive
+          layouts. */}
+      <Show when={props.statusBadge}>
+        <div class="absolute top-1 right-2 z-10 pointer-events-none">{props.statusBadge}</div>
+      </Show>
       {/* narrow layout: 2 rows — seekbar on top to avoid iOS swipe-up gesture */}
       <div class="flex flex-col h-full wide:hidden p-2 gap-1">
         {/* row 1: time + full-width progress with waveform + duration */}

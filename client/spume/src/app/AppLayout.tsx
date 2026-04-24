@@ -25,7 +25,6 @@ import {
 import { TopNav } from "../components/navigation/TopNav";
 import type { ViewOption } from "../components/navigation/ViewSelector";
 import { PlayerBar } from "../components/player/PlayerBar";
-import { RadioBar } from "../components/player/RadioBar";
 import { QueueSidebar } from "../components/player/QueueSidebar";
 import { getCurrentRemote, getCurrentUser, getDataSource, useLocalSource } from "../music/data";
 import { useRouteDataSource } from "../music/hooks/useRouteDataSource";
@@ -104,6 +103,19 @@ import { checkAndShowConfigUpgradeToast } from "./services/toastNotices";
 import { debug } from "../utils/logger";
 import { isNarrowViewport } from "../config/breakpoints";
 import { getBackgroundConfig } from "./services/backgroundImage";
+import { playbackMode } from "./services/playbackMode";
+import {
+  leaveRadio,
+  radioArtUrl,
+  radioCurrentPeerAddr,
+  radioElapsedMs,
+  radioListenerCount,
+  radioNowPlaying,
+  radioPause,
+  radioResume,
+  radioStatus,
+  setRadioAudioSink,
+} from "./services/radio/radioService";
 
 interface AppLayoutProps {
   children?: JSX.Element;
@@ -916,54 +928,162 @@ export function AppLayout(props: AppLayoutProps) {
         />
       </div>
 
-      {/* player bar */}
-      <Show when={(appState()?.queue.length || 0) > 0}>
-        <PlayerBar
-          song={
-            currentSongData()
-              ? {
-                  id: currentSongData()!.id,
-                  sha256: currentSongData()!.sha256,
-                  title: currentSongData()!.title,
-                  artist:
-                    currentSongData()!.album_type === "compilation" &&
-                    currentSongData()!.track_artist?.trim()
-                      ? currentSongData()!.track_artist!
-                      : currentSongData()!.artist_name,
-                  album: currentSongData()!.album_title,
-                  images: currentSongData()!.images,
-                  album_images: currentSongData()!.album_images,
-                  isFavorite: currentSongData()!.is_favorite || false,
-                }
-              : undefined
-          }
-          isPlaying={isPlaying()}
-          isLoading={isLoading()}
-          hasUpNext={!!pendingUpNextSha256()}
-          currentTime={currentTime()}
-          duration={duration()}
-          volume={volume()}
-          queueOpen={queueOpen()}
-          onPlayPause={togglePlayback}
-          onPrevious={playPrevious}
-          onNext={playNext}
-          onSeek={handleSeek}
-          onVolumeChange={setPlayerVolume}
-          onQueueToggle={handleQueueToggle}
-          onFavoriteToggle={handleSongFavoriteToggle}
-          onImageClick={handlePlayerImageClick}
-          queueLength={appState()?.queue.length || 0}
-          canGoNext={canGoNext()}
-          canGoPrevious={canGoPrevious()}
-        />
+      {/* unified player bar — handles both music (queue) and radio modes.
+          radio audio element lives here so playback survives navigation;
+          `setRadioAudioSink` is called once on mount. */}
+      <Show when={(appState()?.queue.length || 0) > 0 || radioStatus() !== "idle"}>
+        {(() => {
+          const isRadio = () => playbackMode() === "radio";
+
+          // build the song-shaped object the bar consumes. in radio mode,
+          // map fields from radioNowPlaying() + radioArtUrl().
+          const barSong = () => {
+            if (isRadio()) {
+              const np = radioNowPlaying();
+              if (!np) return undefined;
+              return {
+                id: np.song_id || "radio",
+                title: np.title || "untitled",
+                artist: np.artist ?? "unknown artist",
+                album: np.album ?? undefined,
+                thumbnailUrl: radioArtUrl() ?? undefined,
+                isFavorite: false,
+              };
+            }
+            const cs = currentSongData();
+            if (!cs) return undefined;
+            return {
+              id: cs.id,
+              sha256: cs.sha256,
+              title: cs.title,
+              artist:
+                cs.album_type === "compilation" && cs.track_artist?.trim()
+                  ? cs.track_artist
+                  : cs.artist_name,
+              album: cs.album_title,
+              images: cs.images,
+              album_images: cs.album_images,
+              isFavorite: cs.is_favorite || false,
+            };
+          };
+
+          const barIsPlaying = () => (isRadio() ? radioStatus() === "playing" : isPlaying());
+          const barIsLoading = () => (isRadio() ? radioStatus() === "connecting" : isLoading());
+          const barCurrentTime = () => (isRadio() ? radioElapsedMs() / 1000 : currentTime());
+          const barDuration = () => {
+            if (isRadio()) {
+              const ms = radioNowPlaying()?.duration_ms;
+              return ms ? ms / 1000 : 0;
+            }
+            return duration();
+          };
+
+          const onPlayPause = () => {
+            if (isRadio()) {
+              if (radioStatus() === "paused") radioResume();
+              else if (radioStatus() === "playing") radioPause();
+              else if (radioStatus() === "error") leaveRadio();
+              return;
+            }
+            togglePlayback();
+          };
+          const onPrev = () => {
+            if (isRadio()) return; // radio has no track skip
+            playPrevious();
+          };
+          const onNext = () => {
+            if (isRadio()) return;
+            playNext();
+          };
+          const onSeekCb = (pct: number) => {
+            if (isRadio()) return; // live audio is not seekable
+            handleSeek(pct);
+          };
+          const onFavToggle = (songId: string) => {
+            if (isRadio()) {
+              // TODO: wire to per-remote favorite once 2c-iii ships a
+              // peer-targeted favorite API. for now this is a no-op.
+              debug("AppLayout", "radio favorite toggle (stub) for", songId);
+              return;
+            }
+            handleSongFavoriteToggle(songId);
+          };
+          const onImageClick = () => {
+            if (isRadio()) {
+              navigate("/radio");
+              return;
+            }
+            handlePlayerImageClick();
+          };
+
+          // status badge for radio mode: live indicator + listener count.
+          const statusBadge = () =>
+            isRadio() ? (
+              <div
+                class="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-black/60 backdrop-blur text-[10px] font-bold uppercase tracking-wider"
+                classList={{
+                  "text-red-400": radioStatus() === "playing",
+                  "text-amber-400": radioStatus() === "connecting",
+                  "text-neutral-400": radioStatus() === "paused",
+                  "text-red-500": radioStatus() === "error",
+                }}
+                title={radioCurrentPeerAddr() ?? ""}
+              >
+                <span
+                  class="w-1.5 h-1.5 rounded-full"
+                  classList={{
+                    "bg-red-500 animate-pulse": radioStatus() === "playing",
+                    "bg-amber-400 animate-pulse": radioStatus() === "connecting",
+                    "bg-neutral-400": radioStatus() === "paused",
+                    "bg-red-500": radioStatus() === "error",
+                  }}
+                />
+                <span>
+                  {radioStatus() === "playing"
+                    ? "live"
+                    : radioStatus() === "connecting"
+                      ? "tuning"
+                      : radioStatus() === "paused"
+                        ? "paused"
+                        : "error"}
+                </span>
+                <span class="opacity-70 normal-case font-medium tabular-nums">
+                  · {radioListenerCount()} listening
+                </span>
+              </div>
+            ) : undefined;
+
+          return (
+            <PlayerBar
+              song={barSong()}
+              isPlaying={barIsPlaying()}
+              isLoading={barIsLoading()}
+              hasUpNext={isRadio() ? false : !!pendingUpNextSha256()}
+              currentTime={barCurrentTime()}
+              duration={barDuration()}
+              volume={volume()}
+              queueOpen={queueOpen()}
+              onPlayPause={onPlayPause}
+              onPrevious={onPrev}
+              onNext={onNext}
+              onSeek={onSeekCb}
+              onVolumeChange={setPlayerVolume}
+              onQueueToggle={handleQueueToggle}
+              onFavoriteToggle={onFavToggle}
+              onImageClick={onImageClick}
+              queueLength={appState()?.queue.length || 0}
+              canGoNext={isRadio() ? false : canGoNext()}
+              canGoPrevious={isRadio() ? false : canGoPrevious()}
+              statusBadge={statusBadge()}
+            />
+          );
+        })()}
       </Show>
 
-      {/* radio bar — persistent across navigation; stacks above PlayerBar
-          when both are visible so the regular player isn't covered. */}
-      <RadioBar
-        bottomOffset={(appState()?.queue.length || 0) > 0 ? "var(--player-height)" : "0px"}
-        onOpenRadioView={() => navigate("/radio")}
-      />
+      {/* persistent <audio> for radio playback. hidden; lives at app root
+          so navigation never tears it down. wired into radioService via
+          setRadioAudioSink in onMount. */}
+      <RadioAudioSink />
 
       {/* add remote modal */}
       <AddRemoteModal
@@ -1010,4 +1130,30 @@ export function AppLayout(props: AppLayoutProps) {
       </Portal>
     </div>
   );
+}
+
+/**
+ * persistent <audio> element for radio playback. mounted once at the
+ * app root so navigation never re-creates it (which would tear down the
+ * MediaSource pipe). registers itself with `setRadioAudioSink` on mount
+ * and unregisters on unmount. hidden from layout.
+ */
+function RadioAudioSink() {
+  let mount!: HTMLDivElement;
+  const audioEl = (() => {
+    const el = document.createElement("audio");
+    el.controls = false;
+    el.autoplay = true;
+    el.preload = "auto";
+    el.style.display = "none";
+    return el;
+  })();
+  setRadioAudioSink(audioEl);
+  onMount(() => {
+    if (mount && audioEl.parentElement !== mount) mount.appendChild(audioEl);
+  });
+  onCleanup(() => {
+    setRadioAudioSink(null);
+  });
+  return <div ref={(el) => (mount = el)} class="hidden" />;
 }

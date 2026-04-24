@@ -11,6 +11,7 @@ import type { Remote, RemoteRef } from "../../api/client";
 import { isP2PRemote, isHttpRemote } from "../../services/storage/types";
 import { getAllRemotes } from "../remotes/remoteManager";
 import { getAllPendingRemotes } from "../storage/db";
+import { debug } from "../../../utils/logger";
 
 export interface DiscoveredStation extends PublicStation {
   /** the peer addr / base url to tune into. */
@@ -145,12 +146,13 @@ async function collectSources(
 
   // 2. pending remotes (still in setup flow but reachable). includes any
   // ?node_id rows just inserted by the radio view.
-  // skip stages that mean "not reachable right now" — radio is read-only
-  // browsing so we just need a working transport, not a completed knock.
+  // skip stages where we know the peer is unreachable; everything else is
+  // worth a quick scan (the source's own short timeout will discard it
+  // if it doesn't respond).
   const pending = await getAllPendingRemotes();
-  const scannableStages = new Set(["connected", "knock_pending", "knock_accepted"]);
+  const skipStages = new Set(["failed", "knock_rejected"]);
   for (const p of pending) {
-    if (!scannableStages.has(p.stage)) continue;
+    if (skipStages.has(p.stage)) continue;
     if (sources.some((s) => s.peer_addr === p.peer_addr || s.base_url === p.peer_addr)) {
       continue;
     }
@@ -178,6 +180,11 @@ async function collectSources(
     });
   }
 
+  debug(
+    "radio-discovery",
+    `collected ${sources.length} sources:`,
+    sources.map((s) => `${s.kind}:${s.label}`).join(", "),
+  );
   return sources;
 }
 
@@ -216,12 +223,32 @@ async function fetchStationsForSource(
         peer_addr: src.peer_addr ?? src.id,
       };
 
+  debug(
+    "radio-discovery",
+    `[${src.kind}] ${src.label}: requesting stations via ${ref.transport}…`,
+  );
   const client = await getClientForRemote(ref);
   const resp = await client.app.radioStations();
-  if (!resp.success || !resp.data) {
+  if (!resp.success) {
+    debug(
+      "radio-discovery",
+      `[${src.kind}] ${src.label}: api call returned !success`,
+      resp,
+    );
+    return [];
+  }
+  if (!resp.data) {
+    debug(
+      "radio-discovery",
+      `[${src.kind}] ${src.label}: api call returned no data`,
+    );
     return [];
   }
   const data = resp.data as RadioStationsResponse;
+  debug(
+    "radio-discovery",
+    `[${src.kind}] ${src.label}: enabled=${data.enabled} stations=${data.stations.length}`,
+  );
   return data.enabled ? data.stations : [];
 }
 
