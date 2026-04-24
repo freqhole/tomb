@@ -145,8 +145,12 @@ async function collectSources(
 
   // 2. pending remotes (still in setup flow but reachable). includes any
   // ?node_id rows just inserted by the radio view.
+  // skip stages that mean "not reachable right now" — radio is read-only
+  // browsing so we just need a working transport, not a completed knock.
   const pending = await getAllPendingRemotes();
+  const scannableStages = new Set(["connected", "knock_pending", "knock_accepted"]);
   for (const p of pending) {
+    if (!scannableStages.has(p.stage)) continue;
     if (sources.some((s) => s.peer_addr === p.peer_addr || s.base_url === p.peer_addr)) {
       continue;
     }

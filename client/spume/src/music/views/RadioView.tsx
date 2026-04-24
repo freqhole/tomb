@@ -10,7 +10,7 @@
 // stop control lives in the player bar (see 2c-iii); this view never
 // renders one.
 
-import { createMemo, createSignal, For, onMount, Show } from "solid-js";
+import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { useNavigate, useSearchParams } from "@solidjs/router";
 import { TwoColumnLayout } from "../../components/layout/TwoColumnLayout";
 import { isNarrowViewport } from "../../config/breakpoints";
@@ -100,8 +100,29 @@ export function RadioView() {
     }
   };
 
+  // quiet refresh — re-runs discovery without flashing the "scanning…"
+  // indicator or clearing the existing list. used by the polling timer
+  // so the listener counts in the left column stay live.
+  const quietRefresh = async () => {
+    try {
+      const final = await discoverStations({
+        extraPeerAddrs: queryPeerAddrs(),
+      });
+      setStations(final);
+    } catch (e) {
+      debug("radio-view", "quiet refresh failed:", e);
+    }
+  };
+
   onMount(() => {
     refetch();
+    // poll every 15s so listener counts + station availability track
+    // reality without users having to click refresh. cheap: discovery
+    // already races sources with a short timeout.
+    const interval = window.setInterval(() => {
+      if (!sweeping()) quietRefresh();
+    }, 15000);
+    onCleanup(() => window.clearInterval(interval));
   });
 
   const grouped = createMemo(() => {
@@ -260,7 +281,8 @@ export function RadioView() {
                             <div class="flex-1 min-w-0">
                               <div class="text-sm font-medium truncate">{station.name}</div>
                               <div class="text-[11px] text-neutral-400 truncate">
-                                {station.listener_count} listening
+                                {isCurrent(station) ? radioListenerCount() : station.listener_count}{" "}
+                                listening
                                 <Show when={station.now_playing}>
                                   {(np) => <> · {np().title}</>}
                                 </Show>

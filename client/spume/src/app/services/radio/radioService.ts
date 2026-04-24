@@ -45,6 +45,36 @@ const [currentStationId, setCurrentStationId] = createSignal<string | null>(
   null,
 );
 
+// in-track elapsed time signal (milliseconds since the current track's
+// init segment latched). consumed by the future unified player bar (2c-iii)
+// to drive the scrubber. updated by a 4Hz ticker while a session is active.
+// `trackStartAtAudioTime` is the audio.currentTime value captured the
+// moment the init segment for the current track was applied; elapsed is
+// `audio.currentTime - trackStartAtAudioTime`.
+const [elapsedMs, setElapsedMs] = createSignal<number>(0);
+let trackStartAtAudioTime = 0;
+let elapsedTickHandle: number | null = null;
+
+const startElapsedTicker = () => {
+  if (elapsedTickHandle !== null) return;
+  elapsedTickHandle = window.setInterval(() => {
+    if (!audioSink) return;
+    const np = nowPlaying();
+    const dur = np?.duration_ms ?? null;
+    let ms = Math.max(0, (audioSink.currentTime - trackStartAtAudioTime) * 1000);
+    if (dur != null && ms > dur) ms = dur;
+    setElapsedMs(ms);
+  }, 250);
+};
+const stopElapsedTicker = () => {
+  if (elapsedTickHandle !== null) {
+    window.clearInterval(elapsedTickHandle);
+    elapsedTickHandle = null;
+  }
+  setElapsedMs(0);
+  trackStartAtAudioTime = 0;
+};
+
 let activeSession: RadioSession | null = null;
 // optional persistent <audio> element supplied by RadioBar. when set, new
 // tunes attach their MediaSource to it instead of creating a fresh element.
@@ -59,6 +89,7 @@ export const radioArtUrl = artUrl;
 export const radioListenerCount = listenerCount;
 export const radioCurrentPeerAddr = currentPeerAddr;
 export const radioCurrentStationId = currentStationId;
+export const radioElapsedMs = elapsedMs;
 
 export function currentRadioSession(): RadioSession | null {
   return activeSession;
@@ -127,6 +158,7 @@ export function leaveRadio(): void {
   setListenerCount(0);
   setCurrentPeerAddr(null);
   setCurrentStationId(null);
+  stopElapsedTicker();
 }
 
 // replace the current art URL with a new one (or null), revoking the
@@ -390,6 +422,12 @@ export async function tuneIntoRadio(
       swapArtUrl(m.art_url ?? null);
       setListenerCount(m.listener_count);
       maybeRecordHistory(m.now_playing, m.raw_art);
+      // latch the audio-element timeline at the moment this track's init
+      // segment was applied. elapsed = audio.currentTime - this. done
+      // after the metadata swap so duration_ms is in scope when the
+      // ticker reads it.
+      trackStartAtAudioTime = audio.currentTime;
+      startElapsedTicker();
     }
     if (isInit) lastAppliedInit = seq;
     queue.push(bytes);
