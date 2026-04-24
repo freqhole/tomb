@@ -8,6 +8,7 @@
 
 pub mod art;
 pub mod broadcaster;
+pub mod bumpers;
 pub mod chunk;
 pub mod config;
 pub mod encoder;

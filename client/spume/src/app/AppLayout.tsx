@@ -107,6 +107,7 @@ import { playbackMode } from "./services/playbackMode";
 import {
   leaveRadio,
   radioArtUrl,
+  radioCurrentFavorite,
   radioCurrentPeerAddr,
   radioCurrentRemoteServerId,
   radioElapsedMs,
@@ -116,6 +117,7 @@ import {
   radioResume,
   radioStatus,
   setRadioAudioSink,
+  setRadioFavorite,
 } from "./services/radio/radioService";
 
 interface AppLayoutProps {
@@ -965,7 +967,7 @@ export function AppLayout(props: AppLayoutProps) {
                 album: np.album ?? undefined,
                 thumbnailUrl: radioArtUrl() ?? undefined,
                 images,
-                isFavorite: false,
+                isFavorite: radioCurrentFavorite() ?? false,
               };
             }
             const cs = currentSongData();
@@ -1019,9 +1021,14 @@ export function AppLayout(props: AppLayoutProps) {
           };
           const onFavToggle = (songId: string) => {
             if (isRadio()) {
-              // TODO: wire to per-remote favorite once 2c-iii ships a
-              // peer-targeted favorite API. for now this is a no-op.
-              debug("AppLayout", "radio favorite toggle (stub) for", songId);
+              // toggle favorite for the currently-playing radio track on
+              // the broadcasting peer. requires the peer to be a
+              // registered remote with an authenticated session; the
+              // service surfaces an error otherwise.
+              const next = !(radioCurrentFavorite() ?? false);
+              void setRadioFavorite(songId, next).catch((e) => {
+                debug("AppLayout", "radio favorite toggle failed:", e);
+              });
               return;
             }
             handleSongFavoriteToggle(songId);

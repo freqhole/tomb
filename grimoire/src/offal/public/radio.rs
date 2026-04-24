@@ -48,6 +48,11 @@ pub struct PublicStation {
     pub description: Option<String>,
     pub listener_count: u32,
     pub is_default: bool,
+    /// when true, any peer can connect + listen. when false, only peers
+    /// in the local federation peer list may tune in (advertising still
+    /// happens to every known peer either way; this just controls the
+    /// per-station auth gate in the iroh handler).
+    pub is_public: bool,
     pub now_playing: PublicNowPlaying,
 }
 
@@ -94,11 +99,15 @@ async fn snapshot_station(
 ) -> PublicStation {
     let sub = bc.subscribe().await;
     let np = sub.now_playing.as_ref();
-    // pull station name from the db; fall back to id if the row vanished.
-    let (name, description) = match crate::radio::stations::get_station(bc.station_id()).await {
-        Ok(Some(s)) => (s.name, s.description),
-        _ => (bc.station_id().to_string(), None),
-    };
+    // pull station name + visibility from the db; fall back to id if
+    // the row vanished. private (is_public = 0) defaults to true on
+    // the orphan-row path because the iroh handler can no longer find
+    // the row to gate on either, so we err toward visible-but-private.
+    let (name, description, is_public) =
+        match crate::radio::stations::get_station(bc.station_id()).await {
+            Ok(Some(s)) => (s.name, s.description, s.is_public != 0),
+            _ => (bc.station_id().to_string(), None, false),
+        };
     let (art_thumb_b64, art_thumb_mime) = np
         .art
         .as_ref()
@@ -111,6 +120,7 @@ async fn snapshot_station(
         description,
         listener_count: bc.listener_count(),
         is_default: default_id == Some(bc.station_id()),
+        is_public,
         now_playing: PublicNowPlaying {
             song_id: np.song_id.clone(),
             title: np.title.clone(),
@@ -201,10 +211,12 @@ pub async fn stations() -> GrimoireResponse<JsonValue> {
     for bc in &running {
         out.push(snapshot_station(bc, default_id).await);
     }
-    // surface server-wide non-public stations are still listed (the iroh
-    // handler does its own auth gating); ui can decide to hide them.
-    // when we want to hide non-public from the response entirely, add a
-    // join on `is_public = 1` in stations::list_stations.
+    // every running station is advertised to every caller. `is_public`
+    // only controls *who can tune in* — peers not in the local peer
+    // list get rejected by the iroh handler when `is_public = 0`. the
+    // discovery surface stays open so peer + non-peer clients alike can
+    // see what stations exist, and ui can render a "peer-only" badge
+    // off the `is_public` field if it wants to.
 
     let resp = RadioStationsResponse {
         enabled: true,

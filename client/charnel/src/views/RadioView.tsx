@@ -818,6 +818,28 @@ function RadioConfigSection(props: { dispatch: Dispatch }) {
     }
   }
 
+  // toggling the main switch immediately persists the new value to
+  // freqhole-config.toml (no separate save click). on failure the
+  // checkbox state is rolled back so the UI matches the on-disk value.
+  async function toggleEnabled(next: boolean) {
+    const prev = enabled();
+    setEnabled(next);
+    setBusy(true);
+    setErr("");
+    try {
+      await props.dispatch<RadioConfigPayload>("radio_config_set", {
+        enabled: next,
+        encode_args: encodeArgs(),
+      });
+      await load();
+    } catch (e) {
+      setEnabled(prev);
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <div class="section">
       <div class="section-header">
@@ -844,10 +866,10 @@ function RadioConfigSection(props: { dispatch: Dispatch }) {
               <input
                 type="checkbox"
                 checked={enabled()}
-                onChange={(e) => setEnabled(e.currentTarget.checked)}
+                onChange={(e) => void toggleEnabled(e.currentTarget.checked)}
                 disabled={busy()}
               />
-              <span class="label">enabled (master switch)</span>
+              <span class="label">enabled</span>
             </label>
           </div>
           <div class="form-row">

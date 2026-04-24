@@ -79,6 +79,10 @@ pub struct Broadcaster {
     meta_tx: broadcast::Sender<MetaUpdate>,
     next_seq: AtomicU32,
     listener_count: AtomicU32,
+    /// epoch-seconds timestamp of the last bumper play. zero = never.
+    /// the run loop uses this with the per-station
+    /// `bumper_frequency_seconds` to decide when to slot a bumper in.
+    last_bumper_at: std::sync::atomic::AtomicI64,
 }
 
 impl Broadcaster {
@@ -92,11 +96,18 @@ impl Broadcaster {
             meta_tx,
             next_seq: AtomicU32::new(0),
             listener_count: AtomicU32::new(0),
+            last_bumper_at: std::sync::atomic::AtomicI64::new(0),
         }
     }
 
     pub fn station_id(&self) -> &str {
         &self.station_id
+    }
+
+    /// snapshot the broadcaster's current `NowPlaying` without taking a
+    /// full subscription. used by admin status endpoints.
+    pub async fn now_playing(&self) -> Arc<NowPlaying> {
+        self.state.read().await.now_playing.clone()
     }
 
     /// take a live snapshot for a new listener.
@@ -126,26 +137,106 @@ impl Broadcaster {
         self.listener_count.load(Ordering::Relaxed)
     }
 
+    /// the seq the broadcaster will assign to the *next* chunk it
+    /// produces. matches the `current_seq` reported in `HelloMessage`.
+    /// useful for the `ChunkReady` heartbeat.
+    pub fn current_seq(&self) -> u32 {
+        self.next_seq.load(Ordering::Relaxed)
+    }
+
     async fn run(self: Arc<Self>) {
         info!(
             "[radio-broadcaster] starting encode loop for station {}",
             self.station_id
         );
         loop {
-            if let Err(e) = self.play_one_song().await {
-                warn!(
-                    "[radio-broadcaster] station {} song failed: {e}; retrying in {RETRY_PAUSE:?}",
-                    self.station_id
-                );
+            // bumper interleave: when the per-station cadence has elapsed
+            // since the last bumper play (and the station has any
+            // bumpers), slot one in before the next regular pick.
+            let bumper_played = match self.maybe_play_bumper().await {
+                Ok(p) => p,
+                Err(e) => {
+                    warn!(
+                        "[radio-broadcaster] station {} bumper play failed: {e}; continuing",
+                        self.station_id
+                    );
+                    false
+                }
+            };
+            if bumper_played {
                 self.announce_interstitial("switching tracks…").await;
-                tokio::time::sleep(RETRY_PAUSE).await;
-            } else {
-                // brief gap between songs (between ffmpeg exit + next spawn)
-                // — give listeners a heads-up so the player bar can render
-                // a "switching" affordance instead of a stale title.
-                self.announce_interstitial("switching tracks…").await;
+                continue;
+            }
+
+            match pick_for_station(&self.station_id).await {
+                Ok(track) => {
+                    if let Err(e) = self.play_track(&track, /*is_bumper=*/ false).await {
+                        warn!(
+                            "[radio-broadcaster] station {} song failed: {e}; retrying in {RETRY_PAUSE:?}",
+                            self.station_id
+                        );
+                        self.announce_interstitial("switching tracks…").await;
+                        tokio::time::sleep(RETRY_PAUSE).await;
+                    } else {
+                        // brief gap between songs (between ffmpeg exit + next spawn)
+                        // — give listeners a heads-up so the player bar can render
+                        // a "switching" affordance instead of a stale title.
+                        self.announce_interstitial("switching tracks…").await;
+                    }
+                }
+                Err(e) => {
+                    warn!(
+                        "[radio-broadcaster] station {} pick failed: {e}; retrying in {RETRY_PAUSE:?}",
+                        self.station_id
+                    );
+                    self.announce_interstitial("switching tracks…").await;
+                    tokio::time::sleep(RETRY_PAUSE).await;
+                }
             }
         }
+    }
+
+    /// roll the bumper dice. returns `Ok(true)` when a bumper was played,
+    /// `Ok(false)` when bumpers are disabled / cadence not elapsed / no
+    /// bumpers configured, and `Err` only on database failures.
+    async fn maybe_play_bumper(self: &Arc<Self>) -> GrimoireResult<bool> {
+        let freq = match crate::radio::bumpers::get_frequency(&self.station_id).await? {
+            Some(f) if f > 0 => f,
+            _ => return Ok(false),
+        };
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
+        let last = self.last_bumper_at.load(Ordering::Relaxed);
+        if last != 0 && now - last < freq {
+            return Ok(false);
+        }
+        let bumper = match crate::radio::bumpers::pick_random(&self.station_id).await? {
+            Some(b) => b,
+            None => return Ok(false),
+        };
+        // resolve the underlying playable track (reuses the songz pipeline).
+        let track = match crate::radio::playlist::fetch_track(&bumper.song_id).await {
+            Ok(t) => t,
+            Err(e) => {
+                warn!(
+                    "[radio-broadcaster] station {} bumper {} unplayable: {e}; skipping",
+                    self.station_id, bumper.id
+                );
+                // bump the last_bumper_at so we don't tight-loop on a
+                // broken bumper for every subsequent track boundary.
+                self.last_bumper_at.store(now, Ordering::Relaxed);
+                return Ok(false);
+            }
+        };
+        info!(
+            "[radio-broadcaster] station {} playing bumper '{}' ({})",
+            self.station_id, bumper.label, bumper.id
+        );
+        self.play_track(&track, /*is_bumper=*/ true).await?;
+        self.last_bumper_at.store(now, Ordering::Relaxed);
+        Ok(true)
     }
 
     /// push a transient meta update tagged with the **current** init_seq.
@@ -175,11 +266,17 @@ impl Broadcaster {
         });
     }
 
-    async fn play_one_song(self: &Arc<Self>) -> GrimoireResult<()> {
-        let track = pick_for_station(&self.station_id).await?;
+    async fn play_track(
+        self: &Arc<Self>,
+        track: &crate::radio::playlist::RadioTrack,
+        is_bumper: bool,
+    ) -> GrimoireResult<()> {
         info!(
-            "[radio-broadcaster] station {} now playing: {} ({})",
-            self.station_id, track.title, track.song_id
+            "[radio-broadcaster] station {} now playing{}: {} ({})",
+            self.station_id,
+            if is_bumper { " [bumper]" } else { "" },
+            track.title,
+            track.song_id
         );
 
         let art = match resolve_track_art(&track.song_id).await {
@@ -195,7 +292,11 @@ impl Broadcaster {
 
         let now_playing = Arc::new(NowPlaying {
             song_id: track.song_id.clone(),
-            title: track.title.clone(),
+            title: if is_bumper {
+                format!("[station id] {}", track.title)
+            } else {
+                track.title.clone()
+            },
             artist: track.artist.clone(),
             album: track.album.clone(),
             art: art.as_ref().map(ArtData::from_resolved),
@@ -240,16 +341,20 @@ impl Broadcaster {
         let _ = self.chunk_tx.send(init_arc);
 
         // record this play. failure is non-fatal (history is best-effort).
+        // skip for bumpers — they aren't part of the listenable history.
         let listeners = self.listener_count() as i64;
-        let play_id = match stations::record_play(&self.station_id, &track.song_id, listeners).await
-        {
-            Ok(id) => Some(id),
-            Err(e) => {
-                warn!(
-                    "[radio-broadcaster] station {} record_play failed: {e}",
-                    self.station_id
-                );
-                None
+        let play_id = if is_bumper {
+            None
+        } else {
+            match stations::record_play(&self.station_id, &track.song_id, listeners).await {
+                Ok(id) => Some(id),
+                Err(e) => {
+                    warn!(
+                        "[radio-broadcaster] station {} record_play failed: {e}",
+                        self.station_id
+                    );
+                    None
+                }
             }
         };
         let started = std::time::Instant::now();
@@ -314,12 +419,29 @@ impl Broadcaster {
 type Registry = RwLock<HashMap<String, Arc<Broadcaster>>>;
 static REGISTRY: OnceLock<Registry> = OnceLock::new();
 
+/// task handles for each running broadcaster — used by `stop_station` to
+/// abort the encoder loop. parallel to `REGISTRY`.
+type TaskRegistry = RwLock<HashMap<String, tokio::task::JoinHandle<()>>>;
+static TASKS: OnceLock<TaskRegistry> = OnceLock::new();
+
 /// id of the "default" station — the one used when a tune message has no
 /// `station_id`. set to the first enabled station discovered at startup.
 static DEFAULT_STATION_ID: OnceLock<String> = OnceLock::new();
+/// once the default has been initialized once, hold a writeable mirror so
+/// supervisor restarts can swap which station is "default" when the
+/// previous default has been stopped or deleted.
+static DEFAULT_OVERRIDE: OnceLock<RwLock<Option<String>>> = OnceLock::new();
 
 fn registry() -> &'static Registry {
     REGISTRY.get_or_init(|| RwLock::new(HashMap::new()))
+}
+
+fn tasks() -> &'static TaskRegistry {
+    TASKS.get_or_init(|| RwLock::new(HashMap::new()))
+}
+
+fn default_override() -> &'static RwLock<Option<String>> {
+    DEFAULT_OVERRIDE.get_or_init(|| RwLock::new(None))
 }
 
 /// start a broadcaster for every enabled station in the database. safe
@@ -362,6 +484,7 @@ pub async fn init_registry() -> GrimoireResult<()> {
     let _ = DEFAULT_STATION_ID.set(enabled[0].id.clone());
 
     let mut reg = registry().write().await;
+    let mut tk = tasks().write().await;
     for st in enabled {
         if reg.contains_key(&st.id) {
             continue;
@@ -369,7 +492,8 @@ pub async fn init_registry() -> GrimoireResult<()> {
         let bc = Arc::new(Broadcaster::new(st.id.clone()));
         reg.insert(st.id.clone(), bc.clone());
         let task_bc = bc.clone();
-        tokio::spawn(async move { task_bc.run().await });
+        let handle = tokio::spawn(async move { task_bc.run().await });
+        tk.insert(st.id.clone(), handle);
         info!(
             "[radio-broadcaster] spawned station '{}' ({})",
             st.name, st.id
@@ -384,10 +508,26 @@ pub async fn get_station(station_id: &str) -> Option<Arc<Broadcaster>> {
 }
 
 /// look up the default station's broadcaster (first enabled station at
-/// init time).
+/// init time, or whatever the supervisor has since promoted).
 pub async fn get_default() -> Option<Arc<Broadcaster>> {
-    let id = DEFAULT_STATION_ID.get()?.clone();
+    let id = {
+        let ovr = default_override().read().await;
+        if let Some(id) = ovr.as_ref() {
+            id.clone()
+        } else {
+            DEFAULT_STATION_ID.get()?.clone()
+        }
+    };
     get_station(&id).await
+}
+
+/// resolved default station id (supervisor override wins). returns
+/// `None` when init hasn't run / no enabled station was found.
+pub async fn current_default_station_id() -> Option<String> {
+    if let Some(id) = default_override().read().await.as_ref() {
+        return Some(id.clone());
+    }
+    DEFAULT_STATION_ID.get().cloned()
 }
 
 /// list every running broadcaster (for /api/radio/info).
@@ -399,4 +539,113 @@ pub async fn list_running() -> Vec<Arc<Broadcaster>> {
 /// initialized yet.
 pub fn default_station_id() -> Option<&'static str> {
     DEFAULT_STATION_ID.get().map(|s| s.as_str())
+}
+
+// ---------- supervisor: per-station start / stop / restart ---------------
+
+/// is the named station currently spawned?
+pub async fn is_running(station_id: &str) -> bool {
+    registry().read().await.contains_key(station_id)
+}
+
+/// list station ids currently spawned.
+pub async fn running_station_ids() -> Vec<String> {
+    registry().read().await.keys().cloned().collect()
+}
+
+/// spawn a broadcaster for `station_id` if not already running. errors
+/// when the station row is missing or marked `is_enabled = 0`. idempotent
+/// on re-call (returns Ok).
+pub async fn start_station(station_id: &str) -> GrimoireResult<()> {
+    {
+        let reg = registry().read().await;
+        if reg.contains_key(station_id) {
+            return Ok(());
+        }
+    }
+    let st = stations::get_station(station_id)
+        .await?
+        .ok_or_else(|| GrimoireError::ProcessingFailed {
+            message: format!("station '{}' not found", station_id),
+        })?;
+    if st.is_enabled == 0 {
+        return Err(GrimoireError::ProcessingFailed {
+            message: format!(
+                "station '{}' is disabled; flip is_enabled before starting",
+                st.id
+            ),
+        });
+    }
+    let bc = Arc::new(Broadcaster::new(st.id.clone()));
+    let task_bc = bc.clone();
+    let handle = tokio::spawn(async move { task_bc.run().await });
+    {
+        let mut reg = registry().write().await;
+        reg.insert(st.id.clone(), bc.clone());
+    }
+    {
+        let mut tk = tasks().write().await;
+        tk.insert(st.id.clone(), handle);
+    }
+    // promote to default if there isn't one yet.
+    if DEFAULT_STATION_ID.get().is_none() {
+        let _ = DEFAULT_STATION_ID.set(st.id.clone());
+    }
+    info!(
+        "[radio-broadcaster] supervisor spawned '{}' ({})",
+        st.name, st.id
+    );
+    Ok(())
+}
+
+/// stop the broadcaster for `station_id`. aborts the encoder loop and
+/// drops the broadcaster from the registry. listeners on the closed
+/// broadcast channels disconnect on next read. no-op when not running.
+pub async fn stop_station(station_id: &str) -> GrimoireResult<()> {
+    let bc = {
+        let mut reg = registry().write().await;
+        reg.remove(station_id)
+    };
+    let handle = {
+        let mut tk = tasks().write().await;
+        tk.remove(station_id)
+    };
+    if let Some(h) = handle {
+        h.abort();
+    }
+    drop(bc);
+    // if we just removed the default, pick a new one.
+    if DEFAULT_STATION_ID.get().map(|s| s.as_str()) == Some(station_id) {
+        let next = registry()
+            .read()
+            .await
+            .keys()
+            .next()
+            .cloned();
+        let mut ovr = default_override().write().await;
+        *ovr = next;
+    }
+    info!("[radio-broadcaster] supervisor stopped '{}'", station_id);
+    Ok(())
+}
+
+/// stop + start a station's broadcaster. forces a reload of station
+/// settings (e.g. `encode_args`, source query) without bouncing the
+/// whole server.
+pub async fn restart_station(station_id: &str) -> GrimoireResult<()> {
+    stop_station(station_id).await?;
+    // small delay so any inflight ffmpeg child has a moment to exit
+    // before the new encoder grabs the file handles.
+    tokio::time::sleep(Duration::from_millis(150)).await;
+    start_station(station_id).await
+}
+
+/// stop every running broadcaster. used by the supervisor to "disable"
+/// the radio surface in response to a config-toggle from the wizard.
+pub async fn stop_all() -> GrimoireResult<()> {
+    let ids: Vec<String> = registry().read().await.keys().cloned().collect();
+    for id in ids {
+        stop_station(&id).await?;
+    }
+    Ok(())
 }

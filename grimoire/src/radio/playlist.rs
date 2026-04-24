@@ -139,7 +139,7 @@ pub async fn pick_for_station(station_id: &str) -> GrimoireResult<RadioTrack> {
 
 /// load the full RadioTrack row for a given song id. returns the same
 /// shape as `pick_random_song` minus the random ordering.
-async fn fetch_track(song_id: &str) -> GrimoireResult<RadioTrack> {
+pub async fn fetch_track(song_id: &str) -> GrimoireResult<RadioTrack> {
     let pool = database::connect().await?;
     let row = sqlx::query!(
         r#"SELECT s.id          as "song_id!",

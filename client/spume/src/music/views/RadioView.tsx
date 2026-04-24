@@ -195,7 +195,7 @@ export function RadioView() {
   // left column — station list
   // ---------------------------------------------------------------------
   const leftColumn = (
-    <div class="flex flex-col h-full">
+    <div class="flex flex-col h-full mt-2 wide:mt-[60px]">
       <header class="flex items-center justify-between gap-2 px-3 py-3 border-b border-neutral-800">
         <h1 class="text-lg font-bold">radio</h1>
         <button
@@ -322,6 +322,16 @@ export function RadioView() {
   // ---------------------------------------------------------------------
   const rightColumn = (
     <div class="flex flex-col h-full overflow-y-auto">
+      {/* narrow-only back button so we can return to the station list. */}
+      <div class="wide:hidden flex items-center px-3 py-2 border-b border-neutral-800">
+        <button
+          class="text-xs px-2 py-1 rounded bg-neutral-800 hover:bg-neutral-700 flex items-center gap-1"
+          onClick={() => setShowDetail(false)}
+          aria-label="back to station list"
+        >
+          <span aria-hidden="true">←</span> back
+        </button>
+      </div>
       <Show
         when={radioStatus() !== "idle"}
         fallback={

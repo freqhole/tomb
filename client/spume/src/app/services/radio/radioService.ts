@@ -19,6 +19,7 @@ import {
 } from "../playbackCoordinator";
 import { recordHistoryEntry } from "./radioHistory";
 import { getRemoteByPeerAddr } from "../remotes/remoteManager";
+import { getClientForRemote } from "../../api/client";
 
 const MSE_CODEC = 'audio/mp4; codecs="mp4a.40.2"';
 
@@ -51,6 +52,14 @@ const [currentStationId, setCurrentStationId] = createSignal<string | null>(
 const [currentRemoteServerId, setCurrentRemoteServerId] = createSignal<
   string | null
 >(null);
+// favorite state for the currently-playing radio track. mirrors the
+// remote's `is_favorite` for the broadcasting peer + currently-logged-in
+// user; reset on every track transition. null = unknown / not yet
+// fetched (also covers "no registered remote for this peer" case where
+// we can't talk to a favorites endpoint at all).
+const [currentFavorite, setCurrentFavorite] = createSignal<boolean | null>(
+  null,
+);
 
 // in-track elapsed time signal (milliseconds since the current track's
 // init segment latched). consumed by the future unified player bar (2c-iii)
@@ -97,6 +106,7 @@ export const radioListenerCount = listenerCount;
 export const radioCurrentPeerAddr = currentPeerAddr;
 export const radioCurrentStationId = currentStationId;
 export const radioCurrentRemoteServerId = currentRemoteServerId;
+export const radioCurrentFavorite = currentFavorite;
 export const radioElapsedMs = elapsedMs;
 
 export function currentRadioSession(): RadioSession | null {
@@ -167,6 +177,7 @@ export function leaveRadio(): void {
   setCurrentPeerAddr(null);
   setCurrentStationId(null);
   setCurrentRemoteServerId(null);
+  setCurrentFavorite(null);
   stopElapsedTicker();
 }
 
@@ -297,6 +308,11 @@ export async function tuneIntoRadio(
     // duplicate meta updates within the same track.
     if (!songId || songId === lastHistorySongId) return;
     lastHistorySongId = songId;
+    // reset + best-effort fetch the favorite state for the new track
+    // from the broadcasting peer. only works when the peer is also a
+    // registered remote with an authenticated session.
+    setCurrentFavorite(null);
+    void fetchRadioFavorite(songId, sessionPeerAddr);
     void recordHistoryEntry({
       station_id: currentStationId(),
       station_name: sessionStationName,
@@ -325,16 +341,27 @@ export async function tuneIntoRadio(
     }
     // jump to the live edge once after the first append settles. catchup
     // chunks carry mid-track media timestamps, so the playhead at 0 sits
-    // in an empty range until we seek forward.
+    // in an empty range until we seek forward. when the player has
+    // stalled before, `liveEdgeBufferMs` shifts the target back from the
+    // true edge so MSE has more headroom.
     if (!seekedToLive && sb.buffered.length > 0) {
       const start = sb.buffered.start(0);
-      if (audio.currentTime < start) {
-        audio.currentTime = start;
+      const end = sb.buffered.end(sb.buffered.length - 1);
+      const targetFromEnd = Math.max(0, end - liveEdgeBufferMs / 1000);
+      const target = Math.max(start, targetFromEnd);
+      if (audio.currentTime < target) {
+        audio.currentTime = target;
       }
+      // re-latch the elapsed origin to wherever we ended up after the
+      // live-edge seek. without this the very first track shows 0:00
+      // forever because `trackStartAtAudioTime` was captured before the
+      // catchup chunks shifted `audio.currentTime` forward.
+      trackStartAtAudioTime = audio.currentTime;
       seekedToLive = true;
     }
   };
 
+  // ---- recovery state ---------------------------------------------------
   await new Promise<void>((resolve) => {
     ms.addEventListener("sourceopen", () => resolve(), { once: true });
   });
@@ -343,6 +370,106 @@ export async function tuneIntoRadio(
   // chunks form a single contiguous buffered range.
   sb.mode = "sequence";
   sb.addEventListener("updateend", drain);
+
+  // server-driven resync: when the broadcaster sends ControlMessage::Lag
+  // we tear down the SourceBuffer + queue and discard chunks until we
+  // see `seq >= resyncAtSeq && isInit`. tracks rapid-resync as a UX
+  // signal — ≥3 lags in 60s flips status to "error" so the user sees a
+  // reconnect prompt instead of silent stuttering.
+  let resyncAtSeq: number | null = null;
+  const recentLags: number[] = [];
+  const RAPID_LAG_THRESHOLD = 3;
+  const RAPID_LAG_WINDOW_MS = 60_000;
+  // adaptive buffer: when MediaElement fires `waiting` / `stalled` we
+  // bump the live-edge target back so the SourceBuffer has more headroom
+  // before the playhead crosses into the unbuffered zone. starts at the
+  // default (live edge) and grows by `LIVE_EDGE_BUMP_MS` per stall, up
+  // to `MAX_LIVE_EDGE_BUFFER_MS` total.
+  let liveEdgeBufferMs = 0;
+  const LIVE_EDGE_BUMP_MS = 1500;
+  const MAX_LIVE_EDGE_BUFFER_MS = 5000;
+  let stallCount = 0;
+  const onStall = () => {
+    stallCount += 1;
+    if (liveEdgeBufferMs < MAX_LIVE_EDGE_BUFFER_MS) {
+      liveEdgeBufferMs = Math.min(
+        MAX_LIVE_EDGE_BUFFER_MS,
+        liveEdgeBufferMs + LIVE_EDGE_BUMP_MS,
+      );
+      console.info(
+        `[radio] stall #${stallCount} — bumping live-edge buffer to ${liveEdgeBufferMs}ms`,
+      );
+    }
+  };
+  audio.addEventListener("waiting", onStall);
+  audio.addEventListener("stalled", onStall);
+
+  /** rebuild the SourceBuffer fresh — used after a Lag notice. */
+  const resetSourceBuffer = (resyncSeq: number) => {
+    console.warn(`[radio] lag — resyncing at seq ${resyncSeq}`);
+    resyncAtSeq = resyncSeq;
+    queue.length = 0;
+    seekedToLive = false;
+    if (sb) {
+      try {
+        sb.removeEventListener("updateend", drain);
+        if (sb.updating) {
+          try {
+            sb.abort();
+          } catch {
+            // best effort
+          }
+        }
+        ms.removeSourceBuffer(sb);
+      } catch (e) {
+        console.warn("[radio] removeSourceBuffer failed:", e);
+      }
+      sb = null;
+    }
+    try {
+      sb = ms.addSourceBuffer(MSE_CODEC);
+      sb.mode = "sequence";
+      sb.addEventListener("updateend", drain);
+    } catch (e) {
+      console.error("[radio] addSourceBuffer after lag failed:", e);
+      setStatus("error");
+      setError("media source rebuild failed; please reconnect");
+    }
+    // record + count this resync. when we churn faster than the user's
+    // patience, surface as an error so they can take action.
+    const now = Date.now();
+    recentLags.push(now);
+    while (
+      recentLags.length > 0 &&
+      now - recentLags[0] > RAPID_LAG_WINDOW_MS
+    ) {
+      recentLags.shift();
+    }
+    if (recentLags.length >= RAPID_LAG_THRESHOLD) {
+      setStatus("error");
+      setError(
+        `connection unstable — ${recentLags.length} resyncs in the last minute`,
+      );
+    }
+  };
+
+  const applyControlSpecial = (msg: { type?: unknown }): boolean => {
+    if (typeof msg.type !== "string") return false;
+    if (msg.type === "lag") {
+      const at = (msg as { resync_at_seq?: unknown }).resync_at_seq;
+      if (typeof at === "number") {
+        resetSourceBuffer(at);
+      }
+      return true;
+    }
+    if (msg.type === "chunk_ready") {
+      // heartbeat — no-op for now. future: compare to lastSeenSeq for
+      // hung-uni-stream detection.
+      return true;
+    }
+    return false;
+  };
+
 
   // ---- meta latching ---------------------------------------------------
   // pendingMeta keyed by init_seq; applied when the matching init chunk
@@ -393,6 +520,10 @@ export async function tuneIntoRadio(
   const applyMeta = (metaJson: string) => {
     try {
       const msg = JSON.parse(metaJson);
+      // dispatch lag / chunk_ready first — these are not metadata
+      // updates, they're recovery / heartbeat signals routed through
+      // the same json callback.
+      if (applyControlSpecial(msg)) return;
       const initSeq = msg?.init_seq;
       const np = coerceNowPlaying(msg?.now_playing);
       if (typeof initSeq === "number" && np) {
@@ -430,6 +561,14 @@ export async function tuneIntoRadio(
   };
 
   const onChunk = (seq: number, isInit: boolean, bytes: Uint8Array) => {
+    // post-Lag: discard everything until we see the init chunk the
+    // broadcaster told us to resync on.
+    if (resyncAtSeq !== null) {
+      if (!isInit || seq < resyncAtSeq) {
+        return;
+      }
+      resyncAtSeq = null;
+    }
     if (isInit && pendingMeta.has(seq)) {
       const m = pendingMeta.get(seq)!;
       pendingMeta.delete(seq);
@@ -441,6 +580,13 @@ export async function tuneIntoRadio(
       // segment was applied. elapsed = audio.currentTime - this. done
       // after the metadata swap so duration_ms is in scope when the
       // ticker reads it.
+      trackStartAtAudioTime = audio.currentTime;
+      startElapsedTicker();
+    } else if (isInit) {
+      // first track / no pending meta (the catchup init lands before
+      // any Meta arrives). still kick the elapsed ticker so the player
+      // bar's scrubber advances. trackStartAtAudioTime gets re-latched
+      // by `drain` after the live-edge seek lands.
       trackStartAtAudioTime = audio.currentTime;
       startElapsedTicker();
     }
@@ -474,6 +620,12 @@ export async function tuneIntoRadio(
         handle.leave();
       } catch (e) {
         console.warn("[radio] handle.leave threw:", e);
+      }
+      try {
+        audio.removeEventListener("waiting", onStall);
+        audio.removeEventListener("stalled", onStall);
+      } catch {
+        // best effort
       }
       try {
         audio.pause();
@@ -522,4 +674,85 @@ function coerceNowPlaying(raw: unknown): PublicNowPlaying | null {
 
 function isArt(v: unknown): v is { blob_id?: unknown } {
   return !!v && typeof v === "object";
+}
+
+// ---- favorite (broadcasting peer) ------------------------------------
+//
+// the radio doesn't expose per-listener state, but if the broadcasting
+// peer is a registered remote with an authenticated session we can call
+// the remote's `music.setFavorite` / `music.querySongs` endpoints
+// directly. when no remote is registered for the peer, both calls are
+// no-ops and the heart stays disabled.
+
+/** best-effort: read `is_favorite` for the given song from the
+ * broadcasting peer's API and update `radioCurrentFavorite`. silently
+ * leaves the signal as `null` when no remote is registered or the call
+ * fails (e.g. unauthenticated session). */
+async function fetchRadioFavorite(
+  songId: string,
+  peerAddr: string,
+): Promise<void> {
+  try {
+    const remote = await getRemoteByPeerAddr(peerAddr);
+    if (!remote) return;
+    const client = await getClientForRemote(remote);
+    const result = await client.music.querySongs({
+      q: null,
+      search_fields: null,
+      filters: { song_ids: [songId] },
+      sort_by: null,
+      sort_direction: null,
+      limit: 1,
+      offset: null,
+      user_id: null,
+      favorites_only: null,
+      min_rating: null,
+    });
+    if (!result.success || result.data.items.length === 0) return;
+    const fav = result.data.items[0].is_favorite;
+    if (typeof fav === "boolean") setCurrentFavorite(fav);
+  } catch (e) {
+    console.warn("[radio] fetch favorite failed:", e);
+  }
+}
+
+/** toggle the favorite for the currently-playing radio track on the
+ * broadcasting peer. optimistically updates `radioCurrentFavorite` and
+ * rolls back on failure. throws if no peer/remote is available. */
+export async function setRadioFavorite(
+  songId: string,
+  isFavorite: boolean,
+): Promise<void> {
+  const peer = currentPeerAddr();
+  if (!peer) throw new Error("no active radio session");
+  const remote = await getRemoteByPeerAddr(peer);
+  if (!remote) {
+    throw new Error(
+      "broadcasting peer is not a registered remote — cannot favorite",
+    );
+  }
+  const previous = currentFavorite();
+  setCurrentFavorite(isFavorite);
+  try {
+    const client = await getClientForRemote(remote);
+    const result = await client.music.setFavorite({
+      user_id: null,
+      target_type: "song",
+      target_id: songId,
+      is_favorite: isFavorite,
+    });
+    if (!result.success) {
+      throw new Error(
+        "error" in result
+          ? JSON.stringify(result.error)
+          : "set favorite failed",
+      );
+    }
+    if (!result.data?.success) {
+      throw new Error(result.data?.message || "set favorite failed");
+    }
+  } catch (e) {
+    setCurrentFavorite(previous);
+    throw e;
+  }
 }

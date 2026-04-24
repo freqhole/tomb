@@ -29,6 +29,32 @@ pub enum ControlMessage {
     Hello(HelloMessage),
     /// server → client, pushed on each track change.
     Meta(MetaMessage),
+    /// server → client, sent when the listener has fallen behind the
+    /// broadcaster's ring buffer. tells the listener what `init_seq` to
+    /// expect on the audio stream once the broadcaster catches it back
+    /// up. clients should tear down their MediaSource and discard chunks
+    /// until they see `seq >= resync_at_seq && is_init`.
+    Lag(LagMessage),
+    /// server → client, optional heartbeat. lets the listener detect a
+    /// hung uni stream (audio gone silent while the control stream is
+    /// fine over QUIC keepalives). carries the broadcaster's most recent
+    /// chunk seq. listeners may compare against their own `lastSeenSeq`
+    /// and reconnect if the gap grows beyond a threshold.
+    ChunkReady(ChunkReadyMessage),
+}
+
+/// server → client lag notice. see [`ControlMessage::Lag`].
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LagMessage {
+    /// the seq of the next init chunk the listener should latch onto.
+    pub resync_at_seq: u32,
+}
+
+/// server → client heartbeat. see [`ControlMessage::ChunkReady`].
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChunkReadyMessage {
+    /// most recent chunk seq the broadcaster has produced.
+    pub seq: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

@@ -234,7 +234,7 @@ pub struct FederationConfig {
 /// (b) appear in `allowed_node_ids` if that list is non-empty.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct RemoteAdminConfig {
-    /// master switch for the admin ALPN (default: false)
+    /// main switch for the admin ALPN (default: false)
     #[serde(default)]
     pub enabled: bool,
     /// optional explicit allowlist of admin peer node IDs.

@@ -226,9 +226,12 @@ pub mod type_registry {
         AdminPeersListForUserRequest, AdminPeersRemoveRequest,
     };
     use crate::admin_dispatch::types::radio::{
-        RadioConfigPayload, RadioFiltersAddRequest, RadioFiltersRemoveRequest,
-        RadioSeedSuggestRequest, RadioSeedSuggestion, RadioSongsAddRequest,
-        RadioSongsRemoveRequest, RadioStationByStationIdRequest, RadioStationsByIdRequest,
+        RadioBumper, RadioBumpersAddRequest, RadioBumpersListRequest, RadioBumpersRemoveRequest,
+        RadioBumpersSetFrequencyRequest, RadioConfigPayload, RadioFiltersAddRequest,
+        RadioFiltersRemoveRequest, RadioSeedSuggestRequest, RadioSeedSuggestion,
+        RadioSongsAddRequest, RadioSongsRemoveRequest, RadioStationByStationIdRequest,
+        RadioStationSupervisorStatus, RadioStationsByIdRequest, RadioSupervisorStationRequest,
+        RadioSupervisorStatusResponse,
     };
     use crate::admin_dispatch::types::users::{
         AdminAccountLinkResponse, AdminUserSummary, AdminUsersDeleteRequest,
@@ -874,6 +877,22 @@ pub mod type_registry {
         registered.insert("RadioSeedSuggestion".to_string());
         gen.add_schema::<RadioConfigPayload>("RadioConfigPayload");
         registered.insert("RadioConfigPayload".to_string());
+        gen.add_schema::<RadioStationSupervisorStatus>("RadioStationSupervisorStatus");
+        registered.insert("RadioStationSupervisorStatus".to_string());
+        gen.add_schema::<RadioSupervisorStatusResponse>("RadioSupervisorStatusResponse");
+        registered.insert("RadioSupervisorStatusResponse".to_string());
+        gen.add_schema::<RadioSupervisorStationRequest>("RadioSupervisorStationRequest");
+        registered.insert("RadioSupervisorStationRequest".to_string());
+        gen.add_schema::<RadioBumper>("RadioBumper");
+        registered.insert("RadioBumper".to_string());
+        gen.add_schema::<RadioBumpersListRequest>("RadioBumpersListRequest");
+        registered.insert("RadioBumpersListRequest".to_string());
+        gen.add_schema::<RadioBumpersAddRequest>("RadioBumpersAddRequest");
+        registered.insert("RadioBumpersAddRequest".to_string());
+        gen.add_schema::<RadioBumpersRemoveRequest>("RadioBumpersRemoveRequest");
+        registered.insert("RadioBumpersRemoveRequest".to_string());
+        gen.add_schema::<RadioBumpersSetFrequencyRequest>("RadioBumpersSetFrequencyRequest");
+        registered.insert("RadioBumpersSetFrequencyRequest".to_string());
         gen.add_schema::<StationFilter>("StationFilter");
         registered.insert("StationFilter".to_string());
         gen.add_schema::<StationSong>("StationSong");

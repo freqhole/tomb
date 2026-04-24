@@ -1,6 +1,6 @@
 //! radio configuration.
 //!
-//! by design the toml has only two knobs: `enabled` (master switch) and
+//! by design the toml has only two knobs: `enabled` (main switch) and
 //! `encode_args` (the ffmpeg command-line template). everything else that
 //! a user might want to tweak per-stream — station name, public/private,
 //! source query (which songs play) — lives in the database so the ui can
@@ -37,7 +37,7 @@ pub const MSE_CODEC: &str = "audio/mp4; codecs=\"mp4a.40.2\"";
 /// landing in the next slice).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RadioConfig {
-    /// master switch (default: false).
+    /// main switch (default: false).
     #[serde(default)]
     pub enabled: bool,
 

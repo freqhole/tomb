@@ -16,13 +16,21 @@ use crate::radio::broadcaster::{
     get_default as get_default_broadcaster, get_station as get_broadcaster, Broadcaster, MetaUpdate,
 };
 use crate::radio::chunk::Chunk;
-use crate::radio::messages::{ControlMessage, HelloMessage, MetaMessage, RADIO_CODEC};
+use crate::radio::messages::{
+    ChunkReadyMessage, ControlMessage, HelloMessage, LagMessage, MetaMessage, RADIO_CODEC,
+};
 use crate::radio::protocol::{read_control_message, write_chunk, write_control_message};
 use crate::radio::stations::get_station;
 use iroh::endpoint::{Connection, SendStream};
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::broadcast::error::RecvError;
+use tokio::sync::mpsc;
 use tracing::{info, warn};
+
+/// optional heartbeat cadence. lets clients detect a wedged uni stream
+/// while the control stream stays alive over QUIC keepalives.
+const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(10);
 
 pub async fn handle_connection(conn: Connection) {
     let peer_id = conn.remote_id();
@@ -123,23 +131,93 @@ async fn run_session(conn: &Connection) -> GrimoireResult<()> {
     }
 
     // 6. concurrent audio + meta forwarding.
+    // we serialize all writes to ctrl_send through a single writer task
+    // fed by an mpsc — both the meta forwarder and the audio forwarder
+    // (for `Lag` notices) need to send control messages, and SendStream
+    // isn't Sync.
+    let (ctrl_tx, mut ctrl_rx) = mpsc::channel::<ControlMessage>(32);
+
+    let writer_task = async move {
+        while let Some(msg) = ctrl_rx.recv().await {
+            if let Err(e) = write_control_message(&mut ctrl_send, &msg).await {
+                return Err::<(), GrimoireError>(e);
+            }
+        }
+        Ok(())
+    };
+
+    let bc_audio = bc.clone();
+    let bc_meta = bc.clone();
+    let ctrl_tx_audio = ctrl_tx.clone();
+    let ctrl_tx_meta = ctrl_tx.clone();
+    let ctrl_tx_hb = ctrl_tx.clone();
+    let bc_hb = bc.clone();
+    drop(ctrl_tx);
+
     tokio::select! {
-        res = forward_audio(&mut sub.chunk_rx, &mut audio_send) => res,
-        res = forward_meta(&mut sub.meta_rx, &mut ctrl_send, bc.clone()) => res,
+        res = writer_task => res,
+        res = forward_audio(&mut sub.chunk_rx, &mut audio_send, ctrl_tx_audio, bc_audio) => res,
+        res = forward_meta(&mut sub.meta_rx, ctrl_tx_meta, bc_meta) => res,
+        res = heartbeat(ctrl_tx_hb, bc_hb) => res,
+    }
+}
+
+/// emit a `ChunkReady { seq }` every `HEARTBEAT_INTERVAL`. lets clients
+/// detect a hung uni stream when audio has gone silent but the control
+/// stream is still alive (e.g. QUIC stalls past one direction).
+async fn heartbeat(
+    tx: mpsc::Sender<ControlMessage>,
+    bc: Arc<Broadcaster>,
+) -> GrimoireResult<()> {
+    let mut tick = tokio::time::interval(HEARTBEAT_INTERVAL);
+    tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    // skip the immediate initial tick — Hello already carried current_seq.
+    tick.tick().await;
+    loop {
+        tick.tick().await;
+        let seq = bc.current_seq();
+        if tx
+            .send(ControlMessage::ChunkReady(ChunkReadyMessage { seq }))
+            .await
+            .is_err()
+        {
+            return Ok(());
+        }
     }
 }
 
 async fn forward_audio(
     rx: &mut tokio::sync::broadcast::Receiver<Arc<Chunk>>,
     send: &mut SendStream,
+    ctrl_tx: mpsc::Sender<ControlMessage>,
+    bc: Arc<Broadcaster>,
 ) -> GrimoireResult<()> {
     loop {
         match rx.recv().await {
             Ok(chunk) => write_chunk(send, &chunk).await?,
             Err(RecvError::Lagged(n)) => {
-                return Err(GrimoireError::FederationApiError {
-                    message: format!("radio: listener lagged {n} chunks; disconnecting"),
-                });
+                // we fell behind by `n` chunks. tell the client where to
+                // resume by reading the broadcaster's current init seq.
+                let sub = bc.subscribe().await;
+                let resync_at_seq = sub.init_seq;
+                warn!(
+                    "[radio-handler] listener lagged {n} chunks; sending Lag(resync_at_seq={resync_at_seq})"
+                );
+                let _ = ctrl_tx
+                    .send(ControlMessage::Lag(LagMessage { resync_at_seq }))
+                    .await;
+                // re-prime the audio stream: send the current init + the
+                // catchup ring so the listener can pick up immediately
+                // without reconnecting.
+                if let Some(init) = sub.init.as_ref() {
+                    write_chunk(send, init).await?;
+                }
+                for chunk in &sub.catchup {
+                    write_chunk(send, chunk).await?;
+                }
+                // swap in the fresh receiver so subsequent recvs aren't
+                // immediately lagged on the same buffer.
+                *rx = sub.chunk_rx;
             }
             Err(RecvError::Closed) => return Ok(()),
         }
@@ -148,7 +226,7 @@ async fn forward_audio(
 
 async fn forward_meta(
     rx: &mut tokio::sync::broadcast::Receiver<MetaUpdate>,
-    send: &mut SendStream,
+    ctrl_tx: mpsc::Sender<ControlMessage>,
     bc: Arc<Broadcaster>,
 ) -> GrimoireResult<()> {
     loop {
@@ -159,7 +237,9 @@ async fn forward_meta(
                     listener_count: bc.listener_count(),
                     init_seq: update.init_seq,
                 });
-                write_control_message(send, &msg).await?;
+                if ctrl_tx.send(msg).await.is_err() {
+                    return Ok(());
+                }
             }
             Err(RecvError::Lagged(_)) => {
                 // missed updates — push the current snapshot.
@@ -169,7 +249,9 @@ async fn forward_meta(
                     listener_count: bc.listener_count(),
                     init_seq: sub.init_seq,
                 });
-                write_control_message(send, &msg).await?;
+                if ctrl_tx.send(msg).await.is_err() {
+                    return Ok(());
+                }
             }
             Err(RecvError::Closed) => return Ok(()),
         }

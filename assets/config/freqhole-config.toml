@@ -493,7 +493,7 @@ max_message_size_mb = 16
 # federation setup).
 # ============================================================================
 [radio]
-# REQUIRED when section exists: master switch (default: false)
+# REQUIRED when section exists: main switch (default: false)
 enabled = false
 
 # OPTIONAL: ffmpeg command-line template. supports `{input}` placeholder.

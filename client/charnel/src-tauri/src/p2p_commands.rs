@@ -100,13 +100,21 @@ pub async fn init_p2p_client(config_path: &Path) -> Result<(), String> {
         .as_ref()
         .map(|f| f.enabled)
         .unwrap_or(false);
+    // radio is independent of federation: it just needs an iroh endpoint
+    // + the RADIO_ALPN protocol handler. operators can run a radio
+    // broadcaster without federation enabled.
+    let radio_enabled = grimoire::radio::config::effective().enabled;
 
-    if !federation_enabled {
-        // tracing::debug!("federation not enabled in config, skipping P2P init");
+    if !federation_enabled && !radio_enabled {
+        // tracing::debug!("federation + radio both disabled, skipping P2P init");
         return Ok(());
     }
 
-    tracing::info!("initializing P2P endpoint...");
+    tracing::info!(
+        federation = federation_enabled,
+        radio = radio_enabled,
+        "initializing P2P endpoint..."
+    );
 
     let mut endpoint = grimoire::federation::transport::FederationEndpoint::new()
         .await
@@ -115,15 +123,36 @@ pub async fn init_p2p_client(config_path: &Path) -> Result<(), String> {
     let node_id = endpoint.node_id();
     tracing::info!(node_id = %node_id, "P2P endpoint ready");
 
+    // when radio is enabled, spawn one broadcaster per enabled station
+    // before the router accepts connections so the first incoming
+    // listener has something to attach to.
+    if radio_enabled {
+        if let Err(e) = grimoire::radio::init_broadcaster().await {
+            tracing::warn!(error = %e, "failed to init radio broadcasters; radio disabled for this session");
+        } else {
+            tracing::info!("[radio] broadcaster registry initialized");
+        }
+    }
+
     // always start router on charnel — the app needs to accept incoming
     // blob download requests from remote peers (iroh-blobs pull model).
     // without the router, uploads via music-by-blake3 fail because the
-    // server can't connect back to pull the blob.
+    // server can't connect back to pull the blob. when radio is enabled
+    // we also wire in the RADIO_ALPN handler so peers can tune in.
     tracing::info!("starting router for blob serving");
-    endpoint
-        .start_router()
-        .await
-        .map_err(|e| format!("failed to start P2P router: {}", e))?;
+    let router_result = if radio_enabled {
+        endpoint
+            .start_router_with(|builder| {
+                builder.accept(
+                    grimoire::radio::RADIO_ALPN,
+                    grimoire::radio::RadioProtocol::new(),
+                )
+            })
+            .await
+    } else {
+        endpoint.start_router().await
+    };
+    router_result.map_err(|e| format!("failed to start P2P router: {}", e))?;
 
     // register endpoint for P2P client operations (stores reference for outbound)
     grimoire::federation::p2p_client::set_federation_endpoint(endpoint.endpoint());

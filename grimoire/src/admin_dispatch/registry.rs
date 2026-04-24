@@ -258,6 +258,54 @@ pub const ADMIN_COMMANDS: &[AdminCommandInfo] = &[
         response_type: "RadioConfigPayload",
         auth: AdminAuth::Admin,
     },
+    AdminCommandInfo {
+        name: "radio_supervisor_status",
+        request_type: "EmptyRequest",
+        response_type: "RadioSupervisorStatusResponse",
+        auth: AdminAuth::Admin,
+    },
+    AdminCommandInfo {
+        name: "radio_supervisor_start",
+        request_type: "RadioSupervisorStationRequest",
+        response_type: "RadioSupervisorStatusResponse",
+        auth: AdminAuth::Admin,
+    },
+    AdminCommandInfo {
+        name: "radio_supervisor_stop",
+        request_type: "RadioSupervisorStationRequest",
+        response_type: "RadioSupervisorStatusResponse",
+        auth: AdminAuth::Admin,
+    },
+    AdminCommandInfo {
+        name: "radio_supervisor_restart",
+        request_type: "RadioSupervisorStationRequest",
+        response_type: "RadioSupervisorStatusResponse",
+        auth: AdminAuth::Admin,
+    },
+    AdminCommandInfo {
+        name: "radio_bumpers_list",
+        request_type: "RadioBumpersListRequest",
+        response_type: "Vec<RadioBumper>",
+        auth: AdminAuth::Admin,
+    },
+    AdminCommandInfo {
+        name: "radio_bumpers_add",
+        request_type: "RadioBumpersAddRequest",
+        response_type: "RadioBumper",
+        auth: AdminAuth::Admin,
+    },
+    AdminCommandInfo {
+        name: "radio_bumpers_remove",
+        request_type: "RadioBumpersRemoveRequest",
+        response_type: "EmptyResponse",
+        auth: AdminAuth::Admin,
+    },
+    AdminCommandInfo {
+        name: "radio_bumpers_set_frequency",
+        request_type: "RadioBumpersSetFrequencyRequest",
+        response_type: "EmptyResponse",
+        auth: AdminAuth::Admin,
+    },
 ];
 
 /// accessor mirroring `offal::all_routes()` for use by codegen.

@@ -64,6 +64,13 @@ pub enum RadioEvent {
     Hello { json: String },
     /// subsequent Meta control messages, JSON string.
     Meta { json: String },
+    /// server → client lag notice. JSON of `LagMessage`. spume should
+    /// tear down + recreate its MediaSource and discard chunks until it
+    /// sees `seq >= resync_at_seq && is_init`.
+    Lag { json: String },
+    /// server → client heartbeat. JSON of `ChunkReadyMessage`. used by
+    /// spume to detect "broadcaster alive but my socket is silent" cases.
+    ChunkReady { json: String },
     /// audio chunk. `bytes_b64` is the raw fMP4 fragment, base64-encoded
     /// because tauri channels serialize via JSON.
     Chunk {
@@ -236,6 +243,8 @@ async fn run_meta_loop(
                             let event = match msg {
                                 ControlMessage::Hello(_) => RadioEvent::Hello { json },
                                 ControlMessage::Meta(_) => RadioEvent::Meta { json },
+                                ControlMessage::Lag(_) => RadioEvent::Lag { json },
+                                ControlMessage::ChunkReady(_) => RadioEvent::ChunkReady { json },
                                 ControlMessage::Tune(_) => continue,
                             };
                             if events.send(event).is_err() {

@@ -2759,6 +2759,40 @@ export const QueryTagsRequestSchema = z.object({
 });
 export type QueryTagsRequest = z.infer<typeof QueryTagsRequestSchema>;
 
+export const RadioBumperSchema = z.object({
+  id: z.string(),
+  station_id: z.string(),
+  song_id: z.string(),
+  label: z.string(),
+  weight: z.number(),
+  created_at: z.number()
+});
+export type RadioBumper = z.infer<typeof RadioBumperSchema>;
+
+export const RadioBumpersAddRequestSchema = z.object({
+  station_id: z.string(),
+  song_id: z.string(),
+  label: z.string(),
+  weight: z.number().nullish()
+});
+export type RadioBumpersAddRequest = z.infer<typeof RadioBumpersAddRequestSchema>;
+
+export const RadioBumpersListRequestSchema = z.object({
+  station_id: z.string()
+});
+export type RadioBumpersListRequest = z.infer<typeof RadioBumpersListRequestSchema>;
+
+export const RadioBumpersRemoveRequestSchema = z.object({
+  bumper_id: z.string()
+});
+export type RadioBumpersRemoveRequest = z.infer<typeof RadioBumpersRemoveRequestSchema>;
+
+export const RadioBumpersSetFrequencyRequestSchema = z.object({
+  station_id: z.string(),
+  frequency_seconds: z.number().nullish()
+});
+export type RadioBumpersSetFrequencyRequest = z.infer<typeof RadioBumpersSetFrequencyRequestSchema>;
+
 export const RadioConfigPayloadSchema = z.object({
   enabled: z.boolean(),
   encode_args: z.string()
@@ -2848,6 +2882,19 @@ export const RadioStationByStationIdRequestSchema = z.object({
 });
 export type RadioStationByStationIdRequest = z.infer<typeof RadioStationByStationIdRequestSchema>;
 
+export const RadioStationSupervisorStatusSchema = z.object({
+  station_id: z.string(),
+  name: z.string(),
+  is_enabled: z.boolean(),
+  is_running: z.boolean(),
+  listener_count: z.number(),
+  current_seq: z.number(),
+  current_song_id: z.string().nullish(),
+  current_title: z.string().nullish(),
+  is_default: z.boolean()
+});
+export type RadioStationSupervisorStatus = z.infer<typeof RadioStationSupervisorStatusSchema>;
+
 export const RadioStationsByIdRequestSchema = z.object({
   id: z.string()
 });
@@ -2875,6 +2922,27 @@ export const RadioStationsResponseSchema = z.object({
 }))
 });
 export type RadioStationsResponse = z.infer<typeof RadioStationsResponseSchema>;
+
+export const RadioSupervisorStationRequestSchema = z.object({
+  station_id: z.string()
+});
+export type RadioSupervisorStationRequest = z.infer<typeof RadioSupervisorStationRequestSchema>;
+
+export const RadioSupervisorStatusResponseSchema = z.object({
+  radio_enabled: z.boolean(),
+  stations: z.array(z.object({
+  station_id: z.string(),
+  name: z.string(),
+  is_enabled: z.boolean(),
+  is_running: z.boolean(),
+  listener_count: z.number(),
+  current_seq: z.number(),
+  current_song_id: z.string().nullish(),
+  current_title: z.string().nullish(),
+  is_default: z.boolean()
+}))
+});
+export type RadioSupervisorStatusResponse = z.infer<typeof RadioSupervisorStatusResponseSchema>;
 
 export const RatingStatsSchema = z.object({
   average_rating: z.number(),

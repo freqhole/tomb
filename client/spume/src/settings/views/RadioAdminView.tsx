@@ -191,7 +191,7 @@ function RadioConfigSection(props: { client: AdminClient }) {
               onChange={(e) => setEnabled(e.currentTarget.checked)}
               disabled={busy()}
             />
-            <span>enabled (master switch)</span>
+            <span>enabled</span>
           </label>
           <label class="flex flex-col gap-1">
             <span class="text-xs text-[var(--color-text-secondary)]">

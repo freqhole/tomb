@@ -27,9 +27,11 @@ use crate::admin_dispatch::types::peers::{
     AdminPeersListForUserRequest, AdminPeersRemoveRequest,
 };
 use crate::admin_dispatch::types::radio::{
-    RadioConfigPayload, RadioFiltersAddRequest, RadioFiltersRemoveRequest, RadioSeedSuggestRequest,
-    RadioSeedSuggestion, RadioSongsAddRequest, RadioSongsRemoveRequest,
-    RadioStationByStationIdRequest, RadioStationsByIdRequest,
+    RadioBumper, RadioBumpersAddRequest, RadioBumpersListRequest, RadioBumpersRemoveRequest,
+    RadioBumpersSetFrequencyRequest, RadioConfigPayload, RadioFiltersAddRequest,
+    RadioFiltersRemoveRequest, RadioSeedSuggestRequest, RadioSeedSuggestion, RadioSongsAddRequest,
+    RadioSongsRemoveRequest, RadioStationByStationIdRequest, RadioStationSupervisorStatus,
+    RadioStationsByIdRequest, RadioSupervisorStationRequest, RadioSupervisorStatusResponse,
 };
 use crate::admin_dispatch::types::users::{
     AdminAccountLinkResponse, AdminUserSummary, AdminUsersDeleteRequest,
@@ -152,6 +154,14 @@ pub async fn handle(
         "radio_seed_suggest" => radio_seed_suggest(args).await,
         "radio_config_get" => radio_config_get().await,
         "radio_config_set" => radio_config_set(args).await,
+        "radio_supervisor_status" => radio_supervisor_status().await,
+        "radio_supervisor_start" => radio_supervisor_start(args).await,
+        "radio_supervisor_stop" => radio_supervisor_stop(args).await,
+        "radio_supervisor_restart" => radio_supervisor_restart(args).await,
+        "radio_bumpers_list" => radio_bumpers_list(args).await,
+        "radio_bumpers_add" => radio_bumpers_add(args).await,
+        "radio_bumpers_remove" => radio_bumpers_remove(args).await,
+        "radio_bumpers_set_frequency" => radio_bumpers_set_frequency(args).await,
 
         _ => command_not_found(command),
     }
@@ -1606,9 +1616,187 @@ async fn radio_config_set(args: JsonValue) -> GrimoireResponse<JsonValue> {
         return internal(format!("config written but reload failed: {}", e));
     }
     let cfg = crate::radio::config::effective();
+    // act on the new effective state. flipping the master switch on
+    // spawns broadcasters for every enabled station; flipping it off
+    // tears them all down. note: the iroh router's RADIO_ALPN handler
+    // is wired during `init_p2p_client` (app startup) — without an app
+    // restart, broadcasters are running but unreachable from peers
+    // unless radio was already enabled at startup.
+    if cfg.enabled {
+        if let Err(e) = crate::radio::broadcaster::init_registry().await {
+            return internal(format!(
+                "config saved but broadcasters failed to start: {}",
+                e
+            ));
+        }
+    } else if let Err(e) = crate::radio::broadcaster::stop_all().await {
+        return internal(format!(
+            "config saved but broadcasters failed to stop: {}",
+            e
+        ));
+    }
     let out = RadioConfigPayload {
         enabled: cfg.enabled,
         encode_args: cfg.encode_args,
     };
     to_value(GrimoireResponse::success("config updated", out))
+}
+
+// =========================================================================
+// radio supervisor (start/stop/restart broadcasters)
+// =========================================================================
+
+async fn build_supervisor_status() -> GrimoireResponse<JsonValue> {
+    let stations = match crate::radio::stations::list_stations().await {
+        Ok(v) => v,
+        Err(e) => return GrimoireResponse::failure("failed to list stations", vec![e.into()]),
+    };
+    let default_id = crate::radio::broadcaster::current_default_station_id().await;
+    let mut rows: Vec<RadioStationSupervisorStatus> = Vec::with_capacity(stations.len());
+    for st in stations {
+        let bc = crate::radio::broadcaster::get_station(&st.id).await;
+        let (is_running, listener_count, current_seq, np) = if let Some(bc) = bc {
+            let np = bc.now_playing().await;
+            (true, bc.listener_count(), bc.current_seq(), Some(np))
+        } else {
+            (false, 0u32, 0u32, None)
+        };
+        let (current_song_id, current_title) = match np {
+            Some(np) => {
+                let song_id = if np.song_id.is_empty() {
+                    None
+                } else {
+                    Some(np.song_id.clone())
+                };
+                let title = if np.title.is_empty() {
+                    None
+                } else {
+                    Some(np.title.clone())
+                };
+                (song_id, title)
+            }
+            None => (None, None),
+        };
+        rows.push(RadioStationSupervisorStatus {
+            station_id: st.id.clone(),
+            name: st.name,
+            is_enabled: st.is_enabled != 0,
+            is_running,
+            listener_count,
+            current_seq,
+            current_song_id,
+            current_title,
+            is_default: default_id.as_deref() == Some(st.id.as_str()),
+        });
+    }
+    let payload = RadioSupervisorStatusResponse {
+        radio_enabled: crate::radio::config::effective().enabled,
+        stations: rows,
+    };
+    to_value(GrimoireResponse::success("ok", payload))
+}
+
+async fn radio_supervisor_status() -> GrimoireResponse<JsonValue> {
+    build_supervisor_status().await
+}
+
+async fn radio_supervisor_start(args: JsonValue) -> GrimoireResponse<JsonValue> {
+    let req: RadioSupervisorStationRequest = match decode(args) {
+        Ok(v) => v,
+        Err(r) => return r,
+    };
+    if let Err(e) = crate::radio::broadcaster::start_station(&req.station_id).await {
+        return GrimoireResponse::failure("failed to start station", vec![e.into()]);
+    }
+    build_supervisor_status().await
+}
+
+async fn radio_supervisor_stop(args: JsonValue) -> GrimoireResponse<JsonValue> {
+    let req: RadioSupervisorStationRequest = match decode(args) {
+        Ok(v) => v,
+        Err(r) => return r,
+    };
+    if let Err(e) = crate::radio::broadcaster::stop_station(&req.station_id).await {
+        return GrimoireResponse::failure("failed to stop station", vec![e.into()]);
+    }
+    build_supervisor_status().await
+}
+
+async fn radio_supervisor_restart(args: JsonValue) -> GrimoireResponse<JsonValue> {
+    let req: RadioSupervisorStationRequest = match decode(args) {
+        Ok(v) => v,
+        Err(r) => return r,
+    };
+    if let Err(e) = crate::radio::broadcaster::restart_station(&req.station_id).await {
+        return GrimoireResponse::failure("failed to restart station", vec![e.into()]);
+    }
+    build_supervisor_status().await
+}
+
+// =========================================================================
+// radio bumpers
+// =========================================================================
+
+fn bumper_to_payload(b: crate::radio::bumpers::Bumper) -> RadioBumper {
+    RadioBumper {
+        id: b.id,
+        station_id: b.station_id,
+        song_id: b.song_id,
+        label: b.label,
+        weight: b.weight,
+        created_at: b.created_at,
+    }
+}
+
+async fn radio_bumpers_list(args: JsonValue) -> GrimoireResponse<JsonValue> {
+    let req: RadioBumpersListRequest = match decode(args) {
+        Ok(v) => v,
+        Err(r) => return r,
+    };
+    match crate::radio::bumpers::list_bumpers(&req.station_id).await {
+        Ok(rows) => {
+            let payload: Vec<RadioBumper> = rows.into_iter().map(bumper_to_payload).collect();
+            to_value(GrimoireResponse::success("bumpers listed", payload))
+        }
+        Err(e) => GrimoireResponse::failure("failed to list bumpers", vec![e.into()]),
+    }
+}
+
+async fn radio_bumpers_add(args: JsonValue) -> GrimoireResponse<JsonValue> {
+    let req: RadioBumpersAddRequest = match decode(args) {
+        Ok(v) => v,
+        Err(r) => return r,
+    };
+    let weight = req.weight.unwrap_or(1);
+    match crate::radio::bumpers::add_bumper(&req.station_id, &req.song_id, &req.label, Some(weight))
+        .await
+    {
+        Ok(b) => {
+            let payload = bumper_to_payload(b);
+            to_value(GrimoireResponse::success("bumper added", payload))
+        }
+        Err(e) => GrimoireResponse::failure("failed to add bumper", vec![e.into()]),
+    }
+}
+
+async fn radio_bumpers_remove(args: JsonValue) -> GrimoireResponse<JsonValue> {
+    let req: RadioBumpersRemoveRequest = match decode(args) {
+        Ok(v) => v,
+        Err(r) => return r,
+    };
+    match crate::radio::bumpers::remove_bumper(&req.bumper_id).await {
+        Ok(()) => GrimoireResponse::success("bumper removed", JsonValue::Null),
+        Err(e) => GrimoireResponse::failure("failed to remove bumper", vec![e.into()]),
+    }
+}
+
+async fn radio_bumpers_set_frequency(args: JsonValue) -> GrimoireResponse<JsonValue> {
+    let req: RadioBumpersSetFrequencyRequest = match decode(args) {
+        Ok(v) => v,
+        Err(r) => return r,
+    };
+    match crate::radio::bumpers::set_frequency(&req.station_id, req.frequency_seconds).await {
+        Ok(()) => GrimoireResponse::success("frequency updated", JsonValue::Null),
+        Err(e) => GrimoireResponse::failure("failed to set bumper frequency", vec![e.into()]),
+    }
 }
