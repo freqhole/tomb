@@ -437,6 +437,7 @@ async fn run_meta_loop(
                                 ControlMessage::Meta(_) => RadioEvent::Meta { json },
                                 ControlMessage::Lag(_) => RadioEvent::Lag { json },
                                 ControlMessage::ChunkReady(_) => RadioEvent::ChunkReady { json },
+                                ControlMessage::Goodbye(_) => RadioEvent::Meta { json },
                                 ControlMessage::Tune(_) => continue,
                             };
                             if events.send(event).is_err() {

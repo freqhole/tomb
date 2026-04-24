@@ -17,7 +17,8 @@ use crate::radio::broadcaster::{
 };
 use crate::radio::chunk::Chunk;
 use crate::radio::messages::{
-    ChunkReadyMessage, ControlMessage, HelloMessage, LagMessage, MetaMessage, RADIO_CODEC,
+    ChunkReadyMessage, ControlMessage, GoodbyeMessage, HelloMessage, LagMessage, MetaMessage,
+    RADIO_CODEC,
 };
 use crate::radio::protocol::{read_control_message, write_chunk, write_control_message};
 use crate::radio::stations::get_station;
@@ -31,6 +32,11 @@ use tracing::{info, warn};
 /// optional heartbeat cadence. lets clients detect a wedged uni stream
 /// while the control stream stays alive over QUIC keepalives.
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(5);
+
+enum SessionEnd {
+    Finished,
+    Goodbye(String),
+}
 
 pub async fn handle_connection(conn: Connection) {
     let peer_id = conn.remote_id();
@@ -146,6 +152,7 @@ async fn run_session(conn: &Connection) -> GrimoireResult<()> {
         }
         Ok(())
     };
+    tokio::pin!(writer_task);
 
     let bc_audio = bc.clone();
     let bc_meta = bc.clone();
@@ -155,18 +162,33 @@ async fn run_session(conn: &Connection) -> GrimoireResult<()> {
     let bc_hb = bc.clone();
     drop(ctrl_tx);
 
-    tokio::select! {
-        res = writer_task => res,
-        res = forward_audio(&mut sub.chunk_rx, &mut audio_send, ctrl_tx_audio, bc_audio) => res,
-        res = forward_meta(&mut sub.meta_rx, ctrl_tx_meta, bc_meta) => res,
-        res = heartbeat(ctrl_tx_hb, bc_hb) => res,
+    let writer_tx = ctrl_tx_meta.clone();
+    let end = tokio::select! {
+        res = &mut writer_task => return res,
+        res = forward_audio(&mut sub.chunk_rx, &mut audio_send, ctrl_tx_audio, bc_audio) => res?,
+        res = forward_meta(&mut sub.meta_rx, ctrl_tx_meta, bc_meta) => res?,
+        res = heartbeat(ctrl_tx_hb, bc_hb) => res?,
+    };
+
+    match end {
+        SessionEnd::Finished => Ok(()),
+        SessionEnd::Goodbye(reason) => {
+            let _ = writer_tx
+                .send(ControlMessage::Goodbye(GoodbyeMessage { reason }))
+                .await;
+            drop(writer_tx);
+            writer_task.await
+        }
     }
 }
 
 /// emit a `ChunkReady { seq }` every `HEARTBEAT_INTERVAL`. lets clients
 /// detect a hung uni stream when audio has gone silent but the control
 /// stream is still alive (e.g. QUIC stalls past one direction).
-async fn heartbeat(tx: mpsc::Sender<ControlMessage>, bc: Arc<Broadcaster>) -> GrimoireResult<()> {
+async fn heartbeat(
+    tx: mpsc::Sender<ControlMessage>,
+    bc: Arc<Broadcaster>,
+) -> GrimoireResult<SessionEnd> {
     let mut tick = tokio::time::interval(HEARTBEAT_INTERVAL);
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     // skip the immediate initial tick — Hello already carried current_seq.
@@ -182,7 +204,7 @@ async fn heartbeat(tx: mpsc::Sender<ControlMessage>, bc: Arc<Broadcaster>) -> Gr
             .await
             .is_err()
         {
-            return Ok(());
+            return Ok(SessionEnd::Finished);
         }
     }
 }
@@ -192,7 +214,7 @@ async fn forward_audio(
     send: &mut SendStream,
     ctrl_tx: mpsc::Sender<ControlMessage>,
     bc: Arc<Broadcaster>,
-) -> GrimoireResult<()> {
+) -> GrimoireResult<SessionEnd> {
     loop {
         match rx.recv().await {
             Ok(chunk) => write_chunk(send, &chunk).await?,
@@ -220,7 +242,9 @@ async fn forward_audio(
                 // immediately lagged on the same buffer.
                 *rx = sub.chunk_rx;
             }
-            Err(RecvError::Closed) => return Ok(()),
+            Err(RecvError::Closed) => {
+                return Ok(SessionEnd::Goodbye("station offline".to_string()))
+            }
         }
     }
 }
@@ -229,7 +253,7 @@ async fn forward_meta(
     rx: &mut tokio::sync::broadcast::Receiver<MetaUpdate>,
     ctrl_tx: mpsc::Sender<ControlMessage>,
     bc: Arc<Broadcaster>,
-) -> GrimoireResult<()> {
+) -> GrimoireResult<SessionEnd> {
     loop {
         match rx.recv().await {
             Ok(update) => {
@@ -239,7 +263,7 @@ async fn forward_meta(
                     init_seq: update.init_seq,
                 });
                 if ctrl_tx.send(msg).await.is_err() {
-                    return Ok(());
+                    return Ok(SessionEnd::Finished);
                 }
             }
             Err(RecvError::Lagged(_)) => {
@@ -251,10 +275,12 @@ async fn forward_meta(
                     init_seq: sub.init_seq,
                 });
                 if ctrl_tx.send(msg).await.is_err() {
-                    return Ok(());
+                    return Ok(SessionEnd::Finished);
                 }
             }
-            Err(RecvError::Closed) => return Ok(()),
+            Err(RecvError::Closed) => {
+                return Ok(SessionEnd::Goodbye("station offline".to_string()))
+            }
         }
     }
 }

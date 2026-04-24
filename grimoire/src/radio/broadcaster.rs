@@ -21,13 +21,17 @@ use crate::radio::stations;
 use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicI64, AtomicU32, Ordering};
 use std::sync::{Arc, OnceLock};
-use std::time::Duration;
-use tokio::sync::{broadcast, RwLock};
+use std::time::{Duration, Instant};
+use tokio::sync::{broadcast, Notify, RwLock};
 use tracing::{info, warn};
 
 /// short pause between songs when the playlist or encoder fails. avoids
 /// a hot retry loop if (e.g.) the library is empty or ffmpeg is missing.
 const RETRY_PAUSE: Duration = Duration::from_secs(3);
+
+/// when the last listener leaves, keep the current ffmpeg pipeline alive
+/// for a bit in case they only paused / scrubbed / reconnected.
+const NO_LISTENER_GRACE: Duration = Duration::from_secs(60);
 
 /// snapshot a new listener takes when joining the broadcast.
 pub struct Subscription {
@@ -87,6 +91,9 @@ pub struct Broadcaster {
     /// pushed. `0` until the first track starts. used to compute
     /// `current_track_elapsed_ms` for fresh listeners (see HelloMessage).
     track_started_at_ms: AtomicI64,
+    /// wakes the run loop when the first listener arrives while the
+    /// station is idle.
+    listener_notify: Notify,
 }
 
 impl Broadcaster {
@@ -102,6 +109,7 @@ impl Broadcaster {
             listener_count: AtomicU32::new(0),
             last_bumper_at: std::sync::atomic::AtomicI64::new(0),
             track_started_at_ms: AtomicI64::new(0),
+            listener_notify: Notify::new(),
         }
     }
 
@@ -130,7 +138,11 @@ impl Broadcaster {
     }
 
     pub fn join(&self) -> u32 {
-        self.listener_count.fetch_add(1, Ordering::Relaxed) + 1
+        let next = self.listener_count.fetch_add(1, Ordering::Relaxed) + 1;
+        if next == 1 {
+            self.listener_notify.notify_waiters();
+        }
+        next
     }
 
     pub fn leave(&self) -> u32 {
@@ -172,6 +184,8 @@ impl Broadcaster {
             self.station_id
         );
         loop {
+            self.wait_for_listener().await;
+
             // bumper interleave: when the per-station cadence has elapsed
             // since the last bumper play (and the station has any
             // bumpers), slot one in before the next regular pick.
@@ -216,6 +230,43 @@ impl Broadcaster {
                 }
             }
         }
+    }
+
+    async fn wait_for_listener(&self) {
+        if self.listener_count() > 0 {
+            return;
+        }
+
+        self.track_started_at_ms.store(0, Ordering::Relaxed);
+        self.announce_idle("waiting for listeners…").await;
+        info!(
+            "[radio-broadcaster] station {} idle; waiting for a listener",
+            self.station_id
+        );
+
+        loop {
+            if self.listener_count() > 0 {
+                return;
+            }
+            self.listener_notify.notified().await;
+        }
+    }
+
+    async fn announce_idle(&self, title: &str) {
+        let init_seq = self.state.read().await.init_seq;
+        let placeholder = Arc::new(NowPlaying {
+            title: title.to_string(),
+            station_id: Some(self.station_id.clone()),
+            ..Default::default()
+        });
+        {
+            let mut s = self.state.write().await;
+            s.now_playing = placeholder.clone();
+        }
+        let _ = self.meta_tx.send(MetaUpdate {
+            now_playing: placeholder,
+            init_seq,
+        });
     }
 
     /// roll the bumper dice. returns `Ok(true)` when a bumper was played,
@@ -389,6 +440,7 @@ impl Broadcaster {
             }
         };
         let started = std::time::Instant::now();
+        let mut silence_since: Option<Instant> = None;
 
         // pull chunks until ffmpeg signals EOF (clean song end). if it
         // errors mid-song we still want to close out the play history row
@@ -396,6 +448,28 @@ impl Broadcaster {
         // RETRY_PAUSE — the listener has already been on this station for
         // a while, no point making them wait an extra 3s.
         let mid_song_err = loop {
+            if self.listener_count() == 0 {
+                if let Some(since) = silence_since {
+                    if since.elapsed() >= NO_LISTENER_GRACE {
+                        info!(
+                            "[radio-broadcaster] station {} stopping encoder after {:?} without listeners",
+                            self.station_id,
+                            NO_LISTENER_GRACE
+                        );
+                        break None;
+                    }
+                } else {
+                    silence_since = Some(Instant::now());
+                    info!(
+                        "[radio-broadcaster] station {} lost all listeners; keeping encoder alive for {:?}",
+                        self.station_id,
+                        NO_LISTENER_GRACE
+                    );
+                }
+            } else {
+                silence_since = None;
+            }
+
             match encoder.next_chunk().await {
                 Ok(None) => break None,
                 Ok(Some(chunk)) => {

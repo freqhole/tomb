@@ -534,6 +534,17 @@ export async function tuneIntoRadio(
       // detection. for now it also refreshes listener_count.
       return true;
     }
+    if (msg.type === "goodbye") {
+      const bye = msg as { reason?: unknown };
+      const reason =
+        typeof bye.reason === "string" && bye.reason.trim().length > 0
+          ? bye.reason
+          : "radio session ended";
+      leaveRadio();
+      setStatus("error");
+      setError(reason);
+      return true;
+    }
     return false;
   };
 

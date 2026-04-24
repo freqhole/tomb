@@ -41,6 +41,8 @@ pub enum ControlMessage {
     /// chunk seq. listeners may compare against their own `lastSeenSeq`
     /// and reconnect if the gap grows beyond a threshold.
     ChunkReady(ChunkReadyMessage),
+    /// server → client, final control message before the session closes.
+    Goodbye(GoodbyeMessage),
 }
 
 /// server → client lag notice. see [`ControlMessage::Lag`].
@@ -60,6 +62,11 @@ pub struct ChunkReadyMessage {
     /// without waiting for the next track change.
     #[serde(default)]
     pub listener_count: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GoodbyeMessage {
+    pub reason: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
