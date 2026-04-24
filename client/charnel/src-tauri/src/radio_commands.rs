@@ -80,10 +80,7 @@ pub enum RadioEvent {
 /// `events`. returns an opaque `session_id` the caller passes to
 /// `radio_leave` to tear down.
 #[tauri::command]
-pub async fn radio_tune(
-    peer_addr: String,
-    events: Channel<RadioEvent>,
-) -> Result<String, String> {
+pub async fn radio_tune(peer_addr: String, events: Channel<RadioEvent>) -> Result<String, String> {
     let endpoint = get_endpoint_arc().map_err(|e| e.to_string())?;
     let addr = parse_peer_address(&peer_addr).map_err(|e| e.to_string())?;
 
