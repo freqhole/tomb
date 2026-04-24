@@ -1,0 +1,180 @@
+//! typed radio admin command envelopes.
+//!
+//! response shapes:
+//! - `radio_stations_list`  -> `Vec<RadioStation>`
+//! - `radio_stations_get`   -> `RadioStation`
+//! - `radio_stations_create` -> `RadioStation`
+//! - `radio_stations_update` -> `RadioStation`
+//! - `radio_stations_delete` -> `EmptyResponse`
+//! - `radio_filters_list`   -> `Vec<StationFilter>`
+//! - `radio_filters_add`    -> `StationFilter`
+//! - `radio_filters_remove` -> `EmptyResponse`
+//! - `radio_songs_list`     -> `Vec<StationSong>`
+//! - `radio_songs_add`      -> `EmptyResponse`
+//! - `radio_songs_remove`   -> `EmptyResponse`
+
+use serde::{Deserialize, Serialize};
+use zod_gen_derive::ZodSchema;
+
+/// request for `radio_stations_get` and `radio_stations_delete`.
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct RadioStationsByIdRequest {
+    pub id: String,
+}
+
+/// request for `radio_filters_list` and `radio_songs_list`.
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct RadioStationByStationIdRequest {
+    pub station_id: String,
+}
+
+/// request for `radio_filters_add`.
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct RadioFiltersAddRequest {
+    pub station_id: String,
+    /// e.g. `"tag"`, `"genre"`, `"artist"`, `"album"`
+    pub filter_type: String,
+    pub filter_value: String,
+    /// `"include"` or `"exclude"`
+    pub mode: String,
+}
+
+/// request for `radio_filters_remove`.
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct RadioFiltersRemoveRequest {
+    pub filter_id: String,
+}
+
+/// request for `radio_songs_add`.
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct RadioSongsAddRequest {
+    pub station_id: String,
+    pub song_id: String,
+    #[serde(default)]
+    pub sort_order: Option<i64>,
+}
+
+/// request for `radio_songs_remove`.
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct RadioSongsRemoveRequest {
+    pub station_id: String,
+    pub song_id: String,
+}
+
+/// request for `radio_seed_suggest`. powers the wizard's autocomplete
+/// helpers — the dispatch layer maps `kind` to the right repository
+/// search and returns up to `limit` matches.
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct RadioSeedSuggestRequest {
+    /// one of `"tag"`, `"genre"`, `"artist"`, `"album"`, `"song"`
+    pub kind: String,
+    /// search prefix; empty string returns top results when supported
+    pub query: String,
+    /// max suggestions to return (server caps at 50)
+    #[serde(default)]
+    pub limit: Option<u32>,
+}
+
+/// single suggestion row returned by `radio_seed_suggest`.
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct RadioSeedSuggestion {
+    /// stable id (uuid) — for songs always required, for tag/genre/artist/album
+    /// it's the canonical id; filters store either id or name.
+    pub id: String,
+    /// human-readable label (tag name, genre name, artist name, "title — artist" for songs).
+    pub name: String,
+    /// secondary line, when meaningful (artist for albums, album for songs).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subtitle: Option<String>,
+}
+
+/// node-wide `[radio]` config block. mirrors `RadioConfig` for codegen.
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct RadioConfigPayload {
+    /// main switch — when false, the broadcaster doesn't start at boot
+    /// and `freqhole radio serve` refuses to run.
+    pub enabled: bool,
+    /// ffmpeg encoder template (`{input}` placeholder, output to `pipe:1`).
+    pub encode_args: String,
+}
+
+// ---------- supervisor (start/stop/restart) ----------------------------
+
+/// snapshot of one station's broadcaster lifecycle status.
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct RadioStationSupervisorStatus {
+    pub station_id: String,
+    pub name: String,
+    pub is_enabled: bool,
+    pub is_running: bool,
+    pub listener_count: u32,
+    pub current_seq: u32,
+    /// id of the song currently playing, if any.
+    pub current_song_id: Option<String>,
+    pub current_title: Option<String>,
+    /// true when this is the broadcaster the server hands out for tunes
+    /// that omit a station id.
+    pub is_default: bool,
+}
+
+/// response for `radio_supervisor_status` — one row per station in the
+/// db (running or not), plus the global `enabled` flag.
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct RadioSupervisorStatusResponse {
+    /// node-wide `[radio].enabled`. when false, the supervisor refuses to
+    /// start any new broadcasters until flipped through `radio_config_set`.
+    pub radio_enabled: bool,
+    pub stations: Vec<RadioStationSupervisorStatus>,
+}
+
+/// request for `radio_supervisor_start`, `_stop`, and `_restart`.
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct RadioSupervisorStationRequest {
+    pub station_id: String,
+}
+
+// ---------- bumpers (DJ drops / station IDs) ---------------------------
+
+/// one bumper row. references a `songz` row so uploads / metadata /
+/// art reuse the existing music pipeline.
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct RadioBumper {
+    pub id: String,
+    pub station_id: String,
+    pub song_id: String,
+    pub label: String,
+    pub weight: i64,
+    pub created_at: i64,
+}
+
+/// request for `radio_bumpers_list`.
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct RadioBumpersListRequest {
+    pub station_id: String,
+}
+
+/// request for `radio_bumpers_add`.
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct RadioBumpersAddRequest {
+    pub station_id: String,
+    pub song_id: String,
+    pub label: String,
+    /// optional weight (default 1). higher = picked more often.
+    #[serde(default)]
+    pub weight: Option<i64>,
+}
+
+/// request for `radio_bumpers_remove`.
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct RadioBumpersRemoveRequest {
+    pub bumper_id: String,
+}
+
+/// request for `radio_bumpers_set_frequency`. sets the per-station
+/// `bumper_frequency_seconds` (null = bumpers off).
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct RadioBumpersSetFrequencyRequest {
+    pub station_id: String,
+    /// seconds between bumper plays. `None` disables bumpers.
+    pub frequency_seconds: Option<i64>,
+}

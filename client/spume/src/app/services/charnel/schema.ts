@@ -19,7 +19,7 @@ export const FreqholeConfigSchema = z.object({
   /** server URL (e.g. http://localhost:8686) */
   server_url: z.string(),
   /** absolute file path of server image (for convertFileSrc) */
-  server_image_path: z.string().optional(),
+  server_image_path: z.string().nullish(),
   /** whether to disable backdrop blur (performance setting) */
   disable_backdrop_blur: z.boolean().optional(),
   /** whether to sync queue songs from remotes to local library (default: true) */
@@ -142,6 +142,19 @@ export const JobSessionCompleteEventSchema = z.object({
 });
 
 /**
+ * deep-link share-link received event — user opened a `freqhole://o/<token>`
+ * url while the app was running. spume routes it through the same
+ * ResolveShareModal flow used for `https://...#?share=<token>` urls.
+ */
+export const ShareLinkReceivedEventSchema = z.object({
+  type: z.literal("share-link-received"),
+  data: z.object({
+    /** full url the os handed off, e.g. `freqhole://o/<token>`. */
+    url: z.string(),
+  }),
+});
+
+/**
  * discriminated union of all event types
  */
 export const TauriEventSchema = z.discriminatedUnion("type", [
@@ -153,6 +166,7 @@ export const TauriEventSchema = z.discriminatedUnion("type", [
   PeerOfflineEventSchema,
   JobProgressEventSchema,
   JobSessionCompleteEventSchema,
+  ShareLinkReceivedEventSchema,
 ]);
 
 export type TauriEvent = z.infer<typeof TauriEventSchema>;
@@ -164,3 +178,4 @@ export type KnockCreatedEvent = z.infer<typeof KnockCreatedEventSchema>;
 export type PeerOfflineEvent = z.infer<typeof PeerOfflineEventSchema>;
 export type JobProgressEvent = z.infer<typeof JobProgressEventSchema>;
 export type JobSessionCompleteEvent = z.infer<typeof JobSessionCompleteEventSchema>;
+export type ShareLinkReceivedEvent = z.infer<typeof ShareLinkReceivedEventSchema>;

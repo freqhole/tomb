@@ -222,7 +222,8 @@ export function SearchInput(props: SearchInputProps) {
           {/* backdrop — only when flyout is open */}
           <Show when={isOpen() && (suggestions().length > 0 || props.loading)}>
             <div
-              class="fixed inset-0 bg-black/10 z-[1001]"
+              class="bg-black/10"
+              style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, "z-index": 1001 }}
               onClick={() => props.onOpenChange?.(false)}
             />
           </Show>

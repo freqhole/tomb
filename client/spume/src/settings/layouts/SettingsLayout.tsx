@@ -10,6 +10,7 @@ interface SettingsNavItem {
   icon: string;
 }
 
+// note: charnel-only items are filtered at render time below.
 const navItems: SettingsNavItem[] = [
   { path: "/settings/storage", label: "storage", icon: "" },
   { path: "/settings/remotes", label: "remotes", icon: "" },
@@ -19,8 +20,17 @@ const navItems: SettingsNavItem[] = [
   // { path: "/settings/appearance", label: "appearance", icon: "" },
 ];
 
+// items that are hidden in charnel/tauri mode because the charnel wizard
+// handles them. (kept here as a placeholder — empty for now since the
+// removed `/settings/radio` page is gone entirely.)
+const CHARNEL_HIDES_PATHS = new Set<string>([]);
+
 export function SettingsLayout(props: { children: JSX.Element }) {
   const location = useLocation();
+
+  // hide entries the charnel wizard already covers when in charnel mode.
+  const visibleNavItems = () =>
+    navItems.filter((item) => !isCharnelMode() || !CHARNEL_HIDES_PATHS.has(item.path));
 
   // set window/document title for settings
   onMount(() => {
@@ -33,7 +43,11 @@ export function SettingsLayout(props: { children: JSX.Element }) {
   });
 
   return (
-    <div class="min-h-screen bg-[var(--color-bg-primary)]">
+    <div
+      data-allow-select
+      class="min-h-screen bg-[var(--color-bg-primary)]"
+      style={{ "padding-top": "env(safe-area-inset-top, 0px)" }}
+    >
       {/* mobile header */}
       <div class="lg:hidden border-b border-[var(--color-border-subtle)] bg-[var(--color-bg-secondary)]">
         <div class="p-4">
@@ -45,7 +59,7 @@ export function SettingsLayout(props: { children: JSX.Element }) {
           </A>
         </div>
         <nav class="flex overflow-x-auto px-4 pb-2 gap-2">
-          <For each={navItems}>
+          <For each={visibleNavItems()}>
             {(item) => (
               <A
                 href={item.path}
@@ -79,7 +93,7 @@ export function SettingsLayout(props: { children: JSX.Element }) {
               settings
             </h2>
             <nav class="space-y-1">
-              <For each={navItems}>
+              <For each={visibleNavItems()}>
                 {(item) => (
                   <A
                     href={item.path}

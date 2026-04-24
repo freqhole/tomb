@@ -230,6 +230,18 @@ export const ImageIcon = (props: IconProps) => (
   </BaseIcon>
 );
 
+export const SendIcon = (props: IconProps) => (
+  <BaseIcon {...props} aria-label={props["aria-label"] ?? "Send"}>
+    <path d="M2,21L23,12L2,3V10L17,12L2,14V21Z" />
+  </BaseIcon>
+);
+
+export const ShareIcon = (props: IconProps) => (
+  <BaseIcon {...props} aria-label={props["aria-label"] ?? "Share"}>
+    <path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81 1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9c-1.66 0-3 1.34-3 3s1.34 3 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65 0 1.61 1.31 2.92 2.92 2.92s2.92-1.31 2.92-2.92-1.31-2.92-2.92-2.92z" />
+  </BaseIcon>
+);
+
 export const CheckIcon = (props: IconProps) => (
   <BaseIcon {...props} aria-label={props["aria-label"] ?? "Check"}>
     <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" />
@@ -309,6 +321,19 @@ export const HeadphonesIcon = (props: IconProps) => (
   <BaseIcon {...props} aria-label={props["aria-label"] ?? "Headphones"}>
     <path d="M12 3C7.03 3 3 7.03 3 12v7c0 1.1.9 2 2 2h2v-8H5v-1c0-3.87 3.13-7 7-7s7 3.13 7 7v1h-2v8h2c1.1 0 2-.9 2-2v-7c0-4.97-4.03-9-9-9z" />
   </BaseIcon>
+);
+
+export const RadioTowerIcon = (props: IconProps) => (
+  <StrokeBaseIcon {...props} aria-label={props["aria-label"] ?? "Radio tower"}>
+    <circle cx="12" cy="4" r="1.5" />
+    <path d="M12 6v12" />
+    <path d="M9 18h6" />
+    <path d="M8 21h8" />
+    <path d="M7 8.5a7 7 0 0 0 0 7" />
+    <path d="M17 8.5a7 7 0 0 1 0 7" />
+    <path d="M4.5 6.5a10 10 0 0 0 0 11" />
+    <path d="M19.5 6.5a10 10 0 0 1 0 11" />
+  </StrokeBaseIcon>
 );
 
 export const CarouselIcon = (props: IconProps) => (
@@ -481,12 +506,15 @@ export const IconRegistry = {
   info: InfoIcon,
   upload: UploadIcon,
   image: ImageIcon,
+  send: SendIcon,
+  share: ShareIcon,
   check: CheckIcon,
   x: XIcon,
   alertTriangle: AlertTriangleIcon,
   loader: LoaderIcon,
   database: DatabaseIcon,
   headphones: HeadphonesIcon,
+  radioTower: RadioTowerIcon,
   carousel: CarouselIcon,
   externalLink: ExternalLinkIcon,
   autoDownload: AutoDownloadIcon,
@@ -577,12 +605,15 @@ export const IconNames = {
   info: "info",
   upload: "upload",
   image: "image",
+  send: "send",
+  share: "share",
   check: "check",
   x: "x",
   alertTriangle: "alertTriangle",
   loader: "loader",
   database: "database",
   headphones: "headphones",
+  radioTower: "radioTower",
   carousel: "carousel",
   externalLink: "externalLink",
   autoDownload: "autoDownload",

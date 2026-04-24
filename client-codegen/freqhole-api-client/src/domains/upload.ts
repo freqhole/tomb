@@ -2,14 +2,14 @@
 // uses transport.upload() for FormData handling
 
 import { z } from "zod";
+import type * as s from "../codegen/schema.js";
+import {
+  ImageUploadResponseSchema,
+  MusicImportResponseSchema,
+  MusicUploadResponseSchema,
+} from "../codegen/schema.js";
 import type { Transport } from "../transport.js";
 import type { SafeParseResult } from "./types.js";
-import {
-  MusicUploadResponseSchema,
-  MusicImportResponseSchema,
-  ImageUploadResponseSchema,
-} from "../codegen/schema.js";
-import type * as s from "../codegen/schema.js";
 
 // helper to parse response and validate with schema
 function parseResponse<T>(
@@ -29,7 +29,9 @@ function parseResponse<T>(
     }
     return {
       success: false,
-      error: new z.ZodError([{ code: "custom", path: [], message: errorMessage }]),
+      error: new z.ZodError([
+        { code: "custom", path: [], message: errorMessage },
+      ]),
     };
   }
 
@@ -46,7 +48,11 @@ function parseResponse<T>(
     return {
       success: false,
       error: new z.ZodError([
-        { code: "custom", path: [], message: err instanceof Error ? err.message : "parse error" },
+        {
+          code: "custom",
+          path: [],
+          message: err instanceof Error ? err.message : "parse error",
+        },
       ]),
     };
   }
@@ -63,12 +69,51 @@ export function createUploadMethods(transport: Transport) {
      * upload a music file
      * returns job information for async processing
      */
-    music: async (file: File | Blob): Promise<SafeParseResult<s.MusicUploadResponse>> => {
+    music: async (
+      file: File | Blob,
+    ): Promise<SafeParseResult<s.MusicUploadResponse>> => {
       const formData = new FormData();
       formData.append("file", file);
 
       const response = await transport.upload("/api/upload/music", formData);
-      return parseResponse(response.body, response.status, MusicUploadResponseSchema);
+      return parseResponse(
+        response.body,
+        response.status,
+        MusicUploadResponseSchema,
+      );
+    },
+
+    /**
+     * upload a music file by filesystem path (tauri P2P only).
+     * imports the file into the local iroh-blobs store, then tells the remote
+     * peer to pull it via verified streaming.
+     * requires transport.uploadByPath to be implemented (CharnelTransport).
+     */
+    musicByPath: async (
+      filePath: string,
+    ): Promise<SafeParseResult<s.MusicUploadResponse>> => {
+      if (!transport.uploadByPath) {
+        return {
+          success: false,
+          error: new z.ZodError([
+            {
+              code: "custom",
+              path: [],
+              message: "uploadByPath not supported by this transport",
+            },
+          ]),
+        };
+      }
+
+      const response = await transport.uploadByPath(
+        "/api/upload/music",
+        filePath,
+      );
+      return parseResponse(
+        response.body,
+        response.status,
+        MusicUploadResponseSchema,
+      );
     },
 
     /**
@@ -87,7 +132,11 @@ export function createUploadMethods(transport: Transport) {
       }
 
       const response = await transport.upload("/api/upload/image", formData);
-      return parseResponse(response.body, response.status, ImageUploadResponseSchema);
+      return parseResponse(
+        response.body,
+        response.status,
+        ImageUploadResponseSchema,
+      );
     },
 
     /**
@@ -103,7 +152,11 @@ export function createUploadMethods(transport: Transport) {
         return {
           success: false,
           error: new z.ZodError([
-            { code: "custom", path: [], message: "uploadByPath not supported by this transport" },
+            {
+              code: "custom",
+              path: [],
+              message: "uploadByPath not supported by this transport",
+            },
           ]),
         };
       }
@@ -113,8 +166,16 @@ export function createUploadMethods(transport: Transport) {
         metadata.associate_with = options.associate;
       }
 
-      const response = await transport.uploadByPath("/api/upload/image", filePath, metadata);
-      return parseResponse(response.body, response.status, ImageUploadResponseSchema);
+      const response = await transport.uploadByPath(
+        "/api/upload/image",
+        filePath,
+        metadata,
+      );
+      return parseResponse(
+        response.body,
+        response.status,
+        ImageUploadResponseSchema,
+      );
     },
 
     /**
@@ -136,8 +197,16 @@ export function createUploadMethods(transport: Transport) {
         wait_for_completion: options?.waitForCompletion ?? false,
       };
 
-      const response = await transport.request("POST", "/api/upload/music-paths", JSON.stringify(body));
-      return parseResponse(response.body, response.status, MusicImportResponseSchema);
+      const response = await transport.request(
+        "POST",
+        "/api/upload/music-paths",
+        JSON.stringify(body),
+      );
+      return parseResponse(
+        response.body,
+        response.status,
+        MusicImportResponseSchema,
+      );
     },
   };
 }

@@ -520,7 +520,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
       items: result.data.items.map((item) => ({
         playlist_id: item.playlist.id,
         title: item.playlist.title,
-        description: item.playlist.description,
+        description: item.playlist.description ?? null,
         is_public: item.playlist.is_public === 1,
         images: item.playlist.images && item.playlist.images.length > 0
           ? item.playlist.images.map((img) => adaptApiImage(img, this.baseUrl, this.remoteId))
@@ -576,6 +576,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     is_public?: boolean;
   }): Promise<PlaylistSummary> {
     const result = await (await this.getClient()).music.createPlaylist({
+      id: null,
       title: params.title,
       description: params.description || null,
       is_public: params.is_public ?? false,
@@ -591,7 +592,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     return {
       playlist_id: result.data.id,
       title: result.data.title,
-      description: result.data.description,
+      description: result.data.description ?? null,
       is_public: result.data.is_public === 1,
       song_count: result.data.song_count,
       created_at: result.data.created_at * 1000, // convert seconds to milliseconds
@@ -625,7 +626,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     return {
       playlist_id: result.data.id,
       title: result.data.title,
-      description: result.data.description,
+      description: result.data.description ?? null,
       is_public: result.data.is_public === 1,
       song_count: result.data.song_count,
       created_at: result.data.created_at * 1000, // convert seconds to milliseconds
@@ -1333,8 +1334,8 @@ export class RemoteMusicDataSource implements MusicDataSource {
       total_songs: data.total_songs,
       songs_completed: data.songs_completed,
       current_song_index: data.current_song_index,
-      current_song_position_ms: data.current_song_position_ms,
-      progress_percent: data.progress_percent,
+      current_song_position_ms: data.current_song_position_ms ?? null,
+      progress_percent: data.progress_percent ?? null,
       total_duration_ms: data.total_duration_ms,
       listened_duration_ms: data.listened_duration_ms,
       created_at: data.created_at,
@@ -1350,6 +1351,14 @@ export class RemoteMusicDataSource implements MusicDataSource {
     }
   }
 
+  async deleteFeedEvent(feedEventId: string): Promise<void> {
+    const result = await (await this.getClient()).music.deleteFeedEvent(feedEventId);
+    if (!result.success) {
+      await this.handleFailedRequest(result);
+      throw new Error("failed to delete feed event");
+    }
+  }
+
   // musicbrainz operations
   async searchMusicbrainzReleases(params: {
     artist: string | null;
@@ -1362,7 +1371,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
       await this.handleFailedRequest(result);
       return null;
     }
-    return result.data;
+    return result.data as import("../types").MbSearchReleasesResponse;
   }
 
   async getMusicbrainzRelease(mbid: string): Promise<import("../types").MbReleaseDetail | null> {
@@ -1371,6 +1380,6 @@ export class RemoteMusicDataSource implements MusicDataSource {
       await this.handleFailedRequest(result);
       return null;
     }
-    return result.data;
+    return result.data as import("../types").MbReleaseDetail;
   }
 }

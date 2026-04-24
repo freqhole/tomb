@@ -31,6 +31,15 @@ pub struct GrimoireConfig {
     /// Federation/P2P configuration (optional - for peer-to-peer music sharing)
     #[serde(default)]
     pub federation: Option<FederationConfig>,
+    /// Radio streaming configuration (optional - only when broadcasting).
+    #[serde(default)]
+    pub radio: Option<crate::radio::config::RadioConfig>,
+
+    /// Path this config was loaded from. Set by `init_config`; not
+    /// (de)serialized. Used by admin handlers that need to write changes
+    /// back to disk without re-running cwd-based config discovery.
+    #[serde(default, skip)]
+    pub loaded_from: Option<PathBuf>,
 }
 
 /// Database configuration
@@ -38,8 +47,6 @@ pub struct GrimoireConfig {
 pub struct DatabaseConfig {
     /// SQLite database filename (stored in data_dir)
     pub filename: String,
-    /// Automatically run migrations on startup
-    pub auto_run_migrations: bool,
     /// Maximum number of connections in the pool (default: 5)
     #[serde(default = "default_max_connections")]
     pub max_connections: u32,
@@ -212,6 +219,50 @@ pub struct FederationConfig {
     /// the same port should be forwarded on the router (UDP, external:same -> internal:same)
     #[serde(default)]
     pub bind_port: Option<u16>,
+    /// remote admin configuration (`freqhole-admin/1` ALPN).
+    /// when absent or `enabled = false`, incoming admin connections are
+    /// rejected. see docs/wizard-remote-admin.md.
+    #[serde(default)]
+    pub remote_admin: Option<RemoteAdminConfig>,
+}
+
+/// remote admin configuration for the `freqhole-admin/1` ALPN
+///
+/// opt-in. when `enabled = false` (default), the admin ALPN handler rejects
+/// all incoming connections regardless of role. when `enabled = true`, the
+/// connecting peer must (a) resolve to a User with `role == Admin` and
+/// (b) appear in `allowed_node_ids` if that list is non-empty.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct RemoteAdminConfig {
+    /// main switch for the admin ALPN (default: false)
+    #[serde(default)]
+    pub enabled: bool,
+    /// optional explicit allowlist of admin peer node IDs.
+    /// empty list = allow any peer that resolves to an admin user.
+    /// non-empty list = require both role==admin AND node_id membership.
+    #[serde(default)]
+    pub allowed_node_ids: Vec<String>,
+    /// maximum admin message size in mb (default: 16)
+    #[serde(default = "default_admin_max_message_size_mb")]
+    pub max_message_size_mb: u32,
+}
+
+fn default_admin_max_message_size_mb() -> u32 {
+    16
+}
+
+impl RemoteAdminConfig {
+    /// max message size in bytes
+    pub fn max_message_size_bytes(&self) -> usize {
+        (self.max_message_size_mb as usize) * 1024 * 1024
+    }
+
+    /// is this peer node id allowed?
+    /// returns true when the allowlist is empty (admin role check still
+    /// applies elsewhere) or when the node id is explicitly listed.
+    pub fn is_allowed_node(&self, node_id: &str) -> bool {
+        self.allowed_node_ids.is_empty() || self.allowed_node_ids.iter().any(|n| n == node_id)
+    }
 }
 
 fn default_federation_role() -> String {
@@ -551,7 +602,8 @@ impl GrimoireConfig {
 /// allowing runtime config changes (e.g., toggling federation).
 pub fn init_config(path: Option<PathBuf>) -> Result<(), ConfigError> {
     let config_path = find_config(path)?;
-    let config = GrimoireConfig::load(config_path)?;
+    let mut config = GrimoireConfig::load(&config_path)?;
+    config.loaded_from = Some(config_path);
 
     match CONFIG.get() {
         Some(lock) => {
@@ -564,6 +616,14 @@ pub fn init_config(path: Option<PathBuf>) -> Result<(), ConfigError> {
         }
     }
     Ok(())
+}
+
+/// Get the path to the currently-loaded config file (set by init_config).
+/// Returns None if config hasn't been initialized yet.
+pub fn get_config_path() -> Option<PathBuf> {
+    CONFIG
+        .get()
+        .and_then(|lock| lock.read().unwrap().loaded_from.clone())
 }
 
 /// Check if config has been initialized
@@ -799,9 +859,6 @@ fn generate_config_template(
 
     // update data_dir
     doc["data_dir"] = value(data_dir.display().to_string());
-
-    // enable auto migrations - server will run migrations on startup
-    doc["database"]["auto_run_migrations"] = value(false);
 
     // update media section with absolute paths if provided
     if let Some(media) = doc["media"].as_table_mut() {
@@ -1309,7 +1366,6 @@ mod tests {
             data_dir: PathBuf::from("/data"),
             database: DatabaseConfig {
                 filename: "test.db".to_string(),
-                auto_run_migrations: true,
                 max_connections: default_max_connections(),
                 acquire_timeout_seconds: default_acquire_timeout_seconds(),
                 idle_timeout_seconds: default_idle_timeout_seconds(),
@@ -1335,6 +1391,7 @@ mod tests {
             },
             server: None,
             federation: None,
+            loaded_from: None,
         };
 
         assert_eq!(config.database_path(), PathBuf::from("/data/test.db"));
@@ -1348,7 +1405,6 @@ mod tests {
             data_dir: PathBuf::from("/data"),
             database: DatabaseConfig {
                 filename: "test.db".to_string(),
-                auto_run_migrations: true,
                 max_connections: default_max_connections(),
                 acquire_timeout_seconds: default_acquire_timeout_seconds(),
                 idle_timeout_seconds: default_idle_timeout_seconds(),
@@ -1374,6 +1430,7 @@ mod tests {
             },
             server: None,
             federation: None,
+            loaded_from: None,
         };
 
         assert!(config.validate().is_err());
@@ -1385,7 +1442,6 @@ mod tests {
             data_dir: PathBuf::from("/data"),
             database: DatabaseConfig {
                 filename: "".to_string(),
-                auto_run_migrations: true,
                 max_connections: default_max_connections(),
                 acquire_timeout_seconds: default_acquire_timeout_seconds(),
                 idle_timeout_seconds: default_idle_timeout_seconds(),
@@ -1411,6 +1467,7 @@ mod tests {
             },
             server: None,
             federation: None,
+            loaded_from: None,
         };
 
         assert!(config.validate().is_err());

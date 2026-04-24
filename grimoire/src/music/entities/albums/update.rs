@@ -8,6 +8,9 @@ use crate::music::crud::create_or_update::{
     find_or_create_album_for_artist, find_or_create_artist, find_or_create_genre,
 };
 use crate::music::crud::delete::{delete_album_if_unused, delete_artist_if_unused};
+use crate::music::analytics::feed_events::{
+    handle_album_feed_reassignment, handle_artist_feed_reassignment,
+};
 use crate::music::crud::ArtistImportRequest;
 use crate::music::crud::ImageMetadata;
 use crate::music::entities::genres;
@@ -227,7 +230,15 @@ pub async fn update_album(req: UpdateAlbumRequest) -> GrimoireResponse<Album> {
         .await;
 
         // clean up the now-empty source album
-        let _ = delete_album_if_unused(&req.album_id).await;
+        let delete_result = delete_album_if_unused(&req.album_id).await;
+        if delete_result.data == Some(true) {
+            let _ = handle_album_feed_reassignment(
+                &req.album_id,
+                target_id,
+                req.updated_by.as_deref(),
+            )
+            .await;
+        }
 
         // return the target album
         return super::get_album(target_id).await;
@@ -679,10 +690,26 @@ pub async fn update_album(req: UpdateAlbumRequest) -> GrimoireResponse<Album> {
         }
 
         // cleanup orphaned old album and artists
-        let _ = delete_album_if_unused(&req.album_id).await;
+        let delete_result = delete_album_if_unused(&req.album_id).await;
+        if delete_result.data == Some(true) {
+            let _ = handle_album_feed_reassignment(
+                &req.album_id,
+                &new_album.id,
+                req.updated_by.as_deref(),
+            )
+            .await;
+        }
         for old_artist_id in &old_artist_ids {
             if old_artist_id != &new_artist.id {
-                let _ = delete_artist_if_unused(old_artist_id).await;
+                let delete_result = delete_artist_if_unused(old_artist_id).await;
+                if delete_result.data == Some(true) {
+                    let _ = handle_artist_feed_reassignment(
+                        old_artist_id,
+                        &new_artist.id,
+                        req.updated_by.as_deref(),
+                    )
+                    .await;
+                }
             }
         }
 

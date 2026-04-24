@@ -23,7 +23,7 @@ fi
 
 APP_ID="net.freqhole.freqhole"
 RUNTIME="org.gnome.Platform"
-RUNTIME_VERSION="46"
+RUNTIME_VERSION="50"
 SDK="org.gnome.Sdk"
 
 WORK_DIR=$(mktemp -d)

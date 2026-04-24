@@ -71,15 +71,6 @@ pub struct P2pBlobWithBlake3Response {
     pub blake3: String,
 }
 
-/// upload response
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct P2pUploadResponse {
-    pub blob_id: Option<String>,
-    pub job_id: Option<String>,
-    /// full server response body for client parsing
-    pub body: Option<String>,
-}
-
 /// initialize P2P endpoint for both inbound and outbound connections
 ///
 /// must be called after the server starts and grimoire config is available.
@@ -109,20 +100,21 @@ pub async fn init_p2p_client(config_path: &Path) -> Result<(), String> {
         .as_ref()
         .map(|f| f.enabled)
         .unwrap_or(false);
+    // radio is independent of federation: it just needs an iroh endpoint
+    // + the RADIO_ALPN protocol handler. operators can run a radio
+    // broadcaster without federation enabled.
+    let radio_enabled = grimoire::radio::config::effective().enabled;
 
-    if !federation_enabled {
-        // tracing::debug!("federation not enabled in config, skipping P2P init");
+    if !federation_enabled && !radio_enabled {
+        // tracing::debug!("federation + radio both disabled, skipping P2P init");
         return Ok(());
     }
 
-    // check if knocking is enabled or peers exist (determines if we accept incoming)
-    let knocking_enabled = config
-        .federation
-        .as_ref()
-        .map(|f| f.knocking_enabled)
-        .unwrap_or(false);
-
-    tracing::info!("initializing P2P endpoint...");
+    tracing::info!(
+        federation = federation_enabled,
+        radio = radio_enabled,
+        "initializing P2P endpoint..."
+    );
 
     let mut endpoint = grimoire::federation::transport::FederationEndpoint::new()
         .await
@@ -131,21 +123,39 @@ pub async fn init_p2p_client(config_path: &Path) -> Result<(), String> {
     let node_id = endpoint.node_id();
     tracing::info!(node_id = %node_id, "P2P endpoint ready");
 
-    // start router for incoming connections if knocking enabled or peers exist
-    let service = grimoire::users::UserService::new();
-    let has_peers = service.has_peer_nodes().await;
-
-    if knocking_enabled || has_peers {
-        tracing::info!(
-            knocking = knocking_enabled,
-            has_peers = has_peers,
-            "starting router"
-        );
-        endpoint
-            .start_router()
-            .await
-            .map_err(|e| format!("failed to start P2P router: {}", e))?;
+    // when radio is enabled at startup, spawn one broadcaster per
+    // enabled station. when disabled, the registry stays empty and
+    // incoming radio connections will get a "no broadcaster" error
+    // until the operator flips the toggle (which calls init_registry
+    // dynamically — broadcasters can come and go without a restart
+    // because the RADIO_ALPN handler is always attached below).
+    if radio_enabled {
+        if let Err(e) = grimoire::radio::init_broadcaster().await {
+            tracing::warn!(error = %e, "failed to init radio broadcasters; radio disabled for this session");
+        } else {
+            tracing::info!("[radio] broadcaster registry initialized");
+        }
     }
+
+    // always start router on charnel — the app needs to accept incoming
+    // blob download requests from remote peers (iroh-blobs pull model).
+    // without the router, uploads via music-by-blake3 fail because the
+    // server can't connect back to pull the blob. the RADIO_ALPN handler
+    // is always wired in too: when the registry is empty (radio disabled
+    // or all stations stopped) it returns "no broadcaster" to the
+    // listener; this lets us toggle radio on/off at runtime without a
+    // router rebuild (iroh's Router has no runtime add/remove protocol
+    // API as of 0.98).
+    tracing::info!("starting router for blob serving + radio");
+    endpoint
+        .start_router_with(|builder| {
+            builder.accept(
+                grimoire::radio::RADIO_ALPN,
+                grimoire::radio::RadioProtocol::new(),
+            )
+        })
+        .await
+        .map_err(|e| format!("failed to start P2P router: {}", e))?;
 
     // register endpoint for P2P client operations (stores reference for outbound)
     grimoire::federation::p2p_client::set_federation_endpoint(endpoint.endpoint());
@@ -183,11 +193,14 @@ pub async fn p2p_proxy_request(
     path: String,
     body: Option<String>,
 ) -> Result<P2pResponse, String> {
+    tracing::info!(peer = %peer_addr, method = %method, path = %path, "p2p proxy request");
+
     let response =
         grimoire::federation::p2p_client::proxy_request(&peer_addr, &method, &path, body)
             .await
             .map_err(|e| {
                 let error_msg = e.to_string();
+                tracing::warn!(peer = %peer_addr, method = %method, path = %path, error = %error_msg, "p2p proxy request failed");
                 // emit peer-offline event for connection failures
                 if is_connection_error(&error_msg) {
                     let _ = notify_peer_offline(&app_handle, &peer_addr, &error_msg);
@@ -195,37 +208,11 @@ pub async fn p2p_proxy_request(
                 error_msg
             })?;
 
+    tracing::info!(peer = %peer_addr, method = %method, path = %path, status = response.status, "p2p proxy response");
+
     Ok(P2pResponse {
         status: response.status,
         body: response.body,
-    })
-}
-
-/// fetch a blob from a remote peer via P2P
-///
-/// returns base64-encoded data (since tauri can't easily pass raw bytes)
-#[tauri::command]
-pub async fn p2p_fetch_blob(
-    app_handle: tauri::AppHandle,
-    peer_addr: String,
-    blob_id: String,
-) -> Result<P2pBlobResponse, String> {
-    use base64::{engine::general_purpose::STANDARD, Engine};
-
-    let blob = grimoire::federation::p2p_client::fetch_blob(&peer_addr, &blob_id)
-        .await
-        .map_err(|e| {
-            let error_msg = e.to_string();
-            if is_connection_error(&error_msg) {
-                let _ = notify_peer_offline(&app_handle, &peer_addr, &error_msg);
-            }
-            error_msg
-        })?;
-
-    Ok(P2pBlobResponse {
-        data: STANDARD.encode(&blob.data),
-        content_type: blob.content_type,
-        size: blob.size,
     })
 }
 
@@ -242,12 +229,15 @@ pub async fn p2p_fetch_blob_verified(
 ) -> Result<P2pBlobResponse, String> {
     use base64::{engine::general_purpose::STANDARD, Engine};
 
+    tracing::info!(peer = %peer_addr, blake3 = %blake3_hash, "fetching verified blob");
+
     // use fetch_blob_verified_with_ensure which handles on-demand loading
     let data =
         grimoire::federation::p2p_client::fetch_blob_verified_with_ensure(&peer_addr, &blake3_hash)
             .await
             .map_err(|e| {
                 let error_msg = e.to_string();
+                tracing::warn!(peer = %peer_addr, blake3 = %blake3_hash, error = %error_msg, "fetch verified blob failed");
                 if is_connection_error(&error_msg) {
                     let _ = notify_peer_offline(&app_handle, &peer_addr, &error_msg);
                 }
@@ -274,11 +264,14 @@ pub async fn p2p_fetch_blob_verified_by_id(
 ) -> Result<P2pBlobWithBlake3Response, String> {
     use base64::{engine::general_purpose::STANDARD, Engine};
 
+    tracing::info!(peer = %peer_addr, blob_id = %blob_id, "fetching verified blob by id");
+
     let (data, blake3) =
         grimoire::federation::p2p_client::fetch_blob_verified_by_id(&peer_addr, &blob_id)
             .await
             .map_err(|e| {
                 let error_msg = e.to_string();
+                tracing::warn!(peer = %peer_addr, blob_id = %blob_id, error = %error_msg, "fetch verified blob by id failed");
                 if is_connection_error(&error_msg) {
                     let _ = notify_peer_offline(&app_handle, &peer_addr, &error_msg);
                 }
@@ -304,10 +297,13 @@ pub async fn p2p_fetch_hello_image(
 ) -> Result<P2pBlobResponse, String> {
     use base64::{engine::general_purpose::STANDARD, Engine};
 
+    tracing::info!(peer = %peer_addr, "fetching hello image");
+
     let blob = grimoire::federation::p2p_client::fetch_hello_image(&peer_addr)
         .await
         .map_err(|e| {
             let error_msg = e.to_string();
+            tracing::warn!(peer = %peer_addr, error = %error_msg, "fetch hello image failed");
             if is_connection_error(&error_msg) {
                 let _ = notify_peer_offline(&app_handle, &peer_addr, &error_msg);
             }
@@ -319,6 +315,18 @@ pub async fn p2p_fetch_hello_image(
         content_type: blob.content_type,
         size: blob.size,
     })
+}
+
+/// lightweight probe: check if a remote peer has a blob available.
+/// sends an EnsureBlobRequest and returns whether the blob is ready for download.
+/// used for parallel peer probing before committing to a full download.
+#[tauri::command]
+pub async fn p2p_probe_blob(peer_addr: String, blake3_hash: String) -> Result<bool, String> {
+    use grimoire::federation::transport::EnsureBlobOutcome;
+    grimoire::federation::p2p_client::ensure_blob(&peer_addr, &blake3_hash)
+        .await
+        .map(|outcome| matches!(outcome, EnsureBlobOutcome::Available))
+        .map_err(|e| e.to_string())
 }
 
 /// close connection to a specific peer (removes from cache)
@@ -333,45 +341,54 @@ pub fn p2p_close_all_connections() {
     grimoire::federation::p2p_client::close_all_connections();
 }
 
-/// upload a blob to a remote peer via P2P
+/// import a local file into the iroh-blobs store for P2P serving
 ///
-/// data: base64-encoded blob data (since tauri can't easily pass raw bytes)
-/// associate_with: optional JSON with entity association metadata
+/// adds the file to FsStore using TryReference mode (no copy, just BAO tree).
+/// returns the blake3 hash which can be sent to remote peers for verified download.
+///
+/// used by CharnelTransport for P2P music upload:
+/// 1. user picks file -> call this command -> get blake3
+/// 2. send blake3 + metadata to remote peer via proxy_request
+/// 3. remote peer pulls file from our iroh endpoint
 #[tauri::command]
-pub async fn p2p_upload_blob(
-    app_handle: tauri::AppHandle,
-    peer_addr: String,
-    filename: String,
-    content_type: String,
-    data: String,
-    associate_with: Option<serde_json::Value>,
-) -> Result<P2pUploadResponse, String> {
-    use base64::{engine::general_purpose::STANDARD, Engine};
+pub async fn p2p_import_blob(file_path: String) -> Result<String, String> {
+    let path = Path::new(&file_path);
 
-    // decode base64 data
-    let bytes = STANDARD
+    if !path.exists() {
+        return Err(format!("file not found: {}", file_path));
+    }
+
+    tracing::info!("importing file into blobs store: {}", file_path);
+
+    let hash = grimoire::blobz::add_file_to_store(path)
+        .await
+        .map_err(|e| format!("failed to import blob: {}", e))?;
+
+    let blake3 = hash.to_hex().to_string();
+    tracing::info!("imported blob: {} -> {}", file_path, &blake3[..16]);
+
+    Ok(blake3)
+}
+
+/// import raw bytes into the iroh-blobs store for P2P serving
+///
+/// like p2p_import_blob but accepts bytes instead of a filesystem path.
+/// used on Android where file picker returns File objects (no filesystem path available).
+/// returns the blake3 hash which can be sent to remote peers for verified download.
+#[tauri::command]
+pub async fn p2p_import_blob_bytes(data: String) -> Result<String, String> {
+    use base64::Engine;
+    let data = base64::engine::general_purpose::STANDARD
         .decode(&data)
-        .map_err(|e| format!("failed to decode base64 data: {}", e))?;
+        .map_err(|e| format!("failed to decode base64: {}", e))?;
+    tracing::info!("importing {} bytes into blobs store", data.len());
 
-    let result = grimoire::federation::p2p_client::upload_blob(
-        &peer_addr,
-        &filename,
-        &content_type,
-        &bytes,
-        associate_with,
-    )
-    .await
-    .map_err(|e| {
-        let error_msg = e.to_string();
-        if is_connection_error(&error_msg) {
-            let _ = notify_peer_offline(&app_handle, &peer_addr, &error_msg);
-        }
-        error_msg
-    })?;
+    let hash = grimoire::blobz::add_bytes_to_store(&data)
+        .await
+        .map_err(|e| format!("failed to import blob bytes: {}", e))?;
 
-    Ok(P2pUploadResponse {
-        blob_id: result.blob_id,
-        job_id: result.job_id,
-        body: result.body,
-    })
+    let blake3 = hash.to_hex().to_string();
+    tracing::info!("imported blob bytes: {} -> {}", data.len(), &blake3[..16]);
+
+    Ok(blake3)
 }

@@ -1,13 +1,14 @@
-import { Show, createSignal, createMemo, createEffect, onMount, onCleanup } from "solid-js";
+import { Show, createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js";
+import type { JSX } from "solid-js";
+import { getBackgroundConfig } from "../../app/services/backgroundImage";
+import type { ImageMetadata } from "../../music/services/storage/types";
+import { formatDuration } from "../../utils/formatDuration";
+import { getSongDisplayImages, getWaveformImage } from "../../utils/images";
 import { Icon, IconNames } from "../icons/registry";
+import MediaImage from "../media/MediaImage";
 import { FavoriteHeart } from "../ratings/FavoriteHeart";
 import { MarqueeText } from "../text/MarqueeText";
 import { VolumeControl } from "./VolumeControl";
-import MediaImage from "../media/MediaImage";
-import { formatDuration } from "../../utils/formatDuration";
-import { getBackgroundConfig } from "../../app/services/backgroundImage";
-import { getSongDisplayImages, getWaveformImage } from "../../utils/images";
-import type { ImageMetadata } from "../../music/services/storage/types";
 
 export interface PlayerBarSong {
   /** song id */
@@ -73,6 +74,9 @@ export interface PlayerBarProps {
   hideQueueToggle?: boolean;
   /** callback when thumbnail image is clicked */
   onImageClick?: () => void;
+  /** optional status chip rendered in the top-right corner of the bar
+   * (e.g., the radio "live · N listening" indicator). */
+  statusBadge?: JSX.Element;
   /** additional classes */
   class?: string;
 }
@@ -203,11 +207,88 @@ export function PlayerBar(props: PlayerBarProps) {
   return (
     <div
       class={`fixed bottom-0 left-0 right-0 ${getBackgroundConfig() ? "bg-[var(--color-bg-primary)]/40" : "bg-[var(--color-bg-primary)]/90 backdrop-blur-xl"} z-50 ${props.class || ""}`}
-      style={{ height: "var(--player-height)" }}
+      style={{ height: "var(--player-height)", "padding-bottom": "var(--safe-area-bottom, 0px)" }}
     >
-      {/* narrow layout: 2 rows */}
+      {/* status badge — used by radio mode for the live + listener-count
+          chip. rendered inline at the left edge of both narrow row 1 and
+          the wide single-row layout so it stays clear of controls and
+          the seekbar. */}
+      {/* narrow layout: 2 rows — seekbar on top to avoid iOS swipe-up gesture */}
       <div class="flex flex-col h-full wide:hidden p-2 gap-1">
-        {/* row 1: thumbnail, fav, title/artist, controls, queue */}
+        {/* row 1: badge + time + full-width progress with waveform + duration */}
+        <div class="flex items-center gap-2 h-6">
+          <Show when={props.statusBadge}>
+            <div class="flex-shrink-0">{props.statusBadge}</div>
+          </Show>
+          <span class="text-xs text-[var(--color-accent-500)] font-light min-w-[2rem] text-right tabular-nums">
+            {formatDuration(props.currentTime)}
+          </span>
+
+          {/* progress bar container with waveform background */}
+          <div
+            class="relative flex-1 h-5 cursor-pointer"
+            onMouseDown={handleMouseDown}
+            onTouchStart={handleTouchStart}
+            onTouchMove={handleTouchMove}
+            onTouchEnd={handleTouchEnd}
+          >
+            {/* waveform image - full width, revealed by progress (no scale on narrow) */}
+            <Show when={showWaveform()}>
+              {(() => {
+                const waveform = waveformImage()!;
+                return (
+                  <>
+                    {/* dim waveform background (unplayed portion) */}
+                    <div class="absolute inset-0 opacity-20 rounded overflow-hidden">
+                      <MediaImage
+                        images={[waveform]}
+                        alt=""
+                        class="w-full h-full object-cover mix-blend-screen"
+                        showFallback={false}
+                        onError={() => setWaveformError(true)}
+                      />
+                    </div>
+                    {/* bright waveform foreground (played portion) - clipped to progress */}
+                    <div
+                      class="absolute inset-0 opacity-80 rounded overflow-hidden"
+                      style={{ "clip-path": `inset(0 ${100 - progress()}% 0 0)` }}
+                    >
+                      <MediaImage
+                        images={[waveform]}
+                        alt=""
+                        class="w-full h-full object-cover  mix-blend-screen"
+                        showFallback={false}
+                      />
+                    </div>
+                    {/* progress line indicator */}
+                    <div
+                      class="absolute top-0 bottom-0 w-0.5 bg-[var(--color-accent-500)] shadow-[0_0_4px_var(--color-accent-500)]"
+                      style={{ left: `${progress()}%` }}
+                    />
+                  </>
+                );
+              })()}
+            </Show>
+
+            {/* fallback progress bar - only show if no waveform */}
+            <Show when={!showWaveform()}>
+              <div class="absolute inset-y-0 left-0 right-0 flex items-center">
+                <div class="w-full h-1.5 bg-[var(--color-accent-500)]/20 rounded-full overflow-hidden">
+                  <div
+                    class="h-full bg-gradient-to-r from-[var(--color-accent-500)] to-[var(--color-accent-400)] rounded-full"
+                    style={{ width: `${progress()}%` }}
+                  />
+                </div>
+              </div>
+            </Show>
+          </div>
+
+          <span class="text-xs text-[var(--color-accent-500)] font-light min-w-[2rem] tabular-nums">
+            {formatDuration(props.duration)}
+          </span>
+        </div>
+
+        {/* row 2: thumbnail, fav, title/artist, controls, queue */}
         <div class="flex items-center gap-2 flex-1 min-h-0">
           {/* thumbnail */}
           <div
@@ -337,76 +418,6 @@ export function PlayerBar(props: PlayerBarProps) {
             </button>
           </Show>
         </div>
-
-        {/* row 2: time + full-width progress with waveform + duration */}
-        <div class="flex items-center gap-2 h-6">
-          <span class="text-xs text-[var(--color-accent-500)] font-light min-w-[2rem] text-right tabular-nums">
-            {formatDuration(props.currentTime)}
-          </span>
-
-          {/* progress bar container with waveform background */}
-          <div
-            class="relative flex-1 h-5 cursor-pointer"
-            onMouseDown={handleMouseDown}
-            onTouchStart={handleTouchStart}
-            onTouchMove={handleTouchMove}
-            onTouchEnd={handleTouchEnd}
-          >
-            {/* waveform image - full width, revealed by progress (no scale on narrow) */}
-            <Show when={showWaveform()}>
-              {(() => {
-                const waveform = waveformImage()!;
-                return (
-                  <>
-                    {/* dim waveform background (unplayed portion) */}
-                    <div class="absolute inset-0 opacity-20 rounded overflow-hidden">
-                      <MediaImage
-                        images={[waveform]}
-                        alt=""
-                        class="w-full h-full object-cover mix-blend-screen"
-                        showFallback={false}
-                        onError={() => setWaveformError(true)}
-                      />
-                    </div>
-                    {/* bright waveform foreground (played portion) - clipped to progress */}
-                    <div
-                      class="absolute inset-0 opacity-80 rounded overflow-hidden"
-                      style={{ "clip-path": `inset(0 ${100 - progress()}% 0 0)` }}
-                    >
-                      <MediaImage
-                        images={[waveform]}
-                        alt=""
-                        class="w-full h-full object-cover  mix-blend-screen"
-                        showFallback={false}
-                      />
-                    </div>
-                    {/* progress line indicator */}
-                    <div
-                      class="absolute top-0 bottom-0 w-0.5 bg-[var(--color-accent-500)] shadow-[0_0_4px_var(--color-accent-500)]"
-                      style={{ left: `${progress()}%` }}
-                    />
-                  </>
-                );
-              })()}
-            </Show>
-
-            {/* fallback progress bar - only show if no waveform */}
-            <Show when={!showWaveform()}>
-              <div class="absolute inset-y-0 left-0 right-0 flex items-center">
-                <div class="w-full h-1.5 bg-[var(--color-accent-500)]/20 rounded-full overflow-hidden">
-                  <div
-                    class="h-full bg-gradient-to-r from-[var(--color-accent-500)] to-[var(--color-accent-400)] rounded-full"
-                    style={{ width: `${progress()}%` }}
-                  />
-                </div>
-              </div>
-            </Show>
-          </div>
-
-          <span class="text-xs text-[var(--color-accent-500)] font-light min-w-[2rem] tabular-nums">
-            {formatDuration(props.duration)}
-          </span>
-        </div>
       </div>
 
       {/* wide layout: single row (hidden on narrow) */}
@@ -419,40 +430,42 @@ export function PlayerBar(props: PlayerBarProps) {
       >
         {/* song info - left side with flex-1 */}
         <div class="flex items-center gap-4 flex-1 min-w-0">
-          {/* thumbnail */}
-          <div
-            class={`relative group w-12 h-12 flex-shrink-0 ${props.onImageClick ? "cursor-pointer hover:opacity-80 transition-opacity" : ""}`}
-            onClick={() => props.onImageClick?.()}
-          >
-            <MediaImage
-              images={props.song ? getSongDisplayImages(props.song) : undefined}
-              blobId={props.song?.thumbnailBlobId}
-              imageUrl={props.song?.thumbnailUrl}
-              alt={props.song?.title || "song artwork"}
-              domainType="song"
-              thumbnailSize={50}
-              class="w-12 h-12 rounded object-cover"
-            />
-            <Show when={props.onImageClick && props.song}>
-              <div class="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100 rounded">
-                <Icon name={IconNames.carousel} size={20} className="text-white drop-shadow-lg" />
-              </div>
+          <div class="flex items-center gap-4 flex-shrink-0">
+            {/* thumbnail */}
+            <div
+              class={`relative group w-12 h-12 flex-shrink-0 ${props.onImageClick ? "cursor-pointer hover:opacity-80 transition-opacity" : ""}`}
+              onClick={() => props.onImageClick?.()}
+            >
+              <MediaImage
+                images={props.song ? getSongDisplayImages(props.song) : undefined}
+                blobId={props.song?.thumbnailBlobId}
+                imageUrl={props.song?.thumbnailUrl}
+                alt={props.song?.title || "song artwork"}
+                domainType="song"
+                thumbnailSize={50}
+                class="w-12 h-12 rounded object-cover"
+              />
+              <Show when={props.onImageClick && props.song}>
+                <div class="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100 rounded">
+                  <Icon name={IconNames.carousel} size={20} className="text-white drop-shadow-lg" />
+                </div>
+              </Show>
+            </div>
+
+            {/* favorite button */}
+            <Show when={props.song}>
+              {(song) => (
+                <div class="flex-shrink-0">
+                  <FavoriteHeart
+                    isFavorite={song().isFavorite || false}
+                    onToggle={() => props.onFavoriteToggle?.(song().id)}
+                    size="md"
+                    class="opacity-80 hover:opacity-100"
+                  />
+                </div>
+              )}
             </Show>
           </div>
-
-          {/* favorite button */}
-          <Show when={props.song}>
-            {(song) => (
-              <div class="flex-shrink-0">
-                <FavoriteHeart
-                  isFavorite={song().isFavorite || false}
-                  onToggle={() => props.onFavoriteToggle?.(song().id)}
-                  size="md"
-                  class="opacity-80 hover:opacity-100"
-                />
-              </div>
-            )}
-          </Show>
 
           {/* title and artist - fills remaining space */}
           <div class="flex-1 min-w-0">
@@ -481,6 +494,10 @@ export function PlayerBar(props: PlayerBarProps) {
                 }
                 class="text-[var(--color-text-secondary)] font-light text-sm"
               />
+            </Show>
+
+            <Show when={props.statusBadge}>
+              <div class="mt-0.5 leading-none">{props.statusBadge}</div>
             </Show>
           </div>
         </div>

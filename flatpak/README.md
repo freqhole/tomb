@@ -41,7 +41,7 @@ if you have flatpak installed locally on Linux:
 
 ```bash
 # install runtime
-flatpak install flathub org.gnome.Platform//46
+flatpak install flathub org.gnome.Platform//50
 
 # build
 ./build-flatpak.sh ../build/0.1.12/freqhole_0.1.12_amd64.deb freqhole.flatpak x86_64

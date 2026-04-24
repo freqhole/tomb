@@ -27,6 +27,12 @@ import {
 // re-export for backward compatibility
 export { REMOTE_CACHE_PREFIX, getRemoteCacheName, isRemoteBlobCache, getRemoteIdFromCacheName, listRemoteBlobCaches };
 
+// webkitgtk (linux) requires HTTP/HTTPS URLs for Cache API keys.
+// wrap bare blobIds with a synthetic URL prefix.
+function cacheKey(blobId: string): string {
+  return `https://blob.local/${blobId}`;
+}
+
 /** check if remote should skip caching (localhost or tauri-managed) */
 export async function shouldSkipCaching(remoteId: string): Promise<boolean> {
   const remote = await getRemoteById(remoteId);
@@ -120,11 +126,11 @@ export async function initCachedAudioURLs(): Promise<void> {
           if (entry.status === "pending" || entry.status === "failed") {
             pendingEntries.push(entry.url);
             // also remove from Cache API if it exists (partial data)
-            await cache.delete(entry.blobId).catch(() => {});
+            await cache.delete(cacheKey(entry.blobId)).catch(() => {});
             continue;
           }
           
-          const response = await cache.match(entry.blobId);
+          const response = await cache.match(cacheKey(entry.blobId));
           if (response) {
             validatedKeys[entry.url] = true;
           } else {
@@ -484,7 +490,7 @@ export async function cacheBlob(
     }
 
     // cache the response using blobId as key
-    await cache.put(blobId, response);
+    await cache.put(cacheKey(blobId), response);
 
     // save metadata - use remoteId/blobId as composite key
     const metadata: CacheMetadata = {
@@ -531,7 +537,7 @@ export async function saveP2PBlobMetadata(
     const metadataKey = `${remoteId}/${blobId}`;
     const cacheName = getRemoteCacheName(remoteId);
     const cache = await caches.open(cacheName);
-    const response = await cache.match(blobId);
+    const response = await cache.match(cacheKey(blobId));
     
     // only proceed if blob is actually in cache
     if (!response) {
@@ -595,7 +601,7 @@ export async function getCachedBlob(remoteId: string, blobId: string): Promise<R
     
     const cacheName = getRemoteCacheName(remoteId);
     const cache = await caches.open(cacheName);
-    const response = await cache.match(blobId);
+    const response = await cache.match(cacheKey(blobId));
 
     if (response) {
       // update last accessed time
@@ -639,7 +645,7 @@ export async function isCached(remoteId: string, blobId: string): Promise<boolea
     
     const cacheName = getRemoteCacheName(remoteId);
     const cache = await caches.open(cacheName);
-    const response = await cache.match(blobId);
+    const response = await cache.match(cacheKey(blobId));
     return !!response;
   } catch (error) {
     errorLog("failed to check cache:", error);
@@ -712,7 +718,7 @@ async function evictIfNeeded(remoteId?: string): Promise<void> {
           const cacheName = getRemoteCacheName(rid);
           const cache = await caches.open(cacheName);
           for (const metadata of items) {
-            await cache.delete(metadata.blobId);
+            await cache.delete(cacheKey(metadata.blobId));
             await deleteMetadata(metadata.url);
             removeFromCachedSet(metadata.url);
           }
@@ -890,7 +896,7 @@ export async function evictCachedBlob(remoteId: string, blobId: string): Promise
   try {
     const cacheName = getRemoteCacheName(remoteId);
     const cache = await caches.open(cacheName);
-    const deleted = await cache.delete(blobId);
+    const deleted = await cache.delete(cacheKey(blobId));
     const metadataKey = `${remoteId}/${blobId}`;
     await deleteMetadata(metadataKey);
 

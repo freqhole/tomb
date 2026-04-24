@@ -74,8 +74,23 @@ pub async fn upload_image_handler(
     let data = file_data.ok_or_else(|| ApiError::BadRequest("no file provided".to_string()))?;
     let filename = filename.unwrap_or_else(|| "image".to_string());
 
+    tracing::info!(
+        "upload_image: START from {} filename=\"{}\" size={} associate={:?}",
+        user.username,
+        filename,
+        data.len(),
+        association.as_ref().map(|a| format!("{}:{}", a.entity_type, a.entity_id)),
+    );
+
     // check file size
     if data.len() as u64 > MAX_IMAGE_SIZE {
+        tracing::warn!(
+            "upload_image: REJECT from {} filename=\"{}\" size={} exceeds max {}",
+            user.username,
+            filename,
+            data.len(),
+            MAX_IMAGE_SIZE,
+        );
         return Err(ApiError::BadRequest(format!(
             "image too large (max {} bytes)",
             MAX_IMAGE_SIZE
@@ -159,6 +174,17 @@ pub async fn upload_image_handler(
     let job = job_response
         .data
         .ok_or_else(|| ApiError::Internal("no job returned".to_string()))?;
+
+    tracing::info!(
+        "upload_image: OK from {} filename=\"{}\" blob_id={} sha256={} existing={} associate={:?} job_id={}",
+        user.username,
+        filename,
+        blob.id,
+        &hash[..16.min(hash.len())],
+        existing,
+        association.as_ref().map(|a| format!("{}:{}", a.entity_type, a.entity_id)),
+        job.id,
+    );
 
     let message = if existing {
         if association.is_some() {

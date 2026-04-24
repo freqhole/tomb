@@ -1,0 +1,11 @@
+{
+  "name": "tauri-plugin-android-media-session-api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "guest-js/index.ts",
+  "types": "guest-js/index.ts",
+  "dependencies": {
+    "@tauri-apps/api": "^2"
+  }
+}

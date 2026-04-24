@@ -16,6 +16,10 @@
     "core:window:allow-get-all-windows",
     "core:webview:allow-webview-close",
     "dialog:default",
-    "opener:default"
+    "fs:default",
+    "fs:allow-read-file",
+    "opener:default",
+    "android-media-session:default",
+    "deep-link:default"
   ]
 }

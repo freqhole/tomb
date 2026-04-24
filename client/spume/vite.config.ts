@@ -3,6 +3,7 @@ import { storybookTest } from "@storybook/addon-vitest/vitest-plugin";
 import { playwright } from "@vitest/browser-playwright";
 import { execSync } from "child_process";
 import fs from "fs";
+
 import path from "path";
 import { fileURLToPath } from "url";
 import { defineConfig, type Plugin } from "vite";
@@ -109,6 +110,7 @@ export default defineConfig({
     __IS_CHARNEL__: JSON.stringify(isCharnelBuild),
   },
   build: {
+    target: "esnext",
     // generate sourcemaps for debugging prod errors
     sourcemap: true,
     rollupOptions: {

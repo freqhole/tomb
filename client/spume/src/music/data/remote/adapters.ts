@@ -37,15 +37,15 @@ export interface ApiImage {
   blob_type?: string;
 }
 
-// API URL structure (from API: id and name are nullable, not optional)
+// API URL structure (from API: id and name are nullish, accept null or undefined)
 export interface ApiUrl {
-  id: string | null;
-  name: string | null;
+  id?: string | null;
+  name?: string | null;
   url: string;
 }
 
 // API response structure - defines adapter's contract with API client
-// arrays are nullable (not optional) matching the API's zod schema
+// nullable arrays/fields accept null or undefined to match codegen nullish output
 export interface ApiSongQueryItem {
   song: {
     id: string;
@@ -53,47 +53,48 @@ export interface ApiSongQueryItem {
     media_blob_id: string;
     track_number: number;
     disc_number: number;
-    duration: number | null;  // milliseconds
+    duration?: number | null;  // milliseconds
     year?: number | null;
-    bpm: number | null;
-    track_artist: string | null;
-    lyrics: string | null;
-    metadata: string | null;
+    bpm?: number | null;
+    track_artist?: string | null;
+    lyrics?: string | null;
+    metadata?: string | null;
     created_at: number;
     updated_at: number;
     created_by_username?: string | null;
     updated_by_username?: string | null;
-    images: ApiImage[] | null;
-    urls: ApiUrl[] | null;
+    images?: ApiImage[] | null;
+    urls?: ApiUrl[] | null;
   };
-  artist: {
+  artist?: {
     id: string;
     name: string;
-    images: ApiImage[] | null;
+    images?: ApiImage[] | null;
   } | null;
-  album: {
+  album?: {
     id: string;
     title: string;
     album_type: string;
-    release_date: string | null;
-    genres: {id: string; name: string}[] | null;
-    images: ApiImage[] | null;
+    release_date?: string | null;
+    genres?: {id: string; name: string}[] | null;
+    images?: ApiImage[] | null;
   } | null;
-  media_blob: {
+  media_blob?: {
     sha256: string;
+    size?: number | null; // file size in bytes (used for download progress)
     mime?: string | null;
     blake3?: string | null; // iroh-blobs content hash
   } | null;
-  genre: {
+  genre?: {
     id: string;
     name: string;
   } | null;
-  is_favorite: boolean | null;
-  rating: number | null;
-  album_is_favorite: boolean | null;
-  album_rating: number | null;
-  album_tags: string[] | null;
-  images: ApiImage[] | null;
+  is_favorite?: boolean | null;
+  rating?: number | null;
+  album_is_favorite?: boolean | null;
+  album_rating?: number | null;
+  album_tags?: string[] | null;
+  images?: ApiImage[] | null;
 }
 
 // helper to convert API image to app ImageMetadata
@@ -179,10 +180,12 @@ export function adaptSongFromAPI(item: ApiSongQueryItem, baseUrl: string, remote
     // remote source type
     source_type: "remote" as const,
 
-    // local/downloaded fields (null for remote)
+    // local/downloaded fields (null for remote, except file_size which the
+    // server reports via media_blob.size — needed for accurate download
+    // progress on remote audio fetches)
     opfs_path: null,
     file_name: null,
-    file_size: null,
+    file_size: blob?.size ?? null,
     last_modified: null,
     mime_type: blob?.mime ?? null,
     source_url: getRemoteMediaUrl(baseUrl, song.media_blob_id),

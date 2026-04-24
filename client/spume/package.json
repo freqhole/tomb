@@ -1,6 +1,6 @@
 {
   "name": "freqhole-client",
-  "version": "0.1.12",
+  "version": "0.1.17",
   "private": true,
   "type": "module",
   "scripts": {
@@ -18,8 +18,10 @@
     "ts-prune": "ts-prune"
   },
   "dependencies": {
+    "@fontsource/atkinson-hyperlegible-next": "^5.2.7",
     "freqhole-api-client": "file:../../client-codegen/freqhole-api-client",
-    "midden": "file:../midden/pkg"
+    "midden": "file:../midden/pkg",
+    "qrcode": "^1.5.4"
   },
   "devDependencies": {
     "@chromatic-com/storybook": "^5.0.1",
@@ -35,8 +37,10 @@
     "@tanstack/solid-query": "^5.90.23",
     "@tanstack/solid-virtual": "^3.13.18",
     "@tauri-apps/api": "^2.10.1",
-    "@tauri-apps/plugin-dialog": "^2.6.0",
+    "@tauri-apps/plugin-dialog": "^2.7.0",
+    "@tauri-apps/plugin-fs": "^2.5.0",
     "@types/node": "^25.3.0",
+    "@types/qrcode": "^1.5.6",
     "@typescript-eslint/eslint-plugin": "^8.56.0",
     "@typescript-eslint/parser": "^8.56.0",
     "@vitest/browser": "^4.0.17",

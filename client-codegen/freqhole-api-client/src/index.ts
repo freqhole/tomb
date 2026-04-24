@@ -9,7 +9,7 @@ export { HttpTransport } from "./transport.js";
 export { WasmTransport } from "./WasmTransport.js";
 export { CharnelTransport, createCharnelTransport, getCharnelTransport, getCharnelNodeId, isCharnelAvailable, isCharnelP2PAvailable } from "./CharnelTransport.js";
 export { CharnelLocalTransport, createCharnelLocalTransport } from "./CharnelLocalTransport.js";
-export type { MiddenNodeLike, BlobResultLike, BlobProgressCallback } from "./WasmTransport.js";
+export type { MiddenNodeLike, BlobResultLike, BlobProgressCallback, RadioHandleLike } from "./WasmTransport.js";
 export type { Transport, TransportResponse, BlobData } from "./transport.js";
 
 // export utilities (url helpers, uploads, etc)
@@ -31,3 +31,18 @@ export * as schema from "./codegen/schema.js";
 // export route auth types
 export type { RouteAuth, RouteAuthType, UserRoleName } from "./codegen/routes.js";
 export { roleHierarchy } from "./codegen/routes.js";
+
+// export admin client (freqhole-admin/1 ALPN)
+export {
+  AdminClient,
+  AdminCommandError,
+  AdminRequestValidationError,
+  AdminResponseValidationError,
+} from "./AdminClient.js";
+export type {
+  AdminTransport,
+  AdminResponse,
+  AdminErrorDetail,
+} from "./AdminClient.js";
+export { adminCommands } from "./codegen/admin_commands.js";
+export type { AdminCommandName, AdminAuth, AdminAuthType } from "./codegen/admin_commands.js";

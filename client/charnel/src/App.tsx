@@ -8,18 +8,10 @@ import {
 } from "solid-js";
 import { A, useLocation, useNavigate } from "@solidjs/router";
 import { invoke } from "@tauri-apps/api/core";
-import { emit } from "@tauri-apps/api/event";
 import { VERSION } from "./version";
+import { AdminTransportProvider } from "./admin/context";
+import { AdminTargetPicker, AdminScopeBanner } from "./admin/AdminTargetPicker";
 import "./App.css";
-
-interface ServerStatus {
-  running: boolean;
-  pid: number | null;
-  uptime_secs: number | null;
-  restart_count: number;
-  config_path: string | null;
-  server_url: string | null;
-}
 
 interface P2pStatus {
   status: string; // "stopped", "starting...", "online", "offline", "connecting..."
@@ -51,15 +43,9 @@ export function useAppContext() {
 function App(props: ParentProps) {
   const location = useLocation();
   const navigate = useNavigate();
-  const [serverStatus, setServerStatus] = createSignal<ServerStatus | null>(
-    null,
-  );
   const [p2pStatus, setP2pStatus] = createSignal<P2pStatus | null>(null);
   const [setupComplete, setSetupComplete] = createSignal(false);
   const [checkingSetup, setCheckingSetup] = createSignal(true);
-
-  // track restart count to detect server restarts
-  let lastRestartCount: number | null = null;
 
   // determine if we're on an admin route (not setup)
   const isAdminRoute = () => {
@@ -70,7 +56,8 @@ function App(props: ParentProps) {
       path === "/users" ||
       path === "/settings" ||
       path === "/config" ||
-      path === "/federation"
+      path === "/federation" ||
+      path === "/radio"
     );
   };
 
@@ -111,33 +98,10 @@ function App(props: ParentProps) {
       setCheckingSetup(false);
     }
 
-    // poll server status
-    updateServerStatus();
+    // poll P2P status
     updateP2pStatus();
-    setInterval(updateServerStatus, 5000);
     setInterval(updateP2pStatus, 3000);
   });
-
-  async function updateServerStatus() {
-    try {
-      const status = await invoke<ServerStatus>("server_status");
-      setServerStatus(status);
-
-      // detect server restart and notify spume via tauri event system
-      if (
-        lastRestartCount !== null &&
-        status.restart_count > lastRestartCount
-      ) {
-        console.log(
-          "[App] server restart detected, emitting config-updated event",
-        );
-        emit("freqhole:config-updated");
-      }
-      lastRestartCount = status.restart_count;
-    } catch (e) {
-      console.error("failed to get status:", e);
-    }
-  }
 
   async function updateP2pStatus() {
     try {
@@ -171,124 +135,107 @@ function App(props: ParentProps) {
   // use Show components for proper SolidJS reactivity (if statements don't re-render)
   return (
     <AppContext.Provider value={contextValue}>
-      <Show
-        when={!checkingSetup()}
-        fallback={
-          <div class="loading-screen">
-            <div class="spinner" />
-          </div>
-        }
-      >
+      <AdminTransportProvider>
         <Show
-          when={!isInSetupFlow()}
+          when={!checkingSetup()}
           fallback={
-            <div class="setup-layout">
-              <main class="setup-content">{props.children}</main>
+            <div class="loading-screen">
+              <div class="spinner" />
             </div>
           }
         >
-          {/* admin layout with sidebar */}
-          <div class="wizard-layout">
-            <nav class="sidebar">
-              <div class="sidebar-header">
-                <span class="logo">freqhole</span>
-                <span class="logo-sub">wizard</span>
+          <Show
+            when={!isInSetupFlow()}
+            fallback={
+              <div class="setup-layout">
+                <main class="setup-content">{props.children}</main>
               </div>
+            }
+          >
+            {/* admin layout with sidebar */}
+            <div class="wizard-layout">
+              <nav class="sidebar">
+                <div class="sidebar-header">
+                  <span class="logo">freqhole</span>
+                  <span class="logo-sub">wizard</span>
+                </div>
 
-              <div class="nav-links">
-                <A
-                  href="/library"
-                  class={`nav-link ${isActive("/library") ? "active" : ""}`}
-                >
-                  library
-                </A>
-                <A
-                  href="/users"
-                  class={`nav-link ${isActive("/users") ? "active" : ""}`}
-                >
-                  user<span class="pinky">z</span>
-                </A>
-                <A
-                  href="/federation"
-                  class={`nav-link ${isActive("/federation") ? "active" : ""}`}
-                >
-                  federation
-                </A>
-                <A
-                  href="/settings"
-                  class={`nav-link ${isActive("/settings") ? "active" : ""}`}
-                >
-                  setting<span class="pinky">z</span>
-                </A>
-                <A
-                  href="/config"
-                  class={`nav-link ${isActive("/config") ? "active" : ""}`}
-                >
-                  confi<span class="pinky">g</span>
-                </A>
-                <A
-                  href="/logs"
-                  class={`nav-link ${isActive("/logs") ? "active" : ""}`}
-                >
-                  log<span class="pinky">z</span>
-                </A>
-              </div>
+                <AdminTargetPicker />
 
-              <div class="sidebar-footer">
-                <Show when={serverStatus()}>
-                  {(status) => (
+                <div class="nav-links">
+                  <A
+                    href="/library"
+                    class={`nav-link ${isActive("/library") ? "active" : ""}`}
+                  >
+                    library
+                  </A>
+                  <A
+                    href="/users"
+                    class={`nav-link ${isActive("/users") ? "active" : ""}`}
+                  >
+                    user<span class="pinky">z</span>
+                  </A>
+                  <A
+                    href="/federation"
+                    class={`nav-link ${isActive("/federation") ? "active" : ""}`}
+                  >
+                    federation
+                  </A>
+                  <A
+                    href="/radio"
+                    class={`nav-link ${isActive("/radio") ? "active" : ""}`}
+                  >
+                    radi<span class="pinky">o</span>
+                  </A>
+                  <A
+                    href="/settings"
+                    class={`nav-link ${isActive("/settings") ? "active" : ""}`}
+                  >
+                    setting<span class="pinky">z</span>
+                  </A>
+                  <A
+                    href="/config"
+                    class={`nav-link ${isActive("/config") ? "active" : ""}`}
+                  >
+                    confi<span class="pinky">g</span>
+                  </A>
+                  <A
+                    href="/logs"
+                    class={`nav-link ${isActive("/logs") ? "active" : ""}`}
+                  >
+                    log<span class="pinky">z</span>
+                  </A>
+                </div>
+
+                <div class="sidebar-footer">
+                  {/* P2P status - only show if federation enabled */}
+                  <Show when={p2pStatus()?.federation_enabled}>
                     <div class="server-status">
-                      <div>
+                      <div class="p2p-status-row">
                         <span
-                          class={`status-dot ${status().running ? "running" : "stopped"}`}
+                          class={`status-dot ${p2pStatus()?.status === "online" ? "running" : p2pStatus()?.status === "connecting..." || p2pStatus()?.status === "starting..." ? "connecting" : "stopped"}`}
                         />
                         <span class="status-text">
-                          http {status().running ? "running" : "stopped"}
+                          p2p {p2pStatus()?.status}
                         </span>
-                        <Show when={status().running && status().uptime_secs}>
-                          <span class="uptime">
-                            ({Math.floor(status().uptime_secs! / 60)}m)
-                          </span>
-                        </Show>
                       </div>
-
-                      <Show when={status().running && status().server_url}>
-                        <div class="server-url-row">
-                          <a
-                            href={status().server_url!}
-                            target="_blank"
-                            class="server-url"
-                          >
-                            {status().server_url}
-                          </a>
-                        </div>
-                      </Show>
                     </div>
-                  )}
-                </Show>
+                  </Show>
 
-                {/* P2P status - independent of HTTP server, only show if federation enabled */}
-                <Show when={p2pStatus()?.federation_enabled}>
-                  <div class="server-status">
-                    <div class="p2p-status-row">
-                      <span
-                        class={`status-dot ${p2pStatus()?.status === "online" ? "running" : p2pStatus()?.status === "connecting..." || p2pStatus()?.status === "starting..." ? "connecting" : "stopped"}`}
-                      />
-                      <span class="status-text">p2p {p2pStatus()?.status}</span>
-                    </div>
+                  <div class="section">
+                    <p class="version">version {VERSION}</p>
                   </div>
-                </Show>
-
-                <div class="section">
-                  <p class="version">version {VERSION}</p>
                 </div>
-              </div>
-            </nav>
+              </nav>
 
-            <main class="main-content">{props.children}</main>
-          </div>
+              <main class="main-content">
+                <AdminScopeBanner />
+                {props.children}
+              </main>
+            </div>
+          </Show>
         </Show>
-      </Show>
+      </AdminTransportProvider>
     </AppContext.Provider>
   );
 }

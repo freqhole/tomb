@@ -9,7 +9,7 @@ import {
   onCleanup,
   createEffect,
 } from "solid-js";
-import { invoke } from "@tauri-apps/api/core";
+import { useAdminTransport } from "../admin/context";
 
 interface UserInfo {
   id: string;
@@ -38,6 +38,7 @@ interface UserAutocompleteProps {
 }
 
 export function UserAutocomplete(props: UserAutocompleteProps) {
+  const admin = useAdminTransport();
   const [inputValue, setInputValue] = createSignal(props.initialValue || "");
   const [users, setUsers] = createSignal<UserInfo[]>([]);
   const [isOpen, setIsOpen] = createSignal(false);
@@ -45,8 +46,9 @@ export function UserAutocomplete(props: UserAutocompleteProps) {
   const [loading, setLoading] = createSignal(false);
   let containerRef: HTMLDivElement | undefined;
 
-  // load users on mount
+  // load users on mount + whenever the active admin target changes
   createEffect(() => {
+    admin.current();
     loadUsers();
   });
 
@@ -77,7 +79,9 @@ export function UserAutocomplete(props: UserAutocompleteProps) {
   async function loadUsers() {
     setLoading(true);
     try {
-      const result = await invoke<UserInfo[]>("list_users");
+      const result = await admin.dispatchOrThrow<UserInfo[]>("users_list", {
+        include_deleted: false,
+      });
       setUsers(result);
     } catch (e) {
       console.error("failed to load users:", e);

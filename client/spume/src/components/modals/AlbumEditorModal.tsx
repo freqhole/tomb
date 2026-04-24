@@ -1,5 +1,5 @@
 // album editor modal - edit album metadata
-import { createEffect, createMemo, createSignal, For, onMount, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
 import { useQueryClient } from "@tanstack/solid-query";
 import type { ImageMetadata, Song } from "../../music/services/storage/types";
 import { getDataSource, getCurrentRemote } from "../../music/data";
@@ -20,7 +20,7 @@ import { Icon, IconNames } from "../icons/registry";
 import { Tabs, TabList, Tab, TabPanel } from "../navigation/Tabs";
 import { EntityImages } from "../layout/EntityImages";
 import { MusicBrainzPanel } from "../musicbrainz/MusicBrainzPanel";
-import { pushModal, popModal } from "../../music/hooks/modals";
+import { Modal } from "./Modal";
 import { EntityUrlz, type EntityUrlFormItem } from "../forms/EntityUrlz";
 import { formatDuration } from "../../utils/formatDuration";
 import { formatDateTime } from "../../utils/dateTime";
@@ -221,13 +221,6 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
       setLoadedAlbumId(props.albumId);
       setMergeTargetAlbumId(undefined);
     }
-  });
-
-  // register modal in stack for esc key handling
-  onMount(() => {
-    const modalId = `album-${props.albumId}`;
-    pushModal(modalId, props.onClose);
-    return () => popModal(modalId);
   });
 
   // helper to check if entity URLs have changed
@@ -582,437 +575,423 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
   const songs = createMemo(() => songsQuery.data?.items || []);
 
   return (
-    <div
-      class="fixed inset-0 bg-black/50 flex items-center justify-center"
-      classList={{ "z-50": !props.disableNestedModals, "z-[60]": props.disableNestedModals }}
+    <Modal
+      isOpen={true}
+      onClose={props.onClose}
+      title="edit album"
+      size="xl"
+      elevated={props.disableNestedModals}
     >
-      <div class="bg-[var(--color-bg-primary)] rounded-lg shadow-xl w-full max-w-3xl h-[90dvh] wide:h-[85dvh] overflow-hidden flex flex-col">
-        {/* header */}
-        <div class="flex items-center justify-between p-6">
-          <h2 class="text-xl font-semibold text-[var(--color-text-primary)]">edit album</h2>
-          <button
-            onClick={props.onClose}
-            class="text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]"
-          >
-            <Icon name={IconNames.close} />
-          </button>
-        </div>
-
-        {/* content */}
-        <Show
-          when={initialData()}
-          fallback={
-            <div class="flex-1 flex items-center justify-center p-6">
-              <div class="text-[var(--color-text-secondary)]">loading...</div>
-            </div>
-          }
+      {/* content */}
+      <Show
+        when={initialData()}
+        fallback={
+          <div class="flex-1 flex items-center justify-center p-6">
+            <div class="text-[var(--color-text-secondary)]">loading...</div>
+          </div>
+        }
+      >
+        <Tabs
+          activeTab={activeTab()}
+          onTabChange={setActiveTab}
+          class="flex-1 flex flex-col min-h-0"
         >
-          <Tabs
-            activeTab={activeTab()}
-            onTabChange={setActiveTab}
-            class="flex-1 flex flex-col min-h-0"
-          >
-            <TabList class="px-6">
-              <Tab id="info" label="info" />
-              <Tab id="images" label="images" badge={images().length || undefined} />
-              <Tab id="metadata" label="metadata" />
-              <Tab id="musicbrainz" label="musicbrainz" />
-            </TabList>
+          <TabList class="px-6">
+            <Tab id="info" label="info" />
+            <Tab id="images" label="images" badge={images().length || undefined} />
+            <Tab id="metadata" label="metadata" />
+            <Tab id="musicbrainz" label="musicbrainz" />
+          </TabList>
 
-            <TabPanel id="info" class="flex-1 overflow-y-auto p-6 space-y-6">
-              {/* album title */}
-              <div class="space-y-2">
-                <div class="flex items-center justify-between">
-                  <label class="block text-sm font-medium text-[var(--color-text-primary)]">
-                    album title
-                  </label>
-                  <Show when={formData().title !== initialData()?.title}>
-                    <button
-                      onClick={() => handleResetField("title")}
-                      class="text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]"
-                    >
-                      reset
-                    </button>
-                  </Show>
-                </div>
-                <AlbumAutocomplete
-                  value={formData().title}
-                  onSelect={(selection) => {
-                    setFormData((prev) => ({
-                      ...prev,
-                      title: selection.title,
-                    }));
-                    // if user picked an existing album (not the current one), it's a merge
-                    if (selection.id && selection.id !== props.albumId) {
-                      setMergeTargetAlbumId(selection.id);
-                    } else {
-                      setMergeTargetAlbumId(undefined);
-                    }
-                  }}
-                  placeholder="album title"
-                  newLabel={(input) => `rename to: ${input}`}
-                />
-                <Show when={mergeTargetAlbumId()}>
-                  <p class="text-xs text-yellow-500">
-                    this will merge all songs into the selected album and delete this one
-                  </p>
-                </Show>
-                <Show when={!mergeTargetAlbumId() && formData().title !== initialData()?.title}>
-                  <p class="text-xs text-[var(--color-text-tertiary)]">
-                    this will rename the album
-                  </p>
+          <TabPanel id="info" class="flex-1 overflow-y-auto p-6 space-y-6">
+            {/* album title */}
+            <div class="space-y-2">
+              <div class="flex items-center justify-between">
+                <label class="block text-sm font-medium text-[var(--color-text-primary)]">
+                  album title
+                </label>
+                <Show when={formData().title !== initialData()?.title}>
+                  <button
+                    onClick={() => handleResetField("title")}
+                    class="text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]"
+                  >
+                    reset
+                  </button>
                 </Show>
               </div>
-
-              {/* artist */}
-              <div class="space-y-2">
-                <div class="flex items-center justify-between">
-                  <label class="block text-sm font-medium text-[var(--color-text-primary)]">
-                    artist
-                  </label>
-                  <div class="flex items-center gap-2">
-                    <Show
-                      when={
-                        formData().artist_name !== initialData()?.artist_name ||
-                        formData().artist_id !== initialData()?.artist_id
-                      }
-                    >
-                      <button
-                        onClick={() => handleResetField("artist_name")}
-                        class="text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]"
-                      >
-                        reset
-                      </button>
-                    </Show>
-                  </div>
-                </div>
-                <ArtistAutocomplete
-                  value={formData().artist_name}
-                  onSelect={(selection) =>
-                    setFormData((prev) => ({
-                      ...prev,
-                      artist_id: selection.id,
-                      artist_name: selection.name,
-                    }))
-                  }
-                  placeholder="artist name"
-                  newLabel={(input) => `rename to: ${input}`}
-                />
-                <p class="text-xs text-[var(--color-text-tertiary)]">
-                  changing the artist will move all songs to a different album scoped to that artist
-                </p>
-              </div>
-
-              {/* genres */}
-              <div class="space-y-2">
-                <div class="flex items-center justify-between">
-                  <Show
-                    when={
-                      JSON.stringify(formData().genres) !== JSON.stringify(initialData()?.genres)
-                    }
-                  >
-                    <button
-                      onClick={() => handleResetField("genres")}
-                      class="text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]"
-                    >
-                      reset
-                    </button>
-                  </Show>
-                </div>
-                <GenreAutocomplete
-                  label="genres"
-                  value={formData().genres}
-                  valueIds={formData().genre_ids}
-                  onSelect={(genres, genreIds, newGenreNames) =>
-                    setFormData((prev) => ({
-                      ...prev,
-                      genre_ids: genreIds,
-                      genres: genres,
-                      new_genres: newGenreNames,
-                    }))
-                  }
-                  placeholder="select or type genres"
-                  hint="choose one or more genres for this album"
-                />
-              </div>
-
-              {/* album type */}
-              <div class="space-y-2">
-                <div class="flex items-center justify-between">
-                  <label class="block text-sm font-medium text-[var(--color-text-primary)]">
-                    album type
-                  </label>
-                  <Show when={formData().album_type !== initialData()?.album_type}>
-                    <button
-                      onClick={() => handleResetField("album_type")}
-                      class="text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]"
-                    >
-                      reset
-                    </button>
-                  </Show>
-                </div>
-                <select
-                  value={formData().album_type}
-                  onChange={(e) =>
-                    setFormData((prev) => ({
-                      ...prev,
-                      album_type: e.currentTarget.value,
-                    }))
-                  }
-                  class="w-full px-3 py-2 bg-[var(--color-bg-primary)] border border-[var(--color-border-default)] rounded text-[var(--color-text-primary)] focus:outline-none focus:border-[var(--color-accent-500)] focus:ring-2 focus:ring-[var(--color-accent-500)] focus:ring-opacity-50 transition-colors"
-                >
-                  <option value="album">album</option>
-                  <option value="single">single</option>
-                  <option value="compilation">compilation</option>
-                </select>
-              </div>
-
-              {/* label */}
-              <div class="space-y-2">
-                <div class="flex items-center justify-between">
-                  <label class="block text-sm font-medium text-[var(--color-text-primary)]">
-                    label
-                  </label>
-                  <Show when={formData().label !== initialData()?.label}>
-                    <button
-                      onClick={() => handleResetField("label")}
-                      class="text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]"
-                    >
-                      reset
-                    </button>
-                  </Show>
-                </div>
-                <TextInput
-                  value={formData().label}
-                  onInput={(e) =>
-                    setFormData((prev) => ({
-                      ...prev,
-                      label: e.currentTarget.value,
-                    }))
-                  }
-                  placeholder="record label"
-                  class="w-full"
-                />
-                <p class="text-xs text-[var(--color-text-tertiary)]">
-                  the record label that released this album
-                </p>
-              </div>
-
-              {/* release date */}
-              <div class="space-y-2">
-                <div class="flex items-center justify-between">
-                  <label class="block text-sm font-medium text-[var(--color-text-primary)]">
-                    release date
-                  </label>
-                  <Show when={formData().release_date !== initialData()?.release_date}>
-                    <button
-                      onClick={() => handleResetField("release_date")}
-                      class="text-xs text-[var(--color-text-tertiary)} hover:text-[var(--color-text-primary)]"
-                    >
-                      reset
-                    </button>
-                  </Show>
-                </div>
-                <TextInput
-                  value={formData().release_date}
-                  onInput={(e) => {
-                    setFormData((prev) => ({
-                      ...prev,
-                      release_date: e.currentTarget.value,
-                    }));
-                  }}
-                  placeholder="YYYY, YYYY-MM, or YYYY-MM-DD"
-                  class="w-full"
-                />
-                <p class="text-xs text-[var(--color-text-tertiary)]">
-                  release year or full date (accepts YYYY, YYYY-MM, or YYYY-MM-DD)
-                </p>
-              </div>
-
-              {/* entity URLs */}
-              <div class="space-y-2">
-                <EntityUrlz urls={entityUrls()} onChange={setEntityUrls} />
-              </div>
-
-              {/* songs list */}
-              <div class="space-y-2">
-                <div class="flex items-center justify-between">
-                  <label class="block text-sm font-medium text-[var(--color-text-primary)]">
-                    songs in album ({songs().length})
-                  </label>
-                  <Show when={songs().length > 0}>
-                    <DiscNumberBulkAction
-                      songs={songs()}
-                      onUpdated={() => {
-                        songsQuery.refetch();
-                        queryClient.invalidateQueries({ queryKey: queryKeys.songs.all() });
-                      }}
-                    />
-                  </Show>
-                </div>
-                <div class="bg-[var(--color-bg-base)] rounded-lg border border-[var(--color-border)] divide-y divide-[var(--color-border)]">
-                  <Show
-                    when={songs().length > 0}
-                    fallback={
-                      <div class="p-4 text-sm text-[var(--color-text-tertiary)] text-center">
-                        no songs in this album
-                      </div>
-                    }
-                  >
-                    <For each={songs()}>
-                      {(song) => (
-                        <div class="flex items-center justify-between p-3 hover:bg-[var(--color-bg-hover)] group">
-                          <div class="flex-1 min-w-0">
-                            <div class="flex items-center gap-2">
-                              <span class="text-xs text-[var(--color-text-tertiary)] w-8 flex-shrink-0 text-right">
-                                <span class="opacity-50">{song.disc_number || 1}.</span>
-                                {song.track_number}
-                              </span>
-                              <span class="text-sm text-[var(--color-text-primary)] truncate flex-1">
-                                {song.title}
-                              </span>
-                              <span class="text-sm text-[var(--color-text-tertiary)] truncate">
-                                {formatDuration(song.duration_seconds)}
-                              </span>
-                            </div>
-                          </div>
-                          <Show when={!props.disableNestedModals && props.onOpenSongEditor}>
-                            <button
-                              onClick={() => props.onOpenSongEditor?.(song.id)}
-                              class="opacity-0 group-hover:opacity-100 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] ml-2 flex-shrink-0"
-                              title="edit song"
-                            >
-                              <Icon name={IconNames.edit} size={16} />
-                            </button>
-                          </Show>
-                        </div>
-                      )}
-                    </For>
-                  </Show>
-                </div>
-              </div>
-            </TabPanel>
-
-            <TabPanel id="images" class="flex-1 overflow-y-auto p-6">
-              <EntityImages
-                images={images()}
-                onUpload={(file) => handleImageUpload({ file })}
-                onUploadPath={handleImageSelectPath}
-                onDelete={handleRemoveImage}
-                onSetPrimary={handleTogglePrimary}
-                uploading={!!processingJob()}
-              />
-            </TabPanel>
-
-            {/* metadata tab - album info */}
-            <TabPanel id="metadata" class="flex-1 overflow-y-auto p-6 space-y-1">
-              <Show when={albumQuery.data?.created_at} keyed>
-                {(createdAt) => (
-                  <div class="text-sm">
-                    <span class="text-[var(--color-text-tertiary)]">created: </span>
-                    <span class="text-[var(--color-text-secondary)]">
-                      {formatDateTime(createdAt * 1000)}
-                    </span>
-                    <Show when={albumQuery.data?.created_by_username}>
-                      <span class="text-[var(--color-text-tertiary)]"> by </span>
-                      <span class="text-[var(--color-text-secondary)]">
-                        {albumQuery.data!.created_by_username}
-                      </span>
-                    </Show>
-                  </div>
-                )}
-              </Show>
-              <Show
-                when={
-                  albumQuery.data?.updated_at &&
-                  albumQuery.data.updated_at !== albumQuery.data.created_at
-                    ? albumQuery.data.updated_at
-                    : undefined
-                }
-                keyed
-              >
-                {(updatedAt) => (
-                  <div class="text-sm">
-                    <span class="text-[var(--color-text-tertiary)]">updated: </span>
-                    <span class="text-[var(--color-text-secondary)]">
-                      {formatDateTime(updatedAt * 1000)}
-                    </span>
-                    <Show when={albumQuery.data?.updated_by_username}>
-                      <span class="text-[var(--color-text-tertiary)]"> by </span>
-                      <span class="text-[var(--color-text-secondary)]">
-                        {albumQuery.data!.updated_by_username}
-                      </span>
-                    </Show>
-                  </div>
-                )}
-              </Show>
-            </TabPanel>
-
-            <TabPanel id="musicbrainz" class="flex-1 overflow-y-auto p-6">
-              <MusicBrainzPanel
-                albumId={props.albumId}
-                albumTitle={formData().title}
-                artistId={formData().artist_id || ""}
-                artistName={formData().artist_name}
-                albumType={formData().album_type}
-                releaseDate={formData().release_date || undefined}
-                label={formData().label || undefined}
-                genres={formData().genres}
-                songs={songs()}
-                onAlbumUpdated={async () => {
-                  // invalidate broad query families so all views update
-                  queryClient.invalidateQueries({ queryKey: queryKeys.albums.all() });
-                  queryClient.invalidateQueries({ queryKey: queryKeys.songs.all() });
-                  queryClient.invalidateQueries({ queryKey: queryKeys.artists.all() });
-                  queryClient.invalidateQueries({ queryKey: queryKeys.genres.all() });
-                  queryClient.invalidateQueries({
-                    queryKey: queryKeys.albums.songs(props.albumId),
-                  });
-                  queryClient.invalidateQueries({ queryKey: ["artist", "songs"] });
-
-                  // refetch this modal's data and re-sync form when done
-                  const [albumResult, songsResult] = await Promise.all([
-                    albumQuery.refetch(),
-                    songsQuery.refetch(),
-                  ]);
-                  if (albumResult.data && songsResult.data?.items?.length) {
-                    syncFormFromData(albumResult.data, songsResult.data.items);
+              <AlbumAutocomplete
+                value={formData().title}
+                onSelect={(selection) => {
+                  setFormData((prev) => ({
+                    ...prev,
+                    title: selection.title,
+                  }));
+                  // if user picked an existing album (not the current one), it's a merge
+                  if (selection.id && selection.id !== props.albumId) {
+                    setMergeTargetAlbumId(selection.id);
+                  } else {
+                    setMergeTargetAlbumId(undefined);
                   }
                 }}
+                placeholder="album title"
+                newLabel={(input) => `rename to: ${input}`}
               />
-            </TabPanel>
-          </Tabs>
-        </Show>
-
-        {/* footer */}
-        <Show when={initialData() && activeTab() === "info"}>
-          <div class="flex items-center justify-between p-6">
-            <Show when={canDeleteAlbum()}>
-              <Button onClick={handleDelete} variant="danger">
-                delete
-              </Button>
-            </Show>
-            <div class="flex items-center gap-3">
-              <Show when={hasChanges() && canUpdateAlbum()}>
-                <button
-                  onClick={handleReset}
-                  class="text-sm text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]"
-                >
-                  reset all
-                </button>
+              <Show when={mergeTargetAlbumId()}>
+                <p class="text-xs text-yellow-500">
+                  this will merge all songs into the selected album and delete this one
+                </p>
               </Show>
-              <Button variant="secondary" onClick={props.onClose}>
-                cancel
-              </Button>
-              <Show when={canUpdateAlbum()}>
-                <Button variant="primary" onClick={handleSave} disabled={!hasChanges()}>
-                  save changes
-                </Button>
+              <Show when={!mergeTargetAlbumId() && formData().title !== initialData()?.title}>
+                <p class="text-xs text-[var(--color-text-tertiary)]">this will rename the album</p>
               </Show>
             </div>
+
+            {/* artist */}
+            <div class="space-y-2">
+              <div class="flex items-center justify-between">
+                <label class="block text-sm font-medium text-[var(--color-text-primary)]">
+                  artist
+                </label>
+                <div class="flex items-center gap-2">
+                  <Show
+                    when={
+                      formData().artist_name !== initialData()?.artist_name ||
+                      formData().artist_id !== initialData()?.artist_id
+                    }
+                  >
+                    <button
+                      onClick={() => handleResetField("artist_name")}
+                      class="text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]"
+                    >
+                      reset
+                    </button>
+                  </Show>
+                </div>
+              </div>
+              <ArtistAutocomplete
+                value={formData().artist_name}
+                onSelect={(selection) =>
+                  setFormData((prev) => ({
+                    ...prev,
+                    artist_id: selection.id,
+                    artist_name: selection.name,
+                  }))
+                }
+                placeholder="artist name"
+                newLabel={(input) => `rename to: ${input}`}
+              />
+              <p class="text-xs text-[var(--color-text-tertiary)]">
+                changing the artist will move all songs to a different album scoped to that artist
+              </p>
+            </div>
+
+            {/* genres */}
+            <div class="space-y-2">
+              <div class="flex items-center justify-between">
+                <Show
+                  when={JSON.stringify(formData().genres) !== JSON.stringify(initialData()?.genres)}
+                >
+                  <button
+                    onClick={() => handleResetField("genres")}
+                    class="text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]"
+                  >
+                    reset
+                  </button>
+                </Show>
+              </div>
+              <GenreAutocomplete
+                label="genres"
+                value={formData().genres}
+                valueIds={formData().genre_ids}
+                onSelect={(genres, genreIds, newGenreNames) =>
+                  setFormData((prev) => ({
+                    ...prev,
+                    genre_ids: genreIds,
+                    genres: genres,
+                    new_genres: newGenreNames,
+                  }))
+                }
+                placeholder="select or type genres"
+                hint="choose one or more genres for this album"
+              />
+            </div>
+
+            {/* album type */}
+            <div class="space-y-2">
+              <div class="flex items-center justify-between">
+                <label class="block text-sm font-medium text-[var(--color-text-primary)]">
+                  album type
+                </label>
+                <Show when={formData().album_type !== initialData()?.album_type}>
+                  <button
+                    onClick={() => handleResetField("album_type")}
+                    class="text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]"
+                  >
+                    reset
+                  </button>
+                </Show>
+              </div>
+              <select
+                value={formData().album_type}
+                onChange={(e) =>
+                  setFormData((prev) => ({
+                    ...prev,
+                    album_type: e.currentTarget.value,
+                  }))
+                }
+                class="w-full px-3 py-2 bg-[var(--color-bg-primary)] border border-[var(--color-border-default)] rounded text-[var(--color-text-primary)] focus:outline-none focus:border-[var(--color-accent-500)] focus:ring-2 focus:ring-[var(--color-accent-500)] focus:ring-opacity-50 transition-colors"
+              >
+                <option value="album">album</option>
+                <option value="single">single</option>
+                <option value="compilation">compilation</option>
+              </select>
+            </div>
+
+            {/* label */}
+            <div class="space-y-2">
+              <div class="flex items-center justify-between">
+                <label class="block text-sm font-medium text-[var(--color-text-primary)]">
+                  label
+                </label>
+                <Show when={formData().label !== initialData()?.label}>
+                  <button
+                    onClick={() => handleResetField("label")}
+                    class="text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]"
+                  >
+                    reset
+                  </button>
+                </Show>
+              </div>
+              <TextInput
+                value={formData().label}
+                onInput={(e) =>
+                  setFormData((prev) => ({
+                    ...prev,
+                    label: e.currentTarget.value,
+                  }))
+                }
+                placeholder="record label"
+                class="w-full"
+              />
+              <p class="text-xs text-[var(--color-text-tertiary)]">
+                the record label that released this album
+              </p>
+            </div>
+
+            {/* release date */}
+            <div class="space-y-2">
+              <div class="flex items-center justify-between">
+                <label class="block text-sm font-medium text-[var(--color-text-primary)]">
+                  release date
+                </label>
+                <Show when={formData().release_date !== initialData()?.release_date}>
+                  <button
+                    onClick={() => handleResetField("release_date")}
+                    class="text-xs text-[var(--color-text-tertiary)} hover:text-[var(--color-text-primary)]"
+                  >
+                    reset
+                  </button>
+                </Show>
+              </div>
+              <TextInput
+                value={formData().release_date}
+                onInput={(e) => {
+                  setFormData((prev) => ({
+                    ...prev,
+                    release_date: e.currentTarget.value,
+                  }));
+                }}
+                placeholder="YYYY, YYYY-MM, or YYYY-MM-DD"
+                class="w-full"
+              />
+              <p class="text-xs text-[var(--color-text-tertiary)]">
+                release year or full date (accepts YYYY, YYYY-MM, or YYYY-MM-DD)
+              </p>
+            </div>
+
+            {/* entity URLs */}
+            <div class="space-y-2">
+              <EntityUrlz urls={entityUrls()} onChange={setEntityUrls} />
+            </div>
+
+            {/* songs list */}
+            <div class="space-y-2">
+              <div class="flex items-center justify-between">
+                <label class="block text-sm font-medium text-[var(--color-text-primary)]">
+                  songs in album ({songs().length})
+                </label>
+                <Show when={songs().length > 0}>
+                  <DiscNumberBulkAction
+                    songs={songs()}
+                    onUpdated={() => {
+                      songsQuery.refetch();
+                      queryClient.invalidateQueries({ queryKey: queryKeys.songs.all() });
+                    }}
+                  />
+                </Show>
+              </div>
+              <div class="bg-[var(--color-bg-base)] rounded-lg border border-[var(--color-border)] divide-y divide-[var(--color-border)]">
+                <Show
+                  when={songs().length > 0}
+                  fallback={
+                    <div class="p-4 text-sm text-[var(--color-text-tertiary)] text-center">
+                      no songs in this album
+                    </div>
+                  }
+                >
+                  <For each={songs()}>
+                    {(song) => (
+                      <div class="flex items-center justify-between p-3 hover:bg-[var(--color-bg-hover)] group">
+                        <div class="flex-1 min-w-0">
+                          <div class="flex items-center gap-2">
+                            <span class="text-xs text-[var(--color-text-tertiary)] w-8 flex-shrink-0 text-right">
+                              <span class="opacity-50">{song.disc_number || 1}.</span>
+                              {song.track_number}
+                            </span>
+                            <span class="text-sm text-[var(--color-text-primary)] truncate flex-1">
+                              {song.title}
+                            </span>
+                            <span class="text-sm text-[var(--color-text-tertiary)] truncate">
+                              {formatDuration(song.duration_seconds)}
+                            </span>
+                          </div>
+                        </div>
+                        <Show when={!props.disableNestedModals && props.onOpenSongEditor}>
+                          <button
+                            onClick={() => props.onOpenSongEditor?.(song.id)}
+                            class="opacity-0 group-hover:opacity-100 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] ml-2 flex-shrink-0"
+                            title="edit song"
+                          >
+                            <Icon name={IconNames.edit} size={16} />
+                          </button>
+                        </Show>
+                      </div>
+                    )}
+                  </For>
+                </Show>
+              </div>
+            </div>
+          </TabPanel>
+
+          <TabPanel id="images" class="flex-1 overflow-y-auto p-6">
+            <EntityImages
+              images={images()}
+              onUpload={(file) => handleImageUpload({ file })}
+              onUploadPath={handleImageSelectPath}
+              onDelete={handleRemoveImage}
+              onSetPrimary={handleTogglePrimary}
+              uploading={!!processingJob()}
+            />
+          </TabPanel>
+
+          {/* metadata tab - album info */}
+          <TabPanel id="metadata" class="flex-1 overflow-y-auto p-6 space-y-1">
+            <Show when={albumQuery.data?.created_at} keyed>
+              {(createdAt) => (
+                <div class="text-sm">
+                  <span class="text-[var(--color-text-tertiary)]">created: </span>
+                  <span class="text-[var(--color-text-secondary)]">
+                    {formatDateTime(createdAt * 1000)}
+                  </span>
+                  <Show when={albumQuery.data?.created_by_username}>
+                    <span class="text-[var(--color-text-tertiary)]"> by </span>
+                    <span class="text-[var(--color-text-secondary)]">
+                      {albumQuery.data!.created_by_username}
+                    </span>
+                  </Show>
+                </div>
+              )}
+            </Show>
+            <Show
+              when={
+                albumQuery.data?.updated_at &&
+                albumQuery.data.updated_at !== albumQuery.data.created_at
+                  ? albumQuery.data.updated_at
+                  : undefined
+              }
+              keyed
+            >
+              {(updatedAt) => (
+                <div class="text-sm">
+                  <span class="text-[var(--color-text-tertiary)]">updated: </span>
+                  <span class="text-[var(--color-text-secondary)]">
+                    {formatDateTime(updatedAt * 1000)}
+                  </span>
+                  <Show when={albumQuery.data?.updated_by_username}>
+                    <span class="text-[var(--color-text-tertiary)]"> by </span>
+                    <span class="text-[var(--color-text-secondary)]">
+                      {albumQuery.data!.updated_by_username}
+                    </span>
+                  </Show>
+                </div>
+              )}
+            </Show>
+          </TabPanel>
+
+          <TabPanel id="musicbrainz" class="flex-1 overflow-y-auto p-6">
+            <MusicBrainzPanel
+              albumId={props.albumId}
+              albumTitle={formData().title}
+              artistId={formData().artist_id || ""}
+              artistName={formData().artist_name}
+              albumType={formData().album_type}
+              releaseDate={formData().release_date || undefined}
+              label={formData().label || undefined}
+              genres={formData().genres}
+              songs={songs()}
+              onAlbumUpdated={async () => {
+                // invalidate broad query families so all views update
+                queryClient.invalidateQueries({ queryKey: queryKeys.albums.all() });
+                queryClient.invalidateQueries({ queryKey: queryKeys.songs.all() });
+                queryClient.invalidateQueries({ queryKey: queryKeys.artists.all() });
+                queryClient.invalidateQueries({ queryKey: queryKeys.genres.all() });
+                queryClient.invalidateQueries({
+                  queryKey: queryKeys.albums.songs(props.albumId),
+                });
+                queryClient.invalidateQueries({ queryKey: ["artist", "songs"] });
+
+                // refetch this modal's data and re-sync form when done
+                const [albumResult, songsResult] = await Promise.all([
+                  albumQuery.refetch(),
+                  songsQuery.refetch(),
+                ]);
+                if (albumResult.data && songsResult.data?.items?.length) {
+                  syncFormFromData(albumResult.data, songsResult.data.items);
+                }
+              }}
+            />
+          </TabPanel>
+        </Tabs>
+      </Show>
+
+      {/* footer */}
+      <Show when={initialData() && activeTab() === "info"}>
+        <div class="flex items-center justify-between p-6 border-t border-[var(--color-border-default)] flex-shrink-0">
+          <Show when={canDeleteAlbum()}>
+            <Button onClick={handleDelete} variant="danger">
+              delete
+            </Button>
+          </Show>
+          <div class="flex items-center gap-3">
+            <Show when={hasChanges() && canUpdateAlbum()}>
+              <button
+                onClick={handleReset}
+                class="text-sm text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]"
+              >
+                reset all
+              </button>
+            </Show>
+            <Button variant="secondary" onClick={props.onClose}>
+              cancel
+            </Button>
+            <Show when={canUpdateAlbum()}>
+              <Button variant="primary" onClick={handleSave} disabled={!hasChanges()}>
+                save changes
+              </Button>
+            </Show>
           </div>
-        </Show>
-      </div>
-    </div>
+        </div>
+      </Show>
+    </Modal>
   );
 }

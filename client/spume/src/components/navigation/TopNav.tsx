@@ -1,27 +1,19 @@
 import { NavigationMenu as KobalteNav } from "@kobalte/core/navigation-menu";
-import {
-  createResource,
-  createSignal,
-  For,
-  onCleanup,
-  onMount,
-  Show,
-  type JSX,
-} from "solid-js";
-import { Icon } from "../icons/registry";
-import { toast } from "../feedback/Toast";
-import { TopNavSearchContainer } from "../../utils/TopNavSearchContainer";
-import MediaImage from "../media/MediaImage";
-import { ViewSelector, type ViewOption } from "./ViewSelector";
+import { createResource, createSignal, For, onCleanup, onMount, Show, type JSX } from "solid-js";
+import { isCharnelMode } from "../../app/services/charnel";
 import { getPageInfo } from "../../app/services/pageInfo";
-import { Badge } from "../badges/Badge";
+import { isNarrowViewport, isSmallViewport } from "../../config/breakpoints";
+import { canCreatePlaylist, canUploadMusic } from "../../music/data/permissions";
+import { resolveBlobUrl } from "../../music/services/storage/blobResolver";
 import type { ImageMetadata } from "../../music/services/storage/types";
 import { routes } from "../../music/utils/routing";
-import { canUploadMusic, canCreatePlaylist } from "../../music/data/permissions";
 import { formatRelativeTime } from "../../utils/dateTime";
-import { isCharnelMode } from "../../app/services/charnel";
-import { isNarrowViewport, isSmallViewport } from "../../config/breakpoints";
-import { resolveBlobUrl } from "../../music/services/storage/blobResolver";
+import { TopNavSearchContainer } from "../../utils/TopNavSearchContainer";
+import { Badge } from "../badges/Badge";
+import { toast } from "../feedback/Toast";
+import { Icon } from "../icons/registry";
+import MediaImage from "../media/MediaImage";
+import { ViewSelector, type ViewOption } from "./ViewSelector";
 
 export interface NavMenuItem {
   /** menu item label */
@@ -246,6 +238,18 @@ export function TopNav(props: TopNavProps) {
   const [feedFilterLocked, setFeedFilterLocked] = createSignal(false);
   const [navHovered, setNavHovered] = createSignal(false);
   const [recheckingRemoteIds, setRecheckingRemoteIds] = createSignal<Set<string>>(new Set());
+
+  // hide view selector, search, sort, and source selector on aggregate feed route
+  const isAggregateFeedRoute = () => (props.currentPath ?? "").startsWith("/feed");
+  // also hide search input and the music sub-nav (songs/albums/playlists/etc)
+  // on the radio route — radio has its own list-and-detail layout.
+  const isRadioRoute = () => (props.currentPath ?? "").startsWith("/radio");
+  const isSharedRoute = () => (props.currentPath ?? "").startsWith("/shared");
+  const isLocalSourceActive = () =>
+    !isAggregateFeedRoute() &&
+    !isRadioRoute() &&
+    !isSharedRoute() &&
+    (props.currentSourceName === "local library" || !props.currentSourceName);
   let sortCloseTimeout: ReturnType<typeof setTimeout> | undefined;
   let tagCloseTimeout: ReturnType<typeof setTimeout> | undefined;
   let feedFilterCloseTimeout: ReturnType<typeof setTimeout> | undefined;
@@ -302,8 +306,8 @@ export function TopNav(props: TopNavProps) {
 
   // handle remote click - recheck if offline, otherwise switch
   const handleRemoteClick = async (remote: NonNullable<typeof props.remotes>[number]) => {
-    // if it's the current source, do nothing
-    if (props.currentSourceId === remote.id) return;
+    // if it's the current source and not on aggregate feed, do nothing
+    if (!isAggregateFeedRoute() && props.currentSourceId === remote.id) return;
 
     // if offline, try to recheck
     if (remote.isOffline && props.onRecheckRemote) {
@@ -341,7 +345,10 @@ export function TopNav(props: TopNavProps) {
           "fixed top-2 left-6 bg-black/20 backdrop-blur-sm px-2 py-1.5 rounded-lg border border-white/10 shadow-lg":
             !isNarrow(),
         }}
-        style={{ height: isNarrow() ? "var(--nav-height, 56px)" : "auto" }}
+        style={{
+          height: isNarrow() ? "var(--nav-height, 56px)" : "auto",
+          "padding-top": isNarrow() ? "var(--safe-area-top, 0px)" : undefined,
+        }}
         onMouseEnter={() => setNavHovered(true)}
         onMouseLeave={() => setNavHovered(false)}
       >
@@ -355,7 +362,7 @@ export function TopNav(props: TopNavProps) {
                 aria-label="menu"
               >
                 <Show
-                  when={currentRemote()}
+                  when={!isAggregateFeedRoute() && currentRemote()}
                   fallback={<Icon name="freqhole" size={24} color="var(--color-accent-500)" />}
                 >
                   {(remote) => (
@@ -368,8 +375,44 @@ export function TopNav(props: TopNavProps) {
               </KobalteNav.Trigger>
 
               <KobalteNav.Portal>
-                <KobalteNav.Content class="bg-[var(--color-bg-elevated)] border border-[var(--color-border-default)] rounded-lg shadow-xl z-[1001] data-[expanded]:animate-in data-[closed]:animate-out overflow-y-auto">
-                  <div class="flex flex-col wide:grid wide:grid-cols-2 gap-4 wide:gap-6 min-w-[280px] wide:min-w-[560px] max-h-[70dvh]">
+                <KobalteNav.Content
+                  class="bg-[var(--color-bg-elevated)] border border-[var(--color-border-default)] rounded-lg shadow-xl z-[1001] data-[expanded]:animate-in data-[closed]:animate-out"
+                  ref={(el: HTMLElement) => {
+                    // intercept pointerleave in capture phase before Kobalte sees it.
+                    // Kobalte's NavigationMenu.Content calls startLeaveTimer() on
+                    // pointerleave without checking pointerType, so touch scrolling
+                    // closes the menu on Android. we swallow the event for touch.
+                    el.addEventListener(
+                      "pointerleave",
+                      (e) => {
+                        if (e.pointerType === "touch") {
+                          e.stopImmediatePropagation();
+                        }
+                      },
+                      { capture: true }
+                    );
+                  }}
+                >
+                  <div
+                    class="flex flex-col wide:grid wide:grid-cols-2 gap-4 wide:gap-6 min-w-[280px] wide:min-w-[560px]"
+                    style={{
+                      "max-height": "70vh",
+                      "overflow-y": "auto",
+                      "-webkit-overflow-scrolling": "touch",
+                      "touch-action": "pan-y",
+                      "overscroll-behavior": "contain",
+                    }}
+                    ref={(el) => {
+                      // prevent touchmove from being eaten by parent/Kobalte handlers
+                      el.addEventListener(
+                        "touchmove",
+                        (e) => {
+                          e.stopPropagation();
+                        },
+                        { passive: true }
+                      );
+                    }}
+                  >
                     {/* column 1: brand info + source management */}
                     <div class="flex flex-col p-4 wide:p-6">
                       <div class="flex items-start justify-between mb-6">
@@ -421,6 +464,56 @@ export function TopNav(props: TopNavProps) {
                         </Show>
                       </div>
 
+                      {/* aggregate feed link */}
+                      <button
+                        class="w-full flex items-center gap-2 px-3 py-2 mb-4 rounded transition-colors border-none bg-transparent cursor-pointer"
+                        classList={{
+                          "text-[var(--color-accent-500)] bg-[var(--color-accent-500)]/10":
+                            props.currentPath?.startsWith("/feed") ?? false,
+                          "text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]":
+                            !(props.currentPath?.startsWith("/feed") ?? false),
+                        }}
+                        onClick={() => props.onNavigate?.("/feed")}
+                      >
+                        <Show
+                          when={props.currentPath === "/feed"}
+                          fallback={<Icon name="recent" size={14} />}
+                        >
+                          <Icon name="check" size={14} color="var(--color-accent-500)" />
+                        </Show>
+                        <span class="text-sm">all feeds</span>
+                      </button>
+
+                      {/* radio link — works with zero remotes */}
+                      <button
+                        class="w-full flex items-center gap-2 px-3 py-2 mb-4 rounded transition-colors border-none bg-transparent cursor-pointer"
+                        classList={{
+                          "text-[var(--color-accent-500)] bg-[var(--color-accent-500)]/10":
+                            props.currentPath?.startsWith("/radio") ?? false,
+                          "text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]":
+                            !(props.currentPath?.startsWith("/radio") ?? false),
+                        }}
+                        onClick={() => props.onNavigate?.("/radio")}
+                      >
+                        <Icon name="radioTower" size={14} />
+                        <span class="text-sm">radio</span>
+                      </button>
+
+                      {/* shared links route */}
+                      <button
+                        class="w-full flex items-center gap-2 px-3 py-2 mb-4 rounded transition-colors border-none bg-transparent cursor-pointer"
+                        classList={{
+                          "text-[var(--color-accent-500)] bg-[var(--color-accent-500)]/10":
+                            props.currentPath?.startsWith("/shared") ?? false,
+                          "text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]":
+                            !(props.currentPath?.startsWith("/shared") ?? false),
+                        }}
+                        onClick={() => props.onNavigate?.(routes.shared())}
+                      >
+                        <Icon name="share" size={14} />
+                        <span class="text-sm">shared</span>
+                      </button>
+
                       {/* source selector */}
                       <div class="mb-4">
                         <h4 class="text-xs text-[var(--color-text-muted)] uppercase tracking-wide font-medium m-0 mb-2">
@@ -433,25 +526,19 @@ export function TopNav(props: TopNavProps) {
                               class="w-full px-3 py-2 text-left text-sm flex items-center gap-2 rounded transition-colors border-none bg-transparent"
                               classList={{
                                 "text-[var(--color-text-primary)] bg-[var(--color-accent-500)]/10 cursor-default":
-                                  props.currentSourceName === "local library" ||
-                                  !props.currentSourceName,
+                                  isLocalSourceActive(),
                                 "text-[var(--color-text-secondary)] cursor-pointer hover:bg-[var(--color-accent-500)]/10":
-                                  !!props.currentSourceName &&
-                                  props.currentSourceName !== "local library",
+                                  isAggregateFeedRoute() ||
+                                  isRadioRoute() ||
+                                  isSharedRoute() ||
+                                  (!!props.currentSourceName &&
+                                    props.currentSourceName !== "local library"),
                               }}
-                              disabled={
-                                !!(
-                                  props.currentSourceName === "local library" ||
-                                  !props.currentSourceName
-                                )
-                              }
+                              disabled={!!isLocalSourceActive()}
                               onClick={() => props.onSwitchToLocal?.()}
                             >
                               <Show
-                                when={
-                                  props.currentSourceName === "local library" ||
-                                  !props.currentSourceName
-                                }
+                                when={isLocalSourceActive()}
                                 fallback={
                                   <span class="w-2 h-2 rounded-full bg-[var(--color-accent-primary)]" />
                                 }
@@ -468,7 +555,8 @@ export function TopNav(props: TopNavProps) {
                               <For each={props.remotes}>
                                 {(remote) => {
                                   const isRechecking = () => recheckingRemoteIds().has(remote.id);
-                                  const isCurrentSource = () => props.currentSourceId === remote.id;
+                                  const isCurrentSource = () =>
+                                    !isAggregateFeedRoute() && props.currentSourceId === remote.id;
                                   const offlineTitle = () => {
                                     if (!remote.isOffline) return undefined;
                                     const lastChecked = remote.lastChecked
@@ -685,8 +773,16 @@ export function TopNav(props: TopNavProps) {
             <KobalteNav.Viewport />
           </KobalteNav>
 
-          {/* view selector flyout - hidden when search is expanded on small screens */}
-          <Show when={props.viewOptions?.length && (!isSmall() || !searchExpanded())}>
+          {/* view selector flyout - hidden when search is expanded on small screens, hidden on aggregate feed and radio */}
+          <Show
+            when={
+              !isAggregateFeedRoute() &&
+              !isRadioRoute() &&
+              !isSharedRoute() &&
+              props.viewOptions?.length &&
+              (!isSmall() || !searchExpanded())
+            }
+          >
             <div class="order-1">
               <ViewSelector
                 views={props.viewOptions!}
@@ -697,26 +793,36 @@ export function TopNav(props: TopNavProps) {
             </div>
           </Show>
 
-          {/* search - last item on right, grows to fill remaining space */}
-          <div class="flex-1 order-last">
-            <Show
-              when={props.searchComponent !== undefined}
-              fallback={
-                <TopNavSearchContainer
-                  placeholder={props.searchPlaceholder}
-                  onNavigate={props.onNavigate}
-                  currentPath={props.currentPath}
-                  onExpandedChange={setSearchExpanded}
-                  navHovered={navHovered()}
-                />
-              }
-            >
-              {props.searchComponent}
-            </Show>
-          </div>
+          {/* search - last item on right, grows to fill remaining space (hidden on aggregate feed + radio) */}
+          <Show when={!isAggregateFeedRoute() && !isRadioRoute() && !isSharedRoute()}>
+            <div class="flex-1 order-last">
+              <Show
+                when={props.searchComponent !== undefined}
+                fallback={
+                  <TopNavSearchContainer
+                    placeholder={props.searchPlaceholder}
+                    onNavigate={props.onNavigate}
+                    currentPath={props.currentPath}
+                    onExpandedChange={setSearchExpanded}
+                    navHovered={navHovered()}
+                  />
+                }
+              >
+                {props.searchComponent}
+              </Show>
+            </div>
+          </Show>
 
-          {/* sort controls - when view has sorting, hidden when search expanded on small */}
-          <Show when={info().sortFields?.length && (!isSmall() || !searchExpanded())}>
+          {/* sort controls - when view has sorting, hidden when search expanded on small, hidden on aggregate feed + radio */}
+          <Show
+            when={
+              !isAggregateFeedRoute() &&
+              !isRadioRoute() &&
+              !isSharedRoute() &&
+              info().sortFields?.length &&
+              (!isSmall() || !searchExpanded())
+            }
+          >
             <div
               class="relative flex-shrink-0 order-2"
               onMouseEnter={() => {
@@ -781,8 +887,12 @@ export function TopNav(props: TopNavProps) {
             </div>
           </Show>
 
-          {/* tag filter icon - when view has tags, hidden when search expanded on small */}
-          <Show when={info().availableTags?.length && (!isSmall() || !searchExpanded())}>
+          {/* tag filter icon - when view has tags, hidden when search expanded on small, hidden on radio */}
+          <Show
+            when={
+              !isRadioRoute() && info().availableTags?.length && (!isSmall() || !searchExpanded())
+            }
+          >
             <div
               class="relative flex-shrink-0 order-2"
               onMouseEnter={() => {
@@ -904,7 +1014,7 @@ export function TopNav(props: TopNavProps) {
                 <Icon name="filter" size={16} />
               </button>
               <Show when={feedFilterOpen()}>
-                <div class="absolute top-full right-0 mt-1 bg-[var(--color-bg-elevated)] border border-[var(--color-border-default)] rounded-lg shadow-xl z-[1001] min-w-[180px]">
+                <div class="absolute top-full left-0 mt-1 bg-[var(--color-bg-elevated)] border border-[var(--color-border-default)] rounded-lg shadow-xl z-[1001] min-w-[180px]">
                   <div class="p-2">
                     <Show when={hasActiveFeedFilters()}>
                       <div class="border-b border-[var(--color-border-subtle)] pb-2 mb-2">

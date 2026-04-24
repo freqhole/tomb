@@ -13,7 +13,9 @@ import {
 import { Portal } from "solid-js/web";
 import { ConfirmDialog } from "../components/dialogs/ConfirmDialog";
 import { PlaylistSelectorModal } from "../components/dialogs/PlaylistSelectorModal";
+import { AddToStationModal } from "../components/radio/AddToStationModal";
 import { ToastRegion } from "../components/feedback/Toast";
+import { toast } from "../components/feedback/Toast";
 import { AddRemoteModal } from "../components/modals/AddRemoteModal";
 import { ConnectionProgressModal } from "../components/modals/ConnectionProgressModal";
 import {
@@ -73,10 +75,11 @@ import {
   onRemoteStatusChange,
   onSwitchToLocal,
 } from "./services/remotes/remoteManager";
-import type { Song } from "../music/services/storage/types";
+import type { ImageMetadata, Song } from "../music/services/storage/types";
 import {
   type Remote,
   type QueueHistoryEntry,
+  type RadioStationRef,
   isHttpRemote,
   isP2PRemote,
 } from "./services/storage/types";
@@ -85,7 +88,7 @@ import { IconNames, type IconName } from "../components/icons/registry";
 import { routes, matchRoute, getDefaultRoute, hasFeedView } from "../music/utils/routing";
 import { confirmState, closeConfirm, resolveConfirm, confirm } from "./services/confirmState";
 import { playlistSelectorState, closePlaylistSelector } from "../music/hooks/playlistSelectorState";
-import { showImageCarousel, openAddMusic } from "../music/hooks/modals";
+import { showImageCarousel, openAddMusic, showShareModal } from "../music/hooks/modals";
 import { appState, setCurrentSong, setQueueOpen } from "./services/storage/db";
 import { getPageInfo } from "./services/pageInfo";
 import {
@@ -93,6 +96,7 @@ import {
   loadQueueHistory,
   removeHistoryEntry,
   clearQueueHistory,
+  addRadioStationHistoryEntry,
 } from "../music/services/queue/queueHistory";
 import { addToQueue, resumeHistoryEntry } from "../music/services/queue/queue";
 import { loadProgressFromStorage, progressMap } from "../music/services/queue/queueProgress";
@@ -103,6 +107,27 @@ import { checkAndShowConfigUpgradeToast } from "./services/toastNotices";
 import { debug } from "../utils/logger";
 import { isNarrowViewport } from "../config/breakpoints";
 import { getBackgroundConfig } from "./services/backgroundImage";
+import { playbackMode } from "./services/playbackMode";
+import {
+  leaveRadio,
+  radioArtUrl,
+  radioCurrentFavorite,
+  radioCurrentPeerAddr,
+  radioCurrentRemoteServerId,
+  radioElapsedMs,
+  radioListenerCount,
+  radioNowPlaying,
+  radioPause,
+  radioResume,
+  radioStatus,
+  setRadioAudioSink,
+  setRadioFavorite,
+  tuneIntoRadio,
+} from "./services/radio/radioService";
+import {
+  currentRadioStation,
+  loadCurrentRadioStation,
+} from "./services/storage/currentRadioStation";
 
 interface AppLayoutProps {
   children?: JSX.Element;
@@ -146,6 +171,46 @@ export function AppLayout(props: AppLayoutProps) {
   // automatically switch data source based on route context
   const routeContext = useRouteDataSource();
 
+  // radio queue entry metadata: resolve station peer_addr to remote name/image.
+  const currentRadioRemote = createMemo(() => {
+    const station = currentRadioStation();
+    if (!station) return null;
+    return (
+      remotes().find((r) => {
+        if (isP2PRemote(r)) return r.peer_addr === station.peer_addr;
+        if (isHttpRemote(r)) return r.base_url === station.peer_addr;
+        return false;
+      }) ?? null
+    );
+  });
+
+  const currentRadioRemoteName = createMemo(() => {
+    const station = currentRadioStation();
+    if (!station) return undefined;
+    return currentRadioRemote()?.name ?? (station.is_local ? "local" : undefined);
+  });
+
+  const currentRadioRemoteImage = createMemo<ImageMetadata | undefined>(() => {
+    const remote = currentRadioRemote();
+    if (!remote) return undefined;
+    const raw = remote.image_url ?? undefined;
+    const remoteUrl = raw
+      ? raw.startsWith("asset://") || raw.startsWith("http://") || raw.startsWith("https://")
+        ? raw
+        : isHttpRemote(remote) && remote.base_url
+          ? `${remote.base_url}${raw}`
+          : undefined
+      : undefined;
+    if (!remote.image_blob_id && !remoteUrl) return undefined;
+    return {
+      remote_blob_id: remote.image_blob_id ?? undefined,
+      remote_server_id: remote.remote_id,
+      remote_url: remoteUrl,
+      blob_type: "thumbnail",
+      is_primary: true,
+    };
+  });
+
   // update window/document title (freqhole ▸ remote ▸ route)
   createEffect(() => {
     const remote = getCurrentRemote();
@@ -185,6 +250,9 @@ export function AppLayout(props: AppLayoutProps) {
 
     // load queue history from idb
     await loadQueueHistory();
+
+    // load persisted radio queue entry (display only; no autoplay)
+    await loadCurrentRadioStation();
 
     // load queue progress from storage
     loadProgressFromStorage();
@@ -504,6 +572,76 @@ export function AppLayout(props: AppLayoutProps) {
     await setQueueOpen(!queueOpen());
   };
 
+  const resolveShareSourceRemote = (station: RadioStationRef): Remote | null => {
+    if (station.is_local) {
+      return remotes().find((r) => r.is_charnel_managed) ?? null;
+    }
+    return (
+      remotes().find((r) => {
+        if (isP2PRemote(r)) return r.peer_addr === station.peer_addr;
+        if (isHttpRemote(r)) return r.base_url === station.peer_addr;
+        return false;
+      }) ?? null
+    );
+  };
+
+  const openRadioShareModal = (station: RadioStationRef) => {
+    if (!station.station_id) {
+      toast.error("this station cannot be shared yet");
+      return;
+    }
+
+    const source = resolveShareSourceRemote(station);
+    if (!source) {
+      toast.error("could not resolve source for sharing");
+      return;
+    }
+
+    showShareModal({
+      target: {
+        kind: "radio_station",
+        id: station.station_id,
+        displayTitle: station.station_name,
+      },
+      source: () => source,
+    });
+  };
+
+  const getRadioQueueContextMenuActions = (station: RadioStationRef): MenuAction[] => [
+    {
+      label: "resume",
+      icon: IconNames.play,
+      onClick: () => {
+        void tuneIntoRadio(station.peer_addr, {
+          stationId: station.station_id,
+          stationName: station.station_name,
+          isLocal: station.is_local,
+        });
+      },
+    },
+    {
+      label: "save to history",
+      icon: IconNames.recent,
+      onClick: () => {
+        void addRadioStationHistoryEntry({
+          peer_addr: station.peer_addr,
+          station_id: station.station_id,
+          station_name: station.station_name,
+          is_local: station.is_local,
+          art_thumb_b64: station.art_thumb_b64,
+          art_thumb_mime: station.art_thumb_mime,
+        });
+      },
+    },
+    { type: "separator" },
+    {
+      label: "share...",
+      icon: IconNames.share,
+      disabled: !station.station_id,
+      onClick: () => openRadioShareModal(station),
+    },
+  ];
+
   // build context menu actions for a history entry
   const getHistoryContextMenuActions = (entry: QueueHistoryEntry): MenuAction[] => {
     const actions: MenuAction[] = [];
@@ -722,7 +860,14 @@ export function AppLayout(props: AppLayoutProps) {
         mainNavSections={[
           {
             items: [
-              // feed is only available when hasFeedView() is true (remotes + Tauri local)
+              // aggregate feed — combines all remotes
+              {
+                label: "all feeds",
+                onClick: () => {
+                  navigate("/feed");
+                },
+              },
+              // per-remote feed is only available when hasFeedView() is true
               ...(hasFeedView()
                 ? [
                     {
@@ -832,6 +977,14 @@ export function AppLayout(props: AppLayoutProps) {
           onClearAll={() => {
             void clearQueue();
           }}
+          onRadioQueueEntryClick={(station) => {
+            void tuneIntoRadio(station.peer_addr, {
+              stationId: station.station_id,
+              stationName: station.station_name,
+              isLocal: station.is_local,
+            });
+          }}
+          getRadioQueueContextMenuActions={getRadioQueueContextMenuActions}
           onResumeDownloads={() => {
             resumeAutoDownload();
           }}
@@ -873,6 +1026,15 @@ export function AppLayout(props: AppLayoutProps) {
           }}
           historyEntries={queueHistory()}
           onReplayHistoryEntry={(entry) => {
+            if (entry.type === "radio_station" && entry.radio_station_ref) {
+              const ref = entry.radio_station_ref;
+              void tuneIntoRadio(ref.peer_addr, {
+                stationId: ref.station_id,
+                stationName: ref.station_name,
+                isLocal: ref.is_local,
+              });
+              return;
+            }
             const hasProgress = (entry.listened_seconds || 0) > 0;
             if (hasProgress) {
               // resume from where we left off
@@ -905,50 +1067,215 @@ export function AppLayout(props: AppLayoutProps) {
             }
           }}
           getHistoryContextMenuActions={getHistoryContextMenuActions}
+          currentRadioStation={currentRadioStation()}
+          currentRadioRemoteName={currentRadioRemoteName()}
+          currentRadioRemoteImage={currentRadioRemoteImage()}
         />
       </div>
 
-      {/* player bar */}
-      <Show when={(appState()?.queue.length || 0) > 0}>
-        <PlayerBar
-          song={
-            currentSongData()
-              ? {
-                  id: currentSongData()!.id,
-                  sha256: currentSongData()!.sha256,
-                  title: currentSongData()!.title,
-                  artist:
-                    currentSongData()!.album_type === "compilation" &&
-                    currentSongData()!.track_artist?.trim()
-                      ? currentSongData()!.track_artist!
-                      : currentSongData()!.artist_name,
-                  album: currentSongData()!.album_title,
-                  images: currentSongData()!.images,
-                  album_images: currentSongData()!.album_images,
-                  isFavorite: currentSongData()!.is_favorite || false,
-                }
-              : undefined
-          }
-          isPlaying={isPlaying()}
-          isLoading={isLoading()}
-          hasUpNext={!!pendingUpNextSha256()}
-          currentTime={currentTime()}
-          duration={duration()}
-          volume={volume()}
-          queueOpen={queueOpen()}
-          onPlayPause={togglePlayback}
-          onPrevious={playPrevious}
-          onNext={playNext}
-          onSeek={handleSeek}
-          onVolumeChange={setPlayerVolume}
-          onQueueToggle={handleQueueToggle}
-          onFavoriteToggle={handleSongFavoriteToggle}
-          onImageClick={handlePlayerImageClick}
-          queueLength={appState()?.queue.length || 0}
-          canGoNext={canGoNext()}
-          canGoPrevious={canGoPrevious()}
-        />
+      {/* unified player bar — handles both music (queue) and radio modes.
+          radio audio element lives here so playback survives navigation;
+          `setRadioAudioSink` is called once on mount. */}
+      <Show
+        when={
+          (appState()?.queue.length || 0) > 0 || radioStatus() !== "idle" || !!currentRadioStation()
+        }
+      >
+        {(() => {
+          const isRadio = () => playbackMode() === "radio";
+
+          // build the song-shaped object the bar consumes. in radio mode,
+          // map fields from radioNowPlaying() + radioArtUrl().
+          const barSong = () => {
+            if (isRadio()) {
+              const np = radioNowPlaying();
+              if (!np) {
+                const station = currentRadioStation();
+                if (!station) return undefined;
+                return {
+                  id: station.station_id || station.peer_addr || "radio",
+                  title: station.station_name || "radio station",
+                  artist: "radio",
+                  album: "ready to resume",
+                  thumbnailUrl: undefined,
+                };
+              }
+              const remoteId = radioCurrentRemoteServerId();
+              // synthesize an `images` array so PlayerBar's waveform
+              // pipeline can render the overlay just like in music mode.
+              // requires a resolved local remote (so MediaImage knows
+              // which backend to fetch from).
+              const images =
+                np.waveform_blob_id && remoteId
+                  ? [
+                      {
+                        remote_blob_id: np.waveform_blob_id,
+                        remote_server_id: remoteId,
+                        is_primary: false,
+                        blob_type: "waveform" as const,
+                      },
+                    ]
+                  : undefined;
+              return {
+                id: np.song_id || "radio",
+                title: np.title || "untitled",
+                artist: np.artist ?? "unknown artist",
+                album: np.album ?? undefined,
+                thumbnailUrl: radioArtUrl() ?? undefined,
+                images,
+                isFavorite: radioCurrentFavorite() ?? false,
+              };
+            }
+            const cs = currentSongData();
+            if (!cs) return undefined;
+            return {
+              id: cs.id,
+              sha256: cs.sha256,
+              title: cs.title,
+              artist:
+                cs.album_type === "compilation" && cs.track_artist?.trim()
+                  ? cs.track_artist
+                  : cs.artist_name,
+              album: cs.album_title,
+              images: cs.images,
+              album_images: cs.album_images,
+              isFavorite: cs.is_favorite || false,
+            };
+          };
+
+          const barIsPlaying = () => (isRadio() ? radioStatus() === "playing" : isPlaying());
+          const barIsLoading = () => (isRadio() ? radioStatus() === "connecting" : isLoading());
+          const barCurrentTime = () => (isRadio() ? radioElapsedMs() / 1000 : currentTime());
+          const barDuration = () => {
+            if (isRadio()) {
+              const ms = radioNowPlaying()?.duration_ms;
+              return ms ? ms / 1000 : 0;
+            }
+            return duration();
+          };
+
+          const onPlayPause = () => {
+            if (isRadio()) {
+              if (radioStatus() === "paused") radioResume();
+              else if (radioStatus() === "playing") radioPause();
+              else if (radioStatus() === "error") leaveRadio();
+              else if (radioStatus() === "idle") {
+                const station = currentRadioStation();
+                if (!station) return;
+                void tuneIntoRadio(station.peer_addr, {
+                  stationId: station.station_id,
+                  stationName: station.station_name,
+                  isLocal: station.is_local,
+                });
+              }
+              return;
+            }
+            togglePlayback();
+          };
+          const onPrev = () => {
+            if (isRadio()) return; // radio has no track skip
+            playPrevious();
+          };
+          const onNext = () => {
+            if (isRadio()) return;
+            playNext();
+          };
+          const onSeekCb = (pct: number) => {
+            if (isRadio()) return; // live audio is not seekable
+            handleSeek(pct);
+          };
+          const onFavToggle = (songId: string) => {
+            if (isRadio()) {
+              // toggle favorite for the currently-playing radio track on
+              // the broadcasting peer. requires the peer to be a
+              // registered remote with an authenticated session; the
+              // service surfaces an error otherwise.
+              const next = !(radioCurrentFavorite() ?? false);
+              void setRadioFavorite(songId, next).catch((e) => {
+                debug("AppLayout", "radio favorite toggle failed:", e);
+              });
+              return;
+            }
+            handleSongFavoriteToggle(songId);
+          };
+          const onImageClick = () => {
+            if (isRadio()) {
+              navigate("/radio");
+              return;
+            }
+            handlePlayerImageClick();
+          };
+
+          // status badge for radio mode: live indicator + listener count.
+          const statusBadge = () =>
+            isRadio() ? (
+              <div
+                class="flex items-center gap-1 pr-1.5 py-0 rounded-full bg-black/60 backdrop-blur text-[9px] font-bold uppercase tracking-wide leading-none"
+                classList={{
+                  "text-red-400": radioStatus() === "playing",
+                  "text-amber-400": radioStatus() === "connecting",
+                  "text-neutral-400": radioStatus() === "paused",
+                  "text-red-500": radioStatus() === "error",
+                }}
+                title={radioCurrentPeerAddr() ?? ""}
+              >
+                <span>
+                  {radioStatus() === "playing"
+                    ? "live"
+                    : radioStatus() === "connecting"
+                      ? "tuning"
+                      : radioStatus() === "paused"
+                        ? "paused"
+                        : radioStatus() === "idle"
+                          ? "ready"
+                          : "error"}
+                </span>
+                <span
+                  class="w-1 h-1 rounded-full"
+                  classList={{
+                    "bg-red-500 animate-pulse": radioStatus() === "playing",
+                    "bg-amber-400 animate-pulse": radioStatus() === "connecting",
+                    "bg-neutral-400": radioStatus() === "paused",
+                    "bg-red-500": radioStatus() === "error",
+                  }}
+                />
+                <span class="opacity-70 normal-case font-medium tabular-nums">
+                  · {radioListenerCount()} listening
+                </span>
+              </div>
+            ) : undefined;
+
+          return (
+            <PlayerBar
+              song={barSong()}
+              isPlaying={barIsPlaying()}
+              isLoading={barIsLoading()}
+              hasUpNext={isRadio() ? false : !!pendingUpNextSha256()}
+              currentTime={barCurrentTime()}
+              duration={barDuration()}
+              volume={volume()}
+              queueOpen={queueOpen()}
+              onPlayPause={onPlayPause}
+              onPrevious={onPrev}
+              onNext={onNext}
+              onSeek={onSeekCb}
+              onVolumeChange={setPlayerVolume}
+              onQueueToggle={handleQueueToggle}
+              onFavoriteToggle={onFavToggle}
+              onImageClick={onImageClick}
+              queueLength={appState()?.queue.length || 0}
+              canGoNext={isRadio() ? false : canGoNext()}
+              canGoPrevious={isRadio() ? false : canGoPrevious()}
+              statusBadge={statusBadge()}
+            />
+          );
+        })()}
       </Show>
+
+      {/* persistent <audio> for radio playback. hidden; lives at app root
+          so navigation never tears it down. wired into radioService via
+          setRadioAudioSink in onMount. */}
+      <RadioAudioSink />
 
       {/* add remote modal */}
       <AddRemoteModal
@@ -989,10 +1316,46 @@ export function AppLayout(props: AppLayoutProps) {
         songIds={playlistSelectorState().songIds}
       />
 
+      {/* global station selector modal (charnel-only) */}
+      <AddToStationModal />
+
       {/* toast notifications */}
       <Portal>
         <ToastRegion />
       </Portal>
     </div>
   );
+}
+
+/**
+ * persistent <audio> element for radio playback. mounted once at the
+ * app root so navigation never re-creates it (which would tear down the
+ * MediaSource pipe). registers itself with `setRadioAudioSink` on mount
+ * and unregisters on unmount. hidden from layout.
+ */
+function RadioAudioSink() {
+  let mount!: HTMLDivElement;
+  const audioEl = (() => {
+    const el = document.createElement("audio");
+    el.controls = false;
+    el.autoplay = true;
+    el.preload = "auto";
+    el.style.display = "none";
+    return el;
+  })();
+  setRadioAudioSink(audioEl);
+  // initial volume sync — RadioAudioSink mounts after player.ts has
+  // restored the persisted volume, so seed the new sink to match.
+  try {
+    audioEl.volume = Math.max(0, Math.min(1, volume()));
+  } catch {
+    // ignore — element may not be ready yet.
+  }
+  onMount(() => {
+    if (mount && audioEl.parentElement !== mount) mount.appendChild(audioEl);
+  });
+  onCleanup(() => {
+    setRadioAudioSink(null);
+  });
+  return <div ref={(el) => (mount = el)} class="hidden" />;
 }

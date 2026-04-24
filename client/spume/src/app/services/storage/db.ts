@@ -11,6 +11,8 @@ import {
   STORE_QUEUE_HISTORY,
   STORE_REMOTES,
   STORE_PENDING_REMOTES,
+  STORE_RADIO_HISTORY,
+  STORE_SHARED_ITEMS,
   type AppState,
   type P2PIdentity,
   type PendingRemote,
@@ -74,6 +76,24 @@ async function initAppDB(): Promise<IDBPDatabase> {
         pendingStore.createIndex("by_peer_addr", "peer_addr");
         pendingStore.createIndex("by_stage", "stage");
         pendingStore.createIndex("by_created_at", "created_at");
+      }
+
+      // create radio_history store (v7) — capped at 1000 by radioHistory module
+      if (!db.objectStoreNames.contains(STORE_RADIO_HISTORY)) {
+        const radioStore = db.createObjectStore(STORE_RADIO_HISTORY, {
+          keyPath: "id",
+        });
+        radioStore.createIndex("by_played_at", "played_at");
+        radioStore.createIndex("by_station_id", "station_id");
+      }
+
+      // create shared_items store (v8)
+      if (!db.objectStoreNames.contains(STORE_SHARED_ITEMS)) {
+        const sharedStore = db.createObjectStore(STORE_SHARED_ITEMS, {
+          keyPath: "id",
+        });
+        sharedStore.createIndex("by_last_seen_at", "last_seen_at");
+        sharedStore.createIndex("by_kind", "kind");
       }
     },
   });

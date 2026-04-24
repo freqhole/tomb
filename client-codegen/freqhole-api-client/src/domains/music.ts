@@ -23,7 +23,8 @@ export function createMusicMethods(call: CallFn) {
     // search
     search: (params: s.SearchRequest) => {
       return call(
-        "music", "search",
+        "music",
+        "search",
         routes.music.search.resp,
         routes.music.search.req,
         routes.music.search.method,
@@ -34,7 +35,8 @@ export function createMusicMethods(call: CallFn) {
 
     suggestions: (params: s.SuggestionsRequest) => {
       return call(
-        "music", "suggestions",
+        "music",
+        "suggestions",
         routes.music.suggestions.resp,
         routes.music.suggestions.req,
         routes.music.suggestions.method,
@@ -46,7 +48,8 @@ export function createMusicMethods(call: CallFn) {
     // songs
     querySongs: (params: s.QueryParams) => {
       return call(
-        "music", "query_songs",
+        "music",
+        "query_songs",
         routes.music.query_songs.resp,
         routes.music.query_songs.req,
         routes.music.query_songs.method,
@@ -57,7 +60,8 @@ export function createMusicMethods(call: CallFn) {
 
     recentSongs: (params: s.RecentSongsRequest) => {
       return call(
-        "music", "recent_songs",
+        "music",
+        "recent_songs",
         routes.music.recent_songs.resp,
         routes.music.recent_songs.req,
         routes.music.recent_songs.method,
@@ -66,9 +70,12 @@ export function createMusicMethods(call: CallFn) {
       );
     },
 
-    updateSongs: (params: Partial<s.UpdateSongsRequest> & { song_ids: string[] }) => {
+    updateSongs: (
+      params: Partial<s.UpdateSongsRequest> & { song_ids: string[] },
+    ) => {
       return call(
-        "music", "update_songs",
+        "music",
+        "update_songs",
         routes.music.update_songs.resp,
         UpdateSongsRequestPartialSchema,
         routes.music.update_songs.method,
@@ -79,7 +86,8 @@ export function createMusicMethods(call: CallFn) {
 
     deleteSong: (params: s.DeleteSongRequest) => {
       return call(
-        "music", "delete_song",
+        "music",
+        "delete_song",
         routes.music.delete_song.resp,
         routes.music.delete_song.req,
         routes.music.delete_song.method,
@@ -90,7 +98,8 @@ export function createMusicMethods(call: CallFn) {
 
     bulkDeleteSongs: (params: s.BulkDeleteSongsRequest) => {
       return call(
-        "music", "bulk_delete_songs",
+        "music",
+        "bulk_delete_songs",
         routes.music.bulk_delete_songs.resp,
         routes.music.bulk_delete_songs.req,
         routes.music.bulk_delete_songs.method,
@@ -101,7 +110,8 @@ export function createMusicMethods(call: CallFn) {
 
     bulkClearSongArtwork: (params: s.BulkClearSongArtworkRequest) => {
       return call(
-        "music", "bulk_clear_song_artwork",
+        "music",
+        "bulk_clear_song_artwork",
         routes.music.bulk_clear_song_artwork.resp,
         routes.music.bulk_clear_song_artwork.req,
         routes.music.bulk_clear_song_artwork.method,
@@ -113,7 +123,8 @@ export function createMusicMethods(call: CallFn) {
     // albums
     queryAlbums: (params: s.QueryParams) => {
       return call(
-        "music", "query_albums",
+        "music",
+        "query_albums",
         routes.music.query_albums.resp,
         routes.music.query_albums.req,
         routes.music.query_albums.method,
@@ -124,7 +135,8 @@ export function createMusicMethods(call: CallFn) {
 
     getAlbum: (params: s.GetAlbumRequest) => {
       return call(
-        "music", "get_album",
+        "music",
+        "get_album",
         routes.music.get_album.resp,
         routes.music.get_album.req,
         routes.music.get_album.method,
@@ -133,9 +145,12 @@ export function createMusicMethods(call: CallFn) {
       );
     },
 
-    updateAlbum: (params: Partial<s.UpdateAlbumRequest> & { album_id: string }) => {
+    updateAlbum: (
+      params: Partial<s.UpdateAlbumRequest> & { album_id: string },
+    ) => {
       return call(
-        "music", "update_album",
+        "music",
+        "update_album",
         routes.music.update_album.resp,
         UpdateAlbumRequestPartialSchema,
         routes.music.update_album.method,
@@ -146,7 +161,8 @@ export function createMusicMethods(call: CallFn) {
 
     deleteAlbum: (params: s.DeleteAlbumRequest) => {
       return call(
-        "music", "delete_album",
+        "music",
+        "delete_album",
         routes.music.delete_album.resp,
         routes.music.delete_album.req,
         routes.music.delete_album.method,
@@ -157,7 +173,8 @@ export function createMusicMethods(call: CallFn) {
 
     getAlbumImages: (params: { id: string }) => {
       return call(
-        "music", "get_album_images",
+        "music",
+        "get_album_images",
         routes.music.get_album_images.resp,
         routes.music.get_album_images.req,
         routes.music.get_album_images.method,
@@ -169,7 +186,8 @@ export function createMusicMethods(call: CallFn) {
     // artists
     queryArtists: (params: s.QueryParams) => {
       return call(
-        "music", "query_artists",
+        "music",
+        "query_artists",
         routes.music.query_artists.resp,
         routes.music.query_artists.req,
         routes.music.query_artists.method,
@@ -180,7 +198,8 @@ export function createMusicMethods(call: CallFn) {
 
     getArtist: (params: s.GetArtistRequest) => {
       return call(
-        "music", "get_artist",
+        "music",
+        "get_artist",
         routes.music.get_artist.resp,
         routes.music.get_artist.req,
         routes.music.get_artist.method,
@@ -191,7 +210,8 @@ export function createMusicMethods(call: CallFn) {
 
     createArtist: (params: s.CreateArtistRequest) => {
       return call(
-        "music", "create_artist",
+        "music",
+        "create_artist",
         routes.music.create_artist.resp,
         routes.music.create_artist.req,
         routes.music.create_artist.method,
@@ -200,9 +220,12 @@ export function createMusicMethods(call: CallFn) {
       );
     },
 
-    updateArtist: (params: Partial<s.UpdateArtistRequest> & { artist_id: string }) => {
+    updateArtist: (
+      params: Partial<s.UpdateArtistRequest> & { artist_id: string },
+    ) => {
       return call(
-        "music", "update_artist",
+        "music",
+        "update_artist",
         routes.music.update_artist.resp,
         UpdateArtistRequestPartialSchema,
         routes.music.update_artist.method,
@@ -213,7 +236,8 @@ export function createMusicMethods(call: CallFn) {
 
     deleteArtist: (params: s.DeleteArtistRequest) => {
       return call(
-        "music", "delete_artist",
+        "music",
+        "delete_artist",
         routes.music.delete_artist.resp,
         routes.music.delete_artist.req,
         routes.music.delete_artist.method,
@@ -224,7 +248,8 @@ export function createMusicMethods(call: CallFn) {
 
     getArtistImages: (params: { id: string }) => {
       return call(
-        "music", "get_artist_images",
+        "music",
+        "get_artist_images",
         routes.music.get_artist_images.resp,
         routes.music.get_artist_images.req,
         routes.music.get_artist_images.method,
@@ -236,7 +261,8 @@ export function createMusicMethods(call: CallFn) {
     // genres
     queryGenres: (params: s.QueryParams) => {
       return call(
-        "music", "query_genres",
+        "music",
+        "query_genres",
         routes.music.query_genres.resp,
         routes.music.query_genres.req,
         routes.music.query_genres.method,
@@ -247,7 +273,8 @@ export function createMusicMethods(call: CallFn) {
 
     getGenre: (params: s.GetGenreRequest) => {
       return call(
-        "music", "get_genre",
+        "music",
+        "get_genre",
         routes.music.get_genre.resp,
         routes.music.get_genre.req,
         routes.music.get_genre.method,
@@ -259,7 +286,8 @@ export function createMusicMethods(call: CallFn) {
     // playlists
     listPlaylists: (params: s.QueryParams) => {
       return call(
-        "music", "list_playlists",
+        "music",
+        "list_playlists",
         routes.music.list_playlists.resp,
         routes.music.list_playlists.req,
         routes.music.list_playlists.method,
@@ -270,7 +298,8 @@ export function createMusicMethods(call: CallFn) {
 
     getPlaylistById: (params: s.GetPlaylistRequest) => {
       return call(
-        "music", "get_playlist_by_id",
+        "music",
+        "get_playlist_by_id",
         routes.music.get_playlist_by_id.resp,
         routes.music.get_playlist_by_id.req,
         routes.music.get_playlist_by_id.method,
@@ -280,9 +309,13 @@ export function createMusicMethods(call: CallFn) {
     },
 
     getPlaylistEtag: (params: s.GetPlaylistRequest) => {
-      const path = routes.music.get_playlist_etag.path.replace("{id}", params.id);
+      const path = routes.music.get_playlist_etag.path.replace(
+        "{id}",
+        params.id,
+      );
       return call(
-        "music", "get_playlist_etag",
+        "music",
+        "get_playlist_etag",
         routes.music.get_playlist_etag.resp,
         routes.music.get_playlist_etag.req,
         routes.music.get_playlist_etag.method,
@@ -293,7 +326,8 @@ export function createMusicMethods(call: CallFn) {
 
     getPlaylistImages: (params: { id: string }) => {
       return call(
-        "music", "get_playlist_images",
+        "music",
+        "get_playlist_images",
         routes.music.get_playlist_images.resp,
         routes.music.get_playlist_images.req,
         routes.music.get_playlist_images.method,
@@ -304,7 +338,8 @@ export function createMusicMethods(call: CallFn) {
 
     createPlaylist: (params: s.CreatePlaylistRequest) => {
       return call(
-        "music", "create_playlist",
+        "music",
+        "create_playlist",
         routes.music.create_playlist.resp,
         routes.music.create_playlist.req,
         routes.music.create_playlist.method,
@@ -315,7 +350,8 @@ export function createMusicMethods(call: CallFn) {
 
     updatePlaylist: (params: s.UpdatePlaylistRequest) => {
       return call(
-        "music", "update_playlist",
+        "music",
+        "update_playlist",
         routes.music.update_playlist.resp,
         routes.music.update_playlist.req,
         routes.music.update_playlist.method,
@@ -326,7 +362,8 @@ export function createMusicMethods(call: CallFn) {
 
     deletePlaylist: (params: s.DeletePlaylistRequest) => {
       return call(
-        "music", "delete_playlist",
+        "music",
+        "delete_playlist",
         routes.music.delete_playlist.resp,
         routes.music.delete_playlist.req,
         routes.music.delete_playlist.method,
@@ -337,7 +374,8 @@ export function createMusicMethods(call: CallFn) {
 
     queryPlaylistSongs: (params: s.QueryPlaylistSongsRequest) => {
       return call(
-        "music", "query_playlist_songs",
+        "music",
+        "query_playlist_songs",
         routes.music.query_playlist_songs.resp,
         routes.music.query_playlist_songs.req,
         routes.music.query_playlist_songs.method,
@@ -348,7 +386,8 @@ export function createMusicMethods(call: CallFn) {
 
     addSongsToPlaylist: (params: s.AddSongsToPlaylistRequest) => {
       return call(
-        "music", "add_songs_to_playlist",
+        "music",
+        "add_songs_to_playlist",
         routes.music.add_songs_to_playlist.resp,
         routes.music.add_songs_to_playlist.req,
         routes.music.add_songs_to_playlist.method,
@@ -359,7 +398,8 @@ export function createMusicMethods(call: CallFn) {
 
     removeSongsFromPlaylist: (params: s.RemoveSongsFromPlaylistRequest) => {
       return call(
-        "music", "remove_songs_from_playlist",
+        "music",
+        "remove_songs_from_playlist",
         routes.music.remove_songs_from_playlist.resp,
         routes.music.remove_songs_from_playlist.req,
         routes.music.remove_songs_from_playlist.method,
@@ -370,7 +410,8 @@ export function createMusicMethods(call: CallFn) {
 
     reorderPlaylistSongs: (params: s.ReorderPlaylistSongsRequest) => {
       return call(
-        "music", "reorder_playlist_songs",
+        "music",
+        "reorder_playlist_songs",
         routes.music.reorder_playlist_songs.resp,
         routes.music.reorder_playlist_songs.req,
         routes.music.reorder_playlist_songs.method,
@@ -382,7 +423,8 @@ export function createMusicMethods(call: CallFn) {
     // tags
     listTags: () => {
       return call(
-        "music", "list_tags",
+        "music",
+        "list_tags",
         routes.music.list_tags.resp,
         routes.music.list_tags.req,
         routes.music.list_tags.method,
@@ -392,7 +434,8 @@ export function createMusicMethods(call: CallFn) {
 
     getTag: (params: s.GetTagRequest) => {
       return call(
-        "music", "get_tag",
+        "music",
+        "get_tag",
         routes.music.get_tag.resp,
         routes.music.get_tag.req,
         routes.music.get_tag.method,
@@ -403,7 +446,8 @@ export function createMusicMethods(call: CallFn) {
 
     queryTags: (params: s.QueryTagsRequest) => {
       return call(
-        "music", "query_tags",
+        "music",
+        "query_tags",
         routes.music.query_tags.resp,
         routes.music.query_tags.req,
         routes.music.query_tags.method,
@@ -414,7 +458,8 @@ export function createMusicMethods(call: CallFn) {
 
     deleteTag: (params: s.DeleteTagRequest) => {
       return call(
-        "music", "delete_tag",
+        "music",
+        "delete_tag",
         routes.music.delete_tag.resp,
         routes.music.delete_tag.req,
         routes.music.delete_tag.method,
@@ -425,7 +470,8 @@ export function createMusicMethods(call: CallFn) {
 
     getAlbumsTags: (params: s.GetAlbumsTagsRequest) => {
       return call(
-        "music", "get_albums_tags",
+        "music",
+        "get_albums_tags",
         routes.music.get_albums_tags.resp,
         routes.music.get_albums_tags.req,
         routes.music.get_albums_tags.method,
@@ -436,7 +482,8 @@ export function createMusicMethods(call: CallFn) {
 
     addAlbumsTags: (params: s.AddAlbumsTagsRequest) => {
       return call(
-        "music", "add_albums_tags",
+        "music",
+        "add_albums_tags",
         routes.music.add_albums_tags.resp,
         routes.music.add_albums_tags.req,
         routes.music.add_albums_tags.method,
@@ -447,7 +494,8 @@ export function createMusicMethods(call: CallFn) {
 
     removeAlbumsTags: (params: s.RemoveAlbumsTagsRequest) => {
       return call(
-        "music", "remove_albums_tags",
+        "music",
+        "remove_albums_tags",
         routes.music.remove_albums_tags.resp,
         routes.music.remove_albums_tags.req,
         routes.music.remove_albums_tags.method,
@@ -458,7 +506,8 @@ export function createMusicMethods(call: CallFn) {
 
     replaceAlbumsTags: (params: s.ReplaceAlbumsTagsRequest) => {
       return call(
-        "music", "replace_albums_tags",
+        "music",
+        "replace_albums_tags",
         routes.music.replace_albums_tags.resp,
         routes.music.replace_albums_tags.req,
         routes.music.replace_albums_tags.method,
@@ -470,7 +519,8 @@ export function createMusicMethods(call: CallFn) {
     // ratings
     setRating: (params: s.SetRatingRequest) => {
       return call(
-        "music", "set_rating",
+        "music",
+        "set_rating",
         routes.music.set_rating.resp,
         routes.music.set_rating.req,
         routes.music.set_rating.method,
@@ -481,7 +531,8 @@ export function createMusicMethods(call: CallFn) {
 
     removeRating: (params: s.RemoveRatingRequest) => {
       return call(
-        "music", "remove_rating",
+        "music",
+        "remove_rating",
         routes.music.remove_rating.resp,
         routes.music.remove_rating.req,
         routes.music.remove_rating.method,
@@ -492,7 +543,8 @@ export function createMusicMethods(call: CallFn) {
 
     getRatingStats: (params: s.GetRatingStatsRequest) => {
       return call(
-        "music", "get_rating_stats",
+        "music",
+        "get_rating_stats",
         routes.music.get_rating_stats.resp,
         routes.music.get_rating_stats.req,
         routes.music.get_rating_stats.method,
@@ -504,8 +556,9 @@ export function createMusicMethods(call: CallFn) {
     // favorites
     listFavorites: (params: s.ListFavoritesRequest) => {
       return call(
-        "music", "list_favorites",
-        ListFavoritesResponseSchema,  // use hand-rolled schema for discriminated union
+        "music",
+        "list_favorites",
+        ListFavoritesResponseSchema, // use hand-rolled schema for discriminated union
         routes.music.list_favorites.req,
         routes.music.list_favorites.method,
         routes.music.list_favorites.path,
@@ -515,7 +568,8 @@ export function createMusicMethods(call: CallFn) {
 
     setFavorite: (params: s.SetFavoriteRequest) => {
       return call(
-        "music", "set_favorite",
+        "music",
+        "set_favorite",
         routes.music.set_favorite.resp,
         routes.music.set_favorite.req,
         routes.music.set_favorite.method,
@@ -527,7 +581,8 @@ export function createMusicMethods(call: CallFn) {
     // analytics
     recordPlay: (params: s.RecordPlayRequest) => {
       return call(
-        "music", "record_play",
+        "music",
+        "record_play",
         routes.music.record_play.resp,
         routes.music.record_play.req,
         routes.music.record_play.method,
@@ -538,7 +593,8 @@ export function createMusicMethods(call: CallFn) {
 
     activityFeed: (params: s.FeedRequest) => {
       return call(
-        "music", "activity_feed",
+        "music",
+        "activity_feed",
         routes.music.activity_feed.resp,
         routes.music.activity_feed.req,
         routes.music.activity_feed.method,
@@ -549,7 +605,8 @@ export function createMusicMethods(call: CallFn) {
 
     listeningHistory: (params: s.ListeningHistoryRequest) => {
       return call(
-        "music", "listening_history",
+        "music",
+        "listening_history",
         routes.music.listening_history.resp,
         routes.music.listening_history.req,
         routes.music.listening_history.method,
@@ -560,7 +617,8 @@ export function createMusicMethods(call: CallFn) {
 
     songAnalytics: (params: s.SongAnalyticsRequest) => {
       return call(
-        "music", "song_analytics",
+        "music",
+        "song_analytics",
         routes.music.song_analytics.resp,
         routes.music.song_analytics.req,
         routes.music.song_analytics.method,
@@ -571,7 +629,8 @@ export function createMusicMethods(call: CallFn) {
 
     topSongs: (params: s.TopSongsRequest) => {
       return call(
-        "music", "top_songs",
+        "music",
+        "top_songs",
         routes.music.top_songs.resp,
         routes.music.top_songs.req,
         routes.music.top_songs.method,
@@ -582,7 +641,8 @@ export function createMusicMethods(call: CallFn) {
 
     topAlbums: (params: s.TopAlbumsRequest) => {
       return call(
-        "music", "top_albums",
+        "music",
+        "top_albums",
         routes.music.top_albums.resp,
         routes.music.top_albums.req,
         routes.music.top_albums.method,
@@ -593,7 +653,8 @@ export function createMusicMethods(call: CallFn) {
 
     topArtists: (params: s.TopArtistsRequest) => {
       return call(
-        "music", "top_artists",
+        "music",
+        "top_artists",
         routes.music.top_artists.resp,
         routes.music.top_artists.req,
         routes.music.top_artists.method,
@@ -605,7 +666,8 @@ export function createMusicMethods(call: CallFn) {
     // listen sessions
     createListenSession: (params: s.CreateListenSessionRequest) => {
       return call(
-        "music", "create_listen_session",
+        "music",
+        "create_listen_session",
         routes.music.create_listen_session.resp,
         routes.music.create_listen_session.req,
         routes.music.create_listen_session.method,
@@ -617,7 +679,8 @@ export function createMusicMethods(call: CallFn) {
     getListenSession: (id: string) => {
       const path = routes.music.get_listen_session.path.replace("{id}", id);
       return call(
-        "music", "get_listen_session",
+        "music",
+        "get_listen_session",
         routes.music.get_listen_session.resp,
         routes.music.get_listen_session.req,
         routes.music.get_listen_session.method,
@@ -626,20 +689,40 @@ export function createMusicMethods(call: CallFn) {
     },
 
     deleteListenSession: (id: string) => {
-      const path = routes.music.delete_listen_session.path.replace("{id}", id);
       return call(
-        "music", "delete_listen_session",
+        "music",
+        "delete_listen_session",
         routes.music.delete_listen_session.resp,
         routes.music.delete_listen_session.req,
         routes.music.delete_listen_session.method,
-        path,
+        routes.music.delete_listen_session.path,
+        { id },
       );
     },
 
-    updateListenSessionProgress: (id: string, params: s.UpdateListenSessionProgressRequest) => {
-      const path = routes.music.update_listen_session_progress.path.replace("{id}", id);
+    deleteFeedEvent: (id: string) => {
       return call(
-        "music", "update_listen_session_progress",
+        "music",
+        "delete_feed_event",
+        routes.music.delete_feed_event.resp,
+        routes.music.delete_feed_event.req,
+        routes.music.delete_feed_event.method,
+        routes.music.delete_feed_event.path,
+        { id },
+      );
+    },
+
+    updateListenSessionProgress: (
+      id: string,
+      params: s.UpdateListenSessionProgressRequest,
+    ) => {
+      const path = routes.music.update_listen_session_progress.path.replace(
+        "{id}",
+        id,
+      );
+      return call(
+        "music",
+        "update_listen_session_progress",
         routes.music.update_listen_session_progress.resp,
         routes.music.update_listen_session_progress.req,
         routes.music.update_listen_session_progress.method,
@@ -653,7 +736,8 @@ export function createMusicMethods(call: CallFn) {
         .replace("{id}", id)
         .replace("{status}", status);
       return call(
-        "music", "update_listen_session_status",
+        "music",
+        "update_listen_session_status",
         routes.music.update_listen_session_status.resp,
         routes.music.update_listen_session_status.req,
         routes.music.update_listen_session_status.method,
@@ -661,10 +745,17 @@ export function createMusicMethods(call: CallFn) {
       );
     },
 
-    updateListenSessionSongs: (id: string, params: s.UpdateListenSessionSongsRequest) => {
-      const path = routes.music.update_listen_session_songs.path.replace("{id}", id);
+    updateListenSessionSongs: (
+      id: string,
+      params: s.UpdateListenSessionSongsRequest,
+    ) => {
+      const path = routes.music.update_listen_session_songs.path.replace(
+        "{id}",
+        id,
+      );
       return call(
-        "music", "update_listen_session_songs",
+        "music",
+        "update_listen_session_songs",
         routes.music.update_listen_session_songs.resp,
         routes.music.update_listen_session_songs.req,
         routes.music.update_listen_session_songs.method,
@@ -675,7 +766,8 @@ export function createMusicMethods(call: CallFn) {
 
     listListenSessions: (params: s.ListListenSessionsRequest) => {
       return call(
-        "music", "list_listen_sessions",
+        "music",
+        "list_listen_sessions",
         routes.music.list_listen_sessions.resp,
         routes.music.list_listen_sessions.req,
         routes.music.list_listen_sessions.method,
@@ -687,7 +779,8 @@ export function createMusicMethods(call: CallFn) {
     // jobs
     getJobStatus: (params: s.GetJobsStatusRequest) => {
       return call(
-        "music", "get_job_status",
+        "music",
+        "get_job_status",
         routes.music.get_job_status.resp,
         routes.music.get_job_status.req,
         routes.music.get_job_status.method,
@@ -698,7 +791,8 @@ export function createMusicMethods(call: CallFn) {
 
     listJobs: (params: s.ListJobsRequest) => {
       return call(
-        "music", "list_jobs",
+        "music",
+        "list_jobs",
         routes.music.list_jobs.resp,
         routes.music.list_jobs.req,
         routes.music.list_jobs.method,
@@ -710,7 +804,8 @@ export function createMusicMethods(call: CallFn) {
     // blobs
     blobMetadata: (params: { id: string }) => {
       return call(
-        "music", "blob_metadata",
+        "music",
+        "blob_metadata",
         routes.music.blob_metadata.resp,
         routes.music.blob_metadata.req,
         routes.music.blob_metadata.method,
@@ -722,7 +817,8 @@ export function createMusicMethods(call: CallFn) {
     // images
     deleteImage: (params: s.DeleteImageRequest) => {
       return call(
-        "music", "delete_image",
+        "music",
+        "delete_image",
         routes.music.delete_image.resp,
         routes.music.delete_image.req,
         routes.music.delete_image.method,
@@ -733,7 +829,8 @@ export function createMusicMethods(call: CallFn) {
 
     setPrimaryImage: (params: s.SetPrimaryImageRequest) => {
       return call(
-        "music", "set_primary_image",
+        "music",
+        "set_primary_image",
         routes.music.set_primary_image.resp,
         routes.music.set_primary_image.req,
         routes.music.set_primary_image.method,
@@ -745,7 +842,8 @@ export function createMusicMethods(call: CallFn) {
     // musicbrainz
     getMusicbrainzRelease: (params: s.GetReleaseRequest) => {
       return call(
-        "music", "get_musicbrainz_release",
+        "music",
+        "get_musicbrainz_release",
         routes.music.get_musicbrainz_release.resp,
         routes.music.get_musicbrainz_release.req,
         routes.music.get_musicbrainz_release.method,
@@ -756,7 +854,8 @@ export function createMusicMethods(call: CallFn) {
 
     searchMusicbrainzReleases: (params: s.SearchReleasesRequest) => {
       return call(
-        "music", "search_musicbrainz_releases",
+        "music",
+        "search_musicbrainz_releases",
         routes.music.search_musicbrainz_releases.resp,
         routes.music.search_musicbrainz_releases.req,
         routes.music.search_musicbrainz_releases.method,
@@ -768,7 +867,8 @@ export function createMusicMethods(call: CallFn) {
     // fetch/import
     createFetchJob: (params: s.FetchMediaParams) => {
       return call(
-        "music", "create_fetch_job",
+        "music",
+        "create_fetch_job",
         routes.music.create_fetch_job.resp,
         routes.music.create_fetch_job.req,
         routes.music.create_fetch_job.method,
@@ -779,7 +879,8 @@ export function createMusicMethods(call: CallFn) {
 
     getFetchJob: (params: s.GetJobRequest) => {
       return call(
-        "music", "get_fetch_job",
+        "music",
+        "get_fetch_job",
         routes.music.get_fetch_job.resp,
         routes.music.get_fetch_job.req,
         routes.music.get_fetch_job.method,
@@ -792,7 +893,8 @@ export function createMusicMethods(call: CallFn) {
     // for actual blob streaming, use client.fetchBlob(id) instead
     streamBlob: (params: { id: string }) => {
       return call(
-        "music", "stream_blob",
+        "music",
+        "stream_blob",
         routes.music.stream_blob.resp,
         routes.music.stream_blob.req,
         routes.music.stream_blob.method,
@@ -804,7 +906,8 @@ export function createMusicMethods(call: CallFn) {
     // for blob thumbnails - returns binary image data
     getBlobThumbnail: (params: { id: string; size: string }) => {
       return call(
-        "music", "get_blob_thumbnail",
+        "music",
+        "get_blob_thumbnail",
         routes.music.get_blob_thumbnail.resp,
         routes.music.get_blob_thumbnail.req,
         routes.music.get_blob_thumbnail.method,
@@ -816,7 +919,8 @@ export function createMusicMethods(call: CallFn) {
     // for image uploads, use utils.uploadImage() which handles FormData properly
     uploadImage: () => {
       return call(
-        "music", "upload_image",
+        "music",
+        "upload_image",
         routes.music.upload_image.resp,
         routes.music.upload_image.req,
         routes.music.upload_image.method,
@@ -828,7 +932,8 @@ export function createMusicMethods(call: CallFn) {
     // for music uploads, use utils.uploadMusic() which handles FormData properly
     uploadMusic: () => {
       return call(
-        "music", "upload_music",
+        "music",
+        "upload_music",
         routes.music.upload_music.resp,
         routes.music.upload_music.req,
         routes.music.upload_music.method,

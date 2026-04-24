@@ -30,10 +30,6 @@ data_dir = "./data"
 # the full path will be: {data_dir}/{filename}
 filename = "grimoire.db"
 
-# REQUIRED: automatically run database migrations on startup
-# set to false if you want to run migrations manually
-auto_run_migrations = true
-
 # OPTIONAL: connection pool settings
 # each database operation creates a short-lived connection pool.
 # these settings control pool behavior and can help with slow hardware.
@@ -167,7 +163,7 @@ enabled = true
 # also used for session cookie name: "{name}_session" (sanitized: lowercase, no spaces/special chars)
 name = "freqhole"
 # REQUIRED: server version (you probably should never edit this)
-version = "0.1.12"
+version = "0.1.17"
 # OPTIONAL: server description (default: null)
 description = "get yr freq on"
 
@@ -452,3 +448,61 @@ knocking_enabled = false
 #
 # set to 0 to disable (use random port) - this is the default behavior
 bind_port = 0
+
+# ============================================================================
+# OPTIONAL: remote admin over P2P
+# this entire section is optional (default: disabled)
+#
+# when enabled, the server registers a dedicated `freqhole-admin/1` ALPN on
+# its iroh endpoint. authenticated admin users can then drive admin
+# operations (knocks, users, invites, peer-list mgmt, library, config, etc.)
+# from a remote charnel/tauri wizard without going through the HTTP API.
+#
+# auth: the incoming connection's node_id is resolved to a freqhole user.
+# only users with `role == "admin"` are accepted. the optional
+# `allowed_node_ids` allowlist further restricts which admin node_ids may
+# connect (empty = allow any admin user).
+#
+# requires `[federation].enabled = true` (the iroh endpoint comes from
+# federation setup). nothing changes for the HTTP API surface.
+# ============================================================================
+[federation.remote_admin]
+# REQUIRED when section exists: enable the remote admin ALPN (default: false)
+enabled = false
+
+# OPTIONAL: extra allowlist of node_ids permitted to use remote admin.
+# empty array = allow any user with `role == "admin"`.
+# non-empty = only the listed node_ids (still must also be admin users).
+allowed_node_ids = []
+
+# OPTIONAL: maximum admin message size in MB (default: 16)
+# admin requests/responses are JSON over a single bi-stream. this caps the
+# size of any single message — relevant mostly for image uploads via
+# `library_image_upload` (base64-encoded blob in the request).
+max_message_size_mb = 16
+
+# ============================================================================
+# RADIO BROADCAST (Optional - radio over iroh)
+# ============================================================================
+# the radio is intentionally minimal at the toml layer: only `enabled` and
+# `encode_args` live here. everything per-station (name, public/private,
+# which songs play) is configured via the ui and stored in sqlite, so you
+# can run any number of radio "channels" without restarting the server.
+#
+# requires `[federation].enabled = true` (the iroh endpoint comes from
+# federation setup).
+# ============================================================================
+[radio]
+# REQUIRED when section exists: main switch (default: false)
+enabled = false
+
+# OPTIONAL: ffmpeg command-line template. supports `{input}` placeholder.
+# output is always pipe:1 (stdout). default: fragmented MP4 with AAC-LC at
+# 192 kbps and 3-second fragments — what the spume / midden client expect.
+# notes:
+#   * `-re` is required for live pacing; without it ffmpeg blasts the whole
+#     song through stdout in seconds and the client buffer drowns
+#   * `frag_keyframe+empty_moov+default_base_moof` makes MSE-friendly fMP4
+#   * if you change the codec/profile, also update the station's codec
+#     string in the radio_stationz table
+encode_args = "-hide_banner -loglevel error -re -i {input} -vn -c:a aac -b:a 192k -movflags frag_keyframe+empty_moov+default_base_moof -frag_duration 3000000 -f mp4 pipe:1"

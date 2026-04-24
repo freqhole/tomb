@@ -1,11 +1,18 @@
 // remotes settings view - displays configured remotes and allows deletion
 import { createSignal, createResource, onMount, Show, For } from "solid-js";
+import { useNavigate } from "@solidjs/router";
 import {
   getAllRemotes,
   deleteRemote,
   checkRemoteHealth,
 } from "../../app/services/remotes/remoteManager";
-import { logout, whoami } from "../../app/services/remotes/authService";
+import { logout } from "../../app/services/remotes/authService";
+import {
+  getAuthStatus,
+  refreshAll as refreshAllAuthStatus,
+  refreshOne as refreshOneAuthStatus,
+  setLoggedOut as setAuthStatusLoggedOut,
+} from "../../app/services/remotes/authStatusStore";
 import { initAppDB } from "../../app/services/storage/db";
 import {
   STORE_QUEUE_HISTORY,
@@ -16,9 +23,12 @@ import {
 } from "../../app/services/storage/types";
 import { debug } from "../../utils/logger";
 import { toast } from "../../components/feedback/Toast";
+import { isCharnelMode } from "../../app/services/charnel";
 import { Icon } from "../../components/icons/registry";
 import { ReauthModal } from "../../components/auth/ReauthModal";
+import { CopyButton } from "../../components/buttons/CopyButton";
 import { formatDate } from "../../utils/dateTime";
+import { truncateMiddle } from "../../utils/truncate";
 import { resolveBlobUrl } from "../../music/services/storage/blobResolver";
 import {
   getRemoteCacheStats,
@@ -26,6 +36,8 @@ import {
   type RemoteCacheStats,
 } from "../../music/services/cache/blobCache";
 import { formatBytes } from "../services/storageManager";
+
+import { extractNodeId } from "../../app/services/remotes/peerAddr";
 
 // confirmation dialog component
 function ConfirmDialog(props: {
@@ -139,22 +151,18 @@ async function deleteQueueHistoryForRemote(remoteId: string): Promise<number> {
   return entriesToDelete.length;
 }
 
-// auth info for a remote
-interface AuthInfo {
-  loggedIn: boolean;
-  username?: string;
-  role?: string;
-}
-
 export function RemotesSettingsView() {
+  const navigate = useNavigate();
   const [remotes, setRemotes] = createSignal<Remote[]>([]);
   const [loading, setLoading] = createSignal(true);
   const [error, setError] = createSignal<string | null>(null);
   const [deleting, setDeleting] = createSignal<string | null>(null);
   const [loggingOut, setLoggingOut] = createSignal<string | null>(null);
   const [rechecking, setRechecking] = createSignal<string | null>(null);
-  // auth status per remote: null = checking, AuthInfo = resolved
-  const [authStatus, setAuthStatus] = createSignal<Map<string, AuthInfo | null>>(new Map());
+  // auth status per remote: null = checking, AuthInfo = resolved.
+  // sourced from the global authStatusStore so other views (share modal,
+  // eligible-remotes service, etc.) see the same data.
+  const authStatus = getAuthStatus();
   // reauth modal state
   const [reauthRemote, setReauthRemote] = createSignal<Remote | null>(null);
   // cache stats per remote
@@ -176,8 +184,9 @@ export function RemotesSettingsView() {
     try {
       const data = await getAllRemotes();
       setRemotes(data);
-      // check auth status for each remote
-      checkAllAuthStatus(data);
+      // check auth status for each remote (fire-and-forget; store updates
+      // are reactive)
+      void refreshAllAuthStatus(data);
       // fetch cache stats for each remote
       refreshCacheStats(data);
     } catch (err) {
@@ -200,97 +209,6 @@ export function RemotesSettingsView() {
       })
     );
     setCacheStats(statsMap);
-  };
-
-  const checkAllAuthStatus = async (remoteList: Remote[]) => {
-    // initialize all as checking (null)
-    const initial = new Map<string, AuthInfo | null>();
-    for (const r of remoteList) {
-      initial.set(r.remote_id, null);
-    }
-    setAuthStatus(initial);
-
-    // check each remote in parallel (HTTP only - P2P and charnel-managed remotes don't use auth)
-    await Promise.all(
-      remoteList.map(async (remote) => {
-        // skip P2P remotes - they don't use HTTP auth
-        if (!isHttpRemote(remote)) {
-          setAuthStatus((prev) => {
-            const next = new Map(prev);
-            next.set(remote.remote_id, { loggedIn: false });
-            return next;
-          });
-          return;
-        }
-        // skip charnel-managed remotes - they use embedded auth
-        if (remote.is_charnel_managed || !remote.base_url) {
-          setAuthStatus((prev) => {
-            const next = new Map(prev);
-            next.set(remote.remote_id, { loggedIn: false });
-            return next;
-          });
-          return;
-        }
-        try {
-          const result = await whoami(remote.base_url);
-          setAuthStatus((prev) => {
-            const next = new Map(prev);
-            next.set(remote.remote_id, {
-              loggedIn: result.success,
-              username: result.username,
-              role: result.role,
-            });
-            return next;
-          });
-        } catch {
-          // network error - assume not logged in
-          setAuthStatus((prev) => {
-            const next = new Map(prev);
-            next.set(remote.remote_id, { loggedIn: false });
-            return next;
-          });
-        }
-      })
-    );
-  };
-
-  const checkSingleAuthStatus = async (remote: Remote) => {
-    // skip P2P remotes - they don't use HTTP auth
-    if (!isHttpRemote(remote)) {
-      setAuthStatus((prev) => {
-        const next = new Map(prev);
-        next.set(remote.remote_id, { loggedIn: false });
-        return next;
-      });
-      return;
-    }
-    // skip charnel-managed remotes - they use embedded auth
-    if (remote.is_charnel_managed || !remote.base_url) {
-      setAuthStatus((prev) => {
-        const next = new Map(prev);
-        next.set(remote.remote_id, { loggedIn: false });
-        return next;
-      });
-      return;
-    }
-    try {
-      const result = await whoami(remote.base_url);
-      setAuthStatus((prev) => {
-        const next = new Map(prev);
-        next.set(remote.remote_id, {
-          loggedIn: result.success,
-          username: result.username,
-          role: result.role,
-        });
-        return next;
-      });
-    } catch {
-      setAuthStatus((prev) => {
-        const next = new Map(prev);
-        next.set(remote.remote_id, { loggedIn: false });
-        return next;
-      });
-    }
   };
 
   onMount(() => {
@@ -373,11 +291,7 @@ export function RemotesSettingsView() {
 
       toast.success(`logged out from ${remote.name}`);
       // update auth status
-      setAuthStatus((prev) => {
-        const next = new Map(prev);
-        next.set(remote.remote_id, { loggedIn: false });
-        return next;
-      });
+      setAuthStatusLoggedOut(remote.remote_id);
 
       // refresh remotes list
       const updated = await getAllRemotes();
@@ -419,7 +333,7 @@ export function RemotesSettingsView() {
     if (remote) {
       toast.success(`signed in to ${remote.name}`);
       // re-fetch auth status to get username/role
-      await checkSingleAuthStatus(remote);
+      await refreshOneAuthStatus(remote);
     }
     setReauthRemote(null);
   };
@@ -524,9 +438,20 @@ export function RemotesSettingsView() {
                           </p>
                         </Show>
                         <Show when={remote.peer_addr}>
-                          <p class="text-xs text-[var(--color-text-muted)] truncate mb-2 font-mono">
-                            node: {remote.peer_addr}
-                          </p>
+                          <div class="flex items-center gap-2 mb-2">
+                            <p
+                              class="text-xs text-[var(--color-text-muted)] font-mono flex-1 min-w-0"
+                              title={extractNodeId(remote.peer_addr!)}
+                            >
+                              node id: {truncateMiddle(extractNodeId(remote.peer_addr!), 24)}
+                            </p>
+                            <CopyButton
+                              text={extractNodeId(remote.peer_addr!)}
+                              label="copy"
+                              copiedLabel="copied!"
+                              title="copy node id"
+                            />
+                          </div>
                         </Show>
                         {/* logged in user info */}
                         {(() => {
@@ -625,6 +550,31 @@ export function RemotesSettingsView() {
                         >
                           {rechecking() === remote.remote_id ? "checking..." : "check status"}
                         </button>
+                        {/* admin button: P2P remotes where the caller is an admin */}
+                        <Show
+                          when={
+                            isP2PRemote(remote) &&
+                            authStatus().get(remote.remote_id)?.role === "admin"
+                          }
+                        >
+                          <button
+                            class="px-3 py-1.5 text-xs font-medium rounded-lg bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-600)] text-white transition-colors"
+                            onClick={() => navigate(`/settings/remotes/${remote.remote_id}/admin`)}
+                          >
+                            admin
+                          </button>
+                          <Show when={!isCharnelMode()}>
+                            <button
+                              class="px-3 py-1.5 text-xs font-medium rounded-lg bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-bg-quaternary)] text-[var(--color-text-secondary)] border border-[var(--color-border-subtle)] transition-colors"
+                              onClick={() =>
+                                navigate(`/settings/remotes/${remote.remote_id}/radio`)
+                              }
+                              title="manage radio stations on this remote"
+                            >
+                              radio
+                            </button>
+                          </Show>
+                        </Show>
                         <button
                           class="px-3 py-1.5 text-xs font-medium rounded-lg bg-red-600/20 hover:bg-red-600/30 text-red-400 border border-red-600/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                           onClick={() => showDeleteConfirm(remote)}

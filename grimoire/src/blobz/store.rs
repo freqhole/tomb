@@ -65,16 +65,40 @@ pub async fn add_file_to_store(path: &Path) -> GrimoireResult<Hash> {
         mode: ImportMode::TryReference,
     };
 
-    let tag = store
-        .add_path_with_opts(options)
-        .await
-        .map_err(|e| GrimoireError::ProcessingFailed {
-            message: format!("failed to add file to blobs store: {}", e),
-        })?;
+    let tag =
+        store
+            .add_path_with_opts(options)
+            .await
+            .map_err(|e| GrimoireError::ProcessingFailed {
+                message: format!("failed to add file to blobs store: {}", e),
+            })?;
 
     info!(
         "added file {:?} to blobs store (reference mode), hash: {}",
         path,
+        tag.hash.to_hex()
+    );
+
+    Ok(tag.hash)
+}
+
+/// add raw bytes to the blobs store
+/// used for small blobs (thumbnails, waveforms) that live in the database, not on disk.
+/// returns the blake3 hash of the blob.
+pub async fn add_bytes_to_store(data: &[u8]) -> GrimoireResult<Hash> {
+    let store = get_blobs_store().await?;
+
+    let tag = store
+        .blobs()
+        .add_bytes(bytes::Bytes::copy_from_slice(data))
+        .await
+        .map_err(|e| GrimoireError::ProcessingFailed {
+            message: format!("failed to add bytes to blobs store: {}", e),
+        })?;
+
+    info!(
+        "added {} bytes to blobs store, hash: {}",
+        data.len(),
         tag.hash.to_hex()
     );
 
@@ -121,7 +145,7 @@ pub async fn ensure_blob_by_blake3(blake3_hash: &str) -> GrimoireResult<bool> {
     };
 
     if has_blob(hash).await? {
-        tracing::debug!(
+        tracing::info!(
             "ensure_blob_by_blake3: already in FsStore: {}",
             &blake3_hash[..16]
         );
@@ -132,54 +156,95 @@ pub async fn ensure_blob_by_blake3(blake3_hash: &str) -> GrimoireResult<bool> {
     let blob = match media_blobz::get_media_blob_by_blake3(blake3_hash).await {
         Ok(b) => b,
         Err(_) => {
-            tracing::debug!(
-                "ensure_blob_by_blake3: not found in media_blobz: {}",
-                &blake3_hash[..16]
-            );
-            return Ok(false);
-        }
-    };
-
-    // need local_path to add to store
-    let local_path = match blob.local_path {
-        Some(p) => p,
-        None => {
-            tracing::debug!(
-                "ensure_blob_by_blake3: blob has no local_path: {}",
-                &blake3_hash[..16]
-            );
-            return Ok(false);
-        }
-    };
-
-    let path = Path::new(&local_path);
-    if !path.exists() {
-        tracing::debug!(
-            "ensure_blob_by_blake3: file not found: {} -> {}",
-            &blake3_hash[..16],
-            local_path
-        );
-        return Ok(false);
-    }
-
-    // add file to FsStore
-    match add_file_to_store(path).await {
-        Ok(_) => {
-            tracing::info!(
-                "ensure_blob_by_blake3: added to FsStore: {} -> {}",
-                &blake3_hash[..16],
-                local_path
-            );
-            Ok(true)
-        }
-        Err(e) => {
             tracing::warn!(
-                "ensure_blob_by_blake3: failed to add to FsStore: {} -> {}: {}",
-                &blake3_hash[..16],
-                local_path,
-                e
+                "ensure_blob_by_blake3: NOT FOUND in media_blobz: {} (dest asked for a blake3 this source has never seen)",
+                &blake3_hash[..16]
             );
-            Ok(false)
+            return Ok(false);
+        }
+    };
+    tracing::info!(
+        "ensure_blob_by_blake3: found media_blob {} for blake3 {} (local_path={:?})",
+        blob.id,
+        &blake3_hash[..16],
+        blob.local_path.as_deref(),
+    );
+
+    match blob.local_path {
+        Some(local_path) => {
+            // file-backed blob
+            let path = Path::new(&local_path);
+            if !path.exists() {
+                tracing::warn!(
+                    "ensure_blob_by_blake3: LOCAL FILE MISSING for {}: path={} (media_blob row exists but on-disk file is gone -- db/disk drift)",
+                    &blake3_hash[..16],
+                    local_path
+                );
+                return Ok(false);
+            }
+
+            match add_file_to_store(path).await {
+                Ok(_) => {
+                    tracing::info!(
+                        "ensure_blob_by_blake3: added file to FsStore: {} -> {}",
+                        &blake3_hash[..16],
+                        local_path
+                    );
+                    Ok(true)
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        "ensure_blob_by_blake3: failed to add file to FsStore: {} -> {}: {}",
+                        &blake3_hash[..16],
+                        local_path,
+                        e
+                    );
+                    Ok(false)
+                }
+            }
+        }
+        None => {
+            // db-stored blob: waveforms, thumbnails — load from blob_data table
+            let data_response = crate::blob_data::get_blob_data(&blob.id).await;
+            if !data_response.success {
+                tracing::warn!(
+                    "ensure_blob_by_blake3: NO LOCAL_PATH AND NO BLOB_DATA for {}: media_blob {} has neither a file nor inline bytes",
+                    &blake3_hash[..16],
+                    blob.id,
+                );
+                return Ok(false);
+            }
+
+            let data = match data_response.data {
+                Some(d) => d,
+                None => {
+                    tracing::warn!(
+                        "ensure_blob_by_blake3: BLOB_DATA EMPTY for {} (media_blob {}): get_blob_data returned success but no bytes",
+                        &blake3_hash[..16],
+                        blob.id,
+                    );
+                    return Ok(false);
+                }
+            };
+
+            match add_bytes_to_store(&data).await {
+                Ok(_) => {
+                    tracing::info!(
+                        "ensure_blob_by_blake3: added db blob to FsStore: {} ({} bytes)",
+                        &blake3_hash[..16],
+                        data.len()
+                    );
+                    Ok(true)
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        "ensure_blob_by_blake3: failed to add db blob to FsStore: {}: {}",
+                        &blake3_hash[..16],
+                        e
+                    );
+                    Ok(false)
+                }
+            }
         }
     }
 }

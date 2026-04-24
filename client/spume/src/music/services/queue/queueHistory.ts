@@ -6,6 +6,7 @@ import {
   STORE_QUEUE_HISTORY,
   type QueueHistoryEntry,
   type QueueSourceContext,
+  type RadioStationRef,
 } from "../../../app/services/storage/types";
 import type { Song } from "../storage/types";
 import { getCurrentRemote } from "../../data";
@@ -270,5 +271,48 @@ export async function clearQueueHistory(): Promise<void> {
     setQueueHistory([]);
   } catch (error) {
     console.error("failed to clear queue history:", error);
+  }
+}
+
+// add a radio station bookmark to history — returns the entry id.
+// if the same station (by peer_addr + station_id) already exists, the
+// existing entry is returned without duplication.
+export async function addRadioStationHistoryEntry(
+  ref: RadioStationRef,
+): Promise<string | null> {
+  try {
+    const db = await initAppDB();
+
+    // deduplicate: if this station is already bookmarked, return its id
+    const all = await db.getAll(STORE_QUEUE_HISTORY);
+    const existing = all.find(
+      (e) =>
+        e.type === "radio_station" &&
+        e.radio_station_ref?.peer_addr === ref.peer_addr &&
+        e.radio_station_ref?.station_id === ref.station_id,
+    );
+    if (existing) return existing.id;
+
+    const entry: QueueHistoryEntry = {
+      id: generateId(),
+      type: "radio_station",
+      label: ref.station_name,
+      radio_station_ref: ref,
+      song_count: 0,
+      songs: [],
+      queued_at: Date.now(),
+      listened_seconds: 0,
+      total_seconds: 0,
+      songs_completed: 0,
+      current_song_index: 0,
+      current_song_position: 0,
+    };
+
+    await db.put(STORE_QUEUE_HISTORY, entry);
+    await loadQueueHistory();
+    return entry.id;
+  } catch (error) {
+    console.error("failed to add radio station history entry:", error);
+    return null;
   }
 }

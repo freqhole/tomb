@@ -443,6 +443,9 @@ export interface MusicDataSource {
   getListenSession?(sessionId: string): Promise<ListenSession | null>;
   deleteListenSession?(sessionId: string): Promise<void>;
 
+  // feed event deletion (admin can delete any feed event)
+  deleteFeedEvent?(feedEventId: string): Promise<void>;
+
   // musicbrainz operations (remote only — returns undefined for local)
   searchMusicbrainzReleases?(params: {
     artist: string | null;
@@ -512,6 +515,9 @@ export interface FeedItem {
   collage_images: ImageMetadata[] | null;
   // when the entity was originally created (for playlists - to distinguish create vs update)
   entity_created_at: number | null;
+  // which remote this item came from (for aggregate feed view)
+  remote_id?: string | null;
+  remote_name?: string | null;
 }
 
 // paginated feed response

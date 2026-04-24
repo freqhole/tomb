@@ -129,6 +129,7 @@ export async function runStatefulTests() {
 
   await test("create playlist", async () => {
     const result = await client.music.createPlaylist({
+      id: null,
       title: `Test Playlist ${Date.now()}`,
       description: "Created by integration tests",
       is_public: false,
@@ -163,7 +164,9 @@ export async function runStatefulTests() {
   console.log("testing with created entities...\n");
 
   await test("get created playlist", async () => {
-    const result = await client.music.getPlaylistById({ id: testState.createdPlaylistId! });
+    const result = await client.music.getPlaylistById({
+      id: testState.createdPlaylistId!,
+    });
     if (!result.success) {
       throw new Error(`failed to get playlist: ${result.error.message}`);
     }
@@ -229,7 +232,9 @@ export async function runStatefulTests() {
   });
 
   await test("get created artist", async () => {
-    const result = await client.music.getArtist({ id: testState.createdArtistId! });
+    const result = await client.music.getArtist({
+      id: testState.createdArtistId!,
+    });
     if (!result.success) {
       throw new Error(`failed to get artist: ${result.error.message}`);
     }
@@ -297,7 +302,9 @@ export async function runStatefulTests() {
   });
 
   await test("get song analytics", async () => {
-    const result = await client.music.songAnalytics({ song_id: testState.existingSongId! });
+    const result = await client.music.songAnalytics({
+      song_id: testState.existingSongId!,
+    });
     if (!result.success) {
       throw new Error(`failed to get analytics: ${result.error.message}`);
     }
@@ -532,7 +539,10 @@ export async function runStatefulTests() {
 
   if (testState.createdArtistId) {
     await test("delete created artist", async () => {
-      const result = await client.music.deleteArtist({ id: testState.createdArtistId!, user_id: testState.userId! });
+      const result = await client.music.deleteArtist({
+        id: testState.createdArtistId!,
+        user_id: testState.userId!,
+      });
       if (!result.success) {
         throw new Error(`failed to delete artist: ${result.error.message}`);
       }

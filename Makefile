@@ -49,6 +49,9 @@ build-all:
 	$(MAKE) build-tauri-mac-intel
 	$(MAKE) build-tauri-linux-intel
 	$(MAKE) build-tauri-linux-arm64
+	$(MAKE)	build-flatpak-intel
+	$(MAKE)	build-flatpak-arm64
+	$(MAKE) build-tauri-android
 	@echo ""
 	@echo "all targets built! artifacts in $(BUILD_DIR)/$(VERSION)/:"
 	@find $(BUILD_DIR)/$(VERSION) -type f | sort | sed 's|^|  |'
@@ -167,12 +170,25 @@ info:
 	@echo "  make build-tauri-mac-intel   - macOS x86_64 .dmg (signs if APPLE_SIGNING_IDENTITY set)"
 	@echo "  make build-tauri-linux-intel - Linux x86_64 .deb/.rpm (Docker)"
 	@echo "  make build-tauri-linux-arm64 - Linux aarch64 .deb/.rpm (Docker)"
+	@echo "  make build-tauri-android     - Android universal .apk (signed with apksigner)"
+	@echo ""
+	@echo "Flatpak (via Docker, needs .deb first):"
+	@echo "  make build-flatpak-intel - Linux x86_64 .flatpak"
+	@echo "  make build-flatpak-arm64 - Linux aarch64 .flatpak"
 	@echo ""
 	@echo "Code signing env vars (set in .env):"
 	@echo "  APPLE_SIGNING_IDENTITY - signing identity (e.g. \"Developer ID Application: ...\")"
 	@echo "  APPLE_ID               - Apple ID email (for notarization)"
 	@echo "  APPLE_PASSWORD - app-specific password (for notarization)"
 	@echo "  APPLE_TEAM_ID  - team ID (for notarization)"
+	@echo ""
+	@echo "Android build env vars (set in .env):"
+	@echo "  ANDROID_SDK_ROOT             - android sdk path (default: ~/Library/Android/sdk)"
+	@echo "  ANDROID_BUILD_TOOLS_VERSION  - build-tools version (default: 37.0.0)"
+	@echo "  ANDROID_KEYSTORE             - path to .keystore file"
+	@echo "  ANDROID_KEY_ALIAS            - key alias (default: my-key-alias)"
+	@echo "  ANDROID_KEYSTORE_PASSWORD    - keystore password (optional, prompts if unset)"
+	@echo "  ANDROID_KEY_PASSWORD         - key password (optional, prompts if unset)"
 	@echo ""
 	@echo "Build all:"
 	@echo "  make build-all  - build everything"
@@ -195,8 +211,19 @@ info:
 help: info
 
 # Tauri app build commands
-.PHONY: build-tauri-mac-arm build-tauri-mac-intel build-tauri-linux-intel build-tauri-linux-arm64
+.PHONY: build-tauri-mac-arm build-tauri-mac-intel build-tauri-linux-intel build-tauri-linux-arm64 build-tauri-android
 TAURI_DIR := client/charnel
+
+# Android tauri build env (override via env or .env)
+# defaults assume the standard macOS android studio install layout
+ANDROID_SDK_ROOT ?= $(HOME)/Library/Android/sdk
+ANDROID_BUILD_TOOLS_VERSION ?= 37.0.0
+ANDROID_KEYSTORE ?= $(HOME)/Documents/freqhole-cert/android/freqhole-release-key.keystore
+ANDROID_KEY_ALIAS ?= my-key-alias
+ANDROID_APKSIGNER := $(ANDROID_SDK_ROOT)/build-tools/$(ANDROID_BUILD_TOOLS_VERSION)/apksigner
+# JAVA_HOME for apksigner — defaults to Android Studio's bundled JBR on macOS
+JAVA_HOME ?= /Applications/Android Studio.app/Contents/jbr/Contents/Home
+export JAVA_HOME
 
 # macOS arm64 Tauri app (signed + notarized if env vars set)
 build-tauri-mac-arm:
@@ -270,6 +297,61 @@ build-tauri-linux-arm64:
 	@echo "built: $(BUILD_DIR)/$(VERSION)/freqhole_$(VERSION)_arm64.deb"
 	@echo "built: $(BUILD_DIR)/$(VERSION)/freqhole-$(VERSION)-1.aarch64.rpm"
 
+# Android Tauri app (universal release apk, signed with apksigner)
+# requires: ANDROID_SDK_ROOT, ANDROID_KEYSTORE (optionally ANDROID_BUILD_TOOLS_VERSION,
+# ANDROID_KEY_ALIAS, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_PASSWORD)
+build-tauri-android:
+	@echo "building Tauri app for Android (universal apk)..."
+	@if [ ! -d "$(ANDROID_SDK_ROOT)" ]; then \
+		echo "error: ANDROID_SDK_ROOT not found at $(ANDROID_SDK_ROOT)"; \
+		echo "set ANDROID_SDK_ROOT in .env or your environment"; exit 1; \
+	fi
+	@if [ ! -x "$(ANDROID_APKSIGNER)" ]; then \
+		echo "error: apksigner not found at $(ANDROID_APKSIGNER)"; \
+		echo "install android build-tools $(ANDROID_BUILD_TOOLS_VERSION) or set ANDROID_BUILD_TOOLS_VERSION"; exit 1; \
+	fi
+	@if [ ! -f "$(ANDROID_KEYSTORE)" ]; then \
+		echo "error: keystore not found at $(ANDROID_KEYSTORE)"; \
+		echo "set ANDROID_KEYSTORE in .env or your environment"; exit 1; \
+	fi
+	cd $(TAURI_DIR) && npm run tauri android build -- --apk
+	@echo "signing apk with apksigner..."
+	$(ANDROID_APKSIGNER) sign \
+		--ks "$(ANDROID_KEYSTORE)" \
+		--ks-key-alias "$(ANDROID_KEY_ALIAS)" \
+		$(if $(ANDROID_KEYSTORE_PASSWORD),--ks-pass pass:$(ANDROID_KEYSTORE_PASSWORD)) \
+		$(if $(ANDROID_KEY_PASSWORD),--key-pass pass:$(ANDROID_KEY_PASSWORD)) \
+		$(TAURI_DIR)/src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release-unsigned.apk
+	@mkdir -p $(BUILD_DIR)/$(VERSION)
+	cp $(TAURI_DIR)/src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release-unsigned.apk \
+		$(BUILD_DIR)/$(VERSION)/freqhole_$(VERSION)_android-universal.apk
+	@echo "built: $(BUILD_DIR)/$(VERSION)/freqhole_$(VERSION)_android-universal.apk"
+# Flatpak builds (via Docker - no special privileges needed)
+.PHONY: build-flatpak-intel build-flatpak-arm64 build-flatpak-builder
+
+# build the flatpak builder image (includes GNOME runtime, ~1GB download first time)
+build-flatpak-builder:
+	@echo "building flatpak builder image (includes GNOME Platform runtime)..."
+	docker build -f Dockerfile.flatpak -t freqhole-flatpak-builder --platform linux/amd64 .
+
+build-flatpak-intel: $(BUILD_DIR)/$(VERSION)/freqhole_$(VERSION)_amd64.deb build-flatpak-builder
+	@echo "building Flatpak for x86_64..."
+	docker run --rm --privileged \
+		-v $(PWD)/$(BUILD_DIR)/$(VERSION):/debs:ro \
+		-v $(PWD)/$(BUILD_DIR)/$(VERSION):/output \
+		freqhole-flatpak-builder \
+		/debs/freqhole_$(VERSION)_amd64.deb /output/freqhole_$(VERSION)_x86_64.flatpak x86_64
+	@echo "built: $(BUILD_DIR)/$(VERSION)/freqhole_$(VERSION)_x86_64.flatpak"
+
+build-flatpak-arm64: $(BUILD_DIR)/$(VERSION)/freqhole_$(VERSION)_arm64.deb
+	@echo "building Flatpak for aarch64..."
+	docker build -f Dockerfile.flatpak -t freqhole-flatpak-builder-arm64 --platform linux/arm64 .
+	docker run --rm --privileged \
+		-v $(PWD)/$(BUILD_DIR)/$(VERSION):/debs:ro \
+		-v $(PWD)/$(BUILD_DIR)/$(VERSION):/output \
+		freqhole-flatpak-builder-arm64 \
+		/debs/freqhole_$(VERSION)_arm64.deb /output/freqhole_$(VERSION)_aarch64.flatpak aarch64
+	@echo "built: $(BUILD_DIR)/$(VERSION)/freqhole_$(VERSION)_aarch64.flatpak"
 # version management
 .PHONY: bump-version
 bump-version:

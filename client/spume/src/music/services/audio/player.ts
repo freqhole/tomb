@@ -25,6 +25,13 @@ import type { Song } from "../storage/types";
 import { debug } from "../../../utils/logger";
 import { getMediaSessionArtwork } from "./mediaSessionArtwork";
 import {
+  registerStopMusic,
+  stopRadioForMusic,
+} from "../../../app/services/playbackCoordinator";
+// install android lock-screen / media notification shim.
+// no-op on non-android and non-tauri platforms.
+import "./androidMediaSession";
+import {
   isPlaying,
   setIsPlaying,
   currentTime,
@@ -45,6 +52,21 @@ import {
 // when true, pending "up next" songs will load but not auto-play
 // cleared when user explicitly initiates playback (play button, double-click song, new queue)
 let userExplicitlyPaused = false;
+
+// register pause hook so the radio service can interrupt us when a
+// user tunes into a station. uses pause() rather than stop() so the
+// queue position is preserved.
+registerStopMusic(() => {
+  try {
+    const audio = audioElement;
+    if (audio && !audio.paused) {
+      userExplicitlyPaused = true;
+      audio.pause();
+    }
+  } catch (e) {
+    debug("player", "stopMusic hook failed:", e);
+  }
+});
 
 // track if we've pre-cached the next song
 let hasPreCachedNext = false;
@@ -200,7 +222,7 @@ function initAudio(): HTMLAudioElement {
     const error = audioElement!.error;
     if (error) {
       console.error(
-        `media error code: ${error.code}, message: ${error.message}`,
+        `media error code: ${error.code}, message: ${error.message}, src: ${audioElement!.src?.slice(0, 120)}`,
       );
     }
     // skip to next song on error
@@ -306,6 +328,41 @@ async function updateMediaSession() {
       seek(details.seekTime);
     }
   });
+
+  // custom action emitted by the android plugin: a native-side watchdog
+  // fires shortly after the expected end of the current track. used as a
+  // backup trigger to advance the queue when the webview has throttled
+  // js execution (screen-off / doze) and the `<audio>` `ended` event
+  // didn't fire on time. ignored if the audio element already ended on
+  // its own (the common case).
+  try {
+    navigator.mediaSession.setActionHandler(
+      "expectedend" as MediaSessionAction,
+      () => {
+        if (isIntentionalReload) return;
+        const a = audioElement;
+        if (!a) return;
+        // already handled by the native `ended` event — nothing to do.
+        if (a.ended) return;
+        // if we're not supposed to be playing, the watchdog is stale.
+        if (!isPlaying()) return;
+        // sanity check: only auto-advance if we're actually near the end.
+        // protects against bad duration metadata triggering early advance.
+        const dur = a.duration;
+        if (Number.isFinite(dur) && dur > 0 && a.currentTime < dur - 2) {
+          debug(
+            "player",
+            `expectedend ignored — currentTime=${a.currentTime.toFixed(2)} duration=${dur.toFixed(2)}`,
+          );
+          return;
+        }
+        debug("player", "expectedend watchdog firing — advancing queue");
+        void handleSongEnded();
+      },
+    );
+  } catch {
+    // some browsers reject unknown action names; safe to ignore.
+  }
 
   // update position state if we have valid duration
   if (duration() > 0) {
@@ -417,6 +474,11 @@ export async function playSong(
   options?: { userInitiated?: boolean; initialPosition?: number; initialDuration?: number }
 ): Promise<void> {
   const audio = initAudio();
+
+  // user-initiated playback wins over any active radio session.
+  if (options?.userInitiated) {
+    await stopRadioForMusic();
+  }
 
   // if user explicitly initiated this playback, clear the pause flag
   if (options?.userInitiated) {
@@ -574,7 +636,8 @@ export async function togglePlayback(_source: 'ui' | 'mediaSession' = 'ui'): Pro
     userExplicitlyPaused = true;
     audio.pause();
   } else {
-    // user explicitly wants to play - clear pause flag
+    // user explicitly wants to play - clear pause flag and silence radio
+    await stopRadioForMusic();
     userExplicitlyPaused = false;
     try {
       // if no song loaded, start first in queue
@@ -702,7 +765,8 @@ export function stop(): void {
 // play
 export async function play(): Promise<void> {
   const audio = initAudio();
-  // user explicitly wants to play - clear pause flag
+  // user explicitly wants to play - clear pause flag and silence radio
+  await stopRadioForMusic();
   userExplicitlyPaused = false;
   await audio.play();
 }
@@ -720,6 +784,15 @@ export function setPlayerVolume(vol: number): void {
 
   const audio = initAudio();
   audio.volume = clampedVolume;
+
+  // mirror the volume onto the radio sink so the slider acts as a
+  // unified output volume regardless of which source is playing. lazy
+  // import to dodge the circular dep (radioService imports from music).
+  void import("../../../app/services/radio/radioService")
+    .then((m) => m.setRadioVolume(clampedVolume))
+    .catch(() => {
+      // radio service unavailable (e.g. tests); ignore.
+    });
 }
 
 // play next song in queue (with retry logic for unplayable songs)
@@ -744,13 +817,27 @@ export async function playNext(): Promise<void> {
   const maxAttempts = 5; // prevent infinite loop
   let attempts = 0;
 
+  // hard cap on per-song setup so a hung getAudioURL or audio.play()
+  // can't wedge the whole queue while the screen is off. 20s is enough
+  // for slow p2p downloads but bounded enough that we recover and try
+  // the next song reliably.
+  const PLAY_SONG_TIMEOUT_MS = 20_000;
+
   while (currentIdx < queue.length - 1 && attempts < maxAttempts) {
     const nextIdx = currentIdx + 1;
     const nextSong = queue[nextIdx];
     attempts++;
 
     try {
-      await playSong(nextSong);
+      await Promise.race([
+        playSong(nextSong),
+        new Promise<never>((_, reject) =>
+          setTimeout(
+            () => reject(new Error(`playSong timed out after ${PLAY_SONG_TIMEOUT_MS}ms`)),
+            PLAY_SONG_TIMEOUT_MS,
+          ),
+        ),
+      ]);
       return; // success!
     } catch (error) {
       console.warn(

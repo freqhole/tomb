@@ -1,41 +1,42 @@
 // feed view — single infinite scrolling list of all activity events
 import { useNavigate } from "@solidjs/router";
+import { useQueryClient } from "@tanstack/solid-query";
 import { createEffect, createMemo, createSignal, on, onCleanup, Show } from "solid-js";
-import { useViewportHeight, getNavHeight } from "../../utils/viewport";
-import { Icon, IconNames } from "../../components/icons/registry";
-import { Button } from "../../components/buttons/Button";
-import { LoadingState, LoadingMoreIndicator } from "../../components/feedback";
-import { VirtualFeedList } from "../../components/virtualized/VirtualFeedList";
-import type { MenuAction } from "../../components/overlays/ContextMenu";
+import { confirm } from "../../app/services/confirmState";
+import { clearPageInfo, setPageInfo, type FeedTypeFilter } from "../../app/services/pageInfo";
 import { appState } from "../../app/services/storage/db";
-import { setPageInfo, clearPageInfo, type FeedTypeFilter } from "../../app/services/pageInfo";
+import { Button } from "../../components/buttons/Button";
+import { LoadingMoreIndicator, LoadingState } from "../../components/feedback";
+import { toast } from "../../components/feedback/Toast";
+import { Icon, IconNames } from "../../components/icons/registry";
+import type { MenuAction } from "../../components/overlays/ContextMenu";
+import { VirtualFeedList } from "../../components/virtualized/VirtualFeedList";
 import { useHistoryState } from "../../utils/historyState";
+import { getNavHeight, useViewportHeight } from "../../utils/viewport";
 import { getCurrentRemote, getCurrentUser, getDataSource, RemoteOfflineError } from "../data";
+import { isAdmin } from "../data/permissions";
 import type { FeedItem } from "../data/types";
 import {
-  useActivityFeedInfiniteQuery,
-  ALL_FEED_TYPES,
-  FEED_TYPE_LABELS,
-  type FeedItemTypeFilter,
-} from "../queries/analytics";
-import { routes } from "../utils/routing";
-import { playQueue, addToQueue, resumeHistoryEntry } from "../services/queue/queue";
-import { resumeServerSession } from "../services/queue/serverSession";
-import { activeHistoryEntryId } from "../services/queue/listenProgress";
-import { queueHistory, updateHistoryServerSession } from "../services/queue/queueHistory";
-import { toast } from "../../components/feedback/Toast";
-import { confirm } from "../../app/services/confirmState";
-import {
-  showImageCarousel,
-  showSongEditor,
   showAlbumEditor,
   showArtistEditor,
+  showImageCarousel,
+  showSongEditor,
 } from "../hooks/modals";
 import { showPlaylistSelector } from "../hooks/playlistSelectorState";
-import { setHighlightedSongId } from "../state/highlightedSong";
-import { useQueryClient } from "@tanstack/solid-query";
+import {
+  ALL_FEED_TYPES,
+  FEED_TYPE_LABELS,
+  useActivityFeedInfiniteQuery,
+  type FeedItemTypeFilter,
+} from "../queries/analytics";
 import { queryKeys } from "../queries/queryKeys";
+import { activeHistoryEntryId } from "../services/queue/listenProgress";
+import { addToQueue, playQueue, resumeHistoryEntry } from "../services/queue/queue";
+import { queueHistory, updateHistoryServerSession } from "../services/queue/queueHistory";
+import { resumeServerSession } from "../services/queue/serverSession";
 import { resolveBlobUrl, usesBlobResolver } from "../services/storage/blobResolver";
+import { setHighlightedSongId } from "../state/highlightedSong";
+import { routes } from "../utils/routing";
 
 export function FeedView() {
   const navigate = useNavigate();
@@ -558,29 +559,29 @@ export function FeedView() {
         },
       });
 
-      // delete session (own sessions only)
-      if (isOwnSession && item.session_id) {
+      // delete session (own sessions, or admin can delete any)
+      if ((isOwnSession || isAdmin()) && item.session_id) {
         actions.push({ type: "separator" });
         actions.push({
-          label: "delete session",
+          label: isOwnSession ? "delete session" : "delete feed item",
           icon: IconNames.delete,
           onClick: async () => {
             try {
-              if (item.session_id) {
-                const dataSource = getDataSource();
-                if (!dataSource.deleteListenSession) {
-                  toast.error("cannot delete session");
-                  return;
-                }
-                await dataSource.deleteListenSession(item.session_id);
-                toast.info("session deleted");
-                // invalidate feed queries to refresh
-                void queryClient.invalidateQueries({
-                  queryKey: queryKeys.analytics.all(),
-                });
+              const dataSource = getDataSource();
+              if (isOwnSession && dataSource.deleteListenSession) {
+                await dataSource.deleteListenSession(item.session_id!);
+              } else if (isAdmin() && dataSource.deleteFeedEvent) {
+                await dataSource.deleteFeedEvent(item.id);
+              } else {
+                toast.error("cannot delete");
+                return;
               }
+              toast.info(isOwnSession ? "session deleted" : "feed item deleted");
+              void queryClient.invalidateQueries({
+                queryKey: queryKeys.analytics.all(),
+              });
             } catch {
-              toast.error("failed to delete session");
+              toast.error(isOwnSession ? "failed to delete session" : "failed to delete feed item");
             }
           },
         });
@@ -692,6 +693,29 @@ export function FeedView() {
     if (navActions.length > 0) {
       actions.push({ type: "separator" });
       actions.push(...navActions);
+    }
+
+    // admin can delete any feed item
+    if (isAdmin()) {
+      const dataSource = getDataSource();
+      if (dataSource.deleteFeedEvent) {
+        actions.push({ type: "separator" });
+        actions.push({
+          label: "delete feed item",
+          icon: IconNames.delete,
+          onClick: async () => {
+            try {
+              await dataSource.deleteFeedEvent!(item.id);
+              toast.info("feed item deleted");
+              void queryClient.invalidateQueries({
+                queryKey: queryKeys.analytics.all(),
+              });
+            } catch {
+              toast.error("failed to delete feed item");
+            }
+          },
+        });
+      }
     }
 
     return actions;

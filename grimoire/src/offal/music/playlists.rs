@@ -10,13 +10,12 @@ use crate::music::entities::playlists::{
     add_songs_to_playlist, create_playlist, delete_playlist as grimoire_delete_playlist,
     get_playlist, get_playlist_images as grimoire_get_playlist_images, remove_songs_from_playlist,
     update_playlist as grimoire_update_playlist, update_songs_position, AddSongsToPlaylistRequest,
-    CreatePlaylistRequest, GetPlaylistRequest, RemoveSongsFromPlaylistRequest,
-    ReorderPlaylistSongsRequest, UpdatePlaylistRequest,
+    CreatePlaylistRequest, DeletePlaylistRequest, GetPlaylistRequest,
+    RemoveSongsFromPlaylistRequest, ReorderPlaylistSongsRequest, UpdatePlaylistRequest,
 };
 use crate::offal::caller::Caller;
 use crate::response::GrimoireResponse;
 use crate::users::UserRole;
-use serde::Deserialize;
 use serde_json::Value as JsonValue;
 
 /// route metadata for playlists
@@ -313,13 +312,8 @@ pub async fn update(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonVa
 /// delete playlist
 ///
 /// path: POST /api/playlists/delete
-#[derive(Deserialize)]
-struct DeleteRequest {
-    id: String,
-}
-
 pub async fn delete(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
-    let req: DeleteRequest = match serde_json::from_value(body) {
+    let req: DeletePlaylistRequest = match serde_json::from_value(body) {
         Ok(r) => r,
         Err(e) => {
             return GrimoireResponse::failure(
@@ -334,7 +328,7 @@ pub async fn delete(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonVa
     };
 
     // check ownership
-    let playlist_response = get_playlist(&req.id).await;
+    let playlist_response = get_playlist(&req.playlist_id).await;
     if let Some(playlist) = &playlist_response.data {
         if playlist.created_by_id.as_ref() != Some(&caller.user_id) && !caller.is_admin() {
             return GrimoireResponse::failure(
@@ -348,7 +342,7 @@ pub async fn delete(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonVa
         }
     }
 
-    let response = grimoire_delete_playlist(&req.id, Some(caller.user_id.clone())).await;
+    let response = grimoire_delete_playlist(&req.playlist_id, Some(caller.user_id.clone())).await;
     response.map(|_| JsonValue::Null)
 }
 

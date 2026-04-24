@@ -98,6 +98,18 @@ enum Commands {
         action: plumbing::BlobzAction,
     },
 
+    /// Sync operations (send-to-remote: album/song/playlist receive routes)
+    Sync {
+        #[command(subcommand)]
+        action: plumbing::SyncAction,
+    },
+
+    /// Radio (live audio streaming over iroh)
+    Radio {
+        #[command(subcommand)]
+        action: plumbing::RadioAction,
+    },
+
     /// Start HTTP server and/or P2P endpoint based on config
     Serve {
         /// Path to configuration file (overrides --config global flag)
@@ -160,10 +172,13 @@ async fn main() -> Result<()> {
         grimoire::init_config(cli.config.clone())
             .map_err(|e| anyhow::anyhow!("Failed to initialize config: {}", e))?;
 
-        // initialize database (migrations + views) once at startup
+        // initialize database (pool warmup + migrations + views) once at startup
         grimoire::database::initialize()
             .await
             .map_err(|e| anyhow::anyhow!("Failed to initialize database: {}", e))?;
+        grimoire::database::run_migrations()
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to run migrations: {}", e))?;
     }
 
     // Initialize tracing (use config log level if available, else default to "info")
@@ -173,8 +188,15 @@ async fn main() -> Result<()> {
     } else {
         "info".to_string()
     };
-    let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(&log_level));
+    let env_filter = tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| {
+        // start with the configured log level, then suppress noisy internal
+        // warnings from samod's connection lifecycle (benign "nonexistent
+        // connection" warnings that fire during normal sync churn)
+        tracing_subscriber::EnvFilter::new(format!(
+            "{},samod_core::actors::hub::state=error,samod_core::actors::hub::connection=error,noq_proto::connection=error",
+            log_level
+        ))
+    });
 
     tracing_subscriber::registry()
         .with(env_filter)
@@ -219,6 +241,12 @@ async fn main() -> Result<()> {
         }
         Commands::Blobz { action } => {
             plumbing::handle_blobz(action, json_output).await?;
+        }
+        Commands::Sync { action } => {
+            plumbing::handle_sync(action, json_output).await?;
+        }
+        Commands::Radio { action } => {
+            plumbing::handle_radio(action, json_output).await?;
         }
         Commands::Serve { .. } | Commands::Http { .. } | Commands::P2p { .. } => {
             // handled above with early return

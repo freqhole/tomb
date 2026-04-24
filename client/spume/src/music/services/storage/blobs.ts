@@ -95,7 +95,8 @@ async function readBlobFromOPFS(storagePath: string): Promise<Blob | null> {
  */
 async function writeBlobToCache(blobId: string, data: Blob, mimeType: string): Promise<string> {
   const cache = await caches.open(CACHE_NAME);
-  const url = `freqhole://blob/${blobId}`;
+  // use synthetic HTTP URL — webkitgtk (linux) rejects non-HTTP URLs in Cache API
+  const url = `https://blob.local/${blobId}`;
   const response = new Response(data, {
     headers: { "Content-Type": mimeType },
   });

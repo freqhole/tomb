@@ -169,13 +169,13 @@ pub mod type_registry {
 
     // analytics types
     use crate::music::analytics::{
-        CreateListenSessionRequest, DeleteListenSessionRequest, FeedItem, FeedItemType,
-        FeedRequest, FeedResponse, GetListenSessionRequest, ListListenSessionsRequest,
-        ListListenSessionsResponse, ListenSession, ListenSessionStatus, ListenSessionType,
-        ListeningHistoryItem, ListeningHistoryRequest, ListeningHistoryResponse, OverviewStats,
-        PlayAnalytics, RecordPlayRequest, SessionSong, SessionSummary, SongAnalyticsRequest,
-        TopAlbum, TopAlbumsRequest, TopArtist, TopArtistsRequest, TopSong, TopSongsRequest,
-        UpdateListenSessionProgressRequest, UpdateListenSessionSongsRequest,
+        CreateListenSessionRequest, DeleteFeedEventRequest, DeleteListenSessionRequest, FeedItem,
+        FeedItemType, FeedRequest, FeedResponse, GetListenSessionRequest,
+        ListListenSessionsRequest, ListListenSessionsResponse, ListenSession, ListenSessionStatus,
+        ListenSessionType, ListeningHistoryItem, ListeningHistoryRequest, ListeningHistoryResponse,
+        OverviewStats, PlayAnalytics, RecordPlayRequest, SessionSong, SessionSummary,
+        SongAnalyticsRequest, TopAlbum, TopAlbumsRequest, TopArtist, TopArtistsRequest, TopSong,
+        TopSongsRequest, UpdateListenSessionProgressRequest, UpdateListenSessionSongsRequest,
         UpdateListenSessionStatusRequest, UserStats,
     };
 
@@ -212,8 +212,56 @@ pub mod type_registry {
         AcceptKnockRequest, DeleteKnockRequest, GetKnockRequest, RejectKnockRequest,
     };
 
-    // blob metadata request type
-    use crate::offal::media_blobz::GetBlobMetadataRequest;
+    // admin dispatch (freqhole-admin/1 ALPN) typed envelopes
+    use crate::admin_dispatch::types::invites::{
+        AdminGeneratedInvite, AdminInviteInfo, AdminInvitesGenerateRequest,
+        AdminInvitesGenerateResponse, AdminInvitesListRequest, AdminInvitesRevokeAllResponse,
+        AdminInvitesRevokeRequest, AdminInvitesUpdateRoleRequest,
+    };
+    use crate::admin_dispatch::types::knocks::{
+        KnocksAcceptRequest, KnocksDeleteRequest, KnocksRejectAllResponse, KnocksRejectRequest,
+    };
+    use crate::admin_dispatch::types::peers::{
+        AdminPeerNodeSummary, AdminPeerSummary, AdminPeersAllowRequest, AdminPeersAllowResponse,
+        AdminPeersListForUserRequest, AdminPeersRemoveRequest,
+    };
+    use crate::admin_dispatch::types::radio::{
+        RadioBumper, RadioBumpersAddRequest, RadioBumpersListRequest, RadioBumpersRemoveRequest,
+        RadioBumpersSetFrequencyRequest, RadioConfigPayload, RadioFiltersAddRequest,
+        RadioFiltersRemoveRequest, RadioSeedSuggestRequest, RadioSeedSuggestion,
+        RadioSongsAddRequest, RadioSongsRemoveRequest, RadioStationByStationIdRequest,
+        RadioStationSupervisorStatus, RadioStationsByIdRequest, RadioSupervisorStationRequest,
+        RadioSupervisorStatusResponse,
+    };
+    use crate::admin_dispatch::types::users::{
+        AdminAccountLinkResponse, AdminUserSummary, AdminUsersDeleteRequest,
+        AdminUsersGenerateAccountLinkRequest, AdminUsersGetRequest, AdminUsersListRequest,
+        AdminUsersUpdateRoleRequest,
+    };
+
+    // blob metadata request types
+    use crate::offal::media_blobz::{
+        GetBlobMetadataByBlake3Request, GetBlobMetadataRequest, HasBlobsRequest, HasBlobsResponse,
+    };
+
+    // upload request types
+    use crate::offal::upload::UploadMusicByBlake3Request;
+
+    // sync types
+    use crate::offal::sync::{
+        SyncAlbumRequest, SyncAlbumResponse, SyncImageRef, SyncPlaylistRequest,
+        SyncPlaylistResponse, SyncSongByBlake3Request, SyncSongByBlake3Response,
+    };
+
+    // radio public types
+    use crate::offal::public::radio::{
+        PublicNowPlaying, PublicStation, RadioInfoResponse, RadioStationsResponse,
+    };
+
+    // radio admin types
+    use crate::radio::stations::models::{
+        CreateStationRequest, RadioStation, StationFilter, StationSong, UpdateStationRequest,
+    };
 
     pub fn register_all_types(gen: &mut ZodGenerator, registered: &mut HashSet<String>) {
         // auth types
@@ -233,6 +281,16 @@ pub mod type_registry {
 
         gen.add_schema::<ServerInfoResponse>("ServerInfoResponse");
         registered.insert("ServerInfoResponse".to_string());
+
+        // radio discovery types
+        gen.add_schema::<PublicNowPlaying>("PublicNowPlaying");
+        registered.insert("PublicNowPlaying".to_string());
+        gen.add_schema::<PublicStation>("PublicStation");
+        registered.insert("PublicStation".to_string());
+        gen.add_schema::<RadioInfoResponse>("RadioInfoResponse");
+        registered.insert("RadioInfoResponse".to_string());
+        gen.add_schema::<RadioStationsResponse>("RadioStationsResponse");
+        registered.insert("RadioStationsResponse".to_string());
 
         gen.add_schema::<ApiKeyStatusResponse>("ApiKeyStatusResponse");
         registered.insert("ApiKeyStatusResponse".to_string());
@@ -731,6 +789,115 @@ pub mod type_registry {
         gen.add_schema::<DeleteKnockRequest>("DeleteKnockRequest");
         registered.insert("DeleteKnockRequest".to_string());
 
+        // admin dispatch (freqhole-admin/1 ALPN) typed envelopes
+        gen.add_schema::<KnocksAcceptRequest>("KnocksAcceptRequest");
+        registered.insert("KnocksAcceptRequest".to_string());
+
+        gen.add_schema::<KnocksRejectRequest>("KnocksRejectRequest");
+        registered.insert("KnocksRejectRequest".to_string());
+
+        gen.add_schema::<KnocksDeleteRequest>("KnocksDeleteRequest");
+        registered.insert("KnocksDeleteRequest".to_string());
+
+        gen.add_schema::<KnocksRejectAllResponse>("KnocksRejectAllResponse");
+        registered.insert("KnocksRejectAllResponse".to_string());
+
+        // admin dispatch: users
+        gen.add_schema::<AdminUserSummary>("AdminUserSummary");
+        registered.insert("AdminUserSummary".to_string());
+        gen.add_schema::<AdminUsersListRequest>("AdminUsersListRequest");
+        registered.insert("AdminUsersListRequest".to_string());
+        gen.add_schema::<AdminUsersGetRequest>("AdminUsersGetRequest");
+        registered.insert("AdminUsersGetRequest".to_string());
+        gen.add_schema::<AdminUsersUpdateRoleRequest>("AdminUsersUpdateRoleRequest");
+        registered.insert("AdminUsersUpdateRoleRequest".to_string());
+        gen.add_schema::<AdminUsersDeleteRequest>("AdminUsersDeleteRequest");
+        registered.insert("AdminUsersDeleteRequest".to_string());
+        gen.add_schema::<AdminUsersGenerateAccountLinkRequest>(
+            "AdminUsersGenerateAccountLinkRequest",
+        );
+        registered.insert("AdminUsersGenerateAccountLinkRequest".to_string());
+        gen.add_schema::<AdminAccountLinkResponse>("AdminAccountLinkResponse");
+        registered.insert("AdminAccountLinkResponse".to_string());
+
+        // admin dispatch: invites
+        gen.add_schema::<AdminInviteInfo>("AdminInviteInfo");
+        registered.insert("AdminInviteInfo".to_string());
+        gen.add_schema::<AdminInvitesListRequest>("AdminInvitesListRequest");
+        registered.insert("AdminInvitesListRequest".to_string());
+        gen.add_schema::<AdminInvitesGenerateRequest>("AdminInvitesGenerateRequest");
+        registered.insert("AdminInvitesGenerateRequest".to_string());
+        gen.add_schema::<AdminGeneratedInvite>("AdminGeneratedInvite");
+        registered.insert("AdminGeneratedInvite".to_string());
+        gen.add_schema::<AdminInvitesGenerateResponse>("AdminInvitesGenerateResponse");
+        registered.insert("AdminInvitesGenerateResponse".to_string());
+        gen.add_schema::<AdminInvitesRevokeRequest>("AdminInvitesRevokeRequest");
+        registered.insert("AdminInvitesRevokeRequest".to_string());
+        gen.add_schema::<AdminInvitesRevokeAllResponse>("AdminInvitesRevokeAllResponse");
+        registered.insert("AdminInvitesRevokeAllResponse".to_string());
+        gen.add_schema::<AdminInvitesUpdateRoleRequest>("AdminInvitesUpdateRoleRequest");
+        registered.insert("AdminInvitesUpdateRoleRequest".to_string());
+
+        // admin dispatch: peers
+        gen.add_schema::<AdminPeerSummary>("AdminPeerSummary");
+        registered.insert("AdminPeerSummary".to_string());
+        gen.add_schema::<AdminPeerNodeSummary>("AdminPeerNodeSummary");
+        registered.insert("AdminPeerNodeSummary".to_string());
+        gen.add_schema::<AdminPeersListForUserRequest>("AdminPeersListForUserRequest");
+        registered.insert("AdminPeersListForUserRequest".to_string());
+        gen.add_schema::<AdminPeersRemoveRequest>("AdminPeersRemoveRequest");
+        registered.insert("AdminPeersRemoveRequest".to_string());
+        gen.add_schema::<AdminPeersAllowRequest>("AdminPeersAllowRequest");
+        registered.insert("AdminPeersAllowRequest".to_string());
+        gen.add_schema::<AdminPeersAllowResponse>("AdminPeersAllowResponse");
+        registered.insert("AdminPeersAllowResponse".to_string());
+
+        // radio admin types
+        gen.add_schema::<RadioStation>("RadioStation");
+        registered.insert("RadioStation".to_string());
+        gen.add_schema::<CreateStationRequest>("CreateStationRequest");
+        registered.insert("CreateStationRequest".to_string());
+        gen.add_schema::<UpdateStationRequest>("UpdateStationRequest");
+        registered.insert("UpdateStationRequest".to_string());
+        gen.add_schema::<RadioStationsByIdRequest>("RadioStationsByIdRequest");
+        registered.insert("RadioStationsByIdRequest".to_string());
+        gen.add_schema::<RadioStationByStationIdRequest>("RadioStationByStationIdRequest");
+        registered.insert("RadioStationByStationIdRequest".to_string());
+        gen.add_schema::<RadioFiltersAddRequest>("RadioFiltersAddRequest");
+        registered.insert("RadioFiltersAddRequest".to_string());
+        gen.add_schema::<RadioFiltersRemoveRequest>("RadioFiltersRemoveRequest");
+        registered.insert("RadioFiltersRemoveRequest".to_string());
+        gen.add_schema::<RadioSongsAddRequest>("RadioSongsAddRequest");
+        registered.insert("RadioSongsAddRequest".to_string());
+        gen.add_schema::<RadioSongsRemoveRequest>("RadioSongsRemoveRequest");
+        registered.insert("RadioSongsRemoveRequest".to_string());
+        gen.add_schema::<RadioSeedSuggestRequest>("RadioSeedSuggestRequest");
+        registered.insert("RadioSeedSuggestRequest".to_string());
+        gen.add_schema::<RadioSeedSuggestion>("RadioSeedSuggestion");
+        registered.insert("RadioSeedSuggestion".to_string());
+        gen.add_schema::<RadioConfigPayload>("RadioConfigPayload");
+        registered.insert("RadioConfigPayload".to_string());
+        gen.add_schema::<RadioStationSupervisorStatus>("RadioStationSupervisorStatus");
+        registered.insert("RadioStationSupervisorStatus".to_string());
+        gen.add_schema::<RadioSupervisorStatusResponse>("RadioSupervisorStatusResponse");
+        registered.insert("RadioSupervisorStatusResponse".to_string());
+        gen.add_schema::<RadioSupervisorStationRequest>("RadioSupervisorStationRequest");
+        registered.insert("RadioSupervisorStationRequest".to_string());
+        gen.add_schema::<RadioBumper>("RadioBumper");
+        registered.insert("RadioBumper".to_string());
+        gen.add_schema::<RadioBumpersListRequest>("RadioBumpersListRequest");
+        registered.insert("RadioBumpersListRequest".to_string());
+        gen.add_schema::<RadioBumpersAddRequest>("RadioBumpersAddRequest");
+        registered.insert("RadioBumpersAddRequest".to_string());
+        gen.add_schema::<RadioBumpersRemoveRequest>("RadioBumpersRemoveRequest");
+        registered.insert("RadioBumpersRemoveRequest".to_string());
+        gen.add_schema::<RadioBumpersSetFrequencyRequest>("RadioBumpersSetFrequencyRequest");
+        registered.insert("RadioBumpersSetFrequencyRequest".to_string());
+        gen.add_schema::<StationFilter>("StationFilter");
+        registered.insert("StationFilter".to_string());
+        gen.add_schema::<StationSong>("StationSong");
+        registered.insert("StationSong".to_string());
+
         // listen session request types
         gen.add_schema::<GetListenSessionRequest>("GetListenSessionRequest");
         registered.insert("GetListenSessionRequest".to_string());
@@ -738,11 +905,42 @@ pub mod type_registry {
         gen.add_schema::<DeleteListenSessionRequest>("DeleteListenSessionRequest");
         registered.insert("DeleteListenSessionRequest".to_string());
 
+        gen.add_schema::<DeleteFeedEventRequest>("DeleteFeedEventRequest");
+        registered.insert("DeleteFeedEventRequest".to_string());
+
         gen.add_schema::<UpdateListenSessionStatusRequest>("UpdateListenSessionStatusRequest");
         registered.insert("UpdateListenSessionStatusRequest".to_string());
 
         // blob metadata request type
         gen.add_schema::<GetBlobMetadataRequest>("GetBlobMetadataRequest");
         registered.insert("GetBlobMetadataRequest".to_string());
+
+        gen.add_schema::<GetBlobMetadataByBlake3Request>("GetBlobMetadataByBlake3Request");
+        registered.insert("GetBlobMetadataByBlake3Request".to_string());
+
+        gen.add_schema::<HasBlobsRequest>("HasBlobsRequest");
+        registered.insert("HasBlobsRequest".to_string());
+        gen.add_schema::<HasBlobsResponse>("HasBlobsResponse");
+        registered.insert("HasBlobsResponse".to_string());
+
+        // upload request types
+        gen.add_schema::<UploadMusicByBlake3Request>("UploadMusicByBlake3Request");
+        registered.insert("UploadMusicByBlake3Request".to_string());
+
+        // sync types
+        gen.add_schema::<SyncSongByBlake3Request>("SyncSongByBlake3Request");
+        registered.insert("SyncSongByBlake3Request".to_string());
+        gen.add_schema::<SyncSongByBlake3Response>("SyncSongByBlake3Response");
+        registered.insert("SyncSongByBlake3Response".to_string());
+        gen.add_schema::<SyncPlaylistRequest>("SyncPlaylistRequest");
+        registered.insert("SyncPlaylistRequest".to_string());
+        gen.add_schema::<SyncPlaylistResponse>("SyncPlaylistResponse");
+        registered.insert("SyncPlaylistResponse".to_string());
+        gen.add_schema::<SyncImageRef>("SyncImageRef");
+        registered.insert("SyncImageRef".to_string());
+        gen.add_schema::<SyncAlbumRequest>("SyncAlbumRequest");
+        registered.insert("SyncAlbumRequest".to_string());
+        gen.add_schema::<SyncAlbumResponse>("SyncAlbumResponse");
+        registered.insert("SyncAlbumResponse".to_string());
     }
 }
