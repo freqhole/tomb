@@ -11,13 +11,14 @@
 //! 6. server fans live audio chunks + meta updates concurrently
 
 use crate::error::{GrimoireError, GrimoireResult};
+use crate::federation::is_known_peer;
 use crate::radio::broadcaster::{
-    get_default as get_default_broadcaster, get_station as get_broadcaster, Broadcaster,
-    MetaUpdate,
+    get_default as get_default_broadcaster, get_station as get_broadcaster, Broadcaster, MetaUpdate,
 };
 use crate::radio::chunk::Chunk;
 use crate::radio::messages::{ControlMessage, HelloMessage, MetaMessage, RADIO_CODEC};
 use crate::radio::protocol::{read_control_message, write_chunk, write_control_message};
+use crate::radio::stations::get_station;
 use iroh::endpoint::{Connection, SendStream};
 use std::sync::Arc;
 use tokio::sync::broadcast::error::RecvError;
@@ -59,17 +60,37 @@ async fn run_session(conn: &Connection) -> GrimoireResult<()> {
     };
 
     let bc = match requested_station.as_deref() {
-        Some(id) => get_broadcaster(id).await.ok_or_else(|| {
-            GrimoireError::FederationApiError {
+        Some(id) => get_broadcaster(id)
+            .await
+            .ok_or_else(|| GrimoireError::FederationApiError {
                 message: format!("radio: no broadcaster for station '{id}'"),
-            }
-        })?,
-        None => get_default_broadcaster().await.ok_or_else(|| {
-            GrimoireError::FederationApiError {
-                message: "radio: no default station configured".to_string(),
-            }
-        })?,
+            })?,
+        None => {
+            get_default_broadcaster()
+                .await
+                .ok_or_else(|| GrimoireError::FederationApiError {
+                    message: "radio: no default station configured".to_string(),
+                })?
+        }
     };
+
+    // 2a. per-station auth gate: when `is_public = 0` the requested
+    // station is restricted to peers in the federation peer list.
+    // public stations skip this check entirely.
+    let station_id = bc.station_id().to_string();
+    if let Some(station) = get_station(&station_id).await? {
+        if station.is_public == 0 {
+            let peer_node = conn.remote_id().to_string();
+            let allowed = is_known_peer(&peer_node).await;
+            if !allowed {
+                return Err(GrimoireError::FederationApiError {
+                    message: format!(
+                        "radio: peer {peer_node} not authorized for private station '{station_id}'"
+                    ),
+                });
+            }
+        }
+    }
 
     // 3. subscribe + send Hello.
     let _guard = ListenerGuard::new(bc.clone());
@@ -86,12 +107,12 @@ async fn run_session(conn: &Connection) -> GrimoireResult<()> {
     write_control_message(&mut ctrl_send, &hello).await?;
 
     // 4. open the audio uni stream.
-    let mut audio_send =
-        conn.open_uni()
-            .await
-            .map_err(|e| GrimoireError::FederationApiError {
-                message: format!("radio: failed to open audio stream: {e}"),
-            })?;
+    let mut audio_send = conn
+        .open_uni()
+        .await
+        .map_err(|e| GrimoireError::FederationApiError {
+            message: format!("radio: failed to open audio stream: {e}"),
+        })?;
 
     // 5. write current init + catchup chunks.
     if let Some(init) = sub.init.as_ref() {

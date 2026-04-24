@@ -7,6 +7,7 @@
 import { createEffect, createSignal, onCleanup, Show } from "solid-js";
 import {
   leaveRadio,
+  radioArtUrl,
   radioCurrentPeerAddr,
   radioError,
   radioListenerCount,
@@ -69,6 +70,20 @@ export function RadioBar(props: RadioBarProps) {
       >
         <div ref={(el) => (mount = el)} />
         <div class="flex items-center gap-3 px-4 py-2 max-w-screen-2xl mx-auto">
+          {/* art thumb — inline from the meta `art` field. falls back to
+              the gradient "radio" badge so the bar stays consistent. */}
+          <div class="flex-shrink-0 w-10 h-10 rounded overflow-hidden bg-gradient-to-br from-purple-700 to-indigo-900 flex items-center justify-center">
+            <Show
+              when={radioArtUrl()}
+              fallback={
+                <span class="text-[9px] font-bold tracking-widest opacity-70 text-white">
+                  radio
+                </span>
+              }
+            >
+              {(url) => <img src={url()} alt="album art" class="w-full h-full object-cover" />}
+            </Show>
+          </div>
           {/* live indicator */}
           <div
             class="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider"

@@ -13,6 +13,10 @@ import { schema, type PublicNowPlaying } from "freqhole-api-client";
 import type { RadioHandleLike } from "freqhole-api-client";
 import { getMiddenNode, isCharnelAvailable } from "../../api/client";
 import { tuneRadioCharnel } from "./charnelRadioAdapter";
+import {
+  registerStopRadio,
+  stopMusicForRadio,
+} from "../playbackCoordinator";
 
 const MSE_CODEC = 'audio/mp4; codecs="mp4a.40.2"';
 
@@ -30,6 +34,10 @@ interface RadioSession {
 const [status, setStatus] = createSignal<RadioStatus>("idle");
 const [error, setError] = createSignal<string | null>(null);
 const [nowPlaying, setNowPlaying] = createSignal<PublicNowPlaying | null>(null);
+// blob URL for the current track's inline album art (Hello/Meta `art` field).
+// null when the track has no art or it hasn't been received yet. revoked
+// whenever a new url replaces it so we don't leak URL.createObjectURL refs.
+const [artUrl, setArtUrl] = createSignal<string | null>(null);
 const [listenerCount, setListenerCount] = createSignal<number>(0);
 const [currentPeerAddr, setCurrentPeerAddr] = createSignal<string | null>(null);
 const [currentStationId, setCurrentStationId] = createSignal<string | null>(
@@ -46,6 +54,7 @@ let audioSink: HTMLAudioElement | null = null;
 export const radioStatus = status;
 export const radioError = error;
 export const radioNowPlaying = nowPlaying;
+export const radioArtUrl = artUrl;
 export const radioListenerCount = listenerCount;
 export const radioCurrentPeerAddr = currentPeerAddr;
 export const radioCurrentStationId = currentStationId;
@@ -53,6 +62,10 @@ export const radioCurrentStationId = currentStationId;
 export function currentRadioSession(): RadioSession | null {
   return activeSession;
 }
+
+// register our leave hook so the music player can interrupt us when
+// the user starts playing local songs.
+registerStopRadio(() => leaveRadio());
 
 /**
  * register a persistent <audio> element to receive radio playback. pass
@@ -76,9 +89,44 @@ export function leaveRadio(): void {
   setStatus("idle");
   setError(null);
   setNowPlaying(null);
+  swapArtUrl(null);
   setListenerCount(0);
   setCurrentPeerAddr(null);
   setCurrentStationId(null);
+}
+
+// replace the current art URL with a new one (or null), revoking the
+// previous blob URL to release memory.
+function swapArtUrl(next: string | null): void {
+  const prev = artUrl();
+  if (prev && prev !== next && prev.startsWith("blob:")) {
+    try {
+      URL.revokeObjectURL(prev);
+    } catch {
+      // ignore — best effort
+    }
+  }
+  setArtUrl(next);
+}
+
+// build a Blob URL from inline ArtData (`{mime, blob_id, data}`) on the
+// raw now_playing payload. returns null if missing/malformed.
+function artUrlFromRaw(raw: unknown): string | null {
+  if (!raw || typeof raw !== "object") return null;
+  const art = (raw as { art?: unknown }).art;
+  if (!art || typeof art !== "object") return null;
+  const a = art as { mime?: unknown; data?: unknown };
+  if (typeof a.mime !== "string" || typeof a.data !== "string") return null;
+  try {
+    const bin = atob(a.data);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    const blob = new Blob([bytes as BlobPart], { type: a.mime });
+    return URL.createObjectURL(blob);
+  } catch (e) {
+    console.warn("[radio] art decode failed:", e);
+    return null;
+  }
 }
 
 interface TuneOptions {
@@ -100,6 +148,9 @@ export async function tuneIntoRadio(
 ): Promise<HTMLAudioElement> {
   // tear down any prior session.
   leaveRadio();
+
+  // make sure local music isn't competing for the speakers.
+  await stopMusicForRadio();
 
   setStatus("connecting");
   setCurrentPeerAddr(peerAddr);
@@ -179,7 +230,11 @@ export async function tuneIntoRadio(
   // audio actually crossing into the new track.
   const pendingMeta = new Map<
     number,
-    { now_playing: PublicNowPlaying; listener_count: number }
+    {
+      now_playing: PublicNowPlaying;
+      art_url: string | null;
+      listener_count: number;
+    }
   >();
   // most recent init_seq we've actually applied. interstitial / banner
   // meta updates from the broadcaster (e.g. "switching tracks…") arrive
@@ -192,7 +247,10 @@ export async function tuneIntoRadio(
       const msg = JSON.parse(helloJson);
       if (msg?.now_playing) {
         const np = coerceNowPlaying(msg.now_playing);
-        if (np) setNowPlaying(np);
+        if (np) {
+          setNowPlaying(np);
+          swapArtUrl(artUrlFromRaw(msg.now_playing));
+        }
       }
       if (typeof msg?.listener_count === "number") {
         setListenerCount(msg.listener_count);
@@ -219,18 +277,21 @@ export async function tuneIntoRadio(
         // server tags it with the *current* init_seq so we apply it now.
         if (lastAppliedInit !== null && initSeq <= lastAppliedInit) {
           setNowPlaying(np);
+          swapArtUrl(artUrlFromRaw(msg.now_playing));
           if (typeof msg?.listener_count === "number") {
             setListenerCount(msg.listener_count);
           }
         } else {
           pendingMeta.set(initSeq, {
             now_playing: np,
+            art_url: artUrlFromRaw(msg.now_playing),
             listener_count: msg.listener_count ?? listenerCount(),
           });
         }
       } else if (np) {
         // protocol drift: no init_seq → apply right away.
         setNowPlaying(np);
+        swapArtUrl(artUrlFromRaw(msg.now_playing));
         if (typeof msg?.listener_count === "number") {
           setListenerCount(msg.listener_count);
         }
@@ -245,6 +306,7 @@ export async function tuneIntoRadio(
       const m = pendingMeta.get(seq)!;
       pendingMeta.delete(seq);
       setNowPlaying(m.now_playing);
+      swapArtUrl(m.art_url ?? null);
       setListenerCount(m.listener_count);
     }
     if (isInit) lastAppliedInit = seq;
