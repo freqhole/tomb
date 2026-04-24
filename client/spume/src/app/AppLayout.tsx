@@ -13,6 +13,7 @@ import {
 import { Portal } from "solid-js/web";
 import { ConfirmDialog } from "../components/dialogs/ConfirmDialog";
 import { PlaylistSelectorModal } from "../components/dialogs/PlaylistSelectorModal";
+import { AddToStationModal } from "../components/radio/AddToStationModal";
 import { ToastRegion } from "../components/feedback/Toast";
 import { AddRemoteModal } from "../components/modals/AddRemoteModal";
 import { ConnectionProgressModal } from "../components/modals/ConnectionProgressModal";
@@ -118,6 +119,7 @@ import {
   radioStatus,
   setRadioAudioSink,
   setRadioFavorite,
+  tuneIntoRadio,
 } from "./services/radio/radioService";
 
 interface AppLayoutProps {
@@ -896,6 +898,15 @@ export function AppLayout(props: AppLayoutProps) {
           }}
           historyEntries={queueHistory()}
           onReplayHistoryEntry={(entry) => {
+            if (entry.type === "radio_station" && entry.radio_station_ref) {
+              const ref = entry.radio_station_ref;
+              void tuneIntoRadio(ref.peer_addr, {
+                stationId: ref.station_id,
+                stationName: ref.station_name,
+                isLocal: ref.is_local,
+              });
+              return;
+            }
             const hasProgress = (entry.listened_seconds || 0) > 0;
             if (hasProgress) {
               // resume from where we left off
@@ -1148,6 +1159,9 @@ export function AppLayout(props: AppLayoutProps) {
         onClose={closePlaylistSelector}
         songIds={playlistSelectorState().songIds}
       />
+
+      {/* global station selector modal (charnel-only) */}
+      <AddToStationModal />
 
       {/* toast notifications */}
       <Portal>

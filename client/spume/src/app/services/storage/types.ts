@@ -24,7 +24,18 @@ export type QueueHistorySourceType =
   | "artist"
   | "genre"
   | "playlist"
-  | "shuffle";
+  | "shuffle"
+  | "radio_station";
+
+// reference to a radio station stored in queue history
+export interface RadioStationRef {
+  peer_addr: string;        // peer addr used with tuneIntoRadio
+  station_id?: string;      // optional station id
+  station_name: string;     // display label
+  is_local?: boolean;       // true if this is an in-process (self) station
+  art_thumb_b64?: string;   // base64 thumbnail for display
+  art_thumb_mime?: string;
+}
 
 export interface QueueHistoryEntry {
   id: string; // uuid
@@ -45,6 +56,8 @@ export interface QueueHistoryEntry {
   // server session tracking (for reconnection after page reload)
   server_session_id?: string; // active server-side listen session id
   server_remote_id?: string; // remote_server_id the session is on
+  // radio station bookmark (only set when type === "radio_station")
+  radio_station_ref?: RadioStationRef;
 }
 
 // analytics event — queued locally for offline-first sync to server

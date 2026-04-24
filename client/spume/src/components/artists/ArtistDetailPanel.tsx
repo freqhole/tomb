@@ -20,6 +20,8 @@ import MediaImage from "../media/MediaImage";
 import { EntityLinks } from "../media/EntityLinks";
 import { canUpdateArtist } from "../../music/data/permissions";
 import type { EntityUrl } from "../../music/data/types";
+import { isCharnelMode } from "../../app/services/charnel";
+import { showStationSelector } from "../../music/hooks/stationSelectorState";
 
 export interface ArtistDetailPanelArtist {
   artist_id: string;
@@ -318,6 +320,17 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
                 <Button variant="ghost" size="sm" onClick={props.onAddToQueue}>
                   +queue
                 </Button>
+                <Show when={isCharnelMode()}>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() =>
+                      void showStationSelector({ kind: "artist", artistName: props.artist.name })
+                    }
+                  >
+                    +radio
+                  </Button>
+                </Show>
                 <FavoriteHeart
                   isFavorite={props.artist.is_favorite ?? false}
                   onToggle={props.onFavoriteToggle}
@@ -466,6 +479,17 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
                 <Button variant="ghost" size="sm" onClick={props.onAddToQueue}>
                   +queue
                 </Button>
+                <Show when={isCharnelMode()}>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() =>
+                      void showStationSelector({ kind: "artist", artistName: props.artist.name })
+                    }
+                  >
+                    +radio
+                  </Button>
+                </Show>
                 <FavoriteHeart
                   isFavorite={props.artist.is_favorite ?? false}
                   onToggle={props.onFavoriteToggle}

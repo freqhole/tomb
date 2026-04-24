@@ -55,6 +55,8 @@ function historyTypeIcon(type: QueueHistoryEntry["type"]): IconName {
       return "playlist";
     case "shuffle":
       return "shuffle";
+    case "radio_station":
+      return "headphones";
     default:
       return "queue";
   }
@@ -884,6 +886,7 @@ export function QueueSidebar(props: QueueSidebarProps) {
                   const entry = () => props.historyEntries[virtualItem.index];
                   const [isRowHovered, setIsRowHovered] = createSignal(false);
                   const isArtist = () => entry().type === "artist";
+                  const isRadio = () => entry().type === "radio_station";
                   const progressPercent = () => {
                     const total = entry().total_seconds || 0;
                     if (total === 0) return 0;
@@ -912,13 +915,17 @@ export function QueueSidebar(props: QueueSidebarProps) {
                         }
                       }}
                       title={
-                        isMobile()
-                          ? hasProgress()
-                            ? "tap to resume"
-                            : "tap to re-queue"
-                          : hasProgress()
-                            ? "double-click to resume"
-                            : "double-click to re-queue"
+                        isRadio()
+                          ? isMobile()
+                            ? "tap to tune in"
+                            : "double-click to tune in"
+                          : isMobile()
+                            ? hasProgress()
+                              ? "tap to resume"
+                              : "tap to re-queue"
+                            : hasProgress()
+                              ? "double-click to resume"
+                              : "double-click to re-queue"
                       }
                     >
                       {/* type icon / thumbnail */}
@@ -926,20 +933,36 @@ export function QueueSidebar(props: QueueSidebarProps) {
                         class={`w-10 h-10 flex-shrink-0 mr-3 flex items-center justify-center ${isArtist() ? "rounded-full" : "rounded"} bg-[var(--color-accent-500)]/10 overflow-hidden relative`}
                       >
                         <Show
-                          when={entry().image}
+                          when={isRadio() && entry().radio_station_ref?.art_thumb_b64}
                           fallback={
-                            <Icon
-                              name={historyTypeIcon(entry().type)}
-                              size={20}
-                              color="var(--color-accent-500)"
-                            />
+                            <Show
+                              when={entry().image}
+                              fallback={
+                                <Icon
+                                  name={historyTypeIcon(entry().type)}
+                                  size={20}
+                                  color="var(--color-accent-500)"
+                                />
+                              }
+                            >
+                              <MediaThumbnail
+                                images={entry().image ? [entry().image!] : undefined}
+                                size={40}
+                                class={isArtist() ? "rounded-full" : undefined}
+                              />
+                            </Show>
                           }
                         >
-                          <MediaThumbnail
-                            images={entry().image ? [entry().image!] : undefined}
-                            size={40}
-                            class={isArtist() ? "rounded-full" : undefined}
-                          />
+                          {(_b64) => {
+                            const ref = entry().radio_station_ref!;
+                            return (
+                              <img
+                                src={`data:${ref.art_thumb_mime ?? "image/jpeg"};base64,${ref.art_thumb_b64}`}
+                                alt=""
+                                class="w-full h-full object-cover"
+                              />
+                            );
+                          }}
                         </Show>
                       </div>
 
@@ -949,18 +972,28 @@ export function QueueSidebar(props: QueueSidebarProps) {
                           <MarqueeText text={entry().label} hoverOnly isHovering={isRowHovered} />
                         </h4>
                         <p class="text-xs text-[var(--color-text-secondary)] m-0">
-                          {entry().type} &middot;{" "}
                           <Show
-                            when={hasProgress()}
+                            when={isRadio()}
                             fallback={
                               <>
-                                {entry().song_count} {entry().song_count === 1 ? "song" : "songs"}
+                                {entry().type} &middot;{" "}
+                                <Show
+                                  when={hasProgress()}
+                                  fallback={
+                                    <>
+                                      {entry().song_count}{" "}
+                                      {entry().song_count === 1 ? "song" : "songs"}
+                                    </>
+                                  }
+                                >
+                                  {entry().songs_completed}/{entry().song_count}{" "}
+                                  {entry().song_count === 1 ? "song" : "songs"} &middot;{" "}
+                                  {Math.round(progressPercent())}%
+                                </Show>
                               </>
                             }
                           >
-                            {entry().songs_completed}/{entry().song_count}{" "}
-                            {entry().song_count === 1 ? "song" : "songs"} &middot;{" "}
-                            {Math.round(progressPercent())}%
+                            radio station
                           </Show>
                         </p>
 

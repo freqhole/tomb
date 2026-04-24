@@ -38,6 +38,7 @@ import { createRemote } from "../../app/services/remotes/remoteManager";
 import { isCharnelMode } from "../../app/services/charnel";
 import { debug } from "../../utils/logger";
 import { RadioHistoryList } from "./RadioHistoryList";
+import { addRadioStationHistoryEntry } from "../services/queue/queueHistory";
 
 export function RadioView() {
   const [searchParams] = useSearchParams();
@@ -196,6 +197,43 @@ export function RadioView() {
   };
 
   const currentStationObj = createMemo(() => stations().find((s) => isCurrent(s)) ?? null);
+
+  // bookmark state for the currently tuned station
+  const [bookmarking, setBookmarking] = createSignal(false);
+  const [bookmarked, setBookmarked] = createSignal(false);
+
+  // reset bookmark badge whenever the station changes
+  createMemo(() => {
+    radioCurrentStationId();
+    radioCurrentPeerAddr();
+    setBookmarked(false);
+  });
+
+  const handleBookmark = async () => {
+    const station = currentStationObj();
+    if (!station) return;
+    const isLocal = station.source.kind === "self";
+    const peer = isLocal
+      ? station.source.id || "self"
+      : (station.source.peer_addr ?? station.source.base_url ?? "");
+    setBookmarking(true);
+    try {
+      const np = radioNowPlaying();
+      await addRadioStationHistoryEntry({
+        peer_addr: peer,
+        station_id: station.station_id,
+        station_name: station.name,
+        is_local: isLocal,
+        art_thumb_b64: np?.art_thumb_b64 ?? station.now_playing?.art_thumb_b64 ?? undefined,
+        art_thumb_mime: np?.art_thumb_mime ?? station.now_playing?.art_thumb_mime ?? undefined,
+      });
+      setBookmarked(true);
+    } catch (e) {
+      console.warn("[radio-view] bookmark failed:", e);
+    } finally {
+      setBookmarking(false);
+    }
+  };
 
   // ---------------------------------------------------------------------
   // left column — station list
@@ -393,6 +431,22 @@ export function RadioView() {
                       {radioListenerCount()} listener
                       {radioListenerCount() === 1 ? "" : "s"}
                     </div>
+                    <button
+                      class={`mt-2 text-xs px-2 py-1 rounded border transition-colors ${
+                        bookmarked()
+                          ? "border-emerald-700 text-emerald-400 bg-emerald-900/30 cursor-default"
+                          : "border-neutral-700 hover:border-neutral-500 hover:text-neutral-200"
+                      }`}
+                      onClick={handleBookmark}
+                      disabled={bookmarking() || bookmarked()}
+                      title="save station to queue history"
+                    >
+                      {bookmarked()
+                        ? "saved to history"
+                        : bookmarking()
+                          ? "saving…"
+                          : "save to history"}
+                    </button>
                   </div>
                 )}
               </Show>
