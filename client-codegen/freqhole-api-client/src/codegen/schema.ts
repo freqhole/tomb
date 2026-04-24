@@ -592,6 +592,17 @@ export const CreatePlaylistRequestSchema = z.object({
 });
 export type CreatePlaylistRequest = z.infer<typeof CreatePlaylistRequestSchema>;
 
+export const CreateStationRequestSchema = z.object({
+  name: z.string(),
+  description: z.string().nullish(),
+  is_public: z.boolean().nullish(),
+  is_enabled: z.boolean().nullish(),
+  encode_args: z.string().nullish(),
+  codec: z.string().nullish(),
+  play_mode: z.string().nullish()
+});
+export type CreateStationRequest = z.infer<typeof CreateStationRequestSchema>;
+
 export const CreateTagRequestSchema = z.object({
   name: z.string()
 });
@@ -792,7 +803,282 @@ export const FavoriteArtistResultSchema = z.object({
 });
 export type FavoriteArtistResult = z.infer<typeof FavoriteArtistResultSchema>;
 
-export const FavoriteItemSchema = z.union([z.literal('Song'), z.literal('Album'), z.literal('Artist'), z.literal('Playlist')]);
+export const FavoriteItemSchema = z.union([z.intersection(z.object({
+  type: z.literal('Song')
+}), z.object({
+  favorited_at: z.number(),
+  song: z.object({
+  song: z.object({
+  id: z.string(),
+  media_blob_id: z.string(),
+  images: z.array(z.object({
+  blob_id: z.string(),
+  is_primary: z.number(),
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+})).nullish(),
+  urls: z.array(z.object({
+  id: z.string().nullish(),
+  name: z.string().nullish(),
+  url: z.string()
+})).nullish(),
+  title: z.string(),
+  track_number: z.number(),
+  disc_number: z.number(),
+  duration: z.number().nullish(),
+  bpm: z.number().nullish(),
+  track_artist: z.string().nullish(),
+  metadata: z.string().nullish(),
+  lyrics: z.string().nullish(),
+  created_at: z.number(),
+  updated_at: z.number(),
+  deleted_at: z.number().nullish(),
+  deleted_by: z.string().nullish(),
+  created_by: z.string().nullish(),
+  updated_by: z.string().nullish(),
+  created_by_username: z.string().nullish(),
+  updated_by_username: z.string().nullish()
+}),
+  artist: z.object({
+  id: z.string(),
+  name: z.string(),
+  bio: z.string().nullish(),
+  images: z.array(z.object({
+  blob_id: z.string(),
+  is_primary: z.number(),
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+})).nullish(),
+  urls: z.array(z.object({
+  id: z.string().nullish(),
+  name: z.string().nullish(),
+  url: z.string()
+})).nullish(),
+  created_at: z.number(),
+  updated_at: z.number(),
+  deleted_at: z.number().nullish(),
+  deleted_by: z.string().nullish(),
+  created_by: z.string().nullish(),
+  updated_by: z.string().nullish()
+}).nullish(),
+  album: z.object({
+  id: z.string(),
+  title: z.string(),
+  album_type: z.string(),
+  release_date: z.string().nullish(),
+  label: z.string().nullish(),
+  genres: z.array(z.object({
+  id: z.string(),
+  name: z.string()
+})).nullish(),
+  images: z.array(z.object({
+  blob_id: z.string(),
+  is_primary: z.number(),
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+})).nullish(),
+  urls: z.array(z.object({
+  id: z.string().nullish(),
+  name: z.string().nullish(),
+  url: z.string()
+})).nullish(),
+  song_count: z.number(),
+  total_duration: z.number(),
+  created_at: z.number(),
+  updated_at: z.number(),
+  deleted_at: z.number().nullish(),
+  deleted_by: z.string().nullish(),
+  created_by: z.string().nullish(),
+  updated_by: z.string().nullish(),
+  created_by_username: z.string().nullish(),
+  updated_by_username: z.string().nullish()
+}).nullish(),
+  genre: z.object({
+  id: z.string(),
+  name: z.string(),
+  created_at: z.number()
+}).nullish(),
+  media_blob: z.object({
+  id: z.string(),
+  sha256: z.string(),
+  size: z.number().nullish(),
+  mime: z.string().nullish(),
+  source_client_id: z.string().nullish(),
+  filename: z.string().nullish(),
+  parent_blob_id: z.string().nullish(),
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")]),
+  metadata: z.any(),
+  created_at: z.number(),
+  updated_at: z.number(),
+  deleted_at: z.number().nullish(),
+  deleted_by: z.string().nullish(),
+  created_by: z.string().nullish(),
+  updated_by: z.string().nullish(),
+  width: z.number().nullish(),
+  height: z.number().nullish(),
+  blake3: z.string().nullish()
+}).nullish(),
+  images: z.array(z.object({
+  blob_id: z.string(),
+  is_primary: z.number(),
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+})).nullish(),
+  relevance_score: z.number().nullish(),
+  snippet: z.string().nullish(),
+  is_favorite: z.boolean().nullish(),
+  rating: z.number().nullish(),
+  favorited_at: z.number().nullish(),
+  rating_created_at: z.number().nullish(),
+  artist_total_song_count: z.number().nullish(),
+  artist_total_album_count: z.number().nullish(),
+  artist_total_duration: z.number().nullish(),
+  album_is_favorite: z.boolean().nullish(),
+  album_rating: z.number().nullish(),
+  album_tags: z.array(z.string()).nullish()
+})
+})), z.intersection(z.object({
+  type: z.literal('Album')
+}), z.object({
+  favorited_at: z.number(),
+  album: z.object({
+  album: z.object({
+  id: z.string(),
+  title: z.string(),
+  album_type: z.string(),
+  release_date: z.string().nullish(),
+  label: z.string().nullish(),
+  genres: z.array(z.object({
+  id: z.string(),
+  name: z.string()
+})).nullish(),
+  images: z.array(z.object({
+  blob_id: z.string(),
+  is_primary: z.number(),
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+})).nullish(),
+  urls: z.array(z.object({
+  id: z.string().nullish(),
+  name: z.string().nullish(),
+  url: z.string()
+})).nullish(),
+  song_count: z.number(),
+  total_duration: z.number(),
+  created_at: z.number(),
+  updated_at: z.number(),
+  deleted_at: z.number().nullish(),
+  deleted_by: z.string().nullish(),
+  created_by: z.string().nullish(),
+  updated_by: z.string().nullish(),
+  created_by_username: z.string().nullish(),
+  updated_by_username: z.string().nullish()
+}),
+  artist: z.object({
+  id: z.string(),
+  name: z.string(),
+  bio: z.string().nullish(),
+  images: z.array(z.object({
+  blob_id: z.string(),
+  is_primary: z.number(),
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+})).nullish(),
+  urls: z.array(z.object({
+  id: z.string().nullish(),
+  name: z.string().nullish(),
+  url: z.string()
+})).nullish(),
+  created_at: z.number(),
+  updated_at: z.number(),
+  deleted_at: z.number().nullish(),
+  deleted_by: z.string().nullish(),
+  created_by: z.string().nullish(),
+  updated_by: z.string().nullish()
+}).nullish(),
+  genre: z.object({
+  id: z.string(),
+  name: z.string(),
+  created_at: z.number()
+}).nullish(),
+  images: z.array(z.object({
+  blob_id: z.string(),
+  is_primary: z.number(),
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+})).nullish(),
+  album_tags: z.array(z.string()).nullish(),
+  is_favorite: z.boolean().nullish(),
+  rating: z.number().nullish(),
+  favorited_at: z.number().nullish(),
+  rating_created_at: z.number().nullish()
+})
+})), z.intersection(z.object({
+  type: z.literal('Artist')
+}), z.object({
+  favorited_at: z.number(),
+  artist: z.object({
+  artist: z.object({
+  id: z.string(),
+  name: z.string(),
+  bio: z.string().nullish(),
+  images: z.array(z.object({
+  blob_id: z.string(),
+  is_primary: z.number(),
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+})).nullish(),
+  urls: z.array(z.object({
+  id: z.string().nullish(),
+  name: z.string().nullish(),
+  url: z.string()
+})).nullish(),
+  created_at: z.number(),
+  updated_at: z.number(),
+  deleted_at: z.number().nullish(),
+  deleted_by: z.string().nullish(),
+  created_by: z.string().nullish(),
+  updated_by: z.string().nullish()
+}),
+  images: z.array(z.object({
+  blob_id: z.string(),
+  is_primary: z.number(),
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+})).nullish(),
+  song_count: z.number(),
+  album_count: z.number(),
+  total_duration: z.number().nullish(),
+  is_favorite: z.boolean().nullish(),
+  rating: z.number().nullish(),
+  favorited_at: z.number().nullish(),
+  rating_created_at: z.number().nullish()
+})
+})), z.intersection(z.object({
+  type: z.literal('Playlist')
+}), z.object({
+  favorited_at: z.number(),
+  playlist: z.object({
+  playlist: z.object({
+  id: z.string(),
+  title: z.string(),
+  description: z.string().nullish(),
+  is_public: z.number(),
+  images: z.array(z.object({
+  blob_id: z.string(),
+  is_primary: z.number(),
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+})).nullish(),
+  urls: z.array(z.object({
+  id: z.string().nullish(),
+  name: z.string().nullish(),
+  url: z.string()
+})).nullish(),
+  created_by_id: z.string().nullish(),
+  created_at: z.number(),
+  updated_at: z.number(),
+  deleted_at: z.number().nullish(),
+  deleted_by: z.string().nullish(),
+  created_by: z.string().nullish(),
+  updated_by: z.string().nullish(),
+  song_count: z.number()
+}),
+  song_count: z.number(),
+  total_duration: z.number().nullish(),
+  is_favorite: z.boolean().nullish()
+})
+}))]);
 export type FavoriteItem = z.infer<typeof FavoriteItemSchema>;
 
 export const FavoritePlaylistResultSchema = z.object({
@@ -1375,7 +1661,282 @@ export const ListFavoritesRequestSchema = z.object({
 export type ListFavoritesRequest = z.infer<typeof ListFavoritesRequestSchema>;
 
 export const ListFavoritesResponseSchema = z.object({
-  favorites: z.array(z.union([z.literal('Song'), z.literal('Album'), z.literal('Artist'), z.literal('Playlist')])),
+  favorites: z.array(z.union([z.intersection(z.object({
+  type: z.literal('Song')
+}), z.object({
+  favorited_at: z.number(),
+  song: z.object({
+  song: z.object({
+  id: z.string(),
+  media_blob_id: z.string(),
+  images: z.array(z.object({
+  blob_id: z.string(),
+  is_primary: z.number(),
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+})).nullish(),
+  urls: z.array(z.object({
+  id: z.string().nullish(),
+  name: z.string().nullish(),
+  url: z.string()
+})).nullish(),
+  title: z.string(),
+  track_number: z.number(),
+  disc_number: z.number(),
+  duration: z.number().nullish(),
+  bpm: z.number().nullish(),
+  track_artist: z.string().nullish(),
+  metadata: z.string().nullish(),
+  lyrics: z.string().nullish(),
+  created_at: z.number(),
+  updated_at: z.number(),
+  deleted_at: z.number().nullish(),
+  deleted_by: z.string().nullish(),
+  created_by: z.string().nullish(),
+  updated_by: z.string().nullish(),
+  created_by_username: z.string().nullish(),
+  updated_by_username: z.string().nullish()
+}),
+  artist: z.object({
+  id: z.string(),
+  name: z.string(),
+  bio: z.string().nullish(),
+  images: z.array(z.object({
+  blob_id: z.string(),
+  is_primary: z.number(),
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+})).nullish(),
+  urls: z.array(z.object({
+  id: z.string().nullish(),
+  name: z.string().nullish(),
+  url: z.string()
+})).nullish(),
+  created_at: z.number(),
+  updated_at: z.number(),
+  deleted_at: z.number().nullish(),
+  deleted_by: z.string().nullish(),
+  created_by: z.string().nullish(),
+  updated_by: z.string().nullish()
+}).nullish(),
+  album: z.object({
+  id: z.string(),
+  title: z.string(),
+  album_type: z.string(),
+  release_date: z.string().nullish(),
+  label: z.string().nullish(),
+  genres: z.array(z.object({
+  id: z.string(),
+  name: z.string()
+})).nullish(),
+  images: z.array(z.object({
+  blob_id: z.string(),
+  is_primary: z.number(),
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+})).nullish(),
+  urls: z.array(z.object({
+  id: z.string().nullish(),
+  name: z.string().nullish(),
+  url: z.string()
+})).nullish(),
+  song_count: z.number(),
+  total_duration: z.number(),
+  created_at: z.number(),
+  updated_at: z.number(),
+  deleted_at: z.number().nullish(),
+  deleted_by: z.string().nullish(),
+  created_by: z.string().nullish(),
+  updated_by: z.string().nullish(),
+  created_by_username: z.string().nullish(),
+  updated_by_username: z.string().nullish()
+}).nullish(),
+  genre: z.object({
+  id: z.string(),
+  name: z.string(),
+  created_at: z.number()
+}).nullish(),
+  media_blob: z.object({
+  id: z.string(),
+  sha256: z.string(),
+  size: z.number().nullish(),
+  mime: z.string().nullish(),
+  source_client_id: z.string().nullish(),
+  filename: z.string().nullish(),
+  parent_blob_id: z.string().nullish(),
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")]),
+  metadata: z.any(),
+  created_at: z.number(),
+  updated_at: z.number(),
+  deleted_at: z.number().nullish(),
+  deleted_by: z.string().nullish(),
+  created_by: z.string().nullish(),
+  updated_by: z.string().nullish(),
+  width: z.number().nullish(),
+  height: z.number().nullish(),
+  blake3: z.string().nullish()
+}).nullish(),
+  images: z.array(z.object({
+  blob_id: z.string(),
+  is_primary: z.number(),
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+})).nullish(),
+  relevance_score: z.number().nullish(),
+  snippet: z.string().nullish(),
+  is_favorite: z.boolean().nullish(),
+  rating: z.number().nullish(),
+  favorited_at: z.number().nullish(),
+  rating_created_at: z.number().nullish(),
+  artist_total_song_count: z.number().nullish(),
+  artist_total_album_count: z.number().nullish(),
+  artist_total_duration: z.number().nullish(),
+  album_is_favorite: z.boolean().nullish(),
+  album_rating: z.number().nullish(),
+  album_tags: z.array(z.string()).nullish()
+})
+})), z.intersection(z.object({
+  type: z.literal('Album')
+}), z.object({
+  favorited_at: z.number(),
+  album: z.object({
+  album: z.object({
+  id: z.string(),
+  title: z.string(),
+  album_type: z.string(),
+  release_date: z.string().nullish(),
+  label: z.string().nullish(),
+  genres: z.array(z.object({
+  id: z.string(),
+  name: z.string()
+})).nullish(),
+  images: z.array(z.object({
+  blob_id: z.string(),
+  is_primary: z.number(),
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+})).nullish(),
+  urls: z.array(z.object({
+  id: z.string().nullish(),
+  name: z.string().nullish(),
+  url: z.string()
+})).nullish(),
+  song_count: z.number(),
+  total_duration: z.number(),
+  created_at: z.number(),
+  updated_at: z.number(),
+  deleted_at: z.number().nullish(),
+  deleted_by: z.string().nullish(),
+  created_by: z.string().nullish(),
+  updated_by: z.string().nullish(),
+  created_by_username: z.string().nullish(),
+  updated_by_username: z.string().nullish()
+}),
+  artist: z.object({
+  id: z.string(),
+  name: z.string(),
+  bio: z.string().nullish(),
+  images: z.array(z.object({
+  blob_id: z.string(),
+  is_primary: z.number(),
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+})).nullish(),
+  urls: z.array(z.object({
+  id: z.string().nullish(),
+  name: z.string().nullish(),
+  url: z.string()
+})).nullish(),
+  created_at: z.number(),
+  updated_at: z.number(),
+  deleted_at: z.number().nullish(),
+  deleted_by: z.string().nullish(),
+  created_by: z.string().nullish(),
+  updated_by: z.string().nullish()
+}).nullish(),
+  genre: z.object({
+  id: z.string(),
+  name: z.string(),
+  created_at: z.number()
+}).nullish(),
+  images: z.array(z.object({
+  blob_id: z.string(),
+  is_primary: z.number(),
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+})).nullish(),
+  album_tags: z.array(z.string()).nullish(),
+  is_favorite: z.boolean().nullish(),
+  rating: z.number().nullish(),
+  favorited_at: z.number().nullish(),
+  rating_created_at: z.number().nullish()
+})
+})), z.intersection(z.object({
+  type: z.literal('Artist')
+}), z.object({
+  favorited_at: z.number(),
+  artist: z.object({
+  artist: z.object({
+  id: z.string(),
+  name: z.string(),
+  bio: z.string().nullish(),
+  images: z.array(z.object({
+  blob_id: z.string(),
+  is_primary: z.number(),
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+})).nullish(),
+  urls: z.array(z.object({
+  id: z.string().nullish(),
+  name: z.string().nullish(),
+  url: z.string()
+})).nullish(),
+  created_at: z.number(),
+  updated_at: z.number(),
+  deleted_at: z.number().nullish(),
+  deleted_by: z.string().nullish(),
+  created_by: z.string().nullish(),
+  updated_by: z.string().nullish()
+}),
+  images: z.array(z.object({
+  blob_id: z.string(),
+  is_primary: z.number(),
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+})).nullish(),
+  song_count: z.number(),
+  album_count: z.number(),
+  total_duration: z.number().nullish(),
+  is_favorite: z.boolean().nullish(),
+  rating: z.number().nullish(),
+  favorited_at: z.number().nullish(),
+  rating_created_at: z.number().nullish()
+})
+})), z.intersection(z.object({
+  type: z.literal('Playlist')
+}), z.object({
+  favorited_at: z.number(),
+  playlist: z.object({
+  playlist: z.object({
+  id: z.string(),
+  title: z.string(),
+  description: z.string().nullish(),
+  is_public: z.number(),
+  images: z.array(z.object({
+  blob_id: z.string(),
+  is_primary: z.number(),
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+})).nullish(),
+  urls: z.array(z.object({
+  id: z.string().nullish(),
+  name: z.string().nullish(),
+  url: z.string()
+})).nullish(),
+  created_by_id: z.string().nullish(),
+  created_at: z.number(),
+  updated_at: z.number(),
+  deleted_at: z.number().nullish(),
+  deleted_by: z.string().nullish(),
+  created_by: z.string().nullish(),
+  updated_by: z.string().nullish(),
+  song_count: z.number()
+}),
+  song_count: z.number(),
+  total_duration: z.number().nullish(),
+  is_favorite: z.boolean().nullish()
+})
+}))])),
   total_count: z.number(),
   has_more: z.boolean(),
   offset: z.number(),
@@ -2125,6 +2686,39 @@ export const ProcessKnockRequestSchema = z.object({
 });
 export type ProcessKnockRequest = z.infer<typeof ProcessKnockRequestSchema>;
 
+export const PublicNowPlayingSchema = z.object({
+  song_id: z.string(),
+  title: z.string(),
+  artist: z.string().nullish(),
+  album: z.string().nullish(),
+  art_blob_id: z.string().nullish(),
+  waveform_blob_id: z.string().nullish(),
+  duration_ms: z.number().nullish(),
+  art_thumb_b64: z.string().nullish(),
+  art_thumb_mime: z.string().nullish()
+});
+export type PublicNowPlaying = z.infer<typeof PublicNowPlayingSchema>;
+
+export const PublicStationSchema = z.object({
+  station_id: z.string(),
+  name: z.string(),
+  description: z.string().nullish(),
+  listener_count: z.number(),
+  is_default: z.boolean(),
+  now_playing: z.object({
+  song_id: z.string(),
+  title: z.string(),
+  artist: z.string().nullish(),
+  album: z.string().nullish(),
+  art_blob_id: z.string().nullish(),
+  waveform_blob_id: z.string().nullish(),
+  duration_ms: z.number().nullish(),
+  art_thumb_b64: z.string().nullish(),
+  art_thumb_mime: z.string().nullish()
+})
+});
+export type PublicStation = z.infer<typeof PublicStationSchema>;
+
 export const QueryContextSchema = z.object({
   tags: z.object({
   include: z.array(z.string()),
@@ -2164,6 +2758,191 @@ export const QueryTagsRequestSchema = z.object({
   search: z.string().nullish()
 });
 export type QueryTagsRequest = z.infer<typeof QueryTagsRequestSchema>;
+
+export const RadioBumperSchema = z.object({
+  id: z.string(),
+  station_id: z.string(),
+  song_id: z.string(),
+  label: z.string(),
+  weight: z.number(),
+  created_at: z.number()
+});
+export type RadioBumper = z.infer<typeof RadioBumperSchema>;
+
+export const RadioBumpersAddRequestSchema = z.object({
+  station_id: z.string(),
+  song_id: z.string(),
+  label: z.string(),
+  weight: z.number().nullish()
+});
+export type RadioBumpersAddRequest = z.infer<typeof RadioBumpersAddRequestSchema>;
+
+export const RadioBumpersListRequestSchema = z.object({
+  station_id: z.string()
+});
+export type RadioBumpersListRequest = z.infer<typeof RadioBumpersListRequestSchema>;
+
+export const RadioBumpersRemoveRequestSchema = z.object({
+  bumper_id: z.string()
+});
+export type RadioBumpersRemoveRequest = z.infer<typeof RadioBumpersRemoveRequestSchema>;
+
+export const RadioBumpersSetFrequencyRequestSchema = z.object({
+  station_id: z.string(),
+  frequency_seconds: z.number().nullish()
+});
+export type RadioBumpersSetFrequencyRequest = z.infer<typeof RadioBumpersSetFrequencyRequestSchema>;
+
+export const RadioConfigPayloadSchema = z.object({
+  enabled: z.boolean(),
+  encode_args: z.string()
+});
+export type RadioConfigPayload = z.infer<typeof RadioConfigPayloadSchema>;
+
+export const RadioFiltersAddRequestSchema = z.object({
+  station_id: z.string(),
+  filter_type: z.string(),
+  filter_value: z.string(),
+  mode: z.string()
+});
+export type RadioFiltersAddRequest = z.infer<typeof RadioFiltersAddRequestSchema>;
+
+export const RadioFiltersRemoveRequestSchema = z.object({
+  filter_id: z.string()
+});
+export type RadioFiltersRemoveRequest = z.infer<typeof RadioFiltersRemoveRequestSchema>;
+
+export const RadioInfoResponseSchema = z.object({
+  enabled: z.boolean(),
+  default_station: z.object({
+  station_id: z.string(),
+  name: z.string(),
+  description: z.string().nullish(),
+  listener_count: z.number(),
+  is_default: z.boolean(),
+  now_playing: z.object({
+  song_id: z.string(),
+  title: z.string(),
+  artist: z.string().nullish(),
+  album: z.string().nullish(),
+  art_blob_id: z.string().nullish(),
+  waveform_blob_id: z.string().nullish(),
+  duration_ms: z.number().nullish(),
+  art_thumb_b64: z.string().nullish(),
+  art_thumb_mime: z.string().nullish()
+})
+}).nullish(),
+  station_count: z.number()
+});
+export type RadioInfoResponse = z.infer<typeof RadioInfoResponseSchema>;
+
+export const RadioSeedSuggestRequestSchema = z.object({
+  kind: z.string(),
+  query: z.string(),
+  limit: z.number().nullish()
+});
+export type RadioSeedSuggestRequest = z.infer<typeof RadioSeedSuggestRequestSchema>;
+
+export const RadioSeedSuggestionSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  subtitle: z.string().nullish()
+});
+export type RadioSeedSuggestion = z.infer<typeof RadioSeedSuggestionSchema>;
+
+export const RadioSongsAddRequestSchema = z.object({
+  station_id: z.string(),
+  song_id: z.string(),
+  sort_order: z.number().nullish()
+});
+export type RadioSongsAddRequest = z.infer<typeof RadioSongsAddRequestSchema>;
+
+export const RadioSongsRemoveRequestSchema = z.object({
+  station_id: z.string(),
+  song_id: z.string()
+});
+export type RadioSongsRemoveRequest = z.infer<typeof RadioSongsRemoveRequestSchema>;
+
+export const RadioStationSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  description: z.string().nullish(),
+  is_public: z.number(),
+  is_enabled: z.number(),
+  encode_args: z.string().nullish(),
+  codec: z.string(),
+  play_mode: z.string(),
+  created_at: z.number(),
+  updated_at: z.number()
+});
+export type RadioStation = z.infer<typeof RadioStationSchema>;
+
+export const RadioStationByStationIdRequestSchema = z.object({
+  station_id: z.string()
+});
+export type RadioStationByStationIdRequest = z.infer<typeof RadioStationByStationIdRequestSchema>;
+
+export const RadioStationSupervisorStatusSchema = z.object({
+  station_id: z.string(),
+  name: z.string(),
+  is_enabled: z.boolean(),
+  is_running: z.boolean(),
+  listener_count: z.number(),
+  current_seq: z.number(),
+  current_song_id: z.string().nullish(),
+  current_title: z.string().nullish(),
+  is_default: z.boolean()
+});
+export type RadioStationSupervisorStatus = z.infer<typeof RadioStationSupervisorStatusSchema>;
+
+export const RadioStationsByIdRequestSchema = z.object({
+  id: z.string()
+});
+export type RadioStationsByIdRequest = z.infer<typeof RadioStationsByIdRequestSchema>;
+
+export const RadioStationsResponseSchema = z.object({
+  enabled: z.boolean(),
+  stations: z.array(z.object({
+  station_id: z.string(),
+  name: z.string(),
+  description: z.string().nullish(),
+  listener_count: z.number(),
+  is_default: z.boolean(),
+  now_playing: z.object({
+  song_id: z.string(),
+  title: z.string(),
+  artist: z.string().nullish(),
+  album: z.string().nullish(),
+  art_blob_id: z.string().nullish(),
+  waveform_blob_id: z.string().nullish(),
+  duration_ms: z.number().nullish(),
+  art_thumb_b64: z.string().nullish(),
+  art_thumb_mime: z.string().nullish()
+})
+}))
+});
+export type RadioStationsResponse = z.infer<typeof RadioStationsResponseSchema>;
+
+export const RadioSupervisorStationRequestSchema = z.object({
+  station_id: z.string()
+});
+export type RadioSupervisorStationRequest = z.infer<typeof RadioSupervisorStationRequestSchema>;
+
+export const RadioSupervisorStatusResponseSchema = z.object({
+  radio_enabled: z.boolean(),
+  stations: z.array(z.object({
+  station_id: z.string(),
+  name: z.string(),
+  is_enabled: z.boolean(),
+  is_running: z.boolean(),
+  listener_count: z.number(),
+  current_seq: z.number(),
+  current_song_id: z.string().nullish(),
+  current_title: z.string().nullish(),
+  is_default: z.boolean()
+}))
+});
+export type RadioSupervisorStatusResponse = z.infer<typeof RadioSupervisorStatusResponseSchema>;
 
 export const RatingStatsSchema = z.object({
   average_rating: z.number(),
@@ -2764,6 +3543,24 @@ export const StartLoginRequestSchema = z.object({
 });
 export type StartLoginRequest = z.infer<typeof StartLoginRequestSchema>;
 
+export const StationFilterSchema = z.object({
+  id: z.string(),
+  station_id: z.string(),
+  filter_type: z.string(),
+  filter_value: z.string(),
+  mode: z.string(),
+  created_at: z.number()
+});
+export type StationFilter = z.infer<typeof StationFilterSchema>;
+
+export const StationSongSchema = z.object({
+  station_id: z.string(),
+  song_id: z.string(),
+  sort_order: z.number(),
+  added_at: z.number()
+});
+export type StationSong = z.infer<typeof StationSongSchema>;
+
 export const SuggestionSchema = z.object({
   value: z.string(),
   display: z.string(),
@@ -3191,6 +3988,18 @@ export const UpdateSongsResultSchema = z.object({
   tags_modified: z.boolean()
 });
 export type UpdateSongsResult = z.infer<typeof UpdateSongsResultSchema>;
+
+export const UpdateStationRequestSchema = z.object({
+  id: z.string(),
+  name: z.string().nullish(),
+  description: z.string().nullish(),
+  is_public: z.boolean().nullish(),
+  is_enabled: z.boolean().nullish(),
+  encode_args: z.string().nullish(),
+  codec: z.string().nullish(),
+  play_mode: z.string().nullish()
+});
+export type UpdateStationRequest = z.infer<typeof UpdateStationRequestSchema>;
 
 export const UploadMusicByBlake3RequestSchema = z.object({
   blake3: z.string(),

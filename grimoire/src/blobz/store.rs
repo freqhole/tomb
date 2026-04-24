@@ -145,7 +145,7 @@ pub async fn ensure_blob_by_blake3(blake3_hash: &str) -> GrimoireResult<bool> {
     };
 
     if has_blob(hash).await? {
-        tracing::debug!(
+        tracing::info!(
             "ensure_blob_by_blake3: already in FsStore: {}",
             &blake3_hash[..16]
         );
@@ -156,21 +156,27 @@ pub async fn ensure_blob_by_blake3(blake3_hash: &str) -> GrimoireResult<bool> {
     let blob = match media_blobz::get_media_blob_by_blake3(blake3_hash).await {
         Ok(b) => b,
         Err(_) => {
-            tracing::debug!(
-                "ensure_blob_by_blake3: not found in media_blobz: {}",
+            tracing::warn!(
+                "ensure_blob_by_blake3: NOT FOUND in media_blobz: {} (dest asked for a blake3 this source has never seen)",
                 &blake3_hash[..16]
             );
             return Ok(false);
         }
     };
+    tracing::info!(
+        "ensure_blob_by_blake3: found media_blob {} for blake3 {} (local_path={:?})",
+        blob.id,
+        &blake3_hash[..16],
+        blob.local_path.as_deref(),
+    );
 
     match blob.local_path {
         Some(local_path) => {
             // file-backed blob
             let path = Path::new(&local_path);
             if !path.exists() {
-                tracing::debug!(
-                    "ensure_blob_by_blake3: file not found: {} -> {}",
+                tracing::warn!(
+                    "ensure_blob_by_blake3: LOCAL FILE MISSING for {}: path={} (media_blob row exists but on-disk file is gone -- db/disk drift)",
                     &blake3_hash[..16],
                     local_path
                 );
@@ -201,9 +207,10 @@ pub async fn ensure_blob_by_blake3(blake3_hash: &str) -> GrimoireResult<bool> {
             // db-stored blob: waveforms, thumbnails — load from blob_data table
             let data_response = crate::blob_data::get_blob_data(&blob.id).await;
             if !data_response.success {
-                tracing::debug!(
-                    "ensure_blob_by_blake3: no local_path and no blob_data: {}",
-                    &blake3_hash[..16]
+                tracing::warn!(
+                    "ensure_blob_by_blake3: NO LOCAL_PATH AND NO BLOB_DATA for {}: media_blob {} has neither a file nor inline bytes",
+                    &blake3_hash[..16],
+                    blob.id,
                 );
                 return Ok(false);
             }
@@ -211,9 +218,10 @@ pub async fn ensure_blob_by_blake3(blake3_hash: &str) -> GrimoireResult<bool> {
             let data = match data_response.data {
                 Some(d) => d,
                 None => {
-                    tracing::debug!(
-                        "ensure_blob_by_blake3: blob_data returned no bytes: {}",
-                        &blake3_hash[..16]
+                    tracing::warn!(
+                        "ensure_blob_by_blake3: BLOB_DATA EMPTY for {} (media_blob {}): get_blob_data returned success but no bytes",
+                        &blake3_hash[..16],
+                        blob.id,
                     );
                     return Ok(false);
                 }

@@ -1,18 +1,46 @@
 // helpers to convert spume-side song / album / playlist view data into the
 // codegen `Sync*Request` shapes accepted by grimoire.
 //
-// note: image refs are intentionally minimal here — only `content_sha256`
-// is populated (no inline base64). the destination will report any missing
-// image sha256s, and a future polish pass (step 11) can fetch + inline them.
+// image transfer is NOT inlined on sync requests anymore — dest entity ids
+// are returned by each sync endpoint, and `uploadImagesToDest` then pushes
+// each image via the normal `/api/upload/image` endpoint after the fact.
+// these builders always emit empty image arrays; the field is kept for
+// back-compat with the server's request schema.
 
 import type {
   SyncAlbumRequest,
-  SyncImageRef,
   SyncPlaylistRequest,
   SyncSongByBlake3Request,
 } from "freqhole-api-client";
 import type { ImageMetadata } from "../storage/types";
 import type { RemoteSong } from "../../data/remote/adapters";
+
+// mime -> file extension fallback for cases where `file_name` is not set
+// on a remote song (which is the common case — the adapter populates
+// `mime_type` from the media blob but leaves `file_name` null). mirrors
+// the server-side `detect_extension` fallback table so dest writes the
+// blob to disk with the right extension instead of `.bin`.
+const AUDIO_MIME_TO_EXT: Record<string, string> = {
+  "audio/mpeg": "mp3",
+  "audio/mp3": "mp3",
+  "audio/flac": "flac",
+  "audio/x-flac": "flac",
+  "audio/ogg": "ogg",
+  "audio/vorbis": "ogg",
+  "audio/opus": "opus",
+  "audio/wav": "wav",
+  "audio/wave": "wav",
+  "audio/x-wav": "wav",
+  "audio/aac": "aac",
+  "audio/m4a": "m4a",
+  "audio/mp4": "m4a",
+  "audio/x-m4a": "m4a",
+};
+
+function audioExtensionFromMime(mime: string | null | undefined): string | null {
+  if (!mime) return null;
+  return AUDIO_MIME_TO_EXT[mime.toLowerCase()] ?? null;
+}
 
 /** caller-provided context shared by all sync request builders. */
 export interface SendCommonContext {
@@ -22,40 +50,6 @@ export interface SendCommonContext {
   sourceRemoteId?: string | null;
   /** source-side iroh node id (64-hex). required for audio pulls. */
   sourceNodeId: string;
-}
-
-/** convert an `ImageMetadata` to a sha256-only `SyncImageRef`. */
-//
-// `ImageMetadata` does not currently carry sha256; only `blob_id`. when the
-// image's underlying sha256 is unknown we have to skip the ref entirely —
-// dest cannot do anything useful with a remote-server-scoped blob id.
-//
-// callers can opt in to passing sha256-aware images via the `imageRefsFromSha256s`
-// helper below.
-export function imageRefsFromSha256s(
-  sha256s: string[],
-  primaryIndex: number = 0,
-  mimeType: string = "image/jpeg",
-  blobType: string = "original",
-): SyncImageRef[] {
-  return sha256s.map((sha256, idx) => ({
-    content_sha256: sha256,
-    data_base64: null,
-    mime_type: mimeType,
-    is_primary: idx === primaryIndex,
-    blob_type: blobType,
-  }));
-}
-
-/** drop image metadatas that lack a usable sha256 reference. */
-//
-// today this returns an empty array because `ImageMetadata` does not carry
-// sha256. left as a documented seam so step 11 can plumb sha256 through
-// without rewriting every call site.
-export function imageRefsFromImageMetadata(
-  _images: ImageMetadata[] | undefined,
-): SyncImageRef[] {
-  return [];
 }
 
 export interface BuildSyncSongOptions extends SendCommonContext {
@@ -81,10 +75,19 @@ export function buildSyncSongByBlake3Request(
   if (!song.blake3) return null;
   if (!song.sha256) return null;
 
+  // remote songs always have file_name === null (the API doesn't expose
+  // the original on-disk filename), so fall back to title + a mime-derived
+  // extension. without a real extension the destination's `detect_extension`
+  // produces `.bin` and audio fails to play. defaults to `.mp3` only as a
+  // last resort because mp3 is overwhelmingly the most common audio mime.
   const filename =
     opts.filename ??
     song.file_name ??
-    `${song.title || song.id}.bin`;
+    (() => {
+      const ext = audioExtensionFromMime(song.mime_type) ?? "mp3";
+      const title = song.title || song.id;
+      return `${title}.${ext}`;
+    })();
 
   return {
     blake3: song.blake3,
@@ -109,7 +112,8 @@ export function buildSyncSongByBlake3Request(
     lyrics: song.lyrics ?? null,
     metadata: song.metadata ?? null,
     genre_name: opts.genreName ?? null,
-    song_images: imageRefsFromImageMetadata(song.images),
+    // images transferred post-hoc via /api/upload/image.
+    song_images: [],
     is_compilation: opts.isCompilation ?? false,
   };
 }
@@ -126,7 +130,7 @@ export interface BuildSyncAlbumOptions extends SendCommonContext {
   tags?: string[];
   /** blake3s of every song expected to follow in `sync_song_by_blake3` calls. */
   expectedSongBlake3s: string[];
-  /** album-level images. */
+  /** album-level images. transferred after sync/album returns the dest album id. */
   images?: ImageMetadata[];
 }
 
@@ -147,7 +151,8 @@ export function buildSyncAlbumRequest(
     mb_release_id: null,
     mb_release_group_id: null,
     tags: opts.tags ?? [],
-    images_base64: imageRefsFromImageMetadata(opts.images),
+    // images transferred post-hoc via /api/upload/image.
+    images_base64: [],
     expected_song_blake3s: opts.expectedSongBlake3s,
     remote_name: opts.remoteName,
   };
@@ -171,7 +176,8 @@ export function buildSyncPlaylistRequest(
     title: opts.title,
     description: opts.description ?? null,
     song_blake3s: opts.songBlake3s,
-    images: imageRefsFromImageMetadata(opts.images),
+    // images transferred post-hoc via /api/upload/image.
+    images: [],
     remote_name: opts.remoteName,
   };
 }

@@ -24,6 +24,10 @@ import { cleanupAudioURL, getAudioURL, isPlayingDirectURL, refreshBlobURL, trySw
 import type { Song } from "../storage/types";
 import { debug } from "../../../utils/logger";
 import { getMediaSessionArtwork } from "./mediaSessionArtwork";
+import {
+  registerStopMusic,
+  stopRadioForMusic,
+} from "../../../app/services/playbackCoordinator";
 // install android lock-screen / media notification shim.
 // no-op on non-android and non-tauri platforms.
 import "./androidMediaSession";
@@ -48,6 +52,21 @@ import {
 // when true, pending "up next" songs will load but not auto-play
 // cleared when user explicitly initiates playback (play button, double-click song, new queue)
 let userExplicitlyPaused = false;
+
+// register pause hook so the radio service can interrupt us when a
+// user tunes into a station. uses pause() rather than stop() so the
+// queue position is preserved.
+registerStopMusic(() => {
+  try {
+    const audio = audioElement;
+    if (audio && !audio.paused) {
+      userExplicitlyPaused = true;
+      audio.pause();
+    }
+  } catch (e) {
+    debug("player", "stopMusic hook failed:", e);
+  }
+});
 
 // track if we've pre-cached the next song
 let hasPreCachedNext = false;
@@ -456,6 +475,11 @@ export async function playSong(
 ): Promise<void> {
   const audio = initAudio();
 
+  // user-initiated playback wins over any active radio session.
+  if (options?.userInitiated) {
+    await stopRadioForMusic();
+  }
+
   // if user explicitly initiated this playback, clear the pause flag
   if (options?.userInitiated) {
     userExplicitlyPaused = false;
@@ -612,7 +636,8 @@ export async function togglePlayback(_source: 'ui' | 'mediaSession' = 'ui'): Pro
     userExplicitlyPaused = true;
     audio.pause();
   } else {
-    // user explicitly wants to play - clear pause flag
+    // user explicitly wants to play - clear pause flag and silence radio
+    await stopRadioForMusic();
     userExplicitlyPaused = false;
     try {
       // if no song loaded, start first in queue
@@ -740,7 +765,8 @@ export function stop(): void {
 // play
 export async function play(): Promise<void> {
   const audio = initAudio();
-  // user explicitly wants to play - clear pause flag
+  // user explicitly wants to play - clear pause flag and silence radio
+  await stopRadioForMusic();
   userExplicitlyPaused = false;
   await audio.play();
 }
@@ -758,6 +784,15 @@ export function setPlayerVolume(vol: number): void {
 
   const audio = initAudio();
   audio.volume = clampedVolume;
+
+  // mirror the volume onto the radio sink so the slider acts as a
+  // unified output volume regardless of which source is playing. lazy
+  // import to dodge the circular dep (radioService imports from music).
+  void import("../../../app/services/radio/radioService")
+    .then((m) => m.setRadioVolume(clampedVolume))
+    .catch(() => {
+      // radio service unavailable (e.g. tests); ignore.
+    });
 }
 
 // play next song in queue (with retry logic for unplayable songs)

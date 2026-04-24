@@ -1,0 +1,443 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>freqhole radio demo</title>
+    <style>
+      body {
+        font-family:
+          system-ui,
+          -apple-system,
+          sans-serif;
+        background: #0a0a0a;
+        color: #eee;
+        max-width: 640px;
+        margin: 2rem auto;
+        padding: 1rem;
+        line-height: 1.4;
+      }
+      h1 {
+        font-weight: 300;
+        letter-spacing: 0.05em;
+      }
+      label {
+        display: block;
+        margin-top: 1rem;
+        font-size: 0.85rem;
+        opacity: 0.7;
+      }
+      input,
+      button {
+        font: inherit;
+        background: #1a1a1a;
+        color: #eee;
+        border: 1px solid #333;
+        padding: 0.5rem 0.75rem;
+        border-radius: 4px;
+        margin-top: 0.25rem;
+      }
+      input {
+        width: 100%;
+        font-family: ui-monospace, monospace;
+        font-size: 0.85rem;
+      }
+      button {
+        cursor: pointer;
+        margin-right: 0.5rem;
+      }
+      button:hover:not(:disabled) {
+        background: #2a2a2a;
+      }
+      button:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+      }
+      audio {
+        width: 100%;
+        margin-top: 1rem;
+      }
+      #log {
+        margin-top: 1rem;
+        background: #050505;
+        border: 1px solid #222;
+        border-radius: 4px;
+        padding: 0.75rem;
+        font-family: ui-monospace, monospace;
+        font-size: 0.75rem;
+        height: 200px;
+        overflow-y: auto;
+        white-space: pre-wrap;
+      }
+      .row {
+        margin-top: 1rem;
+      }
+      .stats {
+        font-family: ui-monospace, monospace;
+        font-size: 0.8rem;
+        opacity: 0.7;
+        margin-top: 0.5rem;
+      }
+      .now-playing {
+        display: none;
+        margin-top: 1.5rem;
+        padding: 1rem;
+        background: #111;
+        border: 1px solid #222;
+        border-radius: 6px;
+        gap: 1rem;
+        align-items: center;
+      }
+      .now-playing.visible {
+        display: flex;
+      }
+      .now-playing img,
+      .now-playing .art-placeholder {
+        width: 96px;
+        height: 96px;
+        border-radius: 4px;
+        background: #222;
+        flex-shrink: 0;
+        object-fit: cover;
+      }
+      .now-playing .art-placeholder {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 0.7rem;
+        color: #555;
+      }
+      .now-playing .meta {
+        flex: 1;
+        min-width: 0;
+      }
+      .now-playing .title {
+        font-size: 1.1rem;
+        font-weight: 500;
+        margin: 0 0 0.25rem 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .now-playing .sub {
+        font-size: 0.85rem;
+        opacity: 0.75;
+        margin: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .now-playing .listeners {
+        font-size: 0.7rem;
+        opacity: 0.5;
+        margin-top: 0.5rem;
+        font-family: ui-monospace, monospace;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>freqhole radio demo</h1>
+    <p style="opacity: 0.7; font-size: 0.9rem">
+      paste the node id printed by <code>freqhole radio serve</code> and hit
+      tune.
+    </p>
+
+    <label for="node-id">broadcaster node id</label>
+    <input
+      id="node-id"
+      placeholder="64-char hex node id"
+      autocomplete="off"
+      spellcheck="false"
+    />
+
+    <div class="row">
+      <button id="tune-btn">tune in</button>
+      <button id="leave-btn" disabled>leave</button>
+    </div>
+
+    <div class="now-playing" id="now-playing">
+      <div id="art-slot"></div>
+      <div class="meta">
+        <p class="title" id="np-title">—</p>
+        <p class="sub" id="np-artist">—</p>
+        <p class="sub" id="np-album">—</p>
+        <p class="listeners" id="np-listeners">listeners: —</p>
+        <p class="listeners" id="np-duration">duration: —</p>
+      </div>
+    </div>
+
+    <audio id="audio" controls autoplay></audio>
+    <div class="stats" id="stats"></div>
+
+    <div id="log"></div>
+
+    <script type="module">
+      // dynamic import so vite handles wasm + bare specifier resolution
+      const { MiddenNode } = await import("midden");
+
+      const $ = (id) => document.getElementById(id);
+      const logEl = $("log");
+      const statsEl = $("stats");
+      const audio = $("audio");
+      const tuneBtn = $("tune-btn");
+      const leaveBtn = $("leave-btn");
+      const nodeIdInput = $("node-id");
+      const npCard = $("now-playing");
+      const npTitle = $("np-title");
+      const npArtist = $("np-artist");
+      const npAlbum = $("np-album");
+      const npListeners = $("np-listeners");
+      const npDuration = $("np-duration");
+      const artSlot = $("art-slot");
+
+      const log = (msg) => {
+        const ts = new Date().toISOString().slice(11, 23);
+        logEl.textContent += `[${ts}] ${msg}\n`;
+        logEl.scrollTop = logEl.scrollHeight;
+      };
+
+      log("loading midden wasm...");
+      const node = await MiddenNode.create();
+      log(`midden ready, our node id: ${node.node_id().slice(0, 16)}...`);
+
+      let session = null;
+      let chunkCount = 0;
+      let bytesReceived = 0;
+      let firstChunkAt = null;
+      let currentArtUrl = null;
+      let currentArtBlobId = null;
+
+      const updateStats = () => {
+        const now = performance.now();
+        const elapsed = firstChunkAt ? (now - firstChunkAt) / 1000 : 0;
+        const kbps = elapsed > 0 ? (bytesReceived * 8) / 1000 / elapsed : 0;
+        statsEl.textContent =
+          `chunks: ${chunkCount}  bytes: ${bytesReceived.toLocaleString()}  ` +
+          `~${kbps.toFixed(1)} kbps  buffered: ${
+            audio.buffered.length > 0
+              ? (
+                  audio.buffered.end(audio.buffered.length - 1) -
+                  audio.currentTime
+                ).toFixed(1) + "s"
+              : "-"
+          }`;
+      };
+
+      // turn an ArtData {mime, blob_id, data: base64} into an <img>. dedupes
+      // by blob_id so identical art across consecutive tracks doesn't churn
+      // the DOM or leak Blob URLs.
+      const renderArt = (art) => {
+        if (!art) {
+          if (currentArtUrl) URL.revokeObjectURL(currentArtUrl);
+          currentArtUrl = null;
+          currentArtBlobId = null;
+          artSlot.innerHTML = '<div class="art-placeholder">no art</div>';
+          return;
+        }
+        if (art.blob_id === currentArtBlobId) return;
+
+        try {
+          const bin = atob(art.data);
+          const bytes = new Uint8Array(bin.length);
+          for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+          const blob = new Blob([bytes], { type: art.mime || "image/webp" });
+          const url = URL.createObjectURL(blob);
+
+          if (currentArtUrl) URL.revokeObjectURL(currentArtUrl);
+          currentArtUrl = url;
+          currentArtBlobId = art.blob_id;
+
+          artSlot.innerHTML = "";
+          const img = document.createElement("img");
+          img.src = url;
+          img.alt = "album art";
+          artSlot.appendChild(img);
+        } catch (e) {
+          log(`[meta] art render failed: ${e}`);
+          artSlot.innerHTML = '<div class="art-placeholder">art err</div>';
+        }
+      };
+
+      const fmtDuration = (ms) => {
+        if (ms == null || !isFinite(ms) || ms <= 0) return "—";
+        const total = Math.round(ms / 1000);
+        const m = Math.floor(total / 60);
+        const s = total % 60;
+        return `${m}:${s.toString().padStart(2, "0")}`;
+      };
+
+      const renderNowPlaying = (np, listenerCount) => {
+        npCard.classList.add("visible");
+        npTitle.textContent = np.title || "(untitled)";
+        npArtist.textContent = np.artist || "—";
+        npAlbum.textContent = np.album || "—";
+        if (listenerCount != null) {
+          npListeners.textContent = `listeners: ${listenerCount}`;
+        }
+        npDuration.textContent = `duration: ${fmtDuration(np.duration_ms)}`;
+        renderArt(np.art);
+      };
+
+      const tune = async () => {
+        const nodeId = nodeIdInput.value.trim();
+        if (!nodeId) {
+          log("error: node id required");
+          return;
+        }
+
+        tuneBtn.disabled = true;
+
+        // set up MediaSource. one per tune so a previous session's
+        // source-buffer state can't leak.
+        const ms = new MediaSource();
+        audio.src = URL.createObjectURL(ms);
+
+        const sourceOpen = new Promise((resolve) =>
+          ms.addEventListener("sourceopen", resolve, { once: true }),
+        );
+        await sourceOpen;
+
+        let sb = null;
+        const queue = [];
+        let seekedToLive = false;
+        // pending meta updates keyed by their init_seq. applied when a
+        // chunk with is_init=true and a matching seq is appended, so the
+        // displayed track changes when audio actually crosses into the
+        // new track (catchup ring + MSE buffer can be 10+ seconds).
+        const pendingMeta = new Map();
+
+        const drain = () => {
+          if (!sb || sb.updating) return;
+          const next = queue.shift();
+          if (next) {
+            try {
+              sb.appendBuffer(next);
+            } catch (e) {
+              log(`[mse] appendBuffer failed: ${e}`);
+            }
+            return;
+          }
+          // nothing queued — if we have buffered media but the playhead is
+          // behind it (catchup chunks have non-zero media timestamps from
+          // the middle of the current track), jump to the start of the
+          // buffered range so playback actually begins.
+          if (!seekedToLive && sb.buffered.length > 0) {
+            const start = sb.buffered.start(0);
+            if (audio.currentTime < start) {
+              audio.currentTime = start;
+              log(`[mse] seeked to live edge: ${start.toFixed(2)}s`);
+            }
+            seekedToLive = true;
+          }
+        };
+
+        const onHello = (json) => {
+          try {
+            const msg = JSON.parse(json);
+            const hello = msg.payload || msg; // tolerate enum repr drift
+            // server sends `{ "type": "hello", ...HelloMessage flat }` via
+            // serde tag="type" with rename_all snake_case + variant fields
+            // flattened, so msg itself has codec, now_playing, etc.
+            const codec = msg.codec || "audio/mp4; codecs=\"mp4a.40.2\"";
+            log(`[hello] codec=${codec} listeners=${msg.listener_count}`);
+            // create the SourceBuffer using the codec from the server.
+            sb = ms.addSourceBuffer(codec);
+            // 'sequence' mode tells MSE to rewrite each appended segment's
+            // timestamps so it continues from where the previous one ended,
+            // ignoring the segment's own media timestamps. without this:
+            //   - catchup chunks land at their mid-track media timestamps
+            //     (e.g. 100s into the song) while currentTime is at 0,
+            //     leaving the playhead in an unbuffered range
+            //   - on track change, the new track's chunks restart at
+            //     timestamp 0 while the playhead is still ~100s into the
+            //     previous track, creating a second buffered range that
+            //     the playhead can't reach
+            // sequence mode collapses both into a single contiguous range.
+            sb.mode = "sequence";
+            sb.addEventListener("updateend", drain);
+            renderNowPlaying(msg.now_playing, msg.listener_count);
+          } catch (e) {
+            log(`[hello] parse failed: ${e}`);
+          }
+        };
+
+        const onMeta = (json) => {
+          try {
+            const msg = JSON.parse(json);
+            const initSeq = msg.init_seq;
+            log(
+              `[meta] queued: ${msg.now_playing?.title || "?"} ` +
+                `(listeners: ${msg.listener_count}, init_seq: ${initSeq})`,
+            );
+            if (typeof initSeq === "number") {
+              pendingMeta.set(initSeq, {
+                now_playing: msg.now_playing,
+                listener_count: msg.listener_count,
+              });
+            } else {
+              // protocol drift: no init_seq → apply immediately.
+              renderNowPlaying(msg.now_playing, msg.listener_count);
+            }
+          } catch (e) {
+            log(`[meta] parse failed: ${e}`);
+          }
+        };
+
+        const onChunk = (seq, isInit, bytes) => {
+          chunkCount++;
+          bytesReceived += bytes.length;
+          if (!firstChunkAt) firstChunkAt = performance.now();
+          if (isInit) {
+            log(`chunk ${seq} INIT (${bytes.length} bytes) — new track`);
+            // latch any queued meta update whose init_seq matches.
+            if (pendingMeta.has(seq)) {
+              const m = pendingMeta.get(seq);
+              pendingMeta.delete(seq);
+              log(`[meta] applied for init_seq=${seq}: ${m.now_playing?.title}`);
+              renderNowPlaying(m.now_playing, m.listener_count);
+            }
+          } else if (chunkCount % 20 === 0) {
+            log(`chunk ${seq} (${bytes.length} bytes)`);
+          }
+          queue.push(bytes);
+          drain();
+          updateStats();
+        };
+
+        log(`tuning into ${nodeId.slice(0, 16)}...`);
+        try {
+          session = await node.tune_radio(nodeId, onHello, onMeta, onChunk);
+          leaveBtn.disabled = false;
+          log("tuned in. audio should start within a few seconds.");
+        } catch (e) {
+          log(`tune failed: ${e}`);
+          tuneBtn.disabled = false;
+        }
+      };
+
+      const leave = () => {
+        if (session) {
+          session.leave();
+          session = null;
+        }
+        tuneBtn.disabled = false;
+        leaveBtn.disabled = true;
+        npCard.classList.remove("visible");
+        if (currentArtUrl) {
+          URL.revokeObjectURL(currentArtUrl);
+          currentArtUrl = null;
+          currentArtBlobId = null;
+        }
+        log("left station.");
+      };
+
+      tuneBtn.addEventListener("click", tune);
+      leaveBtn.addEventListener("click", leave);
+
+      // refresh stats periodically while playing
+      setInterval(() => {
+        if (session) updateStats();
+      }, 1000);
+    </script>
+  </body>
+</html>

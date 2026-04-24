@@ -17,7 +17,7 @@
 
 import type { ShareTargetKind } from "../components/share/types";
 
-const VALID_KINDS: ShareTargetKind[] = ["album", "playlist", "song", "artist"];
+const VALID_KINDS: ShareTargetKind[] = ["album", "playlist", "song", "artist", "radio_station"];
 
 const NODE_ID_RE = /^[0-9a-f]{64}$/i;
 

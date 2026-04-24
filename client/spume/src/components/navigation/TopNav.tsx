@@ -241,6 +241,15 @@ export function TopNav(props: TopNavProps) {
 
   // hide view selector, search, sort, and source selector on aggregate feed route
   const isAggregateFeedRoute = () => (props.currentPath ?? "").startsWith("/feed");
+  // also hide search input and the music sub-nav (songs/albums/playlists/etc)
+  // on the radio route — radio has its own list-and-detail layout.
+  const isRadioRoute = () => (props.currentPath ?? "").startsWith("/radio");
+  const isSharedRoute = () => (props.currentPath ?? "").startsWith("/shared");
+  const isLocalSourceActive = () =>
+    !isAggregateFeedRoute() &&
+    !isRadioRoute() &&
+    !isSharedRoute() &&
+    (props.currentSourceName === "local library" || !props.currentSourceName);
   let sortCloseTimeout: ReturnType<typeof setTimeout> | undefined;
   let tagCloseTimeout: ReturnType<typeof setTimeout> | undefined;
   let feedFilterCloseTimeout: ReturnType<typeof setTimeout> | undefined;
@@ -460,9 +469,9 @@ export function TopNav(props: TopNavProps) {
                         class="w-full flex items-center gap-2 px-3 py-2 mb-4 rounded transition-colors border-none bg-transparent cursor-pointer"
                         classList={{
                           "text-[var(--color-accent-500)] bg-[var(--color-accent-500)]/10":
-                            props.currentPath === "/feed",
+                            props.currentPath?.startsWith("/feed") ?? false,
                           "text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]":
-                            props.currentPath !== "/feed",
+                            !(props.currentPath?.startsWith("/feed") ?? false),
                         }}
                         onClick={() => props.onNavigate?.("/feed")}
                       >
@@ -473,6 +482,36 @@ export function TopNav(props: TopNavProps) {
                           <Icon name="check" size={14} color="var(--color-accent-500)" />
                         </Show>
                         <span class="text-sm">all feeds</span>
+                      </button>
+
+                      {/* radio link — works with zero remotes */}
+                      <button
+                        class="w-full flex items-center gap-2 px-3 py-2 mb-4 rounded transition-colors border-none bg-transparent cursor-pointer"
+                        classList={{
+                          "text-[var(--color-accent-500)] bg-[var(--color-accent-500)]/10":
+                            props.currentPath?.startsWith("/radio") ?? false,
+                          "text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]":
+                            !(props.currentPath?.startsWith("/radio") ?? false),
+                        }}
+                        onClick={() => props.onNavigate?.("/radio")}
+                      >
+                        <Icon name="radioTower" size={14} />
+                        <span class="text-sm">radio</span>
+                      </button>
+
+                      {/* shared links route */}
+                      <button
+                        class="w-full flex items-center gap-2 px-3 py-2 mb-4 rounded transition-colors border-none bg-transparent cursor-pointer"
+                        classList={{
+                          "text-[var(--color-accent-500)] bg-[var(--color-accent-500)]/10":
+                            props.currentPath?.startsWith("/shared") ?? false,
+                          "text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]":
+                            !(props.currentPath?.startsWith("/shared") ?? false),
+                        }}
+                        onClick={() => props.onNavigate?.(routes.shared())}
+                      >
+                        <Icon name="share" size={14} />
+                        <span class="text-sm">shared</span>
                       </button>
 
                       {/* source selector */}
@@ -487,29 +526,19 @@ export function TopNav(props: TopNavProps) {
                               class="w-full px-3 py-2 text-left text-sm flex items-center gap-2 rounded transition-colors border-none bg-transparent"
                               classList={{
                                 "text-[var(--color-text-primary)] bg-[var(--color-accent-500)]/10 cursor-default":
-                                  !isAggregateFeedRoute() &&
-                                  (props.currentSourceName === "local library" ||
-                                    !props.currentSourceName),
+                                  isLocalSourceActive(),
                                 "text-[var(--color-text-secondary)] cursor-pointer hover:bg-[var(--color-accent-500)]/10":
                                   isAggregateFeedRoute() ||
+                                  isRadioRoute() ||
+                                  isSharedRoute() ||
                                   (!!props.currentSourceName &&
                                     props.currentSourceName !== "local library"),
                               }}
-                              disabled={
-                                !!(
-                                  !isAggregateFeedRoute() &&
-                                  (props.currentSourceName === "local library" ||
-                                    !props.currentSourceName)
-                                )
-                              }
+                              disabled={!!isLocalSourceActive()}
                               onClick={() => props.onSwitchToLocal?.()}
                             >
                               <Show
-                                when={
-                                  !isAggregateFeedRoute() &&
-                                  (props.currentSourceName === "local library" ||
-                                    !props.currentSourceName)
-                                }
+                                when={isLocalSourceActive()}
                                 fallback={
                                   <span class="w-2 h-2 rounded-full bg-[var(--color-accent-primary)]" />
                                 }
@@ -744,10 +773,12 @@ export function TopNav(props: TopNavProps) {
             <KobalteNav.Viewport />
           </KobalteNav>
 
-          {/* view selector flyout - hidden when search is expanded on small screens, hidden on aggregate feed */}
+          {/* view selector flyout - hidden when search is expanded on small screens, hidden on aggregate feed and radio */}
           <Show
             when={
               !isAggregateFeedRoute() &&
+              !isRadioRoute() &&
+              !isSharedRoute() &&
               props.viewOptions?.length &&
               (!isSmall() || !searchExpanded())
             }
@@ -762,8 +793,8 @@ export function TopNav(props: TopNavProps) {
             </div>
           </Show>
 
-          {/* search - last item on right, grows to fill remaining space (hidden on aggregate feed) */}
-          <Show when={!isAggregateFeedRoute()}>
+          {/* search - last item on right, grows to fill remaining space (hidden on aggregate feed + radio) */}
+          <Show when={!isAggregateFeedRoute() && !isRadioRoute() && !isSharedRoute()}>
             <div class="flex-1 order-last">
               <Show
                 when={props.searchComponent !== undefined}
@@ -782,10 +813,12 @@ export function TopNav(props: TopNavProps) {
             </div>
           </Show>
 
-          {/* sort controls - when view has sorting, hidden when search expanded on small, hidden on aggregate feed */}
+          {/* sort controls - when view has sorting, hidden when search expanded on small, hidden on aggregate feed + radio */}
           <Show
             when={
               !isAggregateFeedRoute() &&
+              !isRadioRoute() &&
+              !isSharedRoute() &&
               info().sortFields?.length &&
               (!isSmall() || !searchExpanded())
             }
@@ -854,8 +887,12 @@ export function TopNav(props: TopNavProps) {
             </div>
           </Show>
 
-          {/* tag filter icon - when view has tags, hidden when search expanded on small */}
-          <Show when={info().availableTags?.length && (!isSmall() || !searchExpanded())}>
+          {/* tag filter icon - when view has tags, hidden when search expanded on small, hidden on radio */}
+          <Show
+            when={
+              !isRadioRoute() && info().availableTags?.length && (!isSmall() || !searchExpanded())
+            }
+          >
             <div
               class="relative flex-shrink-0 order-2"
               onMouseEnter={() => {

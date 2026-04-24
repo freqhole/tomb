@@ -81,6 +81,7 @@ export interface ApiSongQueryItem {
   } | null;
   media_blob?: {
     sha256: string;
+    size?: number | null; // file size in bytes (used for download progress)
     mime?: string | null;
     blake3?: string | null; // iroh-blobs content hash
   } | null;
@@ -179,10 +180,12 @@ export function adaptSongFromAPI(item: ApiSongQueryItem, baseUrl: string, remote
     // remote source type
     source_type: "remote" as const,
 
-    // local/downloaded fields (null for remote)
+    // local/downloaded fields (null for remote, except file_size which the
+    // server reports via media_blob.size — needed for accurate download
+    // progress on remote audio fetches)
     opfs_path: null,
     file_name: null,
-    file_size: null,
+    file_size: blob?.size ?? null,
     last_modified: null,
     mime_type: blob?.mime ?? null,
     source_url: getRemoteMediaUrl(baseUrl, song.media_blob_id),

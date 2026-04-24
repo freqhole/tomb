@@ -16,15 +16,19 @@ use iroh::{Endpoint, EndpointAddr, PublicKey, SecretKey};
 use iroh_blobs::api::downloader::Downloader;
 use iroh_blobs::api::Store;
 use iroh_blobs::api::TempTag;
-use iroh_blobs::store::GcConfig;
+use iroh_blobs::store::{GcConfig, ProtectCb, ProtectOutcome};
 use iroh_blobs::{BlobsProtocol, Hash, HashAndFormat};
 use js_sys::{Function as JsFunction, Uint8Array};
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
+use std::collections::HashSet;
+use std::sync::{Arc, Mutex};
 use tracing::level_filters::LevelFilter;
 use tracing::{debug, info, warn};
 use tracing_subscriber_wasm::MakeConsoleWriter;
 use wasm_bindgen::{prelude::wasm_bindgen, JsError, JsValue};
+
+mod radio;
 
 /// ALPN protocol identifier (must match grimoire's FREQHOLE_ALPN)
 const FREQHOLE_ALPN: &[u8] = b"freqhole/1";
@@ -374,8 +378,52 @@ pub struct MiddenNode {
     /// capped at 3 entries; oldest evicted when full.
     #[wasm_bindgen(skip)]
     pub active_tags: RefCell<IndexMap<Hash, TempTag>>,
+    /// hashes currently being downloaded/streamed; protected from GC sweeps.
+    /// downloader does not auto-create TempTags, so without this an in-flight
+    /// download can be wiped by the periodic GC between download-stream-end
+    /// and reader.read, leaving an empty bitfield and a hung await_completion.
+    protected_hashes: Arc<Mutex<HashSet<Hash>>>,
     /// guards against starting the blob server accept loop more than once
     blob_server_running: RefCell<bool>,
+}
+
+/// build a GcConfig that protects any hash present in `protected_hashes`
+fn make_gc_config(protected_hashes: Arc<Mutex<HashSet<Hash>>>) -> GcConfig {
+    let cb: ProtectCb = Arc::new(move |live: &mut HashSet<Hash>| {
+        if let Ok(set) = protected_hashes.lock() {
+            live.extend(set.iter().copied());
+        }
+        Box::pin(async move { ProtectOutcome::Continue })
+    });
+    GcConfig {
+        interval: std::time::Duration::from_secs(30),
+        add_protected: Some(cb),
+    }
+}
+
+/// RAII guard: inserts a hash into the protected set on construction,
+/// removes it on drop. used to keep an in-flight download alive across
+/// the download → read phases without relying on TempTags.
+struct ProtectGuard {
+    protected: Arc<Mutex<HashSet<Hash>>>,
+    hash: Hash,
+}
+
+impl ProtectGuard {
+    fn new(protected: Arc<Mutex<HashSet<Hash>>>, hash: Hash) -> Self {
+        if let Ok(mut set) = protected.lock() {
+            set.insert(hash);
+        }
+        Self { protected, hash }
+    }
+}
+
+impl Drop for ProtectGuard {
+    fn drop(&mut self) {
+        if let Ok(mut set) = self.protected.lock() {
+            set.remove(&self.hash);
+        }
+    }
 }
 
 #[wasm_bindgen]
@@ -421,14 +469,13 @@ impl MiddenNode {
             .await
             .map_err(to_js_err)?;
 
-        // setup iroh-blobs with MemStore + GC (blobs served on-demand from OPFS,
-        // GC reclaims memory after TempTags are dropped)
+        // setup iroh-blobs with MemStore + GC. periodic GC keeps memory bounded;
+        // a protect callback (fed by `protected_hashes`) keeps in-flight downloads
+        // alive until the read phase has drained them.
+        let protected_hashes = Arc::new(Mutex::new(HashSet::new()));
         let mem_store =
             iroh_blobs::store::mem::MemStore::new_with_opts(iroh_blobs::store::mem::Options {
-                gc_config: Some(GcConfig {
-                    interval: std::time::Duration::from_secs(30),
-                    add_protected: None,
-                }),
+                gc_config: Some(make_gc_config(protected_hashes.clone())),
             });
         let blobs_downloader = Downloader::new(&mem_store, &endpoint);
         let blobs_store = mem_store.as_ref().clone();
@@ -447,6 +494,7 @@ impl MiddenNode {
             blobs_downloader,
             blobs_protocol,
             active_tags: RefCell::new(IndexMap::new()),
+            protected_hashes,
             blob_server_running: RefCell::new(false),
         })
     }
@@ -501,12 +549,10 @@ impl MiddenNode {
             .await
             .map_err(to_js_err)?;
 
+        let protected_hashes = Arc::new(Mutex::new(HashSet::new()));
         let mem_store =
             iroh_blobs::store::mem::MemStore::new_with_opts(iroh_blobs::store::mem::Options {
-                gc_config: Some(GcConfig {
-                    interval: std::time::Duration::from_secs(30),
-                    add_protected: None,
-                }),
+                gc_config: Some(make_gc_config(protected_hashes.clone())),
             });
         let blobs_downloader = Downloader::new(&mem_store, &endpoint);
         let blobs_store = mem_store.as_ref().clone();
@@ -524,6 +570,7 @@ impl MiddenNode {
             blobs_downloader,
             blobs_protocol,
             active_tags: RefCell::new(IndexMap::new()),
+            protected_hashes,
             blob_server_running: RefCell::new(false),
         })
     }
@@ -734,9 +781,13 @@ impl MiddenNode {
         send.write_all(&bytes).await.map_err(to_js_err)?;
         send.finish().map_err(to_js_err)?;
 
-        // read response (no length prefix, read to end)
+        // read response (no length prefix, read to end). cap is generous
+        // because proxy_request is the fallback path for blob data (audio/
+        // image) when verified iroh-blobs streaming fails. base64 inflation
+        // means a 96MB cap covers ~70MB of raw audio, which fits typical
+        // album-length mp3s. for anything larger the verified path must work.
         let response_bytes: Vec<u8> = recv
-            .read_to_end(10 * 1024 * 1024)
+            .read_to_end(128 * 1024 * 1024)
             .await
             .map_err(to_js_err)?;
         let response: PeerMessage = serde_json::from_slice(&response_bytes).map_err(to_js_err)?;
@@ -965,30 +1016,58 @@ impl MiddenNode {
         Ok(array)
     }
 
-    /// download a blob with progress reporting via JS callback
+    /// download a verified blob and stream chunks to JS via callback
     ///
-    /// same as download_verified but calls on_progress(fraction) where
-    /// fraction is bytes_received / total_size (0.0 to 1.0).
-    /// total_size should come from the automerge doc's size field.
-    pub async fn download_verified_with_progress(
+    /// this is the preferred path for large blobs (audio files). instead of
+    /// materializing the full blob in wasm linear memory (which fails around
+    /// 32MB+ due to allocator pressure on a single contiguous Bytes), this:
+    ///
+    /// 1. downloads the blob into MemStore using the verified iroh-blobs path
+    /// 2. opens a streaming reader and pulls chunks
+    /// 3. delivers each chunk to the JS callback as a Uint8Array
+    ///
+    /// JS side accumulates chunks (e.g. into a Blob via array of BlobParts) and
+    /// can release each chunk as it goes. wasm peak memory stays bounded by
+    /// chunk_size + the original MemStore copy.
+    ///
+    /// callback signature: `on_chunk(chunk: Uint8Array, offset: u64) -> void`
+    /// progress callback: `on_progress(fraction: f64) -> void`
+    ///
+    /// returns total bytes streamed.
+    pub async fn download_verified_streaming(
         &self,
         peer_addr: &str,
         blake3_hash: &str,
         total_size: f64,
+        on_chunk: &JsFunction,
         on_progress: &JsFunction,
-    ) -> Result<Uint8Array, JsError> {
-        let addr = parse_peer_addr(peer_addr).map_err(|e| JsError::new(&e))?;
+    ) -> Result<f64, JsError> {
+        use iroh_blobs::api::downloader::DownloadProgressItem;
+        use n0_future::StreamExt;
+        use tokio::io::AsyncReadExt;
 
+        let addr = parse_peer_addr(peer_addr).map_err(|e| JsError::new(&e))?;
         let hash: Hash = blake3_hash
             .parse()
             .map_err(|e| JsError::new(&format!("invalid blake3 hash: {}", e)))?;
 
+        let short = &blake3_hash[..16.min(blake3_hash.len())];
+        debug!(
+            "download_verified_streaming: START hash={} total_size={} peer={}",
+            short,
+            total_size,
+            &addr.id.to_string()[..16]
+        );
+
+        // protect this hash from GC for the entire download+read lifecycle.
+        // without this, periodic GC can wipe the entry between download-stream-end
+        // and reader.read, leaving an empty bitfield and a hung await_completion.
+        // _guard removes the hash on drop (success, error, or panic).
+        let _guard = ProtectGuard::new(self.protected_hashes.clone(), hash);
+
+        // step 1: download into MemStore (verified)
         let hash_and_format = HashAndFormat::raw(hash);
         let progress = self.blobs_downloader.download(hash_and_format, [addr.id]);
-
-        use iroh_blobs::api::downloader::DownloadProgressItem;
-        use n0_future::StreamExt;
-
         let mut stream = progress
             .stream()
             .await
@@ -996,26 +1075,57 @@ impl MiddenNode {
 
         let mut had_error = false;
         let mut last_error: Option<String> = None;
+        let mut last_dl_bytes: u64 = 0;
 
+        let mut event_count: u64 = 0;
+        let mut last_log_bytes: u64 = 0;
         while let Some(event) = stream.next().await {
+            event_count += 1;
             match &event {
                 DownloadProgressItem::Progress(bytes) => {
+                    last_dl_bytes = *bytes;
+                    // log every ~2 MB of progress so we can see if the stream stalls
+                    if *bytes >= last_log_bytes + 2 * 1024 * 1024 || *bytes < last_log_bytes {
+                        debug!(
+                            "download_verified_streaming: progress for {} -> {} bytes (event #{})",
+                            short, bytes, event_count
+                        );
+                        last_log_bytes = *bytes;
+                    }
                     if total_size > 0.0 {
-                        let fraction = (*bytes as f64 / total_size).min(1.0);
+                        // first half of progress bar = download, second half = read
+                        let fraction = (*bytes as f64 / total_size * 0.5).min(0.5);
                         let _ = on_progress.call1(&JsValue::NULL, &JsValue::from_f64(fraction));
                     }
                 }
                 DownloadProgressItem::Error(e) => {
                     had_error = true;
                     last_error = Some(format!("{:?}", e));
+                    warn!(
+                        "download_verified_streaming: download error for {} after {} bytes (event #{}): {:?}",
+                        short, last_dl_bytes, event_count, e
+                    );
                 }
                 DownloadProgressItem::DownloadError => {
                     had_error = true;
                     last_error = Some("download error".to_string());
+                    warn!(
+                        "download_verified_streaming: DownloadError for {} after {} bytes (event #{})",
+                        short, last_dl_bytes, event_count
+                    );
                 }
-                _ => {}
+                other => {
+                    debug!(
+                        "download_verified_streaming: event #{} for {} (dl={} bytes): {:?}",
+                        event_count, short, last_dl_bytes, other
+                    );
+                }
             }
         }
+        debug!(
+            "download_verified_streaming: download stream ended for {} after {} events ({} bytes, had_error={})",
+            short, event_count, last_dl_bytes, had_error
+        );
 
         if had_error {
             return Err(JsError::new(&format!(
@@ -1024,15 +1134,159 @@ impl MiddenNode {
             )));
         }
 
-        let bytes = self
-            .blobs_store
-            .get_bytes(hash)
-            .await
-            .map_err(|e| JsError::new(&format!("failed to read blob from store: {}", e)))?;
+        debug!(
+            "download_verified_streaming: download phase complete for {} (downloaded={} bytes), observing bitfield",
+            short, last_dl_bytes
+        );
 
-        let array = Uint8Array::new_with_length(bytes.len() as u32);
-        array.copy_from(&bytes);
-        Ok(array)
+        // step 1.5: observe bitfield to confirm blob is actually complete in the store.
+        // download stream may signal complete before the chunk processor flushes the
+        // final entries into MemStore, leaving the entry incomplete when we try to read.
+        match self.blobs_store.observe(hash).await {
+            Ok(bitfield) => {
+                debug!(
+                    "download_verified_streaming: bitfield for {}: size={} complete={} ranges={:?}",
+                    short,
+                    bitfield.size(),
+                    bitfield.is_complete(),
+                    bitfield.ranges
+                );
+                if !bitfield.is_complete() {
+                    warn!(
+                        "download_verified_streaming: bitfield NOT complete for {}, awaiting completion",
+                        short
+                    );
+                    match self.blobs_store.observe(hash).await_completion().await {
+                        Ok(bf) => debug!(
+                            "download_verified_streaming: bitfield COMPLETED for {} size={}",
+                            short,
+                            bf.size()
+                        ),
+                        Err(e) => {
+                            warn!(
+                                "download_verified_streaming: await_completion FAILED for {}: {:?}",
+                                short, e
+                            );
+                            return Err(JsError::new(&format!(
+                                "bitfield never completed for {}: {:?}",
+                                short, e
+                            )));
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                warn!(
+                    "download_verified_streaming: observe FAILED for {}: {:?}",
+                    short, e
+                );
+            }
+        }
+
+        debug!("download_verified_streaming: opening reader for {}", short);
+
+        // step 2: open streaming reader and pull chunks to JS
+        const CHUNK_SIZE: usize = 256 * 1024; // 256 KB chunks
+        let mut reader = self.blobs_store.reader(hash);
+        let mut buf = vec![0u8; CHUNK_SIZE];
+        let mut total_read: u64 = 0;
+        let mut chunks_sent: u64 = 0;
+
+        loop {
+            let n = match reader.read(&mut buf).await {
+                Ok(0) => break,
+                Ok(n) => n,
+                Err(e) => {
+                    // io::Error from BlobReader wraps the inner api::Error as a string
+                    // via io::Error::other(format!(...)). Display loses the inner io::Error
+                    // message, so log Debug too in case it surfaces more detail.
+                    let disp = format!("{}", e);
+                    let dbg = format!("{:?}", e);
+                    let kind = format!("{:?}", e.kind());
+                    let inner = e
+                        .get_ref()
+                        .map(|i| format!("{:?}", i))
+                        .unwrap_or_else(|| "<no inner>".to_string());
+                    let mut chain = disp.clone();
+                    let mut src: Option<&dyn std::error::Error> = std::error::Error::source(&e);
+                    while let Some(s) = src {
+                        chain.push_str(&format!(" -> {}", s));
+                        src = s.source();
+                    }
+                    warn!(
+                        "download_verified_streaming: reader.read FAILED for {} after {} bytes ({} chunks)\n  display: {}\n  debug: {}\n  kind: {}\n  inner: {}\n  chain: {}",
+                        short, total_read, chunks_sent, disp, dbg, kind, inner, chain
+                    );
+                    return Err(JsError::new(&format!(
+                        "blob reader failed at offset {} kind={} display={} inner={}",
+                        total_read, kind, disp, inner
+                    )));
+                }
+            };
+
+            // copy chunk to JS Uint8Array and invoke callback
+            let chunk = Uint8Array::new_with_length(n as u32);
+            chunk.copy_from(&buf[..n]);
+            let offset_val = JsValue::from_f64(total_read as f64);
+            on_chunk
+                .call2(&JsValue::NULL, &chunk, &offset_val)
+                .map_err(|e| JsError::new(&format!("on_chunk callback failed: {:?}", e)))?;
+
+            total_read += n as u64;
+            chunks_sent += 1;
+
+            if total_size > 0.0 {
+                let fraction = (0.5 + (total_read as f64 / total_size) * 0.5).min(1.0);
+                let _ = on_progress.call1(&JsValue::NULL, &JsValue::from_f64(fraction));
+            }
+        }
+
+        debug!(
+            "download_verified_streaming: COMPLETE for {} ({} bytes in {} chunks)",
+            short, total_read, chunks_sent
+        );
+
+        Ok(total_read as f64)
+    }
+
+    /// streaming download with auto ensure+retry. first attempts the streaming
+    /// download; if the verified download fails (blob not in peer's store), calls
+    /// ensure_blob to load it, then retries.
+    pub async fn download_verified_streaming_with_ensure(
+        &self,
+        peer_addr: &str,
+        blake3_hash: &str,
+        total_size: f64,
+        on_chunk: &JsFunction,
+        on_progress: &JsFunction,
+    ) -> Result<f64, JsError> {
+        match self
+            .download_verified_streaming(peer_addr, blake3_hash, total_size, on_chunk, on_progress)
+            .await
+        {
+            Ok(n) => return Ok(n),
+            Err(e) => {
+                // first attempt failed (often: blob not yet in peer's store).
+                // log the cause then retry via ensure_blob so that genuine
+                // failures (bad hash, transport error) aren't silently masked.
+                warn!(
+                    "download_verified_streaming_with_ensure: first attempt failed for {}, calling ensure_blob: {:?}",
+                    &blake3_hash[..16.min(blake3_hash.len())],
+                    e
+                );
+            }
+        }
+
+        let available = self.ensure_blob(peer_addr, blake3_hash).await?;
+        if !available {
+            return Err(JsError::new(&format!(
+                "blob {} not available on peer",
+                &blake3_hash[..16.min(blake3_hash.len())]
+            )));
+        }
+
+        self.download_verified_streaming(peer_addr, blake3_hash, total_size, on_chunk, on_progress)
+            .await
     }
 
     /// ensure a blob is loaded into the peer's FsStore by blake3 hash
@@ -1090,8 +1344,12 @@ impl MiddenNode {
         // first attempt
         match self.download_verified(peer_addr, blake3_hash).await {
             Ok(data) => return Ok(data),
-            Err(_e) => {
-                // retry with ensure_blob (normal for first download)
+            Err(e) => {
+                warn!(
+                    "download_verified_with_ensure: first attempt failed for {}, calling ensure_blob: {:?}",
+                    &blake3_hash[..16.min(blake3_hash.len())],
+                    e
+                );
             }
         }
 
@@ -1106,42 +1364,6 @@ impl MiddenNode {
 
         // retry verified download
         self.download_verified(peer_addr, blake3_hash).await
-    }
-
-    /// download with ensure + retry and progress reporting
-    ///
-    /// tries download first; if blob not in peer's FsStore, calls ensure_blob
-    /// then retries. progress callback receives fraction (0.0 to 1.0).
-    pub async fn download_verified_with_ensure_progress(
-        &self,
-        peer_addr: &str,
-        blake3_hash: &str,
-        total_size: f64,
-        on_progress: &JsFunction,
-    ) -> Result<Uint8Array, JsError> {
-        // first attempt
-        match self
-            .download_verified_with_progress(peer_addr, blake3_hash, total_size, on_progress)
-            .await
-        {
-            Ok(data) => return Ok(data),
-            Err(_e) => {
-                // retry with ensure_blob (normal for first download)
-            }
-        }
-
-        // ensure blob is loaded into FsStore
-        let available = self.ensure_blob(peer_addr, blake3_hash).await?;
-        if !available {
-            return Err(JsError::new(&format!(
-                "blob {} not available on peer",
-                &blake3_hash[..16.min(blake3_hash.len())]
-            )));
-        }
-
-        // retry verified download with progress
-        self.download_verified_with_progress(peer_addr, blake3_hash, total_size, on_progress)
-            .await
     }
 
     /// compute blake3 hash for a blob on demand
@@ -1221,32 +1443,6 @@ impl MiddenNode {
         // return [data, blake3] as JS array
         let result = js_sys::Array::new();
         result.push(&data);
-        result.push(&JsValue::from_str(&blake3));
-        Ok(result)
-    }
-
-    /// full pipeline from blob_id with progress reporting
-    ///
-    /// computes blake3 on demand, then uses verified download with progress.
-    /// returns [data: Uint8Array, blake3: string].
-    pub async fn download_verified_by_id_progress(
-        &self,
-        peer_addr: &str,
-        blob_id: &str,
-        total_size: f64,
-        on_progress: &JsFunction,
-    ) -> Result<js_sys::Array, JsError> {
-        let blake3 = self
-            .compute_blake3(peer_addr, blob_id)
-            .await?
-            .ok_or_else(|| JsError::new("blob not found on peer"))?;
-
-        let data = self
-            .download_verified_with_ensure_progress(peer_addr, &blake3, total_size, on_progress)
-            .await?;
-
-        let result = js_sys::Array::new();
-        result.push(&data.into());
         result.push(&JsValue::from_str(&blake3));
         Ok(result)
     }

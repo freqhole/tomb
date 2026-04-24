@@ -126,6 +126,8 @@ pub struct SongViewRow {
     media_blob_sha256: Option<String>,
     media_blob_blake3: Option<String>,
     media_blob_mime: Option<String>,
+    // size in bytes (used by clients to render accurate download progress)
+    media_blob_size: Option<i64>,
     song_images: Option<String>, // JSON array from view
     song_urls: Option<String>,   // JSON array of entity URLs from view
     song_title: String,
@@ -337,7 +339,7 @@ impl SongViewRow {
         let media_blob = self.media_blob_sha256.map(|sha256| MediaBlob {
             id: media_blob_id.clone(),
             sha256,
-            size: None,
+            size: self.media_blob_size,
             mime: self.media_blob_mime,
             source_client_id: None,
             local_path: None,

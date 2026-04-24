@@ -23,6 +23,7 @@ import {
 } from "../../app/services/storage/types";
 import { debug } from "../../utils/logger";
 import { toast } from "../../components/feedback/Toast";
+import { isCharnelMode } from "../../app/services/charnel";
 import { Icon } from "../../components/icons/registry";
 import { ReauthModal } from "../../components/auth/ReauthModal";
 import { CopyButton } from "../../components/buttons/CopyButton";
@@ -562,6 +563,17 @@ export function RemotesSettingsView() {
                           >
                             admin
                           </button>
+                          <Show when={!isCharnelMode()}>
+                            <button
+                              class="px-3 py-1.5 text-xs font-medium rounded-lg bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-bg-quaternary)] text-[var(--color-text-secondary)] border border-[var(--color-border-subtle)] transition-colors"
+                              onClick={() =>
+                                navigate(`/settings/remotes/${remote.remote_id}/radio`)
+                              }
+                              title="manage radio stations on this remote"
+                            >
+                              radio
+                            </button>
+                          </Show>
                         </Show>
                         <button
                           class="px-3 py-1.5 text-xs font-medium rounded-lg bg-red-600/20 hover:bg-red-600/30 text-red-400 border border-red-600/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"

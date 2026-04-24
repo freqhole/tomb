@@ -32,6 +32,8 @@ export const routes = {
   },
   app: {
     health_check: { method: 'GET', path: '/health', req: null, resp: s.HealthResponseSchema, auth: { type: 'public' } as const },
+    radio_info: { method: 'GET', path: '/api/radio/info', req: null, resp: s.RadioInfoResponseSchema, auth: { type: 'public' } as const },
+    radio_stations: { method: 'GET', path: '/api/radio/stations', req: null, resp: s.RadioStationsResponseSchema, auth: { type: 'public' } as const },
     server_info: { method: 'GET', path: '/api/hello', req: null, resp: s.ServerInfoResponseSchema, auth: { type: 'public' } as const },
   },
   auth: {

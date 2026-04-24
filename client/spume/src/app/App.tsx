@@ -91,6 +91,7 @@ import {
   updateAvailable,
 } from "./services/serviceWorker";
 import { initAppDB, setSyncQueueToLocal } from "./services/storage/db";
+import { recordSharedItemFromToken } from "./services/storage/sharedItems";
 import { isP2PRemote } from "./services/storage/types";
 import { checkPendingKnocks, showKnockCreatedToast } from "./services/toastNotices";
 
@@ -108,9 +109,12 @@ export function App() {
   // track unlisten functions for cleanup
   let tauriUnlisteners: (() => void)[] = [];
 
-  // track current hash reactively (allows settings in empty state)
+  // track current hash reactively (allows settings + radio in empty state)
   const [currentHash, setCurrentHash] = createSignal(window.location.hash);
   const isSettingsRoute = () => currentHash().startsWith("#/settings");
+  // radio works with zero remotes (anyone with a node id can listen)
+  const isRadioRoute = () => currentHash().startsWith("#/radio");
+  const isSharedRoute = () => currentHash().startsWith("#/shared");
 
   // listen for hash changes to update reactive state
   onMount(() => {
@@ -140,6 +144,7 @@ export function App() {
       const token = extractShareTokenFromHash(window.location.hash);
       if (token && token !== shareToken()) {
         debug("App", `found share token: ${token.slice(0, 16)}...`);
+        void recordSharedItemFromToken(token);
         setShareToken(token);
       }
     };
@@ -158,6 +163,7 @@ export function App() {
         const token = extractDeepLinkShareToken(url);
         if (token) {
           debug("App", `cold-start deep link token: ${token.slice(0, 16)}...`);
+          void recordSharedItemFromToken(token);
           setShareToken(token);
           // only one resolver modal at a time; subsequent urls are dropped.
           break;
@@ -714,12 +720,17 @@ export function App() {
         }
       >
         <Show
-          when={hasSongs() || hasRemotes() || isSettingsRoute()}
+          when={
+            hasSongs() || hasRemotes() || isSettingsRoute() || isRadioRoute() || isSharedRoute()
+          }
           fallback={
             <div class="h-screen flex items-center justify-center bg-[var(--color-bg-primary)]">
               <EmptyState
                 onAddMusic={() => openAddMusic()}
                 onAddRemote={() => setIsAddRemoteOpen(true)}
+                onGoToRadio={() => {
+                  window.location.hash = `/radio`;
+                }}
               />
             </div>
           }

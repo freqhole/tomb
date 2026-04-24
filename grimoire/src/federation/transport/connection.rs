@@ -24,6 +24,18 @@ pub struct BlobStreamInfo {
     pub content_type: Option<String>,
 }
 
+/// outcome of an ensure_blob call to a peer
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EnsureBlobOutcome {
+    /// peer has the blob loaded in FsStore and ready to serve
+    Available,
+    /// peer doesn't have a media_blob row for this blake3 (or local file missing)
+    NotAvailable,
+    /// peer refused because we're not a registered federation peer.
+    /// caller should create a knock request to request access.
+    Unauthorized,
+}
+
 /// wrapper around an iroh connection to a peer
 pub struct PeerConnection {
     conn: iroh::endpoint::Connection,
@@ -191,8 +203,11 @@ impl PeerConnection {
     /// first attempt fails. the server will look up the file by blake3 hash
     /// and add it to FsStore for verified streaming.
     ///
-    /// returns true if blob is now available, false if not found.
-    pub async fn ensure_blob(&self, blake3_hash: &str) -> GrimoireResult<bool> {
+    /// returns `EnsureBlobOutcome::Available` if the blob is now in FsStore,
+    /// `NotAvailable` if the peer has no media_blob row for this blake3,
+    /// or `Unauthorized` if the peer refused because we're not a registered
+    /// federation peer (caller should create a knock request).
+    pub async fn ensure_blob(&self, blake3_hash: &str) -> GrimoireResult<EnsureBlobOutcome> {
         let id = self.next_request_id();
         let msg = PeerMessage::EnsureBlobRequest {
             id,
@@ -213,10 +228,19 @@ impl PeerConnection {
                     });
                 }
                 if let Some(err) = error {
-                    debug!("ensure_blob error for {}: {}", &blake3_hash[..16], err);
-                    return Ok(false);
+                    debug!("ensure_blob error for {}: {}", &blake3_hash[..16.min(blake3_hash.len())], err);
+                    // distinguish "unauthorized" so the caller can knock.
+                    // source returns literal "unauthorized: peer not registered".
+                    if err.starts_with("unauthorized") {
+                        return Ok(EnsureBlobOutcome::Unauthorized);
+                    }
+                    return Ok(EnsureBlobOutcome::NotAvailable);
                 }
-                Ok(available)
+                Ok(if available {
+                    EnsureBlobOutcome::Available
+                } else {
+                    EnsureBlobOutcome::NotAvailable
+                })
             }
             _ => Err(GrimoireError::FederationApiError {
                 message: "unexpected response type for ensure blob".to_string(),

@@ -188,12 +188,32 @@ export class MiddenNode {
      */
     download_verified_by_id(peer_addr: string, blob_id: string): Promise<Array<any>>;
     /**
-     * full pipeline from blob_id with progress reporting
+     * download a verified blob and stream chunks to JS via callback
      *
-     * computes blake3 on demand, then uses verified download with progress.
-     * returns [data: Uint8Array, blake3: string].
+     * this is the preferred path for large blobs (audio files). instead of
+     * materializing the full blob in wasm linear memory (which fails around
+     * 32MB+ due to allocator pressure on a single contiguous Bytes), this:
+     *
+     * 1. downloads the blob into MemStore using the verified iroh-blobs path
+     * 2. opens a streaming reader and pulls chunks
+     * 3. delivers each chunk to the JS callback as a Uint8Array
+     *
+     * JS side accumulates chunks (e.g. into a Blob via array of BlobParts) and
+     * can release each chunk as it goes. wasm peak memory stays bounded by
+     * chunk_size + the original MemStore copy.
+     *
+     * callback signature: `on_chunk(chunk: Uint8Array, offset: u64) -> void`
+     * progress callback: `on_progress(fraction: f64) -> void`
+     *
+     * returns total bytes streamed.
      */
-    download_verified_by_id_progress(peer_addr: string, blob_id: string, total_size: number, on_progress: Function): Promise<Array<any>>;
+    download_verified_streaming(peer_addr: string, blake3_hash: string, total_size: number, on_chunk: Function, on_progress: Function): Promise<number>;
+    /**
+     * streaming download with auto ensure+retry. first attempts the streaming
+     * download; if the verified download fails (blob not in peer's store), calls
+     * ensure_blob to load it, then retries.
+     */
+    download_verified_streaming_with_ensure(peer_addr: string, blake3_hash: string, total_size: number, on_chunk: Function, on_progress: Function): Promise<number>;
     /**
      * download a blob using iroh-blobs with automatic ensure + retry
      *
@@ -201,21 +221,6 @@ export class MiddenNode {
      * calls ensure_blob to load it, then retries.
      */
     download_verified_with_ensure(peer_addr: string, blake3_hash: string): Promise<Uint8Array>;
-    /**
-     * download with ensure + retry and progress reporting
-     *
-     * tries download first; if blob not in peer's FsStore, calls ensure_blob
-     * then retries. progress callback receives fraction (0.0 to 1.0).
-     */
-    download_verified_with_ensure_progress(peer_addr: string, blake3_hash: string, total_size: number, on_progress: Function): Promise<Uint8Array>;
-    /**
-     * download a blob with progress reporting via JS callback
-     *
-     * same as download_verified but calls on_progress(fraction) where
-     * fraction is bytes_received / total_size (0.0 to 1.0).
-     * total_size should come from the automerge doc's size field.
-     */
-    download_verified_with_progress(peer_addr: string, blake3_hash: string, total_size: number, on_progress: Function): Promise<Uint8Array>;
     /**
      * ensure a blob is loaded into the peer's FsStore by blake3 hash
      *
@@ -319,6 +324,37 @@ export class MiddenNode {
      * they already know the hash of. peer filtering can be added later if needed.
      */
     start_blob_server(): void;
+    /**
+     * connect to a freqhole radio broadcaster.
+     *
+     * callbacks (all called from JS land):
+     * - `on_hello(json: string)` — fires once when the server's Hello
+     *   message arrives. payload is the JSON-encoded `HelloMessage`.
+     * - `on_meta(json: string)` — fires on each track change with the
+     *   JSON-encoded `MetaMessage`.
+     * - `on_chunk(seq: number, is_init: boolean, bytes: Uint8Array)` —
+     *   fires per audio chunk. `is_init = true` marks the start of a new
+     *   track; the JS side should append it to the same SourceBuffer.
+     *
+     * returns a [`RadioHandle`] — keep a reference to it; dropping it stops
+     * playback and closes the iroh connection.
+     */
+    tune_radio(peer_addr: string, on_hello: Function, on_meta: Function, on_chunk: Function): Promise<RadioHandle>;
+}
+
+/**
+ * handle returned to JS for a tuned-in radio session. dropping the handle
+ * (or calling `leave()`) closes the iroh connection, which tears down both
+ * read loops.
+ */
+export class RadioHandle {
+    private constructor();
+    free(): void;
+    [Symbol.dispose](): void;
+    /**
+     * stop receiving audio + meta and close the connection.
+     */
+    leave(): void;
 }
 
 /**

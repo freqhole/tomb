@@ -11,4 +11,5 @@
 pub mod invites;
 pub mod knocks;
 pub mod peers;
+pub mod radio;
 pub mod users;

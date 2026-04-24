@@ -133,3 +133,29 @@ export async function adminRawDispatch<T = unknown>(
   }
   return envelope.data as T;
 }
+
+/**
+ * in-process admin transport for charnel mode. dispatches via the
+ * `admin_dispatch` tauri invoke (no P2P hop needed; the OS boundary
+ * is the auth check).
+ */
+class LocalAdminTransport implements AdminTransport {
+  async send(command: string, args: unknown): Promise<AdminResponse<unknown>> {
+    const { invoke } = await import("@tauri-apps/api/core");
+    const raw = await invoke<unknown>("admin_dispatch", {
+      command,
+      args: args ?? null,
+    });
+    return coerceEnvelope(raw, command);
+  }
+}
+
+/**
+ * return an `AdminClient` for the local grimoire instance (charnel mode only).
+ * uses the in-process `admin_dispatch` tauri command — no P2P hop, no remote needed.
+ * returns null in non-charnel (browser) mode.
+ */
+export function getLocalAdminClient(): AdminClient | null {
+  if (!isCharnelMode()) return null;
+  return new AdminClient(new LocalAdminTransport());
+}

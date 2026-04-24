@@ -295,16 +295,21 @@ async fn handle_stream(
         }
 
         PeerMessage::EnsureBlobRequest { id, blake3_hash } => {
-            debug!(
-                "ensure blob request: {} from {}",
+            tracing::info!(
+                "ensure_blob_request: received from peer {} for blake3 {}",
+                node_id_short,
                 &blake3_hash[..16.min(blake3_hash.len())],
-                node_id_short
             );
 
             // require auth
             let _caller = match get_caller_for_peer(node_id_str).await {
                 Some(c) => c,
                 None => {
+                    tracing::warn!(
+                        "ensure_blob_request: UNAUTHORIZED peer {} asked for blake3 {}",
+                        node_id_short,
+                        &blake3_hash[..16.min(blake3_hash.len())],
+                    );
                     let resp = PeerMessage::EnsureBlobResponse {
                         id,
                         available: false,
@@ -318,6 +323,12 @@ async fn handle_stream(
             // ensure blob is loaded into FsStore
             match blobz::ensure_blob_by_blake3(&blake3_hash).await {
                 Ok(available) => {
+                    tracing::info!(
+                        "ensure_blob_request: result for peer {} blake3 {} -> available={}",
+                        node_id_short,
+                        &blake3_hash[..16.min(blake3_hash.len())],
+                        available,
+                    );
                     let resp = PeerMessage::EnsureBlobResponse {
                         id,
                         available,
@@ -326,6 +337,12 @@ async fn handle_stream(
                     send_response(&mut send, &resp).await?;
                 }
                 Err(e) => {
+                    tracing::error!(
+                        "ensure_blob_request: FAIL for peer {} blake3 {}: {}",
+                        node_id_short,
+                        &blake3_hash[..16.min(blake3_hash.len())],
+                        e,
+                    );
                     let resp = PeerMessage::EnsureBlobResponse {
                         id,
                         available: false,
@@ -432,15 +449,38 @@ async fn send_length_prefixed(
     Ok(())
 }
 
-/// check if a request is for a public endpoint (no auth required)
+/// check if a request is for a public endpoint (no auth required).
+///
+/// derives the answer from the offal route registry instead of a
+/// hardcoded list — any route declared with `RouteAuth::Public` is
+/// reachable without a registered peer. matches axum-style `{param}`
+/// path templates against the literal incoming path.
 fn is_public_endpoint(method: &str, path: &str) -> bool {
-    match (method, path) {
-        ("GET", "/api/hello") => true,
-        ("POST", "/api/auth/invite") => true,
-        ("POST", "/api/knock") => true,
-        ("GET", "/api/knock/status") => true,
-        _ => false,
+    use crate::api_registry::RouteAuth;
+
+    let method_upper = method.to_uppercase();
+    // strip query string before matching
+    let path_only = path.split('?').next().unwrap_or(path);
+
+    crate::offal::all_routes().iter().any(|route| {
+        matches!(route.auth, RouteAuth::Public)
+            && route.method.as_str() == method_upper
+            && path_matches(route.path, path_only)
+    })
+}
+
+/// match an offal route template (with `{param}` placeholders) against
+/// a literal incoming path. each `{...}` segment matches exactly one
+/// path segment.
+fn path_matches(template: &str, actual: &str) -> bool {
+    let t: Vec<&str> = template.trim_start_matches('/').split('/').collect();
+    let a: Vec<&str> = actual.trim_start_matches('/').split('/').collect();
+    if t.len() != a.len() {
+        return false;
     }
+    t.iter()
+        .zip(a.iter())
+        .all(|(tp, ap)| (tp.starts_with('{') && tp.ends_with('}')) || tp == ap)
 }
 
 /// get a Caller for a peer by their node_id
@@ -483,7 +523,19 @@ mod tests {
         assert!(is_public_endpoint("POST", "/api/knock"));
         assert!(is_public_endpoint("GET", "/api/knock/status"));
 
+        // radio discovery routes — declared Public in offal::public::radio
+        assert!(is_public_endpoint("GET", "/api/radio/info"));
+        assert!(is_public_endpoint("GET", "/api/radio/stations"));
+
         assert!(!is_public_endpoint("GET", "/api/songs/query"));
         assert!(!is_public_endpoint("POST", "/api/albums/update"));
+    }
+
+    #[test]
+    fn test_path_matches_with_params() {
+        assert!(path_matches("/api/songs/{id}", "/api/songs/abc123"));
+        assert!(!path_matches("/api/songs/{id}", "/api/songs"));
+        assert!(!path_matches("/api/songs/{id}", "/api/songs/abc/extra"));
+        assert!(path_matches("/api/x/{a}/y/{b}", "/api/x/1/y/2"));
     }
 }

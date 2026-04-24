@@ -9,7 +9,7 @@ export { HttpTransport } from "./transport.js";
 export { WasmTransport } from "./WasmTransport.js";
 export { CharnelTransport, createCharnelTransport, getCharnelTransport, getCharnelNodeId, isCharnelAvailable, isCharnelP2PAvailable } from "./CharnelTransport.js";
 export { CharnelLocalTransport, createCharnelLocalTransport } from "./CharnelLocalTransport.js";
-export type { MiddenNodeLike, BlobResultLike, BlobProgressCallback } from "./WasmTransport.js";
+export type { MiddenNodeLike, BlobResultLike, BlobProgressCallback, RadioHandleLike } from "./WasmTransport.js";
 export type { Transport, TransportResponse, BlobData } from "./transport.js";
 
 // export utilities (url helpers, uploads, etc)

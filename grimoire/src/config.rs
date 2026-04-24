@@ -31,6 +31,9 @@ pub struct GrimoireConfig {
     /// Federation/P2P configuration (optional - for peer-to-peer music sharing)
     #[serde(default)]
     pub federation: Option<FederationConfig>,
+    /// Radio streaming configuration (optional - only when broadcasting).
+    #[serde(default)]
+    pub radio: Option<crate::radio::config::RadioConfig>,
 
     /// Path this config was loaded from. Set by `init_config`; not
     /// (de)serialized. Used by admin handlers that need to write changes
@@ -231,7 +234,7 @@ pub struct FederationConfig {
 /// (b) appear in `allowed_node_ids` if that list is non-empty.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct RemoteAdminConfig {
-    /// master switch for the admin ALPN (default: false)
+    /// main switch for the admin ALPN (default: false)
     #[serde(default)]
     pub enabled: bool,
     /// optional explicit allowlist of admin peer node IDs.

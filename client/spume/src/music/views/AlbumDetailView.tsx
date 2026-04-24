@@ -32,6 +32,8 @@ import { ShareButton } from "../../components/buttons/ShareButton";
 import { createCurrentRemoteFull } from "../../app/services/remotes/currentRemoteFull";
 import type { SendPayload } from "../services/send/sendToRemote";
 import type { RemoteSong } from "../data/remote/adapters";
+import { isCharnelMode } from "../../app/services/charnel";
+import { showStationSelector } from "../hooks/stationSelectorState";
 
 export function AlbumDetailView() {
   const params = useParams<{ id: string }>();
@@ -384,6 +386,19 @@ export function AlbumDetailView() {
                       <span class="hidden wide:inline">play album</span>
                       <span class="wide:hidden">play</span>
                     </Button>
+                    <Show when={isCharnelMode()}>
+                      <Button
+                        variant="ghost"
+                        onClick={() =>
+                          void showStationSelector({
+                            kind: "album",
+                            albumTitle: albumInfo()?.title ?? "",
+                          })
+                        }
+                      >
+                        +radio
+                      </Button>
+                    </Show>
                     <Show when={canUpdateAlbum()}>
                       <button
                         onClick={() =>

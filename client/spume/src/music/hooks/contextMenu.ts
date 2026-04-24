@@ -8,9 +8,11 @@ import type { MenuAction } from "../../components/overlays/ContextMenu";
 import { queryClient } from "../../queryClient";
 import { confirm } from "../../app/services/confirmState";
 import { showPlaylistSelector } from "./playlistSelectorState";
+import { showStationSelector } from "./stationSelectorState";
 import { showTagSelector, showShareModal } from "./modals";
 import { getDataSource, getCurrentRemote } from "../data";
 import { getRemoteById } from "../../app/services/remotes/remoteManager";
+import { isCharnelMode } from "../../app/services/charnel";
 import type { ShareTarget } from "../../components/share/types";
 import type { SendPayload } from "../services/send/sendToRemote";
 import type { RemoteSong } from "../data/remote/adapters";
@@ -262,6 +264,17 @@ export function useSongContextMenu(
       showPlaylistSelector([song.id]);
     },
   });
+
+  // radio station (charnel-only: local admin)
+  if (isCharnelMode()) {
+    actions.push({
+      label: "add to station...",
+      icon: IconNames.headphones,
+      onClick: () => {
+        void showStationSelector({ kind: "songs", songIds: [song.id] });
+      },
+    });
+  }
 
   // share — drops a permalink that lands on the album view with this song
   // row highlighted (when album_id is known). always include the send-to
@@ -591,6 +604,17 @@ export function useAlbumContextMenu(
     },
   });
 
+  // radio station (charnel-only)
+  if (isCharnelMode()) {
+    actions.push({
+      label: "add to station...",
+      icon: IconNames.headphones,
+      onClick: () => {
+        void showStationSelector({ kind: "album", albumTitle: album.title });
+      },
+    });
+  }
+
   // share — permalink + send-to. send-to builder fetches the album's
   // song list lazily (only when the modal opens) so the menu click stays
   // snappy and we don't waste the fetch on permalink-only shares.
@@ -615,6 +639,9 @@ export function useAlbumContextMenu(
           releaseDate: null,
           label: null,
           genres: songList[0]?.album_genres?.map((g) => g.name).filter(Boolean) ?? [],
+          // album-level images live on each song (denormalized). use the first
+          // song's copy so dest gets cover art alongside the album row.
+          images: songList[0]?.album_images ?? [],
           songs: songList as unknown as RemoteSong[],
         };
       },
@@ -887,6 +914,17 @@ export function useArtistContextMenu(
     createFavoriteMenuAction("artist", artist.id, options.isFavorite ?? false),
   );
 
+  // radio station (charnel-only)
+  if (isCharnelMode()) {
+    actions.push({
+      label: "add to station...",
+      icon: IconNames.headphones,
+      onClick: () => {
+        void showStationSelector({ kind: "artist", artistName: artist.name });
+      },
+    });
+  }
+
   if (options.customActions && options.customActions.length > 0) {
     actions.push({ type: "separator" });
     actions.push(...options.customActions);
@@ -952,6 +990,17 @@ export function useGenreContextMenu(
       navigate(routes.genre(genre.id));
     },
   });
+
+  // radio station (charnel-only)
+  if (isCharnelMode()) {
+    actions.push({
+      label: "add to station...",
+      icon: IconNames.headphones,
+      onClick: () => {
+        void showStationSelector({ kind: "genre", genreName: genre.name });
+      },
+    });
+  }
 
   if (options.customActions && options.customActions.length > 0) {
     actions.push({ type: "separator" });

@@ -7,6 +7,7 @@ mod commands;
 mod menu;
 mod p2p_commands;
 mod p2p_state;
+mod radio_commands;
 mod remotez_commands;
 mod server_controls;
 mod spume_bridge;
@@ -634,6 +635,10 @@ pub fn run() {
             p2p_commands::p2p_import_blob_bytes,
             p2p_commands::p2p_close_connection,
             p2p_commands::p2p_close_all_connections,
+            // radio listener (freqhole-radio/1)
+            radio_commands::radio_tune,
+            radio_commands::radio_tune_local,
+            radio_commands::radio_leave,
             // P2P state control commands
             p2p_state::p2p_get_status,
             p2p_state::p2p_start,

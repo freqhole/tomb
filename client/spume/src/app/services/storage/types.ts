@@ -15,6 +15,8 @@ export interface AppState {
   sync_queue_to_local?: boolean;
   // when true, auto-downloads all queue songs in background (default: false)
   auto_download_enabled?: boolean;
+  // currently tuned radio station (for resume on page reload)
+  current_radio_station?: RadioStationRef | null;
 }
 
 // queue history entry — represents one "add to queue" action
@@ -24,7 +26,18 @@ export type QueueHistorySourceType =
   | "artist"
   | "genre"
   | "playlist"
-  | "shuffle";
+  | "shuffle"
+  | "radio_station";
+
+// reference to a radio station stored in queue history
+export interface RadioStationRef {
+  peer_addr: string;        // peer addr used with tuneIntoRadio
+  station_id?: string;      // optional station id
+  station_name: string;     // display label
+  is_local?: boolean;       // true if this is an in-process (self) station
+  art_thumb_b64?: string;   // base64 thumbnail for display
+  art_thumb_mime?: string;
+}
 
 export interface QueueHistoryEntry {
   id: string; // uuid
@@ -45,6 +58,8 @@ export interface QueueHistoryEntry {
   // server session tracking (for reconnection after page reload)
   server_session_id?: string; // active server-side listen session id
   server_remote_id?: string; // remote_server_id the session is on
+  // radio station bookmark (only set when type === "radio_station")
+  radio_station_ref?: RadioStationRef;
 }
 
 // analytics event — queued locally for offline-first sync to server
@@ -113,7 +128,7 @@ export interface P2PIdentity {
 
 // database schema version
 export const APP_DB_NAME = "freqhole_app";
-export const APP_DB_VERSION = 6; // renamed pending_knocks → pending_remotes
+export const APP_DB_VERSION = 8; // added shared_items store
 
 // app store names
 export const STORE_APP_STATE = "app_state"; // also stores P2PIdentity with id: "p2p_identity"
@@ -121,6 +136,49 @@ export const STORE_REMOTES = "remotes";
 export const STORE_QUEUE_HISTORY = "queue_history";
 export const STORE_ANALYTICS_EVENTS = "analytics_events";
 export const STORE_PENDING_REMOTES = "pending_remotes";
+export const STORE_RADIO_HISTORY = "radio_history";
+export const STORE_SHARED_ITEMS = "shared_items";
+
+export type SharedItemKind =
+  | "album"
+  | "playlist"
+  | "song"
+  | "artist"
+  | "radio_station";
+
+export interface SharedItemEntry {
+  // deterministic dedupe key from (kind, id, parent, source)
+  id: string;
+  // canonical base64url token for reopening the share
+  token: string;
+  kind: SharedItemKind;
+  entity_id: string;
+  parent_id?: string;
+  title?: string;
+  source_node_id?: string;
+  source_http_origin?: string;
+  first_seen_at: number;
+  last_seen_at: number;
+  seen_count: number;
+}
+
+// radio history entry — one per (station, song_id) transition observed by
+// the listener. capped at MAX_RADIO_HISTORY rows by radioHistory module.
+export interface RadioHistoryEntry {
+  id: string;                       // uuid
+  played_at: number;                // ms epoch (sort key)
+  station_id: string | null;
+  station_name: string | null;
+  peer_addr: string;                // remote that served the stream
+  song_id: string | null;
+  title: string;
+  artist: string | null;
+  album: string | null;
+  duration_ms: number | null;
+  art_blob_id: string | null;
+  art_thumb_b64: string | null;     // optional inline thumb (option A)
+  art_thumb_mime: string | null;
+}
 
 // pending remote stage - tracks progress of adding a new remote
 export type PendingRemoteStage =

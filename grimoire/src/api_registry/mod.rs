@@ -225,6 +225,14 @@ pub mod type_registry {
         AdminPeerNodeSummary, AdminPeerSummary, AdminPeersAllowRequest, AdminPeersAllowResponse,
         AdminPeersListForUserRequest, AdminPeersRemoveRequest,
     };
+    use crate::admin_dispatch::types::radio::{
+        RadioBumper, RadioBumpersAddRequest, RadioBumpersListRequest, RadioBumpersRemoveRequest,
+        RadioBumpersSetFrequencyRequest, RadioConfigPayload, RadioFiltersAddRequest,
+        RadioFiltersRemoveRequest, RadioSeedSuggestRequest, RadioSeedSuggestion,
+        RadioSongsAddRequest, RadioSongsRemoveRequest, RadioStationByStationIdRequest,
+        RadioStationSupervisorStatus, RadioStationsByIdRequest, RadioSupervisorStationRequest,
+        RadioSupervisorStatusResponse,
+    };
     use crate::admin_dispatch::types::users::{
         AdminAccountLinkResponse, AdminUserSummary, AdminUsersDeleteRequest,
         AdminUsersGenerateAccountLinkRequest, AdminUsersGetRequest, AdminUsersListRequest,
@@ -245,6 +253,16 @@ pub mod type_registry {
         SyncPlaylistResponse, SyncSongByBlake3Request, SyncSongByBlake3Response,
     };
 
+    // radio public types
+    use crate::offal::public::radio::{
+        PublicNowPlaying, PublicStation, RadioInfoResponse, RadioStationsResponse,
+    };
+
+    // radio admin types
+    use crate::radio::stations::models::{
+        CreateStationRequest, RadioStation, StationFilter, StationSong, UpdateStationRequest,
+    };
+
     pub fn register_all_types(gen: &mut ZodGenerator, registered: &mut HashSet<String>) {
         // auth types
         gen.add_schema::<WhoAmIResponse>("WhoAmIResponse");
@@ -263,6 +281,16 @@ pub mod type_registry {
 
         gen.add_schema::<ServerInfoResponse>("ServerInfoResponse");
         registered.insert("ServerInfoResponse".to_string());
+
+        // radio discovery types
+        gen.add_schema::<PublicNowPlaying>("PublicNowPlaying");
+        registered.insert("PublicNowPlaying".to_string());
+        gen.add_schema::<PublicStation>("PublicStation");
+        registered.insert("PublicStation".to_string());
+        gen.add_schema::<RadioInfoResponse>("RadioInfoResponse");
+        registered.insert("RadioInfoResponse".to_string());
+        gen.add_schema::<RadioStationsResponse>("RadioStationsResponse");
+        registered.insert("RadioStationsResponse".to_string());
 
         gen.add_schema::<ApiKeyStatusResponse>("ApiKeyStatusResponse");
         registered.insert("ApiKeyStatusResponse".to_string());
@@ -823,6 +851,52 @@ pub mod type_registry {
         registered.insert("AdminPeersAllowRequest".to_string());
         gen.add_schema::<AdminPeersAllowResponse>("AdminPeersAllowResponse");
         registered.insert("AdminPeersAllowResponse".to_string());
+
+        // radio admin types
+        gen.add_schema::<RadioStation>("RadioStation");
+        registered.insert("RadioStation".to_string());
+        gen.add_schema::<CreateStationRequest>("CreateStationRequest");
+        registered.insert("CreateStationRequest".to_string());
+        gen.add_schema::<UpdateStationRequest>("UpdateStationRequest");
+        registered.insert("UpdateStationRequest".to_string());
+        gen.add_schema::<RadioStationsByIdRequest>("RadioStationsByIdRequest");
+        registered.insert("RadioStationsByIdRequest".to_string());
+        gen.add_schema::<RadioStationByStationIdRequest>("RadioStationByStationIdRequest");
+        registered.insert("RadioStationByStationIdRequest".to_string());
+        gen.add_schema::<RadioFiltersAddRequest>("RadioFiltersAddRequest");
+        registered.insert("RadioFiltersAddRequest".to_string());
+        gen.add_schema::<RadioFiltersRemoveRequest>("RadioFiltersRemoveRequest");
+        registered.insert("RadioFiltersRemoveRequest".to_string());
+        gen.add_schema::<RadioSongsAddRequest>("RadioSongsAddRequest");
+        registered.insert("RadioSongsAddRequest".to_string());
+        gen.add_schema::<RadioSongsRemoveRequest>("RadioSongsRemoveRequest");
+        registered.insert("RadioSongsRemoveRequest".to_string());
+        gen.add_schema::<RadioSeedSuggestRequest>("RadioSeedSuggestRequest");
+        registered.insert("RadioSeedSuggestRequest".to_string());
+        gen.add_schema::<RadioSeedSuggestion>("RadioSeedSuggestion");
+        registered.insert("RadioSeedSuggestion".to_string());
+        gen.add_schema::<RadioConfigPayload>("RadioConfigPayload");
+        registered.insert("RadioConfigPayload".to_string());
+        gen.add_schema::<RadioStationSupervisorStatus>("RadioStationSupervisorStatus");
+        registered.insert("RadioStationSupervisorStatus".to_string());
+        gen.add_schema::<RadioSupervisorStatusResponse>("RadioSupervisorStatusResponse");
+        registered.insert("RadioSupervisorStatusResponse".to_string());
+        gen.add_schema::<RadioSupervisorStationRequest>("RadioSupervisorStationRequest");
+        registered.insert("RadioSupervisorStationRequest".to_string());
+        gen.add_schema::<RadioBumper>("RadioBumper");
+        registered.insert("RadioBumper".to_string());
+        gen.add_schema::<RadioBumpersListRequest>("RadioBumpersListRequest");
+        registered.insert("RadioBumpersListRequest".to_string());
+        gen.add_schema::<RadioBumpersAddRequest>("RadioBumpersAddRequest");
+        registered.insert("RadioBumpersAddRequest".to_string());
+        gen.add_schema::<RadioBumpersRemoveRequest>("RadioBumpersRemoveRequest");
+        registered.insert("RadioBumpersRemoveRequest".to_string());
+        gen.add_schema::<RadioBumpersSetFrequencyRequest>("RadioBumpersSetFrequencyRequest");
+        registered.insert("RadioBumpersSetFrequencyRequest".to_string());
+        gen.add_schema::<StationFilter>("StationFilter");
+        registered.insert("StationFilter".to_string());
+        gen.add_schema::<StationSong>("StationSong");
+        registered.insert("StationSong".to_string());
 
         // listen session request types
         gen.add_schema::<GetListenSessionRequest>("GetListenSessionRequest");

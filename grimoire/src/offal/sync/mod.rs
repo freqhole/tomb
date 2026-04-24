@@ -242,6 +242,11 @@ pub async fn sync_song_by_blake3(caller: &Caller, body: JsonValue) -> GrimoireRe
     let req: SyncSongByBlake3Request = match serde_json::from_value(body) {
         Ok(r) => r,
         Err(e) => {
+            tracing::warn!(
+                "sync_song_by_blake3: bad request from {}: {}",
+                caller.username,
+                e
+            );
             return GrimoireResponse::failure(
                 "bad request",
                 vec![ErrorDetail::new(
@@ -249,9 +254,21 @@ pub async fn sync_song_by_blake3(caller: &Caller, body: JsonValue) -> GrimoireRe
                     "bad request",
                     &e.to_string(),
                 )],
-            )
+            );
         }
     };
+
+    tracing::info!(
+        "sync_song_by_blake3: START from {} -- title=\"{}\" blake3={} sha256={} size={:?} source_node={} source_remote={:?} filename=\"{}\"",
+        caller.username,
+        req.title,
+        req.blake3,
+        &req.sha256[..16.min(req.sha256.len())],
+        req.size,
+        req.source_node_id,
+        req.source_remote_id,
+        req.filename,
+    );
 
     // 2. shortcut: song already linked to this blake3 -> idempotent success
     if let Ok(Some(existing_song_id)) =
@@ -288,6 +305,12 @@ pub async fn sync_song_by_blake3(caller: &Caller, body: JsonValue) -> GrimoireRe
     }
 
     // 3. pull the audio blob (verified streaming + sha256 verify + dedupe)
+    tracing::info!(
+        "sync_song_by_blake3: pulling blob {} from source peer {} ({} bytes declared)",
+        &req.blake3[..16.min(req.blake3.len())],
+        &req.source_node_id[..16.min(req.source_node_id.len())],
+        req.size.map(|s| s as i64).unwrap_or(-1),
+    );
     let pulled = match pull_audio_blob_to_local_storage(
         &req.source_node_id,
         &req.blake3,
@@ -299,8 +322,64 @@ pub async fn sync_song_by_blake3(caller: &Caller, body: JsonValue) -> GrimoireRe
     .await
     {
         Ok(r) => r,
-        Err(e) => return e.into_grimoire_response(),
+        Err(e) => {
+            tracing::error!(
+                "sync_song_by_blake3: FAIL pull for {} title=\"{}\" blake3={}: {:?}",
+                caller.username,
+                req.title,
+                &req.blake3[..16.min(req.blake3.len())],
+                e,
+            );
+            // if the source peer says we are not a registered federation peer,
+            // automatically send a knock request on behalf of the caller and
+            // return a structured peer_unauthorized error so the client can
+            // surface a friendly message. subsequent retries of this sync job
+            // should just work once the source accepts the knock.
+            if let crate::offal::upload::PullAudioBlobError::PeerUnauthorized { peer, blake3 } = &e
+            {
+                let short = &blake3[..16.min(blake3.len())];
+                let knock_body = serde_json::json!({
+                    "username": caller.username.clone(),
+                    "message": format!(
+                        "auto-knock: {} needs access to sync song (blake3={})",
+                        caller.username, short,
+                    ),
+                })
+                .to_string();
+                match crate::federation::p2p_client::proxy_request(
+                    peer,
+                    "POST",
+                    "/api/knock",
+                    Some(knock_body),
+                )
+                .await
+                {
+                    Ok(resp) => {
+                        tracing::info!(
+                            "sync_song_by_blake3: auto-knock sent to {} (status {})",
+                            &peer[..16.min(peer.len())],
+                            resp.status,
+                        );
+                    }
+                    Err(knock_err) => {
+                        tracing::warn!(
+                            "sync_song_by_blake3: auto-knock failed for {}: {}",
+                            &peer[..16.min(peer.len())],
+                            knock_err,
+                        );
+                    }
+                }
+            }
+            return e.into_grimoire_response();
+        }
     };
+    tracing::info!(
+        "sync_song_by_blake3: pulled blob {} ({} bytes) -> media_blob {} at {}",
+        &req.blake3[..16.min(req.blake3.len())],
+        pulled.size,
+        pulled.blob.id,
+        pulled.local_path.display(),
+    );
 
     // 4. write the song row immediately with the supplied metadata.
     //    no async ImportMusic job — sync trusts the source's tags.
@@ -375,6 +454,16 @@ pub async fn sync_song_by_blake3(caller: &Caller, body: JsonValue) -> GrimoireRe
         }
     }
 
+    tracing::info!(
+        "sync_song_by_blake3: OK for {} title=\"{}\" song_id={} blob_id={} images_linked={} missing_images={}",
+        caller.username,
+        req.title,
+        song_id,
+        pulled.blob.id,
+        images_linked,
+        missing_image_sha256s.len(),
+    );
+
     let response = SyncSongByBlake3Response {
         song_id,
         media_blob_id: pulled.blob.id,
@@ -406,6 +495,7 @@ pub async fn sync_playlist(caller: &Caller, body: JsonValue) -> GrimoireResponse
     let req: SyncPlaylistRequest = match serde_json::from_value(body) {
         Ok(r) => r,
         Err(e) => {
+            tracing::warn!("sync_playlist: bad request from {}: {}", caller.username, e);
             return GrimoireResponse::failure(
                 "bad request",
                 vec![ErrorDetail::new(
@@ -413,9 +503,18 @@ pub async fn sync_playlist(caller: &Caller, body: JsonValue) -> GrimoireResponse
                     "bad request",
                     &e.to_string(),
                 )],
-            )
+            );
         }
     };
+
+    tracing::info!(
+        "sync_playlist: START from {} -- title=\"{}\" remote_playlist_id={} songs={} images={}",
+        caller.username,
+        req.title,
+        req.remote_playlist_id,
+        req.song_blake3s.len(),
+        req.images.len(),
+    );
 
     // resolve each blake3 -> song_id, preserving original positions.
     // if no song row exists yet but a media_blob does, create a stub so the
@@ -616,6 +715,18 @@ pub async fn sync_playlist(caller: &Caller, body: JsonValue) -> GrimoireResponse
         missing_image_sha256s,
     };
 
+    tracing::info!(
+        "sync_playlist: OK for {} title=\"{}\" playlist_id={} songs_added={} stubs={} missing_songs={} images_linked={} missing_images={}",
+        caller.username,
+        req.title,
+        playlist.id,
+        songs_with_positions.len(),
+        song_stubs_created,
+        response.missing_song_blake3s.len(),
+        images_linked,
+        response.missing_image_sha256s.len(),
+    );
+
     GrimoireResponse::success(
         &format!(
             "playlist synced with {} songs ({} missing, {} stubbed)",
@@ -740,6 +851,7 @@ pub async fn sync_album(caller: &Caller, body: JsonValue) -> GrimoireResponse<Js
     let req: SyncAlbumRequest = match serde_json::from_value(body) {
         Ok(r) => r,
         Err(e) => {
+            tracing::warn!("sync_album: bad request from {}: {}", caller.username, e);
             return GrimoireResponse::failure(
                 "bad request",
                 vec![ErrorDetail::new(
@@ -747,9 +859,19 @@ pub async fn sync_album(caller: &Caller, body: JsonValue) -> GrimoireResponse<Js
                     "bad request",
                     &e.to_string(),
                 )],
-            )
+            );
         }
     };
+
+    tracing::info!(
+        "sync_album: START from {} -- title=\"{}\" artist=\"{}\" remote_album_id={} expected_songs={} images={}",
+        caller.username,
+        req.title,
+        req.artist_name,
+        req.remote_album_id,
+        req.expected_song_blake3s.len(),
+        req.images_base64.len(),
+    );
 
     // 1. resolve / create the album artist by name (case-insensitive)
     let artist_resp = find_or_create_artist(ArtistImportRequest {
@@ -892,11 +1014,22 @@ pub async fn sync_album(caller: &Caller, body: JsonValue) -> GrimoireResponse<Js
 
     let response = SyncAlbumResponse {
         album_id: album.id.clone(),
-        artist_id: artist.id,
+        artist_id: artist.id.clone(),
         existing,
         images_linked,
-        missing_image_sha256s,
+        missing_image_sha256s: missing_image_sha256s.clone(),
     };
+
+    tracing::info!(
+        "sync_album: OK for {} title=\"{}\" album_id={} artist_id={} existing={} images_linked={} missing_images={}",
+        caller.username,
+        req.title,
+        album.id,
+        artist.id,
+        existing,
+        images_linked,
+        missing_image_sha256s.len(),
+    );
 
     GrimoireResponse::success(
         if existing {

@@ -26,6 +26,13 @@ use crate::admin_dispatch::types::peers::{
     AdminPeerNodeSummary, AdminPeerSummary, AdminPeersAllowRequest, AdminPeersAllowResponse,
     AdminPeersListForUserRequest, AdminPeersRemoveRequest,
 };
+use crate::admin_dispatch::types::radio::{
+    RadioBumper, RadioBumpersAddRequest, RadioBumpersListRequest, RadioBumpersRemoveRequest,
+    RadioBumpersSetFrequencyRequest, RadioConfigPayload, RadioFiltersAddRequest,
+    RadioFiltersRemoveRequest, RadioSeedSuggestRequest, RadioSeedSuggestion, RadioSongsAddRequest,
+    RadioSongsRemoveRequest, RadioStationByStationIdRequest, RadioStationSupervisorStatus,
+    RadioStationsByIdRequest, RadioSupervisorStationRequest, RadioSupervisorStatusResponse,
+};
 use crate::admin_dispatch::types::users::{
     AdminAccountLinkResponse, AdminUserSummary, AdminUsersDeleteRequest,
     AdminUsersGenerateAccountLinkRequest, AdminUsersGetRequest, AdminUsersListRequest,
@@ -35,6 +42,8 @@ use crate::config::{find_config, get_config, get_config_path, read_config_from_f
 use crate::error::ErrorDetail;
 use crate::federation::knock;
 use crate::offal::Caller;
+use crate::radio::stations::models::{CreateStationRequest, UpdateStationRequest};
+use crate::radio::stations::repository as radio_stations;
 use crate::response::GrimoireResponse;
 use crate::users::{
     CreateInviteCodeRequest, CreateUserRequest, InviteCodeType, UpdateUserRequest, User,
@@ -129,6 +138,30 @@ pub async fn handle(
         "server_get_image_thumbnail" => server_get_image_thumbnail(args).await,
         "server_update_info" => server_update_info(args).await,
         "server_update_image" => server_update_image(args).await,
+
+        // -- radio --
+        "radio_stations_list" => radio_stations_list().await,
+        "radio_stations_get" => radio_stations_get(args).await,
+        "radio_stations_create" => radio_stations_create(args).await,
+        "radio_stations_update" => radio_stations_update(args).await,
+        "radio_stations_delete" => radio_stations_delete(args).await,
+        "radio_filters_list" => radio_filters_list(args).await,
+        "radio_filters_add" => radio_filters_add(args).await,
+        "radio_filters_remove" => radio_filters_remove(args).await,
+        "radio_songs_list" => radio_songs_list(args).await,
+        "radio_songs_add" => radio_songs_add(args).await,
+        "radio_songs_remove" => radio_songs_remove(args).await,
+        "radio_seed_suggest" => radio_seed_suggest(args).await,
+        "radio_config_get" => radio_config_get().await,
+        "radio_config_set" => radio_config_set(args).await,
+        "radio_supervisor_status" => radio_supervisor_status().await,
+        "radio_supervisor_start" => radio_supervisor_start(args).await,
+        "radio_supervisor_stop" => radio_supervisor_stop(args).await,
+        "radio_supervisor_restart" => radio_supervisor_restart(args).await,
+        "radio_bumpers_list" => radio_bumpers_list(args).await,
+        "radio_bumpers_add" => radio_bumpers_add(args).await,
+        "radio_bumpers_remove" => radio_bumpers_remove(args).await,
+        "radio_bumpers_set_frequency" => radio_bumpers_set_frequency(args).await,
 
         _ => command_not_found(command),
     }
@@ -373,7 +406,10 @@ async fn users_list(args: JsonValue, caller: &Caller) -> GrimoireResponse<JsonVa
     };
     let resp = UserService::new().list_users(&params, &user).await;
     to_value(map_response(resp, |users| {
-        users.into_iter().map(AdminUserSummary::from).collect::<Vec<_>>()
+        users
+            .into_iter()
+            .map(AdminUserSummary::from)
+            .collect::<Vec<_>>()
     }))
 }
 
@@ -574,8 +610,8 @@ async fn invites_revoke_all(caller: &Caller) -> GrimoireResponse<JsonValue> {
     let resp = UserService::new()
         .deactivate_all_active_invites(&admin)
         .await;
-    to_value(map_response(resp, |revoked| AdminInvitesRevokeAllResponse {
-        revoked,
+    to_value(map_response(resp, |revoked| {
+        AdminInvitesRevokeAllResponse { revoked }
     }))
 }
 
@@ -1254,4 +1290,513 @@ async fn server_update_info(args: JsonValue) -> GrimoireResponse<JsonValue> {
             "description": description,
         }),
     )
+}
+
+// =========================================================================
+// radio
+// =========================================================================
+
+async fn radio_stations_list() -> GrimoireResponse<JsonValue> {
+    match radio_stations::list_stations().await {
+        Ok(stations) => to_value(GrimoireResponse::success("radio stations listed", stations)),
+        Err(e) => GrimoireResponse::failure("failed to list radio stations", vec![e.into()]),
+    }
+}
+
+async fn radio_stations_get(args: JsonValue) -> GrimoireResponse<JsonValue> {
+    let req: RadioStationsByIdRequest = match decode(args) {
+        Ok(v) => v,
+        Err(r) => return r,
+    };
+    match radio_stations::get_station(&req.id).await {
+        Ok(Some(s)) => to_value(GrimoireResponse::success("radio station found", s)),
+        Ok(None) => GrimoireResponse::failure(
+            "radio station not found",
+            vec![ErrorDetail::new(
+                "not_found",
+                "radio station not found",
+                &format!("no station with id {}", req.id),
+            )],
+        ),
+        Err(e) => GrimoireResponse::failure("failed to get radio station", vec![e.into()]),
+    }
+}
+
+async fn radio_stations_create(args: JsonValue) -> GrimoireResponse<JsonValue> {
+    let req: CreateStationRequest = match decode(args) {
+        Ok(v) => v,
+        Err(r) => return r,
+    };
+    match radio_stations::create_station(req).await {
+        Ok(s) => to_value(GrimoireResponse::success("radio station created", s)),
+        Err(e) => GrimoireResponse::failure("failed to create radio station", vec![e.into()]),
+    }
+}
+
+async fn radio_stations_update(args: JsonValue) -> GrimoireResponse<JsonValue> {
+    let req: UpdateStationRequest = match decode(args) {
+        Ok(v) => v,
+        Err(r) => return r,
+    };
+    match radio_stations::update_station(req).await {
+        Ok(s) => to_value(GrimoireResponse::success("radio station updated", s)),
+        Err(e) => GrimoireResponse::failure("failed to update radio station", vec![e.into()]),
+    }
+}
+
+async fn radio_stations_delete(args: JsonValue) -> GrimoireResponse<JsonValue> {
+    let req: RadioStationsByIdRequest = match decode(args) {
+        Ok(v) => v,
+        Err(r) => return r,
+    };
+    match radio_stations::delete_station(&req.id).await {
+        Ok(()) => GrimoireResponse::success("radio station deleted", JsonValue::Null),
+        Err(e) => GrimoireResponse::failure("failed to delete radio station", vec![e.into()]),
+    }
+}
+
+async fn radio_filters_list(args: JsonValue) -> GrimoireResponse<JsonValue> {
+    let req: RadioStationByStationIdRequest = match decode(args) {
+        Ok(v) => v,
+        Err(r) => return r,
+    };
+    match radio_stations::list_filters(&req.station_id).await {
+        Ok(filters) => to_value(GrimoireResponse::success("filters listed", filters)),
+        Err(e) => GrimoireResponse::failure("failed to list filters", vec![e.into()]),
+    }
+}
+
+async fn radio_filters_add(args: JsonValue) -> GrimoireResponse<JsonValue> {
+    let req: RadioFiltersAddRequest = match decode(args) {
+        Ok(v) => v,
+        Err(r) => return r,
+    };
+    match radio_stations::add_filter(
+        &req.station_id,
+        &req.filter_type,
+        &req.filter_value,
+        &req.mode,
+    )
+    .await
+    {
+        Ok(f) => to_value(GrimoireResponse::success("filter added", f)),
+        Err(e) => GrimoireResponse::failure("failed to add filter", vec![e.into()]),
+    }
+}
+
+async fn radio_filters_remove(args: JsonValue) -> GrimoireResponse<JsonValue> {
+    let req: RadioFiltersRemoveRequest = match decode(args) {
+        Ok(v) => v,
+        Err(r) => return r,
+    };
+    match radio_stations::remove_filter(&req.filter_id).await {
+        Ok(()) => GrimoireResponse::success("filter removed", JsonValue::Null),
+        Err(e) => GrimoireResponse::failure("failed to remove filter", vec![e.into()]),
+    }
+}
+
+async fn radio_songs_list(args: JsonValue) -> GrimoireResponse<JsonValue> {
+    let req: RadioStationByStationIdRequest = match decode(args) {
+        Ok(v) => v,
+        Err(r) => return r,
+    };
+    match radio_stations::list_songs(&req.station_id).await {
+        Ok(songs) => to_value(GrimoireResponse::success("songs listed", songs)),
+        Err(e) => GrimoireResponse::failure("failed to list songs", vec![e.into()]),
+    }
+}
+
+async fn radio_songs_add(args: JsonValue) -> GrimoireResponse<JsonValue> {
+    let req: RadioSongsAddRequest = match decode(args) {
+        Ok(v) => v,
+        Err(r) => return r,
+    };
+    let sort_order = req.sort_order.unwrap_or(0);
+    match radio_stations::add_song(&req.station_id, &req.song_id, sort_order).await {
+        Ok(()) => GrimoireResponse::success("song added", JsonValue::Null),
+        Err(e) => GrimoireResponse::failure("failed to add song", vec![e.into()]),
+    }
+}
+
+async fn radio_songs_remove(args: JsonValue) -> GrimoireResponse<JsonValue> {
+    let req: RadioSongsRemoveRequest = match decode(args) {
+        Ok(v) => v,
+        Err(r) => return r,
+    };
+    match radio_stations::remove_song(&req.station_id, &req.song_id).await {
+        Ok(()) => GrimoireResponse::success("song removed", JsonValue::Null),
+        Err(e) => GrimoireResponse::failure("failed to remove song", vec![e.into()]),
+    }
+}
+
+async fn radio_seed_suggest(args: JsonValue) -> GrimoireResponse<JsonValue> {
+    use crate::music::crud::{query_albums, query_artists, search_songs, QueryParams};
+    use crate::music::entities::genres::query_genres;
+    use crate::music::entities::tags::query_tags;
+
+    let req: RadioSeedSuggestRequest = match decode(args) {
+        Ok(v) => v,
+        Err(r) => return r,
+    };
+    let limit = req.limit.unwrap_or(15).min(50);
+    let q = req.query.trim().to_string();
+
+    let suggestions: Vec<RadioSeedSuggestion> = match req.kind.as_str() {
+        "tag" => {
+            let resp = query_tags(&q).await;
+            resp.data
+                .unwrap_or_default()
+                .into_iter()
+                .take(limit as usize)
+                .map(|t| RadioSeedSuggestion {
+                    id: t.id,
+                    name: t.name,
+                    subtitle: None,
+                })
+                .collect()
+        }
+        "genre" => {
+            let resp = query_genres(&q).await;
+            resp.data
+                .unwrap_or_default()
+                .into_iter()
+                .take(limit as usize)
+                .map(|g| RadioSeedSuggestion {
+                    id: g.id,
+                    name: g.name,
+                    subtitle: None,
+                })
+                .collect()
+        }
+        "artist" => {
+            let params = QueryParams {
+                q: if q.is_empty() { None } else { Some(q.clone()) },
+                search_fields: None,
+                filters: std::collections::HashMap::new(),
+                sort_by: Some("name".to_string()),
+                sort_direction: Some("asc".to_string()),
+                limit: Some(limit),
+                offset: Some(0),
+                user_id: None,
+                favorites_only: None,
+                min_rating: None,
+            };
+            let resp = query_artists(params).await;
+            resp.data
+                .map(|qr| qr.items)
+                .unwrap_or_default()
+                .into_iter()
+                .map(|r| RadioSeedSuggestion {
+                    id: r.artist.id,
+                    name: r.artist.name,
+                    subtitle: None,
+                })
+                .collect()
+        }
+        "album" => {
+            let params = QueryParams {
+                q: if q.is_empty() { None } else { Some(q.clone()) },
+                search_fields: None,
+                filters: std::collections::HashMap::new(),
+                sort_by: Some("title".to_string()),
+                sort_direction: Some("asc".to_string()),
+                limit: Some(limit),
+                offset: Some(0),
+                user_id: None,
+                favorites_only: None,
+                min_rating: None,
+            };
+            let resp = query_albums(params).await;
+            resp.data
+                .map(|qr| qr.items)
+                .unwrap_or_default()
+                .into_iter()
+                .map(|r| RadioSeedSuggestion {
+                    id: r.album.id,
+                    name: r.album.title,
+                    subtitle: r.artist.map(|a| a.name),
+                })
+                .collect()
+        }
+        "song" => {
+            if q.is_empty() {
+                Vec::new()
+            } else {
+                let resp = search_songs(&q, Some(limit), Some(0)).await;
+                resp.data
+                    .map(|qr| qr.items)
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(|r| {
+                        let artist_name = r
+                            .artist
+                            .as_ref()
+                            .map(|a| a.name.clone())
+                            .unwrap_or_default();
+                        let album_name = r.album.as_ref().map(|a| a.title.clone());
+                        let label = if artist_name.is_empty() {
+                            r.song.title.clone()
+                        } else {
+                            format!("{} — {}", r.song.title, artist_name)
+                        };
+                        RadioSeedSuggestion {
+                            id: r.song.id,
+                            name: label,
+                            subtitle: album_name,
+                        }
+                    })
+                    .collect()
+            }
+        }
+        other => {
+            return GrimoireResponse::failure(
+                &format!("unknown seed-suggest kind: {}", other),
+                vec![],
+            );
+        }
+    };
+
+    to_value(GrimoireResponse::success("suggestions", suggestions))
+}
+
+async fn radio_config_get() -> GrimoireResponse<JsonValue> {
+    let cfg = crate::radio::config::effective();
+    let payload = RadioConfigPayload {
+        enabled: cfg.enabled,
+        encode_args: cfg.encode_args,
+    };
+    to_value(GrimoireResponse::success("ok", payload))
+}
+
+async fn radio_config_set(args: JsonValue) -> GrimoireResponse<JsonValue> {
+    let req: RadioConfigPayload = match decode(args) {
+        Ok(v) => v,
+        Err(r) => return r,
+    };
+    let path = match resolve_config_path() {
+        Ok(p) => p,
+        Err(e) => return internal(format!("could not locate config file: {}", e)),
+    };
+    let toml_str = match std::fs::read_to_string(&path) {
+        Ok(s) => s,
+        Err(e) => return internal(format!("failed to read config file: {}", e)),
+    };
+    // parse to a generic toml::Value table so we can swap just the
+    // [radio] section without touching any other keys.
+    let mut doc: toml::Value = match toml::from_str(&toml_str) {
+        Ok(v) => v,
+        Err(e) => return internal(format!("config file is not valid toml: {}", e)),
+    };
+    let table = match doc.as_table_mut() {
+        Some(t) => t,
+        None => return internal("config root is not a table".to_string()),
+    };
+    let radio_table = toml::Value::Table({
+        let mut m = toml::map::Map::new();
+        m.insert("enabled".into(), toml::Value::Boolean(req.enabled));
+        m.insert(
+            "encode_args".into(),
+            toml::Value::String(req.encode_args.clone()),
+        );
+        m
+    });
+    table.insert("radio".into(), radio_table);
+    let new_toml = match toml::to_string_pretty(&doc) {
+        Ok(s) => s,
+        Err(e) => return internal(format!("failed to serialize config: {}", e)),
+    };
+    // validate full document still parses as a `GrimoireConfig`.
+    if let Err(e) = toml::from_str::<crate::config::GrimoireConfig>(&new_toml) {
+        return bad_request(format!("invalid resulting config: {}", e));
+    }
+    if let Err(e) = std::fs::write(&path, new_toml.as_bytes()) {
+        return internal(format!("failed to write config: {}", e));
+    }
+    if let Err(e) = crate::config::init_config(Some(path.clone())) {
+        return internal(format!("config written but reload failed: {}", e));
+    }
+    let cfg = crate::radio::config::effective();
+    // act on the new effective state. flipping the master switch on
+    // spawns broadcasters for every enabled station; flipping it off
+    // tears them all down. note: the iroh router's RADIO_ALPN handler
+    // is wired during `init_p2p_client` (app startup) — without an app
+    // restart, broadcasters are running but unreachable from peers
+    // unless radio was already enabled at startup.
+    if cfg.enabled {
+        if let Err(e) = crate::radio::broadcaster::init_registry().await {
+            return internal(format!(
+                "config saved but broadcasters failed to start: {}",
+                e
+            ));
+        }
+    } else if let Err(e) = crate::radio::broadcaster::stop_all().await {
+        return internal(format!(
+            "config saved but broadcasters failed to stop: {}",
+            e
+        ));
+    }
+    let out = RadioConfigPayload {
+        enabled: cfg.enabled,
+        encode_args: cfg.encode_args,
+    };
+    to_value(GrimoireResponse::success("config updated", out))
+}
+
+// =========================================================================
+// radio supervisor (start/stop/restart broadcasters)
+// =========================================================================
+
+async fn build_supervisor_status() -> GrimoireResponse<JsonValue> {
+    let stations = match crate::radio::stations::list_stations().await {
+        Ok(v) => v,
+        Err(e) => return GrimoireResponse::failure("failed to list stations", vec![e.into()]),
+    };
+    let default_id = crate::radio::broadcaster::current_default_station_id().await;
+    let mut rows: Vec<RadioStationSupervisorStatus> = Vec::with_capacity(stations.len());
+    for st in stations {
+        let bc = crate::radio::broadcaster::get_station(&st.id).await;
+        let (is_running, listener_count, current_seq, np) = if let Some(bc) = bc {
+            let np = bc.now_playing().await;
+            (true, bc.listener_count(), bc.current_seq(), Some(np))
+        } else {
+            (false, 0u32, 0u32, None)
+        };
+        let (current_song_id, current_title) = match np {
+            Some(np) => {
+                let song_id = if np.song_id.is_empty() {
+                    None
+                } else {
+                    Some(np.song_id.clone())
+                };
+                let title = if np.title.is_empty() {
+                    None
+                } else {
+                    Some(np.title.clone())
+                };
+                (song_id, title)
+            }
+            None => (None, None),
+        };
+        rows.push(RadioStationSupervisorStatus {
+            station_id: st.id.clone(),
+            name: st.name,
+            is_enabled: st.is_enabled != 0,
+            is_running,
+            listener_count,
+            current_seq,
+            current_song_id,
+            current_title,
+            is_default: default_id.as_deref() == Some(st.id.as_str()),
+        });
+    }
+    let payload = RadioSupervisorStatusResponse {
+        radio_enabled: crate::radio::config::effective().enabled,
+        stations: rows,
+    };
+    to_value(GrimoireResponse::success("ok", payload))
+}
+
+async fn radio_supervisor_status() -> GrimoireResponse<JsonValue> {
+    build_supervisor_status().await
+}
+
+async fn radio_supervisor_start(args: JsonValue) -> GrimoireResponse<JsonValue> {
+    let req: RadioSupervisorStationRequest = match decode(args) {
+        Ok(v) => v,
+        Err(r) => return r,
+    };
+    if let Err(e) = crate::radio::broadcaster::start_station(&req.station_id).await {
+        return GrimoireResponse::failure("failed to start station", vec![e.into()]);
+    }
+    build_supervisor_status().await
+}
+
+async fn radio_supervisor_stop(args: JsonValue) -> GrimoireResponse<JsonValue> {
+    let req: RadioSupervisorStationRequest = match decode(args) {
+        Ok(v) => v,
+        Err(r) => return r,
+    };
+    if let Err(e) = crate::radio::broadcaster::stop_station(&req.station_id).await {
+        return GrimoireResponse::failure("failed to stop station", vec![e.into()]);
+    }
+    build_supervisor_status().await
+}
+
+async fn radio_supervisor_restart(args: JsonValue) -> GrimoireResponse<JsonValue> {
+    let req: RadioSupervisorStationRequest = match decode(args) {
+        Ok(v) => v,
+        Err(r) => return r,
+    };
+    if let Err(e) = crate::radio::broadcaster::restart_station(&req.station_id).await {
+        return GrimoireResponse::failure("failed to restart station", vec![e.into()]);
+    }
+    build_supervisor_status().await
+}
+
+// =========================================================================
+// radio bumpers
+// =========================================================================
+
+fn bumper_to_payload(b: crate::radio::bumpers::Bumper) -> RadioBumper {
+    RadioBumper {
+        id: b.id,
+        station_id: b.station_id,
+        song_id: b.song_id,
+        label: b.label,
+        weight: b.weight,
+        created_at: b.created_at,
+    }
+}
+
+async fn radio_bumpers_list(args: JsonValue) -> GrimoireResponse<JsonValue> {
+    let req: RadioBumpersListRequest = match decode(args) {
+        Ok(v) => v,
+        Err(r) => return r,
+    };
+    match crate::radio::bumpers::list_bumpers(&req.station_id).await {
+        Ok(rows) => {
+            let payload: Vec<RadioBumper> = rows.into_iter().map(bumper_to_payload).collect();
+            to_value(GrimoireResponse::success("bumpers listed", payload))
+        }
+        Err(e) => GrimoireResponse::failure("failed to list bumpers", vec![e.into()]),
+    }
+}
+
+async fn radio_bumpers_add(args: JsonValue) -> GrimoireResponse<JsonValue> {
+    let req: RadioBumpersAddRequest = match decode(args) {
+        Ok(v) => v,
+        Err(r) => return r,
+    };
+    let weight = req.weight.unwrap_or(1);
+    match crate::radio::bumpers::add_bumper(&req.station_id, &req.song_id, &req.label, Some(weight))
+        .await
+    {
+        Ok(b) => {
+            let payload = bumper_to_payload(b);
+            to_value(GrimoireResponse::success("bumper added", payload))
+        }
+        Err(e) => GrimoireResponse::failure("failed to add bumper", vec![e.into()]),
+    }
+}
+
+async fn radio_bumpers_remove(args: JsonValue) -> GrimoireResponse<JsonValue> {
+    let req: RadioBumpersRemoveRequest = match decode(args) {
+        Ok(v) => v,
+        Err(r) => return r,
+    };
+    match crate::radio::bumpers::remove_bumper(&req.bumper_id).await {
+        Ok(()) => GrimoireResponse::success("bumper removed", JsonValue::Null),
+        Err(e) => GrimoireResponse::failure("failed to remove bumper", vec![e.into()]),
+    }
+}
+
+async fn radio_bumpers_set_frequency(args: JsonValue) -> GrimoireResponse<JsonValue> {
+    let req: RadioBumpersSetFrequencyRequest = match decode(args) {
+        Ok(v) => v,
+        Err(r) => return r,
+    };
+    match crate::radio::bumpers::set_frequency(&req.station_id, req.frequency_seconds).await {
+        Ok(()) => GrimoireResponse::success("frequency updated", JsonValue::Null),
+        Err(e) => GrimoireResponse::failure("failed to set bumper frequency", vec![e.into()]),
+    }
 }

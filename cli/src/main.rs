@@ -104,6 +104,12 @@ enum Commands {
         action: plumbing::SyncAction,
     },
 
+    /// Radio (live audio streaming over iroh)
+    Radio {
+        #[command(subcommand)]
+        action: plumbing::RadioAction,
+    },
+
     /// Start HTTP server and/or P2P endpoint based on config
     Serve {
         /// Path to configuration file (overrides --config global flag)
@@ -238,6 +244,9 @@ async fn main() -> Result<()> {
         }
         Commands::Sync { action } => {
             plumbing::handle_sync(action, json_output).await?;
+        }
+        Commands::Radio { action } => {
+            plumbing::handle_radio(action, json_output).await?;
         }
         Commands::Serve { .. } | Commands::Http { .. } | Commands::P2p { .. } => {
             // handled above with early return

@@ -24,6 +24,8 @@ import { AggregateFeedView } from "../../music/views/AggregateFeedView";
 import { GenresView } from "../../music/views/GenresView";
 import { PlaylistsView } from "../../music/views/PlaylistsView";
 import { SongsView } from "../../music/views/SongsView";
+import { RadioView } from "../../music/views/RadioView";
+import { SharedItemsView } from "../../music/views/SharedItemsView";
 import { AppLayout } from "../AppLayout";
 import {
   SettingsLayout,
@@ -31,6 +33,8 @@ import {
   RemotesSettingsView,
   FederationSettingsView,
   RemoteAdminView,
+  RadioSettingsView,
+  RadioAdminView,
 } from "../../settings";
 import { isCharnelMode } from "../services/charnel";
 import { getDefaultRoute } from "../../music/utils/routing";
@@ -84,7 +88,9 @@ export function routes(props: RoutesProps) {
         <Route path="/storage" component={StorageSettingsView} />
         <Route path="/remotes" component={RemotesSettingsView} />
         <Route path="/remotes/:remoteId/admin" component={RemoteAdminView} />
+        <Route path="/remotes/:remoteId/radio" component={RadioAdminView} />
         <Route path="/federation" component={FederationSettingsView} />
+        <Route path="/radio" component={RadioSettingsView} />
         {/* redirect /settings to /settings/storage */}
         <Route
           path="/"
@@ -102,6 +108,12 @@ export function routes(props: RoutesProps) {
 
         {/* aggregate feed - combines all remotes */}
         <Route path="/feed" component={AggregateFeedView} />
+
+        {/* radio - works with zero remotes; ?node_id=… can deep-link a peer */}
+        <Route path="/radio" component={RadioView} />
+
+        {/* shared links history (persisted in app IndexedDB) */}
+        <Route path="/shared" component={SharedItemsView} />
 
         {/* local context routes - hidden in tauri mode (always uses remote server) */}
         {!isCharnelMode() && (

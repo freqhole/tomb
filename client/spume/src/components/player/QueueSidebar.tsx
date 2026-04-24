@@ -1,7 +1,8 @@
 import { createVirtualizer } from "@tanstack/solid-virtual";
 import { createEffect, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import type { Song } from "../../music/data/types";
-import type { QueueHistoryEntry } from "../../app/services/storage/types";
+import type { QueueHistoryEntry, RadioStationRef } from "../../app/services/storage/types";
+import type { ImageMetadata } from "../../music/services/storage/types";
 import { isMobile } from "../../utils/isMobile";
 import { formatDuration } from "../../utils/formatDuration";
 import { getSongDisplayImages, getWaveformImage } from "../../utils/images";
@@ -55,6 +56,8 @@ function historyTypeIcon(type: QueueHistoryEntry["type"]): IconName {
       return "playlist";
     case "shuffle":
       return "shuffle";
+    case "radio_station":
+      return "headphones";
     default:
       return "queue";
   }
@@ -91,6 +94,16 @@ export interface QueueSidebarProps {
   onRemoveHistoryEntry?: (id: string) => void;
   /** callback to clear all history */
   onClearHistory?: () => void;
+  /** currently tuned radio station (if any) */
+  currentRadioStation?: RadioStationRef | null;
+  /** resolved name for the radio station source remote */
+  currentRadioRemoteName?: string;
+  /** resolved remote/server image for radio fallback */
+  currentRadioRemoteImage?: ImageMetadata;
+  /** callback when radio queue entry is clicked */
+  onRadioQueueEntryClick?: (station: RadioStationRef) => void;
+  /** callback to get context menu actions for the radio queue entry */
+  getRadioQueueContextMenuActions?: (station: RadioStationRef) => MenuAction[];
   /** callback to get context menu actions for a history entry */
   getHistoryContextMenuActions?: (entry: QueueHistoryEntry) => MenuAction[];
   /** additional classes */
@@ -122,6 +135,8 @@ export function QueueSidebar(props: QueueSidebarProps) {
   const [activeTab, setActiveTab] = createSignal<QueueTab>("queue");
   const [draggedIndex, setDraggedIndex] = createSignal<number | null>(null);
   const [dropTargetIndex, setDropTargetIndex] = createSignal<number | null>(null);
+  const hasRadioQueueEntry = () => !!props.currentRadioStation;
+  const queueEntryCount = () => props.songs.length + (hasRadioQueueEntry() ? 1 : 0);
 
   // auto-download toggle state
   const [autoDownloadOn, setAutoDownloadOn] = createSignal(getAutoDownloadEnabled());
@@ -387,7 +402,7 @@ export function QueueSidebar(props: QueueSidebarProps) {
               }`}
               onClick={() => setActiveTab("queue")}
             >
-              queue{props.songs.length > 0 ? ` (${props.songs.length})` : ""}
+              queue{queueEntryCount() > 0 ? ` (${queueEntryCount()})` : ""}
             </button>
             <button
               class={`px-3 py-1.5 text-sm font-medium rounded transition-colors ${
@@ -424,7 +439,7 @@ export function QueueSidebar(props: QueueSidebarProps) {
 
             <Show
               when={
-                (activeTab() === "queue" && props.songs.length > 0) ||
+                (activeTab() === "queue" && (props.songs.length > 0 || hasRadioQueueEntry())) ||
                 (activeTab() === "history" && props.historyEntries.length > 0)
               }
             >
@@ -475,6 +490,65 @@ export function QueueSidebar(props: QueueSidebarProps) {
           </div>
         </Show>
 
+        {/* current radio station display */}
+        <Show when={activeTab() === "queue" && props.currentRadioStation}>
+          <div class="px-3 py-2">
+            {(() => {
+              const station = props.currentRadioStation!;
+              const radioCard = (
+                <button
+                  class="w-full text-left flex items-center gap-2 px-2 py-2 rounded-lg bg-[var(--color-accent-500)]/10 hover:bg-[var(--color-accent-500)]/20 transition-colors"
+                  onClick={() => props.onRadioQueueEntryClick?.(station)}
+                  title="resume radio station"
+                >
+                  <Show
+                    when={station.art_thumb_b64}
+                    fallback={
+                      <MediaThumbnail
+                        images={
+                          props.currentRadioRemoteImage
+                            ? [props.currentRadioRemoteImage]
+                            : undefined
+                        }
+                        size={40}
+                        showPlayIcon={false}
+                        enablePlayClick={false}
+                        hideIndex
+                        class="mr-1"
+                      />
+                    }
+                  >
+                    {(b64) => (
+                      <div class="w-10 h-10 rounded overflow-hidden bg-gray-800/50 flex-shrink-0 mr-1">
+                        <img
+                          src={`data:${station.art_thumb_mime ?? "image/jpeg"};base64,${b64()}`}
+                          alt=""
+                          class="w-full h-full object-cover"
+                        />
+                      </div>
+                    )}
+                  </Show>
+                  <div class="flex-1 min-w-0">
+                    <div class="text-sm font-medium text-[var(--color-text-primary)] truncate">
+                      {station.station_name}
+                    </div>
+                    <div class="text-xs text-[var(--color-text-secondary)] truncate">
+                      {props.currentRadioRemoteName ?? (station.is_local ? "local" : "remote")}
+                    </div>
+                  </div>
+                </button>
+              );
+
+              const actions = props.getRadioQueueContextMenuActions?.(station);
+              return actions && actions.length > 0 ? (
+                <ContextMenu actions={actions}>{radioCard}</ContextMenu>
+              ) : (
+                radioCard
+              );
+            })()}
+          </div>
+        </Show>
+
         {/* queue tab content */}
         <div
           ref={scrollElementRef}
@@ -488,13 +562,29 @@ export function QueueSidebar(props: QueueSidebarProps) {
           <Show
             when={props.songs.length > 0}
             fallback={
-              <div class="flex flex-col items-center justify-center h-full text-center px-8">
-                <div class="w-16 h-16 mb-4 bg-[var(--color-accent-500)]/10 flex items-center justify-center">
-                  <Icon name="queue" size={32} color="var(--color-accent-500)" />
+              <Show
+                when={!hasRadioQueueEntry()}
+                fallback={
+                  <div class="flex flex-col items-center justify-center h-full text-center px-8">
+                    <p class="text-[var(--color-text-secondary)] text-sm m-0 mb-2">
+                      no songs queued
+                    </p>
+                    <p class="text-[var(--color-text-muted)] text-xs m-0">
+                      radio is saved above as a queue entry
+                    </p>
+                  </div>
+                }
+              >
+                <div class="flex flex-col items-center justify-center h-full text-center px-8">
+                  <div class="w-16 h-16 mb-4 bg-[var(--color-accent-500)]/10 flex items-center justify-center">
+                    <Icon name="queue" size={32} color="var(--color-accent-500)" />
+                  </div>
+                  <p class="text-[var(--color-text-secondary)] text-sm m-0 mb-2">queue is empty</p>
+                  <p class="text-[var(--color-text-muted)] text-xs m-0">
+                    add songs to see them here
+                  </p>
                 </div>
-                <p class="text-[var(--color-text-secondary)] text-sm m-0 mb-2">queue is empty</p>
-                <p class="text-[var(--color-text-muted)] text-xs m-0">add songs to see them here</p>
-              </div>
+              </Show>
             }
           >
             <div
@@ -884,6 +974,7 @@ export function QueueSidebar(props: QueueSidebarProps) {
                   const entry = () => props.historyEntries[virtualItem.index];
                   const [isRowHovered, setIsRowHovered] = createSignal(false);
                   const isArtist = () => entry().type === "artist";
+                  const isRadio = () => entry().type === "radio_station";
                   const progressPercent = () => {
                     const total = entry().total_seconds || 0;
                     if (total === 0) return 0;
@@ -912,13 +1003,17 @@ export function QueueSidebar(props: QueueSidebarProps) {
                         }
                       }}
                       title={
-                        isMobile()
-                          ? hasProgress()
-                            ? "tap to resume"
-                            : "tap to re-queue"
-                          : hasProgress()
-                            ? "double-click to resume"
-                            : "double-click to re-queue"
+                        isRadio()
+                          ? isMobile()
+                            ? "tap to tune in"
+                            : "double-click to tune in"
+                          : isMobile()
+                            ? hasProgress()
+                              ? "tap to resume"
+                              : "tap to re-queue"
+                            : hasProgress()
+                              ? "double-click to resume"
+                              : "double-click to re-queue"
                       }
                     >
                       {/* type icon / thumbnail */}
@@ -926,20 +1021,36 @@ export function QueueSidebar(props: QueueSidebarProps) {
                         class={`w-10 h-10 flex-shrink-0 mr-3 flex items-center justify-center ${isArtist() ? "rounded-full" : "rounded"} bg-[var(--color-accent-500)]/10 overflow-hidden relative`}
                       >
                         <Show
-                          when={entry().image}
+                          when={isRadio() && entry().radio_station_ref?.art_thumb_b64}
                           fallback={
-                            <Icon
-                              name={historyTypeIcon(entry().type)}
-                              size={20}
-                              color="var(--color-accent-500)"
-                            />
+                            <Show
+                              when={entry().image}
+                              fallback={
+                                <Icon
+                                  name={historyTypeIcon(entry().type)}
+                                  size={20}
+                                  color="var(--color-accent-500)"
+                                />
+                              }
+                            >
+                              <MediaThumbnail
+                                images={entry().image ? [entry().image!] : undefined}
+                                size={40}
+                                class={isArtist() ? "rounded-full" : undefined}
+                              />
+                            </Show>
                           }
                         >
-                          <MediaThumbnail
-                            images={entry().image ? [entry().image!] : undefined}
-                            size={40}
-                            class={isArtist() ? "rounded-full" : undefined}
-                          />
+                          {(_b64) => {
+                            const ref = entry().radio_station_ref!;
+                            return (
+                              <img
+                                src={`data:${ref.art_thumb_mime ?? "image/jpeg"};base64,${ref.art_thumb_b64}`}
+                                alt=""
+                                class="w-full h-full object-cover"
+                              />
+                            );
+                          }}
                         </Show>
                       </div>
 
@@ -949,18 +1060,28 @@ export function QueueSidebar(props: QueueSidebarProps) {
                           <MarqueeText text={entry().label} hoverOnly isHovering={isRowHovered} />
                         </h4>
                         <p class="text-xs text-[var(--color-text-secondary)] m-0">
-                          {entry().type} &middot;{" "}
                           <Show
-                            when={hasProgress()}
+                            when={isRadio()}
                             fallback={
                               <>
-                                {entry().song_count} {entry().song_count === 1 ? "song" : "songs"}
+                                {entry().type} &middot;{" "}
+                                <Show
+                                  when={hasProgress()}
+                                  fallback={
+                                    <>
+                                      {entry().song_count}{" "}
+                                      {entry().song_count === 1 ? "song" : "songs"}
+                                    </>
+                                  }
+                                >
+                                  {entry().songs_completed}/{entry().song_count}{" "}
+                                  {entry().song_count === 1 ? "song" : "songs"} &middot;{" "}
+                                  {Math.round(progressPercent())}%
+                                </Show>
                               </>
                             }
                           >
-                            {entry().songs_completed}/{entry().song_count}{" "}
-                            {entry().song_count === 1 ? "song" : "songs"} &middot;{" "}
-                            {Math.round(progressPercent())}%
+                            radio station
                           </Show>
                         </p>
 
