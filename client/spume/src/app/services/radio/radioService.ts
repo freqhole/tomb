@@ -250,6 +250,12 @@ export function applyTimelineNowPlaying(track: {
 }): void {
   const songId = track.songId?.trim() ? track.songId.trim() : "";
   const prevSongId = nowPlaying()?.song_id?.trim() || "";
+  
+  console.info(
+    "[radioService] applyTimelineNowPlaying — from:", prevSongId, "to:", songId,
+    "title:", track.title
+  );
+  
   if (track.artUrl !== undefined) {
     swapArtUrl(track.artUrl ?? null);
   } else if (songId && prevSongId && songId !== prevSongId) {

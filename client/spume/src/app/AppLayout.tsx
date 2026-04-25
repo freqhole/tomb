@@ -544,6 +544,16 @@ export function AppLayout(props: AppLayoutProps) {
     const artworkUrl = radioArtUrl();
     const isPlayingNow = status === "playing";
 
+    console.info(
+      "[AppLayout] mediaSession effect triggered",
+      "song_id:",
+      np?.song_id,
+      "title:",
+      title,
+      "status:",
+      status
+    );
+
     // never arm media-session handlers while radio is idle. this avoids
     // accidental lock-screen/system-triggered play callbacks from
     // auto-retuning a saved station on page load.

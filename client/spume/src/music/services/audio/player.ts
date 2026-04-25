@@ -403,6 +403,13 @@ export function setExternalMediaSession(options: ExternalMediaSessionOptions): v
   if (!("mediaSession" in navigator)) return;
   _externalMediaSessionActive = true;
 
+  console.info(
+    "[player] setExternalMediaSession:",
+    "title:", options.title,
+    "artist:", options.artist,
+    "isPlaying:", options.isPlaying
+  );
+
   const artwork = options.artworkUrl
     ? ([
         { src: options.artworkUrl, sizes: "96x96", type: "image/jpeg" },

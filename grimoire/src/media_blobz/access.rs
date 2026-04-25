@@ -1,6 +1,7 @@
-use crate::blob_data::{self, find_existing_thumbnail};
+use crate::blob_data::find_existing_thumbnail;
 use crate::error::ErrorDetail;
 use crate::media_blobz::get_media_blob;
+use crate::media_blobz::get_media_blob_with_data;
 use crate::response::GrimoireResponse;
 use base64::Engine;
 use serde_json::{json, Value as JsonValue};
@@ -35,35 +36,38 @@ pub async fn build_blob_path_response(id: &str) -> GrimoireResponse<JsonValue> {
 
 /// build the standard blob-data response used by blob route handlers.
 pub async fn build_blob_data_response(id: &str) -> GrimoireResponse<JsonValue> {
-    let blob = match get_media_blob(id).await {
-        Ok(b) => b,
+    let (blob, maybe_data) = match get_media_blob_with_data(id).await {
+        Ok(v) => v,
         Err(e) => return GrimoireResponse::failure("blob not found", vec![ErrorDetail::from(e)]),
     };
 
-    let data_response = blob_data::get_blob_data(&blob.id).await;
-    if !data_response.success {
-        return GrimoireResponse::failure(
-            "failed to get blob data",
-            data_response
-                .errors
-                .into_iter()
-                .map(ErrorDetail::from)
-                .collect(),
-        );
-    }
-
-    let data = match data_response.data {
+    let data = match maybe_data {
         Some(d) => d,
-        None => {
-            return GrimoireResponse::failure(
-                "blob data not found",
-                vec![ErrorDetail::new(
-                    "blob_data_not_found",
+        None => match blob.local_path.as_deref() {
+            Some(path) => match tokio::fs::read(path).await {
+                Ok(bytes) => bytes,
+                Err(e) => {
+                    return GrimoireResponse::failure(
+                        "failed to read blob file",
+                        vec![ErrorDetail::new(
+                            "blob_file_read_failed",
+                            "failed to read blob file",
+                            &format!("could not read file at {path}: {e}"),
+                        )],
+                    )
+                }
+            },
+            None => {
+                return GrimoireResponse::failure(
                     "blob data not found",
-                    "no binary data stored for this blob",
-                )],
-            )
-        }
+                    vec![ErrorDetail::new(
+                        "blob_data_not_found",
+                        "blob data not found",
+                        "no binary data stored for this blob",
+                    )],
+                )
+            }
+        },
     };
 
     let base64_data = base64::engine::general_purpose::STANDARD.encode(&data);

@@ -826,7 +826,7 @@ export function RadioView() {
                           {radioListenerCount()} listener
                           {radioListenerCount() === 1 ? "" : "s"}
                         </div>
-                        <button
+                        {/* <button
                           class={`mt-2 text-xs px-2 py-1 rounded border transition-colors ${
                             bookmarked()
                               ? "border-emerald-700 text-emerald-400 bg-emerald-900/30 cursor-default"
@@ -841,7 +841,7 @@ export function RadioView() {
                             : bookmarking()
                               ? "saving…"
                               : "save to history"}
-                        </button>
+                        </button> */}
                         <button
                           class="mt-2 ml-2 text-xs px-2 py-1 rounded border border-neutral-700 hover:border-neutral-500 hover:text-neutral-200 transition-colors"
                           onClick={() => openStationShare(s())}

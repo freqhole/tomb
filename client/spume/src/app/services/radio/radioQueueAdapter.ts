@@ -11,16 +11,20 @@
 // upcoming songs in the background so transitions are gapless.
 
 import { createEffect, createRoot, on } from "solid-js";
+import { schema, type PublicTimelineManifestItem } from "freqhole-api-client";
 import { localDataSource } from "../../../music/data/local/localSource";
 import { RemoteMusicDataSource } from "../../../music/data/remote/remoteSource";
 import { allowTimelineAutoplay, isPlaying, pause, playSong } from "../../../music/services/audio/player";
 import { cleanupAllAudioURLs } from "../../../music/services/storage/audioAccess";
 import { getBlobObjectURL } from "../../../music/services/storage/blobs";
 import { preCacheP2PBlob, resolveBlobUrl } from "../../../music/services/storage/blobResolver";
+import { getFileExtension, writeAudioToOPFS } from "../../../music/services/opfs/helpers";
+import { getTransportForRemote } from "../../api/client";
 import { getRemoteByPeerAddr, getRemoteById, getTauriManagedRemote } from "../remotes/remoteManager";
 import { getPendingRemoteByPeerAddr } from "../storage/db";
 import {
   applyTimelineNowPlaying,
+  radioCurrentStationId,
   radioTimelineSnapshot,
   radioUseTimelineMode,
   radioCurrentPeerAddr,
@@ -168,12 +172,172 @@ interface TimelineCurrentLike {
 }
 
 interface TimelineSnapshotLike {
+  station_id?: string;
   upcoming: Array<{
     song_id: string;
     planned_start_at_ms: number;
     timeline_item_id?: string;
     duration_ms?: number | null;
   }>;
+}
+
+function decodeBase64ToBytes(base64: string): Uint8Array {
+  const binary = atob(base64.trim());
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
+}
+
+function asRelativeApiPath(urlOrPath: string): string {
+  if (urlOrPath.startsWith("/")) return urlOrPath;
+  try {
+    const u = new URL(urlOrPath);
+    return `${u.pathname}${u.search}`;
+  } catch {
+    return urlOrPath;
+  }
+}
+
+async function tryLoadPublicTimelineSong(
+  remote: Remote,
+  current: TimelineCurrentLike,
+  stationIdHint?: string,
+): Promise<{ song: Song; item: PublicTimelineManifestItem } | null> {
+  const stationId = radioCurrentStationId()?.trim() || stationIdHint?.trim() || "";
+  if (!stationId) {
+    console.warn("[radio-queue-adapter] public fallback: missing station_id");
+    return null;
+  }
+
+  const transport = await getTransportForRemote(remote);
+  const timelinePath = `/api/radio/stations/${encodeURIComponent(stationId)}/timeline`;
+  const timelineResp = await transport.request("GET", timelinePath);
+  if (timelineResp.status !== 200) {
+    console.warn(
+      "[radio-queue-adapter] public fallback: timeline fetch failed",
+      timelineResp.status,
+      timelinePath,
+    );
+    return null;
+  }
+
+  let timelineJson: unknown;
+  try {
+    timelineJson = JSON.parse(timelineResp.body);
+  } catch {
+    console.warn("[radio-queue-adapter] public fallback: timeline response was not JSON");
+    return null;
+  }
+
+  const timelinePayload =
+    timelineJson && typeof timelineJson === "object" && "data" in (timelineJson as Record<string, unknown>)
+      ? (timelineJson as { data?: unknown }).data
+      : timelineJson;
+  const timelineParsed = schema.PublicTimelineManifestSchema.safeParse(timelinePayload);
+  if (!timelineParsed.success) {
+    console.warn("[radio-queue-adapter] public fallback: timeline schema parse failed");
+    return null;
+  }
+
+  const manifest = timelineParsed.data;
+  const item = [manifest.current, ...manifest.upcoming].find((it) => {
+    if (!it) return false;
+    return it.timeline_item_id === current.timeline_item_id || it.song_id === current.song_id;
+  });
+  if (!item) {
+    console.warn(
+      "[radio-queue-adapter] public fallback: timeline item not found",
+      current.timeline_item_id,
+      current.song_id,
+    );
+    return null;
+  }
+  if (!item.audio?.url) {
+    console.warn(
+      "[radio-queue-adapter] public fallback: timeline item missing audio url",
+      item.timeline_item_id,
+      item.song_id,
+    );
+    return null;
+  }
+
+  const dataPath = `${asRelativeApiPath(item.audio.url).replace(/\/$/, "")}/data`;
+  const audioResp = await transport.request("GET", dataPath);
+  if (audioResp.status !== 200) {
+    console.warn(
+      "[radio-queue-adapter] public fallback: audio data fetch failed",
+      audioResp.status,
+      dataPath,
+    );
+    return null;
+  }
+
+  let audioJson: unknown;
+  try {
+    audioJson = JSON.parse(audioResp.body);
+  } catch {
+    console.warn("[radio-queue-adapter] public fallback: audio data response was not JSON");
+    return null;
+  }
+
+  const audioPayload =
+    audioJson && typeof audioJson === "object" && "data" in (audioJson as Record<string, unknown>)
+      ? (audioJson as { data?: { data?: string; mime?: string } }).data
+      : (audioJson as { data?: string; mime?: string } | null);
+  const base64 = audioPayload?.data;
+  const mime = audioPayload?.mime ?? "audio/mpeg";
+  if (!base64) {
+    console.warn("[radio-queue-adapter] public fallback: audio data payload missing base64 body");
+    return null;
+  }
+
+  const bytes = decodeBase64ToBytes(base64);
+  const blob = new Blob([bytes], { type: mime });
+  const extension = getFileExtension(mime);
+  const localAudioId = `radio-public-${stationId}-${current.timeline_item_id}`;
+  const opfsPath = await writeAudioToOPFS(blob, localAudioId, extension);
+
+  const now = Date.now();
+  const durationMs = item.duration_ms ?? current.duration_ms ?? 0;
+  const songId = (item.song_id || current.song_id || localAudioId).trim() || localAudioId;
+  const song: Song = {
+    id: songId,
+    sha256: localAudioId,
+    media_blob_id: undefined,
+    title: item.title ?? "radio",
+    artist_id: "",
+    album_id: "",
+    track_number: 0,
+    disc_number: 0,
+    duration_seconds: Math.max(0, Math.floor(durationMs / 1000)),
+    year: null,
+    bpm: null,
+    track_artist: null,
+    lyrics: null,
+    metadata: null,
+    created_at: now,
+    updated_at: now,
+    artist_name: item.artist ?? "radio",
+    album_title: item.album ?? "radio",
+    album_added_at: now,
+    album_primary_genre_id: null,
+    source_type: "local",
+    opfs_path: opfsPath,
+    file_name: `${localAudioId}.${extension}`,
+    file_size: blob.size,
+    last_modified: now,
+    mime_type: mime,
+    source_url: null,
+    downloaded_at: null,
+    remote_server_id: null,
+    remote_song_id: null,
+    blake3: null,
+    added_at: now,
+  };
+
+  return { song, item };
 }
 
 async function resolveTimelineArt(
@@ -330,12 +494,28 @@ async function handleTrackTransition(
     }
   } catch (e) {
     console.warn("[radio-queue-adapter] getSongById failed:", e);
-    markTimelinePlaybackBlocked(
-      localSession || !remote
-        ? "failed to fetch current radio song from local library"
-        : "failed to fetch current radio song from remote",
-    );
-    return;
+    if (!localSession && remote) {
+      try {
+        const fallback = await tryLoadPublicTimelineSong(remote, current, snapshot.station_id);
+        if (fallback) {
+          song = fallback.song;
+          console.info(
+            "[radio-queue-adapter] using public timeline fallback after remote song lookup failed:",
+            current.song_id,
+          );
+        }
+      } catch (fallbackErr) {
+        console.warn("[radio-queue-adapter] public timeline fallback failed:", fallbackErr);
+      }
+    }
+    if (!song) {
+      markTimelinePlaybackBlocked(
+        localSession || !remote
+          ? "failed to fetch current radio song from local library"
+          : "failed to fetch current radio song from remote",
+      );
+      return;
+    }
   }
   if (!song) {
     console.warn(
@@ -348,9 +528,25 @@ async function handleTrackTransition(
         "timeline mode needs a configured remote for this broadcaster (add it in remotes)",
       );
     } else {
-      markTimelinePlaybackBlocked("radio track metadata could not be resolved");
+      if (!localSession && remote) {
+        try {
+          const fallback = await tryLoadPublicTimelineSong(remote, current, snapshot.station_id);
+          if (fallback) {
+            song = fallback.song;
+            console.info(
+              "[radio-queue-adapter] recovered null song via public timeline fallback:",
+              current.song_id,
+            );
+          }
+        } catch (fallbackErr) {
+          console.warn("[radio-queue-adapter] public timeline fallback failed:", fallbackErr);
+        }
+      }
+      if (!song) {
+        markTimelinePlaybackBlocked("radio track metadata could not be resolved");
+        return;
+      }
     }
-    return;
   }
   if (gen !== adapterGeneration) return;
 
@@ -364,6 +560,13 @@ async function handleTrackTransition(
   console.info(
     `[radio-queue-adapter] playing "${song.title}" at ${Math.round(initialPosition)}s` +
       ` (item ${current.timeline_item_id}, duration_ms=${current.duration_ms})`,
+  );
+
+  console.info(
+    "[radio-queue-adapter] calling applyTimelineNowPlaying with:",
+    "song_id:", song.id,
+    "title:", song.title,
+    "artist:", song.artist_name
   );
 
   applyTimelineNowPlaying({
