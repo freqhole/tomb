@@ -53,6 +53,7 @@ import {
   resolveBlobUrl,
   usesBlobResolver,
 } from "../music/services/storage/blobResolver";
+import { getClientForRemote } from "./api/client";
 import { deleteSongFromLocal } from "../music/services/sync";
 import {
   getPendingDownloadCount,
@@ -72,6 +73,7 @@ import {
 import { useSongContextMenu } from "../music/hooks/contextMenu";
 import {
   getAllRemotes,
+  getRemoteById,
   onRemoteStatusChange,
   onSwitchToLocal,
 } from "./services/remotes/remoteManager";
@@ -108,6 +110,7 @@ import { debug } from "../utils/logger";
 import { isNarrowViewport } from "../config/breakpoints";
 import { getBackgroundConfig } from "./services/backgroundImage";
 import { playbackMode } from "./services/playbackMode";
+import { setHighlightedSongId } from "../music/state/highlightedSong";
 import {
   leaveRadio,
   radioArtUrl,
@@ -1101,27 +1104,37 @@ export function AppLayout(props: AppLayoutProps) {
                 };
               }
               const remoteId = radioCurrentRemoteServerId();
-              // synthesize an `images` array so PlayerBar's waveform
-              // pipeline can render the overlay just like in music mode.
-              // requires a resolved local remote (so MediaImage knows
-              // which backend to fetch from).
-              const images =
-                np.waveform_blob_id && remoteId
-                  ? [
-                      {
-                        remote_blob_id: np.waveform_blob_id,
-                        remote_server_id: remoteId,
-                        is_primary: false,
-                        blob_type: "waveform" as const,
-                      },
-                    ]
-                  : undefined;
+              const artUrl = radioArtUrl() ?? undefined;
+              const images = remoteId
+                ? [
+                    ...(np.art_blob_id
+                      ? [
+                          {
+                            remote_blob_id: np.art_blob_id,
+                            remote_server_id: remoteId,
+                            is_primary: true,
+                            blob_type: "thumbnail" as const,
+                          },
+                        ]
+                      : []),
+                    ...(np.waveform_blob_id
+                      ? [
+                          {
+                            remote_blob_id: np.waveform_blob_id,
+                            remote_server_id: remoteId,
+                            is_primary: false,
+                            blob_type: "waveform" as const,
+                          },
+                        ]
+                      : []),
+                  ]
+                : undefined;
               return {
                 id: np.song_id || "radio",
                 title: np.title || "untitled",
                 artist: np.artist ?? "unknown artist",
                 album: np.album ?? undefined,
-                thumbnailUrl: radioArtUrl() ?? undefined,
+                thumbnailUrl: artUrl,
                 images,
                 isFavorite: radioCurrentFavorite() ?? false,
               };
@@ -1148,8 +1161,7 @@ export function AppLayout(props: AppLayoutProps) {
           const barCurrentTime = () => (isRadio() ? radioElapsedMs() / 1000 : currentTime());
           const barDuration = () => {
             if (isRadio()) {
-              const ms = radioNowPlaying()?.duration_ms;
-              return ms ? ms / 1000 : 0;
+              return 0;
             }
             return duration();
           };
@@ -1204,6 +1216,62 @@ export function AppLayout(props: AppLayoutProps) {
               return;
             }
             handlePlayerImageClick();
+          };
+
+          const onSongMetaClick = () => {
+            if (!isRadio()) {
+              const cs = currentSongData();
+              if (!cs || !cs.album_id) return;
+              setHighlightedSongId(cs.id);
+              navigate(routes.album(cs.album_id));
+              return;
+            }
+
+            const np = radioNowPlaying();
+            const remoteId = radioCurrentRemoteServerId();
+            const songId = typeof np?.song_id === "string" ? np.song_id.trim() : "";
+            if (!np || !remoteId || !songId) {
+              navigate("/radio");
+              return;
+            }
+            void (async () => {
+              try {
+                const remote = await getRemoteById(remoteId);
+                if (!remote) {
+                  navigate("/radio");
+                  return;
+                }
+                const client = await getClientForRemote(remote);
+                const result = await client.music.querySongs({
+                  q: null,
+                  search_fields: null,
+                  filters: { song_ids: [songId] },
+                  sort_by: null,
+                  sort_direction: null,
+                  limit: 1,
+                  offset: null,
+                  user_id: null,
+                  favorites_only: null,
+                  min_rating: null,
+                });
+                if (!result.success || result.data.items.length === 0) {
+                  navigate("/radio");
+                  return;
+                }
+                const albumId = result.data.items[0].album?.id;
+                if (!albumId) {
+                  navigate("/radio");
+                  return;
+                }
+                setHighlightedSongId(songId);
+                navigate(
+                  `/${remoteId}/albums/${encodeURIComponent(albumId)}?song_id=${encodeURIComponent(songId)}`
+                );
+              } catch (e) {
+                debug("AppLayout", "radio song meta navigate failed:", e);
+                navigate("/radio");
+              }
+            })();
           };
 
           // status badge for radio mode: live indicator + listener count.
@@ -1263,10 +1331,12 @@ export function AppLayout(props: AppLayoutProps) {
               onQueueToggle={handleQueueToggle}
               onFavoriteToggle={onFavToggle}
               onImageClick={onImageClick}
+              onSongMetaClick={onSongMetaClick}
               queueLength={appState()?.queue.length || 0}
               canGoNext={isRadio() ? false : canGoNext()}
               canGoPrevious={isRadio() ? false : canGoPrevious()}
               statusBadge={statusBadge()}
+              isLiveStream={isRadio()}
             />
           );
         })()}

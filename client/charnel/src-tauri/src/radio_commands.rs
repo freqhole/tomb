@@ -88,6 +88,11 @@ pub enum RadioEvent {
 /// `radio_leave` to tear down.
 #[tauri::command]
 pub async fn radio_tune(peer_addr: String, events: Channel<RadioEvent>) -> Result<String, String> {
+    // singleton policy: only one active listener session per app process.
+    // clear any stale/overlapping sessions before opening a fresh tune.
+    drop_all_sessions();
+    drop_all_local_sessions();
+
     let endpoint = get_endpoint_arc().map_err(|e| e.to_string())?;
     let addr = parse_peer_address(&peer_addr).map_err(|e| e.to_string())?;
 
@@ -199,6 +204,20 @@ fn drop_session(session_id: &str) {
     }
 }
 
+fn drop_all_sessions() {
+    if let Some(map) = sessions().as_mut() {
+        let drained: Vec<Session> = map.drain().map(|(_, session)| session).collect();
+        let count = drained.len();
+        for session in drained {
+            session.cancel.cancel();
+            session._conn.close(0u32.into(), b"radio singleton handoff");
+        }
+        if count > 0 {
+            tracing::debug!(count, "[radio-charnel] dropped existing remote session(s)");
+        }
+    }
+}
+
 // ---------- self-listen: in-process tune to a local broadcaster --------
 
 /// active local sessions keyed by opaque session id. dropping the entry
@@ -226,6 +245,19 @@ fn drop_local_session(session_id: &str) {
     }
 }
 
+fn drop_all_local_sessions() {
+    if let Some(map) = local_sessions().as_mut() {
+        let drained: Vec<LocalSession> = map.drain().map(|(_, session)| session).collect();
+        let count = drained.len();
+        for session in drained {
+            session.cancel.cancel();
+        }
+        if count > 0 {
+            tracing::debug!(count, "[radio-charnel] dropped existing local session(s)");
+        }
+    }
+}
+
 /// subscribe directly to a local broadcaster (no iroh hop). lets the
 /// charnel app listen to its own stations without round-tripping through
 /// iroh's "you can't dial yourself" check. emits the same RadioEvent
@@ -235,6 +267,10 @@ pub async fn radio_tune_local(
     station_id: Option<String>,
     events: Channel<RadioEvent>,
 ) -> Result<String, String> {
+    // singleton policy: only one active listener across remote + local paths.
+    drop_all_sessions();
+    drop_all_local_sessions();
+
     use grimoire::radio::broadcaster::{get_default, get_station};
     use grimoire::radio::messages::{ControlMessage, HelloMessage, RADIO_CODEC};
 

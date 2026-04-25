@@ -73,43 +73,40 @@ const [currentRemoteServerId, setCurrentRemoteServerId] = createSignal<
 const [currentFavorite, setCurrentFavorite] = createSignal<boolean | null>(
   null,
 );
+const [stabilityMode, setStabilityMode] = createSignal<boolean>(false);
 
-// in-track elapsed time signal (milliseconds since the current track's
-// init segment latched). consumed by the future unified player bar (2c-iii)
-// to drive the scrubber. updated by a 4Hz ticker while a session is active.
-// `trackStartAtAudioTime` is the audio.currentTime value captured the
-// moment the init segment for the current track was applied; elapsed is
-// `audio.currentTime - trackStartAtAudioTime`.
+// listening elapsed time signal (milliseconds since this listener started
+// hearing the current radio session). this is intentionally independent of
+// track timing/seek position because live radio is not seekable.
 const [elapsedMs, setElapsedMs] = createSignal<number>(0);
-let trackStartAtAudioTime = 0;
-// initial offset (ms) reported by the broadcaster's Hello so a fresh
-// listener's scrubber starts at the live edge instead of 0:00. cleared
-// whenever a new track's init segment lands via pendingMeta (real track
-// transitions reset elapsed back to 0).
-let helloElapsedOffsetMs = 0;
+let listenStartedAtMs = 0;
+let listenedAccumulatedMs = 0;
 let elapsedTickHandle: number | null = null;
 
 const startElapsedTicker = () => {
   if (elapsedTickHandle !== null) return;
   elapsedTickHandle = window.setInterval(() => {
-    if (!audioSink) return;
-    const np = nowPlaying();
-    const dur = np?.duration_ms ?? null;
-    let ms =
-      Math.max(0, (audioSink.currentTime - trackStartAtAudioTime) * 1000) +
-      helloElapsedOffsetMs;
-    if (dur != null && ms > dur) ms = dur;
-    setElapsedMs(ms);
+    const now = Date.now();
+    const inFlight =
+      listenStartedAtMs > 0 ? Math.max(0, now - listenStartedAtMs) : 0;
+    setElapsedMs(listenedAccumulatedMs + inFlight);
   }, 250);
 };
-const stopElapsedTicker = () => {
+const stopElapsedTicker = (opts: { reset?: boolean } = {}) => {
   if (elapsedTickHandle !== null) {
     window.clearInterval(elapsedTickHandle);
     elapsedTickHandle = null;
   }
-  setElapsedMs(0);
-  trackStartAtAudioTime = 0;
-  helloElapsedOffsetMs = 0;
+  if (opts.reset) {
+    listenStartedAtMs = 0;
+    listenedAccumulatedMs = 0;
+    setElapsedMs(0);
+    return;
+  }
+  if (listenStartedAtMs > 0) {
+    listenedAccumulatedMs += Math.max(0, Date.now() - listenStartedAtMs);
+    listenStartedAtMs = 0;
+  }
 };
 
 let activeSession: RadioSession | null = null;
@@ -129,6 +126,24 @@ export const radioCurrentStationId = currentStationId;
 export const radioCurrentRemoteServerId = currentRemoteServerId;
 export const radioCurrentFavorite = currentFavorite;
 export const radioElapsedMs = elapsedMs;
+export const radioStabilityMode = stabilityMode;
+
+// monotonically increasing tune attempt id. async callbacks from older
+// attempts no-op when their id no longer matches this value.
+let activeTuneAttemptId = 0;
+
+function bumpTuneAttemptId(): number {
+  activeTuneAttemptId = (activeTuneAttemptId + 1) >>> 0;
+  if (activeTuneAttemptId === 0) activeTuneAttemptId = 1;
+  return activeTuneAttemptId;
+}
+
+/**
+ * enable/disable conservative buffering behavior for unstable links.
+ */
+export function setRadioStabilityMode(enabled: boolean): void {
+  setStabilityMode(!!enabled);
+}
 
 export function currentRadioSession(): RadioSession | null {
   return activeSession;
@@ -216,6 +231,8 @@ export function radioResume(): void {
 
 /** stop the current radio session if any. safe to call when idle. */
 export function leaveRadio(): void {
+  // invalidate async callbacks from any in-flight/old tune attempt.
+  bumpTuneAttemptId();
   pausedContext = null;
   if (activeSession) {
     try {
@@ -234,7 +251,7 @@ export function leaveRadio(): void {
   setCurrentStationId(null);
   setCurrentRemoteServerId(null);
   setCurrentFavorite(null);
-  stopElapsedTicker();
+  stopElapsedTicker({ reset: true });
   
   // clear persisted radio station
   void setCurrentRadioStationPersisted(null);
@@ -298,6 +315,24 @@ interface TuneOptions {
   isLocal?: boolean;
 }
 
+function shouldRecordRadioHistoryEntry(np: PublicNowPlaying, songId: string | null): boolean {
+  // ignore interstitial/placeholder cards emitted by broadcaster state
+  // transitions; history should only contain real songs.
+  if (!songId) return false;
+
+  const title = (np.title ?? "").trim().toLowerCase();
+  if (!title) return false;
+  if (title.startsWith("[station id]")) return false;
+
+  const interstitialTitles = new Set([
+    "waiting for listeners…",
+    "waiting for listeners...",
+    "switching tracks…",
+    "switching tracks...",
+  ]);
+  return !interstitialTitles.has(title);
+}
+
 /**
  * connect to a radio broadcaster. returns the audio element so views
  * can attach it to the dom (or to a layout-level player bar later).
@@ -310,9 +345,19 @@ export async function tuneIntoRadio(
 ): Promise<HTMLAudioElement> {
   // tear down any prior session.
   leaveRadio();
+  const tuneAttemptId = bumpTuneAttemptId();
+  const isActiveTune = () => tuneAttemptId === activeTuneAttemptId;
+
+  const guarded = (fn: () => void) => {
+    if (!isActiveTune()) return;
+    fn();
+  };
 
   // make sure local music isn't competing for the speakers.
   await stopMusicForRadio();
+  if (!isActiveTune()) {
+    throw new Error("radio tune superseded by a newer attempt");
+  }
 
   setStatus("connecting");
   setCurrentPeerAddr(peerAddr);
@@ -321,8 +366,12 @@ export async function tuneIntoRadio(
   // fetch waveform blobs from the right backend. fire-and-forget;
   // missing or pending remotes just leave the signal null.
   void getRemoteByPeerAddr(peerAddr)
-    .then((r) => setCurrentRemoteServerId(r?.remote_id ?? null))
-    .catch(() => setCurrentRemoteServerId(null));
+    .then((r) => {
+      guarded(() => setCurrentRemoteServerId(r?.remote_id ?? null));
+    })
+    .catch(() => {
+      guarded(() => setCurrentRemoteServerId(null));
+    });
 
   // pick transport: charnel/tauri uses the native iroh path via
   // `radio_tune` IPC commands (or `radio_tune_local` for self-listen);
@@ -332,6 +381,9 @@ export async function tuneIntoRadio(
   let node: { tune_radio: NonNullable<Awaited<ReturnType<typeof getMiddenNode>>["tune_radio"]> } | null = null;
   if (!useCharnel) {
     const middenNode = await getMiddenNode();
+    if (!isActiveTune()) {
+      throw new Error("radio tune superseded by a newer attempt");
+    }
     if (typeof middenNode.tune_radio !== "function") {
       setStatus("error");
       setError("midden build missing tune_radio");
@@ -362,24 +414,89 @@ export async function tuneIntoRadio(
   const queue: Uint8Array[] = [];
   let seekedToLive = false;
 
+  // ---- diagnostics -----------------------------------------------------
+  let sourceBufferResetCount = 0;
+  let resyncCount = 0;
+  let maxLiveEdgeBufferMs = 0;
+  const chunkGapSamplesMs: number[] = [];
+  let chunkGapSumMs = 0;
+  let lastChunkAtMs: number | null = null;
+  let diagnosticsTick: number | null = null;
+  const pushChunkGapSample = (gapMs: number) => {
+    chunkGapSamplesMs.push(gapMs);
+    chunkGapSumMs += gapMs;
+    if (chunkGapSamplesMs.length > 240) {
+      const dropped = chunkGapSamplesMs.shift();
+      if (typeof dropped === "number") chunkGapSumMs -= dropped;
+    }
+  };
+  const percentile = (samples: number[], p: number): number => {
+    if (samples.length === 0) return 0;
+    const sorted = [...samples].sort((a, b) => a - b);
+    const idx = Math.min(
+      sorted.length - 1,
+      Math.max(0, Math.floor((sorted.length - 1) * p)),
+    );
+    return sorted[idx];
+  };
+  const startDiagnostics = () => {
+    if (diagnosticsTick !== null) return;
+    diagnosticsTick = window.setInterval(() => {
+      if (!isActiveTune()) return;
+      const samples = chunkGapSamplesMs.length;
+      const avgChunkGapMs = samples > 0 ? chunkGapSumMs / samples : 0;
+      const p95ChunkGapMs = percentile(chunkGapSamplesMs, 0.95);
+      console.info(
+        "[radio] session summary:",
+        JSON.stringify({
+          stall_count: stallCount,
+          resync_count: resyncCount,
+          sourcebuffer_reset_count: sourceBufferResetCount,
+          max_live_edge_buffer_ms: maxLiveEdgeBufferMs,
+          avg_chunk_gap_ms: Math.round(avgChunkGapMs),
+          p95_chunk_gap_ms: Math.round(p95ChunkGapMs),
+          queue_depth: queue.length,
+        }),
+      );
+    }, 30_000);
+  };
+  const stopDiagnostics = () => {
+    if (diagnosticsTick !== null) {
+      window.clearInterval(diagnosticsTick);
+      diagnosticsTick = null;
+    }
+  };
+
   // ---- history scope ---------------------------------------------------
   // tracked per-session so we only record one history row per actual
-  // (station, song_id) transition. resets on leaveRadio via the new
+  // track transition. prefer `init_seq` when available; fall back to
+  // song/title metadata when control messages omit sequence.
+  // resets on leaveRadio via the new
   // session reset path.
-  let lastHistorySongId: string | null = null;
+  let lastHistoryTrackKey: string | null = null;
   const sessionPeerAddr = peerAddr;
   const sessionStationName = opts.stationName ?? null;
-  const maybeRecordHistory = (np: PublicNowPlaying, rawArt: { mime?: string; data?: string } | null) => {
-    const songId = np.song_id ?? null;
-    // only record on actual song-id transitions; ignore initial null and
-    // duplicate meta updates within the same track.
-    if (!songId || songId === lastHistorySongId) return;
-    lastHistorySongId = songId;
+  const maybeRecordHistory = (
+    np: PublicNowPlaying,
+    rawArt: { mime?: string; data?: string } | null,
+    initSeq?: number,
+  ) => {
+    const rawSongId = typeof np.song_id === "string" ? np.song_id.trim() : "";
+    const songId = rawSongId.length > 0 ? rawSongId : null;
+    if (!shouldRecordRadioHistoryEntry(np, songId)) return;
+    const historyKey =
+      typeof initSeq === "number"
+        ? `init:${initSeq}`
+        : `meta:${songId ?? ""}:${np.title}:${np.artist ?? ""}:${np.album ?? ""}`;
+    if (historyKey === lastHistoryTrackKey) return;
+    lastHistoryTrackKey = historyKey;
     // reset + best-effort fetch the favorite state for the new track
     // from the broadcasting peer. only works when the peer is also a
     // registered remote with an authenticated session.
     setCurrentFavorite(null);
-    void fetchRadioFavorite(songId, sessionPeerAddr);
+    if (songId) {
+      void fetchRadioFavorite(songId, sessionPeerAddr);
+    }
     void recordHistoryEntry({
       station_id: currentStationId(),
       station_name: sessionStationName,
@@ -396,6 +513,7 @@ export async function tuneIntoRadio(
   };
 
   const drain = () => {
+    if (!isActiveTune()) return;
     if (!sb || sb.updating) return;
     const next = queue.shift();
     if (next) {
@@ -419,11 +537,6 @@ export async function tuneIntoRadio(
       if (audio.currentTime < target) {
         audio.currentTime = target;
       }
-      // re-latch the elapsed origin to wherever we ended up after the
-      // live-edge seek. without this the very first track shows 0:00
-      // forever because `trackStartAtAudioTime` was captured before the
-      // catchup chunks shifted `audio.currentTime` forward.
-      trackStartAtAudioTime = audio.currentTime;
       seekedToLive = true;
     }
   };
@@ -432,6 +545,12 @@ export async function tuneIntoRadio(
   await new Promise<void>((resolve) => {
     ms.addEventListener("sourceopen", () => resolve(), { once: true });
   });
+  if (!isActiveTune()) {
+    URL.revokeObjectURL(audio.src);
+    audio.removeAttribute("src");
+    audio.load();
+    throw new Error("radio tune superseded by a newer attempt");
+  }
   sb = ms.addSourceBuffer(MSE_CODEC);
   // sequence mode rewrites segment timestamps so cross-track + catchup
   // chunks form a single contiguous buffered range.
@@ -447,27 +566,32 @@ export async function tuneIntoRadio(
   const recentLags: number[] = [];
   const RAPID_LAG_THRESHOLD = 3;
   const RAPID_LAG_WINDOW_MS = 60_000;
-  // trim the server-reported elapsed offset on fresh tune so the UI
-  // reflects what the listener actually hears (not the broadcaster's
-  // absolute live-edge clock). this avoids "next track" flipping early
-  // while the client is still burning through catchup.
-  const HELLO_OFFSET_TRIM_MS = 800;
+  let lastResyncAtMs = 0;
+  let pendingLagResyncSeq: number | null = null;
+  const recentLagSignals: number[] = [];
+  const LAG_SIGNAL_WINDOW_MS = 8_000;
+  const RESYNC_SIGNALS_REQUIRED = stabilityMode() ? 3 : 2;
+  const RESYNC_COOLDOWN_MS = stabilityMode() ? 8_000 : 5_000;
   // adaptive buffer: when MediaElement fires `waiting` / `stalled` we
   // bump the live-edge target back so the SourceBuffer has more headroom
   // before the playhead crosses into the unbuffered zone. starts at the
   // default (live edge) and grows by `LIVE_EDGE_BUMP_MS` per stall, up
   // to `MAX_LIVE_EDGE_BUFFER_MS` total.
   let liveEdgeBufferMs = 0;
-  const LIVE_EDGE_BUMP_MS = 1500;
-  const MAX_LIVE_EDGE_BUFFER_MS = 5000;
+  const LIVE_EDGE_BUMP_MS = stabilityMode() ? 2000 : 1500;
+  const MAX_LIVE_EDGE_BUFFER_MS = stabilityMode() ? 9000 : 5000;
   let stallCount = 0;
   const onStall = () => {
+    if (!isActiveTune()) return;
     stallCount += 1;
     if (liveEdgeBufferMs < MAX_LIVE_EDGE_BUFFER_MS) {
       liveEdgeBufferMs = Math.min(
         MAX_LIVE_EDGE_BUFFER_MS,
         liveEdgeBufferMs + LIVE_EDGE_BUMP_MS,
       );
+      if (liveEdgeBufferMs > maxLiveEdgeBufferMs) {
+        maxLiveEdgeBufferMs = liveEdgeBufferMs;
+      }
       console.info(
         `[radio] stall #${stallCount} — bumping live-edge buffer to ${liveEdgeBufferMs}ms`,
       );
@@ -494,7 +618,11 @@ export async function tuneIntoRadio(
 
   /** rebuild the SourceBuffer fresh — used after a Lag notice. */
   const resetSourceBuffer = (resyncSeq: number) => {
+    if (!isActiveTune()) return;
     console.warn(`[radio] lag — resyncing at seq ${resyncSeq}`);
+    resyncCount += 1;
+    sourceBufferResetCount += 1;
+    lastResyncAtMs = Date.now();
     resyncAtSeq = resyncSeq;
     queue.length = 0;
     seekedToLive = false;
@@ -542,11 +670,35 @@ export async function tuneIntoRadio(
   };
 
   const applyControlSpecial = (msg: { type?: unknown }): boolean => {
+    if (!isActiveTune()) return true;
     if (typeof msg.type !== "string") return false;
     if (msg.type === "lag") {
       const at = (msg as { resync_at_seq?: unknown }).resync_at_seq;
       if (typeof at === "number") {
-        resetSourceBuffer(at);
+        if (pendingLagResyncSeq === null || at > pendingLagResyncSeq) {
+          pendingLagResyncSeq = at;
+        }
+        const now = Date.now();
+        recentLagSignals.push(now);
+        while (
+          recentLagSignals.length > 0 &&
+          now - recentLagSignals[0] > LAG_SIGNAL_WINDOW_MS
+        ) {
+          recentLagSignals.shift();
+        }
+        if (now - lastResyncAtMs < RESYNC_COOLDOWN_MS) {
+          console.info(
+            `[radio] lag signal in cooldown (${now - lastResyncAtMs}ms < ${RESYNC_COOLDOWN_MS}ms); deferring resync`,
+          );
+        } else if (recentLagSignals.length >= RESYNC_SIGNALS_REQUIRED) {
+          resetSourceBuffer(pendingLagResyncSeq ?? at);
+          pendingLagResyncSeq = null;
+          recentLagSignals.length = 0;
+        } else {
+          console.info(
+            `[radio] lag signal buffered (${recentLagSignals.length}/${RESYNC_SIGNALS_REQUIRED})`,
+          );
+        }
       }
       return true;
     }
@@ -566,8 +718,10 @@ export async function tuneIntoRadio(
           ? bye.reason
           : "radio session ended";
       leaveRadio();
-      setStatus("error");
-      setError(reason);
+      guarded(() => {
+        setStatus("error");
+        setError(reason);
+      });
       return true;
     }
     return false;
@@ -594,6 +748,7 @@ export async function tuneIntoRadio(
   let lastAppliedInit: number | null = null;
 
   const applyHello = (helloJson: string) => {
+    if (!isActiveTune()) return;
     try {
       const msg = JSON.parse(helloJson);
       if (msg?.now_playing) {
@@ -602,7 +757,11 @@ export async function tuneIntoRadio(
           setNowPlaying(np);
           const rawArt = rawArtMetaFrom(msg.now_playing);
           swapArtUrl(artUrlFromRaw(msg.now_playing));
-          maybeRecordHistory(np, rawArt);
+          maybeRecordHistory(
+            np,
+            rawArt,
+            typeof msg?.init_seq === "number" ? msg.init_seq : undefined,
+          );
         }
       }
       if (typeof msg?.listener_count === "number") {
@@ -614,24 +773,19 @@ export async function tuneIntoRadio(
       if (typeof msg?.init_seq === "number") {
         lastAppliedInit = msg.init_seq;
       }
-      // server tells us how far into the current track it is so the
-      // scrubber can position at the live edge for fresh listeners. we
-      // add a tiny fudge for the connection round-trip so the bar lines
-      // up with what the user is about to hear (the catchup ring covers
-      // ~10s of pre-live audio that we'll burn through in <1s).
-      if (typeof msg?.current_track_elapsed_ms === "number") {
-        helloElapsedOffsetMs = Math.max(
-          0,
-          msg.current_track_elapsed_ms - HELLO_OFFSET_TRIM_MS,
-        );
+      if (listenStartedAtMs === 0) {
+        listenStartedAtMs = Date.now();
       }
       setStatus("playing");
+      startElapsedTicker();
+      startDiagnostics();
     } catch (e) {
       console.warn("[radio] hello parse failed:", e);
     }
   };
 
   const applyMeta = (metaJson: string) => {
+    if (!isActiveTune()) return;
     try {
       const msg = JSON.parse(metaJson);
       // dispatch lag / chunk_ready first — these are not metadata
@@ -661,7 +815,7 @@ export async function tuneIntoRadio(
             if (typeof msg?.listener_count === "number") {
               setListenerCount(msg.listener_count);
             }
-            maybeRecordHistory(np, rawArt);
+            maybeRecordHistory(np, rawArt, initSeq);
           } else {
             console.info(
               `[radio] deferring early meta for new song_id ${incomingSongId} (current ${currentSongId})`,
@@ -691,6 +845,12 @@ export async function tuneIntoRadio(
   };
 
   const onChunk = (seq: number, isInit: boolean, bytes: Uint8Array) => {
+    if (!isActiveTune()) return;
+    const now = Date.now();
+    if (lastChunkAtMs !== null) {
+      pushChunkGapSample(Math.max(0, now - lastChunkAtMs));
+    }
+    lastChunkAtMs = now;
     // post-Lag: discard everything until we see the init chunk the
     // broadcaster told us to resync on.
     if (resyncAtSeq !== null) {
@@ -705,22 +865,11 @@ export async function tuneIntoRadio(
       setNowPlaying(m.now_playing);
       swapArtUrl(m.art_url ?? null);
       setListenerCount(m.listener_count);
-      maybeRecordHistory(m.now_playing, m.raw_art);
-      // latch the audio-element timeline at the moment this track's init
-      // segment was applied. elapsed = audio.currentTime - this. done
-      // after the metadata swap so duration_ms is in scope when the
-      // ticker reads it. real track transition — reset the hello offset
-      // since the new track starts at 0.
-      trackStartAtAudioTime = audio.currentTime;
-      helloElapsedOffsetMs = 0;
-      startElapsedTicker();
+      maybeRecordHistory(m.now_playing, m.raw_art, seq);
+      // no-op for elapsed timer: live radio uses listener-session time,
+      // not per-track playback position.
     } else if (isInit) {
-      // first track / no pending meta (the catchup init lands before
-      // any Meta arrives). still kick the elapsed ticker so the player
-      // bar's scrubber advances. trackStartAtAudioTime gets re-latched
-      // by `drain` after the live-edge seek lands.
-      trackStartAtAudioTime = audio.currentTime;
-      startElapsedTicker();
+      // no-op for elapsed timer: live radio uses listener-session time.
     }
     if (isInit) lastAppliedInit = seq;
     queue.push(bytes);
@@ -735,9 +884,19 @@ export async function tuneIntoRadio(
       : useCharnel
         ? await tuneRadioCharnel(peerAddr, applyHello, applyMeta, onChunk)
         : await node!.tune_radio(peerAddr, applyHello, applyMeta, onChunk);
+    if (!isActiveTune()) {
+      try {
+        handle.leave();
+      } catch {
+        // best effort
+      }
+      throw new Error("radio tune superseded by a newer attempt");
+    }
   } catch (e) {
-    setStatus("error");
-    setError(`tune failed: ${e}`);
+    if (isActiveTune()) {
+      setStatus("error");
+      setError(`tune failed: ${e}`);
+    }
     URL.revokeObjectURL(audio.src);
     audio.removeAttribute("src");
     audio.load();
@@ -762,6 +921,7 @@ export async function tuneIntoRadio(
       } catch {
         // best effort
       }
+      stopDiagnostics();
       try {
         audio.pause();
         URL.revokeObjectURL(audio.src);

@@ -6,13 +6,18 @@
 // (radioHistory module trims older rows on every write).
 
 import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import { useNavigate } from "@solidjs/router";
 import {
   clearHistory,
   countHistory,
   getHistoryPage,
   MAX_RADIO_HISTORY,
 } from "../../app/services/radio/radioHistory";
+import { getClientForRemote } from "../../app/api/client";
+import { getRemoteByPeerAddr } from "../../app/services/remotes/remoteManager";
 import type { RadioHistoryEntry } from "../../app/services/storage/types";
+import { setHighlightedSongId } from "../state/highlightedSong";
+import { debug } from "../../utils/logger";
 
 const PAGE_SIZE = 50;
 
@@ -22,6 +27,7 @@ interface RadioHistoryListProps {
 }
 
 export function RadioHistoryList(props: RadioHistoryListProps) {
+  const navigate = useNavigate();
   const [entries, setEntries] = createSignal<RadioHistoryEntry[]>([]);
   const [loading, setLoading] = createSignal(false);
   const [exhausted, setExhausted] = createSignal(false);
@@ -134,6 +140,65 @@ export function RadioHistoryList(props: RadioHistoryListProps) {
     });
   };
 
+  const resolveRemoteSongTargets = async (
+    e: RadioHistoryEntry
+  ): Promise<{
+    remoteId: string;
+    albumId?: string;
+    artistId?: string;
+  } | null> => {
+    if (!e.peer_addr) return null;
+    const remote = await getRemoteByPeerAddr(e.peer_addr);
+    if (!remote) return null;
+
+    const base = { remoteId: remote.remote_id };
+    if (!e.song_id) return base;
+
+    try {
+      const client = await getClientForRemote(remote);
+      const result = await client.music.querySongs({
+        q: null,
+        search_fields: null,
+        filters: { song_ids: [e.song_id] },
+        sort_by: null,
+        sort_direction: null,
+        limit: 1,
+        offset: null,
+        user_id: null,
+        favorites_only: null,
+        min_rating: null,
+      });
+      if (!result.success || result.data.items.length === 0) {
+        return base;
+      }
+      const first = result.data.items[0];
+      return {
+        ...base,
+        albumId: first.album?.id ?? undefined,
+        artistId: first.artist?.id ?? undefined,
+      };
+    } catch (err) {
+      debug("radio-history", "failed to resolve remote song targets:", err);
+      return base;
+    }
+  };
+
+  const openSongView = async (e: RadioHistoryEntry) => {
+    if (!e.song_id) return;
+    const targets = await resolveRemoteSongTargets(e);
+    if (!targets?.remoteId || !targets.albumId) return;
+    setHighlightedSongId(e.song_id);
+    navigate(
+      `/${targets.remoteId}/albums/${encodeURIComponent(targets.albumId)}?song_id=${encodeURIComponent(e.song_id)}`
+    );
+  };
+
+  const openArtistView = async (e: RadioHistoryEntry) => {
+    const targets = await resolveRemoteSongTargets(e);
+    if (!targets?.remoteId || !targets.artistId) return;
+    navigate(`/${targets.remoteId}/artists/${encodeURIComponent(targets.artistId)}`);
+  };
+
   return (
     <div class="flex flex-col gap-2 w-full">
       <header class="flex items-center justify-between px-1">
@@ -185,9 +250,32 @@ export function RadioHistoryList(props: RadioHistoryListProps) {
                     </Show>
                   </div>
                   <div class="flex-1 min-w-0">
-                    <div class="text-sm truncate">{e.title}</div>
+                    <div
+                      class="text-sm truncate"
+                      classList={{
+                        "cursor-pointer hover:underline decoration-[1px] underline-offset-2":
+                          !!e.song_id,
+                      }}
+                      onClick={() => {
+                        void openSongView(e);
+                      }}
+                      title={e.song_id ? "open album" : undefined}
+                    >
+                      {e.title}
+                    </div>
                     <div class="text-xs text-neutral-400 truncate">
-                      {e.artist ?? "unknown artist"}
+                      <span
+                        classList={{
+                          "cursor-pointer hover:underline decoration-[1px] underline-offset-2":
+                            !!e.song_id,
+                        }}
+                        onClick={() => {
+                          void openArtistView(e);
+                        }}
+                        title={e.song_id ? "open artist" : undefined}
+                      >
+                        {e.artist ?? "unknown artist"}
+                      </span>
                       <Show when={e.album}> — {e.album}</Show>
                     </div>
                   </div>

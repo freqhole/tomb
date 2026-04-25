@@ -98,16 +98,55 @@ export function RadioView() {
   const [stations, setStations] = createSignal<DiscoveredStation[]>([]);
   const [sweeping, setSweeping] = createSignal(false);
   const [knownRemotes, setKnownRemotes] = createSignal<Remote[]>([]);
+  const BASE_POLL_MS = 30_000;
+  const MAX_POLL_MS = 120_000;
+  const STATION_STALE_GRACE_MS = 2 * 60_000;
+  let nextPollMs = BASE_POLL_MS;
+  let emptyDiscoveryStreak = 0;
+  let lastNonEmptyAtMs = 0;
+  let lastNonEmptyStations: DiscoveredStation[] = [];
 
-  const refetch = async () => {
+  const hasRecentStations = () =>
+    stations().length > 0 ||
+    (lastNonEmptyStations.length > 0 && Date.now() - lastNonEmptyAtMs < STATION_STALE_GRACE_MS);
+
+  const applyDiscoveredStations = (next: DiscoveredStation[]) => {
+    if (next.length > 0) {
+      emptyDiscoveryStreak = 0;
+      lastNonEmptyAtMs = Date.now();
+      lastNonEmptyStations = next;
+      setStations(next);
+      return;
+    }
+
+    // avoid blanking the UI on transient empty/cooldown sweeps.
+    if (next.length === 0 && stations().length > 0) {
+      emptyDiscoveryStreak += 1;
+      if (emptyDiscoveryStreak < 3) return;
+      // if we had good results recently, keep showing the previous list.
+      if (Date.now() - lastNonEmptyAtMs < STATION_STALE_GRACE_MS) {
+        setStations(lastNonEmptyStations);
+        return;
+      }
+    }
+
+    if (stations().length === 0 && Date.now() - lastNonEmptyAtMs < STATION_STALE_GRACE_MS) {
+      setStations(lastNonEmptyStations);
+      return;
+    }
+
+    setStations(next);
+  };
+
+  const refetch = async (opts: { forceProbeAll?: boolean } = {}) => {
     setSweeping(true);
-    setStations([]);
     try {
       const final = await discoverStations({
         extraPeerAddrs: queryPeerAddrs(),
-        onPartial: (s) => setStations(s),
+        onPartial: (s) => applyDiscoveredStations(s),
+        forceProbeAll: opts.forceProbeAll ?? false,
       });
-      setStations(final);
+      applyDiscoveredStations(final);
     } catch (e) {
       console.warn("[radio-view] discovery failed:", e);
     } finally {
@@ -118,26 +157,45 @@ export function RadioView() {
   // quiet refresh — re-runs discovery without flashing the "scanning…"
   // indicator or clearing the existing list. used by the polling timer
   // so the listener counts in the left column stay live.
-  const quietRefresh = async () => {
+  const quietRefresh = async (): Promise<boolean> => {
     try {
       const final = await discoverStations({
         extraPeerAddrs: queryPeerAddrs(),
       });
-      setStations(final);
+      applyDiscoveredStations(final);
+      return true;
     } catch (e) {
       debug("radio-view", "quiet refresh failed:", e);
+      return false;
     }
   };
 
   onMount(() => {
     refetch();
-    // poll every 15s so listener counts + station availability track
-    // reality without users having to click refresh. cheap: discovery
-    // already races sources with a short timeout.
-    const interval = window.setInterval(() => {
-      if (!sweeping()) quietRefresh();
-    }, 15000);
-    onCleanup(() => window.clearInterval(interval));
+    // adaptive poll loop: start at 30s, back off up to 120s on failures.
+    let disposed = false;
+    let timer: number | null = null;
+
+    const scheduleNext = (delayMs: number) => {
+      if (disposed) return;
+      if (timer !== null) window.clearTimeout(timer);
+      timer = window.setTimeout(async () => {
+        if (disposed) return;
+        if (sweeping() || document.visibilityState === "hidden") {
+          scheduleNext(nextPollMs);
+          return;
+        }
+        const ok = await quietRefresh();
+        nextPollMs = ok ? BASE_POLL_MS : Math.min(MAX_POLL_MS, Math.floor(nextPollMs * 1.8));
+        scheduleNext(nextPollMs);
+      }, delayMs);
+    };
+
+    scheduleNext(nextPollMs);
+    onCleanup(() => {
+      disposed = true;
+      if (timer !== null) window.clearTimeout(timer);
+    });
   });
 
   onMount(async () => {
@@ -401,7 +459,7 @@ export function RadioView() {
         <h1 class="text-lg font-bold">radio</h1>
         <button
           class="text-xs px-2 py-1 rounded bg-neutral-800 hover:bg-neutral-700"
-          onClick={() => refetch()}
+          onClick={() => refetch({ forceProbeAll: true })}
           disabled={sweeping()}
         >
           {sweeping() ? "scanning…" : "refresh"}
@@ -414,7 +472,7 @@ export function RadioView() {
           fallback={
             <div class="text-sm text-neutral-400 p-3">
               <Show
-                when={sweeping()}
+                when={sweeping() || hasRecentStations()}
                 fallback={
                   <Show
                     when={queryPeerAddrs().length === 0}

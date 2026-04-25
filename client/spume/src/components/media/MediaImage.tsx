@@ -55,6 +55,17 @@ export function MediaImage(props: MediaImageProps): JSX.Element {
     injectPanStyles();
   }
 
+  const withThumb = (url: string, size?: ThumbnailSize): string => {
+    if (!size) return url;
+    const lower = url.toLowerCase();
+    // blob/data/asset urls are already concrete objects and cannot serve
+    // `/thumb/:size` paths.
+    if (lower.startsWith("blob:") || lower.startsWith("data:") || lower.startsWith("asset://")) {
+      return url;
+    }
+    return `${url}/thumb/${size}`;
+  };
+
   // compute initial image source synchronously to avoid first-render flicker
   const getInitialSource = () => {
     const bestImage = pickBestImage(props.images);
@@ -88,9 +99,7 @@ export function MediaImage(props: MediaImageProps): JSX.Element {
       } else if (isP2P === false) {
         // known HTTP remote - use URL directly
         if (initialSource.remoteUrl) {
-          return thumbSize
-            ? `${initialSource.remoteUrl}/thumb/${thumbSize}`
-            : initialSource.remoteUrl;
+          return withThumb(initialSource.remoteUrl, thumbSize);
         }
       }
       // unknown transport (isP2P === undefined) - try P2P cache, else use URL optimistically
@@ -102,15 +111,13 @@ export function MediaImage(props: MediaImageProps): JSX.Element {
       if (cached) return cached;
       // no P2P cache - use remote_url if available (works for HTTP, async will handle P2P)
       if (initialSource.remoteUrl) {
-        return thumbSize
-          ? `${initialSource.remoteUrl}/thumb/${thumbSize}`
-          : initialSource.remoteUrl;
+        return withThumb(initialSource.remoteUrl, thumbSize);
       }
       return null;
     }
     // priority 3: just remote URL (no server ID) - use directly
     if (initialSource.remoteUrl) {
-      return thumbSize ? `${initialSource.remoteUrl}/thumb/${thumbSize}` : initialSource.remoteUrl;
+      return withThumb(initialSource.remoteUrl, thumbSize);
     }
     return null;
   };
@@ -189,7 +196,7 @@ export function MediaImage(props: MediaImageProps): JSX.Element {
 
           // known HTTP remote - use URL directly
           if (isP2P === false && source.remoteUrl) {
-            setResolvedUrl(thumbSize ? `${source.remoteUrl}/thumb/${thumbSize}` : source.remoteUrl);
+            setResolvedUrl(withThumb(source.remoteUrl, thumbSize));
             setIsLoading(false);
             return;
           }
@@ -222,7 +229,7 @@ export function MediaImage(props: MediaImageProps): JSX.Element {
 
         // priority 3: just remote URL (no server ID) - use directly
         if (source.remoteUrl) {
-          setResolvedUrl(thumbSize ? `${source.remoteUrl}/thumb/${thumbSize}` : source.remoteUrl);
+          setResolvedUrl(withThumb(source.remoteUrl, thumbSize));
           setIsLoading(false);
           return;
         }

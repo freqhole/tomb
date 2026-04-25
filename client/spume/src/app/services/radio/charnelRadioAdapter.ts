@@ -114,11 +114,19 @@ export async function tuneRadioCharnel(
     events,
   })) as string;
 
+  // keep a strong reference to the channel for the whole session.
+  // without this, GC can collect the callback while rust is still
+  // streaming events, which triggers tauri "Couldn't find callback id".
+  let retainedEvents: unknown = events;
+
   return {
     leave() {
+      // reference before clearing so the closure captures retainedEvents.
+      void retainedEvents;
       invoke("radio_leave", { sessionId }).catch((e) =>
         console.warn("[radio-charnel] radio_leave failed:", e),
       );
+      retainedEvents = null;
     },
   };
 }
@@ -172,11 +180,17 @@ export async function tuneRadioCharnelLocal(
     events,
   })) as string;
 
+  // keep a strong reference to the channel for the whole session.
+  let retainedEvents: unknown = events;
+
   return {
     leave() {
+      // reference before clearing so the closure captures retainedEvents.
+      void retainedEvents;
       invoke("radio_leave", { sessionId }).catch((e) =>
         console.warn("[radio-charnel-local] radio_leave failed:", e),
       );
+      retainedEvents = null;
     },
   };
 }
