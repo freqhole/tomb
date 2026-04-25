@@ -47,6 +47,7 @@ import { type Remote, isHttpRemote, isP2PRemote } from "../../app/services/stora
 import type { ImageMetadata } from "../services/storage/types";
 
 export function RadioView() {
+  const MIN_HISTORY_SCROLL_HEIGHT = 220;
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
 
@@ -214,6 +215,15 @@ export function RadioView() {
     }
   });
 
+  onMount(() => {
+    const onResize = () => {
+      setIsNarrow(isNarrowViewport());
+      recomputeDetailLayout();
+    };
+    window.addEventListener("resize", onResize);
+    onCleanup(() => window.removeEventListener("resize", onResize));
+  });
+
   const grouped = createMemo(() => {
     const map = new Map<string, DiscoveredStation[]>();
     for (const s of stations()) {
@@ -264,7 +274,22 @@ export function RadioView() {
   };
 
   // narrow-mode detail toggle.
+  const [isNarrow, setIsNarrow] = createSignal(isNarrowViewport());
   const [showDetail, setShowDetail] = createSignal(false);
+  const [useStickyDetailLayout, setUseStickyDetailLayout] = createSignal(false);
+  let detailViewportRef: HTMLDivElement | undefined;
+  let detailHeaderRef: HTMLDivElement | undefined;
+
+  const recomputeDetailLayout = () => {
+    window.requestAnimationFrame(() => {
+      if (!detailViewportRef || !detailHeaderRef || radioStatus() === "idle") {
+        setUseStickyDetailLayout(false);
+        return;
+      }
+      const remainingHeight = detailViewportRef.clientHeight - detailHeaderRef.offsetHeight - 24;
+      setUseStickyDetailLayout(remainingHeight >= MIN_HISTORY_SCROLL_HEIGHT);
+    });
+  };
 
   const handleTune = async (station: DiscoveredStation) => {
     const isLocal = station.source.kind === "self";
@@ -364,6 +389,14 @@ export function RadioView() {
   };
 
   const currentStationObj = createMemo(() => stations().find((s) => isCurrent(s)) ?? null);
+
+  createEffect(() => {
+    radioStatus();
+    radioNowPlaying()?.title;
+    currentStationObj()?.station_id;
+    showDetail();
+    recomputeDetailLayout();
+  });
 
   const canShowStationNowPlaying = (station: DiscoveredStation): boolean => {
     const peer =
@@ -649,25 +682,15 @@ export function RadioView() {
   // ---------------------------------------------------------------------
   const rightColumn = (
     <div
-      class="flex flex-col h-full overflow-y-auto"
+      class="flex flex-col h-full min-h-0"
       style={{
         "padding-bottom": "calc(var(--player-height) + var(--safe-area-bottom, 0px) + 0.75rem)",
       }}
     >
-      {/* narrow-only back button so we can return to the station list. */}
-      <div class="wide:hidden flex items-center px-3 py-2 border-b border-neutral-800">
-        <button
-          class="text-xs px-2 py-1 rounded bg-neutral-800 hover:bg-neutral-700 flex items-center gap-1"
-          onClick={() => setShowDetail(false)}
-          aria-label="back to station list"
-        >
-          <span aria-hidden="true">←</span> back
-        </button>
-      </div>
       <Show
         when={radioStatus() !== "idle"}
         fallback={
-          <div class="flex-1 flex flex-col items-center text-center p-8 text-neutral-400">
+          <div class="flex-1 overflow-y-auto flex flex-col items-center text-center p-8 text-neutral-400">
             <div class="w-32 h-32 rounded-lg bg-gradient-to-br from-purple-700 to-indigo-900 flex items-center justify-center mb-4">
               <span class="text-xs font-bold tracking-widest opacity-60 text-white">radio</span>
             </div>
@@ -681,97 +704,143 @@ export function RadioView() {
           </div>
         }
       >
-        <div class="p-6 max-w-3xl mx-auto w-full">
-          <header class="flex items-start gap-4 mb-6">
-            <div class="flex-shrink-0 w-32 h-32 sm:w-40 sm:h-40 rounded-lg overflow-hidden bg-gradient-to-br from-purple-700 to-indigo-900 flex items-center justify-center">
-              <Show
-                when={radioArtUrl()}
-                fallback={
-                  <Show
-                    when={
-                      currentStationObj() && remoteImageMetaForSource(currentStationObj()!.source)
+        <div
+          ref={detailViewportRef}
+          class="flex-1 min-h-0"
+          classList={{
+            "overflow-hidden": useStickyDetailLayout(),
+            "overflow-y-auto": !useStickyDetailLayout(),
+          }}
+        >
+          <div class="px-6 pb-6 pt-3 wide:pt-6 max-w-3xl mx-auto w-full h-full min-h-0 flex flex-col">
+            <div
+              ref={detailHeaderRef}
+              classList={{
+                "sticky top-0 z-10 pb-4 mb-2": useStickyDetailLayout(),
+              }}
+              style={
+                useStickyDetailLayout()
+                  ? {
+                      background:
+                        "linear-gradient(to bottom, rgba(10, 10, 10, 0.98), rgba(10, 10, 10, 0.92) 82%, rgba(10, 10, 10, 0))",
+                      "backdrop-filter": "blur(10px)",
                     }
-                    fallback={
-                      <span class="text-sm font-bold tracking-widest opacity-60 text-white">
-                        radio
-                      </span>
-                    }
-                  >
-                    {(img) => (
-                      <MediaThumbnail
-                        images={[img()]}
-                        size={160}
-                        showPlayIcon={false}
-                        enablePlayClick={false}
-                        hideIndex
-                      />
+                  : undefined
+              }
+            >
+              <header class="flex items-center gap-4 mb-6">
+                <div class="flex-shrink-0">
+                  <div class="w-32 h-32 sm:w-40 sm:h-40 rounded-lg overflow-hidden bg-gradient-to-br from-purple-700 to-indigo-900 flex items-center justify-center">
+                    <Show
+                      when={radioArtUrl()}
+                      fallback={
+                        <Show
+                          when={
+                            currentStationObj() &&
+                            remoteImageMetaForSource(currentStationObj()!.source)
+                          }
+                          fallback={
+                            <span class="text-sm font-bold tracking-widest opacity-60 text-white">
+                              radio
+                            </span>
+                          }
+                        >
+                          {(img) => (
+                            <MediaThumbnail
+                              images={[img()]}
+                              size={160}
+                              showPlayIcon={false}
+                              enablePlayClick={false}
+                              hideIndex
+                            />
+                          )}
+                        </Show>
+                      }
+                    >
+                      {(url) => <img src={url()} alt="" class="w-full h-full object-cover" />}
+                    </Show>
+                  </div>
+                </div>
+                <div class="flex-1 min-w-0">
+                  <div class="flex items-center justify-between gap-3 mb-1 min-h-8">
+                    <div class="text-xs uppercase tracking-wide text-neutral-500">
+                      {radioStatus() === "connecting" ? "connecting…" : "now playing"}
+                    </div>
+                    <Show when={isNarrow()}>
+                      <button
+                        class="text-xs px-2 py-1 rounded bg-neutral-800 hover:bg-neutral-700 flex items-center gap-1 flex-shrink-0"
+                        onClick={() => setShowDetail(false)}
+                        aria-label="back to station list"
+                      >
+                        <span aria-hidden="true">←</span> back
+                      </button>
+                    </Show>
+                  </div>
+                  <Show when={radioNowPlaying()} fallback={<div>—</div>}>
+                    {(np) => (
+                      <>
+                        <div class="text-2xl font-bold truncate">{np().title}</div>
+                        <div class="text-base text-neutral-300 truncate">
+                          {np().artist ?? "unknown artist"}
+                          <Show when={np().album}> — {np().album}</Show>
+                        </div>
+                      </>
                     )}
                   </Show>
-                }
-              >
-                {(url) => <img src={url()} alt="" class="w-full h-full object-cover" />}
-              </Show>
+                  <Show when={currentStationObj()}>
+                    {(s) => (
+                      <div class="mt-3 text-sm text-neutral-400">
+                        <div class="font-medium">{s().name}</div>
+                        <Show when={s().description}>
+                          <div class="text-xs">{s().description}</div>
+                        </Show>
+                        <div class="text-xs mt-1">
+                          {radioListenerCount()} listener
+                          {radioListenerCount() === 1 ? "" : "s"}
+                        </div>
+                        <button
+                          class={`mt-2 text-xs px-2 py-1 rounded border transition-colors ${
+                            bookmarked()
+                              ? "border-emerald-700 text-emerald-400 bg-emerald-900/30 cursor-default"
+                              : "border-neutral-700 hover:border-neutral-500 hover:text-neutral-200"
+                          }`}
+                          onClick={handleBookmark}
+                          disabled={bookmarking() || bookmarked()}
+                          title="save station to queue history"
+                        >
+                          {bookmarked()
+                            ? "saved to history"
+                            : bookmarking()
+                              ? "saving…"
+                              : "save to history"}
+                        </button>
+                        <button
+                          class="mt-2 ml-2 text-xs px-2 py-1 rounded border border-neutral-700 hover:border-neutral-500 hover:text-neutral-200 transition-colors"
+                          onClick={() => openStationShare(s())}
+                          disabled={!s().station_id}
+                          title="share station"
+                        >
+                          share
+                        </button>
+                      </div>
+                    )}
+                  </Show>
+                  <Show when={radioError()}>
+                    <div class="mt-2 text-xs text-red-400">{radioError()}</div>
+                  </Show>
+                </div>
+              </header>
             </div>
-            <div class="flex-1 min-w-0">
-              <div class="text-xs uppercase tracking-wide text-neutral-500 mb-1">
-                {radioStatus() === "connecting" ? "connecting…" : "now playing"}
-              </div>
-              <Show when={radioNowPlaying()} fallback={<div>—</div>}>
-                {(np) => (
-                  <>
-                    <div class="text-2xl font-bold truncate">{np().title}</div>
-                    <div class="text-base text-neutral-300 truncate">
-                      {np().artist ?? "unknown artist"}
-                      <Show when={np().album}> — {np().album}</Show>
-                    </div>
-                  </>
-                )}
-              </Show>
-              <Show when={currentStationObj()}>
-                {(s) => (
-                  <div class="mt-3 text-sm text-neutral-400">
-                    <div class="font-medium">{s().name}</div>
-                    <Show when={s().description}>
-                      <div class="text-xs">{s().description}</div>
-                    </Show>
-                    <div class="text-xs mt-1">
-                      {radioListenerCount()} listener
-                      {radioListenerCount() === 1 ? "" : "s"}
-                    </div>
-                    <button
-                      class={`mt-2 text-xs px-2 py-1 rounded border transition-colors ${
-                        bookmarked()
-                          ? "border-emerald-700 text-emerald-400 bg-emerald-900/30 cursor-default"
-                          : "border-neutral-700 hover:border-neutral-500 hover:text-neutral-200"
-                      }`}
-                      onClick={handleBookmark}
-                      disabled={bookmarking() || bookmarked()}
-                      title="save station to queue history"
-                    >
-                      {bookmarked()
-                        ? "saved to history"
-                        : bookmarking()
-                          ? "saving…"
-                          : "save to history"}
-                    </button>
-                    <button
-                      class="mt-2 ml-2 text-xs px-2 py-1 rounded border border-neutral-700 hover:border-neutral-500 hover:text-neutral-200 transition-colors"
-                      onClick={() => openStationShare(s())}
-                      disabled={!s().station_id}
-                      title="share station"
-                    >
-                      share
-                    </button>
-                  </div>
-                )}
-              </Show>
-              <Show when={radioError()}>
-                <div class="mt-2 text-xs text-red-400">{radioError()}</div>
-              </Show>
-            </div>
-          </header>
 
-          <RadioHistoryList />
+            <div
+              classList={{
+                "flex-1 min-h-0 overflow-y-auto": useStickyDetailLayout(),
+                "pb-6": useStickyDetailLayout(),
+              }}
+            >
+              <RadioHistoryList />
+            </div>
+          </div>
         </div>
       </Show>
     </div>
