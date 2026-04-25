@@ -268,6 +268,16 @@ export function RadioView() {
       console.warn("[radio-view] station has no peer addr", station);
       return;
     }
+
+    const alreadyCurrent =
+      radioStatus() !== "idle" &&
+      radioCurrentPeerAddr() === peer &&
+      (radioCurrentStationId() === station.station_id || radioCurrentStationId() === null);
+    if (alreadyCurrent) {
+      if (isNarrowViewport()) setShowDetail(true);
+      return;
+    }
+
     try {
       await tuneIntoRadio(peer, {
         stationId: station.station_id,
