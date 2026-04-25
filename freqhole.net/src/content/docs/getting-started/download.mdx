@@ -3,57 +3,33 @@ title: download
 description: get freqhole for your platform
 ---
 
+import { Tabs, TabItem } from "@astrojs/starlight/components";
+
 freqhole is available as a desktop app (charnel), command-line tool, or web app.
 
-## desktop app (charnel)
+<Tabs>
+ <TabItem label="mac" icon="apple">
+    download charnel GUI `.dmg` for the latest release:  
+    - [download for macOS (Apple Silicon)](https://github.com/freqhole/tomb/releases/latest)  
+    - [download for macOS (Intel)](https://github.com/freqhole/tomb/releases/latest)  
+  </TabItem>
+  <TabItem label="linux" icon="linux">
+    available as .flatpak, .deb, and .rpm:  
+    - [download .flatpak](https://github.com/freqhole/tomb/releases/latest)  
+    - [download .deb](https://github.com/freqhole/tomb/releases/latest)  
+    - [download .rpm](https://github.com/freqhole/tomb/releases/latest)
+  </TabItem>
+  <TabItem label="web" icon="firefox">
+  - **hosted**: [spume.freqhole.net](https://spume.freqhole.net)  
+  - **self-hosted**: bundled with the server, access at `http://your-server:8080`
+  </TabItem>
 
-the easiest way to get started. full GUI with setup wizard.
+</Tabs>
 
-### macOS
-
-download the `.dmg` from the latest release:
-
-- [download for macOS (Apple Silicon)](https://github.com/freqhole/tomb/releases/latest)
-- [download for macOS (Intel)](https://github.com/freqhole/tomb/releases/latest)
-
-### Linux
-
-available as AppImage, .deb, and .rpm:
-
-- [download AppImage](https://github.com/freqhole/tomb/releases/latest)
-- [download .deb](https://github.com/freqhole/tomb/releases/latest)
-- [download .rpm](https://github.com/freqhole/tomb/releases/latest)
-
----
-
-## command-line tool (freqhole)
-
-for headless servers, Raspberry Pi, or if you prefer the terminal.
-
-### quick install (macOS/Linux)
-
-```bash
-curl -fsSL https://freqhole.net/install.sh | sh
-```
-
-### manual download
-
-download the binary for your platform from [GitHub releases](https://github.com/freqhole/tomb/releases/latest).
-
----
-
-## web app
-
-no installation needed — runs in your browser.
-
-- **hosted**: [spume.freqhole.net](https://spume.freqhole.net)
-- **self-hosted**: bundled with the server, access at `http://your-server:8080`
+see also: [github releases](https://github.com/freqhole/tomb/releases/latest).
 
 ---
 
 ## next steps
 
 - [prerequisites](/docs/getting-started/prerequisites) — make sure you have ffmpeg and optionally yt-dlp
-- [desktop app setup](/docs/getting-started/desktop-setup) — first launch walkthrough
-- [CLI Setup](/docs/getting-started/cli-setup) — configure the command-line tool
-- [Web App](/docs/getting-started/web-app) — connect to a server

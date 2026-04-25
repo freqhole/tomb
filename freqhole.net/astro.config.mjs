@@ -31,9 +31,6 @@ export default defineConfig({
 					items: [
 						{ label: 'download', slug: 'getting-started/download' },
 						{ label: 'prerequisites', slug: 'getting-started/prerequisites' },
-						{ label: 'desktop app setup', slug: 'getting-started/desktop-setup' },
-						{ label: 'CLI setup', slug: 'getting-started/cli-setup' },
-						{ label: 'web app', slug: 'getting-started/web-app' },
 					],
 				},
 				{
