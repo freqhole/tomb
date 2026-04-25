@@ -7,6 +7,7 @@ interface RadioStation {
   description: string | null;
   is_public: number; // sqlite bool
   is_enabled: number;
+  timeline_only_mode: number; // sqlite bool
   encode_args: string | null;
   codec: string;
   play_mode: string;
@@ -48,6 +49,7 @@ export default function RadioView() {
   const [isPublic, setIsPublic] = createSignal(false);
   const [isEnabled, setIsEnabled] = createSignal(true);
   const [playMode, setPlayMode] = createSignal("shuffle");
+  const [timelineOnly, setTimelineOnly] = createSignal(false);
   const [creating, setCreating] = createSignal(false);
 
   // per-station seed editor
@@ -105,6 +107,21 @@ export default function RadioView() {
     }
   }
 
+  async function toggleTimelineOnly(s: RadioStation) {
+    setSavingId(s.id);
+    try {
+      await admin.dispatchOrThrow("radio_stations_update", {
+        id: s.id,
+        timeline_only_mode: !s.timeline_only_mode,
+      });
+      await loadStations();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setSavingId(null);
+    }
+  }
+
   async function deleteStation(s: RadioStation) {
     if (!confirm(`delete station "${s.name}"? this cannot be undone.`)) return;
     setSavingId(s.id);
@@ -132,6 +149,7 @@ export default function RadioView() {
         is_public: isPublic(),
         is_enabled: isEnabled(),
         play_mode: playMode(),
+        timeline_only_mode: timelineOnly(),
       });
       // reset form
       setName("");
@@ -139,6 +157,7 @@ export default function RadioView() {
       setIsPublic(false);
       setIsEnabled(true);
       setPlayMode("shuffle");
+      setTimelineOnly(false);
       setShowCreate(false);
       await loadStations();
     } catch (e) {
@@ -168,13 +187,15 @@ export default function RadioView() {
           <h2>
             station<span class="pinky">z</span>
           </h2>
-          <button
-            class="btn-primary"
-            onClick={() => setShowCreate((v) => !v)}
-            disabled={creating()}
-          >
-            {showCreate() ? "cancel" : "+ new station"}
-          </button>
+          <Show when={!showCreate()}>
+            <button
+              class="primary small"
+              onClick={() => setShowCreate((v) => !v)}
+              disabled={creating()}
+            >
+              + new station
+            </button>
+          </Show>
         </div>
 
         {/* create form */}
@@ -251,14 +272,38 @@ export default function RadioView() {
                   <option value="sequential">sequential</option>
                 </select>
               </label>
+              <label
+                style={{
+                  display: "flex",
+                  gap: "0.5rem",
+                  "align-items": "center",
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={timelineOnly()}
+                  onChange={(e) => setTimelineOnly(e.currentTarget.checked)}
+                />
+                <span>ffmpeg (uncheck for timeline-only mode)</span>
+              </label>
             </div>
-            <div class="form-row">
-              <button type="submit" class="btn-primary" disabled={creating()}>
+            <div class="form-row" style={{ display: "flex", gap: "0.5rem" }}>
+              <button type="submit" class="primary small" disabled={creating()}>
                 {creating() ? "creating..." : "create station"}
+              </button>
+              <button
+                type="button"
+                class="secondary small"
+                onClick={() => setShowCreate(false)}
+                disabled={creating()}
+              >
+                cancel
               </button>
             </div>
           </form>
         </Show>
+
+        <div style={{ "margin-bottom": "1.25rem" }} />
 
         <Show when={loading()}>
           <div class="loading">
@@ -279,64 +324,121 @@ export default function RadioView() {
           <For each={stations()}>
             {(s) => (
               <>
-                <div class="list-item">
-                  <div class="item-info">
-                    <div class="item-name">
-                      <strong>{s.name}</strong>
-                      <span
-                        class="badge"
-                        style={{
-                          "margin-left": "0.5rem",
-                          background: s.is_public ? "#1f6f43" : "#3a3a3a",
-                          color: s.is_public ? "#a7e8c5" : "#aaa",
-                        }}
-                      >
-                        {s.is_public ? "public" : "private"}
-                      </span>
-                      <span
-                        class="badge"
-                        style={{
-                          "margin-left": "0.25rem",
-                          background: s.is_enabled ? "#1f4f6f" : "#6f1f1f",
-                          color: s.is_enabled ? "#a7d4e8" : "#e8a7a7",
-                        }}
-                      >
-                        {s.is_enabled ? "on" : "off"}
-                      </span>
-                    </div>
+                <div
+                  class="list-item"
+                  style={{
+                    "flex-direction": "column",
+                    "align-items": "stretch",
+                    gap: "0.4rem",
+                    padding: "0.65rem 0.75rem",
+                  }}
+                >
+                  {/* name + description */}
+                  <div
+                    style={{
+                      display: "flex",
+                      "align-items": "baseline",
+                      gap: "0.5rem",
+                      "flex-wrap": "wrap",
+                    }}
+                  >
+                    <strong>{s.name}</strong>
                     <Show when={s.description}>
-                      <div class="item-meta">{s.description}</div>
+                      <span class="item-meta" style={{ "font-size": "0.8rem" }}>
+                        {s.description}
+                      </span>
                     </Show>
-                    <div class="item-meta">
-                      codec: {s.codec} · play mode: {s.play_mode}
-                    </div>
+                    <span
+                      class="item-meta"
+                      style={{ "font-size": "0.75rem", "margin-left": "auto" }}
+                    >
+                      {s.codec}
+                    </span>
                   </div>
-                  <div class="item-actions">
+                  {/* toggle row */}
+                  <div
+                    style={{
+                      display: "flex",
+                      gap: "0.35rem",
+                      "flex-wrap": "wrap",
+                      "align-items": "center",
+                    }}
+                  >
                     <button
+                      class={s.is_public ? "primary small" : "secondary small"}
+                      onClick={() => togglePublic(s)}
+                      disabled={savingId() === s.id}
+                      title={s.is_public ? "make private" : "make public"}
+                    >
+                      {s.is_public ? "public" : "private"}
+                    </button>
+                    <button
+                      class={s.is_enabled ? "primary small" : "secondary small"}
+                      onClick={() => toggleEnabled(s)}
+                      disabled={savingId() === s.id}
+                      title={
+                        s.is_enabled ? "disable station" : "enable station"
+                      }
+                    >
+                      {s.is_enabled ? "enabled" : "disabled"}
+                    </button>
+                    <button
+                      class={
+                        !s.timeline_only_mode
+                          ? "primary small"
+                          : "secondary small"
+                      }
+                      onClick={() => toggleTimelineOnly(s)}
+                      disabled={savingId() === s.id}
+                      title={
+                        s.timeline_only_mode
+                          ? "switch to ffmpeg chunk streaming"
+                          : "switch to timeline-only mode (no ffmpeg)"
+                      }
+                    >
+                      ffmpeg
+                    </button>
+                    <select
+                      style={{ "font-size": "0.78rem" }}
+                      value={s.play_mode}
+                      disabled={savingId() === s.id}
+                      onChange={async (e) => {
+                        setSavingId(s.id);
+                        try {
+                          await admin.dispatchOrThrow("radio_stations_update", {
+                            id: s.id,
+                            play_mode: e.currentTarget.value,
+                          });
+                          await loadStations();
+                        } catch (err) {
+                          setError(String(err));
+                        } finally {
+                          setSavingId(null);
+                        }
+                      }}
+                    >
+                      <option value="shuffle">shuffle</option>
+                      <option value="sequential">sequential</option>
+                    </select>
+                    <button
+                      class="danger small"
+                      onClick={() => deleteStation(s)}
+                      disabled={savingId() === s.id}
+                      style={{ "margin-left": "auto" }}
+                    >
+                      delete
+                    </button>
+                  </div>
+                  {/* seed editor toggle */}
+                  <div>
+                    <button
+                      class="secondary small"
+                      style={{ "font-size": "0.72rem", opacity: "0.75" }}
                       onClick={() =>
                         setExpandedId((cur) => (cur === s.id ? null : s.id))
                       }
                     >
-                      {expandedId() === s.id ? "close seed" : "edit seed"}
-                    </button>
-                    <button
-                      onClick={() => togglePublic(s)}
-                      disabled={savingId() === s.id}
-                    >
-                      {s.is_public ? "make private" : "make public"}
-                    </button>
-                    <button
-                      onClick={() => toggleEnabled(s)}
-                      disabled={savingId() === s.id}
-                    >
-                      {s.is_enabled ? "disable" : "enable"}
-                    </button>
-                    <button
-                      class="btn-danger"
-                      onClick={() => deleteStation(s)}
-                      disabled={savingId() === s.id}
-                    >
-                      delete
+                      {expandedId() === s.id ? "▴ hide seed" : "▾ edit seed"}
                     </button>
                   </div>
                 </div>
@@ -482,65 +584,78 @@ function StationSeedEditor(props: StationSeedEditorProps) {
   return (
     <div
       class="card"
-      style={{ "margin-bottom": "1rem", "border-left": "3px solid #6f5fbd" }}
+      style={{
+        "margin-bottom": "0.5rem",
+        "border-left": "3px solid #6f5fbd",
+        padding: "0.75rem",
+      }}
     >
-      <h3 style={{ "margin-top": 0 }}>seed query</h3>
-      <p class="item-meta" style={{ "margin-bottom": "1rem" }}>
-        explicit songs are always played; filters narrow (include) or remove
-        (exclude) candidates from your library.
-      </p>
-
       <Show when={error()}>
-        <p class="error">{error()}</p>
+        <p class="error" style={{ "margin-top": 0 }}>
+          {error()}
+        </p>
       </Show>
 
       <Show when={loading()}>
-        <p>loading seed...</p>
+        <p class="item-meta">loading seed...</p>
       </Show>
 
       <Show when={!loading()}>
         {/* filters */}
-        <h4>filters</h4>
-        <Show when={filters().length === 0}>
-          <p class="item-meta">no filters yet</p>
-        </Show>
-        <For each={filters()}>
-          {(f) => (
-            <div
-              class="list-item"
-              style={{ padding: "0.5rem 0.75rem", margin: "0.25rem 0" }}
-            >
-              <div class="item-info">
+        <div style={{ "margin-bottom": "0.5rem" }}>
+          <For each={filters()}>
+            {(f) => (
+              <div
+                style={{
+                  display: "flex",
+                  "align-items": "center",
+                  gap: "0.4rem",
+                  padding: "0.2rem 0",
+                  "border-bottom": "1px solid #222",
+                }}
+              >
                 <span
                   class="badge"
                   style={{
                     background: f.mode === "include" ? "#1f6f43" : "#6f1f1f",
                     color: f.mode === "include" ? "#a7e8c5" : "#e8a7a7",
-                    "margin-right": "0.5rem",
+                    "font-size": "0.7rem",
+                    padding: "0.1rem 0.35rem",
                   }}
                 >
                   {f.mode}
                 </span>
-                <code>{f.filter_type}</code> = <code>{f.filter_value}</code>
-              </div>
-              <div class="item-actions">
+                <code style={{ "font-size": "0.78rem" }}>{f.filter_type}</code>
+                <span style={{ color: "#666", "font-size": "0.75rem" }}>=</span>
+                <code style={{ "font-size": "0.78rem", flex: "1" }}>
+                  {f.filter_value}
+                </code>
                 <button
-                  class="btn-danger"
+                  class="danger small"
+                  style={{ padding: "0.1rem 0.4rem", "font-size": "0.75rem" }}
                   onClick={() => removeFilter(f.id)}
                   disabled={busy()}
                 >
-                  remove
+                  ×
                 </button>
               </div>
-            </div>
-          )}
-        </For>
+            )}
+          </For>
+          <Show when={filters().length === 0}>
+            <p
+              class="item-meta"
+              style={{ margin: "0.25rem 0", "font-size": "0.78rem" }}
+            >
+              no filters
+            </p>
+          </Show>
+        </div>
         <form
           onSubmit={addFilter}
           style={{
             display: "flex",
-            gap: "0.5rem",
-            "margin-top": "0.5rem",
+            gap: "0.35rem",
+            "margin-bottom": "0.75rem",
             "flex-wrap": "wrap",
             "align-items": "flex-end",
           }}
@@ -548,6 +663,7 @@ function StationSeedEditor(props: StationSeedEditorProps) {
           <select
             value={fMode()}
             onChange={(e) => setFMode(e.currentTarget.value)}
+            style={{ "font-size": "0.8rem" }}
           >
             <For each={FILTER_MODES}>
               {(m) => <option value={m}>{m}</option>}
@@ -556,6 +672,7 @@ function StationSeedEditor(props: StationSeedEditorProps) {
           <select
             value={fType()}
             onChange={(e) => setFType(e.currentTarget.value)}
+            style={{ "font-size": "0.8rem" }}
           >
             <For each={FILTER_TYPES}>
               {(t) => <option value={t}>{t}</option>}
@@ -568,51 +685,62 @@ function StationSeedEditor(props: StationSeedEditorProps) {
             dispatch={props.dispatch}
             placeholder={`${fType()} name`}
           />
-          <button type="submit" class="btn-primary" disabled={busy()}>
+          <button type="submit" class="primary small" disabled={busy()}>
             + add filter
           </button>
         </form>
 
         {/* explicit songs */}
-        <h4 style={{ "margin-top": "1.5rem" }}>explicit songs</h4>
-        <Show when={songs().length === 0}>
-          <p class="item-meta">no explicit songs yet</p>
-        </Show>
-        <For each={songs()}>
-          {(s) => (
-            <div
-              class="list-item"
-              style={{ padding: "0.5rem 0.75rem", margin: "0.25rem 0" }}
-            >
-              <div class="item-info">
-                <code>{s.song_id}</code>
-              </div>
-              <div class="item-actions">
+        <div style={{ "margin-bottom": "0.5rem" }}>
+          <For each={songs()}>
+            {(s) => (
+              <div
+                style={{
+                  display: "flex",
+                  "align-items": "center",
+                  gap: "0.4rem",
+                  padding: "0.2rem 0",
+                  "border-bottom": "1px solid #222",
+                }}
+              >
+                <code
+                  style={{
+                    "font-size": "0.78rem",
+                    flex: "1",
+                    overflow: "hidden",
+                    "text-overflow": "ellipsis",
+                    "white-space": "nowrap",
+                  }}
+                >
+                  {s.song_id}
+                </code>
                 <button
-                  class="btn-danger"
+                  class="danger small"
+                  style={{ padding: "0.1rem 0.4rem", "font-size": "0.75rem" }}
                   onClick={() => removeSong(s.song_id)}
                   disabled={busy()}
                 >
-                  remove
+                  ×
                 </button>
               </div>
-            </div>
-          )}
-        </For>
-        <form
-          onSubmit={addSong}
-          style={{
-            display: "flex",
-            gap: "0.5rem",
-            "margin-top": "0.5rem",
-          }}
-        >
+            )}
+          </For>
+          <Show when={songs().length === 0}>
+            <p
+              class="item-meta"
+              style={{ margin: "0.25rem 0", "font-size": "0.78rem" }}
+            >
+              no explicit songs
+            </p>
+          </Show>
+        </div>
+        <form onSubmit={addSong} style={{ display: "flex", gap: "0.35rem" }}>
           <SongSuggestInput
             value={songId()}
             onChange={setSongId}
             dispatch={props.dispatch}
           />
-          <button type="submit" class="btn-primary" disabled={busy()}>
+          <button type="submit" class="primary small" disabled={busy()}>
             + add song
           </button>
         </form>
@@ -775,6 +903,7 @@ interface RadioConfigPayload {
 
 function RadioConfigSection(props: { dispatch: Dispatch }) {
   const [enabled, setEnabled] = createSignal(false);
+  // loaded silently — still passed through on toggle so encode_args isn't lost
   const [encodeArgs, setEncodeArgs] = createSignal("");
   const [loading, setLoading] = createSignal(true);
   const [busy, setBusy] = createSignal(false);
@@ -801,26 +930,8 @@ function RadioConfigSection(props: { dispatch: Dispatch }) {
     void load();
   });
 
-  async function save(e: Event) {
-    e.preventDefault();
-    setBusy(true);
-    setErr("");
-    try {
-      await props.dispatch<RadioConfigPayload>("radio_config_set", {
-        enabled: enabled(),
-        encode_args: encodeArgs(),
-      });
-      await load();
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusy(false);
-    }
-  }
-
   // toggling the main switch immediately persists the new value to
-  // freqhole-config.toml (no separate save click). on failure the
-  // checkbox state is rolled back so the UI matches the on-disk value.
+  // freqhole-config.toml. encode_args is passed through unchanged.
   async function toggleEnabled(next: boolean) {
     const prev = enabled();
     setEnabled(next);
@@ -854,53 +965,23 @@ function RadioConfigSection(props: { dispatch: Dispatch }) {
         <p class="item-meta">loading config...</p>
       </Show>
       <Show when={!loading()}>
-        <form class="card" onSubmit={save}>
-          <div class="form-row">
-            <label
-              style={{
-                display: "flex",
-                "align-items": "center",
-                gap: "0.5rem",
-              }}
-            >
-              <input
-                type="checkbox"
-                checked={enabled()}
-                onChange={(e) => void toggleEnabled(e.currentTarget.checked)}
-                disabled={busy()}
-              />
-              <span class="label">enabled</span>
-            </label>
-          </div>
-          <div class="form-row">
-            <label>
-              <span class="label">
-                ffmpeg encode args (use <code>{"{input}"}</code> for the song
-                path)
-              </span>
-              <textarea
-                value={encodeArgs()}
-                onInput={(e) => setEncodeArgs(e.currentTarget.value)}
-                disabled={busy()}
-                spellcheck={false}
-                style={{
-                  width: "100%",
-                  "min-height": "6rem",
-                  "font-family": "monospace",
-                  "font-size": "0.8rem",
-                }}
-              />
-            </label>
-          </div>
-          <div class="form-row">
-            <button type="submit" class="btn-primary" disabled={busy()}>
-              {busy() ? "saving..." : "save"}
-            </button>
-            <span class="item-meta" style={{ "margin-left": "1rem" }}>
-              changes apply on next broadcaster start
-            </span>
-          </div>
-        </form>
+        <div class="card">
+          <label
+            style={{
+              display: "flex",
+              "align-items": "center",
+              gap: "0.5rem",
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={enabled()}
+              onChange={(e) => void toggleEnabled(e.currentTarget.checked)}
+              disabled={busy()}
+            />
+            <span class="label">enabled</span>
+          </label>
+        </div>
       </Show>
     </div>
   );

@@ -29,6 +29,8 @@ pub enum ControlMessage {
     Hello(HelloMessage),
     /// server → client, pushed on each track change.
     Meta(MetaMessage),
+    /// server → client, queue-mode timeline snapshot/update.
+    Timeline(TimelineMessage),
     /// server → client, sent when the listener has fallen behind the
     /// broadcaster's ring buffer. tells the listener what `init_seq` to
     /// expect on the audio stream once the broadcaster catches it back
@@ -43,6 +45,14 @@ pub enum ControlMessage {
     ChunkReady(ChunkReadyMessage),
     /// server → client, final control message before the session closes.
     Goodbye(GoodbyeMessage),
+}
+
+/// server/client capability marker for radio transport modes.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum RadioModeCapability {
+    ChunkStream,
+    TimelineSeed,
 }
 
 /// server → client lag notice. see [`ControlMessage::Lag`].
@@ -81,6 +91,20 @@ pub struct HelloMessage {
     pub codec: String,
     pub now_playing: NowPlaying,
     pub listener_count: u32,
+    /// capabilities supported by this broadcaster for this station.
+    /// clients can choose queue-mode timeline playback when available.
+    #[serde(default)]
+    pub radio_mode_capabilities: Vec<RadioModeCapability>,
+    /// true when this station is currently running in timeline-seed mode
+    /// (no ffmpeg/chunk stream as the primary transport).
+    #[serde(default)]
+    pub timeline_seed_active: bool,
+    /// true when the broadcaster has forced timeline-only mode for this
+    /// station, even though ffmpeg/chunk streaming may be available.
+    /// listeners must use queue-mode playback; no audio uni stream will
+    /// be opened.
+    #[serde(default)]
+    pub broadcaster_timeline_only: bool,
     /// the seq the broadcaster will assign to the next chunk. clients can use
     /// this to detect lag if they later receive a much larger seq with no
     /// chunks in between.
@@ -108,6 +132,38 @@ pub struct MetaMessage {
     /// before the audio actually does).
     #[serde(default)]
     pub init_seq: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TimelineMessage {
+    pub station_id: String,
+    pub timeline_seq: u64,
+    pub station_epoch_ms: i64,
+    pub generated_at_ms: i64,
+    #[serde(default)]
+    pub current: Option<TimelineCurrentItem>,
+    #[serde(default)]
+    pub upcoming: Vec<TimelineUpcomingItem>,
+    #[serde(default)]
+    pub lookahead_count: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TimelineCurrentItem {
+    pub timeline_item_id: String,
+    pub song_id: String,
+    pub start_at_ms: i64,
+    #[serde(default)]
+    pub duration_ms: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TimelineUpcomingItem {
+    pub timeline_item_id: String,
+    pub song_id: String,
+    pub planned_start_at_ms: i64,
+    #[serde(default)]
+    pub duration_ms: Option<i64>,
 }
 
 /// the data backing the now-playing card. kept flat so phase 2 can extend

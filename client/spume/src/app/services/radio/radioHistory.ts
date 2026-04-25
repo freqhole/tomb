@@ -24,10 +24,34 @@ function bumpHistoryVersion(): void {
   setHistoryVersion((v) => v + 1);
 }
 
+async function getLatestHistoryEntry(): Promise<RadioHistoryEntry | null> {
+  const db = await initAppDB();
+  const tx = db.transaction(STORE_RADIO_HISTORY, "readonly");
+  const idx = tx.store.index("by_played_at");
+  const cursor = await idx.openCursor(null, "prev");
+  await tx.done;
+  return (cursor?.value as RadioHistoryEntry | undefined) ?? null;
+}
+
+function isSameHistoryTrack(a: Omit<RadioHistoryEntry, "id" | "played_at">, b: RadioHistoryEntry): boolean {
+  const sameSongIdentity =
+    (a.song_id && b.song_id && a.song_id === b.song_id) ||
+    (!a.song_id && !b.song_id && a.title === b.title && a.artist === b.artist && a.album === b.album);
+  return (
+    a.station_id === b.station_id &&
+    a.peer_addr === b.peer_addr &&
+    sameSongIdentity
+  );
+}
+
 /** insert one history row. caller is responsible for de-duping (only call on track change). */
 export async function recordHistoryEntry(
   partial: Omit<RadioHistoryEntry, "id" | "played_at">,
 ): Promise<RadioHistoryEntry> {
+  const latest = await getLatestHistoryEntry();
+  if (latest && isSameHistoryTrack(partial, latest)) {
+    return latest;
+  }
   const db = await initAppDB();
   const entry: RadioHistoryEntry = {
     ...partial,

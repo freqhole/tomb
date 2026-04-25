@@ -272,6 +272,23 @@ function StationsSection(props: { client: AdminClient }) {
     }
   };
 
+  const toggleTimelineOnly = async (s: RadioStation) => {
+    setSavingId(s.id);
+    const next = s.timeline_only_mode === 0;
+    try {
+      const req: UpdateStationRequest = { id: s.id, timeline_only_mode: next };
+      await props.client.dispatchOrThrow("radio_stations_update", req);
+      toast.success(`timeline-only mode ${next ? "enabled" : "disabled"}`);
+      await refetch();
+    } catch (e) {
+      const msg =
+        e instanceof AdminCommandError ? e.message : e instanceof Error ? e.message : String(e);
+      toast.error(`failed to update: ${msg}`);
+    } finally {
+      setSavingId(null);
+    }
+  };
+
   const deleteStation = async (s: RadioStation) => {
     if (!window.confirm(`delete station "${s.name}"? this cannot be undone.`)) return;
     setSavingId(s.id);
@@ -318,6 +335,7 @@ function StationsSection(props: { client: AdminClient }) {
                 <th class="py-2 pr-4">enabled</th>
                 <th class="py-2 pr-4">codec</th>
                 <th class="py-2 pr-4">play mode</th>
+                <th class="py-2 pr-4">timeline only</th>
                 <th class="py-2 pr-4 text-right">actions</th>
               </tr>
             </thead>
@@ -359,6 +377,22 @@ function StationsSection(props: { client: AdminClient }) {
                         {s.play_mode}
                       </td>
                       <td class="py-2 pr-4">
+                        <span
+                          class={
+                            s.timeline_only_mode
+                              ? "px-2 py-0.5 text-xs rounded-full bg-violet-600/20 text-violet-400"
+                              : "px-2 py-0.5 text-xs rounded-full bg-neutral-700/40 text-neutral-400"
+                          }
+                          title={
+                            s.timeline_only_mode
+                              ? "chunk streaming disabled — listeners use queue mode"
+                              : "chunk streaming enabled"
+                          }
+                        >
+                          {s.timeline_only_mode ? "on" : "off"}
+                        </span>
+                      </td>
+                      <td class="py-2 pr-4">
                         <div class="flex items-center justify-end gap-2">
                           <button
                             class="px-2 py-1 text-xs rounded bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-bg-quaternary)] text-[var(--color-text-secondary)]"
@@ -381,6 +415,22 @@ function StationsSection(props: { client: AdminClient }) {
                             {s.is_enabled ? "disable" : "enable"}
                           </button>
                           <button
+                            class={
+                              s.timeline_only_mode
+                                ? "px-2 py-1 text-xs rounded bg-violet-600/20 hover:bg-violet-600/30 text-violet-400 border border-violet-600/30 disabled:opacity-50"
+                                : "px-2 py-1 text-xs rounded bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-bg-quaternary)] text-[var(--color-text-secondary)] disabled:opacity-50"
+                            }
+                            onClick={() => toggleTimelineOnly(s)}
+                            disabled={savingId() === s.id}
+                            title={
+                              s.timeline_only_mode
+                                ? "disable timeline-only mode (re-enable chunk streaming)"
+                                : "force timeline-only mode for all listeners"
+                            }
+                          >
+                            {s.timeline_only_mode ? "disable tl-only" : "force tl-only"}
+                          </button>
+                          <button
                             class="px-2 py-1 text-xs rounded bg-red-600/20 hover:bg-red-600/30 text-red-400 border border-red-600/30 disabled:opacity-50"
                             onClick={() => deleteStation(s)}
                             disabled={savingId() === s.id}
@@ -392,7 +442,7 @@ function StationsSection(props: { client: AdminClient }) {
                     </tr>
                     <Show when={expandedId() === s.id}>
                       <tr class="border-t border-[var(--color-border-subtle)]">
-                        <td colspan={6} class="py-3 pr-4">
+                        <td colspan={7} class="py-3 pr-4">
                           <StationSeedEditor stationId={s.id} client={props.client} />
                         </td>
                       </tr>

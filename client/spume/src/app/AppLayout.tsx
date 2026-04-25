@@ -56,6 +56,7 @@ import {
   usesBlobResolver,
 } from "../music/services/storage/blobResolver";
 import { getClientForRemote } from "./api/client";
+import { adminLocalRawDispatch, adminRawDispatch } from "./api/adminClient";
 import { deleteSongFromLocal } from "../music/services/sync";
 import {
   getPendingDownloadCount,
@@ -107,6 +108,10 @@ import { loadProgressFromStorage, progressMap } from "../music/services/queue/qu
 import { startAnalyticsSync, stopAnalyticsSync } from "../music/services/analytics/analyticsQueue";
 import { reconnectProgressTracking } from "../music/services/queue/listenProgress";
 import { isCharnelMode, setWindowTitle } from "./services/charnel";
+import {
+  getAuthInfo,
+  refreshOne as refreshRemoteAuthStatus,
+} from "./services/remotes/authStatusStore";
 import { checkAndShowConfigUpgradeToast } from "./services/toastNotices";
 import { debug } from "../utils/logger";
 import { isNarrowViewport } from "../config/breakpoints";
@@ -125,10 +130,12 @@ import {
   radioPause,
   radioResume,
   radioStatus,
+  radioUseTimelineMode,
   setRadioAudioSink,
   setRadioFavorite,
   tuneIntoRadio,
 } from "./services/radio/radioService";
+import { acknowledgeTimelineUserStart } from "./services/radio/radioQueueAdapter";
 import {
   currentRadioStation,
   loadCurrentRadioStation,
@@ -215,6 +222,54 @@ export function AppLayout(props: AppLayoutProps) {
       is_primary: true,
     };
   });
+
+  createEffect(() => {
+    const remoteId = radioCurrentRemoteServerId();
+    if (!remoteId) return;
+    if (getAuthInfo(remoteId) !== undefined) return;
+    void (async () => {
+      const remote = await getRemoteById(remoteId);
+      if (remote) {
+        await refreshRemoteAuthStatus(remote);
+      }
+    })();
+  });
+
+  const canAdminSkipRadioTrack = createMemo(() => {
+    const station = currentRadioStation();
+    if (!station?.station_id) return false;
+    if (station.is_local) return isCharnelMode();
+    const remoteId = radioCurrentRemoteServerId();
+    if (!remoteId) return false;
+    const auth = getAuthInfo(remoteId);
+    return auth?.loggedIn === true && auth.role === "admin";
+  });
+
+  const requestRadioTrackSkip = async (): Promise<void> => {
+    const station = currentRadioStation();
+    if (!station?.station_id) {
+      throw new Error("current station cannot be skipped");
+    }
+
+    if (station.is_local) {
+      await adminLocalRawDispatch("radio_supervisor_skip_track", {
+        station_id: station.station_id,
+      });
+      return;
+    }
+
+    const remoteId = radioCurrentRemoteServerId();
+    if (!remoteId) {
+      throw new Error("could not resolve the current radio remote");
+    }
+    const remote = await getRemoteById(remoteId);
+    if (!remote) {
+      throw new Error("current radio remote is no longer configured locally");
+    }
+    await adminRawDispatch(remote, "radio_supervisor_skip_track", {
+      station_id: station.station_id,
+    });
+  };
 
   // update window/document title (freqhole ▸ remote ▸ route)
   createEffect(() => {
@@ -489,6 +544,14 @@ export function AppLayout(props: AppLayoutProps) {
     const artworkUrl = radioArtUrl();
     const isPlayingNow = status === "playing";
 
+    // never arm media-session handlers while radio is idle. this avoids
+    // accidental lock-screen/system-triggered play callbacks from
+    // auto-retuning a saved station on page load.
+    if (status === "idle") {
+      clearExternalMediaSession();
+      return;
+    }
+
     setExternalMediaSession({
       title,
       artist,
@@ -499,16 +562,6 @@ export function AppLayout(props: AppLayoutProps) {
       onPlay: () => {
         if (radioStatus() === "paused") {
           radioResume();
-          return;
-        }
-        if (radioStatus() === "idle") {
-          const s = currentRadioStation();
-          if (!s) return;
-          void tuneIntoRadio(s.peer_addr, {
-            stationId: s.station_id,
-            stationName: s.station_name,
-            isLocal: s.is_local,
-          });
         }
       },
       onPause: () => {
@@ -516,8 +569,13 @@ export function AppLayout(props: AppLayoutProps) {
           radioPause();
         }
       },
-      // live radio has no per-track skip controls.
-      onNextTrack: undefined,
+      onNextTrack: canAdminSkipRadioTrack()
+        ? () => {
+            void requestRadioTrackSkip().catch((e) => {
+              toast.error(e instanceof Error ? e.message : String(e));
+            });
+          }
+        : undefined,
       onPreviousTrack: undefined,
     });
   });
@@ -1224,8 +1282,12 @@ export function AppLayout(props: AppLayoutProps) {
 
           const onPlayPause = () => {
             if (isRadio()) {
-              if (radioStatus() === "paused") radioResume();
-              else if (radioStatus() === "playing") radioPause();
+              if (radioStatus() === "paused") {
+                if (radioUseTimelineMode()) {
+                  acknowledgeTimelineUserStart();
+                }
+                radioResume();
+              } else if (radioStatus() === "playing") radioPause();
               else if (radioStatus() === "error") leaveRadio();
               else if (radioStatus() === "idle") {
                 const station = currentRadioStation();
@@ -1245,7 +1307,13 @@ export function AppLayout(props: AppLayoutProps) {
             playPrevious();
           };
           const onNext = () => {
-            if (isRadio()) return;
+            if (isRadio()) {
+              if (!canAdminSkipRadioTrack()) return;
+              void requestRadioTrackSkip().catch((e) => {
+                toast.error(e instanceof Error ? e.message : String(e));
+              });
+              return;
+            }
             playNext();
           };
           const onSeekCb = (pct: number) => {
@@ -1331,12 +1399,15 @@ export function AppLayout(props: AppLayoutProps) {
           };
 
           // status badge for radio mode: live indicator + listener count.
+          // when in timeline/queue mode (no MSE, forced by broadcaster, or
+          // network fallback) shows "queue" instead of "live" with a purple dot.
           const statusBadge = () =>
             isRadio() ? (
               <div
                 class="flex items-center gap-1 pr-1.5 py-0 rounded-full bg-black/60 backdrop-blur text-[9px] font-bold uppercase tracking-wide leading-none"
                 classList={{
-                  "text-red-400": radioStatus() === "playing",
+                  "text-violet-400": radioStatus() === "playing" && radioUseTimelineMode(),
+                  "text-red-400": radioStatus() === "playing" && !radioUseTimelineMode(),
                   "text-amber-400": radioStatus() === "connecting",
                   "text-neutral-400": radioStatus() === "paused",
                   "text-red-500": radioStatus() === "error",
@@ -1345,7 +1416,9 @@ export function AppLayout(props: AppLayoutProps) {
               >
                 <span>
                   {radioStatus() === "playing"
-                    ? "live"
+                    ? radioUseTimelineMode()
+                      ? "queue"
+                      : "live"
                     : radioStatus() === "connecting"
                       ? "tuning"
                       : radioStatus() === "paused"
@@ -1357,7 +1430,10 @@ export function AppLayout(props: AppLayoutProps) {
                 <span
                   class="w-1 h-1 rounded-full"
                   classList={{
-                    "bg-red-500 animate-pulse": radioStatus() === "playing",
+                    "bg-violet-400 animate-pulse":
+                      radioStatus() === "playing" && radioUseTimelineMode(),
+                    "bg-red-500 animate-pulse":
+                      radioStatus() === "playing" && !radioUseTimelineMode(),
                     "bg-amber-400 animate-pulse": radioStatus() === "connecting",
                     "bg-neutral-400": radioStatus() === "paused",
                     "bg-red-500": radioStatus() === "error",
@@ -1389,8 +1465,10 @@ export function AppLayout(props: AppLayoutProps) {
               onImageClick={onImageClick}
               onSongMetaClick={onSongMetaClick}
               queueLength={appState()?.queue.length || 0}
-              canGoNext={isRadio() ? false : canGoNext()}
+              canGoNext={isRadio() ? canAdminSkipRadioTrack() : canGoNext()}
               canGoPrevious={isRadio() ? false : canGoPrevious()}
+              showNext={!isRadio() || canAdminSkipRadioTrack()}
+              showPrevious={!isRadio()}
               statusBadge={statusBadge()}
               isLiveStream={isRadio()}
             />
@@ -1464,7 +1542,7 @@ function RadioAudioSink() {
   const audioEl = (() => {
     const el = document.createElement("audio");
     el.controls = false;
-    el.autoplay = true;
+    el.autoplay = false;
     el.preload = "auto";
     el.style.display = "none";
     return el;

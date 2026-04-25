@@ -135,6 +135,29 @@ export async function adminRawDispatch<T = unknown>(
 }
 
 /**
+ * untyped escape hatch for local admin commands in charnel mode.
+ */
+export async function adminLocalRawDispatch<T = unknown>(
+  command: string,
+  args: unknown = null,
+): Promise<T> {
+  if (!isCharnelMode()) {
+    throw new Error("local admin commands require charnel mode");
+  }
+  const transport = new LocalAdminTransport();
+  const envelope = await transport.send(command, args);
+  if (!envelope.success) {
+    const detail =
+      envelope.errors?.[0]?.detail ??
+      envelope.message ??
+      `admin ${command} failed`;
+    const errType = envelope.errors?.[0]?.error_type;
+    throw new Error(errType ? `${errType}: ${detail}` : detail);
+  }
+  return envelope.data as T;
+}
+
+/**
  * in-process admin transport for charnel mode. dispatches via the
  * `admin_dispatch` tauri invoke (no P2P hop needed; the OS boundary
  * is the auth check).

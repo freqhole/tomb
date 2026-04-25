@@ -6,6 +6,7 @@
 // (radioHistory module trims older rows on every write).
 
 import { createEffect, createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import { createStore } from "solid-js/store";
 import { useNavigate } from "@solidjs/router";
 import {
   clearHistory,
@@ -16,6 +17,7 @@ import {
 } from "../../app/services/radio/radioHistory";
 import { getClientForRemote } from "../../app/api/client";
 import { getRemoteByPeerAddr } from "../../app/services/remotes/remoteManager";
+import { resolveBlobUrl } from "../services/storage/blobResolver";
 import type { RadioHistoryEntry } from "../../app/services/storage/types";
 import { setHighlightedSongId } from "../state/highlightedSong";
 import { debug } from "../../utils/logger";
@@ -34,6 +36,7 @@ export function RadioHistoryList(props: RadioHistoryListProps) {
   const [exhausted, setExhausted] = createSignal(false);
   const [total, setTotal] = createSignal(0);
   const [confirmingClear, setConfirmingClear] = createSignal(false);
+  const [resolvedThumbUrls, setResolvedThumbUrls] = createStore<Record<string, string>>({});
   // cache of inline-thumb blob URLs keyed by entry id; revoked on cleanup.
   const thumbUrls = new Map<string, string>();
 
@@ -133,6 +136,29 @@ export function RadioHistoryList(props: RadioHistoryListProps) {
     radioHistoryVersion();
     if (!hasLoadedFirstPage) return;
     void refreshHeadPage();
+  });
+
+  createEffect(() => {
+    const currentEntries = entries();
+    void (async () => {
+      for (const entry of currentEntries) {
+        if (entry.art_thumb_b64 || !entry.art_blob_id || resolvedThumbUrls[entry.id]) continue;
+        try {
+          const remote = await getRemoteByPeerAddr(entry.peer_addr);
+          if (!remote) continue;
+          const url = await resolveBlobUrl(
+            entry.art_blob_id,
+            remote.remote_id,
+            "image",
+            undefined,
+            50
+          );
+          setResolvedThumbUrls(entry.id, url);
+        } catch (err) {
+          debug("radio-history", "failed to resolve history art blob:", err);
+        }
+      }
+    })();
   });
 
   onCleanup(() => {
@@ -266,7 +292,7 @@ export function RadioHistoryList(props: RadioHistoryListProps) {
         <ul class="flex flex-col gap-1">
           <For each={entries()}>
             {(e) => {
-              const thumb = buildThumbUrl(e);
+              const thumb = buildThumbUrl(e) ?? resolvedThumbUrls[e.id] ?? null;
               return (
                 <li class="flex items-center gap-3 p-2 rounded hover:bg-neutral-900/50">
                   <div class="flex-shrink-0 w-10 h-10 rounded bg-gradient-to-br from-purple-700 to-indigo-900 flex items-center justify-center overflow-hidden">

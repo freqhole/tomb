@@ -87,6 +87,11 @@ async fn run_session(conn: &Connection) -> GrimoireResult<()> {
                 })?
         }
     };
+    info!(
+        "[radio-handler] tune request station_id={:?} resolved_station_id={}",
+        requested_station,
+        bc.station_id()
+    );
 
     // 2a. per-station auth gate: when `is_public = 0` the requested
     // station is restricted to peers in the federation peer list.
@@ -110,38 +115,27 @@ async fn run_session(conn: &Connection) -> GrimoireResult<()> {
     let _guard = ListenerGuard::new(bc.clone());
     let listener_count = bc.listener_count();
     let mut sub = bc.subscribe().await;
+    let is_timeline_only = bc.is_timeline_only();
 
     let hello = ControlMessage::Hello(HelloMessage {
         codec: RADIO_CODEC.to_string(),
         now_playing: (*sub.now_playing).clone(),
         listener_count,
+        radio_mode_capabilities: bc.radio_mode_capabilities(),
+        timeline_seed_active: bc.timeline_seed_active(),
+        broadcaster_timeline_only: is_timeline_only,
         current_seq: sub.next_seq,
         init_seq: sub.init_seq,
         current_track_elapsed_ms: bc.current_track_elapsed_ms(),
     });
     write_control_message(&mut ctrl_send, &hello).await?;
+    let timeline = ControlMessage::Timeline(bc.timeline_snapshot(/*lookahead_count=*/ 0).await);
+    write_control_message(&mut ctrl_send, &timeline).await?;
 
-    // 4. open the audio uni stream.
-    let mut audio_send = conn
-        .open_uni()
-        .await
-        .map_err(|e| GrimoireError::FederationApiError {
-            message: format!("radio: failed to open audio stream: {e}"),
-        })?;
-
-    // 5. write current init + catchup chunks.
-    if let Some(init) = sub.init.as_ref() {
-        write_chunk(&mut audio_send, init).await?;
-    }
-    for chunk in &sub.catchup {
-        write_chunk(&mut audio_send, chunk).await?;
-    }
-
-    // 6. concurrent audio + meta forwarding.
-    // we serialize all writes to ctrl_send through a single writer task
-    // fed by an mpsc — both the meta forwarder and the audio forwarder
-    // (for `Lag` notices) need to send control messages, and SendStream
-    // isn't Sync.
+    // 4–6. session forwarding.
+    // timeline-only stations skip the audio uni stream entirely; the
+    // broadcaster only pushes control messages (Meta + Timeline).
+    // normal stations open an audio uni stream and fan audio + meta.
     let (ctrl_tx, mut ctrl_rx) = mpsc::channel::<ControlMessage>(32);
 
     let writer_task = async move {
@@ -154,22 +148,54 @@ async fn run_session(conn: &Connection) -> GrimoireResult<()> {
     };
     tokio::pin!(writer_task);
 
-    let bc_audio = bc.clone();
     let bc_meta = bc.clone();
-    let ctrl_tx_audio = ctrl_tx.clone();
     let ctrl_tx_meta = ctrl_tx.clone();
     let ctrl_tx_hb = ctrl_tx.clone();
     let bc_hb = bc.clone();
-    drop(ctrl_tx);
 
-    let writer_tx = ctrl_tx_meta.clone();
-    let end = tokio::select! {
-        res = &mut writer_task => return res,
-        res = forward_audio(&mut sub.chunk_rx, &mut audio_send, ctrl_tx_audio, bc_audio) => res?,
-        res = forward_meta(&mut sub.meta_rx, ctrl_tx_meta, bc_meta) => res?,
-        res = heartbeat(ctrl_tx_hb, bc_hb) => res?,
+    let end = if is_timeline_only {
+        // no audio uni stream — just forward meta + heartbeat.
+        info!("[radio-handler] timeline-only session for station '{station_id}'");
+        drop(ctrl_tx);
+        let writer_tx = ctrl_tx_meta.clone();
+        let end = tokio::select! {
+            res = &mut writer_task => return res,
+            res = forward_meta(&mut sub.meta_rx, ctrl_tx_meta, bc_meta) => res?,
+            res = heartbeat(ctrl_tx_hb, bc_hb) => res?,
+        };
+        (end, writer_tx)
+    } else {
+        // 4. open the audio uni stream.
+        let mut audio_send =
+            conn.open_uni()
+                .await
+                .map_err(|e| GrimoireError::FederationApiError {
+                    message: format!("radio: failed to open audio stream: {e}"),
+                })?;
+
+        // 5. write current init + catchup chunks.
+        if let Some(init) = sub.init.as_ref() {
+            write_chunk(&mut audio_send, init).await?;
+        }
+        for chunk in &sub.catchup {
+            write_chunk(&mut audio_send, chunk).await?;
+        }
+
+        let bc_audio = bc.clone();
+        let ctrl_tx_audio = ctrl_tx.clone();
+        drop(ctrl_tx);
+
+        let writer_tx = ctrl_tx_meta.clone();
+        let end = tokio::select! {
+            res = &mut writer_task => return res,
+            res = forward_audio(&mut sub.chunk_rx, &mut audio_send, ctrl_tx_audio, bc_audio) => res?,
+            res = forward_meta(&mut sub.meta_rx, ctrl_tx_meta, bc_meta) => res?,
+            res = heartbeat(ctrl_tx_hb, bc_hb) => res?,
+        };
+        (end, writer_tx)
     };
 
+    let (end, writer_tx) = end;
     match end {
         SessionEnd::Finished => Ok(()),
         SessionEnd::Goodbye(reason) => {
@@ -265,6 +291,10 @@ async fn forward_meta(
                 if ctrl_tx.send(msg).await.is_err() {
                     return Ok(SessionEnd::Finished);
                 }
+                let timeline = ControlMessage::Timeline(bc.timeline_snapshot(0).await);
+                if ctrl_tx.send(timeline).await.is_err() {
+                    return Ok(SessionEnd::Finished);
+                }
             }
             Err(RecvError::Lagged(_)) => {
                 // missed updates — push the current snapshot.
@@ -275,6 +305,10 @@ async fn forward_meta(
                     init_seq: sub.init_seq,
                 });
                 if ctrl_tx.send(msg).await.is_err() {
+                    return Ok(SessionEnd::Finished);
+                }
+                let timeline = ControlMessage::Timeline(bc.timeline_snapshot(0).await);
+                if ctrl_tx.send(timeline).await.is_err() {
                     return Ok(SessionEnd::Finished);
                 }
             }

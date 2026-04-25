@@ -826,6 +826,12 @@ export function pause(): void {
   audio.pause();
 }
 
+// clear the explicit-pause gate for timeline radio transitions without
+// triggering stopRadioForMusic() side effects.
+export function allowTimelineAutoplay(): void {
+  userExplicitlyPaused = false;
+}
+
 // stop playback (pause and reset to beginning)
 export function stop(): void {
   const audio = initAudio();
@@ -841,6 +847,14 @@ export async function play(): Promise<void> {
   const audio = initAudio();
   // user explicitly wants to play - clear pause flag and silence radio
   await stopRadioForMusic();
+  userExplicitlyPaused = false;
+  await audio.play();
+}
+
+// resume already-loaded audio without stopping radio. used by timeline
+// radio mode when the user explicitly presses play.
+export async function resumeLoadedAudioForRadio(): Promise<void> {
+  const audio = initAudio();
   userExplicitlyPaused = false;
   await audio.play();
 }

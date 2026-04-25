@@ -29,9 +29,12 @@ const INIT_FLAG: u32 = 0x8000_0000;
 /// garbage so a malformed peer can't make us allocate gigabytes.
 const MAX_CHUNK_BYTES: u32 = 16 * 1024 * 1024;
 
-/// hard cap on a single control message. art payloads are capped at ~256 kB
-/// raw (~340 kB base64 + JSON wrapping), so 1 MB is comfy headroom.
-const MAX_CONTROL_BYTES: u32 = 1024 * 1024;
+/// hard cap on a single control message.
+///
+/// now-playing art is encoded inline as base64 JSON. with large covers and
+/// thumbnail fallbacks this can exceed 1 MiB, so keep a larger frame cap while
+/// still bounding allocations against malformed peers.
+const MAX_CONTROL_BYTES: u32 = 10 * 1024 * 1024;
 
 /// write a single chunk to a uni stream using the framing above.
 pub async fn write_chunk(stream: &mut SendStream, chunk: &Chunk) -> GrimoireResult<()> {

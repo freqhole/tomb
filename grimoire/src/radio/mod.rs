@@ -27,7 +27,8 @@ pub use broadcaster::{
 pub use chunk::{BoxParser, Chunk};
 pub use encoder::Encoder;
 pub use messages::{
-    ArtData, ControlMessage, HelloMessage, MetaMessage, NowPlaying, TuneMessage, RADIO_CODEC,
+    ArtData, ControlMessage, HelloMessage, MetaMessage, NowPlaying, RadioModeCapability,
+    TimelineCurrentItem, TimelineMessage, TimelineUpcomingItem, TuneMessage, RADIO_CODEC,
 };
 pub use protocol::{
     read_chunk, read_control_message, write_chunk, write_control_message, RADIO_ALPN,

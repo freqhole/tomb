@@ -158,6 +158,7 @@ pub async fn handle(
         "radio_supervisor_start" => radio_supervisor_start(args).await,
         "radio_supervisor_stop" => radio_supervisor_stop(args).await,
         "radio_supervisor_restart" => radio_supervisor_restart(args).await,
+        "radio_supervisor_skip_track" => radio_supervisor_skip_track(args).await,
         "radio_bumpers_list" => radio_bumpers_list(args).await,
         "radio_bumpers_add" => radio_bumpers_add(args).await,
         "radio_bumpers_remove" => radio_bumpers_remove(args).await,
@@ -1338,8 +1339,19 @@ async fn radio_stations_update(args: JsonValue) -> GrimoireResponse<JsonValue> {
         Ok(v) => v,
         Err(r) => return r,
     };
+    let station_id = req.id.clone();
+    let timeline_only_requested = req.timeline_only_mode;
     match radio_stations::update_station(req).await {
-        Ok(s) => to_value(GrimoireResponse::success("radio station updated", s)),
+        Ok(s) => {
+            // propagate timeline_only_mode change to the running broadcaster
+            // immediately so the flag takes effect without a server restart.
+            if let Some(tlo) = timeline_only_requested {
+                if let Some(bc) = crate::radio::broadcaster::get_station(&station_id).await {
+                    bc.set_timeline_only(tlo);
+                }
+            }
+            to_value(GrimoireResponse::success("radio station updated", s))
+        }
         Err(e) => GrimoireResponse::failure("failed to update radio station", vec![e.into()]),
     }
 }
@@ -1729,6 +1741,17 @@ async fn radio_supervisor_restart(args: JsonValue) -> GrimoireResponse<JsonValue
     };
     if let Err(e) = crate::radio::broadcaster::restart_station(&req.station_id).await {
         return GrimoireResponse::failure("failed to restart station", vec![e.into()]);
+    }
+    build_supervisor_status().await
+}
+
+async fn radio_supervisor_skip_track(args: JsonValue) -> GrimoireResponse<JsonValue> {
+    let req: RadioSupervisorStationRequest = match decode(args) {
+        Ok(v) => v,
+        Err(r) => return r,
+    };
+    if let Err(e) = crate::radio::broadcaster::skip_station_track(&req.station_id).await {
+        return GrimoireResponse::failure("failed to skip current track", vec![e.into()]);
     }
     build_supervisor_status().await
 }

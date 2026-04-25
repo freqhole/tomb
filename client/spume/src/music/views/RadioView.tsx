@@ -176,12 +176,20 @@ export function RadioView() {
     let disposed = false;
     let timer: number | null = null;
 
+    const isStationListVisible = () => {
+      // on mobile/narrow layout, discovery polling is only useful while
+      // the station list is actually on screen. when detail is full-screen,
+      // pause polling to reduce network + CPU load.
+      if (!isNarrowViewport()) return true;
+      return !showDetail();
+    };
+
     const scheduleNext = (delayMs: number) => {
       if (disposed) return;
       if (timer !== null) window.clearTimeout(timer);
       timer = window.setTimeout(async () => {
         if (disposed) return;
-        if (sweeping() || document.visibilityState === "hidden") {
+        if (sweeping() || document.visibilityState === "hidden" || !isStationListVisible()) {
           scheduleNext(nextPollMs);
           return;
         }
@@ -269,10 +277,18 @@ export function RadioView() {
       return;
     }
 
-    const alreadyCurrent =
-      radioStatus() !== "idle" &&
-      radioCurrentPeerAddr() === peer &&
-      (radioCurrentStationId() === station.station_id || radioCurrentStationId() === null);
+    const matchesCurrentStation = (
+      peerToCheck: string,
+      stationIdToCheck: string | null | undefined
+    ) => {
+      if (radioStatus() === "idle") return false;
+      if (radioCurrentPeerAddr() !== peerToCheck) return false;
+      const currentId = radioCurrentStationId();
+      if (currentId !== null) return currentId === (stationIdToCheck ?? null);
+      return (stationIdToCheck ?? null) === null;
+    };
+
+    const alreadyCurrent = matchesCurrentStation(peer, station.station_id);
     if (alreadyCurrent) {
       if (isNarrowViewport()) setShowDetail(true);
       return;
@@ -290,7 +306,8 @@ export function RadioView() {
     }
   };
 
-  // auto-tune when a shared link includes station_id and discovery finds a match.
+  // no autoplay: shared links can prefill discovery filters, but tuning
+  // always requires explicit user action.
   const [attemptedSharedTune, setAttemptedSharedTune] = createSignal(false);
   createEffect(() => {
     const stationId = queryStationId();
@@ -307,18 +324,18 @@ export function RadioView() {
 
     if (match) {
       setAttemptedSharedTune(true);
-      void handleTune(match);
+      debug("radio-view", "shared station discovered (no auto-tune):", match.station_id);
     }
   });
 
   const isCurrent = (s: DiscoveredStation) => {
     const peer =
       s.source.kind === "self" ? s.source.id || "self" : (s.source.peer_addr ?? s.source.base_url);
-    return (
-      radioStatus() !== "idle" &&
-      radioCurrentPeerAddr() === peer &&
-      (radioCurrentStationId() === s.station_id || radioCurrentStationId() === null)
-    );
+    if (radioStatus() === "idle") return false;
+    if (radioCurrentPeerAddr() !== peer) return false;
+    const currentId = radioCurrentStationId();
+    if (currentId !== null) return currentId === (s.station_id ?? null);
+    return (s.station_id ?? null) === null;
   };
 
   const [promoting, setPromoting] = createSignal<string | null>(null);
@@ -347,6 +364,18 @@ export function RadioView() {
   };
 
   const currentStationObj = createMemo(() => stations().find((s) => isCurrent(s)) ?? null);
+
+  const canShowStationNowPlaying = (station: DiscoveredStation): boolean => {
+    const peer =
+      station.source.kind === "self"
+        ? station.source.id || "self"
+        : (station.source.peer_addr ?? station.source.base_url ?? "");
+    if (!peer) return !!station.now_playing;
+    if (radioStatus() === "idle") return !!station.now_playing;
+    const samePeerAsCurrent = radioCurrentPeerAddr() === peer;
+    if (!samePeerAsCurrent) return !!station.now_playing;
+    return isCurrent(station) && !!station.now_playing;
+  };
 
   // bookmark state for the currently tuned station
   const [bookmarking, setBookmarking] = createSignal(false);
@@ -464,7 +493,7 @@ export function RadioView() {
   // left column — station list
   // ---------------------------------------------------------------------
   const leftColumn = (
-    <div class="flex flex-col h-full mt-2 wide:mt-[60px]">
+    <div class="flex flex-col h-full min-h-0 pt-2 wide:pt-[60px]">
       <header class="flex items-center justify-between gap-2 px-3 py-3 border-b border-neutral-800">
         <h1 class="text-lg font-bold">radio</h1>
         <button
@@ -476,7 +505,12 @@ export function RadioView() {
         </button>
       </header>
 
-      <div class="flex-1 overflow-y-auto p-2">
+      <div
+        class="flex-1 min-h-0 overflow-y-auto p-2"
+        style={{
+          "padding-bottom": "calc(var(--player-height) + var(--safe-area-bottom, 0px) + 0.75rem)",
+        }}
+      >
         <Show
           when={stations().length > 0}
           fallback={
@@ -539,7 +573,10 @@ export function RadioView() {
                                   when={isCurrent(station) && radioArtUrl()}
                                   fallback={
                                     <Show
-                                      when={station.now_playing?.art_thumb_b64}
+                                      when={
+                                        canShowStationNowPlaying(station) &&
+                                        station.now_playing?.art_thumb_b64
+                                      }
                                       fallback={
                                         <Show
                                           when={remoteImageMetaForSource(station.source)}
@@ -585,7 +622,9 @@ export function RadioView() {
                                     ? radioListenerCount()
                                     : station.listener_count}{" "}
                                   listening
-                                  <Show when={station.now_playing}>
+                                  <Show
+                                    when={canShowStationNowPlaying(station) && station.now_playing}
+                                  >
                                     {(np) => <> · {np().title}</>}
                                   </Show>
                                 </div>
@@ -609,7 +648,12 @@ export function RadioView() {
   // right column — tuned-station detail + history
   // ---------------------------------------------------------------------
   const rightColumn = (
-    <div class="flex flex-col h-full overflow-y-auto">
+    <div
+      class="flex flex-col h-full overflow-y-auto"
+      style={{
+        "padding-bottom": "calc(var(--player-height) + var(--safe-area-bottom, 0px) + 0.75rem)",
+      }}
+    >
       {/* narrow-only back button so we can return to the station list. */}
       <div class="wide:hidden flex items-center px-3 py-2 border-b border-neutral-800">
         <button

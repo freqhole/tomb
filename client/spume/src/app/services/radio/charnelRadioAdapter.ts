@@ -70,6 +70,7 @@ function base64ToBytes(b64: string): Uint8Array {
  */
 export async function tuneRadioCharnel(
   peerAddr: string,
+  stationId: string | undefined,
   on_hello: (json: string) => void,
   on_meta: (json: string) => void,
   on_chunk: (seq: number, isInit: boolean, bytes: Uint8Array) => void,
@@ -111,6 +112,7 @@ export async function tuneRadioCharnel(
 
   const sessionId = (await invoke("radio_tune", {
     peerAddr,
+    stationId: stationId ?? null,
     events,
   })) as string;
 

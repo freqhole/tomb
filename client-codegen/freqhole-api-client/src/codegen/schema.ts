@@ -2705,6 +2705,7 @@ export const PublicStationSchema = z.object({
   description: z.string().nullish(),
   listener_count: z.number(),
   is_default: z.boolean(),
+  is_public: z.boolean(),
   now_playing: z.object({
   song_id: z.string(),
   title: z.string(),
@@ -2820,6 +2821,7 @@ export const RadioInfoResponseSchema = z.object({
   description: z.string().nullish(),
   listener_count: z.number(),
   is_default: z.boolean(),
+  is_public: z.boolean(),
   now_playing: z.object({
   song_id: z.string(),
   title: z.string(),
@@ -2872,6 +2874,7 @@ export const RadioStationSchema = z.object({
   encode_args: z.string().nullish(),
   codec: z.string(),
   play_mode: z.string(),
+  timeline_only_mode: z.number(),
   created_at: z.number(),
   updated_at: z.number()
 });
@@ -2908,6 +2911,7 @@ export const RadioStationsResponseSchema = z.object({
   description: z.string().nullish(),
   listener_count: z.number(),
   is_default: z.boolean(),
+  is_public: z.boolean(),
   now_playing: z.object({
   song_id: z.string(),
   title: z.string(),
@@ -3997,7 +4001,8 @@ export const UpdateStationRequestSchema = z.object({
   is_enabled: z.boolean().nullish(),
   encode_args: z.string().nullish(),
   codec: z.string().nullish(),
-  play_mode: z.string().nullish()
+  play_mode: z.string().nullish(),
+  timeline_only_mode: z.boolean().nullish()
 });
 export type UpdateStationRequest = z.infer<typeof UpdateStationRequestSchema>;
 

@@ -68,6 +68,10 @@ export interface PlayerBarProps {
   canGoPrevious?: boolean;
   /** whether next button is disabled */
   canGoNext?: boolean;
+  /** whether previous button should be shown */
+  showPrevious?: boolean;
+  /** whether next button should be shown */
+  showNext?: boolean;
   /** queue length for badge */
   queueLength?: number;
   /** hide the queue toggle button (e.g., on narrow views when it's in top nav) */
@@ -92,6 +96,8 @@ const COMPACT_MAX_WIDTH = 1200;
 export function PlayerBar(props: PlayerBarProps) {
   const canGoPrevious = () => props.canGoPrevious ?? true;
   const canGoNext = () => props.canGoNext ?? true;
+  const showPrevious = () => props.showPrevious ?? true;
+  const showNext = () => props.showNext ?? true;
   const isLiveStream = () => props.isLiveStream ?? false;
   const progress = () => (props.duration > 0 ? (props.currentTime / props.duration) * 100 : 0);
   const songMetaClickable = () => !!props.onSongMetaClick && !!props.song;
@@ -367,15 +373,17 @@ export function PlayerBar(props: PlayerBarProps) {
 
           {/* compact controls */}
           <div class="flex items-center gap-1 flex-shrink-0">
-            <button
-              class="w-8 h-8 rounded-full bg-[var(--color-accent-500)]/10 text-[var(--color-accent-500)] border-none cursor-pointer transition-colors flex items-center justify-center hover:bg-[var(--color-accent-500)]/30 disabled:opacity-40 disabled:cursor-not-allowed"
-              onClick={() => props.onPrevious()}
-              disabled={!canGoPrevious()}
-              title="previous"
-              aria-label="previous"
-            >
-              <Icon name="previous" size={16} />
-            </button>
+            <Show when={showPrevious()}>
+              <button
+                class="w-8 h-8 rounded-full bg-[var(--color-accent-500)]/10 text-[var(--color-accent-500)] border-none cursor-pointer transition-colors flex items-center justify-center hover:bg-[var(--color-accent-500)]/30 disabled:opacity-40 disabled:cursor-not-allowed"
+                onClick={() => props.onPrevious()}
+                disabled={!canGoPrevious()}
+                title="previous"
+                aria-label="previous"
+              >
+                <Icon name="previous" size={16} />
+              </button>
+            </Show>
 
             <div class="relative">
               {/* loading ring - gradient arc (shows for isLoading OR hasUpNext) */}
@@ -403,15 +411,17 @@ export function PlayerBar(props: PlayerBarProps) {
               </button>
             </div>
 
-            <button
-              class="w-8 h-8 rounded-full bg-[var(--color-accent-500)]/10 text-[var(--color-accent-500)] border-none cursor-pointer transition-colors flex items-center justify-center hover:bg-[var(--color-accent-500)]/30 disabled:opacity-40 disabled:cursor-not-allowed"
-              onClick={() => props.onNext()}
-              disabled={!canGoNext()}
-              title="next"
-              aria-label="next"
-            >
-              <Icon name="next" size={16} />
-            </button>
+            <Show when={showNext()}>
+              <button
+                class="w-8 h-8 rounded-full bg-[var(--color-accent-500)]/10 text-[var(--color-accent-500)] border-none cursor-pointer transition-colors flex items-center justify-center hover:bg-[var(--color-accent-500)]/30 disabled:opacity-40 disabled:cursor-not-allowed"
+                onClick={() => props.onNext()}
+                disabled={!canGoNext()}
+                title="next"
+                aria-label="next"
+              >
+                <Icon name="next" size={16} />
+              </button>
+            </Show>
           </div>
 
           {/* queue toggle */}
@@ -525,15 +535,17 @@ export function PlayerBar(props: PlayerBarProps) {
 
         {/* player controls - centered */}
         <div class="flex items-center gap-3 flex-shrink-0">
-          <button
-            class="w-10 h-10 rounded-full bg-[var(--color-accent-500)]/10 text-[var(--color-accent-500)] border-none cursor-pointer transition-all duration-300 flex items-center justify-center hover:bg-[var(--color-accent-500)]/30 hover:scale-110 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100"
-            onClick={() => props.onPrevious()}
-            disabled={!canGoPrevious()}
-            title="previous"
-            aria-label="previous"
-          >
-            <Icon name="previous" size={20} />
-          </button>
+          <Show when={showPrevious()}>
+            <button
+              class="w-10 h-10 rounded-full bg-[var(--color-accent-500)]/10 text-[var(--color-accent-500)] border-none cursor-pointer transition-all duration-300 flex items-center justify-center hover:bg-[var(--color-accent-500)]/30 hover:scale-110 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100"
+              onClick={() => props.onPrevious()}
+              disabled={!canGoPrevious()}
+              title="previous"
+              aria-label="previous"
+            >
+              <Icon name="previous" size={20} />
+            </button>
+          </Show>
 
           <div class="relative">
             {/* loading ring - gradient arc (shows for isLoading OR hasUpNext) */}
@@ -561,15 +573,17 @@ export function PlayerBar(props: PlayerBarProps) {
             </button>
           </div>
 
-          <button
-            class="w-10 h-10 rounded-full bg-[var(--color-accent-500)]/10 text-[var(--color-accent-500)] border-none cursor-pointer transition-all duration-300 flex items-center justify-center hover:bg-[var(--color-accent-500)]/30 hover:scale-110 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100"
-            onClick={() => props.onNext()}
-            disabled={!canGoNext()}
-            title="next"
-            aria-label="next"
-          >
-            <Icon name="next" size={20} />
-          </button>
+          <Show when={showNext()}>
+            <button
+              class="w-10 h-10 rounded-full bg-[var(--color-accent-500)]/10 text-[var(--color-accent-500)] border-none cursor-pointer transition-all duration-300 flex items-center justify-center hover:bg-[var(--color-accent-500)]/30 hover:scale-110 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100"
+              onClick={() => props.onNext()}
+              disabled={!canGoNext()}
+              title="next"
+              aria-label="next"
+            >
+              <Icon name="next" size={20} />
+            </button>
+          </Show>
         </div>
 
         {/* progress section - responsive width based on viewport */}

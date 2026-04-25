@@ -94,6 +94,10 @@ export async function discoverStations(
   for (const src of sources) {
     const state = getSourceState(src);
     if (!forceProbeAll && state.nextProbeAtMs > nowMs) {
+      const coolRemaining = Math.ceil((state.nextProbeAtMs - nowMs) / 1000);
+      if (src.kind === "pending") {
+        debug("radio-discovery", `pending source ${src.label} in backoff for ${coolRemaining}s (failures=${state.failureCount})`);
+      }
       coolingDownSources += 1;
       coolingSources.push(src);
       continue;
@@ -232,17 +236,21 @@ async function collectSources(
 
   // 2. pending remotes (still in setup flow but reachable).
   //
-  // only scan stages where the peer can actually answer API calls. a
-  // pending in `knock_pending` (waiting for approval) or `testing`
-  // (mid-handshake) won't authenticate, so hitting it just spams the
-  // remote and clogs the discovery log with `!success` noise. once the
-  // knock is accepted on the other side the row flips to
-  // `knock_accepted` / `connected` and gets picked up on the next pass.
+  // only scan stages where the peer can actually answer API calls.
+  // `testing` (mid-handshake) is too early — the connection isn't stable yet.
+  // `knock_pending` is included because /api/radio/stations is a public route
+  // and works without authentication, so we can browse stations while waiting
+  // for the knock to be approved on the other side.
   const pending = await getAllPendingRemotes();
-  const allowedStages = new Set(["connected", "knock_accepted"]);
+  const allowedStages = new Set(["connected", "knock_accepted", "knock_pending"]);
+  debug("radio-discovery", `pending remotes: ${pending.length} total, stages: ${pending.map((p) => p.stage).join(", ") || "none"}`);
   for (const p of pending) {
-    if (!allowedStages.has(p.stage)) continue;
+    if (!allowedStages.has(p.stage)) {
+      debug("radio-discovery", `skipping pending remote ${p.peer_addr.slice(0, 16)}… stage=${p.stage} (not in allowedStages)`);
+      continue;
+    }
     if (sources.some((s) => s.peer_addr === p.peer_addr || s.base_url === p.peer_addr)) {
+      debug("radio-discovery", `skipping pending remote ${p.peer_addr.slice(0, 16)}… already in sources as a full remote`);
       continue;
     }
     sources.push({
