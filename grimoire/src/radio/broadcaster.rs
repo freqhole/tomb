@@ -16,11 +16,11 @@ use crate::radio::chunk::Chunk;
 use crate::radio::config as cfg;
 use crate::radio::encoder::Encoder;
 use crate::radio::messages::{ArtData, NowPlaying, RadioModeCapability};
-use crate::radio::messages::{TimelineCurrentItem, TimelineMessage};
+use crate::radio::messages::{TimelineCurrentItem, TimelineMessage, TimelineUpcomingItem};
 use crate::radio::playlist::pick_for_station;
 use crate::radio::stations;
 use std::collections::{HashMap, VecDeque};
-use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 use tokio::sync::{broadcast, Notify, RwLock};
@@ -35,6 +35,23 @@ const RETRY_PAUSE: Duration = Duration::from_secs(3);
 const NO_LISTENER_GRACE: Duration = Duration::from_secs(60);
 const SKIP_REQUEST_COOLDOWN_MS: i64 = 30_000;
 const SKIP_MIN_REMAINING_MS: i64 = 30_000;
+
+/// maximum upcoming items to maintain in the rolling planner.
+pub const MAX_UPCOMING_ITEMS: usize = 8;
+/// minimum upcoming items before the horizon check stops filling.
+const MIN_UPCOMING_ITEMS: usize = 2;
+/// target lookahead horizon in milliseconds.
+const TARGET_HORIZON_MS: i64 = 15 * 60 * 1_000;
+
+/// one pre-picked song in the station's rolling plan.
+/// consumed by the run loop at each track boundary;
+/// read by timeline_snapshot() and planner_snapshot() for lookahead.
+#[derive(Clone)]
+pub struct PlannedItem {
+    pub timeline_item_id: String,
+    pub planned_start_at_ms: i64,
+    pub track: crate::radio::playlist::RadioTrack,
+}
 
 /// snapshot a new listener takes when joining the broadcast.
 pub struct Subscription {
@@ -113,6 +130,13 @@ pub struct Broadcaster {
     listener_notify: Notify,
     /// wakes the active song loop when an admin requests a skip.
     skip_notify: Notify,
+    /// rolling plan of pre-picked upcoming songs. consumed by the run loop
+    /// at each track boundary; refilled in a background task while the
+    /// current song plays so timeline snapshots have real lookahead.
+    plan: RwLock<VecDeque<PlannedItem>>,
+    /// monotonic counter used when minting `timeline_item_id` values for
+    /// planned items.
+    plan_item_seq: AtomicU64,
 }
 
 impl Broadcaster {
@@ -135,6 +159,8 @@ impl Broadcaster {
             last_skip_requested_at_ms: AtomicI64::new(0),
             listener_notify: Notify::new(),
             skip_notify: Notify::new(),
+            plan: RwLock::new(VecDeque::new()),
+            plan_item_seq: AtomicU64::new(0),
         }
     }
 
@@ -179,9 +205,113 @@ impl Broadcaster {
         );
     }
 
+    /// pop the next planned item for playback. the run loop calls this at
+    /// each track boundary; falls back to a fresh pick when empty.
+    async fn consume_planner_head(&self) -> Option<PlannedItem> {
+        self.plan.write().await.pop_front()
+    }
+
+    /// fill the plan up to MAX_UPCOMING_ITEMS (or TARGET_HORIZON_MS coverage).
+    /// spawned as a background task after each track boundary so upcoming
+    /// items are ready for timeline_snapshot() calls during the current song.
+    async fn refill_planner(self: &Arc<Self>) {
+        let (existing_ids, current_count, horizon_end_from_plan) = {
+            let plan = self.plan.read().await;
+            let ids: Vec<String> = plan.iter().map(|i| i.track.song_id.clone()).collect();
+            let count = plan.len();
+            let started = self.track_started_at_ms.load(Ordering::Relaxed);
+            let duration = self.current_track_duration_ms.load(Ordering::Relaxed);
+            let base = if started > 0 && duration > 0 {
+                started + duration
+            } else {
+                unix_now_ms()
+            };
+            let end = plan
+                .iter()
+                .fold(base, |acc, item| acc + item.track.duration_ms.unwrap_or(0));
+            (ids, count, end)
+        };
+
+        if current_count >= MAX_UPCOMING_ITEMS {
+            return;
+        }
+
+        let horizon_base = {
+            let started = self.track_started_at_ms.load(Ordering::Relaxed);
+            let duration = self.current_track_duration_ms.load(Ordering::Relaxed);
+            if started > 0 && duration > 0 {
+                started + duration
+            } else {
+                unix_now_ms()
+            }
+        };
+        let mut excluded = existing_ids;
+        let mut horizon_end = horizon_end_from_plan;
+        let mut new_items: Vec<PlannedItem> = Vec::new();
+
+        loop {
+            let total_count = current_count + new_items.len();
+            if total_count >= MAX_UPCOMING_ITEMS {
+                break;
+            }
+            let horizon_covered = (horizon_end - horizon_base) >= TARGET_HORIZON_MS;
+            let enough = total_count >= MIN_UPCOMING_ITEMS;
+            if horizon_covered && enough {
+                break;
+            }
+
+            let mut picked = None;
+            for _ in 0..3 {
+                match pick_for_station(&self.station_id).await {
+                    Ok(t) if !excluded.contains(&t.song_id) => {
+                        picked = Some(t);
+                        break;
+                    }
+                    Ok(_) => {} // intra-plan duplicate — retry
+                    Err(e) => {
+                        warn!(
+                            "[radio-planner] station {} refill pick failed: {e}",
+                            self.station_id
+                        );
+                        return;
+                    }
+                }
+            }
+
+            let Some(track) = picked else { break };
+            let duration = track.duration_ms.unwrap_or(0);
+            let item_seq = self.plan_item_seq.fetch_add(1, Ordering::Relaxed);
+            let item = PlannedItem {
+                timeline_item_id: format!("{}:{}:{}", self.station_id, track.song_id, item_seq),
+                planned_start_at_ms: horizon_end,
+                track: track.clone(),
+            };
+            excluded.push(track.song_id);
+            horizon_end += duration;
+            new_items.push(item);
+        }
+
+        if !new_items.is_empty() {
+            let mut plan = self.plan.write().await;
+            for item in new_items {
+                plan.push_back(item);
+            }
+        }
+    }
+
+    /// snapshot the planner for use in the public timeline manifest.
+    /// returns up to `max_items` upcoming planned songs with full display
+    /// metadata. does not consume items.
+    pub async fn planner_snapshot(&self, max_items: usize) -> Vec<PlannedItem> {
+        if max_items == 0 {
+            return Vec::new();
+        }
+        let plan = self.plan.read().await;
+        plan.iter().take(max_items).cloned().collect()
+    }
+
     /// build a timeline snapshot from the current broadcaster state.
-    /// phase 1 emits only the current item; lookahead is wired in
-    /// follow-up slices once the scheduler queue is exposed.
+    /// `lookahead_count` controls how many upcoming planned items to include.
     pub async fn timeline_snapshot(&self, lookahead_count: usize) -> TimelineMessage {
         let state = self.state.read().await;
         let now_ms = unix_now_ms();
@@ -202,13 +332,28 @@ impl Broadcaster {
             None
         };
 
+        let upcoming: Vec<TimelineUpcomingItem> = if lookahead_count > 0 {
+            let plan = self.plan.read().await;
+            plan.iter()
+                .take(lookahead_count)
+                .map(|item| TimelineUpcomingItem {
+                    timeline_item_id: item.timeline_item_id.clone(),
+                    song_id: item.track.song_id.clone(),
+                    planned_start_at_ms: item.planned_start_at_ms,
+                    duration_ms: item.track.duration_ms,
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
+
         TimelineMessage {
             station_id: self.station_id.clone(),
             timeline_seq: self.current_seq() as u64,
             station_epoch_ms: current.as_ref().map(|c| c.start_at_ms).unwrap_or(now_ms),
             generated_at_ms: now_ms,
             current,
-            upcoming: Vec::new(),
+            upcoming,
             lookahead_count,
         }
     }
@@ -357,8 +502,20 @@ impl Broadcaster {
                 continue;
             }
 
-            match pick_for_station(&self.station_id).await {
+            // consume from planner if available; fall back to a direct pick.
+            let track_result = match self.consume_planner_head().await {
+                Some(planned) => Ok(planned.track),
+                None => pick_for_station(&self.station_id).await,
+            };
+
+            match track_result {
                 Ok(track) => {
+                    // spawn planner refill in background while the current song plays.
+                    let bc = self.clone();
+                    tokio::spawn(async move {
+                        bc.refill_planner().await;
+                    });
+
                     if let Err(e) = self.play_track(&track, /*is_bumper=*/ false).await {
                         warn!(
                             "[radio-broadcaster] station {} song failed: {e}; retrying in {RETRY_PAUSE:?}",
@@ -533,6 +690,7 @@ impl Broadcaster {
             art: art.as_ref().map(ArtData::from_resolved),
             duration_ms: track.duration_ms,
             waveform_blob_id: track.waveform_blob_id.clone(),
+            audio_blob_id: track.audio_blob_id.clone(),
             station_id: Some(self.station_id.clone()),
         });
 

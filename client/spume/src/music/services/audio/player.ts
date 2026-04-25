@@ -255,9 +255,17 @@ if (typeof document !== 'undefined') {
   });
 }
 
+// true while setExternalMediaSession is active (e.g., during radio playback).
+// prevents updateMediaSession() from overwriting the radio lock-screen metadata
+// when audio element events fire after playSong() is called in timeline mode.
+let _externalMediaSessionActive = false;
+
 // update media session metadata and action handlers
 async function updateMediaSession() {
   if (!("mediaSession" in navigator)) return;
+  // skip local song queue metadata update when an external source (e.g. radio)
+  // has already claimed the media session.
+  if (_externalMediaSessionActive) return;
 
   const state = appState();
   if (!state) return;
@@ -393,6 +401,7 @@ export interface ExternalMediaSessionOptions {
 // handlers so platforms render non-seekable controls.
 export function setExternalMediaSession(options: ExternalMediaSessionOptions): void {
   if (!("mediaSession" in navigator)) return;
+  _externalMediaSessionActive = true;
 
   const artwork = options.artworkUrl
     ? ([
@@ -434,6 +443,7 @@ export function setExternalMediaSession(options: ExternalMediaSessionOptions): v
 
 export function clearExternalMediaSession(): void {
   if (!("mediaSession" in navigator)) return;
+  _externalMediaSessionActive = false;
   navigator.mediaSession.metadata = null;
   navigator.mediaSession.playbackState = "none";
   navigator.mediaSession.setActionHandler("play", null);

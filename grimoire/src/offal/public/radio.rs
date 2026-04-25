@@ -135,6 +135,7 @@ pub struct PublicNowPlaying {
     pub album: Option<String>,
     pub art_blob_id: Option<String>,
     pub waveform_blob_id: Option<String>,
+    pub audio_blob_id: Option<String>,
     pub duration_ms: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub art_thumb_b64: Option<String>,
@@ -177,6 +178,8 @@ pub struct PublicTimelineManifestItem {
     pub art: Option<PublicAssetRef>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub waveform: Option<PublicAssetRef>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub audio: Option<PublicAssetRef>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
@@ -281,6 +284,13 @@ fn public_manifest_current_item(
                 kind: "waveform".to_string(),
                 url: public_blob_url(station_id, blob_id),
             }),
+        audio: now_playing
+            .audio_blob_id
+            .as_ref()
+            .map(|blob_id| PublicAssetRef {
+                kind: "audio".to_string(),
+                url: public_blob_url(station_id, blob_id),
+            }),
     })
 }
 
@@ -319,6 +329,7 @@ async fn snapshot_station(
             album: np.album.clone(),
             art_blob_id: np.art.as_ref().map(|a| a.blob_id.clone()),
             waveform_blob_id: np.waveform_blob_id.clone(),
+            audio_blob_id: np.audio_blob_id.clone(),
             duration_ms: np.duration_ms,
             art_thumb_b64,
             art_thumb_mime,
@@ -358,20 +369,36 @@ async fn ensure_public_station_blob_allowed(
     let (_, bc) = load_public_station_context(station_id).await?;
 
     let now_playing = bc.now_playing().await;
-    let allowed = now_playing
+    let current_allowed = now_playing
         .art
         .as_ref()
         .map(|art| art.blob_id == blob_id)
         .unwrap_or(false)
-        || now_playing.waveform_blob_id.as_deref() == Some(blob_id);
+        || now_playing.waveform_blob_id.as_deref() == Some(blob_id)
+        || now_playing.audio_blob_id.as_deref() == Some(blob_id);
 
-    if !allowed {
+    if current_allowed {
+        return Ok(());
+    }
+
+    // also allow waveform/art/audio blobs for items in the rolling planner
+    // window so public clients can pre-fetch upcoming playback.
+    let planned = bc
+        .planner_snapshot(crate::radio::broadcaster::MAX_UPCOMING_ITEMS)
+        .await;
+    let planned_allowed = planned.iter().any(|item| {
+        item.track.waveform_blob_id.as_deref() == Some(blob_id)
+            || item.track.art_blob_id.as_deref() == Some(blob_id)
+            || item.track.audio_blob_id.as_deref() == Some(blob_id)
+    });
+
+    if !planned_allowed {
         return Err(GrimoireResponse::failure(
             "blob not available for public station",
             vec![ErrorDetail::new(
                 "radio_blob_not_available",
                 "blob not available for public station",
-                "this public blob route currently exposes only the station's current now-playing art and waveform assets",
+                "this public blob route exposes only the station's current now-playing assets and planner-window assets for upcoming songs",
             )],
         ));
     }
@@ -385,8 +412,41 @@ pub async fn timeline(station_id: &str) -> GrimoireResponse<JsonValue> {
         Err(resp) => return resp,
     };
 
+    // timeline_snapshot(0) gives us the current-item timing info only;
+    // planner_snapshot gives us richer metadata for upcoming items.
     let timeline = bc.timeline_snapshot(0).await;
     let now_playing = bc.now_playing().await;
+    let planned = bc.planner_snapshot(8).await;
+
+    let upcoming: Vec<PublicTimelineManifestItem> = planned
+        .iter()
+        .map(|item| PublicTimelineManifestItem {
+            timeline_item_id: item.timeline_item_id.clone(),
+            song_id: item.track.song_id.clone(),
+            title: Some(item.track.title.clone()),
+            artist: item.track.artist.clone(),
+            album: item.track.album.clone(),
+            start_at_ms: item.planned_start_at_ms,
+            duration_ms: item.track.duration_ms,
+            art: item.track.art_blob_id.as_ref().map(|aid| PublicAssetRef {
+                kind: "image".to_string(),
+                url: public_blob_url(station_id, aid),
+            }),
+            waveform: item
+                .track
+                .waveform_blob_id
+                .as_ref()
+                .map(|wid| PublicAssetRef {
+                    kind: "waveform".to_string(),
+                    url: public_blob_url(station_id, wid),
+                }),
+            audio: item.track.audio_blob_id.as_ref().map(|bid| PublicAssetRef {
+                kind: "audio".to_string(),
+                url: public_blob_url(station_id, bid),
+            }),
+        })
+        .collect();
+
     let manifest = PublicTimelineManifest {
         station_id: station.id,
         station_name: station.name,
@@ -395,9 +455,9 @@ pub async fn timeline(station_id: &str) -> GrimoireResponse<JsonValue> {
         broadcaster_timeline_only: bc.is_timeline_only(),
         generated_at_ms: timeline.generated_at_ms,
         timeline_seq: timeline.timeline_seq,
-        lookahead_count: timeline.lookahead_count as u64,
+        lookahead_count: upcoming.len() as u64,
         current: public_manifest_current_item(station_id, &timeline, &now_playing),
-        upcoming: Vec::new(),
+        upcoming,
     };
 
     GrimoireResponse::success("ok", serde_json::to_value(manifest).unwrap())

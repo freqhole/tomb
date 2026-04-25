@@ -2686,6 +2686,12 @@ export const ProcessKnockRequestSchema = z.object({
 });
 export type ProcessKnockRequest = z.infer<typeof ProcessKnockRequestSchema>;
 
+export const PublicAssetRefSchema = z.object({
+  kind: z.string(),
+  url: z.string()
+});
+export type PublicAssetRef = z.infer<typeof PublicAssetRefSchema>;
+
 export const PublicNowPlayingSchema = z.object({
   song_id: z.string(),
   title: z.string(),
@@ -2693,6 +2699,7 @@ export const PublicNowPlayingSchema = z.object({
   album: z.string().nullish(),
   art_blob_id: z.string().nullish(),
   waveform_blob_id: z.string().nullish(),
+  audio_blob_id: z.string().nullish(),
   duration_ms: z.number().nullish(),
   art_thumb_b64: z.string().nullish(),
   art_thumb_mime: z.string().nullish()
@@ -2713,12 +2720,90 @@ export const PublicStationSchema = z.object({
   album: z.string().nullish(),
   art_blob_id: z.string().nullish(),
   waveform_blob_id: z.string().nullish(),
+  audio_blob_id: z.string().nullish(),
   duration_ms: z.number().nullish(),
   art_thumb_b64: z.string().nullish(),
   art_thumb_mime: z.string().nullish()
 })
 });
 export type PublicStation = z.infer<typeof PublicStationSchema>;
+
+export const PublicTimelineManifestSchema = z.object({
+  station_id: z.string(),
+  station_name: z.string(),
+  station_description: z.string().nullish(),
+  is_public: z.boolean(),
+  broadcaster_timeline_only: z.boolean(),
+  generated_at_ms: z.number(),
+  timeline_seq: z.number(),
+  lookahead_count: z.number(),
+  current: z.object({
+  timeline_item_id: z.string(),
+  song_id: z.string(),
+  title: z.string().nullish(),
+  artist: z.string().nullish(),
+  album: z.string().nullish(),
+  start_at_ms: z.number(),
+  duration_ms: z.number().nullish(),
+  art: z.object({
+  kind: z.string(),
+  url: z.string()
+}).nullish(),
+  waveform: z.object({
+  kind: z.string(),
+  url: z.string()
+}).nullish(),
+  audio: z.object({
+  kind: z.string(),
+  url: z.string()
+}).nullish()
+}).nullish(),
+  upcoming: z.array(z.object({
+  timeline_item_id: z.string(),
+  song_id: z.string(),
+  title: z.string().nullish(),
+  artist: z.string().nullish(),
+  album: z.string().nullish(),
+  start_at_ms: z.number(),
+  duration_ms: z.number().nullish(),
+  art: z.object({
+  kind: z.string(),
+  url: z.string()
+}).nullish(),
+  waveform: z.object({
+  kind: z.string(),
+  url: z.string()
+}).nullish(),
+  audio: z.object({
+  kind: z.string(),
+  url: z.string()
+}).nullish()
+}))
+});
+export type PublicTimelineManifest = z.infer<typeof PublicTimelineManifestSchema>;
+
+export const PublicTimelineManifestItemSchema = z.object({
+  timeline_item_id: z.string(),
+  song_id: z.string(),
+  title: z.string().nullish(),
+  artist: z.string().nullish(),
+  album: z.string().nullish(),
+  start_at_ms: z.number(),
+  duration_ms: z.number().nullish(),
+  art: z.object({
+  kind: z.string(),
+  url: z.string()
+}).nullish(),
+  waveform: z.object({
+  kind: z.string(),
+  url: z.string()
+}).nullish(),
+  audio: z.object({
+  kind: z.string(),
+  url: z.string()
+}).nullish()
+});
+export type PublicTimelineManifestItem = z.infer<typeof PublicTimelineManifestItemSchema>;
 
 export const QueryContextSchema = z.object({
   tags: z.object({
@@ -2829,6 +2914,7 @@ export const RadioInfoResponseSchema = z.object({
   album: z.string().nullish(),
   art_blob_id: z.string().nullish(),
   waveform_blob_id: z.string().nullish(),
+  audio_blob_id: z.string().nullish(),
   duration_ms: z.number().nullish(),
   art_thumb_b64: z.string().nullish(),
   art_thumb_mime: z.string().nullish()
@@ -2919,6 +3005,7 @@ export const RadioStationsResponseSchema = z.object({
   album: z.string().nullish(),
   art_blob_id: z.string().nullish(),
   waveform_blob_id: z.string().nullish(),
+  audio_blob_id: z.string().nullish(),
   duration_ms: z.number().nullish(),
   art_thumb_b64: z.string().nullish(),
   art_thumb_mime: z.string().nullish()

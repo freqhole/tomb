@@ -185,12 +185,24 @@ export function RadioView() {
       return !showDetail();
     };
 
+    const shouldPoll = () =>
+      !sweeping() && document.visibilityState !== "hidden" && isStationListVisible();
+
+    const cancelTimer = () => {
+      if (timer !== null) {
+        window.clearTimeout(timer);
+        timer = null;
+      }
+    };
+
     const scheduleNext = (delayMs: number) => {
       if (disposed) return;
-      if (timer !== null) window.clearTimeout(timer);
+      cancelTimer();
       timer = window.setTimeout(async () => {
         if (disposed) return;
-        if (sweeping() || document.visibilityState === "hidden" || !isStationListVisible()) {
+        if (!shouldPoll()) {
+          // skip this cycle but reschedule — the visibilitychange handler
+          // will also kick off a fresh cycle when the page comes back into view.
           scheduleNext(nextPollMs);
           return;
         }
@@ -200,10 +212,26 @@ export function RadioView() {
       }, delayMs);
     };
 
+    // when the page returns to the foreground, run a discovery sweep
+    // immediately rather than waiting for the next scheduled tick.
+    const onVisibilityChange = () => {
+      if (disposed) return;
+      if (document.visibilityState === "visible" && isStationListVisible()) {
+        cancelTimer();
+        void quietRefresh().then((ok) => {
+          if (disposed) return;
+          nextPollMs = ok ? BASE_POLL_MS : Math.min(MAX_POLL_MS, Math.floor(nextPollMs * 1.8));
+          scheduleNext(nextPollMs);
+        });
+      }
+    };
+
+    document.addEventListener("visibilitychange", onVisibilityChange);
     scheduleNext(nextPollMs);
     onCleanup(() => {
       disposed = true;
-      if (timer !== null) window.clearTimeout(timer);
+      cancelTimer();
+      document.removeEventListener("visibilitychange", onVisibilityChange);
     });
   });
 

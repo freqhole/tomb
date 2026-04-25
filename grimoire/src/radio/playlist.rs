@@ -24,12 +24,18 @@ pub struct RadioTrack {
     pub song_id: String,
     pub title: String,
     pub local_path: String,
+    /// blob_id of the song's primary audio blob.
+    pub audio_blob_id: Option<String>,
     pub artist: Option<String>,
     pub album: Option<String>,
     /// total track length in milliseconds (sourced from `songz.duration`).
     pub duration_ms: Option<i64>,
     /// blob_id of the song's waveform image, when one exists.
     pub waveform_blob_id: Option<String>,
+    /// blob_id of the best available art image for this song.
+    /// fallback chain: song_imagez → album_imagez → artist_imagez.
+    /// used by public timeline manifests to populate art URLs.
+    pub art_blob_id: Option<String>,
 }
 
 /// pick a random song from the library that has a usable local file.
@@ -41,26 +47,38 @@ pub async fn pick_random_song() -> GrimoireResult<RadioTrack> {
         r#"SELECT s.id          as "song_id!",
                   s.title       as "title!",
                   s.duration,
+                  b.id          as "audio_blob_id?",
                   b.local_path,
                   ar.name       as "artist_name?",
                   al.title      as "album_title?",
-                  (SELECT wf.id
-                     FROM media_blobz wf
-                    WHERE wf.parent_blob_id = b.id
-                      AND wf.blob_type = 'waveform'
-                      AND wf.deleted_at IS NULL
-                    LIMIT 1)    as "waveform_blob_id?"
-             FROM songz s
-             JOIN media_blobz b ON b.id = s.media_blob_id
-             LEFT JOIN artist_songz ars ON ars.song_id = s.id
-             LEFT JOIN artistz ar ON ar.id = ars.artist_id AND ar.deleted_at IS NULL
-             LEFT JOIN album_songz als ON als.song_id = s.id
-             LEFT JOIN albumz al ON al.id = als.album_id AND al.deleted_at IS NULL
-            WHERE b.local_path IS NOT NULL
-              AND s.deleted_at IS NULL
-              AND b.deleted_at IS NULL
-            ORDER BY RANDOM()
-            LIMIT 1"#
+                                    (SELECT wf.id
+                                         FROM media_blobz wf
+                                        WHERE wf.parent_blob_id = b.id
+                                            AND wf.blob_type = 'waveform'
+                                            AND wf.deleted_at IS NULL
+                                        LIMIT 1)    as "waveform_blob_id?",
+                                    COALESCE(
+                                        (SELECT si.media_blob_id FROM song_imagez si
+                                            WHERE si.song_id = s.id
+                                            ORDER BY si.is_primary DESC LIMIT 1),
+                                        (SELECT ai.media_blob_id FROM album_imagez ai
+                                            JOIN album_songz als2 ON als2.album_id = ai.album_id AND als2.song_id = s.id
+                                            ORDER BY ai.is_primary DESC LIMIT 1),
+                                        (SELECT ari.media_blob_id FROM artist_imagez ari
+                                            JOIN artist_songz ars2 ON ars2.artist_id = ari.artist_id AND ars2.song_id = s.id
+                                            ORDER BY ari.is_primary DESC LIMIT 1)
+                                    )             as "art_blob_id?: String"
+                         FROM songz s
+                         JOIN media_blobz b ON b.id = s.media_blob_id
+                         LEFT JOIN artist_songz ars ON ars.song_id = s.id
+                         LEFT JOIN artistz ar ON ar.id = ars.artist_id AND ar.deleted_at IS NULL
+                         LEFT JOIN album_songz als ON als.song_id = s.id
+                         LEFT JOIN albumz al ON al.id = als.album_id AND al.deleted_at IS NULL
+                        WHERE b.local_path IS NOT NULL
+                            AND s.deleted_at IS NULL
+                            AND b.deleted_at IS NULL
+                        ORDER BY RANDOM()
+                        LIMIT 1"#
     )
     .fetch_optional(&pool)
     .await?;
@@ -79,10 +97,12 @@ pub async fn pick_random_song() -> GrimoireResult<RadioTrack> {
         song_id: row.song_id,
         title: row.title,
         local_path,
+        audio_blob_id: row.audio_blob_id,
         artist: row.artist_name,
         album: row.album_title,
         duration_ms: row.duration,
         waveform_blob_id: row.waveform_blob_id,
+        art_blob_id: row.art_blob_id,
     })
 }
 
@@ -145,6 +165,7 @@ pub async fn fetch_track(song_id: &str) -> GrimoireResult<RadioTrack> {
         r#"SELECT s.id          as "song_id!",
                   s.title       as "title!",
                   s.duration,
+                  b.id          as "audio_blob_id?",
                   b.local_path,
                   ar.name       as "artist_name?",
                   al.title      as "album_title?",
@@ -153,7 +174,18 @@ pub async fn fetch_track(song_id: &str) -> GrimoireResult<RadioTrack> {
                     WHERE wf.parent_blob_id = b.id
                       AND wf.blob_type = 'waveform'
                       AND wf.deleted_at IS NULL
-                    LIMIT 1)    as "waveform_blob_id?"
+                    LIMIT 1)    as "waveform_blob_id?",
+                  COALESCE(
+                    (SELECT si.media_blob_id FROM song_imagez si
+                      WHERE si.song_id = s.id
+                      ORDER BY si.is_primary DESC LIMIT 1),
+                    (SELECT ai.media_blob_id FROM album_imagez ai
+                      JOIN album_songz als2 ON als2.album_id = ai.album_id AND als2.song_id = s.id
+                      ORDER BY ai.is_primary DESC LIMIT 1),
+                    (SELECT ari.media_blob_id FROM artist_imagez ari
+                      JOIN artist_songz ars2 ON ars2.artist_id = ari.artist_id AND ars2.song_id = s.id
+                      ORDER BY ari.is_primary DESC LIMIT 1)
+                  )             as "art_blob_id?: String"
              FROM songz s
              JOIN media_blobz b ON b.id = s.media_blob_id
              LEFT JOIN artist_songz ars ON ars.song_id = s.id
@@ -184,9 +216,11 @@ pub async fn fetch_track(song_id: &str) -> GrimoireResult<RadioTrack> {
         song_id: row.song_id,
         title: row.title,
         local_path,
+        audio_blob_id: row.audio_blob_id,
         artist: row.artist_name,
         album: row.album_title,
         duration_ms: row.duration,
         waveform_blob_id: row.waveform_blob_id,
+        art_blob_id: row.art_blob_id,
     })
 }

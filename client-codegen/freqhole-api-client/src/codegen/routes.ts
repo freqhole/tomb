@@ -33,6 +33,10 @@ export const routes = {
   app: {
     health_check: { method: 'GET', path: '/health', req: null, resp: s.HealthResponseSchema, auth: { type: 'public' } as const },
     radio_info: { method: 'GET', path: '/api/radio/info', req: null, resp: s.RadioInfoResponseSchema, auth: { type: 'public' } as const },
+    radio_public_blob: { method: 'GET', path: '/api/radio/stations/{station_id}/blobs/{blob_id}', req: null, resp: null, auth: { type: 'public' } as const },
+    radio_public_blob_data: { method: 'GET', path: '/api/radio/stations/{station_id}/blobs/{blob_id}/data', req: null, resp: null, auth: { type: 'public' } as const },
+    radio_public_blob_thumbnail: { method: 'GET', path: '/api/radio/stations/{station_id}/blobs/{blob_id}/thumb/{size}', req: null, resp: null, auth: { type: 'public' } as const },
+    radio_public_timeline: { method: 'GET', path: '/api/radio/stations/{station_id}/timeline', req: null, resp: s.PublicTimelineManifestSchema, auth: { type: 'public' } as const },
     radio_stations: { method: 'GET', path: '/api/radio/stations', req: null, resp: s.RadioStationsResponseSchema, auth: { type: 'public' } as const },
     server_info: { method: 'GET', path: '/api/hello', req: null, resp: s.ServerInfoResponseSchema, auth: { type: 'public' } as const },
   },

@@ -255,7 +255,8 @@ pub mod type_registry {
 
     // radio public types
     use crate::offal::public::radio::{
-        PublicNowPlaying, PublicStation, RadioInfoResponse, RadioStationsResponse,
+        PublicAssetRef, PublicNowPlaying, PublicStation, PublicTimelineManifest,
+        PublicTimelineManifestItem, RadioInfoResponse, RadioStationsResponse,
     };
 
     // radio admin types
@@ -291,6 +292,12 @@ pub mod type_registry {
         registered.insert("RadioInfoResponse".to_string());
         gen.add_schema::<RadioStationsResponse>("RadioStationsResponse");
         registered.insert("RadioStationsResponse".to_string());
+        gen.add_schema::<PublicAssetRef>("PublicAssetRef");
+        registered.insert("PublicAssetRef".to_string());
+        gen.add_schema::<PublicTimelineManifestItem>("PublicTimelineManifestItem");
+        registered.insert("PublicTimelineManifestItem".to_string());
+        gen.add_schema::<PublicTimelineManifest>("PublicTimelineManifest");
+        registered.insert("PublicTimelineManifest".to_string());
 
         gen.add_schema::<ApiKeyStatusResponse>("ApiKeyStatusResponse");
         registered.insert("ApiKeyStatusResponse".to_string());

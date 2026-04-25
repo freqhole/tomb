@@ -14,9 +14,9 @@ import { createEffect, createRoot, on } from "solid-js";
 import { localDataSource } from "../../../music/data/local/localSource";
 import { RemoteMusicDataSource } from "../../../music/data/remote/remoteSource";
 import { allowTimelineAutoplay, isPlaying, pause, playSong } from "../../../music/services/audio/player";
+import { cleanupAllAudioURLs } from "../../../music/services/storage/audioAccess";
 import { getBlobObjectURL } from "../../../music/services/storage/blobs";
-import { preCacheP2PBlob } from "../../../music/services/storage/blobResolver";
-import { resolveBlobUrl } from "../../../music/services/storage/blobResolver";
+import { preCacheP2PBlob, resolveBlobUrl } from "../../../music/services/storage/blobResolver";
 import { getRemoteByPeerAddr, getRemoteById, getTauriManagedRemote } from "../remotes/remoteManager";
 import { getPendingRemoteByPeerAddr } from "../storage/db";
 import {
@@ -138,6 +138,8 @@ export function startQueueModeAdapter(): void {
 export function stopQueueModeAdapter(): void {
   console.info("[radio-queue-adapter] stopping (generation:", adapterGeneration, ")");
   active = false;
+  // increment generation first so any in-flight preCacheUpcoming loops
+  // abort before creating more object URLs.
   adapterGeneration += 1;
   currentTimelineItemId = null;
   currentTimelineSongId = null;
@@ -146,6 +148,14 @@ export function stopQueueModeAdapter(): void {
     disposeRoot();
     disposeRoot = null;
   }
+  // revoke all audio blob URLs created by timeline playback. these are
+  // audio object URLs held in audioAccess.activeBlobURLs — one per cached
+  // or currently-playing song. without this they survive the radio session
+  // and accumulate across tune/retune cycles.
+  // art blob URLs are separately managed: inline broadcaster art goes
+  // through swapArtUrl() which already revokes on swap, and leaveRadio()
+  // calls swapArtUrl(null) on teardown.
+  cleanupAllAudioURLs();
 }
 
 // ---- internal ------------------------------------------------------------
@@ -158,7 +168,12 @@ interface TimelineCurrentLike {
 }
 
 interface TimelineSnapshotLike {
-  upcoming: Array<{ song_id: string; planned_start_at_ms: number }>;
+  upcoming: Array<{
+    song_id: string;
+    planned_start_at_ms: number;
+    timeline_item_id?: string;
+    duration_ms?: number | null;
+  }>;
 }
 
 async function resolveTimelineArt(
@@ -446,15 +461,25 @@ async function preCacheUpcoming(
   if (!remote.remote_id) return;
   const remoteId = remote.remote_id;
   const ds = new RemoteMusicDataSource(remote);
+  // fetch metadata for all upcoming songs in one batch, then pre-cache
+  // audio blobs one at a time in timeline order so the nearest song is
+  // always prioritized over later ones.
   const songs = await ds.getSongsByIds(songIds).catch(() => []);
   if (gen !== adapterGeneration || songs.length === 0) return;
 
-  // pre-cache each song's audio blob in the background; failures are silent
-  // because this is best-effort — the main play path will fetch if needed.
-  for (const song of songs) {
+  // build an ordered list matching the original timeline order.
+  const ordered = songIds
+    .map((id) => songs.find((s) => s.id === id))
+    .filter((s): s is NonNullable<typeof s> => s != null);
+
+  for (const song of ordered) {
     if (gen !== adapterGeneration) return;
     if (song.media_blob_id) {
-      void preCacheP2PBlob(song.media_blob_id, remoteId, song.sha256, "audio");
+      // await each pre-cache so only one blob transfer is in-flight at a
+      // time. failures are swallowed — the main play path fetches on demand.
+      await preCacheP2PBlob(song.media_blob_id, remoteId, song.sha256, "audio").catch(
+        () => {},
+      );
     }
   }
 }

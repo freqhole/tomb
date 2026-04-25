@@ -129,7 +129,7 @@ async fn run_session(conn: &Connection) -> GrimoireResult<()> {
         current_track_elapsed_ms: bc.current_track_elapsed_ms(),
     });
     write_control_message(&mut ctrl_send, &hello).await?;
-    let timeline = ControlMessage::Timeline(bc.timeline_snapshot(/*lookahead_count=*/ 0).await);
+    let timeline = ControlMessage::Timeline(bc.timeline_snapshot(/*lookahead_count=*/ 8).await);
     write_control_message(&mut ctrl_send, &timeline).await?;
 
     // 4–6. session forwarding.
@@ -291,7 +291,7 @@ async fn forward_meta(
                 if ctrl_tx.send(msg).await.is_err() {
                     return Ok(SessionEnd::Finished);
                 }
-                let timeline = ControlMessage::Timeline(bc.timeline_snapshot(0).await);
+                let timeline = ControlMessage::Timeline(bc.timeline_snapshot(8).await);
                 if ctrl_tx.send(timeline).await.is_err() {
                     return Ok(SessionEnd::Finished);
                 }
@@ -307,7 +307,7 @@ async fn forward_meta(
                 if ctrl_tx.send(msg).await.is_err() {
                     return Ok(SessionEnd::Finished);
                 }
-                let timeline = ControlMessage::Timeline(bc.timeline_snapshot(0).await);
+                let timeline = ControlMessage::Timeline(bc.timeline_snapshot(8).await);
                 if ctrl_tx.send(timeline).await.is_err() {
                     return Ok(SessionEnd::Finished);
                 }

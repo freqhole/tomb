@@ -188,6 +188,10 @@ pub struct NowPlaying {
     /// `art` (which is the album/artist cover).
     #[serde(default)]
     pub waveform_blob_id: Option<String>,
+    /// blob_id of the currently playing audio file.
+    /// used by public timeline manifests to authorize/fetch audio blobs.
+    #[serde(default)]
+    pub audio_blob_id: Option<String>,
     /// id of the station currently playing this track (lets the client
     /// validate it's still tuned to the right channel after a reconnect).
     #[serde(default)]
