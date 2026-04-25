@@ -5,6 +5,10 @@
 //! audio stream goes over the iroh `freqhole-radio/1` ALPN, not http.
 
 use crate::api_registry::{Domain, Method, RouteAuth, RouteInfo};
+use crate::error::ErrorDetail;
+use crate::media_blobz::{
+    build_blob_data_response, build_blob_response, build_blob_thumbnail_response,
+};
 use crate::radio::broadcaster::list_running;
 use crate::response::GrimoireResponse;
 use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
@@ -38,7 +42,67 @@ pub const ROUTES: &[RouteInfo] = &[
         response_type: "RadioStationsResponse",
         auth: RouteAuth::Public,
     },
+    RouteInfo {
+        name: "radio_public_timeline",
+        path: "/api/radio/stations/{station_id}/timeline",
+        method: Method::GET,
+        domain: Domain::App,
+        request_type: "String",
+        response_type: "PublicTimelineManifest",
+        auth: RouteAuth::Public,
+    },
+    RouteInfo {
+        name: "radio_public_blob",
+        path: "/api/radio/stations/{station_id}/blobs/{blob_id}",
+        method: Method::GET,
+        domain: Domain::App,
+        request_type: "String",
+        response_type: "String",
+        auth: RouteAuth::Public,
+    },
+    RouteInfo {
+        name: "radio_public_blob_data",
+        path: "/api/radio/stations/{station_id}/blobs/{blob_id}/data",
+        method: Method::GET,
+        domain: Domain::App,
+        request_type: "String",
+        response_type: "String",
+        auth: RouteAuth::Public,
+    },
+    RouteInfo {
+        name: "radio_public_blob_thumbnail",
+        path: "/api/radio/stations/{station_id}/blobs/{blob_id}/thumb/{size}",
+        method: Method::GET,
+        domain: Domain::App,
+        request_type: "String",
+        response_type: "String",
+        auth: RouteAuth::Public,
+    },
 ];
+
+/// dispatch radio public routes with path parameters.
+pub async fn dispatch(path: &str) -> Option<GrimoireResponse<JsonValue>> {
+    let rest = path.strip_prefix("/api/radio/stations/")?;
+
+    if let Some(station_id) = rest.strip_suffix("/timeline") {
+        if !station_id.is_empty() && !station_id.contains('/') {
+            return Some(timeline(station_id).await);
+        }
+    }
+
+    let (station_id, tail) = rest.split_once("/blobs/")?;
+
+    if tail.ends_with("/data") {
+        let blob_id = tail.strip_suffix("/data")?;
+        return Some(get_public_blob_data(station_id, blob_id).await);
+    }
+
+    if let Some((blob_id, size)) = tail.split_once("/thumb/") {
+        return Some(get_public_blob_thumbnail(station_id, blob_id, size).await);
+    }
+
+    Some(get_public_blob(station_id, tail).await)
+}
 
 /// public-facing snapshot of one running station.
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
@@ -91,6 +155,133 @@ pub struct RadioInfoResponse {
 pub struct RadioStationsResponse {
     pub enabled: bool,
     pub stations: Vec<PublicStation>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct PublicAssetRef {
+    pub kind: String,
+    pub url: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct PublicTimelineManifestItem {
+    pub timeline_item_id: String,
+    pub song_id: String,
+    pub title: Option<String>,
+    pub artist: Option<String>,
+    pub album: Option<String>,
+    pub start_at_ms: i64,
+    #[serde(default)]
+    pub duration_ms: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub art: Option<PublicAssetRef>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub waveform: Option<PublicAssetRef>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct PublicTimelineManifest {
+    pub station_id: String,
+    pub station_name: String,
+    pub station_description: Option<String>,
+    pub is_public: bool,
+    pub broadcaster_timeline_only: bool,
+    pub generated_at_ms: i64,
+    pub timeline_seq: u64,
+    pub lookahead_count: u64,
+    #[serde(default)]
+    pub current: Option<PublicTimelineManifestItem>,
+    #[serde(default)]
+    pub upcoming: Vec<PublicTimelineManifestItem>,
+}
+
+async fn load_public_station_context(
+    station_id: &str,
+) -> Result<
+    (
+        crate::radio::stations::models::RadioStation,
+        std::sync::Arc<crate::radio::broadcaster::Broadcaster>,
+    ),
+    GrimoireResponse<JsonValue>,
+> {
+    let station = match crate::radio::stations::get_station(station_id).await {
+        Ok(Some(s)) => s,
+        Ok(None) => {
+            return Err(GrimoireResponse::failure(
+                "station not found",
+                vec![ErrorDetail::new(
+                    "station_not_found",
+                    "station not found",
+                    "no public radio station exists with that id",
+                )],
+            ))
+        }
+        Err(e) => {
+            return Err(GrimoireResponse::failure(
+                "failed to load station",
+                vec![ErrorDetail::from(e)],
+            ))
+        }
+    };
+
+    if station.is_public == 0 {
+        return Err(GrimoireResponse::failure(
+            "station is not public",
+            vec![ErrorDetail::new(
+                "station_not_public",
+                "station is not public",
+                "public radio access is only available for public stations",
+            )],
+        ));
+    }
+
+    let bc = match crate::radio::broadcaster::get_station(station_id).await {
+        Some(bc) => bc,
+        None => {
+            return Err(GrimoireResponse::failure(
+                "station offline",
+                vec![ErrorDetail::new(
+                    "station_offline",
+                    "station offline",
+                    "the station is not currently running",
+                )],
+            ))
+        }
+    };
+
+    Ok((station, bc))
+}
+
+fn public_blob_url(station_id: &str, blob_id: &str) -> String {
+    format!("/api/radio/stations/{station_id}/blobs/{blob_id}")
+}
+
+fn public_manifest_current_item(
+    station_id: &str,
+    timeline: &crate::radio::messages::TimelineMessage,
+    now_playing: &crate::radio::messages::NowPlaying,
+) -> Option<PublicTimelineManifestItem> {
+    let current = timeline.current.as_ref()?;
+    Some(PublicTimelineManifestItem {
+        timeline_item_id: current.timeline_item_id.clone(),
+        song_id: current.song_id.clone(),
+        title: Some(now_playing.title.clone()),
+        artist: now_playing.artist.clone(),
+        album: now_playing.album.clone(),
+        start_at_ms: current.start_at_ms,
+        duration_ms: current.duration_ms,
+        art: now_playing.art.as_ref().map(|art| PublicAssetRef {
+            kind: "image".to_string(),
+            url: public_blob_url(station_id, &art.blob_id),
+        }),
+        waveform: now_playing
+            .waveform_blob_id
+            .as_ref()
+            .map(|blob_id| PublicAssetRef {
+                kind: "waveform".to_string(),
+                url: public_blob_url(station_id, blob_id),
+            }),
+    })
 }
 
 async fn snapshot_station(
@@ -158,6 +349,84 @@ fn build_discovery_thumb(art: &crate::radio::messages::ArtData) -> Option<(Strin
         return None;
     }
     Some((b64, "image/jpeg".to_string()))
+}
+
+async fn ensure_public_station_blob_allowed(
+    station_id: &str,
+    blob_id: &str,
+) -> Result<(), GrimoireResponse<JsonValue>> {
+    let (_, bc) = load_public_station_context(station_id).await?;
+
+    let now_playing = bc.now_playing().await;
+    let allowed = now_playing
+        .art
+        .as_ref()
+        .map(|art| art.blob_id == blob_id)
+        .unwrap_or(false)
+        || now_playing.waveform_blob_id.as_deref() == Some(blob_id);
+
+    if !allowed {
+        return Err(GrimoireResponse::failure(
+            "blob not available for public station",
+            vec![ErrorDetail::new(
+                "radio_blob_not_available",
+                "blob not available for public station",
+                "this public blob route currently exposes only the station's current now-playing art and waveform assets",
+            )],
+        ));
+    }
+
+    Ok(())
+}
+
+pub async fn timeline(station_id: &str) -> GrimoireResponse<JsonValue> {
+    let (station, bc) = match load_public_station_context(station_id).await {
+        Ok(ctx) => ctx,
+        Err(resp) => return resp,
+    };
+
+    let timeline = bc.timeline_snapshot(0).await;
+    let now_playing = bc.now_playing().await;
+    let manifest = PublicTimelineManifest {
+        station_id: station.id,
+        station_name: station.name,
+        station_description: station.description,
+        is_public: true,
+        broadcaster_timeline_only: bc.is_timeline_only(),
+        generated_at_ms: timeline.generated_at_ms,
+        timeline_seq: timeline.timeline_seq,
+        lookahead_count: timeline.lookahead_count as u64,
+        current: public_manifest_current_item(station_id, &timeline, &now_playing),
+        upcoming: Vec::new(),
+    };
+
+    GrimoireResponse::success("ok", serde_json::to_value(manifest).unwrap())
+}
+
+pub async fn get_public_blob(station_id: &str, blob_id: &str) -> GrimoireResponse<JsonValue> {
+    if let Err(resp) = ensure_public_station_blob_allowed(station_id, blob_id).await {
+        return resp;
+    }
+    build_blob_response(blob_id).await
+}
+
+pub async fn get_public_blob_data(station_id: &str, blob_id: &str) -> GrimoireResponse<JsonValue> {
+    if let Err(resp) = ensure_public_station_blob_allowed(station_id, blob_id).await {
+        return resp;
+    }
+    build_blob_data_response(blob_id).await
+}
+
+pub async fn get_public_blob_thumbnail(
+    station_id: &str,
+    blob_id: &str,
+    size: &str,
+) -> GrimoireResponse<JsonValue> {
+    if let Err(resp) = ensure_public_station_blob_allowed(station_id, blob_id).await {
+        return resp;
+    }
+    let target_size = size.parse().unwrap_or(200);
+    build_blob_thumbnail_response(blob_id, target_size).await
 }
 
 pub async fn info() -> GrimoireResponse<JsonValue> {
