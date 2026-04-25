@@ -519,7 +519,7 @@ export function RadioView() {
                             <button
                               class="w-full text-left flex items-center gap-2 p-2 rounded transition border"
                               classList={{
-                                "bg-emerald-900/40 border-emerald-700": isCurrent(station),
+                                "bg-fuchsia-900/40 border-fuchsia-700": isCurrent(station),
                                 "hover:bg-neutral-900 border-transparent": !isCurrent(station),
                               }}
                               onClick={() => handleTune(station)}

@@ -33,6 +33,7 @@ import { useRouteDataSource } from "../music/hooks/useRouteDataSource";
 import { useToggleFavoriteMutation } from "../music/queries/favorites";
 import { useRecentPlaylistsQuery } from "../music/queries/playlists";
 import {
+  clearExternalMediaSession,
   currentTime,
   duration,
   isLoading,
@@ -42,6 +43,7 @@ import {
   playPrevious,
   playSong,
   seek,
+  setExternalMediaSession,
   setPlayerVolume,
   togglePlayback,
   volume,
@@ -470,6 +472,60 @@ export function AppLayout(props: AppLayoutProps) {
     if (queueLength > 0) {
       void updateAutoDownloadQueue(currentIndex);
     }
+  });
+
+  // sync navigator media session for radio mode so lock-screen/control
+  // center reflects the live station track (non-seekable).
+  createEffect(() => {
+    const mode = playbackMode();
+    if (mode !== "radio") return;
+
+    const station = currentRadioStation();
+    const np = radioNowPlaying();
+    const status = radioStatus();
+    const title = np?.title?.trim() || station?.station_name || "radio";
+    const artist = np?.artist?.trim() || "radio";
+    const album = np?.album?.trim() || station?.station_name || "live stream";
+    const artworkUrl = radioArtUrl();
+    const isPlayingNow = status === "playing";
+
+    setExternalMediaSession({
+      title,
+      artist,
+      album,
+      artworkUrl,
+      isPlaying: isPlayingNow,
+      isLive: true,
+      onPlay: () => {
+        if (radioStatus() === "paused") {
+          radioResume();
+          return;
+        }
+        if (radioStatus() === "idle") {
+          const s = currentRadioStation();
+          if (!s) return;
+          void tuneIntoRadio(s.peer_addr, {
+            stationId: s.station_id,
+            stationName: s.station_name,
+            isLocal: s.is_local,
+          });
+        }
+      },
+      onPause: () => {
+        if (radioStatus() === "playing" || radioStatus() === "connecting") {
+          radioPause();
+        }
+      },
+      // live radio has no per-track skip controls.
+      onNextTrack: undefined,
+      onPreviousTrack: undefined,
+    });
+  });
+
+  // clear externally-owned media session when leaving radio mode.
+  createEffect(() => {
+    if (playbackMode() === "radio") return;
+    clearExternalMediaSession();
   });
 
   const queueOpen = () => appState()?.queue_open ?? false;
@@ -1308,7 +1364,7 @@ export function AppLayout(props: AppLayoutProps) {
                   }}
                 />
                 <span class="opacity-70 normal-case font-medium tabular-nums">
-                  · {radioListenerCount()} listening
+                  {radioListenerCount()} listening
                 </span>
               </div>
             ) : undefined;

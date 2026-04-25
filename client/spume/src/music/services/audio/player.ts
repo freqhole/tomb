@@ -374,6 +374,80 @@ async function updateMediaSession() {
   }
 }
 
+export interface ExternalMediaSessionOptions {
+  title: string;
+  artist?: string;
+  album?: string;
+  artworkUrl?: string | null;
+  isPlaying: boolean;
+  isLive?: boolean;
+  onPlay?: () => void;
+  onPause?: () => void;
+  onNextTrack?: () => void;
+  onPreviousTrack?: () => void;
+}
+
+// update lock-screen/control-center metadata from an external playback
+// source (for example, live radio managed outside the local song queue).
+// when `isLive` is true we intentionally clear position state and seek
+// handlers so platforms render non-seekable controls.
+export function setExternalMediaSession(options: ExternalMediaSessionOptions): void {
+  if (!("mediaSession" in navigator)) return;
+
+  const artwork = options.artworkUrl
+    ? ([
+        { src: options.artworkUrl, sizes: "96x96", type: "image/jpeg" },
+        { src: options.artworkUrl, sizes: "128x128", type: "image/jpeg" },
+        { src: options.artworkUrl, sizes: "192x192", type: "image/jpeg" },
+        { src: options.artworkUrl, sizes: "256x256", type: "image/jpeg" },
+        { src: options.artworkUrl, sizes: "384x384", type: "image/jpeg" },
+        { src: options.artworkUrl, sizes: "512x512", type: "image/jpeg" },
+      ] as MediaImage[])
+    : undefined;
+
+  // clear metadata first, then set it (iOS Safari workaround)
+  navigator.mediaSession.metadata = null;
+  navigator.mediaSession.metadata = new MediaMetadata({
+    title: options.title,
+    artist: options.artist,
+    album: options.album,
+    artwork,
+  });
+
+  navigator.mediaSession.playbackState = options.isPlaying ? "playing" : "paused";
+
+  navigator.mediaSession.setActionHandler("play", options.onPlay ?? null);
+  navigator.mediaSession.setActionHandler("pause", options.onPause ?? null);
+  navigator.mediaSession.setActionHandler("nexttrack", options.onNextTrack ?? null);
+  navigator.mediaSession.setActionHandler("previoustrack", options.onPreviousTrack ?? null);
+
+  if (options.isLive) {
+    // live stream: explicitly disable seek controls + timeline.
+    navigator.mediaSession.setActionHandler("seekto", null);
+    try {
+      navigator.mediaSession.setPositionState();
+    } catch {
+      // ignore on browsers that don't fully implement position state
+    }
+  }
+}
+
+export function clearExternalMediaSession(): void {
+  if (!("mediaSession" in navigator)) return;
+  navigator.mediaSession.metadata = null;
+  navigator.mediaSession.playbackState = "none";
+  navigator.mediaSession.setActionHandler("play", null);
+  navigator.mediaSession.setActionHandler("pause", null);
+  navigator.mediaSession.setActionHandler("nexttrack", null);
+  navigator.mediaSession.setActionHandler("previoustrack", null);
+  navigator.mediaSession.setActionHandler("seekto", null);
+  try {
+    navigator.mediaSession.setPositionState();
+  } catch {
+    // ignore on browsers that don't fully implement position state
+  }
+}
+
 // pre-cache next songs when current song is >50% played (rolling 30-min cache)
 function handlePreCacheNext() {
   if (hasPreCachedNext) return;

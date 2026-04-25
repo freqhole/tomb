@@ -5,13 +5,14 @@
 // page when it scrolls into view. capped at MAX_RADIO_HISTORY rows
 // (radioHistory module trims older rows on every write).
 
-import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import { createEffect, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { useNavigate } from "@solidjs/router";
 import {
   clearHistory,
   countHistory,
   getHistoryPage,
   MAX_RADIO_HISTORY,
+  radioHistoryVersion,
 } from "../../app/services/radio/radioHistory";
 import { getClientForRemote } from "../../app/api/client";
 import { getRemoteByPeerAddr } from "../../app/services/remotes/remoteManager";
@@ -85,9 +86,34 @@ export function RadioHistoryList(props: RadioHistoryListProps) {
 
   let sentinel: HTMLDivElement | undefined;
   let observer: IntersectionObserver | undefined;
+  let hasLoadedFirstPage = false;
+
+  const refreshHeadPage = async () => {
+    if (loading()) return;
+    setLoading(true);
+    try {
+      const page = await getHistoryPage({ limit: PAGE_SIZE, stationId: props.stationId });
+      setEntries((prev) => {
+        if (page.length === 0) return [];
+        const merged = [...page];
+        const seen = new Set(page.map((row) => row.id));
+        for (const row of prev) {
+          if (!seen.has(row.id)) merged.push(row);
+        }
+        return merged;
+      });
+      setTotal(await countHistory());
+      if (page.length === 0) {
+        setExhausted(true);
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
 
   onMount(() => {
     void loadFirstPage();
+    hasLoadedFirstPage = true;
     if (sentinel) {
       observer = new IntersectionObserver(
         (ents) => {
@@ -101,6 +127,12 @@ export function RadioHistoryList(props: RadioHistoryListProps) {
       );
       observer.observe(sentinel);
     }
+  });
+
+  createEffect(() => {
+    radioHistoryVersion();
+    if (!hasLoadedFirstPage) return;
+    void refreshHeadPage();
   });
 
   onCleanup(() => {

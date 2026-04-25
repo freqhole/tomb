@@ -26,6 +26,7 @@ interface SourceRunResult {
 }
 
 const sourceState = new Map<string, DiscoverySourceState>();
+const sourceStations = new Map<string, DiscoveredStation[]>();
 let lastDiscoverySnapshot: DiscoveredStation[] = [];
 const SUCCESS_REPROBE_MS = 45_000;
 const FAILURE_BACKOFF_BASE_MS = 30_000;
@@ -88,11 +89,13 @@ export async function discoverStations(
   const sources = await collectSources(opts.extraPeerAddrs);
   const nowMs = Date.now();
   const activeSources: SourceRef[] = [];
+  const coolingSources: SourceRef[] = [];
   let coolingDownSources = 0;
   for (const src of sources) {
     const state = getSourceState(src);
     if (!forceProbeAll && state.nextProbeAtMs > nowMs) {
       coolingDownSources += 1;
+      coolingSources.push(src);
       continue;
     }
     activeSources.push(src);
@@ -121,6 +124,17 @@ export async function discoverStations(
     opts.onPartial?.(cumulative.slice());
   };
 
+  // carry forward last known stations for sources currently cooling down
+  // so transient probe skips don't make active stations disappear.
+  let reusedFromCooldown = 0;
+  for (const src of coolingSources) {
+    const cached = sourceStations.get(sourceKey(src));
+    if (cached && cached.length > 0) {
+      reusedFromCooldown += cached.length;
+      pushStations(cached);
+    }
+  }
+
   // kick off every source once with the deep timeout. each task either
   // resolves with stations (or []) or rejects on timeout/error.
   const slowPromises = activeSources.map((src) =>
@@ -128,6 +142,13 @@ export async function discoverStations(
       const now = Date.now();
       updateSourceState(src, result, now);
       maybeWarnSourceFailure(src, result, now);
+
+      // update per-source station cache on successful probes (including
+      // empty results, which intentionally clear stale entries).
+      if (!result.failed) {
+        sourceStations.set(sourceKey(src), result.stations.slice());
+      }
+
       return { src, result };
     }),
   );
@@ -178,7 +199,7 @@ export async function discoverStations(
 
   debug(
     "radio-discovery",
-    `sweep complete: total=${sources.length} probed=${activeSources.length} cooldown=${coolingDownSources} stations=${cumulative.length}`,
+    `sweep complete: total=${sources.length} probed=${activeSources.length} cooldown=${coolingDownSources} reused=${reusedFromCooldown} stations=${cumulative.length}`,
   );
   lastDiscoverySnapshot = cumulative.slice();
 
