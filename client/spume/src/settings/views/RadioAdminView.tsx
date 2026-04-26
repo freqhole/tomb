@@ -286,7 +286,7 @@ function StationsSection(props: {
         setLoadError(`failed to load stations: ${msg}`);
         return [];
       }
-    },
+    }
   );
 
   const [savingId, setSavingId] = createSignal<string | null>(null);
@@ -328,7 +328,9 @@ function StationsSection(props: {
     setSavingId(s.id);
     const next = s.timeline_only_mode === 0;
     if (!props.ffmpegAvailable() && !next) {
-      toast.error("ffmpeg is not installed on this node, so this station must run in timeline-only mode");
+      toast.error(
+        "ffmpeg is not installed on this node, so this station must run in timeline-only mode"
+      );
       setSavingId(null);
       return;
     }
@@ -491,8 +493,8 @@ function StationsSection(props: {
                               !props.ffmpegAvailable() && s.timeline_only_mode !== 0
                                 ? "ffmpeg is unavailable on this node"
                                 : s.timeline_only_mode
-                                ? "disable timeline-only mode (re-enable chunk streaming)"
-                                : "force timeline-only mode for all listeners"
+                                  ? "disable timeline-only mode (re-enable chunk streaming)"
+                                  : "force timeline-only mode for all listeners"
                             }
                           >
                             {s.timeline_only_mode ? "disable tl-only" : "force tl-only"}
