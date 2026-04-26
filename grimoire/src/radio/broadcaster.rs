@@ -15,11 +15,14 @@ use crate::radio::art::resolve_track_art;
 use crate::radio::chunk::Chunk;
 use crate::radio::config as cfg;
 use crate::radio::encoder::Encoder;
-use crate::radio::messages::{ArtData, NowPlaying};
-use crate::radio::playlist::pick_for_station;
+use crate::radio::messages::{ArtData, NowPlaying, RadioModeCapability};
+use crate::radio::messages::{TimelineCurrentItem, TimelineMessage, TimelineUpcomingItem};
+use crate::radio::playlist::{
+    pick_for_station, pick_for_station_after, pick_for_station_force_new_album,
+};
 use crate::radio::stations;
 use std::collections::{HashMap, VecDeque};
-use std::sync::atomic::{AtomicI64, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 use tokio::sync::{broadcast, Notify, RwLock};
@@ -32,6 +35,25 @@ const RETRY_PAUSE: Duration = Duration::from_secs(3);
 /// when the last listener leaves, keep the current ffmpeg pipeline alive
 /// for a bit in case they only paused / scrubbed / reconnected.
 const NO_LISTENER_GRACE: Duration = Duration::from_secs(60);
+const SKIP_REQUEST_COOLDOWN_MS: i64 = 5_000;
+const SKIP_MIN_REMAINING_MS: i64 = 30_000;
+
+/// maximum upcoming items to maintain in the rolling planner.
+pub const MAX_UPCOMING_ITEMS: usize = 8;
+/// minimum upcoming items before the horizon check stops filling.
+const MIN_UPCOMING_ITEMS: usize = 2;
+/// target lookahead horizon in milliseconds.
+const TARGET_HORIZON_MS: i64 = 15 * 60 * 1_000;
+
+/// one pre-picked song in the station's rolling plan.
+/// consumed by the run loop at each track boundary;
+/// read by timeline_snapshot() and planner_snapshot() for lookahead.
+#[derive(Clone)]
+pub struct PlannedItem {
+    pub timeline_item_id: String,
+    pub planned_start_at_ms: i64,
+    pub track: crate::radio::playlist::RadioTrack,
+}
 
 /// snapshot a new listener takes when joining the broadcast.
 pub struct Subscription {
@@ -91,9 +113,37 @@ pub struct Broadcaster {
     /// pushed. `0` until the first track starts. used to compute
     /// `current_track_elapsed_ms` for fresh listeners (see HelloMessage).
     track_started_at_ms: AtomicI64,
+    /// when true the broadcaster skips the audio uni stream entirely;
+    /// all listeners get only timeline control messages. can be toggled
+    /// at runtime via `set_timeline_only()` (admin command).
+    timeline_only_mode: AtomicBool,
+    /// duration of the currently-playing track in milliseconds. zero when
+    /// there is no active song or the duration is unknown.
+    current_track_duration_ms: AtomicI64,
+    /// true when the active track is a bumper/interstitial rather than a
+    /// regular station song.
+    current_track_is_bumper: AtomicBool,
+    /// monotonic generation bumped on each accepted admin skip request.
+    skip_request_generation: AtomicU32,
+    /// wall-clock ms timestamp of the last accepted skip request.
+    last_skip_requested_at_ms: AtomicI64,
+    /// when set, the next pick bypasses planner continuity and forces
+    /// album mode to start a new random album from track 1.
+    force_new_album_pick: AtomicBool,
     /// wakes the run loop when the first listener arrives while the
     /// station is idle.
     listener_notify: Notify,
+    /// wakes the active song loop when an admin requests a skip.
+    skip_notify: Notify,
+    /// rolling plan of pre-picked upcoming songs. consumed by the run loop
+    /// at each track boundary; refilled in a background task while the
+    /// current song plays so timeline snapshots have real lookahead.
+    plan: RwLock<VecDeque<PlannedItem>>,
+    /// cached play_mode used to build the current planner entries.
+    plan_mode: RwLock<Option<String>>,
+    /// monotonic counter used when minting `timeline_item_id` values for
+    /// planned items.
+    plan_item_seq: AtomicU64,
 }
 
 impl Broadcaster {
@@ -109,12 +159,249 @@ impl Broadcaster {
             listener_count: AtomicU32::new(0),
             last_bumper_at: std::sync::atomic::AtomicI64::new(0),
             track_started_at_ms: AtomicI64::new(0),
+            timeline_only_mode: AtomicBool::new(false),
+            current_track_duration_ms: AtomicI64::new(0),
+            current_track_is_bumper: AtomicBool::new(false),
+            skip_request_generation: AtomicU32::new(0),
+            last_skip_requested_at_ms: AtomicI64::new(0),
+            force_new_album_pick: AtomicBool::new(false),
             listener_notify: Notify::new(),
+            skip_notify: Notify::new(),
+            plan: RwLock::new(VecDeque::new()),
+            plan_mode: RwLock::new(None),
+            plan_item_seq: AtomicU64::new(0),
         }
+    }
+
+    async fn current_play_mode(&self) -> String {
+        match stations::get_station(&self.station_id).await {
+            Ok(Some(st)) => st.play_mode.trim().to_ascii_lowercase(),
+            _ => "shuffle".to_string(),
+        }
+    }
+
+    async fn sync_plan_mode(&self) {
+        let mode = self.current_play_mode().await;
+        let mut cached = self.plan_mode.write().await;
+        if cached.as_deref() == Some(mode.as_str()) {
+            return;
+        }
+        self.plan.write().await.clear();
+        *cached = Some(mode);
     }
 
     pub fn station_id(&self) -> &str {
         &self.station_id
+    }
+
+    /// radio transport capabilities this broadcaster supports.
+    /// when timeline-only mode is active, chunk_stream is excluded so
+    /// clients know not to attempt MSE playback.
+    pub fn radio_mode_capabilities(&self) -> Vec<RadioModeCapability> {
+        if self.timeline_only_mode.load(Ordering::Relaxed) {
+            vec![RadioModeCapability::TimelineSeed]
+        } else {
+            vec![
+                RadioModeCapability::ChunkStream,
+                RadioModeCapability::TimelineSeed,
+            ]
+        }
+    }
+
+    /// true when the station is running in timeline-seed-only mode
+    /// (no audio uni stream). set by the broadcaster admin or at startup
+    /// from the `timeline_only_mode` db column.
+    pub fn timeline_seed_active(&self) -> bool {
+        self.timeline_only_mode.load(Ordering::Relaxed)
+    }
+
+    /// check whether this station is in timeline-only mode.
+    pub fn is_timeline_only(&self) -> bool {
+        self.timeline_only_mode.load(Ordering::Relaxed)
+    }
+
+    /// toggle per-station timeline-only mode at runtime.
+    /// called by the admin dispatch after a db update so the change takes
+    /// effect on the next incoming listener without a server restart.
+    pub fn set_timeline_only(&self, mode: bool) {
+        self.timeline_only_mode.store(mode, Ordering::Relaxed);
+        info!(
+            "[radio-broadcaster] station {} timeline_only_mode → {mode}",
+            self.station_id
+        );
+    }
+
+    /// pop the next planned item for playback. the run loop calls this at
+    /// each track boundary; falls back to a fresh pick when empty.
+    async fn consume_planner_head(&self) -> Option<PlannedItem> {
+        self.sync_plan_mode().await;
+        self.plan.write().await.pop_front()
+    }
+
+    /// fill the plan up to MAX_UPCOMING_ITEMS (or TARGET_HORIZON_MS coverage).
+    /// spawned as a background task after each track boundary so upcoming
+    /// items are ready for timeline_snapshot() calls during the current song.
+    async fn refill_planner(self: &Arc<Self>, seed_anchor_song_id: Option<String>) {
+        self.sync_plan_mode().await;
+
+        let (existing_ids, current_count, horizon_end_from_plan) = {
+            let plan = self.plan.read().await;
+            let ids: Vec<String> = plan.iter().map(|i| i.track.song_id.clone()).collect();
+            let count = plan.len();
+            let started = self.track_started_at_ms.load(Ordering::Relaxed);
+            let duration = self.current_track_duration_ms.load(Ordering::Relaxed);
+            let base = if started > 0 && duration > 0 {
+                started + duration
+            } else {
+                unix_now_ms()
+            };
+            let end = plan
+                .iter()
+                .fold(base, |acc, item| acc + item.track.duration_ms.unwrap_or(0));
+            (ids, count, end)
+        };
+
+        if current_count >= MAX_UPCOMING_ITEMS {
+            return;
+        }
+
+        let horizon_base = {
+            let started = self.track_started_at_ms.load(Ordering::Relaxed);
+            let duration = self.current_track_duration_ms.load(Ordering::Relaxed);
+            if started > 0 && duration > 0 {
+                started + duration
+            } else {
+                unix_now_ms()
+            }
+        };
+        let mut excluded = existing_ids;
+        let mut horizon_end = horizon_end_from_plan;
+        let mut new_items: Vec<PlannedItem> = Vec::new();
+        let mut anchor_song_id = {
+            let plan = self.plan.read().await;
+            if let Some(last) = plan.back() {
+                Some(last.track.song_id.clone())
+            } else if let Some(seed) = seed_anchor_song_id.clone() {
+                Some(seed)
+            } else {
+                let state = self.state.read().await;
+                let id = state.now_playing.song_id.trim();
+                if id.is_empty() {
+                    None
+                } else {
+                    Some(id.to_string())
+                }
+            }
+        };
+
+        loop {
+            let total_count = current_count + new_items.len();
+            if total_count >= MAX_UPCOMING_ITEMS {
+                break;
+            }
+            let horizon_covered = (horizon_end - horizon_base) >= TARGET_HORIZON_MS;
+            let enough = total_count >= MIN_UPCOMING_ITEMS;
+            if horizon_covered && enough {
+                break;
+            }
+
+            let mut picked = None;
+            for _ in 0..3 {
+                match pick_for_station_after(&self.station_id, anchor_song_id.as_deref()).await {
+                    Ok(t) if !excluded.contains(&t.song_id) => {
+                        picked = Some(t);
+                        break;
+                    }
+                    Ok(_) => {} // intra-plan duplicate — retry
+                    Err(e) => {
+                        warn!(
+                            "[radio-planner] station {} refill pick failed: {e}",
+                            self.station_id
+                        );
+                        return;
+                    }
+                }
+            }
+
+            let Some(track) = picked else { break };
+            let duration = track.duration_ms.unwrap_or(0);
+            let item_seq = self.plan_item_seq.fetch_add(1, Ordering::Relaxed);
+            let item = PlannedItem {
+                timeline_item_id: format!("{}:{}:{}", self.station_id, track.song_id, item_seq),
+                planned_start_at_ms: horizon_end,
+                track: track.clone(),
+            };
+            anchor_song_id = Some(track.song_id.clone());
+            excluded.push(track.song_id);
+            horizon_end += duration;
+            new_items.push(item);
+        }
+
+        if !new_items.is_empty() {
+            let mut plan = self.plan.write().await;
+            for item in new_items {
+                plan.push_back(item);
+            }
+        }
+    }
+
+    /// snapshot the planner for use in the public timeline manifest.
+    /// returns up to `max_items` upcoming planned songs with full display
+    /// metadata. does not consume items.
+    pub async fn planner_snapshot(&self, max_items: usize) -> Vec<PlannedItem> {
+        if max_items == 0 {
+            return Vec::new();
+        }
+        let plan = self.plan.read().await;
+        plan.iter().take(max_items).cloned().collect()
+    }
+
+    /// build a timeline snapshot from the current broadcaster state.
+    /// `lookahead_count` controls how many upcoming planned items to include.
+    pub async fn timeline_snapshot(&self, lookahead_count: usize) -> TimelineMessage {
+        let state = self.state.read().await;
+        let now_ms = unix_now_ms();
+        let elapsed_ms = self.current_track_elapsed_ms() as i64;
+        let has_song = !state.now_playing.song_id.trim().is_empty();
+
+        let current = if has_song {
+            Some(TimelineCurrentItem {
+                timeline_item_id: format!(
+                    "{}:{}:{}",
+                    self.station_id, state.now_playing.song_id, state.init_seq
+                ),
+                song_id: state.now_playing.song_id.clone(),
+                start_at_ms: now_ms.saturating_sub(elapsed_ms.max(0)),
+                duration_ms: state.now_playing.duration_ms,
+            })
+        } else {
+            None
+        };
+
+        let upcoming: Vec<TimelineUpcomingItem> = if lookahead_count > 0 {
+            let plan = self.plan.read().await;
+            plan.iter()
+                .take(lookahead_count)
+                .map(|item| TimelineUpcomingItem {
+                    timeline_item_id: item.timeline_item_id.clone(),
+                    song_id: item.track.song_id.clone(),
+                    planned_start_at_ms: item.planned_start_at_ms,
+                    duration_ms: item.track.duration_ms,
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
+
+        TimelineMessage {
+            station_id: self.station_id.clone(),
+            timeline_seq: self.current_seq() as u64,
+            station_epoch_ms: current.as_ref().map(|c| c.start_at_ms).unwrap_or(now_ms),
+            generated_at_ms: now_ms,
+            current,
+            upcoming,
+            lookahead_count,
+        }
     }
 
     /// snapshot the broadcaster's current `NowPlaying` without taking a
@@ -178,6 +465,64 @@ impl Broadcaster {
         (now.saturating_sub(started)).max(0) as u64
     }
 
+    pub fn request_skip_current_track(&self) -> GrimoireResult<()> {
+        if self.current_track_is_bumper.load(Ordering::Relaxed) {
+            return Err(GrimoireError::BadRequest {
+                message: "cannot skip a station bumper".to_string(),
+            });
+        }
+
+        let now_ms = unix_now_ms();
+        let last_skip = self.last_skip_requested_at_ms.load(Ordering::Relaxed);
+        if last_skip > 0 {
+            let since_last = now_ms.saturating_sub(last_skip);
+            if since_last < SKIP_REQUEST_COOLDOWN_MS {
+                let wait_seconds = ((SKIP_REQUEST_COOLDOWN_MS - since_last) / 1000).max(1);
+                return Err(GrimoireError::BadRequest {
+                    message: format!(
+                        "skip is throttled for this station; wait {wait_seconds}s before trying again"
+                    ),
+                });
+            }
+        }
+
+        let started_at = self.track_started_at_ms.load(Ordering::Relaxed);
+        if started_at <= 0 {
+            return Err(GrimoireError::BadRequest {
+                message: "no active track to skip".to_string(),
+            });
+        }
+
+        let duration_ms = self.current_track_duration_ms.load(Ordering::Relaxed);
+        if duration_ms <= 0 {
+            return Err(GrimoireError::BadRequest {
+                message: "current track duration is unknown; skip is disabled".to_string(),
+            });
+        }
+
+        let elapsed_ms = now_ms.saturating_sub(started_at);
+        let remaining_ms = duration_ms.saturating_sub(elapsed_ms);
+        if remaining_ms < SKIP_MIN_REMAINING_MS {
+            return Err(GrimoireError::BadRequest {
+                message: format!(
+                    "skip is only allowed when at least 30s remain on the current track ({:.0}s left)",
+                    remaining_ms.max(0) as f64 / 1000.0,
+                ),
+            });
+        }
+
+        self.last_skip_requested_at_ms
+            .store(now_ms, Ordering::Relaxed);
+        self.force_new_album_pick.store(true, Ordering::Relaxed);
+        self.skip_request_generation.fetch_add(1, Ordering::Relaxed);
+        self.skip_notify.notify_waiters();
+        info!(
+            "[radio-broadcaster] station {} accepted admin skip request (remaining={}ms)",
+            self.station_id, remaining_ms
+        );
+        Ok(())
+    }
+
     async fn run(self: Arc<Self>) {
         info!(
             "[radio-broadcaster] starting encode loop for station {}",
@@ -204,8 +549,30 @@ impl Broadcaster {
                 continue;
             }
 
-            match pick_for_station(&self.station_id).await {
+            let force_new_album = self.force_new_album_pick.swap(false, Ordering::Relaxed);
+
+            // consume from planner if available; fall back to a direct pick.
+            // after a skip request, drop stale plan continuity and force
+            // album mode to jump to a new album start.
+            let track_result = if force_new_album {
+                self.plan.write().await.clear();
+                pick_for_station_force_new_album(&self.station_id).await
+            } else {
+                match self.consume_planner_head().await {
+                    Some(planned) => Ok(planned.track),
+                    None => pick_for_station(&self.station_id).await,
+                }
+            };
+
+            match track_result {
                 Ok(track) => {
+                    // spawn planner refill in background while the current song plays.
+                    let bc = self.clone();
+                    let current_song_id = track.song_id.clone();
+                    tokio::spawn(async move {
+                        bc.refill_planner(Some(current_song_id)).await;
+                    });
+
                     if let Err(e) = self.play_track(&track, /*is_bumper=*/ false).await {
                         warn!(
                             "[radio-broadcaster] station {} song failed: {e}; retrying in {RETRY_PAUSE:?}",
@@ -238,6 +605,8 @@ impl Broadcaster {
         }
 
         self.track_started_at_ms.store(0, Ordering::Relaxed);
+        self.current_track_duration_ms.store(0, Ordering::Relaxed);
+        self.current_track_is_bumper.store(false, Ordering::Relaxed);
         self.announce_idle("waiting for listeners…").await;
         info!(
             "[radio-broadcaster] station {} idle; waiting for a listener",
@@ -318,6 +687,9 @@ impl Broadcaster {
     /// show a "switching tracks…" banner during the gap before the next
     /// song's init chunk arrives.
     async fn announce_interstitial(self: &Arc<Self>, title: &str) {
+        self.track_started_at_ms.store(0, Ordering::Relaxed);
+        self.current_track_duration_ms.store(0, Ordering::Relaxed);
+        self.current_track_is_bumper.store(false, Ordering::Relaxed);
         let (init_seq, station_id) = {
             let s = self.state.read().await;
             (s.init_seq, s.now_playing.station_id.clone())
@@ -375,10 +747,12 @@ impl Broadcaster {
             art: art.as_ref().map(ArtData::from_resolved),
             duration_ms: track.duration_ms,
             waveform_blob_id: track.waveform_blob_id.clone(),
+            audio_blob_id: track.audio_blob_id.clone(),
             station_id: Some(self.station_id.clone()),
         });
 
         let mut encoder = Encoder::start(&track.local_path)?;
+        let skip_generation = self.skip_request_generation.load(Ordering::Relaxed);
 
         let first = encoder
             .next_chunk()
@@ -407,6 +781,10 @@ impl Broadcaster {
             .map(|d| d.as_millis() as i64)
             .unwrap_or(0);
         self.track_started_at_ms.store(now_ms, Ordering::Relaxed);
+        self.current_track_duration_ms
+            .store(track.duration_ms.unwrap_or(0), Ordering::Relaxed);
+        self.current_track_is_bumper
+            .store(is_bumper, Ordering::Relaxed);
 
         {
             let mut s = self.state.write().await;
@@ -447,6 +825,7 @@ impl Broadcaster {
         // and roll straight into the next track without the inter-song
         // RETRY_PAUSE — the listener has already been on this station for
         // a while, no point making them wait an extra 3s.
+        let mut skipped_by_admin = false;
         let mid_song_err = loop {
             if self.listener_count() == 0 {
                 if let Some(since) = silence_since {
@@ -470,7 +849,24 @@ impl Broadcaster {
                 silence_since = None;
             }
 
-            match encoder.next_chunk().await {
+            let next = tokio::select! {
+                res = encoder.next_chunk() => Some(res),
+                _ = self.skip_notify.notified(), if !is_bumper => {
+                    if self.skip_request_generation.load(Ordering::Relaxed) != skip_generation {
+                        skipped_by_admin = true;
+                        encoder.interrupt();
+                        None
+                    } else {
+                        continue;
+                    }
+                }
+            };
+
+            let Some(next) = next else {
+                break None;
+            };
+
+            match next {
                 Ok(None) => break None,
                 Ok(Some(chunk)) => {
                     let seq = self.next_seq.fetch_add(1, Ordering::Relaxed);
@@ -510,12 +906,27 @@ impl Broadcaster {
             return Ok(());
         }
 
+        if skipped_by_admin {
+            info!(
+                "[radio-broadcaster] station {} admin-skipped track: {}",
+                self.station_id, track.title
+            );
+            return Ok(());
+        }
+
         info!(
             "[radio-broadcaster] station {} song finished: {}",
             self.station_id, track.title
         );
         Ok(())
     }
+}
+
+fn unix_now_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
 }
 
 // ---------- registry -----------------------------------------------------
@@ -569,6 +980,7 @@ pub async fn init_registry() -> GrimoireResult<()> {
             encode_args: None,
             codec: None,
             play_mode: None,
+            timeline_only_mode: None,
         })
         .await?;
         stations_rows = vec![seed];
@@ -595,6 +1007,11 @@ pub async fn init_registry() -> GrimoireResult<()> {
             continue;
         }
         let bc = Arc::new(Broadcaster::new(st.id.clone()));
+        // seed runtime flag from db so a server restart picks up the
+        // persisted value without an extra admin call.
+        if st.timeline_only_mode != 0 {
+            bc.set_timeline_only(true);
+        }
         reg.insert(st.id.clone(), bc.clone());
         let task_bc = bc.clone();
         let handle = tokio::spawn(async move { task_bc.run().await });
@@ -637,7 +1054,9 @@ pub async fn current_default_station_id() -> Option<String> {
 
 /// list every running broadcaster (for /api/radio/info).
 pub async fn list_running() -> Vec<Arc<Broadcaster>> {
-    registry().read().await.values().cloned().collect()
+    let mut out: Vec<_> = registry().read().await.values().cloned().collect();
+    out.sort_by(|a, b| a.station_id().cmp(b.station_id()));
+    out
 }
 
 /// the id used as the default station. None when no stations have been
@@ -738,6 +1157,17 @@ pub async fn restart_station(station_id: &str) -> GrimoireResult<()> {
     // before the new encoder grabs the file handles.
     tokio::time::sleep(Duration::from_millis(150)).await;
     start_station(station_id).await
+}
+
+/// ask a running station to skip its current track. this is throttled by
+/// the broadcaster so admin spam cannot churn the encoder loop.
+pub async fn skip_station_track(station_id: &str) -> GrimoireResult<()> {
+    let bc = get_station(station_id)
+        .await
+        .ok_or_else(|| GrimoireError::BadRequest {
+            message: format!("station '{station_id}' is not running"),
+        })?;
+    bc.request_skip_current_track()
 }
 
 /// stop every running broadcaster. used by the supervisor to "disable"

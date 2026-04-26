@@ -15,10 +15,10 @@ import {
   getTransportForRemote,
   isCharnelAvailable,
   isP2PTransportType,
-  type Remote,
+  type RemoteLike,
 } from "../../../app/api/client";
 import { getRemoteById } from "../../../app/services/remotes/remoteManager";
-import { getSyncQueueToLocal } from "../../../app/services/storage/db";
+import { getPendingRemoteById, getSyncQueueToLocal } from "../../../app/services/storage/db";
 import { queryClient } from "../../../queryClient";
 import { debug } from "../../../utils/logger";
 import { queryKeys } from "../../queries/queryKeys";
@@ -27,6 +27,49 @@ import { addToLoadingSet, removeFromLoadingSet, updateLoadingProgress } from "..
 import { canSyncSong, syncSongToLocal } from "../sync";
 import type { SyncableSong } from "../sync";
 import type { Song } from "./types";
+
+type BlobRemote = RemoteLike & {
+  remote_id: string;
+  transport: "http" | "wasm" | "app";
+};
+
+function pendingIdFromRemoteId(remoteId: string): string | null {
+  if (!remoteId.startsWith("pending-")) return null;
+  const id = remoteId.slice("pending-".length).trim();
+  return id.length > 0 ? id : null;
+}
+
+async function resolveBlobRemote(remoteId: string): Promise<BlobRemote | null> {
+  const remote = await getRemoteById(remoteId);
+  if (remote) {
+    return {
+      ...remote,
+      remote_id: remote.remote_id,
+      transport: remote.transport,
+    };
+  }
+
+  const pendingId = pendingIdFromRemoteId(remoteId);
+  if (!pendingId) return null;
+  const pending = await getPendingRemoteById(pendingId);
+  if (!pending) return null;
+
+  if (pending.transport === "http") {
+    return {
+      remote_id: remoteId,
+      name: pending.server_name ?? `pending ${pending.id}`,
+      transport: "http",
+      base_url: pending.peer_addr,
+    };
+  }
+
+  return {
+    remote_id: remoteId,
+    name: pending.server_name ?? `pending ${pending.id}`,
+    transport: pending.transport,
+    peer_addr: pending.peer_addr,
+  };
+}
 
 // store of active blob URLs - provides granular reactivity per key
 // keyed by `${remoteId}/${blobId}` -> URL string
@@ -118,7 +161,7 @@ export async function resolveBlobUrl(
     return cached;
   }
 
-  const remote = await getRemoteById(remoteId);
+  const remote = await resolveBlobRemote(remoteId);
   if (!remote) {
     throw new Error(`remote not found: ${remoteId}`);
   }
@@ -190,7 +233,7 @@ export async function resolveBlobUrl(
  */
 async function resolveP2PBlob(
   blobId: string,
-  remote: Remote,
+  remote: BlobRemote,
   cacheKey: string,
   type: "audio" | "image",
   onProgress?: BlobProgressCallback,

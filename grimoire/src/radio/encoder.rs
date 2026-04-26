@@ -231,6 +231,14 @@ impl Encoder {
             .map(|t| t.snapshot())
             .unwrap_or_else(|_| "(stderr lock poisoned)".to_string())
     }
+
+    /// best-effort interruption for admin-triggered track skips.
+    pub fn interrupt(&mut self) {
+        self.eof = true;
+        if let Err(e) = self.child.start_kill() {
+            warn!("[radio-encoder] failed to interrupt ffmpeg child: {e}");
+        }
+    }
 }
 
 impl Drop for Encoder {

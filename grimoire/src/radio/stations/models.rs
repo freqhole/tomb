@@ -18,8 +18,11 @@ pub struct RadioStation {
     /// per-station ffmpeg override; null = use toml `[radio].encode_args`.
     pub encode_args: Option<String>,
     pub codec: String,
-    /// 'shuffle' | 'sequential'
+    /// 'shuffle' | 'album'
     pub play_mode: String,
+    /// when non-zero the broadcaster skips the audio uni stream entirely;
+    /// all listeners use timeline/queue-mode playback.
+    pub timeline_only_mode: i64,
     pub created_at: i64,
     pub updated_at: i64,
 }
@@ -41,6 +44,10 @@ pub struct CreateStationRequest {
     pub codec: Option<String>,
     #[serde(default)]
     pub play_mode: Option<String>,
+    /// when true the broadcaster will suppress the audio uni stream for
+    /// this station and serve only timeline control messages.
+    #[serde(default)]
+    pub timeline_only_mode: Option<bool>,
 }
 
 /// partial update — only present fields are written.
@@ -61,6 +68,10 @@ pub struct UpdateStationRequest {
     pub codec: Option<String>,
     #[serde(default)]
     pub play_mode: Option<String>,
+    /// when true the broadcaster will suppress the audio uni stream for
+    /// this station and serve only timeline control messages.
+    #[serde(default)]
+    pub timeline_only_mode: Option<bool>,
 }
 
 /// station ↔ song explicit-include row.

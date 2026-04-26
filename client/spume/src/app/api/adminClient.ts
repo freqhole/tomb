@@ -18,22 +18,41 @@ import { isP2PRemote } from "../services/storage/schemas/remote";
 import { isCharnelMode } from "../services/charnel";
 import { getMiddenNode } from "./client";
 
+function normalizeAdminTransportError(peerAddr: string, err: unknown): Error {
+  const msg = err instanceof Error ? err.message : String(err);
+  const lower = msg.toLowerCase();
+  if (
+    lower.includes("handshake failed") ||
+    lower.includes("doesn't support any known protocol") ||
+    lower.includes("does not support any known protocol")
+  ) {
+    return new Error(
+      `remote ${peerAddr} does not support freqhole-admin/1. enable [federation.remote_admin].enabled on the remote node (or upgrade it), then retry.`,
+    );
+  }
+  return err instanceof Error ? err : new Error(String(err));
+}
+
 /** wasm transport: routes through midden's `proxy_admin` */
 class WasmAdminTransport implements AdminTransport {
   constructor(private readonly peerAddr: string) {}
 
   async send(command: string, args: unknown): Promise<AdminResponse<unknown>> {
-    const node = await getMiddenNode();
-    if (typeof node.proxy_admin !== "function") {
-      throw new Error(
-        "midden node missing proxy_admin - rebuild midden wasm (cd skein/midden && make build)",
-      );
+    try {
+      const node = await getMiddenNode();
+      if (typeof node.proxy_admin !== "function") {
+        throw new Error(
+          "midden node missing proxy_admin - rebuild midden wasm (cd skein/midden && make build)",
+        );
+      }
+      const argsJson = args === undefined || args === null ? "null" : JSON.stringify(args);
+      console.debug("[admin-p2p] wasm send", { peer: this.peerAddr, command, argsJson });
+      const raw = await node.proxy_admin(this.peerAddr, command, argsJson);
+      console.debug("[admin-p2p] wasm recv", { command, raw });
+      return coerceEnvelope(raw, command);
+    } catch (err) {
+      throw normalizeAdminTransportError(this.peerAddr, err);
     }
-    const argsJson = args === undefined || args === null ? "null" : JSON.stringify(args);
-    console.debug("[admin-p2p] wasm send", { peer: this.peerAddr, command, argsJson });
-    const raw = await node.proxy_admin(this.peerAddr, command, argsJson);
-    console.debug("[admin-p2p] wasm recv", { command, raw });
-    return coerceEnvelope(raw, command);
   }
 }
 
@@ -42,13 +61,17 @@ class CharnelAdminTransport implements AdminTransport {
   constructor(private readonly peerAddr: string) {}
 
   async send(command: string, args: unknown): Promise<AdminResponse<unknown>> {
-    const { invoke } = await import("@tauri-apps/api/core");
-    const raw = await invoke<unknown>("admin_dispatch_remote", {
-      peerAddr: this.peerAddr,
-      command,
-      args: args ?? null,
-    });
-    return coerceEnvelope(raw, command);
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      const raw = await invoke<unknown>("admin_dispatch_remote", {
+        peerAddr: this.peerAddr,
+        command,
+        args: args ?? null,
+      });
+      return coerceEnvelope(raw, command);
+    } catch (err) {
+      throw normalizeAdminTransportError(this.peerAddr, err);
+    }
   }
 }
 
@@ -122,6 +145,29 @@ export async function adminRawDispatch<T = unknown>(
   const transport: AdminTransport = isCharnelMode()
     ? new CharnelAdminTransport(remote.peer_addr)
     : new WasmAdminTransport(remote.peer_addr);
+  const envelope = await transport.send(command, args);
+  if (!envelope.success) {
+    const detail =
+      envelope.errors?.[0]?.detail ??
+      envelope.message ??
+      `admin ${command} failed`;
+    const errType = envelope.errors?.[0]?.error_type;
+    throw new Error(errType ? `${errType}: ${detail}` : detail);
+  }
+  return envelope.data as T;
+}
+
+/**
+ * untyped escape hatch for local admin commands in charnel mode.
+ */
+export async function adminLocalRawDispatch<T = unknown>(
+  command: string,
+  args: unknown = null,
+): Promise<T> {
+  if (!isCharnelMode()) {
+    throw new Error("local admin commands require charnel mode");
+  }
+  const transport = new LocalAdminTransport();
   const envelope = await transport.send(command, args);
   if (!envelope.success) {
     const detail =

@@ -43,6 +43,7 @@ export const adminCommands = {
   radio_stations_list: { req: z.void().optional(), resp: s.RadioStationSchema.array(), auth: { type: 'admin' } as const },
   radio_stations_update: { req: s.UpdateStationRequestSchema, resp: s.RadioStationSchema, auth: { type: 'admin' } as const },
   radio_supervisor_restart: { req: s.RadioSupervisorStationRequestSchema, resp: s.RadioSupervisorStatusResponseSchema, auth: { type: 'admin' } as const },
+  radio_supervisor_skip_track: { req: s.RadioSupervisorStationRequestSchema, resp: s.RadioSupervisorStatusResponseSchema, auth: { type: 'admin' } as const },
   radio_supervisor_start: { req: s.RadioSupervisorStationRequestSchema, resp: s.RadioSupervisorStatusResponseSchema, auth: { type: 'admin' } as const },
   radio_supervisor_status: { req: z.void().optional(), resp: s.RadioSupervisorStatusResponseSchema, auth: { type: 'admin' } as const },
   radio_supervisor_stop: { req: s.RadioSupervisorStationRequestSchema, resp: s.RadioSupervisorStatusResponseSchema, auth: { type: 'admin' } as const },

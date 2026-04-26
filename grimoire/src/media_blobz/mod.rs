@@ -3,11 +3,16 @@
 //! provides simple api for creating and querying media blobs
 //! encapsulates all database logic internally
 
+mod access;
 mod cleanup;
 mod models;
 mod service;
 
 // re-export public types
+pub use access::{
+    build_blob_data_response, build_blob_path_response, build_blob_response,
+    build_blob_thumbnail_response,
+};
 pub use cleanup::{
     can_delete_media_blob, delete_media_blob_if_unused, find_media_blob_references,
     MediaBlobReferences,

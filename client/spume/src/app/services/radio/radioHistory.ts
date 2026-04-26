@@ -11,13 +11,47 @@ import { initAppDB } from "../storage/db";
 import { STORE_RADIO_HISTORY, type RadioHistoryEntry } from "../storage/types";
 import { generateUUID } from "../../../utils/uuid";
 import { debug } from "../../../utils/logger";
+import { createSignal } from "solid-js";
 
 export const MAX_RADIO_HISTORY = 1000;
+
+// increments whenever history rows are inserted/cleared so views can
+// refresh without polling.
+const [historyVersion, setHistoryVersion] = createSignal(0);
+export const radioHistoryVersion = historyVersion;
+
+function bumpHistoryVersion(): void {
+  setHistoryVersion((v) => v + 1);
+}
+
+async function getLatestHistoryEntry(): Promise<RadioHistoryEntry | null> {
+  const db = await initAppDB();
+  const tx = db.transaction(STORE_RADIO_HISTORY, "readonly");
+  const idx = tx.store.index("by_played_at");
+  const cursor = await idx.openCursor(null, "prev");
+  await tx.done;
+  return (cursor?.value as RadioHistoryEntry | undefined) ?? null;
+}
+
+function isSameHistoryTrack(a: Omit<RadioHistoryEntry, "id" | "played_at">, b: RadioHistoryEntry): boolean {
+  const sameSongIdentity =
+    (a.song_id && b.song_id && a.song_id === b.song_id) ||
+    (!a.song_id && !b.song_id && a.title === b.title && a.artist === b.artist && a.album === b.album);
+  return (
+    a.station_id === b.station_id &&
+    a.peer_addr === b.peer_addr &&
+    sameSongIdentity
+  );
+}
 
 /** insert one history row. caller is responsible for de-duping (only call on track change). */
 export async function recordHistoryEntry(
   partial: Omit<RadioHistoryEntry, "id" | "played_at">,
 ): Promise<RadioHistoryEntry> {
+  const latest = await getLatestHistoryEntry();
+  if (latest && isSameHistoryTrack(partial, latest)) {
+    return latest;
+  }
   const db = await initAppDB();
   const entry: RadioHistoryEntry = {
     ...partial,
@@ -27,6 +61,7 @@ export async function recordHistoryEntry(
   await db.put(STORE_RADIO_HISTORY, entry);
   // opportunistic trim — cheap with the index.
   await trimToCap();
+  bumpHistoryVersion();
   return entry;
 }
 
@@ -60,6 +95,7 @@ export async function getHistoryPage(opts: {
 export async function clearHistory(): Promise<void> {
   const db = await initAppDB();
   await db.clear(STORE_RADIO_HISTORY);
+  bumpHistoryVersion();
   debug("radio-history", "cleared all entries");
 }
 

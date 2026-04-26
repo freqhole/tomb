@@ -70,6 +70,7 @@ function base64ToBytes(b64: string): Uint8Array {
  */
 export async function tuneRadioCharnel(
   peerAddr: string,
+  stationId: string | undefined,
   on_hello: (json: string) => void,
   on_meta: (json: string) => void,
   on_chunk: (seq: number, isInit: boolean, bytes: Uint8Array) => void,
@@ -111,14 +112,23 @@ export async function tuneRadioCharnel(
 
   const sessionId = (await invoke("radio_tune", {
     peerAddr,
+    stationId: stationId ?? null,
     events,
   })) as string;
 
+  // keep a strong reference to the channel for the whole session.
+  // without this, GC can collect the callback while rust is still
+  // streaming events, which triggers tauri "Couldn't find callback id".
+  let retainedEvents: unknown = events;
+
   return {
     leave() {
+      // reference before clearing so the closure captures retainedEvents.
+      void retainedEvents;
       invoke("radio_leave", { sessionId }).catch((e) =>
         console.warn("[radio-charnel] radio_leave failed:", e),
       );
+      retainedEvents = null;
     },
   };
 }
@@ -172,11 +182,17 @@ export async function tuneRadioCharnelLocal(
     events,
   })) as string;
 
+  // keep a strong reference to the channel for the whole session.
+  let retainedEvents: unknown = events;
+
   return {
     leave() {
+      // reference before clearing so the closure captures retainedEvents.
+      void retainedEvents;
       invoke("radio_leave", { sessionId }).catch((e) =>
         console.warn("[radio-charnel-local] radio_leave failed:", e),
       );
+      retainedEvents = null;
     },
   };
 }

@@ -2,7 +2,8 @@
 // separate file to avoid circular dependency between blobResolver and blobCache
 
 import { getRemoteById } from "../../../app/services/remotes/remoteManager";
-import { isP2PTransportType, isCharnelAvailable } from "../../../app/api/client";
+import { isCharnelAvailable } from "../../../app/api/client";
+import { getPendingRemoteById } from "../../../app/services/storage/db";
 import { debug } from "../../../utils/logger";
 
 // sync cache of remote transport info - populated on first async lookup
@@ -12,6 +13,37 @@ interface TransportCacheEntry {
   isCharnelManaged: boolean;
 }
 const transportTypeCache = new Map<string, TransportCacheEntry>();
+
+function pendingIdFromRemoteId(remoteId: string): string | null {
+  if (!remoteId.startsWith("pending-")) return null;
+  const id = remoteId.slice("pending-".length).trim();
+  return id.length > 0 ? id : null;
+}
+
+async function getTransportEntry(remoteId: string): Promise<TransportCacheEntry | null> {
+  const remote = await getRemoteById(remoteId);
+  if (remote) {
+    const entry: TransportCacheEntry = {
+      transport: remote.transport,
+      isCharnelManaged: remote.is_charnel_managed ?? false,
+    };
+    transportTypeCache.set(remoteId, entry);
+    return entry;
+  }
+
+  const pendingId = pendingIdFromRemoteId(remoteId);
+  if (!pendingId) return null;
+
+  const pending = await getPendingRemoteById(pendingId);
+  if (!pending) return null;
+
+  const entry: TransportCacheEntry = {
+    transport: pending.transport,
+    isCharnelManaged: false,
+  };
+  transportTypeCache.set(remoteId, entry);
+  return entry;
+}
 
 /**
  * check if a remote uses transport-based blob fetching (P2P or tauri-managed).
@@ -46,11 +78,13 @@ export function cacheTransportType(remoteId: string, transport: "http" | "wasm" 
  * call this when switching to a remote to ensure sync lookups work immediately.
  */
 export async function preCacheRemoteTransport(remoteId: string): Promise<void> {
-  const remote = await getRemoteById(remoteId);
-  if (remote) {
-    cacheTransportType(remoteId, remote.transport, remote.is_charnel_managed ?? false);
-    debug("transportCache", `pre-cached transport for ${remoteId}: ${remote.transport}, tauri-managed: ${remote.is_charnel_managed}`);
-  }
+  const entry = await getTransportEntry(remoteId);
+  if (!entry) return;
+  cacheTransportType(remoteId, entry.transport, entry.isCharnelManaged);
+  debug(
+    "transportCache",
+    `pre-cached transport for ${remoteId}: ${entry.transport}, tauri-managed: ${entry.isCharnelManaged}`,
+  );
 }
 
 /**
@@ -59,11 +93,15 @@ export async function preCacheRemoteTransport(remoteId: string): Promise<void> {
  * also caches the result for future sync lookups.
  */
 export async function isP2PRemote(remoteId: string): Promise<boolean> {
-  const remote = await getRemoteById(remoteId);
-  if (!remote) return false;
-  cacheTransportType(remoteId, remote.transport, remote.is_charnel_managed ?? false);
+  const entry = await getTransportEntry(remoteId);
+  if (!entry) return false;
+  cacheTransportType(remoteId, entry.transport, entry.isCharnelManaged);
   // include charnel-managed HTTP remotes since they also use transport for blobs
-  return isP2PTransportType(remote) || (isCharnelAvailable() && !!remote.is_charnel_managed);
+  return (
+    entry.transport === "wasm" ||
+    entry.transport === "app" ||
+    (isCharnelAvailable() && entry.isCharnelManaged)
+  );
 }
 
 /**
@@ -71,10 +109,14 @@ export async function isP2PRemote(remoteId: string): Promise<boolean> {
  * returns true for P2P remotes (wasm/app) and Tauri-managed remotes.
  */
 export async function usesBlobResolver(remoteId: string): Promise<boolean> {
-  const remote = await getRemoteById(remoteId);
-  if (!remote) return false;
-  cacheTransportType(remoteId, remote.transport, remote.is_charnel_managed ?? false);
-  return isP2PTransportType(remote) || (isCharnelAvailable() && !!remote.is_charnel_managed);
+  const entry = await getTransportEntry(remoteId);
+  if (!entry) return false;
+  cacheTransportType(remoteId, entry.transport, entry.isCharnelManaged);
+  return (
+    entry.transport === "wasm" ||
+    entry.transport === "app" ||
+    (isCharnelAvailable() && entry.isCharnelManaged)
+  );
 }
 
 /**
@@ -84,8 +126,8 @@ export async function usesBlobResolver(remoteId: string): Promise<boolean> {
 export async function getRemoteTransportType(
   remoteId: string,
 ): Promise<"http" | "wasm" | "app" | null> {
-  const remote = await getRemoteById(remoteId);
-  if (!remote) return null;
-  cacheTransportType(remoteId, remote.transport, remote.is_charnel_managed ?? false);
-  return remote.transport;
+  const entry = await getTransportEntry(remoteId);
+  if (!entry) return null;
+  cacheTransportType(remoteId, entry.transport, entry.isCharnelManaged);
+  return entry.transport;
 }

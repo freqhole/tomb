@@ -49,6 +49,11 @@ export function RadioAdminView() {
   const [adminClient, setAdminClient] = createSignal<AdminClient | null>(null);
   const [loading, setLoading] = createSignal(true);
   const [error, setError] = createSignal<string | null>(null);
+  const [radioEnabled, setRadioEnabled] = createSignal(true);
+  const [ffmpegAvailable, setFfmpegAvailable] = createSignal(true);
+  const [stationsRefreshTick, setStationsRefreshTick] = createSignal(0);
+
+  const refreshStations = () => setStationsRefreshTick((n) => n + 1);
 
   onMount(async () => {
     try {
@@ -95,7 +100,7 @@ export function RadioAdminView() {
             radio: {remote()?.name ?? params.remoteId}
           </h1>
           <p class="text-sm text-[var(--color-text-muted)]">
-            create, configure, and remove radio stations on this remote
+            create and manage radio stations on this remote
           </p>
         </div>
       </div>
@@ -112,9 +117,34 @@ export function RadioAdminView() {
 
       <Show when={!loading() && !error() && adminClient()}>
         <div class="flex flex-col gap-8">
-          <RadioConfigSection client={adminClient()!} />
-          <StationsSection client={adminClient()!} />
-          <CreateStationSection client={adminClient()!} />
+          <RadioConfigSection
+            client={adminClient()!}
+            onStateChange={(next) => {
+              setRadioEnabled(next.enabled);
+              setFfmpegAvailable(next.ffmpegAvailable);
+            }}
+          />
+          <Show
+            when={radioEnabled()}
+            fallback={
+              <section class="rounded-lg border border-[var(--color-border-subtle)] bg-[var(--color-bg-secondary)] p-4">
+                <p class="text-sm text-[var(--color-text-muted)]">
+                  radio is disabled. enable it above to manage stations.
+                </p>
+              </section>
+            }
+          >
+            <StationsSection
+              client={adminClient()!}
+              refreshKey={stationsRefreshTick}
+              ffmpegAvailable={ffmpegAvailable}
+            />
+            <CreateStationSection
+              client={adminClient()!}
+              ffmpegAvailable={ffmpegAvailable}
+              onCreated={refreshStations}
+            />
+          </Show>
         </div>
       </Show>
     </div>
@@ -125,29 +155,45 @@ export function RadioAdminView() {
 // node-wide [radio] config
 // ------------------------------------------------------------------
 
-function RadioConfigSection(props: { client: AdminClient }) {
-  const [cfg, { refetch }] = createResource<RadioConfigPayload | null>(async () => {
-    try {
-      const data = await props.client.dispatchOrThrow("radio_config_get", undefined);
-      return (data ?? null) as RadioConfigPayload | null;
-    } catch (e) {
-      const msg =
-        e instanceof AdminCommandError ? e.message : e instanceof Error ? e.message : String(e);
-      toast.error(`failed to load radio config: ${msg}`);
-      return null;
-    }
+function RadioConfigSection(props: {
+  client: AdminClient;
+  onStateChange?: (next: { enabled: boolean; ffmpegAvailable: boolean }) => void;
+}) {
+  const [cfg, { refetch }] = createResource<RadioConfigPayload>(async () => {
+    const data = await props.client.dispatchOrThrow("radio_config_get", undefined);
+    return data as RadioConfigPayload;
   });
 
   const [enabled, setEnabled] = createSignal(false);
   const [encodeArgs, setEncodeArgs] = createSignal("");
+  const [ffmpegAvailable, setFfmpegAvailable] = createSignal(true);
   const [busy, setBusy] = createSignal(false);
+  const [loadError, setLoadError] = createSignal<string | null>(null);
 
   // hydrate the form whenever the resource resolves with fresh data.
   createEffect(() => {
+    if (cfg.loading) return;
+
+    const err = cfg.error;
+    if (err) {
+      const msg =
+        err instanceof AdminCommandError
+          ? err.message
+          : err instanceof Error
+            ? err.message
+            : String(err);
+      setLoadError(`failed to load radio config: ${msg}`);
+      return;
+    }
+
     const c = cfg();
     if (c) {
+      const ffmpeg = c.ffmpeg_available !== false;
       setEnabled(c.enabled);
       setEncodeArgs(c.encode_args);
+      setFfmpegAvailable(ffmpeg);
+      setLoadError(null);
+      props.onStateChange?.({ enabled: c.enabled, ffmpegAvailable: ffmpeg });
     }
   });
 
@@ -158,7 +204,9 @@ function RadioConfigSection(props: { client: AdminClient }) {
       await props.client.dispatchOrThrow("radio_config_set", {
         enabled: enabled(),
         encode_args: encodeArgs(),
+        ffmpeg_available: ffmpegAvailable(),
       });
+      props.onStateChange?.({ enabled: enabled(), ffmpegAvailable: ffmpegAvailable() });
       toast.success("radio config saved");
       await refetch();
     } catch (e) {
@@ -175,10 +223,14 @@ function RadioConfigSection(props: { client: AdminClient }) {
       <h2 class="text-lg font-semibold text-[var(--color-text-primary)] mb-1">radio config</h2>
       <p class="text-xs text-[var(--color-text-muted)] mb-4">
         node-wide <code>[radio]</code> section in the toml. changes are written atomically and the
-        broadcaster picks them up on next start. flipping
-        <code class="mx-1">enabled</code> to false will not stop a running broadcaster — restart the
-        server to apply.
+        broadcaster applies them immediately. toggling
+        <code class="mx-1">enabled</code> starts/stops running broadcasters on this node.
       </p>
+      <Show when={loadError()}>
+        <div class="mb-3 rounded border border-red-600/30 bg-red-600/10 p-2 text-xs text-red-400">
+          {loadError()}
+        </div>
+      </Show>
       <Show
         when={!cfg.loading}
         fallback={<div class="text-xs text-[var(--color-text-muted)]">loading config...</div>}
@@ -224,18 +276,27 @@ function RadioConfigSection(props: { client: AdminClient }) {
 // stations list
 // ------------------------------------------------------------------
 
-function StationsSection(props: { client: AdminClient }) {
-  const [stations, { refetch }] = createResource<RadioStation[]>(async () => {
-    try {
-      const data = await props.client.dispatchOrThrow("radio_stations_list", undefined);
-      return (data ?? []) as RadioStation[];
-    } catch (e) {
-      const msg =
-        e instanceof AdminCommandError ? e.message : e instanceof Error ? e.message : String(e);
-      toast.error(`failed to load stations: ${msg}`);
-      return [];
+function StationsSection(props: {
+  client: AdminClient;
+  refreshKey: () => number;
+  ffmpegAvailable: () => boolean;
+}) {
+  const [loadError, setLoadError] = createSignal<string | null>(null);
+  const [stations, { refetch }] = createResource<RadioStation[], number>(
+    props.refreshKey,
+    async () => {
+      try {
+        const data = await props.client.dispatchOrThrow("radio_stations_list", undefined);
+        setLoadError(null);
+        return (data ?? []) as RadioStation[];
+      } catch (e) {
+        const msg =
+          e instanceof AdminCommandError ? e.message : e instanceof Error ? e.message : String(e);
+        setLoadError(`failed to load stations: ${msg}`);
+        return [];
+      }
     }
-  });
+  );
 
   const [savingId, setSavingId] = createSignal<string | null>(null);
   const [expandedId, setExpandedId] = createSignal<string | null>(null);
@@ -262,6 +323,30 @@ function StationsSection(props: { client: AdminClient }) {
       const req: UpdateStationRequest = { id: s.id, is_enabled: !s.is_enabled };
       await props.client.dispatchOrThrow("radio_stations_update", req);
       toast.success(`station ${!s.is_enabled ? "enabled" : "disabled"}`);
+      await refetch();
+    } catch (e) {
+      const msg =
+        e instanceof AdminCommandError ? e.message : e instanceof Error ? e.message : String(e);
+      toast.error(`failed to update: ${msg}`);
+    } finally {
+      setSavingId(null);
+    }
+  };
+
+  const toggleTimelineOnly = async (s: RadioStation) => {
+    setSavingId(s.id);
+    const next = s.timeline_only_mode === 0;
+    if (!props.ffmpegAvailable() && !next) {
+      toast.error(
+        "ffmpeg is not installed on this node, so this station must run in timeline-only mode"
+      );
+      setSavingId(null);
+      return;
+    }
+    try {
+      const req: UpdateStationRequest = { id: s.id, timeline_only_mode: next };
+      await props.client.dispatchOrThrow("radio_stations_update", req);
+      toast.success(`timeline-only mode ${next ? "enabled" : "disabled"}`);
       await refetch();
     } catch (e) {
       const msg =
@@ -300,6 +385,11 @@ function StationsSection(props: { client: AdminClient }) {
           {stations.loading ? "loading..." : "refresh"}
         </button>
       </div>
+      <Show when={loadError()}>
+        <div class="mb-3 rounded border border-red-600/30 bg-red-600/10 p-2 text-xs text-red-400">
+          {loadError()}
+        </div>
+      </Show>
 
       <Show
         when={!stations.loading && (stations()?.length ?? 0) > 0}
@@ -318,6 +408,7 @@ function StationsSection(props: { client: AdminClient }) {
                 <th class="py-2 pr-4">enabled</th>
                 <th class="py-2 pr-4">codec</th>
                 <th class="py-2 pr-4">play mode</th>
+                <th class="py-2 pr-4">timeline only</th>
                 <th class="py-2 pr-4 text-right">actions</th>
               </tr>
             </thead>
@@ -359,6 +450,22 @@ function StationsSection(props: { client: AdminClient }) {
                         {s.play_mode}
                       </td>
                       <td class="py-2 pr-4">
+                        <span
+                          class={
+                            s.timeline_only_mode
+                              ? "px-2 py-0.5 text-xs rounded-full bg-violet-600/20 text-violet-400"
+                              : "px-2 py-0.5 text-xs rounded-full bg-neutral-700/40 text-neutral-400"
+                          }
+                          title={
+                            s.timeline_only_mode
+                              ? "chunk streaming disabled — listeners use queue mode"
+                              : "chunk streaming enabled"
+                          }
+                        >
+                          {s.timeline_only_mode ? "on" : "off"}
+                        </span>
+                      </td>
+                      <td class="py-2 pr-4">
                         <div class="flex items-center justify-end gap-2">
                           <button
                             class="px-2 py-1 text-xs rounded bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-bg-quaternary)] text-[var(--color-text-secondary)]"
@@ -381,6 +488,27 @@ function StationsSection(props: { client: AdminClient }) {
                             {s.is_enabled ? "disable" : "enable"}
                           </button>
                           <button
+                            class={
+                              s.timeline_only_mode
+                                ? "px-2 py-1 text-xs rounded bg-violet-600/20 hover:bg-violet-600/30 text-violet-400 border border-violet-600/30 disabled:opacity-50"
+                                : "px-2 py-1 text-xs rounded bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-bg-quaternary)] text-[var(--color-text-secondary)] disabled:opacity-50"
+                            }
+                            onClick={() => toggleTimelineOnly(s)}
+                            disabled={
+                              savingId() === s.id ||
+                              (!props.ffmpegAvailable() && s.timeline_only_mode !== 0)
+                            }
+                            title={
+                              !props.ffmpegAvailable() && s.timeline_only_mode !== 0
+                                ? "ffmpeg is unavailable on this node"
+                                : s.timeline_only_mode
+                                  ? "disable timeline-only mode (re-enable chunk streaming)"
+                                  : "force timeline-only mode for all listeners"
+                            }
+                          >
+                            {s.timeline_only_mode ? "disable tl-only" : "force tl-only"}
+                          </button>
+                          <button
                             class="px-2 py-1 text-xs rounded bg-red-600/20 hover:bg-red-600/30 text-red-400 border border-red-600/30 disabled:opacity-50"
                             onClick={() => deleteStation(s)}
                             disabled={savingId() === s.id}
@@ -392,7 +520,7 @@ function StationsSection(props: { client: AdminClient }) {
                     </tr>
                     <Show when={expandedId() === s.id}>
                       <tr class="border-t border-[var(--color-border-subtle)]">
-                        <td colspan={6} class="py-3 pr-4">
+                        <td colspan={7} class="py-3 pr-4">
                           <StationSeedEditor stationId={s.id} client={props.client} />
                         </td>
                       </tr>
@@ -412,13 +540,24 @@ function StationsSection(props: { client: AdminClient }) {
 // create station form
 // ------------------------------------------------------------------
 
-function CreateStationSection(props: { client: AdminClient }) {
+function CreateStationSection(props: {
+  client: AdminClient;
+  ffmpegAvailable: () => boolean;
+  onCreated?: () => void;
+}) {
   const [name, setName] = createSignal("");
   const [description, setDescription] = createSignal("");
   const [isPublic, setIsPublic] = createSignal(false);
   const [isEnabled, setIsEnabled] = createSignal(true);
   const [playMode, setPlayMode] = createSignal("shuffle");
+  const [timelineOnly, setTimelineOnly] = createSignal(false);
   const [submitting, setSubmitting] = createSignal(false);
+
+  createEffect(() => {
+    if (!props.ffmpegAvailable()) {
+      setTimelineOnly(true);
+    }
+  });
 
   const submit = async (e: Event) => {
     e.preventDefault();
@@ -434,6 +573,7 @@ function CreateStationSection(props: { client: AdminClient }) {
         is_public: isPublic(),
         is_enabled: isEnabled(),
         play_mode: playMode(),
+        timeline_only_mode: props.ffmpegAvailable() ? timelineOnly() : true,
       };
       const created = (await props.client.dispatchOrThrow(
         "radio_stations_create",
@@ -446,9 +586,8 @@ function CreateStationSection(props: { client: AdminClient }) {
       setIsPublic(false);
       setIsEnabled(true);
       setPlayMode("shuffle");
-      // poke the page so the stations list refreshes — simplest is reload
-      // the route. (a shared resource would be cleaner; deferred.)
-      window.location.reload();
+      setTimelineOnly(!props.ffmpegAvailable());
+      props.onCreated?.();
     } catch (e) {
       const msg =
         e instanceof AdminCommandError ? e.message : e instanceof Error ? e.message : String(e);
@@ -514,10 +653,24 @@ function CreateStationSection(props: { client: AdminClient }) {
               onChange={(e) => setPlayMode(e.currentTarget.value)}
             >
               <option value="shuffle">shuffle</option>
-              <option value="sequential">sequential</option>
+              <option value="album">album</option>
             </select>
           </label>
+          <label class="flex items-center gap-2 text-sm text-[var(--color-text-secondary)]">
+            <input
+              type="checkbox"
+              checked={!timelineOnly()}
+              onChange={(e) => setTimelineOnly(!e.currentTarget.checked)}
+              disabled={!props.ffmpegAvailable()}
+            />
+            ffmpeg chunk mode (uncheck for timeline-only mode)
+          </label>
         </div>
+        <Show when={!props.ffmpegAvailable()}>
+          <div class="text-xs text-[var(--color-text-muted)]">
+            ffmpeg is not installed on this node; stations will run in timeline-only mode.
+          </div>
+        </Show>
         <div>
           <button
             type="submit"

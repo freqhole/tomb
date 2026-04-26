@@ -255,9 +255,17 @@ if (typeof document !== 'undefined') {
   });
 }
 
+// true while setExternalMediaSession is active (e.g., during radio playback).
+// prevents updateMediaSession() from overwriting the radio lock-screen metadata
+// when audio element events fire after playSong() is called in timeline mode.
+let _externalMediaSessionActive = false;
+
 // update media session metadata and action handlers
 async function updateMediaSession() {
   if (!("mediaSession" in navigator)) return;
+  // skip local song queue metadata update when an external source (e.g. radio)
+  // has already claimed the media session.
+  if (_externalMediaSessionActive) return;
 
   const state = appState();
   if (!state) return;
@@ -371,6 +379,89 @@ async function updateMediaSession() {
       playbackRate: 1.0,
       position: currentTime(),
     });
+  }
+}
+
+export interface ExternalMediaSessionOptions {
+  title: string;
+  artist?: string;
+  album?: string;
+  artworkUrl?: string | null;
+  isPlaying: boolean;
+  isLive?: boolean;
+  onPlay?: () => void;
+  onPause?: () => void;
+  onNextTrack?: () => void;
+  onPreviousTrack?: () => void;
+}
+
+// update lock-screen/control-center metadata from an external playback
+// source (for example, live radio managed outside the local song queue).
+// when `isLive` is true we intentionally clear position state and seek
+// handlers so platforms render non-seekable controls.
+export function setExternalMediaSession(options: ExternalMediaSessionOptions): void {
+  if (!("mediaSession" in navigator)) return;
+  _externalMediaSessionActive = true;
+
+  console.info(
+    "[player] setExternalMediaSession:",
+    "title:", options.title,
+    "artist:", options.artist,
+    "isPlaying:", options.isPlaying
+  );
+
+  const artwork = options.artworkUrl
+    ? ([
+        { src: options.artworkUrl, sizes: "96x96", type: "image/jpeg" },
+        { src: options.artworkUrl, sizes: "128x128", type: "image/jpeg" },
+        { src: options.artworkUrl, sizes: "192x192", type: "image/jpeg" },
+        { src: options.artworkUrl, sizes: "256x256", type: "image/jpeg" },
+        { src: options.artworkUrl, sizes: "384x384", type: "image/jpeg" },
+        { src: options.artworkUrl, sizes: "512x512", type: "image/jpeg" },
+      ] as MediaImage[])
+    : undefined;
+
+  // clear metadata first, then set it (iOS Safari workaround)
+  navigator.mediaSession.metadata = null;
+  navigator.mediaSession.metadata = new MediaMetadata({
+    title: options.title,
+    artist: options.artist,
+    album: options.album,
+    artwork,
+  });
+
+  navigator.mediaSession.playbackState = options.isPlaying ? "playing" : "paused";
+
+  navigator.mediaSession.setActionHandler("play", options.onPlay ?? null);
+  navigator.mediaSession.setActionHandler("pause", options.onPause ?? null);
+  navigator.mediaSession.setActionHandler("nexttrack", options.onNextTrack ?? null);
+  navigator.mediaSession.setActionHandler("previoustrack", options.onPreviousTrack ?? null);
+
+  if (options.isLive) {
+    // live stream: explicitly disable seek controls + timeline.
+    navigator.mediaSession.setActionHandler("seekto", null);
+    try {
+      navigator.mediaSession.setPositionState();
+    } catch {
+      // ignore on browsers that don't fully implement position state
+    }
+  }
+}
+
+export function clearExternalMediaSession(): void {
+  if (!("mediaSession" in navigator)) return;
+  _externalMediaSessionActive = false;
+  navigator.mediaSession.metadata = null;
+  navigator.mediaSession.playbackState = "none";
+  navigator.mediaSession.setActionHandler("play", null);
+  navigator.mediaSession.setActionHandler("pause", null);
+  navigator.mediaSession.setActionHandler("nexttrack", null);
+  navigator.mediaSession.setActionHandler("previoustrack", null);
+  navigator.mediaSession.setActionHandler("seekto", null);
+  try {
+    navigator.mediaSession.setPositionState();
+  } catch {
+    // ignore on browsers that don't fully implement position state
   }
 }
 
@@ -752,6 +843,12 @@ export function pause(): void {
   audio.pause();
 }
 
+// clear the explicit-pause gate for timeline radio transitions without
+// triggering stopRadioForMusic() side effects.
+export function allowTimelineAutoplay(): void {
+  userExplicitlyPaused = false;
+}
+
 // stop playback (pause and reset to beginning)
 export function stop(): void {
   const audio = initAudio();
@@ -767,6 +864,14 @@ export async function play(): Promise<void> {
   const audio = initAudio();
   // user explicitly wants to play - clear pause flag and silence radio
   await stopRadioForMusic();
+  userExplicitlyPaused = false;
+  await audio.play();
+}
+
+// resume already-loaded audio without stopping radio. used by timeline
+// radio mode when the user explicitly presses play.
+export async function resumeLoadedAudioForRadio(): Promise<void> {
+  const audio = initAudio();
   userExplicitlyPaused = false;
   await audio.play();
 }

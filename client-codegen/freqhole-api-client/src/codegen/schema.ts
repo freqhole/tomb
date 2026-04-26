@@ -599,7 +599,8 @@ export const CreateStationRequestSchema = z.object({
   is_enabled: z.boolean().nullish(),
   encode_args: z.string().nullish(),
   codec: z.string().nullish(),
-  play_mode: z.string().nullish()
+  play_mode: z.string().nullish(),
+  timeline_only_mode: z.boolean().nullish()
 });
 export type CreateStationRequest = z.infer<typeof CreateStationRequestSchema>;
 
@@ -2686,6 +2687,12 @@ export const ProcessKnockRequestSchema = z.object({
 });
 export type ProcessKnockRequest = z.infer<typeof ProcessKnockRequestSchema>;
 
+export const PublicAssetRefSchema = z.object({
+  kind: z.string(),
+  url: z.string()
+});
+export type PublicAssetRef = z.infer<typeof PublicAssetRefSchema>;
+
 export const PublicNowPlayingSchema = z.object({
   song_id: z.string(),
   title: z.string(),
@@ -2693,6 +2700,7 @@ export const PublicNowPlayingSchema = z.object({
   album: z.string().nullish(),
   art_blob_id: z.string().nullish(),
   waveform_blob_id: z.string().nullish(),
+  audio_blob_id: z.string().nullish(),
   duration_ms: z.number().nullish(),
   art_thumb_b64: z.string().nullish(),
   art_thumb_mime: z.string().nullish()
@@ -2705,6 +2713,7 @@ export const PublicStationSchema = z.object({
   description: z.string().nullish(),
   listener_count: z.number(),
   is_default: z.boolean(),
+  is_public: z.boolean(),
   now_playing: z.object({
   song_id: z.string(),
   title: z.string(),
@@ -2712,12 +2721,90 @@ export const PublicStationSchema = z.object({
   album: z.string().nullish(),
   art_blob_id: z.string().nullish(),
   waveform_blob_id: z.string().nullish(),
+  audio_blob_id: z.string().nullish(),
   duration_ms: z.number().nullish(),
   art_thumb_b64: z.string().nullish(),
   art_thumb_mime: z.string().nullish()
 })
 });
 export type PublicStation = z.infer<typeof PublicStationSchema>;
+
+export const PublicTimelineManifestSchema = z.object({
+  station_id: z.string(),
+  station_name: z.string(),
+  station_description: z.string().nullish(),
+  is_public: z.boolean(),
+  broadcaster_timeline_only: z.boolean(),
+  generated_at_ms: z.number(),
+  timeline_seq: z.number(),
+  lookahead_count: z.number(),
+  current: z.object({
+  timeline_item_id: z.string(),
+  song_id: z.string(),
+  title: z.string().nullish(),
+  artist: z.string().nullish(),
+  album: z.string().nullish(),
+  start_at_ms: z.number(),
+  duration_ms: z.number().nullish(),
+  art: z.object({
+  kind: z.string(),
+  url: z.string()
+}).nullish(),
+  waveform: z.object({
+  kind: z.string(),
+  url: z.string()
+}).nullish(),
+  audio: z.object({
+  kind: z.string(),
+  url: z.string()
+}).nullish()
+}).nullish(),
+  upcoming: z.array(z.object({
+  timeline_item_id: z.string(),
+  song_id: z.string(),
+  title: z.string().nullish(),
+  artist: z.string().nullish(),
+  album: z.string().nullish(),
+  start_at_ms: z.number(),
+  duration_ms: z.number().nullish(),
+  art: z.object({
+  kind: z.string(),
+  url: z.string()
+}).nullish(),
+  waveform: z.object({
+  kind: z.string(),
+  url: z.string()
+}).nullish(),
+  audio: z.object({
+  kind: z.string(),
+  url: z.string()
+}).nullish()
+}))
+});
+export type PublicTimelineManifest = z.infer<typeof PublicTimelineManifestSchema>;
+
+export const PublicTimelineManifestItemSchema = z.object({
+  timeline_item_id: z.string(),
+  song_id: z.string(),
+  title: z.string().nullish(),
+  artist: z.string().nullish(),
+  album: z.string().nullish(),
+  start_at_ms: z.number(),
+  duration_ms: z.number().nullish(),
+  art: z.object({
+  kind: z.string(),
+  url: z.string()
+}).nullish(),
+  waveform: z.object({
+  kind: z.string(),
+  url: z.string()
+}).nullish(),
+  audio: z.object({
+  kind: z.string(),
+  url: z.string()
+}).nullish()
+});
+export type PublicTimelineManifestItem = z.infer<typeof PublicTimelineManifestItemSchema>;
 
 export const QueryContextSchema = z.object({
   tags: z.object({
@@ -2795,7 +2882,8 @@ export type RadioBumpersSetFrequencyRequest = z.infer<typeof RadioBumpersSetFreq
 
 export const RadioConfigPayloadSchema = z.object({
   enabled: z.boolean(),
-  encode_args: z.string()
+  encode_args: z.string(),
+  ffmpeg_available: z.boolean()
 });
 export type RadioConfigPayload = z.infer<typeof RadioConfigPayloadSchema>;
 
@@ -2820,6 +2908,7 @@ export const RadioInfoResponseSchema = z.object({
   description: z.string().nullish(),
   listener_count: z.number(),
   is_default: z.boolean(),
+  is_public: z.boolean(),
   now_playing: z.object({
   song_id: z.string(),
   title: z.string(),
@@ -2827,6 +2916,7 @@ export const RadioInfoResponseSchema = z.object({
   album: z.string().nullish(),
   art_blob_id: z.string().nullish(),
   waveform_blob_id: z.string().nullish(),
+  audio_blob_id: z.string().nullish(),
   duration_ms: z.number().nullish(),
   art_thumb_b64: z.string().nullish(),
   art_thumb_mime: z.string().nullish()
@@ -2872,6 +2962,7 @@ export const RadioStationSchema = z.object({
   encode_args: z.string().nullish(),
   codec: z.string(),
   play_mode: z.string(),
+  timeline_only_mode: z.number(),
   created_at: z.number(),
   updated_at: z.number()
 });
@@ -2908,6 +2999,7 @@ export const RadioStationsResponseSchema = z.object({
   description: z.string().nullish(),
   listener_count: z.number(),
   is_default: z.boolean(),
+  is_public: z.boolean(),
   now_playing: z.object({
   song_id: z.string(),
   title: z.string(),
@@ -2915,6 +3007,7 @@ export const RadioStationsResponseSchema = z.object({
   album: z.string().nullish(),
   art_blob_id: z.string().nullish(),
   waveform_blob_id: z.string().nullish(),
+  audio_blob_id: z.string().nullish(),
   duration_ms: z.number().nullish(),
   art_thumb_b64: z.string().nullish(),
   art_thumb_mime: z.string().nullish()
@@ -3997,7 +4090,8 @@ export const UpdateStationRequestSchema = z.object({
   is_enabled: z.boolean().nullish(),
   encode_args: z.string().nullish(),
   codec: z.string().nullish(),
-  play_mode: z.string().nullish()
+  play_mode: z.string().nullish(),
+  timeline_only_mode: z.boolean().nullish()
 });
 export type UpdateStationRequest = z.infer<typeof UpdateStationRequestSchema>;
 

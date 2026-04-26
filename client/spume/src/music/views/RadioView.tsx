@@ -47,6 +47,7 @@ import { type Remote, isHttpRemote, isP2PRemote } from "../../app/services/stora
 import type { ImageMetadata } from "../services/storage/types";
 
 export function RadioView() {
+  const MIN_HISTORY_SCROLL_HEIGHT = 220;
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
 
@@ -98,16 +99,55 @@ export function RadioView() {
   const [stations, setStations] = createSignal<DiscoveredStation[]>([]);
   const [sweeping, setSweeping] = createSignal(false);
   const [knownRemotes, setKnownRemotes] = createSignal<Remote[]>([]);
+  const BASE_POLL_MS = 30_000;
+  const MAX_POLL_MS = 120_000;
+  const STATION_STALE_GRACE_MS = 2 * 60_000;
+  let nextPollMs = BASE_POLL_MS;
+  let emptyDiscoveryStreak = 0;
+  let lastNonEmptyAtMs = 0;
+  let lastNonEmptyStations: DiscoveredStation[] = [];
 
-  const refetch = async () => {
+  const hasRecentStations = () =>
+    stations().length > 0 ||
+    (lastNonEmptyStations.length > 0 && Date.now() - lastNonEmptyAtMs < STATION_STALE_GRACE_MS);
+
+  const applyDiscoveredStations = (next: DiscoveredStation[]) => {
+    if (next.length > 0) {
+      emptyDiscoveryStreak = 0;
+      lastNonEmptyAtMs = Date.now();
+      lastNonEmptyStations = next;
+      setStations(next);
+      return;
+    }
+
+    // avoid blanking the UI on transient empty/cooldown sweeps.
+    if (next.length === 0 && stations().length > 0) {
+      emptyDiscoveryStreak += 1;
+      if (emptyDiscoveryStreak < 3) return;
+      // if we had good results recently, keep showing the previous list.
+      if (Date.now() - lastNonEmptyAtMs < STATION_STALE_GRACE_MS) {
+        setStations(lastNonEmptyStations);
+        return;
+      }
+    }
+
+    if (stations().length === 0 && Date.now() - lastNonEmptyAtMs < STATION_STALE_GRACE_MS) {
+      setStations(lastNonEmptyStations);
+      return;
+    }
+
+    setStations(next);
+  };
+
+  const refetch = async (opts: { forceProbeAll?: boolean } = {}) => {
     setSweeping(true);
-    setStations([]);
     try {
       const final = await discoverStations({
         extraPeerAddrs: queryPeerAddrs(),
-        onPartial: (s) => setStations(s),
+        onPartial: (s) => applyDiscoveredStations(s),
+        forceProbeAll: opts.forceProbeAll ?? false,
       });
-      setStations(final);
+      applyDiscoveredStations(final);
     } catch (e) {
       console.warn("[radio-view] discovery failed:", e);
     } finally {
@@ -118,26 +158,81 @@ export function RadioView() {
   // quiet refresh — re-runs discovery without flashing the "scanning…"
   // indicator or clearing the existing list. used by the polling timer
   // so the listener counts in the left column stay live.
-  const quietRefresh = async () => {
+  const quietRefresh = async (): Promise<boolean> => {
     try {
       const final = await discoverStations({
         extraPeerAddrs: queryPeerAddrs(),
       });
-      setStations(final);
+      applyDiscoveredStations(final);
+      return true;
     } catch (e) {
       debug("radio-view", "quiet refresh failed:", e);
+      return false;
     }
   };
 
   onMount(() => {
     refetch();
-    // poll every 15s so listener counts + station availability track
-    // reality without users having to click refresh. cheap: discovery
-    // already races sources with a short timeout.
-    const interval = window.setInterval(() => {
-      if (!sweeping()) quietRefresh();
-    }, 15000);
-    onCleanup(() => window.clearInterval(interval));
+    // adaptive poll loop: start at 30s, back off up to 120s on failures.
+    let disposed = false;
+    let timer: number | null = null;
+
+    const isStationListVisible = () => {
+      // on mobile/narrow layout, discovery polling is only useful while
+      // the station list is actually on screen. when detail is full-screen,
+      // pause polling to reduce network + CPU load.
+      if (!isNarrowViewport()) return true;
+      return !showDetail();
+    };
+
+    const shouldPoll = () =>
+      !sweeping() && document.visibilityState !== "hidden" && isStationListVisible();
+
+    const cancelTimer = () => {
+      if (timer !== null) {
+        window.clearTimeout(timer);
+        timer = null;
+      }
+    };
+
+    const scheduleNext = (delayMs: number) => {
+      if (disposed) return;
+      cancelTimer();
+      timer = window.setTimeout(async () => {
+        if (disposed) return;
+        if (!shouldPoll()) {
+          // skip this cycle but reschedule — the visibilitychange handler
+          // will also kick off a fresh cycle when the page comes back into view.
+          scheduleNext(nextPollMs);
+          return;
+        }
+        const ok = await quietRefresh();
+        nextPollMs = ok ? BASE_POLL_MS : Math.min(MAX_POLL_MS, Math.floor(nextPollMs * 1.8));
+        scheduleNext(nextPollMs);
+      }, delayMs);
+    };
+
+    // when the page returns to the foreground, run a discovery sweep
+    // immediately rather than waiting for the next scheduled tick.
+    const onVisibilityChange = () => {
+      if (disposed) return;
+      if (document.visibilityState === "visible" && isStationListVisible()) {
+        cancelTimer();
+        void quietRefresh().then((ok) => {
+          if (disposed) return;
+          nextPollMs = ok ? BASE_POLL_MS : Math.min(MAX_POLL_MS, Math.floor(nextPollMs * 1.8));
+          scheduleNext(nextPollMs);
+        });
+      }
+    };
+
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    scheduleNext(nextPollMs);
+    onCleanup(() => {
+      disposed = true;
+      cancelTimer();
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    });
   });
 
   onMount(async () => {
@@ -146,6 +241,15 @@ export function RadioView() {
     } catch (e) {
       debug("radio-view", "failed to load remotes for image fallback:", e);
     }
+  });
+
+  onMount(() => {
+    const onResize = () => {
+      setIsNarrow(isNarrowViewport());
+      recomputeDetailLayout();
+    };
+    window.addEventListener("resize", onResize);
+    onCleanup(() => window.removeEventListener("resize", onResize));
   });
 
   const grouped = createMemo(() => {
@@ -198,7 +302,22 @@ export function RadioView() {
   };
 
   // narrow-mode detail toggle.
+  const [isNarrow, setIsNarrow] = createSignal(isNarrowViewport());
   const [showDetail, setShowDetail] = createSignal(false);
+  const [useStickyDetailLayout, setUseStickyDetailLayout] = createSignal(false);
+  let detailViewportRef: HTMLDivElement | undefined;
+  let detailHeaderRef: HTMLDivElement | undefined;
+
+  const recomputeDetailLayout = () => {
+    window.requestAnimationFrame(() => {
+      if (!detailViewportRef || !detailHeaderRef || radioStatus() === "idle") {
+        setUseStickyDetailLayout(false);
+        return;
+      }
+      const remainingHeight = detailViewportRef.clientHeight - detailHeaderRef.offsetHeight - 24;
+      setUseStickyDetailLayout(remainingHeight >= MIN_HISTORY_SCROLL_HEIGHT);
+    });
+  };
 
   const handleTune = async (station: DiscoveredStation) => {
     const isLocal = station.source.kind === "self";
@@ -210,6 +329,24 @@ export function RadioView() {
       console.warn("[radio-view] station has no peer addr", station);
       return;
     }
+
+    const matchesCurrentStation = (
+      peerToCheck: string,
+      stationIdToCheck: string | null | undefined
+    ) => {
+      if (radioStatus() === "idle") return false;
+      if (radioCurrentPeerAddr() !== peerToCheck) return false;
+      const currentId = radioCurrentStationId();
+      if (currentId !== null) return currentId === (stationIdToCheck ?? null);
+      return (stationIdToCheck ?? null) === null;
+    };
+
+    const alreadyCurrent = matchesCurrentStation(peer, station.station_id);
+    if (alreadyCurrent) {
+      if (isNarrowViewport()) setShowDetail(true);
+      return;
+    }
+
     try {
       await tuneIntoRadio(peer, {
         stationId: station.station_id,
@@ -222,7 +359,8 @@ export function RadioView() {
     }
   };
 
-  // auto-tune when a shared link includes station_id and discovery finds a match.
+  // no autoplay: shared links can prefill discovery filters, but tuning
+  // always requires explicit user action.
   const [attemptedSharedTune, setAttemptedSharedTune] = createSignal(false);
   createEffect(() => {
     const stationId = queryStationId();
@@ -239,18 +377,18 @@ export function RadioView() {
 
     if (match) {
       setAttemptedSharedTune(true);
-      void handleTune(match);
+      debug("radio-view", "shared station discovered (no auto-tune):", match.station_id);
     }
   });
 
   const isCurrent = (s: DiscoveredStation) => {
     const peer =
       s.source.kind === "self" ? s.source.id || "self" : (s.source.peer_addr ?? s.source.base_url);
-    return (
-      radioStatus() !== "idle" &&
-      radioCurrentPeerAddr() === peer &&
-      (radioCurrentStationId() === s.station_id || radioCurrentStationId() === null)
-    );
+    if (radioStatus() === "idle") return false;
+    if (radioCurrentPeerAddr() !== peer) return false;
+    const currentId = radioCurrentStationId();
+    if (currentId !== null) return currentId === (s.station_id ?? null);
+    return (s.station_id ?? null) === null;
   };
 
   const [promoting, setPromoting] = createSignal<string | null>(null);
@@ -280,41 +418,24 @@ export function RadioView() {
 
   const currentStationObj = createMemo(() => stations().find((s) => isCurrent(s)) ?? null);
 
-  // bookmark state for the currently tuned station
-  const [bookmarking, setBookmarking] = createSignal(false);
-  const [bookmarked, setBookmarked] = createSignal(false);
-
-  // reset bookmark badge whenever the station changes
-  createMemo(() => {
-    radioCurrentStationId();
-    radioCurrentPeerAddr();
-    setBookmarked(false);
+  createEffect(() => {
+    radioStatus();
+    radioNowPlaying()?.title;
+    currentStationObj()?.station_id;
+    showDetail();
+    recomputeDetailLayout();
   });
 
-  const handleBookmark = async () => {
-    const station = currentStationObj();
-    if (!station) return;
-    const isLocal = station.source.kind === "self";
-    const peer = isLocal
-      ? station.source.id || "self"
-      : (station.source.peer_addr ?? station.source.base_url ?? "");
-    setBookmarking(true);
-    try {
-      const np = radioNowPlaying();
-      await addRadioStationHistoryEntry({
-        peer_addr: peer,
-        station_id: station.station_id,
-        station_name: station.name,
-        is_local: isLocal,
-        art_thumb_b64: np?.art_thumb_b64 ?? station.now_playing?.art_thumb_b64 ?? undefined,
-        art_thumb_mime: np?.art_thumb_mime ?? station.now_playing?.art_thumb_mime ?? undefined,
-      });
-      setBookmarked(true);
-    } catch (e) {
-      console.warn("[radio-view] bookmark failed:", e);
-    } finally {
-      setBookmarking(false);
-    }
+  const canShowStationNowPlaying = (station: DiscoveredStation): boolean => {
+    const peer =
+      station.source.kind === "self"
+        ? station.source.id || "self"
+        : (station.source.peer_addr ?? station.source.base_url ?? "");
+    if (!peer) return !!station.now_playing;
+    if (radioStatus() === "idle") return !!station.now_playing;
+    const samePeerAsCurrent = radioCurrentPeerAddr() === peer;
+    if (!samePeerAsCurrent) return !!station.now_playing;
+    return isCurrent(station) && !!station.now_playing;
   };
 
   const bookmarkStation = async (station: DiscoveredStation) => {
@@ -396,25 +517,30 @@ export function RadioView() {
   // left column — station list
   // ---------------------------------------------------------------------
   const leftColumn = (
-    <div class="flex flex-col h-full mt-2 wide:mt-[60px]">
+    <div class="flex flex-col h-full min-h-0 pt-2 wide:pt-[60px]">
       <header class="flex items-center justify-between gap-2 px-3 py-3 border-b border-neutral-800">
         <h1 class="text-lg font-bold">radio</h1>
         <button
           class="text-xs px-2 py-1 rounded bg-neutral-800 hover:bg-neutral-700"
-          onClick={() => refetch()}
+          onClick={() => refetch({ forceProbeAll: true })}
           disabled={sweeping()}
         >
           {sweeping() ? "scanning…" : "refresh"}
         </button>
       </header>
 
-      <div class="flex-1 overflow-y-auto p-2">
+      <div
+        class="flex-1 min-h-0 overflow-y-auto p-2"
+        style={{
+          "padding-bottom": "calc(var(--player-height) + var(--safe-area-bottom, 0px) + 0.75rem)",
+        }}
+      >
         <Show
           when={stations().length > 0}
           fallback={
             <div class="text-sm text-neutral-400 p-3">
               <Show
-                when={sweeping()}
+                when={sweeping() || hasRecentStations()}
                 fallback={
                   <Show
                     when={queryPeerAddrs().length === 0}
@@ -461,7 +587,7 @@ export function RadioView() {
                             <button
                               class="w-full text-left flex items-center gap-2 p-2 rounded transition border"
                               classList={{
-                                "bg-emerald-900/40 border-emerald-700": isCurrent(station),
+                                "bg-fuchsia-900/40 border-fuchsia-700": isCurrent(station),
                                 "hover:bg-neutral-900 border-transparent": !isCurrent(station),
                               }}
                               onClick={() => handleTune(station)}
@@ -471,7 +597,10 @@ export function RadioView() {
                                   when={isCurrent(station) && radioArtUrl()}
                                   fallback={
                                     <Show
-                                      when={station.now_playing?.art_thumb_b64}
+                                      when={
+                                        canShowStationNowPlaying(station) &&
+                                        station.now_playing?.art_thumb_b64
+                                      }
                                       fallback={
                                         <Show
                                           when={remoteImageMetaForSource(station.source)}
@@ -517,7 +646,9 @@ export function RadioView() {
                                     ? radioListenerCount()
                                     : station.listener_count}{" "}
                                   listening
-                                  <Show when={station.now_playing}>
+                                  <Show
+                                    when={canShowStationNowPlaying(station) && station.now_playing}
+                                  >
                                     {(np) => <> · {np().title}</>}
                                   </Show>
                                 </div>
@@ -541,21 +672,16 @@ export function RadioView() {
   // right column — tuned-station detail + history
   // ---------------------------------------------------------------------
   const rightColumn = (
-    <div class="flex flex-col h-full overflow-y-auto">
-      {/* narrow-only back button so we can return to the station list. */}
-      <div class="wide:hidden flex items-center px-3 py-2 border-b border-neutral-800">
-        <button
-          class="text-xs px-2 py-1 rounded bg-neutral-800 hover:bg-neutral-700 flex items-center gap-1"
-          onClick={() => setShowDetail(false)}
-          aria-label="back to station list"
-        >
-          <span aria-hidden="true">←</span> back
-        </button>
-      </div>
+    <div
+      class="flex flex-col h-full min-h-0"
+      style={{
+        "padding-bottom": "calc(var(--player-height) + var(--safe-area-bottom, 0px) + 0.75rem)",
+      }}
+    >
       <Show
         when={radioStatus() !== "idle"}
         fallback={
-          <div class="flex-1 flex flex-col items-center text-center p-8 text-neutral-400">
+          <div class="flex-1 overflow-y-auto flex flex-col items-center text-center p-8 text-neutral-400">
             <div class="w-32 h-32 rounded-lg bg-gradient-to-br from-purple-700 to-indigo-900 flex items-center justify-center mb-4">
               <span class="text-xs font-bold tracking-widest opacity-60 text-white">radio</span>
             </div>
@@ -569,97 +695,143 @@ export function RadioView() {
           </div>
         }
       >
-        <div class="p-6 max-w-3xl mx-auto w-full">
-          <header class="flex items-start gap-4 mb-6">
-            <div class="flex-shrink-0 w-32 h-32 sm:w-40 sm:h-40 rounded-lg overflow-hidden bg-gradient-to-br from-purple-700 to-indigo-900 flex items-center justify-center">
-              <Show
-                when={radioArtUrl()}
-                fallback={
-                  <Show
-                    when={
-                      currentStationObj() && remoteImageMetaForSource(currentStationObj()!.source)
+        <div
+          ref={detailViewportRef}
+          class="flex-1 min-h-0"
+          classList={{
+            "overflow-hidden": useStickyDetailLayout(),
+            "overflow-y-auto": !useStickyDetailLayout(),
+          }}
+        >
+          <div class="px-6 pb-6 pt-3 wide:pt-6 max-w-3xl mx-auto w-full h-full min-h-0 flex flex-col">
+            <div
+              ref={detailHeaderRef}
+              classList={{
+                "sticky top-0 z-10 pb-4 mb-2": useStickyDetailLayout(),
+              }}
+              style={
+                useStickyDetailLayout()
+                  ? {
+                      background:
+                        "linear-gradient(to bottom, rgba(10, 10, 10, 0.98), rgba(10, 10, 10, 0.92) 82%, rgba(10, 10, 10, 0))",
+                      "backdrop-filter": "blur(10px)",
                     }
-                    fallback={
-                      <span class="text-sm font-bold tracking-widest opacity-60 text-white">
-                        radio
-                      </span>
-                    }
-                  >
-                    {(img) => (
-                      <MediaThumbnail
-                        images={[img()]}
-                        size={160}
-                        showPlayIcon={false}
-                        enablePlayClick={false}
-                        hideIndex
-                      />
+                  : undefined
+              }
+            >
+              <header class="flex items-center gap-4 mb-6">
+                <div class="flex-shrink-0">
+                  <div class="w-32 h-32 sm:w-40 sm:h-40 rounded-lg overflow-hidden bg-gradient-to-br from-purple-700 to-indigo-900 flex items-center justify-center">
+                    <Show
+                      when={radioArtUrl()}
+                      fallback={
+                        <Show
+                          when={
+                            currentStationObj() &&
+                            remoteImageMetaForSource(currentStationObj()!.source)
+                          }
+                          fallback={
+                            <span class="text-sm font-bold tracking-widest opacity-60 text-white">
+                              radio
+                            </span>
+                          }
+                        >
+                          {(img) => (
+                            <MediaThumbnail
+                              images={[img()]}
+                              size={160}
+                              showPlayIcon={false}
+                              enablePlayClick={false}
+                              hideIndex
+                            />
+                          )}
+                        </Show>
+                      }
+                    >
+                      {(url) => <img src={url()} alt="" class="w-full h-full object-cover" />}
+                    </Show>
+                  </div>
+                </div>
+                <div class="flex-1 min-w-0">
+                  <div class="flex items-center justify-between gap-3 mb-1 min-h-8">
+                    <div class="text-xs uppercase tracking-wide text-neutral-500">
+                      {radioStatus() === "connecting" ? "connecting…" : "now playing"}
+                    </div>
+                    <Show when={isNarrow()}>
+                      <button
+                        class="text-xs px-2 py-1 rounded bg-neutral-800 hover:bg-neutral-700 flex items-center gap-1 flex-shrink-0"
+                        onClick={() => setShowDetail(false)}
+                        aria-label="back to station list"
+                      >
+                        <span aria-hidden="true">←</span> back
+                      </button>
+                    </Show>
+                  </div>
+                  <Show when={radioNowPlaying()} fallback={<div>—</div>}>
+                    {(np) => (
+                      <>
+                        <div class="text-2xl font-bold truncate">{np().title}</div>
+                        <div class="text-base text-neutral-300 truncate">
+                          {np().artist ?? "unknown artist"}
+                          <Show when={np().album}> — {np().album}</Show>
+                        </div>
+                      </>
                     )}
                   </Show>
-                }
-              >
-                {(url) => <img src={url()} alt="" class="w-full h-full object-cover" />}
-              </Show>
+                  <Show when={currentStationObj()}>
+                    {(s) => (
+                      <div class="mt-3 text-sm text-neutral-400">
+                        <div class="font-medium">{s().name}</div>
+                        <Show when={s().description}>
+                          <div class="text-xs">{s().description}</div>
+                        </Show>
+                        <div class="text-xs mt-1">
+                          {radioListenerCount()} listener
+                          {radioListenerCount() === 1 ? "" : "s"}
+                        </div>
+                        {/* <button
+                          class={`mt-2 text-xs px-2 py-1 rounded border transition-colors ${
+                            bookmarked()
+                              ? "border-emerald-700 text-emerald-400 bg-emerald-900/30 cursor-default"
+                              : "border-neutral-700 hover:border-neutral-500 hover:text-neutral-200"
+                          }`}
+                          onClick={handleBookmark}
+                          disabled={bookmarking() || bookmarked()}
+                          title="save station to queue history"
+                        >
+                          {bookmarked()
+                            ? "saved to history"
+                            : bookmarking()
+                              ? "saving…"
+                              : "save to history"}
+                        </button> */}
+                        <button
+                          class="mt-2 ml-2 text-xs px-2 py-1 rounded border border-neutral-700 hover:border-neutral-500 hover:text-neutral-200 transition-colors"
+                          onClick={() => openStationShare(s())}
+                          disabled={!s().station_id}
+                          title="share station"
+                        >
+                          share
+                        </button>
+                      </div>
+                    )}
+                  </Show>
+                  <Show when={radioError()}>
+                    <div class="mt-2 text-xs text-red-400">{radioError()}</div>
+                  </Show>
+                </div>
+              </header>
             </div>
-            <div class="flex-1 min-w-0">
-              <div class="text-xs uppercase tracking-wide text-neutral-500 mb-1">
-                {radioStatus() === "connecting" ? "connecting…" : "now playing"}
-              </div>
-              <Show when={radioNowPlaying()} fallback={<div>—</div>}>
-                {(np) => (
-                  <>
-                    <div class="text-2xl font-bold truncate">{np().title}</div>
-                    <div class="text-base text-neutral-300 truncate">
-                      {np().artist ?? "unknown artist"}
-                      <Show when={np().album}> — {np().album}</Show>
-                    </div>
-                  </>
-                )}
-              </Show>
-              <Show when={currentStationObj()}>
-                {(s) => (
-                  <div class="mt-3 text-sm text-neutral-400">
-                    <div class="font-medium">{s().name}</div>
-                    <Show when={s().description}>
-                      <div class="text-xs">{s().description}</div>
-                    </Show>
-                    <div class="text-xs mt-1">
-                      {radioListenerCount()} listener
-                      {radioListenerCount() === 1 ? "" : "s"}
-                    </div>
-                    <button
-                      class={`mt-2 text-xs px-2 py-1 rounded border transition-colors ${
-                        bookmarked()
-                          ? "border-emerald-700 text-emerald-400 bg-emerald-900/30 cursor-default"
-                          : "border-neutral-700 hover:border-neutral-500 hover:text-neutral-200"
-                      }`}
-                      onClick={handleBookmark}
-                      disabled={bookmarking() || bookmarked()}
-                      title="save station to queue history"
-                    >
-                      {bookmarked()
-                        ? "saved to history"
-                        : bookmarking()
-                          ? "saving…"
-                          : "save to history"}
-                    </button>
-                    <button
-                      class="mt-2 ml-2 text-xs px-2 py-1 rounded border border-neutral-700 hover:border-neutral-500 hover:text-neutral-200 transition-colors"
-                      onClick={() => openStationShare(s())}
-                      disabled={!s().station_id}
-                      title="share station"
-                    >
-                      share
-                    </button>
-                  </div>
-                )}
-              </Show>
-              <Show when={radioError()}>
-                <div class="mt-2 text-xs text-red-400">{radioError()}</div>
-              </Show>
-            </div>
-          </header>
 
-          <RadioHistoryList />
+            <div
+              classList={{
+                "flex-1 min-h-0 overflow-y-auto": useStickyDetailLayout(),
+                "pb-6": useStickyDetailLayout(),
+              }}
+            >
+              <RadioHistoryList />
+            </div>
+          </div>
         </div>
       </Show>
     </div>

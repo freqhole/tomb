@@ -26,6 +26,10 @@ pub async fn dispatch(
     _caller: &Caller,
     body: &JsonValue,
 ) -> Option<GrimoireResponse<JsonValue>> {
+    if let Some(resp) = radio::dispatch(path).await {
+        return Some(resp);
+    }
+
     match path {
         // health and discovery
         "/api/hello" => Some(health::server_info().await),
