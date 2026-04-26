@@ -39,6 +39,7 @@ export default function RadioView() {
   const admin = useAdminTransport();
   const [stations, setStations] = createSignal<RadioStation[]>([]);
   const [ffmpegAvailable, setFfmpegAvailable] = createSignal(true);
+  const [radioEnabled, setRadioEnabled] = createSignal(true);
   const [loading, setLoading] = createSignal(true);
   const [error, setError] = createSignal("");
   const [savingId, setSavingId] = createSignal<string | null>(null);
@@ -81,6 +82,7 @@ export default function RadioView() {
       ]);
       setStations(result ?? []);
       setFfmpegAvailable(cfg.ffmpeg_available !== false);
+      setRadioEnabled(cfg.enabled);
     } catch (e) {
       setError(String(e));
     } finally {
@@ -197,289 +199,320 @@ export default function RadioView() {
         <p class="error">{error()}</p>
       </Show>
 
-      <RadioConfigSection dispatch={admin.dispatchOrThrow} />
+      <RadioConfigSection
+        dispatch={admin.dispatchOrThrow}
+        onEnabledChange={setRadioEnabled}
+      />
 
       {/* stations section */}
-      <div class="section">
-        <div class="section-header">
-          <h2>
-            station<span class="pinky">z</span>
-          </h2>
-          <Show when={!showCreate()}>
-            <button
-              class="primary small"
-              onClick={() => setShowCreate((v) => !v)}
-              disabled={creating()}
-            >
-              + new station
-            </button>
-          </Show>
-        </div>
-
-        {/* create form */}
-        <Show when={showCreate()}>
-          <form class="card" onSubmit={createStation}>
-            <div class="form-row">
-              <label>
-                <span class="label">name</span>
-                <input
-                  type="text"
-                  value={name()}
-                  onInput={(e) => setName(e.currentTarget.value)}
-                  placeholder="late night jams"
-                  required
-                />
-              </label>
-            </div>
-            <div class="form-row">
-              <label>
-                <span class="label">description (optional)</span>
-                <input
-                  type="text"
-                  value={description()}
-                  onInput={(e) => setDescription(e.currentTarget.value)}
-                  placeholder="ambient + downtempo"
-                />
-              </label>
-            </div>
-            <div
-              class="form-row"
-              style={{ display: "flex", gap: "1.5rem", "flex-wrap": "wrap" }}
-            >
-              <label
-                style={{
-                  display: "flex",
-                  gap: "0.5rem",
-                  "align-items": "center",
-                }}
-              >
-                <input
-                  type="checkbox"
-                  checked={isPublic()}
-                  onChange={(e) => setIsPublic(e.currentTarget.checked)}
-                />
-                <span>public (visible to peers via discovery)</span>
-              </label>
-              <label
-                style={{
-                  display: "flex",
-                  gap: "0.5rem",
-                  "align-items": "center",
-                }}
-              >
-                <input
-                  type="checkbox"
-                  checked={isEnabled()}
-                  onChange={(e) => setIsEnabled(e.currentTarget.checked)}
-                />
-                <span>enabled</span>
-              </label>
-              <label
-                style={{
-                  display: "flex",
-                  gap: "0.5rem",
-                  "align-items": "center",
-                }}
-              >
-                <span>play mode</span>
-                <select
-                  value={playMode()}
-                  onChange={(e) => setPlayMode(e.currentTarget.value)}
-                >
-                  <option value="shuffle">shuffle</option>
-                  <option value="sequential">sequential</option>
-                </select>
-              </label>
-              <label
-                style={{
-                  display: "flex",
-                  gap: "0.5rem",
-                  "align-items": "center",
-                }}
-              >
-                <input
-                  type="checkbox"
-                  checked={!timelineOnly()}
-                  onChange={(e) => setTimelineOnly(!e.currentTarget.checked)}
-                  disabled={!ffmpegAvailable()}
-                />
-                <span>ffmpeg chunk mode (uncheck for timeline-only mode)</span>
-              </label>
-            </div>
-            <Show when={!ffmpegAvailable()}>
-              <p class="item-meta">
-                ffmpeg is not installed on this node; stations will run in
-                timeline-only mode.
-              </p>
-            </Show>
-            <div class="form-row" style={{ display: "flex", gap: "0.5rem" }}>
-              <button type="submit" class="primary small" disabled={creating()}>
-                {creating() ? "creating..." : "create station"}
-              </button>
+      <Show
+        when={radioEnabled()}
+        fallback={
+          <div class="section">
+            <p class="item-meta">radio is disabled.</p>
+          </div>
+        }
+      >
+        <div class="section">
+          <div class="section-header">
+            <h2>
+              station<span class="pinky">z</span>
+            </h2>
+            <Show when={!showCreate()}>
               <button
-                type="button"
-                class="secondary small"
-                onClick={() => setShowCreate(false)}
+                class="primary small"
+                onClick={() => setShowCreate((v) => !v)}
                 disabled={creating()}
               >
-                cancel
+                + new station
               </button>
-            </div>
-          </form>
-        </Show>
-
-        <div style={{ "margin-bottom": "1.25rem" }} />
-
-        <Show when={loading()}>
-          <div class="loading">
-            <div class="spinner" />
-            <span class="active">
-              loading station<span class="pinky">z</span>...
-            </span>
+            </Show>
           </div>
-        </Show>
 
-        <Show when={!loading()}>
-          <Show when={stations().length === 0}>
-            <p class="empty active">
-              no station<span class="pinky">z</span> configured yet
-            </p>
-          </Show>
-
-          <For each={stations()}>
-            {(s) => (
-              <>
-                <div
-                  class="list-item"
+          {/* create form */}
+          <Show when={showCreate()}>
+            <form class="card" onSubmit={createStation}>
+              <div class="form-row">
+                <label>
+                  <span class="label">name</span>
+                  <input
+                    type="text"
+                    value={name()}
+                    onInput={(e) => setName(e.currentTarget.value)}
+                    placeholder="late night jams"
+                    required
+                  />
+                </label>
+              </div>
+              <div class="form-row">
+                <label>
+                  <span class="label">description (optional)</span>
+                  <input
+                    type="text"
+                    value={description()}
+                    onInput={(e) => setDescription(e.currentTarget.value)}
+                    placeholder="ambient + downtempo"
+                  />
+                </label>
+              </div>
+              <div
+                class="form-row"
+                style={{ display: "flex", gap: "1.5rem", "flex-wrap": "wrap" }}
+              >
+                <label
                   style={{
-                    "flex-direction": "column",
-                    "align-items": "stretch",
-                    gap: "0.4rem",
-                    padding: "0.65rem 0.75rem",
+                    display: "flex",
+                    gap: "0.5rem",
+                    "align-items": "center",
                   }}
                 >
-                  {/* name + description */}
+                  <input
+                    type="checkbox"
+                    checked={isPublic()}
+                    onChange={(e) => setIsPublic(e.currentTarget.checked)}
+                  />
+                  <span>public (visible to anyone who has the link)</span>
+                </label>
+                <label
+                  style={{
+                    display: "flex",
+                    gap: "0.5rem",
+                    "align-items": "center",
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={isEnabled()}
+                    onChange={(e) => setIsEnabled(e.currentTarget.checked)}
+                  />
+                  <span>enabled</span>
+                </label>
+                <label
+                  style={{
+                    display: "flex",
+                    gap: "0.5rem",
+                    "align-items": "center",
+                  }}
+                >
+                  <span>play mode</span>
+                  <select
+                    value={playMode()}
+                    onChange={(e) => setPlayMode(e.currentTarget.value)}
+                  >
+                    <option value="shuffle">shuffle</option>
+                    <option value="sequential">sequential</option>
+                  </select>
+                </label>
+                <label
+                  style={{
+                    display: "flex",
+                    gap: "0.5rem",
+                    "align-items": "center",
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={!timelineOnly()}
+                    onChange={(e) => setTimelineOnly(!e.currentTarget.checked)}
+                    disabled={!ffmpegAvailable()}
+                  />
+                  <span>
+                    ffmpeg chunk mode (uncheck for timeline-only mode)
+                  </span>
+                </label>
+              </div>
+              <Show when={!ffmpegAvailable()}>
+                <p class="item-meta">
+                  ffmpeg is not installed on this node; stations will run in
+                  timeline-only mode.
+                </p>
+              </Show>
+              <div class="form-row" style={{ display: "flex", gap: "0.5rem" }}>
+                <button
+                  type="submit"
+                  class="primary small"
+                  disabled={creating()}
+                >
+                  {creating() ? "creating..." : "create station"}
+                </button>
+                <button
+                  type="button"
+                  class="secondary small"
+                  onClick={() => setShowCreate(false)}
+                  disabled={creating()}
+                >
+                  cancel
+                </button>
+              </div>
+            </form>
+          </Show>
+
+          <div style={{ "margin-bottom": "1.25rem" }} />
+
+          <Show when={loading()}>
+            <div class="loading">
+              <div class="spinner" />
+              <span class="active">
+                loading station<span class="pinky">z</span>...
+              </span>
+            </div>
+          </Show>
+
+          <Show when={!loading()}>
+            <Show when={stations().length === 0}>
+              <p class="empty active">
+                no station<span class="pinky">z</span> configured yet
+              </p>
+            </Show>
+
+            <For each={stations()}>
+              {(s) => (
+                <>
                   <div
+                    class="list-item"
                     style={{
-                      display: "flex",
-                      "align-items": "baseline",
-                      gap: "0.5rem",
-                      "flex-wrap": "wrap",
+                      "flex-direction": "column",
+                      "align-items": "stretch",
+                      gap: "0.4rem",
+                      padding: "0.65rem 0.75rem",
                     }}
                   >
-                    <strong>{s.name}</strong>
-                    <Show when={s.description}>
-                      <span class="item-meta" style={{ "font-size": "0.8rem" }}>
-                        {s.description}
-                      </span>
-                    </Show>
-                    <span
-                      class="item-meta"
-                      style={{ "font-size": "0.75rem", "margin-left": "auto" }}
-                    >
-                      {s.codec}
-                    </span>
-                  </div>
-                  {/* toggle row */}
-                  <div
-                    style={{
-                      display: "flex",
-                      gap: "0.35rem",
-                      "flex-wrap": "wrap",
-                      "align-items": "center",
-                    }}
-                  >
-                    <button
-                      class={s.is_public ? "primary small" : "secondary small"}
-                      onClick={() => togglePublic(s)}
-                      disabled={savingId() === s.id}
-                      title={s.is_public ? "make private" : "make public"}
-                    >
-                      {s.is_public ? "public" : "private"}
-                    </button>
-                    <button
-                      class={s.is_enabled ? "primary small" : "secondary small"}
-                      onClick={() => toggleEnabled(s)}
-                      disabled={savingId() === s.id}
-                      title={
-                        s.is_enabled ? "disable station" : "enable station"
-                      }
-                    >
-                      {s.is_enabled ? "enabled" : "disabled"}
-                    </button>
-                    <button
-                      class={
-                        !s.timeline_only_mode
-                          ? "primary small"
-                          : "secondary small"
-                      }
-                      onClick={() => toggleTimelineOnly(s)}
-                      disabled={savingId() === s.id}
-                      title={
-                        !ffmpegAvailable()
-                          ? "ffmpeg is unavailable on this node"
-                          : s.timeline_only_mode
-                            ? "switch to ffmpeg chunk streaming"
-                            : "switch to timeline-only mode (no ffmpeg)"
-                      }
-                    >
-                      ffmpeg
-                    </button>
-                    <select
-                      style={{ "font-size": "0.78rem" }}
-                      value={s.play_mode}
-                      disabled={savingId() === s.id}
-                      onChange={async (e) => {
-                        setSavingId(s.id);
-                        try {
-                          await admin.dispatchOrThrow("radio_stations_update", {
-                            id: s.id,
-                            play_mode: e.currentTarget.value,
-                          });
-                          await loadStations();
-                        } catch (err) {
-                          setError(String(err));
-                        } finally {
-                          setSavingId(null);
-                        }
+                    {/* name + description */}
+                    <div
+                      style={{
+                        display: "flex",
+                        "align-items": "baseline",
+                        gap: "0.5rem",
+                        "flex-wrap": "wrap",
                       }}
                     >
-                      <option value="shuffle">shuffle</option>
-                      <option value="sequential">sequential</option>
-                    </select>
-                    <button
-                      class="danger small"
-                      onClick={() => deleteStation(s)}
-                      disabled={savingId() === s.id}
-                      style={{ "margin-left": "auto" }}
+                      <strong>{s.name}</strong>
+                      <Show when={s.description}>
+                        <span
+                          class="item-meta"
+                          style={{ "font-size": "0.8rem" }}
+                        >
+                          {s.description}
+                        </span>
+                      </Show>
+                      <span
+                        class="item-meta"
+                        style={{
+                          "font-size": "0.75rem",
+                          "margin-left": "auto",
+                        }}
+                      >
+                        {s.codec}
+                      </span>
+                    </div>
+                    {/* toggle row */}
+                    <div
+                      style={{
+                        display: "flex",
+                        gap: "0.35rem",
+                        "flex-wrap": "wrap",
+                        "align-items": "center",
+                      }}
                     >
-                      delete
-                    </button>
+                      <button
+                        class={
+                          s.is_public ? "primary small" : "secondary small"
+                        }
+                        onClick={() => togglePublic(s)}
+                        disabled={savingId() === s.id}
+                        title={s.is_public ? "make private" : "make public"}
+                      >
+                        {s.is_public ? "public" : "private"}
+                      </button>
+                      <button
+                        class={
+                          s.is_enabled ? "primary small" : "secondary small"
+                        }
+                        onClick={() => toggleEnabled(s)}
+                        disabled={savingId() === s.id}
+                        title={
+                          s.is_enabled ? "disable station" : "enable station"
+                        }
+                      >
+                        {s.is_enabled ? "enabled" : "disabled"}
+                      </button>
+                      <button
+                        class={
+                          !s.timeline_only_mode
+                            ? "primary small"
+                            : "secondary small"
+                        }
+                        onClick={() => toggleTimelineOnly(s)}
+                        disabled={savingId() === s.id}
+                        title={
+                          !ffmpegAvailable()
+                            ? "ffmpeg is unavailable on this node"
+                            : s.timeline_only_mode
+                              ? "switch to ffmpeg chunk streaming"
+                              : "switch to timeline-only mode (no ffmpeg)"
+                        }
+                      >
+                        ffmpeg
+                      </button>
+                      <select
+                        style={{ "font-size": "0.78rem" }}
+                        value={s.play_mode}
+                        disabled={savingId() === s.id}
+                        onChange={async (e) => {
+                          setSavingId(s.id);
+                          try {
+                            await admin.dispatchOrThrow(
+                              "radio_stations_update",
+                              {
+                                id: s.id,
+                                play_mode: e.currentTarget.value,
+                              },
+                            );
+                            await loadStations();
+                          } catch (err) {
+                            setError(String(err));
+                          } finally {
+                            setSavingId(null);
+                          }
+                        }}
+                      >
+                        <option value="shuffle">shuffle</option>
+                        <option value="sequential">sequential</option>
+                      </select>
+                      <button
+                        class="danger small"
+                        onClick={() => deleteStation(s)}
+                        disabled={savingId() === s.id}
+                        style={{ "margin-left": "auto" }}
+                      >
+                        delete
+                      </button>
+                    </div>
+                    {/* seed editor toggle */}
+                    <div>
+                      <button
+                        class="secondary small"
+                        style={{ "font-size": "0.72rem", opacity: "0.75" }}
+                        onClick={() =>
+                          setExpandedId((cur) => (cur === s.id ? null : s.id))
+                        }
+                      >
+                        {expandedId() === s.id ? "▴ hide seed" : "▾ edit seed"}
+                      </button>
+                    </div>
                   </div>
-                  {/* seed editor toggle */}
-                  <div>
-                    <button
-                      class="secondary small"
-                      style={{ "font-size": "0.72rem", opacity: "0.75" }}
-                      onClick={() =>
-                        setExpandedId((cur) => (cur === s.id ? null : s.id))
-                      }
-                    >
-                      {expandedId() === s.id ? "▴ hide seed" : "▾ edit seed"}
-                    </button>
-                  </div>
-                </div>
-                <Show when={expandedId() === s.id}>
-                  <StationSeedEditor
-                    stationId={s.id}
-                    dispatch={admin.dispatchOrThrow}
-                  />
-                </Show>
-              </>
-            )}
-          </For>
-        </Show>
-      </div>
+                  <Show when={expandedId() === s.id}>
+                    <StationSeedEditor
+                      stationId={s.id}
+                      dispatch={admin.dispatchOrThrow}
+                    />
+                  </Show>
+                </>
+              )}
+            </For>
+          </Show>
+        </div>
+      </Show>
     </div>
   );
 }
@@ -929,7 +962,12 @@ interface RadioConfigPayload {
   ffmpeg_available?: boolean;
 }
 
-function RadioConfigSection(props: { dispatch: Dispatch }) {
+interface RadioConfigSectionProps {
+  dispatch: Dispatch;
+  onEnabledChange?: (enabled: boolean) => void;
+}
+
+function RadioConfigSection(props: RadioConfigSectionProps) {
   const [enabled, setEnabled] = createSignal(false);
   // loaded silently — still passed through on toggle so encode_args isn't lost
   const [encodeArgs, setEncodeArgs] = createSignal("");
@@ -947,6 +985,7 @@ function RadioConfigSection(props: { dispatch: Dispatch }) {
       );
       setEnabled(cfg.enabled);
       setEncodeArgs(cfg.encode_args);
+      props.onEnabledChange?.(cfg.enabled);
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
     } finally {
@@ -970,9 +1009,11 @@ function RadioConfigSection(props: { dispatch: Dispatch }) {
         enabled: next,
         encode_args: encodeArgs(),
       });
+      props.onEnabledChange?.(next);
       await load();
     } catch (e) {
       setEnabled(prev);
+      props.onEnabledChange?.(prev);
       setErr(e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(false);
@@ -994,21 +1035,22 @@ function RadioConfigSection(props: { dispatch: Dispatch }) {
       </Show>
       <Show when={!loading()}>
         <div class="card">
-          <label
+          <div
             style={{
               display: "flex",
               "align-items": "center",
               gap: "0.5rem",
             }}
           >
-            <input
-              type="checkbox"
-              checked={enabled()}
-              onChange={(e) => void toggleEnabled(e.currentTarget.checked)}
+            <button
+              type="button"
+              class={enabled() ? "primary small" : "secondary small"}
+              onClick={() => void toggleEnabled(!enabled())}
               disabled={busy()}
-            />
-            <span class="label">enabled</span>
-          </label>
+            >
+              {enabled() ? "radio enabled" : "radio disabled"}
+            </button>
+          </div>
         </div>
       </Show>
     </div>
