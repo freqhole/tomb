@@ -95,6 +95,7 @@ export interface MiddenNodeLike {
   // returns a handle whose `.leave()` closes the connection and stops audio.
   tune_radio?(
     peer_addr: string,
+    station_id: string | undefined,
     on_hello: (json: string) => void,
     on_meta: (json: string) => void,
     on_chunk: (seq: number, is_init: boolean, bytes: Uint8Array) => void,
@@ -624,7 +625,44 @@ export class WasmTransport implements Transport {
       }
     }
 
-    // no blake3 (or verified download failed) — try proxy_request to get blob data
+    // no blake3 (or verified download failed).
+    // for audio blobs, prefer verified-by-id before proxy `/data` because
+    // `/api/blobs/{id}/data` only works for DB-backed blobs and file-backed
+    // media blobs would otherwise fail first, then fall back anyway.
+    if (
+      !blake3 &&
+      this.node.download_verified_by_id &&
+      mimeType?.startsWith("audio/")
+    ) {
+      try {
+        const result = await this.node.download_verified_by_id(
+          this.peerAddr,
+          blobId,
+        );
+        const data = result[0] as Uint8Array;
+        const contentType = mimeType || "application/octet-stream";
+
+        onProgress(data.length, data.length);
+
+        const arrayBuffer = data.buffer.slice(
+          data.byteOffset,
+          data.byteOffset + data.byteLength,
+        ) as ArrayBuffer;
+        const response = new Response(arrayBuffer, {
+          headers: { "Content-Type": contentType },
+        });
+        await cache.put(cacheKey(blobId), response);
+
+        return { data, contentType };
+      } catch (e) {
+        const errorMessage = e instanceof Error ? e.message : String(e);
+        console.warn(
+          `[WasmTransport] audio verified-by-id failed, falling back to proxy: ${errorMessage}`,
+        );
+      }
+    }
+
+    // try proxy_request to get blob data
     let proxyFailureReason: string | null = null;
     try {
       const result = await this.node.proxy_request(
@@ -666,6 +704,39 @@ export class WasmTransport implements Transport {
       console.warn(
         `[WasmTransport] proxy blob data request failed, falling back: ${errorMessage}`,
       );
+    }
+
+    // fallback: try on-demand blake3 computation + verified download via iroh-blobs.
+    // this matches fetchBlob() so callers using the progress path (radio
+    // timeline playback) do not fail just because the API response omitted
+    // blake3 for a song.
+    if (!blake3 && this.node.download_verified_by_id) {
+      try {
+        const result = await this.node.download_verified_by_id(
+          this.peerAddr,
+          blobId,
+        );
+        const data = result[0] as Uint8Array;
+        const contentType = mimeType || "application/octet-stream";
+
+        onProgress(data.length, data.length);
+
+        const arrayBuffer = data.buffer.slice(
+          data.byteOffset,
+          data.byteOffset + data.byteLength,
+        ) as ArrayBuffer;
+        const response = new Response(arrayBuffer, {
+          headers: { "Content-Type": contentType },
+        });
+        await cache.put(cacheKey(blobId), response);
+
+        return { data, contentType };
+      } catch (e) {
+        const errorMessage = e instanceof Error ? e.message : String(e);
+        console.warn(
+          `[WasmTransport] on-demand verified download failed: ${errorMessage}`,
+        );
+      }
     }
 
     // fetch from peer using legacy protocol (if available)

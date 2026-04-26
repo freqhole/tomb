@@ -67,13 +67,16 @@ impl Default for RadioConfig {
 /// notable flags:
 /// - `-re` paces output to wall-clock playback rate (without it ffmpeg
 ///   blasts the entire transcoded song through stdout in seconds).
+/// - `-fflags +genpts -avoid_negative_ts make_zero` hardens timestamp
+///   continuity for live stitching.
 /// - `frag_keyframe+empty_moov+default_base_moof` makes fMP4 that MSE
 ///   can append incrementally.
 /// - `-frag_duration 3000000` = 3s fragments.
 fn default_encode_args() -> String {
-    "-hide_banner -loglevel error -re -i {input} -vn -c:a aac -b:a 192k \
+    "-hide_banner -loglevel error -re -fflags +genpts -i {input} -vn -map 0:a:0 \
+     -c:a aac -profile:a aac_low -b:a 192k -ar 48000 -ac 2 \
      -movflags frag_keyframe+empty_moov+default_base_moof \
-     -frag_duration 3000000 -f mp4 pipe:1"
+     -frag_duration 3000000 -avoid_negative_ts make_zero -f mp4 pipe:1"
         .to_string()
 }
 

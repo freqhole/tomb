@@ -829,17 +829,20 @@ export class MiddenNode {
      * returns a [`RadioHandle`] — keep a reference to it; dropping it stops
      * playback and closes the iroh connection.
      * @param {string} peer_addr
+     * @param {string | null | undefined} station_id
      * @param {Function} on_hello
      * @param {Function} on_meta
      * @param {Function} on_chunk
      * @returns {Promise<RadioHandle>}
      */
-    tune_radio(peer_addr, on_hello, on_meta, on_chunk) {
+    tune_radio(peer_addr, station_id, on_hello, on_meta, on_chunk) {
         if (this.__wbg_ptr == 0) throw new Error('Attempt to use a moved value');
         _assertNum(this.__wbg_ptr);
         const ptr0 = passStringToWasm0(peer_addr, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
         const len0 = WASM_VECTOR_LEN;
-        const ret = wasm.middennode_tune_radio(this.__wbg_ptr, ptr0, len0, on_hello, on_meta, on_chunk);
+        var ptr1 = isLikeNone(station_id) ? 0 : passStringToWasm0(station_id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        var len1 = WASM_VECTOR_LEN;
+        const ret = wasm.middennode_tune_radio(this.__wbg_ptr, ptr0, len0, ptr1, len1, on_hello, on_meta, on_chunk);
         return ret;
     }
 }

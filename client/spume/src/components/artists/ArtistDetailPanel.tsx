@@ -22,6 +22,7 @@ import { canUpdateArtist } from "../../music/data/permissions";
 import type { EntityUrl } from "../../music/data/types";
 import { isCharnelMode } from "../../app/services/charnel";
 import { showStationSelector } from "../../music/hooks/stationSelectorState";
+import { getCurrentRemote } from "../../music/data";
 
 export interface ArtistDetailPanelArtist {
   artist_id: string;
@@ -320,12 +321,15 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
                 <Button variant="ghost" size="sm" onClick={props.onAddToQueue}>
                   +queue
                 </Button>
-                <Show when={isCharnelMode()}>
+                <Show when={isCharnelMode() || !!getCurrentRemote()}>
                   <Button
                     variant="ghost"
                     size="sm"
                     onClick={() =>
-                      void showStationSelector({ kind: "artist", artistName: props.artist.name })
+                      void showStationSelector(
+                        { kind: "artist", artistName: props.artist.name },
+                        getCurrentRemote()?.remote_id,
+                      )
                     }
                   >
                     +radio
@@ -479,12 +483,15 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
                 <Button variant="ghost" size="sm" onClick={props.onAddToQueue}>
                   +queue
                 </Button>
-                <Show when={isCharnelMode()}>
+                <Show when={isCharnelMode() || !!getCurrentRemote()}>
                   <Button
                     variant="ghost"
                     size="sm"
                     onClick={() =>
-                      void showStationSelector({ kind: "artist", artistName: props.artist.name })
+                      void showStationSelector(
+                        { kind: "artist", artistName: props.artist.name },
+                        getCurrentRemote()?.remote_id,
+                      )
                     }
                   >
                     +radio

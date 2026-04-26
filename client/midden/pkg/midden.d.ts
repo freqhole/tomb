@@ -339,7 +339,7 @@ export class MiddenNode {
      * returns a [`RadioHandle`] — keep a reference to it; dropping it stops
      * playback and closes the iroh connection.
      */
-    tune_radio(peer_addr: string, on_hello: Function, on_meta: Function, on_chunk: Function): Promise<RadioHandle>;
+    tune_radio(peer_addr: string, station_id: string | null | undefined, on_hello: Function, on_meta: Function, on_chunk: Function): Promise<RadioHandle>;
 }
 
 /**

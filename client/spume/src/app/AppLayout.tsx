@@ -33,6 +33,7 @@ import { useRouteDataSource } from "../music/hooks/useRouteDataSource";
 import { useToggleFavoriteMutation } from "../music/queries/favorites";
 import { useRecentPlaylistsQuery } from "../music/queries/playlists";
 import {
+  clearExternalMediaSession,
   currentTime,
   duration,
   isLoading,
@@ -42,6 +43,7 @@ import {
   playPrevious,
   playSong,
   seek,
+  setExternalMediaSession,
   setPlayerVolume,
   togglePlayback,
   volume,
@@ -53,6 +55,8 @@ import {
   resolveBlobUrl,
   usesBlobResolver,
 } from "../music/services/storage/blobResolver";
+import { getClientForRemote } from "./api/client";
+import { adminLocalRawDispatch, adminRawDispatch } from "./api/adminClient";
 import { deleteSongFromLocal } from "../music/services/sync";
 import {
   getPendingDownloadCount,
@@ -72,6 +76,7 @@ import {
 import { useSongContextMenu } from "../music/hooks/contextMenu";
 import {
   getAllRemotes,
+  getRemoteById,
   onRemoteStatusChange,
   onSwitchToLocal,
 } from "./services/remotes/remoteManager";
@@ -103,11 +108,16 @@ import { loadProgressFromStorage, progressMap } from "../music/services/queue/qu
 import { startAnalyticsSync, stopAnalyticsSync } from "../music/services/analytics/analyticsQueue";
 import { reconnectProgressTracking } from "../music/services/queue/listenProgress";
 import { isCharnelMode, setWindowTitle } from "./services/charnel";
+import {
+  getAuthInfo,
+  refreshOne as refreshRemoteAuthStatus,
+} from "./services/remotes/authStatusStore";
 import { checkAndShowConfigUpgradeToast } from "./services/toastNotices";
 import { debug } from "../utils/logger";
 import { isNarrowViewport } from "../config/breakpoints";
 import { getBackgroundConfig } from "./services/backgroundImage";
 import { playbackMode } from "./services/playbackMode";
+import { setHighlightedSongId } from "../music/state/highlightedSong";
 import {
   leaveRadio,
   radioArtUrl,
@@ -120,10 +130,12 @@ import {
   radioPause,
   radioResume,
   radioStatus,
+  radioUseTimelineMode,
   setRadioAudioSink,
   setRadioFavorite,
   tuneIntoRadio,
 } from "./services/radio/radioService";
+import { acknowledgeTimelineUserStart } from "./services/radio/radioQueueAdapter";
 import {
   currentRadioStation,
   loadCurrentRadioStation,
@@ -210,6 +222,54 @@ export function AppLayout(props: AppLayoutProps) {
       is_primary: true,
     };
   });
+
+  createEffect(() => {
+    const remoteId = radioCurrentRemoteServerId();
+    if (!remoteId) return;
+    if (getAuthInfo(remoteId) !== undefined) return;
+    void (async () => {
+      const remote = await getRemoteById(remoteId);
+      if (remote) {
+        await refreshRemoteAuthStatus(remote);
+      }
+    })();
+  });
+
+  const canAdminSkipRadioTrack = createMemo(() => {
+    const station = currentRadioStation();
+    if (!station?.station_id) return false;
+    if (station.is_local) return isCharnelMode();
+    const remoteId = radioCurrentRemoteServerId();
+    if (!remoteId) return false;
+    const auth = getAuthInfo(remoteId);
+    return auth?.loggedIn === true && auth.role === "admin";
+  });
+
+  const requestRadioTrackSkip = async (): Promise<void> => {
+    const station = currentRadioStation();
+    if (!station?.station_id) {
+      throw new Error("current station cannot be skipped");
+    }
+
+    if (station.is_local) {
+      await adminLocalRawDispatch("radio_supervisor_skip_track", {
+        station_id: station.station_id,
+      });
+      return;
+    }
+
+    const remoteId = radioCurrentRemoteServerId();
+    if (!remoteId) {
+      throw new Error("could not resolve the current radio remote");
+    }
+    const remote = await getRemoteById(remoteId);
+    if (!remote) {
+      throw new Error("current radio remote is no longer configured locally");
+    }
+    await adminRawDispatch(remote, "radio_supervisor_skip_track", {
+      station_id: station.station_id,
+    });
+  };
 
   // update window/document title (freqhole ▸ remote ▸ route)
   createEffect(() => {
@@ -467,6 +527,73 @@ export function AppLayout(props: AppLayoutProps) {
     if (queueLength > 0) {
       void updateAutoDownloadQueue(currentIndex);
     }
+  });
+
+  // sync navigator media session for radio mode so lock-screen/control
+  // center reflects the live station track (non-seekable).
+  createEffect(() => {
+    const mode = playbackMode();
+    if (mode !== "radio") return;
+
+    const station = currentRadioStation();
+    const np = radioNowPlaying();
+    const status = radioStatus();
+    const title = np?.title?.trim() || station?.station_name || "radio";
+    const artist = np?.artist?.trim() || "radio";
+    const album = np?.album?.trim() || station?.station_name || "live stream";
+    const artworkUrl = radioArtUrl();
+    const isPlayingNow = status === "playing";
+
+    console.info(
+      "[AppLayout] mediaSession effect triggered",
+      "song_id:",
+      np?.song_id,
+      "title:",
+      title,
+      "status:",
+      status
+    );
+
+    // never arm media-session handlers while radio is idle. this avoids
+    // accidental lock-screen/system-triggered play callbacks from
+    // auto-retuning a saved station on page load.
+    if (status === "idle") {
+      clearExternalMediaSession();
+      return;
+    }
+
+    setExternalMediaSession({
+      title,
+      artist,
+      album,
+      artworkUrl,
+      isPlaying: isPlayingNow,
+      isLive: true,
+      onPlay: () => {
+        if (radioStatus() === "paused") {
+          radioResume();
+        }
+      },
+      onPause: () => {
+        if (radioStatus() === "playing" || radioStatus() === "connecting") {
+          radioPause();
+        }
+      },
+      onNextTrack: canAdminSkipRadioTrack()
+        ? () => {
+            void requestRadioTrackSkip().catch((e) => {
+              toast.error(e instanceof Error ? e.message : String(e));
+            });
+          }
+        : undefined,
+      onPreviousTrack: undefined,
+    });
+  });
+
+  // clear externally-owned media session when leaving radio mode.
+  createEffect(() => {
+    if (playbackMode() === "radio") return;
+    clearExternalMediaSession();
   });
 
   const queueOpen = () => appState()?.queue_open ?? false;
@@ -1101,27 +1228,37 @@ export function AppLayout(props: AppLayoutProps) {
                 };
               }
               const remoteId = radioCurrentRemoteServerId();
-              // synthesize an `images` array so PlayerBar's waveform
-              // pipeline can render the overlay just like in music mode.
-              // requires a resolved local remote (so MediaImage knows
-              // which backend to fetch from).
-              const images =
-                np.waveform_blob_id && remoteId
-                  ? [
-                      {
-                        remote_blob_id: np.waveform_blob_id,
-                        remote_server_id: remoteId,
-                        is_primary: false,
-                        blob_type: "waveform" as const,
-                      },
-                    ]
-                  : undefined;
+              const artUrl = radioArtUrl() ?? undefined;
+              const images = remoteId
+                ? [
+                    ...(np.art_blob_id
+                      ? [
+                          {
+                            remote_blob_id: np.art_blob_id,
+                            remote_server_id: remoteId,
+                            is_primary: true,
+                            blob_type: "thumbnail" as const,
+                          },
+                        ]
+                      : []),
+                    ...(np.waveform_blob_id
+                      ? [
+                          {
+                            remote_blob_id: np.waveform_blob_id,
+                            remote_server_id: remoteId,
+                            is_primary: false,
+                            blob_type: "waveform" as const,
+                          },
+                        ]
+                      : []),
+                  ]
+                : undefined;
               return {
                 id: np.song_id || "radio",
                 title: np.title || "untitled",
                 artist: np.artist ?? "unknown artist",
                 album: np.album ?? undefined,
-                thumbnailUrl: radioArtUrl() ?? undefined,
+                thumbnailUrl: artUrl,
                 images,
                 isFavorite: radioCurrentFavorite() ?? false,
               };
@@ -1148,16 +1285,19 @@ export function AppLayout(props: AppLayoutProps) {
           const barCurrentTime = () => (isRadio() ? radioElapsedMs() / 1000 : currentTime());
           const barDuration = () => {
             if (isRadio()) {
-              const ms = radioNowPlaying()?.duration_ms;
-              return ms ? ms / 1000 : 0;
+              return 0;
             }
             return duration();
           };
 
           const onPlayPause = () => {
             if (isRadio()) {
-              if (radioStatus() === "paused") radioResume();
-              else if (radioStatus() === "playing") radioPause();
+              if (radioStatus() === "paused") {
+                if (radioUseTimelineMode()) {
+                  acknowledgeTimelineUserStart();
+                }
+                radioResume();
+              } else if (radioStatus() === "playing") radioPause();
               else if (radioStatus() === "error") leaveRadio();
               else if (radioStatus() === "idle") {
                 const station = currentRadioStation();
@@ -1177,7 +1317,13 @@ export function AppLayout(props: AppLayoutProps) {
             playPrevious();
           };
           const onNext = () => {
-            if (isRadio()) return;
+            if (isRadio()) {
+              if (!canAdminSkipRadioTrack()) return;
+              void requestRadioTrackSkip().catch((e) => {
+                toast.error(e instanceof Error ? e.message : String(e));
+              });
+              return;
+            }
             playNext();
           };
           const onSeekCb = (pct: number) => {
@@ -1206,13 +1352,72 @@ export function AppLayout(props: AppLayoutProps) {
             handlePlayerImageClick();
           };
 
+          const onSongMetaClick = () => {
+            if (!isRadio()) {
+              const cs = currentSongData();
+              if (!cs || !cs.album_id) return;
+              setHighlightedSongId(cs.id);
+              navigate(routes.album(cs.album_id));
+              return;
+            }
+
+            const np = radioNowPlaying();
+            const remoteId = radioCurrentRemoteServerId();
+            const songId = typeof np?.song_id === "string" ? np.song_id.trim() : "";
+            if (!np || !remoteId || !songId) {
+              navigate("/radio");
+              return;
+            }
+            void (async () => {
+              try {
+                const remote = await getRemoteById(remoteId);
+                if (!remote) {
+                  navigate("/radio");
+                  return;
+                }
+                const client = await getClientForRemote(remote);
+                const result = await client.music.querySongs({
+                  q: null,
+                  search_fields: null,
+                  filters: { song_ids: [songId] },
+                  sort_by: null,
+                  sort_direction: null,
+                  limit: 1,
+                  offset: null,
+                  user_id: null,
+                  favorites_only: null,
+                  min_rating: null,
+                });
+                if (!result.success || result.data.items.length === 0) {
+                  navigate("/radio");
+                  return;
+                }
+                const albumId = result.data.items[0].album?.id;
+                if (!albumId) {
+                  navigate("/radio");
+                  return;
+                }
+                setHighlightedSongId(songId);
+                navigate(
+                  `/${remoteId}/albums/${encodeURIComponent(albumId)}?song_id=${encodeURIComponent(songId)}`
+                );
+              } catch (e) {
+                debug("AppLayout", "radio song meta navigate failed:", e);
+                navigate("/radio");
+              }
+            })();
+          };
+
           // status badge for radio mode: live indicator + listener count.
+          // when in timeline/queue mode (no MSE, forced by broadcaster, or
+          // network fallback) shows "queue" instead of "live" with a purple dot.
           const statusBadge = () =>
             isRadio() ? (
               <div
                 class="flex items-center gap-1 pr-1.5 py-0 rounded-full bg-black/60 backdrop-blur text-[9px] font-bold uppercase tracking-wide leading-none"
                 classList={{
-                  "text-red-400": radioStatus() === "playing",
+                  "text-violet-400": radioStatus() === "playing" && radioUseTimelineMode(),
+                  "text-red-400": radioStatus() === "playing" && !radioUseTimelineMode(),
                   "text-amber-400": radioStatus() === "connecting",
                   "text-neutral-400": radioStatus() === "paused",
                   "text-red-500": radioStatus() === "error",
@@ -1221,7 +1426,9 @@ export function AppLayout(props: AppLayoutProps) {
               >
                 <span>
                   {radioStatus() === "playing"
-                    ? "live"
+                    ? radioUseTimelineMode()
+                      ? "queue"
+                      : "live"
                     : radioStatus() === "connecting"
                       ? "tuning"
                       : radioStatus() === "paused"
@@ -1233,14 +1440,17 @@ export function AppLayout(props: AppLayoutProps) {
                 <span
                   class="w-1 h-1 rounded-full"
                   classList={{
-                    "bg-red-500 animate-pulse": radioStatus() === "playing",
+                    "bg-violet-400 animate-pulse":
+                      radioStatus() === "playing" && radioUseTimelineMode(),
+                    "bg-red-500 animate-pulse":
+                      radioStatus() === "playing" && !radioUseTimelineMode(),
                     "bg-amber-400 animate-pulse": radioStatus() === "connecting",
                     "bg-neutral-400": radioStatus() === "paused",
                     "bg-red-500": radioStatus() === "error",
                   }}
                 />
                 <span class="opacity-70 normal-case font-medium tabular-nums">
-                  · {radioListenerCount()} listening
+                  {radioListenerCount()} listening
                 </span>
               </div>
             ) : undefined;
@@ -1263,10 +1473,14 @@ export function AppLayout(props: AppLayoutProps) {
               onQueueToggle={handleQueueToggle}
               onFavoriteToggle={onFavToggle}
               onImageClick={onImageClick}
+              onSongMetaClick={onSongMetaClick}
               queueLength={appState()?.queue.length || 0}
-              canGoNext={isRadio() ? false : canGoNext()}
+              canGoNext={isRadio() ? canAdminSkipRadioTrack() : canGoNext()}
               canGoPrevious={isRadio() ? false : canGoPrevious()}
+              showNext={!isRadio() || canAdminSkipRadioTrack()}
+              showPrevious={!isRadio()}
               statusBadge={statusBadge()}
+              isLiveStream={isRadio()}
             />
           );
         })()}
@@ -1338,7 +1552,7 @@ function RadioAudioSink() {
   const audioEl = (() => {
     const el = document.createElement("audio");
     el.controls = false;
-    el.autoplay = true;
+    el.autoplay = false;
     el.preload = "auto";
     el.style.display = "none";
     return el;

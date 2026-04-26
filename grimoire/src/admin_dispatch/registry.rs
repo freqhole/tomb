@@ -283,6 +283,12 @@ pub const ADMIN_COMMANDS: &[AdminCommandInfo] = &[
         auth: AdminAuth::Admin,
     },
     AdminCommandInfo {
+        name: "radio_supervisor_skip_track",
+        request_type: "RadioSupervisorStationRequest",
+        response_type: "RadioSupervisorStatusResponse",
+        auth: AdminAuth::Admin,
+    },
+    AdminCommandInfo {
         name: "radio_bumpers_list",
         request_type: "RadioBumpersListRequest",
         response_type: "Vec<RadioBumper>",

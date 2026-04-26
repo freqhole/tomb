@@ -21,7 +21,7 @@ use tauri::ipc::Channel;
 use tokio_util::sync::CancellationToken;
 
 use grimoire::federation::p2p_client::{get_endpoint_arc, parse_peer_address};
-use grimoire::radio::messages::ControlMessage;
+use grimoire::radio::messages::{ControlMessage, TuneMessage};
 use grimoire::radio::protocol::{read_chunk, read_control_message, RADIO_ALPN};
 
 /// active radio sessions keyed by opaque session id. dropping the entry
@@ -87,7 +87,16 @@ pub enum RadioEvent {
 /// `events`. returns an opaque `session_id` the caller passes to
 /// `radio_leave` to tear down.
 #[tauri::command]
-pub async fn radio_tune(peer_addr: String, events: Channel<RadioEvent>) -> Result<String, String> {
+pub async fn radio_tune(
+    peer_addr: String,
+    station_id: Option<String>,
+    events: Channel<RadioEvent>,
+) -> Result<String, String> {
+    // singleton policy: only one active listener session per app process.
+    // clear any stale/overlapping sessions before opening a fresh tune.
+    drop_all_sessions();
+    drop_all_local_sessions();
+
     let endpoint = get_endpoint_arc().map_err(|e| e.to_string())?;
     let addr = parse_peer_address(&peer_addr).map_err(|e| e.to_string())?;
 
@@ -101,14 +110,15 @@ pub async fn radio_tune(peer_addr: String, events: Channel<RadioEvent>) -> Resul
     let (mut ctrl_send, mut ctrl_recv) =
         conn.open_bi().await.map_err(|e| format!("open_bi: {e}"))?;
 
-    let tune_body = b"{\"type\":\"tune\"}";
+    let tune_body = serde_json::to_vec(&ControlMessage::Tune(TuneMessage { station_id }))
+        .map_err(|e| format!("serialize tune: {e}"))?;
     let tune_len = (tune_body.len() as u32).to_be_bytes();
     ctrl_send
         .write_all(&tune_len)
         .await
         .map_err(|e| format!("write tune len: {e}"))?;
     ctrl_send
-        .write_all(tune_body)
+        .write_all(&tune_body)
         .await
         .map_err(|e| format!("write tune body: {e}"))?;
 
@@ -199,6 +209,20 @@ fn drop_session(session_id: &str) {
     }
 }
 
+fn drop_all_sessions() {
+    if let Some(map) = sessions().as_mut() {
+        let drained: Vec<Session> = map.drain().map(|(_, session)| session).collect();
+        let count = drained.len();
+        for session in drained {
+            session.cancel.cancel();
+            session._conn.close(0u32.into(), b"radio singleton handoff");
+        }
+        if count > 0 {
+            tracing::debug!(count, "[radio-charnel] dropped existing remote session(s)");
+        }
+    }
+}
+
 // ---------- self-listen: in-process tune to a local broadcaster --------
 
 /// active local sessions keyed by opaque session id. dropping the entry
@@ -226,6 +250,19 @@ fn drop_local_session(session_id: &str) {
     }
 }
 
+fn drop_all_local_sessions() {
+    if let Some(map) = local_sessions().as_mut() {
+        let drained: Vec<LocalSession> = map.drain().map(|(_, session)| session).collect();
+        let count = drained.len();
+        for session in drained {
+            session.cancel.cancel();
+        }
+        if count > 0 {
+            tracing::debug!(count, "[radio-charnel] dropped existing local session(s)");
+        }
+    }
+}
+
 /// subscribe directly to a local broadcaster (no iroh hop). lets the
 /// charnel app listen to its own stations without round-tripping through
 /// iroh's "you can't dial yourself" check. emits the same RadioEvent
@@ -235,6 +272,10 @@ pub async fn radio_tune_local(
     station_id: Option<String>,
     events: Channel<RadioEvent>,
 ) -> Result<String, String> {
+    // singleton policy: only one active listener across remote + local paths.
+    drop_all_sessions();
+    drop_all_local_sessions();
+
     use grimoire::radio::broadcaster::{get_default, get_station};
     use grimoire::radio::messages::{ControlMessage, HelloMessage, RADIO_CODEC};
 
@@ -255,12 +296,20 @@ pub async fn radio_tune_local(
         codec: RADIO_CODEC.to_string(),
         now_playing: (*sub.now_playing).clone(),
         listener_count: new_count,
+        radio_mode_capabilities: bc.radio_mode_capabilities(),
+        timeline_seed_active: bc.timeline_seed_active(),
+        broadcaster_timeline_only: bc.is_timeline_only(),
         current_seq: sub.next_seq,
         init_seq: sub.init_seq,
         current_track_elapsed_ms: bc.current_track_elapsed_ms(),
     });
     let hello_json = serde_json::to_string(&hello).map_err(|e| e.to_string())?;
     let _ = events.send(RadioEvent::Hello { json: hello_json });
+
+    let timeline = ControlMessage::Timeline(bc.timeline_snapshot(/*lookahead_count=*/ 0).await);
+    if let Ok(json) = serde_json::to_string(&timeline) {
+        let _ = events.send(RadioEvent::Meta { json });
+    }
 
     // catchup chunks (init first, then ring contents).
     if let Some(init) = sub.init.as_ref() {
@@ -375,6 +424,13 @@ async fn run_local_meta_loop(
                             if events.send(RadioEvent::Meta { json }).is_err() {
                                 return "channel closed".into();
                             }
+                            let timeline =
+                                ControlMessage::Timeline(bc.timeline_snapshot(/*lookahead_count=*/ 0).await);
+                            if let Ok(json) = serde_json::to_string(&timeline) {
+                                if events.send(RadioEvent::Meta { json }).is_err() {
+                                    return "channel closed".into();
+                                }
+                            }
                         }
                         Err(e) => {
                             tracing::warn!(error = %e, "[radio-charnel-local] meta serialize failed");
@@ -435,6 +491,7 @@ async fn run_meta_loop(
                             let event = match msg {
                                 ControlMessage::Hello(_) => RadioEvent::Hello { json },
                                 ControlMessage::Meta(_) => RadioEvent::Meta { json },
+                                ControlMessage::Timeline(_) => RadioEvent::Meta { json },
                                 ControlMessage::Lag(_) => RadioEvent::Lag { json },
                                 ControlMessage::ChunkReady(_) => RadioEvent::ChunkReady { json },
                                 ControlMessage::Goodbye(_) => RadioEvent::Meta { json },

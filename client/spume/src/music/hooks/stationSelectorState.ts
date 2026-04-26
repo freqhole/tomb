@@ -13,6 +13,8 @@ interface StationSelectorState {
   isOpen: boolean;
   target: StationSelectorTarget | null;
   resolve: (() => void) | null;
+  /** remote server the music is from (null/undefined = local) */
+  remoteServerId?: string | null;
 }
 
 const defaultState: StationSelectorState = {
@@ -31,9 +33,12 @@ export { stationSelectorState };
  * the modal is closed (regardless of whether the user picked a station or
  * cancelled).
  */
-export function showStationSelector(target: StationSelectorTarget): Promise<void> {
+export function showStationSelector(
+  target: StationSelectorTarget,
+  remoteServerId?: string | null,
+): Promise<void> {
   return new Promise((resolve) => {
-    setStationSelectorState({ isOpen: true, target, resolve });
+    setStationSelectorState({ isOpen: true, target, resolve, remoteServerId });
   });
 }
 

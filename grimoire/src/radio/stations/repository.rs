@@ -7,6 +7,15 @@ use super::models::{
 use crate::database;
 use crate::error::{GrimoireError, GrimoireResult};
 
+fn normalize_play_mode(mode: Option<String>) -> String {
+    let raw = mode.unwrap_or_else(|| "shuffle".to_string());
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "shuffle" => "shuffle".to_string(),
+        "album" => "album".to_string(),
+        _ => "shuffle".to_string(),
+    }
+}
+
 /// list every station (no filtering; ui can hide disabled ones).
 pub async fn list_stations() -> GrimoireResult<Vec<RadioStation>> {
     let pool = database::connect().await?;
@@ -16,6 +25,7 @@ pub async fn list_stations() -> GrimoireResult<Vec<RadioStation>> {
                   is_public as "is_public!: i64",
                   is_enabled as "is_enabled!: i64",
                   encode_args, codec as "codec!", play_mode as "play_mode!",
+                  timeline_only_mode as "timeline_only_mode!: i64",
                   created_at as "created_at!", updated_at as "updated_at!"
            FROM radio_stationz
            ORDER BY created_at ASC"#
@@ -33,6 +43,7 @@ pub async fn get_station(id: &str) -> GrimoireResult<Option<RadioStation>> {
                   is_public as "is_public!: i64",
                   is_enabled as "is_enabled!: i64",
                   encode_args, codec as "codec!", play_mode as "play_mode!",
+                  timeline_only_mode as "timeline_only_mode!: i64",
                   created_at as "created_at!", updated_at as "updated_at!"
            FROM radio_stationz WHERE id = ?"#,
         id
@@ -46,16 +57,17 @@ pub async fn create_station(req: CreateStationRequest) -> GrimoireResult<RadioSt
     let pool = database::connect().await?;
     let is_public = req.is_public.unwrap_or(false) as i64;
     let is_enabled = req.is_enabled.unwrap_or(true) as i64;
+    let timeline_only_mode = req.timeline_only_mode.unwrap_or(false) as i64;
     let codec = req
         .codec
         .unwrap_or_else(|| crate::radio::config::MSE_CODEC.to_string());
-    let play_mode = req.play_mode.unwrap_or_else(|| "shuffle".to_string());
+    let play_mode = normalize_play_mode(req.play_mode);
 
     // sqlite generates id via DEFAULT (lower(hex(randomblob(8))))
     let id: String = sqlx::query_scalar!(
         r#"INSERT INTO radio_stationz
-              (name, description, is_public, is_enabled, encode_args, codec, play_mode)
-           VALUES (?, ?, ?, ?, ?, ?, ?)
+                  (name, description, is_public, is_enabled, encode_args, codec, play_mode, timeline_only_mode)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?)
            RETURNING id"#,
         req.name,
         req.description,
@@ -64,6 +76,7 @@ pub async fn create_station(req: CreateStationRequest) -> GrimoireResult<RadioSt
         req.encode_args,
         codec,
         play_mode,
+          timeline_only_mode,
     )
     .fetch_one(&pool)
     .await?;
@@ -83,17 +96,21 @@ pub async fn update_station(req: UpdateStationRequest) -> GrimoireResult<RadioSt
     // provided.
     let is_public = req.is_public.map(|b| b as i64);
     let is_enabled = req.is_enabled.map(|b| b as i64);
+    let timeline_only_mode = req.timeline_only_mode.map(|b| b as i64);
+
+    let play_mode = req.play_mode.map(|m| normalize_play_mode(Some(m)));
 
     sqlx::query!(
         r#"UPDATE radio_stationz SET
-              name        = COALESCE(?, name),
-              description = COALESCE(?, description),
-              is_public   = COALESCE(?, is_public),
-              is_enabled  = COALESCE(?, is_enabled),
-              encode_args = COALESCE(?, encode_args),
-              codec       = COALESCE(?, codec),
-              play_mode   = COALESCE(?, play_mode),
-              updated_at  = unixepoch()
+              name               = COALESCE(?, name),
+              description        = COALESCE(?, description),
+              is_public          = COALESCE(?, is_public),
+              is_enabled         = COALESCE(?, is_enabled),
+              encode_args        = COALESCE(?, encode_args),
+              codec              = COALESCE(?, codec),
+              play_mode          = COALESCE(?, play_mode),
+              timeline_only_mode = COALESCE(?, timeline_only_mode),
+              updated_at         = unixepoch()
            WHERE id = ?"#,
         req.name,
         req.description,
@@ -101,7 +118,8 @@ pub async fn update_station(req: UpdateStationRequest) -> GrimoireResult<RadioSt
         is_enabled,
         req.encode_args,
         req.codec,
-        req.play_mode,
+        play_mode,
+        timeline_only_mode,
         req.id,
     )
     .execute(&pool)
@@ -229,15 +247,17 @@ pub async fn remove_filter(filter_id: &str) -> GrimoireResult<()> {
 
 // ---------- playlist resolution ------------------------------------------
 
-/// resolve a station's effective song list. returns DISTINCT song ids
-/// matching the rules:
+/// resolve a station's effective song list. returns DISTINCT song ids.
 ///
-///   * union the explicit `radio_station_songz` set
-///   * AND every `include` filter clause (intersection across types)
-///   * MINUS the union of every `exclude` filter clause
+/// precedence rules:
+///
+///   * when the station has any explicit `radio_station_songz` rows,
+///     those songs are the entire candidate set
+///   * otherwise, use the intersection of every `include` filter clause
+///   * in either case, subtract the union of every `exclude` filter clause
 ///
 /// when there are zero explicit songs and zero filters, returns an empty
-/// vec — caller treats this as "no source" and shouldn't try to play.
+/// vec — caller treats this as "no source" and falls back elsewhere.
 ///
 /// supported filter_type values today: `tag`, `genre`, `artist`, `album`.
 /// other types (year_range, rating_min, etc.) are accepted by `add_filter`
@@ -245,7 +265,8 @@ pub async fn remove_filter(filter_id: &str) -> GrimoireResult<()> {
 pub async fn resolve_playlist(station_id: &str) -> GrimoireResult<Vec<String>> {
     let pool = database::connect().await?;
 
-    // explicit songs always count, regardless of filters.
+    // explicit songs take precedence over filter-derived candidates.
+    // if a station has seeded songs, it should only play those songs.
     let explicit: Vec<String> = sqlx::query_scalar!(
         r#"SELECT song_id as "song_id!" FROM radio_station_songz WHERE station_id = ?"#,
         station_id
@@ -271,11 +292,13 @@ pub async fn resolve_playlist(station_id: &str) -> GrimoireResult<Vec<String>> {
         });
     }
 
-    // start with explicit ∪ filter_set
-    let mut result: std::collections::HashSet<String> = explicit.into_iter().collect();
-    if let Some(fs) = filter_set {
-        result.extend(fs);
-    }
+    // explicit seeds override include filters. when there are no explicit
+    // songs, the include-filter result becomes the candidate set.
+    let mut result: std::collections::HashSet<String> = if explicit.is_empty() {
+        filter_set.unwrap_or_default()
+    } else {
+        explicit.into_iter().collect()
+    };
 
     // subtract excludes (each clause contributes a set, take the union).
     for clause in &excludes {

@@ -27,6 +27,8 @@ import {
   ensurePendingRemoteForNode,
   startSharedRadioStation,
 } from "../share/startSharedRadioStation";
+import Button from "../buttons/Button";
+import { Icon } from "../icons/registry";
 
 export interface ResolveShareModalProps {
   /** the raw token from the share param. modal stays mounted until cleared. */
@@ -89,7 +91,7 @@ export const ResolveShareModal: Component<ResolveShareModalProps> = (props) => {
   const isOpen = () => props.token !== null && !navigated();
 
   return (
-    <Modal isOpen={isOpen()} onClose={props.onClose} title="open shared link" size="md">
+    <Modal isOpen={isOpen()} onClose={props.onClose} title="something nice for you!" size="md">
       <div class="p-4 space-y-4">
         <Show when={state.loading || state()?.kind === "decoding"}>
           <p class="text-sm text-[var(--color-text-secondary)]">opening shared link…</p>
@@ -101,7 +103,7 @@ export const ResolveShareModal: Component<ResolveShareModalProps> = (props) => {
             return (
               <>
                 <p class="text-sm text-[var(--color-text-primary)]">
-                  this share link looks invalid.
+                  this share link lookz invalid? sorry about that.
                 </p>
                 <p class="text-xs font-mono text-[var(--color-text-tertiary)] break-all">
                   {s.error}
@@ -125,7 +127,7 @@ export const ResolveShareModal: Component<ResolveShareModalProps> = (props) => {
             const s = state() as Extract<ResolveState, { kind: "matched" }>;
             return (
               <p class="text-sm text-[var(--color-text-secondary)]">
-                opening {s.payload.k} on connected remote…
+                one sec! opening {s.payload.k} on connected remote…
               </p>
             );
           }}
@@ -138,19 +140,14 @@ export const ResolveShareModal: Component<ResolveShareModalProps> = (props) => {
             const title = s.payload.t;
             return (
               <>
-                <p class="text-sm text-[var(--color-text-primary)]">
-                  shared {s.payload.k}
-                  {title ? ` "${title}"` : ""} is on a remote you haven't connected to yet.
-                </p>
-                <Show when={nodeId}>
-                  <p class="text-xs font-mono text-[var(--color-text-tertiary)] break-all">
-                    node {nodeId}
-                  </p>
+                <Show when={title}>
+                  <h1 class="text-3xl font-bold text-[var(--color-text-primary)] mb-8">{title}</h1>
                 </Show>
-                <div class="flex flex-wrap gap-2 pt-2">
-                  <Show when={s.payload.k === "radio_station" && !!nodeId}>
-                    <button
-                      type="button"
+
+                <Show when={s.payload.k === "radio_station" && !!nodeId}>
+                  <p>
+                    <Button
+                      variant="primary"
                       onClick={() => {
                         void startSharedRadioStation({
                           nodeId: nodeId!,
@@ -159,40 +156,48 @@ export const ResolveShareModal: Component<ResolveShareModalProps> = (props) => {
                         });
                         props.onClose();
                       }}
-                      class="px-3 py-2 text-sm rounded-md bg-[var(--color-accent)] text-white border border-transparent hover:opacity-90"
                     >
-                      play station
-                    </button>
-                  </Show>
-                  <Show when={nodeId}>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const id = s.payload.s.n!;
-                        props.onAddRemote(id);
-                        props.onClose();
-                      }}
-                      class="px-3 py-2 text-sm rounded-md bg-[var(--color-accent)] text-white border border-transparent hover:opacity-90"
-                    >
-                      add remote
-                    </button>
-                  </Show>
-                  <Show when={!isCharnelMode()}>
-                    <a
-                      href={`freqhole://o/${props.token ?? ""}`}
-                      class="px-3 py-2 text-sm rounded-md bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-bg-hover)] text-[var(--color-text-primary)] border border-[var(--color-border-default)]"
-                    >
-                      open in app
-                    </a>
-                  </Show>
-                  <button
-                    type="button"
-                    onClick={props.onClose}
-                    class="px-3 py-2 text-sm rounded-md text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]"
+                      <Icon name="radioTower" size={24} />
+                      play radio station
+                    </Button>
+                  </p>
+                </Show>
+
+                <p class="text-sm text-[var(--color-text-primary)] mt-6 p-2">
+                  the shared {s.payload.k === "radio_station" ? "radio station" : s.payload.k}
+                  {title ? ` "${title}"` : ""} is on a remote you haven't connected to yet; no
+                  worry! you can send an access request.{" "}
+                  {s.payload.k === "radio_station" &&
+                    "otherwise if the radio station is public you can listen without an account."}
+                </p>
+
+                {/* <div class="flex flex-wrap gap-2 pt-2"> */}
+                <Show when={nodeId}>
+                  <Button
+                    variant="secondary"
+                    onClick={() => {
+                      const id = s.payload.s.n!;
+                      props.onAddRemote(id);
+                      props.onClose();
+                    }}
                   >
-                    cancel
-                  </button>
-                </div>
+                    request access
+                  </Button>
+                </Show>
+                <Show when={!isCharnelMode()}>
+                  <p class="text-sm text-[var(--color-text-primary)] mt-6 p-2">
+                    or open this in the freqhole desktop app.
+                  </p>
+
+                  <a
+                    href={`freqhole://o/${props.token ?? ""}`}
+                    class="px-3 py-2 text-sm rounded-md bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-bg-hover)] text-[var(--color-text-primary)] border border-[var(--color-border-default)]"
+                  >
+                    open in freqhole app
+                    <Icon name="externalLink" size={16} className="inline-block ml-2" />
+                  </a>
+                </Show>
+                {/* </div> */}
               </>
             );
           }}

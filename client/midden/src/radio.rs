@@ -14,6 +14,7 @@
 use crate::{parse_peer_addr, to_js_err, MiddenNode};
 use iroh::endpoint::{Connection, RecvStream};
 use js_sys::{Function as JsFunction, Uint8Array};
+use serde_json::{json, Value as JsonValue};
 use std::cell::RefCell;
 use std::rc::Rc;
 use tracing::{debug, info, warn};
@@ -32,7 +33,7 @@ const INIT_FLAG: u32 = 0x8000_0000;
 const MAX_CHUNK_BYTES: u32 = 16 * 1024 * 1024;
 
 /// hard cap on a single control message (must match server side).
-const MAX_CONTROL_BYTES: u32 = 1024 * 1024;
+const MAX_CONTROL_BYTES: u32 = 10 * 1024 * 1024;
 
 /// handle returned to JS for a tuned-in radio session. dropping the handle
 /// (or calling `leave()`) closes the iroh connection, which tears down both
@@ -71,6 +72,7 @@ impl MiddenNode {
     pub async fn tune_radio(
         &self,
         peer_addr: &str,
+        station_id: Option<String>,
         on_hello: &JsFunction,
         on_meta: &JsFunction,
         on_chunk: &JsFunction,
@@ -88,16 +90,21 @@ impl MiddenNode {
         info!("[radio] opening control stream...");
         let (mut ctrl_send, mut ctrl_recv) = conn.open_bi().await.map_err(to_js_err)?;
 
-        // Tune message: shape `{ "type": "tune" }`. server ignores body in
-        // phase 1 but we keep the wire format aligned.
-        let tune_body = b"{\"type\":\"tune\"}";
+        // include station_id when provided so the server binds this
+        // listener to the intended broadcaster rather than defaulting.
+        let tune_body = serde_json::to_vec(&json!({
+            "type": "tune",
+            "station_id": station_id,
+        }))
+        .map_err(|e| JsError::new(&format!("serialize tune: {e}")))?;
+        debug!("[radio] sent tune station_id={:?}", station_id);
         let tune_len = (tune_body.len() as u32).to_be_bytes();
         ctrl_send
             .write_all(&tune_len)
             .await
             .map_err(|e| JsError::new(&format!("tune len: {e}")))?;
         ctrl_send
-            .write_all(tune_body)
+            .write_all(&tune_body)
             .await
             .map_err(|e| JsError::new(&format!("tune body: {e}")))?;
 
@@ -105,32 +112,33 @@ impl MiddenNode {
         let hello_json = read_control_json(&mut ctrl_recv)
             .await
             .map_err(|e| JsError::new(&format!("read hello: {e}")))?
-            .ok_or_else(|| JsError::new("control stream closed before Hello"))?;
+            .ok_or_else(|| {
+                JsError::new(
+                    "control stream closed before Hello (station may be private or unavailable)",
+                )
+            })?;
         let hello_str = String::from_utf8(hello_json)
             .map_err(|e| JsError::new(&format!("hello not utf8: {e}")))?;
+        if let Ok(msg) = serde_json::from_str::<JsonValue>(&hello_str) {
+            if msg.get("type").and_then(|v| v.as_str()) == Some("goodbye") {
+                let reason = msg
+                    .get("reason")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("broadcaster closed control stream");
+                return Err(JsError::new(&format!(
+                    "tune rejected before Hello: {reason}"
+                )));
+            }
+        }
         if let Err(e) = on_hello.call1(&JsValue::NULL, &JsValue::from_str(&hello_str)) {
             warn!("[radio] on_hello callback threw: {e:?}");
         }
 
-        // accept the audio uni stream the server opens after Hello.
-        info!("[radio] accepting audio stream...");
-        let mut audio_recv = conn.accept_uni().await.map_err(to_js_err)?;
-
-        let inner = Rc::new(RefCell::new(Some(conn)));
-
-        // audio task
-        {
-            let inner = inner.clone();
-            let cb = on_chunk.clone();
-            wasm_bindgen_futures::spawn_local(async move {
-                if let Err(e) = audio_loop(&mut audio_recv, &cb).await {
-                    warn!("[radio] audio loop ended: {e}");
-                }
-                inner.borrow_mut().take();
-            });
-        }
+        let inner = Rc::new(RefCell::new(Some(conn.clone())));
 
         // meta task — keeps reading control messages after Hello.
+        // this must start immediately so timeline-only stations (which do
+        // not open an audio uni stream) can still deliver Timeline updates.
         {
             let inner = inner.clone();
             let cb = on_meta.clone();
@@ -140,6 +148,28 @@ impl MiddenNode {
             wasm_bindgen_futures::spawn_local(async move {
                 if let Err(e) = meta_loop(&mut ctrl_recv, &cb).await {
                     warn!("[radio] meta loop ended: {e}");
+                }
+                inner.borrow_mut().take();
+            });
+        }
+
+        // audio task
+        {
+            let inner = inner.clone();
+            let cb = on_chunk.clone();
+            let conn_for_audio = conn;
+            wasm_bindgen_futures::spawn_local(async move {
+                info!("[radio] accepting audio stream...");
+                let mut audio_recv = match conn_for_audio.accept_uni().await {
+                    Ok(recv) => recv,
+                    Err(e) => {
+                        warn!("[radio] audio accept ended: {e}");
+                        inner.borrow_mut().take();
+                        return;
+                    }
+                };
+                if let Err(e) = audio_loop(&mut audio_recv, &cb).await {
+                    warn!("[radio] audio loop ended: {e}");
                 }
                 inner.borrow_mut().take();
             });

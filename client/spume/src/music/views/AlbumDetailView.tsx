@@ -1,10 +1,10 @@
 // album detail view - shows album info and songs list
-import { useNavigate, useParams } from "@solidjs/router";
+import { useNavigate, useParams, useSearchParams } from "@solidjs/router";
 import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
 import { useQueryClient } from "@tanstack/solid-query";
 import { appState } from "../../app/services/storage/db";
 import { playQueue } from "../services/queue/queue";
-import { highlightedSongId } from "../state/highlightedSong";
+import { highlightedSongId, setHighlightedSongId } from "../state/highlightedSong";
 import { Button } from "../../components/buttons/Button";
 import { Icon, IconNames } from "../../components/icons/registry";
 import { DetailViewWrapper } from "../../components/layout/DetailViewWrapper";
@@ -34,9 +34,11 @@ import type { SendPayload } from "../services/send/sendToRemote";
 import type { RemoteSong } from "../data/remote/adapters";
 import { isCharnelMode } from "../../app/services/charnel";
 import { showStationSelector } from "../hooks/stationSelectorState";
+import { getCurrentRemote } from "../data";
 
 export function AlbumDetailView() {
   const params = useParams<{ id: string }>();
+  const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
@@ -94,6 +96,17 @@ export function AlbumDetailView() {
 
   // fetch album songs using tanstack query (works with local + remote)
   const albumSongsQuery = useAlbumSongsQuery(() => params.id);
+
+  // optional deep-link support: /albums/:id?song_id=... to focus/highlight
+  // a specific song row after navigation from shares/playerbar.
+  createEffect(() => {
+    const raw = searchParams.song_id;
+    const songId = Array.isArray(raw) ? raw[0] : raw;
+    if (typeof songId !== "string") return;
+    const trimmed = songId.trim();
+    if (!trimmed) return;
+    setHighlightedSongId(trimmed);
+  });
 
   // current remote (full Remote record) — used as the source for "send to remote".
   const currentRemoteFull = createCurrentRemoteFull();
@@ -386,14 +399,17 @@ export function AlbumDetailView() {
                       <span class="hidden wide:inline">play album</span>
                       <span class="wide:hidden">play</span>
                     </Button>
-                    <Show when={isCharnelMode()}>
+                    <Show when={isCharnelMode() || !!getCurrentRemote()}>
                       <Button
                         variant="ghost"
                         onClick={() =>
-                          void showStationSelector({
-                            kind: "album",
-                            albumTitle: albumInfo()?.title ?? "",
-                          })
+                          void showStationSelector(
+                            {
+                              kind: "album",
+                              albumTitle: albumInfo()?.title ?? "",
+                            },
+                            getCurrentRemote()?.remote_id,
+                          )
                         }
                       >
                         +radio

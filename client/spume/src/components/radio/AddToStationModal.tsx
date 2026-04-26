@@ -7,7 +7,8 @@
 
 import { createResource, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { AdminClient, AdminCommandError, type RadioStation } from "freqhole-api-client";
-import { getLocalAdminClient } from "../../app/api/adminClient";
+import { adminClientFor, getLocalAdminClient } from "../../app/api/adminClient";
+import { getRemoteById } from "../../app/services/remotes/remoteManager";
 import { toast } from "../feedback/Toast";
 import {
   closeStationSelector,
@@ -67,17 +68,44 @@ function targetLabel(target: StationSelectorTarget): string {
 
 export function AddToStationModal() {
   const state = stationSelectorState;
-  const adminClient = getLocalAdminClient();
 
   const [busy, setBusy] = createSignal(false);
+  const [resolvedClient, setResolvedClient] = createSignal<AdminClient | null>(null);
+  const [remoteName, setRemoteName] = createSignal<string | null>(null);
 
-  // load stations on open
+  // load stations on open — resolves the right admin client (local or remote)
   const [stations] = createResource(
     () => state().isOpen,
     async (isOpen) => {
-      if (!isOpen || !adminClient) return [];
+      setResolvedClient(null);
+      setRemoteName(null);
+      if (!isOpen) return [];
+
+      let client: AdminClient | null = null;
+      const remoteServerId = state().remoteServerId;
+
+      if (remoteServerId) {
+        const remote = await getRemoteById(remoteServerId);
+        if (!remote) {
+          toast.error("could not find remote for this music");
+          return [];
+        }
+        setRemoteName(remote.name);
+        try {
+          client = await adminClientFor(remote);
+        } catch (e) {
+          toast.error(e instanceof Error ? e.message : "failed to connect to remote");
+          return [];
+        }
+      } else {
+        client = getLocalAdminClient();
+      }
+
+      if (!client) return [];
+      setResolvedClient(client);
+
       try {
-        const data = await adminClient.dispatchOrThrow("radio_stations_list", undefined);
+        const data = await client.dispatchOrThrow("radio_stations_list", undefined);
         return (data ?? []) as RadioStation[];
       } catch (e) {
         const msg =
@@ -99,10 +127,11 @@ export function AddToStationModal() {
 
   const handleSelect = async (station: RadioStation) => {
     const target = state().target;
-    if (!target || !adminClient) return;
+    const client = resolvedClient();
+    if (!target || !client) return;
     setBusy(true);
     try {
-      await addTargetToStation(adminClient, station.id, target);
+      await addTargetToStation(client, station.id, target);
       toast.success(`added ${targetLabel(target)} to "${station.name}"`);
       closeStationSelector();
     } catch (e) {
@@ -132,6 +161,13 @@ export function AddToStationModal() {
                 {(t) => (
                   <span class="ml-1 font-normal text-[var(--color-text-muted)]">
                     — {targetLabel(t())}
+                  </span>
+                )}
+              </Show>
+              <Show when={remoteName()}>
+                {(name) => (
+                  <span class="ml-1 text-xs font-normal text-[var(--color-text-muted)]">
+                    (on {name()})
                   </span>
                 )}
               </Show>

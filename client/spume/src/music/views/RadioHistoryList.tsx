@@ -5,14 +5,21 @@
 // page when it scrolls into view. capped at MAX_RADIO_HISTORY rows
 // (radioHistory module trims older rows on every write).
 
-import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import { createEffect, createSignal, For, on, onCleanup, onMount, Show, untrack } from "solid-js";
+import { createStore } from "solid-js/store";
+import { useNavigate } from "@solidjs/router";
 import {
   clearHistory,
   countHistory,
   getHistoryPage,
-  MAX_RADIO_HISTORY,
+  radioHistoryVersion,
 } from "../../app/services/radio/radioHistory";
+import { getClientForRemote } from "../../app/api/client";
+import { getRemoteByPeerAddr } from "../../app/services/remotes/remoteManager";
+import { resolveBlobUrl } from "../services/storage/blobResolver";
 import type { RadioHistoryEntry } from "../../app/services/storage/types";
+import { setHighlightedSongId } from "../state/highlightedSong";
+import { debug } from "../../utils/logger";
 
 const PAGE_SIZE = 50;
 
@@ -22,13 +29,17 @@ interface RadioHistoryListProps {
 }
 
 export function RadioHistoryList(props: RadioHistoryListProps) {
+  const navigate = useNavigate();
   const [entries, setEntries] = createSignal<RadioHistoryEntry[]>([]);
   const [loading, setLoading] = createSignal(false);
   const [exhausted, setExhausted] = createSignal(false);
   const [total, setTotal] = createSignal(0);
   const [confirmingClear, setConfirmingClear] = createSignal(false);
+  const [resolvedThumbUrls, setResolvedThumbUrls] = createStore<Record<string, string>>({});
   // cache of inline-thumb blob URLs keyed by entry id; revoked on cleanup.
   const thumbUrls = new Map<string, string>();
+  // prevents duplicate async blob resolutions for the same history row.
+  const resolvingThumbIds = new Set<string>();
 
   const buildThumbUrl = (e: RadioHistoryEntry): string | null => {
     if (!e.art_thumb_b64 || !e.art_thumb_mime) return null;
@@ -79,9 +90,34 @@ export function RadioHistoryList(props: RadioHistoryListProps) {
 
   let sentinel: HTMLDivElement | undefined;
   let observer: IntersectionObserver | undefined;
+  let hasLoadedFirstPage = false;
+
+  const refreshHeadPage = async () => {
+    if (loading()) return;
+    setLoading(true);
+    try {
+      const page = await getHistoryPage({ limit: PAGE_SIZE, stationId: props.stationId });
+      setEntries((prev) => {
+        if (page.length === 0) return [];
+        const merged = [...page];
+        const seen = new Set(page.map((row) => row.id));
+        for (const row of prev) {
+          if (!seen.has(row.id)) merged.push(row);
+        }
+        return merged;
+      });
+      setTotal(await countHistory());
+      if (page.length === 0) {
+        setExhausted(true);
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
 
   onMount(() => {
     void loadFirstPage();
+    hasLoadedFirstPage = true;
     if (sentinel) {
       observer = new IntersectionObserver(
         (ents) => {
@@ -97,8 +133,55 @@ export function RadioHistoryList(props: RadioHistoryListProps) {
     }
   });
 
+  createEffect(
+    on(
+      radioHistoryVersion,
+      () => {
+        if (!hasLoadedFirstPage) return;
+        void refreshHeadPage();
+      },
+      { defer: true }
+    )
+  );
+
+  createEffect(
+    on(
+      entries,
+      (currentEntries) => {
+        for (const entry of currentEntries) {
+          const artBlobId = entry.art_blob_id;
+          const alreadyResolved = untrack(() => resolvedThumbUrls[entry.id]);
+          if (
+            entry.art_thumb_b64 ||
+            !artBlobId ||
+            alreadyResolved ||
+            resolvingThumbIds.has(entry.id)
+          ) {
+            continue;
+          }
+
+          resolvingThumbIds.add(entry.id);
+          void (async () => {
+            try {
+              const remote = await getRemoteByPeerAddr(entry.peer_addr);
+              if (!remote) return;
+              const url = await resolveBlobUrl(artBlobId, remote.remote_id, "image", undefined, 50);
+              setResolvedThumbUrls(entry.id, url);
+            } catch (err) {
+              debug("radio-history", "failed to resolve history art blob:", err);
+            } finally {
+              resolvingThumbIds.delete(entry.id);
+            }
+          })();
+        }
+      },
+      { defer: true }
+    )
+  );
+
   onCleanup(() => {
     observer?.disconnect();
+    resolvingThumbIds.clear();
     for (const url of thumbUrls.values()) URL.revokeObjectURL(url);
     thumbUrls.clear();
   });
@@ -134,15 +217,72 @@ export function RadioHistoryList(props: RadioHistoryListProps) {
     });
   };
 
+  const resolveRemoteSongTargets = async (
+    e: RadioHistoryEntry
+  ): Promise<{
+    remoteId: string;
+    albumId?: string;
+    artistId?: string;
+  } | null> => {
+    if (!e.peer_addr) return null;
+    const remote = await getRemoteByPeerAddr(e.peer_addr);
+    if (!remote) return null;
+
+    const base = { remoteId: remote.remote_id };
+    if (!e.song_id) return base;
+
+    try {
+      const client = await getClientForRemote(remote);
+      const result = await client.music.querySongs({
+        q: null,
+        search_fields: null,
+        filters: { song_ids: [e.song_id] },
+        sort_by: null,
+        sort_direction: null,
+        limit: 1,
+        offset: null,
+        user_id: null,
+        favorites_only: null,
+        min_rating: null,
+      });
+      if (!result.success || result.data.items.length === 0) {
+        return base;
+      }
+      const first = result.data.items[0];
+      return {
+        ...base,
+        albumId: first.album?.id ?? undefined,
+        artistId: first.artist?.id ?? undefined,
+      };
+    } catch (err) {
+      debug("radio-history", "failed to resolve remote song targets:", err);
+      return base;
+    }
+  };
+
+  const openSongView = async (e: RadioHistoryEntry) => {
+    if (!e.song_id) return;
+    const targets = await resolveRemoteSongTargets(e);
+    if (!targets?.remoteId || !targets.albumId) return;
+    setHighlightedSongId(e.song_id);
+    navigate(
+      `/${targets.remoteId}/albums/${encodeURIComponent(targets.albumId)}?song_id=${encodeURIComponent(e.song_id)}`
+    );
+  };
+
+  const openArtistView = async (e: RadioHistoryEntry) => {
+    const targets = await resolveRemoteSongTargets(e);
+    if (!targets?.remoteId || !targets.artistId) return;
+    navigate(`/${targets.remoteId}/artists/${encodeURIComponent(targets.artistId)}`);
+  };
+
   return (
     <div class="flex flex-col gap-2 w-full">
       <header class="flex items-center justify-between px-1">
         <div class="text-xs uppercase tracking-wide text-neutral-500">
           history
           <Show when={total() > 0}>
-            <span class="ml-2 text-neutral-600 normal-case">
-              {total()} of {MAX_RADIO_HISTORY}
-            </span>
+            <span class="ml-2 text-neutral-600 normal-case">{total()}</span>
           </Show>
         </div>
         <Show when={entries().length > 0}>
@@ -169,7 +309,7 @@ export function RadioHistoryList(props: RadioHistoryListProps) {
         <ul class="flex flex-col gap-1">
           <For each={entries()}>
             {(e) => {
-              const thumb = buildThumbUrl(e);
+              const thumb = buildThumbUrl(e) ?? resolvedThumbUrls[e.id] ?? null;
               return (
                 <li class="flex items-center gap-3 p-2 rounded hover:bg-neutral-900/50">
                   <div class="flex-shrink-0 w-10 h-10 rounded bg-gradient-to-br from-purple-700 to-indigo-900 flex items-center justify-center overflow-hidden">
@@ -185,9 +325,32 @@ export function RadioHistoryList(props: RadioHistoryListProps) {
                     </Show>
                   </div>
                   <div class="flex-1 min-w-0">
-                    <div class="text-sm truncate">{e.title}</div>
+                    <div
+                      class="text-sm truncate"
+                      classList={{
+                        "cursor-pointer hover:underline decoration-[1px] underline-offset-2":
+                          !!e.song_id,
+                      }}
+                      onClick={() => {
+                        void openSongView(e);
+                      }}
+                      title={e.song_id ? "open album" : undefined}
+                    >
+                      {e.title}
+                    </div>
                     <div class="text-xs text-neutral-400 truncate">
-                      {e.artist ?? "unknown artist"}
+                      <span
+                        classList={{
+                          "cursor-pointer hover:underline decoration-[1px] underline-offset-2":
+                            !!e.song_id,
+                        }}
+                        onClick={() => {
+                          void openArtistView(e);
+                        }}
+                        title={e.song_id ? "open artist" : undefined}
+                      >
+                        {e.artist ?? "unknown artist"}
+                      </span>
                       <Show when={e.album}> — {e.album}</Show>
                     </div>
                   </div>

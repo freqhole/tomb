@@ -158,6 +158,7 @@ pub async fn handle(
         "radio_supervisor_start" => radio_supervisor_start(args).await,
         "radio_supervisor_stop" => radio_supervisor_stop(args).await,
         "radio_supervisor_restart" => radio_supervisor_restart(args).await,
+        "radio_supervisor_skip_track" => radio_supervisor_skip_track(args).await,
         "radio_bumpers_list" => radio_bumpers_list(args).await,
         "radio_bumpers_add" => radio_bumpers_add(args).await,
         "radio_bumpers_remove" => radio_bumpers_remove(args).await,
@@ -1323,25 +1324,72 @@ async fn radio_stations_get(args: JsonValue) -> GrimoireResponse<JsonValue> {
 }
 
 async fn radio_stations_create(args: JsonValue) -> GrimoireResponse<JsonValue> {
-    let req: CreateStationRequest = match decode(args) {
+    let mut req: CreateStationRequest = match decode(args) {
         Ok(v) => v,
         Err(r) => return r,
     };
+    if !radio_ffmpeg_available() {
+        req.timeline_only_mode = Some(true);
+    }
     match radio_stations::create_station(req).await {
-        Ok(s) => to_value(GrimoireResponse::success("radio station created", s)),
+        Ok(s) => {
+            if crate::radio::config::effective().enabled && s.is_enabled != 0 {
+                if let Err(e) = crate::radio::broadcaster::start_station(&s.id).await {
+                    return GrimoireResponse::failure(
+                        "radio station created but failed to start broadcaster",
+                        vec![e.into()],
+                    );
+                }
+            }
+            to_value(GrimoireResponse::success("radio station created", s))
+        }
         Err(e) => GrimoireResponse::failure("failed to create radio station", vec![e.into()]),
     }
 }
 
 async fn radio_stations_update(args: JsonValue) -> GrimoireResponse<JsonValue> {
-    let req: UpdateStationRequest = match decode(args) {
+    let mut req: UpdateStationRequest = match decode(args) {
         Ok(v) => v,
         Err(r) => return r,
     };
+    if !radio_ffmpeg_available() && req.timeline_only_mode == Some(false) {
+        req.timeline_only_mode = Some(true);
+    }
+    let station_id = req.id.clone();
+    let timeline_only_requested = req.timeline_only_mode;
     match radio_stations::update_station(req).await {
-        Ok(s) => to_value(GrimoireResponse::success("radio station updated", s)),
+        Ok(s) => {
+            if crate::radio::config::effective().enabled {
+                if s.is_enabled != 0 {
+                    if let Err(e) = crate::radio::broadcaster::start_station(&station_id).await {
+                        return GrimoireResponse::failure(
+                            "radio station updated but failed to start broadcaster",
+                            vec![e.into()],
+                        );
+                    }
+                } else if let Err(e) = crate::radio::broadcaster::stop_station(&station_id).await {
+                    return GrimoireResponse::failure(
+                        "radio station updated but failed to stop broadcaster",
+                        vec![e.into()],
+                    );
+                }
+            }
+
+            // propagate timeline_only_mode change to the running broadcaster
+            // immediately so the flag takes effect without a server restart.
+            if let Some(tlo) = timeline_only_requested {
+                if let Some(bc) = crate::radio::broadcaster::get_station(&station_id).await {
+                    bc.set_timeline_only(tlo);
+                }
+            }
+            to_value(GrimoireResponse::success("radio station updated", s))
+        }
         Err(e) => GrimoireResponse::failure("failed to update radio station", vec![e.into()]),
     }
+}
+
+fn radio_ffmpeg_available() -> bool {
+    crate::setup::check_dependencies().has_ffmpeg()
 }
 
 async fn radio_stations_delete(args: JsonValue) -> GrimoireResponse<JsonValue> {
@@ -1350,7 +1398,15 @@ async fn radio_stations_delete(args: JsonValue) -> GrimoireResponse<JsonValue> {
         Err(r) => return r,
     };
     match radio_stations::delete_station(&req.id).await {
-        Ok(()) => GrimoireResponse::success("radio station deleted", JsonValue::Null),
+        Ok(()) => {
+            if let Err(e) = crate::radio::broadcaster::stop_station(&req.id).await {
+                return GrimoireResponse::failure(
+                    "radio station deleted but failed to stop broadcaster",
+                    vec![e.into()],
+                );
+            }
+            GrimoireResponse::success("radio station deleted", JsonValue::Null)
+        }
         Err(e) => GrimoireResponse::failure("failed to delete radio station", vec![e.into()]),
     }
 }
@@ -1564,6 +1620,7 @@ async fn radio_config_get() -> GrimoireResponse<JsonValue> {
     let payload = RadioConfigPayload {
         enabled: cfg.enabled,
         encode_args: cfg.encode_args,
+        ffmpeg_available: radio_ffmpeg_available(),
     };
     to_value(GrimoireResponse::success("ok", payload))
 }
@@ -1638,6 +1695,7 @@ async fn radio_config_set(args: JsonValue) -> GrimoireResponse<JsonValue> {
     let out = RadioConfigPayload {
         enabled: cfg.enabled,
         encode_args: cfg.encode_args,
+        ffmpeg_available: radio_ffmpeg_available(),
     };
     to_value(GrimoireResponse::success("config updated", out))
 }
@@ -1729,6 +1787,17 @@ async fn radio_supervisor_restart(args: JsonValue) -> GrimoireResponse<JsonValue
     };
     if let Err(e) = crate::radio::broadcaster::restart_station(&req.station_id).await {
         return GrimoireResponse::failure("failed to restart station", vec![e.into()]);
+    }
+    build_supervisor_status().await
+}
+
+async fn radio_supervisor_skip_track(args: JsonValue) -> GrimoireResponse<JsonValue> {
+    let req: RadioSupervisorStationRequest = match decode(args) {
+        Ok(v) => v,
+        Err(r) => return r,
+    };
+    if let Err(e) = crate::radio::broadcaster::skip_station_track(&req.station_id).await {
+        return GrimoireResponse::failure("failed to skip current track", vec![e.into()]);
     }
     build_supervisor_status().await
 }
