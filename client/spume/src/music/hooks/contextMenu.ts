@@ -265,13 +265,16 @@ export function useSongContextMenu(
     },
   });
 
-  // radio station (charnel-only: local admin)
-  if (isCharnelMode()) {
+  // radio station: local admin (charnel) or remote admin (if song is from a remote)
+  if (isCharnelMode() || !!song.remote_server_id) {
     actions.push({
       label: "add to station...",
       icon: IconNames.headphones,
       onClick: () => {
-        void showStationSelector({ kind: "songs", songIds: [song.id] });
+        void showStationSelector(
+          { kind: "songs", songIds: [song.id] },
+          song.remote_server_id ?? undefined,
+        );
       },
     });
   }
@@ -604,13 +607,16 @@ export function useAlbumContextMenu(
     },
   });
 
-  // radio station (charnel-only)
-  if (isCharnelMode()) {
+  // radio station: local (charnel) or remote (if browsing a remote)
+  if (isCharnelMode() || !!getCurrentRemote()) {
     actions.push({
       label: "add to station...",
       icon: IconNames.headphones,
       onClick: () => {
-        void showStationSelector({ kind: "album", albumTitle: album.title });
+        void showStationSelector(
+          { kind: "album", albumTitle: album.title },
+          getCurrentRemote()?.remote_id,
+        );
       },
     });
   }
@@ -914,13 +920,16 @@ export function useArtistContextMenu(
     createFavoriteMenuAction("artist", artist.id, options.isFavorite ?? false),
   );
 
-  // radio station (charnel-only)
-  if (isCharnelMode()) {
+  // radio station: local (charnel) or remote (if browsing a remote)
+  if (isCharnelMode() || !!getCurrentRemote()) {
     actions.push({
       label: "add to station...",
       icon: IconNames.headphones,
       onClick: () => {
-        void showStationSelector({ kind: "artist", artistName: artist.name });
+        void showStationSelector(
+          { kind: "artist", artistName: artist.name },
+          getCurrentRemote()?.remote_id,
+        );
       },
     });
   }
@@ -991,13 +1000,16 @@ export function useGenreContextMenu(
     },
   });
 
-  // radio station (charnel-only)
-  if (isCharnelMode()) {
+  // radio station: local (charnel) or remote (if browsing a remote)
+  if (isCharnelMode() || !!getCurrentRemote()) {
     actions.push({
       label: "add to station...",
       icon: IconNames.headphones,
       onClick: () => {
-        void showStationSelector({ kind: "genre", genreName: genre.name });
+        void showStationSelector(
+          { kind: "genre", genreName: genre.name },
+          getCurrentRemote()?.remote_id,
+        );
       },
     });
   }

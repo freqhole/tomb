@@ -45,6 +45,7 @@ import { showShareModal } from "../hooks/modals";
 import { addRadioStationHistoryEntry } from "../services/queue/queueHistory";
 import { type Remote, isHttpRemote, isP2PRemote } from "../../app/services/storage/types";
 import type { ImageMetadata } from "../services/storage/types";
+import { Icon } from "../../components/icons/registry";
 
 export function RadioView() {
   const MIN_HISTORY_SCROLL_HEIGHT = 220;
@@ -519,7 +520,9 @@ export function RadioView() {
   const leftColumn = (
     <div class="flex flex-col h-full min-h-0 pt-2 wide:pt-[60px]">
       <header class="flex items-center justify-between gap-2 px-3 py-3 border-b border-neutral-800">
-        <h1 class="text-lg font-bold">radio</h1>
+        <h1 class="text-lg font-bold">
+          radio station<span class="text-magenta-500">z</span>
+        </h1>
         <button
           class="text-xs px-2 py-1 rounded bg-neutral-800 hover:bg-neutral-700"
           onClick={() => refetch({ forceProbeAll: true })}
@@ -546,11 +549,7 @@ export function RadioView() {
                     when={queryPeerAddrs().length === 0}
                     fallback={<span>no stations found on those peers.</span>}
                   >
-                    no stations found.{" "}
-                    <button class="underline" onClick={() => navigate("/settings/remotes")}>
-                      add a remote
-                    </button>
-                    .
+                    no stations found.
                   </Show>
                 }
               >
@@ -682,12 +681,13 @@ export function RadioView() {
         when={radioStatus() !== "idle"}
         fallback={
           <div class="flex-1 overflow-y-auto flex flex-col items-center text-center p-8 text-neutral-400">
-            <div class="w-32 h-32 rounded-lg bg-gradient-to-br from-purple-700 to-indigo-900 flex items-center justify-center mb-4">
-              <span class="text-xs font-bold tracking-widest opacity-60 text-white">radio</span>
+            <div class="w-32 h-32 rounded-lg bg-gradient-to-tr from-magenta-900 to-purple-700 flex items-center justify-center mb-4">
+              <span class="text-xs font-bold tracking-widest opacity-60 text-white">
+                <Icon name="radioTower" size={64} />R A D I O
+              </span>
             </div>
             <p class="text-sm max-w-xs mb-8">
-              pick a station from the list to tune in. while you listen, every track that plays is
-              logged below.
+              pick a station from the list to tune in && tune out.
             </p>
             <div class="w-full max-w-md">
               <RadioHistoryList />

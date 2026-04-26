@@ -34,6 +34,7 @@ import type { SendPayload } from "../services/send/sendToRemote";
 import type { RemoteSong } from "../data/remote/adapters";
 import { isCharnelMode } from "../../app/services/charnel";
 import { showStationSelector } from "../hooks/stationSelectorState";
+import { getCurrentRemote } from "../data";
 
 export function AlbumDetailView() {
   const params = useParams<{ id: string }>();
@@ -398,14 +399,17 @@ export function AlbumDetailView() {
                       <span class="hidden wide:inline">play album</span>
                       <span class="wide:hidden">play</span>
                     </Button>
-                    <Show when={isCharnelMode()}>
+                    <Show when={isCharnelMode() || !!getCurrentRemote()}>
                       <Button
                         variant="ghost"
                         onClick={() =>
-                          void showStationSelector({
-                            kind: "album",
-                            albumTitle: albumInfo()?.title ?? "",
-                          })
+                          void showStationSelector(
+                            {
+                              kind: "album",
+                              albumTitle: albumInfo()?.title ?? "",
+                            },
+                            getCurrentRemote()?.remote_id,
+                          )
                         }
                       >
                         +radio
