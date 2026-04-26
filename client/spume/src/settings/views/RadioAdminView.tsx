@@ -159,13 +159,9 @@ function RadioConfigSection(props: {
   client: AdminClient;
   onStateChange?: (next: { enabled: boolean; ffmpegAvailable: boolean }) => void;
 }) {
-  const [cfg, { refetch }] = createResource<RadioConfigPayload | null>(async () => {
-    try {
-      const data = await props.client.dispatchOrThrow("radio_config_get", undefined);
-      return (data ?? null) as RadioConfigPayload | null;
-    } catch {
-      return null;
-    }
+  const [cfg, { refetch }] = createResource<RadioConfigPayload>(async () => {
+    const data = await props.client.dispatchOrThrow("radio_config_get", undefined);
+    return data as RadioConfigPayload;
   });
 
   const [enabled, setEnabled] = createSignal(false);
@@ -176,15 +172,28 @@ function RadioConfigSection(props: {
 
   // hydrate the form whenever the resource resolves with fresh data.
   createEffect(() => {
+    if (cfg.loading) return;
+
+    const err = cfg.error;
+    if (err) {
+      const msg =
+        err instanceof AdminCommandError
+          ? err.message
+          : err instanceof Error
+            ? err.message
+            : String(err);
+      setLoadError(`failed to load radio config: ${msg}`);
+      return;
+    }
+
     const c = cfg();
     if (c) {
+      const ffmpeg = c.ffmpeg_available !== false;
       setEnabled(c.enabled);
       setEncodeArgs(c.encode_args);
-      setFfmpegAvailable(c.ffmpeg_available);
+      setFfmpegAvailable(ffmpeg);
       setLoadError(null);
-      props.onStateChange?.({ enabled: c.enabled, ffmpegAvailable: c.ffmpeg_available });
-    } else if (!cfg.loading) {
-      setLoadError("failed to load radio config");
+      props.onStateChange?.({ enabled: c.enabled, ffmpegAvailable: ffmpeg });
     }
   });
 
@@ -644,7 +653,7 @@ function CreateStationSection(props: {
               onChange={(e) => setPlayMode(e.currentTarget.value)}
             >
               <option value="shuffle">shuffle</option>
-              <option value="sequential">sequential</option>
+              <option value="album">album</option>
             </select>
           </label>
           <label class="flex items-center gap-2 text-sm text-[var(--color-text-secondary)]">

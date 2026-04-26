@@ -1332,7 +1332,17 @@ async fn radio_stations_create(args: JsonValue) -> GrimoireResponse<JsonValue> {
         req.timeline_only_mode = Some(true);
     }
     match radio_stations::create_station(req).await {
-        Ok(s) => to_value(GrimoireResponse::success("radio station created", s)),
+        Ok(s) => {
+            if crate::radio::config::effective().enabled && s.is_enabled != 0 {
+                if let Err(e) = crate::radio::broadcaster::start_station(&s.id).await {
+                    return GrimoireResponse::failure(
+                        "radio station created but failed to start broadcaster",
+                        vec![e.into()],
+                    );
+                }
+            }
+            to_value(GrimoireResponse::success("radio station created", s))
+        }
         Err(e) => GrimoireResponse::failure("failed to create radio station", vec![e.into()]),
     }
 }
@@ -1349,6 +1359,22 @@ async fn radio_stations_update(args: JsonValue) -> GrimoireResponse<JsonValue> {
     let timeline_only_requested = req.timeline_only_mode;
     match radio_stations::update_station(req).await {
         Ok(s) => {
+            if crate::radio::config::effective().enabled {
+                if s.is_enabled != 0 {
+                    if let Err(e) = crate::radio::broadcaster::start_station(&station_id).await {
+                        return GrimoireResponse::failure(
+                            "radio station updated but failed to start broadcaster",
+                            vec![e.into()],
+                        );
+                    }
+                } else if let Err(e) = crate::radio::broadcaster::stop_station(&station_id).await {
+                    return GrimoireResponse::failure(
+                        "radio station updated but failed to stop broadcaster",
+                        vec![e.into()],
+                    );
+                }
+            }
+
             // propagate timeline_only_mode change to the running broadcaster
             // immediately so the flag takes effect without a server restart.
             if let Some(tlo) = timeline_only_requested {
@@ -1372,7 +1398,15 @@ async fn radio_stations_delete(args: JsonValue) -> GrimoireResponse<JsonValue> {
         Err(r) => return r,
     };
     match radio_stations::delete_station(&req.id).await {
-        Ok(()) => GrimoireResponse::success("radio station deleted", JsonValue::Null),
+        Ok(()) => {
+            if let Err(e) = crate::radio::broadcaster::stop_station(&req.id).await {
+                return GrimoireResponse::failure(
+                    "radio station deleted but failed to stop broadcaster",
+                    vec![e.into()],
+                );
+            }
+            GrimoireResponse::success("radio station deleted", JsonValue::Null)
+        }
         Err(e) => GrimoireResponse::failure("failed to delete radio station", vec![e.into()]),
     }
 }

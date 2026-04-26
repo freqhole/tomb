@@ -1,4 +1,11 @@
-import { createEffect, createSignal, For, onCleanup, Show } from "solid-js";
+import {
+  createEffect,
+  createSignal,
+  For,
+  onCleanup,
+  onMount,
+  Show,
+} from "solid-js";
 import { useAdminTransport } from "../admin/context";
 
 interface RadioStation {
@@ -35,6 +42,33 @@ interface StationSong {
 const FILTER_TYPES = ["tag", "genre", "artist", "album"];
 const FILTER_MODES = ["include", "exclude"];
 
+function stationShallowEqual(a: RadioStation, b: RadioStation): boolean {
+  return (
+    a.id === b.id &&
+    a.name === b.name &&
+    a.description === b.description &&
+    a.is_public === b.is_public &&
+    a.is_enabled === b.is_enabled &&
+    a.timeline_only_mode === b.timeline_only_mode &&
+    a.encode_args === b.encode_args &&
+    a.codec === b.codec &&
+    a.play_mode === b.play_mode &&
+    a.created_at === b.created_at &&
+    a.updated_at === b.updated_at
+  );
+}
+
+function mergeStations(
+  previous: RadioStation[],
+  next: RadioStation[],
+): RadioStation[] {
+  const prevById = new Map(previous.map((s) => [s.id, s] as const));
+  return next.map((incoming) => {
+    const prev = prevById.get(incoming.id);
+    return prev && stationShallowEqual(prev, incoming) ? prev : incoming;
+  });
+}
+
 export default function RadioView() {
   const admin = useAdminTransport();
   const [stations, setStations] = createSignal<RadioStation[]>([]);
@@ -43,6 +77,7 @@ export default function RadioView() {
   const [loading, setLoading] = createSignal(true);
   const [error, setError] = createSignal("");
   const [savingId, setSavingId] = createSignal<string | null>(null);
+  const [hasLoadedOnce, setHasLoadedOnce] = createSignal(false);
 
   // create form
   const [showCreate, setShowCreate] = createSignal(false);
@@ -60,7 +95,7 @@ export default function RadioView() {
   // reload whenever the active admin target changes
   createEffect(() => {
     admin.current();
-    void loadStations();
+    void loadStations({ forceLoading: true });
   });
 
   createEffect(() => {
@@ -69,8 +104,29 @@ export default function RadioView() {
     }
   });
 
-  async function loadStations() {
-    setLoading(true);
+  onMount(() => {
+    const interval = window.setInterval(() => {
+      // avoid clobbering form state while actively editing.
+      if (expandedId() || showCreate()) return;
+      void loadStations({ forceLoading: false });
+    }, 5000);
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") {
+        void loadStations({ forceLoading: false });
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    onCleanup(() => {
+      window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVisibility);
+    });
+  });
+
+  async function loadStations(options?: { forceLoading?: boolean }) {
+    const shouldShowLoading = options?.forceLoading ?? !hasLoadedOnce();
+    if (shouldShowLoading) {
+      setLoading(true);
+    }
     setError("");
     try {
       const [result, cfg] = await Promise.all([
@@ -80,13 +136,17 @@ export default function RadioView() {
           undefined,
         ),
       ]);
-      setStations(result ?? []);
+      const nextStations = result ?? [];
+      setStations((prev) => mergeStations(prev, nextStations));
       setFfmpegAvailable(cfg.ffmpeg_available !== false);
       setRadioEnabled(cfg.enabled);
+      setHasLoadedOnce(true);
     } catch (e) {
       setError(String(e));
     } finally {
-      setLoading(false);
+      if (shouldShowLoading) {
+        setLoading(false);
+      }
     }
   }
 
@@ -300,7 +360,7 @@ export default function RadioView() {
                     onChange={(e) => setPlayMode(e.currentTarget.value)}
                   >
                     <option value="shuffle">shuffle</option>
-                    <option value="sequential">sequential</option>
+                    <option value="album">album</option>
                   </select>
                 </label>
                 <label
@@ -456,7 +516,7 @@ export default function RadioView() {
                       </button>
                       <select
                         style={{ "font-size": "0.78rem" }}
-                        value={s.play_mode}
+                        value={s.play_mode === "album" ? "album" : "shuffle"}
                         disabled={savingId() === s.id}
                         onChange={async (e) => {
                           setSavingId(s.id);
@@ -477,7 +537,7 @@ export default function RadioView() {
                         }}
                       >
                         <option value="shuffle">shuffle</option>
-                        <option value="sequential">sequential</option>
+                        <option value="album">album</option>
                       </select>
                       <button
                         class="danger small"

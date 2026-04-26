@@ -7,6 +7,15 @@ use super::models::{
 use crate::database;
 use crate::error::{GrimoireError, GrimoireResult};
 
+fn normalize_play_mode(mode: Option<String>) -> String {
+    let raw = mode.unwrap_or_else(|| "shuffle".to_string());
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "shuffle" => "shuffle".to_string(),
+        "album" => "album".to_string(),
+        _ => "shuffle".to_string(),
+    }
+}
+
 /// list every station (no filtering; ui can hide disabled ones).
 pub async fn list_stations() -> GrimoireResult<Vec<RadioStation>> {
     let pool = database::connect().await?;
@@ -52,7 +61,7 @@ pub async fn create_station(req: CreateStationRequest) -> GrimoireResult<RadioSt
     let codec = req
         .codec
         .unwrap_or_else(|| crate::radio::config::MSE_CODEC.to_string());
-    let play_mode = req.play_mode.unwrap_or_else(|| "shuffle".to_string());
+    let play_mode = normalize_play_mode(req.play_mode);
 
     // sqlite generates id via DEFAULT (lower(hex(randomblob(8))))
     let id: String = sqlx::query_scalar!(
@@ -89,6 +98,8 @@ pub async fn update_station(req: UpdateStationRequest) -> GrimoireResult<RadioSt
     let is_enabled = req.is_enabled.map(|b| b as i64);
     let timeline_only_mode = req.timeline_only_mode.map(|b| b as i64);
 
+    let play_mode = req.play_mode.map(|m| normalize_play_mode(Some(m)));
+
     sqlx::query!(
         r#"UPDATE radio_stationz SET
               name               = COALESCE(?, name),
@@ -107,7 +118,7 @@ pub async fn update_station(req: UpdateStationRequest) -> GrimoireResult<RadioSt
         is_enabled,
         req.encode_args,
         req.codec,
-        req.play_mode,
+        play_mode,
         timeline_only_mode,
         req.id,
     )

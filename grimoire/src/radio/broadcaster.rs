@@ -17,7 +17,9 @@ use crate::radio::config as cfg;
 use crate::radio::encoder::Encoder;
 use crate::radio::messages::{ArtData, NowPlaying, RadioModeCapability};
 use crate::radio::messages::{TimelineCurrentItem, TimelineMessage, TimelineUpcomingItem};
-use crate::radio::playlist::pick_for_station;
+use crate::radio::playlist::{
+    pick_for_station, pick_for_station_after, pick_for_station_force_new_album,
+};
 use crate::radio::stations;
 use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU32, AtomicU64, Ordering};
@@ -33,7 +35,7 @@ const RETRY_PAUSE: Duration = Duration::from_secs(3);
 /// when the last listener leaves, keep the current ffmpeg pipeline alive
 /// for a bit in case they only paused / scrubbed / reconnected.
 const NO_LISTENER_GRACE: Duration = Duration::from_secs(60);
-const SKIP_REQUEST_COOLDOWN_MS: i64 = 30_000;
+const SKIP_REQUEST_COOLDOWN_MS: i64 = 5_000;
 const SKIP_MIN_REMAINING_MS: i64 = 30_000;
 
 /// maximum upcoming items to maintain in the rolling planner.
@@ -125,6 +127,9 @@ pub struct Broadcaster {
     skip_request_generation: AtomicU32,
     /// wall-clock ms timestamp of the last accepted skip request.
     last_skip_requested_at_ms: AtomicI64,
+    /// when set, the next pick bypasses planner continuity and forces
+    /// album mode to start a new random album from track 1.
+    force_new_album_pick: AtomicBool,
     /// wakes the run loop when the first listener arrives while the
     /// station is idle.
     listener_notify: Notify,
@@ -134,6 +139,8 @@ pub struct Broadcaster {
     /// at each track boundary; refilled in a background task while the
     /// current song plays so timeline snapshots have real lookahead.
     plan: RwLock<VecDeque<PlannedItem>>,
+    /// cached play_mode used to build the current planner entries.
+    plan_mode: RwLock<Option<String>>,
     /// monotonic counter used when minting `timeline_item_id` values for
     /// planned items.
     plan_item_seq: AtomicU64,
@@ -157,11 +164,30 @@ impl Broadcaster {
             current_track_is_bumper: AtomicBool::new(false),
             skip_request_generation: AtomicU32::new(0),
             last_skip_requested_at_ms: AtomicI64::new(0),
+            force_new_album_pick: AtomicBool::new(false),
             listener_notify: Notify::new(),
             skip_notify: Notify::new(),
             plan: RwLock::new(VecDeque::new()),
+            plan_mode: RwLock::new(None),
             plan_item_seq: AtomicU64::new(0),
         }
+    }
+
+    async fn current_play_mode(&self) -> String {
+        match stations::get_station(&self.station_id).await {
+            Ok(Some(st)) => st.play_mode.trim().to_ascii_lowercase(),
+            _ => "shuffle".to_string(),
+        }
+    }
+
+    async fn sync_plan_mode(&self) {
+        let mode = self.current_play_mode().await;
+        let mut cached = self.plan_mode.write().await;
+        if cached.as_deref() == Some(mode.as_str()) {
+            return;
+        }
+        self.plan.write().await.clear();
+        *cached = Some(mode);
     }
 
     pub fn station_id(&self) -> &str {
@@ -208,13 +234,16 @@ impl Broadcaster {
     /// pop the next planned item for playback. the run loop calls this at
     /// each track boundary; falls back to a fresh pick when empty.
     async fn consume_planner_head(&self) -> Option<PlannedItem> {
+        self.sync_plan_mode().await;
         self.plan.write().await.pop_front()
     }
 
     /// fill the plan up to MAX_UPCOMING_ITEMS (or TARGET_HORIZON_MS coverage).
     /// spawned as a background task after each track boundary so upcoming
     /// items are ready for timeline_snapshot() calls during the current song.
-    async fn refill_planner(self: &Arc<Self>) {
+    async fn refill_planner(self: &Arc<Self>, seed_anchor_song_id: Option<String>) {
+        self.sync_plan_mode().await;
+
         let (existing_ids, current_count, horizon_end_from_plan) = {
             let plan = self.plan.read().await;
             let ids: Vec<String> = plan.iter().map(|i| i.track.song_id.clone()).collect();
@@ -248,6 +277,22 @@ impl Broadcaster {
         let mut excluded = existing_ids;
         let mut horizon_end = horizon_end_from_plan;
         let mut new_items: Vec<PlannedItem> = Vec::new();
+        let mut anchor_song_id = {
+            let plan = self.plan.read().await;
+            if let Some(last) = plan.back() {
+                Some(last.track.song_id.clone())
+            } else if let Some(seed) = seed_anchor_song_id.clone() {
+                Some(seed)
+            } else {
+                let state = self.state.read().await;
+                let id = state.now_playing.song_id.trim();
+                if id.is_empty() {
+                    None
+                } else {
+                    Some(id.to_string())
+                }
+            }
+        };
 
         loop {
             let total_count = current_count + new_items.len();
@@ -262,7 +307,7 @@ impl Broadcaster {
 
             let mut picked = None;
             for _ in 0..3 {
-                match pick_for_station(&self.station_id).await {
+                match pick_for_station_after(&self.station_id, anchor_song_id.as_deref()).await {
                     Ok(t) if !excluded.contains(&t.song_id) => {
                         picked = Some(t);
                         break;
@@ -286,6 +331,7 @@ impl Broadcaster {
                 planned_start_at_ms: horizon_end,
                 track: track.clone(),
             };
+            anchor_song_id = Some(track.song_id.clone());
             excluded.push(track.song_id);
             horizon_end += duration;
             new_items.push(item);
@@ -467,6 +513,7 @@ impl Broadcaster {
 
         self.last_skip_requested_at_ms
             .store(now_ms, Ordering::Relaxed);
+        self.force_new_album_pick.store(true, Ordering::Relaxed);
         self.skip_request_generation.fetch_add(1, Ordering::Relaxed);
         self.skip_notify.notify_waiters();
         info!(
@@ -502,18 +549,28 @@ impl Broadcaster {
                 continue;
             }
 
+            let force_new_album = self.force_new_album_pick.swap(false, Ordering::Relaxed);
+
             // consume from planner if available; fall back to a direct pick.
-            let track_result = match self.consume_planner_head().await {
-                Some(planned) => Ok(planned.track),
-                None => pick_for_station(&self.station_id).await,
+            // after a skip request, drop stale plan continuity and force
+            // album mode to jump to a new album start.
+            let track_result = if force_new_album {
+                self.plan.write().await.clear();
+                pick_for_station_force_new_album(&self.station_id).await
+            } else {
+                match self.consume_planner_head().await {
+                    Some(planned) => Ok(planned.track),
+                    None => pick_for_station(&self.station_id).await,
+                }
             };
 
             match track_result {
                 Ok(track) => {
                     // spawn planner refill in background while the current song plays.
                     let bc = self.clone();
+                    let current_song_id = track.song_id.clone();
                     tokio::spawn(async move {
-                        bc.refill_planner().await;
+                        bc.refill_planner(Some(current_song_id)).await;
                     });
 
                     if let Err(e) = self.play_track(&track, /*is_bumper=*/ false).await {

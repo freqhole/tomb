@@ -10,6 +10,7 @@ import { getClientForRemote, getLocalNodeIdAsync, isCharnelAvailable } from "../
 import type { Remote, RemoteRef } from "../../api/client";
 import { isP2PRemote, isHttpRemote } from "../../services/storage/types";
 import { getAllRemotes } from "../remotes/remoteManager";
+import { extractNodeIdStrict } from "../remotes/peerAddr";
 import { getAllPendingRemotes } from "../storage/db";
 import { debug, warn } from "../../../utils/logger";
 
@@ -231,6 +232,10 @@ async function collectSources(
   // 1. all configured remotes (active or not — radio is read-only browsing).
   const remotes = await getAllRemotes();
   for (const r of remotes) {
+    if (isP2PRemote(r) && extractNodeIdStrict(r.peer_addr) === null) {
+      debug("radio-discovery", `skipping invalid p2p peer_addr on remote ${r.remote_id}`);
+      continue;
+    }
     sources.push(remoteToSource(r));
   }
 
@@ -253,6 +258,10 @@ async function collectSources(
       debug("radio-discovery", `skipping pending remote ${p.peer_addr.slice(0, 16)}… already in sources as a full remote`);
       continue;
     }
+    if (p.transport !== "http" && extractNodeIdStrict(p.peer_addr) === null) {
+      debug("radio-discovery", `skipping pending remote ${p.peer_addr.slice(0, 16)}… invalid peer_addr`);
+      continue;
+    }
     sources.push({
       kind: "pending",
       id: p.peer_addr,
@@ -266,6 +275,10 @@ async function collectSources(
   for (const addr of extraPeerAddrs ?? []) {
     if (!addr) continue;
     if (sources.some((s) => s.peer_addr === addr || s.base_url === addr)) {
+      continue;
+    }
+    if (!addr.startsWith("http") && extractNodeIdStrict(addr) === null) {
+      debug("radio-discovery", `skipping query source with invalid peer_addr: ${addr.slice(0, 16)}…`);
       continue;
     }
     sources.push({

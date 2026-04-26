@@ -18,22 +18,41 @@ import { isP2PRemote } from "../services/storage/schemas/remote";
 import { isCharnelMode } from "../services/charnel";
 import { getMiddenNode } from "./client";
 
+function normalizeAdminTransportError(peerAddr: string, err: unknown): Error {
+  const msg = err instanceof Error ? err.message : String(err);
+  const lower = msg.toLowerCase();
+  if (
+    lower.includes("handshake failed") ||
+    lower.includes("doesn't support any known protocol") ||
+    lower.includes("does not support any known protocol")
+  ) {
+    return new Error(
+      `remote ${peerAddr} does not support freqhole-admin/1. enable [federation.remote_admin].enabled on the remote node (or upgrade it), then retry.`,
+    );
+  }
+  return err instanceof Error ? err : new Error(String(err));
+}
+
 /** wasm transport: routes through midden's `proxy_admin` */
 class WasmAdminTransport implements AdminTransport {
   constructor(private readonly peerAddr: string) {}
 
   async send(command: string, args: unknown): Promise<AdminResponse<unknown>> {
-    const node = await getMiddenNode();
-    if (typeof node.proxy_admin !== "function") {
-      throw new Error(
-        "midden node missing proxy_admin - rebuild midden wasm (cd skein/midden && make build)",
-      );
+    try {
+      const node = await getMiddenNode();
+      if (typeof node.proxy_admin !== "function") {
+        throw new Error(
+          "midden node missing proxy_admin - rebuild midden wasm (cd skein/midden && make build)",
+        );
+      }
+      const argsJson = args === undefined || args === null ? "null" : JSON.stringify(args);
+      console.debug("[admin-p2p] wasm send", { peer: this.peerAddr, command, argsJson });
+      const raw = await node.proxy_admin(this.peerAddr, command, argsJson);
+      console.debug("[admin-p2p] wasm recv", { command, raw });
+      return coerceEnvelope(raw, command);
+    } catch (err) {
+      throw normalizeAdminTransportError(this.peerAddr, err);
     }
-    const argsJson = args === undefined || args === null ? "null" : JSON.stringify(args);
-    console.debug("[admin-p2p] wasm send", { peer: this.peerAddr, command, argsJson });
-    const raw = await node.proxy_admin(this.peerAddr, command, argsJson);
-    console.debug("[admin-p2p] wasm recv", { command, raw });
-    return coerceEnvelope(raw, command);
   }
 }
 
@@ -42,13 +61,17 @@ class CharnelAdminTransport implements AdminTransport {
   constructor(private readonly peerAddr: string) {}
 
   async send(command: string, args: unknown): Promise<AdminResponse<unknown>> {
-    const { invoke } = await import("@tauri-apps/api/core");
-    const raw = await invoke<unknown>("admin_dispatch_remote", {
-      peerAddr: this.peerAddr,
-      command,
-      args: args ?? null,
-    });
-    return coerceEnvelope(raw, command);
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      const raw = await invoke<unknown>("admin_dispatch_remote", {
+        peerAddr: this.peerAddr,
+        command,
+        args: args ?? null,
+      });
+      return coerceEnvelope(raw, command);
+    } catch (err) {
+      throw normalizeAdminTransportError(this.peerAddr, err);
+    }
   }
 }
 

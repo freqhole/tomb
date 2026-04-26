@@ -18,7 +18,7 @@ pub struct RadioStation {
     /// per-station ffmpeg override; null = use toml `[radio].encode_args`.
     pub encode_args: Option<String>,
     pub codec: String,
-    /// 'shuffle' | 'sequential'
+    /// 'shuffle' | 'album'
     pub play_mode: String,
     /// when non-zero the broadcaster skips the audio uni stream entirely;
     /// all listeners use timeline/queue-mode playback.
