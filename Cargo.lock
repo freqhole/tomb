@@ -856,7 +856,7 @@ dependencies = [
 
 [[package]]
 name = "charnel"
-version = "0.1.17"
+version = "0.1.18"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -951,7 +951,7 @@ checksum = "c8d4a3bb8b1e0c1050499d1815f5ab16d04f0959b233085fb31653fbfc9d98f9"
 
 [[package]]
 name = "cli"
-version = "0.1.17"
+version = "0.1.18"
 dependencies = [
  "anyhow",
  "clap",
@@ -969,7 +969,7 @@ dependencies = [
 
 [[package]]
 name = "client-codegen"
-version = "0.1.17"
+version = "0.1.18"
 dependencies = [
  "grimoire",
  "serde",
@@ -2695,7 +2695,7 @@ dependencies = [
 
 [[package]]
 name = "grimoire"
-version = "0.1.17"
+version = "0.1.18"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -6801,7 +6801,7 @@ dependencies = [
 
 [[package]]
 name = "server"
-version = "0.1.17"
+version = "0.1.18"
 dependencies = [
  "anyhow",
  "axum",
