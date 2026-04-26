@@ -25,6 +25,8 @@ import type { Remote } from "../../app/services/storage/schemas/remote";
 import type { SendPayload } from "../../music/services/send/sendToRemote";
 import { buildSharePayload } from "../share/buildSharePayload";
 import { startSharedRadioStation } from "../share/startSharedRadioStation";
+import Button from "../buttons/Button";
+import { Icon } from "../icons/registry";
 
 export interface ShareModalProps {
   isOpen: boolean;
@@ -82,22 +84,23 @@ export const ShareModal: Component<ShareModalProps> = (props) => {
               <PermalinkSection target={props.target} source={src()} webHost={props.webHost} />
               <Show when={playableRadioShare()}>
                 {(radio) => (
-                  <div class="flex justify-end">
-                    <button
-                      type="button"
-                      class="px-3 py-2 text-sm rounded-md bg-[var(--color-accent)] text-white border border-transparent hover:opacity-90"
+                  <div class="flex justify-end gap-6">
+                    {/* <Button
+                      variant="primary"
                       onClick={() => {
                         void startSharedRadioStation(radio()).finally(() => props.onClose());
                       }}
                     >
-                      play station
-                    </button>
+                      <Icon name="radioTower" size={24} />
+                      play radio station
+                    </Button> */}
+                    <Show when={!isCharnelMode()}>
+                      <OpenInAppButton target={props.target} source={src()} />
+                    </Show>
                   </div>
                 )}
               </Show>
-              <Show when={!isCharnelMode()}>
-                <OpenInAppButton target={props.target} source={src()} />
-              </Show>
+
               <Show when={props.buildSendPayload}>
                 <div class="border-t border-[var(--color-border-default)] pt-6">
                   <SendToRemoteSection source={src()} buildPayload={props.buildSendPayload!} />

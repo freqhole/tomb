@@ -89,9 +89,9 @@ export function SharedItemsView() {
   return (
     <div class="h-full overflow-y-auto p-4 wide:p-6">
       <div class="max-w-4xl mx-auto space-y-4">
-        <header class="flex items-center justify-between gap-3 border-b border-[var(--color-border-default)] pb-3">
+        <header class="flex items-center justify-between gap-3 wide:ml-16 pb-3">
           <div>
-            <h1 class="text-xl font-semibold m-0">sharez</h1>
+            <h1 class="text-xl font-semibold m-0">share'd</h1>
             <p class="text-sm text-[var(--color-text-secondary)] m-0 mt-1">
               stuff that's been shared with you
             </p>
@@ -128,24 +128,26 @@ export function SharedItemsView() {
                         {kindLabel(item.kind)} · seen {item.seen_count}x ·{" "}
                         {formatRelative(item.last_seen_at)}
                       </div>
-                      <div class="text-xs text-[var(--color-text-tertiary)] mt-1 truncate">
+                      {/* <div class="text-xs text-[var(--color-text-tertiary)] mt-1 truncate">
                         source {item.source_node_id || item.source_http_origin || "unknown"}
-                      </div>
+                      </div> */}
                     </div>
                     <div class="flex items-center gap-1 flex-shrink-0">
                       <button
                         type="button"
                         class="p-2 rounded hover:bg-[var(--color-bg-hover)] text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]"
                         onClick={() => void openRemoteItem(item)}
-                        title={item.kind === "radio_station" ? "play station" : "open item"}
-                        aria-label={item.kind === "radio_station" ? "play station" : "open item"}
+                        title={item.kind === "radio_station" ? "play radio station" : "open item"}
+                        aria-label={
+                          item.kind === "radio_station" ? "play radio station" : "open item"
+                        }
                       >
                         <Icon
-                          name={item.kind === "radio_station" ? "play" : "arrowRight"}
+                          name={item.kind === "radio_station" ? "radioTower" : "arrowRight"}
                           size={16}
                         />
                       </button>
-                      <button
+                      {/* <button
                         type="button"
                         class="p-2 rounded hover:bg-[var(--color-bg-hover)] text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]"
                         onClick={() => openShare(item.token)}
@@ -153,7 +155,7 @@ export function SharedItemsView() {
                         aria-label="open"
                       >
                         <Icon name="externalLink" size={16} />
-                      </button>
+                      </button> */}
                       <button
                         type="button"
                         class="p-2 rounded hover:bg-[var(--color-bg-hover)] text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]"
