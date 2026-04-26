@@ -166,8 +166,9 @@ export const ResolveShareModal: Component<ResolveShareModalProps> = (props) => {
                 <p class="text-sm text-[var(--color-text-primary)] mt-6 p-2">
                   the shared {s.payload.k === "radio_station" ? "radio station" : s.payload.k}
                   {title ? ` "${title}"` : ""} is on a remote you haven't connected to yet; no
-                  worry! you can send an access request. otherwise if the radio station is public
-                  you can listen without an account.
+                  worry! you can send an access request.{" "}
+                  {s.payload.k === "radio_station" &&
+                    "otherwise if the radio station is public you can listen without an account."}
                 </p>
 
                 {/* <div class="flex flex-wrap gap-2 pt-2"> */}
@@ -185,7 +186,7 @@ export const ResolveShareModal: Component<ResolveShareModalProps> = (props) => {
                 </Show>
                 <Show when={!isCharnelMode()}>
                   <p class="text-sm text-[var(--color-text-primary)] mt-6 p-2">
-                    or open this radio station in the freqhole desktop app.
+                    or open this in the freqhole desktop app.
                   </p>
 
                   <a

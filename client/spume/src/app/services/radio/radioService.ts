@@ -682,6 +682,37 @@ function shouldRecordRadioHistoryEntry(np: PublicNowPlaying, songId: string | nu
   return !interstitialTitles.has(title);
 }
 
+function maybeRecordImmediateMetaHistory(
+  np: PublicNowPlaying,
+  previousSongId: string | null,
+  initSeq: number | null,
+  rawNowPlaying: unknown,
+): void {
+  // timeline mode records through the queue adapter; skip here.
+  if (useTimelineMode()) return;
+
+  const songId = np.song_id?.trim() || null;
+  if (!songId) return;
+  if (songId === previousSongId) return;
+
+  const rawArt = rawArtMetaFrom(rawNowPlaying);
+  const historyKey =
+    typeof initSeq === "number"
+      ? `meta-init:${initSeq}:${songId}`
+      : `meta-song:${songId}:${Date.now()}`;
+
+  recordCurrentRadioTrackHistory({
+    songId,
+    title: np.title,
+    artist: np.artist ?? null,
+    album: np.album ?? null,
+    durationMs: np.duration_ms ?? null,
+    artBlobId: np.art_blob_id ?? null,
+    artThumb: rawArt,
+    historyKey,
+  });
+}
+
 /**
  * connect to a radio broadcaster. returns the audio element so views
  * can attach it to the dom (or to a layout-level player bar later).
@@ -1402,6 +1433,7 @@ export async function tuneIntoRadio(
       const initSeq = msg?.init_seq;
       const np = coerceNowPlaying(msg?.now_playing);
       if (typeof initSeq === "number" && np) {
+        const previousSongId = nowPlaying()?.song_id?.trim() || null;
         // timeline/queue mode has no init-chunk boundary to latch on,
         // so apply metadata updates immediately.
         if (useTimelineMode()) {
@@ -1434,6 +1466,12 @@ export async function tuneIntoRadio(
             if (typeof msg?.listener_count === "number") {
               setListenerCount(msg.listener_count);
             }
+            maybeRecordImmediateMetaHistory(
+              np,
+              previousSongId,
+              initSeq,
+              msg.now_playing,
+            );
           } else {
             console.info(
               `[radio] deferring early meta for new song_id ${incomingSongId} (current ${currentSongId})`,
@@ -1448,6 +1486,7 @@ export async function tuneIntoRadio(
           });
         }
       } else if (np) {
+        const previousSongId = nowPlaying()?.song_id?.trim() || null;
         // protocol drift: no init_seq → apply right away.
         setNowPlaying(np);
         synthesizeTimelineFromNowPlaying(np, "meta");
@@ -1455,6 +1494,7 @@ export async function tuneIntoRadio(
         if (typeof msg?.listener_count === "number") {
           setListenerCount(msg.listener_count);
         }
+        maybeRecordImmediateMetaHistory(np, previousSongId, null, msg.now_playing);
       }
     } catch (e) {
       console.warn("[radio] meta parse failed:", e);

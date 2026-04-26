@@ -5,14 +5,13 @@
 // page when it scrolls into view. capped at MAX_RADIO_HISTORY rows
 // (radioHistory module trims older rows on every write).
 
-import { createEffect, createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import { createEffect, createSignal, For, on, onCleanup, onMount, Show, untrack } from "solid-js";
 import { createStore } from "solid-js/store";
 import { useNavigate } from "@solidjs/router";
 import {
   clearHistory,
   countHistory,
   getHistoryPage,
-  MAX_RADIO_HISTORY,
   radioHistoryVersion,
 } from "../../app/services/radio/radioHistory";
 import { getClientForRemote } from "../../app/api/client";
@@ -39,6 +38,8 @@ export function RadioHistoryList(props: RadioHistoryListProps) {
   const [resolvedThumbUrls, setResolvedThumbUrls] = createStore<Record<string, string>>({});
   // cache of inline-thumb blob URLs keyed by entry id; revoked on cleanup.
   const thumbUrls = new Map<string, string>();
+  // prevents duplicate async blob resolutions for the same history row.
+  const resolvingThumbIds = new Set<string>();
 
   const buildThumbUrl = (e: RadioHistoryEntry): string | null => {
     if (!e.art_thumb_b64 || !e.art_thumb_mime) return null;
@@ -132,37 +133,55 @@ export function RadioHistoryList(props: RadioHistoryListProps) {
     }
   });
 
-  createEffect(() => {
-    radioHistoryVersion();
-    if (!hasLoadedFirstPage) return;
-    void refreshHeadPage();
-  });
+  createEffect(
+    on(
+      radioHistoryVersion,
+      () => {
+        if (!hasLoadedFirstPage) return;
+        void refreshHeadPage();
+      },
+      { defer: true }
+    )
+  );
 
-  createEffect(() => {
-    const currentEntries = entries();
-    void (async () => {
-      for (const entry of currentEntries) {
-        if (entry.art_thumb_b64 || !entry.art_blob_id || resolvedThumbUrls[entry.id]) continue;
-        try {
-          const remote = await getRemoteByPeerAddr(entry.peer_addr);
-          if (!remote) continue;
-          const url = await resolveBlobUrl(
-            entry.art_blob_id,
-            remote.remote_id,
-            "image",
-            undefined,
-            50
-          );
-          setResolvedThumbUrls(entry.id, url);
-        } catch (err) {
-          debug("radio-history", "failed to resolve history art blob:", err);
+  createEffect(
+    on(
+      entries,
+      (currentEntries) => {
+        for (const entry of currentEntries) {
+          const artBlobId = entry.art_blob_id;
+          const alreadyResolved = untrack(() => resolvedThumbUrls[entry.id]);
+          if (
+            entry.art_thumb_b64 ||
+            !artBlobId ||
+            alreadyResolved ||
+            resolvingThumbIds.has(entry.id)
+          ) {
+            continue;
+          }
+
+          resolvingThumbIds.add(entry.id);
+          void (async () => {
+            try {
+              const remote = await getRemoteByPeerAddr(entry.peer_addr);
+              if (!remote) return;
+              const url = await resolveBlobUrl(artBlobId, remote.remote_id, "image", undefined, 50);
+              setResolvedThumbUrls(entry.id, url);
+            } catch (err) {
+              debug("radio-history", "failed to resolve history art blob:", err);
+            } finally {
+              resolvingThumbIds.delete(entry.id);
+            }
+          })();
         }
-      }
-    })();
-  });
+      },
+      { defer: true }
+    )
+  );
 
   onCleanup(() => {
     observer?.disconnect();
+    resolvingThumbIds.clear();
     for (const url of thumbUrls.values()) URL.revokeObjectURL(url);
     thumbUrls.clear();
   });
@@ -263,9 +282,7 @@ export function RadioHistoryList(props: RadioHistoryListProps) {
         <div class="text-xs uppercase tracking-wide text-neutral-500">
           history
           <Show when={total() > 0}>
-            <span class="ml-2 text-neutral-600 normal-case">
-              {total()} of {MAX_RADIO_HISTORY}
-            </span>
+            <span class="ml-2 text-neutral-600 normal-case">{total()}</span>
           </Show>
         </div>
         <Show when={entries().length > 0}>
