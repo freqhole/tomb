@@ -13,6 +13,7 @@
 import { createEffect, createRoot, on } from "solid-js";
 import { schema, type PublicTimelineManifestItem } from "freqhole-api-client";
 import { localDataSource } from "../../../music/data/local/localSource";
+import type { RemoteSong } from "../../../music/data/remote/adapters";
 import { RemoteMusicDataSource } from "../../../music/data/remote/remoteSource";
 import { allowTimelineAutoplay, isPlaying, pause, playSong } from "../../../music/services/audio/player";
 import { cleanupAllAudioURLs } from "../../../music/services/storage/audioAccess";
@@ -181,6 +182,11 @@ interface TimelineSnapshotLike {
   }>;
 }
 
+function toPlaybackSong(song: Song | RemoteSong): Song {
+  // remote adapter songs are structurally compatible with playback paths.
+  return song as Song;
+}
+
 function decodeBase64ToBytes(base64: string): Uint8Array {
   const binary = atob(base64.trim());
   const bytes = new Uint8Array(binary.length);
@@ -294,7 +300,11 @@ async function tryLoadPublicTimelineSong(
   }
 
   const bytes = decodeBase64ToBytes(base64);
-  const blob = new Blob([bytes], { type: mime });
+  const byteBuffer = bytes.buffer.slice(
+    bytes.byteOffset,
+    bytes.byteOffset + bytes.byteLength,
+  ) as ArrayBuffer;
+  const blob = new Blob([byteBuffer], { type: mime });
   const extension = getFileExtension(mime);
   const localAudioId = `radio-public-${stationId}-${current.timeline_item_id}`;
   const opfsPath = await writeAudioToOPFS(blob, localAudioId, extension);
@@ -481,16 +491,18 @@ async function handleTrackTransition(
       current.song_id,
     );
   }
-  let song;
+  let song: Song | null = null;
   try {
     if (localSession && remote) {
       const ds = new RemoteMusicDataSource(remote);
-      song = await ds.getSongById(current.song_id);
+      const fetched = await ds.getSongById(current.song_id);
+      song = fetched ? toPlaybackSong(fetched) : null;
     } else if (localSession || !remote) {
       song = await localDataSource.getSongById(current.song_id);
     } else {
       const ds = new RemoteMusicDataSource(remote);
-      song = await ds.getSongById(current.song_id);
+      const fetched = await ds.getSongById(current.song_id);
+      song = fetched ? toPlaybackSong(fetched) : null;
     }
   } catch (e) {
     console.warn("[radio-queue-adapter] getSongById failed:", e);
@@ -550,33 +562,41 @@ async function handleTrackTransition(
   }
   if (gen !== adapterGeneration) return;
 
+  const playbackSong = song;
+  if (!playbackSong) {
+    markTimelinePlaybackBlocked("radio track metadata could not be resolved");
+    return;
+  }
+
   // compute how far into the track we are based on wall-clock time.
   const nowMs = Date.now();
   const elapsedMs = Math.max(0, nowMs - current.start_at_ms);
   const initialPosition = elapsedMs / 1000; // seconds
-  const resolvedArt = await resolveTimelineArt(song);
+  const resolvedArt = await resolveTimelineArt(playbackSong);
   if (gen !== adapterGeneration) return;
 
   console.info(
-    `[radio-queue-adapter] playing "${song.title}" at ${Math.round(initialPosition)}s` +
+    `[radio-queue-adapter] playing "${playbackSong.title}" at ${Math.round(initialPosition)}s` +
       ` (item ${current.timeline_item_id}, duration_ms=${current.duration_ms})`,
   );
 
   console.info(
     "[radio-queue-adapter] calling applyTimelineNowPlaying with:",
-    "song_id:", song.id,
-    "title:", song.title,
-    "artist:", song.artist_name
+    "song_id:", playbackSong.id,
+    "title:", playbackSong.title,
+    "artist:", playbackSong.artist_name
   );
 
   applyTimelineNowPlaying({
-    songId: song.id ?? null,
-    title: song.title,
-    artist: song.artist_name ?? null,
-    album: song.album_title ?? null,
+    songId: playbackSong.id ?? null,
+    title: playbackSong.title,
+    artist: playbackSong.artist_name ?? null,
+    album: playbackSong.album_title ?? null,
     durationMs: current.duration_ms ?? null,
-    artBlobId: resolvedArt.artBlobId,
-    artUrl: resolvedArt.artUrl,
+    artBlobId: resolvedArt.artBlobId ?? undefined,
+    // keep the current radioArtUrl when no art could be resolved from
+    // library metadata (common for guest/public fallback playback).
+    artUrl: resolvedArt.artUrl ?? undefined,
   });
 
   try {
@@ -589,7 +609,7 @@ async function handleTrackTransition(
       // auto-start on later transitions.
       allowTimelineAutoplay();
     }
-    await playSong(song, { initialPosition });
+    await playSong(playbackSong, { initialPosition });
   } catch (e) {
     console.warn("[radio-queue-adapter] playSong failed:", e);
     const errName =
@@ -618,10 +638,10 @@ async function handleTrackTransition(
     // first track is loaded and ready, but intentionally paused pending
     // explicit user action.
     recordCurrentRadioTrackHistory({
-      songId: song.id ?? null,
-      title: song.title,
-      artist: song.artist_name ?? null,
-      album: song.album_title ?? null,
+      songId: playbackSong.id ?? null,
+      title: playbackSong.title,
+      artist: playbackSong.artist_name ?? null,
+      album: playbackSong.album_title ?? null,
       durationMs: current.duration_ms ?? null,
       artBlobId: resolvedArt.artBlobId,
       artThumb: null,
@@ -634,10 +654,10 @@ async function handleTrackTransition(
       return;
     }
     recordCurrentRadioTrackHistory({
-      songId: song.id ?? null,
-      title: song.title,
-      artist: song.artist_name ?? null,
-      album: song.album_title ?? null,
+      songId: playbackSong.id ?? null,
+      title: playbackSong.title,
+      artist: playbackSong.artist_name ?? null,
+      album: playbackSong.album_title ?? null,
       durationMs: current.duration_ms ?? null,
       artBlobId: resolvedArt.artBlobId,
       artThumb: null,

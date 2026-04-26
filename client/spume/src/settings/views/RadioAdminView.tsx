@@ -140,6 +140,7 @@ function RadioConfigSection(props: { client: AdminClient }) {
 
   const [enabled, setEnabled] = createSignal(false);
   const [encodeArgs, setEncodeArgs] = createSignal("");
+  const [ffmpegAvailable, setFfmpegAvailable] = createSignal(true);
   const [busy, setBusy] = createSignal(false);
 
   // hydrate the form whenever the resource resolves with fresh data.
@@ -148,6 +149,7 @@ function RadioConfigSection(props: { client: AdminClient }) {
     if (c) {
       setEnabled(c.enabled);
       setEncodeArgs(c.encode_args);
+      setFfmpegAvailable(c.ffmpeg_available);
     }
   });
 
@@ -158,6 +160,7 @@ function RadioConfigSection(props: { client: AdminClient }) {
       await props.client.dispatchOrThrow("radio_config_set", {
         enabled: enabled(),
         encode_args: encodeArgs(),
+        ffmpeg_available: ffmpegAvailable(),
       });
       toast.success("radio config saved");
       await refetch();

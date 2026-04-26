@@ -1324,10 +1324,13 @@ async fn radio_stations_get(args: JsonValue) -> GrimoireResponse<JsonValue> {
 }
 
 async fn radio_stations_create(args: JsonValue) -> GrimoireResponse<JsonValue> {
-    let req: CreateStationRequest = match decode(args) {
+    let mut req: CreateStationRequest = match decode(args) {
         Ok(v) => v,
         Err(r) => return r,
     };
+    if !radio_ffmpeg_available() {
+        req.timeline_only_mode = Some(true);
+    }
     match radio_stations::create_station(req).await {
         Ok(s) => to_value(GrimoireResponse::success("radio station created", s)),
         Err(e) => GrimoireResponse::failure("failed to create radio station", vec![e.into()]),
@@ -1335,10 +1338,13 @@ async fn radio_stations_create(args: JsonValue) -> GrimoireResponse<JsonValue> {
 }
 
 async fn radio_stations_update(args: JsonValue) -> GrimoireResponse<JsonValue> {
-    let req: UpdateStationRequest = match decode(args) {
+    let mut req: UpdateStationRequest = match decode(args) {
         Ok(v) => v,
         Err(r) => return r,
     };
+    if !radio_ffmpeg_available() && req.timeline_only_mode == Some(false) {
+        req.timeline_only_mode = Some(true);
+    }
     let station_id = req.id.clone();
     let timeline_only_requested = req.timeline_only_mode;
     match radio_stations::update_station(req).await {
@@ -1354,6 +1360,10 @@ async fn radio_stations_update(args: JsonValue) -> GrimoireResponse<JsonValue> {
         }
         Err(e) => GrimoireResponse::failure("failed to update radio station", vec![e.into()]),
     }
+}
+
+fn radio_ffmpeg_available() -> bool {
+    crate::setup::check_dependencies().has_ffmpeg()
 }
 
 async fn radio_stations_delete(args: JsonValue) -> GrimoireResponse<JsonValue> {
@@ -1576,6 +1586,7 @@ async fn radio_config_get() -> GrimoireResponse<JsonValue> {
     let payload = RadioConfigPayload {
         enabled: cfg.enabled,
         encode_args: cfg.encode_args,
+        ffmpeg_available: radio_ffmpeg_available(),
     };
     to_value(GrimoireResponse::success("ok", payload))
 }
@@ -1650,6 +1661,7 @@ async fn radio_config_set(args: JsonValue) -> GrimoireResponse<JsonValue> {
     let out = RadioConfigPayload {
         enabled: cfg.enabled,
         encode_args: cfg.encode_args,
+        ffmpeg_available: radio_ffmpeg_available(),
     };
     to_value(GrimoireResponse::success("config updated", out))
 }

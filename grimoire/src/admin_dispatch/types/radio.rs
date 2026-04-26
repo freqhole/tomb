@@ -96,6 +96,9 @@ pub struct RadioConfigPayload {
     pub enabled: bool,
     /// ffmpeg encoder template (`{input}` placeholder, output to `pipe:1`).
     pub encode_args: String,
+    /// true when ffmpeg is available on this node.
+    #[serde(default)]
+    pub ffmpeg_available: bool,
 }
 
 // ---------- supervisor (start/stop/restart) ----------------------------

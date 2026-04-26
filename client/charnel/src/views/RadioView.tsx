@@ -38,6 +38,7 @@ const FILTER_MODES = ["include", "exclude"];
 export default function RadioView() {
   const admin = useAdminTransport();
   const [stations, setStations] = createSignal<RadioStation[]>([]);
+  const [ffmpegAvailable, setFfmpegAvailable] = createSignal(true);
   const [loading, setLoading] = createSignal(true);
   const [error, setError] = createSignal("");
   const [savingId, setSavingId] = createSignal<string | null>(null);
@@ -61,15 +62,25 @@ export default function RadioView() {
     void loadStations();
   });
 
+  createEffect(() => {
+    if (!ffmpegAvailable()) {
+      setTimelineOnly(true);
+    }
+  });
+
   async function loadStations() {
     setLoading(true);
     setError("");
     try {
-      const result = await admin.dispatchOrThrow<RadioStation[]>(
-        "radio_stations_list",
-        undefined,
-      );
+      const [result, cfg] = await Promise.all([
+        admin.dispatchOrThrow<RadioStation[]>("radio_stations_list", undefined),
+        admin.dispatchOrThrow<RadioConfigPayload>(
+          "radio_config_get",
+          undefined,
+        ),
+      ]);
       setStations(result ?? []);
+      setFfmpegAvailable(cfg.ffmpeg_available !== false);
     } catch (e) {
       setError(String(e));
     } finally {
@@ -108,11 +119,18 @@ export default function RadioView() {
   }
 
   async function toggleTimelineOnly(s: RadioStation) {
+    const nextTimelineOnly = !s.timeline_only_mode;
+    if (!ffmpegAvailable() && !nextTimelineOnly) {
+      setError(
+        "ffmpeg is not installed on this node, so this station must run in timeline-only mode",
+      );
+      return;
+    }
     setSavingId(s.id);
     try {
       await admin.dispatchOrThrow("radio_stations_update", {
         id: s.id,
-        timeline_only_mode: !s.timeline_only_mode,
+        timeline_only_mode: nextTimelineOnly,
       });
       await loadStations();
     } catch (e) {
@@ -149,7 +167,7 @@ export default function RadioView() {
         is_public: isPublic(),
         is_enabled: isEnabled(),
         play_mode: playMode(),
-        timeline_only_mode: timelineOnly(),
+        timeline_only_mode: ffmpegAvailable() ? timelineOnly() : true,
       });
       // reset form
       setName("");
@@ -157,7 +175,7 @@ export default function RadioView() {
       setIsPublic(false);
       setIsEnabled(true);
       setPlayMode("shuffle");
-      setTimelineOnly(false);
+      setTimelineOnly(!ffmpegAvailable());
       setShowCreate(false);
       await loadStations();
     } catch (e) {
@@ -281,12 +299,19 @@ export default function RadioView() {
               >
                 <input
                   type="checkbox"
-                  checked={timelineOnly()}
-                  onChange={(e) => setTimelineOnly(e.currentTarget.checked)}
+                  checked={!timelineOnly()}
+                  onChange={(e) => setTimelineOnly(!e.currentTarget.checked)}
+                  disabled={!ffmpegAvailable()}
                 />
-                <span>ffmpeg (uncheck for timeline-only mode)</span>
+                <span>ffmpeg chunk mode (uncheck for timeline-only mode)</span>
               </label>
             </div>
+            <Show when={!ffmpegAvailable()}>
+              <p class="item-meta">
+                ffmpeg is not installed on this node; stations will run in
+                timeline-only mode.
+              </p>
+            </Show>
             <div class="form-row" style={{ display: "flex", gap: "0.5rem" }}>
               <button type="submit" class="primary small" disabled={creating()}>
                 {creating() ? "creating..." : "create station"}
@@ -391,9 +416,11 @@ export default function RadioView() {
                       onClick={() => toggleTimelineOnly(s)}
                       disabled={savingId() === s.id}
                       title={
-                        s.timeline_only_mode
-                          ? "switch to ffmpeg chunk streaming"
-                          : "switch to timeline-only mode (no ffmpeg)"
+                        !ffmpegAvailable()
+                          ? "ffmpeg is unavailable on this node"
+                          : s.timeline_only_mode
+                            ? "switch to ffmpeg chunk streaming"
+                            : "switch to timeline-only mode (no ffmpeg)"
                       }
                     >
                       ffmpeg
@@ -899,6 +926,7 @@ function SongSuggestInput(props: SongSuggestInputProps) {
 interface RadioConfigPayload {
   enabled: boolean;
   encode_args: string;
+  ffmpeg_available?: boolean;
 }
 
 function RadioConfigSection(props: { dispatch: Dispatch }) {

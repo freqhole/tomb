@@ -48,6 +48,7 @@ pub async fn create_station(req: CreateStationRequest) -> GrimoireResult<RadioSt
     let pool = database::connect().await?;
     let is_public = req.is_public.unwrap_or(false) as i64;
     let is_enabled = req.is_enabled.unwrap_or(true) as i64;
+    let timeline_only_mode = req.timeline_only_mode.unwrap_or(false) as i64;
     let codec = req
         .codec
         .unwrap_or_else(|| crate::radio::config::MSE_CODEC.to_string());
@@ -56,8 +57,8 @@ pub async fn create_station(req: CreateStationRequest) -> GrimoireResult<RadioSt
     // sqlite generates id via DEFAULT (lower(hex(randomblob(8))))
     let id: String = sqlx::query_scalar!(
         r#"INSERT INTO radio_stationz
-              (name, description, is_public, is_enabled, encode_args, codec, play_mode)
-           VALUES (?, ?, ?, ?, ?, ?, ?)
+                  (name, description, is_public, is_enabled, encode_args, codec, play_mode, timeline_only_mode)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?)
            RETURNING id"#,
         req.name,
         req.description,
@@ -66,6 +67,7 @@ pub async fn create_station(req: CreateStationRequest) -> GrimoireResult<RadioSt
         req.encode_args,
         codec,
         play_mode,
+          timeline_only_mode,
     )
     .fetch_one(&pool)
     .await?;

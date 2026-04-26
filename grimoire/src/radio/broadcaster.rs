@@ -923,6 +923,7 @@ pub async fn init_registry() -> GrimoireResult<()> {
             encode_args: None,
             codec: None,
             play_mode: None,
+            timeline_only_mode: None,
         })
         .await?;
         stations_rows = vec![seed];

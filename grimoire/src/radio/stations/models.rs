@@ -44,6 +44,10 @@ pub struct CreateStationRequest {
     pub codec: Option<String>,
     #[serde(default)]
     pub play_mode: Option<String>,
+    /// when true the broadcaster will suppress the audio uni stream for
+    /// this station and serve only timeline control messages.
+    #[serde(default)]
+    pub timeline_only_mode: Option<bool>,
 }
 
 /// partial update — only present fields are written.

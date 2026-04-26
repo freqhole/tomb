@@ -599,7 +599,8 @@ export const CreateStationRequestSchema = z.object({
   is_enabled: z.boolean().nullish(),
   encode_args: z.string().nullish(),
   codec: z.string().nullish(),
-  play_mode: z.string().nullish()
+  play_mode: z.string().nullish(),
+  timeline_only_mode: z.boolean().nullish()
 });
 export type CreateStationRequest = z.infer<typeof CreateStationRequestSchema>;
 
@@ -2881,7 +2882,8 @@ export type RadioBumpersSetFrequencyRequest = z.infer<typeof RadioBumpersSetFreq
 
 export const RadioConfigPayloadSchema = z.object({
   enabled: z.boolean(),
-  encode_args: z.string()
+  encode_args: z.string(),
+  ffmpeg_available: z.boolean()
 });
 export type RadioConfigPayload = z.infer<typeof RadioConfigPayloadSchema>;
 
