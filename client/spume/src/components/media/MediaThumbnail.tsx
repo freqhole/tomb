@@ -25,6 +25,24 @@ function getThumbnailSizeForDisplay(displaySize: number | undefined): ThumbnailS
 }
 
 /**
+ * append `/thumb/{size}` to a remote url, but skip for known external image
+ * services (placeholder hosts, unsplash) that don't support our path convention.
+ */
+function withThumbSuffix(url: string, size?: ThumbnailSize): string {
+  if (!size) return url;
+  const lower = url.toLowerCase();
+  if (
+    lower.includes("picsum.photos") ||
+    lower.includes("placehold.co") ||
+    lower.includes("placekitten.com") ||
+    lower.includes("images.unsplash.com")
+  ) {
+    return url;
+  }
+  return `${url}/thumb/${size}`;
+}
+
+/**
  * get the URL for an image - handles local_blob_id, remote_url, P2P remotes, or legacy
  * @param thumbnailSize - optional thumbnail size for remote URLs (50 or 200)
  */
@@ -56,7 +74,7 @@ async function resolveImageUrl(
       } else {
         // standard HTTP remote - use URL directly
         if (image.remote_url) {
-          return thumbnailSize ? `${image.remote_url}/thumb/${thumbnailSize}` : image.remote_url;
+          return withThumbSuffix(image.remote_url, thumbnailSize);
         }
       }
     } catch (err) {
@@ -74,7 +92,7 @@ async function resolveImageUrl(
       );
       return null;
     }
-    return thumbnailSize ? `${image.remote_url}/thumb/${thumbnailSize}` : image.remote_url;
+    return withThumbSuffix(image.remote_url, thumbnailSize);
   }
 
   if (legacyUrl) {
@@ -132,20 +150,20 @@ export function MediaThumbnail(props: MediaThumbnailProps): JSX.Element {
       } else if (isP2P === false) {
         // known HTTP remote - use URL directly
         if (image.remote_url) {
-          return thumbSize ? `${image.remote_url}/thumb/${thumbSize}` : image.remote_url;
+          return withThumbSuffix(image.remote_url, thumbSize);
         }
       }
       // unknown transport - try P2P cache, else use URL optimistically
       const cached = getCachedP2PBlobUrl(image.remote_blob_id, image.remote_server_id, thumbSize);
       if (cached) return cached;
       if (image.remote_url) {
-        return thumbSize ? `${image.remote_url}/thumb/${thumbSize}` : image.remote_url;
+        return withThumbSuffix(image.remote_url, thumbSize);
       }
       return null;
     }
     // priority 3: just remote URL (no server ID)
     if (image?.remote_url) {
-      return thumbSize ? `${image.remote_url}/thumb/${thumbSize}` : image.remote_url;
+      return withThumbSuffix(image.remote_url, thumbSize);
     }
     if (props.thumbnailUrl) return props.thumbnailUrl;
     return null;

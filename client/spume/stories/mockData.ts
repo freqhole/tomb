@@ -82,6 +82,37 @@ export const mockTags: Tag[] = mockDataJson.tags;
 // import favorites from json and add required fields with defaults
 import type { FavoriteItem } from "../src/components/layout/FavoritesLayout";
 const rawFavorites = mockDataJson.favorites as any[];
+
+// normalize image entries from the json fixture: many were authored with a
+// `blob_id` field holding an external picsum URL, but the real ImageMetadata
+// shape uses `remote_url`/`local_blob_id`/`remote_blob_id`. fall back to a
+// generated placeholder when the entity has no images so cards render art.
+function normalizeFavoriteImages(item: any, fallbackSeed: string) {
+  const raw = (item.images ?? []) as any[];
+  const images = raw
+    .map((img) => {
+      if (!img) return null;
+      // legacy: blob_id field smuggling a URL — promote to remote_url
+      if (typeof img.blob_id === "string" && /^https?:\/\//.test(img.blob_id)) {
+        return {
+          remote_url: img.blob_id,
+          is_primary: img.is_primary ?? true,
+          blob_type: img.blob_type ?? "thumbnail",
+        };
+      }
+      return img;
+    })
+    .filter(Boolean);
+  if (images.length === 0) {
+    images.push({
+      remote_url: placeholderImage(fallbackSeed),
+      is_primary: true,
+      blob_type: "thumbnail",
+    });
+  }
+  return images;
+}
+
 export const mockFavorites: FavoriteItem[] = rawFavorites.map((item) => {
   if (item.type === "song") {
     return {
@@ -90,6 +121,7 @@ export const mockFavorites: FavoriteItem[] = rawFavorites.map((item) => {
       updated_at: item.updated_at ?? Date.now(),
       album_added_at: item.album_added_at ?? Date.now(),
       album_primary_genre_id: item.album_primary_genre_id ?? null,
+      images: normalizeFavoriteImages(item, `fav-song-${item.id}`),
     };
   }
   if (item.type === "album") {
@@ -97,6 +129,7 @@ export const mockFavorites: FavoriteItem[] = rawFavorites.map((item) => {
       ...item,
       created_at: item.created_at ?? Date.now(),
       updated_at: item.updated_at ?? Date.now(),
+      images: normalizeFavoriteImages(item, `fav-album-${item.album_id}`),
     };
   }
   if (item.type === "artist") {
@@ -104,6 +137,7 @@ export const mockFavorites: FavoriteItem[] = rawFavorites.map((item) => {
       ...item,
       created_at: item.created_at ?? Date.now(),
       updated_at: item.updated_at ?? Date.now(),
+      images: normalizeFavoriteImages(item, `fav-artist-${item.artist_id}`),
     };
   }
   if (item.type === "playlist") {
@@ -111,10 +145,18 @@ export const mockFavorites: FavoriteItem[] = rawFavorites.map((item) => {
       ...item,
       created_at: item.created_at ?? Date.now(),
       updated_at: item.updated_at ?? Date.now(),
+      images: normalizeFavoriteImages(item, `fav-playlist-${item.playlist_id}`),
     };
   }
   return item;
 }) as FavoriteItem[];
+
+// generate a deterministic placeholder image URL.
+// uses picsum.photos which MediaImage knows to skip the `/thumb/:size` suffix for.
+export function placeholderImage(seed: string | number, _label?: string): string {
+  const seedStr = encodeURIComponent(String(seed));
+  return `https://picsum.photos/seed/${seedStr}/300/300`;
+}
 
 // helper to get songs for a playlist
 export function getPlaylistSongs(playlistId: string): Song[] {
@@ -200,13 +242,13 @@ export function generateBulkSongs(count: number): DomainSong[] {
 
     const now = Date.now();
 
-    // give ~70% of songs a placeholder image (using picsum for variety)
+    // give ~70% of songs a placeholder image (svg data uri so it's resilient)
     const hasImage = i % 10 !== 7 && i % 10 !== 3 && i % 10 !== 9;
-    const imageId = (albumIndex * 17 + 100) % 1000; // consistent per album
+    const albumLabel = albumNames[albumIndex % albumNames.length];
     const images = hasImage
       ? [
           {
-            remote_url: `https://picsum.photos/seed/${imageId}/200/200`,
+            remote_url: placeholderImage(`album-${albumIndex}`, albumLabel),
             is_primary: true,
             blob_type: "thumbnail" as const,
           },
@@ -295,7 +337,9 @@ export function generateBulkAlbums(count: number): Array<{
       title: albumNames[i % albumNames.length],
       domainType: "album" as const,
       imageUrl:
-        i % 3 === 0 ? null : `https://picsum.photos/seed/album${i}/300/300`,
+        i % 3 === 0
+          ? null
+          : placeholderImage(`album-${i}`, albumNames[i % albumNames.length]),
       artist: artistNames[i % artistNames.length],
       album: albumNames[i % albumNames.length],
       year: 1970 + Math.floor(Math.random() * 50),
@@ -325,4 +369,382 @@ export function generateAlphabetArtists(): Array<{
       albumCount: artist.albumCount,
     }))
     .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+// =====================================================================
+// feed mock data
+// =====================================================================
+
+import type { FeedItem, FeedItemType } from "../src/music/data/types";
+import type { QueueHistoryEntry } from "../src/app/services/storage/types";
+import type { Song as DomainSongFull } from "../src/music/data/types";
+
+// deterministic pseudo-random
+function seededRand(seed: number): number {
+  const x = Math.sin(seed + 1) * 10000;
+  return x - Math.floor(x);
+}
+
+const feedUserNames = [
+  "nancy",
+  "sluggo",
+  "fritzi",
+  "rollo",
+  "butch",
+  "irma",
+  "oona goosepimple",
+  "phil fumble",
+];
+
+const feedTypes: FeedItemType[] = [
+  "recent_listen",
+  "recent_favorite",
+  "recent_album",
+  "recent_rating",
+  "recent_playlist",
+  "listen_session",
+];
+
+/**
+ * generate a deterministic page of FeedItems for stories. mirrors the structure
+ * used in VirtualFeedList.stories.tsx but pulls names/titles from the shared
+ * mock pools so feed entries align with songs/albums/artists elsewhere.
+ */
+export function generateFeedItems(
+  page: number,
+  pageSize = 30,
+  remote?: { id: string; name: string }
+): FeedItem[] {
+  const items: FeedItem[] = [];
+  const baseTs = Date.now() - page * pageSize * 120000;
+
+  const remoteSalt = remote
+    ? remote.id.split("").reduce((a, c) => a + c.charCodeAt(0), 0) * 1000
+    : 0;
+
+  const songTitles = mockSongs.length > 0 ? mockSongs.map((s) => s.title) : ["untitled"];
+  const albumNames = mockAlbums.map((a) => a.title);
+  const artistNames = mockArtists.map((a) => a.name);
+  const genres = mockGenres.map((g) => g.name);
+
+  for (let i = 0; i < pageSize; i++) {
+    const globalIdx = page * pageSize + i;
+    const base = globalIdx + remoteSalt;
+    const r1 = seededRand(base * 7);
+    const r2 = seededRand(base * 13);
+    const r3 = seededRand(base * 19);
+    const r4 = seededRand(base * 23);
+    const r5 = seededRand(base * 31);
+    const r6 = seededRand(base * 37);
+
+    const feedType = feedTypes[Math.floor(r1 * feedTypes.length)];
+    const user = feedUserNames[Math.floor(r2 * feedUserNames.length)];
+    const song = songTitles[Math.floor(r3 * songTitles.length)];
+    const album = albumNames[Math.floor(r4 * albumNames.length)];
+    const artist = artistNames[Math.floor(r5 * artistNames.length)];
+    const genre = genres[Math.floor(r6 * genres.length)];
+    const ts = baseTs - i * 120000;
+    const isSession = feedType === "listen_session";
+    const isAlbum = feedType === "recent_album";
+    const isPlaylist = feedType === "recent_playlist";
+    const hasRating = feedType === "recent_rating";
+
+    const imageSeed = isPlaylist
+      ? `playlist-${Math.floor(r3 * 20)}`
+      : isAlbum
+        ? `album-${Math.floor(r4 * 100)}`
+        : `feed-${globalIdx}`;
+
+    items.push({
+      id: remote ? `${remote.id}-feed-${globalIdx}` : `feed-${globalIdx}`,
+      feed_type: feedType,
+      song_id: !isSession && !isAlbum && !isPlaylist ? `song-${Math.floor(r3 * 200)}` : null,
+      album_id: !isPlaylist ? `album-${Math.floor(r4 * 100)}` : null,
+      artist_id: `artist-${Math.floor(r5 * 50)}`,
+      playlist_id: isPlaylist ? `playlist-${Math.floor(r3 * 20)}` : null,
+      title: isSession
+        ? `${artist} session`
+        : isAlbum
+          ? album
+          : isPlaylist
+            ? `${user}'s ${genre} mix`
+            : song,
+      subtitle: null,
+      images: [
+        {
+          remote_url: placeholderImage(imageSeed),
+          is_primary: true,
+          blob_type: "thumbnail" as const,
+        },
+      ],
+      created_at: ts,
+      user_id: `user-${Math.floor(r2 * feedUserNames.length)}`,
+      username: user,
+      play_count: feedType === "recent_listen" ? Math.floor(r6 * 50) + 1 : null,
+      rating: hasRating ? Math.floor(r6 * 5) + 1 : null,
+      target_type: null,
+      session_id: isSession ? `session-${globalIdx}` : null,
+      session_type: isSession ? "album" : null,
+      session_status: isSession ? (r6 > 0.5 ? "completed" : "active") : null,
+      progress_percent: isSession ? Math.floor(r6 * 100) : null,
+      songs_completed: isSession ? Math.floor(r6 * 12) : null,
+      total_songs: isSession ? 12 : null,
+      artist_name: artist,
+      album_title: isPlaylist ? null : album,
+      genre,
+      genre_id: `genre-${genre}`,
+      year: 1970 + Math.floor(r3 * 50),
+      song_count: isAlbum ? Math.floor(r4 * 12) + 3 : null,
+      songs_added: null,
+      total_duration_ms: isSession || isAlbum ? Math.floor(r5 * 3600000) + 600000 : null,
+      image_count: null,
+      urls: null,
+      description: isPlaylist ? "a curated selection of deep cuts" : null,
+      tags: r6 > 0.7 ? [genre, "vinyl", "remastered"].slice(0, Math.floor(r4 * 3) + 1) : null,
+      is_favorite: r3 > 0.7,
+      is_initial_add: isAlbum ? r5 > 0.5 : true,
+      collage_images: null,
+      entity_created_at: null,
+      remote_id: remote?.id ?? null,
+      remote_name: remote?.name ?? null,
+    });
+  }
+
+  return items;
+}
+
+// mock remotes used for the "all feed" (aggregate) view
+export const mockRemotes = [
+  { id: "remote-local", name: "local library" },
+  { id: "remote-bandcamp-mirror", name: "bandcamp mirror" },
+  { id: "remote-friends-house", name: "friends-house" },
+  { id: "remote-vinyl-rips", name: "vinyl rips" },
+];
+
+// =====================================================================
+// radio mock data
+// =====================================================================
+
+export interface MockRadioStation {
+  id: string;
+  name: string;
+  description: string;
+  codec: string;
+  play_mode: string;
+  is_public: boolean;
+  is_enabled: boolean;
+  listenerCount: number;
+  thumbnailUrl: string;
+  currentSong?: {
+    title: string;
+    artist: string;
+    album: string;
+    startedAt: number;
+  };
+}
+
+export const mockRadioStations: MockRadioStation[] = [
+  {
+    id: "radio-deep-cuts",
+    name: "deep cuts",
+    description: "obscure b-sides and rarities, hand-picked",
+    codec: "opus",
+    play_mode: "shuffle",
+    is_public: true,
+    is_enabled: true,
+    listenerCount: 12,
+    thumbnailUrl: placeholderImage("radio-deep-cuts"),
+    currentSong: {
+      title: "midnight blue",
+      artist: "kenny burrell",
+      album: "midnight blue",
+      startedAt: Date.now() - 145_000,
+    },
+  },
+  {
+    id: "radio-late-night-jazz",
+    name: "late night jazz",
+    description: "smooth tunes for after-hours wandering",
+    codec: "opus",
+    play_mode: "weighted_shuffle",
+    is_public: true,
+    is_enabled: true,
+    listenerCount: 47,
+    thumbnailUrl: placeholderImage("radio-late-night-jazz"),
+    currentSong: {
+      title: "round midnight",
+      artist: "thelonious monk",
+      album: "genius of modern music",
+      startedAt: Date.now() - 32_000,
+    },
+  },
+  {
+    id: "radio-warehouse",
+    name: "warehouse",
+    description: "industrial, ebm, and adjacent noise",
+    codec: "opus",
+    play_mode: "sequential",
+    is_public: false,
+    is_enabled: true,
+    listenerCount: 3,
+    thumbnailUrl: placeholderImage("radio-warehouse"),
+    currentSong: {
+      title: "headhunter",
+      artist: "front 242",
+      album: "front by front",
+      startedAt: Date.now() - 78_000,
+    },
+  },
+  {
+    id: "radio-sunday-morning",
+    name: "sunday morning",
+    description: "soft folk and ambient washes",
+    codec: "opus",
+    play_mode: "shuffle",
+    is_public: true,
+    is_enabled: false,
+    listenerCount: 0,
+    thumbnailUrl: placeholderImage("radio-sunday-morning"),
+  },
+];
+
+export interface MockRadioListen {
+  id: string;
+  stationId: string;
+  stationName: string;
+  songTitle: string;
+  artistName: string;
+  albumTitle: string;
+  playedAt: number;
+  durationSeconds: number;
+}
+
+export function generateRadioListenHistory(count = 20): MockRadioListen[] {
+  const out: MockRadioListen[] = [];
+  const now = Date.now();
+  for (let i = 0; i < count; i++) {
+    const r1 = seededRand(i * 11 + 1);
+    const r2 = seededRand(i * 17 + 3);
+    const station = mockRadioStations[Math.floor(r1 * mockRadioStations.length)];
+    const song = mockSongs[Math.floor(r2 * Math.max(mockSongs.length, 1))];
+    out.push({
+      id: `radio-listen-${i}`,
+      stationId: station.id,
+      stationName: station.name,
+      songTitle: song?.title ?? "untitled",
+      artistName: song?.artist ?? "unknown",
+      albumTitle: song?.album ?? "unknown",
+      playedAt: now - i * 3 * 60_000 - Math.floor(r2 * 60_000),
+      durationSeconds: 120 + Math.floor(r1 * 240),
+    });
+  }
+  return out;
+}
+
+// =====================================================================
+// queue history mock data
+// =====================================================================
+
+/**
+ * generate a deterministic list of queue history entries for stories.
+ * covers the mix of source types (album/artist/playlist/genre/shuffle/radio)
+ * with realistic listen-progress values.
+ */
+export function generateQueueHistory(
+  count = 10,
+  songSource?: DomainSongFull[]
+): QueueHistoryEntry[] {
+  const out: QueueHistoryEntry[] = [];
+  const now = Date.now();
+  const types: QueueHistoryEntry["type"][] = [
+    "album",
+    "artist",
+    "playlist",
+    "genre",
+    "shuffle",
+    "radio_station",
+    "song",
+  ];
+
+  for (let i = 0; i < count; i++) {
+    const r1 = seededRand(i * 13 + 5);
+    const r2 = seededRand(i * 19 + 7);
+    const r3 = seededRand(i * 23 + 11);
+    const type = types[i % types.length];
+    const songCount = type === "song" ? 1 : 4 + Math.floor(r1 * 12);
+    const songs = (songSource ?? []).slice(0, songCount);
+    const totalSeconds = songs.length > 0
+      ? songs.reduce((s, song) => s + (song.duration_seconds ?? 180), 0)
+      : songCount * 200;
+    const progress = r2;
+    const songsCompleted = Math.floor(progress * songCount);
+    const currentIndex = Math.min(songCount - 1, songsCompleted);
+    const listened = Math.floor(progress * totalSeconds);
+
+    let label = "";
+    let radioRef: QueueHistoryEntry["radio_station_ref"];
+    switch (type) {
+      case "album": {
+        const album = mockAlbums[i % mockAlbums.length];
+        label = `${album.artist} - ${album.title}`;
+        break;
+      }
+      case "artist": {
+        label = mockArtists[i % mockArtists.length].name;
+        break;
+      }
+      case "playlist": {
+        label = mockPlaylists[i % mockPlaylists.length].name;
+        break;
+      }
+      case "genre": {
+        label = mockGenres[i % mockGenres.length].name;
+        break;
+      }
+      case "shuffle": {
+        label = "shuffle all";
+        break;
+      }
+      case "radio_station": {
+        const station = mockRadioStations[i % mockRadioStations.length];
+        label = station.name;
+        radioRef = {
+          peer_addr: "local",
+          station_id: station.id,
+          station_name: station.name,
+          is_local: true,
+        };
+        break;
+      }
+      case "song": {
+        const song = songs[0] ?? mockSongs[i % mockSongs.length];
+        label = `${(song as any).artist ?? (song as any).artist_name ?? "unknown"} - ${song?.title ?? "untitled"}`;
+        break;
+      }
+    }
+
+    out.push({
+      id: `qh-${i}`,
+      type,
+      label,
+      entity_id: undefined,
+      remote_name: r3 > 0.7 ? "bandcamp mirror" : undefined,
+      song_count: songCount,
+      songs,
+      queued_at: now - i * 27 * 60_000,
+      image: {
+        remote_url: placeholderImage(`qh-${type}-${i}`),
+        is_primary: true,
+        blob_type: "thumbnail" as const,
+      },
+      listened_seconds: listened,
+      total_seconds: totalSeconds,
+      songs_completed: songsCompleted,
+      current_song_index: currentIndex,
+      current_song_position: Math.floor((listened % 200)),
+      radio_station_ref: radioRef,
+    });
+  }
+
+  return out;
 }

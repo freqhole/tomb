@@ -1,5 +1,6 @@
-import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import { createEffect, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import type { Meta, StoryObj } from "storybook-solidjs-vite";
+import { clearPageInfo, setPageInfo } from "../src/app/services/pageInfo";
 import { Button } from "../src/components/buttons/Button";
 import { IconButton } from "../src/components/buttons/IconButton";
 import {
@@ -9,8 +10,10 @@ import {
   StatsGrid,
 } from "../src/components/cards/StatsCard";
 import { SearchSortControls } from "../src/components/controls/SearchSortControls";
+import { Icon } from "../src/components/icons/registry";
+import { FavoritesLayout, type FavoriteItem } from "../src/components/layout/FavoritesLayout";
 import { HeadingSection } from "../src/components/layout/HeadingSection";
-import { ResponsiveMasterDetail } from "../src/components/layout/TwoColumnLayout";
+import { ResponsiveMasterDetail, TwoColumnLayout } from "../src/components/layout/TwoColumnLayout";
 import { DraggableRow, DraggableRowSongContent } from "../src/components/lists/DraggableRow";
 import { AlphabetNav } from "../src/components/navigation/AlphabetNav";
 import { TopNav } from "../src/components/navigation/TopNav";
@@ -18,15 +21,24 @@ import { TopNavSearch } from "../src/components/navigation/TopNavSearch";
 import { PlayerBar } from "../src/components/player/PlayerBar";
 import { QueueSidebar } from "../src/components/player/QueueSidebar";
 import { VirtualAlbumGrid } from "../src/components/virtualized/VirtualAlbumGrid";
+import { VirtualFeedList } from "../src/components/virtualized/VirtualFeedList";
 import { VirtualSongList } from "../src/components/virtualized/VirtualSongList";
 import type { Song as DomainSong } from "../src/music/data/types";
 import { isNarrowViewport } from "../src/config/breakpoints";
+import { QueryClient, QueryClientProvider } from "@tanstack/solid-query";
 import {
   generateBulkSongs,
+  generateFeedItems,
+  generateQueueHistory,
+  generateRadioListenHistory,
   mockAlbums,
   mockArtists,
+  mockFavorites,
   mockGenres,
   mockPlaylists,
+  mockRadioStations,
+  mockRemotes,
+  placeholderImage,
   type Artist,
   type Genre,
   type Playlist,
@@ -49,7 +61,23 @@ type Story = StoryObj<typeof meta>;
 // generate reusable mock songs
 const generatedSongs = generateBulkSongs(100);
 
-type Route = "songs" | "albums" | "artists" | "genres" | "playlists" | "favorites";
+type Route =
+  | "songs"
+  | "albums"
+  | "artists"
+  | "genres"
+  | "playlists"
+  | "favorites"
+  | "feed"
+  | "radio";
+
+// alias the shared placeholder helper for brevity
+const placeholderSvg = placeholderImage;
+
+// shared query client for stories — VirtualFeedList's FavoriteToggle needs this
+const storyQueryClient = new QueryClient({
+  defaultOptions: { queries: { enabled: false } },
+});
 
 const artistSortFields = [
   { value: "name", label: "name", description: "sort by artist name" },
@@ -81,6 +109,9 @@ export const FullAppDemo: Story = {
     // navigation state
     const [currentRoute, setCurrentRoute] = createSignal<Route>("songs");
     const [_topNavOpen, setTopNavOpen] = createSignal(false);
+    // tracks pointer over the TopNav root so the inner TopNavSearch knows
+    // when to auto-collapse on hover-out (matches real-app behavior)
+    const [topNavHovered, setTopNavHovered] = createSignal(false);
 
     // player state
     const [currentSong, setCurrentSong] = createSignal<Song | null>(generatedSongs[0]);
@@ -93,14 +124,22 @@ export const FullAppDemo: Story = {
 
     // responsive: track if viewport is narrow (<= 800px)
     const [isNarrow, setIsNarrow] = createSignal(isNarrowViewport());
+    // track viewport height for virtualized list sizing
+    const [viewportHeight, setViewportHeight] = createSignal(window.innerHeight);
 
     onMount(() => {
       const handleResize = () => {
         setIsNarrow(isNarrowViewport());
+        setViewportHeight(window.innerHeight);
       };
       window.addEventListener("resize", handleResize);
       onCleanup(() => window.removeEventListener("resize", handleResize));
     });
+
+    // available height for virtualized lists/grids inside main content area.
+    // accounts for: TopNav (~60px), HeadingSection + margins (~60px), player bar (~80px).
+    const listHeight = () => Math.max(320, viewportHeight() - 180);
+    const gridHeight = () => Math.max(320, viewportHeight() - 140);
 
     // compute page title and count based on current route
     const pageInfo = () => {
@@ -116,8 +155,11 @@ export const FullAppDemo: Story = {
         case "playlists":
           return { title: "playlists", count: mockPlaylists.length };
         case "favorites":
-          // mock: assume 25 favorites
-          return { title: "favorites", count: 25 };
+          return { title: "favorites", count: mockFavorites.length };
+        case "feed":
+          return { title: "feed", count: undefined };
+        case "radio":
+          return { title: "radio", count: mockRadioStations.length };
         default:
           return { title: undefined, count: undefined };
       }
@@ -309,6 +351,190 @@ export const FullAppDemo: Story = {
       setCurrentRoute(route);
       setTopNavOpen(false); // close topnav after navigation
     };
+
+    // ===== per-view filter/sort mock data feeding TopNav's pageInfo store =====
+    // these mirror what the real views push via setPageInfo(), letting the
+    // TopNav render its sort flyout, tag filter picker, and feed-type filter
+    // controls. handlers are no-ops/local state — they don't actually filter.
+    const songSortFields = [
+      { value: "title", label: "title", description: "song title" },
+      { value: "artist_name", label: "artist", description: "artist name" },
+      { value: "album_title", label: "album", description: "album title" },
+      { value: "added_at", label: "added", description: "date added" },
+      { value: "duration_seconds", label: "duration", description: "track length" },
+    ];
+    const albumSortFields = [
+      { value: "title", label: "title" },
+      { value: "artist_name", label: "artist" },
+      { value: "year", label: "year" },
+      { value: "added_at", label: "added" },
+    ];
+    const playlistSortFields = [
+      { value: "title", label: "title" },
+      { value: "song_count", label: "songs" },
+      { value: "updated_at", label: "updated" },
+    ];
+    const favoritesSortFields = [
+      { value: "added_at", label: "added" },
+      { value: "title", label: "title" },
+    ];
+    const mockTagOptions = [
+      { value: "rock", label: "rock", count: 142 },
+      { value: "electronic", label: "electronic", count: 89 },
+      { value: "ambient", label: "ambient", count: 47 },
+      { value: "jazz", label: "jazz", count: 33 },
+      { value: "favorite", label: "favorite", count: 24 },
+    ];
+    const mockFeedTypes = [
+      { value: "recent_listen", label: "listens" },
+      { value: "favorite_added", label: "favorites" },
+      { value: "playlist_updated", label: "playlists" },
+      { value: "rating_added", label: "ratings" },
+      { value: "song_added", label: "added" },
+    ];
+
+    const [storySortBy, setStorySortBy] = createSignal("added_at");
+    const [storySortDir, setStorySortDir] = createSignal<"asc" | "desc">("desc");
+    const [storyTagFilters, setStoryTagFilters] = createSignal<
+      { tag: string; mode: "include" | "exclude" }[]
+    >([]);
+    const [storyFeedTypes, setStoryFeedTypes] = createSignal<
+      { type: string; mode: "include" | "exclude" }[]
+    >([]);
+    const [storyMyItemsOnly, setStoryMyItemsOnly] = createSignal(false);
+
+    const tagHandlers = {
+      onAddTag: (tag: string) =>
+        setStoryTagFilters([...storyTagFilters(), { tag, mode: "include" as const }]),
+      onRemoveTag: (tag: string) =>
+        setStoryTagFilters(storyTagFilters().filter((f) => f.tag !== tag)),
+      onToggleTagMode: (tag: string) =>
+        setStoryTagFilters(
+          storyTagFilters().map((f) =>
+            f.tag === tag ? { ...f, mode: f.mode === "include" ? "exclude" : "include" } : f
+          )
+        ),
+      onClearAllTags: () => setStoryTagFilters([]),
+    };
+
+    const feedTypeHandlers = {
+      onToggleFeedType: (type: string) => {
+        const cur = storyFeedTypes();
+        const has = cur.find((f) => f.type === type);
+        setStoryFeedTypes(
+          has ? cur.filter((f) => f.type !== type) : [...cur, { type, mode: "include" as const }]
+        );
+      },
+      onToggleFeedTypeMode: (type: string) =>
+        setStoryFeedTypes(
+          storyFeedTypes().map((f) =>
+            f.type === type ? { ...f, mode: f.mode === "include" ? "exclude" : "include" } : f
+          )
+        ),
+      onRemoveFeedType: (type: string) =>
+        setStoryFeedTypes(storyFeedTypes().filter((f) => f.type !== type)),
+      onClearFeedTypes: () => setStoryFeedTypes([]),
+      onToggleMyItems: () => setStoryMyItemsOnly(!storyMyItemsOnly()),
+    };
+
+    createEffect(() => {
+      const route = currentRoute();
+      const baseSort = {
+        sortBy: storySortBy(),
+        sortDirection: storySortDir(),
+        onSortChange: (field: string, dir: "asc" | "desc") => {
+          setStorySortBy(field);
+          setStorySortDir(dir);
+        },
+      };
+      const baseTags = {
+        availableTags: mockTagOptions,
+        selectedTagFilters: storyTagFilters(),
+        ...tagHandlers,
+      };
+      switch (route) {
+        case "songs":
+          setPageInfo({
+            title: "songs",
+            count: generatedSongs.length,
+            sortFields: songSortFields,
+            defaultSortBy: "added_at",
+            defaultSortDirection: "desc",
+            ...baseSort,
+            ...baseTags,
+          });
+          break;
+        case "albums":
+          setPageInfo({
+            title: "albums",
+            count: mockAlbums.length,
+            sortFields: albumSortFields,
+            defaultSortBy: "added_at",
+            defaultSortDirection: "desc",
+            ...baseSort,
+            ...baseTags,
+          });
+          break;
+        case "artists":
+          setPageInfo({
+            title: "artists",
+            count: mockArtists.length,
+            sortFields: artistSortFields,
+            defaultSortBy: "name",
+            defaultSortDirection: "asc",
+            ...baseSort,
+          });
+          break;
+        case "genres":
+          setPageInfo({
+            title: "genres",
+            count: mockGenres.length,
+            sortFields: genreSortFields,
+            defaultSortBy: "name",
+            defaultSortDirection: "asc",
+            ...baseSort,
+          });
+          break;
+        case "playlists":
+          setPageInfo({
+            title: "playlists",
+            count: mockPlaylists.length,
+            sortFields: playlistSortFields,
+            defaultSortBy: "updated_at",
+            defaultSortDirection: "desc",
+            ...baseSort,
+          });
+          break;
+        case "favorites":
+          setPageInfo({
+            title: "favorites",
+            count: mockFavorites.length,
+            sortFields: favoritesSortFields,
+            defaultSortBy: "added_at",
+            defaultSortDirection: "desc",
+            ...baseSort,
+            ...baseTags,
+          });
+          break;
+        case "feed":
+          setPageInfo({
+            title: "feed",
+            feedTypeOptions: mockFeedTypes,
+            selectedFeedTypes: storyFeedTypes(),
+            myItemsOnly: storyMyItemsOnly(),
+            ...feedTypeHandlers,
+          });
+          break;
+        case "radio":
+          // TopNav hides controls on /radio anyway
+          setPageInfo({ title: "radio", count: mockRadioStations.length });
+          break;
+        default:
+          clearPageInfo();
+      }
+    });
+
+    onCleanup(() => clearPageInfo());
 
     // player handlers
     const handlePlayPause = () => {
@@ -832,7 +1058,7 @@ export const FullAppDemo: Story = {
         <div class="mt-2 wide:mt-6">
           <VirtualSongList
             songs={generatedSongs}
-            height={window.innerHeight - 240}
+            height={listHeight()}
             onSongClick={(song) => {
               setCurrentSong(song);
             }}
@@ -857,7 +1083,7 @@ export const FullAppDemo: Story = {
               id: a.id,
               title: a.title,
               domainType: "album" as const,
-              imageUrl: a.thumbnailUrl,
+              imageUrl: placeholderSvg(a.id, a.title),
               artist: a.artist,
               album: a.title,
               year: a.year,
@@ -866,7 +1092,7 @@ export const FullAppDemo: Story = {
               genres: "rock",
               playCount: 100,
             }))}
-            height={window.innerHeight - 180}
+            height={gridHeight()}
             cardSize="medium"
             showYear={true}
             onAlbumClick={(album) => {
@@ -881,25 +1107,294 @@ export const FullAppDemo: Story = {
     );
 
     // ===== FAVORITES VIEW =====
-    const favoriteSongs = generatedSongs.slice(0, 25); // mock: first 25 songs as favorites
+    const [favoritesList, setFavoritesList] = createSignal<FavoriteItem[]>(mockFavorites);
+    const getFavoriteId = (item: FavoriteItem): string => {
+      if (item.type === "song") return item.id;
+      if (item.type === "album") return item.album_id;
+      if (item.type === "artist") return item.artist_id;
+      if (item.type === "playlist") return item.playlist_id;
+      return "";
+    };
     const favoritesView = () => (
+      <div class="h-full ml-0 wide:ml-[100px]">
+        <FavoritesLayout
+          favorites={favoritesList()}
+          height={listHeight() + 60}
+          onSongClick={(song) => {
+            setCurrentSong(song as DomainSong);
+          }}
+          onSongPlay={(song) => {
+            setCurrentSong(song as DomainSong);
+            setIsPlaying(true);
+          }}
+          onSongFavoriteToggle={(songId, isFavorite) => {
+            if (!isFavorite) {
+              setFavoritesList((prev) => prev.filter((fav) => getFavoriteId(fav) !== songId));
+            }
+          }}
+          onAlbumClick={(album) => console.log("album click:", album)}
+          onAlbumPlay={(album) => console.log("album play:", album)}
+          onAlbumFavoriteToggle={(albumId, isFavorite) => {
+            if (!isFavorite) {
+              setFavoritesList((prev) => prev.filter((fav) => getFavoriteId(fav) !== albumId));
+            }
+          }}
+          onArtistClick={(artist) => console.log("artist click:", artist)}
+          onArtistPlay={(artist) => console.log("artist play:", artist)}
+          onArtistFavoriteToggle={(artistId, isFavorite) => {
+            if (!isFavorite) {
+              setFavoritesList((prev) => prev.filter((fav) => getFavoriteId(fav) !== artistId));
+            }
+          }}
+          onPlaylistClick={(playlist) => {
+            navigateTo("playlists");
+            const found = mockPlaylists.find((p) => p.id === playlist.playlist_id);
+            if (found) setSelectedPlaylist(found);
+          }}
+          onPlaylistPlay={(playlist) => console.log("playlist play:", playlist)}
+          onPlaylistFavoriteToggle={(playlistId, isFavorite) => {
+            if (!isFavorite) {
+              setFavoritesList((prev) => prev.filter((fav) => getFavoriteId(fav) !== playlistId));
+            }
+          }}
+          onArtistNavigate={(artistId) => console.log("navigate to artist:", artistId)}
+          onAlbumNavigate={(albumId) => console.log("navigate to album:", albumId)}
+          onGenreClick={(genre) => console.log("genre click:", genre)}
+        />
+      </div>
+    );
+
+    // ===== FEED VIEW =====
+    // mix of "my feed" (one source) and "all feed" (multiple remotes). we render
+    // the aggregate (all) feed so users can see remote attribution badges.
+    const feedItems = () => {
+      const items = mockRemotes.flatMap((remote) => generateFeedItems(0, 12, remote));
+      // interleave by created_at so they appear chronologically
+      return items.sort((a, b) => b.created_at - a.created_at);
+    };
+    const feedView = () => (
       <div class="p-3">
         <div class="ml-0 wide:ml-[100px]">
-          <HeadingSection title="favorites" count={favoriteSongs.length} hideOnNarrow />
+          <HeadingSection title="all feed" count={feedItems().length} hideOnNarrow />
         </div>
         <div class="mt-2 wide:mt-6">
-          <VirtualSongList
-            songs={favoriteSongs}
-            height={window.innerHeight - 240}
-            onSongClick={(song) => {
-              setCurrentSong(song);
-            }}
-            onSongDoubleClick={(song) => {
-              setCurrentSong(song);
-              setIsPlaying(true);
-            }}
+          <VirtualFeedList
+            items={feedItems()}
+            height={listHeight()}
+            onItemClick={(item) => console.log("feed item:", item.id, item.title)}
+            onGenreClick={(genreId) => console.log("genre:", genreId)}
+            onAddToQueue={(item) => console.log("add to queue:", item.title)}
+            scrollKey="super-story-feed"
           />
         </div>
+      </div>
+    );
+
+    // ===== RADIO VIEW =====
+    const [selectedStation, setSelectedStation] = createSignal(mockRadioStations[0]);
+    const [showRadioDetail, setShowRadioDetail] = createSignal(false);
+    const radioListens = generateRadioListenHistory(25);
+    const listensForSelected = () => {
+      const sel = selectedStation();
+      if (!sel) return [] as ReturnType<typeof generateRadioListenHistory>;
+      return radioListens.filter((l) => l.stationId === sel.id);
+    };
+
+    const tuneStation = (station: (typeof mockRadioStations)[number]) => {
+      setSelectedStation(station);
+      setShowRadioDetail(true);
+      if (station.currentSong) {
+        const songStub = {
+          id: `radio-${station.id}-current`,
+          sha256: `radio-${station.id}-current`,
+          title: station.currentSong.title,
+          artist_name: station.currentSong.artist,
+          album_title: station.currentSong.album,
+          duration_seconds: 240,
+          is_favorite: false,
+        } as unknown as DomainSong;
+        setCurrentSong(songStub);
+        setIsPlaying(true);
+      }
+    };
+
+    const radioLeftColumn = () => (
+      <div class="flex flex-col h-full min-h-0 pt-2 wide:pt-[60px]">
+        <header class="flex items-center justify-between gap-2 px-3 py-3">
+          <h1 class="text-lg font-bold">
+            radio station<span class="text-[var(--color-accent-500)]">z</span>
+          </h1>
+          <button
+            type="button"
+            class="text-xs px-2 py-1 rounded bg-[var(--color-bg-secondary)] hover:bg-[var(--color-bg-hover)]"
+          >
+            refresh
+          </button>
+        </header>
+        <div class="flex-1 min-h-0 overflow-y-auto p-2">
+          <section class="mb-4">
+            <div class="flex items-center justify-between px-2 mb-1">
+              <h2 class="text-[11px] uppercase tracking-wide text-[var(--color-text-tertiary)] truncate">
+                local
+              </h2>
+            </div>
+            <ul>
+              <For each={mockRadioStations}>
+                {(station) => {
+                  const isCurrent = () => selectedStation()?.id === station.id;
+                  return (
+                    <li>
+                      <button
+                        type="button"
+                        class="w-full text-left flex items-center gap-2 p-2 rounded transition"
+                        classList={{
+                          "bg-[var(--color-accent-500)]/20": isCurrent(),
+                          "hover:bg-[var(--color-bg-hover)]": !isCurrent(),
+                        }}
+                        onClick={() => tuneStation(station)}
+                      >
+                        <div class="flex-shrink-0 w-10 h-10 rounded overflow-hidden bg-gradient-to-br from-purple-700 to-indigo-900 flex items-center justify-center">
+                          <img
+                            src={station.thumbnailUrl}
+                            alt=""
+                            class="w-full h-full object-cover"
+                            loading="lazy"
+                          />
+                        </div>
+                        <div class="flex-1 min-w-0">
+                          <div class="text-sm font-medium truncate">{station.name}</div>
+                          <div class="text-[11px] text-[var(--color-text-tertiary)] truncate">
+                            {station.listenerCount} listening
+                            <Show when={station.currentSong}>{(cur) => <> · {cur().title}</>}</Show>
+                          </div>
+                        </div>
+                      </button>
+                    </li>
+                  );
+                }}
+              </For>
+            </ul>
+          </section>
+        </div>
+      </div>
+    );
+
+    const radioRightColumn = () => (
+      <div class="flex flex-col h-full min-h-0">
+        <Show
+          when={selectedStation()}
+          fallback={
+            <div class="flex-1 overflow-y-auto flex flex-col items-center text-center p-8 text-[var(--color-text-tertiary)]">
+              <div class="w-32 h-32 rounded-lg bg-gradient-to-tr from-magenta-900 to-purple-700 flex items-center justify-center mb-4">
+                <span class="text-xs font-bold tracking-widest opacity-60 text-white">
+                  <Icon name="radioTower" size={64} />R A D I O
+                </span>
+              </div>
+              <p class="text-sm max-w-xs mb-8">
+                pick a station from the list to tune in && tune out.
+              </p>
+            </div>
+          }
+        >
+          {(station) => (
+            <div class="flex-1 min-h-0 overflow-y-auto">
+              <div class="px-6 pb-6 pt-3 wide:pt-6 max-w-3xl mx-auto w-full h-full min-h-0 flex flex-col">
+                <header class="flex items-center gap-4 mb-6">
+                  <div class="flex-shrink-0">
+                    <div class="w-32 h-32 sm:w-40 sm:h-40 rounded-lg overflow-hidden bg-gradient-to-br from-purple-700 to-indigo-900">
+                      <img src={station().thumbnailUrl} alt="" class="w-full h-full object-cover" />
+                    </div>
+                  </div>
+                  <div class="flex-1 min-w-0">
+                    <div class="flex items-center justify-between gap-3 mb-1 min-h-8">
+                      <div class="text-xs uppercase tracking-wide text-[var(--color-text-tertiary)]">
+                        now playing
+                      </div>
+                      <button
+                        type="button"
+                        class="wide:hidden text-xs px-2 py-1 rounded bg-[var(--color-bg-secondary)] hover:bg-[var(--color-bg-hover)] flex items-center gap-1 flex-shrink-0"
+                        onClick={() => setShowRadioDetail(false)}
+                        aria-label="back to station list"
+                      >
+                        <span aria-hidden="true">←</span> back
+                      </button>
+                    </div>
+                    <Show when={station().currentSong} fallback={<div>—</div>}>
+                      {(np) => (
+                        <>
+                          <div class="text-2xl font-bold truncate">{np().title}</div>
+                          <div class="text-base text-[var(--color-text-secondary)] truncate">
+                            {np().artist} — {np().album}
+                          </div>
+                        </>
+                      )}
+                    </Show>
+                    <div class="mt-3 text-sm text-[var(--color-text-tertiary)]">
+                      <div class="font-medium">{station().name}</div>
+                      <Show when={station().description}>
+                        <div class="text-xs">{station().description}</div>
+                      </Show>
+                      <div class="text-xs mt-1">
+                        {station().listenerCount} listener
+                        {station().listenerCount === 1 ? "" : "s"} · {station().codec} ·{" "}
+                        {station().play_mode}
+                      </div>
+                      <button
+                        type="button"
+                        class="mt-2 text-xs px-2 py-1 rounded bg-[var(--color-bg-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-secondary)] transition-colors"
+                      >
+                        share
+                      </button>
+                    </div>
+                  </div>
+                </header>
+
+                <div class="flex-1 min-h-0">
+                  <h3 class="text-sm font-semibold text-[var(--color-text-primary)] mb-2">
+                    recent listens
+                  </h3>
+                  <div class="space-y-1">
+                    <For
+                      each={listensForSelected().length > 0 ? listensForSelected() : radioListens}
+                    >
+                      {(listen) => (
+                        <div class="flex items-center gap-3 p-2 bg-[var(--color-bg-secondary)] rounded text-sm">
+                          <span class="text-xs px-2 py-0.5 rounded bg-[var(--color-bg-tertiary)] text-[var(--color-text-tertiary)] shrink-0">
+                            {listen.stationName}
+                          </span>
+                          <div class="flex-1 min-w-0">
+                            <div class="text-[var(--color-text-primary)] truncate">
+                              {listen.artistName} — {listen.songTitle}
+                            </div>
+                            <div class="caption truncate">{listen.albumTitle}</div>
+                          </div>
+                          <div class="monospace caption text-[var(--color-text-muted)] shrink-0">
+                            {formatDuration(listen.durationSeconds)}
+                          </div>
+                          <div class="caption text-[var(--color-text-tertiary)] shrink-0">
+                            {Math.floor((Date.now() - listen.playedAt) / 60_000)}m ago
+                          </div>
+                        </div>
+                      )}
+                    </For>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </Show>
+      </div>
+    );
+
+    const radioView = () => (
+      <div class="ml-0 wide:ml-[100px] h-full">
+        <TwoColumnLayout
+          leftColumn={radioLeftColumn()}
+          rightColumn={radioRightColumn()}
+          leftColumnWidth={320}
+          showDetail={showRadioDetail()}
+          onBack={() => setShowRadioDetail(false)}
+        />
       </div>
     );
 
@@ -918,6 +1413,10 @@ export const FullAppDemo: Story = {
           return genresView();
         case "playlists":
           return playlistsView();
+        case "feed":
+          return feedView();
+        case "radio":
+          return radioView();
         default:
           return artistsView();
       }
@@ -926,128 +1425,174 @@ export const FullAppDemo: Story = {
     const playerBarHeight = () => "var(--player-height)";
 
     return (
-      <div
-        class="h-screen flex flex-col bg-[var(--color-bg-primary)]"
-        style={{ "--player-bar-height": playerBarHeight() }}
-      >
-        {/* top navigation */}
-        <TopNav
-          brandName="freqhole"
-          brandTagline="your music library"
-          searchPlaceholder="search artists, albums, songs..."
-          searchComponent={
-            <TopNavSearch
-              placeholder="search artists, albums, songs..."
-              suggestions={mockSearchSuggestions()}
-              onSearchChange={setSearchValue}
-              onNavigate={(path) => console.log("navigate:", path)}
-              currentPath={`/${currentRoute()}`}
-            />
-          }
-          onSearchChange={(query) => console.log("search:", query)}
-          onSearchSubmit={(query) => console.log("search submit:", query)}
-          mainNavSections={[
-            {
-              items: [
-                {
-                  label: "songs",
-                  onClick: () => navigateTo("songs"),
-                },
-                {
-                  label: "albums",
-                  onClick: () => navigateTo("albums"),
-                },
-                {
-                  label: "artists",
-                  onClick: () => navigateTo("artists"),
-                },
-                {
-                  label: "genres",
-                  onClick: () => navigateTo("genres"),
-                },
-                {
-                  label: "playlists",
-                  onClick: () => navigateTo("playlists"),
-                },
-                {
-                  label: "favorites",
-                  onClick: () => navigateTo("favorites"),
-                },
-              ],
-            },
-          ]}
-          recentPlaylists={mockPlaylists.slice(0, 5).map((playlist, index) => ({
-            id: playlist.id,
-            name: playlist.name,
-            thumbnailUrl: null,
-            updatedAt: Date.now() - index * 3600000,
-            onClick: () => {
-              navigateTo("playlists");
-              setSelectedPlaylist(playlist);
-            },
-          }))}
-          onViewAllPlaylists={() => navigateTo("playlists")}
-          pageTitle={pageInfo().title}
-          pageCount={pageInfo().count}
-        />
-
-        {/* main content area + queue */}
+      <QueryClientProvider client={storyQueryClient}>
         <div
-          class="flex-1 overflow-hidden flex"
-          style={{
-            "padding-top": isNarrow() ? "var(--nav-height)" : undefined,
-            "padding-bottom": "var(--player-bar-height)",
-          }}
+          class="h-screen flex flex-col bg-[var(--color-bg-primary)]"
+          style={{ "--player-bar-height": playerBarHeight() }}
         >
-          {/* main content */}
-          <div class="flex-1 overflow-hidden">{mainContent()}</div>
-
-          {/* queue sidebar - responsive: bottom sheet on narrow, sidebar on wide */}
-          <QueueSidebar
-            isOpen={queueOpen()}
-            variant="overlay"
-            songs={queueSongs()}
-            currentIndex={currentQueueIndex()}
-            onClose={() => setQueueOpen(false)}
-            onSongClick={handleQueueSongClick}
-            onRemoveSong={handleRemoveFromQueue}
-            onClearAll={() => setQueueSongs([])}
-            historyEntries={[]}
-          />
-        </div>
-
-        {/* player bar */}
-        <Show when={currentSong()}>
-          {(song) => (
-            <PlayerBar
-              song={{
-                id: song().id,
-                title: song().title,
-                artist: song().artist_name,
-                album: song().album_title,
-                thumbnailUrl: "",
-                isFavorite: song().is_favorite ?? false,
+          {/* top navigation */}
+          <div
+            onMouseEnter={() => setTopNavHovered(true)}
+            onMouseLeave={() => setTopNavHovered(false)}
+          >
+            <TopNav
+              brandName="freqhole"
+              brandTagline="your music library"
+              currentPath={`/${currentRoute()}`}
+              searchPlaceholder="search artists, albums, songs..."
+              searchComponent={
+                <TopNavSearch
+                  placeholder="search artists, albums, songs..."
+                  suggestions={mockSearchSuggestions()}
+                  onSearchChange={setSearchValue}
+                  onNavigate={(path) => console.log("navigate:", path)}
+                  currentPath={`/${currentRoute()}`}
+                  navHovered={topNavHovered()}
+                />
+              }
+              onSearchChange={(query) => console.log("search:", query)}
+              onSearchSubmit={(query) => console.log("search submit:", query)}
+              mainNavSections={[
+                {
+                  items: [
+                    {
+                      label: "songs",
+                      onClick: () => navigateTo("songs"),
+                    },
+                    {
+                      label: "albums",
+                      onClick: () => navigateTo("albums"),
+                    },
+                    {
+                      label: "artists",
+                      onClick: () => navigateTo("artists"),
+                    },
+                    {
+                      label: "genres",
+                      onClick: () => navigateTo("genres"),
+                    },
+                    {
+                      label: "playlists",
+                      onClick: () => navigateTo("playlists"),
+                    },
+                    {
+                      label: "favorites",
+                      onClick: () => navigateTo("favorites"),
+                    },
+                    {
+                      label: "feed",
+                      onClick: () => navigateTo("feed"),
+                    },
+                    {
+                      label: "radio",
+                      onClick: () => navigateTo("radio"),
+                    },
+                  ],
+                },
+              ]}
+              recentPlaylists={mockPlaylists.slice(0, 5).map((playlist, index) => ({
+                id: playlist.id,
+                name: playlist.name,
+                thumbnailUrl: placeholderSvg(playlist.id, playlist.name),
+                updatedAt: Date.now() - index * 3600000,
+                onClick: () => {
+                  navigateTo("playlists");
+                  setSelectedPlaylist(playlist);
+                },
+              }))}
+              onViewAllPlaylists={() => navigateTo("playlists")}
+              pageTitle={pageInfo().title}
+              pageCount={pageInfo().count}
+              viewOptions={[
+                { label: "songs", path: "/songs", count: generatedSongs.length },
+                { label: "albums", path: "/albums", count: mockAlbums.length },
+                { label: "artists", path: "/artists", count: mockArtists.length },
+                { label: "genres", path: "/genres", count: mockGenres.length },
+                { label: "playlists", path: "/playlists", count: mockPlaylists.length },
+                { label: "favorites", path: "/favorites", count: mockFavorites.length },
+                { label: "feed", path: "/feed" },
+                { label: "radio", path: "/radio", count: mockRadioStations.length },
+              ]}
+              onNavigate={(path) => {
+                const route = path.replace(/^\//, "") as Route;
+                if (
+                  route === "songs" ||
+                  route === "albums" ||
+                  route === "artists" ||
+                  route === "genres" ||
+                  route === "playlists" ||
+                  route === "favorites" ||
+                  route === "feed" ||
+                  route === "radio"
+                ) {
+                  navigateTo(route);
+                }
               }}
-              isPlaying={isPlaying()}
-              volume={volume()}
-              currentTime={currentTime()}
-              duration={song().duration_seconds}
-              queueOpen={queueOpen()}
-              onPlayPause={handlePlayPause}
-              onPrevious={() => handleSkip("prev")}
-              onNext={() => handleSkip("next")}
-              onSeek={(percentage) => {
-                const duration = song().duration_seconds;
-                const timeInSeconds = (percentage / 100) * duration;
-                setCurrentTime(timeInSeconds);
-              }}
-              onVolumeChange={(vol) => setVolume(vol)}
-              onQueueToggle={() => setQueueOpen(!queueOpen())}
-              queueLength={queueSongs().length}
             />
-          )}
-        </Show>
-      </div>
+          </div>
+
+          {/* main content area + queue */}
+          <div
+            class="flex-1 overflow-hidden flex"
+            style={{
+              "padding-top": isNarrow() ? "var(--nav-height)" : undefined,
+              "padding-bottom": "var(--player-bar-height)",
+            }}
+          >
+            {/* main content */}
+            <div class="flex-1 overflow-hidden">{mainContent()}</div>
+
+            {/* queue sidebar - responsive: bottom sheet on narrow, sidebar on wide */}
+            <QueueSidebar
+              isOpen={queueOpen()}
+              variant="overlay"
+              songs={queueSongs()}
+              currentIndex={currentQueueIndex()}
+              onClose={() => setQueueOpen(false)}
+              onSongClick={handleQueueSongClick}
+              onRemoveSong={handleRemoveFromQueue}
+              onClearAll={() => setQueueSongs([])}
+              historyEntries={generateQueueHistory(12, generatedSongs as DomainSong[])}
+              onReplayHistoryEntry={(entry) => console.log("replay history entry:", entry.label)}
+            />
+          </div>
+
+          {/* player bar */}
+          <Show when={currentSong()}>
+            {(song) => (
+              <PlayerBar
+                song={{
+                  id: song().id,
+                  title: song().title,
+                  artist: song().artist_name,
+                  album: song().album_title,
+                  thumbnailUrl: placeholderSvg(
+                    song().album_id ?? song().id,
+                    song().album_title ?? song().title
+                  ),
+                  isFavorite: song().is_favorite ?? false,
+                }}
+                isPlaying={isPlaying()}
+                volume={volume()}
+                currentTime={currentTime()}
+                duration={song().duration_seconds}
+                queueOpen={queueOpen()}
+                onPlayPause={handlePlayPause}
+                onPrevious={() => handleSkip("prev")}
+                onNext={() => handleSkip("next")}
+                onSeek={(percentage) => {
+                  const duration = song().duration_seconds;
+                  const timeInSeconds = (percentage / 100) * duration;
+                  setCurrentTime(timeInSeconds);
+                }}
+                onVolumeChange={(vol) => setVolume(vol)}
+                onQueueToggle={() => setQueueOpen(!queueOpen())}
+                queueLength={queueSongs().length}
+              />
+            )}
+          </Show>
+        </div>
+      </QueryClientProvider>
     );
   },
 };
