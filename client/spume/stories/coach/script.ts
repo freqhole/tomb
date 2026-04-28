@@ -31,7 +31,7 @@ export const coachSteps: CoachStep[] = [
   {
     id: "add-music",
     title: "take a quick tour",
-    body: "freqhole scans + indexes your audio files in place. nothing leaves your machine.",
+    body: "freqhole scans + indexes your audio files in place. GUI app for macOS, linux, & android. CLI for headless servers (like a raspberry pi).",
     anchor: "add-music-button",
     apply: (ctx) => {
       ctx.closeAllModals();
@@ -73,7 +73,7 @@ export const coachSteps: CoachStep[] = [
   {
     id: "queue",
     title: "queue + history",
-    body: "what's next, and what just played. drag to reorder, click to jump. lives in a slide-out sidebar so it stays out of the way.",
+    body: "what's next, and what just played. drag to reorder.",
     anchor: "queue-sidebar",
     apply: (ctx) => {
       ctx.closeSearch();
@@ -91,7 +91,7 @@ export const coachSteps: CoachStep[] = [
   {
     id: "albums",
     title: "albums",
-    body: "covers + badges. click to drill into an album and see its tracklist.",
+    body: "sortable grid layout.",
     anchor: "albums-grid",
     apply: (ctx) => {
       ctx.setRoute("albums");
@@ -104,7 +104,7 @@ export const coachSteps: CoachStep[] = [
   {
     id: "artists",
     title: "artists",
-    body: "two-column with alphabet jump nav.",
+    body: "sortable & filterable two-column layout with alphabet quick nav.",
     anchor: "artists-list",
     apply: (ctx) => {
       ctx.setRoute("artists");
@@ -127,7 +127,7 @@ export const coachSteps: CoachStep[] = [
   {
     id: "playlists",
     title: "playlists",
-    body: "drag rows to reorder. all local — playlists stay on your machine.",
+    body: "full-page background images; drag-and-drop song (re)ordering.",
     anchor: "playlists-list",
     apply: (ctx) => {
       ctx.setRoute("playlists");
@@ -161,7 +161,7 @@ export const coachSteps: CoachStep[] = [
   {
     id: "feed",
     title: "feed",
-    body: "see what's happening on remotes you follow — plays, favorites, new shares.",
+    body: "see what's happening on remotes you follow — new music, what other people are listening to and adding to their favorites.",
     anchor: "feed-list",
     apply: (ctx) => {
       ctx.setRoute("feed");
@@ -174,7 +174,7 @@ export const coachSteps: CoachStep[] = [
   {
     id: "radio",
     title: "radio",
-    body: "tune in to other people's stations — carp's basement is live with dub + jazz right now.",
+    body: "create live radio streams that anyone can listen to; or set private so only your friends can access.",
     anchor: "radio-stations",
     apply: (ctx) => {
       ctx.setRoute("radio");
@@ -185,8 +185,8 @@ export const coachSteps: CoachStep[] = [
   },
   {
     id: "search",
-    title: "search anything",
-    body: "cmd+k or just type. matches across artists, albums, songs — both local + remote. results show inline as you type.",
+    title: "search anything (cmd+k)",
+    body: "matches across artists, albums, songs, genres, and playlists.",
     anchor: "topnav-search",
     apply: (ctx) => {
       ctx.closeAllModals();
@@ -209,7 +209,7 @@ export const coachSteps: CoachStep[] = [
   {
     id: "album-detail",
     title: "album detail",
-    body: "click any search result (or any album in the grid) to drill in. you get the cover, full tracklist, share + edit buttons, and any badges.",
+    body: "browse all album art images and full track list.",
     anchor: "album-detail",
     apply: (ctx) => {
       ctx.closeSearch();
@@ -230,8 +230,8 @@ export const coachSteps: CoachStep[] = [
   },
   {
     id: "album-edit",
-    title: "edit + musicbrainz",
-    body: "edit metadata by hand, or pull canonical info (cover art, year, track titles, credits) from the musicbrainz database in one click. great for cleaning up rips.",
+    title: "edit (with musicbrainz)",
+    body: "edit metadata by hand, or pull canonical info (cover art, year, track titles, credits, etc.) from the musicbrainz database. great for cleaning up rips.",
     anchor: "album-edit-modal",
     apply: (ctx) => {
       ctx.closeSearch();
@@ -252,7 +252,7 @@ export const coachSteps: CoachStep[] = [
   {
     id: "share",
     title: "share with friends",
-    body: "generate a share link from any album, playlist, or station. copy + send — your friend pastes it into their freqhole and the music shows up alongside theirs.",
+    body: "generate a share link from any album, playlist, or station. copy + send to your friends.",
     anchor: "share-modal",
     apply: (ctx) => {
       ctx.closeSearch();
@@ -265,7 +265,7 @@ export const coachSteps: CoachStep[] = [
   {
     id: "resolve-share",
     title: "the other side",
-    body: "when someone shares with you, freqhole asks before mounting it. accept once and it's permanent — every share you've ever received lives here, ready to re-mount.",
+    body: "when someone shares things with you, it lives here.",
     anchor: "shares-list",
     apply: (ctx) => {
       ctx.closeSearch();
@@ -285,7 +285,7 @@ export const coachSteps: CoachStep[] = [
   {
     id: "add-remote",
     title: "add a remote",
-    body: "paste a node id or share url to mount a friend's library. here we're knocking on carp.basement.",
+    body: "paste a node id or share url to browse a friend's library. use invite codes or knock to request access.",
     anchor: "add-remote-button",
     apply: (ctx) => {
       ctx.setLibraryMode("populated");
@@ -323,8 +323,8 @@ export const coachSteps: CoachStep[] = [
     },
     // type name during 0..0.4, message during 0.4..0.9, last 0.1 -> pending
     onProgress: (ctx, p) => {
-      const name = "dj edward";
-      const msg = "hey carp, mind if i borrow your dub crates?";
+      const name = "dj suddenly i'm miss midwest midnight checkout queen";
+      const msg = "hey carpiez, mind if i borrow your dub crates?";
       const nameP = Math.min(1, p / 0.4);
       const msgP = Math.max(0, Math.min(1, (p - 0.4) / 0.5));
       ctx.setInputValue?.("knockNameInput", name.slice(0, Math.round(nameP * name.length)));
@@ -336,7 +336,7 @@ export const coachSteps: CoachStep[] = [
   {
     id: "knock-pending",
     title: "waiting on carp",
-    body: "your knock is sent. once carp approves, hit refresh and the remote mounts.",
+    body: "your knock is sent. once carp approves, and hit refresh.",
     anchor: "add-remote-button",
     apply: (ctx) => {
       ctx.setRoute("songs");
@@ -354,7 +354,7 @@ export const coachSteps: CoachStep[] = [
   {
     id: "browse-remote",
     title: "browse the remote",
-    body: "approved! their music shows up alongside yours in your normal views — dub, free jazz, library oddities. carp's eclectic.",
+    body: "approved! you can now browse and listen to your friend's music!",
     anchor: "albums-grid",
     apply: (ctx) => {
       ctx.closeAllModals();
