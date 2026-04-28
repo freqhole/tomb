@@ -437,6 +437,20 @@ const sectionVh = steps * 100; // each step ~ 1 viewport tall
 
     // prev/next buttons — scroll the page to the matching position rather
     // than just calling api.next/prev (which would desync from scroll state).
+    //
+    // tracks the in-flight smooth-scroll target so rapid prev/next clicks
+    // chain off the intended destination instead of the (still-animating)
+    // scroll position. also rounds visible step so clicking "next" while
+    // mid-slice always advances to the *following* full step.
+    let smoothTarget = null;
+    let smoothTimer = 0;
+    function visibleStep() {
+      const { step, sub } = computeStep();
+      // if more than ~30% into the next slice, treat that as the visible step
+      // (matches what the user perceives because per-slide animations are
+      // already showing the next slide's content).
+      return sub > 0.3 ? Math.min(totalSteps - 1, step + 1) : step;
+    }
     function scrollToStep(idx) {
       const headerH =
         parseFloat(
@@ -449,12 +463,22 @@ const sectionVh = steps * 100; // each step ~ 1 viewport tall
       const clamped = Math.max(0, Math.min(totalSteps - 1, idx));
       const ratio = totalSteps > 1 ? clamped / (totalSteps - 1) : 0;
       const targetTop = section.offsetTop + Math.round(total * ratio);
+      smoothTarget = clamped;
+      clearTimeout(smoothTimer);
+      smoothTimer = setTimeout(() => {
+        smoothTarget = null;
+      }, 700);
       window.scrollTo({ top: targetTop, behavior: "smooth" });
+    }
+    function stepBasis() {
+      // when a smooth scroll is in-flight, chain off its target so quick
+      // double-clicks don't skip slides. otherwise use the visible step.
+      return smoothTarget !== null ? smoothTarget : visibleStep();
     }
     const prevBtn = section.querySelector("[data-coach-prev]");
     const nextBtn = section.querySelector("[data-coach-next]");
-    if (prevBtn) prevBtn.addEventListener("click", () => scrollToStep(lastStep - 1));
-    if (nextBtn) nextBtn.addEventListener("click", () => scrollToStep(lastStep + 1));
+    if (prevBtn) prevBtn.addEventListener("click", () => scrollToStep(stepBasis() - 1));
+    if (nextBtn) nextBtn.addEventListener("click", () => scrollToStep(stepBasis() + 1));
 
     // mobile-only: render the demo at a fixed base width but match the
     // FRAME'S aspect ratio for the height — so on a portrait phone the demo
