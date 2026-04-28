@@ -83,6 +83,14 @@ const sectionVh = steps * 100; // each step ~ 1 viewport tall
   </div>
 </section>
 
+{/* back-to-top: shown after the user scrolls past the entire coach demo. */}
+<div class="scroll-coach-outro not-content">
+  <button type="button" class="back-to-top" data-coach-back-to-top>
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 15l-6-6-6 6"/></svg>
+    <span>back to top</span>
+  </button>
+</div>
+
 <script type="module" src="/demo/freqhole-coach-demo.js"></script>
 
 <script is:inline>
@@ -477,6 +485,14 @@ const sectionVh = steps * 100; // each step ~ 1 viewport tall
     window.addEventListener("orientationchange", updateFrameScale);
     requestAnimationFrame(updateFrameScale);
     setTimeout(updateFrameScale, 600);
+
+    // back-to-top button — scrolls back to the start of the coach section.
+    const backBtn = document.querySelector("[data-coach-back-to-top]");
+    if (backBtn) {
+      backBtn.addEventListener("click", () => {
+        window.scrollTo({ top: section.offsetTop, behavior: "smooth" });
+      });
+    }
   })();
 </script>
 
@@ -672,5 +688,40 @@ const sectionVh = steps * 100; // each step ~ 1 viewport tall
     }
     /* nav buttons must remain tappable on mobile (they sit OUTSIDE the
        touch blocker, in .info / its footer, so they're fine). */
+  }
+
+  /* outro panel that follows the sticky stage — gives the user something
+     after the last step instead of dumping them into adjacent content. */
+  .scroll-coach-outro {
+    width: 100vw;
+    margin-inline: calc(50% - 50vw);
+    padding: 3rem 1.5rem 4rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--sl-color-bg, transparent);
+  }
+  .back-to-top {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.75rem 1.25rem;
+    border-radius: 0.5rem;
+    border: 1px solid var(--sl-color-gray-5, rgba(255, 255, 255, 0.15));
+    background: var(--sl-color-gray-6, rgba(255, 255, 255, 0.05));
+    color: var(--sl-color-text, inherit);
+    font-size: 0.95rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.15s ease, transform 0.15s ease, border-color 0.15s ease;
+  }
+  .back-to-top:hover {
+    background: var(--sl-color-accent, #d63384);
+    border-color: var(--sl-color-accent, #d63384);
+    color: white;
+    transform: translateY(-1px);
+  }
+  .back-to-top:active {
+    transform: translateY(0);
   }
 </style>
