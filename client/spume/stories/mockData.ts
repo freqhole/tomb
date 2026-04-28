@@ -69,7 +69,38 @@ export interface LibraryStats {
 }
 
 // export typed mock data
-export const mockArtists: Artist[] = mockDataJson.artists;
+// prepend a couple of "Pink ..." artists so the search demo (typing "pink")
+// has multiple matches to scroll through.
+const pinkArtists: Artist[] = [
+  {
+    id: "artist-pink-floyd",
+    name: "Pink Floyd",
+    songCount: 87,
+    albumCount: 14,
+    totalDuration: 32400,
+    avgRating: 4.7,
+    genres: ["progressive rock", "psychedelic"],
+  },
+  {
+    id: "artist-pink-and-brown",
+    name: "Pink & Brown",
+    songCount: 18,
+    albumCount: 3,
+    totalDuration: 4200,
+    avgRating: 4.2,
+    genres: ["noise rock", "experimental"],
+  },
+  {
+    id: "artist-pink-bang",
+    name: "Pink!",
+    songCount: 9,
+    albumCount: 1,
+    totalDuration: 2100,
+    avgRating: 3.8,
+    genres: ["pop punk"],
+  },
+];
+export const mockArtists: Artist[] = [...pinkArtists, ...mockDataJson.artists];
 export const mockAlbums: Album[] = mockDataJson.albums;
 export const mockSongs: Song[] = mockDataJson.songs;
 export const mockGenres: Genre[] = mockDataJson.genres;
@@ -687,7 +718,7 @@ export const mockRadioStations: MockRadioStation[] = [
   },
   {
     id: "radio-carps-basement",
-    name: "carp's basement (remote)",
+    name: "carp's basement",
     description: "streaming live from carp's basement — dub, jazz, library oddities",
     codec: "opus",
     play_mode: "weighted_shuffle",

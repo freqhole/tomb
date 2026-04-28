@@ -44,6 +44,32 @@ export interface CoachContext {
   seedNowPlaying: (enabled: boolean) => void;
   /** animate a fake scan progress bar inside the open add-music modal */
   runFakeScan: (opts: { durationMs: number; flipToPopulated?: boolean }) => Promise<void>;
+
+  // --- scroll-driven animation hooks (used by step.onProgress) ---
+  /** drive the fake scan progress bar directly. p in 0..1. */
+  setScanProgress?: (p: number) => void;
+  /** spotlight one coach-anchor: dim everything else by `intensity` (0..1).
+   *  pass `null` to clear. used by focus-on-button steps. */
+  setSpotlight?: (anchor: string | null, intensity?: number) => void;
+  /** scroll the element whose `data-coach-anchor` matches `anchor` to
+   *  fraction `p` (0..1) of its scrollable height. when the element itself
+   *  isn't scrollable, walks descendants for one that is. */
+  setListProgress?: (anchor: string, p: number) => void;
+  /** set the displayed search query (drives the fake flyout). useful for
+   *  char-by-char typing animations. */
+  setSearchQuery?: (text: string) => void;
+  /** click the Nth selectable item inside an anchor. used to cycle through
+   *  the master list of a master-detail view (artists / playlists). */
+  setSelectedListItem?: (anchor: string, idx: number) => void;
+  // type a value into an input by anchor (story-only — pokes the DOM
+  // input's value via the native value setter so it shows char-by-char).
+  setInputValue?: (anchor: string, text: string) => void;
+  // drive the story-only "knock flow" modal phase.
+  // phases: "id-form" | "loading" | "request-form" | "pending" | "approved"
+  setKnockPhase?: (phase: string) => void;
+  // story-only: switch the queue sidebar's tab to "queue" or "history" by
+  // clicking the actual button (the spume QueueSidebar owns its own state).
+  setQueueTab?: (tab: "queue" | "history") => void;
 }
 
 // step index is module-global so window.__FREQHOLE_DEMO__ + the host can both
@@ -84,6 +110,23 @@ export async function goToStep(idx: number) {
   await runStep(clamped);
 }
 
+/**
+ * scroll-driven sub-progress within a slide. `p` is 0..1.
+ * called by the host page on every scroll tick. routes to the active
+ * step's onProgress hook.
+ */
+export function setStepProgress(idx: number, p: number) {
+  if (!activeContext) return;
+  const step = coachSteps[idx];
+  if (!step?.onProgress) return;
+  const clamped = Math.max(0, Math.min(1, p));
+  try {
+    step.onProgress(activeContext, clamped);
+  } catch (e) {
+    console.warn("[coach] onProgress failed:", step.id, e);
+  }
+}
+
 export const next = () => goToStep(currentStep() + 1);
 export const prev = () => goToStep(currentStep() - 1);
 export const reset = () => goToStep(0);
@@ -92,6 +135,7 @@ export const reset = () => goToStep(0);
 if (typeof window !== "undefined") {
   (window as any).__FREQHOLE_DEMO__ = {
     goToStep,
+    setStepProgress,
     next,
     prev,
     reset,

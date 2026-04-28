@@ -50,6 +50,8 @@ import {
   demoLibraryMode,
   fakeScanProgress,
   fakeScanRunning,
+  setFakeScanProgress,
+  setFakeScanRunning,
   type Artist,
   type Genre,
   type Playlist,
@@ -71,6 +73,43 @@ type Story = StoryObj<typeof meta>;
 
 // generate reusable mock songs
 const generatedSongs = generateBulkSongs(100);
+
+// deterministic 32-bit string hash, used to derive a stable per-id song slice.
+function hashId(id: string): number {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < id.length; i++) {
+    h ^= id.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return h >>> 0;
+}
+function songsForArtist(id: string): Song[] {
+  const h = hashId("artist:" + id);
+  const start = h % Math.max(1, generatedSongs.length - 10);
+  const len = 6 + (h % 7); // 6..12 songs, varies per artist
+  return generatedSongs.slice(start, start + len);
+}
+function songsForPlaylist(id: string): Song[] {
+  const h = hashId("playlist:" + id);
+  const start = h % Math.max(1, generatedSongs.length - 14);
+  const len = 8 + (h % 9); // 8..16 songs, varies per playlist
+  return generatedSongs.slice(start, start + len);
+}
+// returns a CSS background value for ~half of playlists, deterministic per id.
+// uses gradients as fake "cover art" banners (no external image assets).
+function playlistBanner(id: string): string | null {
+  const h = hashId("banner:" + id);
+  if (h % 2 === 0) return null; // ~half get no banner
+  const palettes = [
+    "linear-gradient(135deg, #ff006e 0%, #8338ec 50%, #3a86ff 100%)",
+    "linear-gradient(135deg, #f72585 0%, #b5179e 50%, #560bad 100%)",
+    "linear-gradient(135deg, #06ffa5 0%, #1b9aaa 50%, #003049 100%)",
+    "linear-gradient(135deg, #fb8500 0%, #ffb703 50%, #ffd60a 100%)",
+    "linear-gradient(135deg, #2d00f7 0%, #6a00f4 50%, #f20089 100%)",
+    "linear-gradient(135deg, #001233 0%, #023e8a 50%, #0096c7 100%)",
+  ];
+  return palettes[h % palettes.length];
+}
 
 type Route =
   | "songs"
@@ -212,6 +251,18 @@ export function FullAppDemoBody() {
   // real SearchInput's debounced + portal-mounted flyout from a script.
   const [searchDemoActive, setSearchDemoActive] = createSignal(false);
   const [searchDemoQuery, setSearchDemoQuery] = createSignal("");
+  // scroll-driven spotlight: { anchor: data-coach-anchor name, intensity: 0..1 }.
+  // null anchor clears the spotlight overlay. driven by step.onProgress hooks.
+  const [coachSpotlight, setCoachSpotlight] = createSignal<{
+    anchor: string;
+    intensity: number;
+  } | null>(null);
+  // bounding rect of the spotlit element, refreshed each animation frame
+  // while the overlay is active so it tracks resizes / scrolls.
+  const [spotlightRect, setSpotlightRect] = createSignal<DOMRect | null>(null);
+  // bounding rect of the topnav search input, used to position the fake
+  // demo flyout directly underneath it.
+  const [searchInputRect, setSearchInputRect] = createSignal<DOMRect | null>(null);
   const mockSearchSuggestions = () => {
     const query = searchValue().toLowerCase();
     if (!query || query.length < 2) return [];
@@ -382,6 +433,10 @@ export function FullAppDemoBody() {
   // expose imperative hooks for the scroll-coach demo. only some surfaces
   // exist in this story (route, queue) — the rest are stubs/no-ops.
   const [activeModal, setActiveModal] = createSignal<string | null>(null);
+  // knock-flow phase for the story-only "add remote" modal. drives a
+  // multi-step demo of the friend-mounting flow without touching real spume
+  // internals. phases: id-form | loading | request-form | pending | approved
+  const [knockPhase, setKnockPhase] = createSignal<string>("id-form");
   onMount(() => {
     // detect whether we're embedded inside the <freqhole-coach-demo> shadow
     // root (standalone web component build). if so, route the search flyout
@@ -486,9 +541,151 @@ export function FullAppDemoBody() {
       },
       runFakeScan: ({ durationMs, flipToPopulated }) =>
         runFakeLibraryScan({ durationMs, flipToPopulated }),
+
+      // --- scroll-driven animation hooks ---
+      setScanProgress: (p) => {
+        const clamped = Math.max(0, Math.min(1, p));
+        setFakeScanProgress(clamped);
+        setFakeScanRunning(clamped > 0 && clamped < 1);
+      },
+      setSpotlight: (anchor, intensity = 1) => {
+        if (!anchor) {
+          setCoachSpotlight(null);
+          setSpotlightRect(null);
+          return;
+        }
+        setCoachSpotlight({ anchor, intensity: Math.max(0, Math.min(1, intensity)) });
+      },
+      setListProgress: (anchor, p) => {
+        if (typeof document === "undefined") return;
+        const root = document.querySelector("freqhole-coach-demo")?.shadowRoot || document;
+        // support `${anchor}:detail` to target the detail-scroll inside a
+        // master-detail view (artists / playlists).
+        const wantDetail = anchor.endsWith(":detail");
+        const baseAnchor = wantDetail ? anchor.replace(/:detail$/, "") : anchor;
+        const el = root.querySelector(`[data-coach-anchor='${baseAnchor}']`) as HTMLElement | null;
+        if (!el) return;
+        const isScrollable = (e: HTMLElement) =>
+          e.scrollHeight > e.clientHeight + 1 &&
+          /(auto|scroll)/.test(getComputedStyle(e).overflowY);
+        const candidates: HTMLElement[] = [];
+        if (wantDetail) {
+          const detail = el.querySelector("[data-coach-detail-scroll]") as HTMLElement | null;
+          if (detail && isScrollable(detail)) candidates.push(detail);
+        } else {
+          // prefer explicit hooks: data-coach-list (master list) wins over
+          // detail; otherwise pick the first scrollable descendant.
+          const list = el.querySelector("[data-coach-list]") as HTMLElement | null;
+          if (list && isScrollable(list)) candidates.push(list);
+          if (!candidates.length && isScrollable(el)) candidates.push(el);
+          if (!candidates.length) {
+            const found = Array.from(el.querySelectorAll<HTMLElement>("*")).find(isScrollable);
+            if (found) candidates.push(found);
+          }
+        }
+        const target = candidates[0];
+        if (!target) return;
+        const max = target.scrollHeight - target.clientHeight;
+        target.scrollTop = Math.max(0, Math.min(max, max * p));
+      },
+      setSearchQuery: (text) => {
+        setSearchDemoQuery(text);
+        setSearchValue(text);
+        setSearchDemoActive(text.length > 0);
+        // also poke the real DOM input so the visible value updates char-by-char
+        if (typeof document === "undefined") return;
+        const root = document.querySelector("freqhole-coach-demo")?.shadowRoot || document;
+        const input = root.querySelector(
+          "[data-coach-anchor='topnavSearch'] input"
+        ) as HTMLInputElement | null;
+        if (!input) return;
+        const proto = Object.getPrototypeOf(input);
+        const setter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
+        setter?.call(input, text);
+      },
+      setSelectedListItem: (anchor, idx) => {
+        if (typeof document === "undefined") return;
+        const root = document.querySelector("freqhole-coach-demo")?.shadowRoot || document;
+        const el = root.querySelector(`[data-coach-anchor='${anchor}']`) as HTMLElement | null;
+        if (!el) return;
+        const items = Array.from(el.querySelectorAll<HTMLElement>("[data-coach-item]"));
+        if (!items.length) return;
+        const clamped = Math.max(0, Math.min(items.length - 1, idx));
+        const target = items[clamped];
+        if (!target) return;
+        // only click if not already selected (avoids re-renders / scroll resets)
+        const alreadyActive = target.className.includes("border-[var(--color-accent-500)]");
+        if (!alreadyActive) target.click();
+      },
+      setInputValue: (anchor, text) => {
+        if (typeof document === "undefined") return;
+        const root = document.querySelector("freqhole-coach-demo")?.shadowRoot || document;
+        const input = root.querySelector(
+          `[data-coach-anchor='${anchor}'] input, [data-coach-anchor='${anchor}'] textarea`
+        ) as HTMLInputElement | HTMLTextAreaElement | null;
+        if (!input) return;
+        const proto = Object.getPrototypeOf(input);
+        const setter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
+        setter?.call(input, text);
+      },
+      setKnockPhase: (phase) => setKnockPhase(phase),
+      setQueueTab: (tab) => {
+        if (typeof document === "undefined") return;
+        const root = document.querySelector("freqhole-coach-demo")?.shadowRoot || document;
+        const sidebar = root.querySelector(
+          "[data-coach-anchor='queueSidebar']"
+        ) as HTMLElement | null;
+        if (!sidebar) return;
+        const buttons = Array.from(sidebar.querySelectorAll<HTMLButtonElement>("button"));
+        const wantText = tab === "queue" ? "queue" : "history";
+        // first button whose text starts with the desired tab name (handles
+        // "queue (n)" suffix). avoid re-clicking already-active tab.
+        const btn = buttons.find((b) =>
+          (b.textContent || "").trim().toLowerCase().startsWith(wantText)
+        );
+        if (!btn) return;
+        const isActive = btn.className.includes(
+          "color-accent-500)] bg-[var(--color-accent-500)]/10"
+        );
+        if (!isActive) btn.click();
+      },
     };
     registerCoachContext(ctx);
     onCleanup(() => unregisterCoachContext());
+
+    // spotlight rect tracker — while a spotlight is active, re-measure the
+    // anchor element on every animation frame so the cutout follows scrolls
+    // / route changes / list reflows.
+    let rafId = 0;
+    const measure = () => {
+      const sl = coachSpotlight();
+      if (!sl) {
+        setSpotlightRect(null);
+      } else {
+        const sroot =
+          (typeof document !== "undefined" &&
+            document.querySelector("freqhole-coach-demo")?.shadowRoot) ||
+          document;
+        const el = sroot.querySelector(`[data-coach-anchor='${sl.anchor}']`) as HTMLElement | null;
+        setSpotlightRect(el ? el.getBoundingClientRect() : null);
+      }
+      // also track topnav search input position for the fake demo flyout
+      if (searchDemoActive()) {
+        const sroot =
+          (typeof document !== "undefined" &&
+            document.querySelector("freqhole-coach-demo")?.shadowRoot) ||
+          document;
+        const input = sroot.querySelector(
+          "[data-coach-anchor='topnavSearch'] input"
+        ) as HTMLElement | null;
+        setSearchInputRect(input ? input.getBoundingClientRect() : null);
+      } else {
+        setSearchInputRect(null);
+      }
+      rafId = requestAnimationFrame(measure);
+    };
+    rafId = requestAnimationFrame(measure);
+    onCleanup(() => cancelAnimationFrame(rafId));
   });
 
   // ===== per-view filter/sort mock data feeding TopNav's pageInfo store =====
@@ -748,10 +945,11 @@ export function FullAppDemoBody() {
             }
           />
 
-          <div class="flex-1 overflow-y-auto">
+          <div class="flex-1 overflow-y-auto" data-coach-list>
             <For each={sortedArtists()}>
               {(artist) => (
                 <button
+                  data-coach-item={artist.id}
                   class={`
                       w-full px-6 py-3 text-left transition-colors border-l-2
                       ${
@@ -787,7 +985,7 @@ export function FullAppDemoBody() {
               />
 
               {/* scrollable content area */}
-              <div class="flex-1 overflow-y-auto">
+              <div class="flex-1 overflow-y-auto" data-coach-detail-scroll>
                 {/* stats section */}
                 <div class="p-3 wide:p-6">
                   <StatsGrid columns={5} gap="md" class="mb-3 wide:mb-6">
@@ -828,7 +1026,7 @@ export function FullAppDemoBody() {
                     </h3>
                   </div>
                   <div class="space-y-1">
-                    <For each={generatedSongs.slice(0, 10)}>
+                    <For each={songsForArtist(artist().id)}>
                       {(song) => (
                         <div class="flex items-center gap-3 p-3 bg-[var(--color-bg-secondary)] rounded hover:bg-[var(--color-bg-hover)] transition-colors">
                           <IconButton
@@ -1043,10 +1241,11 @@ export function FullAppDemoBody() {
             <HeadingSection title="playlists" count={mockPlaylists.length} hideOnNarrow />
           </div>
 
-          <div class="flex-1 overflow-y-auto">
+          <div class="flex-1 overflow-y-auto" data-coach-list>
             <For each={mockPlaylists}>
               {(playlist) => (
                 <button
+                  data-coach-item={playlist.id}
                   class={`
                       w-full px-6 py-3 text-left transition-colors border-l-2
                       ${
@@ -1082,7 +1281,20 @@ export function FullAppDemoBody() {
               />
 
               {/* scrollable content area */}
-              <div class="flex-1 overflow-y-auto">
+              <div class="flex-1 overflow-y-auto" data-coach-detail-scroll>
+                {/* hero banner (a few playlists get a fake backdrop image) */}
+                <Show when={playlistBanner(playlist().id)}>
+                  {(banner) => (
+                    <div
+                      class="h-32 wide:h-40 w-full"
+                      style={{
+                        background: banner(),
+                        "background-size": "cover",
+                        "background-position": "center",
+                      }}
+                    />
+                  )}
+                </Show>
                 {/* stats section */}
                 <div class="p-3 wide:p-6 flex gap-4">
                   <StatsCard
@@ -1109,7 +1321,7 @@ export function FullAppDemoBody() {
                     <div class="text-sm text-[var(--color-text-secondary)]">drag to reorder</div>
                   </div>
                   <div class="space-y-1">
-                    <For each={playlistSongs()}>
+                    <For each={songsForPlaylist(playlist().id)}>
                       {(song, index) => (
                         <DraggableRow
                           id={song.id}
@@ -1363,49 +1575,68 @@ export function FullAppDemoBody() {
         </button>
       </header>
       <div class="flex-1 min-h-0 overflow-y-auto p-2">
-        <section class="mb-4">
-          <div class="flex items-center justify-between px-2 mb-1">
-            <h2 class="text-[11px] uppercase tracking-wide text-[var(--color-text-tertiary)] truncate">
-              local
-            </h2>
-          </div>
-          <ul>
-            <For each={mockRadioStations}>
-              {(station) => {
-                const isCurrent = () => selectedStation()?.id === station.id;
-                return (
-                  <li>
-                    <button
-                      type="button"
-                      class="w-full text-left flex items-center gap-2 p-2 rounded transition"
-                      classList={{
-                        "bg-[var(--color-accent-500)]/20": isCurrent(),
-                        "hover:bg-[var(--color-bg-hover)]": !isCurrent(),
-                      }}
-                      onClick={() => tuneStation(station)}
-                    >
-                      <div class="flex-shrink-0 w-10 h-10 rounded overflow-hidden bg-gradient-to-br from-purple-700 to-indigo-900 flex items-center justify-center">
-                        <img
-                          src={station.thumbnailUrl}
-                          alt=""
-                          class="w-full h-full object-cover"
-                          loading="lazy"
-                        />
-                      </div>
-                      <div class="flex-1 min-w-0">
-                        <div class="text-sm font-medium truncate">{station.name}</div>
-                        <div class="text-[11px] text-[var(--color-text-tertiary)] truncate">
-                          {station.listenerCount} listening
-                          <Show when={station.currentSong}>{(cur) => <> · {cur().title}</>}</Show>
-                        </div>
-                      </div>
-                    </button>
-                  </li>
-                );
-              }}
-            </For>
-          </ul>
-        </section>
+        <For
+          each={[
+            {
+              label: "local",
+              stations: mockRadioStations.filter((s) => s.id !== "radio-carps-basement"),
+            },
+            {
+              label: "carp's basement",
+              stations: mockRadioStations.filter((s) => s.id === "radio-carps-basement"),
+            },
+          ]}
+        >
+          {(group) => (
+            <Show when={group.stations.length > 0}>
+              <section class="mb-4">
+                <div class="flex items-center justify-between px-2 mb-1">
+                  <h2 class="text-[11px] uppercase tracking-wide text-[var(--color-text-tertiary)] truncate">
+                    {group.label}
+                  </h2>
+                </div>
+                <ul>
+                  <For each={group.stations}>
+                    {(station) => {
+                      const isCurrent = () => selectedStation()?.id === station.id;
+                      return (
+                        <li>
+                          <button
+                            type="button"
+                            class="w-full text-left flex items-center gap-2 p-2 rounded transition"
+                            classList={{
+                              "bg-[var(--color-accent-500)]/20": isCurrent(),
+                              "hover:bg-[var(--color-bg-hover)]": !isCurrent(),
+                            }}
+                            onClick={() => tuneStation(station)}
+                          >
+                            <div class="flex-shrink-0 w-10 h-10 rounded overflow-hidden bg-gradient-to-br from-purple-700 to-indigo-900 flex items-center justify-center">
+                              <img
+                                src={station.thumbnailUrl}
+                                alt=""
+                                class="w-full h-full object-cover"
+                                loading="lazy"
+                              />
+                            </div>
+                            <div class="flex-1 min-w-0">
+                              <div class="text-sm font-medium truncate">{station.name}</div>
+                              <div class="text-[11px] text-[var(--color-text-tertiary)] truncate">
+                                {station.listenerCount} listening
+                                <Show when={station.currentSong}>
+                                  {(cur) => <> · {cur().title}</>}
+                                </Show>
+                              </div>
+                            </div>
+                          </button>
+                        </li>
+                      );
+                    }}
+                  </For>
+                </ul>
+              </section>
+            </Show>
+          )}
+        </For>
       </div>
     </div>
   );
@@ -1520,7 +1751,7 @@ export function FullAppDemoBody() {
       <TwoColumnLayout
         leftColumn={radioLeftColumn()}
         rightColumn={radioRightColumn()}
-        leftColumnWidth={320}
+        leftColumnWidth={240}
         showDetail={showRadioDetail()}
         onBack={() => setShowRadioDetail(false)}
       />
@@ -1657,7 +1888,10 @@ export function FullAppDemoBody() {
     </div>
   );
 
-  // ===== ADD REMOTE MODAL (stub) =====
+  // ===== ADD REMOTE / KNOCK FLOW MODAL (story-only) =====
+  // multi-phase mock of the "mount a friend's library" flow. real spume
+  // implementation is more involved; this story renders a fake modal whose
+  // contents switch on `knockPhase()`, driven by coach script slides.
   const addRemoteModal = () => (
     <Show when={activeModal() === "add-remote"}>
       <div
@@ -1668,34 +1902,139 @@ export function FullAppDemoBody() {
           class="w-full max-w-md rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-elevated,#1a1a1a)] p-5 shadow-2xl"
           onClick={(e) => e.stopPropagation()}
         >
-          <h2 class="text-lg font-semibold text-[var(--color-text-primary)] mb-3">
-            add remote server
-          </h2>
-          <p class="text-xs text-[var(--color-text-secondary)] mb-4">
-            enter the share code from a friend, or paste their server url.
-          </p>
-          <input
-            type="text"
-            readOnly
-            value="freqhole://carp.basement/share/abc123"
-            class="w-full rounded border border-[var(--color-border-default)] bg-[var(--color-bg-primary)] px-3 py-2 text-sm text-[var(--color-text-primary)] font-mono"
-          />
-          <div class="mt-4 flex justify-end gap-2">
-            <button
-              type="button"
-              class="px-3 py-1.5 text-sm rounded bg-[var(--color-bg-secondary)] text-[var(--color-text-primary)]"
-              onClick={() => setActiveModal(null)}
-            >
-              cancel
-            </button>
-            <button
-              type="button"
-              class="px-3 py-1.5 text-sm rounded bg-[var(--color-accent-500,#d63384)] text-white"
-              onClick={() => setActiveModal(null)}
-            >
-              connect
-            </button>
-          </div>
+          <Show when={knockPhase() === "id-form"}>
+            <h2 class="text-lg font-semibold text-[var(--color-text-primary)] mb-3">
+              add a remote
+            </h2>
+            <p class="text-xs text-[var(--color-text-secondary)] mb-4">
+              paste a node id or share url from a friend.
+            </p>
+            <div data-coach-anchor="knockNodeIdInput">
+              <input
+                type="text"
+                placeholder="freqhole://…"
+                class="w-full rounded border border-[var(--color-border-default)] bg-[var(--color-bg-primary)] px-3 py-2 text-sm text-[var(--color-text-primary)] font-mono"
+              />
+            </div>
+            <div class="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                class="px-3 py-1.5 text-sm rounded bg-[var(--color-bg-secondary)] text-[var(--color-text-primary)]"
+                onClick={() => setActiveModal(null)}
+              >
+                cancel
+              </button>
+              <button
+                type="button"
+                class="px-3 py-1.5 text-sm rounded bg-[var(--color-accent-500,#d63384)] text-white"
+                onClick={() => setKnockPhase("loading")}
+              >
+                connect
+              </button>
+            </div>
+          </Show>
+
+          <Show when={knockPhase() === "loading"}>
+            <div class="flex flex-col items-center text-center py-6">
+              <div class="w-12 h-12 rounded-full border-4 border-[var(--color-accent-500,#d63384)] border-t-transparent animate-spin mb-4" />
+              <h2 class="text-lg font-semibold text-[var(--color-text-primary)]">knocking…</h2>
+              <p class="text-xs text-[var(--color-text-secondary)] mt-2">
+                reaching out to carp.basement
+              </p>
+            </div>
+          </Show>
+
+          <Show when={knockPhase() === "request-form"}>
+            <h2 class="text-lg font-semibold text-[var(--color-text-primary)] mb-1">
+              request access
+            </h2>
+            <p class="text-xs text-[var(--color-text-secondary)] mb-4">
+              this remote requires approval. send a knock with a quick note so the host knows it's
+              you.
+            </p>
+            <label class="block text-xs text-[var(--color-text-secondary)] mb-1">your name</label>
+            <div data-coach-anchor="knockNameInput" class="mb-3">
+              <input
+                type="text"
+                placeholder="dj edward"
+                class="w-full rounded border border-[var(--color-border-default)] bg-[var(--color-bg-primary)] px-3 py-2 text-sm text-[var(--color-text-primary)]"
+              />
+            </div>
+            <label class="block text-xs text-[var(--color-text-secondary)] mb-1">
+              message (optional)
+            </label>
+            <div data-coach-anchor="knockMessageInput" class="mb-1">
+              <textarea
+                rows={3}
+                placeholder="hey carp, mind if i borrow your dub crates?"
+                class="w-full rounded border border-[var(--color-border-default)] bg-[var(--color-bg-primary)] px-3 py-2 text-sm text-[var(--color-text-primary)] resize-none"
+              />
+            </div>
+            <div class="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                class="px-3 py-1.5 text-sm rounded bg-[var(--color-bg-secondary)] text-[var(--color-text-primary)]"
+                onClick={() => setActiveModal(null)}
+              >
+                cancel
+              </button>
+              <button
+                type="button"
+                class="px-3 py-1.5 text-sm rounded bg-[var(--color-accent-500,#d63384)] text-white"
+                onClick={() => setKnockPhase("pending")}
+              >
+                send knock
+              </button>
+            </div>
+          </Show>
+
+          <Show when={knockPhase() === "pending"}>
+            <div class="text-center py-2">
+              <h2 class="text-lg font-semibold text-[var(--color-text-primary)] mb-1">
+                request sent
+              </h2>
+              <p class="text-xs text-[var(--color-text-secondary)] mb-5">
+                waiting for carp to approve. you can keep using freqhole — the remote will mount
+                automatically once they accept.
+              </p>
+              <div class="flex items-center justify-center gap-2 mb-3 text-xs text-[var(--color-text-tertiary)]">
+                <span class="w-2 h-2 rounded-full bg-yellow-400 animate-pulse" />
+                <span>pending — carp's basement</span>
+              </div>
+              <div class="flex justify-center">
+                <button
+                  type="button"
+                  data-coach-anchor="knockRefreshButton"
+                  class="px-3 py-1.5 text-sm rounded bg-[var(--color-bg-secondary)] text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]"
+                  onClick={() => setKnockPhase("approved")}
+                >
+                  refresh
+                </button>
+              </div>
+            </div>
+          </Show>
+
+          <Show when={knockPhase() === "approved"}>
+            <div class="text-center py-4">
+              <div class="w-12 h-12 mx-auto rounded-full bg-green-500/20 flex items-center justify-center mb-4">
+                <svg
+                  class="w-6 h-6 text-green-400"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="3"
+                    d="M5 13l4 4L19 7"
+                  />
+                </svg>
+              </div>
+              <h2 class="text-lg font-semibold text-[var(--color-text-primary)] mb-1">approved!</h2>
+              <p class="text-xs text-[var(--color-text-secondary)]">mounting carp's basement…</p>
+            </div>
+          </Show>
         </div>
       </div>
     </Show>
@@ -1874,11 +2213,13 @@ export function FullAppDemoBody() {
             <div class="space-y-3">
               <label class="block">
                 <span class="text-xs text-[var(--color-text-secondary)]">title</span>
-                <input
-                  type="text"
-                  value={detailAlbum().title}
-                  class="mt-1 w-full rounded border border-[var(--color-border-default)] bg-[var(--color-bg-primary)] px-2 py-1.5 text-sm text-[var(--color-text-primary)]"
-                />
+                <div data-coach-anchor="albumEditTitle">
+                  <input
+                    type="text"
+                    value={detailAlbum().title}
+                    class="mt-1 w-full rounded border border-[var(--color-border-default)] bg-[var(--color-bg-primary)] px-2 py-1.5 text-sm text-[var(--color-text-primary)]"
+                  />
+                </div>
               </label>
               <label class="block">
                 <span class="text-xs text-[var(--color-text-secondary)]">artist</span>
@@ -2112,11 +2453,19 @@ export function FullAppDemoBody() {
       case "favorites":
         return favoritesView();
       case "artists":
-        return artistsView();
+        return (
+          <div class="h-full" data-coach-anchor="artistsView">
+            {artistsView()}
+          </div>
+        );
       case "genres":
         return genresView();
       case "playlists":
-        return playlistsView();
+        return (
+          <div class="h-full" data-coach-anchor="playlistsView">
+            {playlistsView()}
+          </div>
+        );
       case "feed":
         return feedView();
       case "radio":
@@ -2242,62 +2591,99 @@ export function FullAppDemoBody() {
           {/* demo-only fake suggestions flyout. the real one lives in
               SearchInput, behind a debounced input handler + portal mount,
               and was a nightmare to drive reliably from a script. so for
-              the coach demo we just render a static lookalike here. */}
+              the coach demo we just render a static lookalike here.
+              positioned under the topnav search input via tracked rect. */}
           <Show when={searchDemoActive()}>
-            <div
-              class="fixed bg-[var(--color-bg-elevated)] border border-[var(--color-border-default)] rounded shadow-lg overflow-hidden"
-              style={{
-                top: "calc(var(--nav-height, 56px) + 8px)",
-                right: isNarrow() ? "0" : "16px",
-                left: isNarrow() ? "0" : "auto",
-                width: isNarrow() ? "100vw" : "320px",
-                "border-radius": isNarrow() ? "0" : undefined,
-                "z-index": "1002",
-              }}
-            >
-              <div role="listbox" class="max-h-80 overflow-y-auto">
-                <For
-                  each={(() => {
-                    const q = searchDemoQuery().toLowerCase();
-                    if (!q) return [] as { id: string; text: string; category: string }[];
-                    const items: { id: string; text: string; category: string }[] = [];
-                    for (const a of mockArtists) {
-                      if (a.name.toLowerCase().includes(q))
-                        items.push({ id: `a-${a.id}`, text: a.name, category: "artists" });
-                      if (items.length >= 3) break;
-                    }
-                    for (const s of generatedSongs) {
-                      if (s.title.toLowerCase().includes(q))
-                        items.push({ id: `s-${s.id}`, text: s.title, category: "songs" });
-                      if (items.length >= 6) break;
-                    }
-                    for (const al of mockAlbums) {
-                      if (al.title.toLowerCase().includes(q))
-                        items.push({ id: `al-${al.id}`, text: al.title, category: "albums" });
-                      if (items.length >= 8) break;
-                    }
-                    return items;
-                  })()}
+            {(_) => {
+              const r = searchInputRect();
+              const top = r ? r.bottom + 4 : 60;
+              const wide = !isNarrow();
+              return (
+                <div
+                  class="fixed bg-[var(--color-bg-elevated)] border border-[var(--color-border-default)] rounded shadow-lg overflow-hidden"
+                  style={{
+                    top: `${top}px`,
+                    left: wide && r ? `${r.left}px` : "0",
+                    right: wide && r ? "auto" : "0",
+                    width: wide && r ? `${Math.max(r.width, 320)}px` : "100vw",
+                    "border-radius": wide ? undefined : "0",
+                    "z-index": "1002",
+                  }}
                 >
-                  {(item) => (
-                    <div
-                      role="option"
-                      class="flex items-center gap-3 px-4 py-2 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]"
+                  <div role="listbox" class="max-h-80 overflow-y-auto">
+                    <For
+                      each={(() => {
+                        const q = searchDemoQuery().toLowerCase();
+                        if (!q) return [] as { id: string; text: string; category: string }[];
+                        const items: { id: string; text: string; category: string }[] = [];
+                        for (const a of mockArtists) {
+                          if (a.name.toLowerCase().includes(q))
+                            items.push({ id: `a-${a.id}`, text: a.name, category: "artists" });
+                          if (items.length >= 3) break;
+                        }
+                        for (const s of generatedSongs) {
+                          if (s.title.toLowerCase().includes(q))
+                            items.push({ id: `s-${s.id}`, text: s.title, category: "songs" });
+                          if (items.length >= 6) break;
+                        }
+                        for (const al of mockAlbums) {
+                          if (al.title.toLowerCase().includes(q))
+                            items.push({ id: `al-${al.id}`, text: al.title, category: "albums" });
+                          if (items.length >= 8) break;
+                        }
+                        return items;
+                      })()}
                     >
-                      <div
-                        class="w-8 h-8 rounded flex-shrink-0 bg-[var(--color-bg-tertiary)]"
-                        aria-hidden="true"
-                      />
-                      <div class="flex-1 min-w-0 truncate">{item.text}</div>
-                      <div class="px-2 py-1 rounded text-xs font-medium flex-shrink-0 bg-[var(--color-accent-500)]/10 text-[var(--color-accent-500)]">
-                        {item.category}
-                      </div>
-                    </div>
-                  )}
-                </For>
-              </div>
-            </div>
+                      {(item) => (
+                        <div
+                          role="option"
+                          class="flex items-center gap-3 px-4 py-2 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]"
+                        >
+                          <div
+                            class="w-8 h-8 rounded flex-shrink-0 bg-[var(--color-bg-tertiary)]"
+                            aria-hidden="true"
+                          />
+                          <div class="flex-1 min-w-0 truncate">{item.text}</div>
+                          <div class="px-2 py-1 rounded text-xs font-medium flex-shrink-0 bg-[var(--color-accent-500)]/10 text-[var(--color-accent-500)]">
+                            {item.category}
+                          </div>
+                        </div>
+                      )}
+                    </For>
+                  </div>
+                </div>
+              );
+            }}
           </Show>
+        </Show>
+
+        {/* coach spotlight overlay — dims everything except the bbox of the
+            anchor element. uses box-shadow to paint the dimming around a
+            transparent rect for clean GPU-friendly rendering. */}
+        <Show when={coachSpotlight() && spotlightRect()}>
+          {(_) => {
+            const sl = coachSpotlight()!;
+            const r = spotlightRect()!;
+            const pad = 8;
+            const dim = 0.7 * sl.intensity;
+            return (
+              <div
+                aria-hidden="true"
+                style={{
+                  position: "fixed",
+                  top: `${r.top - pad}px`,
+                  left: `${r.left - pad}px`,
+                  width: `${r.width + 2 * pad}px`,
+                  height: `${r.height + 2 * pad}px`,
+                  "border-radius": "10px",
+                  "box-shadow": `0 0 0 9999px rgba(0,0,0,${dim}), 0 0 0 2px rgba(214,51,132,${0.6 * sl.intensity})`,
+                  "pointer-events": "none",
+                  "z-index": "1500",
+                  transition: "box-shadow 0.15s ease-out",
+                }}
+              />
+            );
+          }}
         </Show>
 
         {/* main content area + queue */}
@@ -2324,7 +2710,7 @@ export function FullAppDemoBody() {
               onSongClick={handleQueueSongClick}
               onRemoveSong={handleRemoveFromQueue}
               onClearAll={() => setQueueSongs([])}
-              historyEntries={generateQueueHistory(12, generatedSongs as DomainSong[])}
+              historyEntries={generateQueueHistory(40, generatedSongs as DomainSong[])}
               onReplayHistoryEntry={(entry) => console.log("replay history entry:", entry.label)}
             />
           </div>
