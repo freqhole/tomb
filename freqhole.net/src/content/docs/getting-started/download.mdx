@@ -3,30 +3,9 @@ title: download
 description: get freqhole for your platform
 ---
 
-import { Tabs, TabItem } from "@astrojs/starlight/components";
+import DownloadPicker from "../../../components/DownloadPicker.astro";
 
-freqhole is available as a desktop app (charnel), command-line tool, or web app.
-
-<Tabs>
- <TabItem label="mac" icon="apple">
-    download charnel GUI `.dmg` for the latest release:  
-    - [download for macOS (Apple Silicon)](https://github.com/freqhole/tomb/releases/latest)  
-    - [download for macOS (Intel)](https://github.com/freqhole/tomb/releases/latest)  
-  </TabItem>
-  <TabItem label="linux" icon="linux">
-    available as .flatpak, .deb, and .rpm:  
-    - [download .flatpak](https://github.com/freqhole/tomb/releases/latest)  
-    - [download .deb](https://github.com/freqhole/tomb/releases/latest)  
-    - [download .rpm](https://github.com/freqhole/tomb/releases/latest)
-  </TabItem>
-  <TabItem label="web" icon="firefox">
-  - **hosted**: [spume.freqhole.net](https://spume.freqhole.net)  
-  - **self-hosted**: bundled with the server, access at `http://your-server:8080`
-  </TabItem>
-
-</Tabs>
-
-see also: [github releases](https://github.com/freqhole/tomb/releases/latest).
+<DownloadPicker />
 
 ---
 

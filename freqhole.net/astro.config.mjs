@@ -1,7 +1,6 @@
 // @ts-check
 import { defineConfig } from 'astro/config';
 import starlight from '@astrojs/starlight';
-import starlightBlog from 'starlight-blog';
 
 // https://astro.build/config
 export default defineConfig({
@@ -14,17 +13,10 @@ export default defineConfig({
 			head: [
 				{ tag: 'link', attrs: { rel: 'icon', href: '/favicon.ico', sizes: 'any' } },
 			],
-			plugins: [
-				starlightBlog({
-					title: 'blog',
-					authors: {
-						edward: {
-							name: 'edward',
-						},
-					},
-				}),
-			],
 			social: [{ icon: 'github', label: 'GitHub', href: 'https://github.com/freqhole/tomb' }],
+			components: {
+				Hero: './src/components/CustomHero.astro',
+			},
 			sidebar: [
 				{
 					label: 'getting started',

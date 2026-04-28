@@ -30,7 +30,7 @@ export interface CoachStep {
 export const coachSteps: CoachStep[] = [
   {
     id: "add-music",
-    title: "point at a folder",
+    title: "take a quick tour",
     body: "freqhole scans + indexes your audio files in place. nothing leaves your machine.",
     anchor: "add-music-button",
     apply: (ctx) => {
