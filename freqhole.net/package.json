@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "astro dev",
     "start": "astro dev",
-    "prebuild": "npm --prefix ../client/spume run build:coach:wc",
+    "prebuild": "npm --prefix ../client/spume ci && npm --prefix ../client/spume run build:coach:wc",
     "build": "astro build",
     "preview": "astro preview",
     "astro": "astro"
