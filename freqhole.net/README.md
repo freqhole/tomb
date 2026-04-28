@@ -1,49 +1,49 @@
-# Starlight Starter Kit: Basics
+# freqhole.net
 
-[![Built with Starlight](https://astro.badg.es/v2/built-with-starlight/tiny.svg)](https://starlight.astro.build)
+astro + starlight site for [freqhole](https://freqhole.net), with an embedded
+scroll-coach demo of the spume client rendered as a `<freqhole-coach-demo>`
+web component.
 
-```
-npm create astro@latest -- --template starlight
-```
+## build + dev
 
-> 🧑‍🚀 **Seasoned astronaut?** Delete this file. Have fun!
+from this directory:
 
-## 🚀 Project Structure
+| command           | what it does                                                              |
+| :---------------- | :------------------------------------------------------------------------ |
+| `npm install`     | install astro + starlight deps                                            |
+| `npm run dev`     | astro dev server at <http://localhost:4321> (does NOT rebuild coach demo) |
+| `npm run build`   | build the coach-demo bundle (via `prebuild`) + the astro site to `dist/`  |
+| `npm run preview` | preview the production build locally                                      |
 
-Inside of your Astro + Starlight project, you'll see the following folders and files:
+`npm run build` is the single command for the entire site. behind the scenes
+the `prebuild` script runs `npm --prefix ../client/spume run build:coach:wc`,
+which emits `freqhole-coach-demo.js` directly into `public/demo/`. astro then
+picks it up and copies it into `dist/demo/` as part of the normal build.
+
+the coach-demo bundle is git-ignored (rebuilt on every deploy). to refresh it
+for local `npm run dev`, run `make build-coach-demo` (or just `npm run build`
+once).
+
+## structure
 
 ```
 .
 ├── public/
+│   └── demo/
+│       └── freqhole-coach-demo.js   # built artifact (git-ignored)
 ├── src/
 │   ├── assets/
-│   ├── content/
-│   │   └── docs/
-│   └── content.config.ts
+│   ├── components/
+│   │   └── ScrollCoach.astro       # embeds the <freqhole-coach-demo>
+│   └── content/
+│       └── docs/                   # starlight content (.md / .mdx)
 ├── astro.config.mjs
+├── Makefile                        # convenience targets (delegates to npm)
 ├── package.json
 └── tsconfig.json
 ```
 
-Starlight looks for `.md` or `.mdx` files in the `src/content/docs/` directory. Each file is exposed as a route based on its file name.
+## learn more
 
-Images can be added to `src/assets/` and embedded in Markdown with a relative link.
-
-Static assets, like favicons, can be placed in the `public/` directory.
-
-## 🧞 Commands
-
-All commands are run from the root of the project, from a terminal:
-
-| Command                   | Action                                           |
-| :------------------------ | :----------------------------------------------- |
-| `npm install`             | Installs dependencies                            |
-| `npm run dev`             | Starts local dev server at `localhost:4321`      |
-| `npm run build`           | Build your production site to `./dist/`          |
-| `npm run preview`         | Preview your build locally, before deploying     |
-| `npm run astro ...`       | Run CLI commands like `astro add`, `astro check` |
-| `npm run astro -- --help` | Get help using the Astro CLI                     |
-
-## 👀 Want to learn more?
-
-Check out [Starlight’s docs](https://starlight.astro.build/), read [the Astro documentation](https://docs.astro.build), or jump into the [Astro Discord server](https://astro.build/chat).
+- [starlight docs](https://starlight.astro.build/)
+- [astro docs](https://docs.astro.build)

@@ -519,6 +519,85 @@ export const mockRemotes = [
   { id: "remote-bandcamp-mirror", name: "bandcamp mirror" },
   { id: "remote-friends-house", name: "friends-house" },
   { id: "remote-vinyl-rips", name: "vinyl rips" },
+  { id: "remote-carps-basement", name: "carp's basement" },
+];
+
+// curated music attributed to the "carp's basement" remote. these are
+// distinctive (jazz / dub / library music) so they stand out against the
+// local library when browsing the federated feed.
+export interface MockRemoteSong {
+  id: string;
+  title: string;
+  artist: string;
+  album: string;
+  year: number;
+  duration_seconds: number;
+  genre: string;
+  remote_id: string;
+  remote_name: string;
+  thumbnailUrl: string;
+}
+export const mockRemoteSongs: MockRemoteSong[] = [
+  {
+    id: "remote-song-1",
+    title: "sketch for summer",
+    artist: "the durutti column",
+    album: "the return of the durutti column",
+    year: 1980,
+    duration_seconds: 224,
+    genre: "post-punk",
+    remote_id: "remote-carps-basement",
+    remote_name: "carp's basement",
+    thumbnailUrl: placeholderImage("remote-song-1"),
+  },
+  {
+    id: "remote-song-2",
+    title: "king tubby meets the rockers uptown",
+    artist: "augustus pablo",
+    album: "king tubbys meets rockers uptown",
+    year: 1976,
+    duration_seconds: 195,
+    genre: "dub",
+    remote_id: "remote-carps-basement",
+    remote_name: "carp's basement",
+    thumbnailUrl: placeholderImage("remote-song-2"),
+  },
+  {
+    id: "remote-song-3",
+    title: "laventille",
+    artist: "david axelrod",
+    album: "songs of innocence",
+    year: 1968,
+    duration_seconds: 265,
+    genre: "jazz-funk",
+    remote_id: "remote-carps-basement",
+    remote_name: "carp's basement",
+    thumbnailUrl: placeholderImage("remote-song-3"),
+  },
+  {
+    id: "remote-song-4",
+    title: "theme de yoyo",
+    artist: "art ensemble of chicago",
+    album: "les stances a sophie",
+    year: 1970,
+    duration_seconds: 312,
+    genre: "free jazz",
+    remote_id: "remote-carps-basement",
+    remote_name: "carp's basement",
+    thumbnailUrl: placeholderImage("remote-song-4"),
+  },
+  {
+    id: "remote-song-5",
+    title: "bibo no aozora",
+    artist: "ryuichi sakamoto",
+    album: "1996",
+    year: 1996,
+    duration_seconds: 348,
+    genre: "ambient",
+    remote_id: "remote-carps-basement",
+    remote_name: "carp's basement",
+    thumbnailUrl: placeholderImage("remote-song-5"),
+  },
 ];
 
 // =====================================================================
@@ -605,6 +684,23 @@ export const mockRadioStations: MockRadioStation[] = [
     is_enabled: false,
     listenerCount: 0,
     thumbnailUrl: placeholderImage("radio-sunday-morning"),
+  },
+  {
+    id: "radio-carps-basement",
+    name: "carp's basement (remote)",
+    description: "streaming live from carp's basement — dub, jazz, library oddities",
+    codec: "opus",
+    play_mode: "weighted_shuffle",
+    is_public: true,
+    is_enabled: true,
+    listenerCount: 8,
+    thumbnailUrl: placeholderImage("radio-carps-basement"),
+    currentSong: {
+      title: "king tubby meets the rockers uptown",
+      artist: "augustus pablo",
+      album: "king tubbys meets rockers uptown",
+      startedAt: Date.now() - 64_000,
+    },
   },
 ];
 
@@ -747,4 +843,53 @@ export function generateQueueHistory(
   }
 
   return out;
+}
+
+// ===== demo library mode (scroll-coach demo) =================================
+// signal-backed toggle for the scroll-coach demo's first beat: start "empty",
+// flip to "populated" once the fake scan completes. consumers (SuperStory's
+// derived song/album/etc. signals, eventually) read demoLibraryMode() and pick
+// either the empty fixtures or the rich populated mocks.
+//
+// stub: SuperStory does NOT yet read this signal — wiring is the next step.
+
+import { createSignal as _createSignal } from "solid-js";
+
+export type DemoLibraryMode = "empty" | "populated";
+export const [demoLibraryMode, setDemoLibraryMode] =
+  _createSignal<DemoLibraryMode>("populated");
+
+// 0..1 progress for the fake-scan animation. consumers can render a bar
+// off this signal during the add-music step.
+export const [fakeScanProgress, setFakeScanProgress] = _createSignal(0);
+export const [fakeScanRunning, setFakeScanRunning] = _createSignal(false);
+
+/** simple async fake-scan: progresses 0->1 over `durationMs`, then flips to populated. */
+export function runFakeLibraryScan(opts: {
+  durationMs?: number;
+  onProgress?: (pct: number) => void;
+  /** if false, leave libraryMode at "empty" after scan completes (caller flips later) */
+  flipToPopulated?: boolean;
+} = {}): Promise<void> {
+  const duration = opts.durationMs ?? 2000;
+  const flip = opts.flipToPopulated ?? true;
+  setDemoLibraryMode("empty");
+  setFakeScanProgress(0);
+  setFakeScanRunning(true);
+  const start = performance.now();
+  return new Promise((resolve) => {
+    const tick = (now: number) => {
+      const pct = Math.min(1, (now - start) / duration);
+      setFakeScanProgress(pct);
+      opts.onProgress?.(pct);
+      if (pct >= 1) {
+        if (flip) setDemoLibraryMode("populated");
+        setFakeScanRunning(false);
+        resolve();
+        return;
+      }
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  });
 }

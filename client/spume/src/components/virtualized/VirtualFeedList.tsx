@@ -616,7 +616,7 @@ function FeedRow(props: {
               />
             </Show>
             <Show when={props.item.tags && props.item.tags.length > 0}>
-              <For each={props.item.tags!.slice(0, 3)}>
+              <For each={(props.item.tags ?? []).slice(0, 3)}>
                 {(tag) => (
                   <span class="px-1 py-px rounded bg-[var(--color-bg-hover)] text-[var(--color-text-muted)] flex-shrink-0">
                     #{tag}
@@ -627,7 +627,7 @@ function FeedRow(props: {
             {/* inline entity URLs - limit to first 2 to save space */}
             <Show when={props.item.urls && props.item.urls.length > 0}>
               <div onClick={(e) => e.stopPropagation()} class="flex-shrink-0">
-                <EntityLinks urls={props.item.urls!.slice(0, 2)} />
+                <EntityLinks urls={(props.item.urls ?? []).slice(0, 2)} />
               </div>
             </Show>
           </div>

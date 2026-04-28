@@ -2,6 +2,8 @@
 dist/
 # generated types
 .astro/
+# scroll-coach web component bundle (built from ../client/spume via prebuild)
+public/demo/freqhole-coach-demo.js
 
 # dependencies
 node_modules/

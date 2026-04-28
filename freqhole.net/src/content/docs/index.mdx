@@ -17,54 +17,9 @@ hero:
       variant: minimal
 ---
 
-import { Card, CardGrid, Code } from "@astrojs/starlight/components";
+import ScrollCoach from "../../components/ScrollCoach.astro";
 
-## wtf is a freqhole?
-
-a self-hosted music server and player: share your music library with yrself and yr frenz.
-
-<CardGrid>
-  <Card title="self-hosted" icon="laptop">
-    run on your own hardware (like a raspberry pi); D.I.Y. or D.I.E.
-  </Card>
-  <Card title="P2P streaming" icon="rocket">
-    share with friends without port forwarding or dynamic DNS. read more about
-    [shring with friends](/guides/sharing/).
-  </Card>
-  <Card title="works offline" icon="moon">
-    caches music locally, keep listening without internet. sync yr tunez to yr
-    mobile.
-  </Card>
-  <Card title="cross-platform" icon="puzzle">
-    [desktop app](/getting-started/download/) for macOS and linux. CLI for linux
-    geekz && headless servers. android app. web app has offline support & mobile
-    responsive layout.
-  </Card>
-  <Card title="your files are read-only" icon="document">
-    freqhole reads your music but doesn't write, move, rename, or delete your
-    filez! everything is indexed in a sqlite database. read more about [music
-    directories](/guides/scanning/).
-  </Card>
-  <Card title="music brainz" icon="magnifier">
-    look up album info, track details, and cover art from MusicBrainz and Cover
-    Art Archive.
-  </Card>
-</CardGrid>
-
-## so watcha' want?
-
-<CardGrid>
-  <Card title="on your desktop or laptop" icon="laptop">
-    use the **[desktop app (charnel)](/getting-started/)** — a GUI player and
-    server management wizard, or the **[CLI](/getting-started/cli-setup/)** if
-    you prefer the terminal or are running a headless server.
-  </Card>
-  <Card title="on your phone" icon="phone">
-    use the **[web app](https://spume.freqhole.net)** in your mobile browser —
-    it caches your library and music offline, so it keeps working when your
-    connection drops. download & install the android .apk if that's yr thing.
-  </Card>
-</CardGrid>
+<ScrollCoach steps={17} />
 
 ```rust title="madewith.rs"
 fn main() {

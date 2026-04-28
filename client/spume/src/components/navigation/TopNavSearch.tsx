@@ -22,6 +22,8 @@ export interface TopNavSearchProps {
   onExpandedChange?: (expanded: boolean) => void;
   /** whether the parent nav is being hovered */
   navHovered?: boolean;
+  /** optional element to mount the suggestions flyout into (for shadow-root embeds) */
+  flyoutMount?: Node;
 }
 
 // filterable route keys — used for the "press return to filter X" hint
@@ -361,6 +363,7 @@ export function TopNavSearch(props: TopNavSearchProps) {
             loadingMore={props.isLoadingSuggestions}
             hintMessage={hintMessage()}
             onHintClick={submitFilter}
+            flyoutMount={props.flyoutMount}
             class="w-64"
             variant="filled"
           />
