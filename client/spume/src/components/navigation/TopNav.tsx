@@ -2,7 +2,7 @@ import { NavigationMenu as KobalteNav } from "@kobalte/core/navigation-menu";
 import { createResource, createSignal, For, onCleanup, onMount, Show, type JSX } from "solid-js";
 import { isCharnelMode } from "../../app/services/charnel";
 import { getPageInfo } from "../../app/services/pageInfo";
-import { isNarrowViewport, isSmallViewport } from "../../config/breakpoints";
+import { isNarrowViewport } from "../../config/breakpoints";
 import { canCreatePlaylist, canUploadMusic } from "../../music/data/permissions";
 import { resolveBlobUrl } from "../../music/services/storage/blobResolver";
 import type { ImageMetadata } from "../../music/services/storage/types";
@@ -228,7 +228,10 @@ function RemoteServerImage(props: { remote: RemoteItem; class?: string; alt?: st
 export function TopNav(props: TopNavProps) {
   // responsive: track viewport sizes
   const [isNarrow, setIsNarrow] = createSignal(isNarrowViewport());
-  const [isSmall, setIsSmall] = createSignal(isSmallViewport());
+
+  // narrow viewport gets bigger touch-friendly icon buttons
+  const iconBtnPad = () => (isNarrow() ? "p-2.5" : "p-1.5");
+  const iconBtnSize = () => (isNarrow() ? 22 : 16);
   const [searchExpanded, setSearchExpanded] = createSignal(false);
   const [sortOpen, setSortOpen] = createSignal(false);
   const [sortLocked, setSortLocked] = createSignal(false);
@@ -282,7 +285,6 @@ export function TopNav(props: TopNavProps) {
   onMount(() => {
     const handleResize = () => {
       setIsNarrow(isNarrowViewport());
-      setIsSmall(isSmallViewport());
     };
     window.addEventListener("resize", handleResize);
     onCleanup(() => window.removeEventListener("resize", handleResize));
@@ -450,23 +452,42 @@ export function TopNav(props: TopNavProps) {
         onMouseEnter={() => setNavHovered(true)}
         onMouseLeave={() => setNavHovered(false)}
       >
-        <div class="flex items-center gap-3">
+        <div
+          class="flex items-center"
+          classList={{
+            "gap-3": !isNarrow(),
+            "gap-1": isNarrow(),
+          }}
+        >
           {/* menu trigger */}
           <KobalteNav>
             <KobalteNav.Menu>
               <KobalteNav.Trigger
                 class="p-1 rounded-lg text-white hover:bg-white/10 transition-colors border-none bg-transparent cursor-pointer flex items-center justify-center"
-                style={{ "min-width": "36px", "min-height": "36px" }}
+                style={{
+                  "min-width": isNarrow() ? "44px" : "36px",
+                  "min-height": isNarrow() ? "44px" : "36px",
+                }}
                 aria-label="menu"
               >
                 <Show
                   when={!isAggregateFeedRoute() && currentRemote()}
-                  fallback={<Icon name="freqhole" size={24} color="var(--color-accent-500)" />}
+                  fallback={
+                    <Icon
+                      name="freqhole"
+                      size={isNarrow() ? 32 : 24}
+                      color="var(--color-accent-500)"
+                    />
+                  }
                 >
                   {(remote) => (
                     <RemoteServerImage
                       remote={remote()}
-                      class="w-7 h-7 rounded object-cover flex-shrink-0"
+                      class={
+                        isNarrow()
+                          ? "w-9 h-9 rounded object-cover flex-shrink-0"
+                          : "w-7 h-7 rounded object-cover flex-shrink-0"
+                      }
                     />
                   )}
                 </Show>
@@ -878,7 +899,7 @@ export function TopNav(props: TopNavProps) {
               !isRadioRoute() &&
               !isSharedRoute() &&
               props.viewOptions?.length &&
-              (!isSmall() || !searchExpanded())
+              (!isNarrow() || !searchExpanded())
             }
           >
             <div class="order-1">
@@ -887,318 +908,337 @@ export function TopNav(props: TopNavProps) {
                 currentTitle={props.pageTitle}
                 currentCount={props.pageCount}
                 onNavigate={(path) => props.onNavigate?.(path)}
+                isNarrow={isNarrow()}
               />
             </div>
           </Show>
 
-          {/* browser history back/forward - hidden when search expanded on small */}
-          <Show when={canGoBack() && (!isSmall() || !searchExpanded())}>
-            <button
-              class="p-1.5 rounded transition-colors border-none bg-transparent cursor-pointer flex-shrink-0 order-1 text-white/60 hover:text-white"
-              onClick={() => window.history.back()}
-              title="back"
-              aria-label="go back"
-            >
-              <Icon name="arrowLeft" size={16} />
-            </button>
-          </Show>
-          <Show when={canGoForward() && (!isSmall() || !searchExpanded())}>
-            <button
-              class="p-1.5 rounded transition-colors border-none bg-transparent cursor-pointer flex-shrink-0 order-1 text-white/60 hover:text-white"
-              onClick={() => window.history.forward()}
-              title="forward"
-              aria-label="go forward"
-            >
-              <Icon name="arrowRight" size={16} />
-            </button>
-          </Show>
-
-          {/* search - last item on right, grows to fill remaining space (hidden on aggregate feed + radio) */}
-          <Show when={!isAggregateFeedRoute() && !isRadioRoute() && !isSharedRoute()}>
-            <div class="flex-1 order-last">
-              <Show
-                when={props.searchComponent !== undefined}
-                fallback={
-                  <TopNavSearchContainer
-                    placeholder={props.searchPlaceholder}
-                    onNavigate={props.onNavigate}
-                    currentPath={props.currentPath}
-                    onExpandedChange={setSearchExpanded}
-                    navHovered={navHovered()}
-                  />
-                }
-              >
-                {props.searchComponent}
-              </Show>
-            </div>
-          </Show>
-
-          {/* sort controls - when view has sorting, hidden when search expanded on small, hidden on aggregate feed + radio */}
-          <Show
-            when={
-              !isAggregateFeedRoute() &&
-              !isRadioRoute() &&
-              !isSharedRoute() &&
-              info().sortFields?.length &&
-              (!isSmall() || !searchExpanded())
-            }
+          {/* icon row + search - distributed across remaining space on narrow */}
+          <div
+            class="flex items-center flex-1 order-2"
+            classList={{
+              "gap-3": !isNarrow(),
+              "justify-around gap-1": isNarrow(),
+            }}
           >
-            <div
-              class="relative flex-shrink-0 order-2"
-              onMouseEnter={() => {
-                clearTimeout(sortCloseTimeout);
-                if (!sortOpen()) setSortOpen(true);
-              }}
-              onMouseLeave={() => {
-                if (sortLocked()) return;
-                sortCloseTimeout = setTimeout(() => setSortOpen(false), 150);
-              }}
-            >
+            {/* browser history back/forward - hidden when search expanded on small */}
+            <Show when={canGoBack() && (!isNarrow() || !searchExpanded())}>
               <button
-                class="p-1.5 rounded transition-colors border-none bg-transparent cursor-pointer"
-                classList={{
-                  "text-[var(--color-accent-500)]": isNonDefaultSort(),
-                  "text-white/60 hover:text-white": !isNonDefaultSort(),
-                }}
-                onClick={() => {
-                  if (sortOpen() && sortLocked()) {
-                    setSortLocked(false);
-                    setSortOpen(false);
-                  } else {
-                    setSortOpen(true);
-                    setSortLocked(true);
-                  }
-                  setTagOpen(false);
-                  setTagLocked(false);
-                }}
-                title="sort"
+                class={`${iconBtnPad()} rounded transition-colors border-none bg-transparent cursor-pointer flex-shrink-0 order-1 text-white/60 hover:text-white`}
+                onClick={() => window.history.back()}
+                title="back"
+                aria-label="go back"
               >
-                <Icon name="sort" size={16} />
+                <Icon name="arrowLeft" size={iconBtnSize()} />
               </button>
-              <Show when={sortOpen()}>
-                <div class="absolute top-full right-0 mt-1 bg-[var(--color-bg-elevated)] border border-[var(--color-border-default)] rounded-lg shadow-xl z-[1001] p-2 flex gap-1">
-                  <select
-                    value={info().sortBy || ""}
-                    onChange={(e) => {
-                      info().onSortChange?.(e.target.value, info().sortDirection || "desc");
-                    }}
-                    class="px-2 py-1.5 bg-[var(--color-bg-secondary)] text-[var(--color-text-primary)] text-xs rounded border border-[var(--color-border-default)] focus:outline-none focus:ring-1 focus:ring-[var(--color-accent-500)]"
-                  >
-                    <For each={info().sortFields}>
-                      {(field) => (
-                        <option value={field.value} title={field.description}>
-                          {field.label}
-                        </option>
-                      )}
-                    </For>
-                  </select>
-                  <button
-                    onClick={() => {
-                      const newDir = (info().sortDirection || "desc") === "asc" ? "desc" : "asc";
-                      info().onSortChange?.(info().sortBy || "", newDir);
-                    }}
-                    class="px-2 py-1.5 bg-[var(--color-bg-secondary)] text-[var(--color-text-primary)] text-xs rounded border border-[var(--color-border-default)] hover:bg-[var(--color-bg-hover)] transition-colors border-none cursor-pointer"
-                    title={`sort ${(info().sortDirection || "desc") === "asc" ? "ascending" : "descending"} - click to toggle`}
-                  >
-                    {(info().sortDirection || "desc") === "asc" ? "\u2191" : "\u2193"}
-                  </button>
-                </div>
-              </Show>
-            </div>
-          </Show>
-
-          {/* tag filter icon - when view has tags, hidden when search expanded on small, hidden on radio */}
-          <Show
-            when={
-              !isRadioRoute() && info().availableTags?.length && (!isSmall() || !searchExpanded())
-            }
-          >
-            <div
-              class="relative flex-shrink-0 order-2"
-              onMouseEnter={() => {
-                clearTimeout(tagCloseTimeout);
-                if (!tagOpen()) setTagOpen(true);
-              }}
-              onMouseLeave={() => {
-                if (tagLocked()) return;
-                tagCloseTimeout = setTimeout(() => setTagOpen(false), 150);
-              }}
-            >
+            </Show>
+            <Show when={canGoForward() && (!isNarrow() || !searchExpanded())}>
               <button
-                class="p-1.5 rounded transition-colors border-none bg-transparent cursor-pointer"
+                class={`${iconBtnPad()} rounded transition-colors border-none bg-transparent cursor-pointer flex-shrink-0 order-1 text-white/60 hover:text-white`}
+                onClick={() => window.history.forward()}
+                title="forward"
+                aria-label="go forward"
+              >
+                <Icon name="arrowRight" size={iconBtnSize()} />
+              </button>
+            </Show>
+
+            {/* search - last item on right, grows to fill remaining space (hidden on aggregate feed + radio) */}
+            <Show when={!isAggregateFeedRoute() && !isRadioRoute() && !isSharedRoute()}>
+              <div
+                class="order-last"
                 classList={{
-                  "text-[var(--color-accent-500)]": hasActiveTags(),
-                  "text-white/60 hover:text-white": !hasActiveTags(),
+                  "flex-1": !isNarrow() || searchExpanded(),
                 }}
-                onClick={() => {
-                  if (tagOpen() && tagLocked()) {
-                    setTagLocked(false);
+              >
+                <Show
+                  when={props.searchComponent !== undefined}
+                  fallback={
+                    <TopNavSearchContainer
+                      placeholder={props.searchPlaceholder}
+                      onNavigate={props.onNavigate}
+                      currentPath={props.currentPath}
+                      onExpandedChange={setSearchExpanded}
+                      navHovered={navHovered()}
+                    />
+                  }
+                >
+                  {props.searchComponent}
+                </Show>
+              </div>
+            </Show>
+
+            {/* sort controls - when view has sorting, hidden when search expanded on small, hidden on aggregate feed + radio */}
+            <Show
+              when={
+                !isAggregateFeedRoute() &&
+                !isRadioRoute() &&
+                !isSharedRoute() &&
+                info().sortFields?.length &&
+                (!isNarrow() || !searchExpanded())
+              }
+            >
+              <div
+                class="relative flex-shrink-0 order-2"
+                onMouseEnter={() => {
+                  clearTimeout(sortCloseTimeout);
+                  if (!sortOpen()) setSortOpen(true);
+                }}
+                onMouseLeave={() => {
+                  if (sortLocked()) return;
+                  sortCloseTimeout = setTimeout(() => setSortOpen(false), 150);
+                }}
+              >
+                <button
+                  class={`${iconBtnPad()} rounded transition-colors border-none bg-transparent cursor-pointer`}
+                  classList={{
+                    "text-[var(--color-accent-500)]": isNonDefaultSort(),
+                    "text-white/60 hover:text-white": !isNonDefaultSort(),
+                  }}
+                  onClick={() => {
+                    if (sortOpen() && sortLocked()) {
+                      setSortLocked(false);
+                      setSortOpen(false);
+                    } else {
+                      setSortOpen(true);
+                      setSortLocked(true);
+                    }
                     setTagOpen(false);
-                  } else {
-                    setTagOpen(true);
-                    setTagLocked(true);
-                  }
-                  setSortOpen(false);
-                  setSortLocked(false);
-                }}
-                title="tag filters"
-              >
-                <Icon name="tag" size={16} />
-              </button>
-              <Show when={tagOpen()}>
-                <div class="absolute top-full right-0 mt-1 bg-[var(--color-bg-elevated)] border border-[var(--color-border-default)] rounded-lg shadow-xl z-[1001] min-w-[200px] max-w-[320px]">
-                  <div class="p-2">
-                    <Show when={hasActiveTags()}>
-                      <div class="border-b border-[var(--color-border-subtle)] pb-2 mb-2">
-                        <button
-                          onClick={() => {
-                            info().onClearAllTags?.();
-                          }}
-                          class="w-full text-left px-2 py-1.5 text-xs hover:bg-[var(--color-bg-hover)] text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] rounded transition-colors"
-                        >
-                          clear all
-                        </button>
-                      </div>
-                    </Show>
-                    <Show when={info().tagsLoading}>
-                      <div class="text-xs text-[var(--color-text-tertiary)] py-2 px-2">
-                        loading tags...
-                      </div>
-                    </Show>
-                    <Show when={!info().tagsLoading && unselectedTags().length === 0}>
-                      <div class="text-xs text-[var(--color-text-tertiary)] py-2 px-2">
-                        {(info().availableTags?.length || 0) === 0
-                          ? "no tags available"
-                          : "all tags selected"}
-                      </div>
-                    </Show>
-                    <Show when={!info().tagsLoading && unselectedTags().length > 0}>
-                      <div class="max-h-64 overflow-y-auto scrollbar-thin scrollbar-track-transparent scrollbar-thumb-[var(--color-border-default)]">
-                        <For each={unselectedTags()}>
-                          {(tag) => (
-                            <button
-                              onClick={() => info().onAddTag?.(tag.value)}
-                              class="w-full text-left px-2 py-1.5 text-xs hover:bg-[var(--color-bg-hover)] text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] rounded transition-colors flex items-center justify-between"
-                            >
-                              <span>#{tag.label}</span>
-                              <Show when={tag.count !== undefined}>
-                                <span class="text-[var(--color-text-tertiary)] text-xs">
-                                  ({tag.count})
-                                </span>
-                              </Show>
-                            </button>
-                          )}
-                        </For>
-                      </div>
-                    </Show>
+                    setTagLocked(false);
+                  }}
+                  title="sort"
+                >
+                  <Icon name="sort" size={iconBtnSize()} />
+                </button>
+                <Show when={sortOpen()}>
+                  <div class="absolute top-full right-0 mt-1 bg-[var(--color-bg-elevated)] border border-[var(--color-border-default)] rounded-lg shadow-xl z-[1001] p-2 flex gap-1">
+                    <select
+                      value={info().sortBy || ""}
+                      onChange={(e) => {
+                        info().onSortChange?.(e.target.value, info().sortDirection || "desc");
+                      }}
+                      class="px-2 py-1.5 bg-[var(--color-bg-secondary)] text-[var(--color-text-primary)] text-xs rounded border border-[var(--color-border-default)] focus:outline-none focus:ring-1 focus:ring-[var(--color-accent-500)]"
+                    >
+                      <For each={info().sortFields}>
+                        {(field) => (
+                          <option value={field.value} title={field.description}>
+                            {field.label}
+                          </option>
+                        )}
+                      </For>
+                    </select>
+                    <button
+                      onClick={() => {
+                        const newDir = (info().sortDirection || "desc") === "asc" ? "desc" : "asc";
+                        info().onSortChange?.(info().sortBy || "", newDir);
+                      }}
+                      class="px-2 py-1.5 bg-[var(--color-bg-secondary)] text-[var(--color-text-primary)] text-xs rounded border border-[var(--color-border-default)] hover:bg-[var(--color-bg-hover)] transition-colors border-none cursor-pointer"
+                      title={`sort ${(info().sortDirection || "desc") === "asc" ? "ascending" : "descending"} - click to toggle`}
+                    >
+                      {(info().sortDirection || "desc") === "asc" ? "\u2191" : "\u2193"}
+                    </button>
                   </div>
-                </div>
-              </Show>
-            </div>
-          </Show>
+                </Show>
+              </div>
+            </Show>
 
-          {/* feed type filter icon - when view has feed types, hidden when search expanded on small */}
-          <Show when={info().feedTypeOptions?.length && (!isSmall() || !searchExpanded())}>
-            <div
-              class="relative flex-shrink-0 order-2"
-              onMouseEnter={() => {
-                clearTimeout(feedFilterCloseTimeout);
-                if (!feedFilterOpen()) setFeedFilterOpen(true);
-              }}
-              onMouseLeave={() => {
-                if (feedFilterLocked()) return;
-                feedFilterCloseTimeout = setTimeout(() => setFeedFilterOpen(false), 150);
-              }}
+            {/* tag filter icon - when view has tags, hidden when search expanded on small, hidden on radio */}
+            <Show
+              when={
+                !isRadioRoute() &&
+                info().availableTags?.length &&
+                (!isNarrow() || !searchExpanded())
+              }
+            >
+              <div
+                class="relative flex-shrink-0 order-2"
+                onMouseEnter={() => {
+                  clearTimeout(tagCloseTimeout);
+                  if (!tagOpen()) setTagOpen(true);
+                }}
+                onMouseLeave={() => {
+                  if (tagLocked()) return;
+                  tagCloseTimeout = setTimeout(() => setTagOpen(false), 150);
+                }}
+              >
+                <button
+                  class={`${iconBtnPad()} rounded transition-colors border-none bg-transparent cursor-pointer`}
+                  classList={{
+                    "text-[var(--color-accent-500)]": hasActiveTags(),
+                    "text-white/60 hover:text-white": !hasActiveTags(),
+                  }}
+                  onClick={() => {
+                    if (tagOpen() && tagLocked()) {
+                      setTagLocked(false);
+                      setTagOpen(false);
+                    } else {
+                      setTagOpen(true);
+                      setTagLocked(true);
+                    }
+                    setSortOpen(false);
+                    setSortLocked(false);
+                  }}
+                  title="tag filters"
+                >
+                  <Icon name="tag" size={iconBtnSize()} />
+                </button>
+                <Show when={tagOpen()}>
+                  <div class="absolute top-full right-0 mt-1 bg-[var(--color-bg-elevated)] border border-[var(--color-border-default)] rounded-lg shadow-xl z-[1001] min-w-[200px] max-w-[320px]">
+                    <div class="p-2">
+                      <Show when={hasActiveTags()}>
+                        <div class="border-b border-[var(--color-border-subtle)] pb-2 mb-2">
+                          <button
+                            onClick={() => {
+                              info().onClearAllTags?.();
+                            }}
+                            class="w-full text-left px-2 py-1.5 text-xs hover:bg-[var(--color-bg-hover)] text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] rounded transition-colors"
+                          >
+                            clear all
+                          </button>
+                        </div>
+                      </Show>
+                      <Show when={info().tagsLoading}>
+                        <div class="text-xs text-[var(--color-text-tertiary)] py-2 px-2">
+                          loading tags...
+                        </div>
+                      </Show>
+                      <Show when={!info().tagsLoading && unselectedTags().length === 0}>
+                        <div class="text-xs text-[var(--color-text-tertiary)] py-2 px-2">
+                          {(info().availableTags?.length || 0) === 0
+                            ? "no tags available"
+                            : "all tags selected"}
+                        </div>
+                      </Show>
+                      <Show when={!info().tagsLoading && unselectedTags().length > 0}>
+                        <div class="max-h-64 overflow-y-auto scrollbar-thin scrollbar-track-transparent scrollbar-thumb-[var(--color-border-default)]">
+                          <For each={unselectedTags()}>
+                            {(tag) => (
+                              <button
+                                onClick={() => info().onAddTag?.(tag.value)}
+                                class="w-full text-left px-2 py-1.5 text-xs hover:bg-[var(--color-bg-hover)] text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] rounded transition-colors flex items-center justify-between"
+                              >
+                                <span>#{tag.label}</span>
+                                <Show when={tag.count !== undefined}>
+                                  <span class="text-[var(--color-text-tertiary)] text-xs">
+                                    ({tag.count})
+                                  </span>
+                                </Show>
+                              </button>
+                            )}
+                          </For>
+                        </div>
+                      </Show>
+                    </div>
+                  </div>
+                </Show>
+              </div>
+            </Show>
+
+            {/* feed type filter icon - when view has feed types, hidden when search expanded on small */}
+            <Show when={info().feedTypeOptions?.length && (!isNarrow() || !searchExpanded())}>
+              <div
+                class="relative flex-shrink-0 order-2"
+                onMouseEnter={() => {
+                  clearTimeout(feedFilterCloseTimeout);
+                  if (!feedFilterOpen()) setFeedFilterOpen(true);
+                }}
+                onMouseLeave={() => {
+                  if (feedFilterLocked()) return;
+                  feedFilterCloseTimeout = setTimeout(() => setFeedFilterOpen(false), 150);
+                }}
+              >
+                <button
+                  class={`${iconBtnPad()} rounded transition-colors border-none bg-transparent cursor-pointer`}
+                  classList={{
+                    "text-[var(--color-accent-500)]": hasActiveFeedFilters() || feedFilterOpen(),
+                    "text-white/60 hover:text-white": !hasActiveFeedFilters() && !feedFilterOpen(),
+                  }}
+                  onClick={() => {
+                    if (feedFilterOpen() && feedFilterLocked()) {
+                      setFeedFilterLocked(false);
+                      setFeedFilterOpen(false);
+                    } else {
+                      setFeedFilterOpen(true);
+                      setFeedFilterLocked(true);
+                    }
+                    setSortOpen(false);
+                    setSortLocked(false);
+                    setTagOpen(false);
+                    setTagLocked(false);
+                  }}
+                  title="feed type filters"
+                >
+                  <Icon name="filter" size={iconBtnSize()} />
+                </button>
+                <Show when={feedFilterOpen()}>
+                  <div class="absolute top-full left-0 mt-1 bg-[var(--color-bg-elevated)] border border-[var(--color-border-default)] rounded-lg shadow-xl z-[1001] min-w-[180px]">
+                    <div class="p-2">
+                      <Show when={hasActiveFeedFilters()}>
+                        <div class="border-b border-[var(--color-border-subtle)] pb-2 mb-2">
+                          <button
+                            onClick={() => info().onClearFeedTypes?.()}
+                            class="w-full text-left px-2 py-1.5 text-xs hover:bg-[var(--color-bg-hover)] text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] rounded transition-colors"
+                          >
+                            show all types
+                          </button>
+                        </div>
+                      </Show>
+                      <For each={info().feedTypeOptions}>
+                        {(option) => {
+                          const isSelected = () =>
+                            (info().selectedFeedTypes || []).some((f) => f.type === option.value);
+                          return (
+                            <button
+                              onClick={() => info().onToggleFeedType?.(option.value)}
+                              class="w-full text-left px-2 py-1.5 text-xs hover:bg-[var(--color-bg-hover)] rounded transition-colors flex items-center gap-2"
+                              classList={{
+                                "text-[var(--color-accent-500)]": isSelected(),
+                                "text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]":
+                                  !isSelected(),
+                              }}
+                            >
+                              <span class="w-3 text-center">{isSelected() ? "\u2713" : ""}</span>
+                              <span>{option.label}</span>
+                            </button>
+                          );
+                        }}
+                      </For>
+                    </div>
+                  </div>
+                </Show>
+              </div>
+            </Show>
+
+            {/* my items toggle - when view supports it, hidden when search expanded on small */}
+            <Show when={info().onToggleMyItems && (!isNarrow() || !searchExpanded())}>
+              <button
+                class={`${iconBtnPad()} rounded transition-colors border-none bg-transparent cursor-pointer flex-shrink-0 order-2`}
+                classList={{
+                  "text-[var(--color-accent-500)]": info().myItemsOnly,
+                  "text-white/60 hover:text-white": !info().myItemsOnly,
+                }}
+                onClick={() => info().onToggleMyItems?.()}
+                title={info().myItemsOnly ? "showing my items only" : "showing all items"}
+              >
+                <Icon name="user" size={iconBtnSize()} />
+              </button>
+            </Show>
+
+            {/* back to top - shown after scroll threshold, after all filter controls, hidden when search expanded on small */}
+            <Show
+              when={
+                info().showBackToTop && info().onBackToTop && (!isNarrow() || !searchExpanded())
+              }
             >
               <button
-                class="p-1.5 rounded transition-colors border-none bg-transparent cursor-pointer"
-                classList={{
-                  "text-[var(--color-accent-500)]": hasActiveFeedFilters() || feedFilterOpen(),
-                  "text-white/60 hover:text-white": !hasActiveFeedFilters() && !feedFilterOpen(),
-                }}
-                onClick={() => {
-                  if (feedFilterOpen() && feedFilterLocked()) {
-                    setFeedFilterLocked(false);
-                    setFeedFilterOpen(false);
-                  } else {
-                    setFeedFilterOpen(true);
-                    setFeedFilterLocked(true);
-                  }
-                  setSortOpen(false);
-                  setSortLocked(false);
-                  setTagOpen(false);
-                  setTagLocked(false);
-                }}
-                title="feed type filters"
+                class={`${iconBtnPad()} rounded transition-all border-none bg-transparent cursor-pointer text-white/60 hover:text-white flex-shrink-0 animate-in fade-in duration-200 order-2`}
+                onClick={() => info().onBackToTop?.()}
+                title="back to top"
               >
-                <Icon name="filter" size={16} />
+                <Icon name="chevronUp" size={iconBtnSize()} />
               </button>
-              <Show when={feedFilterOpen()}>
-                <div class="absolute top-full left-0 mt-1 bg-[var(--color-bg-elevated)] border border-[var(--color-border-default)] rounded-lg shadow-xl z-[1001] min-w-[180px]">
-                  <div class="p-2">
-                    <Show when={hasActiveFeedFilters()}>
-                      <div class="border-b border-[var(--color-border-subtle)] pb-2 mb-2">
-                        <button
-                          onClick={() => info().onClearFeedTypes?.()}
-                          class="w-full text-left px-2 py-1.5 text-xs hover:bg-[var(--color-bg-hover)] text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] rounded transition-colors"
-                        >
-                          show all types
-                        </button>
-                      </div>
-                    </Show>
-                    <For each={info().feedTypeOptions}>
-                      {(option) => {
-                        const isSelected = () =>
-                          (info().selectedFeedTypes || []).some((f) => f.type === option.value);
-                        return (
-                          <button
-                            onClick={() => info().onToggleFeedType?.(option.value)}
-                            class="w-full text-left px-2 py-1.5 text-xs hover:bg-[var(--color-bg-hover)] rounded transition-colors flex items-center gap-2"
-                            classList={{
-                              "text-[var(--color-accent-500)]": isSelected(),
-                              "text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]":
-                                !isSelected(),
-                            }}
-                          >
-                            <span class="w-3 text-center">{isSelected() ? "\u2713" : ""}</span>
-                            <span>{option.label}</span>
-                          </button>
-                        );
-                      }}
-                    </For>
-                  </div>
-                </div>
-              </Show>
-            </div>
-          </Show>
-
-          {/* my items toggle - when view supports it, hidden when search expanded on small */}
-          <Show when={info().onToggleMyItems && (!isSmall() || !searchExpanded())}>
-            <button
-              class="p-1.5 rounded transition-colors border-none bg-transparent cursor-pointer flex-shrink-0 order-2"
-              classList={{
-                "text-[var(--color-accent-500)]": info().myItemsOnly,
-                "text-white/60 hover:text-white": !info().myItemsOnly,
-              }}
-              onClick={() => info().onToggleMyItems?.()}
-              title={info().myItemsOnly ? "showing my items only" : "showing all items"}
-            >
-              <Icon name="user" size={16} />
-            </button>
-          </Show>
-
-          {/* back to top - shown after scroll threshold, after all filter controls, hidden when search expanded on small */}
-          <Show
-            when={info().showBackToTop && info().onBackToTop && (!isSmall() || !searchExpanded())}
-          >
-            <button
-              class="p-1.5 rounded transition-all border-none bg-transparent cursor-pointer text-white/60 hover:text-white flex-shrink-0 animate-in fade-in duration-200 order-2"
-              onClick={() => info().onBackToTop?.()}
-              title="back to top"
-            >
-              <Icon name="chevronUp" size={16} />
-            </button>
-          </Show>
+            </Show>
+          </div>
         </div>
 
         {/* selected tag badges - desktop only, below nav bar */}
