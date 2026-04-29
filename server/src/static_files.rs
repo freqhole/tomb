@@ -124,13 +124,17 @@ async fn serve_embedded_file(req: Request) -> Result<Response, ApiError> {
     }
 }
 
-/// serve server image (public, no auth required)
+/// serve server image (public, no auth required).
+///
+/// reads from the live `get_config()` (not the AppState snapshot) so that
+/// updates via the admin/charnel image-upload flow are reflected without
+/// requiring a server restart.
 pub async fn serve_server_image(
-    Extension(state): Extension<AppState>,
+    Extension(_state): Extension<AppState>,
     req: Request,
 ) -> Result<Response, ApiError> {
-    let server_config = state
-        .config
+    let live_config = grimoire::config::get_config();
+    let server_config = live_config
         .server
         .as_ref()
         .ok_or_else(|| ApiError::Internal("server config missing".to_string()))?;
@@ -145,7 +149,7 @@ pub async fn serve_server_image(
     let full_path = if image_path.is_absolute() {
         image_path.clone()
     } else {
-        state.config.data_dir.join(image_path)
+        live_config.data_dir.join(image_path)
     };
 
     // verify file exists
@@ -158,10 +162,13 @@ pub async fn serve_server_image(
     match serve_file.oneshot(req).await {
         Ok(response) => {
             let (mut parts, body) = response.into_parts();
-            // add cache header for server image (1 day)
+            // shorter cache than before (5 min) so updates propagate quickly
+            // to clients while still reducing load. the blob path uses
+            // content-addressed ids so it can cache forever — but this
+            // path is path-addressed and can change in place.
             parts.headers.insert(
                 CACHE_CONTROL,
-                HeaderValue::from_static("public, max-age=86400"),
+                HeaderValue::from_static("public, max-age=300"),
             );
             Ok(Response::from_parts(parts, Body::new(body)))
         }

@@ -1169,7 +1169,12 @@ async fn server_update_image(args: JsonValue) -> GrimoireResponse<JsonValue> {
 /// shape mirrors the local `get_server_config` tauri command so the wizard
 /// can use one shape for both targets.
 async fn server_get_config() -> GrimoireResponse<JsonValue> {
-    let cfg = get_config();
+    // read from disk to avoid stale in-memory CONFIG. cheap (small toml)
+    // and immune to any write path that forgets to reload after mutating.
+    let cfg = match resolve_config_path() {
+        Ok(p) => crate::config::read_config_from_file(&p).unwrap_or_else(|_| get_config()),
+        Err(_) => get_config(),
+    };
     let server = cfg.server.as_ref();
     let name = server
         .map(|s| s.name.clone())
@@ -1212,10 +1217,10 @@ async fn server_get_image_thumbnail(args: JsonValue) -> GrimoireResponse<JsonVal
     if let Some(blob_id) = &server.image_blob_id {
         let path = match crate::blob_data::find_existing_thumbnail(blob_id, size).await {
             Some(t) => t.local_path,
-            None => crate::media_blobz::get_media_blob(blob_id)
-                .await
-                .ok()
-                .and_then(|b| b.local_path),
+            None => {
+                let parent = crate::media_blobz::get_media_blob(blob_id).await.ok();
+                parent.and_then(|b| b.local_path)
+            }
         };
         if let Some(p) = path {
             match std::fs::read(&p) {
@@ -1241,9 +1246,15 @@ async fn server_get_image_thumbnail(args: JsonValue) -> GrimoireResponse<JsonVal
                 }
                 Err(e) => return internal(format!("failed to read image: {}", e)),
             }
+        } else {
+            tracing::warn!(
+                "[server_get_image_thumbnail] image_path does not exist: {}",
+                full.display()
+            );
         }
     }
 
+    tracing::warn!("[server_get_image_thumbnail] no image found, returning failure");
     GrimoireResponse::failure(
         "no server image configured",
         vec![ErrorDetail::new(

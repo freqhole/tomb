@@ -209,7 +209,11 @@ fn mobile_auto_init(app_handle: &tauri::AppHandle) -> Result<(), Box<dyn std::er
     let setup_config = grimoire::setup::SetupConfig {
         config_path: config_path.clone(),
         data_dir: data_dir.clone(),
-        server_name: "freqhole".to_string(),
+        // mobile (android) headless setup: charnel manages this remote
+        // locally and surfaces it as the user's on-device library. give it
+        // a friendlier default than "freqhole" so it's distinguishable
+        // from any remote freqhole server they later add.
+        server_name: "local library".to_string(),
         server_port: 8081,
         image_path: None,
         admin_username: None,

@@ -50,14 +50,18 @@ pub async fn server_info() -> GrimoireResponse<JsonValue> {
     let description = server_config.description.clone();
     let version = server_config.version.clone();
 
-    // image url for HTTP clients
+    // image url for HTTP clients. include the image_blob_id as a cache
+    // buster so the url changes whenever the image is replaced — otherwise
+    // browsers keep serving the cached bytes for the static `/api/hello/image`
+    // path, even though the file on disk has changed.
+    let image_blob_id = server_config.image_blob_id.clone();
     let image_url = server_config
         .image_path
         .as_ref()
-        .map(|_| "/api/hello/image".to_string());
-
-    // image blob id for P2P transport
-    let image_blob_id = server_config.image_blob_id.clone();
+        .map(|_| match &image_blob_id {
+            Some(id) => format!("/api/hello/image?v={}", id),
+            None => "/api/hello/image".to_string(),
+        });
 
     // knocking enabled from federation config
     let knocking_enabled = config
@@ -84,15 +88,10 @@ pub async fn server_info() -> GrimoireResponse<JsonValue> {
 pub async fn server_image_info() -> GrimoireResponse<JsonValue> {
     let config = get_config();
 
-    let blob_id = config
-        .server
-        .as_ref()
-        .and_then(|s| s.image_blob_id.clone());
+    let blob_id = config.server.as_ref().and_then(|s| s.image_blob_id.clone());
 
     match blob_id {
-        Some(id) => {
-            GrimoireResponse::success("ok", serde_json::json!({ "blob_id": id }))
-        }
+        Some(id) => GrimoireResponse::success("ok", serde_json::json!({ "blob_id": id })),
         None => GrimoireResponse::failure(
             "server image not configured",
             vec![ErrorDetail::new(

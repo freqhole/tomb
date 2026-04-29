@@ -337,11 +337,31 @@ export async function createRemote(data: {
   }
 
   // use server name from /api/hello if no name provided
-  const remoteName =
+  const baseName =
     data.name ||
     serverInfo.name ||
     baseUrl ||
     `p2p-${(data.peer_addr ?? "").slice(0, 8)}`;
+
+  // disambiguate against any existing remote with the same display name.
+  // the unique-id check above only protects against duplicate base_url /
+  // peer_addr — two distinct servers can legitimately advertise the same
+  // server.name (the default for fresh freqhole installs is "freqhole",
+  // and on android it's "local library"), so we'd otherwise end up with
+  // two indistinguishable rows in the remote picker.
+  const allExisting = await getBackend().list();
+  const takenNames = new Set(allExisting.map((r) => r.name));
+  let remoteName = baseName;
+  if (takenNames.has(remoteName)) {
+    let counter = 2;
+    while (takenNames.has(`${baseName} (${counter})`)) {
+      counter++;
+    }
+    remoteName = `${baseName} (${counter})`;
+    debug(
+      `remote name "${baseName}" already in use; using "${remoteName}" instead`,
+    );
+  }
 
   const remoteId = await generateUniqueRemoteId(remoteName);
 
@@ -474,10 +494,19 @@ export async function refreshServerInfo(remoteId: string): Promise<void> {
     const result = await client.app.serverInfo();
     if (result.success && result.data) {
       const serverInfo = result.data;
+      // charnel-managed remotes get name + image_url pushed locally via
+      // upsertTauriRemote (asset:// urls, local config), so skip those
+      // two fields here to avoid stomping the local view.
+      const isCharnelManaged = !!remote.is_charnel_managed;
       await backend.put({
         ...remote,
+        name:
+          !isCharnelManaged && serverInfo.name ? serverInfo.name : remote.name,
         description: serverInfo.description ?? remote.description,
-        image_url: serverInfo.image_url ?? remote.image_url,
+        image_url: isCharnelManaged
+          ? remote.image_url
+          : (serverInfo.image_url ?? remote.image_url),
+        image_blob_id: serverInfo.image_blob_id ?? remote.image_blob_id,
         version: serverInfo.version ?? remote.version,
         last_info_check: Date.now(),
         updated_at: Date.now(),
@@ -527,12 +556,18 @@ export async function checkRemoteHealth(remote: Remote): Promise<boolean> {
       updated.last_connected_at = now;
 
       // also update server info if we got it (self-heals missing image_url, etc.)
-      // but don't overwrite local image_url for tauri-managed remotes (they use asset:// URLs)
+      // but don't overwrite local image_url / name for tauri-managed remotes
+      // (they use asset:// URLs and a name set from local config).
       if (result.data) {
         updated.description = result.data.description ?? updated.description;
         if (!fresh.is_charnel_managed) {
           updated.image_url = result.data.image_url ?? updated.image_url;
+          if (result.data.name) {
+            updated.name = result.data.name;
+          }
         }
+        updated.image_blob_id =
+          result.data.image_blob_id ?? updated.image_blob_id;
         updated.version = result.data.version ?? updated.version;
         updated.last_info_check = now;
       }

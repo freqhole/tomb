@@ -28,7 +28,11 @@ pub async fn handle_incoming(peer_node_id: PublicKey, conn: iroh::endpoint::Conn
     let node_id_short = &node_id_str[..16.min(node_id_str.len())];
 
     // gate 1: feature must be enabled
-    let admin_cfg = match get_config().federation.as_ref().and_then(|f| f.remote_admin.clone()) {
+    let admin_cfg = match get_config()
+        .federation
+        .as_ref()
+        .and_then(|f| f.remote_admin.clone())
+    {
         Some(cfg) if cfg.enabled => cfg,
         _ => {
             warn!(
@@ -76,11 +80,10 @@ pub async fn handle_incoming(peer_node_id: PublicKey, conn: iroh::endpoint::Conn
                 let caller = caller.clone();
                 let node_id_short = node_id_short.to_string();
                 tokio::spawn(async move {
-                    if let Err(e) = handle_stream(send, recv, &caller, &node_id_short, max_size).await {
-                        warn!(
-                            "[admin-p2p] stream error from {}: {}",
-                            node_id_short, e
-                        );
+                    if let Err(e) =
+                        handle_stream(send, recv, &caller, &node_id_short, max_size).await
+                    {
+                        warn!("[admin-p2p] stream error from {}: {}", node_id_short, e);
                     }
                 });
             }
@@ -132,10 +135,7 @@ async fn handle_stream(
         }
     };
 
-    info!(
-        "[admin-p2p] {} from {} (id={})",
-        command, node_id_short, id
-    );
+    info!("[admin-p2p] {} from {} (id={})", command, node_id_short, id);
 
     // dispatch
     let response = admin_dispatch::handle(&command, args, caller).await;
