@@ -367,6 +367,34 @@ pub fn run() {
                 }
             }
 
+            // on mobile, also silently upgrade the server config (freqhole-config.toml).
+            // desktop still surfaces a toast so the user can review changes via the
+            // wizard, but mobile has no wizard ui to act on it — just take the upgrade.
+            #[cfg(mobile)]
+            if !needs_setup {
+                if let Some(server_config_path) = get_server_config_path_resolved(app.handle()) {
+                    match grimoire::config::config_needs_upgrade(&server_config_path) {
+                        Ok(true) => match grimoire::config::upgrade_config(&server_config_path) {
+                            Ok(result) => {
+                                tracing::info!(
+                                    old_version = %result.old_version,
+                                    new_version = %result.new_version,
+                                    backup = %result.backup_path.display(),
+                                    "silently upgraded server config (mobile)"
+                                );
+                            }
+                            Err(e) => {
+                                tracing::error!(error = %e, "failed to silently upgrade server config (mobile)");
+                            }
+                        },
+                        Ok(false) => {}
+                        Err(e) => {
+                            tracing::warn!(error = %e, "failed to check server config upgrade status (mobile)");
+                        }
+                    }
+                }
+            }
+
             if needs_setup {
                 // setup wizard runs on port 1421 (tauri UI)
                 // main app (spume) runs on port 1420
