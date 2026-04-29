@@ -3,11 +3,13 @@ title: prerequisites
 description: external tools freqhole needs — ffmpeg and yt-dlp
 ---
 
-freqhole needs `ffmpeg` for audio processing and optionally [yt-dlp](https://github.com/yt-dlp/yt-dlp) for downloading music from URLs.
+freqhole can use [ffmpeg](https://ffmpeg.org/) and [yt-dlp](https://github.com/yt-dlp/yt-dlp).
+
+these are optional, but recommended.
 
 ---
 
-## ffmpeg (recommended)
+## ffmpeg
 
 `ffmpeg` handles generating audio waveform images and using `ffprobe` for metadata. freqhole will look for it in your PATH and common install locations (`/opt/homebrew/bin`, `/usr/local/bin`, etc.).
 
@@ -26,7 +28,7 @@ sudo dnf install ffmpeg   # fedora
 
 ---
 
-## yt-dlp (optional — for URL downloads)
+## yt-dlp
 
 needed only if you want freqhole to fetch music from URLs. install via pip or download the binary directly,
 

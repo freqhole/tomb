@@ -41,14 +41,6 @@ lookups happen from the album editor in the web app or desktop app.
 
 freqhole stores the fetched metadata in the database. your original audio files are never modified.
 
-### display priority
-
-when freqhole displays metadata, it uses this order:
-
-1. manual edits (made in freqhole)
-2. MusicBrainz data (from a confirmed lookup)
-3. embedded file tags
-
 ---
 
 ## fixing a bad match
@@ -62,7 +54,7 @@ when freqhole displays metadata, it uses this order:
 
 ## rate limiting
 
-MusicBrainz limits API requests to roughly 1 per second. freqhole respects this automatically.
+MusicBrainz limits API requests to roughly 1 per second.
 
 ---
 
