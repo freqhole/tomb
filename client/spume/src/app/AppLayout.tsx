@@ -901,9 +901,7 @@ export function AppLayout(props: AppLayoutProps) {
       style={{
         height: "100dvh",
         "--player-bar-height":
-          (appState()?.queue.length || 0) > 0 ||
-          radioStatus() !== "idle" ||
-          !!currentRadioStation()
+          (appState()?.queue.length || 0) > 0 || radioStatus() !== "idle" || !!currentRadioStation()
             ? "var(--player-height)"
             : "0px",
       }}

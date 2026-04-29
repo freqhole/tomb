@@ -86,9 +86,7 @@ export function SongsView(props: SongsViewProps) {
   // gets covered by the bar when listening to radio).
   const viewportHeight = useViewportHeight();
   const isPlayerBarVisible = () =>
-    (appState()?.queue.length || 0) > 0 ||
-    radioStatus() !== "idle" ||
-    !!currentRadioStation();
+    (appState()?.queue.length || 0) > 0 || radioStatus() !== "idle" || !!currentRadioStation();
   const playerBarHeight = () => (isPlayerBarVisible() ? 80 : 0);
   const listHeight = () => viewportHeight() - getNavHeight() - playerBarHeight();
 
