@@ -44,6 +44,7 @@ base64 = "0.22"
 
 # internal dependencies
 grimoire = { path = "../../../grimoire", default-features = false }
+server = { path = "../../../server", default-features = false }
 iroh = { workspace = true }
 tauri-plugin-android-media-session = { path = "plugins/tauri-plugin-android-media-session" }
 

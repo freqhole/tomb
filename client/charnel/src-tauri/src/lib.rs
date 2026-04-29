@@ -3,6 +3,7 @@
 mod admin_commands;
 mod app_config;
 mod commands;
+mod media_server;
 #[cfg(desktop)]
 mod menu;
 mod p2p_commands;
@@ -289,6 +290,7 @@ pub fn run() {
     let builder = tauri::Builder::default()
         .manage(ShutdownToken::new())
         .manage(p2p_state.clone())
+        .manage(media_server::MediaServerState::new())
         .manage(PendingDeepLinks::default())
         .setup(|app| {
             // ---- deep-link plugin -----------------------------------------
@@ -401,6 +403,23 @@ pub fn run() {
                 tauri::async_runtime::block_on(async {
                     if let Err(e) = grimoire::database::run_migrations().await {
                         tracing::warn!(error = %e, "migration warning");
+                    }
+                });
+
+                // spawn embedded media http server (loopback only).
+                // serves blob streaming routes with full http range support so
+                // <audio src> works smoothly on linux webkitgtk (where the
+                // tauri asset:// protocol can't stream into media elements).
+                let media_app_handle = app.handle().clone();
+                let media_state_clone = app
+                    .state::<media_server::MediaServerState>()
+                    .inner()
+                    .clone();
+                tauri::async_runtime::spawn(async move {
+                    if let Err(e) =
+                        media_server::start_and_register(media_app_handle, media_state_clone).await
+                    {
+                        tracing::error!(error = %e, "failed to start embedded media server");
                     }
                 });
 
@@ -596,6 +615,7 @@ pub fn run() {
             commands::get_os_username,
             commands::get_app_version,
             commands::take_pending_deep_links,
+            commands::media_server_info,
             commands::get_config_path,
             commands::get_data_dir,
             commands::get_freqhole_config,

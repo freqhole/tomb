@@ -64,7 +64,36 @@ pub async fn require_auth(
         }
     }
 
+    // Try API key from query string (?api_key=...).
+    // needed because <audio> / <img> elements can't set headers — used by the
+    // embedded media http server in charnel (loopback only).
+    if let Some(api_key) = extract_api_key_from_query(request.uri().query()) {
+        if let Some(auth_user) = validate_api_key(&api_key).await {
+            request.extensions_mut().insert(auth_user);
+            return Ok(next.run(request).await);
+        }
+    }
+
     Err(ApiError::Unauthorized)
+}
+
+/// extract `api_key` from a query string.
+///
+/// returns the value of the FIRST `api_key=...` pair, or `None` if absent.
+/// also accepts the alias `apiKey` (camelCase) for js-friendliness. no
+/// percent-decoding: our api keys are 64-char hex strings that never need
+/// escaping, and we control all callers (loopback embedded server only).
+fn extract_api_key_from_query(query: Option<&str>) -> Option<String> {
+    let q = query?;
+    for pair in q.split('&') {
+        let mut it = pair.splitn(2, '=');
+        let k = it.next()?;
+        let v = it.next().unwrap_or("");
+        if k == "api_key" || k == "apiKey" {
+            return Some(v.to_string());
+        }
+    }
+    None
 }
 
 /// validate an API key and return AuthenticatedUser if valid
@@ -160,6 +189,13 @@ pub async fn optional_auth(session: Session, mut request: Request, next: Next) -
                     request.extensions_mut().insert(auth_user);
                 }
             }
+        }
+    }
+
+    // also accept ?api_key=... query param (see require_auth for rationale)
+    if let Some(api_key) = extract_api_key_from_query(request.uri().query()) {
+        if let Some(auth_user) = validate_api_key(&api_key).await {
+            request.extensions_mut().insert(auth_user);
         }
     }
 

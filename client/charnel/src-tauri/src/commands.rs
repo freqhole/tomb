@@ -361,6 +361,24 @@ pub fn take_pending_deep_links(state: tauri::State<crate::PendingDeepLinks>) -> 
     state.drain()
 }
 
+/// get info about the embedded media http server (loopback only).
+///
+/// returns `{base_url, api_key}` so the frontend can build blob urls like
+/// `{base_url}/api/blobs/{id}?api_key={api_key}` and stick them in
+/// `<audio src>` / `<img src>` for proper http range request streaming on
+/// linux webkitgtk (where tauri's asset:// protocol can't stream into media
+/// elements).
+///
+/// returns `None` if the server hasn't started yet (e.g. setup wizard still
+/// running, or charnel just launched and the spawn task hasn't completed).
+/// callers should retry / fall back to the asset:// path.
+#[tauri::command]
+pub fn media_server_info(
+    state: tauri::State<crate::media_server::MediaServerState>,
+) -> Option<crate::media_server::MediaServerInfo> {
+    state.get()
+}
+
 /// get the config file path (from app config or legacy location)
 #[tauri::command]
 pub fn get_config_path(app_handle: tauri::AppHandle) -> Option<String> {

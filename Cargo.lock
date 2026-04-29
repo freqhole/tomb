@@ -866,6 +866,7 @@ dependencies = [
  "nix",
  "serde",
  "serde_json",
+ "server",
  "tauri",
  "tauri-build",
  "tauri-plugin-android-media-session",
