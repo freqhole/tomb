@@ -65,6 +65,7 @@ export interface ApiSongQueryItem {
     updated_by_username?: string | null;
     images?: ApiImage[] | null;
     urls?: ApiUrl[] | null;
+    play_count?: number | null;
   };
   artist?: {
     id: string;
@@ -196,6 +197,7 @@ export function adaptSongFromAPI(item: ApiSongQueryItem, baseUrl: string, remote
     remote_song_id: song.id, // server's song.id for sync tracking
     blake3: blob?.blake3 ?? null, // for iroh-blobs verified streaming
     added_at: song.created_at,
+    play_count: song.play_count ?? null,
   };
 
   return result;

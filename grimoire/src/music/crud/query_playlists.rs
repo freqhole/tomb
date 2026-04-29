@@ -43,6 +43,8 @@ enum PlaylistView {
     PlaylistSongCount,
     #[iden = "playlist_total_duration"]
     PlaylistTotalDuration,
+    #[iden = "playlist_play_count"]
+    PlaylistPlayCount,
     #[iden = "favorite_id"]
     FavoriteId,
     #[iden = "favorite_user_id"]
@@ -92,6 +94,8 @@ pub struct PlaylistViewRow {
     playlist_deleted_at: Option<i64>,
     playlist_song_count: i64,
     playlist_total_duration: i64,
+    // aggregated initiated-play count from music_play_eventz (via view)
+    playlist_play_count: Option<i64>,
     // user favorites
     #[allow(dead_code)]
     favorite_id: Option<String>,
@@ -145,6 +149,7 @@ impl PlaylistViewRow {
             song_count: self.playlist_song_count,
             total_duration: Some(self.playlist_total_duration),
             is_favorite,
+            play_count: self.playlist_play_count,
         }
     }
 }
@@ -183,6 +188,8 @@ pub struct PlaylistSongViewRow {
     song_updated_by: Option<String>,
     song_created_by_username: Option<String>,
     song_updated_by_username: Option<String>,
+    // aggregated play count from view
+    song_play_count: Option<i64>,
 
     // Artist fields
     artist_id: Option<String>,
@@ -298,6 +305,7 @@ impl PlaylistSongViewRow {
             updated_by: self.song_updated_by,
             created_by_username: self.song_created_by_username,
             updated_by_username: self.song_updated_by_username,
+            play_count: self.song_play_count,
         };
 
         let artist = if self.artist_id.is_some() {
@@ -484,6 +492,7 @@ pub async fn query_playlists(
         .column(PlaylistView::PlaylistDeletedAt)
         .column(PlaylistView::PlaylistSongCount)
         .column(PlaylistView::PlaylistTotalDuration)
+        .column(PlaylistView::PlaylistPlayCount)
         .column(PlaylistView::FavoriteId)
         .column(PlaylistView::FavoriteUserId)
         .column(PlaylistView::FavoritedAt)

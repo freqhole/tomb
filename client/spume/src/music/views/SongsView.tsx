@@ -3,6 +3,8 @@
 import { useSearchParams } from "@solidjs/router";
 import { createEffect, createMemo, createSignal, on, onCleanup, onMount, Show } from "solid-js";
 import { appState } from "../../app/services/storage/db";
+import { radioStatus } from "../../app/services/radio/radioService";
+import { currentRadioStation } from "../../app/services/storage/currentRadioStation";
 import { setPageInfo, clearPageInfo } from "../../app/services/pageInfo";
 import { useHistoryState } from "../../utils/historyState";
 import { useViewportHeight, getNavHeight } from "../../utils/viewport";
@@ -51,6 +53,7 @@ const songSortFields = [
   { value: "album", label: "album", description: "sort by album name" },
   { value: "year", label: "year", description: "sort by release year" },
   { value: "duration", label: "duration", description: "sort by track length" },
+  { value: "play_count", label: "plays", description: "sort by total play count" },
 ];
 
 export interface SongsViewProps {
@@ -77,9 +80,16 @@ export function SongsView(props: SongsViewProps) {
   // responsive: track narrow viewport
   const [_isNarrow, setIsNarrow] = createSignal(isNarrowViewport());
 
-  // responsive list height — reactive to safari toolbar changes
+  // responsive list height — reactive to safari toolbar changes.
+  // player bar is shown whenever there's a queue OR an active/queued radio
+  // station, so we need to account for all three (otherwise the table header
+  // gets covered by the bar when listening to radio).
   const viewportHeight = useViewportHeight();
-  const playerBarHeight = () => ((appState()?.queue.length || 0) > 0 ? 80 : 0);
+  const isPlayerBarVisible = () =>
+    (appState()?.queue.length || 0) > 0 ||
+    radioStatus() !== "idle" ||
+    !!currentRadioStation();
+  const playerBarHeight = () => (isPlayerBarVisible() ? 80 : 0);
   const listHeight = () => viewportHeight() - getNavHeight() - playerBarHeight();
 
   onMount(() => {
@@ -357,6 +367,7 @@ export function SongsView(props: SongsViewProps) {
     year: "year",
     duration: "duration",
     added_at: "added_at",
+    play_count: "play_count",
   };
 
   // map query sort field to UI sort field
@@ -368,6 +379,7 @@ export function SongsView(props: SongsViewProps) {
     year: "year",
     duration: "duration",
     added_at: "added_at",
+    play_count: "play_count",
   };
 
   // current sort state for UI

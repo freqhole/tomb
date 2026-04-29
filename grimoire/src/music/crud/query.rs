@@ -55,6 +55,8 @@ enum SongView {
     RatingUserId,
     #[iden = "user_rating"]
     UserRating,
+    #[iden = "song_play_count"]
+    SongPlayCount,
 }
 
 #[derive(Iden)]
@@ -189,6 +191,8 @@ pub struct SongViewRow {
     album_user_rating: Option<i32>,
     #[allow(dead_code)] // used by sqlx for deserialization
     album_rating_created_at: Option<i64>,
+    // Aggregated play count from music_play_eventz (via view)
+    song_play_count: Option<i64>,
 }
 
 impl SongViewRow {
@@ -253,6 +257,7 @@ impl SongViewRow {
             updated_by: self.song_updated_by,
             created_by_username: self.song_created_by_username,
             updated_by_username: self.song_updated_by_username,
+            play_count: self.song_play_count,
         };
 
         let artist = if self.artist_id.is_some() {
@@ -879,6 +884,10 @@ pub async fn query_songs(params: QueryParams) -> GrimoireResponse<QueryResult<So
         }
         Some("duration") => {
             query.order_by(SongView::SongDuration, sort_direction);
+            query.order_by(SongView::AlbumTitle, Order::Asc);
+        }
+        Some("play_count") => {
+            query.order_by(SongView::SongPlayCount, sort_direction);
             query.order_by(SongView::AlbumTitle, Order::Asc);
         }
         Some("song_id") => {

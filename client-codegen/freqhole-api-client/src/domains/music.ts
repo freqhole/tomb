@@ -712,6 +712,18 @@ export function createMusicMethods(call: CallFn) {
       );
     },
 
+    recordPlaylistPlay: (id: string) => {
+      return call(
+        "music",
+        "record_playlist_play",
+        routes.music.record_playlist_play.resp,
+        routes.music.record_playlist_play.req,
+        routes.music.record_playlist_play.method,
+        routes.music.record_playlist_play.path,
+        { id },
+      );
+    },
+
     updateListenSessionProgress: (
       id: string,
       params: s.UpdateListenSessionProgressRequest,

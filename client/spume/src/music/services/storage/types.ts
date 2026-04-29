@@ -127,6 +127,9 @@ export interface Song {
   // local tracking
   added_at: number;
 
+  // analytics: total play events recorded server-side (null when unknown / local-only)
+  play_count?: number | null;
+
   // queue tracking - assigned when song is added to queue (for progress tracking)
   queue_entry_id?: string;
   // max progress reached (0-1) for visual fill in queue sidebar
@@ -157,6 +160,10 @@ export interface Playlist {
   // user-specific fields (from query views)
   is_favorite?: boolean;
   user_rating?: number;
+  // analytics: total initiated plays for this playlist
+  play_count?: number | null;
+  // total song count (denormalized from queries)
+  song_count?: number;
 }
 
 // ===== PLAYLIST_SONGS TABLE (junction) =====

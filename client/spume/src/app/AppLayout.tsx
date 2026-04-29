@@ -900,7 +900,12 @@ export function AppLayout(props: AppLayoutProps) {
       class={`flex flex-col ${bgConfig() ? "bg-transparent" : "bg-[var(--color-bg-primary)]"}`}
       style={{
         height: "100dvh",
-        "--player-bar-height": (appState()?.queue.length || 0) > 0 ? "var(--player-height)" : "0px",
+        "--player-bar-height":
+          (appState()?.queue.length || 0) > 0 ||
+          radioStatus() !== "idle" ||
+          !!currentRadioStation()
+            ? "var(--player-height)"
+            : "0px",
       }}
     >
       {/* full-page background image (when set by a view) */}

@@ -170,6 +170,86 @@ let activeSession: RadioSession | null = null;
 // stable target for volume + visibility.
 let audioSink: HTMLAudioElement | null = null;
 
+// active radio listen session — created on first playback start, closed on
+// leaveRadio. one per active tune. used purely for feed visibility ("user
+// tuned into station X"); no per-track tracking.
+interface RadioListenSession {
+  sessionId: string;
+  remoteId: string;
+}
+let activeRadioListenSession: RadioListenSession | null = null;
+// guards against double-create races between chunk-mode and timeline-mode
+// playback-start callbacks.
+let radioListenSessionCreating = false;
+
+async function ensureRadioListenSession(): Promise<void> {
+  if (activeRadioListenSession || radioListenSessionCreating) return;
+  const sess = activeSession;
+  if (!sess) return;
+  const stationId = sess.stationId ?? currentStationId();
+  if (!stationId) return;
+  const label = sess.stationName?.trim() || "(untitled station)";
+
+  radioListenSessionCreating = true;
+  try {
+    const remote = sess.isLocal
+      ? await getTauriManagedRemote()
+      : await getRemoteByPeerAddr(sess.peerAddr);
+    if (!remote) {
+      console.warn("[radio] ensureRadioListenSession: no remote for tune");
+      return;
+    }
+    const client = await getClientForRemote(remote);
+    const result = await client.music.createListenSession({
+      session_type: "radio",
+      entity_id: stationId,
+      label,
+      song_ids: [],
+      total_songs: 0,
+      total_duration_ms: 0,
+    });
+    if (result.success) {
+      activeRadioListenSession = {
+        sessionId: result.data.id,
+        remoteId: remote.remote_id ?? "",
+      };
+      console.info(
+        "[radio] created listen session",
+        result.data.id,
+        "for station",
+        stationId,
+      );
+    } else {
+      console.warn(
+        "[radio] createListenSession failed:",
+        (result as { success: false; error: unknown }).error,
+      );
+    }
+  } catch (e) {
+    console.warn("[radio] ensureRadioListenSession threw:", e);
+  } finally {
+    radioListenSessionCreating = false;
+  }
+}
+
+async function endRadioListenSession(
+  status: "completed" | "abandoned" = "completed",
+): Promise<void> {
+  const sess = activeRadioListenSession;
+  if (!sess) return;
+  activeRadioListenSession = null;
+  try {
+    const remote = await import("../remotes/remoteManager").then((m) =>
+      m.getRemoteById(sess.remoteId),
+    );
+    if (!remote) return;
+    const client = await getClientForRemote(remote);
+    await client.music.updateListenSessionStatus(sess.sessionId, status);
+  } catch (e) {
+    console.warn("[radio] endRadioListenSession threw:", e);
+  }
+}
+
 export const radioStatus = status;
 export const radioError = error;
 export const radioNowPlaying = nowPlaying;
@@ -280,6 +360,7 @@ export function markTimelinePlaybackStarted(): void {
   setError(null);
   setStatus("playing");
   startElapsedTicker();
+  void ensureRadioListenSession();
 }
 
 export function markTimelinePlaybackBlocked(reason: string): void {
@@ -471,6 +552,7 @@ export function leaveRadio(): void {
   bumpTuneAttemptId();
   lastConfirmedHistoryTrackKey = null;
   pausedContext = null;
+  void endRadioListenSession("completed");
   if (activeSession) {
     try {
       activeSession.leave();
@@ -1000,6 +1082,7 @@ export async function tuneIntoRadio(
         setError(null);
         setStatus("playing");
         startElapsedTicker();
+        void ensureRadioListenSession();
         console.info("[radio] chunk playback started");
       })
       .catch((e) => {

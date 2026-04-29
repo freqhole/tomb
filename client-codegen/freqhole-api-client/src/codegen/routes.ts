@@ -102,6 +102,7 @@ export const routes = {
     query_tags: { method: 'POST', path: '/api/tags/query', req: s.QueryTagsRequestSchema, resp: s.TagSchema.array(), auth: { type: 'authenticated' } as const },
     recent_songs: { method: 'POST', path: '/api/songs/recent', req: s.RecentSongsRequestSchema, resp: s.SongSchema.array(), auth: { type: 'authenticated' } as const },
     record_play: { method: 'POST', path: '/api/analytics/play', req: s.RecordPlayRequestSchema, resp: s.EmptyResponseSchema, auth: { type: 'role', role: 'member' } as const },
+    record_playlist_play: { method: 'POST', path: '/api/playlists/record-play', req: s.GetPlaylistRequestSchema, resp: s.EmptyResponseSchema, auth: { type: 'authenticated' } as const },
     remove_albums_tags: { method: 'POST', path: '/api/tags/albums/remove', req: s.RemoveAlbumsTagsRequestSchema, resp: s.EmptyResponseSchema, auth: { type: 'role', role: 'admin' } as const },
     remove_rating: { method: 'POST', path: '/api/ratings/remove', req: s.RemoveRatingRequestSchema, resp: s.RemoveRatingResponseSchema, auth: { type: 'role', role: 'member' } as const },
     remove_songs_from_playlist: { method: 'POST', path: '/api/playlists/remove-songs', req: s.RemoveSongsFromPlaylistRequestSchema, resp: s.EmptyResponseSchema, auth: { type: 'owner_or', role: 'admin' } as const },

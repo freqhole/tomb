@@ -316,6 +316,9 @@ pub struct PlaylistQueryResult {
     pub song_count: i64,
     pub total_duration: Option<i64>,
     pub is_favorite: Option<bool>, // User's favorite status (no ratings for playlists)
+    /// total initiated-play count for this playlist (rows in
+    /// `music_play_eventz` with `playlist_id = this.id`)
+    pub play_count: Option<i64>,
 }
 
 /// song within a playlist context, with playlist-specific metadata
