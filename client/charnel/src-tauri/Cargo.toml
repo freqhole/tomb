@@ -51,5 +51,15 @@ tauri-plugin-android-media-session = { path = "plugins/tauri-plugin-android-medi
 [target."cfg(unix)".dependencies]
 nix = { version = "0.29", features = ["signal"] }
 
+# android only: wry's android WebViewClient.handleRequest builds a reqwest
+# client that uses rustls 0.23, which panics ("No provider set") if no
+# default CryptoProvider is installed. we install ring at app startup.
+# desktop targets keep using their existing tls stacks unchanged.
+[target."cfg(target_os = \"android\")".dependencies]
+rustls = { version = "0.23", default-features = false, features = [
+    "ring",
+    "std",
+] }
+
 [target."cfg(target_os = \"macos\")".dependencies]
 cocoa = "0.26"

@@ -478,6 +478,12 @@ export function clearExternalMediaSession(): void {
   } catch {
     // ignore on browsers that don't fully implement position state
   }
+  // re-install the song-queue handlers / metadata so the lock-screen
+  // controls keep working after radio (or any other external owner)
+  // releases the session. without this, the next press of any media
+  // button would hit a `null` handler and silently do nothing until
+  // the next audio event triggered another updateMediaSession().
+  void updateMediaSession();
 }
 
 // pre-cache next songs when current song is >50% played (rolling 30-min cache)

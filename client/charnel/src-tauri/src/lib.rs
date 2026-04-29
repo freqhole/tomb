@@ -287,6 +287,16 @@ fn mobile_auto_init(app_handle: &tauri::AppHandle) -> Result<(), Box<dyn std::er
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // android only: install rustls' ring crypto provider before anything
+    // can construct a TLS client. wry's android WebViewClient.handleRequest
+    // builds a reqwest client to fetch http(s) subresources, and rustls
+    // 0.23 panics ("No provider set") if no default provider is installed,
+    // which aborts the whole process. desktop targets are unaffected.
+    #[cfg(target_os = "android")]
+    {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+    }
+
     setup_tracing();
 
     let p2p_state = Arc::new(P2pState::new());

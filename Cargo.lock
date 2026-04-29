@@ -864,6 +864,7 @@ dependencies = [
  "grimoire",
  "iroh",
  "nix",
+ "rustls",
  "serde",
  "serde_json",
  "server",
