@@ -79,8 +79,24 @@ export function QrScanner(props: QrScannerProps) {
       setIsScanning(true);
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : String(err);
-      setError(errorMsg);
-      props.onError?.(errorMsg);
+      // map common browser/webview errors to friendlier messages.
+      // android webview surfaces a denied getUserMedia as NotAllowedError.
+      let friendly = errorMsg;
+      const lower = errorMsg.toLowerCase();
+      if (
+        lower.includes("notallowed") ||
+        lower.includes("permission") ||
+        lower.includes("denied")
+      ) {
+        friendly =
+          "camera permission denied — enable camera access for freqhole in your device settings and try again";
+      } else if (lower.includes("notfound") || lower.includes("no camera")) {
+        friendly = "no camera found on this device";
+      } else if (lower.includes("notreadable") || lower.includes("in use")) {
+        friendly = "camera is in use by another app";
+      }
+      setError(friendly);
+      props.onError?.(friendly);
       debug("QrScanner", `error starting scanner: ${errorMsg}`);
     }
   };
