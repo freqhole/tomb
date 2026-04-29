@@ -71,16 +71,17 @@ function groupSongsByRemote(songs: Song[]): Map<string, { songs: Song[]; indices
 }
 
 // resolve a remote_server_id to its Remote object via IDB
-// accepts both HTTP remotes (with base_url) and P2P remotes (with peer_addr)
+// accepts HTTP remotes (with base_url), P2P remotes (with peer_addr),
+// and charnel-managed remotes (no base_url/peer_addr — dispatches via IPC)
 async function resolveRemote(remoteId: string): Promise<Remote | null> {
   try {
     const remote = await getRemoteById(remoteId);
-    // valid if has either base_url (HTTP) or peer_addr (P2P)
-    if (!remote || (!remote.base_url && !remote.peer_addr)) {
-      warn(`[serverSession] resolveRemote: remote ${remoteId} not found or missing base_url/peer_addr`, remote);
+    // valid if has either base_url (HTTP), peer_addr (P2P), or is charnel-managed (IPC)
+    if (!remote || (!remote.base_url && !remote.peer_addr && !remote.is_charnel_managed)) {
+      warn(`[serverSession] resolveRemote: remote ${remoteId} not found or missing base_url/peer_addr/is_charnel_managed`, remote);
       return null;
     }
-    debug(`[serverSession] resolveRemote: resolved ${remoteId} → ${remote.name} (base_url=${remote.base_url}, peer_addr=${remote.peer_addr})`);
+    debug(`[serverSession] resolveRemote: resolved ${remoteId} → ${remote.name} (base_url=${remote.base_url}, peer_addr=${remote.peer_addr}, charnel=${remote.is_charnel_managed})`);
     return remote;
   } catch (e) {
     warn(`[serverSession] resolveRemote: error resolving ${remoteId}`, e);
