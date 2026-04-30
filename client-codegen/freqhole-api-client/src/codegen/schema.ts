@@ -1647,7 +1647,7 @@ export const KnockRequestSchema = z.object({
   created_at: z.number(),
   processed_at: z.number().nullish(),
   processed_by: z.string().nullish(),
-  from_deleted_peer: z.boolean(),
+  from_deleted_peer: z.boolean().nullish(),
   deleted_user_username: z.string().nullish()
 });
 export type KnockRequest = z.infer<typeof KnockRequestSchema>;

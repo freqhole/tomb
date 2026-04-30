@@ -70,7 +70,7 @@ impl From<KnockRow> for KnockRequest {
             created_at: row.created_at,
             processed_at: row.processed_at,
             processed_by: row.processed_by,
-            from_deleted_peer: false,
+            from_deleted_peer: None,
             deleted_user_username: None,
         }
     }
@@ -92,9 +92,9 @@ pub struct KnockRequest {
     /// soft-deleted user). the admin ui surfaces this so the operator
     /// knows to restore the peer/user before accepting, rather than
     /// silently re-creating a new user account for an old device.
-    /// populated by `list_knocks`; other accessors leave this `false`.
+    /// populated by `list_knocks`; other accessors leave this `None`.
     #[serde(default)]
-    pub from_deleted_peer: bool,
+    pub from_deleted_peer: Option<bool>,
     /// when `from_deleted_peer` is true, the username of the
     /// soft-deleted user this peer belongs to (for ui labeling).
     #[serde(default)]
@@ -342,6 +342,7 @@ pub async fn list_knocks(include_all: bool) -> GrimoireResponse<Vec<KnockRequest
             } else {
                 None
             };
+            let from_deleted_peer = Some(from_deleted_peer);
             KnockRequest {
                 id: r.id,
                 node_id: r.node_id,
