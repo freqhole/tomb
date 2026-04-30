@@ -612,7 +612,7 @@ pub async fn scan_directory(
             ScanResult {
                 success: true,
                 jobs_created: count as u32,
-                message: format!("created {} import jobs", count),
+                message: format!("scheduled {} music files for import", count),
             }
         }
         None => ScanResult {
@@ -701,6 +701,25 @@ async fn poll_rescan_job_until_complete(
     let poll_interval = Duration::from_secs(3);
     let max_polls = 1200; // 60 minutes max (1200 * 3s) - rescan can take longer
     let mut last_songs = 0i64;
+    let mut first_poll = true;
+
+    // emit an immediate progress event so the ui shows activity right away
+    {
+        let initial_jobs = list_jobs(None, None, Some(1000), None).await;
+        if let Some(jobs) = initial_jobs.data {
+            let jobs_total = jobs.len() as u32;
+            let pending = jobs
+                .iter()
+                .filter(|j| {
+                    j.status()
+                        .map(|s| s == JobStatus::Pending || s == JobStatus::Running)
+                        .unwrap_or(false)
+                })
+                .count() as u32;
+            let _ =
+                notify_scan_progress(&app_handle, 0, 0, 0, pending, jobs_total);
+        }
+    }
 
     for _ in 0..max_polls {
         // wait for poll interval or shutdown
@@ -738,10 +757,13 @@ async fn poll_rescan_job_until_complete(
                     None => (0, 0, 0),
                 };
 
-                // send progress update if songs changed
+                // always emit progress on every poll so the ui sees pending
+                // counts decrement even when no new songs are added.
                 let current_songs = current_stats.as_ref().map(|s| s.total_songs).unwrap_or(0);
-                if current_songs != last_songs {
-                    last_songs = current_songs;
+                let songs_changed = current_songs != last_songs;
+                last_songs = current_songs;
+                if first_poll || songs_changed || pending > 0 || jobs_total > 0 {
+                    first_poll = false;
                     if let Err(e) = notify_scan_progress(
                         &app_handle,
                         songs_added,
@@ -806,6 +828,27 @@ async fn poll_scan_jobs_until_complete(
     let poll_interval = Duration::from_secs(3);
     let max_polls = 600; // 30 minutes max (600 * 3s)
     let mut last_songs = 0i64;
+    let mut first_poll = true;
+
+    // emit an immediate "starting" progress event so the ui doesn't sit
+    // empty for 3s (or forever, if all files are duplicates so total_songs
+    // never changes and the progress-on-change check below stays silent).
+    {
+        let initial_jobs = list_jobs(Some(&session_id), None, Some(1000), None).await;
+        if let Some(jobs) = initial_jobs.data {
+            let jobs_total = jobs.len() as u32;
+            let pending = jobs
+                .iter()
+                .filter(|j| {
+                    j.status()
+                        .map(|s| s == JobStatus::Pending || s == JobStatus::Running)
+                        .unwrap_or(false)
+                })
+                .count() as u32;
+            let _ =
+                notify_scan_progress(&app_handle, 0, 0, 0, pending, jobs_total);
+        }
+    }
 
     for _ in 0..max_polls {
         // wait for poll interval or shutdown
@@ -843,10 +886,14 @@ async fn poll_scan_jobs_until_complete(
                     None => (0, 0, 0),
                 };
 
-                // send progress update if songs changed
+                // always emit progress on every poll — the ui needs to see
+                // pending counts decrement even when no new songs are added
+                // (eg. duplicate-only scans never grow total_songs).
                 let current_songs = current_stats.as_ref().map(|s| s.total_songs).unwrap_or(0);
-                if current_songs != last_songs {
-                    last_songs = current_songs;
+                let songs_changed = current_songs != last_songs;
+                last_songs = current_songs;
+                if first_poll || songs_changed || pending > 0 || jobs_total > 0 {
+                    first_poll = false;
                     if let Err(e) = notify_scan_progress(
                         &app_handle,
                         songs_added,

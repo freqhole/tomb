@@ -1,6 +1,15 @@
-import { createSignal, createEffect, on, onMount, For, Show } from "solid-js";
+import {
+  createSignal,
+  createEffect,
+  on,
+  onMount,
+  onCleanup,
+  For,
+  Show,
+} from "solid-js";
 import { open } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { resolvePath } from "../util/resolvePath";
 import { useAdminTransport } from "../admin/context";
 
@@ -25,6 +34,29 @@ interface ValidatePathResult {
   is_readable: boolean;
 }
 
+// progress payload mirrors GrimoireEvent::JobProgress emitted by the
+// runner and forwarded through charnel's grimoire-event subscription
+// (see client/charnel/src-tauri/src/lib.rs ~line 513).
+interface JobProgressPayload {
+  session_id: string;
+  directory?: string;
+  songs_added: number;
+  jobs_pending: number;
+  jobs_total: number;
+}
+
+interface JobSessionCompletePayload {
+  session_id: string;
+  songs_added: number;
+  albums_added: number;
+  artists_added: number;
+}
+
+type FreqholeEvent =
+  | { type: "job-progress"; data: JobProgressPayload }
+  | { type: "job-session-complete"; data: JobSessionCompletePayload }
+  | { type: string; data: unknown };
+
 export default function LibraryView() {
   const admin = useAdminTransport();
   const [directories, setDirectories] = createSignal<ScannedDir[]>([]);
@@ -40,9 +72,42 @@ export default function LibraryView() {
   const [confirmRemove, setConfirmRemove] = createSignal<string | null>(null);
   const [scanning, setScanning] = createSignal<string | null>(null);
   const [lastResult, setLastResult] = createSignal("");
+  const [lastError, setLastError] = createSignal("");
+  // live progress fed by grimoire JobProgress events forwarded through
+  // charnel's grimoire event subscription (no polling required).
+  const [scanProgress, setScanProgress] =
+    createSignal<JobProgressPayload | null>(null);
+  const [scanSummary, setScanSummary] =
+    createSignal<JobSessionCompletePayload | null>(null);
+
+  let unlistenScan: (() => void) | null = null;
 
   onMount(async () => {
     await loadDirectories();
+    // listen for job progress / completion events emitted by grimoire and
+    // forwarded by charnel as freqhole:event. these fire for any active
+    // ProcessFile session, so they cover both new scans and rescans.
+    try {
+      unlistenScan = await listen<FreqholeEvent>("freqhole:event", (event) => {
+        if (event.payload.type === "job-progress") {
+          const data = event.payload.data as JobProgressPayload;
+          setScanProgress(data);
+          setScanSummary(null);
+        } else if (event.payload.type === "job-session-complete") {
+          const summary = event.payload.data as JobSessionCompletePayload;
+          setScanSummary(summary);
+          setScanProgress(null);
+          // refresh directory file counts after scan completes
+          void loadDirectories();
+        }
+      });
+    } catch (e) {
+      console.error("failed to listen for job events:", e);
+    }
+  });
+
+  onCleanup(() => {
+    if (unlistenScan) unlistenScan();
   });
 
   // retarget when admin scope changes
@@ -176,6 +241,35 @@ export default function LibraryView() {
   async function scanDirectory(path: string, tags: string[]) {
     setScanning(path);
     setLastResult("");
+    setLastError("");
+    setScanProgress(null);
+    setScanSummary(null);
+
+    // for local scans, validate the path first so a bad path produces a
+    // clear error instead of a cryptic backend failure.
+    if (!admin.isRemote()) {
+      try {
+        const v = await admin.dispatchOrThrow<ValidatePathResult>(
+          "library_validate_path",
+          { path },
+        );
+        if (!v.exists || !v.is_dir || !v.is_readable) {
+          setLastError(
+            !v.exists
+              ? `path does not exist: ${path}`
+              : !v.is_dir
+                ? `path is not a directory: ${path}`
+                : `path is not readable: ${path}`,
+          );
+          setScanning(null);
+          return;
+        }
+      } catch (e) {
+        // validation dispatcher unavailable (eg. older server) - fall
+        // through and let the scan attempt surface its own error.
+        console.warn("path validation skipped:", e);
+      }
+    }
 
     try {
       const result = admin.isRemote()
@@ -189,7 +283,7 @@ export default function LibraryView() {
       // reload directories to show updated file count
       await loadDirectories();
     } catch (e) {
-      setLastResult(`error: ${e}`);
+      setLastError(`scan failed: ${e}`);
     } finally {
       setScanning(null);
     }
@@ -198,6 +292,9 @@ export default function LibraryView() {
   async function rescanAll() {
     setScanning("__all__");
     setLastResult("");
+    setLastError("");
+    setScanProgress(null);
+    setScanSummary(null);
 
     try {
       // local: invoke the tauri command so the polling task fires
@@ -210,7 +307,7 @@ export default function LibraryView() {
       // reload directories to show updated file count
       await loadDirectories();
     } catch (e) {
-      setLastResult(`error: ${e}`);
+      setLastError(`rescan failed: ${e}`);
     } finally {
       setScanning(null);
     }
@@ -312,8 +409,71 @@ export default function LibraryView() {
           </p>
         </Show>
 
+        {/* live job progress (driven by grimoire events) */}
+        <Show when={scanProgress()}>
+          {(p) => {
+            const total = () => p().jobs_total || 0;
+            const done = () => Math.max(0, total() - (p().jobs_pending || 0));
+            const pct = () =>
+              total() > 0 ? Math.round((done() / total()) * 100) : 0;
+            return (
+              <div class="scan-progress-card">
+                <div class="scan-progress-header">
+                  <div class="spinner" />
+                  <span>importing music...</span>
+                  <span class="scan-progress-counts">
+                    {done()} / {total()} jobs
+                  </span>
+                </div>
+                <div class="scan-progress-bar">
+                  <div
+                    class="scan-progress-bar-fill"
+                    style={{ width: `${pct()}%` }}
+                  />
+                </div>
+                <Show when={p().directory}>
+                  <div class="scan-progress-stats">{p().directory}</div>
+                </Show>
+                <div class="scan-progress-stats">
+                  {p().songs_added} processed
+                </div>
+              </div>
+            );
+          }}
+        </Show>
+
+        {/* completion summary */}
+        <Show when={!scanProgress() && scanSummary()}>
+          {(s) => {
+            const nothingNew = () =>
+              s().songs_added === 0 &&
+              s().albums_added === 0 &&
+              s().artists_added === 0;
+            return (
+              <div class="scan-progress-card success">
+                <Show when={nothingNew()}>
+                  scan complete
+                </Show>
+                <Show when={!nothingNew()}>
+                  import complete: {s().songs_added} songs
+                  <Show when={s().albums_added > 0}>
+                    {" "}· {s().albums_added} albums
+                  </Show>
+                  <Show when={s().artists_added > 0}>
+                    {" "}· {s().artists_added} artists
+                  </Show>
+                </Show>
+              </div>
+            );
+          }}
+        </Show>
+
         <Show when={lastResult()}>
           <p class="scan-progress">{lastResult()}</p>
+        </Show>
+
+        <Show when={lastError()}>
+          <p class="scan-progress error">{lastError()}</p>
         </Show>
       </div>
 
@@ -367,7 +527,11 @@ export default function LibraryView() {
                 </Show>
               </Show>
               <Show when={!pendingPathEditable()}>
-                <input type="text" value={pendingPath()} readOnly />
+                <input
+                  type="text"
+                  value={pendingPath()}
+                  onInput={(e) => setPendingPath(e.currentTarget.value)}
+                />
               </Show>
             </div>
             <div class="form-group">

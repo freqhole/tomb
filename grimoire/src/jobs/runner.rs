@@ -8,7 +8,8 @@ use super::music::{
     process_rescan_directories_job, process_scan_directory_job,
 };
 use super::service::{
-    delete_job, get_next_pending_job, get_session_job_counts, mark_job_completed, mark_job_failed,
+    delete_job, get_job_session, get_next_pending_job, get_session_job_counts, mark_job_completed,
+    mark_job_failed,
 };
 use crate::error::ErrorDetail;
 use crate::events::{emit, GrimoireEvent};
@@ -61,17 +62,35 @@ pub async fn process_job(job: Job) -> GrimoireResponse<JobResult> {
                 let _ = delete_job(&job.id).await;
             }
 
-            // emit progress event for ImportMusic jobs (for UI updates)
-            if job_type == JobType::ImportMusic {
+            // emit progress event for ImportMusic and ProcessFile jobs (for UI updates).
+            // ProcessFile rows are deleted on completion, so we read the canonical
+            // `total` from the session.progress field (set once by the scanner) and
+            // derive completed = total - (pending + running + failed).
+            if job_type == JobType::ImportMusic || job_type == JobType::ProcessFile {
                 if let Some(session_id) = &job.session_id {
-                    // get session stats for progress
                     if let Ok(counts) = get_session_job_counts(session_id).await.data.ok_or(()) {
-                        // extract directory from job parameters (parent of local_path)
+                        // try to read the original total from session.progress;
+                        // fall back to live counts if missing.
+                        let session_total = get_job_session(session_id)
+                            .await
+                            .data
+                            .and_then(|s| s.progress().ok())
+                            .map(|p| p.total as u32)
+                            .filter(|t| *t > 0)
+                            .unwrap_or(counts.total);
+
+                        let in_flight = counts.pending + counts.running;
+                        let completed_so_far = session_total
+                            .saturating_sub(in_flight)
+                            .saturating_sub(counts.failed);
+
+                        // extract directory from job parameters
                         let directory = job
                             .parameters()
                             .ok()
                             .and_then(|p: serde_json::Value| {
                                 p.get("local_path")
+                                    .or_else(|| p.get("file_path"))
                                     .and_then(|v| v.as_str())
                                     .and_then(|path| Path::new(path).parent())
                                     .map(|p| p.display().to_string())
@@ -81,16 +100,16 @@ pub async fn process_job(job: Job) -> GrimoireResponse<JobResult> {
                         emit(GrimoireEvent::JobProgress {
                             session_id: session_id.clone(),
                             directory,
-                            songs_added: counts.completed,
-                            jobs_pending: counts.pending + counts.running,
-                            jobs_total: counts.total,
+                            songs_added: completed_so_far,
+                            jobs_pending: in_flight,
+                            jobs_total: session_total,
                         });
 
                         // emit session complete when all jobs done
                         if counts.pending == 0 && counts.running == 0 {
                             emit(GrimoireEvent::JobSessionComplete {
                                 session_id: session_id.clone(),
-                                songs_added: counts.completed,
+                                songs_added: completed_so_far,
                                 albums_added: 0,  // TODO: track these
                                 artists_added: 0, // TODO: track these
                             });

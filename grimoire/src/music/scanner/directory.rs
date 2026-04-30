@@ -7,7 +7,8 @@ use crate::config::get_config;
 use crate::database;
 use crate::error::GrimoireResult;
 use crate::jobs::{
-    create_job, get_scanned_directory_paths, CreateJobRequest, JobType, ProcessFileParams,
+    create_job, get_scanned_directory_paths, update_session_progress, CreateJobRequest, JobProgress,
+    JobType, ProcessFileParams,
 };
 use crate::users::get_root_user_id;
 use std::collections::HashSet;
@@ -212,6 +213,16 @@ pub async fn scan_directory_and_create_jobs(
         "scan complete: {} files found, {} jobs created, {} files skipped (unchanged)",
         file_count, jobs_created, files_skipped
     );
+
+    // record the canonical job total on the session so progress reporting
+    // doesn't depend on jobz row counts (ProcessFile rows are deleted as
+    // jobs complete, which would otherwise make `total` shrink to zero).
+    let _ = update_session_progress(
+        session_id,
+        JobProgress::new(0, jobs_created as u64),
+        None,
+    )
+    .await;
 
     Ok(file_count)
 }
