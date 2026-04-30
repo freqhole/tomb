@@ -8,6 +8,7 @@
 
 use serde::Serialize;
 use std::path::PathBuf;
+use std::process::Command;
 use tauri::Manager;
 
 use crate::app_config::{get_server_config_path_resolved, save_admin_user, FreqholeAppConfig};
@@ -493,10 +494,21 @@ pub fn open_config_dir(app_handle: tauri::AppHandle) -> Result<(), String> {
         return Err(format!("directory does not exist: {}", dir));
     }
 
-    app_handle
-        .opener()
-        .reveal_item_in_dir(&path)
-        .map_err(|e| format!("failed to open directory: {}", e))
+    #[cfg(target_os = "linux")]
+    {
+        app_handle
+            .opener()
+            .open_path(path.parent().unwrap().to_string_lossy().to_string(), None)
+            .or_else(|_| Command::new("xdg-open").arg(&dir).spawn().map(|_| ()))
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    {
+        app_handle
+            .opener()
+            .reveal_item_in_dir(&path)
+            .map_err(|e| format!("failed to open directory: {}", e))
+    }
 }
 
 /// scan result
