@@ -62,19 +62,19 @@ build-mac-arm:
 	@echo "building freqhole CLI for macOS arm64..."
 	cargo build --package cli --release --target $(MAC_ARM_TARGET)
 	@mkdir -p $(BUILD_DIR)/$(VERSION)
-	cp target/$(MAC_ARM_TARGET)/release/freqhole $(BUILD_DIR)/$(VERSION)/freqhole-$(MAC_ARM_TARGET)
-	@echo "built: $(BUILD_DIR)/$(VERSION)/freqhole-$(MAC_ARM_TARGET)"
+	cp target/$(MAC_ARM_TARGET)/release/freqhole $(BUILD_DIR)/$(VERSION)/freqhole_cli_$(VERSION)_darwin-aarch64
+	@echo "built: $(BUILD_DIR)/$(VERSION)/freqhole_cli_$(VERSION)_darwin-aarch64"
 	@if [ -n "$(APPLE_SIGNING_IDENTITY)" ]; then \
 		echo "signing..."; \
-		codesign --force --options runtime --sign "$(APPLE_SIGNING_IDENTITY)" $(BUILD_DIR)/$(VERSION)/freqhole-$(MAC_ARM_TARGET); \
-		codesign --verify --verbose $(BUILD_DIR)/$(VERSION)/freqhole-$(MAC_ARM_TARGET); \
-		echo "signed: $(BUILD_DIR)/$(VERSION)/freqhole-$(MAC_ARM_TARGET)"; \
+		codesign --force --options runtime --sign "$(APPLE_SIGNING_IDENTITY)" $(BUILD_DIR)/$(VERSION)/freqhole_cli_$(VERSION)_darwin-aarch64; \
+		codesign --verify --verbose $(BUILD_DIR)/$(VERSION)/freqhole_cli_$(VERSION)_darwin-aarch64; \
+		echo "signed: $(BUILD_DIR)/$(VERSION)/freqhole_cli_$(VERSION)_darwin-aarch64"; \
 		if [ -n "$(APPLE_ID)" ] && [ -n "$(APPLE_PASSWORD)" ] && [ -n "$(APPLE_TEAM_ID)" ]; then \
 			echo "notarizing (this may take a few minutes)..."; \
-			zip -j $(BUILD_DIR)/$(VERSION)/freqhole-$(MAC_ARM_TARGET).zip $(BUILD_DIR)/$(VERSION)/freqhole-$(MAC_ARM_TARGET); \
-			xcrun notarytool submit $(BUILD_DIR)/$(VERSION)/freqhole-$(MAC_ARM_TARGET).zip \
+			zip -j $(BUILD_DIR)/$(VERSION)/freqhole_cli_$(VERSION)_darwin-aarch64.zip $(BUILD_DIR)/$(VERSION)/freqhole_cli_$(VERSION)_darwin-aarch64; \
+			xcrun notarytool submit $(BUILD_DIR)/$(VERSION)/freqhole_cli_$(VERSION)_darwin-aarch64.zip \
 				--apple-id "$(APPLE_ID)" --password "$(APPLE_PASSWORD)" --team-id "$(APPLE_TEAM_ID)" --wait; \
-			echo "notarized: $(BUILD_DIR)/$(VERSION)/freqhole-$(MAC_ARM_TARGET)"; \
+			echo "notarized: $(BUILD_DIR)/$(VERSION)/freqhole_cli_$(VERSION)_darwin-aarch64"; \
 		else \
 			echo "skipping notarization (APPLE_ID/PASSWORD/TEAM_ID not all set)"; \
 		fi; \
@@ -88,19 +88,19 @@ build-mac-intel:
 	@echo "building freqhole CLI for macOS x86_64 (vendored OpenSSL)..."
 	OPENSSL_STATIC=1 cargo build --package cli --release --target $(MAC_INTEL_TARGET) --features grimoire/vendored-openssl
 	@mkdir -p $(BUILD_DIR)/$(VERSION)
-	cp target/$(MAC_INTEL_TARGET)/release/freqhole $(BUILD_DIR)/$(VERSION)/freqhole-$(MAC_INTEL_TARGET)
-	@echo "built: $(BUILD_DIR)/$(VERSION)/freqhole-$(MAC_INTEL_TARGET)"
+	cp target/$(MAC_INTEL_TARGET)/release/freqhole $(BUILD_DIR)/$(VERSION)/freqhole_cli_$(VERSION)_darwin-x86_64
+	@echo "built: $(BUILD_DIR)/$(VERSION)/freqhole_cli_$(VERSION)_darwin-x86_64"
 	@if [ -n "$(APPLE_SIGNING_IDENTITY)" ]; then \
 		echo "signing..."; \
-		codesign --force --options runtime --sign "$(APPLE_SIGNING_IDENTITY)" $(BUILD_DIR)/$(VERSION)/freqhole-$(MAC_INTEL_TARGET); \
-		codesign --verify --verbose $(BUILD_DIR)/$(VERSION)/freqhole-$(MAC_INTEL_TARGET); \
-		echo "signed: $(BUILD_DIR)/$(VERSION)/freqhole-$(MAC_INTEL_TARGET)"; \
+		codesign --force --options runtime --sign "$(APPLE_SIGNING_IDENTITY)" $(BUILD_DIR)/$(VERSION)/freqhole_cli_$(VERSION)_darwin-x86_64; \
+		codesign --verify --verbose $(BUILD_DIR)/$(VERSION)/freqhole_cli_$(VERSION)_darwin-x86_64; \
+		echo "signed: $(BUILD_DIR)/$(VERSION)/freqhole_cli_$(VERSION)_darwin-x86_64"; \
 		if [ -n "$(APPLE_ID)" ] && [ -n "$(APPLE_PASSWORD)" ] && [ -n "$(APPLE_TEAM_ID)" ]; then \
 			echo "notarizing (this may take a few minutes)..."; \
-			zip -j $(BUILD_DIR)/$(VERSION)/freqhole-$(MAC_INTEL_TARGET).zip $(BUILD_DIR)/$(VERSION)/freqhole-$(MAC_INTEL_TARGET); \
-			xcrun notarytool submit $(BUILD_DIR)/$(VERSION)/freqhole-$(MAC_INTEL_TARGET).zip \
+			zip -j $(BUILD_DIR)/$(VERSION)/freqhole_cli_$(VERSION)_darwin-x86_64.zip $(BUILD_DIR)/$(VERSION)/freqhole_cli_$(VERSION)_darwin-x86_64; \
+			xcrun notarytool submit $(BUILD_DIR)/$(VERSION)/freqhole_cli_$(VERSION)_darwin-x86_64.zip \
 				--apple-id "$(APPLE_ID)" --password "$(APPLE_PASSWORD)" --team-id "$(APPLE_TEAM_ID)" --wait; \
-			echo "notarized: $(BUILD_DIR)/$(VERSION)/freqhole-$(MAC_INTEL_TARGET)"; \
+			echo "notarized: $(BUILD_DIR)/$(VERSION)/freqhole_cli_$(VERSION)_darwin-x86_64"; \
 		else \
 			echo "skipping notarization (APPLE_ID/PASSWORD/TEAM_ID not all set)"; \
 		fi; \
@@ -118,8 +118,8 @@ build-linux:
 		--build-arg TARGET_ARCH=$(LINUX_TARGET)
 	@mkdir -p $(BUILD_DIR)/$(VERSION)
 	docker run --rm -v $(PWD)/$(BUILD_DIR)/$(VERSION):/output freqhole-linux-builder \
-		sh -c "cp /app/target/$(LINUX_TARGET)/release/freqhole /output/freqhole-$(LINUX_TARGET)"
-	@echo "built: $(BUILD_DIR)/$(VERSION)/freqhole-$(LINUX_TARGET)"
+		sh -c "cp /app/target/$(LINUX_TARGET)/release/freqhole /output/freqhole_cli_$(VERSION)_linux-x86_64"
+	@echo "built: $(BUILD_DIR)/$(VERSION)/freqhole_cli_$(VERSION)_linux-x86_64"
 
 # Raspberry Pi aarch64 CLI binary (via Docker)
 .PHONY: build-pi
@@ -129,8 +129,8 @@ build-pi:
 	docker build -f Dockerfile.build -t freqhole-pi-builder .
 	@mkdir -p $(BUILD_DIR)/$(VERSION)
 	docker run --rm -v $(PWD)/$(BUILD_DIR)/$(VERSION):/output freqhole-pi-builder \
-		sh -c "cp /app/target/$(PI_TARGET)/release/freqhole /output/freqhole-$(PI_TARGET)"
-	@echo "built: $(BUILD_DIR)/$(VERSION)/freqhole-$(PI_TARGET)"
+		sh -c "cp /app/target/$(PI_TARGET)/release/freqhole /output/freqhole_cli_$(VERSION)_linux-aarch64"
+	@echo "built: $(BUILD_DIR)/$(VERSION)/freqhole_cli_$(VERSION)_linux-aarch64"
 
 # Raspberry Pi 32-bit CLI binary (via Docker, webauthn disabled)
 .PHONY: build-pi32
@@ -143,8 +143,8 @@ build-pi32:
 		--build-arg CARGO_EXTRA_FLAGS="--no-default-features"
 	@mkdir -p $(BUILD_DIR)/$(VERSION)
 	docker run --rm -v $(PWD)/$(BUILD_DIR)/$(VERSION):/output freqhole-pi32-builder \
-		sh -c "cp /app/target/$(PI32_TARGET)/release/freqhole /output/freqhole-$(PI32_TARGET)"
-	@echo "built: $(BUILD_DIR)/$(VERSION)/freqhole-$(PI32_TARGET)"
+		sh -c "cp /app/target/$(PI32_TARGET)/release/freqhole /output/freqhole_cli_$(VERSION)_linux-armv7"
+	@echo "built: $(BUILD_DIR)/$(VERSION)/freqhole_cli_$(VERSION)_linux-armv7"
 
 .PHONY: clean
 clean:
@@ -238,14 +238,14 @@ build-tauri-mac-arm:
 		cd $(TAURI_DIR) && npm run tauri build -- --target aarch64-apple-darwin; \
 	fi
 	@mkdir -p $(BUILD_DIR)/$(VERSION)
-	cp target/aarch64-apple-darwin/release/bundle/dmg/freqhole_$(VERSION)_aarch64.dmg $(BUILD_DIR)/$(VERSION)/
-	@echo "built: $(BUILD_DIR)/$(VERSION)/freqhole_$(VERSION)_aarch64.dmg"
+	cp target/aarch64-apple-darwin/release/bundle/dmg/freqhole_$(VERSION)_aarch64.dmg $(BUILD_DIR)/$(VERSION)/freqhole_charnel_$(VERSION)_aarch64.dmg
+	@echo "built: $(BUILD_DIR)/$(VERSION)/freqhole_charnel_$(VERSION)_aarch64.dmg"
 	@if [ -n "$(APPLE_SIGNING_IDENTITY)" ] && [ -n "$(APPLE_ID)" ] && [ -n "$(APPLE_PASSWORD)" ] && [ -n "$(APPLE_TEAM_ID)" ]; then \
 		echo "notarizing dmg (this may take a few minutes)..."; \
-		xcrun notarytool submit $(BUILD_DIR)/$(VERSION)/freqhole_$(VERSION)_aarch64.dmg \
+		xcrun notarytool submit $(BUILD_DIR)/$(VERSION)/freqhole_charnel_$(VERSION)_aarch64.dmg \
 			--apple-id "$(APPLE_ID)" --password "$(APPLE_PASSWORD)" --team-id "$(APPLE_TEAM_ID)" --wait; \
-		xcrun stapler staple $(BUILD_DIR)/$(VERSION)/freqhole_$(VERSION)_aarch64.dmg; \
-		echo "notarized + stapled: $(BUILD_DIR)/$(VERSION)/freqhole_$(VERSION)_aarch64.dmg"; \
+		xcrun stapler staple $(BUILD_DIR)/$(VERSION)/freqhole_charnel_$(VERSION)_aarch64.dmg; \
+		echo "notarized + stapled: $(BUILD_DIR)/$(VERSION)/freqhole_charnel_$(VERSION)_aarch64.dmg"; \
 	fi
 
 # macOS x86_64 Tauri app (signed + notarized if env vars set)
@@ -261,14 +261,14 @@ build-tauri-mac-intel:
 		cd $(TAURI_DIR) && npm run tauri build -- --target x86_64-apple-darwin; \
 	fi
 	@mkdir -p $(BUILD_DIR)/$(VERSION)
-	cp target/x86_64-apple-darwin/release/bundle/dmg/freqhole_$(VERSION)_x64.dmg $(BUILD_DIR)/$(VERSION)/
-	@echo "built: $(BUILD_DIR)/$(VERSION)/freqhole_$(VERSION)_x64.dmg"
+	cp target/x86_64-apple-darwin/release/bundle/dmg/freqhole_$(VERSION)_x64.dmg $(BUILD_DIR)/$(VERSION)/freqhole_charnel_$(VERSION)_x86_64.dmg
+	@echo "built: $(BUILD_DIR)/$(VERSION)/freqhole_charnel_$(VERSION)_x86_64.dmg"
 	@if [ -n "$(APPLE_SIGNING_IDENTITY)" ] && [ -n "$(APPLE_ID)" ] && [ -n "$(APPLE_PASSWORD)" ] && [ -n "$(APPLE_TEAM_ID)" ]; then \
 		echo "notarizing dmg (this may take a few minutes)..."; \
-		xcrun notarytool submit $(BUILD_DIR)/$(VERSION)/freqhole_$(VERSION)_x64.dmg \
+		xcrun notarytool submit $(BUILD_DIR)/$(VERSION)/freqhole_charnel_$(VERSION)_x86_64.dmg \
 			--apple-id "$(APPLE_ID)" --password "$(APPLE_PASSWORD)" --team-id "$(APPLE_TEAM_ID)" --wait; \
-		xcrun stapler staple $(BUILD_DIR)/$(VERSION)/freqhole_$(VERSION)_x64.dmg; \
-		echo "notarized + stapled: $(BUILD_DIR)/$(VERSION)/freqhole_$(VERSION)_x64.dmg"; \
+		xcrun stapler staple $(BUILD_DIR)/$(VERSION)/freqhole_charnel_$(VERSION)_x86_64.dmg; \
+		echo "notarized + stapled: $(BUILD_DIR)/$(VERSION)/freqhole_charnel_$(VERSION)_x86_64.dmg"; \
 	fi
 
 build-tauri-linux-intel:
@@ -279,10 +279,10 @@ build-tauri-linux-intel:
 		--build-arg FREQHOLE_GIT_SHA=$(GIT_SHA) .
 	@mkdir -p $(BUILD_DIR)/$(VERSION)
 	docker run --rm -v $(PWD)/$(BUILD_DIR)/$(VERSION):/output freqhole-tauri-builder-amd64 \
-		sh -c "cp /app/target/x86_64-unknown-linux-gnu/release/bundle/deb/*.deb /output/ && \
-		       cp /app/target/x86_64-unknown-linux-gnu/release/bundle/rpm/*.rpm /output/"
-	@echo "built: $(BUILD_DIR)/$(VERSION)/freqhole_$(VERSION)_amd64.deb"
-	@echo "built: $(BUILD_DIR)/$(VERSION)/freqhole-$(VERSION)-1.x86_64.rpm"
+		sh -c "cp /app/target/x86_64-unknown-linux-gnu/release/bundle/deb/*.deb /output/freqhole_charnel_$(VERSION)_x86_64.deb && \
+		       cp /app/target/x86_64-unknown-linux-gnu/release/bundle/rpm/*.rpm /output/freqhole_charnel_$(VERSION)_x86_64.rpm"
+	@echo "built: $(BUILD_DIR)/$(VERSION)/freqhole_charnel_$(VERSION)_x86_64.deb"
+	@echo "built: $(BUILD_DIR)/$(VERSION)/freqhole_charnel_$(VERSION)_x86_64.rpm"
 
 build-tauri-linux-arm64:
 	@echo "building Tauri app for Linux aarch64 using Docker..."
@@ -292,10 +292,10 @@ build-tauri-linux-arm64:
 		--build-arg FREQHOLE_GIT_SHA=$(GIT_SHA) .
 	@mkdir -p $(BUILD_DIR)/$(VERSION)
 	docker run --rm -v $(PWD)/$(BUILD_DIR)/$(VERSION):/output freqhole-tauri-builder-arm64 \
-		sh -c "cp /app/target/aarch64-unknown-linux-gnu/release/bundle/deb/*.deb /output/ && \
-		       cp /app/target/aarch64-unknown-linux-gnu/release/bundle/rpm/*.rpm /output/"
-	@echo "built: $(BUILD_DIR)/$(VERSION)/freqhole_$(VERSION)_arm64.deb"
-	@echo "built: $(BUILD_DIR)/$(VERSION)/freqhole-$(VERSION)-1.aarch64.rpm"
+		sh -c "cp /app/target/aarch64-unknown-linux-gnu/release/bundle/deb/*.deb /output/freqhole_charnel_$(VERSION)_aarch64.deb && \
+		       cp /app/target/aarch64-unknown-linux-gnu/release/bundle/rpm/*.rpm /output/freqhole_charnel_$(VERSION)_aarch64.rpm"
+	@echo "built: $(BUILD_DIR)/$(VERSION)/freqhole_charnel_$(VERSION)_aarch64.deb"
+	@echo "built: $(BUILD_DIR)/$(VERSION)/freqhole_charnel_$(VERSION)_aarch64.rpm"
 
 # Android Tauri app (universal release apk, signed with apksigner)
 # requires: ANDROID_SDK_ROOT, ANDROID_KEYSTORE (optionally ANDROID_BUILD_TOOLS_VERSION,
@@ -324,8 +324,8 @@ build-tauri-android:
 		$(TAURI_DIR)/src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release-unsigned.apk
 	@mkdir -p $(BUILD_DIR)/$(VERSION)
 	cp $(TAURI_DIR)/src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release-unsigned.apk \
-		$(BUILD_DIR)/$(VERSION)/freqhole_$(VERSION)_android-universal.apk
-	@echo "built: $(BUILD_DIR)/$(VERSION)/freqhole_$(VERSION)_android-universal.apk"
+		$(BUILD_DIR)/$(VERSION)/freqhole_charnel_$(VERSION)_android-universal.apk
+	@echo "built: $(BUILD_DIR)/$(VERSION)/freqhole_charnel_$(VERSION)_android-universal.apk"
 # Flatpak builds (via Docker - no special privileges needed)
 .PHONY: build-flatpak-intel build-flatpak-arm64 build-flatpak-builder
 
@@ -334,24 +334,24 @@ build-flatpak-builder:
 	@echo "building flatpak builder image (includes GNOME Platform runtime)..."
 	docker build -f Dockerfile.flatpak -t freqhole-flatpak-builder --platform linux/amd64 .
 
-build-flatpak-intel: $(BUILD_DIR)/$(VERSION)/freqhole_$(VERSION)_amd64.deb build-flatpak-builder
+build-flatpak-intel: $(BUILD_DIR)/$(VERSION)/freqhole_charnel_$(VERSION)_x86_64.deb build-flatpak-builder
 	@echo "building Flatpak for x86_64..."
 	docker run --rm --privileged \
 		-v $(PWD)/$(BUILD_DIR)/$(VERSION):/debs:ro \
 		-v $(PWD)/$(BUILD_DIR)/$(VERSION):/output \
 		freqhole-flatpak-builder \
-		/debs/freqhole_$(VERSION)_amd64.deb /output/freqhole_$(VERSION)_x86_64.flatpak x86_64
-	@echo "built: $(BUILD_DIR)/$(VERSION)/freqhole_$(VERSION)_x86_64.flatpak"
+		/debs/freqhole_charnel_$(VERSION)_x86_64.deb /output/freqhole_charnel_$(VERSION)_x86_64.flatpak x86_64
+	@echo "built: $(BUILD_DIR)/$(VERSION)/freqhole_charnel_$(VERSION)_x86_64.flatpak"
 
-build-flatpak-arm64: $(BUILD_DIR)/$(VERSION)/freqhole_$(VERSION)_arm64.deb
+build-flatpak-arm64: $(BUILD_DIR)/$(VERSION)/freqhole_charnel_$(VERSION)_aarch64.deb
 	@echo "building Flatpak for aarch64..."
 	docker build -f Dockerfile.flatpak -t freqhole-flatpak-builder-arm64 --platform linux/arm64 .
 	docker run --rm --privileged \
 		-v $(PWD)/$(BUILD_DIR)/$(VERSION):/debs:ro \
 		-v $(PWD)/$(BUILD_DIR)/$(VERSION):/output \
 		freqhole-flatpak-builder-arm64 \
-		/debs/freqhole_$(VERSION)_arm64.deb /output/freqhole_$(VERSION)_aarch64.flatpak aarch64
-	@echo "built: $(BUILD_DIR)/$(VERSION)/freqhole_$(VERSION)_aarch64.flatpak"
+		/debs/freqhole_charnel_$(VERSION)_aarch64.deb /output/freqhole_charnel_$(VERSION)_aarch64.flatpak aarch64
+	@echo "built: $(BUILD_DIR)/$(VERSION)/freqhole_charnel_$(VERSION)_aarch64.flatpak"
 # version management
 .PHONY: bump-version
 bump-version:
