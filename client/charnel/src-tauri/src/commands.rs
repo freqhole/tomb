@@ -496,10 +496,17 @@ pub fn open_config_dir(app_handle: tauri::AppHandle) -> Result<(), String> {
 
     #[cfg(target_os = "linux")]
     {
+        let parentdir = path.parent().unwrap();
         app_handle
             .opener()
-            .open_path(path.parent().unwrap().to_string_lossy().to_string(), None)
-            .or_else(|_| Command::new("xdg-open").arg(&dir).spawn().map(|_| ()))
+            .open_path(parentdir.to_string_lossy().to_string(), None::<&str>)
+            .or_else(|_| {
+                Command::new("xdg-open")
+                    .arg(dir)
+                    .spawn()
+                    .map(|_| ())
+                    .map_err(|e| format!("xdg-opne failed to open directory: {}", e))
+            })
     }
 
     #[cfg(not(target_os = "linux"))]
