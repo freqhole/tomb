@@ -716,8 +716,7 @@ async fn poll_rescan_job_until_complete(
                         .unwrap_or(false)
                 })
                 .count() as u32;
-            let _ =
-                notify_scan_progress(&app_handle, 0, 0, 0, pending, jobs_total);
+            let _ = notify_scan_progress(&app_handle, 0, 0, 0, pending, jobs_total);
         }
     }
 
@@ -845,8 +844,7 @@ async fn poll_scan_jobs_until_complete(
                         .unwrap_or(false)
                 })
                 .count() as u32;
-            let _ =
-                notify_scan_progress(&app_handle, 0, 0, 0, pending, jobs_total);
+            let _ = notify_scan_progress(&app_handle, 0, 0, 0, pending, jobs_total);
         }
     }
 

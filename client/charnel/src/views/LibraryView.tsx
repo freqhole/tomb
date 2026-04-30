@@ -451,16 +451,16 @@ export default function LibraryView() {
               s().artists_added === 0;
             return (
               <div class="scan-progress-card success">
-                <Show when={nothingNew()}>
-                  scan complete
-                </Show>
+                <Show when={nothingNew()}>scan complete</Show>
                 <Show when={!nothingNew()}>
                   import complete: {s().songs_added} songs
                   <Show when={s().albums_added > 0}>
-                    {" "}· {s().albums_added} albums
+                    {" "}
+                    · {s().albums_added} albums
                   </Show>
                   <Show when={s().artists_added > 0}>
-                    {" "}· {s().artists_added} artists
+                    {" "}
+                    · {s().artists_added} artists
                   </Show>
                 </Show>
               </div>
