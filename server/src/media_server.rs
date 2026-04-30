@@ -22,22 +22,53 @@ use axum::{
     Router,
 };
 use std::net::SocketAddr;
+use std::sync::Arc;
 use tokio::net::TcpListener;
+use tokio::sync::Notify;
+use tokio::task::JoinHandle;
 use tower_http::cors::{AllowOrigin, CorsLayer};
 
 use crate::{auth::middleware::AuthenticatedUser, blobs, error::ApiError};
 
 /// info about a running media server.
+///
+/// dropping the handle does NOT stop the server — call [`shutdown`](Self::shutdown)
+/// (or [`abort`](Self::abort) for a hard stop) explicitly.
 #[derive(Debug, Clone)]
 pub struct MediaServerHandle {
     /// the loopback address the server is listening on (e.g. `127.0.0.1:54321`).
     pub addr: SocketAddr,
+    /// signal used to trigger graceful shutdown.
+    shutdown: Arc<Notify>,
+    /// handle to the background tokio task running `axum::serve`.
+    task: Arc<tokio::sync::Mutex<Option<JoinHandle<()>>>>,
 }
 
 impl MediaServerHandle {
     /// base url including scheme, e.g. `http://127.0.0.1:54321`.
     pub fn base_url(&self) -> String {
         format!("http://{}", self.addr)
+    }
+
+    /// signal the server to shut down gracefully and await the background
+    /// task. safe to call multiple times (subsequent calls are no-ops).
+    pub async fn shutdown(&self) {
+        self.shutdown.notify_waiters();
+        let mut guard = self.task.lock().await;
+        if let Some(task) = guard.take() {
+            // ignore join errors — task may have already exited.
+            let _ = task.await;
+        }
+    }
+
+    /// hard-abort the background task without waiting for in-flight requests.
+    pub fn abort(&self) {
+        if let Ok(mut guard) = self.task.try_lock() {
+            if let Some(task) = guard.as_ref() {
+                task.abort();
+            }
+            *guard = None;
+        }
     }
 }
 
@@ -130,10 +161,9 @@ fn build_media_router() -> Router {
 
 /// spawn an embedded media http server on `127.0.0.1:0` (random port).
 ///
-/// returns a handle with the bound address. the server runs in a background
-/// tokio task; aborting that task (or process exit) is the only way to stop
-/// it. for charnel we want it to live for the whole app lifetime, so this is
-/// fine.
+/// returns a handle with the bound address and a graceful-shutdown trigger.
+/// call [`MediaServerHandle::shutdown`] to stop it; otherwise the task runs
+/// until the process exits.
 pub async fn spawn_local_media_server() -> Result<MediaServerHandle, std::io::Error> {
     spawn_media_server_on("127.0.0.1:0").await
 }
@@ -148,13 +178,22 @@ pub async fn spawn_media_server_on(bind: &str) -> Result<MediaServerHandle, std:
 
     tracing::info!(%addr, "embedded media server listening");
 
-    tokio::spawn(async move {
-        if let Err(e) = axum::serve(listener, app).await {
+    let shutdown = Arc::new(Notify::new());
+    let shutdown_signal = shutdown.clone();
+    let task = tokio::spawn(async move {
+        let server = axum::serve(listener, app).with_graceful_shutdown(async move {
+            shutdown_signal.notified().await;
+        });
+        if let Err(e) = server.await {
             tracing::error!(error = %e, "embedded media server exited with error");
         }
     });
 
-    Ok(MediaServerHandle { addr })
+    Ok(MediaServerHandle {
+        addr,
+        shutdown,
+        task: Arc::new(tokio::sync::Mutex::new(Some(task))),
+    })
 }
 
 // -- silence unused-import warnings on builds that don't use Extension here --

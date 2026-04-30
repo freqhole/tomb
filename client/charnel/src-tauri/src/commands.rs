@@ -496,10 +496,9 @@ pub fn open_config_dir(app_handle: tauri::AppHandle) -> Result<(), String> {
 
     #[cfg(target_os = "linux")]
     {
-        let parentdir = path.parent().unwrap();
         app_handle
             .opener()
-            .open_path(parentdir.to_string_lossy().to_string(), None::<&str>)
+            .open_path(path.to_string_lossy().to_string(), None::<&str>)
             .or_else(|_| {
                 Command::new("xdg-open")
                     .arg(dir)
@@ -1427,6 +1426,44 @@ pub fn set_sync_queue_to_local(app_handle: tauri::AppHandle, enabled: bool) -> R
 
     // emit config changed event so spume can update its state
     let _ = notify_config_changed(&app_handle, "sync_queue_to_local changed");
+
+    Ok(())
+}
+
+/// get the embedded_media_server setting (default: on for linux, off elsewhere)
+#[tauri::command]
+pub fn get_embedded_media_server(app_handle: tauri::AppHandle) -> bool {
+    FreqholeAppConfig::load(&app_handle)
+        .map(|c| c.embedded_media_server)
+        .unwrap_or_else(crate::app_config::default_embedded_media_server)
+}
+
+/// set the embedded_media_server setting and start/stop the server
+/// accordingly so the change takes effect without restarting the app.
+#[tauri::command]
+pub async fn set_embedded_media_server(
+    app_handle: tauri::AppHandle,
+    state: tauri::State<'_, crate::media_server::MediaServerState>,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut config = FreqholeAppConfig::load(&app_handle).unwrap_or_default();
+    config.embedded_media_server = enabled;
+    config.save(&app_handle)?;
+
+    let media_state = state.inner().clone();
+    if enabled {
+        if let Err(e) =
+            crate::media_server::start_and_register(app_handle.clone(), media_state).await
+        {
+            return Err(format!("failed to start embedded media server: {e}"));
+        }
+    } else {
+        crate::media_server::stop(&media_state).await;
+    }
+
+    // emit config changed event so the webview can invalidate its cache and
+    // re-fetch media_server_info on next blob url request.
+    let _ = notify_config_changed(&app_handle, "embedded_media_server changed");
 
     Ok(())
 }

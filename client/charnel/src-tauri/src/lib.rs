@@ -452,18 +452,30 @@ pub fn run() {
                 // serves blob streaming routes with full http range support so
                 // <audio src> works smoothly on linux webkitgtk (where the
                 // tauri asset:// protocol can't stream into media elements).
+                // can be toggled at runtime via the `set_embedded_media_server`
+                // command; here we honor the persisted preference (default on).
                 let media_app_handle = app.handle().clone();
                 let media_state_clone = app
                     .state::<media_server::MediaServerState>()
                     .inner()
                     .clone();
-                tauri::async_runtime::spawn(async move {
-                    if let Err(e) =
-                        media_server::start_and_register(media_app_handle, media_state_clone).await
-                    {
-                        tracing::error!(error = %e, "failed to start embedded media server");
-                    }
-                });
+                let media_enabled = app_config::FreqholeAppConfig::load(&media_app_handle)
+                    .map(|c| c.embedded_media_server)
+                    .unwrap_or_else(app_config::default_embedded_media_server);
+                if media_enabled {
+                    tauri::async_runtime::spawn(async move {
+                        if let Err(e) = media_server::start_and_register(
+                            media_app_handle,
+                            media_state_clone,
+                        )
+                        .await
+                        {
+                            tracing::error!(error = %e, "failed to start embedded media server");
+                        }
+                    });
+                } else {
+                    tracing::info!("embedded media server disabled by config");
+                }
 
                 // spawn job runner in tauri process for tauri-local transport (api_call)
                 // SQLite handles concurrent access safely.
@@ -673,6 +685,8 @@ pub fn run() {
             // app config settings
             commands::get_sync_queue_to_local,
             commands::set_sync_queue_to_local,
+            commands::get_embedded_media_server,
+            commands::set_embedded_media_server,
             commands::check_config_needs_upgrade,
             commands::upgrade_config,
             // server config / image management

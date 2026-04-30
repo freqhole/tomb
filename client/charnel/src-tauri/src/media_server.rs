@@ -12,6 +12,7 @@
 use std::sync::{Arc, RwLock};
 
 use serde::Serialize;
+use server::MediaServerHandle;
 
 use crate::app_config::FreqholeAppConfig;
 
@@ -25,23 +26,43 @@ pub struct MediaServerInfo {
     pub api_key: String,
 }
 
+/// inner state: the running server handle (if any) plus its public info.
+#[derive(Default)]
+struct Inner {
+    info: Option<MediaServerInfo>,
+    handle: Option<MediaServerHandle>,
+}
+
 /// tauri-managed state holding the current media server info (if running).
 #[derive(Default, Clone)]
-pub struct MediaServerState(pub Arc<RwLock<Option<MediaServerInfo>>>);
+pub struct MediaServerState(Arc<RwLock<Inner>>);
 
 impl MediaServerState {
     pub fn new() -> Self {
-        Self(Arc::new(RwLock::new(None)))
+        Self(Arc::new(RwLock::new(Inner::default())))
     }
 
     pub fn get(&self) -> Option<MediaServerInfo> {
-        self.0.read().ok().and_then(|g| g.clone())
+        self.0.read().ok().and_then(|g| g.info.clone())
     }
 
-    pub fn set(&self, info: MediaServerInfo) {
+    /// is the embedded server currently running?
+    pub fn is_running(&self) -> bool {
+        self.0.read().ok().is_some_and(|g| g.handle.is_some())
+    }
+
+    fn set(&self, info: MediaServerInfo, handle: MediaServerHandle) {
         if let Ok(mut g) = self.0.write() {
-            *g = Some(info);
+            g.info = Some(info);
+            g.handle = Some(handle);
         }
+    }
+
+    /// take ownership of the running handle (if any), clearing public info.
+    fn take_handle(&self) -> Option<MediaServerHandle> {
+        let mut g = self.0.write().ok()?;
+        g.info = None;
+        g.handle.take()
     }
 }
 
@@ -79,13 +100,15 @@ async fn ensure_admin_api_key(
 /// start the embedded media server, ensure the admin api key exists, and
 /// store the resulting `MediaServerInfo` in tauri state.
 ///
-/// safe to call on app startup. no-op-ish if called twice (will spawn a
-/// second server bound to a different random port — caller should only call
-/// once).
+/// no-op if the server is already running.
 pub async fn start_and_register(
     app_handle: tauri::AppHandle,
     state: MediaServerState,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    if state.is_running() {
+        tracing::debug!("embedded media server already running, skipping start");
+        return Ok(());
+    }
     let api_key = ensure_admin_api_key(&app_handle).await?;
     let handle = server::spawn_local_media_server().await?;
     let info = MediaServerInfo {
@@ -93,6 +116,15 @@ pub async fn start_and_register(
         api_key,
     };
     tracing::info!(base_url = %info.base_url, "embedded media server registered");
-    state.set(info);
+    state.set(info, handle);
     Ok(())
+}
+
+/// gracefully stop the embedded media server (if running) and clear the
+/// public `MediaServerInfo`. no-op if not running.
+pub async fn stop(state: &MediaServerState) {
+    if let Some(handle) = state.take_handle() {
+        tracing::info!("stopping embedded media server");
+        handle.shutdown().await;
+    }
 }

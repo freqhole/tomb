@@ -27,8 +27,45 @@ interface MediaServerInfo {
 }
 let mediaServerInfo: MediaServerInfo | null = null;
 let mediaServerInfoFetch: Promise<MediaServerInfo | null> | null = null;
+let mediaServerListenerAttached = false;
+
+/** drop the cached media server info so the next call re-queries it. */
+function invalidateMediaServerInfo(): void {
+  console.info("[CharnelLocalTransport] invalidating media server info cache");
+  mediaServerInfo = null;
+  mediaServerInfoFetch = null;
+}
+
+/** subscribe (once) to tauri config-changed events to invalidate the cache
+ * when the user toggles the embedded media server in settings. */
+async function ensureMediaServerListener(): Promise<void> {
+  if (mediaServerListenerAttached) return;
+  mediaServerListenerAttached = true;
+  try {
+    const { listen } = await import("@tauri-apps/api/event");
+    await listen<{ type?: string }>("freqhole:event", (e) => {
+      if (e.payload && e.payload.type === "config-changed") {
+        invalidateMediaServerInfo();
+        // eagerly re-fetch so the next blob url request can be synchronous.
+        // logs whether the server is now running or stopped.
+        void getMediaServerInfo().then((info) => {
+          console.info(
+            info
+              ? `[CharnelLocalTransport] media server now: ${info.base_url}`
+              : "[CharnelLocalTransport] media server now: disabled",
+          );
+        });
+      }
+    });
+  } catch {
+    // not in tauri or event api unavailable — fine, just won't auto-invalidate
+    mediaServerListenerAttached = false;
+  }
+}
 
 async function getMediaServerInfo(): Promise<MediaServerInfo | null> {
+  // attach the cache-invalidation listener once (lazy, fire-and-forget)
+  void ensureMediaServerListener();
   if (mediaServerInfo) return mediaServerInfo;
   if (mediaServerInfoFetch) return mediaServerInfoFetch;
   mediaServerInfoFetch = (async () => {
@@ -99,6 +136,20 @@ export class CharnelLocalTransport implements Transport {
 
   constructor(_baseUrl: string) {
     // baseUrl no longer needed - all requests go through IPC
+    // eagerly fetch the embedded media server info so it's ready before the
+    // first <audio src> request (avoids needless asset:// fallback on the
+    // very first track played after app start).
+    void getMediaServerInfo().then((info) => {
+      if (info) {
+        console.info(
+          `[CharnelLocalTransport] embedded media server ready @ ${info.base_url}`,
+        );
+      } else {
+        console.info(
+          `[CharnelLocalTransport] embedded media server not available (using asset://)`,
+        );
+      }
+    });
   }
 
   /**
@@ -319,39 +370,47 @@ export class CharnelLocalTransport implements Transport {
   }
 
   /**
-   * get blob URL - returns Tauri asset:// URL for direct <audio>/<img> src usage
-   * for db-stored blobs, returns object URL from cached data
-   *
-   * on linux (webkitgtk), asset:// doesn't work for <audio> elements. preferred
-   * fix: use the embedded loopback http media server (full http range support).
-   * fallback (server not ready): fetch via asset:// and return a blob: object
-   * URL. only one audio blob URL is kept at a time to avoid memory bloat.
+   * get blob URL — preference order:
+   * 1. cached object URL (db-stored blobs)
+   * 2. embedded loopback http media server (when enabled — works on all
+   *    platforms, supports range requests, required for `<audio>` on linux
+   *    webkitgtk where asset:// can't stream)
+   * 3. tauri asset:// (via `convertFileSrc`) — fast, but no `<audio>` on linux
+   * 4. linux fallback: fetch via asset:// and wrap in a blob: object URL
    */
   getBlobUrl(blobId: string, _blake3?: string): string | Promise<string> {
     // check object URL cache first (db-stored blobs)
     const cachedObjectUrl = this.blobObjectUrlCache.get(blobId);
     if (cachedObjectUrl) {
+      console.debug(`[CharnelLocalTransport] blob ${blobId}: object-url cache`);
       return cachedObjectUrl;
     }
 
-    // linux: prefer the embedded http media server (proper streaming + ranges)
+    // prefer the embedded http media server when it's running (all platforms).
+    // toggleable via charnel settings; required on linux/webkitgtk.
+    if (mediaServerInfo) {
+      const url = buildMediaServerBlobUrl(mediaServerInfo, blobId);
+      console.debug(`[CharnelLocalTransport] blob ${blobId}: embedded http server -> ${url}`);
+      return url;
+    }
+
+    // on linux without the media server, we MUST go async to wrap in a blob:
+    // url (asset:// can't stream into <audio> on webkitgtk).
     if (isLinuxWebKit) {
-      const info = mediaServerInfo;
-      if (info) {
-        return buildMediaServerBlobUrl(info, blobId);
-      }
-      // info not yet available — go async to fetch it (and fall back to
-      // blob:-url path if still unavailable).
+      console.debug(`[CharnelLocalTransport] blob ${blobId}: linux fallback (async)`);
       return this.getBlobUrlAsync(blobId);
     }
 
-    // check path cache (filesystem blobs)
+    // check path cache (filesystem blobs) — direct asset:// url
     const cached = this.blobPathCache.get(blobId);
     if (cached && convertFileSrc) {
-      return convertFileSrc(cached.path);
+      const url = convertFileSrc(cached.path);
+      console.debug(`[CharnelLocalTransport] blob ${blobId}: asset:// (cached) -> ${url}`);
+      return url;
     }
 
     // need to fetch path (or data) first
+    console.debug(`[CharnelLocalTransport] blob ${blobId}: async path lookup`);
     return this.getBlobUrlAsync(blobId);
   }
 
@@ -362,13 +421,13 @@ export class CharnelLocalTransport implements Transport {
   private async getBlobUrlAsync(blobId: string): Promise<string> {
     await ensureInvoke(); // ensure convertFileSrc is loaded
 
-    // linux: try the embedded http media server first. cheap (cached) and
-    // bypasses needing the local filesystem path entirely.
-    if (isLinuxWebKit) {
-      const info = await getMediaServerInfo();
-      if (info) {
-        return buildMediaServerBlobUrl(info, blobId);
-      }
+    // try the embedded http media server first if not yet cached.
+    // works on all platforms when enabled.
+    const info = await getMediaServerInfo();
+    if (info) {
+      const url = buildMediaServerBlobUrl(info, blobId);
+      console.debug(`[CharnelLocalTransport] blob ${blobId}: embedded http server (async) -> ${url}`);
+      return url;
     }
 
     const response = await this.request("GET", `/api/blobs/${blobId}/path`, undefined);

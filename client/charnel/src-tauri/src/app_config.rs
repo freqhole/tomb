@@ -70,11 +70,24 @@ pub struct FreqholeAppConfig {
     /// sync queue songs from remotes to local library (default: true)
     #[serde(default = "default_sync_queue_to_local")]
     pub sync_queue_to_local: bool,
+
+    /// run the embedded loopback http media server for local audio/cover
+    /// streaming. defaults to `true` on linux (where tauri's asset:// can't
+    /// stream into `<audio>` on webkitgtk) and `false` everywhere else
+    /// (asset:// works fine on macos/windows and skipping the server saves
+    /// a bit of startup work).
+    #[serde(default = "default_embedded_media_server")]
+    pub embedded_media_server: bool,
 }
 
 /// default value for sync_queue_to_local (true)
 fn default_sync_queue_to_local() -> bool {
     true
+}
+
+/// default value for embedded_media_server: on for linux, off elsewhere.
+pub fn default_embedded_media_server() -> bool {
+    cfg!(target_os = "linux")
 }
 
 /// admin user configuration

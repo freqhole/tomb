@@ -56,6 +56,11 @@ export default function SettingsView() {
   // sync settings
   const [syncQueueToLocal, setSyncQueueToLocal] = createSignal(true);
 
+  // local playback settings
+  const [embeddedMediaServer, setEmbeddedMediaServer] = createSignal(true);
+  const [mediaServerBusy, setMediaServerBusy] = createSignal(false);
+  const [mediaServerError, setMediaServerError] = createSignal("");
+
   // remote server lifecycle
   const [restartConfirm, setRestartConfirm] = createSignal(false);
   const [restartLoading, setRestartLoading] = createSignal(false);
@@ -92,6 +97,12 @@ export default function SettingsView() {
     } catch (e) {
       console.error("failed to load sync settings:", e);
     }
+    try {
+      const enabled = await invoke<boolean>("get_embedded_media_server");
+      setEmbeddedMediaServer(enabled);
+    } catch (e) {
+      console.error("failed to load embedded media server setting:", e);
+    }
   }
 
   async function toggleSyncQueueToLocal() {
@@ -103,6 +114,24 @@ export default function SettingsView() {
       console.error("failed to save sync setting:", e);
       // revert on error
       setSyncQueueToLocal(!newValue);
+    }
+  }
+
+  async function toggleEmbeddedMediaServer() {
+    if (mediaServerBusy()) return;
+    const newValue = !embeddedMediaServer();
+    setEmbeddedMediaServer(newValue);
+    setMediaServerBusy(true);
+    setMediaServerError("");
+    try {
+      await invoke("set_embedded_media_server", { enabled: newValue });
+    } catch (e) {
+      console.error("failed to toggle embedded media server:", e);
+      setMediaServerError(String(e));
+      // revert on error
+      setEmbeddedMediaServer(!newValue);
+    } finally {
+      setMediaServerBusy(false);
     }
   }
 
@@ -543,6 +572,76 @@ export default function SettingsView() {
                     automatically download remote songs in queue to local
                     library
                   </div>
+                </div>
+              </div>
+
+              <div
+                style={{
+                  display: "flex",
+                  "align-items": "center",
+                  gap: "1rem",
+                  "margin-top": "1.5rem",
+                }}
+              >
+                <button
+                  class={`toggle-button ${embeddedMediaServer() ? "active" : ""}`}
+                  onClick={toggleEmbeddedMediaServer}
+                  disabled={mediaServerBusy()}
+                  style={{
+                    flex: "none",
+                    width: "44px",
+                    height: "24px",
+                    "border-radius": "12px",
+                    border: "none",
+                    padding: "0",
+                    background: embeddedMediaServer()
+                      ? "var(--color-accent-500, #ff69b4)"
+                      : "var(--color-bg-tertiary, #333)",
+                    cursor: mediaServerBusy() ? "wait" : "pointer",
+                    position: "relative",
+                    transition: "background 0.2s",
+                    "flex-shrink": "0",
+                    opacity: mediaServerBusy() ? "0.6" : "1",
+                  }}
+                >
+                  <div
+                    style={{
+                      position: "absolute",
+                      top: "4px",
+                      left: embeddedMediaServer() ? "24px" : "4px",
+                      width: "16px",
+                      height: "16px",
+                      "border-radius": "50%",
+                      background: "white",
+                      transition: "left 0.2s",
+                    }}
+                  />
+                </button>
+                <div>
+                  <div style={{ "font-weight": "500" }}>
+                    embedded media server
+                  </div>
+                  <div
+                    style={{
+                      "font-size": "0.875rem",
+                      color: "var(--color-text-secondary, #888)",
+                      "margin-top": "0.25rem",
+                    }}
+                  >
+                    run a tiny loopback http server for local audio streaming.
+                    switch this on if you're having issues with audio playback.
+                  </div>
+                  <Show when={mediaServerError()}>
+                    <div
+                      style={{
+                        "font-size": "0.8125rem",
+                        color: "var(--color-error-500, #ff4d6d)",
+                        "margin-top": "0.25rem",
+                      }}
+                    >
+                      {mediaServerError()}
+                    </div>
+                  </Show>
                 </div>
               </div>
             </div>
