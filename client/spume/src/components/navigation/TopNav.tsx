@@ -793,6 +793,16 @@ export function TopNav(props: TopNavProps) {
                           )}
                         </For>
 
+                        {/* settings link */}
+                        <Show when={!isCharnelMode()}>
+                          <button
+                                  class="w-full px-3 py-2 text-left text-sm text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-accent-500)]/10 rounded transition-colors border-none bg-transparent cursor-pointer disabled:opacity-50 flex gap-2"
+                                  onClick={() => props.onNavigate?.(routes.settingsStorage())}
+                                >
+                                 <Icon name="settings" size={20} /> settings
+                            </button>
+                        </Show>
+                        
                         {/* storage usage */}
                         <Show
                           when={
