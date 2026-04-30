@@ -27,6 +27,7 @@ import {
 } from "freqhole-api-client";
 import { toast } from "../../components/feedback/Toast";
 import { CopyButton } from "../../components/buttons/CopyButton";
+import { DEFAULT_SHARE_WEB_HOST } from "../../utils/permalink";
 import { formatDate } from "../../utils/dateTime";
 import { truncateMiddle } from "../../utils/truncate";
 import { UserAutocomplete, type UserSelection } from "./UserAutocomplete";
@@ -154,6 +155,8 @@ function NodeIdSection(props: { remote: Remote }) {
     return v;
   };
 
+  const shareUrl = () => `${DEFAULT_SHARE_WEB_HOST}/?r=${nodeId()}`;
+
   const [showQr, setShowQr] = createSignal(false);
   const [qrUrl, setQrUrl] = createSignal<string | null>(null);
 
@@ -161,7 +164,7 @@ function NodeIdSection(props: { remote: Remote }) {
     if (!showQr()) {
       setShowQr(true);
       try {
-        const url = await QRCode.toDataURL(nodeId(), {
+        const url = await QRCode.toDataURL(shareUrl(), {
           width: 220,
           margin: 2,
           color: { dark: "#000000", light: "#ffffff" },
@@ -183,8 +186,8 @@ function NodeIdSection(props: { remote: Remote }) {
       <p class="text-sm text-[var(--color-text-muted)] mb-3">
         share this with peers who want to knock for access.
       </p>
-      <div class="flex items-center gap-2">
-        <code class="flex-1 break-all rounded bg-[var(--color-bg-tertiary)] px-3 py-2 text-xs text-[var(--color-text-secondary)]">
+      <div class="flex flex-wrap items-center gap-2">
+        <code class="break-all rounded bg-[var(--color-bg-tertiary)] px-3 py-2 text-xs text-[var(--color-text-secondary)]">
           {nodeId()}
         </code>
         <CopyButton
@@ -197,13 +200,15 @@ function NodeIdSection(props: { remote: Remote }) {
         <button
           class="px-3 py-1.5 text-xs font-medium rounded-lg bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-bg-quaternary)] text-[var(--color-text-secondary)] border border-[var(--color-border-subtle)] transition-all duration-150 active:scale-95"
           onClick={generate}
+          title={shareUrl()}
         >
-          {showQr() ? "hide qr" : "show qr"}
+          {showQr() ? "hide qr code" : "qr code"}
         </button>
       </div>
       <Show when={showQr() && qrUrl()}>
-        <div class="mt-4 flex justify-center">
+        <div class="mt-4 flex flex-col items-center gap-2">
           <img src={qrUrl()!} alt="node id qr" class="rounded bg-white p-2" />
+          <code class="text-[10px] break-all text-[var(--color-text-muted)]">{shareUrl()}</code>
         </div>
       </Show>
     </section>
@@ -635,7 +640,7 @@ function UsersSection(props: { client: AdminClient; remote: Remote }) {
   const handleHardDelete = async (user: AdminUserSummary) => {
     if (
       !confirm(
-        `permanently delete ${user.username} forever?\n\nthis removes the account and all FK references that don't cascade. this cannot be undone.`,
+        `permanently delete ${user.username} forever?\n\nthis removes the account and all FK references that don't cascade. this cannot be undone.`
       )
     )
       return;
@@ -831,15 +836,11 @@ function UsersSection(props: { client: AdminClient; remote: Remote }) {
                           </button>
                           <button
                             class="px-2 py-1 text-xs font-medium rounded bg-red-700/30 hover:bg-red-700/50 text-red-300 border border-red-700/40 transition-all duration-150 disabled:opacity-50 active:scale-95"
-                            disabled={
-                              hardDeleting() === user.id || user.role === "root"
-                            }
+                            disabled={hardDeleting() === user.id || user.role === "root"}
                             onClick={() => handleHardDelete(user)}
                             title="permanently delete forever"
                           >
-                            {hardDeleting() === user.id
-                              ? "..."
-                              : "delete forever"}
+                            {hardDeleting() === user.id ? "..." : "delete forever"}
                           </button>
                         </Show>
                       </div>
