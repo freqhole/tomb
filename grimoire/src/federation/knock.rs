@@ -335,8 +335,7 @@ pub async fn list_knocks(include_all: bool) -> GrimoireResponse<Vec<KnockRequest
     let knocks: Vec<KnockRequest> = rows
         .into_iter()
         .map(|r| {
-            let from_deleted_peer =
-                r.peer_deleted_at.is_some() || r.user_deleted_at.is_some();
+            let from_deleted_peer = r.peer_deleted_at.is_some() || r.user_deleted_at.is_some();
             let deleted_user_username = if from_deleted_peer {
                 r.deleted_username
             } else {
