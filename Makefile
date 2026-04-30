@@ -378,6 +378,7 @@ bump-version:
 		echo "  updating version.ts files..."; \
 		sed -i '' 's/VERSION = "[^"]*"/VERSION = "$(NEW_VERSION)"/' client/spume/src/version.ts; \
 		sed -i '' 's/VERSION = "[^"]*"/VERSION = "$(NEW_VERSION)"/' $(TAURI_DIR)/src/version.ts; \
+		sed -i '' 's/VERSION = "[^"]*"/VERSION = "$(NEW_VERSION)"/' freqhole.net/src/version.ts; \
 		echo "  updating freqhole-config.toml..."; \
 		sed -i '' 's/^version = "[^"]*"/version = "$(NEW_VERSION)"/' assets/config/freqhole-config.toml; \
 		echo "  updating about.html..."; \

@@ -2,6 +2,11 @@ import { createEffect, createSignal, For, onCleanup, onMount, Show } from "solid
 import type { Meta, StoryObj } from "storybook-solidjs-vite";
 import { clearPageInfo, setPageInfo } from "../src/app/services/pageInfo";
 import {
+  setBackgroundImage,
+  clearBackgroundImage,
+  getBackgroundConfig,
+} from "../src/app/services/backgroundImage";
+import {
   registerCoachContext,
   unregisterCoachContext,
   type CoachContext,
@@ -89,6 +94,15 @@ function songsForArtist(id: string): Song[] {
   const len = 6 + (h % 7); // 6..12 songs, varies per artist
   return generatedSongs.slice(start, start + len);
 }
+// build initials from an artist name (matches real getArtistAbbreviation
+// behaviour closely enough for the demo: up to two leading characters from
+// the first two whitespace-separated words, uppercased).
+function artistInitials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "?";
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[1][0]).toUpperCase();
+}
 function songsForPlaylist(id: string): Song[] {
   const h = hashId("playlist:" + id);
   const start = h % Math.max(1, generatedSongs.length - 14);
@@ -166,6 +180,14 @@ export function FullAppDemoBody() {
   // tracks pointer over the TopNav root so the inner TopNavSearch knows
   // when to auto-collapse on hover-out (matches real-app behavior)
   const [topNavHovered, setTopNavHovered] = createSignal(false);
+  // open state for the demo's FAKE topnav brand-menu flyout. the real
+  // TopNav's kobalte-driven menu doesn't behave reliably inside the
+  // coach-demo shadow DOM (autoFocusMenu state never flips, hover/click
+  // race conditions, etc.), so we render our own static lookalike overlay
+  // anchored to the brand-icon trigger's bounding rect. driven by the
+  // coach script (via setTopNavMenuOpen) and by user clicks on the brand
+  // icon (intercepted in capture phase).
+  const [topNavMenuOpen, setTopNavMenuOpenSignal] = createSignal(false);
 
   // player state
   // start with no current song + empty queue so the playerbar is hidden until
@@ -180,22 +202,54 @@ export function FullAppDemoBody() {
 
   // responsive: track if viewport is narrow (<= 800px)
   const [isNarrow, setIsNarrow] = createSignal(isNarrowViewport());
-  // track viewport height for virtualized list sizing
+  // track viewport height for virtualized list sizing.
+  // when this story is hosted inside the coach-demo web component the
+  // window may be much taller than the host element. use the host's
+  // clientHeight when available so absolute-positioned children (like
+  // VirtualSongList's bottom-pinned header row) don't overflow the frame.
+  let storyRootEl: HTMLDivElement | undefined;
+  const measuredHeight = () => {
+    if (storyRootEl && storyRootEl.clientHeight > 0) return storyRootEl.clientHeight;
+    return window.innerHeight;
+  };
   const [viewportHeight, setViewportHeight] = createSignal(window.innerHeight);
 
   onMount(() => {
     const handleResize = () => {
       setIsNarrow(isNarrowViewport());
-      setViewportHeight(window.innerHeight);
+      setViewportHeight(measuredHeight());
     };
     window.addEventListener("resize", handleResize);
     onCleanup(() => window.removeEventListener("resize", handleResize));
+
+    // observe the host element so we pick up coach-demo frame sizing.
+    let ro: ResizeObserver | undefined;
+    if (storyRootEl && typeof ResizeObserver !== "undefined") {
+      ro = new ResizeObserver(() => setViewportHeight(measuredHeight()));
+      ro.observe(storyRootEl);
+    }
+    // initial measure once mounted (clientHeight is 0 until layout).
+    queueMicrotask(() => setViewportHeight(measuredHeight()));
+    onCleanup(() => ro?.disconnect());
   });
 
   // available height for virtualized lists/grids inside main content area.
-  // accounts for: TopNav (~60px), HeadingSection + margins (~60px), player bar (~80px).
-  const listHeight = () => Math.max(320, viewportHeight() - 180);
-  const gridHeight = () => Math.max(320, viewportHeight() - 140);
+  // the parent main-content wrapper already reserves player bar space via
+  // `padding-bottom: var(--player-bar-height)`, so DON'T subtract
+  // playerBarPx() again here — doing so would shrink the grid by 2x the
+  // player bar height. we only account for: TopNav (~60px) and the
+  // heading + p-3 padding chrome inside each view (~80px / ~40px).
+  const isPlayerBarVisible = () => !!currentSong() || queueSongs().length > 0;
+  // literal pixel value matching the real PlayerBar's natural height. used
+  // for the css custom property (padding-bottom reservation on the main
+  // content wrapper). don't reference `var(--player-height)` here — that
+  // variable is defined by the real app's AppLayout but NOT inside the
+  // coach-demo shadow DOM, so it would resolve to an invalid value and
+  // silently drop the padding.
+  const PLAYER_BAR_PX = 80;
+  const playerBarPx = () => (isPlayerBarVisible() ? PLAYER_BAR_PX : 0);
+  const listHeight = () => Math.max(320, viewportHeight() - 60 - 80);
+  const gridHeight = () => Math.max(320, viewportHeight() - 60 - 40);
 
   // compute page title and count based on current route
   const pageInfo = () => {
@@ -263,6 +317,10 @@ export function FullAppDemoBody() {
   // bounding rect of the topnav search input, used to position the fake
   // demo flyout directly underneath it.
   const [searchInputRect, setSearchInputRect] = createSignal<DOMRect | null>(null);
+  // bounding rect of the topnav brand-icon trigger. used to position the
+  // demo's fake brand-menu flyout. updated on every animation frame while
+  // the menu is open (same pattern as searchInputRect).
+  const [topNavTriggerRect, setTopNavTriggerRect] = createSignal<DOMRect | null>(null);
   const mockSearchSuggestions = () => {
     const query = searchValue().toLowerCase();
     if (!query || query.length < 2) return [];
@@ -649,6 +707,10 @@ export function FullAppDemoBody() {
         );
         if (!isActive) btn.click();
       },
+      setTopNavMenuOpen: (open) => {
+        // flips the signal that controls our fake brand-menu overlay.
+        setTopNavMenuOpenSignal(open);
+      },
     };
     registerCoachContext(ctx);
     onCleanup(() => unregisterCoachContext());
@@ -682,10 +744,57 @@ export function FullAppDemoBody() {
       } else {
         setSearchInputRect(null);
       }
+      // and the topnav brand-icon trigger position for the fake brand menu.
+      if (topNavMenuOpen()) {
+        const sroot =
+          (typeof document !== "undefined" &&
+            document.querySelector("freqhole-coach-demo")?.shadowRoot) ||
+          document;
+        const trigger = sroot.querySelector(
+          "[data-coach-anchor='topnavTrigger']"
+        ) as HTMLElement | null;
+        setTopNavTriggerRect(trigger ? trigger.getBoundingClientRect() : null);
+      } else {
+        setTopNavTriggerRect(null);
+      }
       rafId = requestAnimationFrame(measure);
     };
     rafId = requestAnimationFrame(measure);
     onCleanup(() => cancelAnimationFrame(rafId));
+
+    // intercept clicks anywhere in the shadow tree so we can:
+    //  1. toggle our fake brand-menu overlay when the user taps the
+    //     topnav brand icon (and stop kobalte from also reacting),
+    //  2. close the overlay on any click outside it.
+    const sroot =
+      (typeof document !== "undefined" &&
+        document.querySelector("freqhole-coach-demo")?.shadowRoot) ||
+      document;
+    const onPointerDown = (e: Event) => {
+      const path = (e as PointerEvent).composedPath?.() || [];
+      const inTrigger = path.some(
+        (n) =>
+          n instanceof Element && n.getAttribute?.("data-coach-anchor") === "topnavTrigger"
+      );
+      const inOverlay = path.some(
+        (n) => n instanceof Element && n.getAttribute?.("data-fake-topnav-overlay") === ""
+      );
+      if (inTrigger) {
+        // swallow so kobalte's NavigationMenu doesn't ALSO try to open
+        // its real menu underneath our fake overlay.
+        e.stopPropagation();
+        e.preventDefault();
+        setTopNavMenuOpenSignal((prev) => !prev);
+        return;
+      }
+      if (topNavMenuOpen() && !inOverlay) {
+        setTopNavMenuOpenSignal(false);
+      }
+    };
+    sroot.addEventListener("pointerdown", onPointerDown, { capture: true });
+    onCleanup(() =>
+      sroot.removeEventListener("pointerdown", onPointerDown, { capture: true } as any)
+    );
   });
 
   // ===== per-view filter/sort mock data feeding TopNav's pageInfo store =====
@@ -832,13 +941,11 @@ export function FullAppDemoBody() {
         });
         break;
       case "playlists":
+        // real PlaylistsView doesn't push sortFields to the topnav, so the
+        // sort icon stays hidden on this route. matching that here.
         setPageInfo({
           title: "playlists",
           count: mockPlaylists.length,
-          sortFields: playlistSortFields,
-          defaultSortBy: "updated_at",
-          defaultSortDirection: "desc",
-          ...baseSort,
         });
         break;
       case "favorites":
@@ -947,102 +1054,239 @@ export function FullAppDemoBody() {
 
           <div class="flex-1 overflow-y-auto" data-coach-list>
             <For each={sortedArtists()}>
-              {(artist) => (
-                <button
-                  data-coach-item={artist.id}
-                  class={`
-                      w-full px-6 py-3 text-left transition-colors border-l-2
+              {(artist) => {
+                const initials = artistInitials(artist.name);
+                return (
+                  <button
+                    data-coach-item={artist.id}
+                    class={`
+                      w-full px-4 py-3 text-left transition-colors border-l-2 flex items-center gap-3
                       ${
                         ctx.selectedItem()?.id === artist.id
                           ? "bg-[var(--color-accent-500)]/20 text-[var(--color-text-primary)] border-[var(--color-accent-500)]"
                           : "hover:bg-[var(--color-bg-secondary)] text-[var(--color-text-secondary)] border-transparent"
                       }
                     `}
-                  onClick={() => ctx.selectItem(artist)}
-                >
-                  <div class="font-medium">{artist.name}</div>
-                  <div class="text-xs text-[var(--color-text-tertiary)]">
-                    {formatNumber(artist.songCount)} songs · {artist.albumCount} albums
-                  </div>
-                </button>
-              )}
+                    onClick={() => ctx.selectItem(artist)}
+                  >
+                    {/* circular avatar with image-or-initials fallback,
+                        mirroring real ArtistsView list rows. */}
+                    <div class="w-10 h-10 rounded-full bg-[var(--color-bg-elevated)] flex items-center justify-center flex-shrink-0 overflow-hidden">
+                      <Show
+                        when={artist.images && artist.images[0]}
+                        fallback={
+                          <span class="text-xs font-bold text-[var(--color-text-tertiary)]">
+                            {initials}
+                          </span>
+                        }
+                      >
+                        <img
+                          src={artist.images![0]}
+                          alt={artist.name}
+                          class="w-full h-full object-cover"
+                          loading="lazy"
+                        />
+                      </Show>
+                    </div>
+                    <div class="min-w-0 flex-1">
+                      <div class="font-medium truncate">{artist.name}</div>
+                      <div class="text-xs text-[var(--color-text-tertiary)] truncate">
+                        {formatNumber(artist.songCount)} songs · {artist.albumCount} albums
+                      </div>
+                    </div>
+                  </button>
+                );
+              }}
             </For>
           </div>
         </div>
       )}
       renderDetail={(ctx) => (
         <Show when={ctx.selectedItem()}>
-          {(artist) => (
-            <div class="flex flex-col h-full">
-              {/* sticky header with back button + title */}
-              <HeadingSection
-                title={artist().name}
-                variant="detail"
-                sticky
-                border
-                showBackButton={ctx.isNarrow() && ctx.showingDetail()}
-                onBack={() => ctx.onBack()}
-              />
+          {(artist) => {
+            // group this artist's songs by album_title to render an
+            // "albums" section like the real ArtistDetailPanel (instead of
+            // a flat "top songs" list).
+            const albumGroups = () => {
+              const groups = new Map<
+                string,
+                { title: string; songs: ReturnType<typeof songsForArtist> }
+              >();
+              for (const s of songsForArtist(artist().id)) {
+                const key = s.album_title || "unknown album";
+                if (!groups.has(key)) groups.set(key, { title: key, songs: [] });
+                groups.get(key)!.songs.push(s);
+              }
+              return Array.from(groups.values());
+            };
+            const initials = () => artistInitials(artist().name);
+            const hasImage = () => !!(artist().images && artist().images![0]);
+            return (
+              <div class="flex flex-col h-full">
+                {/* sticky narrow-only header (matches real wide layout
+                    that has no sticky header). bg-transparent so the
+                    page background can show through. */}
+                <Show when={ctx.isNarrow() && ctx.showingDetail()}>
+                  <HeadingSection
+                    title={artist().name}
+                    variant="detail"
+                    sticky
+                    showBackButton={true}
+                    onBack={() => ctx.onBack()}
+                    class="px-4 py-3 relative z-20 !bg-transparent backdrop-blur-sm"
+                  />
+                </Show>
 
-              {/* scrollable content area */}
-              <div class="flex-1 overflow-y-auto" data-coach-detail-scroll>
-                {/* stats section */}
-                <div class="p-3 wide:p-6">
-                  <StatsGrid columns={5} gap="md" class="mb-3 wide:mb-6">
-                    <StatsCard
-                      label="songs"
-                      value={formatNumber(artist().songCount)}
-                      icon="music"
-                    />
-                    <StatsCard
-                      label="albums"
-                      value={formatNumber(artist().albumCount)}
-                      icon="album"
-                    />
-                    <StatsCard
-                      label="duration"
-                      value={formatDuration(artist().totalDuration)}
-                      icon="recent"
-                    />
-                    <StatsCard
-                      label="avg rating"
-                      value={artist().avgRating.toFixed(1)}
-                      icon="star"
-                      subtitle="out of 5.0"
-                    />
-                    <StatsCard
-                      label="genres"
-                      value={artist().genres[0]}
-                      subtitle={artist().genres.slice(1).join(", ")}
-                    />
-                  </StatsGrid>
-                </div>
+                {/* scrollable content area */}
+                <div class="flex-1 overflow-y-auto" data-coach-detail-scroll>
+                  {/* artist header: circular avatar + name + bio + genres
+                      + action buttons. wide and narrow share the same
+                      content but with different alignment / sizing,
+                      mirroring real ArtistDetailPanel. */}
+                  <div class="p-6 space-y-4">
+                    <div
+                      class={`flex gap-6 ${
+                        ctx.isNarrow() ? "flex-col items-center text-center" : "items-start"
+                      }`}
+                    >
+                      {/* circular artist avatar */}
+                      <div class="w-32 h-32 bg-[var(--color-bg-elevated)] rounded-full flex items-center justify-center flex-shrink-0 overflow-hidden">
+                        <Show
+                          when={hasImage()}
+                          fallback={
+                            <span class="text-4xl font-bold text-[var(--color-text-tertiary)]">
+                              {initials()}
+                            </span>
+                          }
+                        >
+                          <img
+                            src={artist().images![0]}
+                            alt={artist().name}
+                            class="w-full h-full object-cover"
+                          />
+                        </Show>
+                      </div>
 
-                {/* top songs list */}
-                <div class="px-3 wide:px-6 pb-4">
-                  <div class="mb-3 flex items-center justify-between">
-                    <h3 class="text-lg font-semibold text-[var(--color-text-primary)]">
-                      top songs
-                    </h3>
-                  </div>
-                  <div class="space-y-1">
-                    <For each={songsForArtist(artist().id)}>
-                      {(song) => (
-                        <div class="flex items-center gap-3 p-3 bg-[var(--color-bg-secondary)] rounded hover:bg-[var(--color-bg-hover)] transition-colors">
+                      {/* artist info */}
+                      <div
+                        class={`flex flex-col gap-2 min-w-0 flex-1 ${
+                          ctx.isNarrow() ? "items-center" : "justify-center"
+                        }`}
+                      >
+                        <Show when={!ctx.isNarrow()}>
+                          <h1 class="text-3xl font-bold text-[var(--color-text-primary)]">
+                            {artist().name}
+                          </h1>
+                        </Show>
+
+                        {/* genre pills */}
+                        <div
+                          class={`flex flex-wrap gap-1.5 ${ctx.isNarrow() ? "justify-center" : ""}`}
+                        >
+                          <For each={artist().genres}>
+                            {(genre) => (
+                              <span class="px-2 py-0.5 bg-[var(--color-bg-elevated)] text-[var(--color-text-secondary)] rounded-full text-xs">
+                                {genre}
+                              </span>
+                            )}
+                          </For>
+                        </div>
+
+                        {/* action buttons */}
+                        <div class="flex items-center gap-2 flex-wrap">
                           <IconButton
-                            icon="play"
+                            icon="edit"
                             size="sm"
                             variant="ghost"
-                            aria-label="play song"
+                            onClick={() => {}}
+                            aria-label="edit artist"
                           />
-                          <div class="flex-1 min-w-0">
-                            <div class="body-small text-[var(--color-text-primary)] truncate">
-                              {song.title}
+                          <Button variant="primary" size="sm">
+                            play all
+                          </Button>
+                          <Button variant="secondary" size="sm">
+                            shuffle
+                          </Button>
+                          <Button variant="ghost" size="sm">
+                            +queue
+                          </Button>
+                          <IconButton
+                            icon="favoriteOutline"
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => {}}
+                            aria-label="favorite"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* compact stats row instead of stats card grid */}
+                    <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-[var(--color-text-secondary)]">
+                      <span>{formatNumber(artist().songCount)} songs</span>
+                      <span>{formatNumber(artist().albumCount)} albums</span>
+                      <span>{formatDuration(artist().totalDuration)}</span>
+                      <span>★ {artist().avgRating.toFixed(1)}</span>
+                    </div>
+                  </div>
+
+                  {/* albums section — groups songs by album, like the
+                      real ArtistDetailPanel's AlbumSection list. */}
+                  <div class="px-4 wide:px-6 pb-6 space-y-6">
+                    <For each={albumGroups()}>
+                      {(album) => (
+                        <div>
+                          <div class="flex items-center gap-3 mb-2">
+                            <div class="w-12 h-12 rounded bg-[var(--color-bg-elevated)] flex items-center justify-center flex-shrink-0 overflow-hidden">
+                              <img
+                                src={`https://picsum.photos/seed/${encodeURIComponent(album.title)}/120/120`}
+                                alt={album.title}
+                                class="w-full h-full object-cover"
+                                loading="lazy"
+                              />
                             </div>
-                            <div class="caption truncate">{song.album_title}</div>
+                            <div class="min-w-0 flex-1">
+                              <h3 class="text-base font-semibold text-[var(--color-text-primary)] truncate">
+                                {album.title}
+                              </h3>
+                              <div class="text-xs text-[var(--color-text-tertiary)]">
+                                {album.songs.length} songs ·{" "}
+                                {formatDuration(
+                                  album.songs.reduce((acc, s) => acc + s.duration_seconds, 0)
+                                )}
+                              </div>
+                            </div>
+                            <IconButton
+                              icon="play"
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => {}}
+                              aria-label="play album"
+                            />
+                            <IconButton
+                              icon="queue"
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => {}}
+                              aria-label="add album to queue"
+                            />
                           </div>
-                          <div class="monospace caption text-[var(--color-text-muted)]">
-                            {formatDuration(song.duration_seconds)}
+                          <div class="space-y-0.5 pl-[60px]">
+                            <For each={album.songs}>
+                              {(song, index) => (
+                                <div class="flex items-center gap-3 px-2 py-1.5 rounded hover:bg-[var(--color-bg-hover)] transition-colors">
+                                  <div class="w-6 text-xs text-[var(--color-text-muted)] text-right tabular-nums">
+                                    {index() + 1}
+                                  </div>
+                                  <div class="flex-1 min-w-0 text-sm text-[var(--color-text-primary)] truncate">
+                                    {song.title}
+                                  </div>
+                                  <div class="text-xs text-[var(--color-text-muted)] tabular-nums">
+                                    {formatDuration(song.duration_seconds)}
+                                  </div>
+                                </div>
+                              )}
+                            </For>
                           </div>
                         </div>
                       )}
@@ -1050,23 +1294,8 @@ export function FullAppDemoBody() {
                   </div>
                 </div>
               </div>
-
-              {/* sticky action buttons */}
-              <div class="sticky bottom-0 z-10 bg-[var(--color-bg-primary)] border-t border-[var(--color-bg-tertiary)] px-3 wide:px-6 py-2 wide:py-3 flex gap-2 wide:gap-3">
-                <Button variant="primary" onClick={() => console.log("play all songs")}>
-                  <span class="hidden wide:inline">play all</span>
-                  <span class="wide:hidden">play</span>
-                </Button>
-                <Button variant="secondary" onClick={() => console.log("shuffle")}>
-                  shuffle
-                </Button>
-                <Button variant="ghost" onClick={() => console.log("add to queue")}>
-                  <span class="hidden wide:inline">add to queue</span>
-                  <span class="wide:hidden">+queue</span>
-                </Button>
-              </div>
-            </div>
-          )}
+            );
+          }}
         </Show>
       )}
       renderEmpty={() => (
@@ -1269,57 +1498,92 @@ export function FullAppDemoBody() {
       renderDetail={(ctx) => (
         <Show when={ctx.selectedItem()}>
           {(playlist) => (
-            <div class="flex flex-col h-full">
-              {/* sticky header with back button + title */}
-              <HeadingSection
-                title={playlist().name}
-                variant="detail"
-                sticky
-                border
-                showBackButton={ctx.isNarrow() && ctx.showingDetail()}
-                onBack={() => ctx.onBack()}
-              />
+            <div class="flex flex-col h-full relative">
+              {/* sticky header with back button + title (narrow only,
+                  matching real PlaylistsView). bg-transparent so the
+                  full-page background image shows through. */}
+              <Show when={ctx.isNarrow() && ctx.showingDetail()}>
+                <HeadingSection
+                  title={playlist().name}
+                  variant="detail"
+                  sticky
+                  showBackButton={true}
+                  onBack={() => ctx.onBack()}
+                  class="px-4 py-3 relative z-20 !bg-transparent backdrop-blur-sm"
+                />
+              </Show>
 
               {/* scrollable content area */}
-              <div class="flex-1 overflow-y-auto" data-coach-detail-scroll>
-                {/* hero banner (a few playlists get a fake backdrop image) */}
-                <Show when={playlistBanner(playlist().id)}>
-                  {(banner) => (
-                    <div
-                      class="h-32 wide:h-40 w-full"
-                      style={{
-                        background: banner(),
-                        "background-size": "cover",
-                        "background-position": "center",
-                      }}
+              <div
+                class={`flex-1 overflow-y-auto ${ctx.isNarrow() ? "" : "wide:overflow-y-auto"}`}
+                data-coach-detail-scroll
+              >
+                {/* playlist header — matches real PlaylistsView layout:
+                    title, description, play count, then a wrapped row with
+                    songs · duration · created, then action buttons. */}
+                <div class="flex-shrink-0 p-6 relative z-10">
+                  <Show when={!ctx.isNarrow()}>
+                    <div class="flex items-center gap-2 mb-2">
+                      <h2 class="text-2xl font-bold text-[var(--color-text-primary)]">
+                        {playlist().name}
+                      </h2>
+                    </div>
+                  </Show>
+
+                  <p class="text-sm text-[var(--color-text-secondary)] mb-3">
+                    a curated mix from your library.
+                  </p>
+
+                  <p class="text-xs text-[var(--color-text-muted)] mb-3">
+                    played {12 + (playlist().songCount % 30)} times
+                  </p>
+
+                  <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-[var(--color-text-secondary)] mb-4">
+                    <span>
+                      {playlist().songCount}{" "}
+                      {playlist().songCount === 1 ? "song" : "songs"}
+                    </span>
+                    <span>{formatDuration(playlist().duration)}</span>
+                    <div class="basis-full wide:hidden" />
+                    <span>created {new Date(playlist().createdAt).toLocaleDateString()}</span>
+                  </div>
+
+                  {/* action buttons row */}
+                  <div class="flex gap-2 sticky top-0 py-2 z-10">
+                    <IconButton
+                      icon="edit"
+                      size="default"
+                      variant="ghost"
+                      onClick={() => {}}
+                      aria-label="edit playlist"
                     />
-                  )}
-                </Show>
-                {/* stats section */}
-                <div class="p-3 wide:p-6 flex gap-4">
-                  <StatsCard
-                    label="songs"
-                    value={formatNumber(playlist().songCount)}
-                    variant="compact"
-                  />
-                  <StatsCard
-                    label="duration"
-                    value={formatDuration(playlist().duration)}
-                    variant="compact"
-                  />
-                  <StatsCard
-                    label="created"
-                    value={new Date(playlist().createdAt).toLocaleDateString()}
-                    variant="compact"
-                  />
+                    <Button variant="primary">play all</Button>
+                    <Button variant="secondary">add to queue</Button>
+                    <IconButton
+                      icon="carousel"
+                      size="default"
+                      onClick={() => {}}
+                      aria-label="view all images"
+                    />
+                    <IconButton
+                      icon="favoriteOutline"
+                      size="default"
+                      variant="ghost"
+                      onClick={() => {}}
+                      aria-label="favorite"
+                    />
+                    <IconButton
+                      icon="share"
+                      size="default"
+                      variant="ghost"
+                      onClick={() => {}}
+                      aria-label="share"
+                    />
+                  </div>
                 </div>
 
                 {/* songs list */}
                 <div class="px-3 wide:px-6 pb-4">
-                  <div class="mb-3 flex items-center justify-between">
-                    <h3 class="text-lg font-semibold text-[var(--color-text-primary)]">songs</h3>
-                    <div class="text-sm text-[var(--color-text-secondary)]">drag to reorder</div>
-                  </div>
                   <div class="space-y-1">
                     <For each={songsForPlaylist(playlist().id)}>
                       {(song, index) => (
@@ -1365,17 +1629,7 @@ export function FullAppDemoBody() {
                       )}
                     </For>
                   </div>
-                  <div class="mt-4 text-xs text-[var(--color-text-tertiary)]">
-                    {playlistSongs().length} songs • {selectedSongIds().size} selected
-                  </div>
                 </div>
-              </div>
-
-              {/* sticky action buttons */}
-              <div class="sticky bottom-0 z-10 bg-[var(--color-bg-primary)] border-t border-[var(--color-bg-tertiary)] px-3 wide:px-6 py-2 wide:py-3 flex gap-2 wide:gap-3">
-                <Button variant="primary">play</Button>
-                <Button variant="secondary">shuffle</Button>
-                <Button variant="ghost">edit</Button>
               </div>
             </div>
           )}
@@ -1393,24 +1647,63 @@ export function FullAppDemoBody() {
   );
 
   // ===== SONGS VIEW =====
+  // mirrors the real SongsView: no local HeadingSection (the title goes
+  // through pageInfo into TopNav), no outer padding. instead of computing
+  // the list height from window/viewport (which double-counts the player
+  // bar — its parent already reserves space via padding-bottom on the
+  // main content wrapper), measure the songs view container directly via
+  // ResizeObserver and feed that into VirtualSongList. result: the
+  // bottom-pinned header sits flush against the player bar (or against
+  // the viewport bottom when no player is visible).
+  let songsContainerEl: HTMLDivElement | undefined;
+  const [songsContainerHeight, setSongsContainerHeight] = createSignal(320);
+  const measureSongsContainer = () => {
+    if (!songsContainerEl) return;
+    const h = songsContainerEl.clientHeight;
+    if (h > 0) setSongsContainerHeight(h);
+  };
+  onMount(() => {
+    if (typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => measureSongsContainer());
+    // observe lazily once the container mounts; songsContainerEl is set in
+    // the JSX ref below, but we attach the observer through a microtask
+    // chain so it picks up whenever the songs view (re)mounts.
+    const interval = window.setInterval(() => {
+      if (songsContainerEl) {
+        ro.observe(songsContainerEl);
+        measureSongsContainer();
+        window.clearInterval(interval);
+      }
+    }, 50);
+    onCleanup(() => {
+      window.clearInterval(interval);
+      ro.disconnect();
+    });
+  });
   const songsView = () => (
-    <div class="p-3" data-coach-anchor="songsList">
-      <div class="ml-0 wide:ml-[100px]">
-        <HeadingSection title="songs" count={generatedSongs.length} hideOnNarrow />
-      </div>
-      <div class="mt-2 wide:mt-6">
-        <VirtualSongList
-          songs={generatedSongs}
-          height={listHeight()}
-          onSongClick={(song) => {
-            setCurrentSong(song);
-          }}
-          onSongDoubleClick={(song) => {
-            setCurrentSong(song);
-            setIsPlaying(true);
-          }}
-        />
-      </div>
+    <div
+      ref={(el) => {
+        songsContainerEl = el;
+        queueMicrotask(measureSongsContainer);
+      }}
+      class="h-full w-full"
+      data-coach-anchor="songsList"
+    >
+      <VirtualSongList
+        songs={generatedSongs}
+        // songsContainerHeight comes from a ResizeObserver on this same
+        // container, which already excludes the parent wrapper's
+        // padding-bottom (now correctly set to PLAYER_BAR_PX), so don't
+        // subtract again here — that would double-count the player bar.
+        height={Math.max(320, songsContainerHeight())}
+        onSongClick={(song) => {
+          setCurrentSong(song);
+        }}
+        onSongDoubleClick={(song) => {
+          setCurrentSong(song);
+          setIsPlaying(true);
+        }}
+      />
     </div>
   );
 
@@ -2475,14 +2768,63 @@ export function FullAppDemoBody() {
     }
   };
 
-  const playerBarHeight = () => "var(--player-height)";
+  const playerBarHeight = () => (isPlayerBarVisible() ? `${PLAYER_BAR_PX}px` : "0px");
+
+  // playlist view sets a full-page background image (mirrors real spume's
+  // setBackgroundImage() service in AppLayout). uses picsum at viewport
+  // resolution so the bg isn't pixelated. deterministic per playlist id.
+  const playlistBackgroundUrl = () => {
+    if (currentRoute() !== "playlists") return null;
+    const p = selectedPlaylist();
+    if (!p) return null;
+    const seed = encodeURIComponent(p.id);
+    return `https://picsum.photos/seed/${seed}/1600/1000`;
+  };
+
+  // mirror real PlaylistsView: when a playlist is selected on the playlists
+  // route, push the bg into the global service so TwoColumnLayout (and any
+  // other component that reads getBackgroundConfig) flips to transparent.
+  // clear it on route change / unmount.
+  createEffect(() => {
+    const url = playlistBackgroundUrl();
+    if (url) {
+      setBackgroundImage({ imageUrl: url, overlayOpacity: 0.6 });
+    } else {
+      clearBackgroundImage();
+    }
+  });
+  onCleanup(() => clearBackgroundImage());
 
   return (
     <QueryClientProvider client={storyQueryClient}>
       <div
-        class="h-full min-h-screen wide:min-h-0 flex flex-col bg-[var(--color-bg-primary)]"
+        ref={storyRootEl}
+        class="h-full min-h-screen wide:min-h-0 flex flex-col"
+        classList={{
+          "bg-[var(--color-bg-primary)]": !getBackgroundConfig(),
+          "bg-transparent": !!getBackgroundConfig(),
+        }}
         style={{ "--player-bar-height": playerBarHeight(), height: "100%" }}
       >
+        {/* full-page background image (when set by a view). matches the
+            real app's bgConfig render in AppLayout exactly. */}
+        <Show when={getBackgroundConfig()}>
+          {(config) => (
+            <>
+              <div
+                class="fixed inset-0 bg-cover bg-center bg-no-repeat transition-opacity duration-500 pointer-events-none"
+                style={{
+                  "background-image": `url(${config().imageUrl})`,
+                  "z-index": "-2",
+                }}
+              />
+              <div
+                class="fixed inset-0 bg-black transition-opacity duration-500 pointer-events-none"
+                style={{ opacity: config().overlayOpacity ?? 0.7, "z-index": "-1" }}
+              />
+            </>
+          )}
+        </Show>
         {/* top navigation — hidden during the empty/welcome state so the
             empty-library hero is unencumbered. */}
         <Show when={demoLibraryMode() !== "empty"}>
@@ -2495,6 +2837,15 @@ export function FullAppDemoBody() {
               brandName="freqhole"
               brandTagline="your music library"
               currentPath={`/${currentRoute()}`}
+              currentSourceName="local library"
+              currentSourceId={null}
+              remotes={mockRemotes
+                .filter((r) => r.id === "remote-carps-basement")
+                .map((r) => ({ id: r.id, name: r.name, url: `https://${r.id}.example` }))}
+              onSwitchToLocal={() => console.log("switch to local")}
+              onSwitchToRemote={(id) => console.log("switch to remote:", id)}
+              storageUsage={3.2 * 1024 * 1024 * 1024}
+              storageQuota={8 * 1024 * 1024 * 1024}
               searchPlaceholder="search artists, albums, songs..."
               searchComponent={
                 <TopNavSearch
@@ -2587,6 +2938,107 @@ export function FullAppDemoBody() {
               }}
             />
           </div>
+
+          {/* demo-only fake brand-menu flyout. the real one (kobalte
+              NavigationMenu inside TopNav) doesn't open reliably inside
+              the coach-demo shadow DOM, so we render a static lookalike
+              anchored to the brand-icon trigger's bounding rect. open
+              state is owned by `topNavMenuOpen` and toggled by the coach
+              script and by clicks on the brand icon (intercepted in the
+              shared shadow-root pointerdown listener above). */}
+          <Show when={topNavMenuOpen()}>
+            {(_) => {
+              const r = topNavTriggerRect();
+              const top = r ? r.bottom + 4 : 60;
+              const left = r ? Math.max(8, r.left) : 8;
+              return (
+                <div
+                  data-fake-topnav-overlay=""
+                  data-coach-anchor="remoteSourceList"
+                  class="fixed bg-[var(--color-bg-elevated)] border border-[var(--color-border-default)] rounded-lg shadow-xl overflow-hidden flex flex-col"
+                  style={{
+                    top: `${top}px`,
+                    left: `${left}px`,
+                    width: "320px",
+                    "max-height": "70vh",
+                    "z-index": "1001",
+                  }}
+                >
+                  {/* brand header */}
+                  <div class="flex items-start justify-between p-4 border-b border-[var(--color-border-subtle)]">
+                    <div>
+                      <h3 class="text-lg font-bold m-0 text-[var(--color-text-primary)]">
+                        freqhole
+                      </h3>
+                      <p class="text-xs text-[var(--color-text-muted)] m-0 mt-1">
+                        your music library
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* music source */}
+                  <div class="p-4">
+                    <h4 class="text-xs text-[var(--color-text-muted)] uppercase tracking-wide font-medium m-0 mb-2">
+                      music source
+                    </h4>
+                    <div class="space-y-1">
+                      <button
+                        class="w-full px-3 py-2 text-left text-sm flex items-center gap-2 rounded text-[var(--color-text-primary)] bg-[var(--color-accent-500)]/10 cursor-default border-none"
+                        disabled
+                      >
+                        <Icon name="check" size={14} color="var(--color-accent-500)" />
+                        <span>local library</span>
+                      </button>
+                      <button
+                        class="w-full px-3 py-2 text-left text-sm flex items-center gap-2 rounded text-[var(--color-text-secondary)] hover:bg-[var(--color-accent-500)]/10 cursor-pointer border-none bg-transparent"
+                        onClick={() => {
+                          setTopNavMenuOpenSignal(false);
+                          console.log("switch to remote: carps basement");
+                        }}
+                      >
+                        <span class="w-2 h-2 rounded-full bg-[var(--color-status-success)]" />
+                        <span class="truncate">carp's basement</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* nav links */}
+                  <div class="px-4 pb-4 border-t border-[var(--color-border-subtle)] pt-3 space-y-0.5">
+                    <For
+                      each={[
+                        { label: "all feeds", route: "feed" as Route },
+                        { label: "radio", route: "radio" as Route },
+                        { label: "playlists", route: "playlists" as Route },
+                      ]}
+                    >
+                      {(item) => (
+                        <button
+                          class="w-full px-3 py-2 text-left text-sm rounded transition-colors border-none bg-transparent cursor-pointer text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-accent-500)]/10"
+                          onClick={() => {
+                            setTopNavMenuOpenSignal(false);
+                            navigateTo(item.route);
+                          }}
+                        >
+                          {item.label}
+                        </button>
+                      )}
+                    </For>
+                  </div>
+
+                  {/* storage usage */}
+                  <div class="px-4 pb-4 mt-auto">
+                    <div class="flex items-center gap-2 px-3 py-2 rounded bg-[var(--color-bg-secondary)] text-xs">
+                      <Icon name="database" size={14} />
+                      <div class="flex flex-col">
+                        <span class="text-[var(--color-text-secondary)]">3.2 GB / 8 GB</span>
+                        <span class="text-[var(--color-text-tertiary)]">40% used</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            }}
+          </Show>
 
           {/* demo-only fake suggestions flyout. the real one lives in
               SearchInput, behind a debounced input handler + portal mount,

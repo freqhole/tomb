@@ -17,15 +17,19 @@
 interface Props {
   /** total step count, must match coachSteps.length in the runtime */
   steps?: number;
+  /** extra scroll buffer (in vh) appended after the last step. lets the
+   *  final slide "dwell" before the page scrolls past the demo. */
+  outroVh?: number;
 }
 
-const { steps = 12 } = Astro.props as Props;
-const sectionVh = steps * 100; // each step ~ 1 viewport tall
+const { steps = 12, outroVh = 80 } = Astro.props as Props;
+const sectionVh = steps * 100 + outroVh; // each step ~ 1 viewport tall, plus dwell
 ---
 
 <section
   class="scroll-coach not-content"
   data-steps={steps}
+  data-outro-vh={outroVh}
   style={`height: ${sectionVh}vh;`}
 >
   <div class="stage">
@@ -271,8 +275,11 @@ const sectionVh = steps * 100; // each step ~ 1 viewport tall
             ) || 64;
           const stageH = window.innerHeight - headerH;
           const total = section.offsetHeight - stageH;
+          const outroVh = Number(section.dataset.outroVh || 0);
+          const outroPx = (outroVh / 100) * window.innerHeight;
+          const active = Math.max(1, total - outroPx);
           const ratio = totalSteps > 1 ? i / (totalSteps - 1) : 0;
-          const targetTop = section.offsetTop + Math.round(total * ratio);
+          const targetTop = section.offsetTop + Math.round(active * ratio);
           window.scrollTo({ top: targetTop, behavior: "smooth" });
         });
         dotsEl.appendChild(btn);
@@ -316,8 +323,15 @@ const sectionVh = steps * 100; // each step ~ 1 viewport tall
       const stageH = window.innerHeight - headerH;
       const total = section.offsetHeight - stageH;
       if (total <= 0) return { step: 0, sub: 0 };
-      const scrolled = Math.min(Math.max(-rect.top, 0), total);
-      const progress = scrolled / total;
+      // outroVh extends the section past the last step so the final slide
+      // gets dwell time before the page scrolls into the next section. cap
+      // the "active" scroll range at (total - outroPx) so progress reaches
+      // 1.0 at the start of the buffer rather than at the very bottom.
+      const outroVh = Number(section.dataset.outroVh || 0);
+      const outroPx = (outroVh / 100) * window.innerHeight;
+      const active = Math.max(1, total - outroPx);
+      const scrolled = Math.min(Math.max(-rect.top, 0), active);
+      const progress = scrolled / active;
       // each slide owns a slice [i/(N-1) .. (i+1)/(N-1)] of overall progress.
       // sub = how far through that slice we currently are.
       const lanes = Math.max(1, totalSteps - 1);
@@ -460,9 +474,12 @@ const sectionVh = steps * 100; // each step ~ 1 viewport tall
         ) || 64;
       const stageH = window.innerHeight - headerH;
       const total = section.offsetHeight - stageH;
+      const outroVh = Number(section.dataset.outroVh || 0);
+      const outroPx = (outroVh / 100) * window.innerHeight;
+      const active = Math.max(1, total - outroPx);
       const clamped = Math.max(0, Math.min(totalSteps - 1, idx));
       const ratio = totalSteps > 1 ? clamped / (totalSteps - 1) : 0;
-      const targetTop = section.offsetTop + Math.round(total * ratio);
+      const targetTop = section.offsetTop + Math.round(active * ratio);
       smoothTarget = clamped;
       clearTimeout(smoothTimer);
       smoothTimer = setTimeout(() => {

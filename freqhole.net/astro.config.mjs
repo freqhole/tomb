@@ -8,7 +8,7 @@ export default defineConfig({
 	integrations: [
 		starlight({
 			title: 'freqhole',
-			tagline: 'your music, your network, your rules',
+			tagline: 'self-hosted music library && web, android, and desktop client that talks http or p2p',
 			customCss: ['./src/styles/custom.css'],
 			head: [
 				{ tag: 'link', attrs: { rel: 'icon', href: '/favicon.ico', sizes: 'any' } },

@@ -74,7 +74,7 @@ export const coachSteps: CoachStep[] = [
     id: "queue",
     title: "queue + history",
     body: "what's next, and what just played. drag to reorder.",
-    anchor: "queue-sidebar",
+    anchor: "queueSidebar",
     apply: (ctx) => {
       ctx.closeSearch();
       ctx.setRoute("songs");
@@ -82,10 +82,16 @@ export const coachSteps: CoachStep[] = [
       ctx.setQueueOpen(true);
       ctx.setSpotlight?.(null);
       ctx.setQueueTab?.("queue");
+      ctx.setListProgress?.("queueSidebar", 0);
     },
-    // first half: queue tab. second half: switch to history tab.
+    // first half: scroll the queue tab. midway: swap to history. second
+    // half: scroll the history tab. each half remaps to its own 0..1 so
+    // both panels animate fully along with page scroll.
     onProgress: (ctx, p) => {
-      ctx.setQueueTab?.(p < 0.5 ? "queue" : "history");
+      const tab = p < 0.5 ? "queue" : "history";
+      ctx.setQueueTab?.(tab);
+      const localP = p < 0.5 ? p / 0.5 : (p - 0.5) / 0.5;
+      ctx.setListProgress?.("queueSidebar", localP);
     },
   },
   {
@@ -364,6 +370,27 @@ export const coachSteps: CoachStep[] = [
       ctx.setListProgress?.("albumsGrid", 0);
     },
     onProgress: (ctx, p) => ctx.setListProgress?.("albumsGrid", p),
+  },
+  {
+    id: "switch-remotes",
+    title: "switch between remotes",
+    body: "tap the freqhole icon to open the menu. pick local library or any approved remote.",
+    anchor: "remoteSourceList",
+    apply: (ctx) => {
+      ctx.closeAllModals();
+      ctx.closeSearch();
+      ctx.setRoute("songs");
+      ctx.setQueueOpen(false);
+      ctx.setSpotlight?.(null);
+      ctx.setTopNavMenuOpen?.(true);
+    },
+    // ramp a soft spotlight onto the source list as the slide settles in.
+    // intentionally do NOT re-assert setTopNavMenuOpen(true) here — once the
+    // menu has been opened by `apply`, leave it under user control so they
+    // can hover/click to close + re-open it manually on this slide.
+    onProgress: (ctx, p) => {
+      ctx.setSpotlight?.("remoteSourceList", Math.min(1, p / 0.3));
+    },
   },
 ];
 

@@ -11,6 +11,10 @@ export interface Artist {
   totalDuration: number;
   avgRating: number;
   genres: string[];
+  /** optional artist image URLs. when present the demo renders a circular
+      avatar from the first url; when absent it falls back to the artist's
+      abbreviation (initials). */
+  images?: string[];
 }
 
 export interface Album {
@@ -80,6 +84,7 @@ const pinkArtists: Artist[] = [
     totalDuration: 32400,
     avgRating: 4.7,
     genres: ["progressive rock", "psychedelic"],
+    images: ["https://picsum.photos/seed/pink-floyd/400/400"],
   },
   {
     id: "artist-pink-and-brown",
@@ -89,6 +94,7 @@ const pinkArtists: Artist[] = [
     totalDuration: 4200,
     avgRating: 4.2,
     genres: ["noise rock", "experimental"],
+    images: ["https://picsum.photos/seed/pink-and-brown/400/400"],
   },
   {
     id: "artist-pink-bang",
@@ -100,7 +106,13 @@ const pinkArtists: Artist[] = [
     genres: ["pop punk"],
   },
 ];
-export const mockArtists: Artist[] = [...pinkArtists, ...mockDataJson.artists];
+// sprinkle picsum-seeded portraits onto roughly half of the json-loaded
+// artists so the artists list shows a realistic mix of avatars + initials
+// fallbacks (matches the real ArtistsView visual rhythm).
+const jsonArtists: Artist[] = (mockDataJson.artists as Artist[]).map(
+  (a, i) => (i % 2 === 0 ? { ...a, images: [`https://picsum.photos/seed/artist-${a.id}/400/400`] } : a)
+);
+export const mockArtists: Artist[] = [...pinkArtists, ...jsonArtists];
 export const mockAlbums: Album[] = mockDataJson.albums;
 export const mockSongs: Song[] = mockDataJson.songs;
 export const mockGenres: Genre[] = mockDataJson.genres;

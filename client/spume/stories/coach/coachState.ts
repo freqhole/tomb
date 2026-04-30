@@ -70,6 +70,10 @@ export interface CoachContext {
   // story-only: switch the queue sidebar's tab to "queue" or "history" by
   // clicking the actual button (the spume QueueSidebar owns its own state).
   setQueueTab?: (tab: "queue" | "history") => void;
+  // story-only: open or close the topnav navigation menu (kobalte popover)
+  // by simulating a click on the trigger when the desired state differs
+  // from the current aria-expanded state.
+  setTopNavMenuOpen?: (open: boolean) => void;
 }
 
 // step index is module-global so window.__FREQHOLE_DEMO__ + the host can both
@@ -98,6 +102,9 @@ async function runStep(idx: number) {
   const step: CoachStep | undefined = coachSteps[idx];
   if (!step) return;
   try {
+    // default: close the topnav menu so each step starts from a known
+    // baseline. steps that want it open re-open it inside their apply().
+    activeContext.setTopNavMenuOpen?.(false);
     await step.apply(activeContext);
   } catch (e) {
     console.warn("[coach] step failed:", step.id, e);
