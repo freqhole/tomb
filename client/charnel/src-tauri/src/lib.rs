@@ -3,6 +3,7 @@
 mod admin_commands;
 mod app_config;
 mod commands;
+mod media_server;
 #[cfg(desktop)]
 mod menu;
 mod p2p_commands;
@@ -208,7 +209,11 @@ fn mobile_auto_init(app_handle: &tauri::AppHandle) -> Result<(), Box<dyn std::er
     let setup_config = grimoire::setup::SetupConfig {
         config_path: config_path.clone(),
         data_dir: data_dir.clone(),
-        server_name: "freqhole".to_string(),
+        // mobile (android) headless setup: charnel manages this remote
+        // locally and surfaces it as the user's on-device library. give it
+        // a friendlier default than "freqhole" so it's distinguishable
+        // from any remote freqhole server they later add.
+        server_name: "local library".to_string(),
         server_port: 8081,
         image_path: None,
         admin_username: None,
@@ -282,6 +287,16 @@ fn mobile_auto_init(app_handle: &tauri::AppHandle) -> Result<(), Box<dyn std::er
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // android only: install rustls' ring crypto provider before anything
+    // can construct a TLS client. wry's android WebViewClient.handleRequest
+    // builds a reqwest client to fetch http(s) subresources, and rustls
+    // 0.23 panics ("No provider set") if no default provider is installed,
+    // which aborts the whole process. desktop targets are unaffected.
+    #[cfg(target_os = "android")]
+    {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+    }
+
     setup_tracing();
 
     let p2p_state = Arc::new(P2pState::new());
@@ -289,6 +304,7 @@ pub fn run() {
     let builder = tauri::Builder::default()
         .manage(ShutdownToken::new())
         .manage(p2p_state.clone())
+        .manage(media_server::MediaServerState::new())
         .manage(PendingDeepLinks::default())
         .setup(|app| {
             // ---- deep-link plugin -----------------------------------------
@@ -365,6 +381,34 @@ pub fn run() {
                 }
             }
 
+            // on mobile, also silently upgrade the server config (freqhole-config.toml).
+            // desktop still surfaces a toast so the user can review changes via the
+            // wizard, but mobile has no wizard ui to act on it — just take the upgrade.
+            #[cfg(mobile)]
+            if !needs_setup {
+                if let Some(server_config_path) = get_server_config_path_resolved(app.handle()) {
+                    match grimoire::config::config_needs_upgrade(&server_config_path) {
+                        Ok(true) => match grimoire::config::upgrade_config(&server_config_path) {
+                            Ok(result) => {
+                                tracing::info!(
+                                    old_version = %result.old_version,
+                                    new_version = %result.new_version,
+                                    backup = %result.backup_path.display(),
+                                    "silently upgraded server config (mobile)"
+                                );
+                            }
+                            Err(e) => {
+                                tracing::error!(error = %e, "failed to silently upgrade server config (mobile)");
+                            }
+                        },
+                        Ok(false) => {}
+                        Err(e) => {
+                            tracing::warn!(error = %e, "failed to check server config upgrade status (mobile)");
+                        }
+                    }
+                }
+            }
+
             if needs_setup {
                 // setup wizard runs on port 1421 (tauri UI)
                 // main app (spume) runs on port 1420
@@ -401,6 +445,23 @@ pub fn run() {
                 tauri::async_runtime::block_on(async {
                     if let Err(e) = grimoire::database::run_migrations().await {
                         tracing::warn!(error = %e, "migration warning");
+                    }
+                });
+
+                // spawn embedded media http server (loopback only).
+                // serves blob streaming routes with full http range support so
+                // <audio src> works smoothly on linux webkitgtk (where the
+                // tauri asset:// protocol can't stream into media elements).
+                let media_app_handle = app.handle().clone();
+                let media_state_clone = app
+                    .state::<media_server::MediaServerState>()
+                    .inner()
+                    .clone();
+                tauri::async_runtime::spawn(async move {
+                    if let Err(e) =
+                        media_server::start_and_register(media_app_handle, media_state_clone).await
+                    {
+                        tracing::error!(error = %e, "failed to start embedded media server");
                     }
                 });
 
@@ -596,6 +657,7 @@ pub fn run() {
             commands::get_os_username,
             commands::get_app_version,
             commands::take_pending_deep_links,
+            commands::media_server_info,
             commands::get_config_path,
             commands::get_data_dir,
             commands::get_freqhole_config,

@@ -24,7 +24,15 @@ const CELL_PAD = "px-2";
 const scrollCache = new Map<string, number>();
 
 // sort field types matching query params
-export type SortField = "title" | "artist" | "album" | "genre" | "year" | "duration" | "added_at";
+export type SortField =
+  | "title"
+  | "artist"
+  | "album"
+  | "genre"
+  | "year"
+  | "duration"
+  | "added_at"
+  | "play_count";
 export type SortDirection = "asc" | "desc" | null;
 
 export interface SortState {
@@ -78,21 +86,21 @@ export function VirtualSongList(props: VirtualSongListProps) {
 
   // container-based breakpoints for column sizing (adapts to queue panel)
   const [containerWidth, setContainerWidth] = createSignal(0);
-  // thresholds based on calculated min-widths: lg content fits at 1048px, xl at 1272px
-  const isContainerLg = () => containerWidth() >= 1050;
-  const isContainerXl = () => containerWidth() >= 1280;
+  // thresholds based on calculated min-widths: lg content fits at 1104px, xl at 1328px
+  const isContainerLg = () => containerWidth() >= 1110;
+  const isContainerXl = () => containerWidth() >= 1340;
 
   // compute min-width based on container breakpoint to match column widths
-  // formula: padding(32) + fixed(232) + responsive + title(144)
-  // fixed: thumbnail(48) + year(56) + duration(56) + favorite(32) + rating(40) = 232
+  // formula: padding(32) + fixed(288) + responsive + title(144)
+  // fixed: thumbnail(48) + year(56) + duration(56) + plays(56) + favorite(32) + rating(40) = 288
   // responsive: artist + album + genres + tags (varies by breakpoint)
-  // base: 176+176+96+128 = 576 → 32+232+576+144 = 984
-  // lg: 192+192+112+144 = 640 → 32+232+640+144 = 1048
-  // xl: 256+288+176+144 = 864 → 32+232+864+144 = 1272
+  // base: 176+176+96+128 = 576 → 32+288+576+144 = 1040
+  // lg: 192+192+112+144 = 640 → 32+288+640+144 = 1104
+  // xl: 256+288+176+144 = 864 → 32+288+864+144 = 1328
   const tableMinWidth = () => {
-    if (isContainerXl()) return "1272px";
-    if (isContainerLg()) return "1048px";
-    return "984px";
+    if (isContainerXl()) return "1328px";
+    if (isContainerLg()) return "1104px";
+    return "1040px";
   };
 
   // container-based column widths (in px)
@@ -483,6 +491,13 @@ export function VirtualSongList(props: VirtualSongListProps) {
                     >
                       {formatDuration(song.duration_seconds)}
                     </div>
+                    {/* plays */}
+                    <div
+                      class={`w-14 shrink-0 ${CELL_PAD} text-sm text-[var(--color-text-tertiary)] text-center`}
+                      title="total play count"
+                    >
+                      {song.play_count ? song.play_count : ""}
+                    </div>
                     {/* tags */}
                     <MarqueeText
                       text={song.album_tags?.join(", ") || ""}
@@ -575,6 +590,13 @@ export function VirtualSongList(props: VirtualSongListProps) {
             onClick={() => handleSort("duration")}
           >
             <span class="text-[10px]">{getSortIndicator("duration")}</span> time
+          </div>
+          <div
+            class={`w-14 shrink-0 flex items-center gap-1 ${props.onSortChange ? "cursor-pointer hover:text-[var(--color-text-primary)]" : ""}`}
+            onClick={() => handleSort("play_count")}
+            title="total play count"
+          >
+            <span class="text-[10px]">{getSortIndicator("play_count")}</span> plays
           </div>
           {/* tags column header */}
           <div class={`${colWidth.tags()} shrink-0 text-center`} title="tags (not sortable)">

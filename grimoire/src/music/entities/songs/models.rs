@@ -29,6 +29,8 @@ pub struct Song {
     pub updated_by: Option<String>,
     pub created_by_username: Option<String>,
     pub updated_by_username: Option<String>,
+    /// total play count across all events in `music_play_eventz`
+    pub play_count: Option<i64>,
 }
 
 /// request for creating a new song

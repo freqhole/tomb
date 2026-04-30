@@ -177,6 +177,8 @@ export interface DraggableRowSongContentProps {
   onFavoriteToggle?: (songId: string, isFavorite: boolean) => void;
   /** additional actions (buttons, icons, etc) */
   actions?: JSX.Element;
+  /** total play count to show inline (omit or null/0 to hide) */
+  playCount?: number | null;
   /** additional classes */
   class?: string;
 }
@@ -197,6 +199,16 @@ export function DraggableRowSongContent(props: DraggableRowSongContentProps) {
           </Show>
         </div>
       </div>
+
+      {/* play count (before action buttons) */}
+      <Show when={props.playCount != null && props.playCount > 0}>
+        <div
+          class="text-[var(--color-text-muted)] text-xs flex-shrink-0 text-right"
+          title={`${props.playCount} plays`}
+        >
+          {props.playCount}×
+        </div>
+      </Show>
 
       {/* favorite */}
       <Show when={props.isFavorite !== undefined && props.songId}>

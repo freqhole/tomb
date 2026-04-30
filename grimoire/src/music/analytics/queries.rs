@@ -126,8 +126,8 @@ pub async fn get_user_listening_history(
         r#"
         SELECT
             mpe.id,
-            mpe.media_event_id,
-            mpe.song_id,
+            mpe.media_event_id as "media_event_id!",
+            mpe.song_id as "song_id!",
             mpe.playlist_id,
             mpe.session_id,
             mpe.created_at,
@@ -355,7 +355,7 @@ pub async fn get_session_summary(session_id: &str) -> GrimoireResponse<SessionSu
     let songs_rows = match sqlx::query!(
         r#"
         SELECT
-            mpe.song_id,
+            mpe.song_id as "song_id!",
             mpe.created_at,
             s.title,
             (SELECT json_group_array(json_object('media_blob_id', si.media_blob_id, 'is_primary', si.is_primary, 'blob_type', mb.blob_type))
@@ -387,8 +387,9 @@ pub async fn get_session_summary(session_id: &str) -> GrimoireResponse<SessionSu
     let songs = songs_rows
         .into_iter()
         .map(|row| {
-            let images = row.images
-                .and_then(|json_str| serde_json::from_str::<Vec<crate::music::crud::ImageMetadata>>(&json_str).ok());
+            let images = row.images.and_then(|json_str| {
+                serde_json::from_str::<Vec<crate::music::crud::ImageMetadata>>(&json_str).ok()
+            });
             SessionSong {
                 song_id: row.song_id,
                 title: row.title,

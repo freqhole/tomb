@@ -11,6 +11,7 @@
 //! `tune.station_id` (or the default).
 
 use crate::error::{GrimoireError, GrimoireResult};
+use crate::music::analytics::events as play_events;
 use crate::radio::art::resolve_track_art;
 use crate::radio::chunk::Chunk;
 use crate::radio::config as cfg;
@@ -806,6 +807,25 @@ impl Broadcaster {
         let play_id = if is_bumper {
             None
         } else {
+            // credit each current listener with a play row in
+            // music_play_eventz so radio plays roll up into the unified
+            // top-songs / per-song play count analytics. failure is
+            // non-fatal — best-effort, same as record_play below.
+            if listeners > 0 {
+                if let Err(e) = play_events::record_radio_plays(
+                    &track.song_id,
+                    &self.station_id,
+                    listeners as u32,
+                )
+                .await
+                {
+                    warn!(
+                        "[radio-broadcaster] station {} record_radio_plays failed: {e}",
+                        self.station_id
+                    );
+                }
+            }
+
             match stations::record_play(&self.station_id, &track.song_id, listeners).await {
                 Ok(id) => Some(id),
                 Err(e) => {

@@ -145,21 +145,31 @@ pub async fn run_setup_core(
     #[cfg(not(debug_assertions))]
     let allowed_origins = vec!["tauri://localhost".to_string()];
 
-    // if image_path provided, copy to data_dir as freqhole-icon with original extension
+    // if image_path provided, resize to 200x200 webp and save as
+    // freqhole-icon.webp in data_dir. matches what update_server_image and
+    // server_update_image do post-setup, so the on-disk path is stable
+    // across the lifetime of the install (no orphaned freqhole-icon.png).
     let final_image_path = if let Some(src_path) = image_path {
         let src = std::path::Path::new(&src_path);
         if src.exists() {
-            let extension = src.extension().and_then(|e| e.to_str()).unwrap_or("png");
-            let dest_filename = format!("freqhole-icon.{}", extension);
-            let dest = PathBuf::from(&data_dir).join(&dest_filename);
-
-            // ensure data_dir exists before copying
+            let dest = PathBuf::from(&data_dir).join("freqhole-icon.webp");
             let _ = std::fs::create_dir_all(&data_dir);
-
-            match std::fs::copy(&src_path, &dest) {
-                Ok(_) => Some(dest.to_string_lossy().to_string()),
+            match std::fs::read(&src_path) {
+                Ok(bytes) => match grimoire::blob_data::resize_to_square_webp(&bytes, 200) {
+                    Ok(webp) => match std::fs::write(&dest, &webp) {
+                        Ok(_) => Some(dest.to_string_lossy().to_string()),
+                        Err(e) => {
+                            tracing::error!(error = %e, "failed to write icon");
+                            None
+                        }
+                    },
+                    Err(e) => {
+                        tracing::error!(error = %e, "failed to resize icon");
+                        None
+                    }
+                },
                 Err(e) => {
-                    tracing::error!(error = %e, "failed to copy icon");
+                    tracing::error!(error = %e, "failed to read source icon");
                     None
                 }
             }
@@ -359,6 +369,24 @@ pub fn get_app_version() -> String {
 #[tauri::command]
 pub fn take_pending_deep_links(state: tauri::State<crate::PendingDeepLinks>) -> Vec<String> {
     state.drain()
+}
+
+/// get info about the embedded media http server (loopback only).
+///
+/// returns `{base_url, api_key}` so the frontend can build blob urls like
+/// `{base_url}/api/blobs/{id}?api_key={api_key}` and stick them in
+/// `<audio src>` / `<img src>` for proper http range request streaming on
+/// linux webkitgtk (where tauri's asset:// protocol can't stream into media
+/// elements).
+///
+/// returns `None` if the server hasn't started yet (e.g. setup wizard still
+/// running, or charnel just launched and the spawn task hasn't completed).
+/// callers should retry / fall back to the asset:// path.
+#[tauri::command]
+pub fn media_server_info(
+    state: tauri::State<crate::media_server::MediaServerState>,
+) -> Option<crate::media_server::MediaServerInfo> {
+    state.get()
 }
 
 /// get the config file path (from app config or legacy location)

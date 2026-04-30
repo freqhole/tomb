@@ -226,7 +226,7 @@ export function PlayerBar(props: PlayerBarProps) {
           the wide single-row layout so it stays clear of controls and
           the seekbar. */}
       {/* narrow layout: 2 rows — seekbar on top to avoid iOS swipe-up gesture */}
-      <div class="flex flex-col h-full wide:hidden p-2 gap-1">
+      <div class="flex flex-col h-full wide:hidden px-4 pb-4">
         {/* row 1: live mode = badge + listening time; otherwise status + seek row */}
         <div class="flex items-center gap-2 h-6">
           <span class="text-xs text-[var(--color-accent-500)] font-light min-w-[2rem] text-right tabular-nums">

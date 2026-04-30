@@ -49,7 +49,8 @@ pub async fn create_song(req: CreateSongRequest) -> GrimoireResponse<Song> {
             NULL as \"images?: JsonVec<ImageMetadata>\",
             NULL as \"urls?: JsonVec<EntityUrl>\",
             NULL as \"created_by_username?: String\",
-            NULL as \"updated_by_username?: String\"",
+            NULL as \"updated_by_username?: String\",
+            NULL as \"play_count?: i64\"",
         req.media_blob_id,
         req.title,
         req.track_number,
@@ -126,7 +127,8 @@ pub async fn list_songs(limit: Option<u32>, offset: Option<u32>) -> GrimoireResp
             song_created_by_username as created_by_username,
             song_updated_by_username as updated_by_username,
             song_images as "images?: JsonVec<ImageMetadata>",
-            NULL as "urls?: JsonVec<EntityUrl>"
+            NULL as "urls?: JsonVec<EntityUrl>",
+            song_play_count as "play_count?: i64"
          FROM song_query_view
          WHERE song_deleted_at IS NULL
          ORDER BY song_created_at DESC
@@ -180,7 +182,8 @@ pub async fn get_song(id: &str) -> GrimoireResponse<Song> {
             song_created_by_username as "created_by_username?",
             song_updated_by_username as "updated_by_username?",
             song_images as "images?: JsonVec<ImageMetadata>",
-            NULL as "urls?: JsonVec<EntityUrl>"
+            NULL as "urls?: JsonVec<EntityUrl>",
+            song_play_count as "play_count?: i64"
          FROM song_query_view
          WHERE song_id = ? AND song_deleted_at IS NULL"#,
         id

@@ -17,6 +17,45 @@ let convertFileSrc: ((path: string) => string) | null = null;
 // detect once at module level so we can use blob: URLs as a workaround.
 const isLinuxWebKit = typeof navigator !== "undefined" && navigator.userAgent.includes("Linux");
 
+// info about the embedded loopback http media server (charnel only).
+// fetched once via the `media_server_info` ipc command and cached. used on
+// linux to build `<audio src>` urls that bypass asset:// (which webkitgtk
+// can't stream into media elements).
+interface MediaServerInfo {
+  base_url: string;
+  api_key: string;
+}
+let mediaServerInfo: MediaServerInfo | null = null;
+let mediaServerInfoFetch: Promise<MediaServerInfo | null> | null = null;
+
+async function getMediaServerInfo(): Promise<MediaServerInfo | null> {
+  if (mediaServerInfo) return mediaServerInfo;
+  if (mediaServerInfoFetch) return mediaServerInfoFetch;
+  mediaServerInfoFetch = (async () => {
+    try {
+      const inv = await ensureInvoke();
+      const info = (await inv("media_server_info", {})) as MediaServerInfo | null;
+      if (info && info.base_url && info.api_key) {
+        mediaServerInfo = info;
+        return info;
+      }
+      return null;
+    } catch {
+      return null;
+    } finally {
+      // allow retry on next call if it returned null (server may not have
+      // finished spawning yet on app cold start)
+      if (!mediaServerInfo) mediaServerInfoFetch = null;
+    }
+  })();
+  return mediaServerInfoFetch;
+}
+
+/** build an http url for a blob via the embedded media server, or null. */
+function buildMediaServerBlobUrl(info: MediaServerInfo, blobId: string): string {
+  return `${info.base_url}/api/blobs/${blobId}?api_key=${info.api_key}`;
+}
+
 /**
  * initialize tauri invoke function
  */
@@ -283,9 +322,10 @@ export class CharnelLocalTransport implements Transport {
    * get blob URL - returns Tauri asset:// URL for direct <audio>/<img> src usage
    * for db-stored blobs, returns object URL from cached data
    *
-   * on linux (webkitgtk), asset:// doesn't work for <audio> elements,
-   * so we fetch via asset:// and return a blob: object URL instead.
-   * only one audio blob URL is kept at a time to avoid memory bloat.
+   * on linux (webkitgtk), asset:// doesn't work for <audio> elements. preferred
+   * fix: use the embedded loopback http media server (full http range support).
+   * fallback (server not ready): fetch via asset:// and return a blob: object
+   * URL. only one audio blob URL is kept at a time to avoid memory bloat.
    */
   getBlobUrl(blobId: string, _blake3?: string): string | Promise<string> {
     // check object URL cache first (db-stored blobs)
@@ -294,18 +334,20 @@ export class CharnelLocalTransport implements Transport {
       return cachedObjectUrl;
     }
 
-    // linux audio workaround: return cached audio blob URL if same song
-    if (isLinuxWebKit && this.audioBlobUrl?.blobId === blobId) {
-      return this.audioBlobUrl.url;
+    // linux: prefer the embedded http media server (proper streaming + ranges)
+    if (isLinuxWebKit) {
+      const info = mediaServerInfo;
+      if (info) {
+        return buildMediaServerBlobUrl(info, blobId);
+      }
+      // info not yet available — go async to fetch it (and fall back to
+      // blob:-url path if still unavailable).
+      return this.getBlobUrlAsync(blobId);
     }
-    
+
     // check path cache (filesystem blobs)
     const cached = this.blobPathCache.get(blobId);
     if (cached && convertFileSrc) {
-      // on linux, always go async to create blob: URL for <audio> compatibility
-      if (isLinuxWebKit) {
-        return this.createAudioBlobUrl(blobId, cached.path, cached.mime);
-      }
       return convertFileSrc(cached.path);
     }
 
@@ -320,6 +362,15 @@ export class CharnelLocalTransport implements Transport {
   private async getBlobUrlAsync(blobId: string): Promise<string> {
     await ensureInvoke(); // ensure convertFileSrc is loaded
 
+    // linux: try the embedded http media server first. cheap (cached) and
+    // bypasses needing the local filesystem path entirely.
+    if (isLinuxWebKit) {
+      const info = await getMediaServerInfo();
+      if (info) {
+        return buildMediaServerBlobUrl(info, blobId);
+      }
+    }
+
     const response = await this.request("GET", `/api/blobs/${blobId}/path`, undefined);
     
     if (response.status === 200) {
@@ -332,7 +383,7 @@ export class CharnelLocalTransport implements Transport {
           throw new Error("convertFileSrc not available");
         }
 
-        // on linux, create blob: URL instead of asset:// for <audio> compat
+        // on linux without media server: fall back to blob: workaround
         if (isLinuxWebKit) {
           return this.createAudioBlobUrl(blobId, parsed.data.path, parsed.data.mime);
         }

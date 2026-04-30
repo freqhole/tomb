@@ -11,16 +11,20 @@ use zod_gen_derive::ZodSchema;
 pub struct MusicPlayEvent {
     /// Unique event ID (auto-generated if not provided)
     pub id: Option<String>,
-    /// Reference to the core media event
+    /// Reference to the core media event (optional - radio/playlist-initiated
+    /// marker rows have no backing media event)
     pub media_event_id: Option<String>,
-    /// Song that was played
-    pub song_id: String,
+    /// Song that was played (optional - playlist-initiated and radio-only
+    /// marker rows may not credit a specific song)
+    pub song_id: Option<String>,
     /// Album the song belongs to (optional - derived from song)
     pub album_id: Option<String>,
     /// Primary artist for the song (optional - derived from song)
     pub artist_id: Option<String>,
     /// Playlist the song was played from (if applicable)
     pub playlist_id: Option<String>,
+    /// Radio station the song was broadcast on (if applicable)
+    pub radio_station_id: Option<String>,
     /// User who played the song
     pub user_id: Option<String>,
     /// Session ID to group related play events
@@ -35,10 +39,28 @@ impl MusicPlayEvent {
         Self {
             id: None,
             media_event_id: None,
-            song_id,
+            song_id: Some(song_id),
             album_id: None,
             artist_id: None,
             playlist_id: None,
+            radio_station_id: None,
+            user_id: None,
+            session_id: None,
+            created_at: None,
+        }
+    }
+
+    /// create a marker row not tied to a specific song (e.g. playlist-initiated
+    /// play, radio tune-in for non-library content)
+    pub fn marker() -> Self {
+        Self {
+            id: None,
+            media_event_id: None,
+            song_id: None,
+            album_id: None,
+            artist_id: None,
+            playlist_id: None,
+            radio_station_id: None,
             user_id: None,
             session_id: None,
             created_at: None,
@@ -60,6 +82,12 @@ impl MusicPlayEvent {
     /// Set the playlist ID
     pub fn with_playlist_id(mut self, playlist_id: impl Into<String>) -> Self {
         self.playlist_id = Some(playlist_id.into());
+        self
+    }
+
+    /// Set the radio station ID
+    pub fn with_radio_station_id(mut self, station_id: impl Into<String>) -> Self {
+        self.radio_station_id = Some(station_id.into());
         self
     }
 
@@ -193,7 +221,7 @@ mod tests {
             .with_playlist_id("playlist111")
             .with_session_id("session222");
 
-        assert_eq!(event.song_id, "song123");
+        assert_eq!(event.song_id, Some("song123".to_string()));
         assert_eq!(event.album_id, Some("album456".to_string()));
         assert_eq!(event.artist_id, Some("artist789".to_string()));
         assert_eq!(event.user_id, Some("user000".to_string()));

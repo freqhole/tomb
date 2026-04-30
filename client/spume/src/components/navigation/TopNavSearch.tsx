@@ -1,5 +1,6 @@
 // top nav search — expands on hover/click, shows suggestions, navigates on selection
 import { createEffect, createMemo, createSignal, on, onCleanup } from "solid-js";
+import { isNarrowViewport } from "../../config/breakpoints";
 import { getCurrentRemote, getDataSource } from "../../music/data";
 import type { SearchSuggestion as APISuggestion } from "../../music/data/types";
 import { addToQueue } from "../../music/services/queue/queue";
@@ -33,8 +34,16 @@ export function TopNavSearch(props: TopNavSearchProps) {
   const [isLocked, setIsLocked] = createSignal(false);
   const [isFocused, setIsFocused] = createSignal(false);
   const [suggestionsOpen, setSuggestionsOpen] = createSignal(false);
+  const [isNarrow, setIsNarrow] = createSignal(isNarrowViewport());
   let inputRef: HTMLInputElement | undefined;
   let collapseTimer: ReturnType<typeof setTimeout> | undefined;
+
+  // track narrow viewport for touch-friendly icon sizing
+  if (typeof window !== "undefined") {
+    const onResize = () => setIsNarrow(isNarrowViewport());
+    window.addEventListener("resize", onResize);
+    onCleanup(() => window.removeEventListener("resize", onResize));
+  }
 
   const shouldStayOpen = () => searchValue().length > 0 || isFocused() || isLocked();
 
@@ -325,7 +334,7 @@ export function TopNavSearch(props: TopNavSearchProps) {
   return (
     <div class="relative flex items-center" onMouseEnter={handleMouseEnter}>
       <button
-        class="p-1.5 rounded transition-colors border-none bg-transparent cursor-pointer flex-shrink-0"
+        class={`${isNarrow() ? "p-2.5" : "p-1.5"} rounded transition-colors border-none bg-transparent cursor-pointer flex-shrink-0`}
         classList={{
           "text-[var(--color-accent-500)]": isExpanded(),
           "text-white/60 hover:text-white": !isExpanded(),
@@ -333,7 +342,7 @@ export function TopNavSearch(props: TopNavSearchProps) {
         onClick={handleIconClick}
         title="search (⌘K)"
       >
-        <Icon name="search" size={16} />
+        <Icon name="search" size={isNarrowViewport() ? 22 : 16} />
       </button>
 
       <div

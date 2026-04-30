@@ -260,16 +260,31 @@ if (typeof document !== 'undefined') {
 // when audio element events fire after playSong() is called in timeline mode.
 let _externalMediaSessionActive = false;
 
+// tracks the last current_sha256 we observed in updateMediaSession so we can
+// detect when the song queue advances. when it changes we forcibly release
+// the external-session flag — song playback always wins on a real track
+// transition, even if the radio side leaked the flag (e.g. went into
+// `connecting` and never cleared it).
+let _lastSeenCurrentSha256: string | null = null;
+
 // update media session metadata and action handlers
 async function updateMediaSession() {
   if (!("mediaSession" in navigator)) return;
-  // skip local song queue metadata update when an external source (e.g. radio)
-  // has already claimed the media session.
-  if (_externalMediaSessionActive) return;
 
   const state = appState();
   if (!state) return;
   const {queue, current_sha256} = state;
+
+  // defensive: if the active song id changed, music playback has
+  // advanced — reclaim the media session from any stale external owner.
+  if (current_sha256 && current_sha256 !== _lastSeenCurrentSha256) {
+    _externalMediaSessionActive = false;
+  }
+  _lastSeenCurrentSha256 = current_sha256 ?? null;
+
+  // skip local song queue metadata update when an external source (e.g. radio)
+  // has already claimed the media session.
+  if (_externalMediaSessionActive) return;
 
   if (!current_sha256) {
     navigator.mediaSession.metadata = null;
@@ -463,6 +478,12 @@ export function clearExternalMediaSession(): void {
   } catch {
     // ignore on browsers that don't fully implement position state
   }
+  // re-install the song-queue handlers / metadata so the lock-screen
+  // controls keep working after radio (or any other external owner)
+  // releases the session. without this, the next press of any media
+  // button would hit a `null` handler and silently do nothing until
+  // the next audio event triggered another updateMediaSession().
+  void updateMediaSession();
 }
 
 // pre-cache next songs when current song is >50% played (rolling 30-min cache)
@@ -569,6 +590,11 @@ export async function playSong(
   // user-initiated playback wins over any active radio session.
   if (options?.userInitiated) {
     await stopRadioForMusic();
+    // belt-and-suspenders: explicitly release the external-session flag.
+    // stopRadioForMusic() should cause clearExternalMediaSession() via the
+    // playbackMode effect, but solid effect timing isn't guaranteed before
+    // updateMediaSession() runs from the next audio event.
+    _externalMediaSessionActive = false;
   }
 
   // if user explicitly initiated this playback, clear the pause flag

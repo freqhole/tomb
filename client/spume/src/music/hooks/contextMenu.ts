@@ -10,7 +10,7 @@ import { confirm } from "../../app/services/confirmState";
 import { showPlaylistSelector } from "./playlistSelectorState";
 import { showStationSelector } from "./stationSelectorState";
 import { showTagSelector, showShareModal } from "./modals";
-import { getDataSource, getCurrentRemote } from "../data";
+import { getDataSource, getCurrentRemote, getRemoteClient } from "../data";
 import { getRemoteById } from "../../app/services/remotes/remoteManager";
 import { isCharnelMode } from "../../app/services/charnel";
 import type { ShareTarget } from "../../components/share/types";
@@ -712,6 +712,15 @@ export function usePlaylistContextMenu(
         if (dataSource.getPlaylistSongs) {
           const response = await dataSource.getPlaylistSongs(playlist.id);
           await playQueue(response.items, { source: { type: "playlist", label: playlist.title, entity_id: playlist.id } });
+          // fire-and-forget: record initiated playlist play
+          try {
+            const remoteClient = await getRemoteClient();
+            if (remoteClient) {
+              void remoteClient.music.recordPlaylistPlay(playlist.id);
+            }
+          } catch (err) {
+            console.warn("[playlist] recordPlaylistPlay failed:", err);
+          }
         }
       },
     });

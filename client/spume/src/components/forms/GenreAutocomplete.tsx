@@ -199,7 +199,7 @@ export function GenreAutocomplete(props: GenreAutocompleteProps) {
       </Show>
 
       <Combobox.Portal>
-        <Combobox.Content class="z-[100] mt-1 bg-[var(--color-bg-elevated)] border border-[var(--color-border-default)] rounded shadow-lg max-h-80 overflow-y-auto animate-in fade-in-0 zoom-in-95">
+        <Combobox.Content class="z-[1100] mt-1 bg-[var(--color-bg-elevated)] border border-[var(--color-border-default)] rounded shadow-lg max-h-80 overflow-y-auto animate-in fade-in-0 zoom-in-95">
           <Combobox.Listbox />
         </Combobox.Content>
       </Combobox.Portal>

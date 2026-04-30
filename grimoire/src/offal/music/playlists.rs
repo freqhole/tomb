@@ -119,6 +119,15 @@ pub const ROUTES: &[RouteInfo] = &[
         response_type: "PlaylistSongsQueryResult",
         auth: RouteAuth::Authenticated,
     },
+    RouteInfo {
+        name: "record_playlist_play",
+        path: "/api/playlists/record-play",
+        method: Method::POST,
+        domain: Domain::Music,
+        request_type: "GetPlaylistRequest",
+        response_type: "EmptyResponse",
+        auth: RouteAuth::Authenticated,
+    },
 ];
 
 /// list playlists
@@ -492,4 +501,42 @@ pub async fn query_songs(caller: &Caller, body: JsonValue) -> GrimoireResponse<J
 
     let response = grimoire_query_playlist_songs(&req.playlist_id, params).await;
     response.map(|data| serde_json::to_value(data).unwrap())
+}
+
+/// record a playlist-initiated play (caller clicked "play" on a whole
+/// playlist, not on a single song within it). inserts a marker row in
+/// `music_play_eventz` with `playlist_id` set and `song_id = NULL`.
+///
+/// path: POST /api/playlists/record-play
+pub async fn record_play(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
+    let req: GetPlaylistRequest = match serde_json::from_value(body) {
+        Ok(r) => r,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "bad request",
+                vec![ErrorDetail::new(
+                    "bad_request",
+                    "bad request",
+                    &e.to_string(),
+                )],
+            )
+        }
+    };
+
+    match crate::music::analytics::events::record_playlist_initiated_play(
+        &req.id,
+        &caller.user_id,
+    )
+    .await
+    {
+        Ok(_) => GrimoireResponse::success("playlist play recorded", JsonValue::Null),
+        Err(e) => GrimoireResponse::failure(
+            "failed to record playlist play",
+            vec![ErrorDetail::new(
+                "internal_error",
+                "internal error",
+                &e.to_string(),
+            )],
+        ),
+    }
 }

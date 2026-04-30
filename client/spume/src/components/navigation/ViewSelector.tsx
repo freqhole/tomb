@@ -13,6 +13,8 @@ export interface ViewSelectorProps {
   currentTitle?: string;
   currentCount?: number;
   onNavigate: (path: string) => void;
+  /** when true, render a larger touch-friendly trigger */
+  isNarrow?: boolean;
 }
 
 export function ViewSelector(props: ViewSelectorProps) {
@@ -66,11 +68,13 @@ export function ViewSelector(props: ViewSelectorProps) {
     >
       {/* trigger button */}
       <button
-        class="flex items-center gap-1.5 px-2 py-1 text-sm text-white/80 hover:text-white transition-colors border-none bg-transparent cursor-pointer rounded hover:bg-white/10"
+        class={`flex items-center gap-1.5 ${
+          props.isNarrow ? "px-3 py-2 text-base" : "px-2 py-1 text-sm"
+        } text-white/80 hover:text-white transition-colors border-none bg-transparent cursor-pointer rounded hover:bg-white/10`}
         onClick={handleClick}
       >
         <span class={`transition-transform ${open() ? "rotate-180" : ""}`}>
-          <ChevronDownStrokeIcon size={12} />
+          <ChevronDownStrokeIcon size={props.isNarrow ? 18 : 12} />
         </span>
         <span class="font-medium">{props.currentTitle || "navigate"}</span>
         <Show when={props.currentCount !== undefined}>

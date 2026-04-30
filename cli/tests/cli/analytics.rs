@@ -305,3 +305,52 @@ fn test_analytics_all_user_stats() {
         "Should get all user stats successfully"
     );
 }
+
+#[test]
+fn test_play_count_increments_on_song_view() {
+    let ctx = TestContext::from_snapshot();
+
+    // pick first song
+    let songs = ctx.run_json(&["music", "query-songs", "--limit", "1"]);
+    let items = songs["data"]["items"].as_array().unwrap();
+    if items.is_empty() {
+        return;
+    }
+    let song_id = items[0]["song"]["id"].as_str().unwrap().to_string();
+
+    // baseline play count via analytics song-stats
+    let baseline = ctx.run_json(&["analytics", "song-stats", &song_id]);
+    let baseline_count = baseline["data"]["total_plays"].as_i64().unwrap_or(0);
+
+    // create a user to attribute the plays to
+    let username = format!(
+        "test_play_count_inc_{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis()
+    );
+    let user = ctx.run_json(&[
+        "users", "create", "--username", &username, "--role", "admin", "--bootstrap",
+    ]);
+    let user_id = user["data"]["id"].as_str().unwrap();
+
+    // record three plays
+    for _ in 0..3 {
+        let res = ctx.run_json(&[
+            "analytics", "record-play", "--song-id", &song_id, "--user-id", user_id,
+        ]);
+        assert!(res["success"].as_bool().unwrap(), "record-play should succeed");
+    }
+
+    // verify total_plays increased by exactly 3
+    let after = ctx.run_json(&["analytics", "song-stats", &song_id]);
+    let new_count = after["data"]["total_plays"].as_i64().unwrap_or(0);
+    assert_eq!(
+        new_count,
+        baseline_count + 3,
+        "total_plays should increment by 3 (was {}, now {})",
+        baseline_count,
+        new_count
+    );
+}
