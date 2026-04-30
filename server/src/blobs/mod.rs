@@ -28,8 +28,16 @@ use tokio::{
     fs::File,
     io::{AsyncReadExt, AsyncSeekExt},
 };
+use tokio_util::io::ReaderStream;
 
 use crate::{auth::AuthenticatedUser, error::ApiError};
+
+/// chunk size for streaming media file bodies. larger chunks = fewer
+/// syscalls + lower per-byte overhead, but also higher memory per
+/// in-flight request. 64 KiB is a good balance for audio: webkit / chrome
+/// typically request ~2 MiB chunks via Range, so each request resolves in
+/// ~32 reads.
+const STREAM_CHUNK_SIZE: usize = 64 * 1024;
 
 /// stream blob with range request support
 ///
@@ -151,19 +159,23 @@ async fn stream_from_file(
 }
 
 /// stream entire file (no range)
+///
+/// uses chunked streaming via `ReaderStream` so the first byte hits the
+/// wire immediately (no full read-into-Vec stall) and memory usage stays
+/// flat regardless of file size. critical for `<audio>` on linux/webkitgtk
+/// where high time-to-first-byte causes the gstreamer decoder to underrun
+/// and audibly stutter.
 async fn stream_file_full(
     path: std::path::PathBuf,
     size: u64,
     content_type: String,
 ) -> Result<Response, ApiError> {
-    let mut file = File::open(&path)
+    let file = File::open(&path)
         .await
         .map_err(|_| ApiError::Internal("failed to open file".to_string()))?;
 
-    let mut buffer = Vec::new();
-    file.read_to_end(&mut buffer)
-        .await
-        .map_err(|_| ApiError::Internal("failed to read file".to_string()))?;
+    let stream = ReaderStream::with_capacity(file, STREAM_CHUNK_SIZE);
+    let body = Body::from_stream(stream);
 
     let response = Response::builder()
         .status(StatusCode::OK)
@@ -171,13 +183,17 @@ async fn stream_file_full(
         .header(CONTENT_LENGTH, size)
         .header(ACCEPT_RANGES, "bytes")
         .header(CACHE_CONTROL, "public, max-age=2592000")
-        .body(Body::from(buffer))
+        .body(body)
         .unwrap();
 
     Ok(response)
 }
 
 /// stream file with range request
+///
+/// like `stream_file_full`, this streams the requested byte range in
+/// chunks via `ReaderStream` instead of reading the whole range into a
+/// `Vec` first.
 async fn stream_file_range(
     path: std::path::PathBuf,
     file_size: u64,
@@ -201,12 +217,13 @@ async fn stream_file_range(
         .await
         .map_err(|_| ApiError::Internal("failed to seek file".to_string()))?;
 
-    // read requested range
     let content_length = end - start + 1;
-    let mut buffer = vec![0; content_length as usize];
-    file.read_exact(&mut buffer)
-        .await
-        .map_err(|_| ApiError::Internal("failed to read file".to_string()))?;
+
+    // limit the reader to exactly content_length bytes so we don't stream
+    // past the requested range.
+    let limited = file.take(content_length);
+    let stream = ReaderStream::with_capacity(limited, STREAM_CHUNK_SIZE);
+    let body = Body::from_stream(stream);
 
     // build 206 partial content response
     let response = Response::builder()
@@ -219,7 +236,7 @@ async fn stream_file_range(
             format!("bytes {}-{}/{}", start, end, file_size),
         )
         .header(CACHE_CONTROL, "public, max-age=2592000")
-        .body(Body::from(buffer))
+        .body(body)
         .unwrap();
 
     Ok(response)

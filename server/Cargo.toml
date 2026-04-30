@@ -33,6 +33,7 @@ grimoire = { path = "../grimoire", default-features = false }
 # Additional dependencies
 mime_guess = { workspace = true }
 futures-util = { workspace = true }
+tokio-util = { workspace = true }
 http = "1.0"
 http-body-util = "0.1"
 anyhow = "1.0"
