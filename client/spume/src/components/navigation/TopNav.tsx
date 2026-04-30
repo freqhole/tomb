@@ -792,16 +792,6 @@ export function TopNav(props: TopNavProps) {
                             </For>
                           )}
                         </For>
-
-                        {/* settings link */}
-                        <Show when={!isCharnelMode()}>
-                          <button
-                                  class="w-full px-3 py-2 text-left text-sm text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-accent-500)]/10 rounded transition-colors border-none bg-transparent cursor-pointer disabled:opacity-50 flex gap-2"
-                                  onClick={() => props.onNavigate?.(routes.settingsStorage())}
-                                >
-                                 <Icon name="settings" size={20} /> settings
-                            </button>
-                        </Show>
                         
                         {/* storage usage */}
                         <Show
@@ -825,6 +815,17 @@ export function TopNav(props: TopNavProps) {
                             </div>
                           </button>
                         </Show>
+
+                        {/* settings link */}
+                        <Show when={!isCharnelMode()}>
+                          <button class="w-full flex items-center gap-2 px-3 py-2 mb-4 rounded transition-colors border-none bg-transparent text-sm cursor-pointer text-[var(--color-accent-500)] bg-[var(--color-accent-500)]/10 text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]"
+                     
+                                  onClick={() => props.onNavigate?.(routes.settingsStorage())}
+                                >
+                                 <Icon name="settings" size={16} /> settings
+                            </button>
+                        </Show>
+
                       </div>
                     </div>
 
