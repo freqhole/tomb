@@ -408,7 +408,7 @@ export function AlbumDetailView() {
                               kind: "album",
                               albumTitle: albumInfo()?.title ?? "",
                             },
-                            getCurrentRemote()?.remote_id,
+                            getCurrentRemote()?.remote_id
                           )
                         }
                       >
@@ -512,6 +512,7 @@ export function AlbumDetailView() {
                             }
                             trackNumber={trackDisplay}
                             duration={formatDuration(song.duration_seconds)}
+                            playCount={song.play_count ?? null}
                             isPlaying={isPlaying()}
                             onDoubleClick={() => handleSongDoubleClick(song)}
                             showPlayOnHover={true}

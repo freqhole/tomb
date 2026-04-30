@@ -45,14 +45,18 @@ pub async fn server_info() -> Result<Json<ServerInfoResponse>, ApiError> {
     let description = server_config.description.clone();
     let version = server_config.version.clone();
 
-    // construct image url if image_path is configured
+    // construct image url if image_path is configured. include the
+    // image_blob_id as a cache buster so the url changes whenever the
+    // image is replaced — otherwise browsers keep serving the cached
+    // bytes for the static `/api/hello/image` path.
+    let image_blob_id = server_config.image_blob_id.clone();
     let image_url = server_config
         .image_path
         .as_ref()
-        .map(|_| "/api/hello/image".to_string());
-
-    // image_blob_id for P2P transport (stored in config after running update-server-image)
-    let image_blob_id = server_config.image_blob_id.clone();
+        .map(|_| match &image_blob_id {
+            Some(id) => format!("/api/hello/image?v={}", id),
+            None => "/api/hello/image".to_string(),
+        });
 
     // knocking_enabled from federation config (only include if federation is enabled)
     let knocking_enabled = config

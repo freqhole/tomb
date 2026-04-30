@@ -22,7 +22,7 @@ import { VirtualItemList, type ListItem } from "../../components/virtualized/Vir
 import { formatRelativeTime } from "../../utils/dateTime";
 import { formatHumanDuration } from "../../utils/formatDuration";
 import { buildRoute } from "../utils/routing";
-import { getCurrentRemote, getDataSource, RemoteOfflineError } from "../data";
+import { getCurrentRemote, getDataSource, getRemoteClient, RemoteOfflineError } from "../data";
 import type { Song } from "../data/types";
 import {
   usePlaylistSongsQuery,
@@ -631,6 +631,17 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
           image: playlist?.images?.[0],
         },
       });
+      // fire-and-forget: record initiated playlist play
+      if (playlist?.playlist_id) {
+        try {
+          const remoteClient = await getRemoteClient();
+          if (remoteClient) {
+            void remoteClient.music.recordPlaylistPlay(playlist.playlist_id);
+          }
+        } catch (err) {
+          console.warn("[playlist] recordPlaylistPlay failed:", err);
+        }
+      }
     }
   };
 
@@ -989,6 +1000,18 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
                                       {selectedPlaylist()!.description}
                                     </p>
                                   </Show>
+
+                                  <Show when={(selectedPlaylist()?.play_count ?? 0) > 0}>
+                                    <p
+                                      class="text-xs text-[var(--color-text-muted)] mb-3"
+                                      title="number of times this playlist's play button has been pressed"
+                                    >
+                                      played {selectedPlaylist()!.play_count}
+                                      {(selectedPlaylist()!.play_count ?? 0) === 1
+                                        ? " time"
+                                        : " times"}
+                                    </p>
+                                  </Show>
                                 </>
                               }
                             >
@@ -1177,6 +1200,7 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
                                               artist={song.artist_name}
                                               album={song.album_title}
                                               durationSeconds={song.duration_seconds}
+                                              playCount={song.play_count ?? null}
                                               isFavorite={song.is_favorite}
                                               songId={song.id}
                                               sha256={song.sha256}

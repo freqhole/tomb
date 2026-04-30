@@ -13,7 +13,8 @@ export type SongSortField =
   | "album"
   | "genre"
   | "year"
-  | "duration";
+  | "duration"
+  | "play_count";
 
 export type SongSortDirection = "asc" | "desc";
 

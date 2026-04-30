@@ -137,7 +137,10 @@ SELECT
     -- album rating status - now NULL (populated via cache layer)
     NULL as album_rating_user_id,
     NULL as album_user_rating,
-    NULL as album_rating_created_at
+    NULL as album_rating_created_at,
+
+    -- aggregated play count from music_play_eventz (uses idx_music_play_eventz_song)
+    (SELECT COUNT(*) FROM music_play_eventz WHERE song_id = s.id) as song_play_count
 
 FROM songz s
 LEFT JOIN media_blobz mb ON s.media_blob_id = mb.id

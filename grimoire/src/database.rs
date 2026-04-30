@@ -19,18 +19,44 @@ use crate::error::{GrimoireError, GrimoireResult};
 static MAIN_POOL: OnceCell<SqlitePool> = OnceCell::const_new();
 static BLOB_POOL: OnceCell<SqlitePool> = OnceCell::const_new();
 
-// view SQL files embedded at compile time
+// view SQL files embedded at compile time, in dependency order
+// (drop runs in reverse, create runs forward).
 mod views {
-    pub const ARTIST_QUERY_VIEW: &str =
-        include_str!("../../migrations/views/artist_query_view.sql");
-    pub const ALBUM_QUERY_VIEW: &str = include_str!("../../migrations/views/album_query_view.sql");
-    pub const GENRE_QUERY_VIEW: &str = include_str!("../../migrations/views/genre_query_view.sql");
-    pub const SONG_QUERY_VIEW: &str = include_str!("../../migrations/views/song_query_view.sql");
-    pub const PLAYLIST_QUERY_VIEW: &str =
-        include_str!("../../migrations/views/playlist_query_view.sql");
-    pub const PLAYLIST_SONG_QUERY_VIEW: &str =
-        include_str!("../../migrations/views/playlist_song_query_view.sql");
-    pub const FEED_QUERY_VIEW: &str = include_str!("../../migrations/views/feed_query_view.sql");
+    pub struct View {
+        pub name: &'static str,
+        pub sql: &'static str,
+    }
+
+    pub const ALL: &[View] = &[
+        View {
+            name: "artist_query_view",
+            sql: include_str!("../../migrations/views/artist_query_view.sql"),
+        },
+        View {
+            name: "album_query_view",
+            sql: include_str!("../../migrations/views/album_query_view.sql"),
+        },
+        View {
+            name: "genre_query_view",
+            sql: include_str!("../../migrations/views/genre_query_view.sql"),
+        },
+        View {
+            name: "song_query_view",
+            sql: include_str!("../../migrations/views/song_query_view.sql"),
+        },
+        View {
+            name: "playlist_query_view",
+            sql: include_str!("../../migrations/views/playlist_query_view.sql"),
+        },
+        View {
+            name: "playlist_song_query_view",
+            sql: include_str!("../../migrations/views/playlist_song_query_view.sql"),
+        },
+        View {
+            name: "feed_query_view",
+            sql: include_str!("../../migrations/views/feed_query_view.sql"),
+        },
+    ];
 }
 
 /// initialize database - call ONCE at application startup (server/cli main).
@@ -50,19 +76,31 @@ pub async fn run_migrations() -> GrimoireResult<()> {
 
 /// internal migration runner - shared by initialize() and run_migrations()
 async fn run_migrations_internal(pool: &SqlitePool) -> GrimoireResult<()> {
+    // drop all query views BEFORE running migrations.
+    //
+    // why: migrations that rebuild a table (e.g. CREATE _new + DROP old +
+    // RENAME) cannot run while a view references the old table on stricter
+    // sqlite builds (notably the older sqlite shipped with android). dropping
+    // the views up front removes the dependency; they are recreated below
+    // from the embedded view scripts after migrations finish.
+    //
+    // safe to drop unconditionally: views are pure projections recreated on
+    // every startup and contain no persistent data. drop in reverse
+    // dependency order.
+    for view in views::ALL.iter().rev() {
+        pool.execute(format!("DROP VIEW IF EXISTS {};", view.name).as_str())
+            .await?;
+    }
+
     // run migrations
     sqlx::migrate!("../migrations").run(pool).await?;
 
-    // create views in dependency order (each .sql has DROP IF EXISTS + CREATE,
-    // so we use Executor::execute on the raw &str which runs all statements
-    // in the script - sqlx::query() only runs the first statement).
-    pool.execute(views::ARTIST_QUERY_VIEW).await?;
-    pool.execute(views::ALBUM_QUERY_VIEW).await?;
-    pool.execute(views::GENRE_QUERY_VIEW).await?;
-    pool.execute(views::SONG_QUERY_VIEW).await?;
-    pool.execute(views::PLAYLIST_QUERY_VIEW).await?;
-    pool.execute(views::PLAYLIST_SONG_QUERY_VIEW).await?;
-    pool.execute(views::FEED_QUERY_VIEW).await?;
+    // recreate views in dependency order. each .sql has DROP IF EXISTS +
+    // CREATE, so we use Executor::execute on the raw &str which runs all
+    // statements in the script (sqlx::query() only runs the first).
+    for view in views::ALL {
+        pool.execute(view.sql).await?;
+    }
 
     // initialize blob_data database (separate file for raw binary storage)
     let blob_pool = connect_blob_data().await?;

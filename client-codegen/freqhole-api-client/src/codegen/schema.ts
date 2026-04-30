@@ -837,7 +837,8 @@ export const FavoriteItemSchema = z.union([z.intersection(z.object({
   created_by: z.string().nullish(),
   updated_by: z.string().nullish(),
   created_by_username: z.string().nullish(),
-  updated_by_username: z.string().nullish()
+  updated_by_username: z.string().nullish(),
+  play_count: z.number().nullish()
 }),
   artist: z.object({
   id: z.string(),
@@ -1077,7 +1078,8 @@ export const FavoriteItemSchema = z.union([z.intersection(z.object({
 }),
   song_count: z.number(),
   total_duration: z.number().nullish(),
-  is_favorite: z.boolean().nullish()
+  is_favorite: z.boolean().nullish(),
+  play_count: z.number().nullish()
 })
 }))]);
 export type FavoriteItem = z.infer<typeof FavoriteItemSchema>;
@@ -1111,7 +1113,8 @@ export const FavoritePlaylistResultSchema = z.object({
 }),
   song_count: z.number(),
   total_duration: z.number().nullish(),
-  is_favorite: z.boolean().nullish()
+  is_favorite: z.boolean().nullish(),
+  play_count: z.number().nullish()
 })
 });
 export type FavoritePlaylistResult = z.infer<typeof FavoritePlaylistResultSchema>;
@@ -1147,7 +1150,8 @@ export const FavoriteSongResultSchema = z.object({
   created_by: z.string().nullish(),
   updated_by: z.string().nullish(),
   created_by_username: z.string().nullish(),
-  updated_by_username: z.string().nullish()
+  updated_by_username: z.string().nullish(),
+  play_count: z.number().nullish()
 }),
   artist: z.object({
   id: z.string(),
@@ -1695,7 +1699,8 @@ export const ListFavoritesResponseSchema = z.object({
   created_by: z.string().nullish(),
   updated_by: z.string().nullish(),
   created_by_username: z.string().nullish(),
-  updated_by_username: z.string().nullish()
+  updated_by_username: z.string().nullish(),
+  play_count: z.number().nullish()
 }),
   artist: z.object({
   id: z.string(),
@@ -1935,7 +1940,8 @@ export const ListFavoritesResponseSchema = z.object({
 }),
   song_count: z.number(),
   total_duration: z.number().nullish(),
-  is_favorite: z.boolean().nullish()
+  is_favorite: z.boolean().nullish(),
+  play_count: z.number().nullish()
 })
 }))])),
   total_count: z.number(),
@@ -1965,7 +1971,7 @@ export const ListListenSessionsResponseSchema = z.object({
   items: z.array(z.object({
   id: z.string(),
   user_id: z.string(),
-  session_type: z.union([z.literal("song"), z.literal("album"), z.literal("artist"), z.literal("genre"), z.literal("playlist"), z.literal("shuffle")]),
+  session_type: z.union([z.literal("song"), z.literal("album"), z.literal("artist"), z.literal("genre"), z.literal("playlist"), z.literal("shuffle"), z.literal("radio")]),
   entity_id: z.string().nullish(),
   label: z.string(),
   song_ids: z.array(z.string()),
@@ -1988,7 +1994,7 @@ export type ListListenSessionsResponse = z.infer<typeof ListListenSessionsRespon
 export const ListenSessionSchema = z.object({
   id: z.string(),
   user_id: z.string(),
-  session_type: z.union([z.literal("song"), z.literal("album"), z.literal("artist"), z.literal("genre"), z.literal("playlist"), z.literal("shuffle")]),
+  session_type: z.union([z.literal("song"), z.literal("album"), z.literal("artist"), z.literal("genre"), z.literal("playlist"), z.literal("shuffle"), z.literal("radio")]),
   entity_id: z.string().nullish(),
   label: z.string(),
   song_ids: z.array(z.string()),
@@ -2009,7 +2015,7 @@ export type ListenSession = z.infer<typeof ListenSessionSchema>;
 export const ListenSessionStatusSchema = z.union([z.literal("active"), z.literal("paused"), z.literal("completed"), z.literal("abandoned")]);
 export type ListenSessionStatus = z.infer<typeof ListenSessionStatusSchema>;
 
-export const ListenSessionTypeSchema = z.union([z.literal("song"), z.literal("album"), z.literal("artist"), z.literal("genre"), z.literal("playlist"), z.literal("shuffle")]);
+export const ListenSessionTypeSchema = z.union([z.literal("song"), z.literal("album"), z.literal("artist"), z.literal("genre"), z.literal("playlist"), z.literal("shuffle"), z.literal("radio")]);
 export type ListenSessionType = z.infer<typeof ListenSessionTypeSchema>;
 
 export const ListeningHistoryItemSchema = z.object({
@@ -2354,7 +2360,8 @@ export const PlaylistQueryResultSchema = z.object({
 }),
   song_count: z.number(),
   total_duration: z.number().nullish(),
-  is_favorite: z.boolean().nullish()
+  is_favorite: z.boolean().nullish(),
+  play_count: z.number().nullish()
 });
 export type PlaylistQueryResult = z.infer<typeof PlaylistQueryResultSchema>;
 
@@ -2401,7 +2408,8 @@ export const PlaylistSongResultSchema = z.object({
   created_by: z.string().nullish(),
   updated_by: z.string().nullish(),
   created_by_username: z.string().nullish(),
-  updated_by_username: z.string().nullish()
+  updated_by_username: z.string().nullish(),
+  play_count: z.number().nullish()
 }),
   artist: z.object({
   id: z.string(),
@@ -2534,7 +2542,8 @@ export const PlaylistSongsQueryResultSchema = z.object({
   created_by: z.string().nullish(),
   updated_by: z.string().nullish(),
   created_by_username: z.string().nullish(),
-  updated_by_username: z.string().nullish()
+  updated_by_username: z.string().nullish(),
+  play_count: z.number().nullish()
 }),
   artist: z.object({
   id: z.string(),
@@ -2670,7 +2679,8 @@ export const PlaylistsQueryResultSchema = z.object({
 }),
   song_count: z.number(),
   total_duration: z.number().nullish(),
-  is_favorite: z.boolean().nullish()
+  is_favorite: z.boolean().nullish(),
+  play_count: z.number().nullish()
 })),
   total_count: z.number(),
   has_more: z.boolean(),
@@ -3337,7 +3347,8 @@ export const SongSchema = z.object({
   created_by: z.string().nullish(),
   updated_by: z.string().nullish(),
   created_by_username: z.string().nullish(),
-  updated_by_username: z.string().nullish()
+  updated_by_username: z.string().nullish(),
+  play_count: z.number().nullish()
 });
 export type Song = z.infer<typeof SongSchema>;
 
@@ -3375,7 +3386,8 @@ export const SongQueryResultSchema = z.object({
   created_by: z.string().nullish(),
   updated_by: z.string().nullish(),
   created_by_username: z.string().nullish(),
-  updated_by_username: z.string().nullish()
+  updated_by_username: z.string().nullish(),
+  play_count: z.number().nullish()
 }),
   artist: z.object({
   id: z.string(),
@@ -3526,7 +3538,8 @@ export const SongsQueryResultSchema = z.object({
   created_by: z.string().nullish(),
   updated_by: z.string().nullish(),
   created_by_username: z.string().nullish(),
-  updated_by_username: z.string().nullish()
+  updated_by_username: z.string().nullish(),
+  play_count: z.number().nullish()
 }),
   artist: z.object({
   id: z.string(),

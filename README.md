@@ -32,10 +32,11 @@ stuff that's here:
    - see [/assets/config/freqhole-config.toml](/assets/config/freqhole-config.toml) and run (`cargo run --bin `)`freqhole setup` to get started 🧙
 
 6. misc  
-   a. `/haruspex/` a centralized identity prototype for supabase; mostly abandoned  
-   b. `/flatpak/` some helper scriptz for building .flatpak linux release bundles of charnel (tauri) app  
-   c. `/client/midden/` wasm module for iroh relay transport
-   d. `/client-codegen/` zod schema generator (derived from rust structs) and a lil' js client that's mainly `fetch()` + zod schema wrapperz for all the api routez. see also: [/client-codegen/README.md](/client-codegen/README.md)
+   a. `/migrations/` sql migrations + views for sqlite db  
+   b. `/haruspex/` a centralized identity prototype for supabase; mostly abandoned  
+   c. `/flatpak/` some helper scriptz for building .flatpak linux release bundles of charnel (tauri) app  
+   d. `/client/midden/` wasm module for iroh relay transport  
+   e. `/client-codegen/` zod schema generator (derived from rust structs) and a lil' js client that's mainly `fetch()` + zod schema wrapperz for all the api routez. see also: [/client-codegen/README.md](/client-codegen/README.md)
 
 7. `/docs/` probably-stale and out-of-date .md filez here! :feelsgood:
 

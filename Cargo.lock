@@ -856,7 +856,7 @@ dependencies = [
 
 [[package]]
 name = "charnel"
-version = "0.1.18"
+version = "0.1.19"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -864,8 +864,10 @@ dependencies = [
  "grimoire",
  "iroh",
  "nix",
+ "rustls",
  "serde",
  "serde_json",
+ "server",
  "tauri",
  "tauri-build",
  "tauri-plugin-android-media-session",
@@ -951,7 +953,7 @@ checksum = "c8d4a3bb8b1e0c1050499d1815f5ab16d04f0959b233085fb31653fbfc9d98f9"
 
 [[package]]
 name = "cli"
-version = "0.1.18"
+version = "0.1.19"
 dependencies = [
  "anyhow",
  "clap",
@@ -969,7 +971,7 @@ dependencies = [
 
 [[package]]
 name = "client-codegen"
-version = "0.1.18"
+version = "0.1.19"
 dependencies = [
  "grimoire",
  "serde",
@@ -2695,7 +2697,7 @@ dependencies = [
 
 [[package]]
 name = "grimoire"
-version = "0.1.18"
+version = "0.1.19"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -6801,7 +6803,7 @@ dependencies = [
 
 [[package]]
 name = "server"
-version = "0.1.18"
+version = "0.1.19"
 dependencies = [
  "anyhow",
  "axum",

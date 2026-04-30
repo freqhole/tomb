@@ -9,6 +9,7 @@ use crate::error::ErrorDetail;
 use crate::GrimoireResponse;
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
+use tracing;
 use zod_gen::ZodSchema as ZodSchemaTrait;
 use zod_gen_derive::ZodSchema;
 
@@ -22,11 +23,12 @@ pub enum ListenSessionType {
     Genre,
     Playlist,
     Shuffle,
+    Radio,
 }
 
 impl ZodSchemaTrait for ListenSessionType {
     fn zod_schema() -> String {
-        r#"z.union([z.literal("song"), z.literal("album"), z.literal("artist"), z.literal("genre"), z.literal("playlist"), z.literal("shuffle")])"#.to_string()
+        r#"z.union([z.literal("song"), z.literal("album"), z.literal("artist"), z.literal("genre"), z.literal("playlist"), z.literal("shuffle"), z.literal("radio")])"#.to_string()
     }
 }
 
@@ -39,6 +41,7 @@ impl std::fmt::Display for ListenSessionType {
             Self::Genre => write!(f, "genre"),
             Self::Playlist => write!(f, "playlist"),
             Self::Shuffle => write!(f, "shuffle"),
+            Self::Radio => write!(f, "radio"),
         }
     }
 }
@@ -52,6 +55,7 @@ impl ListenSessionType {
             "genre" => Self::Genre,
             "playlist" => Self::Playlist,
             "shuffle" => Self::Shuffle,
+            "radio" => Self::Radio,
             _ => Self::Song,
         }
     }
@@ -245,21 +249,30 @@ pub async fn create_listen_session(
     let entity_id = req.entity_id.as_deref();
     let label = &req.label;
 
+    // radio sessions are station-level only — no per-track tracking, so we
+    // skip song validation and accept an empty song_ids list.
+    let is_radio = session_type == "radio";
+
     // validate song_ids — only keep IDs that exist on this server
-    let validated_song_ids = validate_song_ids(&pool, &req.song_ids).await;
-    if validated_song_ids.is_empty() {
-        return GrimoireResponse::failure(
-            "no valid song IDs found on this server",
-            vec![crate::error::ErrorDetail::new(
-                "invalid_song_ids",
-                "invalid song IDs",
-                &format!(
-                    "none of the {} provided song IDs exist on this server",
-                    req.song_ids.len()
-                ),
-            )],
-        );
-    }
+    let validated_song_ids = if is_radio {
+        Vec::new()
+    } else {
+        let v = validate_song_ids(&pool, &req.song_ids).await;
+        if v.is_empty() {
+            return GrimoireResponse::failure(
+                "no valid song IDs found on this server",
+                vec![crate::error::ErrorDetail::new(
+                    "invalid_song_ids",
+                    "invalid song IDs",
+                    &format!(
+                        "none of the {} provided song IDs exist on this server",
+                        req.song_ids.len()
+                    ),
+                )],
+            );
+        }
+        v
+    };
 
     let song_ids_json =
         serde_json::to_string(&validated_song_ids).unwrap_or_else(|_| "[]".to_string());
@@ -305,7 +318,16 @@ pub async fn create_listen_session(
                 progress_percent: Some(0.0),
             };
             // create feed event
-            let _ = upsert_session_feed_event(&row.id).await;
+            let feed_resp = upsert_session_feed_event(&row.id).await;
+            if !feed_resp.success {
+                tracing::warn!(
+                    session_id = %row.id,
+                    session_type = %req.session_type,
+                    message = %feed_resp.message,
+                    errors = ?feed_resp.errors,
+                    "failed to upsert session feed event on create"
+                );
+            }
             GrimoireResponse::success("listen session created", session)
         }
         Err(e) => GrimoireResponse::failure("failed to create listen session", vec![e.into()]),
@@ -391,7 +413,15 @@ pub async fn update_listen_session_progress(
     match result {
         Ok(r) if r.rows_affected() > 0 => {
             // update feed event
-            let _ = upsert_session_feed_event(session_id).await;
+            let feed_resp = upsert_session_feed_event(session_id).await;
+            if !feed_resp.success {
+                tracing::warn!(
+                    %session_id,
+                    message = %feed_resp.message,
+                    errors = ?feed_resp.errors,
+                    "failed to upsert session feed event on progress update"
+                );
+            }
             GrimoireResponse::success_unit("session progress updated")
         }
         Ok(_) => GrimoireResponse::failure(
@@ -436,7 +466,15 @@ pub async fn update_listen_session_status(
     match result {
         Ok(r) if r.rows_affected() > 0 => {
             // update feed event
-            let _ = upsert_session_feed_event(session_id).await;
+            let feed_resp = upsert_session_feed_event(session_id).await;
+            if !feed_resp.success {
+                tracing::warn!(
+                    %session_id,
+                    message = %feed_resp.message,
+                    errors = ?feed_resp.errors,
+                    "failed to upsert session feed event on status update"
+                );
+            }
             GrimoireResponse::success_unit("session status updated")
         }
         Ok(_) => GrimoireResponse::failure(
@@ -511,7 +549,15 @@ pub async fn update_listen_session_songs(
     match result {
         Ok(r) if r.rows_affected() > 0 => {
             // update feed event
-            let _ = upsert_session_feed_event(session_id).await;
+            let feed_resp = upsert_session_feed_event(session_id).await;
+            if !feed_resp.success {
+                tracing::warn!(
+                    %session_id,
+                    message = %feed_resp.message,
+                    errors = ?feed_resp.errors,
+                    "failed to upsert session feed event on songs update"
+                );
+            }
             GrimoireResponse::success_unit("session songs updated")
         }
         Ok(_) => GrimoireResponse::failure(

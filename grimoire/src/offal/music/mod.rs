@@ -61,6 +61,7 @@ pub async fn dispatch(
         "/api/playlists/remove-songs" => Some(playlists::remove_songs(caller, body.clone()).await),
         "/api/playlists/reorder" => Some(playlists::reorder(caller, body.clone()).await),
         "/api/playlists/songs" => Some(playlists::query_songs(caller, body.clone()).await),
+        "/api/playlists/record-play" => Some(playlists::record_play(caller, body.clone()).await),
 
         // songs
         "/api/songs/query" => Some(songs::query(caller, body.clone()).await),

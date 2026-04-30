@@ -136,6 +136,21 @@ class MediaSessionPlugin(private val activity: Activity) : Plugin(activity) {
     }
 
     private fun initSession() {
+        // if a previous session exists (activity recreated, configuration
+        // change, etc.), release it before constructing a new one. without
+        // this the system can keep dispatching media-button events to the
+        // old session while our notification PendingIntents target the new
+        // one — symptom: lock-screen controls fire callbacks we no longer
+        // route to JS, so buttons appear to do nothing.
+        mediaSession?.let {
+            try {
+                it.isActive = false
+                it.release()
+            } catch (t: Throwable) {
+                Log.w(TAG, "failed to release previous mediaSession", t)
+            }
+        }
+
         val session = MediaSessionCompat(activity, "freqhole-media-session")
         session.setCallback(object : MediaSessionCompat.Callback() {
             override fun onPlay() {
@@ -156,6 +171,16 @@ class MediaSessionPlugin(private val activity: Activity) : Plugin(activity) {
                 trigger("action", o)
             }
         })
+        // explicitly route media-button broadcasts (headset, bluetooth,
+        // some lock-screen UIs) through MediaButtonReceiver -> our
+        // foreground service -> MediaButtonReceiver.handleIntent(session)
+        // -> session callback. without this, some OEM lock screens never
+        // deliver button presses to our callback.
+        session.setMediaButtonReceiver(
+            MediaButtonReceiver.buildMediaButtonPendingIntent(
+                activity, PlaybackStateCompat.ACTION_PLAY_PAUSE,
+            ),
+        )
         session.isActive = true
         mediaSession = session
         MediaPlaybackService.activeSession = session

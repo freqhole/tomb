@@ -54,6 +54,8 @@ export interface SongRowProps {
   isHighlighted?: boolean;
   /** artist name - shown before title (for compilation albums) */
   artist?: string;
+  /** total play count to display next to duration (omit or null to hide) */
+  playCount?: number | null;
 }
 
 export function SongRow(props: SongRowProps): JSX.Element {
@@ -110,6 +112,16 @@ export function SongRow(props: SongRowProps): JSX.Element {
           <div class="text-xs text-[var(--color-text-tertiary)]">{props.artist}</div>
         </Show>
       </div>
+
+      {/* play count (before action buttons) */}
+      <Show when={props.playCount != null && props.playCount > 0}>
+        <div
+          class="text-xs text-[var(--color-text-muted)] flex-shrink-0 w-10 text-right"
+          title={`${props.playCount} plays`}
+        >
+          {props.playCount}×
+        </div>
+      </Show>
 
       {/* favorite indicator/toggle */}
       <Show when={props.isFavorite !== undefined && props.songId}>

@@ -426,7 +426,7 @@ export default function SettingsView() {
                   }
                 >
                   <img
-                    src={`data:image/png;base64,${imageThumbnail()}`}
+                    src={`data:image/webp;base64,${imageThumbnail()}`}
                     alt="server image"
                     style={{
                       width: "100%",

@@ -984,6 +984,16 @@ pub fn set_config_values(
     std::fs::write(config_path, doc.to_string())
         .map_err(|e| ConfigError::CreateFailed(format!("failed to write config: {}", e)))?;
 
+    // refresh in-memory CONFIG so subsequent get_config() calls see the
+    // updated values immediately (without requiring a process restart).
+    // we only refresh if the config has been initialized — callers using
+    // set_config_values during setup may run before init_config.
+    if is_config_initialized() {
+        if let Err(e) = init_config(Some(config_path.to_path_buf())) {
+            tracing::warn!("failed to reload config after set_config_values: {}", e);
+        }
+    }
+
     Ok(())
 }
 

@@ -531,6 +531,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
         updated_at: item.playlist.updated_at * 1000, // convert seconds to milliseconds
         is_favorite: item.is_favorite ?? undefined,
         created_by_id: item.playlist.created_by_id,
+        play_count: item.play_count ?? null,
       })),
       total: result.data.total_count,
       offset: result.data.offset,
