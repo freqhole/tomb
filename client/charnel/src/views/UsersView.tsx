@@ -259,7 +259,7 @@ export default function UsersView() {
                           >
                             <option value="admin">admin</option>
                             <option value="member">member</option>
-                            <option value="guest">guest</option>
+                            <option value="viewer">viewer</option>
                           </select>
                         </span>
                       </Show>

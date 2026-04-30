@@ -267,7 +267,7 @@ export default function FederationView() {
                 haruspex_url: "",
                 haruspex_anon_key: "",
                 auto_create_users: false,
-                default_role: "guest",
+                default_role: "viewer",
               },
         });
       }
