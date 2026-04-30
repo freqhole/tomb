@@ -223,7 +223,8 @@ pub mod type_registry {
     };
     use crate::admin_dispatch::types::peers::{
         AdminPeerNodeSummary, AdminPeerSummary, AdminPeersAllowRequest, AdminPeersAllowResponse,
-        AdminPeersListForUserRequest, AdminPeersRemoveRequest,
+        AdminPeersListAllRequest, AdminPeersListForUserRequest, AdminPeersRemoveRequest,
+        AdminPeersRestoreRequest,
     };
     use crate::admin_dispatch::types::radio::{
         RadioBumper, RadioBumpersAddRequest, RadioBumpersListRequest, RadioBumpersRemoveRequest,
@@ -235,7 +236,8 @@ pub mod type_registry {
     };
     use crate::admin_dispatch::types::users::{
         AdminAccountLinkResponse, AdminUserSummary, AdminUsersDeleteRequest,
-        AdminUsersGenerateAccountLinkRequest, AdminUsersGetRequest, AdminUsersListRequest,
+        AdminUsersGenerateAccountLinkRequest, AdminUsersGetRequest,
+        AdminUsersHardDeleteRequest, AdminUsersListRequest, AdminUsersRestoreRequest,
         AdminUsersUpdateRoleRequest,
     };
 
@@ -820,6 +822,10 @@ pub mod type_registry {
         registered.insert("AdminUsersUpdateRoleRequest".to_string());
         gen.add_schema::<AdminUsersDeleteRequest>("AdminUsersDeleteRequest");
         registered.insert("AdminUsersDeleteRequest".to_string());
+        gen.add_schema::<AdminUsersHardDeleteRequest>("AdminUsersHardDeleteRequest");
+        registered.insert("AdminUsersHardDeleteRequest".to_string());
+        gen.add_schema::<AdminUsersRestoreRequest>("AdminUsersRestoreRequest");
+        registered.insert("AdminUsersRestoreRequest".to_string());
         gen.add_schema::<AdminUsersGenerateAccountLinkRequest>(
             "AdminUsersGenerateAccountLinkRequest",
         );
@@ -852,8 +858,12 @@ pub mod type_registry {
         registered.insert("AdminPeerNodeSummary".to_string());
         gen.add_schema::<AdminPeersListForUserRequest>("AdminPeersListForUserRequest");
         registered.insert("AdminPeersListForUserRequest".to_string());
+        gen.add_schema::<AdminPeersListAllRequest>("AdminPeersListAllRequest");
+        registered.insert("AdminPeersListAllRequest".to_string());
         gen.add_schema::<AdminPeersRemoveRequest>("AdminPeersRemoveRequest");
         registered.insert("AdminPeersRemoveRequest".to_string());
+        gen.add_schema::<AdminPeersRestoreRequest>("AdminPeersRestoreRequest");
+        registered.insert("AdminPeersRestoreRequest".to_string());
         gen.add_schema::<AdminPeersAllowRequest>("AdminPeersAllowRequest");
         registered.insert("AdminPeersAllowRequest".to_string());
         gen.add_schema::<AdminPeersAllowResponse>("AdminPeersAllowResponse");

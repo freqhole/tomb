@@ -69,6 +69,8 @@ interface PeerNodeInfo {
   last_seen_at: number | null;
   username: string;
   role: string;
+  deleted_at?: number | null;
+  user_deleted_at?: number | null;
 }
 
 interface KnockInfo {
@@ -80,6 +82,8 @@ interface KnockInfo {
   created_at: number;
   processed_at: number | null;
   processed_by: string | null;
+  from_deleted_peer?: boolean;
+  deleted_user_username?: string | null;
 }
 
 export default function FederationView() {
@@ -119,6 +123,10 @@ export default function FederationView() {
   const [peerNodes, setPeerNodes] = createSignal<PeerNodeInfo[]>([]);
   const [peersLoading, setPeersLoading] = createSignal(false);
   const [removingPeerId, setRemovingPeerId] = createSignal<string | null>(null);
+  const [restoringPeerId, setRestoringPeerId] = createSignal<string | null>(
+    null,
+  );
+  const [includeDeletedPeers, setIncludeDeletedPeers] = createSignal(false);
 
   // knock requests
   const [knocks, setKnocks] = createSignal<KnockInfo[]>([]);
@@ -152,6 +160,12 @@ export default function FederationView() {
       await loadPeers();
       await loadKnocks();
     })();
+  });
+
+  // reload peer list whenever the include-deleted toggle changes
+  createEffect(() => {
+    includeDeletedPeers();
+    void loadPeers();
   });
 
   // auto-refresh knocks periodically when federation is enabled
@@ -317,13 +331,30 @@ export default function FederationView() {
     try {
       const peers = await admin.dispatchOrThrow<PeerNodeInfo[]>(
         "peers_list_all",
-        {},
+        { include_deleted: includeDeletedPeers() },
       );
       setPeerNodes(peers);
     } catch (e) {
       console.error("failed to load peers:", e);
     } finally {
       setPeersLoading(false);
+    }
+  }
+
+  async function restorePeer(userId: string, nodeId: string) {
+    setRestoringPeerId(nodeId);
+    setError("");
+    try {
+      await admin.dispatchOrThrow("peers_restore", {
+        user_id: userId,
+        node_id: nodeId,
+      });
+      await loadPeers();
+      setSuccess("peer restored");
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setRestoringPeerId(null);
     }
   }
 
@@ -648,6 +679,24 @@ export default function FederationView() {
                             : formatNodeId(knock.node_id)}
                         </div>
                       </div>
+                      <Show when={knock.from_deleted_peer}>
+                        <div
+                          class="knock-message"
+                          style={{
+                            background: "rgba(239,68,68,0.15)",
+                            color: "#ef4444",
+                            "border-left": "3px solid #ef4444",
+                            padding: "0.5rem",
+                          }}
+                        >
+                          this node belongs to a soft-deleted peer
+                          <Show when={knock.deleted_user_username}>
+                            <> (user “{knock.deleted_user_username}”)</>
+                          </Show>
+                          . restore the user/peer in the federation view before
+                          accepting.
+                        </div>
+                      </Show>
                       <Show when={knock.message}>
                         <div class="knock-message">{knock.message}</div>
                       </Show>
@@ -724,7 +773,15 @@ export default function FederationView() {
                           <button
                             class="small"
                             onClick={() => setExpandedKnockId(knock.id)}
-                            disabled={processingKnockId() === knock.id}
+                            disabled={
+                              processingKnockId() === knock.id ||
+                              knock.from_deleted_peer
+                            }
+                            title={
+                              knock.from_deleted_peer
+                                ? "restore the deleted user/peer first"
+                                : undefined
+                            }
                           >
                             accept
                           </button>
@@ -851,47 +908,113 @@ export default function FederationView() {
               </form>
             </details>
 
+            <div class="section-actions" style="margin-bottom: 0.5rem">
+              <div class="flex-spacer" />
+              <button
+                class={`small ${includeDeletedPeers() ? "active" : "secondary"}`}
+                onClick={() => setIncludeDeletedPeers(!includeDeletedPeers())}
+              >
+                {includeDeletedPeers() ? (
+                  <>
+                    hide deleted peer<span class="pinky">z</span>
+                  </>
+                ) : (
+                  <>
+                    show deleted peer<span class="pinky">z</span>
+                  </>
+                )}
+              </button>
+            </div>
+
             {/* peer list */}
             <Show when={peerNodes().length > 0}>
               <div class="peer-list">
                 <For each={peerNodes()}>
-                  {(peer) => (
-                    <div class="peer-item">
-                      <div class="peer-info">
-                        <span class="peer-username">{peer.username}</span>
-                        <span class="peer-role">{peer.role}</span>
-                      </div>
+                  {(peer) => {
+                    const isDeleted = () =>
+                      !!peer.deleted_at || !!peer.user_deleted_at;
+                    return (
                       <div
-                        class="peer-node-id clickable"
-                        title="click to copy to clipboard"
-                        onClick={async () => {
-                          await navigator.clipboard.writeText(peer.node_id);
-                          setCopiedPeerNodeId(peer.node_id);
-                          setTimeout(() => setCopiedPeerNodeId(null), 3000);
-                        }}
+                        class="peer-item"
+                        style={isDeleted() ? { opacity: 0.6 } : {}}
                       >
-                        {copiedPeerNodeId() === peer.node_id
-                          ? "copied!"
-                          : formatNodeId(peer.node_id)}
-                      </div>
-                      <div class="peer-meta">
-                        <span>added {formatTimestamp(peer.created_at)}</span>
-                        <Show when={peer.instance_name}>
-                          <span class="instance-name">
-                            {peer.instance_name}
+                        <div class="peer-info">
+                          <span
+                            class="peer-username"
+                            style={
+                              isDeleted()
+                                ? { "text-decoration": "line-through" }
+                                : {}
+                            }
+                          >
+                            {peer.username}
                           </span>
+                          <span class="peer-role">{peer.role}</span>
+                          <Show when={isDeleted()}>
+                            <span
+                              class="peer-role"
+                              style={{
+                                background: "rgba(239,68,68,0.2)",
+                                color: "#ef4444",
+                              }}
+                            >
+                              {peer.user_deleted_at
+                                ? "user deleted"
+                                : "deleted"}
+                            </span>
+                          </Show>
+                        </div>
+                        <div
+                          class="peer-node-id clickable"
+                          title="click to copy to clipboard"
+                          onClick={async () => {
+                            await navigator.clipboard.writeText(peer.node_id);
+                            setCopiedPeerNodeId(peer.node_id);
+                            setTimeout(() => setCopiedPeerNodeId(null), 3000);
+                          }}
+                        >
+                          {copiedPeerNodeId() === peer.node_id
+                            ? "copied!"
+                            : formatNodeId(peer.node_id)}
+                        </div>
+                        <div class="peer-meta">
+                          <span>added {formatTimestamp(peer.created_at)}</span>
+                          <Show when={peer.instance_name}>
+                            <span class="instance-name">
+                              {peer.instance_name}
+                            </span>
+                          </Show>
+                        </div>
+                        <Show
+                          when={!peer.deleted_at}
+                          fallback={
+                            <button
+                              class="peer-remove"
+                              onClick={() =>
+                                restorePeer(peer.user_id, peer.node_id)
+                              }
+                              disabled={restoringPeerId() === peer.node_id}
+                              title="restore peer"
+                              style={{ color: "#ffffff" }}
+                            >
+                              {restoringPeerId() === peer.node_id ? "..." : "↻"}
+                            </button>
+                          }
+                        >
+                          <button
+                            class="peer-remove"
+                            onClick={() =>
+                              removePeer(peer.user_id, peer.node_id)
+                            }
+                            disabled={removingPeerId() === peer.node_id}
+                            title="remove peer"
+                          >
+                            {removingPeerId() === peer.node_id ? "..." : "×"}
+                          </button>
                         </Show>
                       </div>
-                      <button
-                        class="peer-remove"
-                        onClick={() => removePeer(peer.user_id, peer.node_id)}
-                        disabled={removingPeerId() === peer.node_id}
-                        title="remove peer"
-                      >
-                        {removingPeerId() === peer.node_id ? "..." : "×"}
-                      </button>
-                    </div>
-                  )}
+                    );
+                  }}
                 </For>
               </div>
             </Show>

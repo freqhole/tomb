@@ -5,6 +5,7 @@
 //! - `users_get` -> `AdminUserSummary`
 //! - `users_update_role` -> `EmptyResponse`
 //! - `users_delete` -> `EmptyResponse`
+//! - `users_hard_delete` -> `EmptyResponse`
 //! - `users_generate_account_link` -> `AdminAccountLinkResponse`
 //!
 //! role fields are serialized as lowercase strings ("root" | "admin" |
@@ -82,6 +83,21 @@ pub struct AdminUsersUpdateRoleRequest {
 /// request for `users_delete`.
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct AdminUsersDeleteRequest {
+    pub user_id: String,
+}
+
+/// request for `users_hard_delete` (permanent "delete forever"; bypasses
+/// soft-delete and removes the user_accountz row plus FK references).
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct AdminUsersHardDeleteRequest {
+    pub user_id: String,
+}
+
+/// request for `users_restore` (clears `deleted_at` on a soft-deleted user
+/// and cascade-restores any peer nodes that were soft-deleted at the same
+/// timestamp).
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct AdminUsersRestoreRequest {
     pub user_id: String,
 }
 

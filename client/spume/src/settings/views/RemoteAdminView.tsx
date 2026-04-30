@@ -560,7 +560,9 @@ function UsersSection(props: { client: AdminClient; remote: Remote }) {
             username: null,
             role: null,
           }),
-          props.client.dispatchOrThrow("peers_list_all", undefined),
+          props.client.dispatchOrThrow("peers_list_all", {
+            include_deleted: deleted,
+          }),
         ]);
         const peersByUser = new Map<string, AdminPeerSummary[]>();
         for (const p of peers) {
@@ -583,7 +585,10 @@ function UsersSection(props: { client: AdminClient; remote: Remote }) {
 
   const [updating, setUpdating] = createSignal<string | null>(null);
   const [deleting, setDeleting] = createSignal<string | null>(null);
+  const [hardDeleting, setHardDeleting] = createSignal<string | null>(null);
+  const [restoring, setRestoring] = createSignal<string | null>(null);
   const [removingPeer, setRemovingPeer] = createSignal<string | null>(null);
+  const [restoringPeer, setRestoringPeer] = createSignal<string | null>(null);
   const [showAllowForm, setShowAllowForm] = createSignal(false);
 
   const handleRoleChange = async (user: AdminUserSummary, role: string) => {
@@ -614,6 +619,40 @@ function UsersSection(props: { client: AdminClient; remote: Remote }) {
     }
   };
 
+  const handleRestore = async (user: AdminUserSummary) => {
+    setRestoring(user.id);
+    try {
+      await props.client.dispatchOrThrow("users_restore", { user_id: user.id });
+      toast.success(`${user.username} restored`);
+      refresh();
+    } catch (e) {
+      toast.error(`restore failed: ${adminErrMessage(e)}`);
+    } finally {
+      setRestoring(null);
+    }
+  };
+
+  const handleHardDelete = async (user: AdminUserSummary) => {
+    if (
+      !confirm(
+        `permanently delete ${user.username} forever?\n\nthis removes the account and all FK references that don't cascade. this cannot be undone.`,
+      )
+    )
+      return;
+    setHardDeleting(user.id);
+    try {
+      await props.client.dispatchOrThrow("users_hard_delete", {
+        user_id: user.id,
+      });
+      toast.success(`${user.username} permanently deleted`);
+      refresh();
+    } catch (e) {
+      toast.error(`hard delete failed: ${adminErrMessage(e)}`);
+    } finally {
+      setHardDeleting(null);
+    }
+  };
+
   const generateLink = async (user: AdminUserSummary): Promise<string> => {
     const resp = await props.client.dispatchOrThrow("users_generate_account_link", {
       user_id: user.id,
@@ -639,19 +678,38 @@ function UsersSection(props: { client: AdminClient; remote: Remote }) {
     }
   };
 
+  const handleRestorePeer = async (peer: AdminPeerSummary) => {
+    const key = `${peer.user_id}:${peer.node_id}`;
+    setRestoringPeer(key);
+    try {
+      await props.client.dispatchOrThrow("peers_restore", {
+        user_id: peer.user_id,
+        node_id: peer.node_id,
+      });
+      toast.success("peer restored");
+      refresh();
+    } catch (e) {
+      toast.error(`restore failed: ${adminErrMessage(e)}`);
+    } finally {
+      setRestoringPeer(null);
+    }
+  };
+
   return (
     <section class="rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-elevated)] p-5">
       <div class="flex items-center justify-between mb-4">
         <h2 class="text-lg font-semibold text-[var(--color-text-primary)]">users &amp; peers</h2>
         <div class="flex items-center gap-2">
-          <label class="flex items-center gap-2 text-xs text-[var(--color-text-muted)]">
-            <input
-              type="checkbox"
-              checked={includeDeleted()}
-              onChange={(e) => setIncludeDeleted(e.currentTarget.checked)}
-            />
-            include deleted
-          </label>
+          <button
+            class={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors active:scale-95 ${
+              includeDeleted()
+                ? "bg-red-600/20 hover:bg-red-600/30 text-red-400 border-red-600/30"
+                : "bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-bg-quaternary)] text-[var(--color-text-secondary)] border-[var(--color-border-subtle)]"
+            }`}
+            onClick={() => setIncludeDeleted(!includeDeleted())}
+          >
+            {includeDeleted() ? "hide deleted" : "show deleted"}
+          </button>
           <button
             class="px-3 py-1.5 text-xs font-medium rounded-lg bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-bg-quaternary)] text-[var(--color-text-secondary)] border border-[var(--color-border-subtle)] transition-colors active:scale-95"
             onClick={() => setShowAllowForm((v) => !v)}
@@ -763,6 +821,27 @@ function UsersSection(props: { client: AdminClient; remote: Remote }) {
                         >
                           {deleting() === user.id ? "..." : "delete"}
                         </button>
+                        <Show when={user.deleted_at}>
+                          <button
+                            class="px-2 py-1 text-xs font-medium rounded bg-green-600/20 hover:bg-green-600/30 text-white border border-green-600/30 transition-all duration-150 disabled:opacity-50 active:scale-95"
+                            disabled={restoring() === user.id}
+                            onClick={() => handleRestore(user)}
+                          >
+                            {restoring() === user.id ? "..." : "restore"}
+                          </button>
+                          <button
+                            class="px-2 py-1 text-xs font-medium rounded bg-red-700/30 hover:bg-red-700/50 text-red-300 border border-red-700/40 transition-all duration-150 disabled:opacity-50 active:scale-95"
+                            disabled={
+                              hardDeleting() === user.id || user.role === "root"
+                            }
+                            onClick={() => handleHardDelete(user)}
+                            title="permanently delete forever"
+                          >
+                            {hardDeleting() === user.id
+                              ? "..."
+                              : "delete forever"}
+                          </button>
+                        </Show>
                       </div>
                     </div>
 
@@ -771,15 +850,25 @@ function UsersSection(props: { client: AdminClient; remote: Remote }) {
                         <For each={peers()}>
                           {(peer) => {
                             const key = `${peer.user_id}:${peer.node_id}`;
+                            const peerDeleted = () => !!peer.deleted_at;
                             return (
-                              <div class="flex items-center gap-2 text-xs flex-wrap">
+                              <div
+                                class="flex items-center gap-2 text-xs flex-wrap"
+                                classList={{ "opacity-60": peerDeleted() }}
+                              >
                                 <span class="text-[var(--color-text-muted)]">node id:</span>
                                 <code
                                   class="flex-1 min-w-0 truncate text-[var(--color-text-secondary)]"
+                                  classList={{ "line-through": peerDeleted() }}
                                   title={peer.node_id}
                                 >
                                   {truncateMiddle(peer.node_id, 28)}
                                 </code>
+                                <Show when={peerDeleted()}>
+                                  <span class="text-xs px-1.5 py-0.5 rounded bg-red-600/20 text-red-400">
+                                    deleted
+                                  </span>
+                                </Show>
                                 <Show when={peer.instance_name}>
                                   <span class="text-[var(--color-text-muted)]">
                                     ({peer.instance_name})
@@ -799,13 +888,26 @@ function UsersSection(props: { client: AdminClient; remote: Remote }) {
                                   copiedLabel="copied!"
                                   title="copy node id"
                                 />
-                                <button
-                                  class="px-2 py-1 text-xs font-medium rounded bg-red-600/20 hover:bg-red-600/30 text-red-400 border border-red-600/30 transition-all duration-150 disabled:opacity-50 active:scale-95"
-                                  disabled={removingPeer() === key}
-                                  onClick={() => handleRemovePeer(peer)}
+                                <Show
+                                  when={!peerDeleted()}
+                                  fallback={
+                                    <button
+                                      class="px-2 py-1 text-xs font-medium rounded bg-green-600/20 hover:bg-green-600/30 text-green-400 border border-green-600/30 transition-all duration-150 disabled:opacity-50 active:scale-95"
+                                      disabled={restoringPeer() === key}
+                                      onClick={() => handleRestorePeer(peer)}
+                                    >
+                                      {restoringPeer() === key ? "..." : "restore"}
+                                    </button>
+                                  }
                                 >
-                                  {removingPeer() === key ? "..." : "remove"}
-                                </button>
+                                  <button
+                                    class="px-2 py-1 text-xs font-medium rounded bg-red-600/20 hover:bg-red-600/30 text-red-400 border border-red-600/30 transition-all duration-150 disabled:opacity-50 active:scale-95"
+                                    disabled={removingPeer() === key}
+                                    onClick={() => handleRemovePeer(peer)}
+                                  >
+                                    {removingPeer() === key ? "..." : "remove"}
+                                  </button>
+                                </Show>
                               </div>
                             );
                           }}

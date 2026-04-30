@@ -141,6 +141,12 @@ pub struct UserPeerNode {
     pub metadata: Option<String>,
     pub created_at: i64,
     pub last_seen_at: Option<i64>,
+    /// soft-delete timestamp. set when the node is removed via the admin
+    /// ui or when the owning user is soft-deleted (cascade). active rows
+    /// have `deleted_at = None`. node_id is unique across the whole table
+    /// (including soft-deleted rows) so a deleted node_id cannot be
+    /// silently re-registered without an admin restoring it first.
+    pub deleted_at: Option<i64>,
 }
 
 /// Peer node with associated user information for listing
@@ -153,6 +159,10 @@ pub struct PeerNodeWithUser {
     pub last_seen_at: Option<i64>,
     pub username: String,
     pub role: String,
+    /// soft-delete timestamp on the peer row (independent of user delete).
+    pub deleted_at: Option<i64>,
+    /// soft-delete timestamp on the joined user row.
+    pub user_deleted_at: Option<i64>,
 }
 
 impl User {

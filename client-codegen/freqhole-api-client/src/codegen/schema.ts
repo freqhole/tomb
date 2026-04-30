@@ -92,7 +92,8 @@ export const AdminPeerNodeSummarySchema = z.object({
   node_id: z.string(),
   instance_name: z.string().nullish(),
   created_at: z.number(),
-  last_seen_at: z.number().nullish()
+  last_seen_at: z.number().nullish(),
+  deleted_at: z.number().nullish()
 });
 export type AdminPeerNodeSummary = z.infer<typeof AdminPeerNodeSummarySchema>;
 
@@ -103,7 +104,9 @@ export const AdminPeerSummarySchema = z.object({
   created_at: z.number(),
   last_seen_at: z.number().nullish(),
   username: z.string(),
-  role: z.string()
+  role: z.string(),
+  deleted_at: z.number().nullish(),
+  user_deleted_at: z.number().nullish()
 });
 export type AdminPeerSummary = z.infer<typeof AdminPeerSummarySchema>;
 
@@ -123,8 +126,14 @@ export const AdminPeersAllowResponseSchema = z.object({
 });
 export type AdminPeersAllowResponse = z.infer<typeof AdminPeersAllowResponseSchema>;
 
+export const AdminPeersListAllRequestSchema = z.object({
+  include_deleted: z.boolean().nullish()
+});
+export type AdminPeersListAllRequest = z.infer<typeof AdminPeersListAllRequestSchema>;
+
 export const AdminPeersListForUserRequestSchema = z.object({
-  user_id: z.string()
+  user_id: z.string(),
+  include_deleted: z.boolean().nullish()
 });
 export type AdminPeersListForUserRequest = z.infer<typeof AdminPeersListForUserRequestSchema>;
 
@@ -133,6 +142,12 @@ export const AdminPeersRemoveRequestSchema = z.object({
   node_id: z.string()
 });
 export type AdminPeersRemoveRequest = z.infer<typeof AdminPeersRemoveRequestSchema>;
+
+export const AdminPeersRestoreRequestSchema = z.object({
+  user_id: z.string(),
+  node_id: z.string()
+});
+export type AdminPeersRestoreRequest = z.infer<typeof AdminPeersRestoreRequestSchema>;
 
 export const AdminUserSummarySchema = z.object({
   id: z.string(),
@@ -160,6 +175,11 @@ export const AdminUsersGetRequestSchema = z.object({
 });
 export type AdminUsersGetRequest = z.infer<typeof AdminUsersGetRequestSchema>;
 
+export const AdminUsersHardDeleteRequestSchema = z.object({
+  user_id: z.string()
+});
+export type AdminUsersHardDeleteRequest = z.infer<typeof AdminUsersHardDeleteRequestSchema>;
+
 export const AdminUsersListRequestSchema = z.object({
   include_deleted: z.boolean().nullish(),
   limit: z.number().nullish(),
@@ -168,6 +188,11 @@ export const AdminUsersListRequestSchema = z.object({
   role: z.string().nullish()
 });
 export type AdminUsersListRequest = z.infer<typeof AdminUsersListRequestSchema>;
+
+export const AdminUsersRestoreRequestSchema = z.object({
+  user_id: z.string()
+});
+export type AdminUsersRestoreRequest = z.infer<typeof AdminUsersRestoreRequestSchema>;
 
 export const AdminUsersUpdateRoleRequestSchema = z.object({
   user_id: z.string(),
@@ -1621,7 +1646,9 @@ export const KnockRequestSchema = z.object({
   status: z.union([z.literal("pending"), z.literal("accepted"), z.literal("rejected")]),
   created_at: z.number(),
   processed_at: z.number().nullish(),
-  processed_by: z.string().nullish()
+  processed_by: z.string().nullish(),
+  from_deleted_peer: z.boolean(),
+  deleted_user_username: z.string().nullish()
 });
 export type KnockRequest = z.infer<typeof KnockRequestSchema>;
 

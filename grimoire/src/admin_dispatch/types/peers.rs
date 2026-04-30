@@ -4,6 +4,7 @@
 //! - `peers_list_all` -> `Vec<AdminPeerSummary>`
 //! - `peers_list_for_user` -> `Vec<AdminPeerNodeSummary>`
 //! - `peers_remove` -> `EmptyResponse`
+//! - `peers_restore` -> `EmptyResponse`
 //! - `peers_allow` -> `AdminPeersAllowResponse`
 
 use serde::{Deserialize, Serialize};
@@ -25,6 +26,10 @@ pub struct AdminPeerSummary {
     pub username: String,
     /// lowercase role string ("root"|"admin"|"member"|"viewer")
     pub role: String,
+    /// soft-delete timestamp on the peer row itself.
+    pub deleted_at: Option<i64>,
+    /// soft-delete timestamp on the joined user row.
+    pub user_deleted_at: Option<i64>,
 }
 
 impl From<PeerNodeWithUser> for AdminPeerSummary {
@@ -37,6 +42,8 @@ impl From<PeerNodeWithUser> for AdminPeerSummary {
             last_seen_at: p.last_seen_at,
             username: p.username,
             role: p.role,
+            deleted_at: p.deleted_at,
+            user_deleted_at: p.user_deleted_at,
         }
     }
 }
@@ -49,6 +56,7 @@ pub struct AdminPeerNodeSummary {
     pub instance_name: Option<String>,
     pub created_at: i64,
     pub last_seen_at: Option<i64>,
+    pub deleted_at: Option<i64>,
 }
 
 impl From<UserPeerNode> for AdminPeerNodeSummary {
@@ -59,19 +67,35 @@ impl From<UserPeerNode> for AdminPeerNodeSummary {
             instance_name: p.instance_name,
             created_at: p.created_at,
             last_seen_at: p.last_seen_at,
+            deleted_at: p.deleted_at,
         }
     }
+}
+
+/// request for `peers_list_all`. when `include_deleted` is true,
+/// soft-deleted peers and peers under soft-deleted users are returned.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, ZodSchema)]
+pub struct AdminPeersListAllRequest {
+    pub include_deleted: Option<bool>,
 }
 
 /// request for `peers_list_for_user`.
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct AdminPeersListForUserRequest {
     pub user_id: String,
+    pub include_deleted: Option<bool>,
 }
 
-/// request for `peers_remove`.
+/// request for `peers_remove` (soft-delete).
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct AdminPeersRemoveRequest {
+    pub user_id: String,
+    pub node_id: String,
+}
+
+/// request for `peers_restore` (clear `deleted_at` on a peer node).
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct AdminPeersRestoreRequest {
     pub user_id: String,
     pub node_id: String,
 }
