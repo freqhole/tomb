@@ -34,6 +34,18 @@ export {
 // re-export queue limit constant
 export { QUEUE_SIZE_LIMIT } from "./queueLimit";
 
+// source types whose `playQueue` calls should replace the current queue
+// rather than insert after the currently-playing song. selecting an album,
+// artist, genre, playlist, or shuffle (of an album/playlist) wipes whatever
+// was queued before. single songs and radio stations still insert after.
+const REPLACE_SOURCE_TYPES: ReadonlySet<string> = new Set([
+  "album",
+  "artist",
+  "genre",
+  "playlist",
+  "shuffle",
+]);
+
 // check if songs can be structured-cloned (required for Tauri IPC and IndexedDB)
 // logs a warning with diagnostic info if cloning fails after unwrapping
 function assertCloneable(songs: Song[], context: string): void {
@@ -127,6 +139,43 @@ export async function playQueue(
 
     if (options?.source) {
       const entryId = await addHistoryEntry(finalSongs, options.source, options.resumeProgress);
+      if (entryId) {
+        if (options.resumeProgress) {
+          resumeTracking(entryId, options.resumeProgress);
+        } else {
+          startTracking(entryId);
+        }
+      }
+      if (!options?.skipServerSession) {
+        void createServerSession(finalSongs, options.source, entryId ?? undefined);
+      }
+    }
+    return;
+  }
+
+  // explicit replace: when the source is an album/artist/genre/playlist/shuffle
+  // we wipe the current queue and start fresh (same shape as the empty-queue
+  // branch above, but with cleanup of any prior tracking/server session).
+  const shouldReplace =
+    options?.source && REPLACE_SOURCE_TYPES.has(options.source.type);
+  if (shouldReplace) {
+    // tear down prior tracking + server session before swapping queues so
+    // we don't end up with two listen sessions racing on the same songs.
+    stopTracking(true);
+    void stopServerSession("abandoned");
+    clearAllQueueProgress();
+    clearPendingUpNext();
+
+    await setQueue(finalSongs);
+    await playSong(finalSongs[startIndex], { userInitiated: true });
+    void preCacheNextP2PSongs(finalSongs[startIndex].sha256, finalSongs);
+
+    if (options?.source) {
+      const entryId = await addHistoryEntry(
+        finalSongs,
+        options.source,
+        options.resumeProgress,
+      );
       if (entryId) {
         if (options.resumeProgress) {
           resumeTracking(entryId, options.resumeProgress);
