@@ -99,6 +99,11 @@ pub async fn regenerate_api_key(
         .api_key
         .ok_or_else(|| ApiError::Internal("API key not generated".to_string()))?;
 
+    // bust the in-process api-key cache so the OLD key (if any) stops
+    // resolving to this user. clearing all is cheap and safer than
+    // tracking the previous key value here.
+    crate::auth::middleware::clear_api_key_cache();
+
     let response = ApiKeyRegenerateResponse {
         api_key: api_key.clone(),
         message:

@@ -6,9 +6,49 @@ use axum::{
     middleware::Next,
     response::Response,
 };
+use std::collections::HashMap;
+use std::sync::RwLock;
 use tower_sessions::Session;
 
 use crate::{auth::session, error::ApiError, state::AppState};
+
+/// in-process cache of api_key -> AuthenticatedUser.
+///
+/// avoids hitting sqlite on every byte-range request from the embedded
+/// media server (`<audio>` issues many range gets per song; each one would
+/// otherwise do a full SELECT on user_accountz). api keys are stable for
+/// the lifetime of a user — invalidated explicitly by `invalidate_api_key`
+/// when a key is rotated. on-disk cap is irrelevant here: realistic usage
+/// is 1-N users, and `User` is small.
+static API_KEY_CACHE: RwLock<Option<HashMap<String, AuthenticatedUser>>> = RwLock::new(None);
+
+/// remove a single api key from the cache. call this whenever a user's
+/// api key is rotated or the user is deleted.
+pub fn invalidate_api_key(api_key: &str) {
+    if let Ok(mut guard) = API_KEY_CACHE.write() {
+        if let Some(map) = guard.as_mut() {
+            map.remove(api_key);
+        }
+    }
+}
+
+/// clear the entire api-key cache. cheap; safe to call from any thread.
+pub fn clear_api_key_cache() {
+    if let Ok(mut guard) = API_KEY_CACHE.write() {
+        *guard = None;
+    }
+}
+
+fn cache_lookup(api_key: &str) -> Option<AuthenticatedUser> {
+    let guard = API_KEY_CACHE.read().ok()?;
+    guard.as_ref()?.get(api_key).cloned()
+}
+
+fn cache_insert(api_key: String, user: AuthenticatedUser) {
+    if let Ok(mut guard) = API_KEY_CACHE.write() {
+        guard.get_or_insert_with(HashMap::new).insert(api_key, user);
+    }
+}
 
 /// validated webauthn origin config extracted from request
 ///
@@ -96,14 +136,26 @@ fn extract_api_key_from_query(query: Option<&str>) -> Option<String> {
     None
 }
 
+/// validate an API key and return AuthenticatedUser if valid.
+/// publicly exported as `validate_api_key_cached` for the media server.
+pub async fn validate_api_key_cached(api_key: &str) -> Option<AuthenticatedUser> {
+    validate_api_key(api_key).await
+}
+
 /// validate an API key and return AuthenticatedUser if valid
 async fn validate_api_key(api_key: &str) -> Option<AuthenticatedUser> {
+    if let Some(cached) = cache_lookup(api_key) {
+        return Some(cached);
+    }
     let response = grimoire::users::find_user_by_api_key(api_key).await;
-    response.data.map(|user| AuthenticatedUser {
+    let user = response.data?;
+    let auth_user = AuthenticatedUser {
         user_id: user.id,
         username: user.username,
         role: user.role,
-    })
+    };
+    cache_insert(api_key.to_string(), auth_user.clone());
+    Some(auth_user)
 }
 
 /// validate origin middleware
@@ -179,13 +231,7 @@ pub async fn optional_auth(session: Session, mut request: Request, next: Next) -
     if let Some(auth_header) = request.headers().get("authorization") {
         if let Ok(auth_str) = auth_header.to_str() {
             if let Some(api_key) = auth_str.strip_prefix("Bearer ") {
-                let response = grimoire::users::find_user_by_api_key(api_key).await;
-                if let Some(user) = response.data {
-                    let auth_user = AuthenticatedUser {
-                        user_id: user.id,
-                        username: user.username,
-                        role: user.role,
-                    };
+                if let Some(auth_user) = validate_api_key(api_key).await {
                     request.extensions_mut().insert(auth_user);
                 }
             }

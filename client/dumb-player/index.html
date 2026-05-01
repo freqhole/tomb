@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="stylesheet" href="/src/styles.css" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>dumb player</title>
+    <script type="module" src="/src/main.ts" defer></script>
+  </head>
+  <body>
+    <main class="container">
+      <h1>dumb player</h1>
+      <p>pick one or more audio files, then try a/b/c/d/e/f playback paths (multi-file = gapless queue, only used by f)</p>
+      <div class="row">
+        <button id="pick-btn" type="button">1. pick audio file(s)</button>
+      </div>
+      <p id="status">no file selected</p>
+      <div class="row">
+        <button id="play-blob-btn" type="button" disabled>
+          a) blob: + &lt;audio&gt; (prolly shit)
+        </button>
+        <button id="play-mse-btn" type="button" disabled>
+          b) mse + &lt;audio&gt; (prolly less-shit?)
+        </button>
+        <button id="play-webaudio-btn" type="button" disabled>
+          c) web audio (prolly good?)
+        </button>
+        <button id="play-worklet-btn" type="button" disabled>
+          d) worker decode + audioworklet (prolly best?)
+        </button>
+        <button id="play-bigbuf-btn" type="button" disabled>
+          e) web audio + big buffer (latencyHint=0.5s, maybe better? maybe not?)
+        </button>
+        <button id="play-rodio-btn" type="button" disabled>
+          f) rodio (cpal+symphonia, no webkitgtk so possibly best option?)
+        </button>
+        <button id="stop-btn" type="button" disabled>stop</button>
+      </div>
+      <div class="row" id="rodio-controls" style="display:none">
+        <button id="rodio-pause-btn" type="button">pause</button>
+        <button id="rodio-resume-btn" type="button">resume</button>
+        <label>seek (s): <input id="rodio-seek-input" type="number" min="0" step="1" value="0" style="width:6rem"></label>
+        <button id="rodio-seek-btn" type="button">seek</button>
+        <label>vol: <input id="rodio-vol-input" type="range" min="0" max="1.5" step="0.05" value="1"></label>
+        <span id="rodio-status">idle</span>
+      </div>
+      <div class="row" id="wa-controls" style="display:none">
+        <span id="wa-status">idle</span>
+      </div>
+      <audio id="audio" controls preload="auto" style="display:none"></audio>
+      <div class="row">
+        <button id="copy-log-btn" type="button">copy logz</button>
+        <button id="clear-log-btn" type="button">clear logz</button>
+      </div>
+      <pre id="log"></pre>
+    </main>
+  </body>
+</html>

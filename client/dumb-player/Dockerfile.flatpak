@@ -1,0 +1,15 @@
+# Dockerfile for building dumb-player Flatpak from a pre-built .deb
+# adapted from tomb/Dockerfile.flatpak — self-contained
+FROM fedora:40
+
+RUN dnf install -y flatpak binutils && dnf clean all
+
+RUN flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo && \
+    flatpak install -y --noninteractive flathub org.gnome.Platform//50 org.gnome.Sdk//50
+
+WORKDIR /app
+COPY flatpak/build-flatpak.sh /app/build-flatpak.sh
+COPY flatpak/net.freqhole.dumbplayer.metainfo.xml /app/net.freqhole.dumbplayer.metainfo.xml
+RUN chmod +x /app/build-flatpak.sh
+
+ENTRYPOINT ["/app/build-flatpak.sh"]

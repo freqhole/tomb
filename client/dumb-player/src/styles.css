@@ -1,0 +1,18 @@
+:root {
+  font-family: system-ui, -apple-system, sans-serif;
+  font-size: 14px;
+  background: #1e1e1e;
+  color: #ddd;
+}
+body { margin: 0; }
+.container { max-width: 720px; margin: 0 auto; padding: 1.5rem; }
+h1 { font-size: 1.4rem; margin: 0 0 0.5rem; }
+button { padding: 0.6rem 1rem; font-size: 1rem; background: #ff11ff; color: white; border: none; border-radius: 6px; cursor: pointer; }
+button:hover { background: #eeddee; color: black;}
+button:disabled { background: #444; color: #888; cursor: not-allowed; }
+button.selected { background: #b06bff; color: white; }
+.row { display: flex; gap: 0.5rem; flex-wrap: wrap; margin: 0.5rem 0; }
+#status { font-family: ui-monospace, monospace; font-size: 0.85rem; word-break: break-all; color: #888; margin: 0.75rem 0; }
+audio { width: 100%; margin: 0.5rem 0 1rem; }
+pre { background: #111; color: #b6e3b6; padding: 0.75rem; border-radius: 6px; font-size: 0.78rem; max-height: 240px; overflow: auto; white-space: pre-wrap; }
+code { background: #2a2a2a; padding: 0 0.3em; border-radius: 3px; }

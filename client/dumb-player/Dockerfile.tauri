@@ -1,0 +1,27 @@
+# Dockerfile for building dumb-player Tauri app for Linux
+# self-contained — does NOT depend on the rest of the freqhole tree
+ARG TARGET_ARCH=x86_64-unknown-linux-gnu
+FROM node:24-bookworm
+
+ARG TARGET_ARCH
+
+RUN apt-get update && apt-get install -y \
+    curl wget build-essential pkg-config libssl-dev file patchelf \
+    libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev \
+    libasound2-dev \
+    rpm \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+ENV PATH="/root/.cargo/bin:${PATH}"
+RUN rustup target add ${TARGET_ARCH}
+
+WORKDIR /app
+COPY . .
+
+RUN npm ci
+RUN npm run build
+RUN cd src-tauri && cargo build --release --target ${TARGET_ARCH}
+RUN npx --yes @tauri-apps/cli build --target ${TARGET_ARCH} --bundles deb,rpm
+
+# outputs in /app/src-tauri/target/${TARGET_ARCH}/release/bundle/deb/*.deb and rpm/*.rpm

@@ -5,6 +5,7 @@ members = [
     "server",
     "client-codegen",
     "client/charnel/src-tauri",
+    "client/dumb-player/src-tauri",
 ]
 exclude = [
     "client/midden", # WASM package, built separately with wasm-pack

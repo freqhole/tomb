@@ -23,22 +23,24 @@ use axum::{
     response::Response,
     Extension,
 };
+use futures_util::stream;
 use grimoire::media_blobz::get_media_blob_with_data;
 use std::io::SeekFrom;
 use tokio::{
     fs::File,
     io::{AsyncReadExt, AsyncSeekExt},
 };
+use tokio_util::bytes::Bytes;
 use tokio_util::io::ReaderStream;
 
 use crate::{auth::AuthenticatedUser, error::ApiError};
 
 /// chunk size for streaming media file bodies. larger chunks = fewer
-/// syscalls + lower per-byte overhead, but also higher memory per
-/// in-flight request. 64 KiB is a good balance for audio: webkit / chrome
-/// typically request ~2 MiB chunks via Range, so each request resolves in
-/// ~32 reads.
-const STREAM_CHUNK_SIZE: usize = 64 * 1024;
+/// syscalls, fewer poll wakeups, and (importantly on linux) fewer
+/// pipewire/gstreamer wait events between buffer fills. webkit/chrome
+/// typically request ~2 MiB chunks via Range, so 256 KiB resolves a
+/// range in ~8 reads while keeping per-request memory bounded.
+const STREAM_CHUNK_SIZE: usize = 256 * 1024;
 
 // ============================================================================
 // ETag + HEAD helpers
@@ -362,12 +364,19 @@ async fn stream_from_memory(
 }
 
 /// stream entire data from memory (no range)
+///
+/// chunks the in-memory buffer into `STREAM_CHUNK_SIZE` pieces and feeds
+/// them through `Body::from_stream` so the client sees bytes immediately
+/// (low TTFB) and no single oversized frame is queued. matters most for
+/// db-stored audio blobs (no `local_path`) on weak hardware where the
+/// gstreamer pipeline underruns if the whole body lands as one chunk.
 async fn stream_memory_full(
     data: Vec<u8>,
     content_type: String,
     etag: &str,
 ) -> Result<Response, ApiError> {
     let size = data.len();
+    let body = Body::from_stream(chunked_stream(data));
 
     let response = Response::builder()
         .status(StatusCode::OK)
@@ -376,7 +385,7 @@ async fn stream_memory_full(
         .header(ACCEPT_RANGES, "bytes")
         .header(CACHE_CONTROL, "public, max-age=2592000")
         .header(ETAG, etag)
-        .body(Body::from(data))
+        .body(body)
         .unwrap();
 
     Ok(response)
@@ -402,6 +411,7 @@ async fn stream_memory_range(
     // extract requested range
     let range_data = data[start as usize..=end as usize].to_vec();
     let content_length = range_data.len();
+    let body = Body::from_stream(chunked_stream(range_data));
 
     // build 206 partial content response
     let response = Response::builder()
@@ -412,10 +422,26 @@ async fn stream_memory_range(
         .header(CONTENT_RANGE, format!("bytes {}-{}/{}", start, end, size))
         .header(CACHE_CONTROL, "public, max-age=2592000")
         .header(ETAG, etag)
-        .body(Body::from(range_data))
+        .body(body)
         .unwrap();
 
     Ok(response)
+}
+
+/// split a `Vec<u8>` into a stream of `Bytes` chunks of `STREAM_CHUNK_SIZE`.
+/// reuses the underlying allocation (slice + copy per chunk into Bytes).
+fn chunked_stream(
+    data: Vec<u8>,
+) -> impl futures_util::Stream<Item = Result<Bytes, std::io::Error>> {
+    let total = data.len();
+    let chunks: Vec<Result<Bytes, std::io::Error>> = (0..total)
+        .step_by(STREAM_CHUNK_SIZE)
+        .map(|start| {
+            let end = (start + STREAM_CHUNK_SIZE).min(total);
+            Ok(Bytes::copy_from_slice(&data[start..end]))
+        })
+        .collect();
+    stream::iter(chunks)
 }
 
 // ============================================================================

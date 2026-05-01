@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>net.freqhole.dumbplayer</id>
+  <name>dumb player</name>
+  <summary>minimal tauri audio playback test</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <description>
+    <p>barebones tauri app to test asset:// audio playback in a webview.</p>
+  </description>
+  <launchable type="desktop-id">net.freqhole.dumbplayer.desktop</launchable>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="0.0.0" date="2026-05-01"/>
+  </releases>
+</component>

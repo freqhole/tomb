@@ -94,15 +94,8 @@ async fn require_api_key(mut request: Request, next: Next) -> Result<Response, A
         return Err(ApiError::Unauthorized);
     };
 
-    let response = grimoire::users::find_user_by_api_key(&key).await;
-    let Some(user) = response.data else {
+    let Some(auth_user) = crate::auth::middleware::validate_api_key_cached(&key).await else {
         return Err(ApiError::Unauthorized);
-    };
-
-    let auth_user = AuthenticatedUser {
-        user_id: user.id,
-        username: user.username,
-        role: user.role,
     };
     request.extensions_mut().insert(auth_user);
     Ok(next.run(request).await)

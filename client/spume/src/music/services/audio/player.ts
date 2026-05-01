@@ -85,12 +85,34 @@ let lastTimeUpdateValue = 0; // last known currentTime for delta calculation
 let songCompletionRecorded = false; // prevent duplicate completion events per song
 let isIntentionalReload = false; // suppress error handler during blob URL refresh
 
+/**
+ * is this URL served by the in-process loopback http server?
+ *
+ * loopback URLs are same-origin (no cookies, query-string auth) so we
+ * skip `crossOrigin = "use-credentials"` for them \u2014 it adds preflight
+ * overhead in webkitgtk that hurts audio TTFB on linux.
+ */
+function isLoopbackUrl(url: string): boolean {
+  return (
+    url.startsWith("http://127.0.0.1") ||
+    url.startsWith("http://localhost") ||
+    url.startsWith("http://[::1]")
+  );
+}
+
 // initialize audio element
 function initAudio(): HTMLAudioElement {
   if (audioElement) return audioElement;
 
   audioElement = new Audio();
   audioElement.volume = volume();
+
+  // hint the browser to fetch as much as it can ahead of playhead. on
+  // weak hardware (linux x86 + webkitgtk + gstreamer) this materially
+  // reduces underrun-induced stutter, and there's no downside since we
+  // already gate fetch by user intent (we don't preload until
+  // `audio.src` is assigned to a chosen song).
+  audioElement.preload = "auto";
   
   // iOS-specific: hints to maintain background audio session
   audioElement.setAttribute('playsinline', '');
@@ -693,8 +715,13 @@ export async function playSong(
     songCompletionRecorded = false;
     hasPreCachedNext = false;
 
-    // set crossOrigin for direct remote URLs (needed for cookie auth on cross-origin)
-    if (audioURL.startsWith("http")) {
+    // set crossOrigin for direct remote URLs (needed for cookie auth on cross-origin).
+    // loopback embedded media server URLs (127.0.0.1 / localhost) are
+    // same-origin from webkit's perspective AND auth via `?api_key=`
+    // query param — no cookies involved. forcing `use-credentials` on
+    // them triggers heavier preflight handling in webkitgtk and adds
+    // measurable overhead per range request, so skip it.
+    if (audioURL.startsWith("http") && !isLoopbackUrl(audioURL)) {
       audio.crossOrigin = "use-credentials";
     } else {
       audio.crossOrigin = "";
