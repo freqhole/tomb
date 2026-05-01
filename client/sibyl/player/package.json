@@ -1,0 +1,20 @@
+{
+  "name": "@sibyl/player",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./adapters/transport-tauri": "./adapters/transport-tauri.ts",
+    "./adapters/transport-wasm": "./adapters/transport-wasm.ts",
+    "./worklet": "./src/playback-worklet.js"
+  },
+  "scripts": {
+    "lint": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "~5.6.2"
+  }
+}

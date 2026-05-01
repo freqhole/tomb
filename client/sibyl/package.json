@@ -1,0 +1,29 @@
+{
+  "name": "sibyl",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "workspaces": [
+    "player"
+  ],
+  "scripts": {
+    "dev": "vite",
+    "dev:web": "vite --config vite.standalone.config.ts",
+    "build": "tsc && vite build",
+    "build:web": "tsc && vite build --config vite.standalone.config.ts",
+    "preview": "vite preview",
+    "tauri": "tauri"
+  },
+  "dependencies": {
+    "@sibyl/player": "*",
+    "@tauri-apps/api": "^2",
+    "@tauri-apps/plugin-dialog": "^2.7.0",
+    "@tauri-apps/plugin-fs": "^2.5.0",
+    "@tauri-apps/plugin-opener": "^2"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2",
+    "typescript": "~5.6.2",
+    "vite": "^6.0.3"
+  }
+}

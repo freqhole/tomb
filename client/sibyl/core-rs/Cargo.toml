@@ -1,0 +1,17 @@
+[package]
+name = "sibyl-core"
+version = "0.0.0"
+edition = "2021"
+description = "sibyl player library: transcode, iroh-blobs host/peer, ticket types"
+
+[dependencies]
+anyhow = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+iroh = { workspace = true }
+iroh-blobs = { workspace = true }
+base64 = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+bytes = "1"

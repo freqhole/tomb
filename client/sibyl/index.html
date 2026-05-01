@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="stylesheet" href="/src/styles.css" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>sibyl</title>
+    <script type="module" src="/src/main.ts" defer></script>
+  </head>
+  <body>
+    <main class="container">
+      <h1>sibyl</h1>
+      <p class="muted">
+        webcodecs + iroh-blobs + opfs prototype. tauri build → rodio playback;
+        web build → webcodecs + audioworklet.
+      </p>
+
+      <section class="card">
+        <h2>1. host</h2>
+        <div class="row">
+          <button id="host-pick" type="button">pick file</button>
+          <span id="host-status" class="muted">no file</span>
+        </div>
+        <div class="row">
+          <label>ticket: <input id="host-ticket" type="text" readonly style="width:30rem" /></label>
+          <button id="host-copy" type="button" disabled>copy</button>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>2. peer</h2>
+        <div class="row">
+          <input id="peer-ticket" type="text" placeholder="paste sibyl ticket" style="width:30rem" />
+          <button id="peer-load" type="button">load + play</button>
+          <button id="peer-pause" type="button">pause</button>
+          <button id="peer-resume" type="button">resume</button>
+        </div>
+        <div class="row">
+          <label>vol: <input id="peer-vol" type="range" min="0" max="1.5" step="0.05" value="1" /></label>
+          <span id="peer-status" class="muted">idle</span>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>cached songs</h2>
+        <ul id="cache-list"></ul>
+        <div class="row">
+          <button id="cache-refresh" type="button">refresh</button>
+          <button id="cache-clear" type="button">clear all</button>
+          <span id="cache-usage" class="muted"></span>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>logs</h2>
+        <div class="row">
+          <button id="log-copy" type="button">copy</button>
+          <button id="log-clear" type="button">clear</button>
+        </div>
+        <pre id="log"></pre>
+      </section>
+    </main>
+  </body>
+</html>

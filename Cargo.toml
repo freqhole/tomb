@@ -6,9 +6,12 @@ members = [
     "client-codegen",
     "client/charnel/src-tauri",
     "client/dumb-player/src-tauri",
+    "client/sibyl/core-rs",
+    "client/sibyl/src-tauri",
 ]
 exclude = [
-    "client/midden", # WASM package, built separately with wasm-pack
+    "client/midden",          # WASM package, built separately with wasm-pack
+    "client/sibyl/midden-rs", # vendored WASM copy, built separately
 ]
 resolver = "2"
 

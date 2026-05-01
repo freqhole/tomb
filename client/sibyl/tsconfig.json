@@ -1,0 +1,29 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "useDefineForClassFields": true,
+    "module": "ESNext",
+    "lib": ["ES2022", "DOM", "DOM.Iterable", "WebWorker"],
+    "skipLibCheck": true,
+
+    /* Bundler mode */
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": true,
+
+    /* Linting */
+    "strict": true,
+    "noUnusedLocals": false,
+    "noUnusedParameters": false,
+    "noFallthroughCasesInSwitch": true,
+
+    "paths": {
+      "@sibyl/player": ["./player/src/index.ts"],
+      "@sibyl/player/adapters/transport-tauri": ["./player/adapters/transport-tauri.ts"],
+      "@sibyl/player/adapters/transport-wasm": ["./player/adapters/transport-wasm.ts"]
+    }
+  },
+  "include": ["src", "player/src", "player/adapters"]
+}

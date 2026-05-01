@@ -7161,6 +7161,39 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0fda2ff0d084019ba4d7c6f371c95d8fd75ce3524c3cb8fb653a3023f6323e64"
 
 [[package]]
+name = "sibyl"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "rodio",
+ "serde",
+ "serde_json",
+ "sibyl-core",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-dialog",
+ "tauri-plugin-fs",
+ "tauri-plugin-opener",
+ "tokio",
+]
+
+[[package]]
+name = "sibyl-core"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "base64 0.21.7",
+ "bytes",
+ "iroh",
+ "iroh-blobs",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "sigchld"
 version = "0.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
