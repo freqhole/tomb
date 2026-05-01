@@ -23,6 +23,7 @@ export default defineConfig({
 					items: [
 						{ label: 'download', slug: 'getting-started/download' },
 						{ label: 'prerequisites', slug: 'getting-started/prerequisites' },
+						{ label: 'thankz', slug: 'getting-started/thankz' },
 					],
 				},
 				{
