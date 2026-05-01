@@ -138,22 +138,34 @@ fn build_media_router() -> Router {
             HeaderName::from_static("authorization"),
             HeaderName::from_static("range"),
             HeaderName::from_static("content-type"),
+            HeaderName::from_static("if-none-match"),
         ])
         .expose_headers([
             HeaderName::from_static("content-length"),
             HeaderName::from_static("content-range"),
             HeaderName::from_static("accept-ranges"),
+            HeaderName::from_static("etag"),
         ])
         .allow_credentials(true)
-        .allow_origin(AllowOrigin::mirror_request());
+        .allow_origin(AllowOrigin::mirror_request())
+        // cache preflights for a day. without this webkit may revalidate
+        // OPTIONS per-request, and pre-cache batches issue ~20 blob urls
+        // at once \u2014 those preflights stack up before audio bytes flow.
+        .max_age(std::time::Duration::from_secs(86_400));
 
     // blob handlers depend on `Extension(AuthenticatedUser)` which is
     // injected by the require_api_key middleware below.
+    // both GET and HEAD: webkit's `<audio>` issues HEAD to probe size +
+    // range support before any Range GET; serving HEAD avoids 405-fallback
+    // to non-range full GETs.
     Router::new()
-        .route("/api/blobs/{id}", get(blobs::stream_blob_handler))
+        .route(
+            "/api/blobs/{id}",
+            get(blobs::stream_blob_handler).head(blobs::stream_blob_handler),
+        )
         .route(
             "/api/blobs/{id}/thumb/{size}",
-            get(blobs::blob_thumbnail_handler),
+            get(blobs::blob_thumbnail_handler).head(blobs::blob_thumbnail_handler),
         )
         .layer(axum_middleware::from_fn(require_api_key))
         .layer(cors)
