@@ -14,7 +14,7 @@
 use std::sync::Arc;
 
 use anyhow::Context;
-use iroh::endpoint::presets;
+use iroh::endpoint::presets::{self, Preset};
 use iroh::protocol::Router;
 use iroh::Endpoint;
 use iroh_blobs::api::downloader::Downloader;
@@ -40,9 +40,15 @@ impl SibylNode {
     /// discovery), spawn the blobs protocol router, and return an
     /// `Arc` because both host and peer share it.
     pub async fn spawn() -> anyhow::Result<Arc<Self>> {
-        // bind endpoint with the n0 preset (relay + DNS discovery,
-        // matches `grimoire::federation::transport::endpoint::build_endpoint`).
-        let endpoint = Endpoint::builder(presets::N0)
+        Self::spawn_with_preset(presets::N0).await
+    }
+
+    /// like [`Self::spawn`] but lets the caller pick the preset.
+    /// integration tests use [`presets::Minimal`] to avoid network
+    /// dependencies.
+    pub async fn spawn_with_preset<P: Preset>(preset: P) -> anyhow::Result<Arc<Self>> {
+        // bind endpoint with the chosen preset.
+        let endpoint = Endpoint::builder(preset)
             .bind()
             .await
             .context("failed to bind iroh endpoint")?;

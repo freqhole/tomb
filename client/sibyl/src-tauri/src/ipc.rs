@@ -13,11 +13,13 @@
 //! - `sibyl://chunk`   → `{ request_id, seq, bytes }`
 //! - `sibyl://status`  → `{ kind: "rodio" | "node" | "host" | "peer", … }`
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, State};
 use tokio::sync::Mutex;
+use tokio::task::AbortHandle;
 
 use sibyl_core::{SibylHost, SibylNode, SibylTicket};
 
@@ -29,6 +31,7 @@ pub struct SibylState {
     pub node: Arc<SibylNode>,
     pub rodio: Option<RodioState>,
     pub hosts: Mutex<Vec<(String, SibylHost)>>, // (song_id, host)
+    pub peers: Arc<Mutex<HashMap<String, AbortHandle>>>, // request_id → abort handle
 }
 
 #[derive(Debug, Deserialize)]
@@ -134,7 +137,9 @@ pub async fn sibyl_call(
             let app_emit = app.clone();
             let node = state.node.clone();
             let rid = request_id.clone();
-            tokio::spawn(async move {
+            let peers_handle = state.peers.clone();
+            let rid_for_cleanup = rid.clone();
+            let join = tokio::spawn(async move {
                 let rid_inner = rid.clone();
                 let res =
                     sibyl_core::SibylPeer::request(node, &parsed, &have_chunks, move |chunk| {
@@ -157,11 +162,29 @@ pub async fn sibyl_call(
                         },
                     );
                 }
+                // self-deregister so the registry doesn't accumulate
+                // dead handles. cancellation path also removes us, but
+                // doing it here covers the success/error case too.
+                peers_handle.lock().await.remove(&rid_for_cleanup);
             });
+            state
+                .peers
+                .lock()
+                .await
+                .insert(request_id.clone(), join.abort_handle());
             Ok(SibylResponse::RequestStarted { request_id })
         }
-        SibylRequest::CancelRequest { request_id: _ } => {
-            // todo (phase 2): look up + cancel.
+        SibylRequest::CancelRequest { request_id } => {
+            // try peer-task abort first.
+            if let Some(handle) = state.peers.lock().await.remove(&request_id) {
+                handle.abort();
+                return Ok(SibylResponse::Ok);
+            }
+            // otherwise treat the id as a song_id and drop the host.
+            let mut hosts = state.hosts.lock().await;
+            if let Some(idx) = hosts.iter().position(|(sid, _)| sid == &request_id) {
+                hosts.remove(idx);
+            }
             Ok(SibylResponse::Ok)
         }
         SibylRequest::NodeInfo => Ok(SibylResponse::NodeInfo {

@@ -45,6 +45,9 @@ pub fn run() {
                             node,
                             rodio,
                             hosts: Mutex::new(Vec::new()),
+                            peers: std::sync::Arc::new(
+                                Mutex::new(std::collections::HashMap::new()),
+                            ),
                         });
                         eprintln!("sibyl: node spawned");
                     }
