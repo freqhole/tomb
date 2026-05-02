@@ -109,7 +109,7 @@ pub async fn sibyl_call(
             title,
         } => {
             let song_id = song_id.unwrap_or_else(|| uuid_like(&path));
-            let (host, ticket) = SibylHost::host(
+            let host = SibylHost::host(
                 state.node.clone(),
                 song_id.clone(),
                 std::path::PathBuf::from(&path),
@@ -118,9 +118,10 @@ pub async fn sibyl_call(
             )
             .await
             .map_err(|e| e.to_string())?;
+            let ticket_str = host.ticket.encode();
             state.hosts.lock().await.push((song_id.clone(), host));
             Ok(SibylResponse::Ticket {
-                ticket: ticket.encode(),
+                ticket: ticket_str,
                 song_id,
             })
         }
@@ -135,17 +136,18 @@ pub async fn sibyl_call(
             let rid = request_id.clone();
             tokio::spawn(async move {
                 let rid_inner = rid.clone();
-                let res = sibyl_core::SibylPeer::request(node, parsed, have_chunks, move |chunk| {
-                    let _ = app_emit.emit(
-                        "sibyl://chunk",
-                        ChunkEvent {
-                            request_id: rid_inner.clone(),
-                            seq: chunk.seq,
-                            bytes: chunk.bytes,
-                        },
-                    );
-                })
-                .await;
+                let res =
+                    sibyl_core::SibylPeer::request(node, &parsed, &have_chunks, move |chunk| {
+                        let _ = app_emit.emit(
+                            "sibyl://chunk",
+                            ChunkEvent {
+                                request_id: rid_inner.clone(),
+                                seq: chunk.seq,
+                                bytes: chunk.bytes,
+                            },
+                        );
+                    })
+                    .await;
                 if let Err(e) = res {
                     let _ = app.emit(
                         "sibyl://status",

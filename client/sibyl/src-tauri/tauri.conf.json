@@ -21,6 +21,11 @@
     ],
     "security": {
       "csp": null,
+      "headers": {
+        "Cross-Origin-Opener-Policy": "same-origin",
+        "Cross-Origin-Embedder-Policy": "require-corp",
+        "Cross-Origin-Resource-Policy": "same-origin"
+      },
       "assetProtocol": {
         "enable": true,
         "scope": ["$HOME/**", "$APPDATA/**", "$APPLOCALDATA/**", "/home/**", "/var/home/**", "/run/flatpak/**", "/run/user/**", "/tmp/**", "/media/**", "/mnt/**", "/var/**"]
