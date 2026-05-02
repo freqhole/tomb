@@ -1,4 +1,6 @@
 import { defineConfig } from "vite";
+import wasm from "vite-plugin-wasm";
+import topLevelAwait from "vite-plugin-top-level-await";
 
 // @ts-expect-error process is a nodejs global
 const host = process.env.TAURI_DEV_HOST;
@@ -16,6 +18,10 @@ const isolationHeaders = {
 // https://vite.dev/config/
 export default defineConfig(async () => ({
   clearScreen: false,
+  // wasm-pack bundler-target output uses the ESM-integration proposal
+  // for wasm, which vite doesn't natively support. these two plugins
+  // mirror what skein/loam uses for the same midden import path.
+  plugins: [wasm(), topLevelAwait()],
   server: {
     port: 1420,
     strictPort: true,

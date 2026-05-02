@@ -5,25 +5,36 @@
 // two delivery modes (matched by ring-buffer.ts):
 // 1. SAB: the buffer descriptor is in `options.processorOptions.sab`,
 //    we Atomics.load read/write indices each callback.
-// 2. MessageChannel: the worklet receives `port` via processorOptions
-//    and queues each posted AudioData payload into a local fifo.
+// 2. port: the main thread postMessages each AudioData payload via
+//    the AudioWorkletNode's built-in `node.port` (which is connected
+//    to `this.port` on the processor side). we queue payloads into a
+//    local fifo and drain them in `process()`.
 
 class SibylPlaybackProcessor extends AudioWorkletProcessor {
   constructor(options) {
     super();
-    const { mode, port, channelCount } = options.processorOptions || {};
-    this.mode = mode || "channel";
-    this.channelCount = channelCount || 2;
+    const opts = (options && options.processorOptions) || {};
+    this.mode = opts.mode || "port";
+    this.channelCount = opts.channelCount || 2;
     this.queue = [];
     this.cursor = 0;
 
-    if (this.mode === "channel" && port) {
-      port.onmessage = (e) => {
+    if (this.mode === "port") {
+      // `this.port` is the AudioWorkletNode-paired port. main thread
+      // pushes via `node.port.postMessage(...)`.
+      this.port.onmessage = (e) => {
+        const msg = e.data;
+        if (msg && msg.type === "reset") {
+          // drop any queued audio (used when switching songs).
+          this.queue.length = 0;
+          this.cursor = 0;
+          return;
+        }
         // expects { channels: Float32Array[], sampleRate: number }
-        this.queue.push(e.data);
+        this.queue.push(msg);
       };
     }
-    // SAB mode: read sab descriptor from processorOptions.sab — todo phase 1.
+    // SAB mode: read sab descriptor from opts.sab — todo phase 1.
   }
 
   process(_inputs, outputs) {

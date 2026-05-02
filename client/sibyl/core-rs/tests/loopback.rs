@@ -20,14 +20,14 @@ use sibyl_core::{CodecParams, SibylNode, SibylPeer, SibylTicket};
 /// publish three tiny fake "chunks" as a collection on `host_node`,
 /// return a `SibylTicket` pointing at the collection root.
 async fn publish_fake_collection(host_node: &Arc<SibylNode>) -> anyhow::Result<SibylTicket> {
-    let mem_store = host_node.mem_store();
+    let store = host_node.store();
     let mut collection = Collection::default();
 
     for seq in 0u32..3 {
         // synthetic payload; not a real mp3 frame, but the peer
         // doesn't validate frames — that's the player's job.
         let payload = Bytes::from(vec![seq as u8; 32]);
-        let tag = mem_store.add_bytes(payload).await?;
+        let tag = store.add_bytes(payload).await?;
         collection.push(format!("{:08}.mp3", seq), tag.hash);
     }
 

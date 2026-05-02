@@ -190,6 +190,7 @@ impl Transcoder {
             seq,
             bytes,
             frame_count: need as u32,
+            chunks_total: None,
         })
     }
 
@@ -229,6 +230,7 @@ impl Transcoder {
             seq,
             bytes,
             frame_count: frames_found,
+            chunks_total: None,
         })
     }
 

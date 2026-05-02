@@ -29,6 +29,9 @@ use tracing_subscriber_wasm::MakeConsoleWriter;
 use wasm_bindgen::{prelude::wasm_bindgen, JsError, JsValue};
 
 mod radio;
+// ---- sibyl additions (only line touched in vendored lib.rs) ----
+mod sibyl_transport;
+// ----------------------------------------------------------------
 
 /// ALPN protocol identifier (must match grimoire's FREQHOLE_ALPN)
 const FREQHOLE_ALPN: &[u8] = b"freqhole/1";

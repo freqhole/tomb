@@ -19,6 +19,11 @@ export interface ChunkRecord {
   seq: number;
   bytes: Uint8Array;
   frame_count: number;
+  /** present on the very first chunk of a peer download — carries
+   * the total chunk count in the source collection so the manifest
+   * can show real progress percentages. undefined for host-emitted
+   * chunks (count not yet known). */
+  chunks_total?: number;
 }
 
 export interface Manifest {
@@ -28,6 +33,11 @@ export interface Manifest {
   chunks_total?: number;   // null until host signals completion
   title?: string;
   created_at: number;
+  /** the original sibyl ticket string this song was downloaded from.
+   * persisted so the cached-songs ui can offer a "copy ticket" /
+   * re-share action without forcing the user to keep the original
+   * around. populated on first `loadFromTicket`. */
+  ticket?: string;
 }
 
 export interface CachedSong {

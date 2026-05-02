@@ -14,15 +14,18 @@
 //! - `sibyl://status`  → `{ kind: "rodio" | "node" | "host" | "peer", … }`
 
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
+use serde_json::Value as JsonValue;
 use tauri::{AppHandle, Emitter, State};
 use tokio::sync::Mutex;
 use tokio::task::AbortHandle;
 
 use sibyl_core::{SibylHost, SibylNode, SibylTicket};
 
+use crate::cache;
 use crate::rodio_backend::{RodioCmd, RodioState};
 
 /// app-wide tauri state. owns the iroh node + a registry of in-flight
@@ -32,6 +35,10 @@ pub struct SibylState {
     pub rodio: Option<RodioState>,
     pub hosts: Mutex<Vec<(String, SibylHost)>>, // (song_id, host)
     pub peers: Arc<Mutex<HashMap<String, AbortHandle>>>, // request_id → abort handle
+    /// base dir for the disk-backed chunk cache (see `cache.rs`).
+    /// usually `<app_data_dir>` so cache lives at
+    /// `<app_data_dir>/sibyl/cache/songs/`.
+    pub data_dir: PathBuf,
 }
 
 #[derive(Debug, Deserialize)]
@@ -72,6 +79,38 @@ pub enum SibylRequest {
         v: f32,
     },
     RodioStatus,
+
+    // -- disk-backed chunk cache (tauri-only; replaces OPFS) -----------
+    CacheManifest {
+        song_id: String,
+    },
+    CacheWriteManifest {
+        manifest: JsonValue,
+    },
+    CacheHasChunk {
+        song_id: String,
+        seq: u32,
+    },
+    CacheReadChunk {
+        song_id: String,
+        seq: u32,
+    },
+    CacheWriteChunk {
+        song_id: String,
+        seq: u32,
+        bytes: Vec<u8>,
+    },
+    CacheList,
+    CacheDeleteSong {
+        song_id: String,
+    },
+    CacheClear,
+    /// concatenate every cached chunk for `song_id` into a single
+    /// `assembled.mp3` file, then return its path. used by the tauri
+    /// rodio backend (which decodes a path, not a chunk stream).
+    CacheAssembleSong {
+        song_id: String,
+    },
 }
 
 #[derive(Debug, Serialize)]
@@ -93,6 +132,21 @@ pub enum SibylResponse {
     RodioTotalSecs {
         secs: f64,
     },
+    Manifest {
+        manifest: Option<JsonValue>,
+    },
+    ChunkBytes {
+        bytes: Option<Vec<u8>>,
+    },
+    HasChunk {
+        has: bool,
+    },
+    CachedSongs {
+        songs: Vec<cache::CachedSongSummary>,
+    },
+    AssembledPath {
+        path: String,
+    },
     Ok,
 }
 
@@ -112,16 +166,37 @@ pub async fn sibyl_call(
             title,
         } => {
             let song_id = song_id.unwrap_or_else(|| uuid_like(&path));
-            let host = SibylHost::host(
+            let app_emit = app.clone();
+            let progress_song = song_id.clone();
+            let last_count = std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0));
+            let last_count_cb = last_count.clone();
+            let host = SibylHost::host_with_progress(
                 state.node.clone(),
                 song_id.clone(),
                 std::path::PathBuf::from(&path),
                 sibyl_core::CodecParams::MP3_DEFAULT,
                 title,
+                move |chunks_published| {
+                    last_count_cb.store(chunks_published, std::sync::atomic::Ordering::SeqCst);
+                    let _ = app_emit.emit(
+                        "sibyl://status",
+                        StatusEvent::HostProgress {
+                            song_id: progress_song.clone(),
+                            chunks_published,
+                        },
+                    );
+                },
             )
             .await
             .map_err(|e| e.to_string())?;
             let ticket_str = host.ticket.encode();
+            let _ = app.emit(
+                "sibyl://status",
+                StatusEvent::HostComplete {
+                    song_id: song_id.clone(),
+                    chunks_total: last_count.load(std::sync::atomic::Ordering::SeqCst),
+                },
+            );
             state.hosts.lock().await.push((song_id.clone(), host));
             Ok(SibylResponse::Ticket {
                 ticket: ticket_str,
@@ -149,6 +224,7 @@ pub async fn sibyl_call(
                                 request_id: rid_inner.clone(),
                                 seq: chunk.seq,
                                 bytes: chunk.bytes,
+                                chunks_total: chunk.chunks_total,
                             },
                         );
                     })
@@ -252,6 +328,66 @@ pub async fn sibyl_call(
         SibylRequest::RodioStatus => Ok(SibylResponse::RodioStatus {
             status: rodio(&state)?.status.lock().unwrap().clone(),
         }),
+
+        // -- disk cache --------------------------------------------------
+        SibylRequest::CacheManifest { song_id } => {
+            let manifest = cache::read_manifest(&state.data_dir, &song_id)
+                .await
+                .map_err(|e| e.to_string())?;
+            Ok(SibylResponse::Manifest { manifest })
+        }
+        SibylRequest::CacheWriteManifest { manifest } => {
+            cache::write_manifest(&state.data_dir, &manifest)
+                .await
+                .map_err(|e| e.to_string())?;
+            Ok(SibylResponse::Ok)
+        }
+        SibylRequest::CacheHasChunk { song_id, seq } => {
+            let has = cache::has_chunk(&state.data_dir, &song_id, seq).await;
+            Ok(SibylResponse::HasChunk { has })
+        }
+        SibylRequest::CacheReadChunk { song_id, seq } => {
+            let bytes = cache::read_chunk(&state.data_dir, &song_id, seq)
+                .await
+                .map_err(|e| e.to_string())?;
+            Ok(SibylResponse::ChunkBytes { bytes })
+        }
+        SibylRequest::CacheWriteChunk {
+            song_id,
+            seq,
+            bytes,
+        } => {
+            cache::write_chunk(&state.data_dir, &song_id, seq, &bytes)
+                .await
+                .map_err(|e| e.to_string())?;
+            Ok(SibylResponse::Ok)
+        }
+        SibylRequest::CacheList => {
+            let songs = cache::list(&state.data_dir)
+                .await
+                .map_err(|e| e.to_string())?;
+            Ok(SibylResponse::CachedSongs { songs })
+        }
+        SibylRequest::CacheDeleteSong { song_id } => {
+            cache::delete_song(&state.data_dir, &song_id)
+                .await
+                .map_err(|e| e.to_string())?;
+            Ok(SibylResponse::Ok)
+        }
+        SibylRequest::CacheClear => {
+            cache::clear(&state.data_dir)
+                .await
+                .map_err(|e| e.to_string())?;
+            Ok(SibylResponse::Ok)
+        }
+        SibylRequest::CacheAssembleSong { song_id } => {
+            let path = cache::assemble_song(&state.data_dir, &song_id)
+                .await
+                .map_err(|e| e.to_string())?;
+            Ok(SibylResponse::AssembledPath {
+                path: path.to_string_lossy().into_owned(),
+            })
+        }
     }
 }
 
@@ -280,12 +416,25 @@ struct ChunkEvent {
     seq: u32,
     #[serde(with = "serde_bytes")]
     bytes: Vec<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    chunks_total: Option<u32>,
 }
 
 #[derive(Serialize, Clone)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 enum StatusEvent {
-    PeerError { request_id: String, error: String },
+    PeerError {
+        request_id: String,
+        error: String,
+    },
+    HostProgress {
+        song_id: String,
+        chunks_published: u32,
+    },
+    HostComplete {
+        song_id: String,
+        chunks_total: u32,
+    },
 }
 
 // minimal local serde_bytes shim so we don't pull a new dep.

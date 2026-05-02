@@ -22,7 +22,8 @@
     "paths": {
       "@sibyl/player": ["./player/src/index.ts"],
       "@sibyl/player/adapters/transport-tauri": ["./player/adapters/transport-tauri.ts"],
-      "@sibyl/player/adapters/transport-wasm": ["./player/adapters/transport-wasm.ts"]
+      "@sibyl/player/adapters/transport-wasm": ["./player/adapters/transport-wasm.ts"],
+      "@sibyl/player/adapters/cache-tauri": ["./player/adapters/cache-tauri.ts"]
     }
   },
   "include": ["src", "player/src", "player/adapters"]

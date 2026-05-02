@@ -34,6 +34,8 @@
           <button id="peer-load" type="button">load + play</button>
           <button id="peer-pause" type="button">pause</button>
           <button id="peer-resume" type="button">resume</button>
+          <button id="peer-dl-pause" type="button" title="pause network download (audio keeps playing)">pause download</button>
+          <button id="peer-dl-resume" type="button" title="resume a paused / interrupted download">resume download</button>
         </div>
         <div class="row">
           <label>vol: <input id="peer-vol" type="range" min="0" max="1.5" step="0.05" value="1" /></label>
@@ -49,6 +51,11 @@
           <button id="cache-clear" type="button">clear all</button>
           <span id="cache-usage" class="muted"></span>
         </div>
+      </section>
+
+      <section class="card">
+        <h2>diagnostics</h2>
+        <div id="stats" class="muted">no active session</div>
       </section>
 
       <section class="card">

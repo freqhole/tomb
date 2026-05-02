@@ -11,6 +11,7 @@ interface ChunkEventPayload {
   request_id: string;
   seq: number;
   bytes: number[] | Uint8Array;
+  chunks_total?: number;
 }
 
 export interface TauriTransportDeps {
@@ -56,6 +57,7 @@ export function makeTauriTransport(deps: TauriTransportDeps): ChunkTransport {
             bytes,
             // frame count is decoded later from the bytes themselves
             frame_count: 0,
+            chunks_total: p.chunks_total,
           });
         },
       );

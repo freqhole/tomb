@@ -45,6 +45,23 @@ impl SibylHost {
         params: CodecParams,
         title: Option<String>,
     ) -> Result<Self> {
+        Self::host_with_progress(node, song_id, input, params, title, |_| {}).await
+    }
+
+    /// like [`Self::host`] but invokes `on_progress(chunks_published)`
+    /// once per published chunk so callers can render a transcode
+    /// progress bar. this is the function the IPC layer wires up.
+    pub async fn host_with_progress<F>(
+        node: Arc<SibylNode>,
+        song_id: String,
+        input: PathBuf,
+        params: CodecParams,
+        title: Option<String>,
+        mut on_progress: F,
+    ) -> Result<Self>
+    where
+        F: FnMut(u32) + Send + 'static,
+    {
         info!(
             "[sibyl-host] starting transcode song_id={song_id} input={:?}",
             input
@@ -53,8 +70,9 @@ impl SibylHost {
         let mut transcoder =
             Transcoder::spawn(&input, params).context("failed to spawn ffmpeg transcoder")?;
 
-        let mem_store = node.mem_store();
+        let store = node.store();
         let mut collection = Collection::default();
+        let mut published: u32 = 0;
 
         // pull chunks one at a time; publish each as a raw blob with
         // a sequential name. names are zero-padded so dictionary order
@@ -70,7 +88,7 @@ impl SibylHost {
             };
 
             let bytes = bytes::Bytes::from(chunk.bytes);
-            let tag = mem_store
+            let tag = store
                 .add_bytes(bytes)
                 .await
                 .context("failed to publish chunk to blobs store")?;
@@ -81,6 +99,8 @@ impl SibylHost {
                 chunk.seq, chunk.frame_count
             );
             collection.push(name, hash);
+            published += 1;
+            on_progress(published);
         }
 
         // publish the collection itself; root hash is what peers fetch.

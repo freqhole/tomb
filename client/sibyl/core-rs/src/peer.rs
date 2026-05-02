@@ -103,6 +103,8 @@ impl SibylPeer {
 
         // iterate in declared order. names are "%08d.mp3"; we trust
         // host order rather than parsing the name.
+        let total = collection.len() as u32;
+        let mut emitted = 0u32;
         for (seq, (_name, hash)) in collection.iter().enumerate() {
             let seq_u32 = seq as u32;
             if have_chunks.contains(&seq_u32) {
@@ -113,6 +115,10 @@ impl SibylPeer {
                 .get_bytes(*hash)
                 .await
                 .with_context(|| format!("failed to read chunk seq={seq_u32} hash={hash}"))?;
+            // attach `chunks_total` to the very first emitted chunk so
+            // peers can size their manifest before the rest arrive.
+            let chunks_total = if emitted == 0 { Some(total) } else { None };
+            emitted += 1;
             let chunk = Chunk {
                 seq: seq_u32,
                 bytes: bytes.to_vec(),
@@ -122,6 +128,7 @@ impl SibylPeer {
                 // as an estimate. for now, set the planned value and
                 // let the player tolerate short final chunks.
                 frame_count: ticket.params.frames_per_chunk,
+                chunks_total,
             };
             on_chunk(chunk);
         }

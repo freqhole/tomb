@@ -10,7 +10,12 @@ lerna-debug.log*
 node_modules
 dist
 dist-ssr
+dist-web
 *.local
+
+# wasm-pack output (regenerated via `make -C midden-rs build`)
+midden-rs/pkg
+midden-rs/target
 
 # Editor directories and files
 .vscode/*

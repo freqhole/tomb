@@ -9,8 +9,10 @@
 
 export type { ChunkTransport, RequestOpts, ChunkHandler } from "./transport.js";
 export type { CodecParams, ChunkRecord, Manifest, CachedSong } from "./types.js";
+export { MP3_DEFAULT } from "./types.js";
 export { SibylPlayer } from "./player.js";
 export type { SibylPlayerOpts, PlayerEvent } from "./player.js";
+export type { ChunkCache } from "./cache.js";
 export { OpfsCache } from "./opfs-cache.js";
 export { WebcodecsPlayer } from "./webcodecs-player.js";
 export { RodioPlayer } from "./rodio-player.js";

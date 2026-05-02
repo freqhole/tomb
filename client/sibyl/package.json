@@ -12,18 +12,23 @@
     "build": "tsc && vite build",
     "build:web": "tsc && vite build --config vite.standalone.config.ts",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@sibyl/player": "*",
-    "@tauri-apps/api": "^2",
+    "@tauri-apps/api": "~2.10.0",
     "@tauri-apps/plugin-dialog": "^2.7.0",
     "@tauri-apps/plugin-fs": "^2.5.0",
-    "@tauri-apps/plugin-opener": "^2"
+    "@tauri-apps/plugin-opener": "^2",
+    "sibyl-midden": "file:./midden-rs/pkg"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2",
+    "@types/dom-webcodecs": "^0.1.18",
     "typescript": "~5.6.2",
-    "vite": "^6.0.3"
+    "vite": "^6.0.3",
+    "vite-plugin-top-level-await": "^1.6.0",
+    "vite-plugin-wasm": "^3.6.0"
   }
 }

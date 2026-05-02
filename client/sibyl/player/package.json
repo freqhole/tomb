@@ -9,6 +9,7 @@
     ".": "./src/index.ts",
     "./adapters/transport-tauri": "./adapters/transport-tauri.ts",
     "./adapters/transport-wasm": "./adapters/transport-wasm.ts",
+    "./adapters/cache-tauri": "./adapters/cache-tauri.ts",
     "./worklet": "./src/playback-worklet.js"
   },
   "scripts": {

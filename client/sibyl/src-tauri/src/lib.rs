@@ -9,6 +9,7 @@
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod cache;
 mod ipc;
 mod rodio_backend;
 
@@ -36,10 +37,24 @@ pub fn run() {
                 }
             };
 
+            // resolve app data dir up front so both the FsStore and the
+            // disk cache live under a single per-app root. tauri's
+            // `app_data_dir()` is the per-app, per-user dir
+            // (e.g. ~/.local/share/<bundle-id> on linux).
+            let data_dir = app
+                .path()
+                .app_data_dir()
+                .expect("failed to resolve tauri app data dir");
+            let blobs_dir = data_dir.join("sibyl").join("blobs");
+
             // build sibyl iroh node on the tauri runtime, then store state.
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
-                match sibyl_core::SibylNode::spawn().await {
+                if let Err(e) = tokio::fs::create_dir_all(&blobs_dir).await {
+                    eprintln!("sibyl: failed to create blobs dir {blobs_dir:?}: {e}");
+                    return;
+                }
+                match sibyl_core::SibylNode::spawn_with_store_path(blobs_dir.clone()).await {
                     Ok(node) => {
                         handle.manage(SibylState {
                             node,
@@ -48,8 +63,9 @@ pub fn run() {
                             peers: std::sync::Arc::new(
                                 Mutex::new(std::collections::HashMap::new()),
                             ),
+                            data_dir,
                         });
-                        eprintln!("sibyl: node spawned");
+                        eprintln!("sibyl: node spawned with FsStore at {blobs_dir:?}");
                     }
                     Err(e) => eprintln!("sibyl: node spawn failed: {e}"),
                 }

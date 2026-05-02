@@ -27,6 +27,15 @@ export class RodioPlayer {
   async play(): Promise<void> { await this.invoke({ kind: "rodio_play" }); }
   async pause(): Promise<void> { await this.invoke({ kind: "rodio_pause" }); }
   async stop(): Promise<void> { await this.invoke({ kind: "rodio_stop" }); }
+
+  /** parity with `WebcodecsPlayer.reset()`. called by `SibylPlayer`
+   *  when switching songs so the previously-loaded path doesn't
+   *  keep playing while the new song is still downloading /
+   *  assembling. for rodio, "drain queued audio" == "stop the sink";
+   *  the next `rodio_load` will auto-replace the source. */
+  async reset(): Promise<void> {
+    try { await this.stop(); } catch { /* sink may already be empty */ }
+  }
   async setVolume(v: number): Promise<void> {
     await this.invoke({ kind: "rodio_volume", v });
   }

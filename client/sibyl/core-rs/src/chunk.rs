@@ -32,9 +32,16 @@ impl Default for CodecParams {
 }
 
 /// one ordered run of mp3 frames. `seq` starts at 0.
+///
+/// `chunks_total` is `Some(n)` only on the first chunk a peer
+/// receives — it carries the collection's `len()` so downstream
+/// consumers can write `chunks_total` into their manifest and show
+/// real progress percentages. host-emitted chunks (mid-transcode)
+/// leave it as `None` since the count isn't known yet.
 #[derive(Debug, Clone)]
 pub struct Chunk {
     pub seq: u32,
     pub bytes: Vec<u8>,
     pub frame_count: u32,
+    pub chunks_total: Option<u32>,
 }

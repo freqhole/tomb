@@ -11,6 +11,7 @@
 //! kept minimal because sibyl doesn't need federation auth, named
 //! protocols, or a persistent store.
 
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::Context;
@@ -19,16 +20,32 @@ use iroh::protocol::Router;
 use iroh::Endpoint;
 use iroh_blobs::api::downloader::Downloader;
 use iroh_blobs::api::Store;
+use iroh_blobs::store::fs::FsStore;
 use iroh_blobs::store::mem::MemStore;
 use iroh_blobs::BlobsProtocol;
 use tracing::info;
 
-/// holds the iroh endpoint, an in-memory blobs store, and a
+/// internal: which backing store this node uses. both backends expose
+/// the unified [`Store`] handle (`MemStore`/`FsStore` both implement
+/// `AsRef<Store>` + `Deref<Target = Store>`), so the rest of the node
+/// is store-agnostic — host/peer code talks to `node.store()` only.
+#[allow(dead_code)] // variants only kept alive so the store actor doesn't shut down
+enum Backend {
+    /// in-memory store. cheap, ephemeral, default for browser/wasm and tests.
+    Mem(MemStore),
+    /// on-disk store. used by tauri/native to keep blobs across runs and
+    /// to support `ImportMode::TryReference` (file-stays-in-place hosting).
+    Fs(FsStore),
+}
+
+/// holds the iroh endpoint, a blobs store (mem or fs), and a
 /// downloader. cloning is cheap (everything inside is `Arc`-backed).
 pub struct SibylNode {
     endpoint: Endpoint,
     store: Store,
-    mem_store: MemStore,
+    /// kept alive for the lifetime of the node. dropping the backend
+    /// would close the store actor and break the unified `Store` handle.
+    _backend: Backend,
     downloader: Downloader,
     /// kept alive so the protocol router doesn't shut down. never read
     /// directly after spawn — just dropped at shutdown.
@@ -47,6 +64,23 @@ impl SibylNode {
     /// integration tests use [`presets::Minimal`] to avoid network
     /// dependencies.
     pub async fn spawn_with_preset<P: Preset>(preset: P) -> anyhow::Result<Arc<Self>> {
+        Self::spawn_inner(preset, None).await
+    }
+
+    /// like [`Self::spawn`] but persists blobs (and outboard verification
+    /// trees) under `store_path` via [`FsStore`]. used by tauri/native
+    /// builds; browser/wasm builds keep the in-memory default.
+    ///
+    /// the directory must exist (caller responsibility — same convention
+    /// as `grimoire::blobz::store`).
+    pub async fn spawn_with_store_path(store_path: PathBuf) -> anyhow::Result<Arc<Self>> {
+        Self::spawn_inner(presets::N0, Some(store_path)).await
+    }
+
+    async fn spawn_inner<P: Preset>(
+        preset: P,
+        store_path: Option<PathBuf>,
+    ) -> anyhow::Result<Arc<Self>> {
         // bind endpoint with the chosen preset.
         let endpoint = Endpoint::builder(preset)
             .bind()
@@ -55,14 +89,28 @@ impl SibylNode {
 
         info!("[sibyl-node] endpoint bound, node_id={}", endpoint.id());
 
-        // in-memory blobs store + downloader (matches
-        // `grimoire::federation::p2p_client::set_federation_endpoint`).
-        let mem_store = MemStore::default();
-        let store: Store = mem_store.as_ref().clone();
-        let downloader = Downloader::new(&mem_store, &endpoint);
+        // pick backing store. both backends deref to the same `Store`
+        // handle, so downloader + protocol setup is identical.
+        let (backend, store): (Backend, Store) = match store_path {
+            Some(path) => {
+                info!("[sibyl-node] loading FsStore at {:?}", path);
+                let fs_store = FsStore::load(&path)
+                    .await
+                    .with_context(|| format!("failed to load FsStore at {:?}", path))?;
+                let store: Store = fs_store.as_ref().clone();
+                (Backend::Fs(fs_store), store)
+            }
+            None => {
+                let mem_store = MemStore::default();
+                let store: Store = mem_store.as_ref().clone();
+                (Backend::Mem(mem_store), store)
+            }
+        };
+
+        let downloader = Downloader::new(&store, &endpoint);
 
         // router so peers can pull blobs via the standard blobs ALPN.
-        let blobs_handler = BlobsProtocol::new(&mem_store, None);
+        let blobs_handler = BlobsProtocol::new(&store, None);
         let router = Router::builder(endpoint.clone())
             .accept(iroh_blobs::ALPN, blobs_handler)
             .spawn();
@@ -72,7 +120,7 @@ impl SibylNode {
         Ok(Arc::new(Self {
             endpoint,
             store,
-            mem_store,
+            _backend: backend,
             downloader,
             _router: router,
         }))
@@ -89,10 +137,6 @@ impl SibylNode {
 
     pub fn store(&self) -> &Store {
         &self.store
-    }
-
-    pub fn mem_store(&self) -> &MemStore {
-        &self.mem_store
     }
 
     pub fn downloader(&self) -> &Downloader {

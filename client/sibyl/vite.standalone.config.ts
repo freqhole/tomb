@@ -4,6 +4,8 @@
 // the chunk transport.
 
 import { defineConfig } from "vite";
+import wasm from "vite-plugin-wasm";
+import topLevelAwait from "vite-plugin-top-level-await";
 
 const isolationHeaders = {
   "Cross-Origin-Opener-Policy": "same-origin",
@@ -13,6 +15,10 @@ const isolationHeaders = {
 
 export default defineConfig({
   clearScreen: false,
+  // wasm-pack bundler-target output uses the ESM-integration proposal
+  // for wasm, which vite doesn't natively support. these two plugins
+  // mirror what skein/loam uses for the same midden import path.
+  plugins: [wasm(), topLevelAwait()],
   server: {
     port: 1422,
     strictPort: true,
