@@ -2334,6 +2334,43 @@ export const PlayAnalyticsSchema = z.object({
 });
 export type PlayAnalytics = z.infer<typeof PlayAnalyticsSchema>;
 
+export const PlayerCommandSchema = z.union([
+z.object({ kind: z.literal("load"), paths: z.array(z.string()) }),
+z.object({ kind: z.literal("play") }),
+z.object({ kind: z.literal("pause") }),
+z.object({ kind: z.literal("stop") }),
+z.object({ kind: z.literal("next") }),
+z.object({ kind: z.literal("previous") }),
+z.object({ kind: z.literal("seek"), ms: z.number() }),
+z.object({ kind: z.literal("set_volume"), v: z.number() }),
+z.object({ kind: z.literal("status") })
+]);
+export type PlayerCommand = z.infer<typeof PlayerCommandSchema>;
+
+export const PlayerEventSchema = z.union([
+z.object({ kind: z.literal("state"), state: z.lazy(() => PlayerStateSchema) }),
+z.object({ kind: z.literal("progress"), ms: z.number(), total_ms: z.number() }),
+z.object({ kind: z.literal("track_changed"), index: z.number(), path: z.string() }),
+z.object({ kind: z.literal("ended") }),
+z.object({ kind: z.literal("error"), detail: ErrorDetailSchema }),
+z.object({ kind: z.literal("backend_down"), restart_count: z.number() }),
+z.object({ kind: z.literal("backend_up") })
+]);
+export type PlayerEvent = z.infer<typeof PlayerEventSchema>;
+
+export const PlayerSnapshotSchema = z.object({
+  state: z.union([z.literal("stopped"), z.literal("playing"), z.literal("paused"), z.literal("loading")]).nullish(),
+  position_ms: z.number(),
+  total_ms: z.number(),
+  volume: z.number(),
+  queue_len: z.number(),
+  current_index: z.number().nullish()
+});
+export type PlayerSnapshot = z.infer<typeof PlayerSnapshotSchema>;
+
+export const PlayerStateSchema = z.union([z.literal("stopped"), z.literal("playing"), z.literal("paused"), z.literal("loading")]);
+export type PlayerState = z.infer<typeof PlayerStateSchema>;
+
 export const PlaylistSchema = z.object({
   id: z.string(),
   title: z.string(),
@@ -3155,6 +3192,14 @@ export const ReplaceAlbumsTagsRequestSchema = z.object({
   tag_ids: z.array(z.string())
 });
 export type ReplaceAlbumsTagsRequest = z.infer<typeof ReplaceAlbumsTagsRequestSchema>;
+
+export const RestartPolicySchema = z.object({
+  max_restarts: z.number(),
+  window_ms: z.number(),
+  initial_backoff_ms: z.number(),
+  max_backoff_ms: z.number()
+});
+export type RestartPolicy = z.infer<typeof RestartPolicySchema>;
 
 export const SearchFieldSchema = z.union([z.literal("all"), z.literal("artists"), z.literal("albums"), z.literal("songs"), z.literal("genres"), z.literal("playlists")]);
 export type SearchField = z.infer<typeof SearchFieldSchema>;

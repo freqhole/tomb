@@ -195,6 +195,11 @@ pub mod type_registry {
     // error types
     use crate::error::ErrorDetail;
 
+    // player control types (rodio plan phase 1 — no http route consumes
+    // these yet, but the typescript codegen needs them so the spume
+    // PlayerBackend interface can import generated zod schemas.)
+    use crate::player::{PlayerCommand, PlayerEvent, PlayerSnapshot, PlayerState, RestartPolicy};
+
     // search types
     use crate::search::{
         AlbumSearchResult, ArtistSearchResult, FilterSet, GenreSearchResult, PlaylistSearchResult,
@@ -236,9 +241,8 @@ pub mod type_registry {
     };
     use crate::admin_dispatch::types::users::{
         AdminAccountLinkResponse, AdminUserSummary, AdminUsersDeleteRequest,
-        AdminUsersGenerateAccountLinkRequest, AdminUsersGetRequest,
-        AdminUsersHardDeleteRequest, AdminUsersListRequest, AdminUsersRestoreRequest,
-        AdminUsersUpdateRoleRequest,
+        AdminUsersGenerateAccountLinkRequest, AdminUsersGetRequest, AdminUsersHardDeleteRequest,
+        AdminUsersListRequest, AdminUsersRestoreRequest, AdminUsersUpdateRoleRequest,
     };
 
     // blob metadata request types
@@ -274,6 +278,20 @@ pub mod type_registry {
         // error types (used across API responses and job failures)
         gen.add_schema::<ErrorDetail>("ErrorDetail");
         registered.insert("ErrorDetail".to_string());
+
+        // player control types — order matters for codegen: leaf
+        // types (used by other types' manual zod_schema strings)
+        // must register first.
+        gen.add_schema::<PlayerState>("PlayerState");
+        registered.insert("PlayerState".to_string());
+        gen.add_schema::<PlayerSnapshot>("PlayerSnapshot");
+        registered.insert("PlayerSnapshot".to_string());
+        gen.add_schema::<RestartPolicy>("RestartPolicy");
+        registered.insert("RestartPolicy".to_string());
+        gen.add_schema::<PlayerCommand>("PlayerCommand");
+        registered.insert("PlayerCommand".to_string());
+        gen.add_schema::<PlayerEvent>("PlayerEvent");
+        registered.insert("PlayerEvent".to_string());
 
         // health types
         gen.add_schema::<HealthResponse>("HealthResponse");
