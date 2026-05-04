@@ -147,6 +147,21 @@ export type ThumbnailSize = 50 | 200;
  * @param blake3 - optional blake3 hash for verified streaming via iroh-blobs
  * @returns URL string usable in <img src> or <audio src>
  */
+/**
+ * resolve a blob to a URL the browser can load (object URL for
+ * P2P/Tauri-managed remotes, direct HTTP URL for plain http
+ * remotes).
+ *
+ * id types:
+ * @param blobId   the *remote's* `media_blobz.id` short pk
+ *                 (7–16 hex chars). resolves against
+ *                 `/api/blobs/{id}/*` on the remote. NOT a sha256.
+ * @param remoteId remote_server_id (which peer/server to ask).
+ * @param blake3   optional 64-char blake3 hash. when present,
+ *                 enables verified iroh-blobs streaming for P2P
+ *                 transports; otherwise the transport falls back
+ *                 to its own resolution path.
+ */
 export async function resolveBlobUrl(
   blobId: string,
   remoteId: string,
@@ -526,7 +541,20 @@ export async function isP2PBlobCached(blobId: string, remoteId: string): Promise
 /**
  * pre-cache a P2P blob (fetch in background for later use).
  * tracks loading state and progress for UI feedback.
- * @param blake3 - optional blake3 hash for verified streaming via iroh-blobs (audio only)
+ *
+ * id types (do not conflate!):
+ * @param blobId   the *remote's* `media_blobz.id` short pk (7–16
+ *                 hex chars). this is what `/api/blobs/{id}/*`
+ *                 routes look up against. each freqhole instance
+ *                 generates its own ids — NOT portable. when
+ *                 caching a blob from a remote song, pass
+ *                 `song.media_blob_id`, never `song.sha256`.
+ * @param remoteId the remote_server_id (which peer to fetch from).
+ * @param sha256   the 64-char content hash. used here ONLY for
+ *                 client-side loading-set tracking + progress UI.
+ *                 not sent on the wire as a route param.
+ * @param blake3   optional blake3 hash for verified streaming via
+ *                 iroh-blobs (audio only).
  */
 export async function preCacheP2PBlob(
   blobId: string,
@@ -639,10 +667,25 @@ export async function preCacheNextP2PSongs(
     return;
   }
 
-  // songs selected for caching/syncing (we need full Song for sync mode)
+  // songs selected for caching/syncing (we need full Song for sync mode).
+  //
+  // id glossary:
+  //   - mediaBlobId: the *remote's* `media_blobz.id` short pk (7–16
+  //     hex chars, generated locally per-instance). this is what
+  //     server routes like `/api/blobs/{id}/path` and
+  //     `/api/blobs/{id}/data` resolve against. NOT portable across
+  //     instances — different remotes will generate different ids
+  //     for the same content.
+  //   - sha256: 64-char content hash. portable across instances and
+  //     used for client-side loading-set tracking, OPFS keys,
+  //     queue entry identity, etc. NOT a valid `/api/blobs/{id}`
+  //     param on the wire.
+  //   - blake3: 64-char optional iroh-blobs hash, used for verified
+  //     P2P streaming (`p2p_fetch_blob_verified`).
   const songsToProcess: Array<{
     song: Song; // full song for sync mode
-    sha256: string;
+    mediaBlobId: string; // remote's media_blobz.id pk (route param)
+    sha256: string;      // content hash (loading-set / cache keys)
     remoteId: string;
     blake3?: string;
     waveformBlobId?: string;
@@ -670,8 +713,12 @@ export async function preCacheNextP2PSongs(
   for (let i = currentIdx; i < queue.length; i++) {
     const song = queue[i];
 
-    // only cache P2P remote songs
-    if (song.source_type !== "remote" || !song.remote_server_id) {
+    // only cache P2P remote songs.
+    // we also require `media_blob_id` (the remote's media_blobz.id
+    // pk) since that's the only id `/api/blobs/{id}/*` accepts \u2014
+    // sha256 won't work as a lookup. local-only songs and remotes
+    // missing the field are skipped.
+    if (song.source_type !== "remote" || !song.remote_server_id || !song.media_blob_id) {
       continue;
     }
 
@@ -712,7 +759,8 @@ export async function preCacheNextP2PSongs(
 
     songsToProcess.push({
       song, // keep full song for sync mode
-      sha256: song.sha256,
+      mediaBlobId: song.media_blob_id, // remote's db pk — used for /api/blobs/{id}/* lookups
+      sha256: song.sha256,             // content hash — used for client-side tracking only
       remoteId: song.remote_server_id,
       blake3: song.blake3 ?? undefined,
       waveformBlobId,
@@ -769,9 +817,14 @@ export async function preCacheNextP2PSongs(
         console.warn(`failed to sync first P2P song ${firstEntry.sha256}:`, result.error);
       }
     } else {
-      // cache mode: just cache the blob
+      // cache mode: just cache the blob.
+      // first arg is the *remote's* media_blobz.id pk (used for
+      // `/api/blobs/{id}/*` route lookups on the remote). third arg
+      // is the sha256 content hash, only used by the client for
+      // loading-set / progress tracking. don't conflate them —
+      // passing sha256 as the blobId yields "blob not found".
       await preCacheP2PBlob(
-        firstEntry.sha256,
+        firstEntry.mediaBlobId,
         firstEntry.remoteId,
         firstEntry.sha256,
         "audio",
@@ -820,8 +873,17 @@ export async function preCacheNextP2PSongs(
       // queue for sequential sync below (canSyncSong narrows entry.song)
       syncEntries.push({ sha256: entry.sha256, song: entry.song });
     } else {
-      // cache mode: just cache the blob
-      void preCacheP2PBlob(entry.sha256, entry.remoteId, entry.sha256, "audio", entry.blake3, entry.song?.file_size ?? undefined);
+      // cache mode: just cache the blob.
+      // first arg = remote's media_blobz.id pk (route param);
+      // third arg = sha256 content hash (loading-set tracking only).
+      void preCacheP2PBlob(
+        entry.mediaBlobId,
+        entry.remoteId,
+        entry.sha256,
+        "audio",
+        entry.blake3,
+        entry.song?.file_size ?? undefined
+      );
     }
 
     // always cache waveform and thumbnail images (they don't get synced as separate records)

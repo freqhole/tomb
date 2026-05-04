@@ -38,6 +38,7 @@ import { selectBackend } from "./select";
 import { registerStopMusic } from "../../../app/services/playbackCoordinator";
 import { installPreCacheScheduler } from "../queue/preCacheScheduler";
 import { installMediaSessionBridge } from "./mediaSessionBridge";
+import { installPlaybackOrchestrator } from "./playbackOrchestrator";
 import { bindActiveBackend } from "./playerStateSync";
 import {
   currentTime,
@@ -46,7 +47,26 @@ import {
 } from "./playerState";
 import { resolveSongOrId } from "./facadeHelpers";
 import { appState } from "../../../app/services/storage/db";
+import { canGoNext, markPlaybackEnded } from "../queue/queueState";
+import { stopServerSession } from "../queue/serverSession";
+import { stopRadioForMusic } from "../../../app/services/playbackCoordinator";
 import type { Song } from "../storage/types";
+
+// retry budget for the rodio facade `playNext` — mirrors the value
+// used by `HtmlAudioBackend.playNext` so both backends behave the
+// same when songs in the queue are unplayable.
+const PLAY_NEXT_MAX_ATTEMPTS = 5;
+// per-song setup timeout for the rodio facade `playNext`. matches
+// `HtmlAudioBackend.PLAY_SONG_TIMEOUT_MS`.
+const PLAY_SONG_TIMEOUT_MS = 20_000;
+
+// facade-level mirror of `HtmlAudioBackend.userExplicitlyPaused`,
+// used only when the active backend isn't htmlBackend (which owns
+// its own gate). when `true`, programmatic (non-userInitiated)
+// `playSong` calls land but the resulting playback is paused
+// immediately so any auto-load/up-next path doesn't override the
+// user's explicit pause intent. cleared by user-initiated playback.
+let rodioUserExplicitlyPaused = false;
 
 // install android lock-screen / media notification shim. no-op on
 // non-android and non-tauri platforms. side-effect import.
@@ -56,6 +76,12 @@ import "./androidMediaSession";
 // duration signals, fires `preCacheNextSongs` once per song at the
 // 50% mark. backend-agnostic by design.
 installPreCacheScheduler();
+
+// install the playback orchestrator. observes currentTime / duration
+// + appState and runs the per-tick app-level side effects (listen-
+// history accumulation, queue-row progress fill, >=90% completion +
+// analytics). backend-agnostic — works for both html and rodio.
+installPlaybackOrchestrator();
 
 // always-allocated. owns the `<audio>` element + dom handlers + the
 // rich playback api (`playSong`, queue traversal, mediasession glue).
@@ -85,7 +111,45 @@ let activeBackend: PlayerBackend = selectBackend(htmlBackend);
 // (`isPlaying`/`currentTime`/`duration`/`isLoading`). bind it to the
 // active backend at boot, and re-bind whenever the backend swaps.
 // without this, the signals never update and the UI stays frozen.
+// auto-advance: the html backend listens to its own `<audio>`
+// `ended` dom event and calls `this.playNext()` internally. the
+// rodio backend (and any future non-html backend) only emits the
+// wire-level `ended` PlayerEvent — nobody upstream calls
+// `playNext()` for it. mirror the html behavior here so a finished
+// song advances the queue regardless of which backend is active.
+let autoAdvanceUnsubscribe: (() => void) | null = null;
+function bindAutoAdvance(backend: PlayerBackend): void {
+  if (autoAdvanceUnsubscribe) {
+    try { autoAdvanceUnsubscribe(); } catch { /* swallow */ }
+    autoAdvanceUnsubscribe = null;
+  }
+  // html backend already auto-advances via its dom listener; double
+  // wiring would call `playNext` twice and skip a song.
+  if (backend === htmlBackend) return;
+  autoAdvanceUnsubscribe = backend.subscribe((event) => {
+    if (event.kind === "ended") {
+      console.info(`[player] backend "${backend.kind}" reported ended — advancing queue`);
+      void playNext();
+      return;
+    }
+    if (event.kind === "error") {
+      // rodio (and any future non-html backend) treats playback
+      // errors as "skip + try the next track" — same behavior the
+      // html backend gets via the `<audio>` `error` dom event.
+      // `playNext` has its own retry budget so a string of bad
+      // tracks doesn't loop forever.
+      console.warn(
+        `[player] backend "${backend.kind}" reported error — advancing queue:`,
+        event.detail,
+      );
+      void playNext();
+      return;
+    }
+  });
+}
+
 bindActiveBackend(activeBackend);
+bindAutoAdvance(activeBackend);
 
 if (typeof console !== "undefined") {
   console.info(`[player] facade init: active backend = ${activeBackend.kind}`);
@@ -135,6 +199,8 @@ export async function swapPlayerBackend(): Promise<void> {
   // re-point the playback-signal mirror at the freshly-active backend
   // so the UI starts seeing events from the right source.
   bindActiveBackend(activeBackend);
+  // re-attach the facade-level auto-advance bridge for the new backend.
+  bindAutoAdvance(activeBackend);
 }
 
 /**
@@ -190,8 +256,30 @@ export async function playSong(
   // the materialized Song to extract `media_blob_id`.
   const song = await resolveSongOrId(songOrId);
 
+  // user-initiated playback wins over any active radio session.
+  // the html backend handles this inside its rich `playSong`; for
+  // any other active backend we centralize the call here so rodio
+  // gets the same coexistence behavior (silence radio + release
+  // external mediasession ownership).
+  if (options?.userInitiated && activeBackend !== htmlBackend) {
+    await stopRadioForMusic();
+    rodioUserExplicitlyPaused = false;
+  }
+
   try {
     await activeBackend.loadAndPlay(song, options);
+    // honor the explicit-pause gate for non-userInitiated loads on
+    // the rodio (or any future non-html) backend. if the user
+    // paused before this load was triggered (e.g. autoplay-on-add),
+    // pause immediately after load so the queue advances visually
+    // but audio doesn't override their intent.
+    if (
+      activeBackend !== htmlBackend &&
+      !options?.userInitiated &&
+      rodioUserExplicitlyPaused
+    ) {
+      await activeBackend.send({ kind: "pause" });
+    }
   } catch (err) {
     if (
       err instanceof BackendPlaybackError &&
@@ -230,8 +318,15 @@ export async function togglePlayback(
   );
   if (isPlayingSignal()) {
     await activeBackend.send({ kind: "pause" });
+    rodioUserExplicitlyPaused = true;
     return;
   }
+  // resuming or starting fresh — silence radio + release external
+  // mediasession ownership before audio starts. the html backend's
+  // rich togglePlayback does this internally; we mirror it here for
+  // every other backend.
+  await stopRadioForMusic();
+  rodioUserExplicitlyPaused = false;
   // need to start playing. if the supervisor has a track loaded,
   // a bare play resumes it. otherwise pull current_sha256 (or the
   // queue head) and route through `playSong` which handles loading.
@@ -280,7 +375,11 @@ export async function togglePlayback(
 export function pause(): void {
   // route through the active backend's wire surface so rodio gets
   // it too. the html backend's `send` switch maps `pause` to its
-  // rich `pause()` method (which sets `userExplicitlyPaused`).
+  // rich `pause()` method (which sets `userExplicitlyPaused`); we
+  // mirror that bookkeeping at the facade for non-html backends.
+  if (activeBackend !== htmlBackend) {
+    rodioUserExplicitlyPaused = true;
+  }
   void activeBackend.send({ kind: "pause" });
 }
 
@@ -296,9 +395,15 @@ export function stop(): void {
 }
 
 export async function play(): Promise<void> {
-  // wire surface; the html backend's `send` maps `play` to its
-  // rich `play()` (which calls stopRadioForMusic + clears the
-  // user-paused gate).
+  // user explicitly wants to play — silence radio first regardless
+  // of which backend is active. the html backend's `send("play")`
+  // maps to its rich `play()` which already calls
+  // `stopRadioForMusic` + clears its pause gate; for any other
+  // backend we do it here so rodio gets the same behavior.
+  if (activeBackend !== htmlBackend) {
+    await stopRadioForMusic();
+    rodioUserExplicitlyPaused = false;
+  }
   await activeBackend.send({ kind: "play" });
 }
 
@@ -336,20 +441,64 @@ export async function playNext(): Promise<void> {
   if (activeBackend === htmlBackend) {
     return htmlBackend.playNext();
   }
-  // rodio path: facade-level queue traversal. no retry-on-unplayable
-  // logic yet — if the next song reports `no_local_path`, the user
-  // sees the warn from `playSong` and the queue stops. phase 6 may
-  // add retry/skip parity.
+  // rodio path: facade-level queue traversal with retry-on-unplayable
+  // mirroring `HtmlAudioBackend.playNext`. each attempt is bounded so
+  // a hung load can't wedge the queue.
+  if (!canGoNext()) {
+    markPlaybackEnded();
+    void stopServerSession("completed");
+    return;
+  }
   const state = appState();
   if (!state) return;
   const { queue, current_sha256 } = state;
-  const currentIdx = current_sha256
+  let currentIdx = current_sha256
     ? queue.findIndex((s) => s.sha256 === current_sha256)
     : -1;
-  const nextIdx = currentIdx + 1;
-  if (nextIdx < queue.length) {
-    await playSong(queue[nextIdx], { userInitiated: true });
+
+  let attempts = 0;
+  while (
+    currentIdx < queue.length - 1 &&
+    attempts < PLAY_NEXT_MAX_ATTEMPTS
+  ) {
+    const nextIdx = currentIdx + 1;
+    const nextSong = queue[nextIdx];
+    attempts++;
+    try {
+      await Promise.race([
+        playSong(nextSong, { userInitiated: true }),
+        new Promise<never>((_, reject) =>
+          setTimeout(
+            () =>
+              reject(
+                new Error(
+                  `playSong timed out after ${PLAY_SONG_TIMEOUT_MS}ms`,
+                ),
+              ),
+            PLAY_SONG_TIMEOUT_MS,
+          ),
+        ),
+      ]);
+      return;
+    } catch (err) {
+      console.warn(
+        `[player] rodio playNext: failed to play "${nextSong?.title}" at index ${nextIdx} (attempt ${attempts}/${PLAY_NEXT_MAX_ATTEMPTS}):`,
+        err instanceof Error ? err.message : err,
+      );
+      currentIdx = nextIdx;
+      if (nextIdx >= queue.length - 1) {
+        console.error(
+          "[player] rodio playNext: reached end of queue, no playable songs found",
+        );
+        markPlaybackEnded();
+        void stopServerSession("completed");
+        return;
+      }
+    }
   }
+  console.error(
+    `[player] rodio playNext: exceeded max attempts (${PLAY_NEXT_MAX_ATTEMPTS}) to find a playable song`,
+  );
 }
 
 export async function playPrevious(): Promise<void> {

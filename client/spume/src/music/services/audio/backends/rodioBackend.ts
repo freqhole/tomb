@@ -122,6 +122,25 @@ export class RodioBackend implements PlayerBackend {
       throw new Error("rodio backend: loadAndPlay called after dispose");
     }
 
+    // emit a synthetic loading state so the UI shows a spinner
+    // before the rust supervisor has a chance to emit its own state
+    // event. mirrors the equivalent emit in `HtmlAudioBackend.playSong`
+    // — without it the playerbar can sit on "paused"/"stopped" for
+    // the full duration of a remote sync.
+    this.emit({ kind: "state", state: "loading" });
+
+    // explicitly reset MediaSession position state for a new track.
+    // platforms (especially iOS lock screen) cache the position from
+    // the previous track; without this reset the lock-screen scrubber
+    // shows stale info until the first progress event lands.
+    if (typeof navigator !== "undefined" && "mediaSession" in navigator) {
+      try {
+        navigator.mediaSession.setPositionState();
+      } catch {
+        // some browsers don't support this — ignore.
+      }
+    }
+
     const blobId = song.media_blob_id ?? song.sha256;
     let path: string;
     try {
@@ -363,16 +382,7 @@ export class RodioBackend implements PlayerBackend {
       const { listen } = await import("@tauri-apps/api/event");
       return listen<PlayerEvent>(TAURI_EVENT, (envelope) => {
         const event = envelope.payload;
-        this.applyToSnapshot(event);
-        for (const l of this.listeners) {
-          try {
-            l(event);
-          } catch (e) {
-            // listeners must not throw; isolate them so a single bad
-            // subscriber doesn't break the rest of the chain.
-            console.error("[rodio backend] listener threw:", e);
-          }
-        }
+        this.dispatch(event);
       });
     })();
   }
@@ -411,6 +421,29 @@ export class RodioBackend implements PlayerBackend {
         // these don't shift snapshot fields directly; ui consumers
         // observe them via the listener stream.
         break;
+    }
+  }
+
+  /// internal `emit` for facade-side synthetic events (e.g. the
+  /// pre-load `loading` state that the rust supervisor doesn't
+  /// emit). updates the cached snapshot then notifies subscribers,
+  /// matching the path tauri events take through `dispatch`.
+  private emit(event: PlayerEvent): void {
+    this.dispatch(event);
+  }
+
+  /// shared dispatch path \u2014 used by both the tauri listener and the
+  /// internal `emit` helper. updates the cached snapshot then
+  /// notifies every subscriber, isolating listener errors so one
+  /// bad subscriber doesn't break the chain.
+  private dispatch(event: PlayerEvent): void {
+    this.applyToSnapshot(event);
+    for (const l of this.listeners) {
+      try {
+        l(event);
+      } catch (e) {
+        console.error("[rodio backend] listener threw:", e);
+      }
     }
   }
 }

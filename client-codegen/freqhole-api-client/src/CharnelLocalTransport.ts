@@ -201,6 +201,12 @@ export class CharnelLocalTransport implements Transport {
   /**
    * fetch blob - get file path via IPC, convert to asset URL, fetch via browser
    * falls back to /api/blobs/{id}/data for db-stored blobs without local paths
+   *
+   * `blobId` MUST be a `media_blobz.id` short pk (7-16 hex chars).
+   * sha256 / blake3 hashes are NOT valid here - they will hit the
+   * `id = ?` lookup, miss, and return "blob not found". if the
+   * caller only has a sha256, they need to resolve it to a
+   * media_blob_id first (e.g. via the song record) before calling.
    */
   async fetchBlob(blobId: string, _blake3?: string): Promise<BlobData> {
     await ensureInvoke();

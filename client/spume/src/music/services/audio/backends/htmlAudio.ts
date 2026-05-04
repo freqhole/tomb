@@ -50,14 +50,7 @@ import {
   markPlaybackEnded,
   resetPlaybackEnded,
 } from "../../queue/queueState";
-import {
-  activeHistoryEntryId,
-  markSongCompleted,
-  recordTimeProgress,
-} from "../../queue/listenProgress";
-import { updateQueueItemProgress } from "../../queue/queueProgress";
 import { stopServerSession } from "../../queue/serverSession";
-import { queueAnalyticsEvent } from "../../analytics/analyticsQueue";
 import {
   cleanupAudioURL,
   getAudioURL,
@@ -108,10 +101,6 @@ export class HtmlAudioBackend implements PlayerBackend {
   private currentSongId: string | null = null;
   // pending swap listener cleanup (removed when song changes)
   private pendingSwapCleanup: (() => void) | null = null;
-  // last known currentTime for delta calculation (listen progress)
-  private lastTimeUpdateValue = 0;
-  // prevent duplicate completion events per song
-  private songCompletionRecorded = false;
   // suppress error handler during blob URL refresh
   private isIntentionalReload = false;
   // user explicitly paused the player. when true, pending "up next"
@@ -346,8 +335,6 @@ export class HtmlAudioBackend implements PlayerBackend {
       await setCurrentSong(song.sha256);
 
       this.currentSongId = song.sha256;
-      this.lastTimeUpdateValue = 0;
-      this.songCompletionRecorded = false;
 
       // set crossOrigin for direct remote URLs (needed for cookie auth on
       // cross-origin).
@@ -743,7 +730,11 @@ export class HtmlAudioBackend implements PlayerBackend {
     audio.setAttribute("playsinline", "");
     audio.setAttribute("webkit-playsinline", "");
 
-    // time update
+    // time update — emit a progress event; the per-tick app-level
+    // side effects (listen-history, queue-row fill, >=90% completion)
+    // are owned by `playbackOrchestrator`, which observes the same
+    // signals `playerStateSync` writes from this event. that keeps
+    // the orchestration backend-agnostic so rodio benefits too.
     audio.addEventListener("timeupdate", () => {
       const ct = audio.currentTime;
       const dur = Number.isFinite(audio.duration) ? audio.duration : 0;
@@ -752,78 +743,6 @@ export class HtmlAudioBackend implements PlayerBackend {
         ms: Math.round(ct * 1000),
         total_ms: Math.round(dur * 1000),
       });
-
-      // record listen progress delta
-      if (activeHistoryEntryId() && ct > this.lastTimeUpdateValue) {
-        const delta = ct - this.lastTimeUpdateValue;
-        // only record reasonable deltas (< 5s to avoid seek jumps)
-        if (delta > 0 && delta < 5) {
-          const state = appState();
-          if (state) {
-            const { queue, current_sha256 } = state;
-            const songIdx = current_sha256
-              ? queue.findIndex((s) => s.sha256 === current_sha256)
-              : 0;
-            const currentSong = queue[songIdx] ?? null;
-            recordTimeProgress(delta, songIdx, ct, currentSong);
-          }
-        }
-      }
-      this.lastTimeUpdateValue = ct;
-
-      // update queue item progress for visual fill
-      if (audio.duration > 0) {
-        const progress = ct / audio.duration;
-        const state = appState();
-        if (state?.current_sha256) {
-          const currentSong = state.queue.find(
-            (s) => s.sha256 === state.current_sha256,
-          );
-          if (currentSong?.queue_entry_id) {
-            updateQueueItemProgress(currentSong.queue_entry_id, progress);
-          }
-        }
-      }
-
-      // check for song completion (>90% listened)
-      if (
-        activeHistoryEntryId() &&
-        !this.songCompletionRecorded &&
-        audio.duration > 0
-      ) {
-        const progress = ct / audio.duration;
-        if (progress >= 0.9) {
-          this.songCompletionRecorded = true;
-          const state = appState();
-          if (state) {
-            const { queue, current_sha256 } = state;
-            const songIdx = current_sha256
-              ? queue.findIndex((s) => s.sha256 === current_sha256)
-              : 0;
-            const currentSong =
-              queue.find((s) => s.sha256 === current_sha256) ?? null;
-            markSongCompleted(songIdx, currentSong);
-
-            // queue a play_complete analytics event
-            if (currentSong) {
-              let targetBaseUrl: string | undefined;
-              try {
-                if (currentSong.source_url) {
-                  targetBaseUrl = new URL(currentSong.source_url).origin;
-                }
-              } catch {
-                // non-parseable URL, skip base_url routing
-              }
-              void queueAnalyticsEvent("play_complete", {
-                media_blob_id: currentSong.media_blob_id ?? currentSong.sha256,
-                song_id: currentSong.id,
-                target_remote_id: currentSong.remote_server_id ?? undefined,
-                target_base_url: targetBaseUrl,
-              });
-            }
-          }
-        }
-      }
     });
 
     // duration loaded
