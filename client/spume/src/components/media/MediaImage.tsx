@@ -82,9 +82,16 @@ export function MediaImage(props: MediaImageProps): JSX.Element {
   // - remote: check transport type to decide HTTP vs P2P path
   const getInitialUrl = (): string | null => {
     const thumbSize = props.thumbnailSize;
-    // priority 1: local blob (OPFS cache) - thumbnails not supported locally yet
+    // priority 1: local blob (OPFS cache) - thumbnails not supported locally yet.
+    // note: only return when the cache lookup actually has a url. in
+    // charnel mode db-stored blobs (waveforms etc.) carry a local_blob_id
+    // but live in the charnel sqlite db (not opfs/idb), so a null here
+    // means "fall through to the remote_blob_id path" — which routes
+    // via transport.getBlobUrl and resolves correctly.
     if (initialSource.blobId) {
-      return getCachedBlobObjectURL(initialSource.blobId);
+      const cached = getCachedBlobObjectURL(initialSource.blobId);
+      if (cached) return cached;
+      // fall through to remote path below
     }
     // priority 2: remote with server ID - check transport type
     if (initialSource.remoteBlobId && initialSource.remoteServerId) {
@@ -177,17 +184,28 @@ export function MediaImage(props: MediaImageProps): JSX.Element {
 
         const thumbSize = source.thumbnailSize;
 
-        // priority 1: local blob ID (from OPFS) - thumbnails not supported locally yet
+        // priority 1: local blob ID (from OPFS) - thumbnails not supported locally yet.
+        // only commit + return when the lookup actually finds a url. in
+        // charnel mode, db-stored blobs (waveforms, cover art) carry a
+        // local_blob_id but live in charnel's sqlite — getBlobObjectURL
+        // (idb-only) returns null. fall through to the remote path so
+        // transport.getBlobUrl can resolve via the charnel-managed self
+        // remote.
         if (source.blobId) {
           setIsLoading(true);
+          let localObjectUrl: string | null = null;
           try {
-            const objectUrl = await getBlobObjectURL(source.blobId);
-            setResolvedUrl(objectUrl ?? null);
+            localObjectUrl = (await getBlobObjectURL(source.blobId)) ?? null;
           } catch {
-            setResolvedUrl(null);
+            localObjectUrl = null;
           }
-          setIsLoading(false);
-          return;
+          if (localObjectUrl) {
+            setResolvedUrl(localObjectUrl);
+            setIsLoading(false);
+            return;
+          }
+          // local lookup missed — keep isLoading true and fall through
+          // to the remote_blob_id branch below (if present).
         }
 
         // priority 2: remote with server ID - check transport type

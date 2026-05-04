@@ -3,11 +3,44 @@
 mod admin_commands;
 mod app_config;
 mod commands;
-mod media_server;
+
 #[cfg(desktop)]
 mod menu;
 mod p2p_commands;
 mod p2p_state;
+#[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
+mod player_commands;
+#[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
+mod player_commands {
+    //! mobile fallback: rodio is desktop-only. these stubs satisfy the
+    //! single `invoke_handler!` list so spume can call them on every
+    //! target; on mobile they reply with a structured "unsupported"
+    //! error and the frontend falls back to the html backend.
+    use serde_json::Value;
+
+    #[derive(Default)]
+    pub struct PlayerState;
+    impl PlayerState {
+        pub fn new() -> Self {
+            Self
+        }
+    }
+
+    #[tauri::command]
+    pub async fn player_send(_cmd: Value) -> Result<(), String> {
+        Err("rodio backend is desktop-only".to_string())
+    }
+
+    #[tauri::command]
+    pub async fn player_snapshot() -> Result<Value, String> {
+        Err("rodio backend is desktop-only".to_string())
+    }
+
+    #[tauri::command]
+    pub async fn player_init() -> Result<(), String> {
+        Err("rodio backend is desktop-only".to_string())
+    }
+}
 mod radio_commands;
 mod remotez_commands;
 mod server_controls;
@@ -304,8 +337,14 @@ pub fn run() {
     let builder = tauri::Builder::default()
         .manage(ShutdownToken::new())
         .manage(p2p_state.clone())
-        .manage(media_server::MediaServerState::new())
-        .manage(PendingDeepLinks::default())
+        .manage(PendingDeepLinks::default());
+
+    // rodio player state. on desktop this is the real supervised
+    // controller-holder; on mobile it's a zero-sized stub so the
+    // single invoke_handler list works on every target.
+    let builder = builder.manage(player_commands::PlayerState::new());
+
+    let builder = builder
         .setup(|app| {
             // ---- deep-link plugin -----------------------------------------
             // register `freqhole://` handler. on_open_url fires for runtime
@@ -448,34 +487,10 @@ pub fn run() {
                     }
                 });
 
-                // spawn embedded media http server (loopback only).
-                // serves blob streaming routes with full http range support so
-                // <audio src> works smoothly on linux webkitgtk (where the
-                // tauri asset:// protocol can't stream into media elements).
-                // can be toggled at runtime via the `set_embedded_media_server`
-                // command; here we honor the persisted preference (default on).
-                let media_app_handle = app.handle().clone();
-                let media_state_clone = app
-                    .state::<media_server::MediaServerState>()
-                    .inner()
-                    .clone();
-                let media_enabled = app_config::FreqholeAppConfig::load(&media_app_handle)
-                    .map(|c| c.embedded_media_server)
-                    .unwrap_or_else(app_config::default_embedded_media_server);
-                if media_enabled {
-                    tauri::async_runtime::spawn(async move {
-                        if let Err(e) = media_server::start_and_register(
-                            media_app_handle,
-                            media_state_clone,
-                        )
-                        .await
-                        {
-                            tracing::error!(error = %e, "failed to start embedded media server");
-                        }
-                    });
-                } else {
-                    tracing::info!("embedded media server disabled by config");
-                }
+                // (the embedded http loopback media server used to be
+                // spawned here. it's been removed in favor of the rodio
+                // backend, which bypasses html `<audio>` entirely on linux.
+                // see `client/spume/src/music/services/audio/`.)
 
                 // spawn job runner in tauri process for tauri-local transport (api_call)
                 // SQLite handles concurrent access safely.
@@ -669,7 +684,6 @@ pub fn run() {
             commands::get_os_username,
             commands::get_app_version,
             commands::take_pending_deep_links,
-            commands::media_server_info,
             commands::get_config_path,
             commands::get_data_dir,
             commands::get_freqhole_config,
@@ -685,8 +699,8 @@ pub fn run() {
             // app config settings
             commands::get_sync_queue_to_local,
             commands::set_sync_queue_to_local,
-            commands::get_embedded_media_server,
-            commands::set_embedded_media_server,
+            commands::get_rodio_playback,
+            commands::set_rodio_playback,
             commands::check_config_needs_upgrade,
             commands::upgrade_config,
             // server config / image management
@@ -730,6 +744,10 @@ pub fn run() {
             // single dispatch entry-point for wizard / settings admin ops
             admin_commands::admin_dispatch,
             admin_commands::admin_dispatch_remote,
+            // rust rodio player (desktop-real, mobile-stub)
+            player_commands::player_send,
+            player_commands::player_snapshot,
+            player_commands::player_init,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

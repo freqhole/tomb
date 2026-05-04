@@ -22,8 +22,19 @@
 pub mod control;
 pub mod noop;
 
+pub mod alpn;
+
+#[cfg(feature = "rodio-playback")]
+pub mod rodio;
+#[cfg(feature = "rodio-playback")]
+pub mod supervisor;
+
+pub use alpn::{PlayerProtocol, PLAYER_ALPN};
 pub use control::{PlayerCommand, PlayerEvent, PlayerSnapshot, PlayerState, RestartPolicy};
 pub use noop::NoopPlayerController;
+
+#[cfg(feature = "rodio-playback")]
+pub use supervisor::{spawn_player, RodioController};
 
 use crate::error::GrimoireResult;
 use async_trait::async_trait;

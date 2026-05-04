@@ -56,10 +56,14 @@ export default function SettingsView() {
   // sync settings
   const [syncQueueToLocal, setSyncQueueToLocal] = createSignal(true);
 
-  // local playback settings
-  const [embeddedMediaServer, setEmbeddedMediaServer] = createSignal(true);
-  const [mediaServerBusy, setMediaServerBusy] = createSignal(false);
-  const [mediaServerError, setMediaServerError] = createSignal("");
+  // rust rodio audio backend opt-in. when on, spume's
+  // `selectBackend()` returns the supervised rust audio thread
+  // instead of the html `<audio>` element path. defaults on for
+  // linux (replaces the embedded loopback http server hack) and off
+  // elsewhere until we've burned it in.
+  const [useRodioPlayback, setUseRodioPlayback] = createSignal(false);
+  const [rodioBusy, setRodioBusy] = createSignal(false);
+  const [rodioError, setRodioError] = createSignal("");
 
   // remote server lifecycle
   const [restartConfirm, setRestartConfirm] = createSignal(false);
@@ -98,10 +102,10 @@ export default function SettingsView() {
       console.error("failed to load sync settings:", e);
     }
     try {
-      const enabled = await invoke<boolean>("get_embedded_media_server");
-      setEmbeddedMediaServer(enabled);
+      const enabled = await invoke<boolean>("get_rodio_playback");
+      setUseRodioPlayback(enabled);
     } catch (e) {
-      console.error("failed to load embedded media server setting:", e);
+      console.error("failed to load rodio playback setting:", e);
     }
   }
 
@@ -117,21 +121,21 @@ export default function SettingsView() {
     }
   }
 
-  async function toggleEmbeddedMediaServer() {
-    if (mediaServerBusy()) return;
-    const newValue = !embeddedMediaServer();
-    setEmbeddedMediaServer(newValue);
-    setMediaServerBusy(true);
-    setMediaServerError("");
+  async function toggleRodioPlayback() {
+    if (rodioBusy()) return;
+    const newValue = !useRodioPlayback();
+    setUseRodioPlayback(newValue);
+    setRodioBusy(true);
+    setRodioError("");
     try {
-      await invoke("set_embedded_media_server", { enabled: newValue });
+      await invoke("set_rodio_playback", { enabled: newValue });
     } catch (e) {
-      console.error("failed to toggle embedded media server:", e);
-      setMediaServerError(String(e));
+      console.error("failed to toggle rodio playback:", e);
+      setRodioError(String(e));
       // revert on error
-      setEmbeddedMediaServer(!newValue);
+      setUseRodioPlayback(!newValue);
     } finally {
-      setMediaServerBusy(false);
+      setRodioBusy(false);
     }
   }
 
@@ -584,9 +588,9 @@ export default function SettingsView() {
                 }}
               >
                 <button
-                  class={`toggle-button ${embeddedMediaServer() ? "active" : ""}`}
-                  onClick={toggleEmbeddedMediaServer}
-                  disabled={mediaServerBusy()}
+                  class={`toggle-button ${useRodioPlayback() ? "active" : ""}`}
+                  onClick={toggleRodioPlayback}
+                  disabled={rodioBusy()}
                   style={{
                     flex: "none",
                     width: "44px",
@@ -594,21 +598,21 @@ export default function SettingsView() {
                     "border-radius": "12px",
                     border: "none",
                     padding: "0",
-                    background: embeddedMediaServer()
+                    background: useRodioPlayback()
                       ? "var(--color-accent-500, #ff69b4)"
                       : "var(--color-bg-tertiary, #333)",
-                    cursor: mediaServerBusy() ? "wait" : "pointer",
+                    cursor: rodioBusy() ? "wait" : "pointer",
                     position: "relative",
                     transition: "background 0.2s",
                     "flex-shrink": "0",
-                    opacity: mediaServerBusy() ? "0.6" : "1",
+                    opacity: rodioBusy() ? "0.6" : "1",
                   }}
                 >
                   <div
                     style={{
                       position: "absolute",
                       top: "4px",
-                      left: embeddedMediaServer() ? "24px" : "4px",
+                      left: useRodioPlayback() ? "24px" : "4px",
                       width: "16px",
                       height: "16px",
                       "border-radius": "50%",
@@ -619,7 +623,7 @@ export default function SettingsView() {
                 </button>
                 <div>
                   <div style={{ "font-weight": "500" }}>
-                    embedded media server
+                    use experimental player
                   </div>
                   <div
                     style={{
@@ -628,10 +632,11 @@ export default function SettingsView() {
                       "margin-top": "0.25rem",
                     }}
                   >
-                    run a tiny loopback http server for local audio streaming.
-                    switch this on if you're having issues with audio playback.
+                    route audio through the lower-level audio engine instead of
+                    the html5 audio element. experimental on macos/windows; the
+                    default on linux.
                   </div>
-                  <Show when={mediaServerError()}>
+                  <Show when={rodioError()}>
                     <div
                       style={{
                         "font-size": "0.8125rem",
@@ -639,7 +644,7 @@ export default function SettingsView() {
                         "margin-top": "0.25rem",
                       }}
                     >
-                      {mediaServerError()}
+                      {rodioError()}
                     </div>
                   </Show>
                 </div>
@@ -649,9 +654,7 @@ export default function SettingsView() {
 
           <Show when={admin.isRemote()}>
             <div class="settings-section" style={{ "margin-top": "2rem" }}>
-              <h2>
-                server lifecycl<span class="pinky">e</span>
-              </h2>
+              <h2>server lifecycle</h2>
               <p
                 class="hint"
                 style={{
