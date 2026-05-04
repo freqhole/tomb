@@ -12,10 +12,12 @@ import type {
 import {
   emptySnapshot,
   type BackendKind,
+  type LoadAndPlayOptions,
   type PlayerBackend,
   type PlayerEventListener,
   type Unsubscribe,
 } from "../backend";
+import type { Song } from "../../storage/types";
 
 export class DummyBackend implements PlayerBackend {
   readonly kind: BackendKind = "dummy";
@@ -37,6 +39,10 @@ export class DummyBackend implements PlayerBackend {
   }
 
   async send(_cmd: PlayerCommand): Promise<void> {
+    /* no-op */
+  }
+
+  async loadAndPlay(_song: Song, _options?: LoadAndPlayOptions): Promise<void> {
     /* no-op */
   }
 

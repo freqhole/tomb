@@ -27,6 +27,7 @@ import type {
   PlayerEvent,
   PlayerSnapshot,
 } from "freqhole-api-client";
+import type { Song } from "../storage/types";
 
 /// listener registered via `PlayerBackend.subscribe`.
 /// receives every event the backend emits, in order.
@@ -34,6 +35,17 @@ export type PlayerEventListener = (event: PlayerEvent) => void;
 
 /// returned by `subscribe()` — call to remove the listener.
 export type Unsubscribe = () => void;
+
+/// options accepted by `loadAndPlay`. all backends honor what they
+/// can and silently ignore the rest — e.g. `initialPosition`/
+/// `initialDuration` are useful for restoring a paused session on
+/// page reload, while `userInitiated` lets the html backend skip
+/// auto-play gating that the rodio backend doesn't have.
+export interface LoadAndPlayOptions {
+  userInitiated?: boolean;
+  initialPosition?: number;
+  initialDuration?: number;
+}
 
 /// the surface every audio backend implements.
 ///
@@ -44,6 +56,16 @@ export interface PlayerBackend {
   /// the wire-format identifier — useful for logging + telemetry.
   /// one of: "html_audio" | "rodio" | "sibyl" | "dummy".
   readonly kind: BackendKind;
+
+  /// load a song and start playing it. spume's higher-level entry
+  /// point — the html backend resolves a blob/http url and feeds
+  /// the `<audio>` element; the rodio backend resolves a local
+  /// filesystem path and sends `Load` + `Play` to the supervisor.
+  ///
+  /// throws a `BackendPlaybackError` (with `error_type` set to e.g.
+  /// `"no_local_path"`) when the backend can't play a given song;
+  /// callers can introspect to choose a fallback or surface a toast.
+  loadAndPlay(song: Song, options?: LoadAndPlayOptions): Promise<void>;
 
   /// dispatch a command. returns once the backend has accepted
   /// the command into its queue; observable effects arrive via
@@ -62,6 +84,22 @@ export interface PlayerBackend {
   /// release any owned resources (audio element, ipc channels,
   /// network sockets). idempotent.
   dispose(): Promise<void>;
+}
+
+/// thrown by `PlayerBackend.loadAndPlay` when the backend can't
+/// play the song it was given. the `error_type` discriminant lets
+/// callers branch on the reason (e.g. fall back to html when rodio
+/// reports `no_local_path`).
+export class BackendPlaybackError extends Error {
+  readonly error_type: string;
+  readonly backend: BackendKind;
+
+  constructor(backend: BackendKind, error_type: string, message: string) {
+    super(`[${backend}] ${error_type}: ${message}`);
+    this.name = "BackendPlaybackError";
+    this.backend = backend;
+    this.error_type = error_type;
+  }
 }
 
 export type BackendKind = "html_audio" | "rodio" | "sibyl" | "dummy";

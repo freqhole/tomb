@@ -124,7 +124,14 @@ export {
 } from "./transportCache";
 
 // import functions from transportCache for local use
-import { cacheTransportType, isCharnelManagedRemoteSync, isP2PRemote } from "./transportCache";
+import {
+  cacheTransportType,
+  isCharnelManagedRemoteSync,
+  isP2PRemote,
+  isP2PRemoteSync,
+  preCacheRemoteTransport,
+  transportCacheVersionSignal,
+} from "./transportCache";
 
 // valid thumbnail sizes (must match server config)
 export type ThumbnailSize = 50 | 200;
@@ -405,6 +412,14 @@ export function useResolvedP2PImageUrl(
   source: Accessor<{ blobId?: string; remoteId?: string; httpFallback?: string | null } | undefined>
 ): Accessor<string | undefined> {
   return createMemo(() => {
+    // subscribe to transport-cache mutations so we re-run once an
+    // async transport lookup completes for a remote that was unknown
+    // on the first pass. without this, a memo that observed
+    // `undefined` from `isP2PRemoteSync` would never re-evaluate when
+    // the entry later landed and would silently render the broken
+    // loopback http url forever.
+    transportCacheVersionSignal();
+
     const s = source();
     if (!s) return undefined;
     const { blobId, remoteId, httpFallback } = s;
@@ -418,11 +433,28 @@ export function useResolvedP2PImageUrl(
       // the memo will re-run when pre-caching completes and updates activeBlobUrls
       void preCacheP2PBlob(blobId, remoteId, undefined, "image");
 
-      // for charnel-managed remotes, the `httpFallback` is a stale
-      // `http://localhost:{port}/...` url left over from when an
-      // embedded loopback server fronted blobs. that server has been
-      // removed, so the url is broken \u2014 don't render it. wait for
-      // pre-cache to populate `activeBlobUrls` (then the memo re-runs).
+      // decide whether the `httpFallback` URL is safe to render. it
+      // is ONLY safe for genuine plain-HTTP remotes — for charnel-
+      // managed remotes the URL is a stale `http://localhost:{port}/`
+      // pointing at the yanked loopback server, and for p2p remotes
+      // there's no http endpoint at all.
+      const transportKnown = isP2PRemoteSync(remoteId);
+      if (transportKnown === undefined) {
+        // unknown transport — don't risk rendering the broken loopback
+        // url. eagerly populate the cache so the memo re-runs once the
+        // transport type is known (the version signal above will fire).
+        void preCacheRemoteTransport(remoteId);
+        return undefined;
+      }
+      if (transportKnown === true) {
+        // p2p OR charnel-managed — wait for `preCacheP2PBlob` to populate
+        // `activeBlobUrls` (the memo will re-run via the cache signal).
+        return undefined;
+      }
+      // transportKnown === false — plain http remote, fallback is fine.
+      // belt-and-suspenders: also check the explicit charnel flag in
+      // case a future remote shape sets isCharnelManaged without
+      // changing the transport.
       if (isCharnelManagedRemoteSync(remoteId)) {
         return undefined;
       }

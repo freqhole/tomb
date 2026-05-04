@@ -26,7 +26,7 @@ use std::time::{Duration, Instant};
 
 use rodio::{Decoder, OutputStream, Sink, Source};
 use tokio::sync::broadcast;
-use tracing::{debug, warn};
+use tracing::{debug, info, warn};
 
 use crate::error::ErrorDetail;
 use crate::player::control::{PlayerCommand, PlayerEvent, PlayerState};
@@ -76,7 +76,10 @@ fn audio_loop(cmd_rx: CmdRx, events: broadcast::Sender<PlayerEvent>) {
     // open default output device. failure here is terminal for this
     // run of the loop — supervisor decides whether to retry.
     let (_stream, handle) = match OutputStream::try_default() {
-        Ok(p) => p,
+        Ok(p) => {
+            info!(target: "player", "[player] rodio backend started; default output stream opened");
+            p
+        }
         Err(e) => {
             emit(
                 &events,
@@ -145,6 +148,7 @@ fn audio_loop(cmd_rx: CmdRx, events: broadcast::Sender<PlayerEvent>) {
             // sink.empty() goes true once the last decoded source has
             // drained. transition to stopped + emit Ended.
             if s.empty() {
+                info!(target: "player", "[player] rodio queue drained; emitting Ended");
                 sink = None;
                 queue.clear();
                 total_per_track.clear();
@@ -212,15 +216,14 @@ fn handle_command(
 
             // index 0 is now playing
             if let Some(p) = loaded_paths.first() {
-                // temporary confirmation log so operators can see the
-                // rodio path is actually being driven (rather than a
-                // silent fall-through to the html element backend in
-                // spume). remove once we've left dogfood mode.
-                tracing::info!(
+                // confirmation log so operators can see the rodio path
+                // is actually being driven (rather than a silent
+                // fall-through to the html element backend in spume).
+                info!(
                     target: "player",
                     path = %p,
                     queue_len = loaded_paths.len(),
-                    "[player] rodio sink playing track 0"
+                    "[player] rodio sink Load: playing track 0"
                 );
                 emit(
                     events,
@@ -234,17 +237,20 @@ fn handle_command(
         }
         PlayerCommand::Play => {
             if let Some(s) = sink.as_ref() {
+                info!(target: "player", "[player] rodio sink Play");
                 s.play();
                 emit_state(events, last_state, PlayerState::Playing);
             }
         }
         PlayerCommand::Pause => {
             if let Some(s) = sink.as_ref() {
+                info!(target: "player", "[player] rodio sink Pause");
                 s.pause();
                 emit_state(events, last_state, PlayerState::Paused);
             }
         }
         PlayerCommand::Stop => {
+            info!(target: "player", "[player] rodio sink Stop; clearing queue");
             *sink = None;
             queue.clear();
             total_per_track.clear();
@@ -252,6 +258,7 @@ fn handle_command(
             emit_state(events, last_state, PlayerState::Stopped);
         }
         PlayerCommand::Next => {
+            info!(target: "player", "[player] rodio sink Next");
             // rodio sinks don't expose per-source skip cleanly; rebuild the
             // sink from `current_index + 1` onward. acceptable for v1
             // because Load/Next/Previous all rebuild the source list.
@@ -268,6 +275,7 @@ fn handle_command(
             );
         }
         PlayerCommand::Previous => {
+            info!(target: "player", "[player] rodio sink Previous");
             advance(
                 handle,
                 events,
@@ -282,6 +290,7 @@ fn handle_command(
         }
         PlayerCommand::Seek { ms } => {
             if let Some(s) = sink.as_ref() {
+                info!(target: "player", ms, "[player] rodio sink Seek");
                 let target = Duration::from_millis(ms);
                 if let Err(e) = s.try_seek(target) {
                     emit_error(events, "seek_failed", "Seek Failed", format!("{e:?}"));
@@ -290,6 +299,7 @@ fn handle_command(
         }
         PlayerCommand::SetVolume { v } => {
             let clamped = v.clamp(0.0, 2.0);
+            info!(target: "player", volume = clamped, "[player] rodio sink SetVolume");
             *volume = clamped;
             if let Some(s) = sink.as_ref() {
                 s.set_volume(clamped);
@@ -378,6 +388,12 @@ fn advance(
     };
 
     if let Some(p) = queue.get(next_idx) {
+        info!(
+            target: "player",
+            path = %p,
+            index = next_idx,
+            "[player] rodio sink advance: playing next track"
+        );
         emit(
             events,
             PlayerEvent::TrackChanged {

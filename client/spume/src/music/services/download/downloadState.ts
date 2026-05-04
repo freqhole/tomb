@@ -36,14 +36,24 @@ export function isSongSyncedLocally(sha256: string | null | undefined): boolean 
 
 /** mark a song as synced locally (called after successful sync) */
 export function markSongSynced(sha256: string): void {
+  const wasSynced = syncedSha256s[sha256] === true;
   setSyncedSha256s(sha256, true);
+  // bump version so observers that read `syncedSha256s[sha256]` *before*
+  // the key existed (solid stores don't subscribe to undefined-key reads)
+  // re-run and pick up the new state. without this, a row that rendered
+  // an unsynced song will never flip to the underlined "available offline"
+  // style after a background sync completes.
+  if (!wasSynced) setSyncedVersion((v) => v + 1);
   // persist to IDB in background (browser mode)
   void persistSyncedToIDB(sha256, true);
 }
 
 /** unmark a song as synced locally (called after deletion from local storage) */
 export function unmarkSongSynced(sha256: string): void {
+  const wasSynced = syncedSha256s[sha256] === true;
   setSyncedSha256s(sha256, false);
+  // mirror of `markSongSynced`: bump so observers re-run after a delete.
+  if (wasSynced) setSyncedVersion((v) => v + 1);
   // persist to IDB in background (browser mode)
   void persistSyncedToIDB(sha256, false);
 }

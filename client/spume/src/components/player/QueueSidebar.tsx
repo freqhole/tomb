@@ -635,7 +635,7 @@ export function QueueSidebar(props: QueueSidebarProps) {
                     // local blob takes priority when actually present in the
                     // browser-side cache (opfs/idb). in charnel mode, db-stored
                     // waveforms carry a local_blob_id but live in charnel's
-                    // sqlite \u2014 that lookup will miss, so we fall through to
+                    // sqlite — that lookup will miss, so we fall through to
                     // the remote_blob_id path which resolves via the
                     // charnel-managed self remote (transport.getBlobUrl).
                     if (waveformImg.local_blob_id) {

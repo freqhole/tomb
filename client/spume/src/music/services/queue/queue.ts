@@ -641,6 +641,9 @@ export async function reorderQueue(
 // clears any pending up-next song
 export async function clearQueue(): Promise<void> {
   const state = appState();
+  console.info(
+    `[clearQueue] START len=${state?.queue?.length ?? 0} current=${state?.current_sha256?.slice(0, 8) ?? "null"}`,
+  );
 
   stop();
   stopTracking(true); // skipQueueSave - avoids race with setQueue([])
@@ -649,9 +652,12 @@ export async function clearQueue(): Promise<void> {
   void stopServerSession("abandoned");
   await setCurrentSong(null);
 
-  // stop radio if currently tuned
+  // stop radio if currently tuned. must be awaited before setQueue([])
+  // below — clearCurrentRadioStation reads STORE_APP_STATE directly,
+  // mutates one field, and writes back, so a fire-and-forget call
+  // would race with setQueue([]) and resurrect the queue.
   leaveRadio();
-  void clearCurrentRadioStation();
+  await clearCurrentRadioStation();
 
   // evict cached audio for all remote songs in the queue
   if (state?.queue) {
@@ -671,6 +677,7 @@ export async function clearQueue(): Promise<void> {
   }
 
   await setQueue([]);
+  console.info(`[clearQueue] DONE — setQueue([]) persisted`);
 }
 
 // re-export db helpers that consumers commonly need alongside queue ops

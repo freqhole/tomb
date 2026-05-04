@@ -53,6 +53,7 @@ import {
 } from "../music/import";
 import { togglePlayback } from "../music/services/audio/player";
 import { initRodioPreference } from "../music/services/audio/select";
+import { swapPlayerBackend } from "../music/services/audio/player";
 import {
   cleanupCacheNetworkHandlers,
   initCachedAudioURLs,
@@ -388,6 +389,10 @@ export function App() {
         // want spume's `selectBackend()` to pick that up without a
         // page reload.
         await initRodioPreference();
+        // re-evaluate which PlayerBackend the facade owns. swap is a
+        // no-op when the chosen kind hasn't changed; option (b)
+        // "stop + swap" otherwise.
+        await swapPlayerBackend();
         const newConfig = await getConfig();
         if (newConfig) {
           const updatedRemote = await upsertTauriRemote({
@@ -471,6 +476,11 @@ export function App() {
       // `selectBackend()` call observes the user's preference. safe
       // outside tauri (falls back to localStorage / defaults to false).
       await initRodioPreference();
+      // player.ts is loaded eagerly via the import graph and called
+      // `selectBackend()` before the cache was hydrated, so the initial
+      // activeBackend is always html. swap now to pick up the persisted
+      // setting on boot.
+      await swapPlayerBackend();
 
       // tauri-only: one-shot drain of IDB remotes into shared sqlite table.
       // no-op outside tauri or after first successful drain.

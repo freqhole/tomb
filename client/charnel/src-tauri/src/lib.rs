@@ -3,6 +3,7 @@
 mod admin_commands;
 mod app_config;
 mod commands;
+mod ephemeral_blob_commands;
 
 #[cfg(desktop)]
 mod menu;
@@ -38,6 +39,11 @@ mod player_commands {
 
     #[tauri::command]
     pub async fn player_init() -> Result<(), String> {
+        Err("rodio backend is desktop-only".to_string())
+    }
+
+    #[tauri::command]
+    pub async fn resolve_blob_path(_blob_id: String) -> Result<Value, String> {
         Err("rodio backend is desktop-only".to_string())
     }
 }
@@ -748,6 +754,11 @@ pub fn run() {
             player_commands::player_send,
             player_commands::player_snapshot,
             player_commands::player_init,
+            player_commands::resolve_blob_path,
+            // ephemeral blob fetch + cleanup (sync_queue_to_local OFF path)
+            ephemeral_blob_commands::fetch_ephemeral_blob,
+            ephemeral_blob_commands::delete_ephemeral_blob,
+            ephemeral_blob_commands::purge_ephemeral_dir,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

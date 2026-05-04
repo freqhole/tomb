@@ -105,19 +105,27 @@ function readLocalFallback(): boolean {
   }
 }
 
-/// pick the appropriate backend for the current host. callers should
-/// `dispose()` the returned backend when swapping to a different one.
+/// pick the appropriate backend for the current host.
+///
+/// **callers must pass `htmlBackend`** \u2014 the always-allocated
+/// html instance owned by the player facade. when html is the
+/// chosen backend, we return that same instance (not a fresh one)
+/// so its dom event stream is the single source of truth feeding
+/// `playerStateSync`. constructing a second `HtmlAudioBackend`
+/// would create a "ghost" instance whose audio element plays but
+/// whose events nobody is listening to \u2014 the UI would freeze
+/// while audio kept going.
 ///
 /// returns:
 /// - `RodioBackend` in tauri/charnel when the user opted in
-/// - `HtmlAudioBackend` in tauri (rodio off) and in real browsers
+/// - the passed-in html instance in tauri (rodio off) and in browsers
 /// - `DummyBackend` only when the dom isn't available (tests, ssr)
-export function selectBackend(): PlayerBackend {
+export function selectBackend(htmlBackend: HtmlAudioBackend): PlayerBackend {
   if (isCharnelMode() && isRodioEnabled()) {
     return new RodioBackend();
   }
   if (typeof document === "undefined") {
     return new DummyBackend();
   }
-  return new HtmlAudioBackend();
+  return htmlBackend;
 }

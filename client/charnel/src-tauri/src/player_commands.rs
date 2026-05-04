@@ -167,3 +167,31 @@ pub async fn player_init(app: AppHandle, state: State<'_, PlayerState>) -> Resul
     let _ = state.get_or_init(&app).await;
     Ok(())
 }
+
+/// resolve a media blob id to a local filesystem path the rodio
+/// backend can hand to `Symphonia` via [`PlayerCommand::Load`].
+///
+/// returns `Ok({ id, path, mime })` for blobs that have a
+/// `local_path` (i.e. the file lives on disk — true for songs synced
+/// via the local importer or downloaded over p2p), and an `Err` with
+/// a structured `error_type` discriminant otherwise. spume callers
+/// can introspect the error to decide whether to fall back to the
+/// html `<audio>` path (which can stream remote http urls) on a
+/// per-song basis.
+#[tauri::command]
+pub async fn resolve_blob_path(blob_id: String) -> Result<serde_json::Value, String> {
+    let resp = grimoire::media_blobz::build_blob_path_response(&blob_id).await;
+    match resp.data {
+        Some(data) => Ok(data),
+        None => {
+            // surface the first error_type if available so the client
+            // can branch on `no_local_path` vs `not_found` etc.
+            let kind = resp
+                .errors
+                .first()
+                .map(|e| e.error_type.clone())
+                .unwrap_or_else(|| "unknown_error".to_string());
+            Err(format!("{kind}: {}", resp.message))
+        }
+    }
+}
