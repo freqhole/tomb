@@ -124,7 +124,7 @@ export {
 } from "./transportCache";
 
 // import functions from transportCache for local use
-import { cacheTransportType, isP2PRemote } from "./transportCache";
+import { cacheTransportType, isCharnelManagedRemoteSync, isP2PRemote } from "./transportCache";
 
 // valid thumbnail sizes (must match server config)
 export type ThumbnailSize = 50 | 200;
@@ -417,9 +417,18 @@ export function useResolvedP2PImageUrl(
       // not cached yet - trigger background fetch (fire-and-forget)
       // the memo will re-run when pre-caching completes and updates activeBlobUrls
       void preCacheP2PBlob(blobId, remoteId, undefined, "image");
+
+      // for charnel-managed remotes, the `httpFallback` is a stale
+      // `http://localhost:{port}/...` url left over from when an
+      // embedded loopback server fronted blobs. that server has been
+      // removed, so the url is broken \u2014 don't render it. wait for
+      // pre-cache to populate `activeBlobUrls` (then the memo re-runs).
+      if (isCharnelManagedRemoteSync(remoteId)) {
+        return undefined;
+      }
     }
 
-    // fall back to HTTP URL if valid
+    // fall back to HTTP URL if valid (real remote http servers only)
     if (httpFallback && isValidHttpUrl(httpFallback)) {
       return httpFallback;
     }

@@ -372,24 +372,6 @@ pub fn take_pending_deep_links(state: tauri::State<crate::PendingDeepLinks>) -> 
     state.drain()
 }
 
-/// get info about the embedded media http server (loopback only).
-///
-/// returns `{base_url, api_key}` so the frontend can build blob urls like
-/// `{base_url}/api/blobs/{id}?api_key={api_key}` and stick them in
-/// `<audio src>` / `<img src>` for proper http range request streaming on
-/// linux webkitgtk (where tauri's asset:// protocol can't stream into media
-/// elements).
-///
-/// returns `None` if the server hasn't started yet (e.g. setup wizard still
-/// running, or charnel just launched and the spawn task hasn't completed).
-/// callers should retry / fall back to the asset:// path.
-#[tauri::command]
-pub fn media_server_info(
-    state: tauri::State<crate::media_server::MediaServerState>,
-) -> Option<crate::media_server::MediaServerInfo> {
-    state.get()
-}
-
 /// get the config file path (from app config or legacy location)
 #[tauri::command]
 pub fn get_config_path(app_handle: tauri::AppHandle) -> Option<String> {
@@ -1430,40 +1412,27 @@ pub fn set_sync_queue_to_local(app_handle: tauri::AppHandle, enabled: bool) -> R
     Ok(())
 }
 
-/// get the embedded_media_server setting (default: on for linux, off elsewhere)
+/// get the use_rodio_playback setting (default: on for linux). when on,
+/// spume's `selectBackend()` returns the rodio backend instead of the
+/// html `<audio>` element path.
 #[tauri::command]
-pub fn get_embedded_media_server(app_handle: tauri::AppHandle) -> bool {
+pub fn get_rodio_playback(app_handle: tauri::AppHandle) -> bool {
     FreqholeAppConfig::load(&app_handle)
-        .map(|c| c.embedded_media_server)
-        .unwrap_or_else(crate::app_config::default_embedded_media_server)
+        .map(|c| c.use_rodio_playback)
+        .unwrap_or_else(crate::app_config::default_use_rodio_playback)
 }
 
-/// set the embedded_media_server setting and start/stop the server
-/// accordingly so the change takes effect without restarting the app.
+/// set the use_rodio_playback setting. fires `config_changed` so spume can
+/// re-read it without a restart. does NOT swap any in-flight backend; the
+/// new value takes effect when the playback session next reconstructs its
+/// `PlayerBackend` (typically next page reload or next track).
 #[tauri::command]
-pub async fn set_embedded_media_server(
-    app_handle: tauri::AppHandle,
-    state: tauri::State<'_, crate::media_server::MediaServerState>,
-    enabled: bool,
-) -> Result<(), String> {
+pub fn set_rodio_playback(app_handle: tauri::AppHandle, enabled: bool) -> Result<(), String> {
     let mut config = FreqholeAppConfig::load(&app_handle).unwrap_or_default();
-    config.embedded_media_server = enabled;
+    config.use_rodio_playback = enabled;
     config.save(&app_handle)?;
 
-    let media_state = state.inner().clone();
-    if enabled {
-        if let Err(e) =
-            crate::media_server::start_and_register(app_handle.clone(), media_state).await
-        {
-            return Err(format!("failed to start embedded media server: {e}"));
-        }
-    } else {
-        crate::media_server::stop(&media_state).await;
-    }
-
-    // emit config changed event so the webview can invalidate its cache and
-    // re-fetch media_server_info on next blob url request.
-    let _ = notify_config_changed(&app_handle, "embedded_media_server changed");
+    let _ = notify_config_changed(&app_handle, "use_rodio_playback changed");
 
     Ok(())
 }

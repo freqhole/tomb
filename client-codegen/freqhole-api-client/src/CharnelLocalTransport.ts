@@ -15,83 +15,15 @@ let convertFileSrc: ((path: string) => string) | null = null;
 
 // webkitgtk (linux) can't play asset:// URLs in <audio> elements.
 // detect once at module level so we can use blob: URLs as a workaround.
+//
+// historically there was a second workaround here — an embedded http
+// loopback server (`media_server_info` ipc + `server::media_server`)
+// that served blobs via plain http. it has been removed in favor of
+// the rodio backend (see `client/spume/src/music/services/audio/`),
+// which bypasses the html `<audio>` element entirely on linux. when
+// rodio is *not* enabled and we're on linux, we fall back to the
+// blob: object url path below.
 const isLinuxWebKit = typeof navigator !== "undefined" && navigator.userAgent.includes("Linux");
-
-// info about the embedded loopback http media server (charnel only).
-// fetched once via the `media_server_info` ipc command and cached. used on
-// linux to build `<audio src>` urls that bypass asset:// (which webkitgtk
-// can't stream into media elements).
-interface MediaServerInfo {
-  base_url: string;
-  api_key: string;
-}
-let mediaServerInfo: MediaServerInfo | null = null;
-let mediaServerInfoFetch: Promise<MediaServerInfo | null> | null = null;
-let mediaServerListenerAttached = false;
-
-/** drop the cached media server info so the next call re-queries it. */
-function invalidateMediaServerInfo(): void {
-  console.info("[CharnelLocalTransport] invalidating media server info cache");
-  mediaServerInfo = null;
-  mediaServerInfoFetch = null;
-}
-
-/** subscribe (once) to tauri config-changed events to invalidate the cache
- * when the user toggles the embedded media server in settings. */
-async function ensureMediaServerListener(): Promise<void> {
-  if (mediaServerListenerAttached) return;
-  mediaServerListenerAttached = true;
-  try {
-    const { listen } = await import("@tauri-apps/api/event");
-    await listen<{ type?: string }>("freqhole:event", (e) => {
-      if (e.payload && e.payload.type === "config-changed") {
-        invalidateMediaServerInfo();
-        // eagerly re-fetch so the next blob url request can be synchronous.
-        // logs whether the server is now running or stopped.
-        void getMediaServerInfo().then((info) => {
-          console.info(
-            info
-              ? `[CharnelLocalTransport] media server now: ${info.base_url}`
-              : "[CharnelLocalTransport] media server now: disabled",
-          );
-        });
-      }
-    });
-  } catch {
-    // not in tauri or event api unavailable — fine, just won't auto-invalidate
-    mediaServerListenerAttached = false;
-  }
-}
-
-async function getMediaServerInfo(): Promise<MediaServerInfo | null> {
-  // attach the cache-invalidation listener once (lazy, fire-and-forget)
-  void ensureMediaServerListener();
-  if (mediaServerInfo) return mediaServerInfo;
-  if (mediaServerInfoFetch) return mediaServerInfoFetch;
-  mediaServerInfoFetch = (async () => {
-    try {
-      const inv = await ensureInvoke();
-      const info = (await inv("media_server_info", {})) as MediaServerInfo | null;
-      if (info && info.base_url && info.api_key) {
-        mediaServerInfo = info;
-        return info;
-      }
-      return null;
-    } catch {
-      return null;
-    } finally {
-      // allow retry on next call if it returned null (server may not have
-      // finished spawning yet on app cold start)
-      if (!mediaServerInfo) mediaServerInfoFetch = null;
-    }
-  })();
-  return mediaServerInfoFetch;
-}
-
-/** build an http url for a blob via the embedded media server, or null. */
-function buildMediaServerBlobUrl(info: MediaServerInfo, blobId: string): string {
-  return `${info.base_url}/api/blobs/${blobId}?api_key=${info.api_key}`;
-}
 
 /**
  * initialize tauri invoke function
@@ -135,21 +67,9 @@ export class CharnelLocalTransport implements Transport {
   private audioBlobUrl: { blobId: string; url: string } | null = null;
 
   constructor(_baseUrl: string) {
-    // baseUrl no longer needed - all requests go through IPC
-    // eagerly fetch the embedded media server info so it's ready before the
-    // first <audio src> request (avoids needless asset:// fallback on the
-    // very first track played after app start).
-    void getMediaServerInfo().then((info) => {
-      if (info) {
-        console.info(
-          `[CharnelLocalTransport] embedded media server ready @ ${info.base_url}`,
-        );
-      } else {
-        console.info(
-          `[CharnelLocalTransport] embedded media server not available (using asset://)`,
-        );
-      }
-    });
+    // baseUrl no longer needed - all requests go through IPC.
+    // (used to also kick off an embedded http loopback server probe
+    // here; that server has been removed in favor of the rodio backend.)
   }
 
   /**
@@ -372,11 +292,13 @@ export class CharnelLocalTransport implements Transport {
   /**
    * get blob URL — preference order:
    * 1. cached object URL (db-stored blobs)
-   * 2. embedded loopback http media server (when enabled — works on all
-   *    platforms, supports range requests, required for `<audio>` on linux
-   *    webkitgtk where asset:// can't stream)
-   * 3. tauri asset:// (via `convertFileSrc`) — fast, but no `<audio>` on linux
-   * 4. linux fallback: fetch via asset:// and wrap in a blob: object URL
+   * 2. tauri asset:// (via `convertFileSrc`) on macos/windows
+   * 3. linux fallback: fetch via asset:// and wrap in a blob: object URL
+   *    (webkitgtk can't stream asset:// into `<audio>`)
+   *
+   * note: when the rodio audio backend is enabled (charnel + opt-in)
+   * playback bypasses html `<audio>` entirely and reads files via
+   * filesystem path — this method is unused for that path.
    */
   getBlobUrl(blobId: string, _blake3?: string): string | Promise<string> {
     // check object URL cache first (db-stored blobs)
@@ -386,15 +308,7 @@ export class CharnelLocalTransport implements Transport {
       return cachedObjectUrl;
     }
 
-    // prefer the embedded http media server when it's running (all platforms).
-    // toggleable via charnel settings; required on linux/webkitgtk.
-    if (mediaServerInfo) {
-      const url = buildMediaServerBlobUrl(mediaServerInfo, blobId);
-      console.debug(`[CharnelLocalTransport] blob ${blobId}: embedded http server -> ${url}`);
-      return url;
-    }
-
-    // on linux without the media server, we MUST go async to wrap in a blob:
+    // on linux without rodio, we MUST go async to wrap in a blob:
     // url (asset:// can't stream into <audio> on webkitgtk).
     if (isLinuxWebKit) {
       console.debug(`[CharnelLocalTransport] blob ${blobId}: linux fallback (async)`);
@@ -421,15 +335,6 @@ export class CharnelLocalTransport implements Transport {
   private async getBlobUrlAsync(blobId: string): Promise<string> {
     await ensureInvoke(); // ensure convertFileSrc is loaded
 
-    // try the embedded http media server first if not yet cached.
-    // works on all platforms when enabled.
-    const info = await getMediaServerInfo();
-    if (info) {
-      const url = buildMediaServerBlobUrl(info, blobId);
-      console.debug(`[CharnelLocalTransport] blob ${blobId}: embedded http server (async) -> ${url}`);
-      return url;
-    }
-
     const response = await this.request("GET", `/api/blobs/${blobId}/path`, undefined);
     
     if (response.status === 200) {
@@ -442,9 +347,15 @@ export class CharnelLocalTransport implements Transport {
           throw new Error("convertFileSrc not available");
         }
 
-        // on linux without media server: fall back to blob: workaround
+        // on linux without media server: fall back to blob: workaround.
+        // routes audio + image differently:
+        //   - audio: single-slot cache (revoke-on-replace) since audio
+        //     blobs are large and we only play one at a time
+        //   - other (images / waveforms / cover art): per-blob cache so
+        //     multiple `<img>` and css `background-image` urls coexist
+        //     across the playerbar, queue sidebar, etc.
         if (isLinuxWebKit) {
-          return this.createAudioBlobUrl(blobId, parsed.data.path, parsed.data.mime);
+          return this.createBlobObjectUrl(blobId, parsed.data.path, parsed.data.mime);
         }
 
         return convertFileSrc(parsed.data.path);
@@ -469,26 +380,45 @@ export class CharnelLocalTransport implements Transport {
 
   /**
    * create a blob: object URL by fetching via asset:// protocol.
-   * used on linux where webkitgtk can't play asset:// in <audio> elements.
-   * only keeps one audio blob URL at a time — revokes the previous one.
+   * used on linux where webkitgtk can't play asset:// in `<audio>`
+   * elements (and historically also where the embedded http loopback
+   * server stood in for the same workaround).
+   *
+   * mime-aware caching:
+   *   - `audio/*`: single-slot cache, revoke-on-replace. audio blobs
+   *     are large (often tens of MB) and only one ever plays at a
+   *     time, so leaking the rest is wasteful.
+   *   - everything else (images, waveforms, cover art): stored in
+   *     `blobObjectUrlCache` keyed by blob id so multiple `<img>` /
+   *     css `background-image` references coexist without one
+   *     revoking another.
    */
-  private async createAudioBlobUrl(blobId: string, localPath: string, mime?: string): Promise<string> {
+  private async createBlobObjectUrl(blobId: string, localPath: string, mime?: string): Promise<string> {
     if (!convertFileSrc) {
       throw new Error("convertFileSrc not available");
     }
 
-    // revoke previous audio blob URL to free memory
-    if (this.audioBlobUrl) {
-      URL.revokeObjectURL(this.audioBlobUrl.url);
-    }
+    const isAudio = (mime ?? "").startsWith("audio/");
+    const effectiveMime = mime ?? (isAudio ? "audio/mpeg" : "application/octet-stream");
 
     const assetUrl = convertFileSrc(localPath);
     const resp = await fetch(assetUrl);
     const arrayBuffer = await resp.arrayBuffer();
-    const blob = new Blob([arrayBuffer], { type: mime ?? "audio/mpeg" });
+    const blob = new Blob([arrayBuffer], { type: effectiveMime });
     const objectUrl = URL.createObjectURL(blob);
 
-    this.audioBlobUrl = { blobId, url: objectUrl };
+    if (isAudio) {
+      // revoke previous single-slot audio url (if any) so we don't
+      // leak large buffers as the user moves between tracks.
+      if (this.audioBlobUrl) {
+        URL.revokeObjectURL(this.audioBlobUrl.url);
+      }
+      this.audioBlobUrl = { blobId, url: objectUrl };
+    } else {
+      // per-blob cache so e.g. the playerbar's waveform and the queue
+      // sidebar's matching waveform share a single object url.
+      this.blobObjectUrlCache.set(blobId, objectUrl);
+    }
     return objectUrl;
   }
 }

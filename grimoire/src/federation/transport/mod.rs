@@ -25,6 +25,11 @@ pub use freqhole_protocol::FreqholeProtocol;
 pub use handler::handle_incoming;
 pub use protocol::{PeerMessage, FREQHOLE_ALPN};
 
+// re-exports so callers (cli, charnel, …) don't need a direct
+// `iroh` dependency just to dial a peer or hold a Connection.
+pub use iroh::endpoint::Connection as IrohConnection;
+pub use iroh::PublicKey as IrohPublicKey;
+
 use crate::config::get_config;
 use crate::error::GrimoireResult;
 use crate::users::UserService;

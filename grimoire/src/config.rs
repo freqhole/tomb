@@ -224,6 +224,12 @@ pub struct FederationConfig {
     /// rejected. see docs/wizard-remote-admin.md.
     #[serde(default)]
     pub remote_admin: Option<RemoteAdminConfig>,
+    /// remote player configuration (`freqhole-player/1` ALPN).
+    /// when absent or `enabled = false`, incoming player-control
+    /// connections are rejected. opt-in. see
+    /// docs/rodio-into-freqhole-plan.md.
+    #[serde(default)]
+    pub remote_player: Option<RemotePlayerConfig>,
 }
 
 /// remote admin configuration for the `freqhole-admin/1` ALPN
@@ -260,6 +266,46 @@ impl RemoteAdminConfig {
     /// is this peer node id allowed?
     /// returns true when the allowlist is empty (admin role check still
     /// applies elsewhere) or when the node id is explicitly listed.
+    pub fn is_allowed_node(&self, node_id: &str) -> bool {
+        self.allowed_node_ids.is_empty() || self.allowed_node_ids.iter().any(|n| n == node_id)
+    }
+}
+
+/// remote player configuration for the `freqhole-player/1` ALPN.
+///
+/// opt-in. structure mirrors [`RemoteAdminConfig`] for symmetry: an
+/// `enabled` switch, an optional explicit allowlist, and a frame size
+/// cap. peer must resolve to a User with `role == Admin` to be
+/// accepted; this protocol is intentionally admin-only because it
+/// drives a process running real audio output on the host machine.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct RemotePlayerConfig {
+    /// main switch (default: false)
+    #[serde(default)]
+    pub enabled: bool,
+    /// optional explicit allowlist of player peer node IDs.
+    /// empty = any admin peer is allowed; non-empty = require both
+    /// role==admin AND node_id membership.
+    #[serde(default)]
+    pub allowed_node_ids: Vec<String>,
+    /// per-frame size cap, in mb (default: 1). much smaller than the
+    /// admin cap because player frames are typed commands/events, not
+    /// blob payloads.
+    #[serde(default = "default_player_max_message_size_mb")]
+    pub max_message_size_mb: u32,
+}
+
+fn default_player_max_message_size_mb() -> u32 {
+    1
+}
+
+impl RemotePlayerConfig {
+    /// max message size in bytes
+    pub fn max_message_size_bytes(&self) -> usize {
+        (self.max_message_size_mb as usize) * 1024 * 1024
+    }
+
+    /// is this peer node id allowed?
     pub fn is_allowed_node(&self, node_id: &str) -> bool {
         self.allowed_node_ids.is_empty() || self.allowed_node_ids.iter().any(|n| n == node_id)
     }

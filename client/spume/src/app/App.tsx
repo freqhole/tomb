@@ -52,6 +52,7 @@ import {
   uploadPathsToRemote,
 } from "../music/import";
 import { togglePlayback } from "../music/services/audio/player";
+import { initRodioPreference } from "../music/services/audio/select";
 import {
   cleanupCacheNetworkHandlers,
   initCachedAudioURLs,
@@ -382,6 +383,11 @@ export function App() {
       // subscribe to config changes (server restarts) - refetch config when notified
       const unlistenConfigChanged = await onConfigChanged(async () => {
         debug("tauri: config changed event received, refetching...");
+        // re-read the rodio opt-in flag — the wizard's settings view
+        // toggles `use_rodio_playback` in `FreqholeAppConfig`, and we
+        // want spume's `selectBackend()` to pick that up without a
+        // page reload.
+        await initRodioPreference();
         const newConfig = await getConfig();
         if (newConfig) {
           const updatedRemote = await upsertTauriRemote({
@@ -460,6 +466,11 @@ export function App() {
     try {
       await initAppDB();
       await initMusicDB();
+
+      // hydrate the rodio opt-in cache early so the very first
+      // `selectBackend()` call observes the user's preference. safe
+      // outside tauri (falls back to localStorage / defaults to false).
+      await initRodioPreference();
 
       // tauri-only: one-shot drain of IDB remotes into shared sqlite table.
       // no-op outside tauri or after first successful drain.
