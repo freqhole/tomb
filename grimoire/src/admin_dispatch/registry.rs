@@ -241,24 +241,6 @@ pub const ADMIN_COMMANDS: &[AdminCommandInfo] = &[
         auth: AdminAuth::Admin,
     },
     AdminCommandInfo {
-        name: "radio_songs_list",
-        request_type: "RadioStationByStationIdRequest",
-        response_type: "Vec<StationSong>",
-        auth: AdminAuth::Admin,
-    },
-    AdminCommandInfo {
-        name: "radio_songs_add",
-        request_type: "RadioSongsAddRequest",
-        response_type: "EmptyResponse",
-        auth: AdminAuth::Admin,
-    },
-    AdminCommandInfo {
-        name: "radio_songs_remove",
-        request_type: "RadioSongsRemoveRequest",
-        response_type: "EmptyResponse",
-        auth: AdminAuth::Admin,
-    },
-    AdminCommandInfo {
         name: "radio_seed_suggest",
         request_type: "RadioSeedSuggestRequest",
         response_type: "Vec<RadioSeedSuggestion>",

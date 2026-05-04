@@ -484,10 +484,10 @@ max_message_size_mb = 16
 # ============================================================================
 # RADIO BROADCAST (Optional - radio over iroh)
 # ============================================================================
-# the radio is intentionally minimal at the toml layer: only `enabled` and
-# `encode_args` live here. everything per-station (name, public/private,
-# which songs play) is configured via the ui and stored in sqlite, so you
-# can run any number of radio "channels" without restarting the server.
+# the radio is intentionally minimal at the toml layer: a handful of knobs
+# live here. everything per-station (name, public/private, which songs
+# play) is configured via the ui and stored in sqlite, so you can run any
+# number of radio "channels" without restarting the server.
 #
 # requires `[federation].enabled = true` (the iroh endpoint comes from
 # federation setup).
@@ -500,9 +500,14 @@ enabled = false
 # output is always pipe:1 (stdout). default: fragmented MP4 with AAC-LC at
 # 192 kbps and 3-second fragments — what the spume / midden client expect.
 # notes:
-#   * `-re` is required for live pacing; without it ffmpeg blasts the whole
-#     song through stdout in seconds and the client buffer drowns
+#   * the broadcaster paces output server-side, so `-re` is intentionally
+#     OMITTED — ffmpeg eagerly fills an in-memory ring and the pacer
+#     emits at fragment cadence
 #   * `frag_keyframe+empty_moov+default_base_moof` makes MSE-friendly fMP4
 #   * if you change the codec/profile, also update the station's codec
 #     string in the radio_stationz table
-encode_args = "-hide_banner -loglevel error -re -fflags +genpts -i {input} -vn -map 0:a:0 -c:a aac -profile:a aac_low -b:a 192k -ar 48000 -ac 2 -movflags frag_keyframe+empty_moov+default_base_moof -frag_duration 3000000 -avoid_negative_ts make_zero -f mp4 pipe:1"
+#   * if you change `-frag_duration`, set `frag_ms` (advanced, omitted
+#     here — see grimoire/src/radio/config.rs for tuning knobs:
+#     frag_ms, buffer_seconds, inter_track_silence_ms,
+#     encoder_restart_attempts)
+encode_args = "-hide_banner -loglevel error -fflags +genpts -i {input} -vn -map 0:a:0 -c:a aac -profile:a aac_low -b:a 192k -ar 48000 -ac 2 -movflags frag_keyframe+empty_moov+default_base_moof -frag_duration 3000000 -avoid_negative_ts make_zero -f mp4 pipe:1"

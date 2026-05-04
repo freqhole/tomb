@@ -15,7 +15,7 @@ use crate::music::analytics::events as play_events;
 use crate::radio::art::resolve_track_art;
 use crate::radio::chunk::Chunk;
 use crate::radio::config as cfg;
-use crate::radio::encoder::Encoder;
+use crate::radio::encoder::BufferedEncoder;
 use crate::radio::messages::{ArtData, NowPlaying, RadioModeCapability};
 use crate::radio::messages::{TimelineCurrentItem, TimelineMessage, TimelineUpcomingItem};
 use crate::radio::playlist::{
@@ -151,8 +151,9 @@ impl Broadcaster {
     fn new(station_id: String) -> Self {
         let (chunk_tx, _) = broadcast::channel(cfg::CHUNK_CHANNEL_CAPACITY);
         let (meta_tx, _) = broadcast::channel(cfg::META_CHANNEL_CAPACITY);
+        let ring_capacity = cfg::ring_capacity(&crate::radio::config::effective());
         Self {
-            state: RwLock::new(State::empty(cfg::RING_CAPACITY, &station_id)),
+            state: RwLock::new(State::empty(ring_capacity, &station_id)),
             station_id,
             chunk_tx,
             meta_tx,
@@ -752,7 +753,21 @@ impl Broadcaster {
             station_id: Some(self.station_id.clone()),
         });
 
-        let mut encoder = Encoder::start(&track.local_path)?;
+        // small breathing-room gap between tracks. the broadcaster paces
+        // chunk emission to listeners (rather than relying on ffmpeg's
+        // `-re`), so we explicitly insert silence here. only sleep when
+        // we've already played at least one track on this station — the
+        // very first chunk after startup should not be artificially
+        // delayed.
+        let radio_cfg = crate::radio::config::effective();
+        if self.next_seq.load(Ordering::Relaxed) > 0 {
+            let gap = Duration::from_millis(radio_cfg.inter_track_silence_ms as u64);
+            if gap > Duration::ZERO {
+                tokio::time::sleep(gap).await;
+            }
+        }
+
+        let mut encoder = BufferedEncoder::start(&track.local_path)?;
         let skip_generation = self.skip_request_generation.load(Ordering::Relaxed);
 
         let first = encoder
@@ -839,6 +854,15 @@ impl Broadcaster {
         };
         let started = std::time::Instant::now();
         let mut silence_since: Option<Instant> = None;
+        // server-side pacing: emit each media chunk at the wall-clock
+        // moment its audio should start playing. computed against the
+        // track's start instant so error doesn't accumulate. with no
+        // `-re` flag on ffmpeg, the buffered encoder runs as fast as
+        // the kernel pipe allows and the broadcaster pacer is the only
+        // thing keeping listeners in sync with "now".
+        let pace_origin = started;
+        let frag_ms = radio_cfg.frag_ms.max(1) as u64;
+        let mut media_chunks_emitted: u64 = 0;
 
         // pull chunks until ffmpeg signals EOF (clean song end). if it
         // errors mid-song we still want to close out the play history row
@@ -889,6 +913,30 @@ impl Broadcaster {
             match next {
                 Ok(None) => break None,
                 Ok(Some(chunk)) => {
+                    // pace: wait until this chunk's audio "starts" before
+                    // pushing it. the buffered encoder has likely already
+                    // produced the next several chunks; that backlog is
+                    // exactly the crash-recovery cushion we want.
+                    let target =
+                        pace_origin + Duration::from_millis(media_chunks_emitted * frag_ms);
+                    let now = Instant::now();
+                    if target > now {
+                        // wake on skip too — admins shouldn't have to wait
+                        // through the pacing sleep before the cut takes
+                        // effect.
+                        let sleep_for = target - now;
+                        tokio::select! {
+                            _ = tokio::time::sleep(sleep_for) => {}
+                            _ = self.skip_notify.notified(), if !is_bumper => {
+                                if self.skip_request_generation.load(Ordering::Relaxed) != skip_generation {
+                                    skipped_by_admin = true;
+                                    encoder.interrupt();
+                                    break None;
+                                }
+                            }
+                        }
+                    }
+
                     let seq = self.next_seq.fetch_add(1, Ordering::Relaxed);
                     let arc = Arc::new(Chunk {
                         seq,
@@ -903,6 +951,7 @@ impl Broadcaster {
                         }
                     }
                     let _ = self.chunk_tx.send(arc);
+                    media_chunks_emitted += 1;
                 }
                 Err(e) => break Some(e),
             }

@@ -30,9 +30,9 @@ use crate::admin_dispatch::types::peers::{
 use crate::admin_dispatch::types::radio::{
     RadioBumper, RadioBumpersAddRequest, RadioBumpersListRequest, RadioBumpersRemoveRequest,
     RadioBumpersSetFrequencyRequest, RadioConfigPayload, RadioFiltersAddRequest,
-    RadioFiltersRemoveRequest, RadioSeedSuggestRequest, RadioSeedSuggestion, RadioSongsAddRequest,
-    RadioSongsRemoveRequest, RadioStationByStationIdRequest, RadioStationSupervisorStatus,
-    RadioStationsByIdRequest, RadioSupervisorStationRequest, RadioSupervisorStatusResponse,
+    RadioFiltersRemoveRequest, RadioSeedSuggestRequest, RadioSeedSuggestion,
+    RadioStationByStationIdRequest, RadioStationSupervisorStatus, RadioStationsByIdRequest,
+    RadioSupervisorStationRequest, RadioSupervisorStatusResponse,
 };
 use crate::admin_dispatch::types::users::{
     AdminAccountLinkResponse, AdminUserSummary, AdminUsersDeleteRequest,
@@ -144,9 +144,18 @@ pub async fn handle(
         "radio_filters_list" => radio_filters_list(args).await,
         "radio_filters_add" => radio_filters_add(args).await,
         "radio_filters_remove" => radio_filters_remove(args).await,
-        "radio_songs_list" => radio_songs_list(args).await,
-        "radio_songs_add" => radio_songs_add(args).await,
-        "radio_songs_remove" => radio_songs_remove(args).await,
+        "radio_songs_list" | "radio_songs_add" | "radio_songs_remove" => {
+            // explicit per-track inclusion is now expressed as a
+            // `track`-typed filter row — use radio_filters_* instead.
+            GrimoireResponse::failure(
+                "radio_songs_* commands were removed; use radio_filters_* with filter_type='track'",
+                vec![ErrorDetail::new(
+                    "unsupported_command",
+                    "command removed",
+                    "explicit station songs are now filter rows (filter_type='track')",
+                )],
+            )
+        }
         "radio_seed_suggest" => radio_seed_suggest(args).await,
         "radio_config_get" => radio_config_get().await,
         "radio_config_set" => radio_config_set(args).await,
@@ -1519,40 +1528,6 @@ async fn radio_filters_remove(args: JsonValue) -> GrimoireResponse<JsonValue> {
     match radio_stations::remove_filter(&req.filter_id).await {
         Ok(()) => GrimoireResponse::success("filter removed", JsonValue::Null),
         Err(e) => GrimoireResponse::failure("failed to remove filter", vec![e.into()]),
-    }
-}
-
-async fn radio_songs_list(args: JsonValue) -> GrimoireResponse<JsonValue> {
-    let req: RadioStationByStationIdRequest = match decode(args) {
-        Ok(v) => v,
-        Err(r) => return r,
-    };
-    match radio_stations::list_songs(&req.station_id).await {
-        Ok(songs) => to_value(GrimoireResponse::success("songs listed", songs)),
-        Err(e) => GrimoireResponse::failure("failed to list songs", vec![e.into()]),
-    }
-}
-
-async fn radio_songs_add(args: JsonValue) -> GrimoireResponse<JsonValue> {
-    let req: RadioSongsAddRequest = match decode(args) {
-        Ok(v) => v,
-        Err(r) => return r,
-    };
-    let sort_order = req.sort_order.unwrap_or(0);
-    match radio_stations::add_song(&req.station_id, &req.song_id, sort_order).await {
-        Ok(()) => GrimoireResponse::success("song added", JsonValue::Null),
-        Err(e) => GrimoireResponse::failure("failed to add song", vec![e.into()]),
-    }
-}
-
-async fn radio_songs_remove(args: JsonValue) -> GrimoireResponse<JsonValue> {
-    let req: RadioSongsRemoveRequest = match decode(args) {
-        Ok(v) => v,
-        Err(r) => return r,
-    };
-    match radio_stations::remove_song(&req.station_id, &req.song_id).await {
-        Ok(()) => GrimoireResponse::success("song removed", JsonValue::Null),
-        Err(e) => GrimoireResponse::failure("failed to remove song", vec![e.into()]),
     }
 }
 

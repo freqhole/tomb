@@ -5,9 +5,9 @@ import { createSignal } from "solid-js";
 // what the caller wants to add to the station
 export type StationSelectorTarget =
   | { kind: "songs"; songIds: string[] }
-  | { kind: "artist"; artistName: string }
-  | { kind: "album"; albumTitle: string }
-  | { kind: "genre"; genreName: string };
+  | { kind: "artist"; artistId: string; artistName: string }
+  | { kind: "album"; albumId: string; albumTitle: string }
+  | { kind: "genre"; genreId: string; genreName: string };
 
 interface StationSelectorState {
   isOpen: boolean;

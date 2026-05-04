@@ -162,6 +162,16 @@ async fn run_session(conn: &Connection) -> GrimoireResult<()> {
             res = &mut writer_task => return res,
             res = forward_meta(&mut sub.meta_rx, ctrl_tx_meta, bc_meta) => res?,
             res = heartbeat(ctrl_tx_hb, bc_hb) => res?,
+            // detect closed conns promptly so listener_count decrements
+            // within the QUIC keepalive window rather than waiting for
+            // a write to actually fail (which can take >30s on idle
+            // streams). without this arm, a closed tab keeps inflating
+            // the count until the next track change forces a fast
+            // burst of writes that finally errors out.
+            reason = conn.closed() => {
+                info!("[radio-handler] connection closed while idle: {reason:?}");
+                SessionEnd::Finished
+            }
         };
         (end, writer_tx)
     } else {
@@ -191,6 +201,13 @@ async fn run_session(conn: &Connection) -> GrimoireResult<()> {
             res = forward_audio(&mut sub.chunk_rx, &mut audio_send, ctrl_tx_audio, bc_audio) => res?,
             res = forward_meta(&mut sub.meta_rx, ctrl_tx_meta, bc_meta) => res?,
             res = heartbeat(ctrl_tx_hb, bc_hb) => res?,
+            // see timeline-only branch above. without this arm, a dead
+            // tab keeps the listener_count inflated until QUIC flow
+            // control fills up (often only at the next track change).
+            reason = conn.closed() => {
+                info!("[radio-handler] connection closed while idle: {reason:?}");
+                SessionEnd::Finished
+            }
         };
         (end, writer_tx)
     };

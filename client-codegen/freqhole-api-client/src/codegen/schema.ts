@@ -3014,19 +3014,6 @@ export const RadioSeedSuggestionSchema = z.object({
 });
 export type RadioSeedSuggestion = z.infer<typeof RadioSeedSuggestionSchema>;
 
-export const RadioSongsAddRequestSchema = z.object({
-  station_id: z.string(),
-  song_id: z.string(),
-  sort_order: z.number().nullish()
-});
-export type RadioSongsAddRequest = z.infer<typeof RadioSongsAddRequestSchema>;
-
-export const RadioSongsRemoveRequestSchema = z.object({
-  station_id: z.string(),
-  song_id: z.string()
-});
-export type RadioSongsRemoveRequest = z.infer<typeof RadioSongsRemoveRequestSchema>;
-
 export const RadioStationSchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -3726,18 +3713,11 @@ export const StationFilterSchema = z.object({
   station_id: z.string(),
   filter_type: z.string(),
   filter_value: z.string(),
+  filter_label: z.string(),
   mode: z.string(),
   created_at: z.number()
 });
 export type StationFilter = z.infer<typeof StationFilterSchema>;
-
-export const StationSongSchema = z.object({
-  station_id: z.string(),
-  song_id: z.string(),
-  sort_order: z.number(),
-  added_at: z.number()
-});
-export type StationSong = z.infer<typeof StationSongSchema>;
 
 export const SuggestionSchema = z.object({
   value: z.string(),

@@ -27,19 +27,13 @@ interface StationFilter {
   station_id: string;
   filter_type: string;
   filter_value: string;
+  filter_label?: string;
   mode: string;
   created_at: number;
 }
 
-interface StationSong {
-  id: string;
-  station_id: string;
-  song_id: string;
-  sort_order: number;
-  created_at: number;
-}
-
-const FILTER_TYPES = ["tag", "genre", "artist", "album"];
+const FILTER_TYPES = ["tag", "genre", "artist", "album", "track"] as const;
+type FilterType = (typeof FILTER_TYPES)[number];
 const FILTER_MODES = ["include", "exclude"];
 
 function stationShallowEqual(a: RadioStation, b: RadioStation): boolean {
@@ -91,6 +85,11 @@ export default function RadioView() {
 
   // per-station seed editor
   const [expandedId, setExpandedId] = createSignal<string | null>(null);
+
+  // per-station inline rename editor
+  const [editingId, setEditingId] = createSignal<string | null>(null);
+  const [editName, setEditName] = createSignal("");
+  const [editDescription, setEditDescription] = createSignal("");
 
   // reload whenever the active admin target changes
   createEffect(() => {
@@ -194,6 +193,44 @@ export default function RadioView() {
         id: s.id,
         timeline_only_mode: nextTimelineOnly,
       });
+      await loadStations();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setSavingId(null);
+    }
+  }
+
+  function beginEdit(s: RadioStation) {
+    setEditingId(s.id);
+    setEditName(s.name);
+    setEditDescription(s.description ?? "");
+    setError("");
+  }
+
+  function cancelEdit() {
+    setEditingId(null);
+    setEditName("");
+    setEditDescription("");
+  }
+
+  async function saveEdit(s: RadioStation) {
+    const name = editName().trim();
+    if (!name) {
+      setError("station name is required");
+      return;
+    }
+    const description = editDescription().trim();
+    setSavingId(s.id);
+    try {
+      // empty string intentionally clears description (COALESCE in the
+      // repo only preserves NULL; an empty string overwrites).
+      await admin.dispatchOrThrow("radio_stations_update", {
+        id: s.id,
+        name,
+        description,
+      });
+      cancelEdit();
       await loadStations();
     } catch (e) {
       setError(String(e));
@@ -446,24 +483,69 @@ export default function RadioView() {
                         "flex-wrap": "wrap",
                       }}
                     >
-                      <strong>{s.name}</strong>
-                      <Show when={s.description}>
-                        <span
-                          class="item-meta"
-                          style={{ "font-size": "0.8rem" }}
-                        >
-                          {s.description}
-                        </span>
-                      </Show>
-                      <span
-                        class="item-meta"
-                        style={{
-                          "font-size": "0.75rem",
-                          "margin-left": "auto",
-                        }}
+                      <Show
+                        when={editingId() === s.id}
+                        fallback={
+                          <>
+                            <strong>{s.name}</strong>
+                            <Show when={s.description}>
+                              <span
+                                class="item-meta"
+                                style={{ "font-size": "0.8rem" }}
+                              >
+                                {s.description}
+                              </span>
+                            </Show>
+                            <button
+                              class="secondary small"
+                              style={{
+                                "font-size": "0.72rem",
+                                "margin-left": "auto",
+                              }}
+                              onClick={() => beginEdit(s)}
+                              disabled={savingId() === s.id}
+                              title="rename station"
+                            >
+                              rename
+                            </button>
+                          </>
+                        }
                       >
-                        {s.codec}
-                      </span>
+                        <input
+                          type="text"
+                          value={editName()}
+                          onInput={(e) => setEditName(e.currentTarget.value)}
+                          placeholder="station name"
+                          style={{ flex: "1 1 12rem" }}
+                          disabled={savingId() === s.id}
+                        />
+                        <input
+                          type="text"
+                          value={editDescription()}
+                          onInput={(e) =>
+                            setEditDescription(e.currentTarget.value)
+                          }
+                          placeholder="description (optional)"
+                          style={{ flex: "2 1 16rem" }}
+                          disabled={savingId() === s.id}
+                        />
+                        <button
+                          class="primary small"
+                          onClick={() => saveEdit(s)}
+                          disabled={savingId() === s.id || !editName().trim()}
+                          title="save changes"
+                        >
+                          save
+                        </button>
+                        <button
+                          class="secondary small"
+                          onClick={cancelEdit}
+                          disabled={savingId() === s.id}
+                          title="discard changes"
+                        >
+                          cancel
+                        </button>
+                      </Show>
                     </div>
                     {/* toggle row */}
                     <div
@@ -586,18 +668,14 @@ interface StationSeedEditorProps {
 
 function StationSeedEditor(props: StationSeedEditorProps) {
   const [filters, setFilters] = createSignal<StationFilter[]>([]);
-  const [songs, setSongs] = createSignal<StationSong[]>([]);
   const [loading, setLoading] = createSignal(true);
   const [error, setError] = createSignal("");
   const [busy, setBusy] = createSignal(false);
 
   // add-filter form
-  const [fType, setFType] = createSignal("tag");
+  const [fType, setFType] = createSignal<FilterType>("tag");
   const [fValue, setFValue] = createSignal("");
   const [fMode, setFMode] = createSignal("include");
-
-  // add-song form
-  const [songId, setSongId] = createSignal("");
 
   createEffect(() => {
     // re-run when stationId changes
@@ -609,16 +687,10 @@ function StationSeedEditor(props: StationSeedEditorProps) {
     setLoading(true);
     setError("");
     try {
-      const [fs, ss] = await Promise.all([
-        props.dispatch<StationFilter[]>("radio_filters_list", {
-          station_id: props.stationId,
-        }),
-        props.dispatch<StationSong[]>("radio_songs_list", {
-          station_id: props.stationId,
-        }),
-      ]);
+      const fs = await props.dispatch<StationFilter[]>("radio_filters_list", {
+        station_id: props.stationId,
+      });
       setFilters(fs ?? []);
-      setSongs(ss ?? []);
     } catch (e) {
       setError(String(e));
     } finally {
@@ -655,44 +727,6 @@ function StationSeedEditor(props: StationSeedEditorProps) {
     setError("");
     try {
       await props.dispatch("radio_filters_remove", { filter_id: filterId });
-      await load();
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function addSong(e: Event) {
-    e.preventDefault();
-    if (!songId().trim()) {
-      setError("song id required");
-      return;
-    }
-    setBusy(true);
-    setError("");
-    try {
-      await props.dispatch("radio_songs_add", {
-        station_id: props.stationId,
-        song_id: songId().trim(),
-      });
-      setSongId("");
-      await load();
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function removeSong(sid: string) {
-    setBusy(true);
-    setError("");
-    try {
-      await props.dispatch("radio_songs_remove", {
-        station_id: props.stationId,
-        song_id: sid,
-      });
       await load();
     } catch (e) {
       setError(String(e));
@@ -747,9 +781,20 @@ function StationSeedEditor(props: StationSeedEditorProps) {
                 </span>
                 <code style={{ "font-size": "0.78rem" }}>{f.filter_type}</code>
                 <span style={{ color: "#666", "font-size": "0.75rem" }}>=</span>
-                <code style={{ "font-size": "0.78rem", flex: "1" }}>
-                  {f.filter_value}
-                </code>
+                <span
+                  style={{
+                    "font-size": "0.78rem",
+                    flex: "1",
+                    overflow: "hidden",
+                    "text-overflow": "ellipsis",
+                    "white-space": "nowrap",
+                  }}
+                  title={f.filter_value}
+                >
+                  {f.filter_label && f.filter_label.length > 0
+                    ? f.filter_label
+                    : f.filter_value}
+                </span>
                 <button
                   class="danger small"
                   style={{ padding: "0.1rem 0.4rem", "font-size": "0.75rem" }}
@@ -791,77 +836,36 @@ function StationSeedEditor(props: StationSeedEditorProps) {
           </select>
           <select
             value={fType()}
-            onChange={(e) => setFType(e.currentTarget.value)}
+            onChange={(e) => {
+              setFType(e.currentTarget.value as FilterType);
+              setFValue("");
+            }}
             style={{ "font-size": "0.8rem" }}
           >
             <For each={FILTER_TYPES}>
               {(t) => <option value={t}>{t}</option>}
             </For>
           </select>
-          <SeedSuggestInput
-            kind={fType() as "tag" | "genre" | "artist" | "album"}
-            value={fValue()}
-            onChange={setFValue}
-            dispatch={props.dispatch}
-            placeholder={`${fType()} name`}
-          />
+          <Show
+            when={fType() === "track"}
+            fallback={
+              <SeedSuggestInput
+                kind={fType() as "tag" | "genre" | "artist" | "album"}
+                value={fValue()}
+                onChange={setFValue}
+                dispatch={props.dispatch}
+                placeholder={`${fType()} name`}
+              />
+            }
+          >
+            <SongSuggestInput
+              value={fValue()}
+              onChange={setFValue}
+              dispatch={props.dispatch}
+            />
+          </Show>
           <button type="submit" class="primary small" disabled={busy()}>
             + add filter
-          </button>
-        </form>
-
-        {/* explicit songs */}
-        <div style={{ "margin-bottom": "0.5rem" }}>
-          <For each={songs()}>
-            {(s) => (
-              <div
-                style={{
-                  display: "flex",
-                  "align-items": "center",
-                  gap: "0.4rem",
-                  padding: "0.2rem 0",
-                  "border-bottom": "1px solid #222",
-                }}
-              >
-                <code
-                  style={{
-                    "font-size": "0.78rem",
-                    flex: "1",
-                    overflow: "hidden",
-                    "text-overflow": "ellipsis",
-                    "white-space": "nowrap",
-                  }}
-                >
-                  {s.song_id}
-                </code>
-                <button
-                  class="danger small"
-                  style={{ padding: "0.1rem 0.4rem", "font-size": "0.75rem" }}
-                  onClick={() => removeSong(s.song_id)}
-                  disabled={busy()}
-                >
-                  ×
-                </button>
-              </div>
-            )}
-          </For>
-          <Show when={songs().length === 0}>
-            <p
-              class="item-meta"
-              style={{ margin: "0.25rem 0", "font-size": "0.78rem" }}
-            >
-              no explicit songs
-            </p>
-          </Show>
-        </div>
-        <form onSubmit={addSong} style={{ display: "flex", gap: "0.35rem" }}>
-          <SongSuggestInput
-            value={songId()}
-            onChange={setSongId}
-            dispatch={props.dispatch}
-          />
-          <button type="submit" class="primary small" disabled={busy()}>
-            + add song
           </button>
         </form>
       </Show>
@@ -894,7 +898,14 @@ interface SeedSuggestInputProps {
 function SeedSuggestInput(props: SeedSuggestInputProps) {
   const listId = `seed-suggest-${Math.random().toString(36).slice(2, 9)}`;
   const [items, setItems] = createSignal<RadioSeedSuggestion[]>([]);
+  const [text, setText] = createSignal("");
   let timer: number | null = null;
+
+  // when the parent clears `value` (e.g. after a successful submit, or
+  // when the filter type switches), wipe the visible text too.
+  createEffect(() => {
+    if (props.value === "") setText("");
+  });
 
   const fetchSuggestions = (q: string) => {
     if (timer !== null) window.clearTimeout(timer);
@@ -915,6 +926,18 @@ function SeedSuggestInput(props: SeedSuggestInputProps) {
     }, 200);
   };
 
+  // map the typed text back to the suggestion's id when there's an exact
+  // name match. server requires real FK ids now — we never round-trip
+  // names back to the api.
+  const resolve = (typed: string) => {
+    const match = items().find((it) => it.name === typed);
+    if (match) {
+      props.onChange(match.id);
+    } else {
+      props.onChange("");
+    }
+  };
+
   onCleanup(() => {
     if (timer !== null) window.clearTimeout(timer);
   });
@@ -924,13 +947,14 @@ function SeedSuggestInput(props: SeedSuggestInputProps) {
       <input
         type="text"
         list={listId}
-        value={props.value}
+        value={text()}
         placeholder={props.placeholder ?? "value"}
         autocomplete="off"
         style={{ flex: "1", "min-width": "10rem" }}
         onInput={(e) => {
-          props.onChange(e.currentTarget.value);
+          setText(e.currentTarget.value);
           fetchSuggestions(e.currentTarget.value);
+          resolve(e.currentTarget.value);
         }}
         onFocus={(e) => fetchSuggestions(e.currentTarget.value)}
       />

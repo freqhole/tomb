@@ -16,7 +16,8 @@ import {
   type StationSelectorTarget,
 } from "../../music/hooks/stationSelectorState";
 
-// dispatch the add operation for a given target
+// dispatch the add operation for a given target. every clause is now a
+// real filter row keyed by FK id (track / artist / album / genre).
 async function addTargetToStation(
   client: AdminClient,
   stationId: string,
@@ -24,30 +25,32 @@ async function addTargetToStation(
 ): Promise<void> {
   if (target.kind === "songs") {
     for (const songId of target.songIds) {
-      await client.dispatchOrThrow("radio_songs_add", {
+      await client.dispatchOrThrow("radio_filters_add", {
         station_id: stationId,
-        song_id: songId,
+        filter_type: "track",
+        filter_value: songId,
+        mode: "include",
       });
     }
   } else if (target.kind === "artist") {
     await client.dispatchOrThrow("radio_filters_add", {
       station_id: stationId,
       filter_type: "artist",
-      filter_value: target.artistName,
+      filter_value: target.artistId,
       mode: "include",
     });
   } else if (target.kind === "album") {
     await client.dispatchOrThrow("radio_filters_add", {
       station_id: stationId,
       filter_type: "album",
-      filter_value: target.albumTitle,
+      filter_value: target.albumId,
       mode: "include",
     });
   } else if (target.kind === "genre") {
     await client.dispatchOrThrow("radio_filters_add", {
       station_id: stationId,
       filter_type: "genre",
-      filter_value: target.genreName,
+      filter_value: target.genreId,
       mode: "include",
     });
   }
