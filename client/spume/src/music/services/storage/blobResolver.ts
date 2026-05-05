@@ -23,7 +23,7 @@ import { queryClient } from "../../../queryClient";
 import { debug } from "../../../utils/logger";
 import { queryKeys } from "../../queries/queryKeys";
 import { evictCachedBlob, getCachedBlob, isCached, saveP2PBlobMetadata } from "../cache/blobCache";
-import { addToLoadingSet, removeFromLoadingSet, updateLoadingProgress } from "../download";
+import { addToLoadingSet, removeFromLoadingSet, updateLoadingProgress, isSongOnDiskEphemeral } from "../download";
 import { canSyncSong, syncSongToLocal } from "../sync";
 import type { SyncableSong } from "../sync";
 import type { Song } from "./types";
@@ -848,15 +848,26 @@ export async function preCacheNextP2PSongs(
       // tauri command is idempotent — already-present files return
       // their path immediately. addToLoadingSet pairs with the
       // underline progress bar in the queue row.
-      addToLoadingSet(firstEntry.sha256);
-      try {
-        await fetchEphemeralForSong(firstEntry.song);
+      //
+      // skip both the loading flag *and* the rust round-trip if
+      // the file is already accounted for on disk — avoids a
+      // pointless spinner flicker on every queue revisit.
+      if (isSongOnDiskEphemeral(firstEntry.song.blake3)) {
         debug(
           "blobResolver",
-          `first P2P song pre-fetched (ephemeral): ${firstEntry.sha256.slice(0, 8)}...`
+          `first P2P song already on disk (ephemeral): ${firstEntry.sha256.slice(0, 8)}...`
         );
-      } finally {
-        removeFromLoadingSet(firstEntry.sha256);
+      } else {
+        addToLoadingSet(firstEntry.sha256);
+        try {
+          await fetchEphemeralForSong(firstEntry.song);
+          debug(
+            "blobResolver",
+            `first P2P song pre-fetched (ephemeral): ${firstEntry.sha256.slice(0, 8)}...`
+          );
+        } finally {
+          removeFromLoadingSet(firstEntry.sha256);
+        }
       }
     } else {
       // cache mode: just cache the blob.
@@ -919,7 +930,12 @@ export async function preCacheNextP2PSongs(
       // queue for sequential sync below (canSyncSong narrows entry.song)
       syncEntries.push({ sha256: entry.sha256, song: entry.song });
     } else if (useEphemeralPreFetch && fetchEphemeralForSong && entry.song.blake3) {
-      ephemeralEntries.push({ sha256: entry.sha256, song: entry.song });
+      // skip the queue entirely if the file is already on disk —
+      // no need to re-await the rust round-trip (and no need to
+      // light up a spinner that would just immediately turn off).
+      if (!isSongOnDiskEphemeral(entry.song.blake3)) {
+        ephemeralEntries.push({ sha256: entry.sha256, song: entry.song });
+      }
     } else {
       // cache mode: just cache the blob.
       // first arg = remote's media_blobz.id pk (route param);

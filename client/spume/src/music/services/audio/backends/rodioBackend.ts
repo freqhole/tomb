@@ -32,6 +32,7 @@ import { syncSongToLocal } from "../../sync/syncSongToLocal";
 import {
   addToLoadingSet,
   removeFromLoadingSet,
+  isSongOnDiskEphemeral,
 } from "../../download";
 import {
   fetchEphemeralForSong,
@@ -66,6 +67,13 @@ export class RodioBackend implements PlayerBackend {
   /// in the constructor. called from `dispose()` so a backend swap
   /// doesn't leak the effect.
   private disposeReconciler: (() => void) | null = null;
+
+  /// sha256 of the song most recently passed to `loadAndPlay`. used
+  /// by the event dispatcher to clear that song from the loading set
+  /// the moment the rust supervisor reports it as playable — so the
+  /// row spinner / playerbar spinner never outlive the audio actually
+  /// starting, regardless of which fetch path got us there.
+  private currentLoadingSha256: string | null = null;
 
   constructor() {
     // install a reactive reconciler over `<fetch_dir>/_ephemeral/`:
@@ -135,6 +143,11 @@ export class RodioBackend implements PlayerBackend {
     // the full duration of a remote sync.
     this.emit({ kind: "state", state: "loading" });
 
+    // remember which song we're trying to start so the dispatcher
+    // can clear its loading flag on the first `playing` / `paused` /
+    // `progress` event from the rust supervisor (see `dispatch`).
+    this.currentLoadingSha256 = song.sha256;
+
     // explicitly reset MediaSession position state for a new track.
     // platforms (especially iOS lock screen) cache the position from
     // the previous track; without this reset the lock-screen scrubber
@@ -187,25 +200,34 @@ export class RodioBackend implements PlayerBackend {
         // so files for songs the user might replay (or that survive
         // an app restart in the persisted queue) stay on disk.
 
-        console.info(
-          `[player] rodio loadAndPlay: "${song.title}" not on disk yet — fetching ephemerally (sync_queue_to_local=off)`,
-        );
-        // light up the queue/playerbar spinner for this song while
-        // we fetch. mirrors what other audio fetch paths do (see
-        // blobResolver / audioAccess / autoDownload).
-        addToLoadingSet(song.sha256);
+        // if the ephemeral file is already on disk (tracked by the
+        // signal that the queue-row underline reads from), skip the
+        // loading-set flicker entirely. the rust command will
+        // fast-path return the existing path, so there's no real
+        // wait to spinner-over.
+        const alreadyOnDisk = isSongOnDiskEphemeral(song.blake3);
+
+        if (!alreadyOnDisk) {
+          console.info(
+            `[player] rodio loadAndPlay: "${song.title}" not on disk yet — fetching ephemerally (sync_queue_to_local=off)`,
+          );
+          // light up the queue/playerbar spinner for this song while
+          // we fetch. mirrors what other audio fetch paths do (see
+          // blobResolver / audioAccess / autoDownload).
+          addToLoadingSet(song.sha256);
+        }
         let fetched;
         try {
           fetched = await fetchEphemeralForSong(song);
         } catch (err) {
-          removeFromLoadingSet(song.sha256);
+          if (!alreadyOnDisk) removeFromLoadingSet(song.sha256);
           throw new BackendPlaybackError(
             this.kind,
             "ephemeral_fetch_failed",
             `failed to fetch "${song.title}" ephemerally: ${err instanceof Error ? err.message : String(err)}`,
           );
         }
-        removeFromLoadingSet(song.sha256);
+        if (!alreadyOnDisk) removeFromLoadingSet(song.sha256);
         path = fetched.path;
 
         // skip the regular `setCurrentSong` + `resolveLocalPath`
@@ -442,6 +464,27 @@ export class RodioBackend implements PlayerBackend {
   /// bad subscriber doesn't break the chain.
   private dispatch(event: PlayerEvent): void {
     this.applyToSnapshot(event);
+    // if the supervisor reports the current track as playable, the
+    // user can hear audio — there's no point still showing a row
+    // spinner. covers every loadAndPlay branch (ephemeral, sync,
+    // already-local, future paths) without each one having to
+    // remember to clear the flag itself.
+    const sha = this.currentLoadingSha256;
+    if (sha) {
+      const playable =
+        (event.kind === "state" &&
+          (event.state === "playing" || event.state === "paused")) ||
+        event.kind === "progress";
+      if (playable) {
+        removeFromLoadingSet(sha);
+        this.currentLoadingSha256 = null;
+      } else if (event.kind === "error" || event.kind === "ended") {
+        // also clear on terminal events so a failed load doesn't
+        // leave a permanently-stuck spinner.
+        removeFromLoadingSet(sha);
+        this.currentLoadingSha256 = null;
+      }
+    }
     for (const l of this.listeners) {
       try {
         l(event);
