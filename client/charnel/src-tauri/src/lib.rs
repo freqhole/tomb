@@ -693,6 +693,7 @@ pub fn run() {
             commands::get_config_path,
             commands::get_data_dir,
             commands::get_freqhole_config,
+            commands::get_client_config,
             commands::open_config_dir,
             commands::scan_directory,
             commands::rescan_directories,

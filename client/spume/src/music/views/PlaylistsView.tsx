@@ -34,6 +34,7 @@ import { usePlaylistContextMenu, useSongContextMenu } from "../hooks/contextMenu
 import { getBlobObjectURL } from "../services/storage/blobs";
 import { resolveBlobUrl } from "../services/storage/blobResolver";
 import { ShareButton } from "../../components/buttons/ShareButton";
+import { showStationSelector } from "../hooks/stationSelectorState";
 import { createCurrentRemoteFull } from "../../app/services/remotes/currentRemoteFull";
 import type { SendPayload } from "../services/send/sendToRemote";
 import type { RemoteSong } from "../data/remote/adapters";
@@ -289,6 +290,16 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
     playlistId: () => selectedPlaylistId() ?? undefined,
   });
 
+  // auto-fetch additional pages so playlists larger than the default
+  // page size still render in full. the songs list itself isn't
+  // virtualized + scroll-paged yet, so this is the simplest safety
+  // net for huge (>1000-song) playlists.
+  createEffect(() => {
+    if (playlistSongsQuery.hasNextPage && !playlistSongsQuery.isFetchingNextPage) {
+      void playlistSongsQuery.fetchNextPage();
+    }
+  });
+
   // flatten playlist songs
   const playlistSongs = createMemo(() => {
     const pages = playlistSongsQuery.data?.pages;
@@ -533,6 +544,25 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
     const songs = playlistSongs();
     return songs.reduce((sum, song) => sum + (song.duration_seconds || 0), 0);
   });
+
+  // send the current playlist to a radio station as a `playlist` filter.
+  // opens the AddToStationModal which lists existing stations; when the
+  // user picks one we dispatch `radio_filters_add` with
+  // `filter_type: "playlist"`. the server resolves the playlist's
+  // current contents at tune time, so later edits to the playlist
+  // automatically flow through to every station seeded by it.
+  const handleAddToStation = async () => {
+    const playlist = selectedPlaylist();
+    if (!playlist) return;
+    await showStationSelector(
+      {
+        kind: "playlist",
+        playlistId: playlist.playlist_id,
+        playlistTitle: playlist.title,
+      },
+      getCurrentRemote()?.remote_id ?? null
+    );
+  };
 
   // open image carousel with all playlist and song images
   const handleOpenImageCarousel = async () => {
@@ -1072,6 +1102,15 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
                                   onClick={handleOpenImageCarousel}
                                   aria-label="view all images"
                                 />
+                                <Show when={playlistSongs().length > 0}>
+                                  <IconButton
+                                    icon="radioTower"
+                                    size="default"
+                                    variant="ghost"
+                                    onClick={handleAddToStation}
+                                    aria-label="send playlist to a radio station"
+                                  />
+                                </Show>
                                 <FavoriteToggle
                                   targetType="playlist"
                                   targetId={selectedPlaylist()?.playlist_id || ""}
@@ -1123,6 +1162,15 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
                               onClick={handleOpenImageCarousel}
                               aria-label="view all images"
                             />
+                            <Show when={playlistSongs().length > 0}>
+                              <IconButton
+                                icon="radioTower"
+                                size="default"
+                                variant="ghost"
+                                onClick={handleAddToStation}
+                                aria-label="send playlist to a radio station"
+                              />
+                            </Show>
                             <FavoriteToggle
                               targetType="playlist"
                               targetId={selectedPlaylist()?.playlist_id || ""}

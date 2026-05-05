@@ -54,6 +54,7 @@ import {
 import { togglePlayback } from "../music/services/audio/player";
 import { initRodioPreference } from "../music/services/audio/select";
 import { swapPlayerBackend } from "../music/services/audio/player";
+import { initQueueSizeLimit } from "../music/services/queue/queueLimit";
 import {
   cleanupCacheNetworkHandlers,
   initCachedAudioURLs,
@@ -389,6 +390,9 @@ export function App() {
         // want spume's `selectBackend()` to pick that up without a
         // page reload.
         await initRodioPreference();
+        // re-read the queue size limit too in case the user edited
+        // `[client] queue_size_limit` in their toml.
+        await initQueueSizeLimit();
         // re-evaluate which PlayerBackend the facade owns. swap is a
         // no-op when the chosen kind hasn't changed; option (b)
         // "stop + swap" otherwise.
@@ -476,6 +480,9 @@ export function App() {
       // `selectBackend()` call observes the user's preference. safe
       // outside tauri (falls back to localStorage / defaults to false).
       await initRodioPreference();
+      // hydrate the configurable queue size limit from `[client]`
+      // in `freqhole-config.toml`. safe outside tauri (no-op).
+      await initQueueSizeLimit();
       // player.ts is loaded eagerly via the import graph and called
       // `selectBackend()` before the cache was hydrated, so the initial
       // activeBackend is always html. swap now to pick up the persisted

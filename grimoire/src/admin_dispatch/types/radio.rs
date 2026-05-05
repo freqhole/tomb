@@ -32,13 +32,14 @@ pub struct RadioStationByStationIdRequest {
 ///
 /// `filter_value` is always the FK id of the referenced record — an
 /// artist id when `filter_type = "artist"`, an album id for `"album"`,
-/// a song id for `"track"`, etc. the server no longer matches by name.
+/// a song id for `"track"`, a playlist id for `"playlist"`, etc. the
+/// server no longer matches by name.
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct RadioFiltersAddRequest {
     pub station_id: String,
-    /// `"artist"` | `"album"` | `"genre"` | `"tag"` | `"track"`
+    /// `"artist"` | `"album"` | `"genre"` | `"tag"` | `"track"` | `"playlist"`
     pub filter_type: String,
-    /// FK id (artist id / album id / genre id / tag id / song id).
+    /// FK id (artist id / album id / genre id / tag id / song id / playlist id).
     pub filter_value: String,
     /// `"include"` or `"exclude"`
     pub mode: String,
@@ -55,7 +56,7 @@ pub struct RadioFiltersRemoveRequest {
 /// search and returns up to `limit` matches.
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct RadioSeedSuggestRequest {
-    /// one of `"tag"`, `"genre"`, `"artist"`, `"album"`, `"song"`
+    /// one of `"tag"`, `"genre"`, `"artist"`, `"album"`, `"song"`, `"playlist"`
     pub kind: String,
     /// search prefix; empty string returns top results when supported
     pub query: String,

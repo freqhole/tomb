@@ -34,6 +34,11 @@ pub struct GrimoireConfig {
     /// Radio streaming configuration (optional - only when broadcasting).
     #[serde(default)]
     pub radio: Option<crate::radio::config::RadioConfig>,
+    /// Client UI configuration (optional). knobs that only the
+    /// frontend cares about (queue limits, etc.) — fetched by the
+    /// charnel host via a tauri command on app boot.
+    #[serde(default)]
+    pub client: Option<ClientConfig>,
 
     /// Path this config was loaded from. Set by `init_config`; not
     /// (de)serialized. Used by admin handlers that need to write changes
@@ -469,6 +474,30 @@ pub struct StaticFilesConfig {
     pub enabled: bool,
     /// Directory to serve static files from (relative to data_dir or absolute)
     pub directory: Option<PathBuf>,
+}
+
+/// Client-only UI configuration. read by the charnel tauri host and
+/// surfaced to the spume frontend via `get_client_config`. nothing
+/// in the server / cli paths consumes these.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClientConfig {
+    /// Maximum number of songs allowed in the play queue. when an
+    /// add would exceed this, the ui prompts the user to either
+    /// trim from the head or cancel. default: 150.
+    #[serde(default = "default_queue_size_limit")]
+    pub queue_size_limit: u32,
+}
+
+impl Default for ClientConfig {
+    fn default() -> Self {
+        Self {
+            queue_size_limit: default_queue_size_limit(),
+        }
+    }
+}
+
+fn default_queue_size_limit() -> u32 {
+    150
 }
 
 /// Fetch music configuration

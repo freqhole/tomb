@@ -85,11 +85,12 @@ pub struct UpdateStationRequest {
 pub struct StationFilter {
     pub id: String,
     pub station_id: String,
-    /// 'artist' | 'album' | 'genre' | 'tag' | 'track'
+    /// 'artist' | 'album' | 'genre' | 'tag' | 'track' | 'playlist'
     pub filter_type: String,
     /// the FK id matching `filter_type` (artist_id when type='artist',
-    /// song_id when type='track', etc.). always set — the schema's
-    /// CHECK constraint guarantees one FK column is non-null per row.
+    /// song_id when type='track', playlist_id when type='playlist',
+    /// etc.). always set — the schema's CHECK constraint guarantees
+    /// one FK column is non-null per row.
     pub filter_value: String,
     /// human-readable label for `filter_value` (artist name, album
     /// title, genre name, tag name, song title). populated by the
@@ -112,6 +113,7 @@ pub enum StationFilterType {
     Genre,
     Tag,
     Track,
+    Playlist,
 }
 
 impl StationFilterType {
@@ -122,6 +124,7 @@ impl StationFilterType {
             Self::Genre => "genre",
             Self::Tag => "tag",
             Self::Track => "track",
+            Self::Playlist => "playlist",
         }
     }
 
@@ -132,6 +135,7 @@ impl StationFilterType {
             "genre" => Some(Self::Genre),
             "tag" => Some(Self::Tag),
             "track" => Some(Self::Track),
+            "playlist" => Some(Self::Playlist),
             _ => None,
         }
     }

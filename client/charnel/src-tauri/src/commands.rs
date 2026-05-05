@@ -378,6 +378,18 @@ pub fn get_config_path(app_handle: tauri::AppHandle) -> Option<String> {
     get_server_config_path_resolved(&app_handle).map(|p| p.display().to_string())
 }
 
+/// get the client-only ui config (queue limits, etc.) from the loaded
+/// grimoire config. returns the default `ClientConfig` (queue_size_limit=150)
+/// when the toml omits the `[client]` section, so callers never need
+/// to handle a None.
+#[tauri::command]
+pub fn get_client_config() -> grimoire::config::ClientConfig {
+    grimoire::config::get_config()
+        .client
+        .clone()
+        .unwrap_or_default()
+}
+
 /// get the data directory from loaded config
 #[tauri::command]
 pub fn get_data_dir(app_handle: tauri::AppHandle) -> Option<String> {

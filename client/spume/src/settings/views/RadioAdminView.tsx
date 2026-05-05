@@ -688,7 +688,7 @@ function CreateStationSection(props: {
 // per-station seed editor (filters + explicit songs)
 // ------------------------------------------------------------------
 
-const FILTER_TYPES = ["tag", "genre", "artist", "album", "track"] as const;
+const FILTER_TYPES = ["tag", "genre", "artist", "album", "track", "playlist"] as const;
 type FilterType = (typeof FILTER_TYPES)[number];
 const FILTER_MODES = ["include", "exclude"];
 
@@ -826,7 +826,7 @@ function StationSeedEditor(props: { stationId: string; client: AdminClient }) {
             fallback={
               <SeedSuggestInput
                 client={props.client}
-                kind={fType() as "tag" | "genre" | "artist" | "album"}
+                kind={fType() as "tag" | "genre" | "artist" | "album" | "playlist"}
                 value={fValue()}
                 onChange={setFValue}
                 placeholder={`${fType()} name`}
@@ -861,7 +861,7 @@ function StationSeedEditor(props: { stationId: string; client: AdminClient }) {
 
 interface SeedSuggestInputProps {
   client: AdminClient;
-  kind: "tag" | "genre" | "artist" | "album";
+  kind: "tag" | "genre" | "artist" | "album" | "playlist";
   value: string;
   onChange: (v: string) => void;
   placeholder?: string;

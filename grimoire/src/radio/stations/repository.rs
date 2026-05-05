@@ -166,15 +166,16 @@ pub async fn list_filters(station_id: &str) -> GrimoireResult<Vec<StationFilter>
         StationFilter,
         r#"SELECT f.id as "id!", f.station_id as "station_id!",
                   f.filter_type as "filter_type!",
-                  COALESCE(f.artist_id, f.album_id, f.genre_id, f.tag_id, f.song_id) as "filter_value!: String",
-                  COALESCE(ar.name, al.title, g.name, t.name, s.title, '') as "filter_label!: String",
+                  COALESCE(f.artist_id, f.album_id, f.genre_id, f.tag_id, f.song_id, f.playlist_id) as "filter_value!: String",
+                  COALESCE(ar.name, al.title, g.name, t.name, s.title, p.title, '') as "filter_label!: String",
                   f.mode as "mode!", f.created_at as "created_at!"
            FROM radio_station_filterz f
-           LEFT JOIN artistz ar ON ar.id = f.artist_id
-           LEFT JOIN albumz  al ON al.id = f.album_id
-           LEFT JOIN genrez  g  ON g.id  = f.genre_id
-           LEFT JOIN tagz    t  ON t.id  = f.tag_id
-           LEFT JOIN songz   s  ON s.id  = f.song_id
+           LEFT JOIN artistz   ar ON ar.id = f.artist_id
+           LEFT JOIN albumz    al ON al.id = f.album_id
+           LEFT JOIN genrez    g  ON g.id  = f.genre_id
+           LEFT JOIN tagz      t  ON t.id  = f.tag_id
+           LEFT JOIN songz     s  ON s.id  = f.song_id
+           LEFT JOIN playlistz p  ON p.id  = f.playlist_id
            WHERE f.station_id = ?
            ORDER BY f.created_at ASC"#,
         station_id
@@ -196,7 +197,7 @@ pub async fn add_filter(
     let kind = StationFilterType::parse(filter_type).ok_or_else(|| {
         GrimoireError::ProcessingFailed {
             message: format!(
-                "radio: unknown filter_type '{filter_type}' (expected one of artist, album, genre, tag, track)"
+                "radio: unknown filter_type '{filter_type}' (expected one of artist, album, genre, tag, track, playlist)"
             ),
         }
     })?;
@@ -215,19 +216,20 @@ pub async fn add_filter(
 
     // route the supplied id into the right FK column. all other FK
     // columns are left null — the schema CHECK constraint enforces this.
-    let (artist_id, album_id, genre_id, tag_id, song_id) = match kind {
-        StationFilterType::Artist => (Some(filter_value), None, None, None, None),
-        StationFilterType::Album => (None, Some(filter_value), None, None, None),
-        StationFilterType::Genre => (None, None, Some(filter_value), None, None),
-        StationFilterType::Tag => (None, None, None, Some(filter_value), None),
-        StationFilterType::Track => (None, None, None, None, Some(filter_value)),
+    let (artist_id, album_id, genre_id, tag_id, song_id, playlist_id) = match kind {
+        StationFilterType::Artist => (Some(filter_value), None, None, None, None, None),
+        StationFilterType::Album => (None, Some(filter_value), None, None, None, None),
+        StationFilterType::Genre => (None, None, Some(filter_value), None, None, None),
+        StationFilterType::Tag => (None, None, None, Some(filter_value), None, None),
+        StationFilterType::Track => (None, None, None, None, Some(filter_value), None),
+        StationFilterType::Playlist => (None, None, None, None, None, Some(filter_value)),
     };
     let kind_str = kind.as_str();
 
     let id: String = sqlx::query_scalar!(
         r#"INSERT INTO radio_station_filterz
-              (station_id, filter_type, mode, artist_id, album_id, genre_id, tag_id, song_id)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+              (station_id, filter_type, mode, artist_id, album_id, genre_id, tag_id, song_id, playlist_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
            RETURNING id"#,
         station_id,
         kind_str,
@@ -237,6 +239,7 @@ pub async fn add_filter(
         genre_id,
         tag_id,
         song_id,
+        playlist_id,
     )
     .fetch_one(&pool)
     .await?;
@@ -245,15 +248,16 @@ pub async fn add_filter(
         StationFilter,
         r#"SELECT f.id as "id!", f.station_id as "station_id!",
                   f.filter_type as "filter_type!",
-                  COALESCE(f.artist_id, f.album_id, f.genre_id, f.tag_id, f.song_id) as "filter_value!: String",
-                  COALESCE(ar.name, al.title, g.name, t.name, s.title, '') as "filter_label!: String",
+                  COALESCE(f.artist_id, f.album_id, f.genre_id, f.tag_id, f.song_id, f.playlist_id) as "filter_value!: String",
+                  COALESCE(ar.name, al.title, g.name, t.name, s.title, p.title, '') as "filter_label!: String",
                   f.mode as "mode!", f.created_at as "created_at!"
            FROM radio_station_filterz f
-           LEFT JOIN artistz ar ON ar.id = f.artist_id
-           LEFT JOIN albumz  al ON al.id = f.album_id
-           LEFT JOIN genrez  g  ON g.id  = f.genre_id
-           LEFT JOIN tagz    t  ON t.id  = f.tag_id
-           LEFT JOIN songz   s  ON s.id  = f.song_id
+           LEFT JOIN artistz   ar ON ar.id = f.artist_id
+           LEFT JOIN albumz    al ON al.id = f.album_id
+           LEFT JOIN genrez    g  ON g.id  = f.genre_id
+           LEFT JOIN tagz      t  ON t.id  = f.tag_id
+           LEFT JOIN songz     s  ON s.id  = f.song_id
+           LEFT JOIN playlistz p  ON p.id  = f.playlist_id
            WHERE f.id = ?"#,
         id
     )
@@ -357,6 +361,7 @@ struct FilterRow {
     genre_id: Option<String>,
     tag_id: Option<String>,
     song_id: Option<String>,
+    playlist_id: Option<String>,
 }
 
 async fn list_filters_with_fks(
@@ -367,7 +372,7 @@ async fn list_filters_with_fks(
         FilterRow,
         r#"SELECT filter_type as "filter_type!",
                   mode as "mode!",
-                  artist_id, album_id, genre_id, tag_id, song_id
+                  artist_id, album_id, genre_id, tag_id, song_id, playlist_id
            FROM radio_station_filterz
            WHERE station_id = ?
            ORDER BY created_at ASC"#,
@@ -442,6 +447,21 @@ async fn song_ids_for_clause(
         },
         "track" => match &clause.song_id {
             Some(id) => vec![id.clone()],
+            None => Vec::new(),
+        },
+        "playlist" => match &clause.playlist_id {
+            Some(id) => {
+                // resolve at tune time — edits to the playlist propagate
+                // automatically without re-syncing the station.
+                sqlx::query_scalar!(
+                    r#"SELECT DISTINCT ps.song_id as "song_id!"
+                   FROM playlist_songz ps
+                   WHERE ps.playlist_id = ?"#,
+                    id
+                )
+                .fetch_all(pool)
+                .await?
+            }
             None => Vec::new(),
         },
         _ => Vec::new(),

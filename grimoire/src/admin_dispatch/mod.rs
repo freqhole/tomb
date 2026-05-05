@@ -1650,6 +1650,30 @@ async fn radio_seed_suggest(args: JsonValue) -> GrimoireResponse<JsonValue> {
                     .collect()
             }
         }
+        "playlist" => {
+            // playlists don't have a dedicated search endpoint yet, so
+            // do a case-insensitive substring filter on the full list.
+            // empty query returns the most-recently-created playlists.
+            let resp = crate::music::list_playlists().await;
+            let needle = q.to_ascii_lowercase();
+            resp.data
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|p| {
+                    if needle.is_empty() {
+                        true
+                    } else {
+                        p.title.to_ascii_lowercase().contains(&needle)
+                    }
+                })
+                .take(limit as usize)
+                .map(|p| RadioSeedSuggestion {
+                    id: p.id,
+                    name: p.title,
+                    subtitle: p.description,
+                })
+                .collect()
+        }
         other => {
             return GrimoireResponse::failure(
                 &format!("unknown seed-suggest kind: {}", other),

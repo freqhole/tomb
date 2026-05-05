@@ -7,7 +7,8 @@ export type StationSelectorTarget =
   | { kind: "songs"; songIds: string[] }
   | { kind: "artist"; artistId: string; artistName: string }
   | { kind: "album"; albumId: string; albumTitle: string }
-  | { kind: "genre"; genreId: string; genreName: string };
+  | { kind: "genre"; genreId: string; genreName: string }
+  | { kind: "playlist"; playlistId: string; playlistTitle: string };
 
 interface StationSelectorState {
   isOpen: boolean;

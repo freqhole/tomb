@@ -146,6 +146,18 @@ level = "info"
 log_file = "freqhole.log"
 
 # ============================================================================
+# OPTIONAL: client UI configuration
+# knobs only the spume frontend (charnel desktop app) cares about. the
+# server / cli ignore this section. fetched on app boot via the
+# `get_client_config` tauri command.
+# ============================================================================
+[client]
+# maximum number of songs allowed in the play queue. when an add would
+# exceed this, the ui prompts the user to either trim from the head,
+# clear the queue, or cancel. default: 150.
+queue_size_limit = 150
+
+# ============================================================================
 # OPTIONAL: server configuration
 # this entire section is optional - only needed when running the HTTP server
 # if you only use the CLI, you can omit or comment out this section

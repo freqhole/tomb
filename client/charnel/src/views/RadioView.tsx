@@ -32,7 +32,14 @@ interface StationFilter {
   created_at: number;
 }
 
-const FILTER_TYPES = ["tag", "genre", "artist", "album", "track"] as const;
+const FILTER_TYPES = [
+  "tag",
+  "genre",
+  "artist",
+  "album",
+  "playlist",
+  "track",
+] as const;
 type FilterType = (typeof FILTER_TYPES)[number];
 const FILTER_MODES = ["include", "exclude"];
 
@@ -850,7 +857,9 @@ function StationSeedEditor(props: StationSeedEditorProps) {
             when={fType() === "track"}
             fallback={
               <SeedSuggestInput
-                kind={fType() as "tag" | "genre" | "artist" | "album"}
+                kind={
+                  fType() as "tag" | "genre" | "artist" | "album" | "playlist"
+                }
                 value={fValue()}
                 onChange={setFValue}
                 dispatch={props.dispatch}
@@ -888,7 +897,7 @@ interface RadioSeedSuggestion {
 }
 
 interface SeedSuggestInputProps {
-  kind: "tag" | "genre" | "artist" | "album";
+  kind: "tag" | "genre" | "artist" | "album" | "playlist";
   value: string;
   onChange: (v: string) => void;
   dispatch: Dispatch;

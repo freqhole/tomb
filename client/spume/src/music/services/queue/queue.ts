@@ -16,7 +16,7 @@ import { addHistoryEntry, updateHistoryEntrySongs, unwrapSongs } from "./queueHi
 import { activeHistoryEntryId, resumeTracking, startTracking, stopTracking } from "./listenProgress";
 import { clearAllQueueProgress, clearQueueItemProgress } from "./queueProgress";
 import { createServerSession, stopServerSession, updateServerSessionSongs, activeServerSessionId, reconnectServerSession } from "./serverSession";
-import { QUEUE_SIZE_LIMIT, showQueueFullModal } from "./queueLimit";
+import { getQueueSizeLimit, showQueueFullModal } from "./queueLimit";
 import { syncPlaylistToLocalFromQueue } from "../sync";
 import type { Song } from "../storage/types";
 import { leaveRadio } from "../../../app/services/radio/radioService";
@@ -31,8 +31,8 @@ export {
   resetPlaybackEnded,
 } from "./queueState";
 
-// re-export queue limit constant
-export { QUEUE_SIZE_LIMIT } from "./queueLimit";
+// re-export queue limit helper
+export { getQueueSizeLimit } from "./queueLimit";
 
 // source types whose `playQueue` calls should replace the current queue
 // rather than insert after the currently-playing song. selecting an album,
@@ -103,18 +103,19 @@ export async function playQueue(
   let finalSongs = unwrappedSongs;
 
   // truncate incoming songs if they exceed the limit (before any queue logic)
-  if (unwrappedSongs.length > QUEUE_SIZE_LIMIT) {
-    if (startIndex < QUEUE_SIZE_LIMIT) {
+  const queueSizeLimit = getQueueSizeLimit();
+  if (unwrappedSongs.length > queueSizeLimit) {
+    if (startIndex < queueSizeLimit) {
       // startIndex is within limit - take first N songs
-      finalSongs = unwrappedSongs.slice(0, QUEUE_SIZE_LIMIT);
+      finalSongs = unwrappedSongs.slice(0, queueSizeLimit);
     } else {
       // startIndex is beyond limit - center window around it
-      const start = startIndex - Math.floor(QUEUE_SIZE_LIMIT / 2);
-      const adjustedStart = Math.max(0, Math.min(start, unwrappedSongs.length - QUEUE_SIZE_LIMIT));
-      finalSongs = unwrappedSongs.slice(adjustedStart, adjustedStart + QUEUE_SIZE_LIMIT);
+      const start = startIndex - Math.floor(queueSizeLimit / 2);
+      const adjustedStart = Math.max(0, Math.min(start, unwrappedSongs.length - queueSizeLimit));
+      finalSongs = unwrappedSongs.slice(adjustedStart, adjustedStart + queueSizeLimit);
       startIndex = startIndex - adjustedStart;
     }
-    console.log(`[playQueue] truncated ${unwrappedSongs.length} songs to ${finalSongs.length} (limit: ${QUEUE_SIZE_LIMIT})`);
+    console.log(`[playQueue] truncated ${unwrappedSongs.length} songs to ${finalSongs.length} (limit: ${queueSizeLimit})`);
   }
 
   // mark songs from playlist source to skip album feed events when syncing
@@ -192,7 +193,8 @@ export async function playQueue(
 
   // queue has songs - insert after current position (don't replace)
   // check if adding would exceed limit
-  if (currentQueue.length + finalSongs.length > QUEUE_SIZE_LIMIT) {
+  const queueSizeLimitForPlay = getQueueSizeLimit();
+  if (currentQueue.length + finalSongs.length > queueSizeLimitForPlay) {
     const choice = await showQueueFullModal(finalSongs, currentQueue.length);
 
     if (choice === "cancel") {
@@ -215,7 +217,7 @@ export async function playQueue(
     }
 
     // choice === "remove-from-start"
-    const removeCount = currentQueue.length + finalSongs.length - QUEUE_SIZE_LIMIT;
+    const removeCount = currentQueue.length + finalSongs.length - queueSizeLimitForPlay;
     const currentIdx = currentId ? currentQueue.findIndex((s) => s.sha256 === currentId) : -1;
     const removableSongCount = currentIdx > 0 ? currentIdx : currentQueue.length;
 
@@ -325,9 +327,10 @@ export async function addToQueue(
 
   // truncate incoming songs if they exceed the limit
   let finalSongs = unwrappedSongs;
-  if (unwrappedSongs.length > QUEUE_SIZE_LIMIT) {
-    finalSongs = unwrappedSongs.slice(0, QUEUE_SIZE_LIMIT);
-    console.log(`[addToQueue] truncated ${unwrappedSongs.length} songs to ${finalSongs.length} (limit: ${QUEUE_SIZE_LIMIT})`);
+  const queueSizeLimitForAdd = getQueueSizeLimit();
+  if (unwrappedSongs.length > queueSizeLimitForAdd) {
+    finalSongs = unwrappedSongs.slice(0, queueSizeLimitForAdd);
+    console.log(`[addToQueue] truncated ${unwrappedSongs.length} songs to ${finalSongs.length} (limit: ${queueSizeLimitForAdd})`);
   }
 
   // mark songs from playlist source to skip album feed events when syncing
@@ -348,7 +351,7 @@ export async function addToQueue(
   }
 
   // check if adding would exceed limit
-  if (currentQueue.length + finalSongs.length > QUEUE_SIZE_LIMIT) {
+  if (currentQueue.length + finalSongs.length > queueSizeLimitForAdd) {
     const choice = await showQueueFullModal(finalSongs, currentQueue.length);
 
     if (choice === "cancel") {
@@ -370,7 +373,7 @@ export async function addToQueue(
     }
 
     // choice === "remove-from-start": remove oldest songs to make room
-    const removeCount = currentQueue.length + finalSongs.length - QUEUE_SIZE_LIMIT;
+    const removeCount = currentQueue.length + finalSongs.length - queueSizeLimitForAdd;
     const currentIdx = currentId ? currentQueue.findIndex((s) => s.sha256 === currentId) : -1;
     const removableSongCount = currentIdx > 0 ? currentIdx : currentQueue.length;
 
