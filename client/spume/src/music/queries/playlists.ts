@@ -98,6 +98,9 @@ interface UsePlaylistSongsQueryOptions {
 export function usePlaylistSongsQuery(options: UsePlaylistSongsQueryOptions) {
   const playlistId = options.playlistId;
   const search = options?.search;
+  // page size matches other infinite-query datasources (songs / albums).
+  // PlaylistsView wires up auto-fetch-next-page so all pages load
+  // progressively. callers can still override via `options.pageSize`.
   const pageSize = options?.pageSize || 100;
 
   return createInfiniteQuery(() => ({

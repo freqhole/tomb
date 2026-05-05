@@ -215,6 +215,38 @@ impl FederationEndpoint {
         Ok(conn)
     }
 
+    /// connect to a peer on the `freqhole-player/1` ALPN.
+    ///
+    /// caller is responsible for opening a bi-stream and writing
+    /// length-prefixed `PlayerCommand` frames (see
+    /// `grimoire::player::alpn::write_frame`). gated behind
+    /// `rodio-playback` so non-player builds skip the player module.
+    #[cfg(feature = "rodio-playback")]
+    pub async fn connect_for_player(
+        &self,
+        peer_node_id: PublicKey,
+    ) -> GrimoireResult<iroh::endpoint::Connection> {
+        use crate::player::PLAYER_ALPN;
+
+        let addr = EndpointAddr::from_parts(peer_node_id, []);
+
+        info!("connecting to peer for player: {}", peer_node_id);
+
+        let conn = self
+            .endpoint
+            .connect(addr, PLAYER_ALPN)
+            .await
+            .map_err(|e| GrimoireError::FederationApiError {
+                message: format!(
+                    "failed to connect to peer {} for player: {}",
+                    peer_node_id, e
+                ),
+            })?;
+
+        info!("connected to peer for player: {}", peer_node_id);
+        Ok(conn)
+    }
+
     /// gracefully close the endpoint
     pub async fn close(self) {
         info!("closing federation endpoint");

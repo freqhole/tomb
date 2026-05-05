@@ -92,7 +92,8 @@ export const AdminPeerNodeSummarySchema = z.object({
   node_id: z.string(),
   instance_name: z.string().nullish(),
   created_at: z.number(),
-  last_seen_at: z.number().nullish()
+  last_seen_at: z.number().nullish(),
+  deleted_at: z.number().nullish()
 });
 export type AdminPeerNodeSummary = z.infer<typeof AdminPeerNodeSummarySchema>;
 
@@ -103,7 +104,9 @@ export const AdminPeerSummarySchema = z.object({
   created_at: z.number(),
   last_seen_at: z.number().nullish(),
   username: z.string(),
-  role: z.string()
+  role: z.string(),
+  deleted_at: z.number().nullish(),
+  user_deleted_at: z.number().nullish()
 });
 export type AdminPeerSummary = z.infer<typeof AdminPeerSummarySchema>;
 
@@ -123,8 +126,14 @@ export const AdminPeersAllowResponseSchema = z.object({
 });
 export type AdminPeersAllowResponse = z.infer<typeof AdminPeersAllowResponseSchema>;
 
+export const AdminPeersListAllRequestSchema = z.object({
+  include_deleted: z.boolean().nullish()
+});
+export type AdminPeersListAllRequest = z.infer<typeof AdminPeersListAllRequestSchema>;
+
 export const AdminPeersListForUserRequestSchema = z.object({
-  user_id: z.string()
+  user_id: z.string(),
+  include_deleted: z.boolean().nullish()
 });
 export type AdminPeersListForUserRequest = z.infer<typeof AdminPeersListForUserRequestSchema>;
 
@@ -133,6 +142,12 @@ export const AdminPeersRemoveRequestSchema = z.object({
   node_id: z.string()
 });
 export type AdminPeersRemoveRequest = z.infer<typeof AdminPeersRemoveRequestSchema>;
+
+export const AdminPeersRestoreRequestSchema = z.object({
+  user_id: z.string(),
+  node_id: z.string()
+});
+export type AdminPeersRestoreRequest = z.infer<typeof AdminPeersRestoreRequestSchema>;
 
 export const AdminUserSummarySchema = z.object({
   id: z.string(),
@@ -160,6 +175,11 @@ export const AdminUsersGetRequestSchema = z.object({
 });
 export type AdminUsersGetRequest = z.infer<typeof AdminUsersGetRequestSchema>;
 
+export const AdminUsersHardDeleteRequestSchema = z.object({
+  user_id: z.string()
+});
+export type AdminUsersHardDeleteRequest = z.infer<typeof AdminUsersHardDeleteRequestSchema>;
+
 export const AdminUsersListRequestSchema = z.object({
   include_deleted: z.boolean().nullish(),
   limit: z.number().nullish(),
@@ -168,6 +188,11 @@ export const AdminUsersListRequestSchema = z.object({
   role: z.string().nullish()
 });
 export type AdminUsersListRequest = z.infer<typeof AdminUsersListRequestSchema>;
+
+export const AdminUsersRestoreRequestSchema = z.object({
+  user_id: z.string()
+});
+export type AdminUsersRestoreRequest = z.infer<typeof AdminUsersRestoreRequestSchema>;
 
 export const AdminUsersUpdateRoleRequestSchema = z.object({
   user_id: z.string(),
@@ -1621,7 +1646,9 @@ export const KnockRequestSchema = z.object({
   status: z.union([z.literal("pending"), z.literal("accepted"), z.literal("rejected")]),
   created_at: z.number(),
   processed_at: z.number().nullish(),
-  processed_by: z.string().nullish()
+  processed_by: z.string().nullish(),
+  from_deleted_peer: z.boolean().nullish(),
+  deleted_user_username: z.string().nullish()
 });
 export type KnockRequest = z.infer<typeof KnockRequestSchema>;
 
@@ -2307,6 +2334,43 @@ export const PlayAnalyticsSchema = z.object({
 });
 export type PlayAnalytics = z.infer<typeof PlayAnalyticsSchema>;
 
+export const PlayerCommandSchema = z.union([
+z.object({ kind: z.literal("load"), paths: z.array(z.string()) }),
+z.object({ kind: z.literal("play") }),
+z.object({ kind: z.literal("pause") }),
+z.object({ kind: z.literal("stop") }),
+z.object({ kind: z.literal("next") }),
+z.object({ kind: z.literal("previous") }),
+z.object({ kind: z.literal("seek"), ms: z.number() }),
+z.object({ kind: z.literal("set_volume"), v: z.number() }),
+z.object({ kind: z.literal("status") })
+]);
+export type PlayerCommand = z.infer<typeof PlayerCommandSchema>;
+
+export const PlayerEventSchema = z.union([
+z.object({ kind: z.literal("state"), state: z.lazy(() => PlayerStateSchema) }),
+z.object({ kind: z.literal("progress"), ms: z.number(), total_ms: z.number() }),
+z.object({ kind: z.literal("track_changed"), index: z.number(), path: z.string() }),
+z.object({ kind: z.literal("ended") }),
+z.object({ kind: z.literal("error"), detail: ErrorDetailSchema }),
+z.object({ kind: z.literal("backend_down"), restart_count: z.number() }),
+z.object({ kind: z.literal("backend_up") })
+]);
+export type PlayerEvent = z.infer<typeof PlayerEventSchema>;
+
+export const PlayerSnapshotSchema = z.object({
+  state: z.union([z.literal("stopped"), z.literal("playing"), z.literal("paused"), z.literal("loading")]).nullish(),
+  position_ms: z.number(),
+  total_ms: z.number(),
+  volume: z.number(),
+  queue_len: z.number(),
+  current_index: z.number().nullish()
+});
+export type PlayerSnapshot = z.infer<typeof PlayerSnapshotSchema>;
+
+export const PlayerStateSchema = z.union([z.literal("stopped"), z.literal("playing"), z.literal("paused"), z.literal("loading")]);
+export type PlayerState = z.infer<typeof PlayerStateSchema>;
+
 export const PlaylistSchema = z.object({
   id: z.string(),
   title: z.string(),
@@ -2950,19 +3014,6 @@ export const RadioSeedSuggestionSchema = z.object({
 });
 export type RadioSeedSuggestion = z.infer<typeof RadioSeedSuggestionSchema>;
 
-export const RadioSongsAddRequestSchema = z.object({
-  station_id: z.string(),
-  song_id: z.string(),
-  sort_order: z.number().nullish()
-});
-export type RadioSongsAddRequest = z.infer<typeof RadioSongsAddRequestSchema>;
-
-export const RadioSongsRemoveRequestSchema = z.object({
-  station_id: z.string(),
-  song_id: z.string()
-});
-export type RadioSongsRemoveRequest = z.infer<typeof RadioSongsRemoveRequestSchema>;
-
 export const RadioStationSchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -3128,6 +3179,14 @@ export const ReplaceAlbumsTagsRequestSchema = z.object({
   tag_ids: z.array(z.string())
 });
 export type ReplaceAlbumsTagsRequest = z.infer<typeof ReplaceAlbumsTagsRequestSchema>;
+
+export const RestartPolicySchema = z.object({
+  max_restarts: z.number(),
+  window_ms: z.number(),
+  initial_backoff_ms: z.number(),
+  max_backoff_ms: z.number()
+});
+export type RestartPolicy = z.infer<typeof RestartPolicySchema>;
 
 export const SearchFieldSchema = z.union([z.literal("all"), z.literal("artists"), z.literal("albums"), z.literal("songs"), z.literal("genres"), z.literal("playlists")]);
 export type SearchField = z.infer<typeof SearchFieldSchema>;
@@ -3654,18 +3713,11 @@ export const StationFilterSchema = z.object({
   station_id: z.string(),
   filter_type: z.string(),
   filter_value: z.string(),
+  filter_label: z.string(),
   mode: z.string(),
   created_at: z.number()
 });
 export type StationFilter = z.infer<typeof StationFilterSchema>;
-
-export const StationSongSchema = z.object({
-  station_id: z.string(),
-  song_id: z.string(),
-  sort_order: z.number(),
-  added_at: z.number()
-});
-export type StationSong = z.infer<typeof StationSongSchema>;
 
 export const SuggestionSchema = z.object({
   value: z.string(),

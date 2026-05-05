@@ -12,7 +12,8 @@ RUN apt-get update && \
     curl \
     build-essential \
     pkg-config \
-    libssl-dev
+    libssl-dev \
+    libasound2-dev
 
 # install cross-compilation tools for ARM64 (aarch64)
 RUN if [ "$TARGET_ARCH" = "aarch64-unknown-linux-gnu" ]; then \
@@ -20,6 +21,7 @@ RUN if [ "$TARGET_ARCH" = "aarch64-unknown-linux-gnu" ]; then \
     apt-get update && \
     apt-get install -y \
     libssl-dev:arm64 \
+    libasound2-dev:arm64 \
     gcc-aarch64-linux-gnu; \
     fi
 
@@ -29,6 +31,7 @@ RUN if [ "$TARGET_ARCH" = "armv7-unknown-linux-gnueabihf" ]; then \
     apt-get update && \
     apt-get install -y \
     libssl-dev:armhf \
+    libasound2-dev:armhf \
     gcc-arm-linux-gnueabihf; \
     fi
 

@@ -299,6 +299,16 @@ export default function SetupView() {
     );
   }
 
+  function updateMusicDirPath(oldPath: string, newPath: string) {
+    const trimmed = newPath.trim();
+    if (!trimmed || trimmed === oldPath) return;
+    setMusicDirs(
+      musicDirs().map((d) =>
+        d.path === oldPath ? { ...d, path: trimmed } : d,
+      ),
+    );
+  }
+
   async function scanMusicDirs() {
     setScanning(true);
     setError("");
@@ -753,7 +763,15 @@ export default function SetupView() {
               {(dir) => (
                 <div class="directory-item">
                   <div class="directory-info">
-                    <span class="directory-path">{dir.path}</span>
+                    <input
+                      type="text"
+                      class="directory-path-input"
+                      value={dir.path}
+                      onBlur={(e) =>
+                        updateMusicDirPath(dir.path, e.currentTarget.value)
+                      }
+                      disabled={dir.scanned}
+                    />
                     <Show when={dir.scanned}>
                       <span class="directory-meta">queued for scan</span>
                     </Show>

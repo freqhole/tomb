@@ -70,11 +70,30 @@ pub struct FreqholeAppConfig {
     /// sync queue songs from remotes to local library (default: true)
     #[serde(default = "default_sync_queue_to_local")]
     pub sync_queue_to_local: bool,
+
+    /// route audio playback through the supervised rust rodio backend
+    /// inside the tauri host instead of the html5 `<audio>` element.
+    /// defaults to `true` on linux (where webkitgtk's html `<audio>`
+    /// is unreliable enough that we previously needed an embedded
+    /// loopback http server to work around it; rodio bypasses that
+    /// path entirely) and `false` elsewhere until we've burned in the
+    /// rodio pipeline. opt in via the wizard's settings view to
+    /// dogfood it everywhere. only meaningful on desktop targets
+    /// where the `rodio-playback` cargo feature is enabled.
+    #[serde(default = "default_use_rodio_playback")]
+    pub use_rodio_playback: bool,
 }
 
 /// default value for sync_queue_to_local (true)
 fn default_sync_queue_to_local() -> bool {
     true
+}
+
+/// default value for use_rodio_playback: on for linux (replaces the
+/// embedded loopback http media server hack), off elsewhere until
+/// dogfooded enough to flip everywhere.
+pub fn default_use_rodio_playback() -> bool {
+    cfg!(target_os = "linux")
 }
 
 /// admin user configuration

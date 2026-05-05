@@ -36,15 +36,7 @@ all: info
 # build all targets
 .PHONY: build-all
 build-all:
-	@echo "building all freqhole release artifacts..."
-	@echo ""
-	$(MAKE) build-mac-arm
-	$(MAKE) build-mac-intel
-	$(MAKE) build-linux
-	$(MAKE) build-pi
-	$(MAKE) build-pi32
-	@echo ""
-	@echo "building tauri apps..."
+	@echo "building charnel gui apps..."
 	$(MAKE) build-tauri-mac-arm
 	$(MAKE) build-tauri-mac-intel
 	$(MAKE) build-tauri-linux-intel
@@ -52,6 +44,14 @@ build-all:
 	$(MAKE)	build-flatpak-intel
 	$(MAKE)	build-flatpak-arm64
 	$(MAKE) build-tauri-android
+	@echo ""
+	@echo "building cli binz..."
+	@echo ""
+	$(MAKE) build-mac-arm
+	$(MAKE) build-mac-intel
+	$(MAKE) build-linux
+	$(MAKE) build-pi
+	$(MAKE) build-pi32
 	@echo ""
 	@echo "all targets built! artifacts in $(BUILD_DIR)/$(VERSION)/:"
 	@find $(BUILD_DIR)/$(VERSION) -type f | sort | sed 's|^|  |'

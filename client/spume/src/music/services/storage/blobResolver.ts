@@ -23,7 +23,7 @@ import { queryClient } from "../../../queryClient";
 import { debug } from "../../../utils/logger";
 import { queryKeys } from "../../queries/queryKeys";
 import { evictCachedBlob, getCachedBlob, isCached, saveP2PBlobMetadata } from "../cache/blobCache";
-import { addToLoadingSet, removeFromLoadingSet, updateLoadingProgress } from "../download";
+import { addToLoadingSet, removeFromLoadingSet, updateLoadingProgress, isSongOnDiskEphemeral } from "../download";
 import { canSyncSong, syncSongToLocal } from "../sync";
 import type { SyncableSong } from "../sync";
 import type { Song } from "./types";
@@ -124,7 +124,14 @@ export {
 } from "./transportCache";
 
 // import functions from transportCache for local use
-import { cacheTransportType, isP2PRemote } from "./transportCache";
+import {
+  cacheTransportType,
+  isCharnelManagedRemoteSync,
+  isP2PRemote,
+  isP2PRemoteSync,
+  preCacheRemoteTransport,
+  transportCacheVersionSignal,
+} from "./transportCache";
 
 // valid thumbnail sizes (must match server config)
 export type ThumbnailSize = 50 | 200;
@@ -139,6 +146,21 @@ export type ThumbnailSize = 50 | 200;
  * @param thumbnailSize - optional thumbnail size (50 or 200px) - uses original if not specified
  * @param blake3 - optional blake3 hash for verified streaming via iroh-blobs
  * @returns URL string usable in <img src> or <audio src>
+ */
+/**
+ * resolve a blob to a URL the browser can load (object URL for
+ * P2P/Tauri-managed remotes, direct HTTP URL for plain http
+ * remotes).
+ *
+ * id types:
+ * @param blobId   the *remote's* `media_blobz.id` short pk
+ *                 (7–16 hex chars). resolves against
+ *                 `/api/blobs/{id}/*` on the remote. NOT a sha256.
+ * @param remoteId remote_server_id (which peer/server to ask).
+ * @param blake3   optional 64-char blake3 hash. when present,
+ *                 enables verified iroh-blobs streaming for P2P
+ *                 transports; otherwise the transport falls back
+ *                 to its own resolution path.
  */
 export async function resolveBlobUrl(
   blobId: string,
@@ -405,6 +427,14 @@ export function useResolvedP2PImageUrl(
   source: Accessor<{ blobId?: string; remoteId?: string; httpFallback?: string | null } | undefined>
 ): Accessor<string | undefined> {
   return createMemo(() => {
+    // subscribe to transport-cache mutations so we re-run once an
+    // async transport lookup completes for a remote that was unknown
+    // on the first pass. without this, a memo that observed
+    // `undefined` from `isP2PRemoteSync` would never re-evaluate when
+    // the entry later landed and would silently render the broken
+    // loopback http url forever.
+    transportCacheVersionSignal();
+
     const s = source();
     if (!s) return undefined;
     const { blobId, remoteId, httpFallback } = s;
@@ -417,9 +447,35 @@ export function useResolvedP2PImageUrl(
       // not cached yet - trigger background fetch (fire-and-forget)
       // the memo will re-run when pre-caching completes and updates activeBlobUrls
       void preCacheP2PBlob(blobId, remoteId, undefined, "image");
+
+      // decide whether the `httpFallback` URL is safe to render. it
+      // is ONLY safe for genuine plain-HTTP remotes — for charnel-
+      // managed remotes the URL is a stale `http://localhost:{port}/`
+      // pointing at the yanked loopback server, and for p2p remotes
+      // there's no http endpoint at all.
+      const transportKnown = isP2PRemoteSync(remoteId);
+      if (transportKnown === undefined) {
+        // unknown transport — don't risk rendering the broken loopback
+        // url. eagerly populate the cache so the memo re-runs once the
+        // transport type is known (the version signal above will fire).
+        void preCacheRemoteTransport(remoteId);
+        return undefined;
+      }
+      if (transportKnown === true) {
+        // p2p OR charnel-managed — wait for `preCacheP2PBlob` to populate
+        // `activeBlobUrls` (the memo will re-run via the cache signal).
+        return undefined;
+      }
+      // transportKnown === false — plain http remote, fallback is fine.
+      // belt-and-suspenders: also check the explicit charnel flag in
+      // case a future remote shape sets isCharnelManaged without
+      // changing the transport.
+      if (isCharnelManagedRemoteSync(remoteId)) {
+        return undefined;
+      }
     }
 
-    // fall back to HTTP URL if valid
+    // fall back to HTTP URL if valid (real remote http servers only)
     if (httpFallback && isValidHttpUrl(httpFallback)) {
       return httpFallback;
     }
@@ -485,7 +541,20 @@ export async function isP2PBlobCached(blobId: string, remoteId: string): Promise
 /**
  * pre-cache a P2P blob (fetch in background for later use).
  * tracks loading state and progress for UI feedback.
- * @param blake3 - optional blake3 hash for verified streaming via iroh-blobs (audio only)
+ *
+ * id types (do not conflate!):
+ * @param blobId   the *remote's* `media_blobz.id` short pk (7–16
+ *                 hex chars). this is what `/api/blobs/{id}/*`
+ *                 routes look up against. each freqhole instance
+ *                 generates its own ids — NOT portable. when
+ *                 caching a blob from a remote song, pass
+ *                 `song.media_blob_id`, never `song.sha256`.
+ * @param remoteId the remote_server_id (which peer to fetch from).
+ * @param sha256   the 64-char content hash. used here ONLY for
+ *                 client-side loading-set tracking + progress UI.
+ *                 not sent on the wire as a route param.
+ * @param blake3   optional blake3 hash for verified streaming via
+ *                 iroh-blobs (audio only).
  */
 export async function preCacheP2PBlob(
   blobId: string,
@@ -592,16 +661,57 @@ export async function preCacheNextP2PSongs(
   // check if sync mode is enabled - syncSongToLocal handles charnel vs browser mode internally
   const shouldSync = getSyncQueueToLocal();
 
+  // when running rodio (charnel desktop opted-in) AND sync is OFF,
+  // the html cache-API path is useless: rodio decodes from a fs path
+  // and never reads the Cache API. instead, pre-warm the ephemeral
+  // dir so the next track is already on disk by the time `loadAndPlay`
+  // calls `fetchEphemeralForSong`. dynamic import avoids a hard
+  // dependency cycle (audio/* imports from storage/*).
+  let useEphemeralPreFetch = false;
+  if (!shouldSync) {
+    try {
+      const { isRodioEnabled } = await import("../audio/select");
+      const { isCharnelMode } = await import("../../../app/services/charnel/mode");
+      useEphemeralPreFetch = isCharnelMode() && isRodioEnabled();
+    } catch {
+      // module missing in non-charnel builds — leave flag false.
+    }
+  }
+  let fetchEphemeralForSong: ((song: Song) => Promise<unknown>) | null = null;
+  if (useEphemeralPreFetch) {
+    try {
+      const mod = await import("../audio/ephemeralFetch");
+      fetchEphemeralForSong = mod.fetchEphemeralForSong;
+    } catch {
+      useEphemeralPreFetch = false;
+    }
+  }
+
   // find current song index
   const currentIdx = queue.findIndex((s) => s.sha256 === currentSongSha256);
   if (currentIdx < 0) {
     return;
   }
 
-  // songs selected for caching/syncing (we need full Song for sync mode)
+  // songs selected for caching/syncing (we need full Song for sync mode).
+  //
+  // id glossary:
+  //   - mediaBlobId: the *remote's* `media_blobz.id` short pk (7–16
+  //     hex chars, generated locally per-instance). this is what
+  //     server routes like `/api/blobs/{id}/path` and
+  //     `/api/blobs/{id}/data` resolve against. NOT portable across
+  //     instances — different remotes will generate different ids
+  //     for the same content.
+  //   - sha256: 64-char content hash. portable across instances and
+  //     used for client-side loading-set tracking, OPFS keys,
+  //     queue entry identity, etc. NOT a valid `/api/blobs/{id}`
+  //     param on the wire.
+  //   - blake3: 64-char optional iroh-blobs hash, used for verified
+  //     P2P streaming (`p2p_fetch_blob_verified`).
   const songsToProcess: Array<{
     song: Song; // full song for sync mode
-    sha256: string;
+    mediaBlobId: string; // remote's media_blobz.id pk (route param)
+    sha256: string;      // content hash (loading-set / cache keys)
     remoteId: string;
     blake3?: string;
     waveformBlobId?: string;
@@ -629,8 +739,12 @@ export async function preCacheNextP2PSongs(
   for (let i = currentIdx; i < queue.length; i++) {
     const song = queue[i];
 
-    // only cache P2P remote songs
-    if (song.source_type !== "remote" || !song.remote_server_id) {
+    // only cache P2P remote songs.
+    // we also require `media_blob_id` (the remote's media_blobz.id
+    // pk) since that's the only id `/api/blobs/{id}/*` accepts \u2014
+    // sha256 won't work as a lookup. local-only songs and remotes
+    // missing the field are skipped.
+    if (song.source_type !== "remote" || !song.remote_server_id || !song.media_blob_id) {
       continue;
     }
 
@@ -671,7 +785,8 @@ export async function preCacheNextP2PSongs(
 
     songsToProcess.push({
       song, // keep full song for sync mode
-      sha256: song.sha256,
+      mediaBlobId: song.media_blob_id, // remote's db pk — used for /api/blobs/{id}/* lookups
+      sha256: song.sha256,             // content hash — used for client-side tracking only
       remoteId: song.remote_server_id,
       blake3: song.blake3 ?? undefined,
       waveformBlobId,
@@ -727,10 +842,42 @@ export async function preCacheNextP2PSongs(
         // the song won't be pre-cached but will be fetched on-demand when played
         console.warn(`failed to sync first P2P song ${firstEntry.sha256}:`, result.error);
       }
+    } else if (useEphemeralPreFetch && fetchEphemeralForSong && firstEntry.song.blake3) {
+      // rodio + sync_queue_to_local=off: warm `<fetch_dir>/_ephemeral/`
+      // so the next track is already on disk for `loadAndPlay`. the
+      // tauri command is idempotent — already-present files return
+      // their path immediately. addToLoadingSet pairs with the
+      // underline progress bar in the queue row.
+      //
+      // skip both the loading flag *and* the rust round-trip if
+      // the file is already accounted for on disk — avoids a
+      // pointless spinner flicker on every queue revisit.
+      if (isSongOnDiskEphemeral(firstEntry.song.blake3)) {
+        debug(
+          "blobResolver",
+          `first P2P song already on disk (ephemeral): ${firstEntry.sha256.slice(0, 8)}...`
+        );
+      } else {
+        addToLoadingSet(firstEntry.sha256);
+        try {
+          await fetchEphemeralForSong(firstEntry.song);
+          debug(
+            "blobResolver",
+            `first P2P song pre-fetched (ephemeral): ${firstEntry.sha256.slice(0, 8)}...`
+          );
+        } finally {
+          removeFromLoadingSet(firstEntry.sha256);
+        }
+      }
     } else {
-      // cache mode: just cache the blob
+      // cache mode: just cache the blob.
+      // first arg is the *remote's* media_blobz.id pk (used for
+      // `/api/blobs/{id}/*` route lookups on the remote). third arg
+      // is the sha256 content hash, only used by the client for
+      // loading-set / progress tracking. don't conflate them —
+      // passing sha256 as the blobId yields "blob not found".
       await preCacheP2PBlob(
-        firstEntry.sha256,
+        firstEntry.mediaBlobId,
         firstEntry.remoteId,
         firstEntry.sha256,
         "audio",
@@ -774,13 +921,33 @@ export async function preCacheNextP2PSongs(
   // concurrently. cache-mode audio and image pre-caches stay parallel
   // (fire-and-forget) since they're cheaper and don't share the same code path.
   const syncEntries: { sha256: string; song: Song & SyncableSong }[] = [];
+  // rodio + sync-off pre-fetches also run sequentially (same iroh-blobs
+  // contention concern + saves cleaning up half-finished files on the
+  // next track switch).
+  const ephemeralEntries: { sha256: string; song: Song }[] = [];
   for (const entry of restEntries) {
     if (shouldSync && canSyncSong(entry.song)) {
       // queue for sequential sync below (canSyncSong narrows entry.song)
       syncEntries.push({ sha256: entry.sha256, song: entry.song });
+    } else if (useEphemeralPreFetch && fetchEphemeralForSong && entry.song.blake3) {
+      // skip the queue entirely if the file is already on disk —
+      // no need to re-await the rust round-trip (and no need to
+      // light up a spinner that would just immediately turn off).
+      if (!isSongOnDiskEphemeral(entry.song.blake3)) {
+        ephemeralEntries.push({ sha256: entry.sha256, song: entry.song });
+      }
     } else {
-      // cache mode: just cache the blob
-      void preCacheP2PBlob(entry.sha256, entry.remoteId, entry.sha256, "audio", entry.blake3, entry.song?.file_size ?? undefined);
+      // cache mode: just cache the blob.
+      // first arg = remote's media_blobz.id pk (route param);
+      // third arg = sha256 content hash (loading-set tracking only).
+      void preCacheP2PBlob(
+        entry.mediaBlobId,
+        entry.remoteId,
+        entry.sha256,
+        "audio",
+        entry.blake3,
+        entry.song?.file_size ?? undefined
+      );
     }
 
     // always cache waveform and thumbnail images (they don't get synced as separate records)
@@ -816,6 +983,25 @@ export async function preCacheNextP2PSongs(
           }
         } catch (err) {
           console.warn(`failed to sync P2P song ${entry.sha256}:`, err);
+        } finally {
+          removeFromLoadingSet(entry.sha256);
+        }
+      }
+    })();
+  }
+
+  // process rodio + sync-off pre-fetches sequentially. each call is
+  // idempotent on the rust side so re-fires across overlapping
+  // pre-cache passes are cheap.
+  if (ephemeralEntries.length > 0 && fetchEphemeralForSong) {
+    const fetchEphemeral = fetchEphemeralForSong;
+    void (async () => {
+      for (const entry of ephemeralEntries) {
+        addToLoadingSet(entry.sha256);
+        try {
+          await fetchEphemeral(entry.song);
+        } catch (err) {
+          console.warn(`failed to pre-fetch ephemeral P2P song ${entry.sha256}:`, err);
         } finally {
           removeFromLoadingSet(entry.sha256);
         }

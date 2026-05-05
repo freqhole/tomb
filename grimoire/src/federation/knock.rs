@@ -70,6 +70,8 @@ impl From<KnockRow> for KnockRequest {
             created_at: row.created_at,
             processed_at: row.processed_at,
             processed_by: row.processed_by,
+            from_deleted_peer: None,
+            deleted_user_username: None,
         }
     }
 }
@@ -85,6 +87,18 @@ pub struct KnockRequest {
     pub created_at: i64,
     pub processed_at: Option<i64>,
     pub processed_by: Option<String>,
+    /// true when this knock's `node_id` matches a peer node that has
+    /// been soft-deleted (either individually or via cascade from a
+    /// soft-deleted user). the admin ui surfaces this so the operator
+    /// knows to restore the peer/user before accepting, rather than
+    /// silently re-creating a new user account for an old device.
+    /// populated by `list_knocks`; other accessors leave this `None`.
+    #[serde(default)]
+    pub from_deleted_peer: Option<bool>,
+    /// when `from_deleted_peer` is true, the username of the
+    /// soft-deleted user this peer belongs to (for ui labeling).
+    #[serde(default)]
+    pub deleted_user_username: Option<String>,
 }
 
 /// request to create a knock
@@ -239,22 +253,52 @@ pub async fn get_knock_status(node_id: &str) -> GrimoireResponse<KnockStatusResp
 }
 
 /// list knock requests (admin only)
-/// by default only shows pending, use include_all to see all
+/// by default only shows pending, use include_all to see all.
+///
+/// also LEFT JOINs the `user_peer_nodez` + `user_accountz` tables to
+/// populate `from_deleted_peer` / `deleted_user_username` so the admin
+/// ui can flag knocks coming from a node_id that was previously linked
+/// to a now-soft-deleted user/peer.
 pub async fn list_knocks(include_all: bool) -> GrimoireResponse<Vec<KnockRequest>> {
     let pool = match database::connect().await {
         Ok(p) => p,
         Err(e) => return GrimoireResponse::failure(&format!("database error: {}", e), vec![]),
     };
 
-    let rows = if include_all {
+    struct KnockJoinRow {
+        id: String,
+        node_id: String,
+        username: String,
+        message: String,
+        status: String,
+        created_at: i64,
+        processed_at: Option<i64>,
+        processed_by: Option<String>,
+        peer_deleted_at: Option<i64>,
+        user_deleted_at: Option<i64>,
+        deleted_username: Option<String>,
+    }
+
+    let rows: Vec<KnockJoinRow> = if include_all {
         sqlx::query_as!(
-            KnockRow,
+            KnockJoinRow,
             r#"
-            SELECT id as "id!", node_id as "node_id!", username as "username!",
-                   message as "message!", status as "status!", created_at as "created_at!",
-                   processed_at, processed_by
-            FROM knock_requestz 
-            ORDER BY created_at DESC
+            SELECT
+                k.id as "id!",
+                k.node_id as "node_id!",
+                k.username as "username!",
+                k.message as "message!",
+                k.status as "status!",
+                k.created_at as "created_at!",
+                k.processed_at,
+                k.processed_by,
+                p.deleted_at as "peer_deleted_at",
+                u.deleted_at as "user_deleted_at",
+                u.username as "deleted_username"
+            FROM knock_requestz k
+            LEFT JOIN user_peer_nodez p ON p.node_id = k.node_id
+            LEFT JOIN user_accountz u ON u.id = p.user_id
+            ORDER BY k.created_at DESC
             "#
         )
         .fetch_all(&pool)
@@ -262,14 +306,25 @@ pub async fn list_knocks(include_all: bool) -> GrimoireResponse<Vec<KnockRequest
         .unwrap_or_default()
     } else {
         sqlx::query_as!(
-            KnockRow,
+            KnockJoinRow,
             r#"
-            SELECT id as "id!", node_id as "node_id!", username as "username!",
-                   message as "message!", status as "status!", created_at as "created_at!",
-                   processed_at, processed_by
-            FROM knock_requestz 
-            WHERE status = 'pending'
-            ORDER BY created_at DESC
+            SELECT
+                k.id as "id!",
+                k.node_id as "node_id!",
+                k.username as "username!",
+                k.message as "message!",
+                k.status as "status!",
+                k.created_at as "created_at!",
+                k.processed_at,
+                k.processed_by,
+                p.deleted_at as "peer_deleted_at",
+                u.deleted_at as "user_deleted_at",
+                u.username as "deleted_username"
+            FROM knock_requestz k
+            LEFT JOIN user_peer_nodez p ON p.node_id = k.node_id
+            LEFT JOIN user_accountz u ON u.id = p.user_id
+            WHERE k.status = 'pending'
+            ORDER BY k.created_at DESC
             "#
         )
         .fetch_all(&pool)
@@ -277,7 +332,30 @@ pub async fn list_knocks(include_all: bool) -> GrimoireResponse<Vec<KnockRequest
         .unwrap_or_default()
     };
 
-    let knocks: Vec<KnockRequest> = rows.into_iter().map(KnockRequest::from).collect();
+    let knocks: Vec<KnockRequest> = rows
+        .into_iter()
+        .map(|r| {
+            let from_deleted_peer = r.peer_deleted_at.is_some() || r.user_deleted_at.is_some();
+            let deleted_user_username = if from_deleted_peer {
+                r.deleted_username
+            } else {
+                None
+            };
+            let from_deleted_peer = Some(from_deleted_peer);
+            KnockRequest {
+                id: r.id,
+                node_id: r.node_id,
+                username: r.username,
+                message: r.message,
+                status: KnockStatus::from(r.status),
+                created_at: r.created_at,
+                processed_at: r.processed_at,
+                processed_by: r.processed_by,
+                from_deleted_peer,
+                deleted_user_username,
+            }
+        })
+        .collect();
     GrimoireResponse::success("knock list retrieved", knocks)
 }
 
@@ -345,6 +423,32 @@ pub async fn accept_knock(
     if row.status != "pending" {
         return Err(crate::error::GrimoireError::KnockAlreadyProcessed {
             id: knock_id.to_string(),
+        });
+    }
+
+    // refuse if this node_id already maps to a soft-deleted peer/user.
+    // the admin must explicitly restore the user/peer first so we don't
+    // silently re-link an old device under a new account.
+    let deleted_check = sqlx::query!(
+        r#"
+        SELECT u.username as "username!", u.deleted_at, p.deleted_at as "peer_deleted_at"
+        FROM user_peer_nodez p
+        INNER JOIN user_accountz u ON u.id = p.user_id
+        WHERE p.node_id = ?
+          AND (u.deleted_at IS NOT NULL OR p.deleted_at IS NOT NULL)
+        LIMIT 1
+        "#,
+        row.node_id
+    )
+    .fetch_optional(&pool)
+    .await?;
+
+    if let Some(dc) = deleted_check {
+        return Err(crate::error::GrimoireError::ProcessingFailed {
+            message: format!(
+                "cannot accept knock: node_id is linked to a soft-deleted peer (user '{}'). restore the user/peer first.",
+                dc.username
+            ),
         });
     }
 

@@ -1,6 +1,15 @@
 import { NavigationMenu as KobalteNav } from "@kobalte/core/navigation-menu";
-import { createResource, createSignal, For, onCleanup, onMount, Show, type JSX } from "solid-js";
-import { isCharnelMode } from "../../app/services/charnel";
+import {
+  createEffect,
+  createResource,
+  createSignal,
+  For,
+  onCleanup,
+  onMount,
+  Show,
+  type JSX,
+} from "solid-js";
+import { getLocalNodeId, isCharnelMode } from "../../app/services/charnel";
 import { getPageInfo } from "../../app/services/pageInfo";
 import { isNarrowViewport } from "../../config/breakpoints";
 import { canCreatePlaylist, canUploadMusic } from "../../music/data/permissions";
@@ -8,11 +17,15 @@ import { resolveBlobUrl } from "../../music/services/storage/blobResolver";
 import type { ImageMetadata } from "../../music/services/storage/types";
 import { routes } from "../../music/utils/routing";
 import { formatRelativeTime } from "../../utils/dateTime";
+import { DEFAULT_SHARE_WEB_HOST } from "../../utils/permalink";
 import { TopNavSearchContainer } from "../../utils/TopNavSearchContainer";
 import { Badge } from "../badges/Badge";
+import { ConfirmDialog } from "../dialogs/ConfirmDialog";
 import { toast } from "../feedback/Toast";
 import { Icon } from "../icons/registry";
 import MediaImage from "../media/MediaImage";
+import { QrCodeModal } from "../modals/QrCodeModal";
+import { type MenuAction } from "../overlays/ContextMenu";
 import { ViewSelector, type ViewOption } from "./ViewSelector";
 
 export interface NavMenuItem {
@@ -104,6 +117,8 @@ export interface TopNavProps {
   onRecheckRemote?: (remoteId: string) => Promise<boolean>;
   /** callback to add a new remote */
   onAddRemote?: () => void;
+  /** callback to delete a remote */
+  onDeleteRemote?: (remoteId: string) => Promise<void> | void;
   /** browser storage usage in bytes */
   storageUsage?: number;
   /** browser storage quota in bytes */
@@ -224,6 +239,92 @@ function RemoteServerImage(props: { remote: RemoteItem; class?: string; alt?: st
   );
 }
 
+// per-row actions menu — a `...` icon button that toggles a small popup
+// with the supplied actions. used in the source-selector flyout to expose
+// copy / qr / delete options per remote.
+function RowActionsMenu(props: {
+  actions: MenuAction[];
+  isOpen: boolean;
+  onToggle: () => void;
+  onClose: () => void;
+}) {
+  let menuRef: HTMLDivElement | undefined;
+  let triggerRef: HTMLButtonElement | undefined;
+
+  // close on outside click
+  const handleDocClick = (e: MouseEvent) => {
+    const target = e.target as Node;
+    if (menuRef?.contains(target)) return;
+    if (triggerRef?.contains(target)) return;
+    props.onClose();
+  };
+
+  createEffect(() => {
+    if (props.isOpen) {
+      document.addEventListener("mousedown", handleDocClick, true);
+      onCleanup(() => document.removeEventListener("mousedown", handleDocClick, true));
+    }
+  });
+
+  return (
+    <>
+      <button
+        ref={triggerRef}
+        type="button"
+        class="flex-shrink-0 px-2 py-1 rounded text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] border-none bg-transparent cursor-pointer"
+        onClick={(e) => {
+          e.stopPropagation();
+          e.preventDefault();
+          props.onToggle();
+        }}
+        aria-label="row actions"
+        title="more"
+      >
+        <Icon name="more" size={16} />
+      </button>
+      <Show when={props.isOpen}>
+        <div
+          ref={menuRef}
+          class="absolute right-0 top-full mt-1 z-[1300] min-w-[10rem] bg-[var(--color-bg-elevated)] border border-[var(--color-border-default)] rounded-lg shadow-2xl overflow-hidden py-1"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <For each={props.actions}>
+            {(action) => {
+              if (action.type === "separator") {
+                return <div class="my-1 h-px bg-[var(--color-border-subtle)]" />;
+              }
+              return (
+                <button
+                  type="button"
+                  class={`w-full px-3 py-2 text-left text-sm flex items-center gap-2 border-none bg-transparent cursor-pointer transition-colors ${
+                    action.disabled
+                      ? "text-[var(--color-text-disabled)] cursor-not-allowed opacity-50"
+                      : action.destructive
+                        ? "text-[var(--color-error)] hover:bg-[var(--color-error)] hover:text-white"
+                        : "text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]"
+                  }`}
+                  disabled={action.disabled}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (action.disabled) return;
+                    props.onClose();
+                    action.onClick();
+                  }}
+                >
+                  <Show when={action.icon}>
+                    <Icon name={action.icon!} size={14} color="currentColor" />
+                  </Show>
+                  <span>{action.label}</span>
+                </button>
+              );
+            }}
+          </For>
+        </div>
+      </Show>
+    </>
+  );
+}
+
 // compact top nav with brand icon + search, responsive flyout menu
 export function TopNav(props: TopNavProps) {
   // responsive: track viewport sizes
@@ -241,6 +342,147 @@ export function TopNav(props: TopNavProps) {
   const [feedFilterLocked, setFeedFilterLocked] = createSignal(false);
   const [navHovered, setNavHovered] = createSignal(false);
   const [recheckingRemoteIds, setRecheckingRemoteIds] = createSignal<Set<string>>(new Set());
+
+  // qr modal state for remote rows
+  const [qrPayload, setQrPayload] = createSignal<{
+    payload: string;
+    name: string;
+  } | null>(null);
+
+  // confirm-delete modal state for remote rows
+  const [pendingDelete, setPendingDelete] = createSignal<{
+    id: string;
+    name: string;
+  } | null>(null);
+  const [deleting, setDeleting] = createSignal(false);
+
+  // which remote row currently has its actions menu open (id, or null)
+  const [openMenuFor, setOpenMenuFor] = createSignal<string | null>(null);
+
+  // extract a usable node id from a peer_addr that may be a 64-hex string
+  // or a json blob containing { node_id, ... }
+  const extractNodeIdLocal = (peerAddr: string): string => {
+    const trimmed = peerAddr.trim();
+    if (/^[0-9a-f]{64}$/i.test(trimmed)) return trimmed;
+    try {
+      const parsed = JSON.parse(trimmed) as { node_id?: string };
+      if (parsed?.node_id && typeof parsed.node_id === "string") {
+        return parsed.node_id;
+      }
+    } catch {
+      // not json, fall through
+    }
+    return trimmed;
+  };
+
+  // build context-menu actions for a remote row
+  const remoteContextActions = (
+    remote: NonNullable<typeof props.remotes>[number]
+  ): MenuAction[] => {
+    const actions: MenuAction[] = [];
+
+    // for the charnel-managed local row, peerAddr is undefined and url is the
+    // "local" sentinel. resolve to the running iroh node id (populated by
+    // charnel host on startup) so copy/qr expose a usable share target.
+    const localNodeId =
+      remote.isCharnelManaged || (remote.isLocal && (!remote.peerAddr || remote.url === "local"))
+        ? getLocalNodeId()
+        : null;
+
+    // copy: prefer node id (p2p / charnel-local), else url (http remote)
+    if (localNodeId) {
+      actions.push({
+        label: "copy node id",
+        icon: "copy",
+        onClick: async () => {
+          try {
+            await navigator.clipboard.writeText(localNodeId);
+            toast.success("node id copied");
+          } catch {
+            toast.error("failed to copy");
+          }
+        },
+      });
+      actions.push({
+        label: "show qr code",
+        icon: "share",
+        onClick: () => {
+          setQrPayload({
+            payload: `${DEFAULT_SHARE_WEB_HOST}/?r=${localNodeId}`,
+            name: remote.name,
+          });
+        },
+      });
+    } else if (remote.peerAddr) {
+      const nodeId = extractNodeIdLocal(remote.peerAddr);
+      actions.push({
+        label: "copy node id",
+        icon: "copy",
+        onClick: async () => {
+          try {
+            await navigator.clipboard.writeText(nodeId);
+            toast.success("node id copied");
+          } catch {
+            toast.error("failed to copy");
+          }
+        },
+      });
+      actions.push({
+        label: "show qr code",
+        icon: "share",
+        onClick: () => {
+          setQrPayload({
+            payload: `${DEFAULT_SHARE_WEB_HOST}/?r=${nodeId}`,
+            name: remote.name,
+          });
+        },
+      });
+    } else if (remote.url) {
+      actions.push({
+        label: "copy url",
+        icon: "copy",
+        onClick: async () => {
+          try {
+            await navigator.clipboard.writeText(remote.url);
+            toast.success("url copied");
+          } catch {
+            toast.error("failed to copy");
+          }
+        },
+      });
+      actions.push({
+        label: "show qr code",
+        icon: "share",
+        onClick: () => {
+          setQrPayload({ payload: remote.url, name: remote.name });
+        },
+      });
+    }
+
+    if (props.onDeleteRemote && !remote.isCharnelManaged) {
+      if (actions.length > 0) actions.push({ type: "separator" });
+      actions.push({
+        label: "delete remote",
+        icon: "delete",
+        destructive: true,
+        onClick: () => setPendingDelete({ id: remote.id, name: remote.name }),
+      });
+    }
+
+    return actions;
+  };
+
+  const handleConfirmDelete = async () => {
+    const target = pendingDelete();
+    if (!target || !props.onDeleteRemote) return;
+    setDeleting(true);
+    try {
+      await props.onDeleteRemote(target.id);
+    } finally {
+      setDeleting(false);
+      setPendingDelete(null);
+    }
+  };
 
   // browser navigation back/forward state.
   // uses the modern Navigation API where available (chromium) for accurate
@@ -684,81 +926,95 @@ export function TopNav(props: TopNavProps) {
                                     return `${lastChecked} - click to retry`;
                                   };
                                   return (
-                                    <button
-                                      class="w-full px-3 py-2 text-left text-sm flex items-center gap-2 rounded transition-colors border-none bg-transparent"
-                                      classList={{
-                                        "text-[var(--color-text-primary)] bg-[var(--color-accent-500)]/10 cursor-default":
-                                          isCurrentSource(),
-                                        "text-[var(--color-text-secondary)] cursor-pointer hover:bg-[var(--color-accent-500)]/10":
-                                          !isCurrentSource() && !isRechecking(),
-                                        "opacity-60": remote.isOffline && !isRechecking(),
-                                        "cursor-wait": isRechecking(),
-                                      }}
-                                      disabled={isCurrentSource() || isRechecking()}
-                                      onClick={() => handleRemoteClick(remote)}
-                                      title={offlineTitle()}
-                                    >
-                                      <Show
-                                        when={isCurrentSource()}
-                                        fallback={
-                                          <Show
-                                            when={isRechecking()}
-                                            fallback={
-                                              <span
-                                                class="w-2 h-2 rounded-full"
-                                                classList={{
-                                                  "bg-[var(--color-status-error)]":
-                                                    remote.isOffline,
-                                                  "bg-[var(--color-status-success)]":
-                                                    !remote.isOffline,
-                                                }}
-                                              />
-                                            }
-                                          >
-                                            <Icon
-                                              name="loader"
-                                              size={12}
-                                              color="var(--color-text-secondary)"
-                                              className="animate-spin"
-                                            />
-                                          </Show>
-                                        }
+                                    <div class="relative flex items-center gap-1">
+                                      <button
+                                        class="flex-1 min-w-0 px-3 py-2 text-left text-sm flex items-center gap-2 rounded transition-colors border-none bg-transparent"
+                                        classList={{
+                                          "text-[var(--color-text-primary)] bg-[var(--color-accent-500)]/10 cursor-default":
+                                            isCurrentSource(),
+                                          "text-[var(--color-text-secondary)] cursor-pointer hover:bg-[var(--color-accent-500)]/10":
+                                            !isCurrentSource() && !isRechecking(),
+                                          "opacity-60": remote.isOffline && !isRechecking(),
+                                          "cursor-wait": isRechecking(),
+                                        }}
+                                        disabled={isCurrentSource() || isRechecking()}
+                                        onClick={() => handleRemoteClick(remote)}
+                                        title={offlineTitle()}
                                       >
-                                        <Icon
-                                          name="check"
-                                          size={14}
-                                          color="var(--color-accent-500)"
+                                        <Show
+                                          when={isCurrentSource()}
+                                          fallback={
+                                            <Show
+                                              when={isRechecking()}
+                                              fallback={
+                                                <span
+                                                  class="w-2 h-2 rounded-full"
+                                                  classList={{
+                                                    "bg-[var(--color-status-error)]":
+                                                      remote.isOffline,
+                                                    "bg-[var(--color-status-success)]":
+                                                      !remote.isOffline,
+                                                  }}
+                                                />
+                                              }
+                                            >
+                                              <Icon
+                                                name="loader"
+                                                size={12}
+                                                color="var(--color-text-secondary)"
+                                                className="animate-spin"
+                                              />
+                                            </Show>
+                                          }
+                                        >
+                                          <Icon
+                                            name="check"
+                                            size={14}
+                                            color="var(--color-accent-500)"
+                                          />
+                                        </Show>
+                                        <RemoteServerImage
+                                          remote={remote}
+                                          class={`w-4 h-4 rounded object-cover flex-shrink-0 ${remote.isOffline ? "opacity-50 grayscale" : ""}`}
+                                        />
+                                        <span class="truncate">{remote.name}</span>
+                                        <Show when={remote.isCharnelManaged}>
+                                          <Icon
+                                            name="home"
+                                            size={14}
+                                            color="var(--color-text-muted)"
+                                            className="flex-shrink-0 ml-1"
+                                          />
+                                        </Show>
+                                        <Show when={remote.peerAddr}>
+                                          <span class="px-1.5 py-0.5 text-[10px] font-medium bg-purple-600/20 text-purple-400 rounded">
+                                            p2p
+                                          </span>
+                                        </Show>
+                                        <Show when={remote.isLocal && !remote.isCharnelManaged}>
+                                          <span class="px-1.5 py-0.5 text-[10px] font-medium bg-blue-600/20 text-blue-400 rounded">
+                                            local
+                                          </span>
+                                        </Show>
+                                        <Show when={remote.isOffline && !isRechecking()}>
+                                          <span class="text-xs text-[var(--color-status-error)] ml-auto">
+                                            offline
+                                          </span>
+                                        </Show>
+                                      </button>
+                                      <Show when={remoteContextActions(remote).length > 0}>
+                                        <RowActionsMenu
+                                          actions={remoteContextActions(remote)}
+                                          isOpen={openMenuFor() === remote.id}
+                                          onToggle={() =>
+                                            setOpenMenuFor(
+                                              openMenuFor() === remote.id ? null : remote.id
+                                            )
+                                          }
+                                          onClose={() => setOpenMenuFor(null)}
                                         />
                                       </Show>
-                                      <RemoteServerImage
-                                        remote={remote}
-                                        class={`w-4 h-4 rounded object-cover flex-shrink-0 ${remote.isOffline ? "opacity-50 grayscale" : ""}`}
-                                      />
-                                      <span class="truncate">{remote.name}</span>
-                                      <Show when={remote.isCharnelManaged}>
-                                        <Icon
-                                          name="home"
-                                          size={14}
-                                          color="var(--color-text-muted)"
-                                          className="flex-shrink-0 ml-1"
-                                        />
-                                      </Show>
-                                      <Show when={remote.peerAddr}>
-                                        <span class="px-1.5 py-0.5 text-[10px] font-medium bg-purple-600/20 text-purple-400 rounded">
-                                          p2p
-                                        </span>
-                                      </Show>
-                                      <Show when={remote.isLocal && !remote.isCharnelManaged}>
-                                        <span class="px-1.5 py-0.5 text-[10px] font-medium bg-blue-600/20 text-blue-400 rounded">
-                                          local
-                                        </span>
-                                      </Show>
-                                      <Show when={remote.isOffline && !isRechecking()}>
-                                        <span class="text-xs text-[var(--color-status-error)] ml-auto">
-                                          offline
-                                        </span>
-                                      </Show>
-                                    </button>
+                                    </div>
                                   );
                                 }}
                               </For>
@@ -813,6 +1069,16 @@ export function TopNav(props: TopNavProps) {
                                 {storagePercent()}% used
                               </span>
                             </div>
+                          </button>
+                        </Show>
+
+                        {/* settings link */}
+                        <Show when={!isCharnelMode()}>
+                          <button
+                            class="w-full flex items-center gap-2 px-3 py-2 mb-4 rounded transition-colors border-none bg-transparent text-sm cursor-pointer text-[var(--color-accent-500)] bg-[var(--color-accent-500)]/10 text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]"
+                            onClick={() => props.onNavigate?.(routes.settingsStorage())}
+                          >
+                            <Icon name="settings" size={16} /> settings
                           </button>
                         </Show>
                       </div>
@@ -1312,6 +1578,33 @@ export function TopNav(props: TopNavProps) {
           </div>
         </Show>
       </nav>
+
+      {/* qr code modal for remote rows */}
+      <QrCodeModal
+        isOpen={qrPayload() !== null}
+        onClose={() => setQrPayload(null)}
+        payload={qrPayload()?.payload ?? ""}
+        title={qrPayload() ? `qr code: ${qrPayload()!.name}` : "qr code"}
+        subtitle="scan to open this source"
+      />
+
+      {/* delete remote confirm dialog */}
+      <ConfirmDialog
+        isOpen={pendingDelete() !== null}
+        onClose={() => {
+          if (!deleting()) setPendingDelete(null);
+        }}
+        onConfirm={() => {
+          void handleConfirmDelete();
+        }}
+        title="delete remote"
+        message={`are you sure you want to delete "${pendingDelete()?.name ?? ""}"? this will remove the remote and clear its cached data.`}
+        confirmText="delete"
+        cancelText="cancel"
+        variant="danger"
+        loading={deleting()}
+        alertVariant="warning"
+      />
     </>
   );
 }

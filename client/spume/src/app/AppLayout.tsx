@@ -79,12 +79,14 @@ import {
   getRemoteById,
   onRemoteStatusChange,
   onSwitchToLocal,
+  deleteRemote,
 } from "./services/remotes/remoteManager";
 import type { ImageMetadata, Song } from "../music/services/storage/types";
 import {
   type Remote,
   type QueueHistoryEntry,
   type RadioStationRef,
+  STORE_QUEUE_HISTORY,
   isHttpRemote,
   isP2PRemote,
 } from "./services/storage/types";
@@ -457,6 +459,49 @@ export function AppLayout(props: AppLayoutProps) {
     } catch (error) {
       console.error("failed to recheck remote:", error);
       return false;
+    }
+  };
+
+  // handle deleting a remote (called from topnav context menu)
+  // topnav already handles user confirmation; here we just perform cleanup
+  const handleDeleteRemote = async (remoteId: string): Promise<void> => {
+    try {
+      debug("AppLayout", `deleting remote: ${remoteId}...`);
+
+      // clear queue history entries for this remote
+      try {
+        const { initAppDB } = await import("./services/storage/db");
+        const db = await initAppDB();
+        const allEntries = await db.getAll(STORE_QUEUE_HISTORY);
+        const toDelete = (allEntries as QueueHistoryEntry[]).filter(
+          (e) => e.server_remote_id === remoteId
+        );
+        for (const entry of toDelete) {
+          await db.delete(STORE_QUEUE_HISTORY, entry.id);
+        }
+      } catch (e) {
+        debug("AppLayout", "failed to clear queue history:", e);
+      }
+
+      // clear cached blobs for this remote
+      try {
+        const { clearBlobCache } = await import("../music/services/cache/blobCache");
+        await clearBlobCache(remoteId);
+      } catch (e) {
+        debug("AppLayout", "failed to clear blob cache:", e);
+      }
+
+      // delete the remote record
+      await deleteRemote(remoteId);
+
+      // refresh remotes list
+      const allRemotes = await getAllRemotes();
+      setRemotes(allRemotes);
+
+      toast.success("remote deleted");
+    } catch (error) {
+      console.error("failed to delete remote:", error);
+      toast.error("failed to delete remote");
     }
   };
 
@@ -970,6 +1015,7 @@ export function AppLayout(props: AppLayoutProps) {
         onSwitchToRemote={handleSwitchToRemote}
         onRecheckRemote={handleRecheckRemote}
         onAddRemote={() => setIsAddRemoteOpen(true)}
+        onDeleteRemote={handleDeleteRemote}
         storageUsage={storageUsage()}
         storageQuota={storageQuota()}
         recentPlaylists={

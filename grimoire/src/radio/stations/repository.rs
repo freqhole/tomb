@@ -1,7 +1,7 @@
 //! radio station persistence + playlist resolution.
 
 use super::models::{
-    CreateStationRequest, PlayHistoryEntry, RadioStation, StationFilter, StationSong,
+    CreateStationRequest, PlayHistoryEntry, RadioStation, StationFilter, StationFilterType,
     UpdateStationRequest,
 };
 use crate::database;
@@ -134,69 +134,50 @@ pub async fn update_station(req: UpdateStationRequest) -> GrimoireResult<RadioSt
 
 pub async fn delete_station(id: &str) -> GrimoireResult<()> {
     let pool = database::connect().await?;
+    // music_play_eventz.radio_station_id has no ON DELETE action (see
+    // migrations/026_play_count_views.sql). nullify any references first so
+    // the cascade-less FK doesn't block the station delete. preserves the
+    // historical play event for song/album/artist crediting.
+    let mut tx = pool.begin().await?;
+    sqlx::query!(
+        "UPDATE music_play_eventz SET radio_station_id = NULL WHERE radio_station_id = ?",
+        id
+    )
+    .execute(&mut *tx)
+    .await?;
     sqlx::query!("DELETE FROM radio_stationz WHERE id = ?", id)
-        .execute(&pool)
+        .execute(&mut *tx)
         .await?;
-    Ok(())
-}
-
-// ---------- explicit-include songs ---------------------------------------
-
-pub async fn list_songs(station_id: &str) -> GrimoireResult<Vec<StationSong>> {
-    let pool = database::connect().await?;
-    sqlx::query_as!(
-        StationSong,
-        r#"SELECT station_id as "station_id!", song_id as "song_id!",
-                  sort_order as "sort_order!", added_at as "added_at!"
-           FROM radio_station_songz
-           WHERE station_id = ?
-           ORDER BY sort_order ASC, added_at ASC"#,
-        station_id
-    )
-    .fetch_all(&pool)
-    .await
-    .map_err(GrimoireError::from)
-}
-
-pub async fn add_song(station_id: &str, song_id: &str, sort_order: i64) -> GrimoireResult<()> {
-    let pool = database::connect().await?;
-    sqlx::query!(
-        r#"INSERT OR REPLACE INTO radio_station_songz
-              (station_id, song_id, sort_order)
-           VALUES (?, ?, ?)"#,
-        station_id,
-        song_id,
-        sort_order,
-    )
-    .execute(&pool)
-    .await?;
-    Ok(())
-}
-
-pub async fn remove_song(station_id: &str, song_id: &str) -> GrimoireResult<()> {
-    let pool = database::connect().await?;
-    sqlx::query!(
-        "DELETE FROM radio_station_songz WHERE station_id = ? AND song_id = ?",
-        station_id,
-        song_id
-    )
-    .execute(&pool)
-    .await?;
+    tx.commit().await?;
     Ok(())
 }
 
 // ---------- filter clauses -----------------------------------------------
+//
+// every filter row references a real record id via one of the typed FK
+// columns (artist_id / album_id / genre_id / tag_id / song_id). the
+// `filter_value` field returned to callers is the chosen FK id
+// (collapsed via COALESCE), keeping the wire shape stable across the
+// data-model rewrite.
 
 pub async fn list_filters(station_id: &str) -> GrimoireResult<Vec<StationFilter>> {
     let pool = database::connect().await?;
     sqlx::query_as!(
         StationFilter,
-        r#"SELECT id as "id!", station_id as "station_id!",
-                  filter_type as "filter_type!", filter_value as "filter_value!",
-                  mode as "mode!", created_at as "created_at!"
-           FROM radio_station_filterz
-           WHERE station_id = ?
-           ORDER BY created_at ASC"#,
+        r#"SELECT f.id as "id!", f.station_id as "station_id!",
+                  f.filter_type as "filter_type!",
+                  COALESCE(f.artist_id, f.album_id, f.genre_id, f.tag_id, f.song_id, f.playlist_id) as "filter_value!: String",
+                  COALESCE(ar.name, al.title, g.name, t.name, s.title, p.title, '') as "filter_label!: String",
+                  f.mode as "mode!", f.created_at as "created_at!"
+           FROM radio_station_filterz f
+           LEFT JOIN artistz   ar ON ar.id = f.artist_id
+           LEFT JOIN albumz    al ON al.id = f.album_id
+           LEFT JOIN genrez    g  ON g.id  = f.genre_id
+           LEFT JOIN tagz      t  ON t.id  = f.tag_id
+           LEFT JOIN songz     s  ON s.id  = f.song_id
+           LEFT JOIN playlistz p  ON p.id  = f.playlist_id
+           WHERE f.station_id = ?
+           ORDER BY f.created_at ASC"#,
         station_id
     )
     .fetch_all(&pool)
@@ -211,25 +192,73 @@ pub async fn add_filter(
     mode: &str,
 ) -> GrimoireResult<StationFilter> {
     let pool = database::connect().await?;
+
+    // validate filter_type up front so we can route the FK insert.
+    let kind = StationFilterType::parse(filter_type).ok_or_else(|| {
+        GrimoireError::ProcessingFailed {
+            message: format!(
+                "radio: unknown filter_type '{filter_type}' (expected one of artist, album, genre, tag, track, playlist)"
+            ),
+        }
+    })?;
+
+    let mode = match mode.trim().to_ascii_lowercase().as_str() {
+        "include" => "include",
+        "exclude" => "exclude",
+        other => {
+            return Err(GrimoireError::ProcessingFailed {
+                message: format!(
+                    "radio: unknown filter mode '{other}' (expected include or exclude)"
+                ),
+            });
+        }
+    };
+
+    // route the supplied id into the right FK column. all other FK
+    // columns are left null — the schema CHECK constraint enforces this.
+    let (artist_id, album_id, genre_id, tag_id, song_id, playlist_id) = match kind {
+        StationFilterType::Artist => (Some(filter_value), None, None, None, None, None),
+        StationFilterType::Album => (None, Some(filter_value), None, None, None, None),
+        StationFilterType::Genre => (None, None, Some(filter_value), None, None, None),
+        StationFilterType::Tag => (None, None, None, Some(filter_value), None, None),
+        StationFilterType::Track => (None, None, None, None, Some(filter_value), None),
+        StationFilterType::Playlist => (None, None, None, None, None, Some(filter_value)),
+    };
+    let kind_str = kind.as_str();
+
     let id: String = sqlx::query_scalar!(
         r#"INSERT INTO radio_station_filterz
-              (station_id, filter_type, filter_value, mode)
-           VALUES (?, ?, ?, ?)
+              (station_id, filter_type, mode, artist_id, album_id, genre_id, tag_id, song_id, playlist_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
            RETURNING id"#,
         station_id,
-        filter_type,
-        filter_value,
+        kind_str,
         mode,
+        artist_id,
+        album_id,
+        genre_id,
+        tag_id,
+        song_id,
+        playlist_id,
     )
     .fetch_one(&pool)
     .await?;
 
     sqlx::query_as!(
         StationFilter,
-        r#"SELECT id as "id!", station_id as "station_id!",
-                  filter_type as "filter_type!", filter_value as "filter_value!",
-                  mode as "mode!", created_at as "created_at!"
-           FROM radio_station_filterz WHERE id = ?"#,
+        r#"SELECT f.id as "id!", f.station_id as "station_id!",
+                  f.filter_type as "filter_type!",
+                  COALESCE(f.artist_id, f.album_id, f.genre_id, f.tag_id, f.song_id, f.playlist_id) as "filter_value!: String",
+                  COALESCE(ar.name, al.title, g.name, t.name, s.title, p.title, '') as "filter_label!: String",
+                  f.mode as "mode!", f.created_at as "created_at!"
+           FROM radio_station_filterz f
+           LEFT JOIN artistz   ar ON ar.id = f.artist_id
+           LEFT JOIN albumz    al ON al.id = f.album_id
+           LEFT JOIN genrez    g  ON g.id  = f.genre_id
+           LEFT JOIN tagz      t  ON t.id  = f.tag_id
+           LEFT JOIN songz     s  ON s.id  = f.song_id
+           LEFT JOIN playlistz p  ON p.id  = f.playlist_id
+           WHERE f.id = ?"#,
         id
     )
     .fetch_one(&pool)
@@ -249,60 +278,54 @@ pub async fn remove_filter(filter_id: &str) -> GrimoireResult<()> {
 
 /// resolve a station's effective song list. returns DISTINCT song ids.
 ///
-/// precedence rules:
-///
-///   * when the station has any explicit `radio_station_songz` rows,
-///     those songs are the entire candidate set
-///   * otherwise, use the intersection of every `include` filter clause
-///   * in either case, subtract the union of every `exclude` filter clause
-///
-/// when there are zero explicit songs and zero filters, returns an empty
-/// vec — caller treats this as "no source" and falls back elsewhere.
-///
-/// supported filter_type values today: `tag`, `genre`, `artist`, `album`.
-/// other types (year_range, rating_min, etc.) are accepted by `add_filter`
-/// but ignored here until the picker grows support.
+/// rules:
+///   * includes are grouped by `filter_type`. within a group the matches
+///     are UNIONed (e.g. two artist includes => songs by either artist).
+///     across groups the unions are INTERSECTED (e.g. an artist include
+///     plus a genre include => songs by that artist AND in that genre).
+///   * the union of every `exclude` clause is then subtracted.
+///   * when only excludes are configured, the candidate set is seeded
+///     from the full playable library so excludes still take effect.
+///   * when there are zero filter rows, returns an empty vec — caller
+///     treats this as "no source" and falls back to the full library or
+///     a global random pick.
 pub async fn resolve_playlist(station_id: &str) -> GrimoireResult<Vec<String>> {
     let pool = database::connect().await?;
 
-    // explicit songs take precedence over filter-derived candidates.
-    // if a station has seeded songs, it should only play those songs.
-    let explicit: Vec<String> = sqlx::query_scalar!(
-        r#"SELECT song_id as "song_id!" FROM radio_station_songz WHERE station_id = ?"#,
-        station_id
-    )
-    .fetch_all(&pool)
-    .await?;
+    let filters = list_filters_with_fks(&pool, station_id).await?;
 
-    let filters = list_filters(station_id).await?;
-
-    let includes: Vec<&StationFilter> = filters.iter().filter(|f| f.mode == "include").collect();
-    let excludes: Vec<&StationFilter> = filters.iter().filter(|f| f.mode == "exclude").collect();
-
-    // build the include set: intersection of every include clause's matches.
-    // when there are no includes, the filter-driven set is empty (we only
-    // play explicit songs).
-    let mut filter_set: Option<std::collections::HashSet<String>> = None;
-    for clause in &includes {
-        let matches = song_ids_matching(&pool, &clause.filter_type, &clause.filter_value).await?;
-        let matches: std::collections::HashSet<String> = matches.into_iter().collect();
-        filter_set = Some(match filter_set {
-            None => matches,
-            Some(prev) => prev.intersection(&matches).cloned().collect(),
-        });
+    if filters.is_empty() {
+        return Ok(Vec::new());
     }
 
-    // explicit seeds override include filters. when there are no explicit
-    // songs, the include-filter result becomes the candidate set.
-    let mut result: std::collections::HashSet<String> = if explicit.is_empty() {
-        filter_set.unwrap_or_default()
+    let includes: Vec<&FilterRow> = filters.iter().filter(|f| f.mode == "include").collect();
+    let excludes: Vec<&FilterRow> = filters.iter().filter(|f| f.mode == "exclude").collect();
+
+    // group includes by filter_type, then union within a group and
+    // intersect across groups.
+    let mut result: std::collections::HashSet<String> = if includes.is_empty() {
+        all_playable_song_ids(&pool).await?.into_iter().collect()
     } else {
-        explicit.into_iter().collect()
+        let mut by_type: std::collections::HashMap<String, std::collections::HashSet<String>> =
+            std::collections::HashMap::new();
+        for clause in &includes {
+            let matches = song_ids_for_clause(&pool, clause).await?;
+            by_type
+                .entry(clause.filter_type.clone())
+                .or_default()
+                .extend(matches);
+        }
+        let mut iter = by_type.into_values();
+        let mut acc = iter.next().unwrap_or_default();
+        for next in iter {
+            acc = acc.intersection(&next).cloned().collect();
+        }
+        acc
     };
 
-    // subtract excludes (each clause contributes a set, take the union).
+    // subtract excludes (union of every exclude clause).
     for clause in &excludes {
-        let matches = song_ids_matching(&pool, &clause.filter_type, &clause.filter_value).await?;
+        let matches = song_ids_for_clause(&pool, clause).await?;
         for id in matches {
             result.remove(&id);
         }
@@ -311,62 +334,136 @@ pub async fn resolve_playlist(station_id: &str) -> GrimoireResult<Vec<String>> {
     Ok(result.into_iter().collect())
 }
 
-/// look up song ids matching one filter clause. unknown filter types
-/// return an empty vec (silently ignored — the picker keeps going).
-async fn song_ids_matching(
+/// every playable song id in the library — used as the seed set when a
+/// station has only `exclude` filters configured. mirrors the query in
+/// `playlist::all_playable_songs` but lives here to avoid a cross-module
+/// dependency.
+async fn all_playable_song_ids(pool: &sqlx::SqlitePool) -> GrimoireResult<Vec<String>> {
+    sqlx::query_scalar!(
+        r#"SELECT DISTINCT s.id as "song_id!"
+           FROM songz s
+           JOIN media_blobz b ON b.id = s.media_blob_id
+           WHERE b.local_path IS NOT NULL
+             AND s.deleted_at IS NULL
+             AND b.deleted_at IS NULL"#
+    )
+    .fetch_all(pool)
+    .await
+    .map_err(GrimoireError::from)
+}
+
+/// internal row carrying the typed FK columns alongside the metadata.
+struct FilterRow {
+    filter_type: String,
+    mode: String,
+    artist_id: Option<String>,
+    album_id: Option<String>,
+    genre_id: Option<String>,
+    tag_id: Option<String>,
+    song_id: Option<String>,
+    playlist_id: Option<String>,
+}
+
+async fn list_filters_with_fks(
     pool: &sqlx::SqlitePool,
-    filter_type: &str,
-    filter_value: &str,
+    station_id: &str,
+) -> GrimoireResult<Vec<FilterRow>> {
+    sqlx::query_as!(
+        FilterRow,
+        r#"SELECT filter_type as "filter_type!",
+                  mode as "mode!",
+                  artist_id, album_id, genre_id, tag_id, song_id, playlist_id
+           FROM radio_station_filterz
+           WHERE station_id = ?
+           ORDER BY created_at ASC"#,
+        station_id
+    )
+    .fetch_all(pool)
+    .await
+    .map_err(GrimoireError::from)
+}
+
+/// look up song ids for one filter clause via FK joins. unknown
+/// filter_type values (or rows with all FK columns null — should be
+/// impossible thanks to the CHECK constraint) yield an empty vec.
+async fn song_ids_for_clause(
+    pool: &sqlx::SqlitePool,
+    clause: &FilterRow,
 ) -> GrimoireResult<Vec<String>> {
-    let rows: Vec<String> = match filter_type {
-        "tag" => {
-            // tags live on albumz today; resolve via album_tagz → album_songz.
-            // accept either tag id OR tag name (ui-friendly).
-            sqlx::query_scalar!(
-                r#"SELECT DISTINCT als.song_id as "song_id!"
+    let rows: Vec<String> = match clause.filter_type.as_str() {
+        "artist" => match &clause.artist_id {
+            Some(id) => {
+                sqlx::query_scalar!(
+                    r#"SELECT DISTINCT ars.song_id as "song_id!"
+                   FROM artist_songz ars
+                   WHERE ars.artist_id = ?"#,
+                    id
+                )
+                .fetch_all(pool)
+                .await?
+            }
+            None => Vec::new(),
+        },
+        "album" => match &clause.album_id {
+            Some(id) => {
+                sqlx::query_scalar!(
+                    r#"SELECT DISTINCT als.song_id as "song_id!"
+                   FROM album_songz als
+                   WHERE als.album_id = ?"#,
+                    id
+                )
+                .fetch_all(pool)
+                .await?
+            }
+            None => Vec::new(),
+        },
+        "genre" => match &clause.genre_id {
+            Some(id) => {
+                sqlx::query_scalar!(
+                    r#"SELECT DISTINCT als.song_id as "song_id!"
+                   FROM album_genrez ag
+                   JOIN album_songz als ON als.album_id = ag.album_id
+                   WHERE ag.genre_id = ?"#,
+                    id
+                )
+                .fetch_all(pool)
+                .await?
+            }
+            None => Vec::new(),
+        },
+        "tag" => match &clause.tag_id {
+            Some(id) => {
+                sqlx::query_scalar!(
+                    r#"SELECT DISTINCT als.song_id as "song_id!"
                    FROM album_tagz at
-                   JOIN tagz t ON t.id = at.tag_id
                    JOIN album_songz als ON als.album_id = at.album_id
-                   WHERE t.id = ?1 OR t.name = ?1"#,
-                filter_value
-            )
-            .fetch_all(pool)
-            .await?
-        }
-        "genre" => {
-            sqlx::query_scalar!(
-                r#"SELECT DISTINCT als.song_id as "song_id!"
-               FROM album_genrez ag
-               JOIN genrez g ON g.id = ag.genre_id
-               JOIN album_songz als ON als.album_id = ag.album_id
-               WHERE g.id = ?1 OR g.name = ?1"#,
-                filter_value
-            )
-            .fetch_all(pool)
-            .await?
-        }
-        "artist" => {
-            sqlx::query_scalar!(
-                r#"SELECT DISTINCT ars.song_id as "song_id!"
-               FROM artist_songz ars
-               JOIN artistz a ON a.id = ars.artist_id
-               WHERE a.id = ?1 OR a.name = ?1"#,
-                filter_value
-            )
-            .fetch_all(pool)
-            .await?
-        }
-        "album" => {
-            sqlx::query_scalar!(
-                r#"SELECT DISTINCT als.song_id as "song_id!"
-               FROM album_songz als
-               JOIN albumz a ON a.id = als.album_id
-               WHERE a.id = ?1 OR a.title = ?1"#,
-                filter_value
-            )
-            .fetch_all(pool)
-            .await?
-        }
+                   WHERE at.tag_id = ?"#,
+                    id
+                )
+                .fetch_all(pool)
+                .await?
+            }
+            None => Vec::new(),
+        },
+        "track" => match &clause.song_id {
+            Some(id) => vec![id.clone()],
+            None => Vec::new(),
+        },
+        "playlist" => match &clause.playlist_id {
+            Some(id) => {
+                // resolve at tune time — edits to the playlist propagate
+                // automatically without re-syncing the station.
+                sqlx::query_scalar!(
+                    r#"SELECT DISTINCT ps.song_id as "song_id!"
+                   FROM playlist_songz ps
+                   WHERE ps.playlist_id = ?"#,
+                    id
+                )
+                .fetch_all(pool)
+                .await?
+            }
+            None => Vec::new(),
+        },
         _ => Vec::new(),
     };
     Ok(rows)

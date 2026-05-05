@@ -74,51 +74,69 @@ pub struct UpdateStationRequest {
     pub timeline_only_mode: Option<bool>,
 }
 
-/// station ↔ song explicit-include row.
-#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema, FromRow, PartialEq)]
-pub struct StationSong {
-    pub station_id: String,
-    pub song_id: String,
-    pub sort_order: i64,
-    pub added_at: i64,
-}
-
 /// one filter clause attached to a station.
+///
+/// every clause references a real record id via exactly one of the FK
+/// columns (`artist_id` / `album_id` / `genre_id` / `tag_id` /
+/// `song_id`), matching `filter_type`. the wire shape exposes
+/// `filter_value` as the chosen FK id so existing ui code keeps
+/// working — the picker no longer falls back to name lookups.
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema, FromRow, PartialEq)]
 pub struct StationFilter {
     pub id: String,
     pub station_id: String,
+    /// 'artist' | 'album' | 'genre' | 'tag' | 'track' | 'playlist'
     pub filter_type: String,
+    /// the FK id matching `filter_type` (artist_id when type='artist',
+    /// song_id when type='track', playlist_id when type='playlist',
+    /// etc.). always set — the schema's CHECK constraint guarantees
+    /// one FK column is non-null per row.
     pub filter_value: String,
+    /// human-readable label for `filter_value` (artist name, album
+    /// title, genre name, tag name, song title). populated by the
+    /// repository via a left-join so the UI can render names without a
+    /// second round-trip. may be empty if the referenced row was
+    /// deleted out from under the filter.
+    #[serde(default)]
+    pub filter_label: String,
+    /// 'include' | 'exclude'
     pub mode: String,
     pub created_at: i64,
 }
 
-/// known filter-type values (free-form strings on the wire so the ui can
-/// add new types without a migration; this enum is just for typed
-/// callers in rust).
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+/// known filter-type values. wire form is the lowercase string.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum StationFilterType {
-    Tag,
-    Genre,
     Artist,
     Album,
-    YearRange,
-    RatingMin,
-    RatingMax,
+    Genre,
+    Tag,
+    Track,
+    Playlist,
 }
 
 impl StationFilterType {
     pub fn as_str(self) -> &'static str {
         match self {
-            Self::Tag => "tag",
-            Self::Genre => "genre",
             Self::Artist => "artist",
             Self::Album => "album",
-            Self::YearRange => "year_range",
-            Self::RatingMin => "rating_min",
-            Self::RatingMax => "rating_max",
+            Self::Genre => "genre",
+            Self::Tag => "tag",
+            Self::Track => "track",
+            Self::Playlist => "playlist",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "artist" => Some(Self::Artist),
+            "album" => Some(Self::Album),
+            "genre" => Some(Self::Genre),
+            "tag" => Some(Self::Tag),
+            "track" => Some(Self::Track),
+            "playlist" => Some(Self::Playlist),
+            _ => None,
         }
     }
 }

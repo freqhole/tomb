@@ -35,7 +35,6 @@ import {
   type CreateStationRequest,
   type UpdateStationRequest,
   type StationFilter,
-  type StationSong,
   type RadioSeedSuggestion,
   type RadioConfigPayload,
 } from "freqhole-api-client";
@@ -689,7 +688,8 @@ function CreateStationSection(props: {
 // per-station seed editor (filters + explicit songs)
 // ------------------------------------------------------------------
 
-const FILTER_TYPES = ["tag", "genre", "artist", "album"];
+const FILTER_TYPES = ["tag", "genre", "artist", "album", "track", "playlist"] as const;
+type FilterType = (typeof FILTER_TYPES)[number];
 const FILTER_MODES = ["include", "exclude"];
 
 function StationSeedEditor(props: { stationId: string; client: AdminClient }) {
@@ -707,25 +707,10 @@ function StationSeedEditor(props: { stationId: string; client: AdminClient }) {
     }
   });
 
-  const [songs, { refetch: refetchSongs }] = createResource<StationSong[]>(async () => {
-    try {
-      const data = await props.client.dispatchOrThrow("radio_songs_list", {
-        station_id: props.stationId,
-      });
-      return (data ?? []) as StationSong[];
-    } catch (e) {
-      const msg =
-        e instanceof AdminCommandError ? e.message : e instanceof Error ? e.message : String(e);
-      toast.error(`failed to load songs: ${msg}`);
-      return [];
-    }
-  });
-
   const [busy, setBusy] = createSignal(false);
-  const [fType, setFType] = createSignal("tag");
+  const [fType, setFType] = createSignal<FilterType>("tag");
   const [fValue, setFValue] = createSignal("");
   const [fMode, setFMode] = createSignal("include");
-  const [songId, setSongId] = createSignal("");
 
   const addFilter = async (e: Event) => {
     e.preventDefault();
@@ -766,55 +751,15 @@ function StationSeedEditor(props: { stationId: string; client: AdminClient }) {
     }
   };
 
-  const addSong = async (e: Event) => {
-    e.preventDefault();
-    if (!songId().trim()) {
-      toast.error("song id required");
-      return;
-    }
-    setBusy(true);
-    try {
-      await props.client.dispatchOrThrow("radio_songs_add", {
-        station_id: props.stationId,
-        song_id: songId().trim(),
-      });
-      setSongId("");
-      await refetchSongs();
-    } catch (e) {
-      const msg =
-        e instanceof AdminCommandError ? e.message : e instanceof Error ? e.message : String(e);
-      toast.error(`failed to add song: ${msg}`);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const removeSong = async (sid: string) => {
-    setBusy(true);
-    try {
-      await props.client.dispatchOrThrow("radio_songs_remove", {
-        station_id: props.stationId,
-        song_id: sid,
-      });
-      await refetchSongs();
-    } catch (e) {
-      const msg =
-        e instanceof AdminCommandError ? e.message : e instanceof Error ? e.message : String(e);
-      toast.error(`failed to remove song: ${msg}`);
-    } finally {
-      setBusy(false);
-    }
-  };
-
   return (
     <div class="rounded-md border border-[var(--color-border-subtle)] bg-[var(--color-bg-base)] p-4">
       <div class="text-xs text-[var(--color-text-muted)] mb-3">
-        seed query — explicit songs are always played; filters narrow (include) or remove (exclude)
-        candidates from your library.
+        seed query — every clause references a real record. include rows define the candidate set
+        (intersection); exclude rows subtract from it. add `track` filters to pin specific songs.
       </div>
 
       {/* filters */}
-      <div class="mb-4">
+      <div>
         <h3 class="text-sm font-semibold text-[var(--color-text-primary)] mb-2">filters</h3>
         <Show
           when={!filters.loading && (filters()?.length ?? 0) > 0}
@@ -840,7 +785,11 @@ function StationSeedEditor(props: { stationId: string; client: AdminClient }) {
                     </span>
                     <code class="text-[var(--color-text-secondary)]">{f.filter_type}</code>
                     <span class="text-[var(--color-text-muted)]"> = </span>
-                    <code class="text-[var(--color-text-primary)]">{f.filter_value}</code>
+                    <span class="text-[var(--color-text-primary)]" title={f.filter_value}>
+                      {f.filter_label && f.filter_label.length > 0
+                        ? f.filter_label
+                        : f.filter_value}
+                    </span>
                   </span>
                   <button
                     class="px-2 py-0.5 text-xs rounded bg-red-600/20 hover:bg-red-600/30 text-red-400 disabled:opacity-50"
@@ -865,63 +814,33 @@ function StationSeedEditor(props: { stationId: string; client: AdminClient }) {
           <select
             class="text-xs px-2 py-1 rounded bg-[var(--color-bg-tertiary)] border border-[var(--color-border-subtle)] text-[var(--color-text-primary)]"
             value={fType()}
-            onChange={(e) => setFType(e.currentTarget.value)}
+            onChange={(e) => {
+              setFType(e.currentTarget.value as FilterType);
+              setFValue("");
+            }}
           >
             <For each={FILTER_TYPES}>{(t) => <option value={t}>{t}</option>}</For>
           </select>
-          <SeedSuggestInput
-            client={props.client}
-            kind={fType() as "tag" | "genre" | "artist" | "album"}
-            value={fValue()}
-            onChange={setFValue}
-            placeholder={`${fType()} name`}
-          />
+          <Show
+            when={fType() === "track"}
+            fallback={
+              <SeedSuggestInput
+                client={props.client}
+                kind={fType() as "tag" | "genre" | "artist" | "album" | "playlist"}
+                value={fValue()}
+                onChange={setFValue}
+                placeholder={`${fType()} name`}
+              />
+            }
+          >
+            <SongSuggestInput client={props.client} value={fValue()} onChange={setFValue} />
+          </Show>
           <button
             type="submit"
             class="px-3 py-1 text-xs rounded bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 border border-emerald-600/30 disabled:opacity-50"
             disabled={busy()}
           >
             + add filter
-          </button>
-        </form>
-      </div>
-
-      {/* explicit songs */}
-      <div>
-        <h3 class="text-sm font-semibold text-[var(--color-text-primary)] mb-2">explicit songs</h3>
-        <Show
-          when={!songs.loading && (songs()?.length ?? 0) > 0}
-          fallback={
-            <div class="text-xs text-[var(--color-text-muted)] mb-2">
-              {songs.loading ? "loading..." : "no explicit songs yet"}
-            </div>
-          }
-        >
-          <ul class="flex flex-col gap-1 mb-2">
-            <For each={songs() ?? []}>
-              {(s) => (
-                <li class="flex items-center justify-between gap-2 text-xs px-2 py-1 rounded bg-[var(--color-bg-tertiary)]">
-                  <code class="text-[var(--color-text-primary)]">{s.song_id}</code>
-                  <button
-                    class="px-2 py-0.5 text-xs rounded bg-red-600/20 hover:bg-red-600/30 text-red-400 disabled:opacity-50"
-                    onClick={() => removeSong(s.song_id)}
-                    disabled={busy()}
-                  >
-                    remove
-                  </button>
-                </li>
-              )}
-            </For>
-          </ul>
-        </Show>
-        <form class="flex items-end gap-2" onSubmit={addSong}>
-          <SongSuggestInput client={props.client} value={songId()} onChange={setSongId} />
-          <button
-            type="submit"
-            class="px-3 py-1 text-xs rounded bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 border border-emerald-600/30 disabled:opacity-50"
-            disabled={busy()}
-          >
-            + add song
           </button>
         </form>
       </div>
@@ -942,7 +861,7 @@ function StationSeedEditor(props: { stationId: string; client: AdminClient }) {
 
 interface SeedSuggestInputProps {
   client: AdminClient;
-  kind: "tag" | "genre" | "artist" | "album";
+  kind: "tag" | "genre" | "artist" | "album" | "playlist";
   value: string;
   onChange: (v: string) => void;
   placeholder?: string;
@@ -952,7 +871,14 @@ interface SeedSuggestInputProps {
 function SeedSuggestInput(props: SeedSuggestInputProps) {
   const listId = `seed-suggest-${Math.random().toString(36).slice(2, 9)}`;
   const [items, setItems] = createSignal<RadioSeedSuggestion[]>([]);
+  const [text, setText] = createSignal("");
   let timer: number | null = null;
+
+  // when caller resets value (e.g. after submit / type switch), wipe the
+  // visible text too — props.value is the FK id, not the display label.
+  createEffect(() => {
+    if (props.value === "") setText("");
+  });
 
   const fetchSuggestions = (q: string) => {
     if (timer !== null) window.clearTimeout(timer);
@@ -969,10 +895,18 @@ function SeedSuggestInput(props: SeedSuggestInputProps) {
         });
         setItems((data ?? []) as RadioSeedSuggestion[]);
       } catch {
-        // silent: autocomplete is opportunistic, manual entry still works.
+        // silent: autocomplete is opportunistic.
         setItems([]);
       }
     }, 200);
+  };
+
+  // resolve typed text → FK id: only commit when there's an exact label
+  // match in the current suggestion list. server enforces FK ids now,
+  // free-text would always fail the schema CHECK.
+  const resolve = (typed: string) => {
+    const match = items().find((it) => it.name === typed);
+    props.onChange(match ? match.id : "");
   };
 
   onCleanup(() => {
@@ -986,13 +920,14 @@ function SeedSuggestInput(props: SeedSuggestInputProps) {
         type="text"
         list={listId}
         placeholder={props.placeholder ?? "value"}
-        value={props.value}
+        value={text()}
         disabled={props.disabled}
         autocomplete="off"
         onInput={(e) => {
           const v = e.currentTarget.value;
-          props.onChange(v);
+          setText(v);
           fetchSuggestions(v);
+          resolve(v);
         }}
         onFocus={(e) => fetchSuggestions(e.currentTarget.value)}
       />

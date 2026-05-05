@@ -14,7 +14,9 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
 use tokio::process::{Child, ChildStdout, Command};
-use tracing::{debug, warn};
+use tokio::sync::mpsc;
+use tokio::task::JoinHandle;
+use tracing::{debug, info, warn};
 
 /// upper bound on how long a single stdout read may block before we declare
 /// ffmpeg wedged. with `-re` pacing and 3s frag_duration, a healthy ffmpeg
@@ -90,15 +92,27 @@ impl Encoder {
 
         debug!("[radio-encoder] spawning ffmpeg for {input_path}");
 
-        let mut child = Command::new(&ffmpeg)
-            .args(&args)
+        let mut cmd = Command::new(&ffmpeg);
+        cmd.args(&args)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .stdin(Stdio::null())
-            .spawn()
-            .map_err(|e| GrimoireError::ProcessingFailed {
-                message: format!("radio: failed to spawn ffmpeg ({ffmpeg}): {e}"),
-            })?;
+            // ensure ffmpeg is reaped if our task is cancelled mid-song.
+            // belt-and-braces with the manual `start_kill` in `Drop`.
+            .kill_on_drop(true);
+
+        // unix: put ffmpeg in its own process group so a stray child
+        // (rare for `ffmpeg`, but possible via filter graphs) can be
+        // signalled together with the parent. also keeps ctrl-c on a
+        // foreground server from racing the broadcaster's own kill.
+        #[cfg(unix)]
+        {
+            cmd.process_group(0);
+        }
+
+        let mut child = cmd.spawn().map_err(|e| GrimoireError::ProcessingFailed {
+            message: format!("radio: failed to spawn ffmpeg ({ffmpeg}): {e}"),
+        })?;
 
         let stdout = child
             .stdout
@@ -247,6 +261,151 @@ impl Drop for Encoder {
         // non-blocking; the OS reaps when the process actually exits.
         if let Err(e) = self.child.start_kill() {
             warn!("[radio-encoder] failed to kill ffmpeg child: {e}");
+        }
+    }
+}
+
+/// async-fillable wrapper around [`Encoder`] that decouples ffmpeg's
+/// production rate from the broadcaster's emission rate.
+///
+/// a background tokio task pulls chunks from `Encoder` as fast as
+/// ffmpeg produces them and pushes them into a bounded `mpsc` channel
+/// of size [`crate::radio::config::ring_capacity`]. when the channel
+/// fills, the task blocks on `send` — natural backpressure on ffmpeg
+/// (which then blocks on its stdout pipe). when the consumer drains
+/// the channel, the task unblocks and refills.
+///
+/// the upshot: at steady state the broadcaster has up to
+/// `buffer_seconds` of pre-encoded audio queued in memory, ready to
+/// ride out a transient ffmpeg crash / restart without dropping out.
+///
+/// retry policy: if `Encoder::start` itself fails (file missing,
+/// codec error, ffmpeg binary not found), we retry up to
+/// `encoder_restart_attempts` times with a short backoff before
+/// surfacing the error to the broadcaster (which then rolls to the
+/// next track).
+pub struct BufferedEncoder {
+    rx: mpsc::Receiver<GrimoireResult<Chunk>>,
+    feeder: Option<JoinHandle<()>>,
+    interrupt_flag: Arc<std::sync::atomic::AtomicBool>,
+    label: String,
+}
+
+impl BufferedEncoder {
+    /// spawn ffmpeg + the feeder task. the channel capacity is derived
+    /// from the radio config (`buffer_seconds / frag_seconds`).
+    pub fn start(input_path: &str) -> GrimoireResult<Self> {
+        Self::start_with_capacity(
+            input_path,
+            crate::radio::config::ring_capacity(&radio_cfg()),
+        )
+    }
+
+    /// like [`Self::start`] but with an explicit channel capacity (used
+    /// in tests).
+    pub fn start_with_capacity(input_path: &str, capacity: usize) -> GrimoireResult<Self> {
+        let cfg = radio_cfg();
+        let attempts = cfg.encoder_restart_attempts.max(1);
+        let label = input_path.to_string();
+
+        let mut last_err: Option<GrimoireError> = None;
+        let mut encoder: Option<Encoder> = None;
+        for attempt in 1..=attempts {
+            match Encoder::start(input_path) {
+                Ok(enc) => {
+                    if attempt > 1 {
+                        info!(
+                            "[radio-encoder] ffmpeg started for {label} on attempt {attempt}/{attempts}"
+                        );
+                    }
+                    encoder = Some(enc);
+                    break;
+                }
+                Err(e) => {
+                    warn!(
+                        "[radio-encoder] ffmpeg start failed for {label} (attempt {attempt}/{attempts}): {e}"
+                    );
+                    last_err = Some(e);
+                }
+            }
+        }
+        let mut encoder = encoder.ok_or_else(|| {
+            last_err.unwrap_or_else(|| GrimoireError::ProcessingFailed {
+                message: format!("radio: ffmpeg failed to start for {label}"),
+            })
+        })?;
+
+        let (tx, rx) = mpsc::channel(capacity.max(1));
+        let interrupt_flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let task_flag = interrupt_flag.clone();
+        let task_label = label.clone();
+        let feeder = tokio::spawn(async move {
+            loop {
+                if task_flag.load(std::sync::atomic::Ordering::Relaxed) {
+                    encoder.interrupt();
+                    break;
+                }
+                match encoder.next_chunk().await {
+                    Ok(Some(chunk)) => {
+                        if tx.send(Ok(chunk)).await.is_err() {
+                            // consumer dropped; tear down ffmpeg
+                            encoder.interrupt();
+                            break;
+                        }
+                    }
+                    Ok(None) => {
+                        // clean EOF — feeder exits, channel closes,
+                        // recv_chunk returns None to broadcaster.
+                        debug!("[radio-encoder] feeder EOF for {task_label}");
+                        break;
+                    }
+                    Err(e) => {
+                        // surface the error then exit. broadcaster will
+                        // see the Err and roll to the next track.
+                        let _ = tx.send(Err(e)).await;
+                        break;
+                    }
+                }
+            }
+        });
+
+        Ok(Self {
+            rx,
+            feeder: Some(feeder),
+            interrupt_flag,
+            label,
+        })
+    }
+
+    /// pull the next chunk from the buffer. returns `Ok(None)` once
+    /// ffmpeg has produced its final chunk and the buffer is drained.
+    pub async fn next_chunk(&mut self) -> GrimoireResult<Option<Chunk>> {
+        match self.rx.recv().await {
+            Some(Ok(chunk)) => Ok(Some(chunk)),
+            Some(Err(e)) => Err(e),
+            None => Ok(None),
+        }
+    }
+
+    /// signal the feeder to kill ffmpeg and tear down. used for admin
+    /// skip + station shutdown.
+    pub fn interrupt(&mut self) {
+        self.interrupt_flag
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// human-readable label (input path) for log messages.
+    pub fn label(&self) -> &str {
+        &self.label
+    }
+}
+
+impl Drop for BufferedEncoder {
+    fn drop(&mut self) {
+        self.interrupt_flag
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+        if let Some(handle) = self.feeder.take() {
+            handle.abort();
         }
     }
 }

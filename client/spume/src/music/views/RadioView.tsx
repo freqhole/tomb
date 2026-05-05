@@ -11,7 +11,7 @@
 // renders one.
 
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
-import { useNavigate, useSearchParams } from "@solidjs/router";
+import { useSearchParams } from "@solidjs/router";
 import { toast } from "../../components/feedback/Toast";
 import { TwoColumnLayout } from "../../components/layout/TwoColumnLayout";
 import { MediaThumbnail } from "../../components/media/MediaThumbnail";
@@ -50,7 +50,6 @@ import { Icon } from "../../components/icons/registry";
 export function RadioView() {
   const MIN_HISTORY_SCROLL_HEIGHT = 220;
   const [searchParams] = useSearchParams();
-  const navigate = useNavigate();
 
   // peer addrs passed via ?node_id=... or ?node_id=a&node_id=b
   const queryPeerAddrs = createMemo<string[]>(() => {

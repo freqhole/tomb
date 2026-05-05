@@ -46,6 +46,7 @@ struct UserPeerNodeRow {
     metadata: Option<String>,
     created_at: i64,
     last_seen_at: Option<i64>,
+    deleted_at: Option<i64>,
 }
 
 impl From<UserPeerNodeRow> for UserPeerNode {
@@ -57,6 +58,7 @@ impl From<UserPeerNodeRow> for UserPeerNode {
             metadata: row.metadata,
             created_at: row.created_at,
             last_seen_at: row.last_seen_at,
+            deleted_at: row.deleted_at,
         }
     }
 }
@@ -71,6 +73,8 @@ struct PeerNodeWithUserRow {
     last_seen_at: Option<i64>,
     username: String,
     role: String,
+    deleted_at: Option<i64>,
+    user_deleted_at: Option<i64>,
 }
 
 impl From<PeerNodeWithUserRow> for PeerNodeWithUser {
@@ -83,6 +87,8 @@ impl From<PeerNodeWithUserRow> for PeerNodeWithUser {
             last_seen_at: row.last_seen_at,
             username: row.username,
             role: row.role,
+            deleted_at: row.deleted_at,
+            user_deleted_at: row.user_deleted_at,
         }
     }
 }
@@ -301,11 +307,20 @@ impl UserRepository {
             .ok_or(AuthError::UserNotFound)
     }
 
-    /// Soft delete a user account
+    /// Soft delete a user account.
+    ///
+    /// also cascade-soft-deletes all of the user's currently-active peer
+    /// nodes (`user_peer_nodez`) within the same transaction, stamping
+    /// them with the same `deleted_at` timestamp. peers that were already
+    /// soft-deleted at a different timestamp (e.g. removed individually
+    /// before the user delete) are left untouched, so a subsequent
+    /// `restore_user` can selectively restore only the peers that were
+    /// cascade-deleted with the user.
     pub async fn delete_user(&self, user_id: &str) -> AuthResult<()> {
         let pool = database::connect().await?;
 
         let now = OffsetDateTime::now_utc().unix_timestamp();
+        let mut tx = pool.begin().await?;
 
         sqlx::query!(
             r#"
@@ -316,9 +331,22 @@ impl UserRepository {
             now,
             user_id
         )
-        .execute(&pool)
+        .execute(&mut *tx)
         .await?;
 
+        sqlx::query!(
+            r#"
+            UPDATE user_peer_nodez
+            SET deleted_at = ?1
+            WHERE user_id = ?2 AND deleted_at IS NULL
+            "#,
+            now,
+            user_id
+        )
+        .execute(&mut *tx)
+        .await?;
+
+        tx.commit().await?;
         Ok(())
     }
 
@@ -568,20 +596,116 @@ impl UserRepository {
         Ok(user.map(User::from))
     }
 
-    /// Restore a soft-deleted user (set deleted_at = NULL)
+    /// Restore a soft-deleted user (set deleted_at = NULL).
+    ///
+    /// also restores any peer nodes that were cascade-soft-deleted in the
+    /// same operation as this user (matched by identical `deleted_at`
+    /// timestamp). peers individually soft-deleted at a different time
+    /// stay deleted and must be restored individually.
     pub async fn restore_user(&self, user_id: &str) -> AuthResult<User> {
         let pool = database::connect().await?;
+        let mut tx = pool.begin().await?;
 
+        // capture the existing deleted_at before clearing it so we can
+        // restore peers that share its exact timestamp (cascade siblings).
+        let prior: Option<i64> =
+            sqlx::query_scalar!("SELECT deleted_at FROM user_accountz WHERE id = ?", user_id)
+                .fetch_optional(&mut *tx)
+                .await?
+                .flatten();
+
+        let now = OffsetDateTime::now_utc().unix_timestamp();
         sqlx::query!(
-            r#"UPDATE user_accountz SET deleted_at = NULL, updated_at = datetime('now') WHERE id = ?"#,
+            r#"UPDATE user_accountz SET deleted_at = NULL, updated_at = ?1 WHERE id = ?2"#,
+            now,
             user_id
         )
-        .execute(&pool)
+        .execute(&mut *tx)
         .await?;
+
+        if let Some(ts) = prior {
+            sqlx::query!(
+                r#"
+                UPDATE user_peer_nodez
+                SET deleted_at = NULL
+                WHERE user_id = ?1 AND deleted_at = ?2
+                "#,
+                user_id,
+                ts
+            )
+            .execute(&mut *tx)
+            .await?;
+        }
+
+        tx.commit().await?;
 
         self.find_user_by_id(user_id)
             .await?
             .ok_or(AuthError::UserNotFound)
+    }
+
+    /// permanently delete a user account and all of its data ("delete forever").
+    ///
+    /// this bypasses soft-delete entirely. it cleans up FK references that
+    /// don't have ON DELETE CASCADE in their schema (knock_requests,
+    /// account_link_codes, feed_eventz, jobs) before deleting the
+    /// user_accountz row. cascading FKs (invitez, user_preferences,
+    /// listen_sessions, user_peer_nodez, user_favoritez, user_ratingz,
+    /// haruspex_*) are handled automatically by sqlite.
+    ///
+    /// note: feed_eventz authored by this user (`created_by_user_id` is
+    /// NOT NULL) are deleted outright, since the row cannot exist without
+    /// an author. nullable references (`processed_by`, `updated_by_user_id`,
+    /// `used_by_id`, `link_for_user_id`, `jobs.user_id`) are NULLed out
+    /// to preserve the historical row.
+    pub async fn hard_delete_user(&self, user_id: &str) -> AuthResult<()> {
+        let pool = database::connect().await?;
+        let mut tx = pool.begin().await?;
+
+        // null out nullable FKs to preserve history rows
+        sqlx::query!(
+            "UPDATE knock_requestz SET processed_by = NULL WHERE processed_by = ?",
+            user_id
+        )
+        .execute(&mut *tx)
+        .await?;
+
+        sqlx::query!(
+            "UPDATE invite_codez SET used_by_id = NULL WHERE used_by_id = ?",
+            user_id
+        )
+        .execute(&mut *tx)
+        .await?;
+
+        sqlx::query!(
+            "UPDATE invite_codez SET link_for_user_id = NULL WHERE link_for_user_id = ?",
+            user_id
+        )
+        .execute(&mut *tx)
+        .await?;
+
+        sqlx::query!(
+            "UPDATE feed_eventz SET updated_by_user_id = NULL WHERE updated_by_user_id = ?",
+            user_id
+        )
+        .execute(&mut *tx)
+        .await?;
+
+        // delete rows whose required FK points at this user
+        sqlx::query!(
+            "DELETE FROM feed_eventz WHERE created_by_user_id = ?",
+            user_id
+        )
+        .execute(&mut *tx)
+        .await?;
+
+        // finally drop the user; ON DELETE CASCADE handles the rest
+        sqlx::query!("DELETE FROM user_accountz WHERE id = ?", user_id)
+            .execute(&mut *tx)
+            .await?;
+
+        tx.commit().await?;
+        Ok(())
     }
 
     /// Find a user by their iroh peer node_id
@@ -594,7 +718,9 @@ impl UserRepository {
             SELECT u.id as "id!", u.username as "username!", u.role as "role!", u.api_key, u.created_at as "created_at!", u.updated_at as "updated_at!", u.deleted_at, u.haruspex_user_id, u.metadata
             FROM user_accountz u
             INNER JOIN user_peer_nodez p ON u.id = p.user_id
-            WHERE p.node_id = ?1 AND u.deleted_at IS NULL
+            WHERE p.node_id = ?1
+              AND u.deleted_at IS NULL
+              AND p.deleted_at IS NULL
             "#,
             node_id
         )
@@ -717,7 +843,7 @@ impl UserRepository {
             ON CONFLICT (user_id, node_id) DO UPDATE SET
                 instance_name = COALESCE(?3, instance_name),
                 last_seen_at = ?4
-            RETURNING user_id as "user_id!", node_id as "node_id!", instance_name, metadata, created_at as "created_at!", last_seen_at
+            RETURNING user_id as "user_id!", node_id as "node_id!", instance_name, metadata, created_at as "created_at!", last_seen_at, deleted_at
             "#,
             user_id,
             node_id,
@@ -730,19 +856,28 @@ impl UserRepository {
         Ok(UserPeerNode::from(row))
     }
 
-    /// Get all peer nodes for a user
-    pub async fn get_user_peer_nodes(&self, user_id: &str) -> AuthResult<Vec<UserPeerNode>> {
+    /// Get peer nodes for a user.
+    ///
+    /// `include_deleted = true` returns soft-deleted rows alongside
+    /// active ones (used by the admin ui's "show deleted" toggle).
+    pub async fn get_user_peer_nodes(
+        &self,
+        user_id: &str,
+        include_deleted: bool,
+    ) -> AuthResult<Vec<UserPeerNode>> {
         let pool = database::connect().await?;
 
         let rows = sqlx::query_as!(
             UserPeerNodeRow,
             r#"
-            SELECT user_id as "user_id!", node_id as "node_id!", instance_name, metadata, created_at as "created_at!", last_seen_at
+            SELECT user_id as "user_id!", node_id as "node_id!", instance_name, metadata, created_at as "created_at!", last_seen_at, deleted_at
             FROM user_peer_nodez
             WHERE user_id = ?1
+              AND (?2 OR deleted_at IS NULL)
             ORDER BY last_seen_at DESC NULLS LAST
             "#,
-            user_id
+            user_id,
+            include_deleted
         )
         .fetch_all(&pool)
         .await?;
@@ -750,8 +885,57 @@ impl UserRepository {
         Ok(rows.into_iter().map(UserPeerNode::from).collect())
     }
 
-    /// Remove a peer node_id from a user
+    /// Soft-delete a peer node (sets `deleted_at`).
+    ///
+    /// the row stays in the table so its node_id is still reserved (the
+    /// global UNIQUE index includes deleted rows). use
+    /// `restore_peer_node` to bring it back, or `hard_delete_peer_node`
+    /// for permanent removal (currently only available via cli).
     pub async fn remove_peer_node(&self, user_id: &str, node_id: &str) -> AuthResult<()> {
+        let pool = database::connect().await?;
+        let now = OffsetDateTime::now_utc().unix_timestamp();
+
+        sqlx::query!(
+            r#"
+            UPDATE user_peer_nodez
+            SET deleted_at = ?1
+            WHERE user_id = ?2 AND node_id = ?3 AND deleted_at IS NULL
+            "#,
+            now,
+            user_id,
+            node_id
+        )
+        .execute(&pool)
+        .await?;
+
+        Ok(())
+    }
+
+    /// Restore a soft-deleted peer node (clears `deleted_at`).
+    pub async fn restore_peer_node(&self, user_id: &str, node_id: &str) -> AuthResult<()> {
+        let pool = database::connect().await?;
+
+        sqlx::query!(
+            r#"
+            UPDATE user_peer_nodez
+            SET deleted_at = NULL
+            WHERE user_id = ?1 AND node_id = ?2
+            "#,
+            user_id,
+            node_id
+        )
+        .execute(&pool)
+        .await?;
+
+        Ok(())
+    }
+
+    /// Permanently delete a peer node row (hard DELETE).
+    ///
+    /// reserved for cleanup tooling — the normal admin ui uses
+    /// `remove_peer_node` (soft) so the node_id stays reserved and the
+    /// row remains visible behind the "show deleted" toggle.
+    pub async fn hard_delete_peer_node(&self, user_id: &str, node_id: &str) -> AuthResult<()> {
         let pool = database::connect().await?;
 
         sqlx::query!(
@@ -768,7 +952,8 @@ impl UserRepository {
         Ok(())
     }
 
-    /// Update last_seen_at for a peer node (for tracking active connections)
+    /// Update last_seen_at for a peer node (for tracking active connections).
+    /// no-op for soft-deleted rows.
     pub async fn touch_peer_node(&self, node_id: &str) -> AuthResult<()> {
         let pool = database::connect().await?;
 
@@ -778,7 +963,7 @@ impl UserRepository {
             r#"
             UPDATE user_peer_nodez
             SET last_seen_at = ?1
-            WHERE node_id = ?2
+            WHERE node_id = ?2 AND deleted_at IS NULL
             "#,
             now,
             node_id
@@ -789,8 +974,15 @@ impl UserRepository {
         Ok(())
     }
 
-    /// Get all peer nodes across all users with username info
-    pub async fn get_all_peer_nodes(&self) -> AuthResult<Vec<PeerNodeWithUser>> {
+    /// Get all peer nodes across all users with username info.
+    ///
+    /// `include_deleted = true` includes soft-deleted peer rows AND
+    /// peer rows whose owning user has been soft-deleted (cascade or
+    /// orphan). active peers under active users are always included.
+    pub async fn get_all_peer_nodes(
+        &self,
+        include_deleted: bool,
+    ) -> AuthResult<Vec<PeerNodeWithUser>> {
         let pool = database::connect().await?;
 
         let rows = sqlx::query_as!(
@@ -803,12 +995,15 @@ impl UserRepository {
                 p.created_at as "created_at!",
                 p.last_seen_at,
                 u.username as "username!",
-                u.role as "role!"
+                u.role as "role!",
+                p.deleted_at,
+                u.deleted_at as "user_deleted_at"
             FROM user_peer_nodez p
             INNER JOIN user_accountz u ON p.user_id = u.id
-            WHERE u.deleted_at IS NULL
+            WHERE (?1 OR (u.deleted_at IS NULL AND p.deleted_at IS NULL))
             ORDER BY p.created_at DESC
-            "#
+            "#,
+            include_deleted
         )
         .fetch_all(&pool)
         .await?;
@@ -816,7 +1011,9 @@ impl UserRepository {
         Ok(rows.into_iter().map(PeerNodeWithUser::from).collect())
     }
 
-    /// Check if any peer nodes exist (efficient existence check)
+    /// Check if any active peer nodes exist (efficient existence check).
+    /// soft-deleted peer rows and peers under soft-deleted users do not
+    /// count.
     pub async fn has_peer_nodes(&self) -> AuthResult<bool> {
         let pool = database::connect().await?;
 
@@ -825,7 +1022,7 @@ impl UserRepository {
             SELECT EXISTS(
                 SELECT 1 FROM user_peer_nodez p
                 INNER JOIN user_accountz u ON p.user_id = u.id
-                WHERE u.deleted_at IS NULL
+                WHERE u.deleted_at IS NULL AND p.deleted_at IS NULL
             ) as has_peers
             "#,
         )

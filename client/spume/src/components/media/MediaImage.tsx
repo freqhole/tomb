@@ -5,10 +5,23 @@ import {
   resolveBlobUrl,
   type ThumbnailSize,
 } from "../../music/services/storage/blobResolver";
+import {
+  isCharnelManagedRemoteSync,
+  preCacheRemoteTransport,
+  transportCacheVersionSignal,
+} from "../../music/services/storage/transportCache";
 import { getBlobObjectURL, getCachedBlobObjectURL } from "../../music/services/storage/blobs";
 import type { ImageMetadata } from "../../music/services/storage/types";
 import { pickBestImage } from "../../utils/images";
 import { Icon } from "../icons/registry";
+
+// flip to true to trace MediaImage url resolution. very chatty;
+// off by default. set to true when investigating missing artwork /
+// waveform display issues.
+const DEBUG_MEDIA_IMAGE = true;
+function logMI(...args: unknown[]) {
+  if (DEBUG_MEDIA_IMAGE) console.debug("[MediaImage]", ...args);
+}
 
 // inject pan animation styles once globally
 let panStylesInjected = false;
@@ -82,37 +95,57 @@ export function MediaImage(props: MediaImageProps): JSX.Element {
   // - remote: check transport type to decide HTTP vs P2P path
   const getInitialUrl = (): string | null => {
     const thumbSize = props.thumbnailSize;
-    // priority 1: local blob (OPFS cache) - thumbnails not supported locally yet
+    // priority 1: local blob (OPFS cache) - thumbnails not supported locally yet.
+    // note: only return when the cache lookup actually has a url. in
+    // charnel mode db-stored blobs (waveforms etc.) carry a local_blob_id
+    // but live in the charnel sqlite db (not opfs/idb), so a null here
+    // means "fall through to the remote_blob_id path" — which routes
+    // via transport.getBlobUrl and resolves correctly.
     if (initialSource.blobId) {
-      return getCachedBlobObjectURL(initialSource.blobId);
+      const cached = getCachedBlobObjectURL(initialSource.blobId);
+      if (cached) return cached;
+      // fall through to remote path below
     }
     // priority 2: remote with server ID - check transport type
     if (initialSource.remoteBlobId && initialSource.remoteServerId) {
       const isP2P = isP2PRemoteSync(initialSource.remoteServerId);
+      // p2p / charnel-managed: only the cache can give us a usable url.
+      // never fall through to `remoteUrl` for these — it's the dead
+      // loopback http url left over from when an embedded local server
+      // fronted blobs.
       if (isP2P === true) {
-        // known P2P remote - check blob cache only
-        return getCachedP2PBlobUrl(
+        const cached = getCachedP2PBlobUrl(
           initialSource.remoteBlobId,
           initialSource.remoteServerId,
           thumbSize
         );
-      } else if (isP2P === false) {
-        // known HTTP remote - use URL directly
+        logMI(
+          `initial: p2p/charnel cache lookup for ${initialSource.remoteBlobId.slice(0, 8)} →`,
+          cached ? "hit" : "miss (will async-resolve)"
+        );
+        return cached;
+      }
+      if (isP2P === false) {
+        // genuine plain-http remote - safe to render the http url.
         if (initialSource.remoteUrl) {
           return withThumb(initialSource.remoteUrl, thumbSize);
         }
       }
-      // unknown transport (isP2P === undefined) - try P2P cache, else use URL optimistically
+      // unknown transport — don't risk rendering the broken loopback url.
+      // eagerly populate the transport cache so the async effect (which
+      // subscribes to `transportCacheVersionSignal`) re-runs once the
+      // transport type lands. also peek at the p2p cache in case it was
+      // populated by an earlier mount of this same blob.
       const cached = getCachedP2PBlobUrl(
         initialSource.remoteBlobId,
         initialSource.remoteServerId,
         thumbSize
       );
       if (cached) return cached;
-      // no P2P cache - use remote_url if available (works for HTTP, async will handle P2P)
-      if (initialSource.remoteUrl) {
-        return withThumb(initialSource.remoteUrl, thumbSize);
-      }
+      logMI(
+        `initial: transport unknown for remote ${initialSource.remoteServerId.slice(0, 8)}; eager preCacheRemoteTransport`
+      );
+      void preCacheRemoteTransport(initialSource.remoteServerId);
       return null;
     }
     // priority 3: just remote URL (no server ID) - use directly
@@ -160,6 +193,11 @@ export function MediaImage(props: MediaImageProps): JSX.Element {
         remoteServerId: imageSource().remoteServerId,
         p2pCached: p2pCachedUrl(),
         thumbnailSize: props.thumbnailSize,
+        // subscribe to transport-cache mutations so the effect re-runs
+        // once an async transport lookup completes for a remote whose
+        // type was unknown on the first pass. otherwise the resolved
+        // url stays null forever for charnel-managed remotes.
+        transportVersion: transportCacheVersionSignal(),
       }),
       async (source, prevSource) => {
         // skip if nothing actually changed
@@ -170,32 +208,50 @@ export function MediaImage(props: MediaImageProps): JSX.Element {
           source.remoteBlobId === prevSource.remoteBlobId &&
           source.remoteServerId === prevSource.remoteServerId &&
           source.p2pCached === prevSource.p2pCached &&
-          source.thumbnailSize === prevSource.thumbnailSize
+          source.thumbnailSize === prevSource.thumbnailSize &&
+          source.transportVersion === prevSource.transportVersion
         ) {
           return;
         }
 
         const thumbSize = source.thumbnailSize;
 
-        // priority 1: local blob ID (from OPFS) - thumbnails not supported locally yet
+        // priority 1: local blob ID (from OPFS) - thumbnails not supported locally yet.
+        // only commit + return when the lookup actually finds a url. in
+        // charnel mode, db-stored blobs (waveforms, cover art) carry a
+        // local_blob_id but live in charnel's sqlite — getBlobObjectURL
+        // (idb-only) returns null. fall through to the remote path so
+        // transport.getBlobUrl can resolve via the charnel-managed self
+        // remote.
         if (source.blobId) {
           setIsLoading(true);
+          let localObjectUrl: string | null = null;
           try {
-            const objectUrl = await getBlobObjectURL(source.blobId);
-            setResolvedUrl(objectUrl ?? null);
+            localObjectUrl = (await getBlobObjectURL(source.blobId)) ?? null;
           } catch {
-            setResolvedUrl(null);
+            localObjectUrl = null;
           }
-          setIsLoading(false);
-          return;
+          if (localObjectUrl) {
+            setResolvedUrl(localObjectUrl);
+            setIsLoading(false);
+            return;
+          }
+          // local lookup missed — keep isLoading true and fall through
+          // to the remote_blob_id branch below (if present).
         }
 
         // priority 2: remote with server ID - check transport type
         if (source.remoteBlobId && source.remoteServerId) {
           const isP2P = isP2PRemoteSync(source.remoteServerId);
 
-          // known HTTP remote - use URL directly
-          if (isP2P === false && source.remoteUrl) {
+          // known plain-HTTP remote - use URL directly. NEVER do this
+          // for charnel-managed (the url is the dead loopback) or for
+          // remotes whose transport is still unknown.
+          if (
+            isP2P === false &&
+            source.remoteUrl &&
+            !isCharnelManagedRemoteSync(source.remoteServerId)
+          ) {
             setResolvedUrl(withThumb(source.remoteUrl, thumbSize));
             setIsLoading(false);
             return;
@@ -211,6 +267,9 @@ export function MediaImage(props: MediaImageProps): JSX.Element {
           // P2P remote (or unknown) - async resolution will determine transport
           setIsLoading(true);
           try {
+            logMI(
+              `async resolve: blob=${source.remoteBlobId.slice(0, 8)} remote=${source.remoteServerId.slice(0, 8)} thumb=${thumbSize ?? "orig"}`
+            );
             const url = await resolveBlobUrl(
               source.remoteBlobId,
               source.remoteServerId,
@@ -218,9 +277,15 @@ export function MediaImage(props: MediaImageProps): JSX.Element {
               undefined,
               thumbSize
             );
+            logMI(
+              `async resolve OK: blob=${source.remoteBlobId.slice(0, 8)} → ${url.slice(0, 60)}${url.length > 60 ? "…" : ""}`
+            );
             setResolvedUrl(url);
           } catch (err) {
-            console.error("failed to resolve remote image:", err);
+            console.error(
+              `[MediaImage] failed to resolve remote image (blob=${source.remoteBlobId.slice(0, 8)} remote=${source.remoteServerId.slice(0, 8)}):`,
+              err
+            );
             setResolvedUrl(null);
           }
           setIsLoading(false);

@@ -26,6 +26,7 @@ const MENU_OPEN_CONFIG: &str = "open_config";
 const MENU_LOGS: &str = "logs";
 const MENU_LIBRARY: &str = "library";
 const MENU_USERS: &str = "users";
+const MENU_RADIO: &str = "radio";
 const MENU_FEDERATION: &str = "federation";
 const MENU_SETTINGS: &str = "settings";
 const MENU_CONFIG: &str = "config";
@@ -83,6 +84,7 @@ fn build_and_set_menu(app: &AppHandle<Wry>) -> tauri::Result<()> {
     let logs_item = MenuItemBuilder::with_id(MENU_LOGS, "logs").build(app)?;
     let library_item = MenuItemBuilder::with_id(MENU_LIBRARY, "library").build(app)?;
     let users_item = MenuItemBuilder::with_id(MENU_USERS, "users").build(app)?;
+    let radio_item = MenuItemBuilder::with_id(MENU_RADIO, "radio").build(app)?;
     let federation_item = MenuItemBuilder::with_id(MENU_FEDERATION, "federation").build(app)?;
     let settings_item = MenuItemBuilder::with_id(MENU_SETTINGS, "settings")
         .accelerator("CmdOrCtrl+,")
@@ -96,6 +98,7 @@ fn build_and_set_menu(app: &AppHandle<Wry>) -> tauri::Result<()> {
         .item(&logs_item)
         .item(&library_item)
         .item(&users_item)
+        .item(&radio_item)
         .item(&federation_item)
         .item(&settings_item)
         .item(&config_item)
@@ -303,11 +306,13 @@ fn handle_menu_event(app: &AppHandle<Wry>, id: &str) {
                 wizard.open_devtools();
             }
         }
-        MENU_LOGS | MENU_LIBRARY | MENU_USERS | MENU_FEDERATION | MENU_SETTINGS | MENU_CONFIG => {
+        MENU_LOGS | MENU_LIBRARY | MENU_USERS | MENU_RADIO | MENU_FEDERATION | MENU_SETTINGS
+        | MENU_CONFIG => {
             let route = match id {
                 MENU_LOGS => "/logs",
                 MENU_LIBRARY => "/library",
                 MENU_USERS => "/users",
+                MENU_RADIO => "/radio",
                 MENU_FEDERATION => "/federation",
                 MENU_SETTINGS => "/settings",
                 MENU_CONFIG => "/config",

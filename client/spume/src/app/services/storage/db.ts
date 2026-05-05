@@ -122,6 +122,9 @@ async function loadAppState(): Promise<AppState> {
     await db.put(STORE_APP_STATE, state);
   }
 
+  console.info(
+    `[appState] loadAppState: queue.len=${state.queue?.length ?? 0} current=${state.current_sha256?.slice(0, 8) ?? "null"} last_updated=${new Date(state.last_updated).toISOString()}`,
+  );
   setAppState(state);
   return state;
 }
@@ -153,6 +156,10 @@ async function setCurrentSong(songId: string | null): Promise<void> {
 
 // update queue
 async function setQueue(songs: Song[]): Promise<void> {
+  console.info(
+    `[appState] setQueue: writing len=${songs.length}`,
+    new Error("setQueue stack").stack?.split("\n").slice(2, 6).join(" | "),
+  );
   // unwrap proxy arrays before storing in IndexedDB
   // assign queue_entry_id to songs that don't have one
   const plainSongs = songs.map((song) => {

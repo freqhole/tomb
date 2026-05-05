@@ -112,6 +112,18 @@ pub const ADMIN_COMMANDS: &[AdminCommandInfo] = &[
         auth: AdminAuth::Admin,
     },
     AdminCommandInfo {
+        name: "users_hard_delete",
+        request_type: "AdminUsersHardDeleteRequest",
+        response_type: "EmptyResponse",
+        auth: AdminAuth::Admin,
+    },
+    AdminCommandInfo {
+        name: "users_restore",
+        request_type: "AdminUsersRestoreRequest",
+        response_type: "AdminUserSummary",
+        auth: AdminAuth::Admin,
+    },
+    AdminCommandInfo {
         name: "users_generate_account_link",
         request_type: "AdminUsersGenerateAccountLinkRequest",
         response_type: "AdminAccountLinkResponse",
@@ -151,7 +163,7 @@ pub const ADMIN_COMMANDS: &[AdminCommandInfo] = &[
     // -- peers --
     AdminCommandInfo {
         name: "peers_list_all",
-        request_type: "EmptyRequest",
+        request_type: "AdminPeersListAllRequest",
         response_type: "Vec<AdminPeerSummary>",
         auth: AdminAuth::Admin,
     },
@@ -164,6 +176,12 @@ pub const ADMIN_COMMANDS: &[AdminCommandInfo] = &[
     AdminCommandInfo {
         name: "peers_remove",
         request_type: "AdminPeersRemoveRequest",
+        response_type: "EmptyResponse",
+        auth: AdminAuth::Admin,
+    },
+    AdminCommandInfo {
+        name: "peers_restore",
+        request_type: "AdminPeersRestoreRequest",
         response_type: "EmptyResponse",
         auth: AdminAuth::Admin,
     },
@@ -219,24 +237,6 @@ pub const ADMIN_COMMANDS: &[AdminCommandInfo] = &[
     AdminCommandInfo {
         name: "radio_filters_remove",
         request_type: "RadioFiltersRemoveRequest",
-        response_type: "EmptyResponse",
-        auth: AdminAuth::Admin,
-    },
-    AdminCommandInfo {
-        name: "radio_songs_list",
-        request_type: "RadioStationByStationIdRequest",
-        response_type: "Vec<StationSong>",
-        auth: AdminAuth::Admin,
-    },
-    AdminCommandInfo {
-        name: "radio_songs_add",
-        request_type: "RadioSongsAddRequest",
-        response_type: "EmptyResponse",
-        auth: AdminAuth::Admin,
-    },
-    AdminCommandInfo {
-        name: "radio_songs_remove",
-        request_type: "RadioSongsRemoveRequest",
         response_type: "EmptyResponse",
         auth: AdminAuth::Admin,
     },

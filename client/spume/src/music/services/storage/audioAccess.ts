@@ -94,12 +94,24 @@ export async function getAudioURL(song: Song): Promise<string> {
             updateLoadingProgress(song.sha256, received / total);
           }
         };
-        // use media_blob_id (short blob ID) for server lookup, fall back to sha256
-        // pass blake3 for verified streaming via iroh-blobs
+        // id types here:
+        //   - blobId  = song.media_blob_id, the *remote's*
+        //     `media_blobz.id` short pk. only valid input to
+        //     `/api/blobs/{id}/*` routes on that remote.
+        //   - song.sha256 is the portable content hash; used for
+        //     loading-set / activeBlobURLs keys, never as a route
+        //     param.
+        // if media_blob_id is missing, bail rather than send sha256
+        // (which would just produce "blob not found").
+        const blobId = song.media_blob_id;
+        if (!blobId) {
+          removeFromLoadingSet(song.sha256);
+          throw new Error(`song has no media_blob_id (sha256=${song.sha256})`);
+        }
+        // pass blake3 for verified streaming via iroh-blobs.
         // pass file_size so the progress callback can report a real
-        // received/total ratio (iroh-blobs streaming doesn't supply size up front)
-        // pass mime_type so the assembled Blob/URL gets the right content type
-        const blobId = song.media_blob_id ?? song.sha256;
+        // received/total ratio (iroh-blobs streaming doesn't supply size up front).
+        // pass mime_type so the assembled Blob/URL gets the right content type.
         const url = await resolveBlobUrl(
           blobId,
           song.remote_server_id,
@@ -260,9 +272,16 @@ export async function refreshBlobURL(song: Song): Promise<string | null> {
     // P2P remotes: use blobResolver
     if (song.remote_server_id && await isP2PRemote(song.remote_server_id)) {
       try {
-        // use media_blob_id (short blob ID) for server lookup, fall back to sha256
-        // pass blake3 for verified streaming via iroh-blobs
-        const blobId = song.media_blob_id ?? song.sha256;
+        // `media_blob_id` is the *remote's* media_blobz.id pk \u2014 the
+        // only id `/api/blobs/{id}/*` accepts. sha256 (the content
+        // hash) is NOT a valid route param; if media_blob_id is
+        // somehow missing, bail rather than fabricate a doomed call.
+        const blobId = song.media_blob_id;
+        if (!blobId) {
+          console.warn(`cannot refresh P2P blob: song has no media_blob_id (sha256=${song.sha256})`);
+          return null;
+        }
+        // pass blake3 for verified streaming via iroh-blobs.
         const url = await resolveBlobUrl(blobId, song.remote_server_id, "audio", undefined, undefined, song.blake3 ?? undefined);
         activeBlobURLs.set(song.sha256, { url, remoteId: song.remote_server_id, blobId });
         debug("audioAccess", `refreshed blob URL from P2P: ${song.sha256}`);

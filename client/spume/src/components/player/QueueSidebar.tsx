@@ -19,7 +19,11 @@ import { MediaThumbnail } from "../media/MediaThumbnail";
 import { ContextMenu, type MenuAction } from "../overlays/ContextMenu";
 import { MarqueeText } from "../text/MarqueeText";
 import { isSongCachedReactive } from "../../music/services/cache/blobCache";
-import { isSongSyncedLocally, getLoadingProgress } from "../../music/services/download";
+import {
+  isSongOnDiskEphemeral,
+  isSongSyncedLocally,
+  getLoadingProgress,
+} from "../../music/services/download";
 import { isPlayingDirectURLReactive } from "../../music/services/storage/audioAccess";
 import { useResolvedP2PImageUrl } from "../../music/services/storage/blobResolver";
 import { getCachedBlobObjectURL } from "../../music/services/storage/blobs";
@@ -632,26 +636,36 @@ export function QueueSidebar(props: QueueSidebarProps) {
                     const waveformImg = getWaveformImage(s.images);
                     if (!waveformImg) return undefined;
 
-                    // local blob takes priority
+                    // local blob takes priority when actually present in the
+                    // browser-side cache (opfs/idb). in charnel mode, db-stored
+                    // waveforms carry a local_blob_id but live in charnel's
+                    // sqlite — that lookup will miss, so we fall through to
+                    // the remote_blob_id path which resolves via the
+                    // charnel-managed self remote (transport.getBlobUrl).
                     if (waveformImg.local_blob_id) {
-                      return getCachedBlobObjectURL(waveformImg.local_blob_id);
+                      const cached = getCachedBlobObjectURL(waveformImg.local_blob_id);
+                      if (cached) return cached;
                     }
 
                     // fall back to remote/P2P resolution
                     return resolvedP2PWaveformUrl();
                   };
 
-                  // P2P waveform resolver (only used for remote songs)
+                  // P2P waveform resolver (also used for charnel-managed self
+                  // remote). only skip when there's no remote_* pair to try.
                   const resolvedP2PWaveformUrl = useResolvedP2PImageUrl(() => {
                     const s = song();
                     if (!s?.images) return undefined;
 
                     const waveformImg = getWaveformImage(s.images);
-                    if (!waveformImg || waveformImg.local_blob_id) return undefined;
+                    if (!waveformImg) return undefined;
+                    if (!waveformImg.remote_blob_id || !waveformImg.remote_server_id) {
+                      return undefined;
+                    }
 
                     return {
-                      blobId: waveformImg.remote_blob_id ?? undefined,
-                      remoteId: waveformImg.remote_server_id ?? undefined,
+                      blobId: waveformImg.remote_blob_id,
+                      remoteId: waveformImg.remote_server_id,
                       httpFallback: waveformImg.remote_url,
                     };
                   });
@@ -860,6 +874,16 @@ export function QueueSidebar(props: QueueSidebarProps) {
                                 // check if remote song has been synced to local storage
                                 const sha256 = song()?.sha256;
                                 if (sha256 && isSongSyncedLocally(sha256)) {
+                                  return "underline";
+                                }
+
+                                // rodio + sync_queue_to_local=off lands audio
+                                // in `<fetch_dir>/_ephemeral/` without writing
+                                // any sqlite rows; flip the underline on for
+                                // those songs too so the row reflects what's
+                                // actually playable instantly. keyed by blake3
+                                // (the disk identifier).
+                                if (song()?.blake3 && isSongOnDiskEphemeral(song()?.blake3)) {
                                   return "underline";
                                 }
 

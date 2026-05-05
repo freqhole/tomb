@@ -56,6 +56,15 @@ export default function SettingsView() {
   // sync settings
   const [syncQueueToLocal, setSyncQueueToLocal] = createSignal(true);
 
+  // rust rodio audio backend opt-in. when on, spume's
+  // `selectBackend()` returns the supervised rust audio thread
+  // instead of the html `<audio>` element path. defaults on for
+  // linux (replaces the embedded loopback http server hack) and off
+  // elsewhere until we've burned it in.
+  const [useRodioPlayback, setUseRodioPlayback] = createSignal(false);
+  const [rodioBusy, setRodioBusy] = createSignal(false);
+  const [rodioError, setRodioError] = createSignal("");
+
   // remote server lifecycle
   const [restartConfirm, setRestartConfirm] = createSignal(false);
   const [restartLoading, setRestartLoading] = createSignal(false);
@@ -92,6 +101,12 @@ export default function SettingsView() {
     } catch (e) {
       console.error("failed to load sync settings:", e);
     }
+    try {
+      const enabled = await invoke<boolean>("get_rodio_playback");
+      setUseRodioPlayback(enabled);
+    } catch (e) {
+      console.error("failed to load rodio playback setting:", e);
+    }
   }
 
   async function toggleSyncQueueToLocal() {
@@ -103,6 +118,24 @@ export default function SettingsView() {
       console.error("failed to save sync setting:", e);
       // revert on error
       setSyncQueueToLocal(!newValue);
+    }
+  }
+
+  async function toggleRodioPlayback() {
+    if (rodioBusy()) return;
+    const newValue = !useRodioPlayback();
+    setUseRodioPlayback(newValue);
+    setRodioBusy(true);
+    setRodioError("");
+    try {
+      await invoke("set_rodio_playback", { enabled: newValue });
+    } catch (e) {
+      console.error("failed to toggle rodio playback:", e);
+      setRodioError(String(e));
+      // revert on error
+      setUseRodioPlayback(!newValue);
+    } finally {
+      setRodioBusy(false);
     }
   }
 
@@ -545,14 +578,83 @@ export default function SettingsView() {
                   </div>
                 </div>
               </div>
+
+              <div
+                style={{
+                  display: "flex",
+                  "align-items": "center",
+                  gap: "1rem",
+                  "margin-top": "1.5rem",
+                }}
+              >
+                <button
+                  class={`toggle-button ${useRodioPlayback() ? "active" : ""}`}
+                  onClick={toggleRodioPlayback}
+                  disabled={rodioBusy()}
+                  style={{
+                    flex: "none",
+                    width: "44px",
+                    height: "24px",
+                    "border-radius": "12px",
+                    border: "none",
+                    padding: "0",
+                    background: useRodioPlayback()
+                      ? "var(--color-accent-500, #ff69b4)"
+                      : "var(--color-bg-tertiary, #333)",
+                    cursor: rodioBusy() ? "wait" : "pointer",
+                    position: "relative",
+                    transition: "background 0.2s",
+                    "flex-shrink": "0",
+                    opacity: rodioBusy() ? "0.6" : "1",
+                  }}
+                >
+                  <div
+                    style={{
+                      position: "absolute",
+                      top: "4px",
+                      left: useRodioPlayback() ? "24px" : "4px",
+                      width: "16px",
+                      height: "16px",
+                      "border-radius": "50%",
+                      background: "white",
+                      transition: "left 0.2s",
+                    }}
+                  />
+                </button>
+                <div>
+                  <div style={{ "font-weight": "500" }}>
+                    use experimental player
+                  </div>
+                  <div
+                    style={{
+                      "font-size": "0.875rem",
+                      color: "var(--color-text-secondary, #888)",
+                      "margin-top": "0.25rem",
+                    }}
+                  >
+                    route audio through the lower-level audio engine instead of
+                    the html5 audio element. experimental on macos/windows; the
+                    default on linux.
+                  </div>
+                  <Show when={rodioError()}>
+                    <div
+                      style={{
+                        "font-size": "0.8125rem",
+                        color: "var(--color-error-500, #ff4d6d)",
+                        "margin-top": "0.25rem",
+                      }}
+                    >
+                      {rodioError()}
+                    </div>
+                  </Show>
+                </div>
+              </div>
             </div>
           </Show>
 
           <Show when={admin.isRemote()}>
             <div class="settings-section" style={{ "margin-top": "2rem" }}>
-              <h2>
-                server lifecycl<span class="pinky">e</span>
-              </h2>
+              <h2>server lifecycle</h2>
               <p
                 class="hint"
                 style={{

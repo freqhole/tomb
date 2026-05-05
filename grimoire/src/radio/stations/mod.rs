@@ -11,10 +11,9 @@ pub mod repository;
 
 pub use models::{
     CreateStationRequest, PlayHistoryEntry, RadioStation, StationFilter, StationFilterMode,
-    StationFilterType, StationSong, UpdateStationRequest,
+    StationFilterType, UpdateStationRequest,
 };
 pub use repository::{
-    add_filter, add_song, create_station, delete_station, finish_play, get_station, list_filters,
-    list_play_history, list_songs, list_stations, record_play, remove_filter, remove_song,
-    resolve_playlist, update_station,
+    add_filter, create_station, delete_station, finish_play, get_station, list_filters,
+    list_play_history, list_stations, record_play, remove_filter, resolve_playlist, update_station,
 };

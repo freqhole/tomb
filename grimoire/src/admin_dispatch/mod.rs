@@ -24,19 +24,20 @@ use crate::admin_dispatch::types::knocks::{
 };
 use crate::admin_dispatch::types::peers::{
     AdminPeerNodeSummary, AdminPeerSummary, AdminPeersAllowRequest, AdminPeersAllowResponse,
-    AdminPeersListForUserRequest, AdminPeersRemoveRequest,
+    AdminPeersListAllRequest, AdminPeersListForUserRequest, AdminPeersRemoveRequest,
+    AdminPeersRestoreRequest,
 };
 use crate::admin_dispatch::types::radio::{
     RadioBumper, RadioBumpersAddRequest, RadioBumpersListRequest, RadioBumpersRemoveRequest,
     RadioBumpersSetFrequencyRequest, RadioConfigPayload, RadioFiltersAddRequest,
-    RadioFiltersRemoveRequest, RadioSeedSuggestRequest, RadioSeedSuggestion, RadioSongsAddRequest,
-    RadioSongsRemoveRequest, RadioStationByStationIdRequest, RadioStationSupervisorStatus,
-    RadioStationsByIdRequest, RadioSupervisorStationRequest, RadioSupervisorStatusResponse,
+    RadioFiltersRemoveRequest, RadioSeedSuggestRequest, RadioSeedSuggestion,
+    RadioStationByStationIdRequest, RadioStationSupervisorStatus, RadioStationsByIdRequest,
+    RadioSupervisorStationRequest, RadioSupervisorStatusResponse,
 };
 use crate::admin_dispatch::types::users::{
     AdminAccountLinkResponse, AdminUserSummary, AdminUsersDeleteRequest,
-    AdminUsersGenerateAccountLinkRequest, AdminUsersGetRequest, AdminUsersListRequest,
-    AdminUsersUpdateRoleRequest,
+    AdminUsersGenerateAccountLinkRequest, AdminUsersGetRequest, AdminUsersHardDeleteRequest,
+    AdminUsersListRequest, AdminUsersRestoreRequest, AdminUsersUpdateRoleRequest,
 };
 use crate::config::{find_config, get_config, get_config_path, read_config_from_file};
 use crate::error::ErrorDetail;
@@ -97,6 +98,8 @@ pub async fn handle(
         "users_create" => users_create(args).await,
         "users_update_role" => users_update_role(args, caller).await,
         "users_delete" => users_delete(args, caller).await,
+        "users_hard_delete" => users_hard_delete(args, caller).await,
+        "users_restore" => users_restore(args, caller).await,
         "users_generate_account_link" => users_generate_account_link(args, caller).await,
 
         // -- invites --
@@ -107,17 +110,10 @@ pub async fn handle(
         "invites_update_role" => invites_update_role(args, caller).await,
 
         // -- peers --
-        "peers_list_all" => {
-            let resp = UserService::new().get_all_peer_nodes().await;
-            to_value(map_response(resp, |peers| {
-                peers
-                    .into_iter()
-                    .map(AdminPeerSummary::from)
-                    .collect::<Vec<_>>()
-            }))
-        }
+        "peers_list_all" => peers_list_all(args).await,
         "peers_list_for_user" => peers_list_for_user(args).await,
         "peers_remove" => peers_remove(args).await,
+        "peers_restore" => peers_restore(args).await,
         "peers_allow" => peers_allow(args).await,
 
         // -- library --
@@ -148,9 +144,18 @@ pub async fn handle(
         "radio_filters_list" => radio_filters_list(args).await,
         "radio_filters_add" => radio_filters_add(args).await,
         "radio_filters_remove" => radio_filters_remove(args).await,
-        "radio_songs_list" => radio_songs_list(args).await,
-        "radio_songs_add" => radio_songs_add(args).await,
-        "radio_songs_remove" => radio_songs_remove(args).await,
+        "radio_songs_list" | "radio_songs_add" | "radio_songs_remove" => {
+            // explicit per-track inclusion is now expressed as a
+            // `track`-typed filter row — use radio_filters_* instead.
+            GrimoireResponse::failure(
+                "radio_songs_* commands were removed; use radio_filters_* with filter_type='track'",
+                vec![ErrorDetail::new(
+                    "unsupported_command",
+                    "command removed",
+                    "explicit station songs are now filter rows (filter_type='track')",
+                )],
+            )
+        }
         "radio_seed_suggest" => radio_seed_suggest(args).await,
         "radio_config_get" => radio_config_get().await,
         "radio_config_set" => radio_config_set(args).await,
@@ -466,6 +471,37 @@ async fn users_delete(args: JsonValue, caller: &Caller) -> GrimoireResponse<Json
     to_value(UserService::new().delete_user(&req.user_id, &admin).await)
 }
 
+async fn users_hard_delete(args: JsonValue, caller: &Caller) -> GrimoireResponse<JsonValue> {
+    let req: AdminUsersHardDeleteRequest = match decode(args) {
+        Ok(v) => v,
+        Err(r) => return r,
+    };
+    let admin = match fetch_caller_user(caller).await {
+        Ok(u) => u,
+        Err(r) => return r,
+    };
+    to_value(
+        UserService::new()
+            .hard_delete_user(&req.user_id, &admin)
+            .await,
+    )
+}
+
+async fn users_restore(args: JsonValue, caller: &Caller) -> GrimoireResponse<JsonValue> {
+    let req: AdminUsersRestoreRequest = match decode(args) {
+        Ok(v) => v,
+        Err(r) => return r,
+    };
+    let admin = match fetch_caller_user(caller).await {
+        Ok(u) => u,
+        Err(r) => return r,
+    };
+    to_value(map_response(
+        UserService::new().restore_user(&req.user_id, &admin).await,
+        AdminUserSummary::from,
+    ))
+}
+
 /// generate a 24-hour account-link code for an existing user (lets them
 /// add a new passkey). returns `{ code: String }`.
 async fn users_generate_account_link(
@@ -714,11 +750,33 @@ async fn peers_list_for_user(args: JsonValue) -> GrimoireResponse<JsonValue> {
         Ok(v) => v,
         Err(r) => return r,
     };
-    let resp = UserService::new().get_user_peer_nodes(&req.user_id).await;
+    let include_deleted = req.include_deleted.unwrap_or(false);
+    let resp = UserService::new()
+        .get_user_peer_nodes(&req.user_id, include_deleted)
+        .await;
     to_value(map_response(resp, |peers| {
         peers
             .into_iter()
             .map(AdminPeerNodeSummary::from)
+            .collect::<Vec<_>>()
+    }))
+}
+
+async fn peers_list_all(args: JsonValue) -> GrimoireResponse<JsonValue> {
+    let req: AdminPeersListAllRequest = if args.is_null() {
+        AdminPeersListAllRequest::default()
+    } else {
+        match decode(args) {
+            Ok(v) => v,
+            Err(r) => return r,
+        }
+    };
+    let include_deleted = req.include_deleted.unwrap_or(false);
+    let resp = UserService::new().get_all_peer_nodes(include_deleted).await;
+    to_value(map_response(resp, |peers| {
+        peers
+            .into_iter()
+            .map(AdminPeerSummary::from)
             .collect::<Vec<_>>()
     }))
 }
@@ -730,6 +788,17 @@ async fn peers_remove(args: JsonValue) -> GrimoireResponse<JsonValue> {
     };
     let resp = UserService::new()
         .remove_peer_node(&req.user_id, &req.node_id)
+        .await;
+    to_value(map_response(resp, |_| ()))
+}
+
+async fn peers_restore(args: JsonValue) -> GrimoireResponse<JsonValue> {
+    let req: AdminPeersRestoreRequest = match decode(args) {
+        Ok(v) => v,
+        Err(r) => return r,
+    };
+    let resp = UserService::new()
+        .restore_peer_node(&req.user_id, &req.node_id)
         .await;
     to_value(map_response(resp, |_| ()))
 }
@@ -1462,40 +1531,6 @@ async fn radio_filters_remove(args: JsonValue) -> GrimoireResponse<JsonValue> {
     }
 }
 
-async fn radio_songs_list(args: JsonValue) -> GrimoireResponse<JsonValue> {
-    let req: RadioStationByStationIdRequest = match decode(args) {
-        Ok(v) => v,
-        Err(r) => return r,
-    };
-    match radio_stations::list_songs(&req.station_id).await {
-        Ok(songs) => to_value(GrimoireResponse::success("songs listed", songs)),
-        Err(e) => GrimoireResponse::failure("failed to list songs", vec![e.into()]),
-    }
-}
-
-async fn radio_songs_add(args: JsonValue) -> GrimoireResponse<JsonValue> {
-    let req: RadioSongsAddRequest = match decode(args) {
-        Ok(v) => v,
-        Err(r) => return r,
-    };
-    let sort_order = req.sort_order.unwrap_or(0);
-    match radio_stations::add_song(&req.station_id, &req.song_id, sort_order).await {
-        Ok(()) => GrimoireResponse::success("song added", JsonValue::Null),
-        Err(e) => GrimoireResponse::failure("failed to add song", vec![e.into()]),
-    }
-}
-
-async fn radio_songs_remove(args: JsonValue) -> GrimoireResponse<JsonValue> {
-    let req: RadioSongsRemoveRequest = match decode(args) {
-        Ok(v) => v,
-        Err(r) => return r,
-    };
-    match radio_stations::remove_song(&req.station_id, &req.song_id).await {
-        Ok(()) => GrimoireResponse::success("song removed", JsonValue::Null),
-        Err(e) => GrimoireResponse::failure("failed to remove song", vec![e.into()]),
-    }
-}
-
 async fn radio_seed_suggest(args: JsonValue) -> GrimoireResponse<JsonValue> {
     use crate::music::crud::{query_albums, query_artists, search_songs, QueryParams};
     use crate::music::entities::genres::query_genres;
@@ -1614,6 +1649,30 @@ async fn radio_seed_suggest(args: JsonValue) -> GrimoireResponse<JsonValue> {
                     })
                     .collect()
             }
+        }
+        "playlist" => {
+            // playlists don't have a dedicated search endpoint yet, so
+            // do a case-insensitive substring filter on the full list.
+            // empty query returns the most-recently-created playlists.
+            let resp = crate::music::list_playlists().await;
+            let needle = q.to_ascii_lowercase();
+            resp.data
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|p| {
+                    if needle.is_empty() {
+                        true
+                    } else {
+                        p.title.to_ascii_lowercase().contains(&needle)
+                    }
+                })
+                .take(limit as usize)
+                .map(|p| RadioSeedSuggestion {
+                    id: p.id,
+                    name: p.title,
+                    subtitle: p.description,
+                })
+                .collect()
         }
         other => {
             return GrimoireResponse::failure(

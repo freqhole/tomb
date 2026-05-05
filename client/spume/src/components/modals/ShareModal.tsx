@@ -24,9 +24,9 @@ import type { ShareTarget } from "../share/types";
 import type { Remote } from "../../app/services/storage/schemas/remote";
 import type { SendPayload } from "../../music/services/send/sendToRemote";
 import { buildSharePayload } from "../share/buildSharePayload";
-import { startSharedRadioStation } from "../share/startSharedRadioStation";
-import Button from "../buttons/Button";
-import { Icon } from "../icons/registry";
+// note: startSharedRadioStation / Button / Icon imports removed — the
+// "play radio station" button is currently commented out below. restore
+// these imports if the button is re-enabled.
 
 export interface ShareModalProps {
   isOpen: boolean;
@@ -83,9 +83,8 @@ export const ShareModal: Component<ShareModalProps> = (props) => {
             <>
               <PermalinkSection target={props.target} source={src()} webHost={props.webHost} />
               <Show when={playableRadioShare()}>
-                {(radio) => (
-                  <div class="flex justify-end gap-6">
-                    {/* <Button
+                <div class="flex justify-end gap-6">
+                  {/* <Button
                       variant="primary"
                       onClick={() => {
                         void startSharedRadioStation(radio()).finally(() => props.onClose());
@@ -94,11 +93,10 @@ export const ShareModal: Component<ShareModalProps> = (props) => {
                       <Icon name="radioTower" size={24} />
                       play radio station
                     </Button> */}
-                    <Show when={!isCharnelMode()}>
-                      <OpenInAppButton target={props.target} source={src()} />
-                    </Show>
-                  </div>
-                )}
+                  <Show when={!isCharnelMode()}>
+                    <OpenInAppButton target={props.target} source={src()} />
+                  </Show>
+                </div>
               </Show>
 
               <Show when={props.buildSendPayload}>

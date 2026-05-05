@@ -135,6 +135,8 @@ async function syncSongViaLocalGrimoire(
     return {
       success: true,
       localSongId: data?.song_id ?? song.sha256,
+      localMediaBlobId: data?.media_blob_id,
+      localPath: data?.file_path,
       skipped: data?.existing ?? false,
     };
   } catch (error) {
@@ -155,6 +157,15 @@ export type SyncProgressCallback = (received: number, total: number) => void;
 export interface SyncResult {
   success: boolean;
   localSongId?: string; // sha256, the local song ID
+  /// local media_blob.id (the *new* one created/found by the sync,
+  /// not the source remote's blob id). only populated by the charnel
+  /// path — browser sync stores blobs in OPFS, not the local
+  /// grimoire DB, so there's no media_blob row to point at.
+  localMediaBlobId?: string;
+  /// absolute fs path the local grimoire wrote the audio to. only
+  /// populated by the charnel path. callers (e.g. rodioBackend) can
+  /// use this directly without re-resolving via `resolve_blob_path`.
+  localPath?: string;
   error?: string;
   skipped?: boolean; // true if song already existed locally
 }

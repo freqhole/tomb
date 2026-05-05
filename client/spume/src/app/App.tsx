@@ -52,6 +52,9 @@ import {
   uploadPathsToRemote,
 } from "../music/import";
 import { togglePlayback } from "../music/services/audio/player";
+import { initRodioPreference } from "../music/services/audio/select";
+import { swapPlayerBackend } from "../music/services/audio/player";
+import { initQueueSizeLimit } from "../music/services/queue/queueLimit";
 import {
   cleanupCacheNetworkHandlers,
   initCachedAudioURLs,
@@ -382,6 +385,18 @@ export function App() {
       // subscribe to config changes (server restarts) - refetch config when notified
       const unlistenConfigChanged = await onConfigChanged(async () => {
         debug("tauri: config changed event received, refetching...");
+        // re-read the rodio opt-in flag — the wizard's settings view
+        // toggles `use_rodio_playback` in `FreqholeAppConfig`, and we
+        // want spume's `selectBackend()` to pick that up without a
+        // page reload.
+        await initRodioPreference();
+        // re-read the queue size limit too in case the user edited
+        // `[client] queue_size_limit` in their toml.
+        await initQueueSizeLimit();
+        // re-evaluate which PlayerBackend the facade owns. swap is a
+        // no-op when the chosen kind hasn't changed; option (b)
+        // "stop + swap" otherwise.
+        await swapPlayerBackend();
         const newConfig = await getConfig();
         if (newConfig) {
           const updatedRemote = await upsertTauriRemote({
@@ -460,6 +475,19 @@ export function App() {
     try {
       await initAppDB();
       await initMusicDB();
+
+      // hydrate the rodio opt-in cache early so the very first
+      // `selectBackend()` call observes the user's preference. safe
+      // outside tauri (falls back to localStorage / defaults to false).
+      await initRodioPreference();
+      // hydrate the configurable queue size limit from `[client]`
+      // in `freqhole-config.toml`. safe outside tauri (no-op).
+      await initQueueSizeLimit();
+      // player.ts is loaded eagerly via the import graph and called
+      // `selectBackend()` before the cache was hydrated, so the initial
+      // activeBackend is always html. swap now to pick up the persisted
+      // setting on boot.
+      await swapPlayerBackend();
 
       // tauri-only: one-shot drain of IDB remotes into shared sqlite table.
       // no-op outside tauri or after first successful drain.

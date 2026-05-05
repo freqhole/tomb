@@ -335,6 +335,67 @@ impl UserService {
         }
     }
 
+    /// Restore a soft-deleted user. only admins may call this.
+    /// also restores any peer nodes that were cascade-soft-deleted with
+    /// this user (matched by `deleted_at` timestamp).
+    pub async fn restore_user(
+        &self,
+        user_id: &str,
+        requesting_user: &User,
+    ) -> GrimoireResponse<User> {
+        if !requesting_user.is_admin() {
+            return GrimoireResponse::failure(
+                "Insufficient permissions",
+                vec![AuthError::InsufficientPermissions.into()],
+            );
+        }
+
+        match self.repository.restore_user(user_id).await {
+            Ok(user) => GrimoireResponse::success("User restored", user),
+            Err(err) => GrimoireResponse::failure("Failed to restore user", vec![err.into()]),
+        }
+    }
+
+    /// permanently delete a user account ("delete forever"). admin only.
+    /// removes the row and cleans up FKs that don't cascade. cannot be
+    /// used on the requesting user (admins must not nuke themselves) and
+    /// cannot be used on root accounts.
+    pub async fn hard_delete_user(
+        &self,
+        user_id: &str,
+        requesting_user: &User,
+    ) -> GrimoireResponse<()> {
+        if !requesting_user.is_admin() {
+            return GrimoireResponse::failure(
+                "Insufficient permissions",
+                vec![AuthError::InsufficientPermissions.into()],
+            );
+        }
+        if user_id == requesting_user.id {
+            return GrimoireResponse::failure("cannot hard-delete your own account", vec![]);
+        }
+        match self.repository.find_user_by_id(user_id).await {
+            Ok(Some(target)) => {
+                if matches!(target.role, UserRole::Root) {
+                    return GrimoireResponse::failure("cannot hard-delete a root account", vec![]);
+                }
+            }
+            Ok(None) => {
+                return GrimoireResponse::failure(
+                    "user not found",
+                    vec![AuthError::UserNotFound.into()],
+                );
+            }
+            Err(err) => {
+                return GrimoireResponse::failure("failed to look up user", vec![err.into()]);
+            }
+        }
+        match self.repository.hard_delete_user(user_id).await {
+            Ok(_) => GrimoireResponse::success("user permanently deleted", ()),
+            Err(err) => GrimoireResponse::failure("failed to hard-delete user", vec![err.into()]),
+        }
+    }
+
     /// Generate and set a secure API key for a user
     ///
     /// Returns the user with the newly generated API key
@@ -905,19 +966,58 @@ impl UserService {
         }
     }
 
-    /// Get all peer nodes for a user
-    pub async fn get_user_peer_nodes(&self, user_id: &str) -> GrimoireResponse<Vec<UserPeerNode>> {
-        match self.repository.get_user_peer_nodes(user_id).await {
+    /// Get peer nodes for a user. when `include_deleted` is true, soft-
+    /// deleted peer rows are included alongside active ones.
+    pub async fn get_user_peer_nodes(
+        &self,
+        user_id: &str,
+        include_deleted: bool,
+    ) -> GrimoireResponse<Vec<UserPeerNode>> {
+        match self
+            .repository
+            .get_user_peer_nodes(user_id, include_deleted)
+            .await
+        {
             Ok(nodes) => GrimoireResponse::success("Peer nodes retrieved", nodes),
             Err(err) => GrimoireResponse::failure("Failed to get peer nodes", vec![err.into()]),
         }
     }
 
-    /// Remove a peer node_id from a user
+    /// Soft-delete a peer node (sets `deleted_at`). the row stays in the
+    /// table so its node_id is reserved; future handshakes from this
+    /// node_id will land in the knock queue and surface as "from deleted
+    /// device" until restored.
     pub async fn remove_peer_node(&self, user_id: &str, node_id: &str) -> GrimoireResponse<()> {
         match self.repository.remove_peer_node(user_id, node_id).await {
             Ok(()) => GrimoireResponse::success("Peer node removed", ()),
             Err(err) => GrimoireResponse::failure("Failed to remove peer node", vec![err.into()]),
+        }
+    }
+
+    /// Restore a soft-deleted peer node.
+    pub async fn restore_peer_node(&self, user_id: &str, node_id: &str) -> GrimoireResponse<()> {
+        match self.repository.restore_peer_node(user_id, node_id).await {
+            Ok(()) => GrimoireResponse::success("Peer node restored", ()),
+            Err(err) => GrimoireResponse::failure("Failed to restore peer node", vec![err.into()]),
+        }
+    }
+
+    /// Permanently delete a peer node row (hard DELETE). reserved for
+    /// cli cleanup tooling.
+    pub async fn hard_delete_peer_node(
+        &self,
+        user_id: &str,
+        node_id: &str,
+    ) -> GrimoireResponse<()> {
+        match self
+            .repository
+            .hard_delete_peer_node(user_id, node_id)
+            .await
+        {
+            Ok(()) => GrimoireResponse::success("Peer node hard-deleted", ()),
+            Err(err) => {
+                GrimoireResponse::failure("Failed to hard-delete peer node", vec![err.into()])
+            }
         }
     }
 
@@ -929,9 +1029,14 @@ impl UserService {
         }
     }
 
-    /// Get all peer nodes across all users
-    pub async fn get_all_peer_nodes(&self) -> GrimoireResponse<Vec<PeerNodeWithUser>> {
-        match self.repository.get_all_peer_nodes().await {
+    /// Get all peer nodes across all users. when `include_deleted` is
+    /// true, soft-deleted peer rows and peers under soft-deleted users
+    /// are included.
+    pub async fn get_all_peer_nodes(
+        &self,
+        include_deleted: bool,
+    ) -> GrimoireResponse<Vec<PeerNodeWithUser>> {
+        match self.repository.get_all_peer_nodes(include_deleted).await {
             Ok(nodes) => GrimoireResponse::success("Peer nodes retrieved", nodes),
             Err(err) => GrimoireResponse::failure("Failed to get peer nodes", vec![err.into()]),
         }

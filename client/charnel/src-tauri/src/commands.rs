@@ -8,6 +8,7 @@
 
 use serde::Serialize;
 use std::path::PathBuf;
+use std::process::Command;
 use tauri::Manager;
 
 use crate::app_config::{get_server_config_path_resolved, save_admin_user, FreqholeAppConfig};
@@ -371,28 +372,22 @@ pub fn take_pending_deep_links(state: tauri::State<crate::PendingDeepLinks>) -> 
     state.drain()
 }
 
-/// get info about the embedded media http server (loopback only).
-///
-/// returns `{base_url, api_key}` so the frontend can build blob urls like
-/// `{base_url}/api/blobs/{id}?api_key={api_key}` and stick them in
-/// `<audio src>` / `<img src>` for proper http range request streaming on
-/// linux webkitgtk (where tauri's asset:// protocol can't stream into media
-/// elements).
-///
-/// returns `None` if the server hasn't started yet (e.g. setup wizard still
-/// running, or charnel just launched and the spawn task hasn't completed).
-/// callers should retry / fall back to the asset:// path.
-#[tauri::command]
-pub fn media_server_info(
-    state: tauri::State<crate::media_server::MediaServerState>,
-) -> Option<crate::media_server::MediaServerInfo> {
-    state.get()
-}
-
 /// get the config file path (from app config or legacy location)
 #[tauri::command]
 pub fn get_config_path(app_handle: tauri::AppHandle) -> Option<String> {
     get_server_config_path_resolved(&app_handle).map(|p| p.display().to_string())
+}
+
+/// get the client-only ui config (queue limits, etc.) from the loaded
+/// grimoire config. returns the default `ClientConfig` (queue_size_limit=150)
+/// when the toml omits the `[client]` section, so callers never need
+/// to handle a None.
+#[tauri::command]
+pub fn get_client_config() -> grimoire::config::ClientConfig {
+    grimoire::config::get_config()
+        .client
+        .clone()
+        .unwrap_or_default()
 }
 
 /// get the data directory from loaded config
@@ -493,10 +488,27 @@ pub fn open_config_dir(app_handle: tauri::AppHandle) -> Result<(), String> {
         return Err(format!("directory does not exist: {}", dir));
     }
 
-    app_handle
-        .opener()
-        .reveal_item_in_dir(&path)
-        .map_err(|e| format!("failed to open directory: {}", e))
+    #[cfg(target_os = "linux")]
+    {
+        app_handle
+            .opener()
+            .open_path(path.to_string_lossy().to_string(), None::<&str>)
+            .or_else(|_| {
+                Command::new("xdg-open")
+                    .arg(dir)
+                    .spawn()
+                    .map(|_| ())
+                    .map_err(|e| format!("xdg-opne failed to open directory: {}", e))
+            })
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    {
+        app_handle
+            .opener()
+            .reveal_item_in_dir(&path)
+            .map_err(|e| format!("failed to open directory: {}", e))
+    }
 }
 
 /// scan result
@@ -593,7 +605,7 @@ pub async fn scan_directory(
             ScanResult {
                 success: true,
                 jobs_created: count as u32,
-                message: format!("created {} import jobs", count),
+                message: format!("scheduled {} music files for import", count),
             }
         }
         None => ScanResult {
@@ -682,6 +694,24 @@ async fn poll_rescan_job_until_complete(
     let poll_interval = Duration::from_secs(3);
     let max_polls = 1200; // 60 minutes max (1200 * 3s) - rescan can take longer
     let mut last_songs = 0i64;
+    let mut first_poll = true;
+
+    // emit an immediate progress event so the ui shows activity right away
+    {
+        let initial_jobs = list_jobs(None, None, Some(1000), None).await;
+        if let Some(jobs) = initial_jobs.data {
+            let jobs_total = jobs.len() as u32;
+            let pending = jobs
+                .iter()
+                .filter(|j| {
+                    j.status()
+                        .map(|s| s == JobStatus::Pending || s == JobStatus::Running)
+                        .unwrap_or(false)
+                })
+                .count() as u32;
+            let _ = notify_scan_progress(&app_handle, 0, 0, 0, pending, jobs_total);
+        }
+    }
 
     for _ in 0..max_polls {
         // wait for poll interval or shutdown
@@ -719,10 +749,13 @@ async fn poll_rescan_job_until_complete(
                     None => (0, 0, 0),
                 };
 
-                // send progress update if songs changed
+                // always emit progress on every poll so the ui sees pending
+                // counts decrement even when no new songs are added.
                 let current_songs = current_stats.as_ref().map(|s| s.total_songs).unwrap_or(0);
-                if current_songs != last_songs {
-                    last_songs = current_songs;
+                let songs_changed = current_songs != last_songs;
+                last_songs = current_songs;
+                if first_poll || songs_changed || pending > 0 || jobs_total > 0 {
+                    first_poll = false;
                     if let Err(e) = notify_scan_progress(
                         &app_handle,
                         songs_added,
@@ -787,6 +820,26 @@ async fn poll_scan_jobs_until_complete(
     let poll_interval = Duration::from_secs(3);
     let max_polls = 600; // 30 minutes max (600 * 3s)
     let mut last_songs = 0i64;
+    let mut first_poll = true;
+
+    // emit an immediate "starting" progress event so the ui doesn't sit
+    // empty for 3s (or forever, if all files are duplicates so total_songs
+    // never changes and the progress-on-change check below stays silent).
+    {
+        let initial_jobs = list_jobs(Some(&session_id), None, Some(1000), None).await;
+        if let Some(jobs) = initial_jobs.data {
+            let jobs_total = jobs.len() as u32;
+            let pending = jobs
+                .iter()
+                .filter(|j| {
+                    j.status()
+                        .map(|s| s == JobStatus::Pending || s == JobStatus::Running)
+                        .unwrap_or(false)
+                })
+                .count() as u32;
+            let _ = notify_scan_progress(&app_handle, 0, 0, 0, pending, jobs_total);
+        }
+    }
 
     for _ in 0..max_polls {
         // wait for poll interval or shutdown
@@ -824,10 +877,14 @@ async fn poll_scan_jobs_until_complete(
                     None => (0, 0, 0),
                 };
 
-                // send progress update if songs changed
+                // always emit progress on every poll — the ui needs to see
+                // pending counts decrement even when no new songs are added
+                // (eg. duplicate-only scans never grow total_songs).
                 let current_songs = current_stats.as_ref().map(|s| s.total_songs).unwrap_or(0);
-                if current_songs != last_songs {
-                    last_songs = current_songs;
+                let songs_changed = current_songs != last_songs;
+                last_songs = current_songs;
+                if first_poll || songs_changed || pending > 0 || jobs_total > 0 {
+                    first_poll = false;
                     if let Err(e) = notify_scan_progress(
                         &app_handle,
                         songs_added,
@@ -1363,6 +1420,31 @@ pub fn set_sync_queue_to_local(app_handle: tauri::AppHandle, enabled: bool) -> R
 
     // emit config changed event so spume can update its state
     let _ = notify_config_changed(&app_handle, "sync_queue_to_local changed");
+
+    Ok(())
+}
+
+/// get the use_rodio_playback setting (default: on for linux). when on,
+/// spume's `selectBackend()` returns the rodio backend instead of the
+/// html `<audio>` element path.
+#[tauri::command]
+pub fn get_rodio_playback(app_handle: tauri::AppHandle) -> bool {
+    FreqholeAppConfig::load(&app_handle)
+        .map(|c| c.use_rodio_playback)
+        .unwrap_or_else(crate::app_config::default_use_rodio_playback)
+}
+
+/// set the use_rodio_playback setting. fires `config_changed` so spume can
+/// re-read it without a restart. does NOT swap any in-flight backend; the
+/// new value takes effect when the playback session next reconstructs its
+/// `PlayerBackend` (typically next page reload or next track).
+#[tauri::command]
+pub fn set_rodio_playback(app_handle: tauri::AppHandle, enabled: bool) -> Result<(), String> {
+    let mut config = FreqholeAppConfig::load(&app_handle).unwrap_or_default();
+    config.use_rodio_playback = enabled;
+    config.save(&app_handle)?;
+
+    let _ = notify_config_changed(&app_handle, "use_rodio_playback changed");
 
     Ok(())
 }

@@ -163,9 +163,12 @@ async function flushProgress(force = false, skipQueueSave = false): Promise<void
       current_song_index: currentSongIndex,
       current_song_position: currentSongPosition,
     });
-    
+
     // save queue item progress for visual fill (skip when clearing to avoid race)
-    if (!skipQueueSave) {
+    // re-check entryId: stopTracking() may have fired during the await above,
+    // in which case writing the (now-stale) queue back to IDB would resurrect
+    // a queue the user just cleared.
+    if (!skipQueueSave && activeHistoryEntryId() === entryId) {
       await saveProgressToIDB();
     }
   } catch (error) {

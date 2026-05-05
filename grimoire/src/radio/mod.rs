@@ -25,7 +25,7 @@ pub use broadcaster::{
     init_registry as init_broadcaster, list_running as list_broadcasters, Broadcaster, MetaUpdate,
 };
 pub use chunk::{BoxParser, Chunk};
-pub use encoder::Encoder;
+pub use encoder::{BufferedEncoder, Encoder};
 pub use messages::{
     ArtData, ControlMessage, HelloMessage, MetaMessage, NowPlaying, RadioModeCapability,
     TimelineCurrentItem, TimelineMessage, TimelineUpcomingItem, TuneMessage, RADIO_CODEC,

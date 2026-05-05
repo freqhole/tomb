@@ -93,6 +93,29 @@ async function ensureConvertFileSrc(): Promise<
 // reads
 // ============================================================================
 
+// short-lived in-memory cache for getRemoteById, since hot paths (blob
+// pre-cache, analytics queue, audio source resolution, etc.) call it many
+// times per second per remote. backend.get() goes through tauri ipc on
+// charnel, so even a few-hundred-ms ttl collapses thousands of calls.
+//
+// invalidated explicitly on every write below; the ttl is just a safety net
+// (and lets in-flight reads dedupe via the shared promise).
+const REMOTE_CACHE_TTL_MS = 2_000;
+type RemoteCacheEntry = {
+  value: Remote | undefined;
+  expiresAt: number;
+};
+const remoteByIdCache = new Map<string, RemoteCacheEntry>();
+const remoteByIdInflight = new Map<string, Promise<Remote | undefined>>();
+
+function invalidateRemoteCache(remoteId?: string): void {
+  if (remoteId) {
+    remoteByIdCache.delete(remoteId);
+  } else {
+    remoteByIdCache.clear();
+  }
+}
+
 // get all remotes (sorted by created_at desc)
 export async function getAllRemotes(): Promise<Remote[]> {
   const all = await getBackend().list();
@@ -109,7 +132,29 @@ export async function getTauriManagedRemote(): Promise<Remote | null> {
 export async function getRemoteById(
   remoteId: string,
 ): Promise<Remote | undefined> {
-  return getBackend().get(remoteId);
+  const now = Date.now();
+  const cached = remoteByIdCache.get(remoteId);
+  if (cached && cached.expiresAt > now) {
+    return cached.value;
+  }
+  // dedupe concurrent lookups
+  const inflight = remoteByIdInflight.get(remoteId);
+  if (inflight) return inflight;
+
+  const promise = (async () => {
+    try {
+      const value = await getBackend().get(remoteId);
+      remoteByIdCache.set(remoteId, {
+        value,
+        expiresAt: Date.now() + REMOTE_CACHE_TTL_MS,
+      });
+      return value;
+    } finally {
+      remoteByIdInflight.delete(remoteId);
+    }
+  })();
+  remoteByIdInflight.set(remoteId, promise);
+  return promise;
 }
 
 // find a P2P remote by its peer address (node_id or endpoint JSON containing node_id)
@@ -227,6 +272,7 @@ export async function upsertTauriRemote(config: {
           : {}),
     };
     await backend.put(updated);
+    invalidateRemoteCache(updated.remote_id);
     console.log("[upsertTauriRemote] updated existing remote:", {
       name: updated.name,
       image_url: updated.image_url,
@@ -256,6 +302,7 @@ export async function upsertTauriRemote(config: {
     is_charnel_managed: true,
   };
   await backend.put(remote);
+  invalidateRemoteCache(remote.remote_id);
   debug(`created tauri remote: ${remote.name} (${remote.base_url})`);
   return remote;
 }
@@ -269,6 +316,7 @@ export async function refreshTauriRemoteTimestamp(): Promise<void> {
   }
   const updated: Remote = { ...existing, updated_at: Date.now() };
   await getBackend().put(updated);
+  invalidateRemoteCache(updated.remote_id);
   debug(`refreshTauriRemoteTimestamp: updated to ${updated.updated_at}`);
   notifyStatusChange(existing.remote_id, existing.is_offline ?? false);
 }
@@ -394,6 +442,7 @@ export async function createRemote(data: {
       } as HttpRemote);
 
   await getBackend().put(remote);
+  invalidateRemoteCache(remote.remote_id);
   debug(
     `created remote: ${remote.name} (${isHttpRemote(remote) ? remote.base_url : remote.peer_addr})`,
   );
@@ -422,6 +471,7 @@ export async function updateRemote(
   }
 
   await getBackend().put(updated);
+  invalidateRemoteCache(updated.remote_id);
   debug(`updated remote: ${updated.name}`);
 
   return updated;
@@ -435,6 +485,7 @@ export async function deleteRemote(remoteId: string): Promise<void> {
     throw new Error(`remote not found: ${remoteId}`);
   }
   await backend.remove(remoteId);
+  invalidateRemoteCache(remoteId);
   debug(`deleted remote: ${existing.name}`);
 }
 
@@ -446,6 +497,8 @@ export async function setActiveRemote(remoteId: string): Promise<void> {
     throw new Error(`remote not found: ${remoteId}`);
   }
   await backend.markActive(remoteId);
+  // markActive flips is_active on every row, so blast the whole cache.
+  invalidateRemoteCache();
   debug(`activated remote: ${remote.name}`);
 }
 
@@ -461,6 +514,7 @@ export async function deactivateAllRemotes(): Promise<void> {
         is_active: false,
         updated_at: now,
       });
+      invalidateRemoteCache(remote.remote_id);
     }
   }
   debug("deactivated all remotes (using local source)");
@@ -479,6 +533,7 @@ export async function updateRemoteConnectionTime(
     last_connected_at: Date.now(),
     updated_at: Date.now(),
   });
+  invalidateRemoteCache(remoteId);
 }
 
 // refresh server info for a remote (fetch from /api/hello)
@@ -511,6 +566,7 @@ export async function refreshServerInfo(remoteId: string): Promise<void> {
         last_info_check: Date.now(),
         updated_at: Date.now(),
       });
+      invalidateRemoteCache(remote.remote_id);
       debug(`refreshed server info for: ${remote.name}`);
     }
   } catch (error) {
@@ -576,6 +632,7 @@ export async function checkRemoteHealth(remote: Remote): Promise<boolean> {
     }
 
     await backend.put(updated);
+    invalidateRemoteCache(updated.remote_id);
     debug(
       `health check for ${fresh.name}: ${isOnline ? "online" : "offline"}`,
     );
@@ -591,6 +648,7 @@ export async function checkRemoteHealth(remote: Remote): Promise<boolean> {
         offline_since: fresh.is_offline ? fresh.offline_since : now,
         updated_at: now,
       });
+      invalidateRemoteCache(fresh.remote_id);
     }
     errorLog(`health check failed for ${remote.name}:`, error);
     return false;
@@ -611,6 +669,7 @@ export async function markRemoteOffline(remoteId: string): Promise<void> {
     last_checked: now,
     updated_at: now,
   });
+  invalidateRemoteCache(remoteId);
   debug(`marked remote as offline: ${remote.name}`);
   notifyStatusChange(remoteId, true);
 }
@@ -630,6 +689,7 @@ export async function markRemoteOnline(remoteId: string): Promise<void> {
     last_connected_at: now,
     updated_at: now,
   });
+  invalidateRemoteCache(remoteId);
   debug(`marked remote as online: ${remote.name}`);
   notifyStatusChange(remoteId, false);
 }

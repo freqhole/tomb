@@ -36,14 +36,24 @@ export function isSongSyncedLocally(sha256: string | null | undefined): boolean 
 
 /** mark a song as synced locally (called after successful sync) */
 export function markSongSynced(sha256: string): void {
+  const wasSynced = syncedSha256s[sha256] === true;
   setSyncedSha256s(sha256, true);
+  // bump version so observers that read `syncedSha256s[sha256]` *before*
+  // the key existed (solid stores don't subscribe to undefined-key reads)
+  // re-run and pick up the new state. without this, a row that rendered
+  // an unsynced song will never flip to the underlined "available offline"
+  // style after a background sync completes.
+  if (!wasSynced) setSyncedVersion((v) => v + 1);
   // persist to IDB in background (browser mode)
   void persistSyncedToIDB(sha256, true);
 }
 
 /** unmark a song as synced locally (called after deletion from local storage) */
 export function unmarkSongSynced(sha256: string): void {
+  const wasSynced = syncedSha256s[sha256] === true;
   setSyncedSha256s(sha256, false);
+  // mirror of `markSongSynced`: bump so observers re-run after a delete.
+  if (wasSynced) setSyncedVersion((v) => v + 1);
   // persist to IDB in background (browser mode)
   void persistSyncedToIDB(sha256, false);
 }
@@ -62,6 +72,61 @@ export function loadSyncedSha256s(sha256s: string[]): void {
 export function clearSyncedSha256s(): void {
   setSyncedSha256s(reconcile({}));
   setSyncedVersion((v) => v + 1);
+}
+
+// ===== ephemeral-on-disk tracking =====
+// rodio backend's `sync_queue_to_local = off` path lands audio in
+// `<fetch_dir>/_ephemeral/<blake3>.<ext>` without writing any sqlite
+// rows (see client/charnel/src-tauri/src/ephemeral_blob_commands.rs).
+// those files are real on-disk audio that the player can replay
+// instantly, but `isSongSyncedLocally` returns false for them
+// (correctly — they're not in the library). this set lets the queue
+// row underline + any other "available offline" UI affordance light
+// up for songs that exist as ephemeral files.
+//
+// keyed by **blake3** (not sha256) because that's what's literally
+// on disk — survives across app restarts when the rodio backend
+// reconciles `_ephemeral/` against the persisted queue and seeds
+// this set from the survivors.
+
+const [ephemeralOnDiskBlake3s, setEphemeralOnDiskBlake3sSig] = createSignal<Set<string>>(new Set());
+
+/** check if a song has an ephemeral file on disk (rodio + sync-off path). reactive.
+ *  pass the song's `blake3` (not sha256) — that's the disk identifier. */
+export function isSongOnDiskEphemeral(blake3: string | null | undefined): boolean {
+  if (!blake3) return false;
+  return ephemeralOnDiskBlake3s().has(blake3);
+}
+
+/** mark an ephemeral file as present on disk (called after `fetch_ephemeral_blob`). */
+export function markEphemeralOnDisk(blake3: string): void {
+  setEphemeralOnDiskBlake3sSig((prev) => {
+    if (prev.has(blake3)) return prev;
+    const next = new Set(prev);
+    next.add(blake3);
+    return next;
+  });
+}
+
+/** unmark an ephemeral file (called after `delete_ephemeral_blob` / purge). */
+export function unmarkEphemeralOnDisk(blake3: string): void {
+  setEphemeralOnDiskBlake3sSig((prev) => {
+    if (!prev.has(blake3)) return prev;
+    const next = new Set(prev);
+    next.delete(blake3);
+    return next;
+  });
+}
+
+/** clear all ephemeral-on-disk tracking (called after `purge_ephemeral_dir`). */
+export function clearEphemeralOnDisk(): void {
+  setEphemeralOnDiskBlake3sSig(new Set<string>());
+}
+
+/** bulk-replace the ephemeral-on-disk set. used after a reconcile pass
+ *  (or on startup) to seed the signal from what's actually on disk. */
+export function setEphemeralOnDiskBlake3s(blake3s: Iterable<string>): void {
+  setEphemeralOnDiskBlake3sSig(new Set<string>(blake3s));
 }
 
 // persist synced status to IDB (browser mode only)

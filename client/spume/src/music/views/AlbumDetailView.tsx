@@ -406,6 +406,7 @@ export function AlbumDetailView() {
                           void showStationSelector(
                             {
                               kind: "album",
+                              albumId: albumInfo()?.album_id ?? params.id,
                               albumTitle: albumInfo()?.title ?? "",
                             },
                             getCurrentRemote()?.remote_id
