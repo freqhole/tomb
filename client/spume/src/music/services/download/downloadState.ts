@@ -74,6 +74,61 @@ export function clearSyncedSha256s(): void {
   setSyncedVersion((v) => v + 1);
 }
 
+// ===== ephemeral-on-disk tracking =====
+// rodio backend's `sync_queue_to_local = off` path lands audio in
+// `<fetch_dir>/_ephemeral/<blake3>.<ext>` without writing any sqlite
+// rows (see client/charnel/src-tauri/src/ephemeral_blob_commands.rs).
+// those files are real on-disk audio that the player can replay
+// instantly, but `isSongSyncedLocally` returns false for them
+// (correctly — they're not in the library). this set lets the queue
+// row underline + any other "available offline" UI affordance light
+// up for songs that exist as ephemeral files.
+//
+// keyed by **blake3** (not sha256) because that's what's literally
+// on disk — survives across app restarts when the rodio backend
+// reconciles `_ephemeral/` against the persisted queue and seeds
+// this set from the survivors.
+
+const [ephemeralOnDiskBlake3s, setEphemeralOnDiskBlake3sSig] = createSignal<Set<string>>(new Set());
+
+/** check if a song has an ephemeral file on disk (rodio + sync-off path). reactive.
+ *  pass the song's `blake3` (not sha256) — that's the disk identifier. */
+export function isSongOnDiskEphemeral(blake3: string | null | undefined): boolean {
+  if (!blake3) return false;
+  return ephemeralOnDiskBlake3s().has(blake3);
+}
+
+/** mark an ephemeral file as present on disk (called after `fetch_ephemeral_blob`). */
+export function markEphemeralOnDisk(blake3: string): void {
+  setEphemeralOnDiskBlake3sSig((prev) => {
+    if (prev.has(blake3)) return prev;
+    const next = new Set(prev);
+    next.add(blake3);
+    return next;
+  });
+}
+
+/** unmark an ephemeral file (called after `delete_ephemeral_blob` / purge). */
+export function unmarkEphemeralOnDisk(blake3: string): void {
+  setEphemeralOnDiskBlake3sSig((prev) => {
+    if (!prev.has(blake3)) return prev;
+    const next = new Set(prev);
+    next.delete(blake3);
+    return next;
+  });
+}
+
+/** clear all ephemeral-on-disk tracking (called after `purge_ephemeral_dir`). */
+export function clearEphemeralOnDisk(): void {
+  setEphemeralOnDiskBlake3sSig(new Set<string>());
+}
+
+/** bulk-replace the ephemeral-on-disk set. used after a reconcile pass
+ *  (or on startup) to seed the signal from what's actually on disk. */
+export function setEphemeralOnDiskBlake3s(blake3s: Iterable<string>): void {
+  setEphemeralOnDiskBlake3sSig(new Set<string>(blake3s));
+}
+
 // persist synced status to IDB (browser mode only)
 // charnel mode persists via grimoire sqlite automatically
 // NOTE: currently a no-op - synced status is derived from song source_type in IDB

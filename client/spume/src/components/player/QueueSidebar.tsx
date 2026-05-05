@@ -19,7 +19,11 @@ import { MediaThumbnail } from "../media/MediaThumbnail";
 import { ContextMenu, type MenuAction } from "../overlays/ContextMenu";
 import { MarqueeText } from "../text/MarqueeText";
 import { isSongCachedReactive } from "../../music/services/cache/blobCache";
-import { isSongSyncedLocally, getLoadingProgress } from "../../music/services/download";
+import {
+  isSongOnDiskEphemeral,
+  isSongSyncedLocally,
+  getLoadingProgress,
+} from "../../music/services/download";
 import { isPlayingDirectURLReactive } from "../../music/services/storage/audioAccess";
 import { useResolvedP2PImageUrl } from "../../music/services/storage/blobResolver";
 import { getCachedBlobObjectURL } from "../../music/services/storage/blobs";
@@ -870,6 +874,16 @@ export function QueueSidebar(props: QueueSidebarProps) {
                                 // check if remote song has been synced to local storage
                                 const sha256 = song()?.sha256;
                                 if (sha256 && isSongSyncedLocally(sha256)) {
+                                  return "underline";
+                                }
+
+                                // rodio + sync_queue_to_local=off lands audio
+                                // in `<fetch_dir>/_ephemeral/` without writing
+                                // any sqlite rows; flip the underline on for
+                                // those songs too so the row reflects what's
+                                // actually playable instantly. keyed by blake3
+                                // (the disk identifier).
+                                if (song()?.blake3 && isSongOnDiskEphemeral(song()?.blake3)) {
                                   return "underline";
                                 }
 

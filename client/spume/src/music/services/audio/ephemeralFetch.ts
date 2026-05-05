@@ -10,12 +10,19 @@
 // the sqlite library tables.
 //
 // lifecycle (called from rodioBackend):
-//   - on backend init: `purgeEphemeralAll()` (catches any leftovers
-//     from a previous crash).
-//   - on each `loadAndPlay` (sync OFF path): delete the previous
-//     song's ephemeral file, then fetch the new one.
-//   - on stop / clear: delete current.
-//   - on dispose: `purgeEphemeralAll()`.
+//   - on backend init: `reconcileEphemeralWithQueue(queue.blake3s)`
+//     (deletes orphan files for songs no longer queued, seeds the
+//     ui signal from survivors).
+//   - on each `loadAndPlay` (sync OFF path): fetch the new song
+//     (idempotent — rust returns the existing path if already on
+//     disk). do NOT delete the previous song's file; it stays as
+//     long as the song is in the queue.
+//   - on queue mutations: re-reconcile against the new queue.
+//   - on explicit user-initiated purge: `purgeEphemeralAll()`.
+//
+// rationale: the underline indicator should reflect "is this song
+// available locally?" — and that answer must survive app restart for
+// any song still in the persisted queue.
 //
 // safety: the tauri commands themselves enforce path-prefix +
 // filename-pattern + symlink checks, so even a buggy caller here
@@ -23,16 +30,34 @@
 
 import { getRemoteById } from "../../../app/services/remotes/remoteManager";
 import { isP2PRemote } from "../../../app/services/storage/schemas/remote";
+import {
+  clearEphemeralOnDisk,
+  markEphemeralOnDisk,
+  setEphemeralOnDiskBlake3s,
+  unmarkEphemeralOnDisk,
+} from "../download";
 import type { Song } from "../storage/types";
 
 /// what we need to remember about a song we just fetched, so we can
-/// clean it up later. `sha256` is the cache key (matches the player's
-/// notion of "current song"); `blake3`+`ext` are what the rust
-/// deleter actually needs to find the file on disk.
+/// clean it up later. `blake3`+`ext` are what the rust deleter
+/// actually needs to find the file on disk; `blake3` is also the
+/// key the ui uses to flip its "available offline" indicator.
 interface EphemeralEntry {
-  sha256: string;
   blake3: string;
   ext: string;
+}
+
+/// shape of one entry returned by the rust `list_ephemeral_blobs` /
+/// `reconcile_ephemeral_dir` commands. mirrors `EphemeralFileInfo`
+/// in `client/charnel/src-tauri/src/ephemeral_blob_commands.rs`.
+interface EphemeralFileInfo {
+  blake3: string;
+  ext: string;
+}
+
+interface EphemeralReconcileResult {
+  kept: EphemeralFileInfo[];
+  deleted: number;
 }
 
 /// extract a usable filename extension for `<blake3>.<ext>`. mirrors
@@ -107,15 +132,23 @@ export async function fetchEphemeralForSong(song: Song): Promise<{
     ext,
   });
 
+  // light up the "available offline" UI affordance for this song.
+  // tracked in-memory + reconciled on startup against the queue (see
+  // `downloadState.ephemeralOnDiskBlake3s` and `reconcileEphemeralWithQueue`).
+  markEphemeralOnDisk(song.blake3);
+
   return {
     path,
-    entry: { sha256: song.sha256, blake3: song.blake3, ext },
+    entry: { blake3: song.blake3, ext },
   };
 }
 
 /// fire-and-forget delete of one ephemeral file. errors are logged
 /// but never re-thrown — cleanup must not break playback.
 export async function deleteEphemeral(entry: EphemeralEntry): Promise<void> {
+  // optimistic UI clear: drop the underline immediately so the row
+  // doesn't lie about offline-availability while the rust delete runs.
+  unmarkEphemeralOnDisk(entry.blake3);
   try {
     const { invoke } = await import("@tauri-apps/api/core");
     await invoke("delete_ephemeral_blob", {
@@ -130,10 +163,14 @@ export async function deleteEphemeral(entry: EphemeralEntry): Promise<void> {
   }
 }
 
-/// nuke everything in `<fetch_dir>/_ephemeral/`. called on backend
-/// init (defensive; catches crash leftovers) and on dispose. errors
-/// logged + swallowed.
+/// nuke everything in `<fetch_dir>/_ephemeral/`. errors logged +
+/// swallowed. only called from explicit "purge ephemeral cache" user
+/// actions — the normal lifecycle uses `reconcileEphemeralWithQueue`
+/// instead so songs still in the queue survive across restarts.
 export async function purgeEphemeralAll(): Promise<void> {
+  // clear UI tracking eagerly — even if the rust purge fails partially,
+  // the next playback will re-mark each song as it gets re-fetched.
+  clearEphemeralOnDisk();
   try {
     const { invoke } = await import("@tauri-apps/api/core");
     const deleted = await invoke<number>("purge_ephemeral_dir");
@@ -142,5 +179,48 @@ export async function purgeEphemeralAll(): Promise<void> {
     }
   } catch (e) {
     console.warn(`[ephemeralFetch] purge failed:`, e);
+  }
+}
+
+/// reconcile `<fetch_dir>/_ephemeral/` against the current queue:
+/// delete any file whose blake3 isn't in `keepBlake3s`, then seed
+/// the ui's on-disk signal from the survivors. called on backend
+/// init (so the underline indicator is populated immediately at
+/// startup) and whenever the queue mutates (so removed-from-queue
+/// songs get cleaned up promptly).
+///
+/// errors are logged + swallowed; reconcile is best-effort.
+export async function reconcileEphemeralWithQueue(
+  keepBlake3s: Iterable<string>,
+): Promise<void> {
+  const keep = Array.from(new Set<string>(keepBlake3s));
+  try {
+    const { invoke } = await import("@tauri-apps/api/core");
+    const result = await invoke<EphemeralReconcileResult>(
+      "reconcile_ephemeral_dir",
+      { keepBlake3s: keep },
+    );
+    setEphemeralOnDiskBlake3s(result.kept.map((f) => f.blake3));
+    if (result.deleted > 0) {
+      console.info(
+        `[ephemeralFetch] reconcile: kept ${result.kept.length}, deleted ${result.deleted}`,
+      );
+    }
+  } catch (e) {
+    console.warn(`[ephemeralFetch] reconcile failed:`, e);
+  }
+}
+
+/// list every ephemeral file currently on disk and seed the ui
+/// signal from it. cheaper alternative to `reconcileEphemeralWithQueue`
+/// when the caller doesn't want to delete anything (e.g. early at
+/// startup before the queue has loaded).
+export async function refreshEphemeralOnDiskFromDisk(): Promise<void> {
+  try {
+    const { invoke } = await import("@tauri-apps/api/core");
+    const files = await invoke<EphemeralFileInfo[]>("list_ephemeral_blobs");
+    setEphemeralOnDiskBlake3s(files.map((f) => f.blake3));
+  } catch (e) {
+    console.warn(`[ephemeralFetch] list failed:`, e);
   }
 }

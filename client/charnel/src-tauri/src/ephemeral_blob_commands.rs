@@ -22,10 +22,30 @@
 //! behavior of `syncSongToLocal` (which also short-circuits when
 //! sync is off and never writes to the db).
 
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use grimoire::config::get_config;
+use serde::Serialize;
+
+/// info about one ephemeral file on disk. returned by `list_ephemeral_blobs`
+/// and `reconcile_ephemeral_dir` so the ts side can reconstruct the
+/// `<blake3>.<ext>` filename without re-parsing.
+#[derive(Debug, Clone, Serialize)]
+pub struct EphemeralFileInfo {
+    pub blake3: String,
+    pub ext: String,
+}
+
+/// summary of a reconcile pass.
+#[derive(Debug, Clone, Serialize)]
+pub struct EphemeralReconcileResult {
+    /// files still on disk after the pass (callers seed their ui from this).
+    pub kept: Vec<EphemeralFileInfo>,
+    /// count of files deleted during the pass.
+    pub deleted: u64,
+}
 
 /// hard-coded ephemeral subdirectory name. lives under the configured
 /// `fetch_music.output_dir` (or `<data_dir>/fetch` if unset). kept
@@ -212,6 +232,128 @@ pub async fn purge_ephemeral_dir() -> Result<u64, String> {
 
     tracing::info!(deleted, "ephemeral purge complete");
     Ok(deleted)
+}
+
+/// list every well-formed `<blake3>.<ext>` file currently in
+/// `<fetch_dir>/_ephemeral/`. used by the ts side on startup to seed
+/// the "available offline" ui without re-fetching anything.
+///
+/// returns an empty list if the dir doesn't exist (first run).
+/// silently skips files whose name doesn't parse cleanly.
+#[tauri::command]
+pub async fn list_ephemeral_blobs() -> Result<Vec<EphemeralFileInfo>, String> {
+    let dir = ephemeral_dir();
+    if tokio::fs::metadata(&dir).await.is_err() {
+        return Ok(Vec::new());
+    }
+
+    let mut entries = match tokio::fs::read_dir(&dir).await {
+        Ok(rd) => rd,
+        Err(e) => return Err(format!("read_dir failed: {e}")),
+    };
+
+    let mut out = Vec::new();
+    while let Ok(Some(entry)) = entries.next_entry().await {
+        let name = match entry.file_name().into_string() {
+            Ok(n) => n,
+            Err(_) => continue,
+        };
+        let Some((blake3, ext)) = name.rsplit_once('.') else {
+            continue;
+        };
+        if validate_blake3(blake3).is_err() || validate_ext(ext).is_err() {
+            continue;
+        }
+        // only count regular files (skip dirs / symlinks).
+        let meta = match entry.metadata().await {
+            Ok(m) => m,
+            Err(_) => continue,
+        };
+        if !meta.file_type().is_file() {
+            continue;
+        }
+        out.push(EphemeralFileInfo {
+            blake3: blake3.to_string(),
+            ext: ext.to_string(),
+        });
+    }
+    Ok(out)
+}
+
+/// reconcile the ephemeral dir against a "keep set" of blake3 hashes:
+/// delete any well-formed file whose blake3 is NOT in `keep_blake3s`,
+/// and return the survivors plus a deleted count.
+///
+/// called by the ts side on startup (keep = current queue) and on
+/// queue mutations (keep = new queue) so files for songs the user
+/// removed from the queue get cleaned up promptly without nuking
+/// files for songs they're still planning to play.
+#[tauri::command]
+pub async fn reconcile_ephemeral_dir(
+    keep_blake3s: Vec<String>,
+) -> Result<EphemeralReconcileResult, String> {
+    let dir = ephemeral_dir();
+    if tokio::fs::metadata(&dir).await.is_err() {
+        return Ok(EphemeralReconcileResult {
+            kept: Vec::new(),
+            deleted: 0,
+        });
+    }
+
+    // validate the keep list once up front. an invalid hash from the
+    // caller is a programming error, not a security risk (we'd just
+    // never match anything), but it's worth catching loudly.
+    for k in &keep_blake3s {
+        validate_blake3(k)?;
+    }
+    let keep: HashSet<&str> = keep_blake3s.iter().map(String::as_str).collect();
+
+    let mut entries = match tokio::fs::read_dir(&dir).await {
+        Ok(rd) => rd,
+        Err(e) => return Err(format!("read_dir failed: {e}")),
+    };
+
+    let mut kept = Vec::new();
+    let mut deleted: u64 = 0;
+    while let Ok(Some(entry)) = entries.next_entry().await {
+        let path = entry.path();
+        let name = match entry.file_name().into_string() {
+            Ok(n) => n,
+            Err(_) => {
+                tracing::warn!(path = %path.display(), "ephemeral reconcile: skipping non-utf8 filename");
+                continue;
+            }
+        };
+        let Some((blake3, ext)) = name.rsplit_once('.') else {
+            tracing::warn!(name = %name, "ephemeral reconcile: skipping unrecognized filename (no ext)");
+            continue;
+        };
+        if validate_blake3(blake3).is_err() || validate_ext(ext).is_err() {
+            tracing::warn!(name = %name, "ephemeral reconcile: skipping unrecognized filename (bad pattern)");
+            continue;
+        }
+
+        if keep.contains(blake3) {
+            kept.push(EphemeralFileInfo {
+                blake3: blake3.to_string(),
+                ext: ext.to_string(),
+            });
+            continue;
+        }
+
+        if let Err(e) = safe_delete_in_ephemeral_dir(&dir, &path).await {
+            tracing::warn!(path = %path.display(), error = %e, "ephemeral reconcile: delete failed");
+            continue;
+        }
+        deleted += 1;
+    }
+
+    tracing::info!(
+        kept = kept.len(),
+        deleted,
+        "ephemeral reconcile complete"
+    );
+    Ok(EphemeralReconcileResult { kept, deleted })
 }
 
 /// the actual safety-checked unlink. all four safety rules are

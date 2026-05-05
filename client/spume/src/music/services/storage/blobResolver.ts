@@ -661,6 +661,32 @@ export async function preCacheNextP2PSongs(
   // check if sync mode is enabled - syncSongToLocal handles charnel vs browser mode internally
   const shouldSync = getSyncQueueToLocal();
 
+  // when running rodio (charnel desktop opted-in) AND sync is OFF,
+  // the html cache-API path is useless: rodio decodes from a fs path
+  // and never reads the Cache API. instead, pre-warm the ephemeral
+  // dir so the next track is already on disk by the time `loadAndPlay`
+  // calls `fetchEphemeralForSong`. dynamic import avoids a hard
+  // dependency cycle (audio/* imports from storage/*).
+  let useEphemeralPreFetch = false;
+  if (!shouldSync) {
+    try {
+      const { isRodioEnabled } = await import("../audio/select");
+      const { isCharnelMode } = await import("../../../app/services/charnel/mode");
+      useEphemeralPreFetch = isCharnelMode() && isRodioEnabled();
+    } catch {
+      // module missing in non-charnel builds — leave flag false.
+    }
+  }
+  let fetchEphemeralForSong: ((song: Song) => Promise<unknown>) | null = null;
+  if (useEphemeralPreFetch) {
+    try {
+      const mod = await import("../audio/ephemeralFetch");
+      fetchEphemeralForSong = mod.fetchEphemeralForSong;
+    } catch {
+      useEphemeralPreFetch = false;
+    }
+  }
+
   // find current song index
   const currentIdx = queue.findIndex((s) => s.sha256 === currentSongSha256);
   if (currentIdx < 0) {
@@ -816,6 +842,22 @@ export async function preCacheNextP2PSongs(
         // the song won't be pre-cached but will be fetched on-demand when played
         console.warn(`failed to sync first P2P song ${firstEntry.sha256}:`, result.error);
       }
+    } else if (useEphemeralPreFetch && fetchEphemeralForSong && firstEntry.song.blake3) {
+      // rodio + sync_queue_to_local=off: warm `<fetch_dir>/_ephemeral/`
+      // so the next track is already on disk for `loadAndPlay`. the
+      // tauri command is idempotent — already-present files return
+      // their path immediately. addToLoadingSet pairs with the
+      // underline progress bar in the queue row.
+      addToLoadingSet(firstEntry.sha256);
+      try {
+        await fetchEphemeralForSong(firstEntry.song);
+        debug(
+          "blobResolver",
+          `first P2P song pre-fetched (ephemeral): ${firstEntry.sha256.slice(0, 8)}...`
+        );
+      } finally {
+        removeFromLoadingSet(firstEntry.sha256);
+      }
     } else {
       // cache mode: just cache the blob.
       // first arg is the *remote's* media_blobz.id pk (used for
@@ -868,10 +910,16 @@ export async function preCacheNextP2PSongs(
   // concurrently. cache-mode audio and image pre-caches stay parallel
   // (fire-and-forget) since they're cheaper and don't share the same code path.
   const syncEntries: { sha256: string; song: Song & SyncableSong }[] = [];
+  // rodio + sync-off pre-fetches also run sequentially (same iroh-blobs
+  // contention concern + saves cleaning up half-finished files on the
+  // next track switch).
+  const ephemeralEntries: { sha256: string; song: Song }[] = [];
   for (const entry of restEntries) {
     if (shouldSync && canSyncSong(entry.song)) {
       // queue for sequential sync below (canSyncSong narrows entry.song)
       syncEntries.push({ sha256: entry.sha256, song: entry.song });
+    } else if (useEphemeralPreFetch && fetchEphemeralForSong && entry.song.blake3) {
+      ephemeralEntries.push({ sha256: entry.sha256, song: entry.song });
     } else {
       // cache mode: just cache the blob.
       // first arg = remote's media_blobz.id pk (route param);
@@ -919,6 +967,25 @@ export async function preCacheNextP2PSongs(
           }
         } catch (err) {
           console.warn(`failed to sync P2P song ${entry.sha256}:`, err);
+        } finally {
+          removeFromLoadingSet(entry.sha256);
+        }
+      }
+    })();
+  }
+
+  // process rodio + sync-off pre-fetches sequentially. each call is
+  // idempotent on the rust side so re-fires across overlapping
+  // pre-cache passes are cheap.
+  if (ephemeralEntries.length > 0 && fetchEphemeralForSong) {
+    const fetchEphemeral = fetchEphemeralForSong;
+    void (async () => {
+      for (const entry of ephemeralEntries) {
+        addToLoadingSet(entry.sha256);
+        try {
+          await fetchEphemeral(entry.song);
+        } catch (err) {
+          console.warn(`failed to pre-fetch ephemeral P2P song ${entry.sha256}:`, err);
         } finally {
           removeFromLoadingSet(entry.sha256);
         }

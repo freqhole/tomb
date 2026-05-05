@@ -759,6 +759,8 @@ pub fn run() {
             ephemeral_blob_commands::fetch_ephemeral_blob,
             ephemeral_blob_commands::delete_ephemeral_blob,
             ephemeral_blob_commands::purge_ephemeral_dir,
+            ephemeral_blob_commands::list_ephemeral_blobs,
+            ephemeral_blob_commands::reconcile_ephemeral_dir,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
