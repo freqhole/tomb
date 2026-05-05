@@ -348,11 +348,7 @@ pub async fn reconcile_ephemeral_dir(
         deleted += 1;
     }
 
-    tracing::info!(
-        kept = kept.len(),
-        deleted,
-        "ephemeral reconcile complete"
-    );
+    tracing::info!(kept = kept.len(), deleted, "ephemeral reconcile complete");
     Ok(EphemeralReconcileResult { kept, deleted })
 }
 
