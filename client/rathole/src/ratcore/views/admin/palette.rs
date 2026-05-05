@@ -1,10 +1,9 @@
 //! admin command palette. left pane: scrolling list of every entry
-//! in `grimoire::admin_dispatch::registry::all_commands()`. right
-//! pane: details for the selected command + result of the most
-//! recent dispatch.
+//! in `app.commands` (built by the shell). right pane: details for
+//! the selected command + result of the most recent dispatch.
 //!
 //! m0 dispatches with empty args (no typed forms yet — see
-//! [docs/TUI_PLAN.md](../../../../docs/TUI_PLAN.md) m1).
+//! [docs/TUI_PLAN.md](../../../../../docs/TUI_PLAN.md) m1).
 
 use ratatui::{
     layout::{Constraint::*, Layout, Rect},
@@ -14,22 +13,19 @@ use ratatui::{
     Frame,
 };
 
-use crate::app::App;
+use crate::ratcore::app::App;
 
 pub fn draw(frame: &mut Frame, area: Rect, app: &mut App) {
     let [left, right] = Layout::horizontal([Length(40), Min(0)]).areas(area);
 
-    let commands = grimoire::admin_dispatch::registry::all_commands();
-    let items: Vec<ListItem> = commands
+    let items: Vec<ListItem> = app
+        .commands
         .iter()
-        .map(|c| ListItem::new(c.name))
+        .map(|c| ListItem::new(c.name.clone()))
         .collect();
 
     let list = List::new(items)
-        .block(
-            Block::bordered()
-                .title(format!("commands ({})", commands.len()).cyan().bold()),
-        )
+        .block(Block::bordered().title(format!("commands ({})", app.commands.len()).cyan().bold()))
         .highlight_style(ratatui::style::Style::new().reversed())
         .highlight_symbol("▶ ");
 
@@ -39,30 +35,28 @@ pub fn draw(frame: &mut Frame, area: Rect, app: &mut App) {
 }
 
 fn draw_detail(frame: &mut Frame, area: Rect, app: &App) {
-    let commands = grimoire::admin_dispatch::registry::all_commands();
     let selected = app.state.ephemeral.palette_list.selected().unwrap_or(0);
-    let cmd = commands.get(selected);
+    let cmd = app.commands.get(selected);
 
-    let [info_area, result_area] =
-        Layout::vertical([Length(8), Min(0)]).areas(area);
+    let [info_area, result_area] = Layout::vertical([Length(8), Min(0)]).areas(area);
 
     let info_lines = if let Some(c) = cmd {
         vec![
             Line::from(vec![
                 Span::raw("name:           "),
-                Span::raw(c.name).bold(),
+                Span::raw(c.name.clone()).bold(),
             ]),
             Line::from(vec![
                 Span::raw("request type:   "),
-                Span::raw(c.request_type),
+                Span::raw(c.request_type.clone()),
             ]),
             Line::from(vec![
                 Span::raw("response type:  "),
-                Span::raw(c.response_type),
+                Span::raw(c.response_type.clone()),
             ]),
             Line::from(vec![
                 Span::raw("auth:           "),
-                Span::raw(c.auth.as_str()),
+                Span::raw(c.auth.clone()),
             ]),
         ]
     } else {
@@ -90,10 +84,7 @@ fn draw_detail(frame: &mut Frame, area: Rect, app: &App) {
                         Span::raw("fail").red()
                     },
                 ]),
-                Line::from(vec![
-                    Span::raw("message: "),
-                    Span::raw(d.message.clone()),
-                ]),
+                Line::from(vec![Span::raw("message: "), Span::raw(d.message.clone())]),
                 Line::from(""),
             ];
             if let Some(pretty) = &d.data_pretty {

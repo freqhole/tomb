@@ -9,7 +9,7 @@ use ratatui::{
     Frame,
 };
 
-use crate::app::App;
+use crate::ratcore::app::App;
 
 pub fn draw(frame: &mut Frame, app: &mut App) {
     let [header, body, footer] =

@@ -1,14 +1,15 @@
-//! app state — persisted slice (loaded from / saved to statefile)
-//! plus ephemeral slice (in-memory only).
+//! app state — persisted slice (loaded by shell) plus ephemeral
+//! slice (in-memory only).
 //!
-//! statefile schema is documented in [docs/TUI_PLAN.md](../../../docs/TUI_PLAN.md) §5.
+//! statefile schema is documented in [docs/TUI_PLAN.md](../../../../docs/TUI_PLAN.md) §5.
 
 use ratatui::widgets::ListState;
 use serde::{Deserialize, Serialize};
 
-use super::persist;
+use super::events::LastDispatch;
 
-/// the persisted slice — serialized to `<data_dir>/rathole/state.toml`.
+/// the persisted slice — serialized to whatever the shell uses
+/// (toml on tty, localStorage / IndexedDB on web later).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PersistedState {
     #[serde(default = "default_schema_version")]
@@ -52,7 +53,8 @@ pub struct UiPrefs {
 pub struct RemoteEntry {
     pub remote_id: String,
     pub name: String,
-    /// "app" = local in-process; "wasm"/"http" reserved for m5+/future
+    /// "app" = local in-process; "midden" = browser-iroh; future
+    /// values reserved.
     pub transport: String,
     #[serde(default)]
     pub peer_addr: Option<String>,
@@ -68,7 +70,7 @@ pub struct RemoteEntry {
 
 /// rathole-only side-car for `transport = "app"` entries: where the
 /// freqhole-config.toml lives and which user we dispatch admin
-/// commands as.
+/// commands as. tty-only in practice.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LocalRef {
     pub config_path: std::path::PathBuf,
@@ -95,13 +97,6 @@ pub struct EphemeralState {
     pub last_dispatch: Option<LastDispatch>,
 }
 
-pub struct LastDispatch {
-    pub command: String,
-    pub success: bool,
-    pub message: String,
-    pub data_pretty: Option<String>,
-}
-
 impl Default for EphemeralState {
     fn default() -> Self {
         let mut palette_list = ListState::default();
@@ -114,26 +109,17 @@ impl Default for EphemeralState {
     }
 }
 
+#[derive(Default)]
 pub struct AppState {
     pub persisted: PersistedState,
     pub ephemeral: EphemeralState,
 }
 
 impl AppState {
-    pub fn load_or_default() -> Self {
-        let persisted = persist::load().unwrap_or_else(|e| {
-            tracing::warn!("rathole: statefile load failed ({e}); using defaults");
-            PersistedState::default()
-        });
+    pub fn from_persisted(persisted: PersistedState) -> Self {
         Self {
             persisted,
             ephemeral: EphemeralState::default(),
-        }
-    }
-
-    pub fn save(&self) {
-        if let Err(e) = persist::save(&self.persisted) {
-            tracing::warn!("rathole: statefile save failed: {e}");
         }
     }
 }

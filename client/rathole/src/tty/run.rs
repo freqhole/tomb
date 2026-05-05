@@ -1,23 +1,58 @@
-//! event loop. follows the ratatui idiom: `EventStream` for
+//! tty event loop. follows the ratatui idiom: `EventStream` for
 //! crossterm input + `tokio::select!` for ticks and background-task
 //! actions, redraw on each iteration.
+//!
+//! owns the bootstrap: builds the command list from grimoire's
+//! registry, loads the statefile, constructs the `LocalTransport`,
+//! then drives `ratcore::App`.
 
 use crossterm::event::{Event, EventStream, KeyCode, KeyEventKind, KeyModifiers};
 use futures::StreamExt;
+use std::rc::Rc;
 use std::time::Duration;
 use tokio::sync::mpsc;
+use tokio::task::LocalSet;
 
-use super::events::AppAction;
-use super::state::{Focus, LastDispatch};
-use super::App;
-use crate::transport::Transport;
-use crate::views;
-use std::sync::Arc;
+use super::persist;
+use super::transport::LocalTransport;
+use super::LaunchOpts;
+use crate::ratcore::app::{
+    AdminCommand, App, AppAction, AppState, Focus, LastDispatch, PersistedState,
+};
+use crate::ratcore::transport::Transport;
+use crate::ratcore::views;
 
-pub async fn run_loop(
-    mut app: App,
-    mut terminal: ratatui::DefaultTerminal,
-) -> color_eyre::Result<()> {
+/// build the seed command list from grimoire's registry.
+fn build_commands() -> Vec<AdminCommand> {
+    grimoire::admin_dispatch::registry::all_commands()
+        .iter()
+        .map(|c| AdminCommand {
+            name: c.name.to_string(),
+            request_type: c.request_type.to_string(),
+            response_type: c.response_type.to_string(),
+            auth: c.auth.as_str().to_string(),
+        })
+        .collect()
+}
+
+pub async fn run(terminal: ratatui::DefaultTerminal, _opts: LaunchOpts) -> color_eyre::Result<()> {
+    // wrap in a LocalSet so we can use `tokio::task::spawn_local` —
+    // the `Transport` trait is `?Send` (matches the wasm shell's
+    // single-threaded constraint) so we can't use `tokio::spawn`.
+    let local = LocalSet::new();
+    local.run_until(run_inner(terminal)).await
+}
+
+async fn run_inner(mut terminal: ratatui::DefaultTerminal) -> color_eyre::Result<()> {
+    let commands = build_commands();
+    let persisted: PersistedState = persist::load().unwrap_or_else(|e| {
+        tracing::warn!("rathole: statefile load failed ({e}); using defaults");
+        PersistedState::default()
+    });
+    let state = AppState::from_persisted(persisted);
+    let transport: Rc<dyn Transport> = Rc::new(LocalTransport::from_first_root().await?);
+    let mut app = App::new(state, transport, commands);
+
     let mut events = EventStream::new();
     let mut tick = tokio::time::interval(Duration::from_millis(250));
     let (action_tx, mut action_rx) = mpsc::unbounded_channel::<AppAction>();
@@ -35,7 +70,9 @@ pub async fn run_loop(
         }
     }
 
-    app.state.save();
+    if let Err(e) = persist::save(&app.state.persisted) {
+        tracing::warn!("rathole: statefile save failed: {e}");
+    }
     Ok(())
 }
 
@@ -61,8 +98,7 @@ fn on_event(app: &mut App, ev: Event, action_tx: &mpsc::UnboundedSender<AppActio
 }
 
 fn on_palette_key(app: &mut App, code: KeyCode, action_tx: &mpsc::UnboundedSender<AppAction>) {
-    let commands = grimoire::admin_dispatch::registry::all_commands();
-    let len = commands.len();
+    let len = app.commands.len();
     if len == 0 {
         return;
     }
@@ -84,10 +120,10 @@ fn on_palette_key(app: &mut App, code: KeyCode, action_tx: &mpsc::UnboundedSende
         }
         KeyCode::Enter => {
             // m0: dispatch with empty args. typed forms arrive in m1.
-            let cmd = commands[selected].name.to_string();
-            let transport: Arc<dyn Transport> = app.transport.clone();
+            let cmd = app.commands[selected].name.clone();
+            let transport = app.transport.clone();
             let tx = action_tx.clone();
-            tokio::spawn(async move {
+            tokio::task::spawn_local(async move {
                 let response = transport.admin_dispatch(&cmd, serde_json::json!({})).await;
                 let _ = tx.send(AppAction::AdminDispatchResult {
                     command: cmd,

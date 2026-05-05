@@ -2,32 +2,62 @@
 name = "rathole"
 version.workspace = true
 edition = "2021"
-description = "ratatui-based terminal client for freqhole"
+description = "ratatui-based client for freqhole (terminal + browser)"
 
+# wasm-pack invokes `wasm-opt` after rustc. its bundled wasm-opt
+# is too old for the bulk-memory ops modern rustc emits, so the
+# Makefile prepends `/opt/homebrew/bin` (brew's binaryen) to PATH
+# before invoking wasm-pack. nothing to disable here.
+
+# ----------------------------------------------------------------------
+# deps shared by both shells (ratcore). nothing here may pull
+# crossterm, tokio runtime, grimoire, or any other shell-only crate.
+# ----------------------------------------------------------------------
 [dependencies]
-# core ui
-ratatui = "0.29"
-crossterm = { version = "0.28", features = ["event-stream"] }
-
-# async + state
-tokio = { workspace = true }
+ratatui = { version = "0.30", default-features = false }
 async-trait = { workspace = true }
-futures = "0.3"
 serde = { workspace = true }
 serde_json = { workspace = true }
+tracing = { workspace = true }
+
+# ----------------------------------------------------------------------
+# tty shell deps (anything that's NOT wasm32). cargo unifies these
+# with the base [dependencies] block when building for the host.
+# ----------------------------------------------------------------------
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+ratatui = { version = "0.30", features = ["crossterm"] }
+crossterm = { version = "0.28", features = ["event-stream"] }
+tokio = { workspace = true }
+futures = "0.3"
 toml = "0.8"
 ulid = "1"
 color-eyre = "0.6"
-tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
-
-# domain
 grimoire = { path = "../../grimoire" }
 anyhow = { workspace = true }
+
+# ----------------------------------------------------------------------
+# web shell deps (wasm32 only). ratzilla brings its own ratatui
+# backend; we stay default-features = false on the base ratatui to
+# keep crossterm out.
+#
+# pinned to git main (not crates.io 0.3.0) because main has the
+# hidpi/dpr fix for webgl2 — beamterm now sizes the buffer as
+# `logical * devicePixelRatio` so retina renders crisply. 0.3.0
+# sets `canvas.width = client_width` (css px) and looks blurry on
+# any hidpi display. revisit pinning to a release once 0.4 ships.
+# ----------------------------------------------------------------------
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+ratzilla = { git = "https://github.com/ratatui/ratzilla", branch = "main" }
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+console_error_panic_hook = "0.1"
 
 [[bin]]
 name = "rathole"
 path = "src/bin/rathole.rs"
+required-features = []
 
 [lib]
 path = "src/lib.rs"
+crate-type = ["cdylib", "rlib"]

@@ -1,8 +1,9 @@
 //! statefile load/save. format: toml under
 //! `<grimoire data_dir>/rathole/state.toml`.
 
-use super::state::PersistedState;
 use std::path::PathBuf;
+
+use crate::ratcore::app::PersistedState;
 
 fn statefile_path() -> PathBuf {
     let data_dir = grimoire::config::get_config().data_dir;

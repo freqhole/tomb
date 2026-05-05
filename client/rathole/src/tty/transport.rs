@@ -7,11 +7,11 @@
 
 use async_trait::async_trait;
 use grimoire::offal::Caller;
-use grimoire::response::GrimoireResponse;
 use grimoire::users::UserService;
 use serde_json::Value as JsonValue;
 
-use super::Transport;
+use crate::ratcore::app::DispatchResponse;
+use crate::ratcore::transport::Transport;
 
 pub struct LocalTransport {
     caller: Caller,
@@ -39,9 +39,14 @@ impl LocalTransport {
     }
 }
 
-#[async_trait]
+#[async_trait(?Send)]
 impl Transport for LocalTransport {
-    async fn admin_dispatch(&self, cmd: &str, args: JsonValue) -> GrimoireResponse<JsonValue> {
-        grimoire::admin_dispatch::handle(cmd, args, &self.caller).await
+    async fn admin_dispatch(&self, cmd: &str, args: JsonValue) -> DispatchResponse {
+        let resp = grimoire::admin_dispatch::handle(cmd, args, &self.caller).await;
+        DispatchResponse {
+            success: resp.success,
+            message: resp.message,
+            data: resp.data,
+        }
     }
 }

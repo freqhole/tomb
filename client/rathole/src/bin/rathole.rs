@@ -1,4 +1,5 @@
-//! standalone rathole binary entry. delegates to the library `run`.
+//! standalone rathole binary entry (tty shell). delegates to the
+//! library `run`.
 //!
 //! initialises grimoire config + database here so the binary works
 //! when invoked directly (not via `freqhole rathole`).
@@ -8,7 +9,7 @@
 
 use std::path::PathBuf;
 
-#[tokio::main]
+#[tokio::main(flavor = "current_thread")]
 async fn main() -> color_eyre::Result<()> {
     color_eyre::install()?;
 
