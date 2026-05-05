@@ -134,9 +134,21 @@ pub async fn update_station(req: UpdateStationRequest) -> GrimoireResult<RadioSt
 
 pub async fn delete_station(id: &str) -> GrimoireResult<()> {
     let pool = database::connect().await?;
+    // music_play_eventz.radio_station_id has no ON DELETE action (see
+    // migrations/026_play_count_views.sql). nullify any references first so
+    // the cascade-less FK doesn't block the station delete. preserves the
+    // historical play event for song/album/artist crediting.
+    let mut tx = pool.begin().await?;
+    sqlx::query!(
+        "UPDATE music_play_eventz SET radio_station_id = NULL WHERE radio_station_id = ?",
+        id
+    )
+    .execute(&mut *tx)
+    .await?;
     sqlx::query!("DELETE FROM radio_stationz WHERE id = ?", id)
-        .execute(&pool)
+        .execute(&mut *tx)
         .await?;
+    tx.commit().await?;
     Ok(())
 }
 

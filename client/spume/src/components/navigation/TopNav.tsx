@@ -9,7 +9,7 @@ import {
   Show,
   type JSX,
 } from "solid-js";
-import { isCharnelMode } from "../../app/services/charnel";
+import { getLocalNodeId, isCharnelMode } from "../../app/services/charnel";
 import { getPageInfo } from "../../app/services/pageInfo";
 import { isNarrowViewport } from "../../config/breakpoints";
 import { canCreatePlaylist, canUploadMusic } from "../../music/data/permissions";
@@ -381,8 +381,39 @@ export function TopNav(props: TopNavProps) {
   ): MenuAction[] => {
     const actions: MenuAction[] = [];
 
-    // copy: prefer node id (p2p/local), else url (http remote)
-    if (remote.peerAddr) {
+    // for the charnel-managed local row, peerAddr is undefined and url is the
+    // "local" sentinel. resolve to the running iroh node id (populated by
+    // charnel host on startup) so copy/qr expose a usable share target.
+    const localNodeId =
+      remote.isCharnelManaged || (remote.isLocal && (!remote.peerAddr || remote.url === "local"))
+        ? getLocalNodeId()
+        : null;
+
+    // copy: prefer node id (p2p / charnel-local), else url (http remote)
+    if (localNodeId) {
+      actions.push({
+        label: "copy node id",
+        icon: "copy",
+        onClick: async () => {
+          try {
+            await navigator.clipboard.writeText(localNodeId);
+            toast.success("node id copied");
+          } catch {
+            toast.error("failed to copy");
+          }
+        },
+      });
+      actions.push({
+        label: "show qr code",
+        icon: "share",
+        onClick: () => {
+          setQrPayload({
+            payload: `${DEFAULT_SHARE_WEB_HOST}/?r=${localNodeId}`,
+            name: remote.name,
+          });
+        },
+      });
+    } else if (remote.peerAddr) {
       const nodeId = extractNodeIdLocal(remote.peerAddr);
       actions.push({
         label: "copy node id",
