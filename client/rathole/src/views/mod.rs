@@ -19,10 +19,7 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
         Paragraph::new("rathole — admin").bold().on_dark_gray(),
         header,
     );
-    frame.render_widget(
-        Paragraph::new(footer_hints()).dim(),
-        footer,
-    );
+    frame.render_widget(Paragraph::new(footer_hints()).dim(), footer);
 
     admin::palette::draw(frame, body, app);
 }

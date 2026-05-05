@@ -60,11 +60,7 @@ fn on_event(app: &mut App, ev: Event, action_tx: &mpsc::UnboundedSender<AppActio
     }
 }
 
-fn on_palette_key(
-    app: &mut App,
-    code: KeyCode,
-    action_tx: &mpsc::UnboundedSender<AppAction>,
-) {
+fn on_palette_key(app: &mut App, code: KeyCode, action_tx: &mpsc::UnboundedSender<AppAction>) {
     let commands = grimoire::admin_dispatch::registry::all_commands();
     let len = commands.len();
     if len == 0 {
@@ -92,9 +88,7 @@ fn on_palette_key(
             let transport: Arc<dyn Transport> = app.transport.clone();
             let tx = action_tx.clone();
             tokio::spawn(async move {
-                let response = transport
-                    .admin_dispatch(&cmd, serde_json::json!({}))
-                    .await;
+                let response = transport.admin_dispatch(&cmd, serde_json::json!({})).await;
                 let _ = tx.send(AppAction::AdminDispatchResult {
                     command: cmd,
                     response,

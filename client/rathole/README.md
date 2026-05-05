@@ -23,7 +23,7 @@ cargo run --bin freqhole -- rathole
 - lowercase prose
 - no emojis in code
 - lean into ratatui idioms (`ratatui::init()`, `Layout::vertical(...)
-  .areas(...)`, `Stylize`, built-in `ListState`/`TableState`,
+.areas(...)`, `Stylize`, built-in `ListState`/`TableState`,
   `EventStream` + `tokio::select!`, `KeyEventKind::Press` filter)
 - lean into existing freqhole abstractions (`grimoire::admin_dispatch`,
   `grimoire::remotez::Remote`, `UserService::get_first_root_user`,
