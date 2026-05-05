@@ -1,0 +1,33 @@
+[package]
+name = "rathole"
+version.workspace = true
+edition = "2021"
+description = "ratatui-based terminal client for freqhole"
+
+[dependencies]
+# core ui
+ratatui = "0.29"
+crossterm = { version = "0.28", features = ["event-stream"] }
+
+# async + state
+tokio = { workspace = true }
+async-trait = { workspace = true }
+futures = "0.3"
+serde = { workspace = true }
+serde_json = { workspace = true }
+toml = "0.8"
+ulid = "1"
+color-eyre = "0.6"
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+# domain
+grimoire = { path = "../../grimoire" }
+anyhow = { workspace = true }
+
+[[bin]]
+name = "rathole"
+path = "src/bin/rathole.rs"
+
+[lib]
+path = "src/lib.rs"

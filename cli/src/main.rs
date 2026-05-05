@@ -137,6 +137,9 @@ enum Commands {
         #[arg(long, short = 'c')]
         config: Option<std::path::PathBuf>,
     },
+
+    /// Launch rathole — terminal-ui freqhole client (m0)
+    Rathole,
 }
 
 #[tokio::main]
@@ -262,6 +265,13 @@ async fn main() -> Result<()> {
         Commands::Serve { .. } | Commands::Http { .. } | Commands::P2p { .. } => {
             // handled above with early return
             unreachable!()
+        }
+        Commands::Rathole => {
+            rathole::run(rathole::LaunchOpts {
+                config: cli.config.clone(),
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("rathole exited with error: {e}"))?;
         }
     }
 
