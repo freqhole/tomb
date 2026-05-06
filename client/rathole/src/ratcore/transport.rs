@@ -86,6 +86,32 @@ pub trait Transport {
             data: None,
         }
     }
+
+    /// resolve a media-blob id into a url the audio player can `Load`.
+    /// returns `(url, mime)`. tty shells return the local filesystem
+    /// path; the web shell builds a `blob:` object url from base64
+    /// bytes fetched via the public proxy. default returns Err so
+    /// shells without a binding fail loudly.
+    async fn resolve_blob_url(&self, blob_id: &str) -> Result<(String, String), String> {
+        let _ = blob_id;
+        Err("transport does not support resolve_blob_url".to_string())
+    }
+
+    /// fetch the songs in a playlist as `SongRow`s (ordered by
+    /// playlist position). default Err so shells without a backend
+    /// fail loudly.
+    async fn playlist_songs(&self, playlist_id: &str) -> Result<Vec<SongRow>, String> {
+        let _ = playlist_id;
+        Err("transport does not support playlist_songs".to_string())
+    }
+
+    /// fetch the songs on an album as `SongRow`s (ordered by disc
+    /// + track number). default Err so shells without a backend fail
+    /// loudly.
+    async fn album_songs(&self, album_id: &str) -> Result<Vec<SongRow>, String> {
+        let _ = album_id;
+        Err("transport does not support album_songs".to_string())
+    }
 }
 
 /// commands the music view sends to a backend audio player. ratcore

@@ -6982,6 +6982,7 @@ version = "0.1.22"
 dependencies = [
  "anyhow",
  "async-trait",
+ "base64 0.21.7",
  "color-eyre",
  "console_error_panic_hook",
  "crossterm 0.28.1",

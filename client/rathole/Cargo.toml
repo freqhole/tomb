@@ -58,6 +58,7 @@ wasm-bindgen-futures = "0.4"
 console_error_panic_hook = "0.1"
 midden = { path = "../midden" }
 js-sys = "0.3"
+base64 = { workspace = true }
 web-sys = { version = "0.3", features = [
     "Window",
     "Document",
@@ -70,7 +71,9 @@ web-sys = { version = "0.3", features = [
     "UrlSearchParams",
     "console",
     "HtmlAudioElement",
-    "HtmlMediaElement",
+    "Url",
+    "Blob",
+    "BlobPropertyBag",
 ] }
 futures = "0.3"
 # IndexedDB wrapper. schema/path matches spume's `freqhole_app` /

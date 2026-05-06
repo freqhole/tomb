@@ -23,15 +23,21 @@ use crate::ratcore::{
 };
 
 /// returns the number of vertical lines the player row needs in the
-/// global chrome layout. 0 when hidden, 2 when active.
+/// global chrome layout. 0 when hidden, 2 when active, 3 when there
+/// is a queue tail to preview ("up next:" line).
 pub fn height(app: &App) -> u16 {
     let m = &app.state.ephemeral.music;
     let has_track = m.currently_playing().is_some();
     let active = !matches!(m.player_state, PlayerState::Stopped) || has_track;
-    if active {
-        2
+    if !active {
+        return 0;
+    }
+    let cur = m.current.unwrap_or(0);
+    let queue_tail = m.queue.len().saturating_sub(cur + 1);
+    if queue_tail > 0 {
+        3
     } else {
-        0
+        2
     }
 }
 
@@ -109,7 +115,31 @@ pub fn draw(frame: &mut Frame, area: Rect, app: &App) {
         Span::raw(format!(" {total} ")).dim(),
     ]);
 
-    let lines = if area.height >= 2 {
+    let lines = if area.height >= 3 {
+        let cur = m.current.unwrap_or(0);
+        let queue_tail = m.queue.len().saturating_sub(cur + 1);
+        let next_label = m
+            .queue
+            .get(cur + 1)
+            .map(|s| {
+                let title = s.title.clone();
+                let artist = s.artist.clone().unwrap_or_else(|| "—".into());
+                format!("{title}  ·  {artist}")
+            })
+            .unwrap_or_else(|| "(end of queue)".into());
+        let extra = queue_tail.saturating_sub(1);
+        let suffix = if extra > 0 {
+            format!("  (+{extra} more)")
+        } else {
+            String::new()
+        };
+        let line3 = Line::from(vec![
+            Span::raw(" up next: ").dim(),
+            Span::raw(next_label),
+            Span::raw(suffix).dim(),
+        ]);
+        vec![line1, line2, line3]
+    } else if area.height >= 2 {
         vec![line1, line2]
     } else {
         vec![line1]

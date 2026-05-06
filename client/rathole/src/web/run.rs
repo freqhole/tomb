@@ -69,11 +69,22 @@ pub async fn boot() -> Result<(), JsValue> {
     let mut state = AppState::from_persisted(PersistedState::default());
     state.ephemeral.local_node_id = Some(local_node_id);
     state.ephemeral.connected_peer = connected_peer;
-    let app = Rc::new(RefCell::new(App::new(state, transport, sample_commands())));
+    let mut app_inst = App::new(state, transport, sample_commands());
 
     // background-task → ui channel.
     let (action_tx, action_rx) = mpsc::unbounded::<AppAction>();
     let action_rx = Rc::new(RefCell::new(action_rx));
+
+    // attach the html-audio backend so the music view + player row
+    // can drive playback. failure here is non-fatal — the shell
+    // continues without an audio backend (everything else still works).
+    match crate::web::player::HtmlAudioPlayer::spawn(action_tx.clone()) {
+        Ok(player) => app_inst.player = Some(player),
+        Err(e) => web_sys::console::warn_1(
+            &format!("rathole: html audio backend init failed: {e}").into(),
+        ),
+    }
+    let app = Rc::new(RefCell::new(app_inst));
 
     // input
     let app_for_input = app.clone();
@@ -95,12 +106,13 @@ pub async fn boot() -> Result<(), JsValue> {
     // render loop
     let app_for_draw = app.clone();
     let rx_for_draw = action_rx.clone();
+    let tx_for_draw = action_tx.clone();
     terminal.draw_web(move |frame| {
         {
             let mut app = app_for_draw.borrow_mut();
             let mut rx = rx_for_draw.borrow_mut();
             while let Ok(action) = rx.try_recv() {
-                on_action(&mut app, action);
+                on_action(&mut app, action, &tx_for_draw);
             }
         }
         let mut app = app_for_draw.borrow_mut();
@@ -125,9 +137,9 @@ fn on_key(
         Focus::ResultActionMenu => on_action_menu_key(app, code, tx),
         // music view: no audio backend on web today; only the search
         // box + result browse work (esc returns to palette).
-        Focus::MusicView => on_music_key_web(app, code),
-        Focus::Repl => on_repl_key_web(app, code),
-        Focus::PlayerRow => on_player_row_key_web(app, code),
+        Focus::MusicView => on_music_key_web(app, code, tx),
+        Focus::Repl => on_repl_key_web(app, code, tx),
+        Focus::PlayerRow => on_player_row_key_web(app, code, tx),
     }
 }
 
@@ -314,8 +326,7 @@ fn on_result_panel_key(app: &mut App, code: KeyCode, shift: bool) {
         KeyCode::Enter | KeyCode::Char('a') => {
             if let Some(ld) = eph.last_dispatch.as_ref() {
                 if let Some(row) = ld.rows.get(ld.cursor) {
-                    let actions =
-                        crate::ratcore::catalog::result_actions(&ld.command);
+                    let actions = crate::ratcore::catalog::result_actions(&ld.command);
                     if !actions.is_empty() {
                         eph.action_menu = Some(crate::ratcore::app::ActionMenu {
                             source_command: ld.command.clone(),
@@ -425,17 +436,13 @@ fn on_form_key(app: &mut App, code: KeyCode, _shift: bool, tx: &mpsc::UnboundedS
                 (FieldState::LongText { buf, cursor }, KeyCode::Backspace) => {
                     ti::backspace(buf, cursor)
                 }
-                (FieldState::LongText { buf, cursor }, KeyCode::Delete) => {
-                    ti::delete(buf, cursor)
-                }
+                (FieldState::LongText { buf, cursor }, KeyCode::Delete) => ti::delete(buf, cursor),
                 (FieldState::LongText { cursor, .. }, KeyCode::Left) => ti::move_left(cursor),
                 (FieldState::LongText { buf, cursor }, KeyCode::Right) => {
                     ti::move_right(buf, cursor)
                 }
                 (FieldState::LongText { cursor, .. }, KeyCode::Home) => ti::move_home(cursor),
-                (FieldState::LongText { buf, cursor }, KeyCode::End) => {
-                    ti::move_end(buf, cursor)
-                }
+                (FieldState::LongText { buf, cursor }, KeyCode::End) => ti::move_end(buf, cursor),
                 (FieldState::LongText { buf, cursor }, KeyCode::Char(c)) => {
                     if !c.is_control() {
                         ti::insert_char(buf, cursor, *c);
@@ -586,11 +593,7 @@ fn validate_focused(form: &CommandForm) -> Result<(), String> {
 /// the result-pane action menu accepts up/down to navigate, Enter
 /// to pick (opens the target command's form prefilled with the
 /// row), and Esc to dismiss back to the result panel.
-fn on_action_menu_key(
-    app: &mut App,
-    code: KeyCode,
-    tx: &mpsc::UnboundedSender<AppAction>,
-) {
+fn on_action_menu_key(app: &mut App, code: KeyCode, tx: &mpsc::UnboundedSender<AppAction>) {
     let eph = &mut app.state.ephemeral;
     let Some(menu) = eph.action_menu.as_mut() else {
         eph.focus = Focus::ResultPanel;
@@ -628,6 +631,31 @@ fn on_action_menu_key(
                 eph.focus = Focus::ResultPanel;
                 return;
             }
+            if opt.target_command == "__play_playlist__"
+                || opt.target_command == "__play_album__"
+            {
+                let kind = if opt.target_command == "__play_playlist__" {
+                    "playlist"
+                } else {
+                    "album"
+                };
+                let Some(id) = row
+                    .get("id")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string())
+                else {
+                    eph.focus = Focus::ResultPanel;
+                    return;
+                };
+                let title = row
+                    .get("title")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or(kind)
+                    .to_string();
+                eph.focus = Focus::PlayerRow;
+                play_collection_web(app, kind, id, title, tx);
+                return;
+            }
             let Some(cmd) = app
                 .commands
                 .iter()
@@ -637,8 +665,9 @@ fn on_action_menu_key(
                 eph.focus = Focus::ResultPanel;
                 return;
             };
-            app.state.ephemeral.form =
-                Some(crate::ratcore::app::CommandForm::new_with_prefill(&cmd, &row));
+            app.state.ephemeral.form = Some(crate::ratcore::app::CommandForm::new_with_prefill(
+                &cmd, &row,
+            ));
             app.state.ephemeral.focus = Focus::CommandForm;
             maybe_fetch_select_options(app, tx);
         }
@@ -754,17 +783,13 @@ fn maybe_fetch_select_options(app: &mut App, tx: &mpsc::UnboundedSender<AppActio
     ) {
         Ok(b) => b,
         Err(msg) => {
-            if let Some(FieldState::SelectFrom { error, .. }) =
-                form.fields.get_mut(field_idx)
-            {
+            if let Some(FieldState::SelectFrom { error, .. }) = form.fields.get_mut(field_idx) {
                 *error = Some(msg);
             }
             return;
         }
     };
-    if let Some(FieldState::SelectFrom { loading, error, .. }) =
-        form.fields.get_mut(field_idx)
-    {
+    if let Some(FieldState::SelectFrom { loading, error, .. }) = form.fields.get_mut(field_idx) {
         *loading = true;
         *error = None;
     }
@@ -834,7 +859,7 @@ fn extract_options(
     Ok(out)
 }
 
-fn on_action(app: &mut App, action: AppAction) {
+fn on_action(app: &mut App, action: AppAction, action_tx: &mpsc::UnboundedSender<AppAction>) {
     match action {
         AppAction::AdminDispatchResult { command, response } => {
             let data_pretty = response
@@ -957,20 +982,111 @@ fn on_action(app: &mut App, action: AppAction) {
                     if !m.results.is_empty() {
                         m.mode = crate::ratcore::app::MusicMode::Results;
                     }
+                    // consume the auto-play flag set by `/play <query>`.
+                    if m.auto_play_on_results && !m.results.is_empty() {
+                        m.auto_play_on_results = false;
+                        play_from_cursor_web(app, action_tx);
+                        let title = app
+                            .state
+                            .ephemeral
+                            .music
+                            .results
+                            .first()
+                            .map(|s| s.title.clone())
+                            .unwrap_or_default();
+                        app.state.ephemeral.repl.status = Some(
+                            crate::ratcore::app::ReplStatus::ok(format!("playing: {title}")),
+                        );
+                    } else {
+                        m.auto_play_on_results = false;
+                    }
                 }
-                Err(e) => m.search_error = Some(e),
+                Err(e) => {
+                    m.auto_play_on_results = false;
+                    m.search_error = Some(e.clone());
+                    app.state.ephemeral.repl.status = Some(
+                        crate::ratcore::app::ReplStatus::err(format!("search failed: {e}")),
+                    );
+                }
             }
         }
-        AppAction::MusicEvent(_) => {}
-        AppAction::ToggleFavorite { .. } | AppAction::FavoriteResult { .. } => {
-            // favorites are not yet wired in the web shell; ignore.
+        AppAction::MusicEvent(ev) => {
+            // mirror the tty: when the playing track changes, refresh
+            // its favorited-status by asking the transport.
+            let track_changed =
+                matches!(ev, crate::ratcore::app::MusicEvent::TrackChanged { .. });
+            apply_music_event_web(app, ev);
+            if track_changed {
+                if let Some(cur) = app.state.ephemeral.music.currently_playing() {
+                    let id = cur.id.clone();
+                    let transport = app.transport.clone();
+                    let tx = action_tx.clone();
+                    wasm_bindgen_futures::spawn_local(async move {
+                        let result = transport.is_favorited("song", &id).await;
+                        let _ = tx.unbounded_send(AppAction::FavoriteResult {
+                            target_type: "song".into(),
+                            target_id: id,
+                            result,
+                        });
+                    });
+                } else {
+                    app.state.ephemeral.music.current_favorited = false;
+                }
+            }
         }
+        AppAction::ToggleFavorite {
+            target_type,
+            target_id,
+        } => {
+            let transport = app.transport.clone();
+            let tx = action_tx.clone();
+            let tt = target_type.clone();
+            let tid = target_id.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                let result = transport.toggle_favorite(&tt, &tid).await;
+                let _ = tx.unbounded_send(AppAction::FavoriteResult {
+                    target_type: tt,
+                    target_id: tid,
+                    result,
+                });
+            });
+        }
+        AppAction::FavoriteResult {
+            target_type,
+            target_id,
+            result,
+        } => match result {
+            Ok(now_favorited) => {
+                if target_type == "song" {
+                    if let Some(cur) = app.state.ephemeral.music.currently_playing() {
+                        if cur.id == target_id {
+                            app.state.ephemeral.music.current_favorited = now_favorited;
+                        }
+                    }
+                }
+                app.state.ephemeral.repl.status =
+                    Some(crate::ratcore::app::ReplStatus::ok(if now_favorited {
+                        "favorited"
+                    } else {
+                        "unfavorited"
+                    }));
+            }
+            Err(e) => {
+                app.state.ephemeral.repl.status = Some(
+                    crate::ratcore::app::ReplStatus::err(format!("favorite failed: {e}")),
+                );
+            }
+        },
     }
 }
 
 /// minimal music-view key handler for the web shell. supports the
 /// search box + browse mode but no playback (no rodio in wasm).
-fn on_music_key_web(app: &mut App, code: KeyCode) {
+fn on_music_key_web(
+    app: &mut App,
+    code: KeyCode,
+    action_tx: &mpsc::UnboundedSender<AppAction>,
+) {
     use crate::ratcore::app::MusicMode;
     use crate::ratcore::text_input as ti;
     if matches!(code, KeyCode::Esc) {
@@ -1006,11 +1122,8 @@ fn on_music_key_web(app: &mut App, code: KeyCode) {
                 ti::insert_char(&mut m.query, &mut m.query_cursor, c);
             }
         }
-        (MusicMode::Search, KeyCode::Enter) => {
-            // no music transport on web yet — surface a friendly note.
-            app.state.ephemeral.music.search_error =
-                Some("music search isn't wired in the web shell yet".to_string());
-        }
+        (MusicMode::Search, KeyCode::Enter) => fire_search_web(app, action_tx),
+        (MusicMode::Results, KeyCode::Enter) => play_from_cursor_web(app, action_tx),
         (MusicMode::Results, KeyCode::Char('/') | KeyCode::Tab) => {
             app.state.ephemeral.music.mode = MusicMode::Search;
         }
@@ -1028,12 +1141,177 @@ fn on_music_key_web(app: &mut App, code: KeyCode) {
     }
 }
 
-/// repl key handler for the web shell. the slash actions that need
+/// fire the music search query against the transport and stash the
+/// results back on `app.state.ephemeral.music`. mirrors the tty's
+/// `fire_search` helper.
+fn fire_search_web(app: &mut App, action_tx: &mpsc::UnboundedSender<AppAction>) {
+    let q = app.state.ephemeral.music.query.trim().to_string();
+    if q.is_empty() {
+        app.state.ephemeral.music.search_error = Some("query is empty".to_string());
+        return;
+    }
+    app.state.ephemeral.music.searching = true;
+    app.state.ephemeral.music.search_error = None;
+    let transport = app.transport.clone();
+    let tx = action_tx.clone();
+    let q_for_task = q.clone();
+    wasm_bindgen_futures::spawn_local(async move {
+        let result = transport.search_songs(&q_for_task, 100).await;
+        let _ = tx.unbounded_send(AppAction::MusicSearchResults {
+            query: q_for_task,
+            result,
+        });
+    });
+}
+
+/// load the music view's results into the player queue starting at
+/// the cursor position. resolves each row's `media_blob_id` to an
+/// object url via iroh-blobs verified streaming (with proxy
+/// fallback) and hands the queue to the html-audio backend.
+fn play_from_cursor_web(app: &mut App, action_tx: &mpsc::UnboundedSender<AppAction>) {
+    let m = &mut app.state.ephemeral.music;
+    if m.results.is_empty() {
+        return;
+    }
+    let start = m.results_cursor.min(m.results.len() - 1);
+    let queue: Vec<crate::ratcore::app::SongRow> = m.results[start..].to_vec();
+    m.queue = queue.clone();
+    m.current = None;
+    m.position_ms = 0;
+    m.duration_ms = 0;
+
+    let Some(player) = app.player.clone() else {
+        m.last_event_error = Some("no audio backend in this shell".to_string());
+        return;
+    };
+    let transport = app.transport.clone();
+    let tx = action_tx.clone();
+    wasm_bindgen_futures::spawn_local(async move {
+        let mut urls: Vec<String> = Vec::with_capacity(queue.len());
+        for s in &queue {
+            let Some(blob_id) = s.media_blob_id.as_deref() else {
+                continue;
+            };
+            match transport.resolve_blob_url(blob_id).await {
+                Ok((url, _mime)) => urls.push(url),
+                Err(e) => {
+                    web_sys::console::warn_1(
+                        &format!(
+                            "rathole: resolve_blob_url failed for {}: {e}",
+                            &blob_id[..blob_id.len().min(8)]
+                        )
+                        .into(),
+                    );
+                }
+            }
+        }
+        if urls.is_empty() {
+            let _ = tx.unbounded_send(AppAction::MusicEvent(
+                crate::ratcore::app::MusicEvent::Error(
+                    "no playable blobs in queue".to_string(),
+                ),
+            ));
+            return;
+        }
+        if let Err(e) = player
+            .send(crate::ratcore::transport::PlayerCmd::Load(urls))
+            .await
+        {
+            let _ = tx.unbounded_send(AppAction::MusicEvent(
+                crate::ratcore::app::MusicEvent::Error(e),
+            ));
+        }
+    });
+}
+
+/// fetch playlist or album songs via transport, resolve each blob
+/// to an object url, and load the player. `kind` is `"playlist"` or
+/// `"album"`.
+fn play_collection_web(
+    app: &mut App,
+    kind: &'static str,
+    id: String,
+    title: String,
+    action_tx: &mpsc::UnboundedSender<AppAction>,
+) {
+    app.state.ephemeral.repl.status = Some(crate::ratcore::app::ReplStatus::info(format!(
+        "loading {kind} {title}\u{2026}"
+    )));
+    let m = &mut app.state.ephemeral.music;
+    m.queue.clear();
+    m.current = None;
+    m.position_ms = 0;
+    m.duration_ms = 0;
+
+    let Some(player) = app.player.clone() else {
+        app.state.ephemeral.music.last_event_error =
+            Some("no audio backend in this shell".to_string());
+        return;
+    };
+    let transport = app.transport.clone();
+    let tx = action_tx.clone();
+    wasm_bindgen_futures::spawn_local(async move {
+        let songs_result = match kind {
+            "playlist" => transport.playlist_songs(&id).await,
+            "album" => transport.album_songs(&id).await,
+            other => Err(format!("unknown collection kind: {other}")),
+        };
+        let songs = match songs_result {
+            Ok(s) => s,
+            Err(e) => {
+                let _ = tx.unbounded_send(AppAction::MusicEvent(
+                    crate::ratcore::app::MusicEvent::Error(format!("load {kind} failed: {e}")),
+                ));
+                return;
+            }
+        };
+        if songs.is_empty() {
+            let _ = tx.unbounded_send(AppAction::MusicEvent(
+                crate::ratcore::app::MusicEvent::Error(format!("{kind} {title} is empty")),
+            ));
+            return;
+        }
+        let mut urls: Vec<String> = Vec::with_capacity(songs.len());
+        for s in &songs {
+            let Some(blob_id) = s.media_blob_id.as_deref() else {
+                continue;
+            };
+            match transport.resolve_blob_url(blob_id).await {
+                Ok((url, _mime)) => urls.push(url),
+                Err(e) => {
+                    web_sys::console::warn_1(
+                        &format!(
+                            "rathole: resolve_blob_url failed for {}: {e}",
+                            &blob_id[..blob_id.len().min(8)]
+                        )
+                        .into(),
+                    );
+                }
+            }
+        }
+        if urls.is_empty() {
+            let _ = tx.unbounded_send(AppAction::MusicEvent(
+                crate::ratcore::app::MusicEvent::Error(format!(
+                    "no playable blobs in {kind} {title}"
+                )),
+            ));
+            return;
+        }
+        if let Err(e) = player
+            .send(crate::ratcore::transport::PlayerCmd::Load(urls))
+            .await
+        {
+            let _ = tx.unbounded_send(AppAction::MusicEvent(
+                crate::ratcore::app::MusicEvent::Error(e),
+            ));
+        }
+    });
+}
 /// a player or transport (`/play`, `/search`, `/pause`, `/next`,
 /// etc.) are no-ops here — when the html-audio runtime lands they
 /// can be wired in. focus changes (`/admin`, `/music`), `/quit` and
 /// the editing keys all work today.
-fn on_repl_key_web(app: &mut App, code: KeyCode) {
+fn on_repl_key_web(app: &mut App, code: KeyCode, action_tx: &mpsc::UnboundedSender<AppAction>) {
     use crate::ratcore::app::ReplStatus;
     use crate::ratcore::repl_keys as rk;
     match code {
@@ -1047,14 +1325,145 @@ fn on_repl_key_web(app: &mut App, code: KeyCode) {
                 app.exit = true;
                 return;
             }
-            if let rk::ReplOutcome::Run(_) = outcome {
-                // player/search slash commands are not yet wired in
-                // the web shell — friendly hint until the html-audio
-                // runtime lands (see RATHOLE_TUI_PLAN §10).
-                app.state.ephemeral.repl.status = Some(ReplStatus::err(
-                    "this command needs the web music runtime (coming soon)".to_string(),
-                ));
+            if let rk::ReplOutcome::Run(action) = outcome {
+                use crate::ratcore::app::MusicMode;
+                use crate::ratcore::slash::SlashAction;
+                use crate::ratcore::transport::PlayerCmd;
+                let mut handled = true;
+                match action {
+                    SlashAction::Play { query: None } => {
+                        send_player_web(app, PlayerCmd::Play);
+                        app.state.ephemeral.repl.status = Some(ReplStatus::ok("play"));
+                    }
+                    SlashAction::Play { query: Some(q) } => {
+                        // mirror tty: jump to MusicView, set query,
+                        // arm auto-play, kick off the search. when
+                        // results land MusicSearchResults will queue
+                        // them all and start the player.
+                        app.state.ephemeral.repl.clear_input();
+                        rk::leave(&mut app.state);
+                        app.state.ephemeral.focus = Focus::MusicView;
+                        app.state.ephemeral.music.mode = MusicMode::Search;
+                        app.state.ephemeral.music.query = q;
+                        app.state.ephemeral.music.query_cursor =
+                            app.state.ephemeral.music.query.chars().count();
+                        app.state.ephemeral.music.auto_play_on_results = true;
+                        fire_search_web(app, action_tx);
+                        app.state.ephemeral.repl.status =
+                            Some(ReplStatus::info("searching\u{2026}"));
+                    }
+                    SlashAction::Pause => {
+                        send_player_web(app, PlayerCmd::Pause);
+                        app.state.ephemeral.repl.status = Some(ReplStatus::ok("pause"));
+                    }
+                    SlashAction::Stop => {
+                        send_player_web(app, PlayerCmd::Stop);
+                        app.state.ephemeral.repl.status = Some(ReplStatus::ok("stop"));
+                    }
+                    SlashAction::Next => {
+                        send_player_web(app, PlayerCmd::Next);
+                        app.state.ephemeral.repl.status = Some(ReplStatus::ok("next"));
+                    }
+                    SlashAction::Previous => {
+                        send_player_web(app, PlayerCmd::Previous);
+                        app.state.ephemeral.repl.status = Some(ReplStatus::ok("previous"));
+                    }
+                    SlashAction::Seek { seconds } => {
+                        send_player_web(app, PlayerCmd::Seek((seconds as u64) * 1000));
+                        app.state.ephemeral.repl.status =
+                            Some(ReplStatus::ok(format!("seek {seconds}s")));
+                    }
+                    SlashAction::Volume { percent } => {
+                        let v = ((percent as f32) / 100.0).clamp(0.0, 2.0);
+                        app.state.ephemeral.music.volume = v;
+                        send_player_web(app, PlayerCmd::SetVolume(v));
+                        app.state.ephemeral.repl.status =
+                            Some(ReplStatus::ok(format!("vol {percent}%")));
+                    }
+                    SlashAction::Search { query: None } => {
+                        app.state.ephemeral.focus = crate::ratcore::app::Focus::MusicView;
+                        app.state.ephemeral.music.mode = MusicMode::Search;
+                        app.state.ephemeral.repl.status =
+                            Some(ReplStatus::info("type to search music"));
+                    }
+                    SlashAction::Search { query: Some(q) } => {
+                        // FTS-ranked unified search via MiddenTransport.
+                        // results land in the result panel like in tty.
+                        let transport = app.transport.clone();
+                        let tx_clone = action_tx.clone();
+                        let qc = q.clone();
+                        wasm_bindgen_futures::spawn_local(async move {
+                            let response = transport.unified_search(&qc).await;
+                            let _ = tx_clone.unbounded_send(AppAction::AdminDispatchResult {
+                                command: "search".to_string(),
+                                response,
+                            });
+                        });
+                        app.state.ephemeral.repl.status =
+                            Some(ReplStatus::info(format!("searching {q}\u{2026}")));
+                        app.state.ephemeral.focus =
+                            crate::ratcore::app::Focus::ResultPanel;
+                    }
+                    SlashAction::Library { kind, query } => {
+                        let label = match kind {
+                            "favorites" => "library_favorites".to_string(),
+                            "radio" => "radio_stations_list".to_string(),
+                            _ => format!("library_{kind}"),
+                        };
+                        let transport = app.transport.clone();
+                        let tx_clone = action_tx.clone();
+                        let q = query.clone();
+                        wasm_bindgen_futures::spawn_local(async move {
+                            let response = transport.library_query(kind, q.as_deref()).await;
+                            // `/radio <name>` with a matching station
+                            // starts that station instead of just listing.
+                            if kind == "radio" && q.is_some() && response.success {
+                                if let Some(station_id) =
+                                    crate::ratcore::slash::match_station_id(
+                                        &response.data,
+                                        q.as_deref(),
+                                    )
+                                {
+                                    let start_resp = transport
+                                        .admin_dispatch(
+                                            "radio_supervisor_start",
+                                            serde_json::json!({ "station_id": station_id }),
+                                        )
+                                        .await;
+                                    let _ = tx_clone.unbounded_send(
+                                        AppAction::AdminDispatchResult {
+                                            command: "radio_supervisor_start".to_string(),
+                                            response: start_resp,
+                                        },
+                                    );
+                                    return;
+                                }
+                            }
+                            let _ = tx_clone.unbounded_send(AppAction::AdminDispatchResult {
+                                command: label,
+                                response,
+                            });
+                        });
+                        app.state.ephemeral.repl.status =
+                            Some(ReplStatus::info(format!("loading {kind}\u{2026}")));
+                        app.state.ephemeral.focus =
+                            crate::ratcore::app::Focus::ResultPanel;
+                    }
+                    _ => {
+                        handled = false;
+                    }
+                }
+                if !handled {
+                    // commands that need transport-side wiring not yet
+                    // ported to the web shell (search via p2p, library
+                    // queries, /play <query>, favorites). friendly hint
+                    // until the spume music-runtime integration lands.
+                    app.state.ephemeral.repl.status = Some(ReplStatus::err(
+                        "this command needs the web music runtime (coming soon)".to_string(),
+                    ));
+                }
                 app.state.ephemeral.repl.clear_input();
+                rk::leave(&mut app.state);
             }
         }
         KeyCode::Tab => rk::handle_tab(&mut app.state),
@@ -1072,23 +1481,109 @@ fn on_repl_key_web(app: &mut App, code: KeyCode) {
 }
 
 /// player-row key handler for the web shell. cursor navigation
-/// works; activation surfaces a friendly hint until the html-audio
-/// runtime lands (see RATHOLE_TUI_PLAN §10).
-fn on_player_row_key_web(app: &mut App, code: KeyCode) {
+/// works; activation drives the html-audio backend via
+/// `app.player`. when no backend is attached we surface a friendly
+/// hint instead.
+fn on_player_row_key_web(
+    app: &mut App,
+    code: KeyCode,
+    action_tx: &mpsc::UnboundedSender<AppAction>,
+) {
     use crate::ratcore::app::ReplStatus;
     use crate::ratcore::player_row_keys as prk;
+    use crate::ratcore::transport::PlayerCmd;
     match code {
         KeyCode::Esc | KeyCode::Char('q') => prk::leave(&mut app.state),
         KeyCode::Left | KeyCode::Char('h') => prk::cursor_left(&mut app.state),
-        KeyCode::Right | KeyCode::Char('l') | KeyCode::Tab => {
-            prk::cursor_right(&mut app.state)
-        }
+        KeyCode::Right | KeyCode::Char('l') | KeyCode::Tab => prk::cursor_right(&mut app.state),
         KeyCode::Enter | KeyCode::Char(' ') => {
-            app.state.ephemeral.repl.status = Some(ReplStatus::err(
-                "player controls need the web music runtime (coming soon)".to_string(),
-            ));
+            let action = prk::activate(&app.state);
+            let cmd = match action {
+                prk::PlayerRowAction::Previous => Some(PlayerCmd::Previous),
+                prk::PlayerRowAction::PlayPause => match app.state.ephemeral.music.player_state {
+                    crate::ratcore::app::PlayerState::Playing => Some(PlayerCmd::Pause),
+                    _ => Some(PlayerCmd::Play),
+                },
+                prk::PlayerRowAction::Next => Some(PlayerCmd::Next),
+                prk::PlayerRowAction::SeekBack => {
+                    let target = app.state.ephemeral.music.position_ms.saturating_sub(15_000);
+                    Some(PlayerCmd::Seek(target))
+                }
+                prk::PlayerRowAction::SeekForward => {
+                    let target = app.state.ephemeral.music.position_ms.saturating_add(15_000);
+                    Some(PlayerCmd::Seek(target))
+                }
+                prk::PlayerRowAction::VolumeDown => {
+                    let v = (app.state.ephemeral.music.volume - 0.05).clamp(0.0, 1.0);
+                    app.state.ephemeral.music.volume = v;
+                    Some(PlayerCmd::SetVolume(v))
+                }
+                prk::PlayerRowAction::VolumeUp => {
+                    let v = (app.state.ephemeral.music.volume + 0.05).clamp(0.0, 1.0);
+                    app.state.ephemeral.music.volume = v;
+                    Some(PlayerCmd::SetVolume(v))
+                }
+                prk::PlayerRowAction::Favorite => {
+                    if let Some(cur) = app.state.ephemeral.music.currently_playing() {
+                        let id = cur.id.clone();
+                        let _ = action_tx.unbounded_send(AppAction::ToggleFavorite {
+                            target_type: "song".into(),
+                            target_id: id,
+                        });
+                    } else {
+                        app.state.ephemeral.repl.status = Some(ReplStatus::info(
+                            "no track loaded".to_string(),
+                        ));
+                    }
+                    None
+                }
+            };
+            if let Some(cmd) = cmd {
+                send_player_web(app, cmd);
+            }
         }
         _ => {}
+    }
+}
+
+/// fire-and-forget helper to dispatch a `PlayerCmd` to the web
+/// shell's audio backend, if one is attached. errors are surfaced
+/// as a transient repl status message.
+fn send_player_web(app: &mut App, cmd: crate::ratcore::transport::PlayerCmd) {
+    use crate::ratcore::app::ReplStatus;
+    let Some(player) = app.player.clone() else {
+        app.state.ephemeral.repl.status =
+            Some(ReplStatus::err("no audio backend attached".to_string()));
+        return;
+    };
+    wasm_bindgen_futures::spawn_local(async move {
+        if let Err(e) = player.send(cmd).await {
+            web_sys::console::warn_1(&format!("rathole: player.send: {e}").into());
+        }
+    });
+}
+
+/// apply a `MusicEvent` from the html-audio backend to ui state.
+/// kept identical to the tty's helper so behaviour stays in lock-step.
+fn apply_music_event_web(app: &mut App, ev: crate::ratcore::app::MusicEvent) {
+    use crate::ratcore::app::MusicEvent;
+    let m = &mut app.state.ephemeral.music;
+    match ev {
+        MusicEvent::State(s) => m.player_state = s,
+        MusicEvent::Progress { ms, total_ms } => {
+            m.position_ms = ms;
+            m.duration_ms = total_ms;
+        }
+        MusicEvent::TrackChanged { index, .. } => {
+            m.current = Some(index);
+            m.position_ms = 0;
+        }
+        MusicEvent::Ended => {
+            m.current = None;
+            m.position_ms = 0;
+            m.player_state = crate::ratcore::app::PlayerState::Stopped;
+        }
+        MusicEvent::Error(e) => m.last_event_error = Some(e),
     }
 }
 
@@ -1197,9 +1692,7 @@ fn install_paste_listener(app: Rc<RefCell<App>>) -> Result<(), JsValue> {
                 Focus::PeerInput => {
                     ti::insert_str(&mut eph.peer_input, &mut eph.peer_cursor, &text);
                 }
-                Focus::MusicView
-                    if eph.music.mode == crate::ratcore::app::MusicMode::Search =>
-                {
+                Focus::MusicView if eph.music.mode == crate::ratcore::app::MusicMode::Search => {
                     ti::insert_str(&mut eph.music.query, &mut eph.music.query_cursor, &text);
                 }
                 Focus::MusicView => {}

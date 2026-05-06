@@ -12,6 +12,7 @@
 //! - audio via `<audio>` / WebAudio
 
 mod identity;
+mod player;
 mod run;
 mod transport;
 

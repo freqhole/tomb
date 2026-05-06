@@ -185,6 +185,50 @@ pub fn focus_for(action: &SlashAction) -> Option<Focus> {
     }
 }
 
+/// scan a `radio_stations_list` payload for the station whose name
+/// best matches `query`. tries: case-insensitive equality, then
+/// startswith, then substring. returns the station id if found.
+/// the payload may be either a raw `Vec<RadioStation>` (tty) or
+/// wrapped in `{ items: [...] }` (web).
+pub fn match_station_id(
+    data: &Option<serde_json::Value>,
+    query: Option<&str>,
+) -> Option<String> {
+    let q = query?.trim().to_lowercase();
+    if q.is_empty() {
+        return None;
+    }
+    let raw = data.as_ref()?;
+    let arr = raw
+        .as_array()
+        .or_else(|| raw.get("items").and_then(|v| v.as_array()))
+        .or_else(|| raw.get("stations").and_then(|v| v.as_array()))?;
+
+    let mut exact: Option<String> = None;
+    let mut prefix: Option<String> = None;
+    let mut contains: Option<String> = None;
+    for s in arr {
+        let id = s.get("id").and_then(|v| v.as_str()).map(|s| s.to_string());
+        let name = s
+            .get("name")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_lowercase());
+        let (Some(id), Some(name)) = (id, name) else {
+            continue;
+        };
+        if name == q && exact.is_none() {
+            exact = Some(id.clone());
+        }
+        if name.starts_with(&q) && prefix.is_none() {
+            prefix = Some(id.clone());
+        }
+        if name.contains(&q) && contains.is_none() {
+            contains = Some(id);
+        }
+    }
+    exact.or(prefix).or(contains)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -244,5 +288,37 @@ mod tests {
         assert!(complete("/p").contains(&"play"));
         assert!(complete("/p").contains(&"pause"));
         assert!(complete("/p").contains(&"prev"));
+    }
+
+    #[test]
+    fn match_station_prefers_exact() {
+        let data = serde_json::json!([
+            { "id": "s1", "name": "Smooth Jams" },
+            { "id": "s2", "name": "Smooth Jazz" },
+        ]);
+        assert_eq!(
+            match_station_id(&Some(data), Some("Smooth Jams")).as_deref(),
+            Some("s1")
+        );
+    }
+
+    #[test]
+    fn match_station_falls_back_to_substring() {
+        let data = serde_json::json!({
+            "items": [
+                { "id": "x", "name": "Late Night Lo-Fi" },
+                { "id": "y", "name": "Morning Jazz" },
+            ]
+        });
+        assert_eq!(
+            match_station_id(&Some(data), Some("jazz")).as_deref(),
+            Some("y")
+        );
+    }
+
+    #[test]
+    fn match_station_returns_none_for_no_match() {
+        let data = serde_json::json!([{ "id": "x", "name": "Smooth Jams" }]);
+        assert!(match_station_id(&Some(data), Some("metal")).is_none());
     }
 }

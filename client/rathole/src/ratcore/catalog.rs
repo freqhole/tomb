@@ -63,10 +63,9 @@ pub fn result_actions(command_name: &str) -> Vec<ActionMenuOption> {
             ("revoke", "invites_revoke"),
             ("update role", "invites_update_role"),
         ],
-        "peers_list_all" | "peers_list_for_user" => &[
-            ("remove", "peers_remove"),
-            ("restore", "peers_restore"),
-        ],
+        "peers_list_all" | "peers_list_for_user" => {
+            &[("remove", "peers_remove"), ("restore", "peers_restore")]
+        }
         "radio_stations_list" => &[
             ("get", "radio_stations_get"),
             ("update", "radio_stations_update"),
@@ -82,6 +81,8 @@ pub fn result_actions(command_name: &str) -> Vec<ActionMenuOption> {
             ("remove", "radio_bumpers_remove"),
             ("set frequency", "radio_bumpers_set_frequency"),
         ],
+        "library_playlist" => &[("play", "__play_playlist__")],
+        "library_album" => &[("play", "__play_album__")],
         _ => &[],
     };
     let mut out: Vec<ActionMenuOption> = opts
@@ -288,8 +289,7 @@ fn users_list_command() -> AdminCommand {
             ArgSpec {
                 name: "role".to_string(),
                 kind: ArgKind::Text {
-                    placeholder: "(blank = no filter) e.g. root, admin, member, viewer"
-                        .to_string(),
+                    placeholder: "(blank = no filter) e.g. root, admin, member, viewer".to_string(),
                 },
                 required: false,
                 help: None,
@@ -895,7 +895,10 @@ fn radio_filters_list_command() -> AdminCommand {
         response_type: "Vec<StationFilter>".to_string(),
         auth: "Admin".to_string(),
         kind: CommandKind::Admin,
-        args: vec![pick_station("station_id", "pick a station to list filters for")],
+        args: vec![pick_station(
+            "station_id",
+            "pick a station to list filters for",
+        )],
     }
 }
 
@@ -956,10 +959,7 @@ fn radio_filters_remove_command() -> AdminCommand {
                 kind: ArgKind::SelectFrom {
                     source_command: "radio_filters_list".to_string(),
                     source_body: serde_json::json!({}),
-                    body_from_fields: vec![(
-                        "station_id".to_string(),
-                        "station_id".to_string(),
-                    )],
+                    body_from_fields: vec![("station_id".to_string(), "station_id".to_string())],
                     data_path: String::new(),
                     value_field: "id".to_string(),
                     label_field: "filter_value".to_string(),
@@ -1066,7 +1066,10 @@ fn radio_seed_suggest_command() -> AdminCommand {
         response_type: "Vec<RadioSeedSuggestion>".to_string(),
         auth: "Admin".to_string(),
         kind: CommandKind::Admin,
-        args: vec![pick_station("station_id", "pick a station to suggest seeds for")],
+        args: vec![pick_station(
+            "station_id",
+            "pick a station to suggest seeds for",
+        )],
     }
 }
 
@@ -1164,16 +1167,32 @@ const NO_ARG_COMMANDS: &[(&str, &str, &str)] = &[
         "KnocksRejectAllResponse",
     ),
     // -- users --
-    ("users_list", "AdminUsersListRequest", "Vec<AdminUserSummary>"),
-    ("users_hard_delete", "AdminUsersHardDeleteRequest", "EmptyResponse"),
+    (
+        "users_list",
+        "AdminUsersListRequest",
+        "Vec<AdminUserSummary>",
+    ),
+    (
+        "users_hard_delete",
+        "AdminUsersHardDeleteRequest",
+        "EmptyResponse",
+    ),
     // -- invites --
-    ("invites_list", "AdminInvitesListRequest", "Vec<AdminInviteInfo>"),
+    (
+        "invites_list",
+        "AdminInvitesListRequest",
+        "Vec<AdminInviteInfo>",
+    ),
     (
         "invites_generate",
         "AdminInvitesGenerateRequest",
         "AdminInvitesGenerateResponse",
     ),
-    ("invites_revoke", "AdminInvitesRevokeRequest", "EmptyResponse"),
+    (
+        "invites_revoke",
+        "AdminInvitesRevokeRequest",
+        "EmptyResponse",
+    ),
     (
         "invites_revoke_all",
         "EmptyRequest",
@@ -1185,7 +1204,11 @@ const NO_ARG_COMMANDS: &[(&str, &str, &str)] = &[
         "EmptyResponse",
     ),
     // -- peers --
-    ("peers_list_all", "AdminPeersListAllRequest", "Vec<AdminPeerSummary>"),
+    (
+        "peers_list_all",
+        "AdminPeersListAllRequest",
+        "Vec<AdminPeerSummary>",
+    ),
     (
         "peers_list_for_user",
         "AdminPeersListForUserRequest",
@@ -1193,19 +1216,43 @@ const NO_ARG_COMMANDS: &[(&str, &str, &str)] = &[
     ),
     ("peers_remove", "AdminPeersRemoveRequest", "EmptyResponse"),
     ("peers_restore", "AdminPeersRestoreRequest", "EmptyResponse"),
-    ("peers_allow", "AdminPeersAllowRequest", "AdminPeersAllowResponse"),
+    (
+        "peers_allow",
+        "AdminPeersAllowRequest",
+        "AdminPeersAllowResponse",
+    ),
     // -- radio --
     ("radio_stations_list", "EmptyRequest", "Vec<RadioStation>"),
-    ("radio_stations_get", "RadioStationsByIdRequest", "RadioStation"),
-    ("radio_stations_create", "CreateStationRequest", "RadioStation"),
-    ("radio_stations_update", "UpdateStationRequest", "RadioStation"),
-    ("radio_stations_delete", "RadioStationsByIdRequest", "EmptyResponse"),
+    (
+        "radio_stations_get",
+        "RadioStationsByIdRequest",
+        "RadioStation",
+    ),
+    (
+        "radio_stations_create",
+        "CreateStationRequest",
+        "RadioStation",
+    ),
+    (
+        "radio_stations_update",
+        "UpdateStationRequest",
+        "RadioStation",
+    ),
+    (
+        "radio_stations_delete",
+        "RadioStationsByIdRequest",
+        "EmptyResponse",
+    ),
     (
         "radio_filters_list",
         "RadioStationByStationIdRequest",
         "Vec<StationFilter>",
     ),
-    ("radio_filters_add", "RadioFiltersAddRequest", "StationFilter"),
+    (
+        "radio_filters_add",
+        "RadioFiltersAddRequest",
+        "StationFilter",
+    ),
     (
         "radio_filters_remove",
         "RadioFiltersRemoveRequest",
@@ -1217,7 +1264,11 @@ const NO_ARG_COMMANDS: &[(&str, &str, &str)] = &[
         "Vec<RadioSeedSuggestion>",
     ),
     ("radio_config_get", "EmptyRequest", "RadioConfigPayload"),
-    ("radio_config_set", "RadioConfigPayload", "RadioConfigPayload"),
+    (
+        "radio_config_set",
+        "RadioConfigPayload",
+        "RadioConfigPayload",
+    ),
     (
         "radio_supervisor_status",
         "EmptyRequest",
@@ -1245,7 +1296,11 @@ const NO_ARG_COMMANDS: &[(&str, &str, &str)] = &[
     ),
     ("radio_bumpers_list", "EmptyRequest", "Vec<RadioBumper>"),
     ("radio_bumpers_add", "RadioBumpersAddRequest", "RadioBumper"),
-    ("radio_bumpers_remove", "RadioBumpersRemoveRequest", "EmptyResponse"),
+    (
+        "radio_bumpers_remove",
+        "RadioBumpersRemoveRequest",
+        "EmptyResponse",
+    ),
     (
         "radio_bumpers_set_frequency",
         "RadioBumpersSetFrequencyRequest",

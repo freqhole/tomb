@@ -1028,6 +1028,33 @@ fn on_action_menu_key(app: &mut App, code: KeyCode, tx: &mpsc::UnboundedSender<A
                 eph.focus = Focus::ResultPanel;
                 return;
             }
+            // music play sentinels: pull the row's id and queue songs
+            // through the transport, then load them into the player.
+            if opt.target_command == "__play_playlist__"
+                || opt.target_command == "__play_album__"
+            {
+                let kind = if opt.target_command == "__play_playlist__" {
+                    "playlist"
+                } else {
+                    "album"
+                };
+                let Some(id) = row
+                    .get("id")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string())
+                else {
+                    eph.focus = Focus::ResultPanel;
+                    return;
+                };
+                let title = row
+                    .get("title")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or(kind)
+                    .to_string();
+                eph.focus = Focus::PlayerRow;
+                play_collection(app, kind, id, title, tx);
+                return;
+            }
             // find the target command and open a prefilled form.
             let Some(cmd) = app
                 .commands
@@ -1427,6 +1454,90 @@ fn send_player(
     });
 }
 
+/// fetch playlist or album songs via transport, queue + load them.
+/// `kind` is `"playlist"` or `"album"`.
+fn play_collection(
+    app: &mut App,
+    kind: &'static str,
+    id: String,
+    title: String,
+    tx: &mpsc::UnboundedSender<AppAction>,
+) {
+    app.state.ephemeral.repl.status = Some(crate::ratcore::app::ReplStatus::info(format!(
+        "loading {kind} {title}\u{2026}"
+    )));
+    let transport = app.transport.clone();
+    let player = app.player.clone();
+    let tx_outer = tx.clone();
+    tokio::task::spawn_local(async move {
+        let songs_result = match kind {
+            "playlist" => transport.playlist_songs(&id).await,
+            "album" => transport.album_songs(&id).await,
+            other => Err(format!("unknown collection kind: {other}")),
+        };
+        let songs = match songs_result {
+            Ok(s) => s,
+            Err(e) => {
+                let _ = tx_outer.send(AppAction::MusicEvent(
+                    crate::ratcore::app::MusicEvent::Error(format!("load {kind} failed: {e}")),
+                ));
+                return;
+            }
+        };
+        if songs.is_empty() {
+            let _ = tx_outer.send(AppAction::MusicEvent(
+                crate::ratcore::app::MusicEvent::Error(format!("{kind} {title} is empty")),
+            ));
+            return;
+        }
+        let mut paths: Vec<String> = Vec::with_capacity(songs.len());
+        for s in &songs {
+            if let Some(p) = s.local_path.clone() {
+                paths.push(p);
+                continue;
+            }
+            if let Some(blob_id) = s.media_blob_id.as_deref() {
+                let resolved = super::player::resolve_paths(&[blob_id.to_string()]).await;
+                if let Some(p) = resolved.into_iter().next() {
+                    paths.push(p);
+                }
+            }
+        }
+        if paths.is_empty() {
+            let _ = tx_outer.send(AppAction::MusicEvent(
+                crate::ratcore::app::MusicEvent::Error(format!(
+                    "no playable files in {kind} {title}"
+                )),
+            ));
+            return;
+        }
+        let Some(player) = player else {
+            let _ = tx_outer.send(AppAction::MusicEvent(
+                crate::ratcore::app::MusicEvent::Error(
+                    "no audio backend in this shell".to_string(),
+                ),
+            ));
+            return;
+        };
+        if let Err(e) = player
+            .send(crate::ratcore::transport::PlayerCmd::Load(paths))
+            .await
+        {
+            let _ = tx_outer.send(AppAction::MusicEvent(
+                crate::ratcore::app::MusicEvent::Error(e),
+            ));
+        }
+    });
+    // mirror the queue locally so the player row reflects what's
+    // about to play. the actual song rows arrive once the spawn_local
+    // future loads them; here we just zero out the existing state.
+    let m = &mut app.state.ephemeral.music;
+    m.queue.clear();
+    m.current = None;
+    m.position_ms = 0;
+    m.duration_ms = 0;
+}
+
 fn adjust_volume(app: &mut App, delta: f32, tx: &mpsc::UnboundedSender<AppAction>) {
     let new = (app.state.ephemeral.music.volume + delta).clamp(0.0, 2.0);
     app.state.ephemeral.music.volume = new;
@@ -1545,6 +1656,7 @@ fn execute_slash_with_player(
     use crate::ratcore::app::{MusicMode, ReplStatus};
     use crate::ratcore::repl_keys as rk;
     use crate::ratcore::slash::SlashAction;
+    use crate::ratcore::slash::match_station_id;
     use crate::ratcore::transport::PlayerCmd;
 
     match action {
@@ -1645,6 +1757,23 @@ fn execute_slash_with_player(
             let q = query.clone();
             tokio::task::spawn_local(async move {
                 let response = transport.library_query(kind, q.as_deref()).await;
+                // special: `/radio <name>` with a query that matches a
+                // station starts that station instead of just listing.
+                if kind == "radio" && q.is_some() && response.success {
+                    if let Some(station_id) = match_station_id(&response.data, q.as_deref()) {
+                        let start_resp = transport
+                            .admin_dispatch(
+                                "radio_supervisor_start",
+                                serde_json::json!({ "station_id": station_id }),
+                            )
+                            .await;
+                        let _ = tx_clone.send(AppAction::AdminDispatchResult {
+                            command: "radio_supervisor_start".to_string(),
+                            response: start_resp,
+                        });
+                        return;
+                    }
+                }
                 let _ = tx_clone.send(AppAction::AdminDispatchResult {
                     command: label,
                     response,

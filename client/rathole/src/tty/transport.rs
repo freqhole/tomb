@@ -114,6 +114,75 @@ impl Transport for LocalTransport {
     async fn unified_search(&self, query: &str) -> DispatchResponse {
         unified_search_impl(self, query).await
     }
+
+    async fn playlist_songs(&self, playlist_id: &str) -> Result<Vec<SongRow>, String> {
+        use grimoire::music::crud::{query_playlist_songs, QueryParams};
+        let params = QueryParams {
+            limit: Some(1000),
+            offset: Some(0),
+            sort_by: Some("position".to_string()),
+            sort_direction: Some("asc".to_string()),
+            ..Default::default()
+        };
+        let resp = query_playlist_songs(playlist_id, params).await;
+        if !resp.success {
+            return Err(resp.message);
+        }
+        let Some(result) = resp.data else {
+            return Ok(vec![]);
+        };
+        Ok(result
+            .items
+            .into_iter()
+            .map(|item| song_query_to_row(&item.details))
+            .collect())
+    }
+
+    async fn album_songs(&self, album_id: &str) -> Result<Vec<SongRow>, String> {
+        use grimoire::music::crud::{query_songs, QueryParams};
+        let mut filters = std::collections::HashMap::new();
+        filters.insert(
+            "album_id".to_string(),
+            serde_json::Value::String(album_id.to_string()),
+        );
+        let params = QueryParams {
+            limit: Some(1000),
+            offset: Some(0),
+            sort_by: Some("disc_number,track_number".to_string()),
+            sort_direction: Some("asc".to_string()),
+            filters,
+            ..Default::default()
+        };
+        let resp = query_songs(params).await;
+        if !resp.success {
+            return Err(resp.message);
+        }
+        let Some(result) = resp.data else {
+            return Ok(vec![]);
+        };
+        Ok(result.items.iter().map(song_query_to_row).collect())
+    }
+}
+
+/// shared SongQueryResult → SongRow conversion for music transport
+/// methods (search, playlist_songs, album_songs).
+fn song_query_to_row(item: &grimoire::music::crud::SongQueryResult) -> SongRow {
+    let artist = if !item.song.track_artist.as_deref().unwrap_or("").is_empty() {
+        item.song.track_artist.clone()
+    } else {
+        item.artist.as_ref().map(|a| a.name.clone())
+    };
+    let album = item.album.as_ref().map(|a| a.title.clone());
+    let local_path = item.media_blob.as_ref().and_then(|b| b.local_path.clone());
+    SongRow {
+        id: item.song.id.clone(),
+        title: item.song.title.clone(),
+        artist,
+        album,
+        duration_ms: item.song.duration.map(|d| d as u64),
+        media_blob_id: Some(item.song.media_blob_id.clone()),
+        local_path,
+    }
 }
 
 async fn library_query_impl(
