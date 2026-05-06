@@ -1,6 +1,7 @@
 //! view tree. m0 ships one view: the admin command palette.
 
 pub mod admin;
+pub mod action_menu;
 pub mod command_form;
 pub mod peer_input;
 
@@ -28,6 +29,10 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
 
     if app.state.ephemeral.focus == Focus::PeerInput {
         peer_input::draw(frame, app);
+    }
+
+    if app.state.ephemeral.focus == Focus::ResultActionMenu {
+        action_menu::draw(frame, app);
     }
 }
 
@@ -62,7 +67,8 @@ fn footer_hints(app: &App) -> &'static str {
         }
         Focus::PeerInput => "type/paste node id   enter: connect   esc: cancel",
         Focus::CommandForm => "←/→: cycle option   enter: next/submit   esc: cancel",
-        Focus::ResultPanel => "↑/↓: scroll   shift+↑/↓: page   g/G: top/end   tab/esc: back",
+        Focus::ResultPanel => "↑/↓: scroll/row   a/enter: actions   tab/esc: back",
+        Focus::ResultActionMenu => "↑/↓: pick   enter: open form   esc: cancel",
     }
 }
 

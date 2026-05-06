@@ -119,6 +119,7 @@ fn on_event(app: &mut App, ev: Event, action_tx: &mpsc::UnboundedSender<AppActio
         Focus::PeerInput => on_peer_input_key(app, k.code),
         Focus::CommandForm => on_form_key(app, k.code, k.modifiers, action_tx),
         Focus::ResultPanel => on_result_panel_key(app, k.code, k.modifiers),
+        Focus::ResultActionMenu => on_action_menu_key(app, k.code, action_tx),
     }
 }
 
@@ -245,11 +246,24 @@ fn on_action(app: &mut App, action: AppAction) {
                 form.error = Some(response.message.clone());
             }
             app.state.ephemeral.last_dispatch_scroll = 0;
+            let rows = response
+                .data
+                .as_ref()
+                .and_then(|d| d.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .filter(|v| v.is_object())
+                        .cloned()
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
             app.state.ephemeral.last_dispatch = Some(LastDispatch {
                 command,
                 success: response.success,
                 message: response.message,
                 data_pretty,
+                rows,
+                cursor: 0,
             });
         }
         AppAction::SelectFromOptionsReady {
@@ -320,15 +334,51 @@ fn spawn_admin_dispatch(
 fn on_result_panel_key(app: &mut App, code: KeyCode, mods: KeyModifiers) {
     let eph = &mut app.state.ephemeral;
     let big = mods.contains(KeyModifiers::SHIFT);
+    let has_rows = eph
+        .last_dispatch
+        .as_ref()
+        .map(|ld| !ld.rows.is_empty())
+        .unwrap_or(false);
     match code {
         KeyCode::Esc | KeyCode::Tab => eph.focus = Focus::AdminPalette,
         KeyCode::Up | KeyCode::Char('k') => {
             let step = if big { 10 } else { 1 };
-            eph.last_dispatch_scroll = eph.last_dispatch_scroll.saturating_sub(step);
+            if has_rows {
+                if let Some(ld) = eph.last_dispatch.as_mut() {
+                    ld.cursor = ld.cursor.saturating_sub(step as usize);
+                }
+            } else {
+                eph.last_dispatch_scroll = eph.last_dispatch_scroll.saturating_sub(step);
+            }
         }
         KeyCode::Down | KeyCode::Char('j') => {
             let step = if big { 10 } else { 1 };
-            eph.last_dispatch_scroll = eph.last_dispatch_scroll.saturating_add(step);
+            if has_rows {
+                if let Some(ld) = eph.last_dispatch.as_mut() {
+                    let max = ld.rows.len().saturating_sub(1);
+                    ld.cursor = (ld.cursor + step as usize).min(max);
+                }
+            } else {
+                eph.last_dispatch_scroll = eph.last_dispatch_scroll.saturating_add(step);
+            }
+        }
+        KeyCode::Enter | KeyCode::Char('a') => {
+            // open the per-row action menu, if there's a row + actions.
+            if let Some(ld) = eph.last_dispatch.as_ref() {
+                if let Some(row) = ld.rows.get(ld.cursor) {
+                    let actions =
+                        crate::ratcore::catalog::result_actions(&ld.command);
+                    if !actions.is_empty() {
+                        eph.action_menu = Some(crate::ratcore::app::ActionMenu {
+                            source_command: ld.command.clone(),
+                            row: row.clone(),
+                            options: actions,
+                            selected: 0,
+                        });
+                        eph.focus = Focus::ResultActionMenu;
+                    }
+                }
+            }
         }
         KeyCode::PageUp => {
             eph.last_dispatch_scroll = eph.last_dispatch_scroll.saturating_sub(10);
@@ -391,7 +441,27 @@ fn on_form_key(
             app.state.ephemeral.form = None;
             app.state.ephemeral.focus = Focus::AdminPalette;
         }
-        KeyCode::Enter => advance_form(app, tx),
+        // Tab always advances (handy when focused field is a LongText
+        // editor where Enter inserts a newline).
+        KeyCode::Tab => advance_form(app, tx),
+        // Enter advances UNLESS the focused field is a LongText
+        // editor, in which case it inserts a newline.
+        KeyCode::Enter => {
+            let is_long = form
+                .fields
+                .get(form.focused)
+                .map(|f| matches!(f, FieldState::LongText { .. }))
+                .unwrap_or(false);
+            if is_long {
+                if let Some(FieldState::LongText { buf, cursor }) =
+                    form.fields.get_mut(form.focused)
+                {
+                    ti::insert_char(buf, cursor, '\n');
+                }
+            } else {
+                advance_form(app, tx);
+            }
+        }
         _ => {
             let Some(state) = form.fields.get_mut(form.focused) else {
                 return;
@@ -409,6 +479,77 @@ fn on_form_key(
                     if !c.is_control() {
                         ti::insert_char(buf, cursor, *c);
                     }
+                }
+                // LongText shares Text's text-editing keys; Enter is
+                // handled above (newline) and Tab advances the wizard.
+                (FieldState::LongText { buf, cursor }, KeyCode::Backspace) => {
+                    ti::backspace(buf, cursor)
+                }
+                (FieldState::LongText { buf, cursor }, KeyCode::Delete) => {
+                    ti::delete(buf, cursor)
+                }
+                (FieldState::LongText { cursor, .. }, KeyCode::Left) => ti::move_left(cursor),
+                (FieldState::LongText { buf, cursor }, KeyCode::Right) => {
+                    ti::move_right(buf, cursor)
+                }
+                (FieldState::LongText { cursor, .. }, KeyCode::Home) => ti::move_home(cursor),
+                (FieldState::LongText { buf, cursor }, KeyCode::End) => {
+                    ti::move_end(buf, cursor)
+                }
+                (FieldState::LongText { buf, cursor }, KeyCode::Char(c)) => {
+                    if !c.is_control() {
+                        ti::insert_char(buf, cursor, *c);
+                    }
+                }
+                (FieldState::Number { buf, cursor, .. }, KeyCode::Backspace) => {
+                    ti::backspace(buf, cursor)
+                }
+                (FieldState::Number { buf, cursor, .. }, KeyCode::Delete) => {
+                    ti::delete(buf, cursor)
+                }
+                (FieldState::Number { cursor, .. }, KeyCode::Left) => ti::move_left(cursor),
+                (FieldState::Number { buf, cursor, .. }, KeyCode::Right) => {
+                    ti::move_right(buf, cursor)
+                }
+                (FieldState::Number { cursor, .. }, KeyCode::Home) => ti::move_home(cursor),
+                (FieldState::Number { buf, cursor, .. }, KeyCode::End) => ti::move_end(buf, cursor),
+                (
+                    FieldState::Number {
+                        buf,
+                        cursor,
+                        signed,
+                    },
+                    KeyCode::Char(c),
+                ) => {
+                    // accept digits anywhere; accept a leading '-'
+                    // when `signed` and the cursor is at position 0.
+                    if c.is_ascii_digit()
+                        || (*signed && *c == '-' && *cursor == 0 && !buf.starts_with('-'))
+                    {
+                        ti::insert_char(buf, cursor, *c);
+                    }
+                }
+                (FieldState::Bool { value }, KeyCode::Left)
+                | (FieldState::Bool { value }, KeyCode::Right)
+                | (FieldState::Bool { value }, KeyCode::Char(' ')) => {
+                    *value = !*value;
+                }
+                (FieldState::OptionalBool { value }, KeyCode::Left) => {
+                    // cycle backwards: unset <- true <- false <- unset
+                    *value = match value {
+                        None => Some(false),
+                        Some(true) => None,
+                        Some(false) => Some(true),
+                    };
+                }
+                (FieldState::OptionalBool { value }, KeyCode::Right)
+                | (FieldState::OptionalBool { value }, KeyCode::Char(' ')) => {
+                    // cycle forwards: unset -> true -> false -> unset
+                    *value = match value {
+                        None => Some(true),
+                        Some(true) => Some(false),
+                        Some(false) => None,
+                    };
                 }
                 (FieldState::OneOf { selected }, KeyCode::Left) => {
                     *selected = selected.saturating_sub(1);
@@ -477,7 +618,7 @@ fn validate_focused(form: &CommandForm) -> Result<(), String> {
     // as a fallback identifier for the message.
     let label = format!("field {}", form.focused + 1);
     match state {
-        FieldState::Text { buf, .. } => {
+        FieldState::Text { buf, .. } | FieldState::LongText { buf, .. } => {
             if buf.trim().is_empty() {
                 // optional fields are allowed to be blank; we don't
                 // know `required` here so accept and let `build_body`
@@ -485,7 +626,10 @@ fn validate_focused(form: &CommandForm) -> Result<(), String> {
             }
             Ok(())
         }
+        FieldState::Number { .. } | FieldState::Bool { .. } => Ok(()),
+        FieldState::OptionalBool { .. } => Ok(()),
         FieldState::OneOf { .. } => Ok(()),
+        FieldState::Mirror | FieldState::HiddenLocalNodeId => Ok(()),
         FieldState::SelectFrom {
             options,
             loading,
@@ -506,7 +650,59 @@ fn validate_focused(form: &CommandForm) -> Result<(), String> {
                 None => Err(format!("{} not loaded yet", label)),
             }
         }
-        FieldState::HiddenLocalNodeId => Ok(()),
+    }
+}
+
+/// the result-pane action menu accepts up/down to navigate, Enter
+/// to pick (opens the target command's form prefilled with the
+/// row), and Esc to dismiss back to the result panel.
+fn on_action_menu_key(
+    app: &mut App,
+    code: KeyCode,
+    tx: &mpsc::UnboundedSender<AppAction>,
+) {
+    let eph = &mut app.state.ephemeral;
+    let Some(menu) = eph.action_menu.as_mut() else {
+        eph.focus = Focus::ResultPanel;
+        return;
+    };
+    match code {
+        KeyCode::Esc => {
+            eph.action_menu = None;
+            eph.focus = Focus::ResultPanel;
+        }
+        KeyCode::Up | KeyCode::Char('k') => {
+            menu.selected = menu.selected.saturating_sub(1);
+        }
+        KeyCode::Down | KeyCode::Char('j') => {
+            let max = menu.options.len().saturating_sub(1);
+            menu.selected = (menu.selected + 1).min(max);
+        }
+        KeyCode::Enter => {
+            let Some(opt) = menu.options.get(menu.selected).cloned() else {
+                return;
+            };
+            let row = menu.row.clone();
+            eph.action_menu = None;
+            // find the target command and open a prefilled form.
+            let Some(cmd) = app
+                .commands
+                .iter()
+                .find(|c| c.name == opt.target_command)
+                .cloned()
+            else {
+                eph.focus = Focus::ResultPanel;
+                return;
+            };
+            app.state.ephemeral.form =
+                Some(crate::ratcore::app::CommandForm::new_with_prefill(&cmd, &row));
+            app.state.ephemeral.focus = Focus::CommandForm;
+            // any SelectFrom prefilled with a synthetic option will
+            // skip the auto-fetch (options is Some). other SelectFrom
+            // fields will fetch as usual when focused.
+            maybe_fetch_select_options(app, tx);
+        }
+        _ => {}
     }
 }
 
@@ -557,18 +753,10 @@ fn maybe_fetch_select_options(app: &mut App, tx: &mpsc::UnboundedSender<AppActio
     };
     let cmd_name = form.command.clone();
     let field_idx = form.focused;
-    let Some(state) = form.fields.get_mut(field_idx) else {
+    let Some(state) = form.fields.get(field_idx) else {
         return;
     };
-    let needs_fetch = matches!(
-        state,
-        FieldState::SelectFrom {
-            options: None,
-            loading: false,
-            ..
-        }
-    );
-    if !needs_fetch {
+    if !matches!(state, FieldState::SelectFrom { .. }) {
         return;
     }
     let Some(cmd) = app.commands.iter().find(|c| c.name == cmd_name).cloned() else {
@@ -579,6 +767,8 @@ fn maybe_fetch_select_options(app: &mut App, tx: &mpsc::UnboundedSender<AppActio
     };
     let ArgKind::SelectFrom {
         source_command,
+        source_body,
+        body_from_fields,
         data_path,
         value_field,
         label_field,
@@ -586,16 +776,58 @@ fn maybe_fetch_select_options(app: &mut App, tx: &mpsc::UnboundedSender<AppActio
     else {
         return;
     };
-    if let FieldState::SelectFrom { loading, error, .. } = state {
+    // when the body depends on sibling fields, options can go stale
+    // any time those siblings change, so clear cached options on each
+    // (re-)focus and re-fetch. for static-body fields, only fetch when
+    // we don't have options yet.
+    let depends_on_siblings = !body_from_fields.is_empty();
+    let needs_fetch = if let Some(FieldState::SelectFrom {
+        options, loading, ..
+    }) = form.fields.get_mut(field_idx)
+    {
+        if *loading {
+            false
+        } else if depends_on_siblings {
+            *options = None;
+            true
+        } else {
+            options.is_none()
+        }
+    } else {
+        false
+    };
+    if !needs_fetch {
+        return;
+    }
+    // resolve the body now (against the current form state) before
+    // marking the field loading, so a sibling-not-ready error surfaces
+    // synchronously instead of bouncing through a no-op fetch.
+    let body = match crate::ratcore::views::command_form::build_select_source_body(
+        &cmd,
+        form,
+        &source_body,
+        &body_from_fields,
+    ) {
+        Ok(b) => b,
+        Err(msg) => {
+            if let Some(FieldState::SelectFrom { error, .. }) =
+                form.fields.get_mut(field_idx)
+            {
+                *error = Some(msg);
+            }
+            return;
+        }
+    };
+    if let Some(FieldState::SelectFrom { loading, error, .. }) =
+        form.fields.get_mut(field_idx)
+    {
         *loading = true;
         *error = None;
     }
     let transport = app.transport.clone();
     let tx = tx.clone();
     tokio::task::spawn_local(async move {
-        let response = transport
-            .admin_dispatch(&source_command, serde_json::json!({}))
-            .await;
+        let response = transport.admin_dispatch(&source_command, body).await;
         let options = if !response.success {
             Err(response.message)
         } else {
@@ -649,7 +881,11 @@ fn extract_options(
             .and_then(serde_json::Value::as_str)
             .map(str::to_string)
             .unwrap_or_else(|| value.clone());
-        out.push(SelectOption { value, label });
+        out.push(SelectOption {
+            value,
+            label,
+            row: el.clone(),
+        });
     }
     Ok(out)
 }

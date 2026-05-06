@@ -6,7 +6,7 @@
 use ratatui::widgets::ListState;
 use serde::{Deserialize, Serialize};
 
-use super::events::{CommandForm, LastDispatch};
+use super::events::{ActionMenu, CommandForm, LastDispatch};
 
 /// the persisted slice — serialized to whatever the shell uses
 /// (toml on tty, localStorage / IndexedDB on web later).
@@ -89,6 +89,8 @@ pub enum Focus {
     /// the last-dispatch output panel — takes focus so arrow keys
     /// scroll instead of moving the palette selection.
     ResultPanel,
+    /// pop-up listing per-row actions for the focused result row.
+    ResultActionMenu,
 }
 
 impl Default for Focus {
@@ -126,6 +128,9 @@ pub struct EphemeralState {
     /// dispatch. shown in the header so the user can paste it into
     /// an admin's `freqhole federation accept-knock` command.
     pub last_knock_id: Option<String>,
+    /// optional pop-up listing per-row actions for the row currently
+    /// under the result-panel cursor.
+    pub action_menu: Option<ActionMenu>,
 }
 
 impl Default for EphemeralState {
@@ -144,6 +149,7 @@ impl Default for EphemeralState {
             form: None,
             last_dispatch_scroll: 0,
             last_knock_id: None,
+            action_menu: None,
         }
     }
 }

@@ -141,9 +141,45 @@ fn draw_result_box(frame: &mut Frame, result_area: Rect, app: &App) {
                     },
                 ]),
                 Line::from(vec![Span::raw("message: "), Span::raw(d.message.clone())]),
-                Line::from(""),
             ];
-            if let Some(pretty) = &d.data_pretty {
+            if !d.rows.is_empty() {
+                let cursor = d.cursor.min(d.rows.len().saturating_sub(1));
+                lines.push(Line::from(vec![
+                    Span::raw("rows:    "),
+                    Span::styled(
+                        format!("{} / {}", cursor + 1, d.rows.len()),
+                        Style::new().fg(ACCENT).bold(),
+                    ),
+                    Span::raw("   "),
+                    Span::styled("(j/k navigate, a or enter for actions)", Style::new().dim()),
+                ]));
+            }
+            lines.push(Line::from(""));
+            if !d.rows.is_empty() {
+                let cursor = d.cursor.min(d.rows.len().saturating_sub(1));
+                for (idx, row) in d.rows.iter().enumerate() {
+                    let marker = if idx == cursor { "> " } else { "  " };
+                    let summary = row_summary(row);
+                    let style = if idx == cursor {
+                        Style::new().fg(ACCENT).bold()
+                    } else {
+                        Style::new()
+                    };
+                    lines.push(Line::from(vec![Span::styled(
+                        format!("{}{}", marker, summary),
+                        style,
+                    )]));
+                }
+                if let Some(focused_row) = d.rows.get(cursor) {
+                    lines.push(Line::from(""));
+                    lines.push(Line::from(Span::styled("focused row:", Style::new().dim())));
+                    let pretty = serde_json::to_string_pretty(focused_row)
+                        .unwrap_or_else(|_| focused_row.to_string());
+                    for l in pretty.lines() {
+                        lines.push(Line::from(l.to_string()));
+                    }
+                }
+            } else if let Some(pretty) = &d.data_pretty {
                 for l in pretty.lines() {
                     lines.push(Line::from(l.to_string()));
                 }
@@ -180,4 +216,38 @@ fn draw_result_box(frame: &mut Frame, result_area: Rect, app: &App) {
             .scroll((scroll, 0)),
         result_area,
     );
+}
+
+/// produce a one-line, vaguely-readable summary of a JSON-object row
+/// for the result-pane row list. picks a few common identifying keys
+/// (name, label, username, code, id) when present; falls back to the
+/// row's serialized form (truncated) otherwise.
+fn row_summary(row: &serde_json::Value) -> String {
+    let Some(obj) = row.as_object() else {
+        return row.to_string();
+    };
+    let pick = |k: &str| -> Option<String> {
+        obj.get(k)
+            .and_then(|v| match v {
+                serde_json::Value::String(s) => Some(s.clone()),
+                serde_json::Value::Number(n) => Some(n.to_string()),
+                serde_json::Value::Bool(b) => Some(b.to_string()),
+                _ => None,
+            })
+    };
+    let mut parts: Vec<String> = vec![];
+    for k in ["name", "label", "username", "code", "filter_value", "node_id"] {
+        if let Some(v) = pick(k) {
+            parts.push(format!("{}={}", k, v));
+        }
+    }
+    if let Some(id) = pick("id") {
+        parts.insert(0, format!("id={}", id));
+    }
+    if parts.is_empty() {
+        let s = row.to_string();
+        if s.len() > 80 { format!("{}…", &s[..80]) } else { s }
+    } else {
+        parts.join("  ")
+    }
 }
