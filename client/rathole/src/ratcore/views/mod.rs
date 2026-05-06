@@ -3,20 +3,22 @@
 pub mod action_menu;
 pub mod admin;
 pub mod command_form;
+pub mod landing;
 pub mod music;
 pub mod peer_input;
 pub mod player_row;
 pub mod repl;
 
 use ratatui::{
-    layout::{Constraint::*, Layout},
-    style::Stylize,
+    layout::{Constraint::*, Layout, Alignment},
+    style::{Color, Style, Stylize},
     text::{Line, Span},
-    widgets::Paragraph,
+    widgets::{Block, Clear, Paragraph},
     Frame,
 };
 
 use crate::ratcore::app::{App, Focus};
+use crate::ratcore::theme::ACCENT;
 
 pub fn draw(frame: &mut Frame, app: &mut App) {
     let player_h = player_row::height(app);
@@ -30,13 +32,15 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     .areas(frame.area());
 
     frame.render_widget(
-        Paragraph::new(header_line(app)).bold().on_dark_gray(),
+        Paragraph::new(header_line(app)).style(Style::new().bg(ACCENT).fg(Color::White)),
         header,
     );
     frame.render_widget(Paragraph::new(footer_hints(app)).dim(), footer);
 
     if app.state.ephemeral.focus == Focus::MusicView {
         music::draw(frame, body, app);
+    } else if app.state.ephemeral.focus == Focus::Landing {
+        landing::draw(frame, body, app);
     } else {
         admin::palette::draw(frame, body, app);
     }
@@ -54,32 +58,62 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     if app.state.ephemeral.focus == Focus::ResultActionMenu {
         action_menu::draw(frame, app);
     }
+
+    if app.state.ephemeral.pending_quit {
+        draw_quit_confirm(frame);
+    }
+}
+
+/// centered confirm overlay for the global `q` quit shortcut. y/enter
+/// quits, n/esc cancels (handled in the shell key dispatcher).
+fn draw_quit_confirm(frame: &mut Frame) {
+    let area = frame.area();
+    let w = 44u16.min(area.width);
+    let h = 5u16.min(area.height);
+    let x = area.x + (area.width.saturating_sub(w)) / 2;
+    let y = area.y + (area.height.saturating_sub(h)) / 2;
+    let rect = ratatui::layout::Rect { x, y, width: w, height: h };
+    frame.render_widget(Clear, rect);
+    let lines = vec![
+        Line::from(""),
+        Line::from(Span::styled(
+            "are you sure you want to quit?",
+            Style::new().fg(Color::White).bold(),
+        )),
+        Line::from(Span::styled("y/enter: quit    n/esc: cancel", Style::new().dim())),
+    ];
+    frame.render_widget(
+        Paragraph::new(lines)
+            .alignment(Alignment::Center)
+            .block(Block::bordered().style(Style::new().fg(ACCENT))),
+        rect,
+    );
 }
 
 fn header_line(app: &App) -> Line<'static> {
     let mut spans: Vec<Span<'static>> = vec![
-        Span::raw("rathole").bold(),
+        Span::styled("rathole", Style::new().fg(Color::Black).bold()),
         Span::raw("   "),
         view_label(app),
-        Span::raw("  ·  "),
+        Span::raw("  \u{00b7}  "),
     ];
 
     if let Some(peer) = &app.state.ephemeral.connected_peer {
-        spans.push(Span::raw("peer: ").dim());
+        spans.push(Span::raw("peer: "));
         spans.push(Span::raw(short_id(peer)));
     } else if app.state.ephemeral.local_node_id.is_some() {
-        spans.push(Span::raw("local p2p").dim());
+        spans.push(Span::raw("local p2p"));
     } else {
-        spans.push(Span::raw("local").dim());
+        spans.push(Span::raw("local"));
     }
 
     if let Some(local) = &app.state.ephemeral.local_node_id {
-        spans.push(Span::raw("   me: ").dim());
+        spans.push(Span::raw("   me: "));
         spans.push(Span::raw(short_id(local)));
     }
 
     if let Some(kid) = &app.state.ephemeral.last_knock_id {
-        spans.push(Span::raw("   knock: ").dim());
+        spans.push(Span::raw("   knock: "));
         spans.push(Span::raw(kid.clone()));
     }
 
@@ -90,35 +124,37 @@ fn header_line(app: &App) -> Line<'static> {
 /// near the start of the header so it's always obvious where you are.
 fn view_label(app: &App) -> Span<'static> {
     let label = match app.state.ephemeral.focus {
+        Focus::Landing => "[home]",
         Focus::MusicView => "[music]",
         Focus::PeerInput => "[peer]",
         Focus::Repl => "[repl]",
         Focus::PlayerRow => "[player]",
         _ => "[admin]",
     };
-    Span::styled(
-        label,
-        ratatui::style::Style::new().fg(crate::ratcore::theme::ACCENT),
-    )
+    // header bg is magenta now — use white text so it stays legible.
+    Span::styled(label, Style::new().fg(Color::White).bold())
 }
 
 fn footer_hints(app: &App) -> &'static str {
     match app.state.ephemeral.focus {
+        Focus::Landing => {
+            "c: commands   ctrl-m: music   ctrl-p: peer/player   ctrl-k: repl   q: quit"
+        }
         Focus::AdminPalette => {
-            "↑/↓ j/k: move   enter: dispatch/form   tab: focus resultz   m: music   p: peer   ctrl-k: repl   q: quit"
+            "↑/↓ j/k: move   enter: dispatch/form   tab: focus resultz   ctrl-m: music   ctrl-p: player   ctrl-k: repl   q: quit"
         }
         Focus::PeerInput => "type/paste node id   enter: connect   esc: cancel",
         Focus::CommandForm => "←/→: cycle option   tab/enter: next   esc: cancel",
         Focus::ResultPanel => "↑/↓ j/k: move row   pgup/pgdn: page   a/enter: actions   tab/esc: back",
         Focus::ResultActionMenu => "↑/↓: pick   enter: open form   esc: cancel",
         Focus::MusicView => {
-            "type to search   enter: search/play   space: pause   n/p: skip   ←/→: seek   -/=: vol   f: favorite   esc: back"
+            "j/k: move   enter: play   space: pause   n/p: skip   ←/→: seek   -/=: vol   f: favorite   /local /search   esc: home"
         }
         Focus::Repl => {
             "type /command   tab: complete   ↑/↓: history   enter: run   esc: cancel"
         }
         Focus::PlayerRow => {
-            "←/→ h/l: pick control   enter/space: activate   tab: next   esc/q: leave"
+            "←/→ h/l: pick control   enter/space: activate   tab: next/exit   esc/q/ctrl-p: leave"
         }
     }
 }

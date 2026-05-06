@@ -137,9 +137,7 @@ pub fn apply_navigation(
 
     // record everything except empty/bad-args/unknown in history.
     match &action {
-        SlashAction::Empty
-        | SlashAction::BadArgs { .. }
-        | SlashAction::Unknown { .. } => {}
+        SlashAction::Empty | SlashAction::BadArgs { .. } | SlashAction::Unknown { .. } => {}
         _ => state.ephemeral.repl.push_history(raw.to_string()),
     }
 
@@ -159,12 +157,74 @@ pub fn apply_navigation(
             state.ephemeral.focus = Focus::AdminPalette;
             ReplOutcome::Done
         }
+        SlashAction::Commands => {
+            state.ephemeral.repl.clear_input();
+            state.ephemeral.repl.status = Some(ReplStatus::ok("commands"));
+            leave(state);
+            state.ephemeral.focus = Focus::AdminPalette;
+            ReplOutcome::Done
+        }
         SlashAction::Music => {
             state.ephemeral.repl.clear_input();
             state.ephemeral.repl.status = Some(ReplStatus::ok("focus: music"));
             leave(state);
             state.ephemeral.focus = Focus::MusicView;
-            state.ephemeral.music.mode = MusicMode::Search;
+            state.ephemeral.music.mode = MusicMode::Results;
+            ReplOutcome::Done
+        }
+        SlashAction::Queue => {
+            // synthesize a result-panel dispatch listing the current
+            // queue. each row is shaped like a search result so the
+            // existing row renderer + actions work, with `now_playing`
+            // marking the active track and `pending` marking rows
+            // whose blob urls are still being resolved (web shell).
+            let m = &state.ephemeral.music;
+            let cur = m.current;
+            let total = m.queue.len();
+            let resolving = m.queue_resolving.min(total);
+            // resolution is sequential: rows 0..(total - resolving)
+            // have been handed to the player; the tail is still
+            // pending.
+            let loaded_through = total.saturating_sub(resolving);
+            let rows: Vec<serde_json::Value> = m
+                .queue
+                .iter()
+                .enumerate()
+                .map(|(i, s)| {
+                    serde_json::json!({
+                        "type": "song",
+                        "id": s.id.clone(),
+                        "title": s.title.clone(),
+                        "subtitle": s.artist.clone().unwrap_or_else(|| "\u{2014}".to_string()),
+                        "position": i,
+                        "now_playing": cur == Some(i),
+                        "pending": i >= loaded_through,
+                    })
+                })
+                .collect();
+            let cur_label = match cur {
+                Some(i) => {
+                    if resolving > 0 {
+                        format!("queue ({total} tracks, playing #{}, loading {resolving} more\u{2026})", i + 1)
+                    } else {
+                        format!("queue ({total} tracks, playing #{})", i + 1)
+                    }
+                }
+                None => format!("queue ({total} tracks)"),
+            };
+            state.ephemeral.last_dispatch = Some(crate::ratcore::app::LastDispatch {
+                command: "queue".to_string(),
+                success: true,
+                message: cur_label,
+                data_pretty: None,
+                rows,
+                cursor: cur.unwrap_or(0),
+            });
+            state.ephemeral.last_dispatch_scroll = 0;
+            state.ephemeral.repl.clear_input();
+            state.ephemeral.repl.status = Some(ReplStatus::ok("queue"));
+            leave(state);
+            state.ephemeral.focus = Focus::ResultPanel;
             ReplOutcome::Done
         }
         SlashAction::BadArgs { name, hint } => {

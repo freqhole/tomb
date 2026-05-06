@@ -80,6 +80,36 @@ impl Transport for LocalTransport {
         Ok(out)
     }
 
+    async fn list_local_songs(&self, limit: u32) -> Result<Vec<SongRow>, String> {
+        let resp = grimoire::music::list_recent_songs(Some(limit)).await;
+        if !resp.success {
+            return Err(resp.message);
+        }
+        let Some(result) = resp.data else {
+            return Ok(vec![]);
+        };
+        let mut out = Vec::with_capacity(result.items.len());
+        for item in result.items {
+            let artist = if !item.song.track_artist.as_deref().unwrap_or("").is_empty() {
+                item.song.track_artist.clone()
+            } else {
+                item.artist.as_ref().map(|a| a.name.clone())
+            };
+            let album = item.album.as_ref().map(|a| a.title.clone());
+            let local_path = item.media_blob.as_ref().and_then(|b| b.local_path.clone());
+            out.push(SongRow {
+                id: item.song.id.clone(),
+                title: item.song.title.clone(),
+                artist,
+                album,
+                duration_ms: item.song.duration.map(|d| d as u64),
+                media_blob_id: Some(item.song.media_blob_id.clone()),
+                local_path,
+            });
+        }
+        Ok(out)
+    }
+
     async fn toggle_favorite(&self, target_type: &str, target_id: &str) -> Result<bool, String> {
         use grimoire::music::users::FavoritesService;
         let target = parse_favorite_target(target_type)?;
@@ -319,6 +349,18 @@ async fn unified_search_impl(t: &LocalTransport, query: &str) -> DispatchRespons
                 "title": p.title,
                 "subtitle": format!("{} songs", p.song_count),
                 "score": p.search_rank,
+            }),
+        ));
+    }
+    for g in body.genres.iter().flatten() {
+        rows.push((
+            g.search_rank,
+            serde_json::json!({
+                "type": "genre",
+                "id": g.genre_id,
+                "title": g.genre,
+                "subtitle": format!("{} artists  {} songs", g.artist_count, g.song_count),
+                "score": g.search_rank,
             }),
         ));
     }

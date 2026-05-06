@@ -19,23 +19,38 @@ use crate::ratcore::app::Focus;
 pub enum SlashAction {
     /// switch to the music view's search mode and (optionally) seed
     /// the query with the given text.
-    Search { query: Option<String> },
+    Search {
+        query: Option<String>,
+    },
     /// search and immediately play the first result. `/play metal`.
     /// when `query` is `None` and the player has a current track,
     /// resumes playback (sends `PlayerCmd::Play`).
-    Play { query: Option<String> },
+    Play {
+        query: Option<String>,
+    },
     Pause,
     Stop,
     Next,
     Previous,
     /// absolute seek in seconds (e.g. `/seek 90` or `/seek 1:30`).
-    Seek { seconds: u64 },
+    Seek {
+        seconds: u64,
+    },
     /// set volume by percent (0..=200). `/vol 80`.
-    Volume { percent: u8 },
+    Volume {
+        percent: u8,
+    },
     /// switch focus to the music view (no query change).
     Music,
+    /// list locally-downloaded songs in the music view (recent first).
+    Local,
     /// switch focus back to the admin palette.
     Admin,
+    /// open the admin commands list view (alias for Admin, but
+    /// dispatched via `/commands`).
+    Commands,
+    /// open the result panel showing the current playback queue.
+    Queue,
     /// quit the app.
     Quit,
     /// query a library entity (album/artist/playlist/favorites/radio).
@@ -50,17 +65,25 @@ pub enum SlashAction {
     Empty,
     /// recognised name but malformed args. `hint` describes what
     /// the user needs to type instead.
-    BadArgs { name: &'static str, hint: &'static str },
+    BadArgs {
+        name: &'static str,
+        hint: &'static str,
+    },
     /// unknown command. `name` is what the user typed (without the
     /// leading `/`).
-    Unknown { name: String },
+    Unknown {
+        name: String,
+    },
 }
 
 /// canonical list of known slash command names + one-line help.
 /// used by the repl autocompleter and the help hint line.
 pub const COMMANDS: &[(&str, &str)] = &[
     ("search", "/search [query]    open music view, seed search"),
-    ("play", "/play [query]      search + play first hit, or resume"),
+    (
+        "play",
+        "/play [query]      search + play first hit, or resume",
+    ),
     ("pause", "/pause             pause playback"),
     ("stop", "/stop              stop playback"),
     ("next", "/next              skip to next track"),
@@ -68,7 +91,10 @@ pub const COMMANDS: &[(&str, &str)] = &[
     ("seek", "/seek <m:ss|sec>   seek to position"),
     ("vol", "/vol <0-200>       set volume percent"),
     ("music", "/music             focus music view"),
+    ("local", "/local             list local downloaded songs"),
     ("admin", "/admin             focus admin palette"),
+    ("commands", "/commands          browse all admin commands"),
+    ("queue", "/queue             show current playback queue"),
     ("album", "/album [query]     browse albums (or search)"),
     ("artist", "/artist [query]    browse artists (or search)"),
     ("playlist", "/playlist [query]  list playlists (or search)"),
@@ -116,9 +142,18 @@ pub fn parse(input: &str) -> SlashAction {
             },
         },
         "music" | "m" => SlashAction::Music,
+        "local" | "l" | "library" | "lib" => SlashAction::Local,
         "admin" | "a" => SlashAction::Admin,
-        "album" | "al" => SlashAction::Library { kind: "album", query: arg },
-        "artist" | "ar" => SlashAction::Library { kind: "artist", query: arg },
+        "commands" | "cmds" | "c" => SlashAction::Commands,
+        "queue" | "q!" => SlashAction::Queue,
+        "album" | "al" => SlashAction::Library {
+            kind: "album",
+            query: arg,
+        },
+        "artist" | "ar" => SlashAction::Library {
+            kind: "artist",
+            query: arg,
+        },
         "playlist" | "pl" => SlashAction::Library {
             kind: "playlist",
             query: arg,
@@ -179,7 +214,9 @@ pub fn complete(partial: &str) -> Vec<&'static str> {
 /// this when an action transitions between views.
 pub fn focus_for(action: &SlashAction) -> Option<Focus> {
     match action {
-        SlashAction::Search { .. } | SlashAction::Music => Some(Focus::MusicView),
+        SlashAction::Search { .. } | SlashAction::Music | SlashAction::Local => {
+            Some(Focus::MusicView)
+        }
         SlashAction::Admin => Some(Focus::AdminPalette),
         _ => None,
     }
@@ -190,10 +227,7 @@ pub fn focus_for(action: &SlashAction) -> Option<Focus> {
 /// startswith, then substring. returns the station id if found.
 /// the payload may be either a raw `Vec<RadioStation>` (tty) or
 /// wrapped in `{ items: [...] }` (web).
-pub fn match_station_id(
-    data: &Option<serde_json::Value>,
-    query: Option<&str>,
-) -> Option<String> {
+pub fn match_station_id(data: &Option<serde_json::Value>, query: Option<&str>) -> Option<String> {
     let q = query?.trim().to_lowercase();
     if q.is_empty() {
         return None;

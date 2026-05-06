@@ -174,10 +174,12 @@ fn draw_result_box(frame: &mut Frame, result_area: Rect, app: &App) {
         return;
     }
 
-    // rows: split into header + row list (auto-scrolling) + focused-row json.
+    // rows: a single "resultz" container holds the header summary
+    // (command + status + message + cursor count) on the top lines
+    // followed by the row list filling the rest. no separate
+    // "focused row" detail pane.
     let cursor = d.cursor.min(d.rows.len() - 1);
-    let header_h = (header_lines.len() as u16) + 2; // +2 for box borders
-    let footer_summary = Line::from(vec![
+    let summary_line = Line::from(vec![
         Span::raw("rows:    "),
         Span::styled(
             format!("{} / {}", cursor + 1, d.rows.len()),
@@ -187,37 +189,31 @@ fn draw_result_box(frame: &mut Frame, result_area: Rect, app: &App) {
         Span::styled("(j/k navigate, a or enter for actions)", Style::new().dim()),
     ]);
 
-    // give the row list ~40% of remaining vertical space, but at
-    // least 5 rows when room exists; rest goes to focused-row json.
-    let avail = result_area.height.saturating_sub(header_h);
-    let list_h = (avail * 4 / 10).max(5).min(avail.saturating_sub(3));
-    let detail_h = avail.saturating_sub(list_h);
-    let [hdr_a, list_a, det_a] = Layout::vertical([
-        Length(header_h),
-        Length(list_h.max(3)),
-        Length(detail_h.max(3)),
-    ])
-    .areas(result_area);
+    let mut header = header_lines.clone();
+    header.push(summary_line);
+    header.push(Line::from(""));
 
-    // header box.
-    let mut hdr_lines = header_lines.clone();
-    hdr_lines.push(footer_summary);
-    frame.render_widget(
-        Paragraph::new(hdr_lines)
-            .block(Block::bordered().title(Span::styled("resultz", title_style(app))))
-            .wrap(Wrap { trim: false }),
-        hdr_a,
-    );
-
-    // row list with auto-scroll: keep cursor on screen.
-    let visible = list_a.height.saturating_sub(2) as usize;
-    let row_top = if cursor >= visible.saturating_sub(1) {
-        cursor + 1 - visible.max(1)
+    // build row lines beneath the header. cursor stays on screen by
+    // computing a top offset against the rendered viewport (full
+    // result_area minus borders minus header lines).
+    let header_h = header.len() as u16;
+    let viewport = result_area
+        .height
+        .saturating_sub(2)
+        .saturating_sub(header_h) as usize;
+    let row_top = if cursor >= viewport.saturating_sub(1) {
+        cursor + 1 - viewport.max(1)
     } else {
         0
     };
-    let mut row_lines: Vec<Line> = vec![];
-    for (idx, row) in d.rows.iter().enumerate().skip(row_top).take(visible.max(1)) {
+    let mut lines = header;
+    for (idx, row) in d
+        .rows
+        .iter()
+        .enumerate()
+        .skip(row_top)
+        .take(viewport.max(1))
+    {
         let marker = if idx == cursor { "> " } else { "  " };
         let summary = row_summary(row);
         let style = if idx == cursor {
@@ -225,45 +221,15 @@ fn draw_result_box(frame: &mut Frame, result_area: Rect, app: &App) {
         } else {
             Style::new()
         };
-        row_lines.push(Line::from(vec![Span::styled(
+        lines.push(Line::from(vec![Span::styled(
             format!("{}{}", marker, summary),
             style,
         )]));
     }
-    let list_title = format!("rows  ({} of {})", cursor + 1, d.rows.len());
     frame.render_widget(
-        Paragraph::new(row_lines).block(
-            Block::bordered().title(Span::styled(list_title, Style::new().fg(ACCENT).bold())),
-        ),
-        list_a,
-    );
-
-    // focused-row json detail with scroll.
-    let mut det_lines: Vec<Line> = vec![];
-    if let Some(focused_row) = d.rows.get(cursor) {
-        let pretty =
-            serde_json::to_string_pretty(focused_row).unwrap_or_else(|_| focused_row.to_string());
-        for l in pretty.lines() {
-            det_lines.push(Line::from(l.to_string()));
-        }
-    }
-    let det_viewport = det_a.height.saturating_sub(2);
-    let det_max_scroll = (det_lines.len() as u16).saturating_sub(det_viewport);
-    let det_scroll = app.state.ephemeral.last_dispatch_scroll.min(det_max_scroll);
-    let det_title = if det_max_scroll > 0 {
-        format!(
-            "focused row  [{}/{}]   shift+↑/↓ scrolls",
-            det_scroll, det_max_scroll
-        )
-    } else {
-        "focused row".to_string()
-    };
-    frame.render_widget(
-        Paragraph::new(det_lines)
-            .block(Block::bordered().title(Span::styled(det_title, Style::new().fg(ACCENT).bold())))
-            .wrap(Wrap { trim: false })
-            .scroll((det_scroll, 0)),
-        det_a,
+        Paragraph::new(lines)
+            .block(Block::bordered().title(Span::styled("resultz", title_style(app)))),
+        result_area,
     );
 }
 
@@ -295,6 +261,31 @@ fn row_summary(row: &serde_json::Value) -> String {
     if let Some(ty) = pick("type") {
         let title = pick("title").unwrap_or_else(|| pick("name").unwrap_or_default());
         let subtitle = pick("subtitle").unwrap_or_default();
+        // queue rows carry a `position`, `now_playing`, `pending`
+        // status. render with a leading glyph + position so the
+        // /queue view reads as an ordered list.
+        if let Some(pos) = obj.get("position").and_then(|v| v.as_i64()) {
+            let now_playing = obj
+                .get("now_playing")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            let pending = obj
+                .get("pending")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            let glyph = if now_playing {
+                "\u{25B6}"
+            } else if pending {
+                "\u{25CB}"
+            } else {
+                "\u{25CF}"
+            };
+            let mut s = format!("{glyph} {pos:>3}  [{ty}] {title}");
+            if !subtitle.is_empty() {
+                s.push_str(&format!("  \u{2014} {subtitle}"));
+            }
+            return s;
+        }
         let mut s = format!("[{ty}] {title}");
         if !subtitle.is_empty() {
             s.push_str(&format!(" \u{2014} {subtitle}"));

@@ -80,6 +80,30 @@ pub fn cursor_right(state: &mut AppState) {
     *cur = (*cur + 1) % n;
 }
 
+/// tab forward through the controls; once past the last control,
+/// leave the player row instead of wrapping. that way the user
+/// isn't trapped in the player when tab-cycling through panes.
+pub fn tab_or_leave(state: &mut AppState) {
+    let n = CONTROLS.len();
+    let cur = state.ephemeral.player_row_cursor;
+    if cur + 1 >= n {
+        leave(state);
+    } else {
+        state.ephemeral.player_row_cursor = cur + 1;
+    }
+}
+
+/// shift-tab backward; leave the player row when already on the
+/// first control.
+pub fn back_tab_or_leave(state: &mut AppState) {
+    let cur = state.ephemeral.player_row_cursor;
+    if cur == 0 {
+        leave(state);
+    } else {
+        state.ephemeral.player_row_cursor = cur - 1;
+    }
+}
+
 /// activate the focused control. returns the action the shell
 /// should dispatch.
 pub fn activate(state: &AppState) -> PlayerRowAction {

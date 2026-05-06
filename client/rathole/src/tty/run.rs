@@ -115,22 +115,54 @@ fn on_event(app: &mut App, ev: Event, action_tx: &mpsc::UnboundedSender<AppActio
         return;
     }
 
-    // global hotkeys first
+    // global hotkeys first. macos terminals (iterm2, kitty, wezterm,
+    // ghostty) report the cmd modifier as either SUPER or META
+    // depending on key-protocol setup; treat all three the same as
+    // ctrl so cmd+k / cmd+c / cmd+p all work in the tty shell.
+    let cmdlike = KeyModifiers::CONTROL | KeyModifiers::SUPER | KeyModifiers::META;
+    if k.modifiers.intersects(cmdlike) {
+        match k.code {
+            KeyCode::Char('c') => {
+                app.exit = true;
+                return;
+            }
+            KeyCode::Char('k') => {
+                enter_repl(app);
+                return;
+            }
+            KeyCode::Char('p') => {
+                // toggle player-row focus: enter if not focused,
+                // leave if already focused.
+                if matches!(app.state.ephemeral.focus, Focus::PlayerRow) {
+                    crate::ratcore::player_row_keys::leave(&mut app.state);
+                } else {
+                    crate::ratcore::player_row_keys::enter(&mut app.state);
+                }
+                return;
+            }
+            KeyCode::Char('m') => {
+                let eph = &mut app.state.ephemeral;
+                eph.focus = Focus::MusicView;
+                eph.music.mode = crate::ratcore::app::MusicMode::Results;
+                return;
+            }
+            _ => {}
+        }
+    }
+    // pending-quit confirm overlay swallows all keys until resolved.
+    if app.state.ephemeral.pending_quit {
+        match k.code {
+            KeyCode::Char('y') | KeyCode::Char('Y') | KeyCode::Enter => {
+                app.exit = true;
+            }
+            _ => {
+                app.state.ephemeral.pending_quit = false;
+            }
+        }
+        return;
+    }
+
     match (k.code, k.modifiers) {
-        (KeyCode::Char('c'), KeyModifiers::CONTROL) => {
-            app.exit = true;
-            return;
-        }
-        // ctrl-k focuses the slash-command repl from anywhere.
-        (KeyCode::Char('k'), KeyModifiers::CONTROL) => {
-            enter_repl(app);
-            return;
-        }
-        // ctrl-p focuses the player-row controls from anywhere.
-        (KeyCode::Char('p'), KeyModifiers::CONTROL) => {
-            crate::ratcore::player_row_keys::enter(&mut app.state);
-            return;
-        }
         // 'q' quits only when not editing text (otherwise you couldn't
         // type 'q' into the peer-input field).
         (KeyCode::Char('q'), _)
@@ -139,7 +171,7 @@ fn on_event(app: &mut App, ev: Event, action_tx: &mpsc::UnboundedSender<AppActio
                 Focus::PeerInput | Focus::MusicView | Focus::Repl
             ) =>
         {
-            app.exit = true;
+            app.state.ephemeral.pending_quit = true;
             return;
         }
         _ => {}
@@ -147,6 +179,7 @@ fn on_event(app: &mut App, ev: Event, action_tx: &mpsc::UnboundedSender<AppActio
 
     // dispatch to focused area
     match app.state.ephemeral.focus {
+        Focus::Landing => on_landing_key(app, k.code),
         Focus::AdminPalette => on_palette_key(app, k.code, action_tx),
         Focus::PeerInput => on_peer_input_key(app, k.code),
         Focus::CommandForm => on_form_key(app, k.code, k.modifiers, action_tx),
@@ -155,6 +188,18 @@ fn on_event(app: &mut App, ev: Event, action_tx: &mpsc::UnboundedSender<AppActio
         Focus::MusicView => on_music_key(app, k.code, action_tx),
         Focus::Repl => on_repl_key(app, k.code, k.modifiers, action_tx),
         Focus::PlayerRow => on_player_row_key(app, k.code, action_tx),
+    }
+}
+
+/// landing-screen key handler: only navigation shortcuts. ctrl-k
+/// (global) opens the slash repl.
+fn on_landing_key(app: &mut App, code: KeyCode) {
+    let eph = &mut app.state.ephemeral;
+    match code {
+        KeyCode::Char('c') | KeyCode::Char('a') | KeyCode::Enter => {
+            eph.focus = Focus::AdminPalette;
+        }
+        _ => {}
     }
 }
 
@@ -195,10 +240,6 @@ fn on_palette_key(app: &mut App, code: KeyCode, action_tx: &mpsc::UnboundedSende
             app.state.ephemeral.peer_cursor = cursor;
             app.state.ephemeral.peer_error = None;
             app.state.ephemeral.focus = Focus::PeerInput;
-        }
-        KeyCode::Char('m') => {
-            app.state.ephemeral.focus = Focus::MusicView;
-            app.state.ephemeral.music.mode = crate::ratcore::app::MusicMode::Search;
         }
         KeyCode::Enter => {
             // if the command has args, open the inline form. otherwise
@@ -405,6 +446,7 @@ fn on_action(app: &mut App, action: AppAction, action_tx: &mpsc::UnboundedSender
                             target_type: "song".into(),
                             target_id: id,
                             result,
+                            silent: true,
                         });
                     });
                 } else {
@@ -426,6 +468,7 @@ fn on_action(app: &mut App, action: AppAction, action_tx: &mpsc::UnboundedSender
                     target_type: tt,
                     target_id: tid,
                     result,
+                    silent: false,
                 });
             });
         }
@@ -433,6 +476,7 @@ fn on_action(app: &mut App, action: AppAction, action_tx: &mpsc::UnboundedSender
             target_type,
             target_id,
             result,
+            silent,
         } => match result {
             Ok(now_favorited) => {
                 if target_type == "song" {
@@ -442,19 +486,27 @@ fn on_action(app: &mut App, action: AppAction, action_tx: &mpsc::UnboundedSender
                         }
                     }
                 }
-                app.state.ephemeral.repl.status =
-                    Some(crate::ratcore::app::ReplStatus::ok(if now_favorited {
-                        "favorited"
-                    } else {
-                        "unfavorited"
-                    }));
+                if !silent {
+                    app.state.ephemeral.repl.status =
+                        Some(crate::ratcore::app::ReplStatus::ok(if now_favorited {
+                            "favorited"
+                        } else {
+                            "unfavorited"
+                        }));
+                }
             }
             Err(e) => {
-                app.state.ephemeral.repl.status = Some(crate::ratcore::app::ReplStatus::err(
-                    format!("favorite failed: {e}"),
-                ));
+                if !silent {
+                    app.state.ephemeral.repl.status = Some(crate::ratcore::app::ReplStatus::err(
+                        format!("favorite failed: {e}"),
+                    ));
+                }
             }
         },
+        // tty doesn't use progressive collection loading (rodio reads
+        // local files synchronously) — accept the variant for an
+        // exhaustive match but treat it as a no-op.
+        AppAction::CollectionLoaded { .. } => {}
     }
 }
 
@@ -470,6 +522,9 @@ fn apply_music_event(app: &mut App, ev: crate::ratcore::app::MusicEvent) {
         MusicEvent::TrackChanged { index, .. } => {
             m.current = Some(index);
             m.position_ms = 0;
+        }
+        MusicEvent::QueueResolveProgress { remaining } => {
+            m.queue_resolving = remaining;
         }
         MusicEvent::Ended => {
             m.current = None;
@@ -513,7 +568,13 @@ fn on_result_panel_key(app: &mut App, code: KeyCode, mods: KeyModifiers) {
         .map(|ld| !ld.rows.is_empty())
         .unwrap_or(false);
     match code {
-        KeyCode::Esc | KeyCode::Tab => eph.focus = Focus::AdminPalette,
+        KeyCode::Esc => eph.focus = Focus::AdminPalette,
+        // tab cycles forward to the player row from the result panel
+        // (palette → result → player → palette). esc still bails to
+        // the palette directly.
+        KeyCode::Tab => {
+            crate::ratcore::player_row_keys::enter(&mut app.state);
+        }
         KeyCode::Up | KeyCode::Char('k') => {
             let step = if big { 10 } else { 1 };
             if has_rows {
@@ -1065,7 +1126,7 @@ fn on_action_menu_key(app: &mut App, code: KeyCode, tx: &mpsc::UnboundedSender<A
                 let (_, title, _) = crate::ratcore::catalog::row_id_and_title(&row);
                 let title = title.unwrap_or_default();
                 eph.focus = Focus::MusicView;
-                eph.music.mode = crate::ratcore::app::MusicMode::Search;
+                eph.music.mode = crate::ratcore::app::MusicMode::Results;
                 eph.music.query = title.clone();
                 eph.music.query_cursor = title.chars().count();
                 eph.music.auto_play_on_results = true;
@@ -1339,7 +1400,7 @@ fn on_music_key(app: &mut App, code: KeyCode, tx: &mpsc::UnboundedSender<AppActi
     let mode = app.state.ephemeral.music.mode;
     match (mode, code) {
         (_, KeyCode::Esc) => {
-            app.state.ephemeral.focus = Focus::AdminPalette;
+            app.state.ephemeral.focus = Focus::Landing;
         }
         // global player toggle in either mode if something is playing/paused.
         (MusicMode::Results, KeyCode::Char(' ')) => {
@@ -1369,7 +1430,7 @@ fn on_music_key(app: &mut App, code: KeyCode, tx: &mpsc::UnboundedSender<AppActi
             adjust_volume(app, 0.05, tx)
         }
         (MusicMode::Results, KeyCode::Char('/')) => {
-            app.state.ephemeral.music.mode = MusicMode::Search;
+            app.state.ephemeral.music.mode = MusicMode::Results;
         }
         (MusicMode::Results, KeyCode::Char('j') | KeyCode::Down) => {
             let m = &mut app.state.ephemeral.music;
@@ -1393,7 +1454,7 @@ fn on_music_key(app: &mut App, code: KeyCode, tx: &mpsc::UnboundedSender<AppActi
             }
         }
         (MusicMode::Results, KeyCode::Tab) => {
-            app.state.ephemeral.music.mode = MusicMode::Search;
+            app.state.ephemeral.music.mode = MusicMode::Results;
         }
         // search mode: full text-edit + Enter to fire search.
         (MusicMode::Search, KeyCode::Enter) => fire_search(app, tx),
@@ -1628,8 +1689,9 @@ fn on_player_row_key(app: &mut App, code: KeyCode, tx: &mpsc::UnboundedSender<Ap
     match code {
         KeyCode::Esc | KeyCode::Char('q') => prk::leave(&mut app.state),
         KeyCode::Left | KeyCode::Char('h') => prk::cursor_left(&mut app.state),
-        KeyCode::Right | KeyCode::Char('l') | KeyCode::Tab => prk::cursor_right(&mut app.state),
-        KeyCode::BackTab => prk::cursor_left(&mut app.state),
+        KeyCode::Right | KeyCode::Char('l') => prk::cursor_right(&mut app.state),
+        KeyCode::Tab => prk::tab_or_leave(&mut app.state),
+        KeyCode::BackTab => prk::back_tab_or_leave(&mut app.state),
         // 'f' is a shortcut for the heart-control regardless of which
         // control the cursor is on, so it works the same whether the
         // user navigated to the heart or not.
@@ -1766,7 +1828,7 @@ fn execute_slash_with_player(
                 app.state.ephemeral.focus = Focus::ResultPanel;
             } else {
                 app.state.ephemeral.focus = Focus::MusicView;
-                app.state.ephemeral.music.mode = MusicMode::Search;
+                app.state.ephemeral.music.mode = MusicMode::Results;
                 app.state.ephemeral.repl.status = Some(ReplStatus::info("type to search music"));
             }
         }
@@ -1775,7 +1837,7 @@ fn execute_slash_with_player(
                 app.state.ephemeral.repl.clear_input();
                 rk::leave(&mut app.state);
                 app.state.ephemeral.focus = Focus::MusicView;
-                app.state.ephemeral.music.mode = MusicMode::Search;
+                app.state.ephemeral.music.mode = MusicMode::Results;
                 app.state.ephemeral.music.query = q;
                 app.state.ephemeral.music.query_cursor =
                     app.state.ephemeral.music.query.chars().count();
@@ -1871,6 +1933,24 @@ fn execute_slash_with_player(
             app.state.ephemeral.focus = Focus::ResultPanel;
         }
         // pure-state actions are handled inside apply_navigation.
+        SlashAction::Local => {
+            app.state.ephemeral.repl.clear_input();
+            rk::leave(&mut app.state);
+            app.state.ephemeral.focus = Focus::MusicView;
+            app.state.ephemeral.music.mode = MusicMode::Results;
+            app.state.ephemeral.music.searching = true;
+            app.state.ephemeral.music.search_error = None;
+            app.state.ephemeral.repl.status = Some(ReplStatus::info("loading local songs…"));
+            let transport = app.transport.clone();
+            let tx_clone = tx.clone();
+            tokio::task::spawn_local(async move {
+                let result = transport.list_local_songs(200).await;
+                let _ = tx_clone.send(AppAction::MusicSearchResults {
+                    query: String::new(),
+                    result,
+                });
+            });
+        }
         _ => {}
     }
 }

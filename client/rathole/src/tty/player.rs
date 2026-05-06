@@ -82,6 +82,12 @@ impl MusicPlayer for RodioPlayer {
     async fn send(&self, cmd: PlayerCmd) -> Result<(), String> {
         let mapped = match cmd {
             PlayerCmd::Load(paths) => PlayerCommand::Load { paths },
+            PlayerCmd::Enqueue(_) => {
+                // tty rodio backend doesn't support progressive
+                // enqueueing yet; the initial Load already contains
+                // the full queue (tty resolves all paths up-front).
+                return Ok(());
+            }
             PlayerCmd::Play => PlayerCommand::Play,
             PlayerCmd::Pause => PlayerCommand::Pause,
             PlayerCmd::Stop => PlayerCommand::Stop,

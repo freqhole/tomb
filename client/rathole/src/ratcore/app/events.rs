@@ -508,6 +508,11 @@ pub enum AppAction {
     /// player backend emitted an event (state change, progress tick,
     /// track-changed, error, etc.).
     MusicEvent(MusicEvent),
+    /// a playlist/album/etc. was fetched in the background and the
+    /// ui loop should now populate the queue + start progressive
+    /// blob resolution. used by the web shell to avoid holding a
+    /// `&mut App` borrow across the network await.
+    CollectionLoaded { songs: Vec<SongRow> },
     /// the user pressed `f` (or activated the heart in the player
     /// row) — flip favorite status for `target_id`. shell calls
     /// `Transport::toggle_favorite` and then sends a [`FavoriteResult`]
@@ -519,10 +524,16 @@ pub enum AppAction {
     /// reply from a [`ToggleFavorite`] (or initial [`Transport::is_favorited`]
     /// query) — the ui consumes this to update [`MusicState::current_favorited`]
     /// when `target_id` matches the now-playing song.
+    ///
+    /// `silent` is set when this is a passive on-track-change refresh
+    /// rather than a user-initiated toggle. shells should not surface
+    /// a status-line message in that case.
     FavoriteResult {
         target_type: String,
         target_id: String,
         result: Result<bool, String>,
+        #[allow(dead_code)]
+        silent: bool,
     },
 }
 

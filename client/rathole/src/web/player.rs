@@ -251,6 +251,36 @@ impl MusicPlayer for HtmlAudioPlayer {
                 // the browser actually starts playback.
                 let _ = inner.el.play();
             }
+            PlayerCmd::Enqueue(paths) => {
+                if paths.is_empty() {
+                    return Ok(());
+                }
+                if inner.queue.is_empty() {
+                    // nothing playing — promote enqueue to a load so
+                    // the audio element actually starts.
+                    inner.queue = paths;
+                    inner.cursor = 0;
+                    let url = inner.queue[0].clone();
+                    inner.el.set_volume(inner.volume as f64);
+                    inner.el.set_src(&url);
+                    inner.last_state.set(PlayerState::Loading);
+                    let _ = inner
+                        .tx
+                        .unbounded_send(AppAction::MusicEvent(MusicEvent::State(
+                            PlayerState::Loading,
+                        )));
+                    let _ =
+                        inner
+                            .tx
+                            .unbounded_send(AppAction::MusicEvent(MusicEvent::TrackChanged {
+                                index: 0,
+                                path: url,
+                            }));
+                    let _ = inner.el.play();
+                } else {
+                    inner.queue.extend(paths);
+                }
+            }
             PlayerCmd::Play => {
                 let _ = inner.el.play();
             }

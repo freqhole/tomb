@@ -48,6 +48,10 @@ pub enum MusicEvent {
     State(PlayerState),
     Progress { ms: u64, total_ms: u64 },
     TrackChanged { index: usize, path: String },
+    /// shells emit this from background blob-resolution tasks so the
+    /// ui can show "loading N more" while a queue is still being
+    /// fetched. `remaining` is the number of rows still pending.
+    QueueResolveProgress { remaining: usize },
     Ended,
     Error(String),
 }
@@ -89,6 +93,11 @@ pub struct MusicState {
     pub duration_ms: u64,
     pub volume: f32,
     pub last_event_error: Option<String>,
+    /// number of queue rows whose blob urls are still being fetched
+    /// in the background. shells set this when they kick off a
+    /// progressive queue load and decrement via
+    /// [`MusicEvent::QueueResolveProgress`].
+    pub queue_resolving: usize,
     /// when set, the next successful search results will be
     /// auto-played from index 0. used by `/play <query>` slash
     /// commands. shells clear this on consume.

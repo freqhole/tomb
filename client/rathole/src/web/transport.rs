@@ -250,65 +250,31 @@ impl Transport for MiddenTransport {
         query: &str,
         limit: u32,
     ) -> Result<Vec<crate::ratcore::app::SongRow>, String> {
+        // we deliberately use `/api/songs/query` instead of the FTS
+        // search endpoint here: the music view needs the full
+        // `SongQueryResult` shape (with nested `media_blob_id` and
+        // optional `media_blob.local_path`) to drive playback.
+        // FTS `SongSearchResult` doesn't carry the blob id.
         let body = serde_json::json!({
-            "query": query,
-            "field": "songs",
-            "page": 1,
-            "page_size": limit,
+            "q": query,
+            "limit": limit,
+            "offset": 0,
+            "sort_by": "title",
+            "sort_direction": "asc",
         });
-        let resp = self
-            .public_dispatch("POST", "/api/music/search", body)
-            .await;
+        let resp = self.public_dispatch("POST", "/api/songs/query", body).await;
         if !resp.success {
             return Err(resp.message);
         }
         let data = resp
             .data
-            .ok_or_else(|| "no data in search response".to_string())?;
-        let songs = data
-            .get("songs")
+            .ok_or_else(|| "no data in songs query response".to_string())?;
+        let items = data
+            .get("items")
             .and_then(|v| v.as_array())
             .cloned()
             .unwrap_or_default();
-        let rows: Vec<crate::ratcore::app::SongRow> = songs
-            .into_iter()
-            .map(|s| crate::ratcore::app::SongRow {
-                id: s
-                    .get("id")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .to_string(),
-                title: s
-                    .get("title")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .to_string(),
-                artist: s
-                    .get("artist_names")
-                    .and_then(|v| v.as_array())
-                    .map(|a| {
-                        a.iter()
-                            .filter_map(|n| n.as_str())
-                            .collect::<Vec<_>>()
-                            .join(", ")
-                    })
-                    .filter(|s: &String| !s.is_empty()),
-                album: s
-                    .get("album_title")
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string()),
-                duration_ms: s
-                    .get("duration")
-                    .and_then(|v| v.as_i64())
-                    .map(|d| (d as u64) * 1000),
-                local_path: None,
-                media_blob_id: s
-                    .get("media_blob_id")
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string()),
-            })
-            .collect();
-        Ok(rows)
+        Ok(items.iter().map(song_query_json_to_row).collect())
     }
 
     async fn unified_search(&self, query: &str) -> DispatchResponse {
@@ -725,6 +691,24 @@ fn flatten_search_response(body: JsonValue) -> DispatchResponse {
                     "id": p.get("id").and_then(|v| v.as_str()).unwrap_or(""),
                     "title": title,
                     "subtitle": format!("{count} songs"),
+                    "score": rank,
+                }),
+            ));
+        }
+    }
+    if let Some(genres) = body.get("genres").and_then(|v| v.as_array()) {
+        for g in genres {
+            let name = g.get("genre").and_then(|v| v.as_str()).unwrap_or("");
+            let songs = g.get("song_count").and_then(|v| v.as_i64()).unwrap_or(0);
+            let artists = g.get("artist_count").and_then(|v| v.as_i64()).unwrap_or(0);
+            let rank = g.get("search_rank").and_then(|v| v.as_f64()).unwrap_or(0.0);
+            rows.push((
+                rank,
+                serde_json::json!({
+                    "type": "genre",
+                    "id": g.get("genre_id").and_then(|v| v.as_str()).unwrap_or(""),
+                    "title": name,
+                    "subtitle": format!("{artists} artists  {songs} songs"),
                     "score": rank,
                 }),
             ));

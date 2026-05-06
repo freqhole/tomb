@@ -133,10 +133,16 @@ pub fn draw(frame: &mut Frame, area: Rect, app: &App) {
         } else {
             String::new()
         };
+        let loading_suffix = if m.queue_resolving > 0 {
+            format!("  (loading {} more\u{2026})", m.queue_resolving)
+        } else {
+            String::new()
+        };
         let line3 = Line::from(vec![
             Span::raw(" up next: ").dim(),
             Span::raw(next_label),
             Span::raw(suffix).dim(),
+            Span::raw(loading_suffix).fg(ACCENT).dim(),
         ]);
         vec![line1, line2, line3]
     } else if area.height >= 2 {
@@ -144,7 +150,7 @@ pub fn draw(frame: &mut Frame, area: Rect, app: &App) {
     } else {
         vec![line1]
     };
-    frame.render_widget(Paragraph::new(lines).on_dark_gray(), area);
+    frame.render_widget(Paragraph::new(lines), area);
 }
 
 fn progress_bar(pos: u64, total: u64, width: usize) -> String {

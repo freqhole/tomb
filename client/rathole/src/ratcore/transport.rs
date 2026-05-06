@@ -42,6 +42,14 @@ pub trait Transport {
         Err("transport does not support music search".to_string())
     }
 
+    /// list the locally-downloaded library (most recent first). used
+    /// by the `/local` slash command and as the music view's default
+    /// landing content. shells without a backend return Err.
+    async fn list_local_songs(&self, limit: u32) -> Result<Vec<SongRow>, String> {
+        let _ = limit;
+        Err("transport does not support local listing".to_string())
+    }
+
     /// toggle favorite status for `target_id`. `target_type` is one
     /// of `"song"`, `"album"`, `"artist"`, `"playlist"`, `"genre"`.
     /// returns the new state (`true` = favorited). shells without a
@@ -121,6 +129,10 @@ pub trait Transport {
 pub enum PlayerCmd {
     /// load a queue of audio file paths and start from the first.
     Load(Vec<String>),
+    /// append urls to the player's internal queue without
+    /// interrupting the current track. backends without progressive
+    /// queueing may treat this as a no-op.
+    Enqueue(Vec<String>),
     Play,
     Pause,
     Stop,

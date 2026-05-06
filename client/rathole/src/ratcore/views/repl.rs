@@ -59,11 +59,7 @@ pub fn draw(frame: &mut Frame, area: Rect, app: &App) {
         };
         Line::from(vec![prompt, Span::styled(status.message.clone(), style)])
     } else {
-        Line::from(vec![
-            prompt,
-            Span::raw("ctrl-k for slash commands ").dim(),
-            Span::raw("(/play, /search, /pause, /next, /vol …)").dim(),
-        ])
+        Line::from(vec![prompt, Span::raw("ctrl-k for slash commands").dim()])
     };
 
     frame.render_widget(Paragraph::new(line), area);

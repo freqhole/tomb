@@ -83,6 +83,10 @@ pub struct LocalRef {
 /// which top-level area has focus.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Focus {
+    /// big-banner landing screen — the default startup view.
+    /// the slash repl is reachable via ctrl-k from here so the
+    /// user can `/commands`, `/music`, `/peer`, etc.
+    Landing,
     AdminPalette,
     /// modal text input for entering a peer node id (web shell only).
     PeerInput,
@@ -103,7 +107,7 @@ pub enum Focus {
 
 impl Default for Focus {
     fn default() -> Self {
-        Focus::AdminPalette
+        Focus::Landing
     }
 }
 
@@ -148,6 +152,9 @@ pub struct EphemeralState {
     pub player_row_cursor: usize,
     /// focus to return to when leaving the player row.
     pub player_row_return_focus: Option<Focus>,
+    /// when true, render a confirm-quit overlay; y/enter quits, n/esc
+    /// cancels.
+    pub pending_quit: bool,
 }
 
 impl Default for EphemeralState {
@@ -171,6 +178,7 @@ impl Default for EphemeralState {
             repl: ReplState::default(),
             player_row_cursor: 0,
             player_row_return_focus: None,
+            pending_quit: false,
         }
     }
 }
