@@ -11,8 +11,9 @@
 //! - localStorage-backed persist
 //! - audio via `<audio>` / WebAudio
 
+mod identity;
 mod run;
 mod transport;
 
-pub use run::start;
-pub use transport::NoopTransport;
+pub use run::boot;
+pub use transport::{MiddenTransport, NoopTransport};

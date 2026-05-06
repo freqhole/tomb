@@ -15,4 +15,22 @@ pub trait Transport {
     /// dispatch an admin command. mirrors the shape of
     /// `grimoire::admin_dispatch::handle(cmd, args, &caller)`.
     async fn admin_dispatch(&self, cmd: &str, args: JsonValue) -> DispatchResponse;
+
+    /// dispatch a public/anonymous request to a route on the peer.
+    /// `route` is the http-style path (e.g. `"/api/knock"`); `method`
+    /// is `"GET"`, `"POST"`, etc. transports that don't have a public
+    /// channel return a `DispatchResponse` with `success = false`.
+    async fn public_dispatch(
+        &self,
+        method: &str,
+        route: &str,
+        body: JsonValue,
+    ) -> DispatchResponse {
+        let _ = (method, route, body);
+        DispatchResponse {
+            success: false,
+            message: "transport does not support public_dispatch".to_string(),
+            data: None,
+        }
+    }
 }

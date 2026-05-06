@@ -14,6 +14,9 @@
 //! - a [`app::PersistedState`] (loaded however the shell sees fit)
 
 pub mod app;
+pub mod catalog;
+pub mod text_input;
+pub mod theme;
 pub mod transport;
 pub mod views;
 pub mod widgets;

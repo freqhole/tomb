@@ -208,10 +208,44 @@ async fn main() -> Result<()> {
         ))
     });
 
-    tracing_subscriber::registry()
-        .with(env_filter)
-        .with(tracing_subscriber::fmt::layer())
-        .init();
+    // tui commands (rathole) take over the terminal, so logging to stdout
+    // would corrupt the rendered ui. write to <data_dir>/rathole.log instead.
+    let is_tui_command = matches!(cli.command, Commands::Rathole);
+    if is_tui_command && needs_init {
+        let log_path = grimoire::config::get_config().data_dir.join("rathole.log");
+        if let Some(parent) = log_path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        match std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&log_path)
+        {
+            Ok(file) => {
+                let file_layer = tracing_subscriber::fmt::layer()
+                    .with_writer(std::sync::Mutex::new(file))
+                    .with_ansi(false);
+                tracing_subscriber::registry()
+                    .with(env_filter)
+                    .with(file_layer)
+                    .init();
+            }
+            Err(e) => {
+                eprintln!(
+                    "warning: could not open {:?} for logging ({e}); tui logs will be silenced",
+                    log_path
+                );
+                // install a no-op subscriber so tracing macros don't write
+                // anywhere — corrupting the tui is worse than missing logs.
+                tracing_subscriber::registry().with(env_filter).init();
+            }
+        }
+    } else {
+        tracing_subscriber::registry()
+            .with(env_filter)
+            .with(tracing_subscriber::fmt::layer())
+            .init();
+    }
 
     let json_output = cli.json_output;
 

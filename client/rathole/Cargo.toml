@@ -46,12 +46,36 @@ anyhow = { workspace = true }
 # `logical * devicePixelRatio` so retina renders crisply. 0.3.0
 # sets `canvas.width = client_width` (css px) and looks blurry on
 # any hidpi display. revisit pinning to a release once 0.4 ships.
+#
+# midden is the iroh-based wasm p2p client (sibling crate in this
+# workspace). crate-type = ["cdylib", "rlib"] so we can link it
+# directly and call its async methods — no js glue required.
 # ----------------------------------------------------------------------
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 ratzilla = { git = "https://github.com/ratatui/ratzilla", branch = "main" }
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
 console_error_panic_hook = "0.1"
+midden = { path = "../midden" }
+js-sys = "0.3"
+web-sys = { version = "0.3", features = [
+    "Window",
+    "Document",
+    "EventTarget",
+    "Event",
+    "KeyboardEvent",
+    "ClipboardEvent",
+    "DataTransfer",
+    "Location",
+    "UrlSearchParams",
+    "console",
+] }
+futures = "0.3"
+# IndexedDB wrapper. schema/path matches spume's `freqhole_app` /
+# `app_state` store with key `p2p_identity` so that when rathole is
+# served from the same origin as spume they share the iroh keypair
+# transparently.
+idb = "0.6"
 
 [[bin]]
 name = "rathole"

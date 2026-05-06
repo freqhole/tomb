@@ -37,7 +37,7 @@ run:
 # a belt-and-suspenders.)
 # ----------------------------------------------------------------------
 check-web:
-	cargo check -p rathole --target wasm32-unknown-unknown --lib
+	$(WASM_ENV) cargo check -p rathole --target wasm32-unknown-unknown --lib
 
 build-web:
 	$(WASM_ENV) wasm-pack build --dev --weak-refs --reference-types --target web --out-dir pkg --no-typescript

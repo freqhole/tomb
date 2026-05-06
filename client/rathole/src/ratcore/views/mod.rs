@@ -1,29 +1,76 @@
 //! view tree. m0 ships one view: the admin command palette.
 
 pub mod admin;
+pub mod command_form;
+pub mod peer_input;
 
 use ratatui::{
     layout::{Constraint::*, Layout},
     style::Stylize,
+    text::{Line, Span},
     widgets::Paragraph,
     Frame,
 };
 
-use crate::ratcore::app::App;
+use crate::ratcore::app::{App, Focus};
 
 pub fn draw(frame: &mut Frame, app: &mut App) {
     let [header, body, footer] =
         Layout::vertical([Length(1), Min(0), Length(1)]).areas(frame.area());
 
     frame.render_widget(
-        Paragraph::new("rathole — admin").bold().on_dark_gray(),
+        Paragraph::new(header_line(app)).bold().on_dark_gray(),
         header,
     );
-    frame.render_widget(Paragraph::new(footer_hints()).dim(), footer);
+    frame.render_widget(Paragraph::new(footer_hints(app)).dim(), footer);
 
     admin::palette::draw(frame, body, app);
+
+    if app.state.ephemeral.focus == Focus::PeerInput {
+        peer_input::draw(frame, app);
+    }
 }
 
-fn footer_hints() -> &'static str {
-    "↑/↓ or j/k: move   enter: dispatch (no args)   q / ctrl-c: quit"
+fn header_line(app: &App) -> Line<'static> {
+    let mut spans: Vec<Span<'static>> = vec![Span::raw("rathole — admin")];
+
+    if let Some(peer) = &app.state.ephemeral.connected_peer {
+        spans.push(Span::raw("   peer: "));
+        spans.push(Span::raw(short_id(peer)));
+    } else {
+        spans.push(Span::raw("   peer: "));
+        spans.push(Span::raw("(none)"));
+    }
+
+    if let Some(local) = &app.state.ephemeral.local_node_id {
+        spans.push(Span::raw("   me: "));
+        spans.push(Span::raw(short_id(local)));
+    }
+
+    if let Some(kid) = &app.state.ephemeral.last_knock_id {
+        spans.push(Span::raw("   knock: "));
+        spans.push(Span::raw(kid.clone()));
+    }
+
+    Line::from(spans)
+}
+
+fn footer_hints(app: &App) -> &'static str {
+    match app.state.ephemeral.focus {
+        Focus::AdminPalette => {
+            "↑/↓ j/k: move   enter: dispatch/form   tab: focus output   p: peer   q: quit"
+        }
+        Focus::PeerInput => "type/paste node id   enter: connect   esc: cancel",
+        Focus::CommandForm => "←/→: cycle option   enter: next/submit   esc: cancel",
+        Focus::ResultPanel => "↑/↓: scroll   shift+↑/↓: page   g/G: top/end   tab/esc: back",
+    }
+}
+
+/// shorten a long node id like `abc123…ef89` for header display.
+fn short_id(s: &str) -> String {
+    if s.len() <= 16 {
+        s.to_string()
+    } else {
+        format!("{}…{}", &s[..8], &s[s.len() - 6..])
+    }
 }

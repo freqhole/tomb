@@ -23,10 +23,14 @@ pub struct LaunchOpts {
 /// initialised already (the cli does this before calling us).
 ///
 /// owns the terminal lifecycle: `ratatui::init()` on entry, restore
-/// on exit (including on error).
+/// on exit (including on error). also enables crossterm bracketed
+/// paste so the peer-input modal can receive paste events as a single
+/// `Event::Paste(String)` instead of one keypress per char.
 pub async fn run(opts: LaunchOpts) -> color_eyre::Result<()> {
     let terminal = ratatui::init();
+    let _ = crossterm::execute!(std::io::stdout(), crossterm::event::EnableBracketedPaste);
     let result = run::run(terminal, opts).await;
+    let _ = crossterm::execute!(std::io::stdout(), crossterm::event::DisableBracketedPaste);
     ratatui::restore();
     result
 }

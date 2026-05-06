@@ -7,13 +7,16 @@
 
 use ratatui::{
     layout::{Constraint::*, Layout, Rect},
-    style::Stylize,
+    style::{Style, Stylize},
     text::{Line, Span},
     widgets::{Block, List, ListItem, Paragraph, Wrap},
     Frame,
 };
 
-use crate::ratcore::app::App;
+use crate::ratcore::theme::ACCENT;
+
+use crate::ratcore::app::{App, Focus};
+use crate::ratcore::views::command_form;
 
 pub fn draw(frame: &mut Frame, area: Rect, app: &mut App) {
     let [left, right] = Layout::horizontal([Length(40), Min(0)]).areas(area);
@@ -25,7 +28,10 @@ pub fn draw(frame: &mut Frame, area: Rect, app: &mut App) {
         .collect();
 
     let list = List::new(items)
-        .block(Block::bordered().title(format!("commands ({})", app.commands.len()).cyan().bold()))
+        .block(Block::bordered().title(Span::styled(
+            format!("commands ({})", app.commands.len()),
+            Style::new().fg(ACCENT).bold(),
+        )))
         .highlight_style(ratatui::style::Style::new().reversed())
         .highlight_symbol("▶ ");
 
@@ -38,9 +44,42 @@ fn draw_detail(frame: &mut Frame, area: Rect, app: &App) {
     let selected = app.state.ephemeral.palette_list.selected().unwrap_or(0);
     let cmd = app.commands.get(selected);
 
-    let [info_area, result_area] = Layout::vertical([Length(8), Min(0)]).areas(area);
+    // give the form a bit more vertical room than the static
+    // "selected" details box (each field renders as label + value
+    // + optional help line).
+    let info_height = if app.state.ephemeral.focus == Focus::CommandForm {
+        app.state
+            .ephemeral
+            .form
+            .as_ref()
+            .map(|f| (f.fields.len() as u16 * 4).clamp(8, area.height.saturating_sub(6)))
+            .unwrap_or(8)
+    } else {
+        8
+    };
+    let [info_area, result_area] = Layout::vertical([Length(info_height), Min(0)]).areas(area);
 
+    if app.state.ephemeral.focus == Focus::CommandForm && app.state.ephemeral.form.is_some() {
+        command_form::draw(frame, info_area, app);
+    } else {
+        draw_selected_box(frame, info_area, cmd);
+    }
+
+    draw_result_box(frame, result_area, app);
+}
+
+fn draw_selected_box(
+    frame: &mut Frame,
+    info_area: Rect,
+    cmd: Option<&crate::ratcore::app::AdminCommand>,
+) {
     let info_lines = if let Some(c) = cmd {
+        let kind_label = match &c.kind {
+            crate::ratcore::app::CommandKind::Admin => "admin".to_string(),
+            crate::ratcore::app::CommandKind::Public { route, method } => {
+                format!("public ({} {})", method, route)
+            }
+        };
         vec![
             Line::from(vec![
                 Span::raw("name:           "),
@@ -58,17 +97,34 @@ fn draw_detail(frame: &mut Frame, area: Rect, app: &App) {
                 Span::raw("auth:           "),
                 Span::raw(c.auth.clone()),
             ]),
+            Line::from(vec![Span::raw("channel:        "), Span::raw(kind_label)]),
+            Line::from(vec![
+                Span::raw("args:           "),
+                Span::raw(if c.args.is_empty() {
+                    "(none)".to_string()
+                } else {
+                    c.args
+                        .iter()
+                        .map(|a| a.name.clone())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                }),
+            ]),
         ]
     } else {
         vec![Line::from("no command selected".dim())]
     };
     frame.render_widget(
         Paragraph::new(info_lines)
-            .block(Block::bordered().title("selected".cyan().bold()))
+            .block(
+                Block::bordered().title(Span::styled("selected", Style::new().fg(ACCENT).bold())),
+            )
             .wrap(Wrap { trim: false }),
         info_area,
     );
+}
 
+fn draw_result_box(frame: &mut Frame, result_area: Rect, app: &App) {
     let result_text = match &app.state.ephemeral.last_dispatch {
         Some(d) => {
             let mut lines = vec![
@@ -95,14 +151,33 @@ fn draw_detail(frame: &mut Frame, area: Rect, app: &App) {
             lines
         }
         None => vec![Line::from(
-            "press enter to dispatch the selected command (m0: empty args)".dim(),
+            "press enter to dispatch the selected command (forms open inline if it has args)".dim(),
         )],
+    };
+
+    // clamp the scroll offset to the actual content height. the
+    // inner-area height excludes the border, hence the -2.
+    let content_lines = result_text.len() as u16;
+    let viewport = result_area.height.saturating_sub(2);
+    let max_scroll = content_lines.saturating_sub(viewport);
+    let scroll = app.state.ephemeral.last_dispatch_scroll.min(max_scroll);
+
+    let title_style = if app.state.ephemeral.focus == Focus::ResultPanel {
+        Style::new().fg(ACCENT).bold().reversed()
+    } else {
+        Style::new().fg(ACCENT).bold()
+    };
+    let title = if max_scroll > 0 {
+        format!("last dispatch  [{}/{}]", scroll, max_scroll)
+    } else {
+        "last dispatch".to_string()
     };
 
     frame.render_widget(
         Paragraph::new(result_text)
-            .block(Block::bordered().title("last dispatch".cyan().bold()))
-            .wrap(Wrap { trim: false }),
+            .block(Block::bordered().title(Span::styled(title, title_style)))
+            .wrap(Wrap { trim: false })
+            .scroll((scroll, 0)),
         result_area,
     );
 }
