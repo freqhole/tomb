@@ -60,3 +60,31 @@ serve: build-web
 clean:
 	cargo clean -p rathole
 	rm -rf pkg/
+
+# ----------------------------------------------------------------------
+# deploy: stage the wasm bundle + a rathole.html into spume's dist
+# folder, so cloudflare pages serves it at /rathole.html alongside
+# the rest of spume. run *after* spume's `npm run build` so we don't
+# get clobbered by vite. paths in the staged html are rewritten to
+# point at /rathole/pkg/ (absolute) so navigation from any subpath
+# resolves correctly.
+#
+# the committed `pkg/` artifacts are used as-is — cloudflare doesn't
+# need a rust toolchain. refresh them locally with `make build-web-release`
+# before committing when rathole's wasm changes.
+# ----------------------------------------------------------------------
+SPUME_DIST ?= ../spume/dist
+deploy-spume:
+	@if [ ! -d "$(SPUME_DIST)" ]; then \
+		echo "error: $(SPUME_DIST) not found. run spume's npm run build first." >&2; \
+		exit 1; \
+	fi
+	@if [ ! -f pkg/rathole.js ] || [ ! -f pkg/rathole_bg.wasm ]; then \
+		echo "error: pkg/ artifacts missing. run 'make build-web-release' first." >&2; \
+		exit 1; \
+	fi
+	mkdir -p $(SPUME_DIST)/rathole/pkg
+	cp pkg/rathole.js pkg/rathole_bg.wasm $(SPUME_DIST)/rathole/pkg/
+	# rewrite ./pkg/ -> /rathole/pkg/ so the html works at /rathole.html
+	sed 's|\./pkg/|/rathole/pkg/|g' index.html > $(SPUME_DIST)/rathole.html
+	@echo "staged rathole.html + pkg into $(SPUME_DIST)"
