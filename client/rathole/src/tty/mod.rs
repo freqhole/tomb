@@ -4,6 +4,7 @@
 //! grimoire-backed `LocalTransport`, and the toml statefile.
 
 mod persist;
+mod player;
 mod run;
 mod transport;
 

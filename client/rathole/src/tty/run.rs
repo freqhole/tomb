@@ -57,11 +57,12 @@ async fn run_inner(mut terminal: ratatui::DefaultTerminal) -> color_eyre::Result
     });
     let state = AppState::from_persisted(persisted);
     let transport: Rc<dyn Transport> = Rc::new(LocalTransport::from_first_root().await?);
-    let mut app = App::new(state, transport, commands);
+    let (action_tx, mut action_rx) = mpsc::unbounded_channel::<AppAction>();
+    let player = super::player::RodioPlayer::spawn(action_tx.clone());
+    let mut app = App::new(state, transport, commands).with_player(player);
 
     let mut events = EventStream::new();
     let mut tick = tokio::time::interval(Duration::from_millis(250));
-    let (action_tx, mut action_rx) = mpsc::unbounded_channel::<AppAction>();
 
     while !app.exit {
         terminal.draw(|f| views::draw(f, &mut app))?;
@@ -90,6 +91,12 @@ fn on_event(app: &mut App, ev: Event, action_tx: &mpsc::UnboundedSender<AppActio
             use crate::ratcore::text_input as ti;
             let eph = &mut app.state.ephemeral;
             ti::insert_str(&mut eph.peer_input, &mut eph.peer_cursor, &text);
+        } else if matches!(app.state.ephemeral.focus, Focus::MusicView)
+            && app.state.ephemeral.music.mode == crate::ratcore::app::MusicMode::Search
+        {
+            use crate::ratcore::text_input as ti;
+            let m = &mut app.state.ephemeral.music;
+            ti::insert_str(&mut m.query, &mut m.query_cursor, &text);
         }
         return;
     }
@@ -106,7 +113,12 @@ fn on_event(app: &mut App, ev: Event, action_tx: &mpsc::UnboundedSender<AppActio
         }
         // 'q' quits only when not editing text (otherwise you couldn't
         // type 'q' into the peer-input field).
-        (KeyCode::Char('q'), _) if !matches!(app.state.ephemeral.focus, Focus::PeerInput) => {
+        (KeyCode::Char('q'), _)
+            if !matches!(
+                app.state.ephemeral.focus,
+                Focus::PeerInput | Focus::MusicView
+            ) =>
+        {
             app.exit = true;
             return;
         }
@@ -120,6 +132,7 @@ fn on_event(app: &mut App, ev: Event, action_tx: &mpsc::UnboundedSender<AppActio
         Focus::CommandForm => on_form_key(app, k.code, k.modifiers, action_tx),
         Focus::ResultPanel => on_result_panel_key(app, k.code, k.modifiers),
         Focus::ResultActionMenu => on_action_menu_key(app, k.code, action_tx),
+        Focus::MusicView => on_music_key(app, k.code, action_tx),
     }
 }
 
@@ -160,6 +173,10 @@ fn on_palette_key(app: &mut App, code: KeyCode, action_tx: &mpsc::UnboundedSende
             app.state.ephemeral.peer_cursor = cursor;
             app.state.ephemeral.peer_error = None;
             app.state.ephemeral.focus = Focus::PeerInput;
+        }
+        KeyCode::Char('m') => {
+            app.state.ephemeral.focus = Focus::MusicView;
+            app.state.ephemeral.music.mode = crate::ratcore::app::MusicMode::Search;
         }
         KeyCode::Enter => {
             // if the command has args, open the inline form. otherwise
@@ -304,6 +321,50 @@ fn on_action(app: &mut App, action: AppAction) {
         // tty shell never produces these (no peer concept), but the
         // enum is shared with the web shell so we need to be exhaustive.
         AppAction::PeerConnectResult { .. } | AppAction::LocalNodeReady { .. } => {}
+        AppAction::MusicSearchResults { query, result } => {
+            let m = &mut app.state.ephemeral.music;
+            // ignore stale responses (user kept typing).
+            if m.query.trim() != query.trim() {
+                return;
+            }
+            m.searching = false;
+            match result {
+                Ok(rows) => {
+                    m.search_error = None;
+                    m.results = rows;
+                    m.results_cursor = 0;
+                    if !m.results.is_empty() {
+                        m.mode = crate::ratcore::app::MusicMode::Results;
+                    }
+                }
+                Err(e) => {
+                    m.search_error = Some(e);
+                }
+            }
+        }
+        AppAction::MusicEvent(ev) => apply_music_event(app, ev),
+    }
+}
+
+fn apply_music_event(app: &mut App, ev: crate::ratcore::app::MusicEvent) {
+    use crate::ratcore::app::MusicEvent;
+    let m = &mut app.state.ephemeral.music;
+    match ev {
+        MusicEvent::State(s) => m.player_state = s,
+        MusicEvent::Progress { ms, total_ms } => {
+            m.position_ms = ms;
+            m.duration_ms = total_ms;
+        }
+        MusicEvent::TrackChanged { index, .. } => {
+            m.current = Some(index);
+            m.position_ms = 0;
+        }
+        MusicEvent::Ended => {
+            m.current = None;
+            m.position_ms = 0;
+            m.player_state = crate::ratcore::app::PlayerState::Stopped;
+        }
+        MusicEvent::Error(e) => m.last_event_error = Some(e),
     }
 }
 
@@ -888,4 +949,192 @@ fn extract_options(
         });
     }
     Ok(out)
+}
+
+// =========================================================================
+// music view
+// =========================================================================
+
+fn on_music_key(app: &mut App, code: KeyCode, tx: &mpsc::UnboundedSender<AppAction>) {
+    use crate::ratcore::app::{MusicMode, PlayerState};
+    use crate::ratcore::text_input as ti;
+    use crate::ratcore::transport::PlayerCmd;
+
+    let mode = app.state.ephemeral.music.mode;
+    match (mode, code) {
+        (_, KeyCode::Esc) => {
+            app.state.ephemeral.focus = Focus::AdminPalette;
+        }
+        // global player toggle in either mode if something is playing/paused.
+        (MusicMode::Results, KeyCode::Char(' ')) => {
+            send_player(app, match app.state.ephemeral.music.player_state {
+                PlayerState::Playing => PlayerCmd::Pause,
+                _ => PlayerCmd::Play,
+            }, tx);
+        }
+        (MusicMode::Results, KeyCode::Char('n')) => send_player(app, PlayerCmd::Next, tx),
+        (MusicMode::Results, KeyCode::Char('p')) => send_player(app, PlayerCmd::Previous, tx),
+        (MusicMode::Results, KeyCode::Left) => {
+            let pos = app.state.ephemeral.music.position_ms;
+            let new = pos.saturating_sub(5_000);
+            send_player(app, PlayerCmd::Seek(new), tx);
+        }
+        (MusicMode::Results, KeyCode::Right) => {
+            let m = &app.state.ephemeral.music;
+            let new = (m.position_ms + 5_000).min(m.duration_ms.max(m.position_ms + 5_000));
+            send_player(app, PlayerCmd::Seek(new), tx);
+        }
+        (MusicMode::Results, KeyCode::Char('-')) => adjust_volume(app, -0.05, tx),
+        (MusicMode::Results, KeyCode::Char('=') | KeyCode::Char('+')) => {
+            adjust_volume(app, 0.05, tx)
+        }
+        (MusicMode::Results, KeyCode::Char('/')) => {
+            app.state.ephemeral.music.mode = MusicMode::Search;
+        }
+        (MusicMode::Results, KeyCode::Char('j') | KeyCode::Down) => {
+            let m = &mut app.state.ephemeral.music;
+            if !m.results.is_empty() {
+                m.results_cursor = (m.results_cursor + 1).min(m.results.len() - 1);
+            }
+        }
+        (MusicMode::Results, KeyCode::Char('k') | KeyCode::Up) => {
+            let m = &mut app.state.ephemeral.music;
+            m.results_cursor = m.results_cursor.saturating_sub(1);
+        }
+        (MusicMode::Results, KeyCode::Enter) => play_from_cursor(app, tx),
+        (MusicMode::Results, KeyCode::Tab) => {
+            app.state.ephemeral.music.mode = MusicMode::Search;
+        }
+        // search mode: full text-edit + Enter to fire search.
+        (MusicMode::Search, KeyCode::Enter) => fire_search(app, tx),
+        (MusicMode::Search, KeyCode::Tab | KeyCode::Down) => {
+            if !app.state.ephemeral.music.results.is_empty() {
+                app.state.ephemeral.music.mode = MusicMode::Results;
+            }
+        }
+        (MusicMode::Search, KeyCode::Backspace) => {
+            let m = &mut app.state.ephemeral.music;
+            ti::backspace(&mut m.query, &mut m.query_cursor);
+        }
+        (MusicMode::Search, KeyCode::Delete) => {
+            let m = &mut app.state.ephemeral.music;
+            ti::delete(&mut m.query, &mut m.query_cursor);
+        }
+        (MusicMode::Search, KeyCode::Left) => {
+            let m = &mut app.state.ephemeral.music;
+            ti::move_left(&mut m.query_cursor);
+        }
+        (MusicMode::Search, KeyCode::Right) => {
+            let m = &mut app.state.ephemeral.music;
+            ti::move_right(&m.query, &mut m.query_cursor);
+        }
+        (MusicMode::Search, KeyCode::Home) => {
+            app.state.ephemeral.music.query_cursor = 0;
+        }
+        (MusicMode::Search, KeyCode::End) => {
+            let m = &mut app.state.ephemeral.music;
+            ti::move_end(&m.query, &mut m.query_cursor);
+        }
+        (MusicMode::Search, KeyCode::Char(c)) => {
+            if !c.is_control() {
+                let m = &mut app.state.ephemeral.music;
+                ti::insert_char(&mut m.query, &mut m.query_cursor, c);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn fire_search(app: &mut App, tx: &mpsc::UnboundedSender<AppAction>) {
+    let q = app.state.ephemeral.music.query.trim().to_string();
+    if q.is_empty() {
+        app.state.ephemeral.music.search_error = Some("query is empty".to_string());
+        return;
+    }
+    app.state.ephemeral.music.searching = true;
+    app.state.ephemeral.music.search_error = None;
+    let transport = app.transport.clone();
+    let tx = tx.clone();
+    let q_for_task = q.clone();
+    tokio::task::spawn_local(async move {
+        let result = transport.search_songs(&q_for_task, 100).await;
+        let _ = tx.send(AppAction::MusicSearchResults {
+            query: q_for_task,
+            result,
+        });
+    });
+}
+
+fn play_from_cursor(app: &mut App, tx: &mpsc::UnboundedSender<AppAction>) {
+    let m = &mut app.state.ephemeral.music;
+    if m.results.is_empty() {
+        return;
+    }
+    let start = m.results_cursor.min(m.results.len() - 1);
+    let queue: Vec<crate::ratcore::app::SongRow> = m.results[start..].to_vec();
+    m.queue = queue.clone();
+    m.current = None;
+    m.position_ms = 0;
+    m.duration_ms = 0;
+
+    let Some(player) = app.player.clone() else {
+        m.last_event_error = Some("no audio backend in this shell".to_string());
+        return;
+    };
+    let tx = tx.clone();
+    tokio::task::spawn_local(async move {
+        let mut paths: Vec<String> = Vec::with_capacity(queue.len());
+        for s in &queue {
+            if let Some(p) = s.local_path.clone() {
+                paths.push(p);
+                continue;
+            }
+            if let Some(blob_id) = s.media_blob_id.as_deref() {
+                let resolved = super::player::resolve_paths(&[blob_id.to_string()]).await;
+                if let Some(p) = resolved.into_iter().next() {
+                    paths.push(p);
+                }
+            }
+        }
+        if paths.is_empty() {
+            let _ = tx.send(AppAction::MusicEvent(
+                crate::ratcore::app::MusicEvent::Error(
+                    "no playable files found (no local_path on media_blobz)".to_string(),
+                ),
+            ));
+            return;
+        }
+        if let Err(e) = player
+            .send(crate::ratcore::transport::PlayerCmd::Load(paths))
+            .await
+        {
+            let _ = tx.send(AppAction::MusicEvent(
+                crate::ratcore::app::MusicEvent::Error(e),
+            ));
+        }
+    });
+}
+
+fn send_player(
+    app: &App,
+    cmd: crate::ratcore::transport::PlayerCmd,
+    tx: &mpsc::UnboundedSender<AppAction>,
+) {
+    let Some(player) = app.player.clone() else {
+        return;
+    };
+    let tx = tx.clone();
+    tokio::task::spawn_local(async move {
+        if let Err(e) = player.send(cmd).await {
+            let _ = tx.send(AppAction::MusicEvent(
+                crate::ratcore::app::MusicEvent::Error(e),
+            ));
+        }
+    });
+}
+
+fn adjust_volume(app: &mut App, delta: f32, tx: &mpsc::UnboundedSender<AppAction>) {
+    let new = (app.state.ephemeral.music.volume + delta).clamp(0.0, 2.0);
+    app.state.ephemeral.music.volume = new;
+    send_player(app, crate::ratcore::transport::PlayerCmd::SetVolume(new), tx);
 }

@@ -123,6 +123,9 @@ fn on_key(
         Focus::CommandForm => on_form_key(app, code, shift, tx),
         Focus::ResultPanel => on_result_panel_key(app, code, shift),
         Focus::ResultActionMenu => on_action_menu_key(app, code, tx),
+        // music view: no audio backend on web today; only the search
+        // box + result browse work (esc returns to palette).
+        Focus::MusicView => on_music_key_web(app, code),
     }
 }
 
@@ -161,6 +164,10 @@ fn on_palette_key(app: &mut App, code: KeyCode, tx: &mpsc::UnboundedSender<AppAc
             app.state.ephemeral.peer_cursor = cursor;
             app.state.ephemeral.peer_error = None;
             app.state.ephemeral.focus = Focus::PeerInput;
+        }
+        KeyCode::Char('m') => {
+            app.state.ephemeral.focus = Focus::MusicView;
+            app.state.ephemeral.music.mode = crate::ratcore::app::MusicMode::Search;
         }
         KeyCode::Char('[') => {
             app.state.ephemeral.last_dispatch_scroll =
@@ -911,6 +918,88 @@ fn on_action(app: &mut App, action: AppAction) {
                 }
             }
         }
+        // music view is browse-only on web today (no rodio in wasm).
+        // search results would arrive via a public-route fetch in a
+        // future change; just no-op for now.
+        AppAction::MusicSearchResults { query, result } => {
+            let m = &mut app.state.ephemeral.music;
+            if m.query.trim() != query.trim() {
+                return;
+            }
+            m.searching = false;
+            match result {
+                Ok(rows) => {
+                    m.results = rows;
+                    m.results_cursor = 0;
+                    m.search_error = None;
+                    if !m.results.is_empty() {
+                        m.mode = crate::ratcore::app::MusicMode::Results;
+                    }
+                }
+                Err(e) => m.search_error = Some(e),
+            }
+        }
+        AppAction::MusicEvent(_) => {}
+    }
+}
+
+/// minimal music-view key handler for the web shell. supports the
+/// search box + browse mode but no playback (no rodio in wasm).
+fn on_music_key_web(app: &mut App, code: KeyCode) {
+    use crate::ratcore::app::MusicMode;
+    use crate::ratcore::text_input as ti;
+    if matches!(code, KeyCode::Esc) {
+        app.state.ephemeral.focus = Focus::AdminPalette;
+        return;
+    }
+    let mode = app.state.ephemeral.music.mode;
+    match (mode, code) {
+        (MusicMode::Search, KeyCode::Tab | KeyCode::Down) => {
+            if !app.state.ephemeral.music.results.is_empty() {
+                app.state.ephemeral.music.mode = MusicMode::Results;
+            }
+        }
+        (MusicMode::Search, KeyCode::Backspace) => {
+            let m = &mut app.state.ephemeral.music;
+            ti::backspace(&mut m.query, &mut m.query_cursor);
+        }
+        (MusicMode::Search, KeyCode::Delete) => {
+            let m = &mut app.state.ephemeral.music;
+            ti::delete(&mut m.query, &mut m.query_cursor);
+        }
+        (MusicMode::Search, KeyCode::Left) => {
+            let m = &mut app.state.ephemeral.music;
+            ti::move_left(&mut m.query_cursor);
+        }
+        (MusicMode::Search, KeyCode::Right) => {
+            let m = &mut app.state.ephemeral.music;
+            ti::move_right(&m.query, &mut m.query_cursor);
+        }
+        (MusicMode::Search, KeyCode::Char(c)) => {
+            if !c.is_control() {
+                let m = &mut app.state.ephemeral.music;
+                ti::insert_char(&mut m.query, &mut m.query_cursor, c);
+            }
+        }
+        (MusicMode::Search, KeyCode::Enter) => {
+            // no music transport on web yet — surface a friendly note.
+            app.state.ephemeral.music.search_error =
+                Some("music search isn't wired in the web shell yet".to_string());
+        }
+        (MusicMode::Results, KeyCode::Char('/') | KeyCode::Tab) => {
+            app.state.ephemeral.music.mode = MusicMode::Search;
+        }
+        (MusicMode::Results, KeyCode::Char('j') | KeyCode::Down) => {
+            let m = &mut app.state.ephemeral.music;
+            if !m.results.is_empty() {
+                m.results_cursor = (m.results_cursor + 1).min(m.results.len() - 1);
+            }
+        }
+        (MusicMode::Results, KeyCode::Char('k') | KeyCode::Up) => {
+            let m = &mut app.state.ephemeral.music;
+            m.results_cursor = m.results_cursor.saturating_sub(1);
+        }
+        _ => {}
     }
 }
 
@@ -983,7 +1072,7 @@ fn install_paste_listener(app: Rc<RefCell<App>>) -> Result<(), JsValue> {
         Closure::<dyn FnMut(web_sys::ClipboardEvent)>::new(move |ev: web_sys::ClipboardEvent| {
             let mut app = app.borrow_mut();
             let focus = app.state.ephemeral.focus;
-            if !matches!(focus, Focus::PeerInput | Focus::CommandForm) {
+            if !matches!(focus, Focus::PeerInput | Focus::CommandForm | Focus::MusicView) {
                 return;
             }
             let Some(data) = ev.clipboard_data() else {
@@ -1000,6 +1089,12 @@ fn install_paste_listener(app: Rc<RefCell<App>>) -> Result<(), JsValue> {
                 Focus::PeerInput => {
                     ti::insert_str(&mut eph.peer_input, &mut eph.peer_cursor, &text);
                 }
+                Focus::MusicView
+                    if eph.music.mode == crate::ratcore::app::MusicMode::Search =>
+                {
+                    ti::insert_str(&mut eph.music.query, &mut eph.music.query_cursor, &text);
+                }
+                Focus::MusicView => {}
                 Focus::CommandForm => {
                     if let Some(form) = eph.form.as_mut() {
                         match form.fields.get_mut(form.focused) {

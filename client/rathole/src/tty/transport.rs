@@ -10,7 +10,7 @@ use grimoire::offal::Caller;
 use grimoire::users::UserService;
 use serde_json::Value as JsonValue;
 
-use crate::ratcore::app::DispatchResponse;
+use crate::ratcore::app::{DispatchResponse, SongRow};
 use crate::ratcore::transport::Transport;
 
 pub struct LocalTransport {
@@ -48,5 +48,35 @@ impl Transport for LocalTransport {
             message: resp.message,
             data: resp.data,
         }
+    }
+
+    async fn search_songs(&self, query: &str, limit: u32) -> Result<Vec<SongRow>, String> {
+        let resp = grimoire::music::search_songs(query, Some(limit), Some(0)).await;
+        if !resp.success {
+            return Err(resp.message);
+        }
+        let Some(result) = resp.data else {
+            return Ok(vec![]);
+        };
+        let mut out = Vec::with_capacity(result.items.len());
+        for item in result.items {
+            let artist = if !item.song.track_artist.as_deref().unwrap_or("").is_empty() {
+                item.song.track_artist.clone()
+            } else {
+                item.artist.as_ref().map(|a| a.name.clone())
+            };
+            let album = item.album.as_ref().map(|a| a.title.clone());
+            let local_path = item.media_blob.as_ref().and_then(|b| b.local_path.clone());
+            out.push(SongRow {
+                id: item.song.id.clone(),
+                title: item.song.title.clone(),
+                artist,
+                album,
+                duration_ms: item.song.duration.map(|d| d as u64),
+                media_blob_id: Some(item.song.media_blob_id.clone()),
+                local_path,
+            });
+        }
+        Ok(out)
     }
 }

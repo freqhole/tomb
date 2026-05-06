@@ -6,6 +6,8 @@
 
 use serde_json::Value as JsonValue;
 
+use super::music::{MusicEvent, SongRow};
+
 /// dispatch result, transport-agnostic. mirrors the useful subset
 /// of `grimoire::response::GrimoireResponse<JsonValue>`.
 #[derive(Debug, Clone)]
@@ -496,6 +498,16 @@ pub enum AppAction {
         field_index: usize,
         options: Result<Vec<SelectOption>, String>,
     },
+    /// search results for the music view arrived. `query` is the
+    /// query they were issued for, used to ignore stale responses
+    /// when the user has since edited the box.
+    MusicSearchResults {
+        query: String,
+        result: Result<Vec<SongRow>, String>,
+    },
+    /// player backend emitted an event (state change, progress tick,
+    /// track-changed, error, etc.).
+    MusicEvent(MusicEvent),
 }
 
 /// most recent dispatch result, kept for the detail pane.

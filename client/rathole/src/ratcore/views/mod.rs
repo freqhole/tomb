@@ -1,8 +1,9 @@
 //! view tree. m0 ships one view: the admin command palette.
 
-pub mod admin;
 pub mod action_menu;
+pub mod admin;
 pub mod command_form;
+pub mod music;
 pub mod peer_input;
 
 use ratatui::{
@@ -25,7 +26,11 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     );
     frame.render_widget(Paragraph::new(footer_hints(app)).dim(), footer);
 
-    admin::palette::draw(frame, body, app);
+    if app.state.ephemeral.focus == Focus::MusicView {
+        music::draw(frame, body, app);
+    } else {
+        admin::palette::draw(frame, body, app);
+    }
 
     if app.state.ephemeral.focus == Focus::PeerInput {
         peer_input::draw(frame, app);
@@ -63,12 +68,15 @@ fn header_line(app: &App) -> Line<'static> {
 fn footer_hints(app: &App) -> &'static str {
     match app.state.ephemeral.focus {
         Focus::AdminPalette => {
-            "↑/↓ j/k: move   enter: dispatch/form   tab: focus output   p: peer   q: quit"
+            "↑/↓ j/k: move   enter: dispatch/form   tab: focus output   m: music   p: peer   q: quit"
         }
         Focus::PeerInput => "type/paste node id   enter: connect   esc: cancel",
         Focus::CommandForm => "←/→: cycle option   enter: next/submit   esc: cancel",
         Focus::ResultPanel => "↑/↓: scroll/row   a/enter: actions   tab/esc: back",
         Focus::ResultActionMenu => "↑/↓: pick   enter: open form   esc: cancel",
+        Focus::MusicView => {
+            "type to search   enter: search/play   space: pause   n/p: skip   ←/→: seek   -/=: vol   esc: back"
+        }
     }
 }
 

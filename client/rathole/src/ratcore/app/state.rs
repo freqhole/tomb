@@ -7,6 +7,7 @@ use ratatui::widgets::ListState;
 use serde::{Deserialize, Serialize};
 
 use super::events::{ActionMenu, CommandForm, LastDispatch};
+use super::music::MusicState;
 
 /// the persisted slice — serialized to whatever the shell uses
 /// (toml on tty, localStorage / IndexedDB on web later).
@@ -91,6 +92,8 @@ pub enum Focus {
     ResultPanel,
     /// pop-up listing per-row actions for the focused result row.
     ResultActionMenu,
+    /// music search + results + now-playing view.
+    MusicView,
 }
 
 impl Default for Focus {
@@ -131,6 +134,8 @@ pub struct EphemeralState {
     /// optional pop-up listing per-row actions for the row currently
     /// under the result-panel cursor.
     pub action_menu: Option<ActionMenu>,
+    /// state for the music search + playback view.
+    pub music: MusicState,
 }
 
 impl Default for EphemeralState {
@@ -150,6 +155,7 @@ impl Default for EphemeralState {
             last_dispatch_scroll: 0,
             last_knock_id: None,
             action_menu: None,
+            music: MusicState::new(),
         }
     }
 }

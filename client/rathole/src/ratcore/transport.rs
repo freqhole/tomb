@@ -8,7 +8,7 @@
 use async_trait::async_trait;
 use serde_json::Value as JsonValue;
 
-use super::app::DispatchResponse;
+use super::app::{DispatchResponse, SongRow};
 
 #[async_trait(?Send)]
 pub trait Transport {
@@ -33,4 +33,35 @@ pub trait Transport {
             data: None,
         }
     }
+
+    /// search the music library. default impl returns an error so
+    /// shells without a music backend (web, today) fail loudly rather
+    /// than silently returning empty.
+    async fn search_songs(&self, query: &str, limit: u32) -> Result<Vec<SongRow>, String> {
+        let _ = (query, limit);
+        Err("transport does not support music search".to_string())
+    }
+}
+
+/// commands the music view sends to a backend audio player. ratcore
+/// holds an `Option<Rc<dyn MusicPlayer>>`; shells fill it in if they
+/// have a backend (tty: rodio via grimoire; web: noop today).
+#[derive(Debug, Clone)]
+pub enum PlayerCmd {
+    /// load a queue of audio file paths and start from the first.
+    Load(Vec<String>),
+    Play,
+    Pause,
+    Stop,
+    Next,
+    Previous,
+    /// absolute seek in milliseconds.
+    Seek(u64),
+    /// volume, 0.0..=2.0.
+    SetVolume(f32),
+}
+
+#[async_trait(?Send)]
+pub trait MusicPlayer {
+    async fn send(&self, cmd: PlayerCmd) -> Result<(), String>;
 }
