@@ -36,6 +36,15 @@ impl Transport for NoopTransport {
             data: None,
         }
     }
+
+    async fn list_local_songs(
+        &self,
+        limit: u32,
+    ) -> Result<Vec<crate::ratcore::app::SongRow>, String> {
+        // even when not connected to a remote we can still browse the
+        // local library spume populated in the same origin.
+        super::local_songs::list_local_songs(limit).await
+    }
 }
 
 /// p2p transport backed by midden. one `MiddenNode` per page,
@@ -57,6 +66,38 @@ impl MiddenTransport {
             peer_addr,
             next_id: Cell::new(0),
         }
+    }
+
+    pub fn peer_addr(&self) -> &str {
+        &self.peer_addr
+    }
+
+    /// fetch `/api/hello` (the public server-info endpoint). returns
+    /// `(name, version, description)`. errors are surfaced as `Err`
+    /// so callers can decide whether to log or ignore.
+    pub async fn fetch_hello(
+        &self,
+    ) -> Result<(Option<String>, Option<String>, Option<String>), String> {
+        let resp = self
+            .public_dispatch("POST", "/api/hello", JsonValue::Null)
+            .await;
+        if !resp.success {
+            return Err(resp.message);
+        }
+        let data = resp.data.unwrap_or(JsonValue::Null);
+        let name = data
+            .get("name")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+        let version = data
+            .get("version")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+        let description = data
+            .get("description")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+        Ok((name, version, description))
     }
 
     /// fallback path when no blake3 is known (or verified streaming
@@ -275,6 +316,15 @@ impl Transport for MiddenTransport {
             .cloned()
             .unwrap_or_default();
         Ok(items.iter().map(song_query_json_to_row).collect())
+    }
+
+    async fn list_local_songs(
+        &self,
+        limit: u32,
+    ) -> Result<Vec<crate::ratcore::app::SongRow>, String> {
+        // browse spume's locally-stored songs (shared IndexedDB on the
+        // same origin). independent of the connected remote.
+        super::local_songs::list_local_songs(limit).await
     }
 
     async fn unified_search(&self, query: &str) -> DispatchResponse {
@@ -678,7 +728,7 @@ fn song_query_json_to_row(item: &JsonValue) -> crate::ratcore::app::SongRow {
         duration_ms: song
             .get("duration")
             .and_then(|v| v.as_i64())
-            .map(|d| (d as u64) * 1000),
+            .map(|d| d as u64),
         media_blob_id: song
             .get("media_blob_id")
             .and_then(|v| v.as_str())

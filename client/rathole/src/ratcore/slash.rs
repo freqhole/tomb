@@ -44,11 +44,10 @@ pub enum SlashAction {
     Music,
     /// list locally-downloaded songs in the music view (recent first).
     Local,
-    /// switch focus back to the admin palette.
+    /// switch focus to the admin palette and reveal the commands
+    /// list. dispatched via `/admin` (or aliases `/commands`,
+    /// `/cmds`, `/c`).
     Admin,
-    /// open the admin commands list view (alias for Admin, but
-    /// dispatched via `/commands`).
-    Commands,
     /// open the result panel showing the current playback queue.
     Queue,
     /// open the modal for connecting to (and saving) a new remote
@@ -106,8 +105,7 @@ pub const COMMANDS: &[(&str, &str)] = &[
     ("vol", "/vol <0-200>       set volume percent"),
     ("music", "/music             focus music view"),
     ("local", "/local             list local downloaded songs"),
-    ("admin", "/admin             focus admin palette"),
-    ("commands", "/commands          browse all admin commands"),
+    ("admin", "/admin             browse all admin commands"),
     ("queue", "/queue             show current playback queue"),
     ("remote", "/remote            connect to a new remote peer"),
     ("remotes", "/remotes           list saved remotes"),
@@ -161,8 +159,7 @@ pub fn parse(input: &str) -> SlashAction {
         },
         "music" | "m" => SlashAction::Music,
         "local" | "l" | "library" | "lib" => SlashAction::Local,
-        "admin" | "a" => SlashAction::Admin,
-        "commands" | "cmds" | "c" => SlashAction::Commands,
+        "admin" | "a" | "commands" | "cmds" | "c" => SlashAction::Admin,
         "queue" | "q!" => SlashAction::Queue,
         "remote" | "connect" => SlashAction::AddRemote,
         "remotes" => SlashAction::ListRemotes,

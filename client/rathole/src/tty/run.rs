@@ -218,7 +218,7 @@ fn on_event(app: &mut App, ev: Event, action_tx: &mpsc::UnboundedSender<AppActio
 
     // dispatch to focused area
     match app.state.ephemeral.focus {
-        Focus::Landing => on_landing_key(app, k.code),
+        Focus::Landing => on_landing_key(app, k.code, action_tx),
         Focus::AdminPalette => on_palette_key(app, k.code, action_tx),
         Focus::PeerInput => on_peer_input_key(app, k.code),
         Focus::CommandForm => on_form_key(app, k.code, k.modifiers, action_tx),
@@ -227,6 +227,7 @@ fn on_event(app: &mut App, ev: Event, action_tx: &mpsc::UnboundedSender<AppActio
         Focus::MusicView => on_music_key(app, k.code, action_tx),
         Focus::Repl => on_repl_key(app, k.code, k.modifiers, action_tx),
         Focus::PlayerRow => on_player_row_key(app, k.code, action_tx),
+        Focus::RemoteList => on_remote_list_key_tty(app, k.code, action_tx),
     }
 }
 
@@ -234,23 +235,20 @@ fn on_event(app: &mut App, ev: Event, action_tx: &mpsc::UnboundedSender<AppActio
 /// that can't pass ctrl/cmd modifiers cleanly (e.g. macOS
 /// Terminal.app where ctrl-m == Enter, ctrl-i == Tab). landing has
 /// no text input so plain keys are safe here.
-fn on_landing_key(app: &mut App, code: KeyCode) {
-    let eph = &mut app.state.ephemeral;
+fn on_landing_key(app: &mut App, code: KeyCode, action_tx: &mpsc::UnboundedSender<AppAction>) {
     match code {
         KeyCode::Char('c') | KeyCode::Char('a') | KeyCode::Enter => {
-            eph.focus = Focus::AdminPalette;
+            app.state.ephemeral.show_command_list = true;
+            app.state.ephemeral.focus = Focus::AdminPalette;
         }
         KeyCode::Char('m') => {
-            eph.focus = Focus::MusicView;
-            eph.music.mode = crate::ratcore::app::MusicMode::Results;
+            app.state.ephemeral.focus = Focus::MusicView;
+            app.state.ephemeral.music.mode = crate::ratcore::app::MusicMode::Results;
         }
         KeyCode::Char('r') => {
-            let seed = eph.connected_peer.clone().unwrap_or_default();
-            let cursor = seed.chars().count();
-            eph.peer_input = seed;
-            eph.peer_cursor = cursor;
-            eph.peer_error = None;
-            eph.focus = Focus::PeerInput;
+            // ephemeral remotes_view is just a render cache; the
+            // source of truth is grimoire's `remotez` sqlite table.
+            open_remote_list_tty(app, action_tx);
         }
         KeyCode::Char('p') => {
             crate::ratcore::player_row_keys::enter(&mut app.state);
@@ -316,6 +314,7 @@ fn on_palette_key(app: &mut App, code: KeyCode, action_tx: &mpsc::UnboundedSende
             // back out to the landing screen so esc unwinds the
             // navigation stack instead of dead-ending in the
             // commands palette.
+            app.state.ephemeral.show_command_list = false;
             app.state.ephemeral.focus = Focus::Landing;
         }
         _ => {}
@@ -449,7 +448,20 @@ fn on_action(app: &mut App, action: AppAction, action_tx: &mpsc::UnboundedSender
         }
         // tty shell never produces these (no peer concept), but the
         // enum is shared with the web shell so we need to be exhaustive.
-        AppAction::PeerConnectResult { .. } | AppAction::LocalNodeReady { .. } => {}
+        AppAction::PeerConnectResult { .. }
+        | AppAction::LocalNodeReady { .. }
+        | AppAction::RemoteHello { .. } => {}
+        AppAction::RemotesLoaded { remotes } => {
+            let eph = &mut app.state.ephemeral;
+            eph.remotes_view = remotes;
+            // clamp cursor in case the list shrank.
+            let len = eph.remotes_view.len();
+            eph.remotes_view_cursor = if len == 0 {
+                0
+            } else {
+                eph.remotes_view_cursor.min(len - 1)
+            };
+        }
         AppAction::MusicSearchResults { query, result } => {
             let m = &mut app.state.ephemeral.music;
             // ignore stale responses (user kept typing).
@@ -468,7 +480,7 @@ fn on_action(app: &mut App, action: AppAction, action_tx: &mpsc::UnboundedSender
                     // consume the auto-play flag set by `/play <query>`.
                     if m.auto_play_on_results && !m.results.is_empty() {
                         m.auto_play_on_results = false;
-                        play_from_cursor(app, action_tx);
+                        play_one_at_cursor(app, action_tx);
                         let title = app
                             .state
                             .ephemeral
@@ -496,7 +508,7 @@ fn on_action(app: &mut App, action: AppAction, action_tx: &mpsc::UnboundedSender
         AppAction::MusicEvent(ev) => {
             // refresh favorited-status whenever the playing track changes.
             let track_changed = matches!(ev, crate::ratcore::app::MusicEvent::TrackChanged { .. });
-            apply_music_event(app, ev);
+            apply_music_event(app, ev, action_tx);
             if track_changed {
                 if let Some(cur) = app.state.ephemeral.music.currently_playing() {
                     let id = cur.id.clone();
@@ -565,23 +577,18 @@ fn on_action(app: &mut App, action: AppAction, action_tx: &mpsc::UnboundedSender
                 }
             }
         },
-        // tty doesn't use progressive collection loading (rodio reads
-        // local files synchronously) — accept the variant for an
-        // exhaustive match but treat it as a no-op.
-        AppAction::CollectionLoaded { .. } => {}
-        AppAction::CollectionEnqueued { songs } => {
-            // append the loaded rows to the visible queue; paths
-            // were already sent to the player via PlayerCmd::Enqueue
-            // by the background task. if the queue was empty before,
-            // prime `current` so the player row + /queue panel show
-            // something useful immediately.
-            let m = &mut app.state.ephemeral.music;
-            let was_empty = m.queue.is_empty();
-            let n = songs.len();
-            m.queue.extend(songs);
-            if was_empty && !m.queue.is_empty() {
-                m.current = Some(0);
+        // collection loaded: rathole-side queue replace + play. used by
+        // play_collection's spawn_local once songs are fetched.
+        AppAction::CollectionLoaded { songs } => {
+            if !songs.is_empty() {
+                play_now(app, songs, 0, action_tx);
             }
+        }
+        AppAction::CollectionEnqueued { songs } => {
+            // append rows to the local queue. enqueue_now starts
+            // playback if nothing was loaded.
+            let n = songs.len();
+            enqueue_now(app, songs, action_tx);
             app.state.ephemeral.repl.status = Some(crate::ratcore::app::ReplStatus::ok(format!(
                 "queued {n} track{}",
                 if n == 1 { "" } else { "s" }
@@ -590,28 +597,43 @@ fn on_action(app: &mut App, action: AppAction, action_tx: &mpsc::UnboundedSender
     }
 }
 
-fn apply_music_event(app: &mut App, ev: crate::ratcore::app::MusicEvent) {
+fn apply_music_event(
+    app: &mut App,
+    ev: crate::ratcore::app::MusicEvent,
+    tx: &mpsc::UnboundedSender<AppAction>,
+) {
     use crate::ratcore::app::MusicEvent;
-    let m = &mut app.state.ephemeral.music;
     match ev {
-        MusicEvent::State(s) => m.player_state = s,
+        MusicEvent::State(s) => app.state.ephemeral.music.player_state = s,
         MusicEvent::Progress { ms, total_ms } => {
+            let m = &mut app.state.ephemeral.music;
             m.position_ms = ms;
             m.duration_ms = total_ms;
         }
-        MusicEvent::TrackChanged { index, .. } => {
-            m.current = Some(index);
-            m.position_ms = 0;
+        MusicEvent::TrackChanged { .. } => {
+            // rodio's internal queue is single-track now, so its
+            // TrackChanged is just "loaded the one track we sent".
+            // m.current is already authoritative on the rathole side;
+            // ignore the index from the event.
+            app.state.ephemeral.music.position_ms = 0;
         }
         MusicEvent::QueueResolveProgress { remaining } => {
-            m.queue_resolving = remaining;
+            app.state.ephemeral.music.queue_resolving = remaining;
         }
         MusicEvent::Ended => {
-            m.current = None;
-            m.position_ms = 0;
-            m.player_state = crate::ratcore::app::PlayerState::Stopped;
+            // rodio finished the single track we loaded. advance to
+            // the next row in the local queue, or stop if we've run
+            // off the end. play_index handles both cases.
+            let next = app
+                .state
+                .ephemeral
+                .music
+                .current
+                .map(|c| c + 1)
+                .unwrap_or(0);
+            play_index(app, next, tx);
         }
-        MusicEvent::Error(e) => m.last_event_error = Some(e),
+        MusicEvent::Error(e) => app.state.ephemeral.music.last_event_error = Some(e),
     }
 }
 
@@ -1573,8 +1595,8 @@ fn on_music_key(app: &mut App, code: KeyCode, tx: &mpsc::UnboundedSender<AppActi
                 tx,
             );
         }
-        (MusicMode::Results, KeyCode::Char('n')) => send_player(app, PlayerCmd::Next, tx),
-        (MusicMode::Results, KeyCode::Char('p')) => send_player(app, PlayerCmd::Previous, tx),
+        (MusicMode::Results, KeyCode::Char('n')) => play_next(app, tx),
+        (MusicMode::Results, KeyCode::Char('p')) => play_previous(app, tx),
         (MusicMode::Results, KeyCode::Left) => {
             let pos = app.state.ephemeral.music.position_ms;
             let new = pos.saturating_sub(5_000);
@@ -1681,6 +1703,127 @@ fn fire_search(app: &mut App, tx: &mpsc::UnboundedSender<AppAction>) {
     });
 }
 
+// =========================================================================
+// queue manager — rathole owns the queue. rodio is treated as a
+// single-track player: every track switch is a fresh
+// `PlayerCmd::Load(vec![path])` against the row at `m.current`.
+// see docs/architecture-decisions for the rationale; the short
+// version is that rodio's internal queue made remove/reorder/
+// skip-forward operations require multi-thread coordination, and
+// also amplified rodio 0.20's per-file panic blast radius
+// (preloading 184 tracks = 184 chances to hit the m4a init bug).
+// =========================================================================
+
+/// load and play the track at `m.queue[idx]`. clears any prior
+/// position state, sets `current = Some(idx)` and `state = Loading`,
+/// then spawns a path-resolution task that issues a single-element
+/// `PlayerCmd::Load`. on resolve failure the task emits a
+/// `MusicEvent::Error` followed by `MusicEvent::Ended` so the auto-
+/// advance handler will skip past the broken row.
+fn play_index(app: &mut App, idx: usize, tx: &mpsc::UnboundedSender<AppAction>) {
+    let m = &mut app.state.ephemeral.music;
+    if idx >= m.queue.len() {
+        // ran off the end of the queue. mirror what
+        // MusicEvent::Ended would do.
+        m.current = None;
+        m.position_ms = 0;
+        m.duration_ms = 0;
+        m.player_state = crate::ratcore::app::PlayerState::Stopped;
+        return;
+    }
+    m.current = Some(idx);
+    m.position_ms = 0;
+    m.duration_ms = 0;
+    m.player_state = crate::ratcore::app::PlayerState::Loading;
+    let row = m.queue[idx].clone();
+
+    let Some(player) = app.player.clone() else {
+        m.last_event_error = Some("no audio backend in this shell".to_string());
+        return;
+    };
+    let title = row.title.clone();
+    let tx = tx.clone();
+    tokio::task::spawn_local(async move {
+        let Some(path) = resolve_playable_path(&row).await else {
+            let _ = tx.send(AppAction::MusicEvent(
+                crate::ratcore::app::MusicEvent::Error(format!(
+                    "no playable file for {title} (skipping)"
+                )),
+            ));
+            // synthesize Ended so the auto-advance loop steps past
+            // this row instead of stalling on it.
+            let _ = tx.send(AppAction::MusicEvent(
+                crate::ratcore::app::MusicEvent::Ended,
+            ));
+            return;
+        };
+        if let Err(e) = player
+            .send(crate::ratcore::transport::PlayerCmd::Load(vec![path]))
+            .await
+        {
+            let _ = tx.send(AppAction::MusicEvent(
+                crate::ratcore::app::MusicEvent::Error(e),
+            ));
+        }
+    });
+}
+
+/// advance to the next track in the local queue, if any. drives
+/// both the `n` key and the `MusicEvent::Ended` auto-advance path.
+fn play_next(app: &mut App, tx: &mpsc::UnboundedSender<AppAction>) {
+    let next = app
+        .state
+        .ephemeral
+        .music
+        .current
+        .map(|c| c + 1)
+        .unwrap_or(0);
+    play_index(app, next, tx);
+}
+
+/// step back one track in the local queue. clamps at 0; if nothing
+/// is playing yet, plays the first row.
+fn play_previous(app: &mut App, tx: &mpsc::UnboundedSender<AppAction>) {
+    let prev = app
+        .state
+        .ephemeral
+        .music
+        .current
+        .map(|c| c.saturating_sub(1))
+        .unwrap_or(0);
+    play_index(app, prev, tx);
+}
+
+/// replace the queue with `songs` and start playing from `start`.
+fn play_now(
+    app: &mut App,
+    songs: Vec<crate::ratcore::app::SongRow>,
+    start: usize,
+    tx: &mpsc::UnboundedSender<AppAction>,
+) {
+    app.state.ephemeral.music.queue = songs;
+    play_index(app, start, tx);
+}
+
+/// append `songs` to the end of the queue. if nothing is currently
+/// loaded, starts playback at the first appended row.
+fn enqueue_now(
+    app: &mut App,
+    songs: Vec<crate::ratcore::app::SongRow>,
+    tx: &mpsc::UnboundedSender<AppAction>,
+) {
+    if songs.is_empty() {
+        return;
+    }
+    let m = &mut app.state.ephemeral.music;
+    let was_empty_or_idle = m.current.is_none();
+    let start = m.queue.len();
+    m.queue.extend(songs);
+    if was_empty_or_idle {
+        play_index(app, start, tx);
+    }
+}
+
 /// resolve a row's playable file path (local_path or media_blob).
 /// also filters out file extensions known to crash rodio 0.20's
 /// symphonia adapter on init seek (currently `.m4a`).
@@ -1716,101 +1859,29 @@ fn is_known_unplayable(path: &str) -> bool {
     lower.ends_with(".m4a")
 }
 
-/// play just the row under the cursor. queue length stays at 1 so
-/// rodio only decodes one file; pressing Enter on /local's 200-row
-/// dump no longer floods the audio thread with 200 init attempts.
+/// play just the row under the cursor. queue is replaced with a
+/// single-element vec so subsequent Next/Previous behave as
+/// expected (no auto-advance into other library rows).
 fn play_one_at_cursor(app: &mut App, tx: &mpsc::UnboundedSender<AppAction>) {
-    let m = &mut app.state.ephemeral.music;
+    let m = &app.state.ephemeral.music;
     if m.results.is_empty() {
         return;
     }
     let idx = m.results_cursor.min(m.results.len() - 1);
     let row = m.results[idx].clone();
-    m.queue = vec![row.clone()];
-    m.current = None;
-    m.position_ms = 0;
-    m.duration_ms = 0;
-
-    let Some(player) = app.player.clone() else {
-        m.last_event_error = Some("no audio backend in this shell".to_string());
-        return;
-    };
-    let tx = tx.clone();
-    tokio::task::spawn_local(async move {
-        let Some(path) = resolve_playable_path(&row).await else {
-            let _ = tx.send(AppAction::MusicEvent(
-                crate::ratcore::app::MusicEvent::Error(format!(
-                    "no playable file for {}",
-                    row.title
-                )),
-            ));
-            return;
-        };
-        if let Err(e) = player
-            .send(crate::ratcore::transport::PlayerCmd::Load(vec![path]))
-            .await
-        {
-            let _ = tx.send(AppAction::MusicEvent(
-                crate::ratcore::app::MusicEvent::Error(e),
-            ));
-        }
-    });
+    play_now(app, vec![row], 0, tx);
 }
 
 /// play the row under the cursor and queue everything after it.
-/// bound to shift-A in the music view; the previous Enter binding.
+/// bound to shift-A in the music view.
 fn play_from_cursor(app: &mut App, tx: &mpsc::UnboundedSender<AppAction>) {
-    let m = &mut app.state.ephemeral.music;
+    let m = &app.state.ephemeral.music;
     if m.results.is_empty() {
         return;
     }
     let start = m.results_cursor.min(m.results.len() - 1);
     let queue: Vec<crate::ratcore::app::SongRow> = m.results[start..].to_vec();
-    m.queue = queue.clone();
-    m.current = None;
-    m.position_ms = 0;
-    m.duration_ms = 0;
-
-    let Some(player) = app.player.clone() else {
-        m.last_event_error = Some("no audio backend in this shell".to_string());
-        return;
-    };
-    let tx = tx.clone();
-    tokio::task::spawn_local(async move {
-        let mut paths: Vec<String> = Vec::with_capacity(queue.len());
-        let mut skipped = 0usize;
-        for s in &queue {
-            if let Some(p) = resolve_playable_path(s).await {
-                paths.push(p);
-            } else {
-                skipped += 1;
-            }
-        }
-        if paths.is_empty() {
-            let _ = tx.send(AppAction::MusicEvent(
-                crate::ratcore::app::MusicEvent::Error(
-                    "no playable files in selection".to_string(),
-                ),
-            ));
-            return;
-        }
-        if skipped > 0 {
-            tracing::info!(
-                target: "rathole::tty::player",
-                skipped,
-                playable = paths.len(),
-                "queue: skipped unplayable rows"
-            );
-        }
-        if let Err(e) = player
-            .send(crate::ratcore::transport::PlayerCmd::Load(paths))
-            .await
-        {
-            let _ = tx.send(AppAction::MusicEvent(
-                crate::ratcore::app::MusicEvent::Error(e),
-            ));
-        }
-    });
+    play_now(app, queue, 0, tx);
 }
 
 fn send_player(
@@ -1831,8 +1902,10 @@ fn send_player(
     });
 }
 
-/// fetch playlist or album songs via transport, queue + load them.
-/// `kind` is `"playlist"` or `"album"`.
+/// fetch playlist or album songs via transport, then replace the
+/// queue and start playing from the first track. resolution +
+/// loading happens lazily per-track via `play_index`, so a 200-row
+/// album doesn't preload 200 decoders.
 fn play_collection(
     app: &mut App,
     kind: &'static str,
@@ -1844,8 +1917,8 @@ fn play_collection(
         "loading {kind} {title}\u{2026}"
     )));
     let transport = app.transport.clone();
-    let player = app.player.clone();
     let tx_outer = tx.clone();
+    let title_for_event = title.clone();
     tokio::task::spawn_local(async move {
         let songs_result = match kind {
             "playlist" => transport.playlist_songs(&id).await,
@@ -1863,51 +1936,17 @@ fn play_collection(
         };
         if songs.is_empty() {
             let _ = tx_outer.send(AppAction::MusicEvent(
-                crate::ratcore::app::MusicEvent::Error(format!("{kind} {title} is empty")),
-            ));
-            return;
-        }
-        let mut paths: Vec<String> = Vec::with_capacity(songs.len());
-        for s in &songs {
-            if let Some(p) = s.local_path.clone() {
-                paths.push(p);
-                continue;
-            }
-            if let Some(blob_id) = s.media_blob_id.as_deref() {
-                let resolved = super::player::resolve_paths(&[blob_id.to_string()]).await;
-                if let Some(p) = resolved.into_iter().next() {
-                    paths.push(p);
-                }
-            }
-        }
-        if paths.is_empty() {
-            let _ = tx_outer.send(AppAction::MusicEvent(
                 crate::ratcore::app::MusicEvent::Error(format!(
-                    "no playable files in {kind} {title}"
+                    "{kind} {title_for_event} is empty"
                 )),
             ));
             return;
         }
-        let Some(player) = player else {
-            let _ = tx_outer.send(AppAction::MusicEvent(
-                crate::ratcore::app::MusicEvent::Error(
-                    "no audio backend in this shell".to_string(),
-                ),
-            ));
-            return;
-        };
-        if let Err(e) = player
-            .send(crate::ratcore::transport::PlayerCmd::Load(paths))
-            .await
-        {
-            let _ = tx_outer.send(AppAction::MusicEvent(
-                crate::ratcore::app::MusicEvent::Error(e),
-            ));
-        }
+        let _ = tx_outer.send(AppAction::CollectionLoaded { songs });
     });
     // mirror the queue locally so the player row reflects what's
-    // about to play. the actual song rows arrive once the spawn_local
-    // future loads them; here we just zero out the existing state.
+    // about to play. the actual song rows arrive via the
+    // CollectionLoaded action which calls play_now.
     let m = &mut app.state.ephemeral.music;
     m.queue.clear();
     m.current = None;
@@ -1916,9 +1955,8 @@ fn play_collection(
 }
 
 /// fetch playlist or album songs and append them to the existing
-/// queue without interrupting the currently-playing track. on the
-/// tty this routes through `PlayerCmd::Enqueue`, which the rodio
-/// backend handles by appending to the active sink.
+/// queue without interrupting the currently-playing track. queue
+/// extension is rathole-side; the audio thread is unaffected.
 fn enqueue_collection(
     app: &mut App,
     kind: &'static str,
@@ -1930,8 +1968,8 @@ fn enqueue_collection(
         "queueing {kind} {title}\u{2026}"
     )));
     let transport = app.transport.clone();
-    let player = app.player.clone();
     let tx_outer = tx.clone();
+    let title_for_event = title.clone();
     tokio::task::spawn_local(async move {
         let songs_result = match kind {
             "playlist" => transport.playlist_songs(&id).await,
@@ -1949,41 +1987,11 @@ fn enqueue_collection(
         };
         if songs.is_empty() {
             let _ = tx_outer.send(AppAction::MusicEvent(
-                crate::ratcore::app::MusicEvent::Error(format!("{kind} {title} is empty")),
-            ));
-            return;
-        }
-        let mut paths: Vec<String> = Vec::with_capacity(songs.len());
-        for s in &songs {
-            if let Some(p) = s.local_path.clone() {
-                paths.push(p);
-                continue;
-            }
-            if let Some(blob_id) = s.media_blob_id.as_deref() {
-                let resolved = super::player::resolve_paths(&[blob_id.to_string()]).await;
-                if let Some(p) = resolved.into_iter().next() {
-                    paths.push(p);
-                }
-            }
-        }
-        if paths.is_empty() {
-            let _ = tx_outer.send(AppAction::MusicEvent(
                 crate::ratcore::app::MusicEvent::Error(format!(
-                    "no playable files in {kind} {title}"
+                    "{kind} {title_for_event} is empty"
                 )),
             ));
             return;
-        }
-        if let Some(player) = player {
-            if let Err(e) = player
-                .send(crate::ratcore::transport::PlayerCmd::Enqueue(paths))
-                .await
-            {
-                let _ = tx_outer.send(AppAction::MusicEvent(
-                    crate::ratcore::app::MusicEvent::Error(e),
-                ));
-                return;
-            }
         }
         let _ = tx_outer.send(AppAction::CollectionEnqueued { songs });
     });
@@ -2001,7 +2009,6 @@ fn enqueue_song_by_title(app: &mut App, title: String, tx: &mpsc::UnboundedSende
         "queueing {title}\u{2026}"
     )));
     let transport = app.transport.clone();
-    let player = app.player.clone();
     let tx_outer = tx.clone();
     tokio::task::spawn_local(async move {
         let songs = match transport.search_songs(&title, 1).await {
@@ -2019,32 +2026,6 @@ fn enqueue_song_by_title(app: &mut App, title: String, tx: &mpsc::UnboundedSende
             ));
             return;
         };
-        let mut paths: Vec<String> = Vec::new();
-        if let Some(p) = song.local_path.clone() {
-            paths.push(p);
-        } else if let Some(blob_id) = song.media_blob_id.as_deref() {
-            let resolved = super::player::resolve_paths(&[blob_id.to_string()]).await;
-            if let Some(p) = resolved.into_iter().next() {
-                paths.push(p);
-            }
-        }
-        if paths.is_empty() {
-            let _ = tx_outer.send(AppAction::MusicEvent(
-                crate::ratcore::app::MusicEvent::Error(format!("no playable file for {title}")),
-            ));
-            return;
-        }
-        if let Some(player) = player {
-            if let Err(e) = player
-                .send(crate::ratcore::transport::PlayerCmd::Enqueue(paths))
-                .await
-            {
-                let _ = tx_outer.send(AppAction::MusicEvent(
-                    crate::ratcore::app::MusicEvent::Error(e),
-                ));
-                return;
-            }
-        }
         let _ = tx_outer.send(AppAction::CollectionEnqueued { songs: vec![song] });
     });
 }
@@ -2278,48 +2259,12 @@ fn rerender_queue(app: &mut App) {
     crate::ratcore::repl_keys::render_queue_panel(&mut app.state, Some(cur));
 }
 
-/// rebuild the player queue starting from `start` index (preserving
-/// the order). resolves paths and re-issues `PlayerCmd::Load`. used
-/// by jump-to-track and after removing the currently-playing track.
+/// rebuild playback starting at `start` index of the existing
+/// queue. preserves the queue contents; just (re)plays the chosen
+/// row. used by jump-to-track and after removing the currently-
+/// playing track.
 fn requeue_from(app: &mut App, start: usize, tx: &mpsc::UnboundedSender<AppAction>) {
-    let m = &mut app.state.ephemeral.music;
-    if start >= m.queue.len() {
-        return;
-    }
-    m.current = Some(start);
-    m.position_ms = 0;
-    m.duration_ms = 0;
-    let songs: Vec<crate::ratcore::app::SongRow> = m.queue[start..].to_vec();
-    let Some(player) = app.player.clone() else {
-        return;
-    };
-    let tx = tx.clone();
-    tokio::task::spawn_local(async move {
-        let mut paths: Vec<String> = Vec::with_capacity(songs.len());
-        for s in &songs {
-            if let Some(p) = s.local_path.clone() {
-                paths.push(p);
-                continue;
-            }
-            if let Some(blob_id) = s.media_blob_id.as_deref() {
-                let resolved = super::player::resolve_paths(&[blob_id.to_string()]).await;
-                if let Some(p) = resolved.into_iter().next() {
-                    paths.push(p);
-                }
-            }
-        }
-        if paths.is_empty() {
-            return;
-        }
-        if let Err(e) = player
-            .send(crate::ratcore::transport::PlayerCmd::Load(paths))
-            .await
-        {
-            let _ = tx.send(AppAction::MusicEvent(
-                crate::ratcore::app::MusicEvent::Error(e),
-            ));
-        }
-    });
+    play_index(app, start, tx);
 }
 
 fn adjust_volume(app: &mut App, delta: f32, tx: &mpsc::UnboundedSender<AppAction>) {
@@ -2364,12 +2309,12 @@ fn on_player_row_key(app: &mut App, code: KeyCode, tx: &mpsc::UnboundedSender<Ap
         KeyCode::Enter | KeyCode::Char(' ') => {
             let action = prk::activate(&app.state);
             match action {
-                prk::PlayerRowAction::Previous => send_player(app, PlayerCmd::Previous, tx),
+                prk::PlayerRowAction::Previous => play_previous(app, tx),
                 prk::PlayerRowAction::PlayPause => match app.state.ephemeral.music.player_state {
                     PlayerState::Playing => send_player(app, PlayerCmd::Pause, tx),
                     _ => send_player(app, PlayerCmd::Play, tx),
                 },
-                prk::PlayerRowAction::Next => send_player(app, PlayerCmd::Next, tx),
+                prk::PlayerRowAction::Next => play_next(app, tx),
                 prk::PlayerRowAction::SeekBack => {
                     let pos = app.state.ephemeral.music.position_ms;
                     let target = pos.saturating_sub(15_000);
@@ -2534,13 +2479,13 @@ fn execute_slash_with_player(
             rk::leave(&mut app.state);
         }
         SlashAction::Next => {
-            send_player(app, PlayerCmd::Next, tx);
+            play_next(app, tx);
             app.state.ephemeral.repl.status = Some(ReplStatus::ok("next"));
             app.state.ephemeral.repl.clear_input();
             rk::leave(&mut app.state);
         }
         SlashAction::Previous => {
-            send_player(app, PlayerCmd::Previous, tx);
+            play_previous(app, tx);
             app.state.ephemeral.repl.status = Some(ReplStatus::ok("previous"));
             app.state.ephemeral.repl.clear_input();
             rk::leave(&mut app.state);
@@ -2683,4 +2628,162 @@ fn now_unix_secs() -> i64 {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0)
+}
+
+/// switch focus to the remotes-list view and kick off an async load
+/// from grimoire's `remotez` table. the loader sends the result back
+/// via [`AppAction::RemotesLoaded`].
+fn open_remote_list_tty(app: &mut App, action_tx: &mpsc::UnboundedSender<AppAction>) {
+    app.state.ephemeral.focus = Focus::RemoteList;
+    app.state.ephemeral.remotes_view_cursor = 0;
+    spawn_remotes_reload(action_tx);
+}
+
+/// fire a fresh load of grimoire's `remotez` table and post the
+/// mapped entries back as [`AppAction::RemotesLoaded`].
+fn spawn_remotes_reload(action_tx: &mpsc::UnboundedSender<AppAction>) {
+    let tx = action_tx.clone();
+    tokio::task::spawn_local(async move {
+        let repo = grimoire::remotez::RemoteRepository::new();
+        let remotes = match repo.list().await {
+            Ok(r) => r,
+            Err(e) => {
+                tracing::warn!("rathole: remotez list failed: {e}");
+                Vec::new()
+            }
+        };
+        let entries = remotes
+            .into_iter()
+            .map(|r| crate::ratcore::app::RemoteEntry {
+                remote_id: r.remote_id,
+                name: r.name,
+                transport: match r.transport {
+                    grimoire::remotez::RemoteTransport::App => "app".to_string(),
+                    grimoire::remotez::RemoteTransport::Http => "http".to_string(),
+                    grimoire::remotez::RemoteTransport::Wasm => "wasm".to_string(),
+                },
+                peer_addr: r.peer_addr,
+                base_url: r.base_url,
+                is_active: r.is_active,
+                last_connected_at: r.last_connected_at,
+                local_ref: None,
+            })
+            .collect::<Vec<_>>();
+        let _ = tx.send(AppAction::RemotesLoaded { remotes: entries });
+    });
+}
+
+/// keys for the [`Focus::RemoteList`] modal in the tty shell. tty
+/// remotes are persisted in grimoire's `remotez` table, so all
+/// mutations round-trip through [`grimoire::remotez::RemoteRepository`].
+fn on_remote_list_key_tty(
+    app: &mut App,
+    code: KeyCode,
+    action_tx: &mpsc::UnboundedSender<AppAction>,
+) {
+    match code {
+        KeyCode::Esc => {
+            app.state.ephemeral.focus = Focus::Landing;
+        }
+        KeyCode::Down | KeyCode::Char('j') => {
+            let len = app.state.ephemeral.remotes_view.len();
+            if len > 0 {
+                let next = (app.state.ephemeral.remotes_view_cursor + 1).min(len - 1);
+                app.state.ephemeral.remotes_view_cursor = next;
+            }
+        }
+        KeyCode::Up | KeyCode::Char('k') => {
+            app.state.ephemeral.remotes_view_cursor =
+                app.state.ephemeral.remotes_view_cursor.saturating_sub(1);
+        }
+        KeyCode::Char('a') => {
+            // open the peer-input modal so the user can paste an
+            // iroh peer addr; on submit the existing tty connect
+            // path will upsert it via `persist_peer_addr`.
+            app.state.ephemeral.peer_input.clear();
+            app.state.ephemeral.peer_cursor = 0;
+            app.state.ephemeral.peer_error = None;
+            app.state.ephemeral.focus = Focus::PeerInput;
+        }
+        KeyCode::Char('d') => {
+            let cursor = app.state.ephemeral.remotes_view_cursor;
+            let remote_id = app
+                .state
+                .ephemeral
+                .remotes_view
+                .get(cursor)
+                .map(|r| r.remote_id.clone());
+            if let Some(remote_id) = remote_id {
+                let tx_inner = action_tx.clone();
+                tokio::task::spawn_local(async move {
+                    let repo = grimoire::remotez::RemoteRepository::new();
+                    if let Err(e) = repo.remove(&remote_id).await {
+                        tracing::warn!("rathole: remotez remove failed: {e}");
+                    }
+                    // reload after the delete completes.
+                    let remotes = repo.list().await.unwrap_or_default();
+                    let entries = remotes
+                        .into_iter()
+                        .map(|r| crate::ratcore::app::RemoteEntry {
+                            remote_id: r.remote_id,
+                            name: r.name,
+                            transport: match r.transport {
+                                grimoire::remotez::RemoteTransport::App => "app".to_string(),
+                                grimoire::remotez::RemoteTransport::Http => "http".to_string(),
+                                grimoire::remotez::RemoteTransport::Wasm => "wasm".to_string(),
+                            },
+                            peer_addr: r.peer_addr,
+                            base_url: r.base_url,
+                            is_active: r.is_active,
+                            last_connected_at: r.last_connected_at,
+                            local_ref: None,
+                        })
+                        .collect::<Vec<_>>();
+                    let _ = tx_inner.send(AppAction::RemotesLoaded { remotes: entries });
+                });
+            }
+        }
+        KeyCode::Enter => {
+            // mark the highlighted remote as active and reload.
+            // tty doesn't hot-swap transports today, so the only
+            // visible effect is the `*` indicator and the next
+            // launch picking this peer for `load_recent_peer`.
+            let cursor = app.state.ephemeral.remotes_view_cursor;
+            let entry = app.state.ephemeral.remotes_view.get(cursor).cloned();
+            if let Some(entry) = entry {
+                if let Some(addr) = entry.peer_addr.clone() {
+                    app.state.ephemeral.connected_peer = Some(addr);
+                    app.state.ephemeral.remote_name = Some(entry.name.clone());
+                }
+                let remote_id = entry.remote_id.clone();
+                let tx_inner = action_tx.clone();
+                tokio::task::spawn_local(async move {
+                    let repo = grimoire::remotez::RemoteRepository::new();
+                    if let Err(e) = repo.mark_active(&remote_id).await {
+                        tracing::warn!("rathole: remotez mark_active failed: {e}");
+                    }
+                    let remotes = repo.list().await.unwrap_or_default();
+                    let entries = remotes
+                        .into_iter()
+                        .map(|r| crate::ratcore::app::RemoteEntry {
+                            remote_id: r.remote_id,
+                            name: r.name,
+                            transport: match r.transport {
+                                grimoire::remotez::RemoteTransport::App => "app".to_string(),
+                                grimoire::remotez::RemoteTransport::Http => "http".to_string(),
+                                grimoire::remotez::RemoteTransport::Wasm => "wasm".to_string(),
+                            },
+                            peer_addr: r.peer_addr,
+                            base_url: r.base_url,
+                            is_active: r.is_active,
+                            last_connected_at: r.last_connected_at,
+                            local_ref: None,
+                        })
+                        .collect::<Vec<_>>();
+                    let _ = tx_inner.send(AppAction::RemotesLoaded { remotes: entries });
+                });
+            }
+        }
+        _ => {}
+    }
 }

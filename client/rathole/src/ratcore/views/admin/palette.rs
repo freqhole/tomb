@@ -19,6 +19,14 @@ use crate::ratcore::app::{App, Focus};
 use crate::ratcore::views::command_form;
 
 pub fn draw(frame: &mut Frame, area: Rect, app: &mut App) {
+    // when the user explicitly opened the commands list (via /commands
+    // or 'c' from landing), render it on the left. otherwise the form
+    // / results pane gets the full body width.
+    if !app.state.ephemeral.show_command_list {
+        draw_detail(frame, area, app);
+        return;
+    }
+
     let [left, right] = Layout::horizontal([Length(40), Min(0)]).areas(area);
 
     let items: Vec<ListItem> = app
@@ -33,7 +41,7 @@ pub fn draw(frame: &mut Frame, area: Rect, app: &mut App) {
             Style::new().fg(ACCENT).bold(),
         )))
         .highlight_style(ratatui::style::Style::new().reversed())
-        .highlight_symbol("▶ ");
+        .highlight_symbol("\u{25B6} ");
 
     frame.render_stateful_widget(list, left, &mut app.state.ephemeral.palette_list);
 
@@ -47,9 +55,17 @@ fn draw_detail(frame: &mut Frame, area: Rect, app: &App) {
     // when a form is open, give it the entire right pane — args
     // previews, long help text, and the confirm summary all need
     // room to breathe. when not, the upper "selected" details box
-    // is fixed at 8 lines and the rest is the resultz pane.
+    // is fixed at 8 lines (only when the commands list is visible)
+    // and the rest is the resultz pane.
     if app.state.ephemeral.focus == Focus::CommandForm && app.state.ephemeral.form.is_some() {
         command_form::draw(frame, area, app);
+        return;
+    }
+
+    if !app.state.ephemeral.show_command_list {
+        // commands list hidden -> no need for the "selected" info
+        // box; the resultz pane uses the full body.
+        draw_result_box(frame, area, app);
         return;
     }
 
@@ -176,9 +192,17 @@ fn draw_result_box(frame: &mut Frame, result_area: Rect, app: &App) {
 
     // rows: a single "resultz" container holds the header summary
     // (command + status + message + cursor count) on the top lines
-    // followed by the row list filling the rest. no separate
-    // "focused row" detail pane.
+    // followed by the row list filling the rest. when the result
+    // pane is wide enough, split horizontally and render an info
+    // pane on the right showing pretty-printed json of the focused
+    // row — gives users at-a-glance detail while navigating.
     let cursor = d.cursor.min(d.rows.len() - 1);
+    let (rows_area, info_area) = if result_area.width >= 80 {
+        let [a, b] = Layout::horizontal([Min(0), Length(result_area.width / 2)]).areas(result_area);
+        (a, Some(b))
+    } else {
+        (result_area, None)
+    };
     let summary_line = Line::from(vec![
         Span::raw("rows:    "),
         Span::styled(
@@ -195,12 +219,9 @@ fn draw_result_box(frame: &mut Frame, result_area: Rect, app: &App) {
 
     // build row lines beneath the header. cursor stays on screen by
     // computing a top offset against the rendered viewport (full
-    // result_area minus borders minus header lines).
+    // rows_area minus borders minus header lines).
     let header_h = header.len() as u16;
-    let viewport = result_area
-        .height
-        .saturating_sub(2)
-        .saturating_sub(header_h) as usize;
+    let viewport = rows_area.height.saturating_sub(2).saturating_sub(header_h) as usize;
     let row_top = if cursor >= viewport.saturating_sub(1) {
         cursor + 1 - viewport.max(1)
     } else {
@@ -229,8 +250,23 @@ fn draw_result_box(frame: &mut Frame, result_area: Rect, app: &App) {
     frame.render_widget(
         Paragraph::new(lines)
             .block(Block::bordered().title(Span::styled("resultz", title_style(app)))),
-        result_area,
+        rows_area,
     );
+
+    if let Some(info_area) = info_area {
+        let row = &d.rows[cursor];
+        let pretty = serde_json::to_string_pretty(row).unwrap_or_else(|_| row.to_string());
+        let info_lines: Vec<Line<'static>> =
+            pretty.lines().map(|l| Line::from(l.to_string())).collect();
+        frame.render_widget(
+            Paragraph::new(info_lines)
+                .block(
+                    Block::bordered().title(Span::styled("info", Style::new().fg(ACCENT).bold())),
+                )
+                .wrap(Wrap { trim: false }),
+            info_area,
+        );
+    }
 }
 
 fn title_style(app: &App) -> Style {

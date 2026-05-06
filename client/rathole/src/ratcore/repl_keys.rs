@@ -226,14 +226,8 @@ pub fn apply_navigation(
         }
         SlashAction::Admin => {
             state.ephemeral.repl.clear_input();
-            state.ephemeral.repl.status = Some(ReplStatus::ok("focus: admin"));
-            leave(state);
-            state.ephemeral.focus = Focus::AdminPalette;
-            ReplOutcome::Done
-        }
-        SlashAction::Commands => {
-            state.ephemeral.repl.clear_input();
-            state.ephemeral.repl.status = Some(ReplStatus::ok("commands"));
+            state.ephemeral.repl.status = Some(ReplStatus::ok("admin"));
+            state.ephemeral.show_command_list = true;
             leave(state);
             state.ephemeral.focus = Focus::AdminPalette;
             ReplOutcome::Done

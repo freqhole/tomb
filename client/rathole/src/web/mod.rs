@@ -12,8 +12,10 @@
 //! - audio via `<audio>` / WebAudio
 
 mod identity;
+mod local_songs;
 mod peer_store;
 mod player;
+mod remote_store;
 mod run;
 mod transport;
 

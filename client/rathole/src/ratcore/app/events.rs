@@ -489,6 +489,21 @@ pub enum AppAction {
     /// our own iroh node id became known (web shell, after
     /// `MiddenNode::create()` resolves).
     LocalNodeReady { node_id: String },
+    /// remote `/api/hello` response landed. populates the top-bar
+    /// remote name and (eventually) saves to the remotes store.
+    /// `peer_addr` identifies which remote the info is for so a
+    /// stale reply doesn't clobber a newer connect.
+    RemoteHello {
+        peer_addr: String,
+        name: Option<String>,
+        version: Option<String>,
+        description: Option<String>,
+    },
+    /// list of saved remotes loaded from storage. populates the
+    /// remotes-list view ([`crate::ratcore::app::Focus::RemoteList`]).
+    RemotesLoaded {
+        remotes: Vec<crate::ratcore::app::RemoteEntry>,
+    },
     /// options for a [`FieldState::SelectFrom`] field arrived from
     /// the source command. `command` + `field_index` identify which
     /// field to populate; the form ignores the message if it has

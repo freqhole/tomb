@@ -1,6 +1,6 @@
 # rathole Makefile — tty + web build targets
 
-.PHONY: build build-tty build-web build-web-release check check-tty check-web run serve clean
+.PHONY: build build-tty build-web build-web-release check check-tty check-web run serve clean deploy-spume
 
 # ----------------------------------------------------------------------
 # llvm paths for wasm32-unknown-unknown on apple silicon. mirrors
@@ -52,10 +52,10 @@ build: build-tty build-web
 check: check-tty check-web
 
 # serve the demo index.html locally. uses python's stdlib so no
-# extra deps. visit http://localhost:8000/
+# extra deps. visit http://localhost:5173/
 serve: build-web
-	@echo "open http://localhost:8000/"
-	python3 -m http.server 8000
+	@echo "open http://localhost:5173/"
+	python3 -m http.server 5173
 
 clean:
 	cargo clean -p rathole

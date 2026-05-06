@@ -14,13 +14,12 @@
 //! identity in its own origin-scoped database — same code, different
 //! storage bucket.
 
-use idb::{DatabaseEvent, Factory, KeyPath, ObjectStoreParams, Query, TransactionMode};
+use idb::{Factory, Query, TransactionMode};
 use js_sys::Uint8Array;
 use midden::MiddenNode;
 use wasm_bindgen::{JsCast, JsValue};
 
 const DB_NAME: &str = "freqhole_app";
-const DB_VERSION: u32 = 1;
 const STORE: &str = "app_state";
 const KEY: &str = "p2p_identity";
 
@@ -75,21 +74,21 @@ pub async fn load_or_create_node() -> Result<(MiddenNode, String), JsValue> {
 
 async fn open_db() -> Result<idb::Database, idb::Error> {
     let factory = Factory::new()?;
-    let mut req = factory.open(DB_NAME, Some(DB_VERSION))?;
-    req.on_upgrade_needed(|ev| {
-        let db = ev.database().expect("upgrade db handle");
-        if !db.store_names().iter().any(|n| n == STORE) {
-            let mut params = ObjectStoreParams::new();
-            params.key_path(Some(KeyPath::new_single("id")));
-            // ignore: any failure surfaces on the open future below.
-            let _ = db.create_object_store(STORE, params);
-        }
-    });
+    // open with no version: spume manages the `freqhole_app` schema
+    // (currently v8). hardcoding a version here would either trigger
+    // a downgrade error (when spume is ahead) or stomp on spume's
+    // stores via an unintended upgrade. callers must tolerate the
+    // `app_state` store being missing on first run.
+    let mut req = factory.open(DB_NAME, None)?;
+    req.on_upgrade_needed(|_ev| {});
     req.await
 }
 
 async fn read_identity() -> Result<Option<StoredIdentity>, idb::Error> {
     let db = open_db().await?;
+    if !db.store_names().iter().any(|n| n == STORE) {
+        return Ok(None);
+    }
     let tx = db.transaction(&[STORE], TransactionMode::ReadOnly)?;
     let store = tx.object_store(STORE)?;
     let value: Option<JsValue> = store.get(Query::from(JsValue::from_str(KEY)))?.await?;
@@ -98,6 +97,11 @@ async fn read_identity() -> Result<Option<StoredIdentity>, idb::Error> {
 
 async fn write_identity(secret: &[u8], node_id: &str) -> Result<(), idb::Error> {
     let db = open_db().await?;
+    if !db.store_names().iter().any(|n| n == STORE) {
+        // spume hasn't initialized yet; skip persistence rather than
+        // racing it with our own schema.
+        return Ok(());
+    }
     let tx = db.transaction(&[STORE], TransactionMode::ReadWrite)?;
     let store = tx.object_store(STORE)?;
 

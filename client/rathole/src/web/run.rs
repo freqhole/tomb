@@ -21,13 +21,14 @@ use wasm_bindgen::prelude::*;
 use crate::ratcore::app::DispatchResponse;
 use crate::ratcore::app::{
     AdminCommand, App, AppAction, AppState, ArgKind, CommandForm, CommandKind, FieldState, Focus,
-    LastDispatch, PersistedState, ReplStatus, SelectOption,
+    LastDispatch, PersistedState, RemoteEntry, ReplStatus, SelectOption,
 };
 use crate::ratcore::transport::Transport;
 use crate::ratcore::views;
 use crate::ratcore::views::command_form;
 use crate::web::identity;
 use crate::web::peer_store;
+use crate::web::remote_store;
 use crate::web::transport::{MiddenTransport, NoopTransport};
 
 /// build the seed command list. shared with the tty shell via
@@ -81,6 +82,32 @@ pub async fn boot() -> Result<(), JsValue> {
     // background-task → ui channel.
     let (action_tx, action_rx) = mpsc::unbounded::<AppAction>();
     let action_rx = Rc::new(RefCell::new(action_rx));
+
+    // if we auto-connected to a peer, fire `/api/hello` in the
+    // background so the top bar can show its friendly name on first
+    // paint. silent on failure — header just shows the short node id.
+    if let Some(addr) = initial_peer.clone() {
+        let node_for_hello = node.clone();
+        let tx_for_hello = action_tx.clone();
+        wasm_bindgen_futures::spawn_local(async move {
+            let t = MiddenTransport::new(node_for_hello, addr.clone());
+            if let Ok((name, version, description)) = t.fetch_hello().await {
+                // persist to the shared remotes store so this peer
+                // shows up in the `r` list view next visit.
+                if let Some(n) = name.as_deref().filter(|s| !s.trim().is_empty()) {
+                    let _ = remote_store::upsert_remote(&addr, Some(n), true).await;
+                } else {
+                    let _ = remote_store::upsert_remote(&addr, None, true).await;
+                }
+                let _ = tx_for_hello.unbounded_send(AppAction::RemoteHello {
+                    peer_addr: addr,
+                    name,
+                    version,
+                    description,
+                });
+            }
+        });
+    }
 
     // attach the html-audio backend so the music view + player row
     // can drive playback. failure here is non-fatal — the shell
@@ -158,9 +185,10 @@ fn on_key(
         return;
     }
     match app.state.ephemeral.focus {
-        Focus::Landing => on_landing_key_web(app, code),
+        Focus::Landing => on_landing_key_web(app, code, tx),
         Focus::AdminPalette => on_palette_key(app, code, tx),
-        Focus::PeerInput => on_peer_input_key(app, code, node),
+        Focus::PeerInput => on_peer_input_key(app, code, node, tx),
+        Focus::RemoteList => on_remote_list_key(app, code, node, tx),
         Focus::CommandForm => on_form_key(app, code, shift, tx),
         Focus::ResultPanel => on_result_panel_key(app, code, shift),
         Focus::ResultActionMenu => on_action_menu_key(app, code, tx),
@@ -175,10 +203,11 @@ fn on_key(
 /// landing-screen key handler (web). bare-letter shortcuts mirror
 /// the tty version so terminals that don't surface modifiers (most
 /// macOS terminal apps) can still navigate.
-fn on_landing_key_web(app: &mut App, code: KeyCode) {
+fn on_landing_key_web(app: &mut App, code: KeyCode, action_tx: &mpsc::UnboundedSender<AppAction>) {
     let eph = &mut app.state.ephemeral;
     match code {
         KeyCode::Char('c') | KeyCode::Char('a') | KeyCode::Enter => {
+            eph.show_command_list = true;
             eph.focus = Focus::AdminPalette;
         }
         KeyCode::Char('m') => {
@@ -186,12 +215,7 @@ fn on_landing_key_web(app: &mut App, code: KeyCode) {
             eph.music.mode = crate::ratcore::app::MusicMode::Results;
         }
         KeyCode::Char('r') => {
-            let seed = eph.connected_peer.clone().unwrap_or_default();
-            let cursor = seed.chars().count();
-            eph.peer_input = seed;
-            eph.peer_cursor = cursor;
-            eph.peer_error = None;
-            eph.focus = Focus::PeerInput;
+            open_remote_list(app, action_tx);
         }
         KeyCode::Char('p') => {
             crate::ratcore::player_row_keys::enter(&mut app.state);
@@ -238,6 +262,9 @@ fn on_palette_key(app: &mut App, code: KeyCode, tx: &mpsc::UnboundedSender<AppAc
             app.state.ephemeral.peer_cursor = cursor;
             app.state.ephemeral.peer_error = None;
             app.state.ephemeral.focus = Focus::PeerInput;
+        }
+        KeyCode::Char('r') => {
+            open_remote_list(app, tx);
         }
         KeyCode::Char('[') => {
             app.state.ephemeral.last_dispatch_scroll =
@@ -303,13 +330,175 @@ fn on_palette_key(app: &mut App, code: KeyCode, tx: &mpsc::UnboundedSender<AppAc
         KeyCode::Esc => {
             // back out to landing so esc unwinds the navigation
             // stack instead of dead-ending in the commands palette.
+            app.state.ephemeral.show_command_list = false;
             app.state.ephemeral.focus = Focus::Landing;
         }
         _ => {}
     }
 }
 
-fn on_peer_input_key(app: &mut App, code: KeyCode, node: &Rc<MiddenNode>) {
+/// open the remotes-list view, kick off an async load from the
+/// shared `freqhole_app` IndexedDB, and let the loader fire a
+/// `RemotesLoaded` action when ready. the view shows a friendly
+/// empty state until the load completes.
+fn open_remote_list(app: &mut App, action_tx: &mpsc::UnboundedSender<AppAction>) {
+    app.state.ephemeral.focus = Focus::RemoteList;
+    app.state.ephemeral.remotes_view_cursor = 0;
+    let tx = action_tx.clone();
+    wasm_bindgen_futures::spawn_local(async move {
+        let _ = tx.unbounded_send(AppAction::RemotesLoaded {
+            remotes: load_remotes_view().await,
+        });
+    });
+}
+
+async fn load_remotes_view() -> Vec<RemoteEntry> {
+    remote_store::list_remotes()
+        .await
+        .into_iter()
+        .map(|r| RemoteEntry {
+            remote_id: r.remote_id,
+            name: r.name.unwrap_or_default(),
+            transport: r.transport,
+            peer_addr: Some(r.peer_addr),
+            base_url: None,
+            is_active: r.is_active,
+            last_connected_at: r.last_connected_at.map(|f| f as i64),
+            local_ref: None,
+        })
+        .collect()
+}
+
+fn on_remote_list_key(
+    app: &mut App,
+    code: KeyCode,
+    node: &Rc<MiddenNode>,
+    action_tx: &mpsc::UnboundedSender<AppAction>,
+) {
+    let len = app.state.ephemeral.remotes_view.len();
+    match code {
+        KeyCode::Esc => {
+            app.state.ephemeral.focus = Focus::Landing;
+        }
+        KeyCode::Up | KeyCode::Char('k') => {
+            if len > 0 {
+                let cur = app.state.ephemeral.remotes_view_cursor;
+                app.state.ephemeral.remotes_view_cursor = cur.saturating_sub(1);
+            }
+        }
+        KeyCode::Down | KeyCode::Char('j') => {
+            if len > 0 {
+                let cur = app.state.ephemeral.remotes_view_cursor;
+                app.state.ephemeral.remotes_view_cursor = (cur + 1).min(len - 1);
+            }
+        }
+        KeyCode::Char('a') => {
+            app.state.ephemeral.peer_input.clear();
+            app.state.ephemeral.peer_cursor = 0;
+            app.state.ephemeral.peer_error = None;
+            app.state.ephemeral.focus = Focus::PeerInput;
+        }
+        KeyCode::Char('d') => {
+            let cursor = app.state.ephemeral.remotes_view_cursor;
+            if let Some(r) = app.state.ephemeral.remotes_view.get(cursor).cloned() {
+                if let Some(addr) = r.peer_addr {
+                    let tx = action_tx.clone();
+                    wasm_bindgen_futures::spawn_local(async move {
+                        if let Err(e) = remote_store::delete_remote(&addr).await {
+                            web_sys::console::warn_1(
+                                &format!("rathole: delete remote: {e}").into(),
+                            );
+                        }
+                        let _ = tx.unbounded_send(AppAction::RemotesLoaded {
+                            remotes: load_remotes_view().await,
+                        });
+                    });
+                }
+            }
+        }
+        KeyCode::Enter => {
+            let cursor = app.state.ephemeral.remotes_view_cursor;
+            if let Some(r) = app.state.ephemeral.remotes_view.get(cursor).cloned() {
+                if let Some(addr) = r.peer_addr {
+                    connect_to_peer(app, node, action_tx, addr, r.name);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+/// shared connect helper used by both the peer-input modal and the
+/// remotes-list view. swaps the transport, persists last-peer +
+/// remote record, and fires the hello fetch.
+fn connect_to_peer(
+    app: &mut App,
+    node: &Rc<MiddenNode>,
+    action_tx: &mpsc::UnboundedSender<AppAction>,
+    addr: String,
+    known_name: String,
+) {
+    let transport = Rc::new(MiddenTransport::new(node.clone(), addr.clone()));
+    app.transport = transport.clone();
+    let eph = &mut app.state.ephemeral;
+    eph.connected_peer = Some(addr.clone());
+    eph.remote_name = if known_name.is_empty() {
+        None
+    } else {
+        Some(known_name.clone())
+    };
+    eph.peer_input.clear();
+    eph.peer_cursor = 0;
+    eph.peer_error = None;
+    eph.focus = Focus::AdminPalette;
+
+    let addr_for_save = addr.clone();
+    wasm_bindgen_futures::spawn_local(async move {
+        peer_store::save_last_peer(&addr_for_save).await;
+    });
+
+    let pre_name = if known_name.is_empty() {
+        None
+    } else {
+        Some(known_name)
+    };
+    let addr_for_upsert = addr.clone();
+    wasm_bindgen_futures::spawn_local(async move {
+        if let Err(e) =
+            remote_store::upsert_remote(&addr_for_upsert, pre_name.as_deref(), true).await
+        {
+            web_sys::console::warn_1(&format!("rathole: upsert remote: {e}").into());
+        }
+    });
+
+    let tx = action_tx.clone();
+    let hello_addr = addr.clone();
+    wasm_bindgen_futures::spawn_local(async move {
+        match transport.fetch_hello().await {
+            Ok((name, version, description)) => {
+                if let Some(n) = name.as_deref().filter(|s| !s.trim().is_empty()) {
+                    let _ = remote_store::upsert_remote(&hello_addr, Some(n), true).await;
+                }
+                let _ = tx.unbounded_send(AppAction::RemoteHello {
+                    peer_addr: hello_addr,
+                    name,
+                    version,
+                    description,
+                });
+            }
+            Err(e) => {
+                web_sys::console::warn_1(&format!("rathole: hello fetch failed: {e}").into());
+            }
+        }
+    });
+}
+
+fn on_peer_input_key(
+    app: &mut App,
+    code: KeyCode,
+    node: &Rc<MiddenNode>,
+    action_tx: &mpsc::UnboundedSender<AppAction>,
+) {
     use crate::ratcore::text_input as ti;
     let eph = &mut app.state.ephemeral;
     match code {
@@ -329,21 +518,10 @@ fn on_peer_input_key(app: &mut App, code: KeyCode, node: &Rc<MiddenNode>) {
                 eph.peer_error = Some("peer addr is empty".to_string());
                 return;
             }
-            // build a fresh MiddenTransport against the entered addr
-            // and swap it into the app. dispatch happens lazily on
-            // first admin command, so no async work needed here.
-            app.transport = Rc::new(MiddenTransport::new(node.clone(), addr.clone()));
-            let eph = &mut app.state.ephemeral;
-            eph.connected_peer = Some(addr.clone());
-            eph.peer_input.clear();
-            eph.peer_cursor = 0;
-            eph.peer_error = None;
-            eph.focus = Focus::AdminPalette;
-            // persist as the most-recent peer so the next visit
-            // auto-connects without re-prompting.
-            wasm_bindgen_futures::spawn_local(async move {
-                peer_store::save_last_peer(&addr).await;
-            });
+            // drop the &mut borrow of ephemeral before calling
+            // `connect_to_peer`, which takes `&mut App`.
+            let _ = eph;
+            connect_to_peer(app, node, action_tx, addr, String::new());
         }
         KeyCode::Char(c) => {
             if !c.is_control() {
@@ -1121,6 +1299,32 @@ fn on_action(app: &mut App, action: AppAction, action_tx: &mpsc::UnboundedSender
         AppAction::LocalNodeReady { node_id } => {
             app.state.ephemeral.local_node_id = Some(node_id);
         }
+        AppAction::RemoteHello {
+            peer_addr,
+            name,
+            version: _,
+            description: _,
+        } => {
+            // ignore stale replies: only update if the connected peer
+            // hasn't moved on to another remote.
+            if app
+                .state
+                .ephemeral
+                .connected_peer
+                .as_deref()
+                .map(|p| p == peer_addr)
+                .unwrap_or(false)
+            {
+                app.state.ephemeral.remote_name = name.filter(|s| !s.trim().is_empty());
+            }
+        }
+        AppAction::RemotesLoaded { remotes } => {
+            let len = remotes.len();
+            app.state.ephemeral.remotes_view = remotes;
+            // clamp the cursor in case the previous selection went away.
+            let cur = app.state.ephemeral.remotes_view_cursor;
+            app.state.ephemeral.remotes_view_cursor = if len == 0 { 0 } else { cur.min(len - 1) };
+        }
         AppAction::SelectFromOptionsReady {
             command,
             field_index,
@@ -1176,7 +1380,7 @@ fn on_action(app: &mut App, action: AppAction, action_tx: &mpsc::UnboundedSender
                     // consume the auto-play flag set by `/play <query>`.
                     if m.auto_play_on_results && !m.results.is_empty() {
                         m.auto_play_on_results = false;
-                        play_from_cursor_web(app, action_tx);
+                        play_one_at_cursor_web(app, action_tx);
                         let title = app
                             .state
                             .ephemeral
@@ -1205,7 +1409,7 @@ fn on_action(app: &mut App, action: AppAction, action_tx: &mpsc::UnboundedSender
             // mirror the tty: when the playing track changes, refresh
             // its favorited-status by asking the transport.
             let track_changed = matches!(ev, crate::ratcore::app::MusicEvent::TrackChanged { .. });
-            apply_music_event_web(app, ev);
+            apply_music_event_web(app, ev, action_tx);
             if track_changed {
                 if let Some(cur) = app.state.ephemeral.music.currently_playing() {
                     let id = cur.id.clone();
@@ -1275,39 +1479,17 @@ fn on_action(app: &mut App, action: AppAction, action_tx: &mpsc::UnboundedSender
             }
         },
         AppAction::CollectionLoaded { songs } => {
-            // promote the loaded collection into the play queue +
-            // kick off progressive blob resolution so the first song
-            // can start while the rest fetch.
-            let playable: Vec<(String, String)> = songs
-                .iter()
-                .filter_map(|s| s.media_blob_id.clone().map(|b| (b, s.title.clone())))
-                .collect();
-            if playable.is_empty() {
-                app.state.ephemeral.music.last_event_error =
-                    Some("no playable blobs in collection".to_string());
-                return;
+            // promote the loaded collection into the queue + start
+            // playing the first row. blob resolution is lazy (per
+            // `play_index_web`) so a 200-row album doesn't pre-fetch
+            // 200 urls.
+            if !songs.is_empty() {
+                play_now_web(app, songs, 0, action_tx);
             }
-            let m = &mut app.state.ephemeral.music;
-            m.queue = songs;
-            m.current = Some(0);
-            m.position_ms = 0;
-            m.duration_ms = 0;
-            m.queue_resolving = playable.len();
-            m.player_state = crate::ratcore::app::PlayerState::Loading;
-            progressive_load_web(app, playable, action_tx);
         }
         AppAction::CollectionEnqueued { songs } => {
-            // append the loaded rows to the visible queue. paths /
-            // urls were already shipped to the player by the spawn
-            // that emitted this. seed `current` if the queue was
-            // empty before so the player row + /queue panel light up.
-            let m = &mut app.state.ephemeral.music;
-            let was_empty = m.queue.is_empty();
             let n = songs.len();
-            m.queue.extend(songs);
-            if was_empty && !m.queue.is_empty() {
-                m.current = Some(0);
-            }
+            enqueue_now_web(app, songs, action_tx);
             app.state.ephemeral.repl.status = Some(ReplStatus::ok(format!(
                 "queued {n} track{}",
                 if n == 1 { "" } else { "s" }
@@ -1397,124 +1579,160 @@ fn fire_search_web(app: &mut App, action_tx: &mpsc::UnboundedSender<AppAction>) 
     });
 }
 
-/// play just the row under the cursor in the web shell. queue
-/// length stays at 1; mirrors the tty's `play_one_at_cursor`.
-fn play_one_at_cursor_web(app: &mut App, action_tx: &mpsc::UnboundedSender<AppAction>) {
+// =========================================================================
+// queue manager (web) — mirrors the tty-side queue manager. rathole
+// owns m.queue + m.current; the html-audio backend is treated as a
+// single-track player, so every track switch is a fresh
+// `PlayerCmd::Load(vec![url])` for the row at `m.current`. queue
+// edits (remove/move/clear) are pure rathole state mutations.
+// =========================================================================
+
+/// load and play the row at `m.queue[idx]` in the web shell.
+/// resolves the row's blob to an object url and sends a single-
+/// element `PlayerCmd::Load`. on resolve failure, emits an Error
+/// event followed by Ended so the auto-advance handler skips past
+/// broken rows.
+fn play_index_web(app: &mut App, idx: usize, action_tx: &mpsc::UnboundedSender<AppAction>) {
     let m = &mut app.state.ephemeral.music;
+    if idx >= m.queue.len() {
+        m.current = None;
+        m.position_ms = 0;
+        m.duration_ms = 0;
+        m.player_state = crate::ratcore::app::PlayerState::Stopped;
+        return;
+    }
+    m.current = Some(idx);
+    m.position_ms = 0;
+    m.duration_ms = 0;
+    m.player_state = crate::ratcore::app::PlayerState::Loading;
+    let row = m.queue[idx].clone();
+    let Some(blob_id) = row.media_blob_id.clone() else {
+        let _ = action_tx.unbounded_send(AppAction::MusicEvent(
+            crate::ratcore::app::MusicEvent::Error(format!(
+                "no playable blob for {} (skipping)",
+                row.title
+            )),
+        ));
+        let _ = action_tx.unbounded_send(AppAction::MusicEvent(
+            crate::ratcore::app::MusicEvent::Ended,
+        ));
+        return;
+    };
+    let Some(player) = app.player.clone() else {
+        m.last_event_error = Some("no audio backend in this shell".to_string());
+        return;
+    };
+    let transport = app.transport.clone();
+    let tx = action_tx.clone();
+    let title = row.title.clone();
+    wasm_bindgen_futures::spawn_local(async move {
+        match transport.resolve_blob_url(&blob_id).await {
+            Ok((url, _mime)) => {
+                if let Err(e) = player
+                    .send(crate::ratcore::transport::PlayerCmd::Load(vec![url]))
+                    .await
+                {
+                    let _ = tx.unbounded_send(AppAction::MusicEvent(
+                        crate::ratcore::app::MusicEvent::Error(format!("player send failed: {e}")),
+                    ));
+                }
+            }
+            Err(e) => {
+                let _ = tx.unbounded_send(AppAction::MusicEvent(
+                    crate::ratcore::app::MusicEvent::Error(format!(
+                        "resolve blob url failed for {title}: {e}"
+                    )),
+                ));
+                let _ = tx.unbounded_send(AppAction::MusicEvent(
+                    crate::ratcore::app::MusicEvent::Ended,
+                ));
+            }
+        }
+    });
+}
+
+/// advance to the next track in the local queue.
+fn play_next_web(app: &mut App, action_tx: &mpsc::UnboundedSender<AppAction>) {
+    let next = app
+        .state
+        .ephemeral
+        .music
+        .current
+        .map(|c| c + 1)
+        .unwrap_or(0);
+    play_index_web(app, next, action_tx);
+}
+
+/// step back one track in the local queue.
+fn play_previous_web(app: &mut App, action_tx: &mpsc::UnboundedSender<AppAction>) {
+    let prev = app
+        .state
+        .ephemeral
+        .music
+        .current
+        .map(|c| c.saturating_sub(1))
+        .unwrap_or(0);
+    play_index_web(app, prev, action_tx);
+}
+
+/// replace the queue with `songs` and start playing from `start`.
+fn play_now_web(
+    app: &mut App,
+    songs: Vec<crate::ratcore::app::SongRow>,
+    start: usize,
+    action_tx: &mpsc::UnboundedSender<AppAction>,
+) {
+    app.state.ephemeral.music.queue = songs;
+    play_index_web(app, start, action_tx);
+}
+
+/// append `songs` to the end of the queue. starts playback if
+/// nothing is currently loaded.
+fn enqueue_now_web(
+    app: &mut App,
+    songs: Vec<crate::ratcore::app::SongRow>,
+    action_tx: &mpsc::UnboundedSender<AppAction>,
+) {
+    if songs.is_empty() {
+        return;
+    }
+    let m = &mut app.state.ephemeral.music;
+    let was_idle = m.current.is_none();
+    let start = m.queue.len();
+    m.queue.extend(songs);
+    if was_idle {
+        play_index_web(app, start, action_tx);
+    }
+}
+
+/// play just the row under the cursor in the web shell. queue is
+/// replaced with a single-element vec.
+fn play_one_at_cursor_web(app: &mut App, action_tx: &mpsc::UnboundedSender<AppAction>) {
+    let m = &app.state.ephemeral.music;
     if m.results.is_empty() {
         return;
     }
     let idx = m.results_cursor.min(m.results.len() - 1);
     let row = m.results[idx].clone();
-    let Some(blob_id) = row.media_blob_id.clone() else {
-        m.last_event_error = Some(format!("no playable blob for {}", row.title));
-        return;
-    };
-    m.queue = vec![row.clone()];
-    m.current = Some(0);
-    m.position_ms = 0;
-    m.duration_ms = 0;
-    m.queue_resolving = 1;
-    m.player_state = crate::ratcore::app::PlayerState::Loading;
-    progressive_load_web(app, vec![(blob_id, row.title)], action_tx);
+    play_now_web(app, vec![row], 0, action_tx);
 }
 
 /// load the music view's results into the player queue starting at
-/// the cursor position. resolves each row's `media_blob_id` to an
-/// object url via iroh-blobs verified streaming (with proxy
-/// fallback) and hands the queue to the html-audio backend.
+/// the cursor position. plays from `start`; remaining tracks resolve
+/// lazily on auto-advance.
 fn play_from_cursor_web(app: &mut App, action_tx: &mpsc::UnboundedSender<AppAction>) {
-    let m = &mut app.state.ephemeral.music;
+    let m = &app.state.ephemeral.music;
     if m.results.is_empty() {
         return;
     }
     let start = m.results_cursor.min(m.results.len() - 1);
     let queue: Vec<crate::ratcore::app::SongRow> = m.results[start..].to_vec();
-    let playable: Vec<(String, String)> = queue
-        .iter()
-        .filter_map(|s| s.media_blob_id.clone().map(|b| (b, s.title.clone())))
-        .collect();
-    if playable.is_empty() {
-        m.last_event_error = Some("no playable blobs in queue".to_string());
-        return;
-    }
-    // eagerly populate queue + current so the player row updates
-    // immediately, before any blob resolution finishes.
-    m.queue = queue;
-    m.current = Some(0);
-    m.position_ms = 0;
-    m.duration_ms = 0;
-    m.queue_resolving = playable.len();
-    m.player_state = crate::ratcore::app::PlayerState::Loading;
-    progressive_load_web(app, playable, action_tx);
+    play_now_web(app, queue, 0, action_tx);
 }
 
-/// shared progressive blob-resolver: resolves the first url and
-/// sends `Load`, then resolves the rest sequentially and sends
-/// `Enqueue` per success. emits `QueueResolveProgress` so the player
-/// row's "loading N more" hint stays accurate.
-fn progressive_load_web(
-    app: &App,
-    playable: Vec<(String, String)>,
-    action_tx: &mpsc::UnboundedSender<AppAction>,
-) {
-    let Some(player) = app.player.clone() else {
-        let _ = action_tx.unbounded_send(AppAction::MusicEvent(
-            crate::ratcore::app::MusicEvent::Error("no audio backend in this shell".to_string()),
-        ));
-        return;
-    };
-    let transport = app.transport.clone();
-    let tx = action_tx.clone();
-    wasm_bindgen_futures::spawn_local(async move {
-        let total = playable.len();
-        let mut iter = playable.into_iter();
-        let mut started = false;
-        let mut remaining = total;
-        while let Some((blob_id, title)) = iter.next() {
-            match transport.resolve_blob_url(&blob_id).await {
-                Ok((url, _mime)) => {
-                    let cmd = if started {
-                        crate::ratcore::transport::PlayerCmd::Enqueue(vec![url])
-                    } else {
-                        started = true;
-                        crate::ratcore::transport::PlayerCmd::Load(vec![url])
-                    };
-                    if let Err(e) = player.send(cmd).await {
-                        let _ = tx.unbounded_send(AppAction::MusicEvent(
-                            crate::ratcore::app::MusicEvent::Error(format!(
-                                "player send failed: {e}"
-                            )),
-                        ));
-                    }
-                }
-                Err(e) => {
-                    web_sys::console::warn_1(
-                        &format!(
-                            "rathole: resolve_blob_url failed for {} ({}): {e}",
-                            &blob_id[..blob_id.len().min(8)],
-                            title
-                        )
-                        .into(),
-                    );
-                }
-            }
-            remaining = remaining.saturating_sub(1);
-            let _ = tx.unbounded_send(AppAction::MusicEvent(
-                crate::ratcore::app::MusicEvent::QueueResolveProgress { remaining },
-            ));
-        }
-        if !started {
-            let _ = tx.unbounded_send(AppAction::MusicEvent(
-                crate::ratcore::app::MusicEvent::Error("no playable blobs in queue".to_string()),
-            ));
-        }
-    });
-}
-
-/// fetch playlist or album songs via transport, resolve each blob
-/// to an object url, and load the player. `kind` is `"playlist"` or
-/// `"album"`.
+/// fetch playlist or album songs via transport, then replace the
+/// queue and start playing. blob resolution happens lazily per-track
+/// via `play_index_web`.
 fn play_collection_web(
     app: &mut App,
     kind: &'static str,
@@ -1538,6 +1756,7 @@ fn play_collection_web(
     }
     let transport = app.transport.clone();
     let tx = action_tx.clone();
+    let title_for_event = title.clone();
     wasm_bindgen_futures::spawn_local(async move {
         let songs_result = match kind {
             "playlist" => transport.playlist_songs(&id).await,
@@ -1555,22 +1774,19 @@ fn play_collection_web(
         };
         if songs.is_empty() {
             let _ = tx.unbounded_send(AppAction::MusicEvent(
-                crate::ratcore::app::MusicEvent::Error(format!("{kind} {title} is empty")),
+                crate::ratcore::app::MusicEvent::Error(format!(
+                    "{kind} {title_for_event} is empty"
+                )),
             ));
             return;
         }
-        // hand the full songs vec back to the main loop so it can
-        // populate queue/current eagerly + kick off progressive
-        // resolution. doing this in the spawned task avoids holding
-        // a mut borrow on `app` across the await.
         let _ = tx.unbounded_send(AppAction::CollectionLoaded { songs });
     });
 }
 
 /// fetch playlist or album songs and append them to the existing
-/// queue without interrupting the currently-playing track. resolves
-/// each blob to an object url progressively and sends
-/// `PlayerCmd::Enqueue` per track.
+/// queue without interrupting the currently-playing track. queue
+/// extension is rathole-side; the audio thread is unaffected.
 fn enqueue_collection_web(
     app: &mut App,
     kind: &'static str,
@@ -1581,14 +1797,9 @@ fn enqueue_collection_web(
     app.state.ephemeral.repl.status = Some(crate::ratcore::app::ReplStatus::info(format!(
         "queueing {kind} {title}\u{2026}"
     )));
-    if app.player.is_none() {
-        app.state.ephemeral.music.last_event_error =
-            Some("no audio backend in this shell".to_string());
-        return;
-    }
     let transport = app.transport.clone();
-    let player = app.player.clone();
     let tx = action_tx.clone();
+    let title_for_event = title.clone();
     wasm_bindgen_futures::spawn_local(async move {
         let songs_result = match kind {
             "playlist" => transport.playlist_songs(&id).await,
@@ -1606,36 +1817,11 @@ fn enqueue_collection_web(
         };
         if songs.is_empty() {
             let _ = tx.unbounded_send(AppAction::MusicEvent(
-                crate::ratcore::app::MusicEvent::Error(format!("{kind} {title} is empty")),
+                crate::ratcore::app::MusicEvent::Error(format!(
+                    "{kind} {title_for_event} is empty"
+                )),
             ));
             return;
-        }
-        let player = match player {
-            Some(p) => p,
-            None => return,
-        };
-        for s in &songs {
-            if let Some(blob_id) = s.media_blob_id.as_deref() {
-                match transport.resolve_blob_url(blob_id).await {
-                    Ok((url, _mime)) => {
-                        if let Err(e) = player
-                            .send(crate::ratcore::transport::PlayerCmd::Enqueue(vec![url]))
-                            .await
-                        {
-                            let _ = tx.unbounded_send(AppAction::MusicEvent(
-                                crate::ratcore::app::MusicEvent::Error(format!(
-                                    "player send failed: {e}"
-                                )),
-                            ));
-                        }
-                    }
-                    Err(e) => {
-                        web_sys::console::warn_1(
-                            &format!("rathole: resolve_blob_url failed: {e}").into(),
-                        );
-                    }
-                }
-            }
         }
         let _ = tx.unbounded_send(AppAction::CollectionEnqueued { songs });
     });
@@ -1654,13 +1840,7 @@ fn enqueue_song_by_title_web(
     app.state.ephemeral.repl.status = Some(crate::ratcore::app::ReplStatus::info(format!(
         "queueing {title}\u{2026}"
     )));
-    if app.player.is_none() {
-        app.state.ephemeral.music.last_event_error =
-            Some("no audio backend in this shell".to_string());
-        return;
-    }
     let transport = app.transport.clone();
-    let player = app.player.clone();
     let tx = action_tx.clone();
     wasm_bindgen_futures::spawn_local(async move {
         let songs = match transport.search_songs(&title, 1).await {
@@ -1678,35 +1858,6 @@ fn enqueue_song_by_title_web(
             ));
             return;
         };
-        let player = match player {
-            Some(p) => p,
-            None => return,
-        };
-        if let Some(blob_id) = song.media_blob_id.as_deref() {
-            match transport.resolve_blob_url(blob_id).await {
-                Ok((url, _mime)) => {
-                    if let Err(e) = player
-                        .send(crate::ratcore::transport::PlayerCmd::Enqueue(vec![url]))
-                        .await
-                    {
-                        let _ = tx.unbounded_send(AppAction::MusicEvent(
-                            crate::ratcore::app::MusicEvent::Error(format!(
-                                "player send failed: {e}"
-                            )),
-                        ));
-                        return;
-                    }
-                }
-                Err(e) => {
-                    let _ = tx.unbounded_send(AppAction::MusicEvent(
-                        crate::ratcore::app::MusicEvent::Error(format!(
-                            "resolve blob url failed: {e}"
-                        )),
-                    ));
-                    return;
-                }
-            }
-        }
         let _ = tx.unbounded_send(AppAction::CollectionEnqueued { songs: vec![song] });
     });
 }
@@ -1909,27 +2060,10 @@ fn rerender_queue_web(app: &mut App) {
     crate::ratcore::repl_keys::render_queue_panel(&mut app.state, Some(cur));
 }
 
-/// rebuild + restart playback starting from queue index `start`.
-/// rebuilds the playable list from the existing queue's media_blob_ids
-/// and re-issues progressive load.
+/// rebuild + restart playback at queue index `start`. queue
+/// contents are preserved.
 fn requeue_from_web(app: &mut App, start: usize, action_tx: &mpsc::UnboundedSender<AppAction>) {
-    let m = &mut app.state.ephemeral.music;
-    if start >= m.queue.len() {
-        return;
-    }
-    m.current = Some(start);
-    m.position_ms = 0;
-    m.duration_ms = 0;
-    let playable: Vec<(String, String)> = m.queue[start..]
-        .iter()
-        .filter_map(|s| s.media_blob_id.clone().map(|b| (b, s.title.clone())))
-        .collect();
-    if playable.is_empty() {
-        return;
-    }
-    m.queue_resolving = playable.len();
-    m.player_state = crate::ratcore::app::PlayerState::Loading;
-    progressive_load_web(app, playable, action_tx);
+    play_index_web(app, start, action_tx);
 }
 /// a player or transport (`/play`, `/search`, `/pause`, `/next`,
 /// etc.) are no-ops here — when the html-audio runtime lands they
@@ -1995,11 +2129,11 @@ fn on_repl_key_web(app: &mut App, code: KeyCode, action_tx: &mpsc::UnboundedSend
                         app.state.ephemeral.repl.status = Some(ReplStatus::ok("queue cleared"));
                     }
                     SlashAction::Next => {
-                        send_player_web(app, PlayerCmd::Next);
+                        play_next_web(app, action_tx);
                         app.state.ephemeral.repl.status = Some(ReplStatus::ok("next"));
                     }
                     SlashAction::Previous => {
-                        send_player_web(app, PlayerCmd::Previous);
+                        play_previous_web(app, action_tx);
                         app.state.ephemeral.repl.status = Some(ReplStatus::ok("previous"));
                     }
                     SlashAction::Seek { seconds } => {
@@ -2015,6 +2149,8 @@ fn on_repl_key_web(app: &mut App, code: KeyCode, action_tx: &mpsc::UnboundedSend
                             Some(ReplStatus::ok(format!("vol {percent}%")));
                     }
                     SlashAction::Search { query: None } => {
+                        app.state.ephemeral.repl.clear_input();
+                        rk::leave(&mut app.state);
                         app.state.ephemeral.focus = crate::ratcore::app::Focus::MusicView;
                         app.state.ephemeral.music.mode = MusicMode::Results;
                         app.state.ephemeral.repl.status =
@@ -2023,6 +2159,8 @@ fn on_repl_key_web(app: &mut App, code: KeyCode, action_tx: &mpsc::UnboundedSend
                     SlashAction::Search { query: Some(q) } => {
                         // FTS-ranked unified search via MiddenTransport.
                         // results land in the result panel like in tty.
+                        app.state.ephemeral.repl.clear_input();
+                        rk::leave(&mut app.state);
                         let transport = app.transport.clone();
                         let tx_clone = action_tx.clone();
                         let qc = q.clone();
@@ -2159,12 +2297,18 @@ fn on_player_row_key_web(
         KeyCode::Enter | KeyCode::Char(' ') => {
             let action = prk::activate(&app.state);
             let cmd = match action {
-                prk::PlayerRowAction::Previous => Some(PlayerCmd::Previous),
+                prk::PlayerRowAction::Previous => {
+                    play_previous_web(app, action_tx);
+                    None
+                }
                 prk::PlayerRowAction::PlayPause => match app.state.ephemeral.music.player_state {
                     crate::ratcore::app::PlayerState::Playing => Some(PlayerCmd::Pause),
                     _ => Some(PlayerCmd::Play),
                 },
-                prk::PlayerRowAction::Next => Some(PlayerCmd::Next),
+                prk::PlayerRowAction::Next => {
+                    play_next_web(app, action_tx);
+                    None
+                }
                 prk::PlayerRowAction::SeekBack => {
                     let target = app.state.ephemeral.music.position_ms.saturating_sub(15_000);
                     Some(PlayerCmd::Seek(target))
@@ -2224,28 +2368,38 @@ fn send_player_web(app: &mut App, cmd: crate::ratcore::transport::PlayerCmd) {
 
 /// apply a `MusicEvent` from the html-audio backend to ui state.
 /// kept identical to the tty's helper so behaviour stays in lock-step.
-fn apply_music_event_web(app: &mut App, ev: crate::ratcore::app::MusicEvent) {
+fn apply_music_event_web(
+    app: &mut App,
+    ev: crate::ratcore::app::MusicEvent,
+    action_tx: &mpsc::UnboundedSender<AppAction>,
+) {
     use crate::ratcore::app::MusicEvent;
-    let m = &mut app.state.ephemeral.music;
     match ev {
-        MusicEvent::State(s) => m.player_state = s,
+        MusicEvent::State(s) => app.state.ephemeral.music.player_state = s,
         MusicEvent::Progress { ms, total_ms } => {
+            let m = &mut app.state.ephemeral.music;
             m.position_ms = ms;
             m.duration_ms = total_ms;
         }
-        MusicEvent::TrackChanged { index, .. } => {
-            m.current = Some(index);
-            m.position_ms = 0;
+        MusicEvent::TrackChanged { .. } => {
+            // single-track loads: rathole already owns m.current.
+            app.state.ephemeral.music.position_ms = 0;
         }
         MusicEvent::QueueResolveProgress { remaining } => {
-            m.queue_resolving = remaining;
+            app.state.ephemeral.music.queue_resolving = remaining;
         }
         MusicEvent::Ended => {
-            m.current = None;
-            m.position_ms = 0;
-            m.player_state = crate::ratcore::app::PlayerState::Stopped;
+            // auto-advance through the local queue.
+            let next = app
+                .state
+                .ephemeral
+                .music
+                .current
+                .map(|c| c + 1)
+                .unwrap_or(0);
+            play_index_web(app, next, action_tx);
         }
-        MusicEvent::Error(e) => m.last_event_error = Some(e),
+        MusicEvent::Error(e) => app.state.ephemeral.music.last_event_error = Some(e),
     }
 }
 

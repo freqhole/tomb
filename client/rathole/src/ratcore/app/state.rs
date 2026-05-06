@@ -90,6 +90,10 @@ pub enum Focus {
     AdminPalette,
     /// modal text input for entering a peer node id (web shell only).
     PeerInput,
+    /// list of saved remotes (web shell only). selecting a row
+    /// switches the active transport; `a` opens [`Focus::PeerInput`]
+    /// to add a new one; `d` deletes the highlighted entry.
+    RemoteList,
     /// inline form for filling in the selected command's args.
     CommandForm,
     /// the last-dispatch output panel — takes focus so arrow keys
@@ -124,6 +128,10 @@ pub struct EphemeralState {
     /// peer addr the current transport is dispatching to (None = not
     /// p2p-connected; e.g. tty LocalTransport or web NoopTransport).
     pub connected_peer: Option<String>,
+    /// human-friendly name of the connected remote, fetched from
+    /// `/api/hello` after a successful connect. shown in the top bar
+    /// in place of the raw node id when present.
+    pub remote_name: Option<String>,
     /// our own iroh node id, if we have one (web shell only).
     pub local_node_id: Option<String>,
     /// last peer-connect error to surface in the ui (cleared on
@@ -155,6 +163,17 @@ pub struct EphemeralState {
     /// when true, render a confirm-quit overlay; y/enter quits, n/esc
     /// cancels.
     pub pending_quit: bool,
+    /// admin-palette layout knob: when true, the left commands list
+    /// is rendered alongside the form/results. when false (default),
+    /// the form/results pane uses the full body width and the user
+    /// can toggle the list with `/help` or `/commands`.
+    pub show_command_list: bool,
+    /// rows for the remotes-list view ([`Focus::RemoteList`]). loaded
+    /// from the shell's storage on demand. portable shape so both
+    /// shells can populate it.
+    pub remotes_view: Vec<RemoteEntry>,
+    /// cursor index into [`Self::remotes_view`].
+    pub remotes_view_cursor: usize,
 }
 
 impl Default for EphemeralState {
@@ -168,6 +187,7 @@ impl Default for EphemeralState {
             peer_input: String::new(),
             peer_cursor: 0,
             connected_peer: None,
+            remote_name: None,
             local_node_id: None,
             peer_error: None,
             form: None,
@@ -179,6 +199,9 @@ impl Default for EphemeralState {
             player_row_cursor: 0,
             player_row_return_focus: None,
             pending_quit: false,
+            show_command_list: false,
+            remotes_view: Vec::new(),
+            remotes_view_cursor: 0,
         }
     }
 }

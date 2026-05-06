@@ -7,6 +7,7 @@ pub mod landing;
 pub mod music;
 pub mod peer_input;
 pub mod player_row;
+pub mod remote_list;
 pub mod repl;
 
 use ratatui::{
@@ -72,6 +73,10 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
         peer_input::draw(frame, app);
     }
 
+    if app.state.ephemeral.focus == Focus::RemoteList {
+        remote_list::draw(frame, app);
+    }
+
     if app.state.ephemeral.focus == Focus::ResultActionMenu {
         action_menu::draw(frame, app);
     }
@@ -117,7 +122,17 @@ fn header_line(app: &App) -> Line<'static> {
 
     if let Some(peer) = &app.state.ephemeral.connected_peer {
         spans.push(Span::raw("remote: "));
-        spans.push(Span::raw(short_id(peer)));
+        if let Some(name) = app
+            .state
+            .ephemeral
+            .remote_name
+            .as_deref()
+            .filter(|s| !s.is_empty())
+        {
+            spans.push(Span::raw(name.to_string()));
+        } else {
+            spans.push(Span::raw(short_id(peer)));
+        }
     } else if app.state.ephemeral.local_node_id.is_some() {
         spans.push(Span::raw("local p2p"));
     } else {
@@ -155,6 +170,7 @@ fn view_label(app: &App) -> Span<'static> {
         Focus::Landing => "[home]",
         Focus::MusicView => "[music]",
         Focus::PeerInput => "[remote]",
+        Focus::RemoteList => "[remotes]",
         Focus::Repl => "[repl]",
         Focus::PlayerRow => "[player]",
         _ => "[admin]",
@@ -172,6 +188,7 @@ fn footer_hints(app: &App) -> &'static str {
             "↑/↓ j/k: move   enter: dispatch/form   tab: focus resultz   ctrl-m: music   ctrl-r: remote   ctrl-p: player   ctrl-k: repl   q: quit"
         }
         Focus::PeerInput => "type/paste node id   enter: connect   esc: cancel",
+        Focus::RemoteList => "↑/↓: select   enter: connect   a: add   d: delete   esc: back",
         Focus::CommandForm => "←/→: cycle option   tab/enter: next   esc: cancel",
         Focus::ResultPanel => "↑/↓ j/k: move row   pgup/pgdn: page   a/enter: actions   tab/esc: back",
         Focus::ResultActionMenu => "↑/↓: pick   enter: open form   esc: cancel",

@@ -18,23 +18,28 @@ pub fn draw(frame: &mut Frame, area: Rect, _app: &App) {
     if area.height == 0 || area.width == 0 {
         return;
     }
-    // banner is just "rathole" now (5 rows tall). triangle width
-    // scales with available space; both stack vertically with a gap
-    // and hint line, then the whole block is centered top-to-bottom.
+    // layout (top -> bottom):
+    //   1 line padding (matches the top bar's gap to the banner)
+    //   banner ("rathole" block letters)
+    //   1 line gap
+    //   triangle (sized to fill remaining vertical space)
+    //   1 line gap
+    //   hint
+    //   leftover space at the bottom
     let banner_lines = banner_text();
     let banner_h = banner_lines.len() as u16;
+    let pad_top = 1u16;
+    // available rows for the triangle = total - pad_top - banner -
+    // gap - gap - hint. clamp at 0 if the terminal is tiny.
+    let avail_for_tri = area.height.saturating_sub(pad_top + banner_h + 1 + 1 + 1);
+    // triangle is twice as wide as it is tall (half-block cells).
     let max_tri_w = area.width.min(60);
-    // reserve space for banner + 1 gap + triangle + 1 gap + hint.
-    let tri_w = max_tri_w.min(area.height.saturating_sub(banner_h + 3) * 2);
+    let tri_w = max_tri_w.min(avail_for_tri.saturating_mul(2));
     let tri = render_triangle(tri_w as usize);
     let tri_h = tri.len() as u16;
 
-    // total content height; split remaining vertical space evenly
-    // between top + bottom padding for true centering.
-    let total = banner_h + 1 + tri_h + 1 + 1;
-    let leftover = area.height.saturating_sub(total);
-    let pad_top = leftover / 2;
-    let pad_bot = leftover - pad_top;
+    let total = pad_top + banner_h + 1 + tri_h + 1 + 1;
+    let pad_bot = area.height.saturating_sub(total);
     let [_, banner_a, _, tri_a, _, hint_a, _] = Layout::vertical([
         Length(pad_top),
         Length(banner_h),
@@ -64,19 +69,11 @@ pub fn draw(frame: &mut Frame, area: Rect, _app: &App) {
     frame.render_widget(tri_para, tri_a);
 
     let hint = Line::from(vec![
-        Span::raw("press ").dim(),
-        Span::styled("ctrl-k", Style::new().fg(ACCENT).bold()),
+        Span::raw("type ").dim(),
+        Span::styled("/help", Style::new().fg(ACCENT).bold()),
+        Span::raw(" for help  \u{00b7}  ").dim(),
+        Span::styled("/", Style::new().fg(ACCENT).bold()),
         Span::raw(" for slash commands  \u{00b7}  ").dim(),
-        Span::styled("c", Style::new().fg(ACCENT).bold()),
-        Span::raw(" commands  ").dim(),
-        Span::styled("m", Style::new().fg(ACCENT).bold()),
-        Span::raw(" music  ").dim(),
-        Span::styled("r", Style::new().fg(ACCENT).bold()),
-        Span::raw(" remote  ").dim(),
-        Span::styled("p", Style::new().fg(ACCENT).bold()),
-        Span::raw(" player  ").dim(),
-        Span::styled("q", Style::new().fg(ACCENT).bold()),
-        Span::raw(" quit").dim(),
     ]);
     frame.render_widget(
         Paragraph::new(hint).alignment(ratatui::layout::Alignment::Center),
@@ -84,13 +81,13 @@ pub fn draw(frame: &mut Frame, area: Rect, _app: &App) {
     );
 }
 
-/// 5-row block-letter banner spelling "rathole".
+/// 7-row block-letter banner spelling "rathole".
 fn banner_text() -> Vec<String> {
     block_word("rathole")
 }
 
 fn block_word(word: &str) -> Vec<String> {
-    let mut rows = vec![String::new(); 5];
+    let mut rows = vec![String::new(); 7];
     for (i, ch) in word.chars().enumerate() {
         if i > 0 {
             for r in &mut rows {
@@ -105,20 +102,103 @@ fn block_word(word: &str) -> Vec<String> {
     rows
 }
 
-/// 5-row x 3-col block letters. only includes the letters used in
-/// "freqhole" + "rathole" (f r e q h o l a t).
-fn block_letter(ch: char) -> [&'static str; 5] {
+/// 7-row x 5-col block letters. only includes the letters used in
+/// "freqhole" + "rathole" (f r e q h o l a t). uses full-block
+/// glyphs (\u2588) on a space background so the banner reads as
+/// a single chunky line of text.
+fn block_letter(ch: char) -> [&'static str; 7] {
+    // shorthands: B = full block, _ = space.
+    const B: char = '\u{2588}';
+    // declared inline below for clarity; each glyph is a 5-wide
+    // 7-tall sprite.
     match ch {
-        'f' => ["\u{2588}\u{2588}\u{2588}", "\u{2588}  ", "\u{2588}\u{2588} ", "\u{2588}  ", "\u{2588}  "],
-        'r' => ["\u{2588}\u{2588} ", "\u{2588} \u{2588}", "\u{2588}\u{2588} ", "\u{2588} \u{2588}", "\u{2588} \u{2588}"],
-        'e' => ["\u{2588}\u{2588}\u{2588}", "\u{2588}  ", "\u{2588}\u{2588} ", "\u{2588}  ", "\u{2588}\u{2588}\u{2588}"],
-        'q' => ["\u{2588}\u{2588}\u{2588}", "\u{2588} \u{2588}", "\u{2588} \u{2588}", "\u{2588}\u{2588}\u{2588}", "  \u{2588}"],
-        'h' => ["\u{2588} \u{2588}", "\u{2588} \u{2588}", "\u{2588}\u{2588}\u{2588}", "\u{2588} \u{2588}", "\u{2588} \u{2588}"],
-        'o' => ["\u{2588}\u{2588}\u{2588}", "\u{2588} \u{2588}", "\u{2588} \u{2588}", "\u{2588} \u{2588}", "\u{2588}\u{2588}\u{2588}"],
-        'l' => ["\u{2588}  ", "\u{2588}  ", "\u{2588}  ", "\u{2588}  ", "\u{2588}\u{2588}\u{2588}"],
-        'a' => ["\u{2588}\u{2588}\u{2588}", "\u{2588} \u{2588}", "\u{2588}\u{2588}\u{2588}", "\u{2588} \u{2588}", "\u{2588} \u{2588}"],
-        't' => ["\u{2588}\u{2588}\u{2588}", " \u{2588} ", " \u{2588} ", " \u{2588} ", " \u{2588} "],
-        _ => ["   ", "   ", "   ", "   ", "   "],
+        'f' => [
+            "\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}",
+            "\u{2588}    ",
+            "\u{2588}    ",
+            "\u{2588}\u{2588}\u{2588}\u{2588} ",
+            "\u{2588}    ",
+            "\u{2588}    ",
+            "\u{2588}    ",
+        ],
+        'r' => [
+            "\u{2588}\u{2588}\u{2588}\u{2588} ",
+            "\u{2588}   \u{2588}",
+            "\u{2588}   \u{2588}",
+            "\u{2588}\u{2588}\u{2588}\u{2588} ",
+            "\u{2588} \u{2588}  ",
+            "\u{2588}  \u{2588} ",
+            "\u{2588}   \u{2588}",
+        ],
+        'e' => [
+            "\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}",
+            "\u{2588}    ",
+            "\u{2588}    ",
+            "\u{2588}\u{2588}\u{2588}\u{2588} ",
+            "\u{2588}    ",
+            "\u{2588}    ",
+            "\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}",
+        ],
+        'q' => [
+            " \u{2588}\u{2588}\u{2588} ",
+            "\u{2588}   \u{2588}",
+            "\u{2588}   \u{2588}",
+            "\u{2588}   \u{2588}",
+            "\u{2588} \u{2588} \u{2588}",
+            "\u{2588}  \u{2588} ",
+            " \u{2588}\u{2588} \u{2588}",
+        ],
+        'h' => [
+            "\u{2588}   \u{2588}",
+            "\u{2588}   \u{2588}",
+            "\u{2588}   \u{2588}",
+            "\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}",
+            "\u{2588}   \u{2588}",
+            "\u{2588}   \u{2588}",
+            "\u{2588}   \u{2588}",
+        ],
+        'o' => [
+            " \u{2588}\u{2588}\u{2588} ",
+            "\u{2588}   \u{2588}",
+            "\u{2588}   \u{2588}",
+            "\u{2588}   \u{2588}",
+            "\u{2588}   \u{2588}",
+            "\u{2588}   \u{2588}",
+            " \u{2588}\u{2588}\u{2588} ",
+        ],
+        'l' => [
+            "\u{2588}    ",
+            "\u{2588}    ",
+            "\u{2588}    ",
+            "\u{2588}    ",
+            "\u{2588}    ",
+            "\u{2588}    ",
+            "\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}",
+        ],
+        'a' => [
+            " \u{2588}\u{2588}\u{2588} ",
+            "\u{2588}   \u{2588}",
+            "\u{2588}   \u{2588}",
+            "\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}",
+            "\u{2588}   \u{2588}",
+            "\u{2588}   \u{2588}",
+            "\u{2588}   \u{2588}",
+        ],
+        't' => [
+            "\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}",
+            "  \u{2588}  ",
+            "  \u{2588}  ",
+            "  \u{2588}  ",
+            "  \u{2588}  ",
+            "  \u{2588}  ",
+            "  \u{2588}  ",
+        ],
+        _ => {
+            let _ = B;
+            [
+                "     ", "     ", "     ", "     ", "     ", "     ", "     ",
+            ]
+        }
     }
 }
 
@@ -146,9 +226,7 @@ fn render_triangle(width_cells: usize) -> Vec<String> {
         for i in 0..n {
             let (xi, yi) = pts[i];
             let (xj, yj) = pts[j];
-            if ((yi > y) != (yj > y))
-                && (x < (xj - xi) * (y - yi) / (yj - yi) + xi)
-            {
+            if ((yi > y) != (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi) {
                 c = !c;
             }
             j = i;
