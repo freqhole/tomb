@@ -3,6 +3,7 @@
 
 pub mod events;
 pub mod music;
+pub mod repl;
 pub mod state;
 
 pub use events::{
@@ -10,6 +11,7 @@ pub use events::{
     CommandKind, DispatchResponse, FieldState, LastDispatch, SelectOption,
 };
 pub use music::{MusicEvent, MusicMode, MusicState, PlayerState, SongRow};
+pub use repl::{ReplState, ReplStatus, ReplStatusLevel};
 pub use state::{AppState, EphemeralState, Focus, LocalRef, PersistedState, RemoteEntry, UiPrefs};
 
 use super::transport::{MusicPlayer, Transport};

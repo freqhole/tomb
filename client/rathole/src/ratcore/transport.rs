@@ -41,6 +41,51 @@ pub trait Transport {
         let _ = (query, limit);
         Err("transport does not support music search".to_string())
     }
+
+    /// toggle favorite status for `target_id`. `target_type` is one
+    /// of `"song"`, `"album"`, `"artist"`, `"playlist"`, `"genre"`.
+    /// returns the new state (`true` = favorited). shells without a
+    /// favorites backend (web today) return Err.
+    async fn toggle_favorite(&self, target_type: &str, target_id: &str) -> Result<bool, String> {
+        let _ = (target_type, target_id);
+        Err("transport does not support favorites".to_string())
+    }
+
+    /// query whether `target_id` is currently favorited by the
+    /// caller. defaults to `Ok(false)` so shells without a backend
+    /// render the empty-heart glyph.
+    async fn is_favorited(&self, target_type: &str, target_id: &str) -> Result<bool, String> {
+        let _ = (target_type, target_id);
+        Ok(false)
+    }
+
+    /// query a library entity by kind. used by detail-view slash
+    /// commands (`/album`, `/artist`, `/playlist`, `/favorites`,
+    /// `/radio`). `kind` is one of `"album"`, `"artist"`,
+    /// `"playlist"`, `"favorites"`, `"radio"`. an optional `query`
+    /// narrows the search; omit for a "list everything (recent)"
+    /// view. result is a [`DispatchResponse`] so the existing result
+    /// panel can render it like any admin dispatch.
+    async fn library_query(&self, kind: &str, query: Option<&str>) -> DispatchResponse {
+        let _ = (kind, query);
+        DispatchResponse {
+            success: false,
+            message: "transport does not support library_query".to_string(),
+            data: None,
+        }
+    }
+
+    /// FTS-ranked unified search across songs/albums/artists/playlists.
+    /// returns flattened rows tagged with `type` so the result panel
+    /// can render `[song]`/`[album]`/`[artist]`/`[playlist]` badges.
+    async fn unified_search(&self, query: &str) -> DispatchResponse {
+        let _ = query;
+        DispatchResponse {
+            success: false,
+            message: "transport does not support unified_search".to_string(),
+            data: None,
+        }
+    }
 }
 
 /// commands the music view sends to a backend audio player. ratcore

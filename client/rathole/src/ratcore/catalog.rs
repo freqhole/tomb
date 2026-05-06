@@ -41,8 +41,9 @@ pub fn commands() -> Vec<AdminCommand> {
 }
 
 /// per-list-command actions surfaced by the result-pane action menu.
-/// returns an empty list for commands that don't have any actions
-/// defined (the menu key becomes a no-op in that case).
+/// every list-style command should have at least a `get` / `delete`
+/// pair where it makes sense; commands with no entry here fall back
+/// to the generic actions appended at the end of every list.
 pub fn result_actions(command_name: &str) -> Vec<ActionMenuOption> {
     let opts: &[(&str, &str)] = match command_name {
         "users_list" => &[
@@ -53,7 +54,7 @@ pub fn result_actions(command_name: &str) -> Vec<ActionMenuOption> {
             ("restore", "users_restore"),
             ("generate account link", "users_generate_account_link"),
         ],
-        "knocks_list" => &[
+        "knocks_list" | "knocks_list_all" => &[
             ("accept", "knocks_accept"),
             ("reject", "knocks_reject"),
             ("delete", "knocks_delete"),
@@ -83,12 +84,22 @@ pub fn result_actions(command_name: &str) -> Vec<ActionMenuOption> {
         ],
         _ => &[],
     };
-    opts.iter()
+    let mut out: Vec<ActionMenuOption> = opts
+        .iter()
         .map(|(label, target)| ActionMenuOption {
             label: (*label).to_string(),
             target_command: (*target).to_string(),
         })
-        .collect()
+        .collect();
+    // generic fallback: every row, regardless of list, can at least
+    // be inspected. the special target name is recognised by the
+    // shells' action-menu key handler and rendered as a json popup
+    // instead of opening a form.
+    out.push(ActionMenuOption {
+        label: "view full row".to_string(),
+        target_command: "__view_row__".to_string(),
+    });
+    out
 }
 
 /// hand-written commands with full arg specs so the form picker

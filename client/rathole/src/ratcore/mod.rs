@@ -15,6 +15,9 @@
 
 pub mod app;
 pub mod catalog;
+pub mod player_row_keys;
+pub mod repl_keys;
+pub mod slash;
 pub mod text_input;
 pub mod theme;
 pub mod transport;

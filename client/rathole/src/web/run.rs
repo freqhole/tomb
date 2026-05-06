@@ -126,6 +126,8 @@ fn on_key(
         // music view: no audio backend on web today; only the search
         // box + result browse work (esc returns to palette).
         Focus::MusicView => on_music_key_web(app, code),
+        Focus::Repl => on_repl_key_web(app, code),
+        Focus::PlayerRow => on_player_row_key_web(app, code),
     }
 }
 
@@ -286,8 +288,11 @@ fn on_result_panel_key(app: &mut App, code: KeyCode, shift: bool) {
         KeyCode::Esc | KeyCode::Tab => eph.focus = Focus::AdminPalette,
         KeyCode::Up | KeyCode::Char('k') => {
             if has_rows {
-                if let Some(ld) = eph.last_dispatch.as_mut() {
+                if shift {
+                    eph.last_dispatch_scroll = eph.last_dispatch_scroll.saturating_sub(step);
+                } else if let Some(ld) = eph.last_dispatch.as_mut() {
                     ld.cursor = ld.cursor.saturating_sub(step as usize);
+                    eph.last_dispatch_scroll = 0;
                 }
             } else {
                 eph.last_dispatch_scroll = eph.last_dispatch_scroll.saturating_sub(step);
@@ -295,9 +300,12 @@ fn on_result_panel_key(app: &mut App, code: KeyCode, shift: bool) {
         }
         KeyCode::Down | KeyCode::Char('j') => {
             if has_rows {
-                if let Some(ld) = eph.last_dispatch.as_mut() {
+                if shift {
+                    eph.last_dispatch_scroll = eph.last_dispatch_scroll.saturating_add(step);
+                } else if let Some(ld) = eph.last_dispatch.as_mut() {
                     let max = ld.rows.len().saturating_sub(1);
                     ld.cursor = (ld.cursor + step as usize).min(max);
+                    eph.last_dispatch_scroll = 0;
                 }
             } else {
                 eph.last_dispatch_scroll = eph.last_dispatch_scroll.saturating_add(step);
@@ -606,6 +614,20 @@ fn on_action_menu_key(
             };
             let row = menu.row.clone();
             eph.action_menu = None;
+            if opt.target_command == "__view_row__" {
+                let pretty = serde_json::to_string_pretty(&row).unwrap_or_else(|_| row.to_string());
+                eph.last_dispatch = Some(crate::ratcore::app::LastDispatch {
+                    command: format!("(view row)"),
+                    success: true,
+                    message: "row detail".to_string(),
+                    data_pretty: Some(pretty),
+                    rows: vec![],
+                    cursor: 0,
+                });
+                eph.last_dispatch_scroll = 0;
+                eph.focus = Focus::ResultPanel;
+                return;
+            }
             let Some(cmd) = app
                 .commands
                 .iter()
@@ -940,6 +962,9 @@ fn on_action(app: &mut App, action: AppAction) {
             }
         }
         AppAction::MusicEvent(_) => {}
+        AppAction::ToggleFavorite { .. } | AppAction::FavoriteResult { .. } => {
+            // favorites are not yet wired in the web shell; ignore.
+        }
     }
 }
 
@@ -1003,6 +1028,70 @@ fn on_music_key_web(app: &mut App, code: KeyCode) {
     }
 }
 
+/// repl key handler for the web shell. the slash actions that need
+/// a player or transport (`/play`, `/search`, `/pause`, `/next`,
+/// etc.) are no-ops here — when the html-audio runtime lands they
+/// can be wired in. focus changes (`/admin`, `/music`), `/quit` and
+/// the editing keys all work today.
+fn on_repl_key_web(app: &mut App, code: KeyCode) {
+    use crate::ratcore::app::ReplStatus;
+    use crate::ratcore::repl_keys as rk;
+    match code {
+        KeyCode::Esc => rk::handle_escape(&mut app.state),
+        KeyCode::Enter => {
+            let line = app.state.ephemeral.repl.input.trim().to_string();
+            let action = crate::ratcore::slash::parse(&line);
+            let mut exit = false;
+            let outcome = rk::apply_navigation(&mut app.state, &mut exit, &line, action);
+            if exit {
+                app.exit = true;
+                return;
+            }
+            if let rk::ReplOutcome::Run(_) = outcome {
+                // player/search slash commands are not yet wired in
+                // the web shell — friendly hint until the html-audio
+                // runtime lands (see RATHOLE_TUI_PLAN §10).
+                app.state.ephemeral.repl.status = Some(ReplStatus::err(
+                    "this command needs the web music runtime (coming soon)".to_string(),
+                ));
+                app.state.ephemeral.repl.clear_input();
+            }
+        }
+        KeyCode::Tab => rk::handle_tab(&mut app.state),
+        KeyCode::Up => rk::history_prev(&mut app.state),
+        KeyCode::Down => rk::history_next(&mut app.state),
+        KeyCode::Left => rk::move_left(&mut app.state),
+        KeyCode::Right => rk::move_right(&mut app.state),
+        KeyCode::Home => rk::move_home(&mut app.state),
+        KeyCode::End => rk::move_end(&mut app.state),
+        KeyCode::Backspace => rk::backspace(&mut app.state),
+        KeyCode::Delete => rk::delete(&mut app.state),
+        KeyCode::Char(c) if !c.is_control() => rk::insert_char(&mut app.state, c),
+        _ => {}
+    }
+}
+
+/// player-row key handler for the web shell. cursor navigation
+/// works; activation surfaces a friendly hint until the html-audio
+/// runtime lands (see RATHOLE_TUI_PLAN §10).
+fn on_player_row_key_web(app: &mut App, code: KeyCode) {
+    use crate::ratcore::app::ReplStatus;
+    use crate::ratcore::player_row_keys as prk;
+    match code {
+        KeyCode::Esc | KeyCode::Char('q') => prk::leave(&mut app.state),
+        KeyCode::Left | KeyCode::Char('h') => prk::cursor_left(&mut app.state),
+        KeyCode::Right | KeyCode::Char('l') | KeyCode::Tab => {
+            prk::cursor_right(&mut app.state)
+        }
+        KeyCode::Enter | KeyCode::Char(' ') => {
+            app.state.ephemeral.repl.status = Some(ReplStatus::err(
+                "player controls need the web music runtime (coming soon)".to_string(),
+            ));
+        }
+        _ => {}
+    }
+}
+
 fn read_url_param(name: &str) -> Option<String> {
     let win = web_sys::window()?;
     let search = win.location().search().ok()?;
@@ -1045,6 +1134,22 @@ fn install_paste_listener(app: Rc<RefCell<App>>) -> Result<(), JsValue> {
                 ev.prevent_default();
                 return;
             }
+            // ctrl-k / cmd-k: enter the repl from any focus.
+            if (ev.ctrl_key() || ev.meta_key()) && (key == "k" || key == "K") {
+                ev.prevent_default();
+                ev.stop_propagation();
+                let mut app = app_for_keys.borrow_mut();
+                crate::ratcore::repl_keys::enter(&mut app.state);
+                return;
+            }
+            // ctrl-p / cmd-p: enter the player-row controls from any focus.
+            if (ev.ctrl_key() || ev.meta_key()) && (key == "p" || key == "P") {
+                ev.prevent_default();
+                ev.stop_propagation();
+                let mut app = app_for_keys.borrow_mut();
+                crate::ratcore::player_row_keys::enter(&mut app.state);
+                return;
+            }
             if key != "v" && key != "V" {
                 return;
             }
@@ -1072,7 +1177,10 @@ fn install_paste_listener(app: Rc<RefCell<App>>) -> Result<(), JsValue> {
         Closure::<dyn FnMut(web_sys::ClipboardEvent)>::new(move |ev: web_sys::ClipboardEvent| {
             let mut app = app.borrow_mut();
             let focus = app.state.ephemeral.focus;
-            if !matches!(focus, Focus::PeerInput | Focus::CommandForm | Focus::MusicView) {
+            if !matches!(
+                focus,
+                Focus::PeerInput | Focus::CommandForm | Focus::MusicView | Focus::Repl
+            ) {
                 return;
             }
             let Some(data) = ev.clipboard_data() else {
@@ -1095,6 +1203,10 @@ fn install_paste_listener(app: Rc<RefCell<App>>) -> Result<(), JsValue> {
                     ti::insert_str(&mut eph.music.query, &mut eph.music.query_cursor, &text);
                 }
                 Focus::MusicView => {}
+                Focus::Repl => {
+                    ti::insert_str(&mut eph.repl.input, &mut eph.repl.cursor, &text);
+                    eph.repl.history_cursor = None;
+                }
                 Focus::CommandForm => {
                     if let Some(form) = eph.form.as_mut() {
                         match form.fields.get_mut(form.focused) {

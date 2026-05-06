@@ -89,6 +89,14 @@ pub struct MusicState {
     pub duration_ms: u64,
     pub volume: f32,
     pub last_event_error: Option<String>,
+    /// when set, the next successful search results will be
+    /// auto-played from index 0. used by `/play <query>` slash
+    /// commands. shells clear this on consume.
+    pub auto_play_on_results: bool,
+    /// favorited status of the currently-playing song. shell
+    /// refreshes via [`Transport::is_favorited`] on track-change and
+    /// flips locally on `f`-keybind toggles.
+    pub current_favorited: bool,
 }
 
 impl MusicState {

@@ -69,6 +69,8 @@ web-sys = { version = "0.3", features = [
     "Location",
     "UrlSearchParams",
     "console",
+    "HtmlAudioElement",
+    "HtmlMediaElement",
 ] }
 futures = "0.3"
 # IndexedDB wrapper. schema/path matches spume's `freqhole_app` /

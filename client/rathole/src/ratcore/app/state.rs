@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use super::events::{ActionMenu, CommandForm, LastDispatch};
 use super::music::MusicState;
+use super::repl::ReplState;
 
 /// the persisted slice — serialized to whatever the shell uses
 /// (toml on tty, localStorage / IndexedDB on web later).
@@ -94,6 +95,10 @@ pub enum Focus {
     ResultActionMenu,
     /// music search + results + now-playing view.
     MusicView,
+    /// the bottom `/` slash-command prompt.
+    Repl,
+    /// the global player row chrome (focusable transport buttons).
+    PlayerRow,
 }
 
 impl Default for Focus {
@@ -136,6 +141,13 @@ pub struct EphemeralState {
     pub action_menu: Option<ActionMenu>,
     /// state for the music search + playback view.
     pub music: MusicState,
+    /// state for the bottom `/` slash-command repl.
+    pub repl: ReplState,
+    /// which control in the player row is selected (cycled via
+    /// arrow keys). only meaningful when `focus == Focus::PlayerRow`.
+    pub player_row_cursor: usize,
+    /// focus to return to when leaving the player row.
+    pub player_row_return_focus: Option<Focus>,
 }
 
 impl Default for EphemeralState {
@@ -156,6 +168,9 @@ impl Default for EphemeralState {
             last_knock_id: None,
             action_menu: None,
             music: MusicState::new(),
+            repl: ReplState::default(),
+            player_row_cursor: 0,
+            player_row_return_focus: None,
         }
     }
 }

@@ -508,6 +508,22 @@ pub enum AppAction {
     /// player backend emitted an event (state change, progress tick,
     /// track-changed, error, etc.).
     MusicEvent(MusicEvent),
+    /// the user pressed `f` (or activated the heart in the player
+    /// row) — flip favorite status for `target_id`. shell calls
+    /// `Transport::toggle_favorite` and then sends a [`FavoriteResult`]
+    /// back so the ui can update the heart glyph.
+    ToggleFavorite {
+        target_type: String,
+        target_id: String,
+    },
+    /// reply from a [`ToggleFavorite`] (or initial [`Transport::is_favorited`]
+    /// query) — the ui consumes this to update [`MusicState::current_favorited`]
+    /// when `target_id` matches the now-playing song.
+    FavoriteResult {
+        target_type: String,
+        target_id: String,
+        result: Result<bool, String>,
+    },
 }
 
 /// most recent dispatch result, kept for the detail pane.
