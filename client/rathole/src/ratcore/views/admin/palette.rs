@@ -301,9 +301,64 @@ fn row_summary(row: &serde_json::Value) -> String {
         }
         return s;
     }
+    // music wrapper rows: `{ playlist: {...}, song_count: N }`,
+    // `{ album: {...}, artist: {...} }`, `{ artist: {...}, song_count }`,
+    // `{ song: {...}, artist, album, ... }`. unwrap to the inner entity.
+    for (kind, glyph) in [
+        ("playlist", "[playlist]"),
+        ("album", "[album]"),
+        ("artist", "[artist]"),
+        ("song", "[song]"),
+        ("genre", "[genre]"),
+    ] {
+        if let Some(inner) = obj.get(kind).and_then(|v| v.as_object()) {
+            let title = inner
+                .get("title")
+                .or_else(|| inner.get("name"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("(untitled)");
+            let mut s = format!("{glyph} {title}");
+            if let Some(desc) = inner
+                .get("description")
+                .and_then(|v| v.as_str())
+                .filter(|s| !s.is_empty())
+            {
+                let trimmed = if desc.chars().count() > 60 {
+                    format!("{}\u{2026}", desc.chars().take(60).collect::<String>())
+                } else {
+                    desc.to_string()
+                };
+                s.push_str(&format!("  \u{2014} {trimmed}"));
+            }
+            // append a small stat suffix when present.
+            let extras = ["song_count", "album_count", "play_count", "track_number"];
+            let mut bits: Vec<String> = vec![];
+            for k in extras {
+                if let Some(n) = obj.get(k).and_then(|v| v.as_i64()) {
+                    bits.push(format!("{k}={n}"));
+                }
+            }
+            if !bits.is_empty() {
+                s.push_str(&format!("   {}", bits.join(" ")));
+            }
+            return s;
+        }
+    }
+    // playlist-song-result rows: `{ details: { song: {...}, ... }, position }`
+    if let Some(details) = obj.get("details").and_then(|v| v.as_object()) {
+        if let Some(song) = details.get("song").and_then(|v| v.as_object()) {
+            let title = song
+                .get("title")
+                .and_then(|v| v.as_str())
+                .unwrap_or("(untitled)");
+            let pos = obj.get("position").and_then(|v| v.as_i64()).unwrap_or(0);
+            return format!("[song]  {pos:>3}  {title}");
+        }
+    }
     let mut parts: Vec<String> = vec![];
     for k in [
         "name",
+        "title",
         "label",
         "username",
         "code",
@@ -320,7 +375,7 @@ fn row_summary(row: &serde_json::Value) -> String {
     if parts.is_empty() {
         let s = row.to_string();
         if s.len() > 80 {
-            format!("{}…", &s[..80])
+            format!("{}\u{2026}", &s[..80])
         } else {
             s
         }

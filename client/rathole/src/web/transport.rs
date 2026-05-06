@@ -252,7 +252,7 @@ impl Transport for MiddenTransport {
     ) -> Result<Vec<crate::ratcore::app::SongRow>, String> {
         let body = serde_json::json!({
             "query": query,
-            "field": "Song",
+            "field": "songs",
             "page": 1,
             "page_size": limit,
         });
@@ -314,7 +314,7 @@ impl Transport for MiddenTransport {
     async fn unified_search(&self, query: &str) -> DispatchResponse {
         let body = serde_json::json!({
             "query": query,
-            "field": "All",
+            "field": "all",
             "page": 1,
             "page_size": 50,
         });

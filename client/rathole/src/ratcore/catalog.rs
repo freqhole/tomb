@@ -45,7 +45,60 @@ pub fn commands() -> Vec<AdminCommand> {
 /// pair where it makes sense; commands with no entry here fall back
 /// to the generic actions appended at the end of every list.
 pub fn result_actions(command_name: &str) -> Vec<ActionMenuOption> {
-    let opts: &[(&str, &str)] = match command_name {
+    result_actions_for_row(command_name, None)
+}
+
+/// like [`result_actions`] but inspects the row to add row-specific
+/// actions. for unified-search rows tagged with `"type"`, this picks
+/// up `play`/`favorite`/`add to playlist` per type. for music list
+/// commands (`library_song`, `library_album`, `library_playlist`,
+/// `library_artist`, `library_favorites`) the same logic applies.
+pub fn result_actions_for_row(
+    command_name: &str,
+    row: Option<&serde_json::Value>,
+) -> Vec<ActionMenuOption> {
+    // if the row carries a `type` tag (unified search), use that to
+    // select music actions regardless of the source command.
+    let row_type = row.and_then(|v| v.get("type")).and_then(|v| v.as_str());
+
+    let mut out = Vec::new();
+    let push = |out: &mut Vec<ActionMenuOption>, label: &str, target: &str| {
+        out.push(ActionMenuOption {
+            label: label.to_string(),
+            target_command: target.to_string(),
+        });
+    };
+
+    // music-row actions: by row.type (preferred) or by command name.
+    let music_kind = row_type.or_else(|| match command_name {
+        "library_song" => Some("song"),
+        "library_album" => Some("album"),
+        "library_playlist" => Some("playlist"),
+        "library_artist" => Some("artist"),
+        _ => None,
+    });
+    match music_kind {
+        Some("song") => {
+            push(&mut out, "play", "__play_song__");
+            push(&mut out, "toggle favorite", "__toggle_favorite_song__");
+            push(&mut out, "add to playlist", "__add_to_playlist__");
+        }
+        Some("album") => {
+            push(&mut out, "play", "__play_album__");
+            push(&mut out, "toggle favorite", "__toggle_favorite_album__");
+            push(&mut out, "add to playlist", "__add_album_to_playlist__");
+        }
+        Some("playlist") => {
+            push(&mut out, "play", "__play_playlist__");
+            push(&mut out, "toggle favorite", "__toggle_favorite_playlist__");
+        }
+        Some("artist") => {
+            push(&mut out, "toggle favorite", "__toggle_favorite_artist__");
+        }
+        _ => {}
+    }
+
+    let admin_opts: &[(&str, &str)] = match command_name {
         "users_list" => &[
             ("get", "users_get"),
             ("update role", "users_update_role"),
@@ -81,17 +134,13 @@ pub fn result_actions(command_name: &str) -> Vec<ActionMenuOption> {
             ("remove", "radio_bumpers_remove"),
             ("set frequency", "radio_bumpers_set_frequency"),
         ],
-        "library_playlist" => &[("play", "__play_playlist__")],
-        "library_album" => &[("play", "__play_album__")],
+        "library_favorites" => &[("toggle favorite", "__toggle_favorite_favorite__")],
         _ => &[],
     };
-    let mut out: Vec<ActionMenuOption> = opts
-        .iter()
-        .map(|(label, target)| ActionMenuOption {
-            label: (*label).to_string(),
-            target_command: (*target).to_string(),
-        })
-        .collect();
+    for (label, target) in admin_opts {
+        push(&mut out, label, target);
+    }
+
     // generic fallback: every row, regardless of list, can at least
     // be inspected. the special target name is recognised by the
     // shells' action-menu key handler and rendered as a json popup
@@ -101,6 +150,46 @@ pub fn result_actions(command_name: &str) -> Vec<ActionMenuOption> {
         target_command: "__view_row__".to_string(),
     });
     out
+}
+
+/// extract a stable id + display title from a result-panel row,
+/// looking through wrapper objects when present (e.g.
+/// `PlaylistQueryResult { playlist: { id, title } }`,
+/// `AlbumQueryResult { album: { id, title } }`,
+/// `PlaylistSongResult { details: { song: { id, title } } }`,
+/// or unified-search rows with `{ id, title, type }` at top level).
+/// returns `(id, title, kind)` where `kind` is the wrapper key
+/// when applicable (`"playlist"`, `"album"`, `"artist"`, `"song"`).
+pub fn row_id_and_title(
+    row: &serde_json::Value,
+) -> (Option<String>, Option<String>, Option<String>) {
+    let s = |v: Option<&serde_json::Value>| v.and_then(|x| x.as_str()).map(|s| s.to_string());
+    // unified-search row: `{ id, title, type }`.
+    let top_id = s(row.get("id"));
+    let top_title = s(row.get("title")).or_else(|| s(row.get("name")));
+    let top_type = s(row.get("type"));
+    if top_type.is_some() && top_id.is_some() {
+        return (top_id, top_title, top_type);
+    }
+    for kind in ["playlist", "album", "artist", "song", "genre"] {
+        if let Some(inner) = row.get(kind) {
+            let id = s(inner.get("id"));
+            let title = s(inner.get("title")).or_else(|| s(inner.get("name")));
+            if id.is_some() {
+                return (id, title, Some(kind.to_string()));
+            }
+        }
+    }
+    if let Some(details) = row.get("details") {
+        if let Some(song) = details.get("song") {
+            let id = s(song.get("id"));
+            let title = s(song.get("title"));
+            if id.is_some() {
+                return (id, title, Some("song".to_string()));
+            }
+        }
+    }
+    (top_id, top_title, None)
 }
 
 /// hand-written commands with full arg specs so the form picker

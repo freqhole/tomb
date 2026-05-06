@@ -26,6 +26,7 @@ use crate::ratcore::transport::Transport;
 use crate::ratcore::views;
 use crate::ratcore::views::command_form;
 use crate::web::identity;
+use crate::web::peer_store;
 use crate::web::transport::{MiddenTransport, NoopTransport};
 
 /// build the seed command list. shared with the tty shell via
@@ -57,7 +58,12 @@ pub async fn boot() -> Result<(), JsValue> {
     let node = Rc::new(node);
 
     // initial transport: if `?peer=<addr>` is in the url, auto-connect.
-    let initial_peer = read_url_param("peer");
+    // otherwise fall back to the last peer persisted in IndexedDB so
+    // a returning visitor doesn't have to re-paste the node id.
+    let initial_peer = match read_url_param("peer") {
+        Some(p) => Some(p),
+        None => peer_store::load_last_peer().await,
+    };
     let (transport, connected_peer): (Rc<dyn Transport>, Option<String>) = match &initial_peer {
         Some(addr) => (
             Rc::new(MiddenTransport::new(node.clone(), addr.clone())),
@@ -273,11 +279,16 @@ fn on_peer_input_key(app: &mut App, code: KeyCode, node: &Rc<MiddenNode>) {
             // first admin command, so no async work needed here.
             app.transport = Rc::new(MiddenTransport::new(node.clone(), addr.clone()));
             let eph = &mut app.state.ephemeral;
-            eph.connected_peer = Some(addr);
+            eph.connected_peer = Some(addr.clone());
             eph.peer_input.clear();
             eph.peer_cursor = 0;
             eph.peer_error = None;
             eph.focus = Focus::AdminPalette;
+            // persist as the most-recent peer so the next visit
+            // auto-connects without re-prompting.
+            wasm_bindgen_futures::spawn_local(async move {
+                peer_store::save_last_peer(&addr).await;
+            });
         }
         KeyCode::Char(c) => {
             if !c.is_control() {
@@ -326,7 +337,10 @@ fn on_result_panel_key(app: &mut App, code: KeyCode, shift: bool) {
         KeyCode::Enter | KeyCode::Char('a') => {
             if let Some(ld) = eph.last_dispatch.as_ref() {
                 if let Some(row) = ld.rows.get(ld.cursor) {
-                    let actions = crate::ratcore::catalog::result_actions(&ld.command);
+                    let actions = crate::ratcore::catalog::result_actions_for_row(
+                        &ld.command,
+                        Some(row),
+                    );
                     if !actions.is_empty() {
                         eph.action_menu = Some(crate::ratcore::app::ActionMenu {
                             source_command: ld.command.clone(),
@@ -639,21 +653,81 @@ fn on_action_menu_key(app: &mut App, code: KeyCode, tx: &mpsc::UnboundedSender<A
                 } else {
                     "album"
                 };
-                let Some(id) = row
-                    .get("id")
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string())
+                let (id, title, _) = crate::ratcore::catalog::row_id_and_title(&row);
+                let Some(id) = id else {
+                    eph.focus = Focus::ResultPanel;
+                    return;
+                };
+                let title = title.unwrap_or_else(|| kind.to_string());
+                eph.focus = Focus::PlayerRow;
+                play_collection_web(app, kind, id, title, tx);
+                return;
+            }
+            // play single song row by re-searching the title and
+            // auto-playing the top result.
+            if opt.target_command == "__play_song__" {
+                let (_, title, _) = crate::ratcore::catalog::row_id_and_title(&row);
+                let title = title.unwrap_or_default();
+                eph.focus = Focus::MusicView;
+                eph.music.mode = crate::ratcore::app::MusicMode::Search;
+                eph.music.query = title.clone();
+                eph.music.query_cursor = title.chars().count();
+                eph.music.auto_play_on_results = true;
+                fire_search_web(app, tx);
+                return;
+            }
+            // toggle favorite — sentinel encodes the kind.
+            if let Some(kind) = opt
+                .target_command
+                .strip_prefix("__toggle_favorite_")
+                .and_then(|s| s.strip_suffix("__"))
+            {
+                let (id, _, _) = crate::ratcore::catalog::row_id_and_title(&row);
+                eph.focus = Focus::ResultPanel;
+                if let Some(id) = id {
+                    let _ = tx.unbounded_send(AppAction::ToggleFavorite {
+                        target_type: kind.to_string(),
+                        target_id: id,
+                    });
+                }
+                return;
+            }
+            // add song / album to a playlist via the form.
+            if opt.target_command == "__add_to_playlist__"
+                || opt.target_command == "__add_album_to_playlist__"
+            {
+                let (id, _, _) = crate::ratcore::catalog::row_id_and_title(&row);
+                let Some(target_id) = id else {
+                    eph.focus = Focus::ResultPanel;
+                    return;
+                };
+                let mut prefill = serde_json::Map::new();
+                if opt.target_command == "__add_to_playlist__" {
+                    prefill.insert(
+                        "song_ids".to_string(),
+                        serde_json::Value::Array(vec![serde_json::Value::String(target_id)]),
+                    );
+                } else {
+                    prefill.insert(
+                        "album_id".to_string(),
+                        serde_json::Value::String(target_id),
+                    );
+                }
+                let prefill = serde_json::Value::Object(prefill);
+                let Some(cmd) = app
+                    .commands
+                    .iter()
+                    .find(|c| c.name == "add_songs_to_playlist")
+                    .cloned()
                 else {
                     eph.focus = Focus::ResultPanel;
                     return;
                 };
-                let title = row
-                    .get("title")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or(kind)
-                    .to_string();
-                eph.focus = Focus::PlayerRow;
-                play_collection_web(app, kind, id, title, tx);
+                app.state.ephemeral.form = Some(
+                    crate::ratcore::app::CommandForm::new_with_prefill(&cmd, &prefill),
+                );
+                app.state.ephemeral.focus = Focus::CommandForm;
+                maybe_fetch_select_options(app, tx);
                 return;
             }
             let Some(cmd) = app
@@ -1496,6 +1570,19 @@ fn on_player_row_key_web(
         KeyCode::Esc | KeyCode::Char('q') => prk::leave(&mut app.state),
         KeyCode::Left | KeyCode::Char('h') => prk::cursor_left(&mut app.state),
         KeyCode::Right | KeyCode::Char('l') | KeyCode::Tab => prk::cursor_right(&mut app.state),
+        // 'f' shortcut for favorite, regardless of cursor position.
+        KeyCode::Char('f') => {
+            if let Some(cur) = app.state.ephemeral.music.currently_playing() {
+                let id = cur.id.clone();
+                let _ = action_tx.unbounded_send(AppAction::ToggleFavorite {
+                    target_type: "song".into(),
+                    target_id: id,
+                });
+            } else {
+                app.state.ephemeral.repl.status =
+                    Some(ReplStatus::info("no track loaded".to_string()));
+            }
+        }
         KeyCode::Enter | KeyCode::Char(' ') => {
             let action = prk::activate(&app.state);
             let cmd = match action {

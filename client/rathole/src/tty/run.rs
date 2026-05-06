@@ -55,7 +55,12 @@ async fn run_inner(mut terminal: ratatui::DefaultTerminal) -> color_eyre::Result
         tracing::warn!("rathole: statefile load failed ({e}); using defaults");
         PersistedState::default()
     });
-    let state = AppState::from_persisted(persisted);
+    let mut state = AppState::from_persisted(persisted);
+    // hydrate the most-recently-active remote so the peer input is
+    // pre-filled and the header shows where the user last connected.
+    if let Some(addr) = load_recent_peer().await {
+        state.ephemeral.connected_peer = Some(addr);
+    }
     let transport: Rc<dyn Transport> = Rc::new(LocalTransport::from_first_root().await?);
     let (action_tx, mut action_rx) = mpsc::unbounded_channel::<AppAction>();
     let player = super::player::RodioPlayer::spawn(action_tx.clone());
@@ -236,11 +241,15 @@ fn on_peer_input_key(app: &mut App, code: KeyCode) {
                 eph.peer_error = Some("peer addr is empty".to_string());
                 return;
             }
-            eph.connected_peer = Some(addr);
+            eph.connected_peer = Some(addr.clone());
             eph.peer_input.clear();
             eph.peer_cursor = 0;
             eph.peer_error = None;
             eph.focus = Focus::AdminPalette;
+            // persist into grimoire's remotez table so it sticks
+            // across restarts (and is shared with the rest of
+            // freqhole's clients via the same sqlite db).
+            persist_peer_addr(addr);
         }
         KeyCode::Char(c) => {
             if !c.is_control() {
@@ -539,7 +548,8 @@ fn on_result_panel_key(app: &mut App, code: KeyCode, mods: KeyModifiers) {
             // so any focused row will produce a menu.
             if let Some(ld) = eph.last_dispatch.as_ref() {
                 if let Some(row) = ld.rows.get(ld.cursor) {
-                    let actions = crate::ratcore::catalog::result_actions(&ld.command);
+                    let actions =
+                        crate::ratcore::catalog::result_actions_for_row(&ld.command, Some(row));
                     if !actions.is_empty() {
                         eph.action_menu = Some(crate::ratcore::app::ActionMenu {
                             source_command: ld.command.clone(),
@@ -1030,29 +1040,88 @@ fn on_action_menu_key(app: &mut App, code: KeyCode, tx: &mpsc::UnboundedSender<A
             }
             // music play sentinels: pull the row's id and queue songs
             // through the transport, then load them into the player.
-            if opt.target_command == "__play_playlist__"
-                || opt.target_command == "__play_album__"
-            {
+            if opt.target_command == "__play_playlist__" || opt.target_command == "__play_album__" {
                 let kind = if opt.target_command == "__play_playlist__" {
                     "playlist"
                 } else {
                     "album"
                 };
-                let Some(id) = row
-                    .get("id")
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string())
+                let (id, title, _) = crate::ratcore::catalog::row_id_and_title(&row);
+                let Some(id) = id else {
+                    eph.focus = Focus::ResultPanel;
+                    return;
+                };
+                let title = title.unwrap_or_else(|| kind.to_string());
+                eph.focus = Focus::PlayerRow;
+                play_collection(app, kind, id, title, tx);
+                return;
+            }
+            // play a single song row directly via search_songs(title)
+            // — relies on the title field being unique enough. for
+            // unified-search song rows the row already has media_blob_id
+            // implicitly via the search index, but we don't pull it in
+            // the row payload, so re-search by title.
+            if opt.target_command == "__play_song__" {
+                let (_, title, _) = crate::ratcore::catalog::row_id_and_title(&row);
+                let title = title.unwrap_or_default();
+                eph.focus = Focus::MusicView;
+                eph.music.mode = crate::ratcore::app::MusicMode::Search;
+                eph.music.query = title.clone();
+                eph.music.query_cursor = title.chars().count();
+                eph.music.auto_play_on_results = true;
+                fire_search(app, tx);
+                return;
+            }
+            // toggle favorite — sentinel encodes the kind.
+            if let Some(kind) = opt
+                .target_command
+                .strip_prefix("__toggle_favorite_")
+                .and_then(|s| s.strip_suffix("__"))
+            {
+                let (id, _, _) = crate::ratcore::catalog::row_id_and_title(&row);
+                eph.focus = Focus::ResultPanel;
+                if let Some(id) = id {
+                    let _ = tx.send(AppAction::ToggleFavorite {
+                        target_type: kind.to_string(),
+                        target_id: id,
+                    });
+                }
+                return;
+            }
+            // add song / album to a playlist — open the existing
+            // grimoire form with the song or album id prefilled.
+            if opt.target_command == "__add_to_playlist__"
+                || opt.target_command == "__add_album_to_playlist__"
+            {
+                let (id, _, _) = crate::ratcore::catalog::row_id_and_title(&row);
+                let Some(target_id) = id else {
+                    eph.focus = Focus::ResultPanel;
+                    return;
+                };
+                let mut prefill = serde_json::Map::new();
+                if opt.target_command == "__add_to_playlist__" {
+                    prefill.insert(
+                        "song_ids".to_string(),
+                        serde_json::Value::Array(vec![serde_json::Value::String(target_id)]),
+                    );
+                } else {
+                    prefill.insert("album_id".to_string(), serde_json::Value::String(target_id));
+                }
+                let prefill = serde_json::Value::Object(prefill);
+                let Some(cmd) = app
+                    .commands
+                    .iter()
+                    .find(|c| c.name == "add_songs_to_playlist")
+                    .cloned()
                 else {
                     eph.focus = Focus::ResultPanel;
                     return;
                 };
-                let title = row
-                    .get("title")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or(kind)
-                    .to_string();
-                eph.focus = Focus::PlayerRow;
-                play_collection(app, kind, id, title, tx);
+                app.state.ephemeral.form = Some(
+                    crate::ratcore::app::CommandForm::new_with_prefill(&cmd, &prefill),
+                );
+                app.state.ephemeral.focus = Focus::CommandForm;
+                maybe_fetch_select_options(app, tx);
                 return;
             }
             // find the target command and open a prefilled form.
@@ -1561,6 +1630,21 @@ fn on_player_row_key(app: &mut App, code: KeyCode, tx: &mpsc::UnboundedSender<Ap
         KeyCode::Left | KeyCode::Char('h') => prk::cursor_left(&mut app.state),
         KeyCode::Right | KeyCode::Char('l') | KeyCode::Tab => prk::cursor_right(&mut app.state),
         KeyCode::BackTab => prk::cursor_left(&mut app.state),
+        // 'f' is a shortcut for the heart-control regardless of which
+        // control the cursor is on, so it works the same whether the
+        // user navigated to the heart or not.
+        KeyCode::Char('f') => {
+            if let Some(cur) = app.state.ephemeral.music.currently_playing() {
+                let id = cur.id.clone();
+                let _ = tx.send(AppAction::ToggleFavorite {
+                    target_type: "song".into(),
+                    target_id: id,
+                });
+            } else {
+                app.state.ephemeral.repl.status =
+                    Some(crate::ratcore::app::ReplStatus::info("no track loaded"));
+            }
+        }
         KeyCode::Enter | KeyCode::Char(' ') => {
             let action = prk::activate(&app.state);
             match action {
@@ -1655,8 +1739,8 @@ fn execute_slash_with_player(
 ) {
     use crate::ratcore::app::{MusicMode, ReplStatus};
     use crate::ratcore::repl_keys as rk;
-    use crate::ratcore::slash::SlashAction;
     use crate::ratcore::slash::match_station_id;
+    use crate::ratcore::slash::SlashAction;
     use crate::ratcore::transport::PlayerCmd;
 
     match action {
@@ -1789,4 +1873,65 @@ fn execute_slash_with_player(
         // pure-state actions are handled inside apply_navigation.
         _ => {}
     }
+}
+
+/// load the most-recently-active remote's `peer_addr` from grimoire's
+/// remotez table, if any. used at boot to pre-seed the header.
+async fn load_recent_peer() -> Option<String> {
+    let repo = grimoire::remotez::RemoteRepository::new();
+    let remotes = match repo.list().await {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::warn!("rathole: remotez list failed: {e}");
+            return None;
+        }
+    };
+    // list() is ordered by updated_at DESC, so the first row is also
+    // the most-recently-touched. prefer the active row when present.
+    remotes
+        .iter()
+        .find(|r| r.is_active)
+        .or_else(|| remotes.first())
+        .and_then(|r| r.peer_addr.clone())
+}
+
+/// upsert a peer_addr into grimoire's remotez table. fire-and-forget
+/// from a tokio::task::spawn_local — failures are logged but never
+/// surface to the user.
+fn persist_peer_addr(addr: String) {
+    tokio::task::spawn_local(async move {
+        let repo = grimoire::remotez::RemoteRepository::new();
+        // remote_id derived from the addr keeps upsert idempotent.
+        let remote_id = format!("rathole:{}", addr);
+        let req = grimoire::remotez::UpsertRemoteRequest {
+            remote_id,
+            name: addr.clone(),
+            transport: grimoire::remotez::RemoteTransport::App,
+            base_url: None,
+            peer_addr: Some(addr),
+            api_key: None,
+            is_active: Some(true),
+            is_charnel_managed: None,
+            last_connected_at: Some(now_unix_secs()),
+            description: None,
+            image_url: None,
+            image_blob_id: None,
+            version: None,
+            last_info_check: None,
+            is_offline: Some(false),
+            offline_since: None,
+            last_checked: None,
+            metadata: None,
+        };
+        if let Err(e) = repo.upsert(&req).await {
+            tracing::warn!("rathole: remotez upsert failed: {e}");
+        }
+    });
+}
+
+fn now_unix_secs() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
 }
