@@ -513,6 +513,13 @@ pub enum AppAction {
     /// blob resolution. used by the web shell to avoid holding a
     /// `&mut App` borrow across the network await.
     CollectionLoaded { songs: Vec<SongRow> },
+    /// a playlist/album/etc. (or a single song) was fetched in the
+    /// background to be appended to the existing queue. unlike
+    /// [`CollectionLoaded`] this does not interrupt the currently
+    /// playing track or reset `current`. paths have already been
+    /// sent to the player via `PlayerCmd::Enqueue` by the spawn that
+    /// emitted this event.
+    CollectionEnqueued { songs: Vec<SongRow> },
     /// the user pressed `f` (or activated the heart in the player
     /// row) — flip favorite status for `target_id`. shell calls
     /// `Transport::toggle_favorite` and then sends a [`FavoriteResult`]

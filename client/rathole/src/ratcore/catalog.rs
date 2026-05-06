@@ -77,19 +77,44 @@ pub fn result_actions_for_row(
         "library_artist" => Some("artist"),
         _ => None,
     });
+    // queue-context rows (synthesized by the /queue slash handler)
+    // get queue-management actions instead of normal music actions.
+    // detected via command_name=="queue" so we don't accidentally
+    // surface them on every song row in the library.
+    if command_name == "queue" {
+        push(&mut out, "jump to track", "__queue_jump__");
+        push(&mut out, "remove from queue", "__queue_remove__");
+        push(&mut out, "move up", "__queue_move_up__");
+        push(&mut out, "move down", "__queue_move_down__");
+        push(&mut out, "clear queue", "__queue_clear__");
+        push(&mut out, "go to album", "__goto_album__");
+        push(&mut out, "go to artist", "__goto_artist__");
+        out.push(ActionMenuOption {
+            label: "view full row".to_string(),
+            target_command: "__view_row__".to_string(),
+        });
+        return out;
+    }
+
     match music_kind {
         Some("song") => {
             push(&mut out, "play", "__play_song__");
+            push(&mut out, "add to queue", "__enqueue_song__");
+            push(&mut out, "go to album", "__goto_album__");
+            push(&mut out, "go to artist", "__goto_artist__");
             push(&mut out, "toggle favorite", "__toggle_favorite_song__");
             push(&mut out, "add to playlist", "__add_to_playlist__");
         }
         Some("album") => {
             push(&mut out, "play", "__play_album__");
+            push(&mut out, "add to queue", "__enqueue_album__");
+            push(&mut out, "go to artist", "__goto_artist__");
             push(&mut out, "toggle favorite", "__toggle_favorite_album__");
             push(&mut out, "add to playlist", "__add_album_to_playlist__");
         }
         Some("playlist") => {
             push(&mut out, "play", "__play_playlist__");
+            push(&mut out, "add to queue", "__enqueue_playlist__");
             push(&mut out, "toggle favorite", "__toggle_favorite_playlist__");
         }
         Some("artist") => {
@@ -190,6 +215,80 @@ pub fn row_id_and_title(
         }
     }
     (top_id, top_title, None)
+}
+
+/// extract album_id + artist_id hints from a result-panel row,
+/// looking through wrapper objects + common synonyms. used by the
+/// "go to album" / "go to artist" actions to pivot the result panel
+/// to the matching library_by_id query. returns `(album_id, artist_id)`.
+///
+/// for a row tagged `type: "album"` the row's own `id` field is the
+/// album id; same for `type: "artist"`. for song rows we look for
+/// nested `album.id` / `artist.id` (SongQueryResult shape) plus
+/// top-level `album_id` / `artist_id` (queue rows + flat shapes).
+pub fn row_album_and_artist(
+    row: &serde_json::Value,
+) -> (Option<String>, Option<String>) {
+    let s = |v: Option<&serde_json::Value>| {
+        v.and_then(|x| x.as_str())
+            .map(|s| s.to_string())
+            .filter(|s| !s.is_empty())
+    };
+
+    // start with explicit fk fields if present.
+    let mut album_id = s(row.get("album_id"));
+    let mut artist_id = s(row.get("artist_id"));
+
+    // if this row IS the album / artist itself, the row's `id` is
+    // the relevant id.
+    let row_type = row.get("type").and_then(|v| v.as_str());
+    match row_type {
+        Some("album") => {
+            album_id = album_id.or_else(|| s(row.get("id")));
+        }
+        Some("artist") => {
+            artist_id = artist_id.or_else(|| s(row.get("id")));
+        }
+        _ => {}
+    }
+
+    // SongQueryResult / AlbumQueryResult wrappers expose `album.id`
+    // and `artist.id` directly.
+    for kind in ["song", "album", "artist", "playlist"] {
+        if album_id.is_some() && artist_id.is_some() {
+            break;
+        }
+        if let Some(inner) = row.get(kind) {
+            // explicit fk inside the wrapper
+            album_id = album_id.or_else(|| s(inner.get("album_id")));
+            artist_id = artist_id.or_else(|| s(inner.get("artist_id")));
+        }
+    }
+    if let Some(album_obj) = row.get("album") {
+        album_id = album_id.or_else(|| s(album_obj.get("id")));
+    }
+    if let Some(artist_obj) = row.get("artist") {
+        artist_id = artist_id.or_else(|| s(artist_obj.get("id")));
+    }
+    if let Some(details) = row.get("details") {
+        if album_id.is_none() {
+            album_id = s(details.get("album_id"));
+            if album_id.is_none() {
+                if let Some(album_obj) = details.get("album") {
+                    album_id = s(album_obj.get("id"));
+                }
+            }
+        }
+        if artist_id.is_none() {
+            artist_id = s(details.get("artist_id"));
+            if artist_id.is_none() {
+                if let Some(artist_obj) = details.get("artist") {
+                    artist_id = s(artist_obj.get("id"));
+                }
+            }
+        }
+    }
+    (album_id, artist_id)
 }
 
 /// hand-written commands with full arg specs so the form picker

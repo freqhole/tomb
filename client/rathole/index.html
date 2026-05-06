@@ -8,16 +8,29 @@
     />
     <title>rathole — wasm spike</title>
     <style>
+      html,
       body {
         margin: 0;
-        width: 100%;
+        padding: 0;
+        width: 100vw;
         height: 100vh;
+        overflow: hidden;
+        background-color: #121212;
+      }
+      body {
         display: flex;
         flex-direction: column;
-        justify-content: center;
-        align-items: center;
-        align-content: center;
-        background-color: #121212;
+        justify-content: stretch;
+        align-items: stretch;
+      }
+      /* ratzilla's WebGl2Backend appends a <canvas>; make it fill the
+         viewport so its per-frame check_canvas_resize() picks up the
+         actual window dimensions on every browser resize. */
+      canvas {
+        display: block;
+        width: 100vw !important;
+        height: 100vh !important;
+        outline: none;
       }
     </style>
   </head>

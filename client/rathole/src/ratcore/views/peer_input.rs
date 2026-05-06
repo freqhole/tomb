@@ -1,4 +1,4 @@
-//! modal text-input for setting the active peer node id. centered
+//! modal text-input for setting the active remote node id. centered
 //! popup, single-line input, shows last error if any.
 
 use ratatui::{
@@ -21,7 +21,11 @@ pub fn draw(frame: &mut Frame, app: &App) {
     // split buffer at the caret so we can render the block-cursor over
     // the character it sits on (or as a trailing block at end-of-line).
     let before: String = buf.chars().take(cursor).collect();
-    let at: String = buf.chars().nth(cursor).map(String::from).unwrap_or_default();
+    let at: String = buf
+        .chars()
+        .nth(cursor)
+        .map(String::from)
+        .unwrap_or_default();
     let after: String = buf.chars().skip(cursor + 1).collect();
 
     let cursor_span = if at.is_empty() {
@@ -47,13 +51,16 @@ pub fn draw(frame: &mut Frame, app: &App) {
         ]));
     } else {
         lines.push(Line::from(
-            "type or paste a peer node id, then press enter".dim(),
+            "type or paste a remote node id, then press enter".dim(),
         ));
     }
 
     let para = Paragraph::new(lines).block(
         Block::bordered()
-            .title(Span::styled("connect to peer", Style::new().fg(ACCENT).bold()))
+            .title(Span::styled(
+                "connect to remote",
+                Style::new().fg(ACCENT).bold(),
+            ))
             .title_bottom("enter: connect   esc: cancel".dim()),
     );
     frame.render_widget(para, area);

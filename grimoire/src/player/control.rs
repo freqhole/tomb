@@ -32,6 +32,12 @@ pub enum PlayerCommand {
     /// round-trips through json + zod codegen cleanly.
     Load { paths: Vec<String> },
 
+    /// append `paths` to the existing queue without interrupting
+    /// the currently-playing track. if the sink is empty, behaves
+    /// like a `Load` of just these paths (i.e. starts playing
+    /// immediately).
+    Enqueue { paths: Vec<String> },
+
     /// start (or resume) playback of the current queue.
     Play,
 
@@ -125,6 +131,7 @@ impl ZodSchemaTrait for PlayerCommand {
     fn zod_schema() -> String {
         r#"z.discriminatedUnion("kind", [
 z.object({ kind: z.literal("load"), paths: z.array(z.string()) }),
+z.object({ kind: z.literal("enqueue"), paths: z.array(z.string()) }),
 z.object({ kind: z.literal("play") }),
 z.object({ kind: z.literal("pause") }),
 z.object({ kind: z.literal("stop") }),

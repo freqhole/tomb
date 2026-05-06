@@ -66,12 +66,16 @@ impl Transport for LocalTransport {
                 item.artist.as_ref().map(|a| a.name.clone())
             };
             let album = item.album.as_ref().map(|a| a.title.clone());
+            let album_id = item.album.as_ref().map(|a| a.id.clone());
+            let artist_id = item.artist.as_ref().map(|a| a.id.clone());
             let local_path = item.media_blob.as_ref().and_then(|b| b.local_path.clone());
             out.push(SongRow {
                 id: item.song.id.clone(),
                 title: item.song.title.clone(),
                 artist,
                 album,
+                album_id,
+                artist_id,
                 duration_ms: item.song.duration.map(|d| d as u64),
                 media_blob_id: Some(item.song.media_blob_id.clone()),
                 local_path,
@@ -96,12 +100,16 @@ impl Transport for LocalTransport {
                 item.artist.as_ref().map(|a| a.name.clone())
             };
             let album = item.album.as_ref().map(|a| a.title.clone());
+            let album_id = item.album.as_ref().map(|a| a.id.clone());
+            let artist_id = item.artist.as_ref().map(|a| a.id.clone());
             let local_path = item.media_blob.as_ref().and_then(|b| b.local_path.clone());
             out.push(SongRow {
                 id: item.song.id.clone(),
                 title: item.song.title.clone(),
                 artist,
                 album,
+                album_id,
+                artist_id,
                 duration_ms: item.song.duration.map(|d| d as u64),
                 media_blob_id: Some(item.song.media_blob_id.clone()),
                 local_path,
@@ -139,6 +147,76 @@ impl Transport for LocalTransport {
 
     async fn library_query(&self, kind: &str, query: Option<&str>) -> DispatchResponse {
         library_query_impl(self, kind, query).await
+    }
+
+    async fn library_by_id(
+        &self,
+        kind: &str,
+        parent_field: &str,
+        parent_id: &str,
+    ) -> DispatchResponse {
+        library_by_id_impl(kind, parent_field, parent_id).await
+    }
+
+    async fn resolve_parent_ids(
+        &self,
+        kind: &str,
+        id: &str,
+    ) -> Result<(Option<String>, Option<String>), String> {
+        use grimoire::music::crud::{query_albums, query_songs, QueryParams};
+        match kind {
+            "song" => {
+                let mut filters = std::collections::HashMap::new();
+                filters.insert(
+                    "song_ids".to_string(),
+                    serde_json::Value::Array(vec![serde_json::Value::String(id.to_string())]),
+                );
+                let params = QueryParams {
+                    limit: Some(1),
+                    offset: Some(0),
+                    filters,
+                    ..Default::default()
+                };
+                let resp = query_songs(params).await;
+                if !resp.success {
+                    return Err(resp.message);
+                }
+                let item = resp
+                    .data
+                    .and_then(|r| r.items.into_iter().next())
+                    .ok_or_else(|| "song not found".to_string())?;
+                Ok((
+                    item.album.as_ref().map(|a| a.id.clone()),
+                    item.artist.as_ref().map(|a| a.id.clone()),
+                ))
+            }
+            "album" => {
+                let mut filters = std::collections::HashMap::new();
+                filters.insert(
+                    "album_id".to_string(),
+                    serde_json::Value::String(id.to_string()),
+                );
+                let params = QueryParams {
+                    limit: Some(1),
+                    offset: Some(0),
+                    filters,
+                    ..Default::default()
+                };
+                let resp = query_albums(params).await;
+                if !resp.success {
+                    return Err(resp.message);
+                }
+                let item = resp
+                    .data
+                    .and_then(|r| r.items.into_iter().next())
+                    .ok_or_else(|| "album not found".to_string())?;
+                Ok((
+                    Some(item.album.id.clone()),
+                    item.artist.as_ref().map(|a| a.id.clone()),
+                ))
+            }
+            other => Err(format!("resolve_parent_ids: unknown kind {other}")),
+        }
     }
 
     async fn unified_search(&self, query: &str) -> DispatchResponse {
@@ -203,12 +281,16 @@ fn song_query_to_row(item: &grimoire::music::crud::SongQueryResult) -> SongRow {
         item.artist.as_ref().map(|a| a.name.clone())
     };
     let album = item.album.as_ref().map(|a| a.title.clone());
+    let album_id = item.album.as_ref().map(|a| a.id.clone());
+    let artist_id = item.artist.as_ref().map(|a| a.id.clone());
     let local_path = item.media_blob.as_ref().and_then(|b| b.local_path.clone());
     SongRow {
         id: item.song.id.clone(),
         title: item.song.title.clone(),
         artist,
         album,
+        album_id,
+        artist_id,
         duration_ms: item.song.duration.map(|d| d as u64),
         media_blob_id: Some(item.song.media_blob_id.clone()),
         local_path,
@@ -269,6 +351,47 @@ async fn library_query_impl(
     }
 }
 
+async fn library_by_id_impl(kind: &str, parent_field: &str, parent_id: &str) -> DispatchResponse {
+    use grimoire::music::crud::{query_albums, query_songs, QueryParams};
+    let limit: u32 = 200;
+    let mut filters = std::collections::HashMap::new();
+    filters.insert(
+        parent_field.to_string(),
+        serde_json::Value::String(parent_id.to_string()),
+    );
+    match kind {
+        "song" => {
+            let params = QueryParams {
+                limit: Some(limit),
+                offset: Some(0),
+                filters,
+                sort_by: Some("disc_number,track_number".to_string()),
+                sort_direction: Some("asc".to_string()),
+                ..Default::default()
+            };
+            let resp = query_songs(params).await;
+            wrap_grimoire_paged(resp, "songs")
+        }
+        "album" => {
+            let params = QueryParams {
+                limit: Some(limit),
+                offset: Some(0),
+                filters,
+                sort_by: Some("release_date".to_string()),
+                sort_direction: Some("desc".to_string()),
+                ..Default::default()
+            };
+            let resp = query_albums(params).await;
+            wrap_grimoire_paged(resp, "albums")
+        }
+        other => DispatchResponse {
+            success: false,
+            message: format!("library_by_id: unknown kind {other}"),
+            data: None,
+        },
+    }
+}
+
 async fn unified_search_impl(t: &LocalTransport, query: &str) -> DispatchResponse {
     use grimoire::search::models::{SearchField, SearchRequest};
     use grimoire::search::service::search;
@@ -309,6 +432,7 @@ async fn unified_search_impl(t: &LocalTransport, query: &str) -> DispatchRespons
                 "id": s.id,
                 "title": s.title,
                 "subtitle": subtitle,
+                "album_id": s.album_id,
                 "score": s.search_rank,
                 "is_favorite": s.is_favorite,
             }),
@@ -322,6 +446,7 @@ async fn unified_search_impl(t: &LocalTransport, query: &str) -> DispatchRespons
                 "id": a.id,
                 "title": a.title,
                 "subtitle": a.artist_names.join(", "),
+                "album_id": a.id,
                 "score": a.search_rank,
                 "is_favorite": a.is_favorite,
             }),

@@ -51,8 +51,22 @@ pub enum SlashAction {
     Commands,
     /// open the result panel showing the current playback queue.
     Queue,
+    /// open the modal for connecting to (and saving) a new remote
+    /// peer. dispatched via `/remote` (singular).
+    AddRemote,
+    /// list all saved remotes in the result panel. dispatched via
+    /// `/remotes` (plural). note: `/r` is already taken by `/radio`.
+    ListRemotes,
     /// quit the app.
     Quit,
+    /// list every known slash command in the result panel — useful
+    /// when users want to discover the full repl vocabulary (the
+    /// admin palette only shows admin RPC commands, not slash
+    /// commands). dispatched via `/help` or `/?`.
+    Help,
+    /// clear the playback queue (stops playback and forgets the
+    /// queue rows). dispatched via `/clear` or `/cq`.
+    ClearQueue,
     /// query a library entity (album/artist/playlist/favorites/radio).
     /// shells dispatch via [`Transport::library_query`] and pipe
     /// the result into the result-panel as if it were an admin
@@ -95,11 +109,15 @@ pub const COMMANDS: &[(&str, &str)] = &[
     ("admin", "/admin             focus admin palette"),
     ("commands", "/commands          browse all admin commands"),
     ("queue", "/queue             show current playback queue"),
+    ("remote", "/remote            connect to a new remote peer"),
+    ("remotes", "/remotes           list saved remotes"),
     ("album", "/album [query]     browse albums (or search)"),
     ("artist", "/artist [query]    browse artists (or search)"),
     ("playlist", "/playlist [query]  list playlists (or search)"),
     ("favorites", "/favorites         list your favorited songs"),
     ("radio", "/radio             list radio stations"),
+    ("help", "/help              list every slash command"),
+    ("clear", "/clear             clear the playback queue"),
     ("quit", "/quit              exit rathole"),
 ];
 
@@ -146,6 +164,8 @@ pub fn parse(input: &str) -> SlashAction {
         "admin" | "a" => SlashAction::Admin,
         "commands" | "cmds" | "c" => SlashAction::Commands,
         "queue" | "q!" => SlashAction::Queue,
+        "remote" | "connect" => SlashAction::AddRemote,
+        "remotes" => SlashAction::ListRemotes,
         "album" | "al" => SlashAction::Library {
             kind: "album",
             query: arg,
@@ -167,6 +187,8 @@ pub fn parse(input: &str) -> SlashAction {
             query: arg,
         },
         "quit" | "exit" | "q" => SlashAction::Quit,
+        "help" | "?" | "h" => SlashAction::Help,
+        "clear" | "cq" | "clearqueue" => SlashAction::ClearQueue,
         other => SlashAction::Unknown {
             name: other.to_string(),
         },

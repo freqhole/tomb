@@ -120,6 +120,45 @@ pub trait Transport {
         let _ = album_id;
         Err("transport does not support album_songs".to_string())
     }
+
+    /// query a library entity by a parent id (e.g. songs of an
+    /// album, albums of an artist) — used by the "go to album" /
+    /// "go to artist" row actions to pivot deterministically by id
+    /// rather than fuzzy name match. `kind` is the child entity
+    /// (`"song"` or `"album"`); `parent_field` is the foreign-key
+    /// column name (`"album_id"` or `"artist_id"`); `parent_id` is
+    /// the value. result is shaped like a normal `library_query`
+    /// dispatch so the result panel can render it identically.
+    async fn library_by_id(
+        &self,
+        kind: &str,
+        parent_field: &str,
+        parent_id: &str,
+    ) -> DispatchResponse {
+        let _ = (kind, parent_field, parent_id);
+        DispatchResponse {
+            success: false,
+            message: "transport does not support library_by_id".to_string(),
+            data: None,
+        }
+    }
+
+    /// resolve the parent ids (album_id, artist_id) for a row that
+    /// might be missing them — used as a fallback by the "go to
+    /// album" / "go to artist" row actions when unified-search rows
+    /// don't carry both ids inline. `kind` is `"song"` or `"album"`,
+    /// `id` is the song or album id. returns `(album_id, artist_id)`.
+    /// either may be `None` if not applicable (e.g. an album lookup
+    /// returns `(Some(album_id), Some(artist_id))` or
+    /// `(Some(album_id), None)`).
+    async fn resolve_parent_ids(
+        &self,
+        kind: &str,
+        id: &str,
+    ) -> Result<(Option<String>, Option<String>), String> {
+        let _ = (kind, id);
+        Err("transport does not support resolve_parent_ids".to_string())
+    }
 }
 
 /// commands the music view sends to a backend audio player. ratcore

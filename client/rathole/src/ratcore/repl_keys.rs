@@ -25,6 +25,18 @@ pub fn enter(state: &mut AppState) {
     state.ephemeral.focus = Focus::Repl;
 }
 
+/// enter the repl with `seed` already typed and the cursor placed
+/// at the end. used by the `/` keybind so the user can start typing
+/// a slash command without first hitting ctrl-k. seed is usually
+/// just `"/"` but callers can pre-fill `"/album "` or similar.
+pub fn enter_with_seed(state: &mut AppState, seed: &str) {
+    enter(state);
+    let r = &mut state.ephemeral.repl;
+    r.input = seed.to_string();
+    r.cursor = r.input.chars().count();
+    r.history_cursor = None;
+}
+
 /// leave the repl, returning to the previously-focused area.
 pub fn leave(state: &mut AppState) {
     let prev = state
@@ -34,6 +46,68 @@ pub fn leave(state: &mut AppState) {
         .take()
         .unwrap_or(Focus::AdminPalette);
     state.ephemeral.focus = prev;
+}
+
+/// synthesize the `/queue` result-panel dispatch from the current
+/// music state. each row is shaped like a search result so the
+/// existing row renderer + actions work, with `now_playing` marking
+/// the active track and `pending` marking rows whose blob urls are
+/// still being resolved (web shell). exposed so queue-mutation
+/// helpers in the shells can re-render after edits. when
+/// `cursor_override` is `Some`, the cursor is clamped to the new
+/// queue length; otherwise it defaults to the currently-playing
+/// index.
+pub fn render_queue_panel(state: &mut AppState, cursor_override: Option<usize>) {
+    let m = &state.ephemeral.music;
+    let cur = m.current;
+    let total = m.queue.len();
+    let resolving = m.queue_resolving.min(total);
+    let loaded_through = total.saturating_sub(resolving);
+    let rows: Vec<serde_json::Value> = m
+        .queue
+        .iter()
+        .enumerate()
+        .map(|(i, s)| {
+            serde_json::json!({
+                "type": "song",
+                "id": s.id.clone(),
+                "title": s.title.clone(),
+                "subtitle": s.artist.clone().unwrap_or_else(|| "\u{2014}".to_string()),
+                "album": s.album.clone(),
+                "artist": s.artist.clone(),
+                "album_id": s.album_id.clone(),
+                "artist_id": s.artist_id.clone(),
+                "position": i,
+                "now_playing": cur == Some(i),
+                "pending": i >= loaded_through,
+            })
+        })
+        .collect();
+    let cur_label = match cur {
+        Some(i) => {
+            if resolving > 0 {
+                format!(
+                    "queue ({total} tracks, playing #{}, loading {resolving} more\u{2026})",
+                    i + 1
+                )
+            } else {
+                format!("queue ({total} tracks, playing #{})", i + 1)
+            }
+        }
+        None => format!("queue ({total} tracks)"),
+    };
+    let cursor = cursor_override
+        .unwrap_or(cur.unwrap_or(0))
+        .min(total.saturating_sub(1).max(0));
+    state.ephemeral.last_dispatch = Some(crate::ratcore::app::LastDispatch {
+        command: "queue".to_string(),
+        success: true,
+        message: cur_label,
+        data_pretty: None,
+        rows,
+        cursor,
+    });
+    state.ephemeral.last_dispatch_scroll = 0;
 }
 
 /// esc handler: clears the input on first press, leaves the repl
@@ -164,6 +238,40 @@ pub fn apply_navigation(
             state.ephemeral.focus = Focus::AdminPalette;
             ReplOutcome::Done
         }
+        SlashAction::Help => {
+            // synthesize a result panel listing every slash command +
+            // its one-line help so users can discover the full repl
+            // vocabulary without consulting docs. shape mirrors a
+            // standard list response.
+            let rows: Vec<serde_json::Value> = crate::ratcore::slash::COMMANDS
+                .iter()
+                .enumerate()
+                .map(|(i, (name, help))| {
+                    serde_json::json!({
+                        "type": "slash_command",
+                        "id": (*name).to_string(),
+                        "title": format!("/{name}"),
+                        "subtitle": help.to_string(),
+                        "position": i,
+                    })
+                })
+                .collect();
+            let total = rows.len();
+            state.ephemeral.last_dispatch = Some(crate::ratcore::app::LastDispatch {
+                command: "help".to_string(),
+                success: true,
+                message: format!("slash commands ({total} available)"),
+                data_pretty: None,
+                rows,
+                cursor: 0,
+            });
+            state.ephemeral.last_dispatch_scroll = 0;
+            state.ephemeral.repl.clear_input();
+            state.ephemeral.repl.status = Some(ReplStatus::ok("help"));
+            leave(state);
+            state.ephemeral.focus = Focus::ResultPanel;
+            ReplOutcome::Done
+        }
         SlashAction::Music => {
             state.ephemeral.repl.clear_input();
             state.ephemeral.repl.status = Some(ReplStatus::ok("focus: music"));
@@ -172,55 +280,94 @@ pub fn apply_navigation(
             state.ephemeral.music.mode = MusicMode::Results;
             ReplOutcome::Done
         }
-        SlashAction::Queue => {
-            // synthesize a result-panel dispatch listing the current
-            // queue. each row is shaped like a search result so the
-            // existing row renderer + actions work, with `now_playing`
-            // marking the active track and `pending` marking rows
-            // whose blob urls are still being resolved (web shell).
-            let m = &state.ephemeral.music;
-            let cur = m.current;
-            let total = m.queue.len();
-            let resolving = m.queue_resolving.min(total);
-            // resolution is sequential: rows 0..(total - resolving)
-            // have been handed to the player; the tail is still
-            // pending.
-            let loaded_through = total.saturating_sub(resolving);
-            let rows: Vec<serde_json::Value> = m
-                .queue
+        SlashAction::AddRemote => {
+            // open the peer-input modal seeded with the
+            // currently-connected remote (if any) so the user can
+            // either edit it or paste a new addr.
+            let seed = state
+                .ephemeral
+                .connected_peer
+                .clone()
+                .unwrap_or_default();
+            let cursor = seed.chars().count();
+            state.ephemeral.peer_input = seed;
+            state.ephemeral.peer_cursor = cursor;
+            state.ephemeral.peer_error = None;
+            state.ephemeral.repl.clear_input();
+            state.ephemeral.repl.status = Some(ReplStatus::ok("add remote"));
+            leave(state);
+            state.ephemeral.focus = Focus::PeerInput;
+            ReplOutcome::Done
+        }
+        SlashAction::ListRemotes => {
+            // synthesize a result-panel dispatch listing all saved
+            // remotes from the persisted statefile. shape mirrors a
+            // standard list response so the existing row renderer
+            // works.
+            let active = state.persisted.active_remote_id.clone();
+            let connected = state.ephemeral.connected_peer.clone();
+            let local = state.ephemeral.local_node_id.clone();
+            let saved = state.persisted.remotes.clone();
+            let total = saved.len();
+            let mut rows: Vec<serde_json::Value> = saved
                 .iter()
                 .enumerate()
-                .map(|(i, s)| {
+                .map(|(i, r)| {
+                    let is_active = active.as_deref() == Some(r.remote_id.as_str())
+                        || r.is_active
+                        || (r.peer_addr.is_some() && r.peer_addr == connected);
                     serde_json::json!({
-                        "type": "song",
-                        "id": s.id.clone(),
-                        "title": s.title.clone(),
-                        "subtitle": s.artist.clone().unwrap_or_else(|| "\u{2014}".to_string()),
+                        "type": "remote",
+                        "id": r.remote_id.clone(),
+                        "title": r.name.clone(),
+                        "subtitle": r
+                            .peer_addr
+                            .clone()
+                            .or_else(|| r.base_url.clone())
+                            .unwrap_or_else(|| r.transport.clone()),
+                        "transport": r.transport.clone(),
+                        "active": is_active,
                         "position": i,
-                        "now_playing": cur == Some(i),
-                        "pending": i >= loaded_through,
                     })
                 })
                 .collect();
-            let cur_label = match cur {
-                Some(i) => {
-                    if resolving > 0 {
-                        format!("queue ({total} tracks, playing #{}, loading {resolving} more\u{2026})", i + 1)
-                    } else {
-                        format!("queue ({total} tracks, playing #{})", i + 1)
-                    }
+            // surface the live local node (web shell) if it isn't
+            // already in the saved list.
+            if let Some(me) = local {
+                if !saved.iter().any(|r| r.peer_addr.as_deref() == Some(me.as_str())) {
+                    rows.push(serde_json::json!({
+                        "type": "remote",
+                        "id": me.clone(),
+                        "title": "this node",
+                        "subtitle": me,
+                        "transport": "midden",
+                        "active": false,
+                        "position": rows.len(),
+                    }));
                 }
-                None => format!("queue ({total} tracks)"),
+            }
+            let label = if total == 0 {
+                "remotes (none saved \u{2014} use /remote to add one)".to_string()
+            } else {
+                format!("remotes ({total} saved)")
             };
             state.ephemeral.last_dispatch = Some(crate::ratcore::app::LastDispatch {
-                command: "queue".to_string(),
+                command: "remotes".to_string(),
                 success: true,
-                message: cur_label,
+                message: label,
                 data_pretty: None,
                 rows,
-                cursor: cur.unwrap_or(0),
+                cursor: 0,
             });
             state.ephemeral.last_dispatch_scroll = 0;
+            state.ephemeral.repl.clear_input();
+            state.ephemeral.repl.status = Some(ReplStatus::ok("remotes"));
+            leave(state);
+            state.ephemeral.focus = Focus::ResultPanel;
+            ReplOutcome::Done
+        }
+        SlashAction::Queue => {
+            render_queue_panel(state, None);
             state.ephemeral.repl.clear_input();
             state.ephemeral.repl.status = Some(ReplStatus::ok("queue"));
             leave(state);

@@ -477,6 +477,94 @@ impl Transport for MiddenTransport {
         }
     }
 
+    async fn library_by_id(
+        &self,
+        kind: &str,
+        parent_field: &str,
+        parent_id: &str,
+    ) -> DispatchResponse {
+        let filters = serde_json::json!({ parent_field: parent_id });
+        match kind {
+            "song" => {
+                let body = serde_json::json!({
+                    "filters": filters,
+                    "limit": 200,
+                    "offset": 0,
+                    "sort_by": "disc_number,track_number",
+                    "sort_direction": "asc",
+                });
+                let resp = self.public_dispatch("POST", "/api/songs/query", body).await;
+                wrap_paged_web(resp, "songs")
+            }
+            "album" => {
+                let body = serde_json::json!({
+                    "filters": filters,
+                    "limit": 200,
+                    "offset": 0,
+                    "sort_by": "release_date",
+                    "sort_direction": "desc",
+                });
+                let resp = self
+                    .public_dispatch("POST", "/api/albums/query", body)
+                    .await;
+                wrap_paged_web(resp, "albums")
+            }
+            other => DispatchResponse {
+                success: false,
+                message: format!("library_by_id: unknown kind {other}"),
+                data: None,
+            },
+        }
+    }
+
+    async fn resolve_parent_ids(
+        &self,
+        kind: &str,
+        id: &str,
+    ) -> Result<(Option<String>, Option<String>), String> {
+        let (path, body) = match kind {
+            "song" => (
+                "/api/songs/query",
+                serde_json::json!({
+                    "filters": { "song_ids": [id] },
+                    "limit": 1,
+                    "offset": 0,
+                }),
+            ),
+            "album" => (
+                "/api/albums/query",
+                serde_json::json!({
+                    "filters": { "album_id": id },
+                    "limit": 1,
+                    "offset": 0,
+                }),
+            ),
+            other => return Err(format!("resolve_parent_ids: unknown kind {other}")),
+        };
+        let resp = self.public_dispatch("POST", path, body).await;
+        if !resp.success {
+            return Err(resp.message);
+        }
+        let data = resp.data.ok_or_else(|| "no data".to_string())?;
+        let items = data
+            .get("items")
+            .and_then(|v| v.as_array())
+            .ok_or_else(|| "no items".to_string())?;
+        let first = items.first().ok_or_else(|| format!("{kind} not found"))?;
+        let s = |v: Option<&serde_json::Value>| {
+            v.and_then(|x| x.as_str())
+                .map(|s| s.to_string())
+                .filter(|s| !s.is_empty())
+        };
+        let album_id = match kind {
+            "song" => first.get("album").and_then(|a| s(a.get("id"))),
+            "album" => first.get("album").and_then(|a| s(a.get("id"))),
+            _ => None,
+        };
+        let artist_id = first.get("artist").and_then(|a| s(a.get("id")));
+        Ok((album_id, artist_id))
+    }
+
     async fn playlist_songs(
         &self,
         playlist_id: &str,
@@ -560,6 +648,14 @@ fn song_query_json_to_row(item: &JsonValue) -> crate::ratcore::app::SongRow {
         .and_then(|a| a.get("title"))
         .and_then(|v| v.as_str())
         .map(|s| s.to_string());
+    let album_id = album_obj
+        .and_then(|a| a.get("id"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    let artist_id = artist_obj
+        .and_then(|a| a.get("id"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
     let local_path = media_blob
         .and_then(|b| b.get("local_path"))
         .and_then(|v| v.as_str())
@@ -577,6 +673,8 @@ fn song_query_json_to_row(item: &JsonValue) -> crate::ratcore::app::SongRow {
             .to_string(),
         artist,
         album,
+        album_id,
+        artist_id,
         duration_ms: song
             .get("duration")
             .and_then(|v| v.as_i64())
@@ -623,6 +721,7 @@ fn flatten_search_response(body: JsonValue) -> DispatchResponse {
                 "id": s.get("id").and_then(|v| v.as_str()).unwrap_or(""),
                 "title": title,
                 "subtitle": subtitle,
+                "album_id": s.get("album_id").and_then(|v| v.as_str()),
                 "score": rank,
             }),
         ));
@@ -653,6 +752,7 @@ fn flatten_search_response(body: JsonValue) -> DispatchResponse {
                     "id": a.get("id").and_then(|v| v.as_str()).unwrap_or(""),
                     "title": title,
                     "subtitle": artists,
+                    "album_id": a.get("id").and_then(|v| v.as_str()),
                     "score": rank,
                 }),
             ));

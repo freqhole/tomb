@@ -30,6 +30,11 @@ async fn main() -> color_eyre::Result<()> {
     // route logs to a file — stdout is owned by ratatui and writing to it
     // would scribble over the rendered ui.
     init_file_logging();
+    // and route raw stderr (CoreAudio / symphonia / iroh-blobs C
+    // shims that bypass tracing and `fprintf` straight to fd 2)
+    // into the same log file. without this, audio-driver warnings
+    // emitted on first playback corrupt the ratatui alt-screen.
+    redirect_stderr_to_log();
 
     rathole::run(rathole::LaunchOpts { config }).await
 }
@@ -64,4 +69,37 @@ fn init_file_logging() {
             let _ = tracing_subscriber::registry().with(filter).try_init();
         }
     }
+}
+
+/// dup file descriptor 2 (stderr) to the rathole log file so any
+/// raw `fprintf(stderr, ...)` from C audio shims (CoreAudio,
+/// symphonia's underlying decoders, iroh-relay native bits) lands
+/// in the log instead of scribbling over the ratatui alt-screen.
+/// best-effort: failures here just leave stderr alone, which is no
+/// worse than the previous behaviour.
+fn redirect_stderr_to_log() {
+    use std::os::fd::AsRawFd;
+    let log_path = grimoire::config::get_config().data_dir.join("rathole.log");
+    let Ok(file) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&log_path)
+    else {
+        return;
+    };
+    // SAFETY: dup2 is async-signal-safe and only touches fd 2 in
+    // this process. failure is ignored — we don't want a missing
+    // libc symbol to take down the binary.
+    #[cfg(unix)]
+    unsafe {
+        let target_fd = file.as_raw_fd();
+        if target_fd >= 0 {
+            let _ = libc::dup2(target_fd, 2);
+        }
+    }
+    // keep `file` alive for the program lifetime so the dup'd fd
+    // remains valid (closing `file` would close the underlying
+    // description shared with fd 2 but only after the last
+    // reference; leaking it is the safest path).
+    std::mem::forget(file);
 }

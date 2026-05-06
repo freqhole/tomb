@@ -6990,6 +6990,7 @@ dependencies = [
  "grimoire",
  "idb",
  "js-sys",
+ "libc",
  "midden",
  "ratatui",
  "ratzilla",

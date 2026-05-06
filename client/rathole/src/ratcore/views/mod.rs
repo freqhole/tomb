@@ -37,12 +37,29 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     );
     frame.render_widget(Paragraph::new(footer_hints(app)).dim(), footer);
 
-    if app.state.ephemeral.focus == Focus::MusicView {
-        music::draw(frame, body, app);
-    } else if app.state.ephemeral.focus == Focus::Landing {
-        landing::draw(frame, body, app);
+    // body view: when the repl is focused (ctrl-k overlay) or the
+    // player row is focused (ctrl-p), keep the previously-active
+    // view rendered behind it instead of forcing the admin palette.
+    // that way overlay-style focuses just steal input without
+    // yanking the user out of music/landing/etc.
+    let body_focus = if app.state.ephemeral.focus == Focus::Repl {
+        app.state
+            .ephemeral
+            .repl
+            .return_focus
+            .unwrap_or(Focus::AdminPalette)
+    } else if app.state.ephemeral.focus == Focus::PlayerRow {
+        app.state
+            .ephemeral
+            .player_row_return_focus
+            .unwrap_or(Focus::AdminPalette)
     } else {
-        admin::palette::draw(frame, body, app);
+        app.state.ephemeral.focus
+    };
+    match body_focus {
+        Focus::Landing => landing::draw(frame, body, app),
+        Focus::MusicView => music::draw(frame, body, app),
+        _ => admin::palette::draw(frame, body, app),
     }
 
     if player_h > 0 {
@@ -99,7 +116,7 @@ fn header_line(app: &App) -> Line<'static> {
     ];
 
     if let Some(peer) = &app.state.ephemeral.connected_peer {
-        spans.push(Span::raw("peer: "));
+        spans.push(Span::raw("remote: "));
         spans.push(Span::raw(short_id(peer)));
     } else if app.state.ephemeral.local_node_id.is_some() {
         spans.push(Span::raw("local p2p"));
@@ -123,10 +140,21 @@ fn header_line(app: &App) -> Line<'static> {
 /// short tag identifying which top-level view is active. shows up
 /// near the start of the header so it's always obvious where you are.
 fn view_label(app: &App) -> Span<'static> {
-    let label = match app.state.ephemeral.focus {
+    // when in the repl, label the underlying view (so ctrl-k feels
+    // like an overlay rather than navigation).
+    let focus = if app.state.ephemeral.focus == Focus::Repl {
+        app.state
+            .ephemeral
+            .repl
+            .return_focus
+            .unwrap_or(Focus::AdminPalette)
+    } else {
+        app.state.ephemeral.focus
+    };
+    let label = match focus {
         Focus::Landing => "[home]",
         Focus::MusicView => "[music]",
-        Focus::PeerInput => "[peer]",
+        Focus::PeerInput => "[remote]",
         Focus::Repl => "[repl]",
         Focus::PlayerRow => "[player]",
         _ => "[admin]",
@@ -138,10 +166,10 @@ fn view_label(app: &App) -> Span<'static> {
 fn footer_hints(app: &App) -> &'static str {
     match app.state.ephemeral.focus {
         Focus::Landing => {
-            "c: commands   ctrl-m: music   ctrl-p: peer/player   ctrl-k: repl   q: quit"
+            "c commands   m music   r remote   p player   ctrl-k repl   q quit"
         }
         Focus::AdminPalette => {
-            "↑/↓ j/k: move   enter: dispatch/form   tab: focus resultz   ctrl-m: music   ctrl-p: player   ctrl-k: repl   q: quit"
+            "↑/↓ j/k: move   enter: dispatch/form   tab: focus resultz   ctrl-m: music   ctrl-r: remote   ctrl-p: player   ctrl-k: repl   q: quit"
         }
         Focus::PeerInput => "type/paste node id   enter: connect   esc: cancel",
         Focus::CommandForm => "←/→: cycle option   tab/enter: next   esc: cancel",

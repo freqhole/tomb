@@ -16,9 +16,10 @@ use tokio::task::LocalSet;
 use super::persist;
 use super::transport::LocalTransport;
 use super::LaunchOpts;
+use crate::ratcore::app::DispatchResponse;
 use crate::ratcore::app::{
     AdminCommand, App, AppAction, AppState, ArgKind, CommandForm, CommandKind, FieldState, Focus,
-    LastDispatch, PersistedState, SelectOption,
+    LastDispatch, PersistedState, ReplStatus, SelectOption,
 };
 use crate::ratcore::catalog;
 use crate::ratcore::transport::Transport;
@@ -119,7 +120,8 @@ fn on_event(app: &mut App, ev: Event, action_tx: &mpsc::UnboundedSender<AppActio
     // ghostty) report the cmd modifier as either SUPER or META
     // depending on key-protocol setup; treat all three the same as
     // ctrl so cmd+k / cmd+c / cmd+p all work in the tty shell.
-    let cmdlike = KeyModifiers::CONTROL | KeyModifiers::SUPER | KeyModifiers::META;
+    let cmdlike =
+        KeyModifiers::CONTROL | KeyModifiers::SUPER | KeyModifiers::META | KeyModifiers::ALT;
     if k.modifiers.intersects(cmdlike) {
         match k.code {
             KeyCode::Char('c') => {
@@ -144,6 +146,21 @@ fn on_event(app: &mut App, ev: Event, action_tx: &mpsc::UnboundedSender<AppActio
                 let eph = &mut app.state.ephemeral;
                 eph.focus = Focus::MusicView;
                 eph.music.mode = crate::ratcore::app::MusicMode::Results;
+                return;
+            }
+            KeyCode::Char('r') => {
+                // open the connect-remote modal from any focus.
+                let seed = app
+                    .state
+                    .ephemeral
+                    .connected_peer
+                    .clone()
+                    .unwrap_or_default();
+                let cursor = seed.chars().count();
+                app.state.ephemeral.peer_input = seed;
+                app.state.ephemeral.peer_cursor = cursor;
+                app.state.ephemeral.peer_error = None;
+                app.state.ephemeral.focus = Focus::PeerInput;
                 return;
             }
             _ => {}
@@ -174,6 +191,28 @@ fn on_event(app: &mut App, ev: Event, action_tx: &mpsc::UnboundedSender<AppActio
             app.state.ephemeral.pending_quit = true;
             return;
         }
+        // bare '/' opens the slash repl with `/` already typed,
+        // matching the convention used by vim/less/spotlight. skip
+        // when the focused area is itself a text input (peer modal,
+        // form, music search box, repl) so users can still type a
+        // literal '/' there. on the music view, only the Search
+        // sub-mode is a text input — Results, Queue, Library are
+        // navigable and should fall through to opening the repl.
+        (KeyCode::Char('/'), m) if m.is_empty() => {
+            let in_music_text_input = matches!(app.state.ephemeral.focus, Focus::MusicView)
+                && matches!(
+                    app.state.ephemeral.music.mode,
+                    crate::ratcore::app::MusicMode::Search
+                );
+            if !matches!(
+                app.state.ephemeral.focus,
+                Focus::PeerInput | Focus::CommandForm | Focus::Repl
+            ) && !in_music_text_input
+            {
+                crate::ratcore::repl_keys::enter_with_seed(&mut app.state, "/");
+                return;
+            }
+        }
         _ => {}
     }
 
@@ -191,13 +230,30 @@ fn on_event(app: &mut App, ev: Event, action_tx: &mpsc::UnboundedSender<AppActio
     }
 }
 
-/// landing-screen key handler: only navigation shortcuts. ctrl-k
-/// (global) opens the slash repl.
+/// landing-screen key handler: bare letter shortcuts for terminals
+/// that can't pass ctrl/cmd modifiers cleanly (e.g. macOS
+/// Terminal.app where ctrl-m == Enter, ctrl-i == Tab). landing has
+/// no text input so plain keys are safe here.
 fn on_landing_key(app: &mut App, code: KeyCode) {
     let eph = &mut app.state.ephemeral;
     match code {
         KeyCode::Char('c') | KeyCode::Char('a') | KeyCode::Enter => {
             eph.focus = Focus::AdminPalette;
+        }
+        KeyCode::Char('m') => {
+            eph.focus = Focus::MusicView;
+            eph.music.mode = crate::ratcore::app::MusicMode::Results;
+        }
+        KeyCode::Char('r') => {
+            let seed = eph.connected_peer.clone().unwrap_or_default();
+            let cursor = seed.chars().count();
+            eph.peer_input = seed;
+            eph.peer_cursor = cursor;
+            eph.peer_error = None;
+            eph.focus = Focus::PeerInput;
+        }
+        KeyCode::Char('p') => {
+            crate::ratcore::player_row_keys::enter(&mut app.state);
         }
         _ => {}
     }
@@ -255,6 +311,12 @@ fn on_palette_key(app: &mut App, code: KeyCode, action_tx: &mpsc::UnboundedSende
         }
         KeyCode::Tab => {
             app.state.ephemeral.focus = Focus::ResultPanel;
+        }
+        KeyCode::Esc => {
+            // back out to the landing screen so esc unwinds the
+            // navigation stack instead of dead-ending in the
+            // commands palette.
+            app.state.ephemeral.focus = Focus::Landing;
         }
         _ => {}
     }
@@ -507,6 +569,24 @@ fn on_action(app: &mut App, action: AppAction, action_tx: &mpsc::UnboundedSender
         // local files synchronously) — accept the variant for an
         // exhaustive match but treat it as a no-op.
         AppAction::CollectionLoaded { .. } => {}
+        AppAction::CollectionEnqueued { songs } => {
+            // append the loaded rows to the visible queue; paths
+            // were already sent to the player via PlayerCmd::Enqueue
+            // by the background task. if the queue was empty before,
+            // prime `current` so the player row + /queue panel show
+            // something useful immediately.
+            let m = &mut app.state.ephemeral.music;
+            let was_empty = m.queue.is_empty();
+            let n = songs.len();
+            m.queue.extend(songs);
+            if was_empty && !m.queue.is_empty() {
+                m.current = Some(0);
+            }
+            app.state.ephemeral.repl.status = Some(crate::ratcore::app::ReplStatus::ok(format!(
+                "queued {n} track{}",
+                if n == 1 { "" } else { "s" }
+            )));
+        }
     }
 }
 
@@ -1117,6 +1197,86 @@ fn on_action_menu_key(app: &mut App, code: KeyCode, tx: &mpsc::UnboundedSender<A
                 play_collection(app, kind, id, title, tx);
                 return;
             }
+            // enqueue collection sentinels: same as __play_*__ but
+            // appends to the existing queue without interrupting the
+            // current track.
+            if opt.target_command == "__enqueue_playlist__"
+                || opt.target_command == "__enqueue_album__"
+            {
+                let kind = if opt.target_command == "__enqueue_playlist__" {
+                    "playlist"
+                } else {
+                    "album"
+                };
+                let (id, title, _) = crate::ratcore::catalog::row_id_and_title(&row);
+                let Some(id) = id else {
+                    eph.focus = Focus::ResultPanel;
+                    return;
+                };
+                let title = title.unwrap_or_else(|| kind.to_string());
+                eph.focus = Focus::ResultPanel;
+                enqueue_collection(app, kind, id, title, tx);
+                return;
+            }
+            if opt.target_command == "__enqueue_song__" {
+                let (_, title, _) = crate::ratcore::catalog::row_id_and_title(&row);
+                let title = title.unwrap_or_default();
+                eph.focus = Focus::ResultPanel;
+                enqueue_song_by_title(app, title, tx);
+                return;
+            }
+            // pivot to the album-detail (songs of this album) or
+            // artist-detail (albums by this artist) view by id.
+            if opt.target_command == "__goto_album__" || opt.target_command == "__goto_artist__" {
+                let (album_id, artist_id) = crate::ratcore::catalog::row_album_and_artist(&row);
+                eph.focus = Focus::ResultPanel;
+                let want_album = opt.target_command == "__goto_album__";
+                let direct = if want_album {
+                    album_id.clone()
+                } else {
+                    artist_id.clone()
+                };
+                if let Some(id) = direct.filter(|s| !s.is_empty()) {
+                    let (kind, parent_field) = if want_album {
+                        ("song", "album_id")
+                    } else {
+                        ("album", "artist_id")
+                    };
+                    fire_library_by_id(app, kind, parent_field, id, tx);
+                } else {
+                    // unified-search rows often lack one or both ids;
+                    // resolve them lazily by looking up the row's own
+                    // id (song or album) via the transport, then fire.
+                    let row_kind = row
+                        .get("type")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("song")
+                        .to_string();
+                    let row_id = crate::ratcore::catalog::row_id_and_title(&row).0;
+                    if let Some(rid) = row_id {
+                        resolve_then_goto(app, row_kind, rid, want_album, tx);
+                    } else {
+                        let label = if want_album { "album" } else { "artist" };
+                        app.state.ephemeral.repl.status =
+                            Some(ReplStatus::err(format!("no {label} id on this row")));
+                    }
+                }
+                return;
+            }
+            // queue management sentinels: only valid when the source
+            // command is the synthesized "queue" panel. each one
+            // mutates the local queue state and re-issues a Load to
+            // keep the player in sync (this briefly stops + restarts
+            // playback, which is the simplest correct implementation
+            // until we plumb finer-grained queue ops into rodio).
+            if opt.target_command.starts_with("__queue_") {
+                let position = row
+                    .get("position")
+                    .and_then(|v| v.as_u64())
+                    .map(|n| n as usize);
+                handle_queue_action(app, &opt.target_command, position, tx);
+                return;
+            }
             // play a single song row directly via search_songs(title)
             // — relies on the title field being unique enough. for
             // unified-search song rows the row already has media_blob_id
@@ -1442,7 +1602,12 @@ fn on_music_key(app: &mut App, code: KeyCode, tx: &mpsc::UnboundedSender<AppActi
             let m = &mut app.state.ephemeral.music;
             m.results_cursor = m.results_cursor.saturating_sub(1);
         }
-        (MusicMode::Results, KeyCode::Enter) => play_from_cursor(app, tx),
+        (MusicMode::Results, KeyCode::Enter) => play_one_at_cursor(app, tx),
+        // shift-A: play the row at cursor and queue everything
+        // after it. distinct from bare Enter so /local + Enter on a
+        // 200-row dump doesn't silently bury the rodio thread under
+        // 200 decode-init attempts.
+        (MusicMode::Results, KeyCode::Char('A')) => play_from_cursor(app, tx),
         (MusicMode::Results, KeyCode::Char('f')) => {
             // toggle favorite for the cursor row.
             let m = &app.state.ephemeral.music;
@@ -1516,6 +1681,84 @@ fn fire_search(app: &mut App, tx: &mpsc::UnboundedSender<AppAction>) {
     });
 }
 
+/// resolve a row's playable file path (local_path or media_blob).
+/// also filters out file extensions known to crash rodio 0.20's
+/// symphonia adapter on init seek (currently `.m4a`).
+async fn resolve_playable_path(s: &crate::ratcore::app::SongRow) -> Option<String> {
+    let candidate = if let Some(p) = s.local_path.clone() {
+        Some(p)
+    } else if let Some(blob_id) = s.media_blob_id.as_deref() {
+        super::player::resolve_paths(&[blob_id.to_string()])
+            .await
+            .into_iter()
+            .next()
+    } else {
+        None
+    };
+    let path = candidate?;
+    if is_known_unplayable(&path) {
+        tracing::warn!(
+            target: "rathole::tty::player",
+            path = %path,
+            "skipping unplayable file (known rodio/symphonia panic on init seek)"
+        );
+        return None;
+    }
+    Some(path)
+}
+
+/// extension-based blocklist. rodio 0.20 + symphonia's m4a demuxer
+/// hits `unreachable!("Seek errors should not occur during init")`
+/// on a meaningful fraction of real-world files; we'd rather skip
+/// them than spam the panic hook.
+fn is_known_unplayable(path: &str) -> bool {
+    let lower = path.to_ascii_lowercase();
+    lower.ends_with(".m4a")
+}
+
+/// play just the row under the cursor. queue length stays at 1 so
+/// rodio only decodes one file; pressing Enter on /local's 200-row
+/// dump no longer floods the audio thread with 200 init attempts.
+fn play_one_at_cursor(app: &mut App, tx: &mpsc::UnboundedSender<AppAction>) {
+    let m = &mut app.state.ephemeral.music;
+    if m.results.is_empty() {
+        return;
+    }
+    let idx = m.results_cursor.min(m.results.len() - 1);
+    let row = m.results[idx].clone();
+    m.queue = vec![row.clone()];
+    m.current = None;
+    m.position_ms = 0;
+    m.duration_ms = 0;
+
+    let Some(player) = app.player.clone() else {
+        m.last_event_error = Some("no audio backend in this shell".to_string());
+        return;
+    };
+    let tx = tx.clone();
+    tokio::task::spawn_local(async move {
+        let Some(path) = resolve_playable_path(&row).await else {
+            let _ = tx.send(AppAction::MusicEvent(
+                crate::ratcore::app::MusicEvent::Error(format!(
+                    "no playable file for {}",
+                    row.title
+                )),
+            ));
+            return;
+        };
+        if let Err(e) = player
+            .send(crate::ratcore::transport::PlayerCmd::Load(vec![path]))
+            .await
+        {
+            let _ = tx.send(AppAction::MusicEvent(
+                crate::ratcore::app::MusicEvent::Error(e),
+            ));
+        }
+    });
+}
+
+/// play the row under the cursor and queue everything after it.
+/// bound to shift-A in the music view; the previous Enter binding.
 fn play_from_cursor(app: &mut App, tx: &mpsc::UnboundedSender<AppAction>) {
     let m = &mut app.state.ephemeral.music;
     if m.results.is_empty() {
@@ -1535,25 +1778,29 @@ fn play_from_cursor(app: &mut App, tx: &mpsc::UnboundedSender<AppAction>) {
     let tx = tx.clone();
     tokio::task::spawn_local(async move {
         let mut paths: Vec<String> = Vec::with_capacity(queue.len());
+        let mut skipped = 0usize;
         for s in &queue {
-            if let Some(p) = s.local_path.clone() {
+            if let Some(p) = resolve_playable_path(s).await {
                 paths.push(p);
-                continue;
-            }
-            if let Some(blob_id) = s.media_blob_id.as_deref() {
-                let resolved = super::player::resolve_paths(&[blob_id.to_string()]).await;
-                if let Some(p) = resolved.into_iter().next() {
-                    paths.push(p);
-                }
+            } else {
+                skipped += 1;
             }
         }
         if paths.is_empty() {
             let _ = tx.send(AppAction::MusicEvent(
                 crate::ratcore::app::MusicEvent::Error(
-                    "no playable files found (no local_path on media_blobz)".to_string(),
+                    "no playable files in selection".to_string(),
                 ),
             ));
             return;
+        }
+        if skipped > 0 {
+            tracing::info!(
+                target: "rathole::tty::player",
+                skipped,
+                playable = paths.len(),
+                "queue: skipped unplayable rows"
+            );
         }
         if let Err(e) = player
             .send(crate::ratcore::transport::PlayerCmd::Load(paths))
@@ -1666,6 +1913,413 @@ fn play_collection(
     m.current = None;
     m.position_ms = 0;
     m.duration_ms = 0;
+}
+
+/// fetch playlist or album songs and append them to the existing
+/// queue without interrupting the currently-playing track. on the
+/// tty this routes through `PlayerCmd::Enqueue`, which the rodio
+/// backend handles by appending to the active sink.
+fn enqueue_collection(
+    app: &mut App,
+    kind: &'static str,
+    id: String,
+    title: String,
+    tx: &mpsc::UnboundedSender<AppAction>,
+) {
+    app.state.ephemeral.repl.status = Some(crate::ratcore::app::ReplStatus::info(format!(
+        "queueing {kind} {title}\u{2026}"
+    )));
+    let transport = app.transport.clone();
+    let player = app.player.clone();
+    let tx_outer = tx.clone();
+    tokio::task::spawn_local(async move {
+        let songs_result = match kind {
+            "playlist" => transport.playlist_songs(&id).await,
+            "album" => transport.album_songs(&id).await,
+            other => Err(format!("unknown collection kind: {other}")),
+        };
+        let songs = match songs_result {
+            Ok(s) => s,
+            Err(e) => {
+                let _ = tx_outer.send(AppAction::MusicEvent(
+                    crate::ratcore::app::MusicEvent::Error(format!("queue {kind} failed: {e}")),
+                ));
+                return;
+            }
+        };
+        if songs.is_empty() {
+            let _ = tx_outer.send(AppAction::MusicEvent(
+                crate::ratcore::app::MusicEvent::Error(format!("{kind} {title} is empty")),
+            ));
+            return;
+        }
+        let mut paths: Vec<String> = Vec::with_capacity(songs.len());
+        for s in &songs {
+            if let Some(p) = s.local_path.clone() {
+                paths.push(p);
+                continue;
+            }
+            if let Some(blob_id) = s.media_blob_id.as_deref() {
+                let resolved = super::player::resolve_paths(&[blob_id.to_string()]).await;
+                if let Some(p) = resolved.into_iter().next() {
+                    paths.push(p);
+                }
+            }
+        }
+        if paths.is_empty() {
+            let _ = tx_outer.send(AppAction::MusicEvent(
+                crate::ratcore::app::MusicEvent::Error(format!(
+                    "no playable files in {kind} {title}"
+                )),
+            ));
+            return;
+        }
+        if let Some(player) = player {
+            if let Err(e) = player
+                .send(crate::ratcore::transport::PlayerCmd::Enqueue(paths))
+                .await
+            {
+                let _ = tx_outer.send(AppAction::MusicEvent(
+                    crate::ratcore::app::MusicEvent::Error(e),
+                ));
+                return;
+            }
+        }
+        let _ = tx_outer.send(AppAction::CollectionEnqueued { songs });
+    });
+}
+
+/// resolve a song row (looked up by title via the search index) and
+/// append it to the queue. used by the per-row "add to queue" action
+/// when the row is a single song. matches `play_song` semantics by
+/// re-searching the title and using the top hit.
+fn enqueue_song_by_title(app: &mut App, title: String, tx: &mpsc::UnboundedSender<AppAction>) {
+    if title.is_empty() {
+        return;
+    }
+    app.state.ephemeral.repl.status = Some(crate::ratcore::app::ReplStatus::info(format!(
+        "queueing {title}\u{2026}"
+    )));
+    let transport = app.transport.clone();
+    let player = app.player.clone();
+    let tx_outer = tx.clone();
+    tokio::task::spawn_local(async move {
+        let songs = match transport.search_songs(&title, 1).await {
+            Ok(rows) => rows,
+            Err(e) => {
+                let _ = tx_outer.send(AppAction::MusicEvent(
+                    crate::ratcore::app::MusicEvent::Error(format!("queue search failed: {e}")),
+                ));
+                return;
+            }
+        };
+        let Some(song) = songs.into_iter().next() else {
+            let _ = tx_outer.send(AppAction::MusicEvent(
+                crate::ratcore::app::MusicEvent::Error(format!("no match for {title}")),
+            ));
+            return;
+        };
+        let mut paths: Vec<String> = Vec::new();
+        if let Some(p) = song.local_path.clone() {
+            paths.push(p);
+        } else if let Some(blob_id) = song.media_blob_id.as_deref() {
+            let resolved = super::player::resolve_paths(&[blob_id.to_string()]).await;
+            if let Some(p) = resolved.into_iter().next() {
+                paths.push(p);
+            }
+        }
+        if paths.is_empty() {
+            let _ = tx_outer.send(AppAction::MusicEvent(
+                crate::ratcore::app::MusicEvent::Error(format!("no playable file for {title}")),
+            ));
+            return;
+        }
+        if let Some(player) = player {
+            if let Err(e) = player
+                .send(crate::ratcore::transport::PlayerCmd::Enqueue(paths))
+                .await
+            {
+                let _ = tx_outer.send(AppAction::MusicEvent(
+                    crate::ratcore::app::MusicEvent::Error(e),
+                ));
+                return;
+            }
+        }
+        let _ = tx_outer.send(AppAction::CollectionEnqueued { songs: vec![song] });
+    });
+}
+
+/// fire a library_query and route the result through the same
+/// AdminDispatchResult channel the slash repl uses, so the result
+/// panel renders it identically. used by the "go to album" / "go to
+/// artist" row actions to pivot without typing the slash command.
+#[allow(dead_code)]
+fn fire_library_query(
+    app: &App,
+    kind: &'static str,
+    query: Option<String>,
+    tx: &mpsc::UnboundedSender<AppAction>,
+) {
+    let label = match kind {
+        "favorites" => "library_favorites".to_string(),
+        "radio" => "radio_stations_list".to_string(),
+        _ => format!("library_{kind}"),
+    };
+    let transport = app.transport.clone();
+    let tx = tx.clone();
+    tokio::task::spawn_local(async move {
+        let response = transport.library_query(kind, query.as_deref()).await;
+        let _ = tx.send(AppAction::AdminDispatchResult {
+            command: label,
+            response,
+        });
+    });
+}
+
+/// fire a library_by_id query (songs of an album, albums of an
+/// artist) and route through `AdminDispatchResult`. used by the
+/// "go to album" / "go to artist" row actions for deterministic
+/// id-based pivots.
+fn fire_library_by_id(
+    app: &App,
+    kind: &'static str,
+    parent_field: &'static str,
+    parent_id: String,
+    tx: &mpsc::UnboundedSender<AppAction>,
+) {
+    let label = format!("library_{kind}_by_{parent_field}");
+    let transport = app.transport.clone();
+    let tx = tx.clone();
+    tokio::task::spawn_local(async move {
+        let response = transport
+            .library_by_id(kind, parent_field, &parent_id)
+            .await;
+        let _ = tx.send(AppAction::AdminDispatchResult {
+            command: label,
+            response,
+        });
+    });
+}
+
+/// resolve a row's parent ids (album_id, artist_id) via the
+/// transport then fire the matching library_by_id pivot. used as a
+/// fallback for unified-search rows that don't carry the parent ids
+/// inline. `row_kind` is `"song"` or `"album"` (the row's own type),
+/// `row_id` is its id; `want_album` selects which target.
+fn resolve_then_goto(
+    app: &App,
+    row_kind: String,
+    row_id: String,
+    want_album: bool,
+    tx: &mpsc::UnboundedSender<AppAction>,
+) {
+    let transport = app.transport.clone();
+    let tx_a = tx.clone();
+    tokio::task::spawn_local(async move {
+        match transport.resolve_parent_ids(&row_kind, &row_id).await {
+            Ok((album_id, artist_id)) => {
+                let (kind, parent_field, pid) = if want_album {
+                    ("song", "album_id", album_id)
+                } else {
+                    ("album", "artist_id", artist_id)
+                };
+                let Some(pid) = pid.filter(|s| !s.is_empty()) else {
+                    let label = if want_album { "album" } else { "artist" };
+                    let _ = tx_a.send(AppAction::AdminDispatchResult {
+                        command: format!("library_{kind}_by_{parent_field}"),
+                        response: DispatchResponse {
+                            success: false,
+                            message: format!("no {label} for this row"),
+                            data: None,
+                        },
+                    });
+                    return;
+                };
+                let label = format!("library_{kind}_by_{parent_field}");
+                let response = transport.library_by_id(kind, parent_field, &pid).await;
+                let _ = tx_a.send(AppAction::AdminDispatchResult {
+                    command: label,
+                    response,
+                });
+            }
+            Err(msg) => {
+                let _ = tx_a.send(AppAction::AdminDispatchResult {
+                    command: "resolve_parent_ids".to_string(),
+                    response: DispatchResponse {
+                        success: false,
+                        message: msg,
+                        data: None,
+                    },
+                });
+            }
+        }
+    });
+}
+
+/// apply a queue-management action triggered from the result-panel
+/// action menu when the source command is the synthesized `queue`
+/// panel. mutates the local queue + reissues `PlayerCmd::Load` to
+/// keep the rodio sink in sync. position is the row's `position`
+/// field as captured by the repl_keys queue synthesizer.
+fn handle_queue_action(
+    app: &mut App,
+    sentinel: &str,
+    position: Option<usize>,
+    tx: &mpsc::UnboundedSender<AppAction>,
+) {
+    use crate::ratcore::transport::PlayerCmd;
+    let m = &mut app.state.ephemeral.music;
+    let len = m.queue.len();
+    if sentinel == "__queue_clear__" {
+        send_player(app, PlayerCmd::Stop, tx);
+        let m = &mut app.state.ephemeral.music;
+        m.queue.clear();
+        m.current = None;
+        m.queue_resolving = 0;
+        m.position_ms = 0;
+        m.duration_ms = 0;
+        app.state.ephemeral.last_dispatch = None;
+        app.state.ephemeral.repl.status =
+            Some(crate::ratcore::app::ReplStatus::ok("queue cleared"));
+        return;
+    }
+    let Some(pos) = position else {
+        return;
+    };
+    if pos >= len {
+        return;
+    }
+    match sentinel {
+        "__queue_jump__" => {
+            // re-queue starting from `pos` so rodio's sink replays
+            // from the requested track. preserves the rest of the
+            // queue order. local_path/blob_id resolution mirrors
+            // play_collection's path-collect step.
+            requeue_from(app, pos, tx);
+        }
+        "__queue_remove__" => {
+            let m = &mut app.state.ephemeral.music;
+            let was_current = m.current == Some(pos);
+            m.queue.remove(pos);
+            // adjust current after removal:
+            // - removed before current: shift current down by 1
+            // - removed at current: keep index (now points at next
+            //   track, unless we ran off the end)
+            // - removed after current: nothing to do
+            if let Some(c) = m.current {
+                if pos < c {
+                    m.current = Some(c - 1);
+                } else if pos == c {
+                    if c >= m.queue.len() {
+                        m.current = if m.queue.is_empty() { None } else { Some(0) };
+                    }
+                }
+            }
+            let new_len = m.queue.len();
+            if new_len == 0 {
+                send_player(app, PlayerCmd::Stop, tx);
+                app.state.ephemeral.repl.status =
+                    Some(crate::ratcore::app::ReplStatus::ok("queue cleared"));
+            } else {
+                let start = app.state.ephemeral.music.current.unwrap_or(0);
+                if was_current {
+                    requeue_from(app, start, tx);
+                }
+                // re-render the /queue panel so the result rows
+                // reflect the new positions.
+                rerender_queue(app);
+            }
+        }
+        "__queue_move_up__" => {
+            if pos == 0 {
+                return;
+            }
+            let m = &mut app.state.ephemeral.music;
+            m.queue.swap(pos, pos - 1);
+            if let Some(c) = m.current.as_mut() {
+                if *c == pos {
+                    *c -= 1;
+                } else if *c == pos - 1 {
+                    *c += 1;
+                }
+            }
+            rerender_queue(app);
+        }
+        "__queue_move_down__" => {
+            if pos + 1 >= len {
+                return;
+            }
+            let m = &mut app.state.ephemeral.music;
+            m.queue.swap(pos, pos + 1);
+            if let Some(c) = m.current.as_mut() {
+                if *c == pos {
+                    *c += 1;
+                } else if *c == pos + 1 {
+                    *c -= 1;
+                }
+            }
+            rerender_queue(app);
+        }
+        _ => {}
+    }
+}
+
+/// re-render the synthesized `/queue` last_dispatch panel so the
+/// rows reflect any local mutations (remove / reorder). preserves
+/// the cursor position (clamped to the new length).
+fn rerender_queue(app: &mut App) {
+    let cur = app
+        .state
+        .ephemeral
+        .last_dispatch
+        .as_ref()
+        .map(|ld| ld.cursor)
+        .unwrap_or(0);
+    crate::ratcore::repl_keys::render_queue_panel(&mut app.state, Some(cur));
+}
+
+/// rebuild the player queue starting from `start` index (preserving
+/// the order). resolves paths and re-issues `PlayerCmd::Load`. used
+/// by jump-to-track and after removing the currently-playing track.
+fn requeue_from(app: &mut App, start: usize, tx: &mpsc::UnboundedSender<AppAction>) {
+    let m = &mut app.state.ephemeral.music;
+    if start >= m.queue.len() {
+        return;
+    }
+    m.current = Some(start);
+    m.position_ms = 0;
+    m.duration_ms = 0;
+    let songs: Vec<crate::ratcore::app::SongRow> = m.queue[start..].to_vec();
+    let Some(player) = app.player.clone() else {
+        return;
+    };
+    let tx = tx.clone();
+    tokio::task::spawn_local(async move {
+        let mut paths: Vec<String> = Vec::with_capacity(songs.len());
+        for s in &songs {
+            if let Some(p) = s.local_path.clone() {
+                paths.push(p);
+                continue;
+            }
+            if let Some(blob_id) = s.media_blob_id.as_deref() {
+                let resolved = super::player::resolve_paths(&[blob_id.to_string()]).await;
+                if let Some(p) = resolved.into_iter().next() {
+                    paths.push(p);
+                }
+            }
+        }
+        if paths.is_empty() {
+            return;
+        }
+        if let Err(e) = player
+            .send(crate::ratcore::transport::PlayerCmd::Load(paths))
+            .await
+        {
+            let _ = tx.send(AppAction::MusicEvent(
+                crate::ratcore::app::MusicEvent::Error(e),
+            ));
+        }
+    });
 }
 
 fn adjust_volume(app: &mut App, delta: f32, tx: &mpsc::UnboundedSender<AppAction>) {
@@ -1861,6 +2515,21 @@ fn execute_slash_with_player(
         SlashAction::Stop => {
             send_player(app, PlayerCmd::Stop, tx);
             app.state.ephemeral.repl.status = Some(ReplStatus::ok("stop"));
+            app.state.ephemeral.repl.clear_input();
+            rk::leave(&mut app.state);
+        }
+        SlashAction::ClearQueue => {
+            // stop also clears grimoire's internal queue. mirror in
+            // local state so the music view + queue panel reflect
+            // the cleared queue immediately.
+            send_player(app, PlayerCmd::Stop, tx);
+            let m = &mut app.state.ephemeral.music;
+            m.queue.clear();
+            m.current = None;
+            m.queue_resolving = 0;
+            m.position_ms = 0;
+            m.duration_ms = 0;
+            app.state.ephemeral.repl.status = Some(ReplStatus::ok("queue cleared"));
             app.state.ephemeral.repl.clear_input();
             rk::leave(&mut app.state);
         }

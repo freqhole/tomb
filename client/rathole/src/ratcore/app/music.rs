@@ -17,6 +17,13 @@ pub struct SongRow {
     pub title: String,
     pub artist: Option<String>,
     pub album: Option<String>,
+    /// canonical album id from the library, if known. used by the
+    /// "go to album" row action to pivot to the matching album view
+    /// without name-string fuzziness.
+    pub album_id: Option<String>,
+    /// canonical artist id from the library, if known. used by the
+    /// "go to artist" row action.
+    pub artist_id: Option<String>,
     pub duration_ms: Option<u64>,
     /// id of the row in `media_blobz`; tty resolves this to a local
     /// file path before handing to rodio.

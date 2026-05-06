@@ -35,6 +35,7 @@ color-eyre = "0.6"
 tracing-subscriber = { workspace = true }
 grimoire = { path = "../../grimoire" }
 anyhow = { workspace = true }
+libc = "0.2"
 
 # ----------------------------------------------------------------------
 # web shell deps (wasm32 only). ratzilla brings its own ratatui
