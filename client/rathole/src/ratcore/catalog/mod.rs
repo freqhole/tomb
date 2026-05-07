@@ -80,6 +80,9 @@ fn rich_commands() -> Vec<AdminCommand> {
         builders::users::hard_delete(),
         builders::users::restore(),
         builders::users::generate_account_link(),
+        builders::users::generate_api_key(),
+        builders::users::revoke_api_key(),
+        builders::users::hard_delete_peer_node(),
         // -- invites --
         builders::invites::list(),
         builders::invites::generate(),
@@ -115,12 +118,16 @@ fn rich_commands() -> Vec<AdminCommand> {
         builders::maintenance::cleanup_orphaned_genres(),
         builders::maintenance::cleanup_all(),
         builders::maintenance::backfill_thumbnails(),
+        builders::maintenance::cleanup_orphaned_blobs(),
+        builders::maintenance::hard_delete_old_records(),
+        builders::maintenance::run_full(),
         // -- dir_tags (rich) --
         builders::dir_tags::list(),
         builders::dir_tags::add(),
         builders::dir_tags::remove(),
         builders::dir_tags::clear(),
         builders::dir_tags::strip(),
+        builders::dir_tags::clear_directory(),
         // -- analytics reads (rich) --
         builders::analytics::top_songs(),
         builders::analytics::top_albums(),
@@ -137,6 +144,9 @@ fn rich_commands() -> Vec<AdminCommand> {
         builders::analytics::counts(),
         // -- jobs (rich) --
         builders::jobs::list(),
+        // -- blobz (rich) --
+        builders::blobz::backfill_blake3(),
+        builders::blobz::check_references(),
     ]
 }
 

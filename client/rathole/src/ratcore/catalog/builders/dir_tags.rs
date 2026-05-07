@@ -66,3 +66,19 @@ pub(in crate::ratcore::catalog) fn strip() -> AdminCommand {
         ],
     }
 }
+
+pub(in crate::ratcore::catalog) fn clear_directory() -> AdminCommand {
+    // wipes every tag from every song under the given path. distinct
+    // from `dir_tags_clear` (which only removes the tag *rules* row)
+    // and `dir_tags_strip` (which removes specific tag names).
+    AdminCommand {
+        name: "dir_tags_clear_directory".to_string(),
+        request_type: "DirTagsClearDirectoryRequest".to_string(),
+        response_type: "u64".to_string(),
+        auth: "Admin".to_string(),
+        kind: CommandKind::Admin,
+        args: vec![path_arg(
+            "directory path whose songs will have ALL tags removed",
+        )],
+    }
+}

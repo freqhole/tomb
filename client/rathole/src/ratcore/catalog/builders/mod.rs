@@ -2,6 +2,7 @@
 //! returning `AdminCommand`, called from `super::rich_commands()`.
 
 pub(super) mod analytics;
+pub(super) mod blobz;
 pub(super) mod dir_tags;
 pub(super) mod invites;
 pub(super) mod jobs;

@@ -63,3 +63,16 @@ pub(in crate::admin_dispatch) async fn strip(args: JsonValue) -> GrimoireRespons
     };
     to_value(crate::jobs::strip_tags_from_directory(&path, tags).await)
 }
+
+/// remove ALL tag rows from songs under `path`, regardless of which
+/// tag names they have. used to reset a directory before re-applying
+/// fresh rules. args: `{ path: String }` — returns the count cleared.
+pub(in crate::admin_dispatch) async fn clear_directory(
+    args: JsonValue,
+) -> GrimoireResponse<JsonValue> {
+    let path = match require_str(&args, "path") {
+        Ok(s) => s,
+        Err(r) => return r,
+    };
+    to_value(crate::jobs::clear_tags_from_directory(&path).await)
+}

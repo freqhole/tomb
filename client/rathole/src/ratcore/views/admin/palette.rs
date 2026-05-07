@@ -29,10 +29,30 @@ pub fn draw(frame: &mut Frame, area: Rect, app: &mut App) {
 
     let [left, right] = Layout::horizontal([Length(40), Min(0)]).areas(area);
 
-    let items: Vec<ListItem> = app
-        .commands
+    // resolve which commands the filter currently shows. clamp the
+    // palette selection so it never points past the visible list
+    // (typing a filter that shrinks the list shouldn't strand the
+    // cursor).
+    let visible: Vec<usize> = app.palette_visible_indices();
+    if !visible.is_empty() {
+        let sel = app
+            .state
+            .ephemeral
+            .palette_list
+            .selected()
+            .unwrap_or(0)
+            .min(visible.len() - 1);
+        app.state.ephemeral.palette_list.select(Some(sel));
+    } else {
+        app.state.ephemeral.palette_list.select(None);
+    }
+
+    let filter = app.state.ephemeral.palette_filter.clone();
+
+    let items: Vec<ListItem> = visible
         .iter()
-        .map(|c| {
+        .map(|i| {
+            let c = &app.commands[*i];
             let group = c.group();
             // split the name into "[group]_[rest]" and dim the group
             // prefix so the eye can find groups (knocks_, users_,
@@ -45,11 +65,21 @@ pub fn draw(frame: &mut Frame, area: Rect, app: &mut App) {
         })
         .collect();
 
+    // title carries both the visible/total count and (when active)
+    // the filter string so the user knows why the list shrunk.
+    let title_text = if filter.is_empty() {
+        format!("commands ({})", app.commands.len())
+    } else {
+        format!(
+            "commands ({}/{}) /{}",
+            visible.len(),
+            app.commands.len(),
+            filter
+        )
+    };
+
     let list = List::new(items)
-        .block(Block::bordered().title(Span::styled(
-            format!("commands ({})", app.commands.len()),
-            Style::new().fg(ACCENT).bold(),
-        )))
+        .block(Block::bordered().title(Span::styled(title_text, Style::new().fg(ACCENT).bold())))
         .highlight_style(ratatui::style::Style::new().reversed())
         .highlight_symbol("\u{25B6} ");
 
@@ -59,8 +89,10 @@ pub fn draw(frame: &mut Frame, area: Rect, app: &mut App) {
 }
 
 fn draw_detail(frame: &mut Frame, area: Rect, app: &App) {
-    let selected = app.state.ephemeral.palette_list.selected().unwrap_or(0);
-    let cmd = app.commands.get(selected);
+    // resolve the selected command via the filter-aware index map so
+    // the "selected" info box always matches the highlighted row.
+    let cmd_idx = app.palette_selected_index();
+    let cmd = cmd_idx.and_then(|i| app.commands.get(i));
 
     // when a form is open, give it the entire right pane — args
     // previews, long help text, and the confirm summary all need

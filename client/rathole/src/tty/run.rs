@@ -258,47 +258,45 @@ fn on_landing_key(app: &mut App, code: KeyCode, action_tx: &mpsc::UnboundedSende
 }
 
 fn on_palette_key(app: &mut App, code: KeyCode, action_tx: &mpsc::UnboundedSender<AppAction>) {
-    let len = app.commands.len();
-    if len == 0 {
-        return;
-    }
+    use crate::ratcore::palette_filter as pf;
+    let visible = app.palette_visible_indices();
+    let len = visible.len();
     let selected = app.state.ephemeral.palette_list.selected().unwrap_or(0);
     match code {
-        KeyCode::Down | KeyCode::Char('j') => {
+        KeyCode::Down => {
+            if len == 0 {
+                return;
+            }
             let next = (selected + 1).min(len - 1);
             app.state.ephemeral.palette_list.select(Some(next));
         }
-        KeyCode::Up | KeyCode::Char('k') => {
+        KeyCode::Up => {
+            if len == 0 {
+                return;
+            }
             let next = selected.saturating_sub(1);
             app.state.ephemeral.palette_list.select(Some(next));
         }
-        KeyCode::Home | KeyCode::Char('g') => {
+        KeyCode::Home => {
+            if len == 0 {
+                return;
+            }
             app.state.ephemeral.palette_list.select(Some(0));
         }
-        KeyCode::End | KeyCode::Char('G') => {
+        KeyCode::End => {
+            if len == 0 {
+                return;
+            }
             app.state.ephemeral.palette_list.select(Some(len - 1));
         }
-        KeyCode::Char('p') => {
-            // open peer-input modal. tty's LocalTransport doesn't use a
-            // peer addr today (m5 will plumb iroh into the tty shell
-            // too), so the modal is mostly here for parity with the
-            // web shell + uniform paste/edit testing.
-            let seed = app
-                .state
-                .ephemeral
-                .connected_peer
-                .clone()
-                .unwrap_or_default();
-            let cursor = seed.chars().count();
-            app.state.ephemeral.peer_input = seed;
-            app.state.ephemeral.peer_cursor = cursor;
-            app.state.ephemeral.peer_error = None;
-            app.state.ephemeral.focus = Focus::PeerInput;
+        KeyCode::Backspace => {
+            pf::pop_char(app);
         }
         KeyCode::Enter => {
-            // if the command has args, open the inline form. otherwise
-            // dispatch immediately with empty args.
-            let cmd = app.commands[selected].clone();
+            let Some(real_idx) = app.palette_selected_index() else {
+                return;
+            };
+            let cmd = app.commands[real_idx].clone();
             if !cmd.args.is_empty() {
                 app.state.ephemeral.form = Some(CommandForm::new(&cmd));
                 app.state.ephemeral.focus = Focus::CommandForm;
@@ -311,11 +309,16 @@ fn on_palette_key(app: &mut App, code: KeyCode, action_tx: &mpsc::UnboundedSende
             app.state.ephemeral.focus = Focus::ResultPanel;
         }
         KeyCode::Esc => {
-            // back out to the landing screen so esc unwinds the
-            // navigation stack instead of dead-ending in the
-            // commands palette.
+            // esc clears an active filter first; only when the filter
+            // is already empty does it unwind to the landing screen.
+            if pf::clear(app) {
+                return;
+            }
             app.state.ephemeral.show_command_list = false;
             app.state.ephemeral.focus = Focus::Landing;
+        }
+        KeyCode::Char(c) if pf::is_filter_char(c) => {
+            pf::push_char(app, c);
         }
         _ => {}
     }

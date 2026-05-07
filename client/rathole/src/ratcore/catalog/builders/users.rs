@@ -153,3 +153,49 @@ pub(in crate::ratcore::catalog) fn generate_account_link() -> AdminCommand {
         )],
     }
 }
+
+pub(in crate::ratcore::catalog) fn generate_api_key() -> AdminCommand {
+    AdminCommand {
+        name: "users_generate_api_key".to_string(),
+        request_type: "AdminUsersApiKeyRequest".to_string(),
+        response_type: "AdminUserSummary".to_string(),
+        auth: "Admin".to_string(),
+        kind: CommandKind::Admin,
+        args: vec![pick_user("user_id", "pick a user to (re)generate an api key for")],
+    }
+}
+
+pub(in crate::ratcore::catalog) fn revoke_api_key() -> AdminCommand {
+    AdminCommand {
+        name: "users_revoke_api_key".to_string(),
+        request_type: "AdminUsersApiKeyRequest".to_string(),
+        response_type: "AdminUserSummary".to_string(),
+        auth: "Admin".to_string(),
+        kind: CommandKind::Admin,
+        args: vec![pick_user("user_id", "pick a user whose api key to revoke")],
+    }
+}
+
+pub(in crate::ratcore::catalog) fn hard_delete_peer_node() -> AdminCommand {
+    // permanently delete a peer-node row. uses SelectFrom to pick a
+    // node_id from the user's active peers, but kept as plain text
+    // for simplicity (the user_id field gates the dropdown).
+    AdminCommand {
+        name: "users_hard_delete_peer_node".to_string(),
+        request_type: "AdminPeersRemoveRequest".to_string(),
+        response_type: "EmptyResponse".to_string(),
+        auth: "Admin".to_string(),
+        kind: CommandKind::Admin,
+        args: vec![
+            pick_user("user_id", "pick the owning user"),
+            ArgSpec {
+                name: "node_id".to_string(),
+                kind: ArgKind::Text {
+                    placeholder: "iroh node id (64 hex chars)".to_string(),
+                },
+                required: true,
+                help: Some("permanently removes the peer row (no soft-delete)".to_string()),
+            },
+        ],
+    }
+}

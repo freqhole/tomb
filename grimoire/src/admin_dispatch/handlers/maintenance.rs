@@ -153,3 +153,60 @@ pub(in crate::admin_dispatch) async fn update_spume() -> GrimoireResponse<JsonVa
         Err(e) => internal(format!("update_spume failed: {e:?}")),
     }
 }
+
+/// permanently delete media blobs that are soft-deleted and have no
+/// remaining references, and whose `deleted_at` is older than
+/// `min_age_days`. args: `{ min_age_days?: f64 (default 30.0) }`.
+pub(in crate::admin_dispatch) async fn cleanup_orphaned_blobs(
+    args: JsonValue,
+) -> GrimoireResponse<JsonValue> {
+    let min_age_days = args
+        .get("min_age_days")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(30.0);
+    if min_age_days < 0.0 {
+        return bad_request("min_age_days must be >= 0");
+    }
+    to_value(crate::maintenance::cleanup_orphaned_media_blobs_older_than(min_age_days).await)
+}
+
+/// hard-delete songs/albums/artists/playlists/tags/genres that have
+/// been soft-deleted longer than `retention_days`. args:
+/// `{ retention_days?: u32 (default 30), delete_blob_data?: bool (default true), dry_run?: bool (default false) }`.
+pub(in crate::admin_dispatch) async fn hard_delete_old_records(
+    args: JsonValue,
+) -> GrimoireResponse<JsonValue> {
+    let retention_days = args
+        .get("retention_days")
+        .and_then(|v| v.as_u64())
+        .map(|v| v as u32)
+        .unwrap_or(30);
+    let delete_blob_data = opt_bool(&args, "delete_blob_data").unwrap_or(true);
+    let dry_run = opt_bool(&args, "dry_run").unwrap_or(false);
+    let opts = crate::maintenance::HardDeleteOptions {
+        retention_days,
+        delete_blob_data,
+        dry_run,
+    };
+    to_value(crate::maintenance::hard_delete_old_records(opts).await)
+}
+
+/// run the full maintenance pipeline (orphaned tags + genres cleanup
+/// + hard-delete pass). args: same as `hard_delete_old_records`.
+pub(in crate::admin_dispatch) async fn run_full(
+    args: JsonValue,
+) -> GrimoireResponse<JsonValue> {
+    let retention_days = args
+        .get("retention_days")
+        .and_then(|v| v.as_u64())
+        .map(|v| v as u32)
+        .unwrap_or(30);
+    let delete_blob_data = opt_bool(&args, "delete_blob_data").unwrap_or(true);
+    let dry_run = opt_bool(&args, "dry_run").unwrap_or(false);
+    let opts = crate::maintenance::HardDeleteOptions {
+        retention_days,
+        delete_blob_data,
+        dry_run,
+    };
+    to_value(crate::maintenance::run_full_maintenance_with_options(opts).await)
+}

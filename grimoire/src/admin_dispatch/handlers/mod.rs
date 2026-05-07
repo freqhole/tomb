@@ -3,8 +3,10 @@
 //! see `super::handle()` for the dispatch table that calls into these.
 
 pub(super) mod analytics;
+pub(super) mod blobz;
 pub(super) mod database;
 pub(super) mod dir_tags;
+pub(super) mod federation;
 pub(super) mod invites;
 pub(super) mod jobs;
 pub(super) mod knocks;

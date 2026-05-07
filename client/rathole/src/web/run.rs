@@ -228,63 +228,49 @@ fn on_landing_key_web(app: &mut App, code: KeyCode, action_tx: &mpsc::UnboundedS
 }
 
 fn on_palette_key(app: &mut App, code: KeyCode, tx: &mpsc::UnboundedSender<AppAction>) {
-    let len = app.commands.len();
-    if len == 0 {
-        return;
-    }
+    use crate::ratcore::palette_filter as pf;
+    let visible = app.palette_visible_indices();
+    let len = visible.len();
     let selected = app.state.ephemeral.palette_list.selected().unwrap_or(0);
     match code {
-        KeyCode::Down | KeyCode::Char('j') => {
+        KeyCode::Down => {
+            if len == 0 {
+                return;
+            }
             let next = (selected + 1).min(len - 1);
             app.state.ephemeral.palette_list.select(Some(next));
         }
-        KeyCode::Up | KeyCode::Char('k') => {
+        KeyCode::Up => {
+            if len == 0 {
+                return;
+            }
             let next = selected.saturating_sub(1);
             app.state.ephemeral.palette_list.select(Some(next));
         }
-        KeyCode::Home | KeyCode::Char('g') => {
+        KeyCode::Home => {
+            if len == 0 {
+                return;
+            }
             app.state.ephemeral.palette_list.select(Some(0));
         }
-        KeyCode::End | KeyCode::Char('G') => {
+        KeyCode::End => {
+            if len == 0 {
+                return;
+            }
             app.state.ephemeral.palette_list.select(Some(len - 1));
         }
-        KeyCode::Char('p') => {
-            // open peer-input modal. seed with currently-connected peer
-            // so user can edit instead of retyping.
-            let seed = app
-                .state
-                .ephemeral
-                .connected_peer
-                .clone()
-                .unwrap_or_default();
-            let cursor = seed.chars().count();
-            app.state.ephemeral.peer_input = seed;
-            app.state.ephemeral.peer_cursor = cursor;
-            app.state.ephemeral.peer_error = None;
-            app.state.ephemeral.focus = Focus::PeerInput;
-        }
-        KeyCode::Char('r') => {
-            open_remote_list(app, tx);
-        }
-        KeyCode::Char('[') => {
-            app.state.ephemeral.last_dispatch_scroll =
-                app.state.ephemeral.last_dispatch_scroll.saturating_sub(1);
-        }
-        KeyCode::Char(']') => {
-            // upper bound clamping happens in the renderer (it knows the
-            // viewport height), so we just bump optimistically here.
-            app.state.ephemeral.last_dispatch_scroll =
-                app.state.ephemeral.last_dispatch_scroll.saturating_add(1);
-        }
-        KeyCode::Char('\\') => {
-            app.state.ephemeral.last_dispatch_scroll = 0;
+        KeyCode::Backspace => {
+            pf::pop_char(app);
         }
         KeyCode::Tab => {
             // hand focus to the result panel so arrow keys scroll it.
             app.state.ephemeral.focus = Focus::ResultPanel;
         }
         KeyCode::Enter => {
-            let cmd = app.commands[selected].clone();
+            let Some(real_idx) = app.palette_selected_index() else {
+                return;
+            };
+            let cmd = app.commands[real_idx].clone();
             // commands with args open an inline form; no-arg commands
             // dispatch immediately with `{}`.
             if !cmd.args.is_empty() {
@@ -294,7 +280,7 @@ fn on_palette_key(app: &mut App, code: KeyCode, tx: &mpsc::UnboundedSender<AppAc
                     app.state.ephemeral.last_dispatch = Some(LastDispatch {
                         command: cmd.name,
                         success: false,
-                        message: "set a peer first (press p)".to_string(),
+                        message: "set a peer first (use /peer)".to_string(),
                         data_pretty: None,
                         rows: Vec::new(),
                         cursor: 0,
@@ -328,10 +314,18 @@ fn on_palette_key(app: &mut App, code: KeyCode, tx: &mpsc::UnboundedSender<AppAc
             });
         }
         KeyCode::Esc => {
-            // back out to landing so esc unwinds the navigation
-            // stack instead of dead-ending in the commands palette.
+            // esc clears an active filter first; only when the filter
+            // is already empty does it unwind back to the landing
+            // screen. this matches vim/fzf-style "narrow then back out"
+            // navigation.
+            if pf::clear(app) {
+                return;
+            }
             app.state.ephemeral.show_command_list = false;
             app.state.ephemeral.focus = Focus::Landing;
+        }
+        KeyCode::Char(c) if pf::is_filter_char(c) => {
+            pf::push_char(app, c);
         }
         _ => {}
     }

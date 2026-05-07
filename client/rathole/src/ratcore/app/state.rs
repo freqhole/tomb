@@ -168,6 +168,13 @@ pub struct EphemeralState {
     /// the form/results pane uses the full body width and the user
     /// can toggle the list with `/help` or `/commands`.
     pub show_command_list: bool,
+    /// substring filter applied to the admin command palette.
+    /// case-insensitive match against `AdminCommand::name`. when
+    /// non-empty, the palette shows only commands whose name
+    /// contains this string. typed printable chars in the palette
+    /// focus append to this; backspace pops; esc (when non-empty)
+    /// clears it.
+    pub palette_filter: String,
     /// rows for the remotes-list view ([`Focus::RemoteList`]). loaded
     /// from the shell's storage on demand. portable shape so both
     /// shells can populate it.
@@ -200,6 +207,7 @@ impl Default for EphemeralState {
             player_row_return_focus: None,
             pending_quit: false,
             show_command_list: false,
+            palette_filter: String::new(),
             remotes_view: Vec::new(),
             remotes_view_cursor: 0,
         }

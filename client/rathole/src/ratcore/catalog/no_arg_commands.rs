@@ -189,4 +189,8 @@ pub(super) const NO_ARG_COMMANDS: &[(&str, &str, &str)] = &[
     ("database_info", "EmptyRequest", "DatabaseInfoResponse"),
     // -- jobs --
     ("jobs_stats", "EmptyRequest", "QueueStats"),
+    // -- blobz --
+    ("blobz_blake3_status", "EmptyRequest", "serde_json::Value"),
+    // -- federation --
+    ("federation_status", "EmptyRequest", "serde_json::Value"),
 ];

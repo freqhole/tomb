@@ -82,6 +82,9 @@ pub async fn handle(
         "users_hard_delete" => handlers::users::hard_delete(args, caller).await,
         "users_restore" => handlers::users::restore(args, caller).await,
         "users_generate_account_link" => handlers::users::generate_account_link(args, caller).await,
+        "users_generate_api_key" => handlers::users::generate_api_key(args).await,
+        "users_revoke_api_key" => handlers::users::revoke_api_key(args).await,
+        "users_hard_delete_peer_node" => handlers::users::hard_delete_peer_node(args).await,
 
         // -- invites --
         "invites_list" => handlers::invites::list(args, caller).await,
@@ -168,6 +171,13 @@ pub async fn handle(
         }
         "maintenance_update_server_image" => handlers::maintenance::update_server_image().await,
         "maintenance_update_spume" => handlers::maintenance::update_spume().await,
+        "maintenance_cleanup_orphaned_blobs" => {
+            handlers::maintenance::cleanup_orphaned_blobs(args).await
+        }
+        "maintenance_hard_delete_old_records" => {
+            handlers::maintenance::hard_delete_old_records(args).await
+        }
+        "maintenance_run_full" => handlers::maintenance::run_full(args).await,
 
         // -- dir_tags --
         "dir_tags_list_rules" => handlers::dir_tags::list_rules().await,
@@ -176,6 +186,7 @@ pub async fn handle(
         "dir_tags_remove" => handlers::dir_tags::remove(args).await,
         "dir_tags_clear" => handlers::dir_tags::clear(args).await,
         "dir_tags_strip" => handlers::dir_tags::strip(args).await,
+        "dir_tags_clear_directory" => handlers::dir_tags::clear_directory(args).await,
 
         // -- analytics (read-only) --
         "analytics_admin_overview" => handlers::analytics::admin_overview().await,
@@ -200,6 +211,14 @@ pub async fn handle(
         // -- jobs --
         "jobs_list" => handlers::jobs::list(args).await,
         "jobs_stats" => handlers::jobs::stats().await,
+
+        // -- blobz --
+        "blobz_blake3_status" => handlers::blobz::blake3_status().await,
+        "blobz_backfill_blake3" => handlers::blobz::backfill_blake3(args).await,
+        "blobz_check_references" => handlers::blobz::check_references(args).await,
+
+        // -- federation --
+        "federation_status" => handlers::federation::status().await,
 
         _ => command_not_found(command),
     }

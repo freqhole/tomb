@@ -201,3 +201,50 @@ pub(in crate::admin_dispatch) async fn generate_account_link(
         },
     }
 }
+
+/// generate (or regenerate) the api key for a user.
+/// args: `{ user_id: String }`
+pub(in crate::admin_dispatch) async fn generate_api_key(
+    args: JsonValue,
+) -> GrimoireResponse<JsonValue> {
+    let user_id = match crate::admin_dispatch::helpers::require_str(&args, "user_id") {
+        Ok(s) => s,
+        Err(r) => return r,
+    };
+    let resp = UserService::new().generate_api_key(&user_id).await;
+    to_value(map_response(resp, AdminUserSummary::from))
+}
+
+/// revoke the api key for a user.
+/// args: `{ user_id: String }`
+pub(in crate::admin_dispatch) async fn revoke_api_key(
+    args: JsonValue,
+) -> GrimoireResponse<JsonValue> {
+    let user_id = match crate::admin_dispatch::helpers::require_str(&args, "user_id") {
+        Ok(s) => s,
+        Err(r) => return r,
+    };
+    let resp = UserService::new().revoke_api_key(&user_id).await;
+    to_value(map_response(resp, AdminUserSummary::from))
+}
+
+/// permanently delete a peer-node row (hard DELETE — bypasses the
+/// soft-delete flow used by `peers_remove`). reserved for cleanup
+/// tooling.
+/// args: `{ user_id: String, node_id: String }`
+pub(in crate::admin_dispatch) async fn hard_delete_peer_node(
+    args: JsonValue,
+) -> GrimoireResponse<JsonValue> {
+    let user_id = match crate::admin_dispatch::helpers::require_str(&args, "user_id") {
+        Ok(s) => s,
+        Err(r) => return r,
+    };
+    let node_id = match crate::admin_dispatch::helpers::require_str(&args, "node_id") {
+        Ok(s) => s,
+        Err(r) => return r,
+    };
+    let resp = UserService::new()
+        .hard_delete_peer_node(&user_id, &node_id)
+        .await;
+    to_value(map_response(resp, |_| ()))
+}
