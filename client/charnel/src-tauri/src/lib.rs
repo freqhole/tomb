@@ -336,6 +336,45 @@ pub fn run() {
         let _ = rustls::crypto::ring::default_provider().install_default();
     }
 
+    // desktop terminal-passthrough: if the binary was invoked with any
+    // additional argv beyond the program name (e.g. `freqhole users list`,
+    // `freqhole rathole`, `freqhole --help`) hand off to the cli library
+    // and exit instead of bringing up the gui. this lets a single binary
+    // serve as both gui app (no args) and full cli (any args) without
+    // bundling a second executable. mobile targets never have argv so
+    // skip this entirely.
+    #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
+    {
+        let argc = std::env::args().count();
+        // tauri itself sometimes injects flags on macos when launched
+        // from finder (e.g. `-psn_<pid>`). filter those out so the gui
+        // still launches when double-clicked from finder.
+        let real_args: Vec<String> = std::env::args()
+            .skip(1)
+            .filter(|a| !a.starts_with("-psn_"))
+            .collect();
+        if argc > 1 && !real_args.is_empty() {
+            let rt = match tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build()
+            {
+                Ok(rt) => rt,
+                Err(e) => {
+                    eprintln!("failed to start tokio runtime for cli: {e}");
+                    std::process::exit(1);
+                }
+            };
+            let exit_code = match rt.block_on(cli::run()) {
+                Ok(()) => 0,
+                Err(e) => {
+                    eprintln!("error: {e}");
+                    1
+                }
+            };
+            std::process::exit(exit_code);
+        }
+    }
+
     setup_tracing();
 
     let p2p_state = Arc::new(P2pState::new());

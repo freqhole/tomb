@@ -10,6 +10,9 @@ pub mod ratcore;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod tty;
 
+#[cfg(not(target_arch = "wasm32"))]
+pub mod wizard;
+
 #[cfg(target_arch = "wasm32")]
 pub mod web;
 

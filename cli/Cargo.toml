@@ -4,8 +4,12 @@ version.workspace = true
 edition = "2021"
 
 [[bin]]
-name = "freqhole"
+name = "rathole"
 path = "src/main.rs"
+
+[lib]
+name = "cli"
+path = "src/lib.rs"
 
 [features]
 default = ["server/webauthn", "rodio-playback"]

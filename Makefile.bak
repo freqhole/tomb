@@ -62,7 +62,7 @@ build-mac-arm:
 	@echo "building rathole CLI (cli crate) for macOS arm64..."
 	cargo build --package cli --release --target $(MAC_ARM_TARGET)
 	@mkdir -p $(BUILD_DIR)/$(VERSION)
-	cp target/$(MAC_ARM_TARGET)/release/rathole $(BUILD_DIR)/$(VERSION)/rathole_$(VERSION)_darwin-aarch64
+	cp target/$(MAC_ARM_TARGET)/release/freqhole $(BUILD_DIR)/$(VERSION)/rathole_$(VERSION)_darwin-aarch64
 	@echo "built: $(BUILD_DIR)/$(VERSION)/rathole_$(VERSION)_darwin-aarch64"
 	@if [ -n "$(APPLE_SIGNING_IDENTITY)" ]; then \
 		echo "signing..."; \
@@ -88,7 +88,7 @@ build-mac-intel:
 	@echo "building rathole CLI (cli crate) for macOS x86_64 (vendored OpenSSL)..."
 	OPENSSL_STATIC=1 cargo build --package cli --release --target $(MAC_INTEL_TARGET) --features grimoire/vendored-openssl
 	@mkdir -p $(BUILD_DIR)/$(VERSION)
-	cp target/$(MAC_INTEL_TARGET)/release/rathole $(BUILD_DIR)/$(VERSION)/rathole_$(VERSION)_darwin-x86_64
+	cp target/$(MAC_INTEL_TARGET)/release/freqhole $(BUILD_DIR)/$(VERSION)/rathole_$(VERSION)_darwin-x86_64
 	@echo "built: $(BUILD_DIR)/$(VERSION)/rathole_$(VERSION)_darwin-x86_64"
 	@if [ -n "$(APPLE_SIGNING_IDENTITY)" ]; then \
 		echo "signing..."; \
@@ -118,7 +118,7 @@ build-linux:
 		--build-arg TARGET_ARCH=$(LINUX_TARGET)
 	@mkdir -p $(BUILD_DIR)/$(VERSION)
 	docker run --rm -v $(PWD)/$(BUILD_DIR)/$(VERSION):/output freqhole-linux-builder \
-		sh -c "cp /app/target/$(LINUX_TARGET)/release/rathole /output/rathole_$(VERSION)_linux-x86_64"
+		sh -c "cp /app/target/$(LINUX_TARGET)/release/freqhole /output/rathole_$(VERSION)_linux-x86_64"
 	@echo "built: $(BUILD_DIR)/$(VERSION)/rathole_$(VERSION)_linux-x86_64"
 
 # Raspberry Pi aarch64 CLI binary (via Docker)
@@ -129,7 +129,7 @@ build-pi:
 	docker build -f Dockerfile.build -t freqhole-pi-builder .
 	@mkdir -p $(BUILD_DIR)/$(VERSION)
 	docker run --rm -v $(PWD)/$(BUILD_DIR)/$(VERSION):/output freqhole-pi-builder \
-		sh -c "cp /app/target/$(PI_TARGET)/release/rathole /output/rathole_$(VERSION)_linux-aarch64"
+		sh -c "cp /app/target/$(PI_TARGET)/release/freqhole /output/rathole_$(VERSION)_linux-aarch64"
 	@echo "built: $(BUILD_DIR)/$(VERSION)/rathole_$(VERSION)_linux-aarch64"
 
 # Raspberry Pi 32-bit CLI binary (via Docker, webauthn disabled)
@@ -143,7 +143,7 @@ build-pi32:
 		--build-arg CARGO_EXTRA_FLAGS="--no-default-features"
 	@mkdir -p $(BUILD_DIR)/$(VERSION)
 	docker run --rm -v $(PWD)/$(BUILD_DIR)/$(VERSION):/output freqhole-pi32-builder \
-		sh -c "cp /app/target/$(PI32_TARGET)/release/rathole /output/rathole_$(VERSION)_linux-armv7"
+		sh -c "cp /app/target/$(PI32_TARGET)/release/freqhole /output/rathole_$(VERSION)_linux-armv7"
 	@echo "built: $(BUILD_DIR)/$(VERSION)/rathole_$(VERSION)_linux-armv7"
 
 .PHONY: clean
