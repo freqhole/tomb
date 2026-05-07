@@ -33,7 +33,9 @@ toml = "0.8"
 ulid = "1"
 color-eyre = "0.6"
 tracing-subscriber = { workspace = true }
-grimoire = { path = "../../grimoire" }
+grimoire = { path = "../../grimoire", default-features = false, features = [
+    "rodio-playback",
+] }
 anyhow = { workspace = true }
 libc = "0.2"
 

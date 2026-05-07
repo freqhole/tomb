@@ -57,6 +57,8 @@ tauri-plugin-android-media-session = { path = "plugins/tauri-plugin-android-medi
 # launcher path so we skip this dep there.
 [target."cfg(any(target_os = \"macos\", target_os = \"linux\", target_os = \"windows\"))".dependencies.cli]
 path = "../../../cli"
+default-features = false
+features = ["rodio-playback"]
 
 [target."cfg(unix)".dependencies]
 nix = { version = "0.29", features = ["signal"] }
