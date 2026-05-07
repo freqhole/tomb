@@ -50,6 +50,15 @@ impl AdminCommand {
             args: vec![],
         }
     }
+
+    /// short group label for clustering in the palette, derived from
+    /// the first underscore-separated segment of the command name.
+    pub fn group(&self) -> &str {
+        match self.name.split_once('_') {
+            Some((prefix, _)) => prefix,
+            None => self.name.as_str(),
+        }
+    }
 }
 
 /// which transport channel a command dispatches over.

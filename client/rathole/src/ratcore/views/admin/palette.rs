@@ -32,7 +32,17 @@ pub fn draw(frame: &mut Frame, area: Rect, app: &mut App) {
     let items: Vec<ListItem> = app
         .commands
         .iter()
-        .map(|c| ListItem::new(c.name.clone()))
+        .map(|c| {
+            let group = c.group();
+            // split the name into "[group]_[rest]" and dim the group
+            // prefix so the eye can find groups (knocks_, users_,
+            // analytics_, etc.) without losing the full name.
+            let rest = c.name.strip_prefix(group).unwrap_or(c.name.as_str());
+            ListItem::new(Line::from(vec![
+                Span::styled(group.to_string(), Style::new().fg(ACCENT)),
+                Span::raw(rest.to_string()),
+            ]))
+        })
         .collect();
 
     let list = List::new(items)
