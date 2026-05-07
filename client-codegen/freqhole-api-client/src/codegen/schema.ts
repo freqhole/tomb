@@ -2336,6 +2336,7 @@ export type PlayAnalytics = z.infer<typeof PlayAnalyticsSchema>;
 
 export const PlayerCommandSchema = z.union([
 z.object({ kind: z.literal("load"), paths: z.array(z.string()) }),
+z.object({ kind: z.literal("enqueue"), paths: z.array(z.string()) }),
 z.object({ kind: z.literal("play") }),
 z.object({ kind: z.literal("pause") }),
 z.object({ kind: z.literal("stop") }),
