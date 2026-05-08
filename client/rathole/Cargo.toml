@@ -38,6 +38,10 @@ grimoire = { path = "../../grimoire", default-features = false, features = [
 ] }
 anyhow = { workspace = true }
 libc = "0.2"
+# clipboard + browser-open helpers for /info-style slash commands
+# (e.g. copy or open the spume invite link). both are tty-shell only.
+arboard = { version = "3", default-features = false }
+open = "5"
 
 # ----------------------------------------------------------------------
 # web shell deps (wasm32 only). ratzilla brings its own ratatui

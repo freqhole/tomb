@@ -254,6 +254,7 @@ fn mobile_auto_init(app_handle: &tauri::AppHandle) -> Result<(), Box<dyn std::er
         // from any remote freqhole server they later add.
         server_name: "local library".to_string(),
         server_port: 8081,
+        description: None,
         image_path: None,
         admin_username: None,
         generate_api_key: false,

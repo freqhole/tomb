@@ -33,6 +33,8 @@ pub struct SetupConfig {
     pub server_name: String,
     /// server port
     pub server_port: u16,
+    /// optional server description (one-line tagline)
+    pub description: Option<String>,
     /// optional server icon image path
     pub image_path: Option<String>,
     /// admin username to create (optional - if provided, creates admin user with API key)
@@ -269,6 +271,7 @@ impl SetupService {
             false, // don't auto-run migrations, we do it explicitly
             Some(config.server_name.clone()),
             Some(config.server_port),
+            config.description.clone(),
             image_path,
             config.ytdlp_available,
             Some(fetch_music_dir),

@@ -8,6 +8,9 @@
 pub mod ratcore;
 
 #[cfg(not(target_arch = "wasm32"))]
+pub mod log_buffer;
+
+#[cfg(not(target_arch = "wasm32"))]
 pub mod tty;
 
 #[cfg(not(target_arch = "wasm32"))]

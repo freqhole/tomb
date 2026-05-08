@@ -59,8 +59,8 @@ build-all:
 # macOS arm64 CLI binary (signs + notarizes if APPLE_* env vars set)
 .PHONY: build-mac-arm
 build-mac-arm:
-	@echo "building rathole CLI (cli crate) for macOS arm64..."
-	cargo build --package cli --release --target $(MAC_ARM_TARGET)
+	@echo "building rathole CLI (cli crate) for macOS arm64 (no webauthn)..."
+	cargo build --package cli --release --target $(MAC_ARM_TARGET) --no-default-features --features rodio-playback
 	@mkdir -p $(BUILD_DIR)/$(VERSION)
 	cp target/$(MAC_ARM_TARGET)/release/rathole $(BUILD_DIR)/$(VERSION)/rathole_$(VERSION)_darwin-aarch64
 	@echo "built: $(BUILD_DIR)/$(VERSION)/rathole_$(VERSION)_darwin-aarch64"
@@ -85,8 +85,8 @@ build-mac-arm:
 # macOS x86_64 CLI binary (signs + notarizes if APPLE_* env vars set)
 .PHONY: build-mac-intel
 build-mac-intel:
-	@echo "building rathole CLI (cli crate) for macOS x86_64 (vendored OpenSSL)..."
-	OPENSSL_STATIC=1 cargo build --package cli --release --target $(MAC_INTEL_TARGET) --features grimoire/vendored-openssl
+	@echo "building rathole CLI (cli crate) for macOS x86_64 (no webauthn)..."
+	cargo build --package cli --release --target $(MAC_INTEL_TARGET) --no-default-features --features rodio-playback
 	@mkdir -p $(BUILD_DIR)/$(VERSION)
 	cp target/$(MAC_INTEL_TARGET)/release/rathole $(BUILD_DIR)/$(VERSION)/rathole_$(VERSION)_darwin-x86_64
 	@echo "built: $(BUILD_DIR)/$(VERSION)/rathole_$(VERSION)_darwin-x86_64"
@@ -170,7 +170,8 @@ info:
 	@echo "  make build-tauri-mac-intel   - macOS x86_64 .dmg (signs if APPLE_SIGNING_IDENTITY set)"
 	@echo "  make build-tauri-linux-intel - Linux x86_64 .deb/.rpm (Docker)"
 	@echo "  make build-tauri-linux-arm64 - Linux aarch64 .deb/.rpm (Docker)"
-	@echo "  make build-tauri-android     - Android universal .apk (signed with apksigner)"
+	@echo "  make build-tauri-android       - Android universal .apk, no 32-bit arm (signed)"
+	@echo "  make build-tauri-android-arm64 - Android arm64-only .apk (signed, ~1/3 size of universal)"
 	@echo ""
 	@echo "Flatpak (via Docker, needs .deb first):"
 	@echo "  make build-flatpak-intel - Linux x86_64 .flatpak"
@@ -211,7 +212,7 @@ info:
 help: info
 
 # Tauri app build commands
-.PHONY: build-tauri-mac-arm build-tauri-mac-intel build-tauri-linux-intel build-tauri-linux-arm64 build-tauri-android
+.PHONY: build-tauri-mac-arm build-tauri-mac-intel build-tauri-linux-intel build-tauri-linux-arm64 build-tauri-android build-tauri-android-arm64
 TAURI_DIR := client/charnel
 
 # Android tauri build env (override via env or .env)
@@ -297,11 +298,17 @@ build-tauri-linux-arm64:
 	@echo "built: $(BUILD_DIR)/$(VERSION)/freqhole_charnel_$(VERSION)_aarch64.deb"
 	@echo "built: $(BUILD_DIR)/$(VERSION)/freqhole_charnel_$(VERSION)_aarch64.rpm"
 
-# Android Tauri app (universal release apk, signed with apksigner)
+# Android Tauri app (release apk, signed with apksigner)
 # requires: ANDROID_SDK_ROOT, ANDROID_KEYSTORE (optionally ANDROID_BUILD_TOOLS_VERSION,
 # ANDROID_KEY_ALIAS, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_PASSWORD)
+#
+# arch selection: tauri targets `aarch64`, `armv7`, `i686`, `x86_64`. omitting
+# any `--target` flag builds all four (universal). we deliberately drop
+# `armv7` (32-bit arm — effectively dead since play store dropped support in
+# 2019) to roughly halve the apk. emulator targets (`i686`, `x86_64`) stay so
+# the universal apk runs in android studio's avd.
 build-tauri-android:
-	@echo "building Tauri app for Android (universal apk)..."
+	@echo "building Tauri app for Android (universal apk, no 32-bit arm)..."
 	@if [ ! -d "$(ANDROID_SDK_ROOT)" ]; then \
 		echo "error: ANDROID_SDK_ROOT not found at $(ANDROID_SDK_ROOT)"; \
 		echo "set ANDROID_SDK_ROOT in .env or your environment"; exit 1; \
@@ -314,7 +321,7 @@ build-tauri-android:
 		echo "error: keystore not found at $(ANDROID_KEYSTORE)"; \
 		echo "set ANDROID_KEYSTORE in .env or your environment"; exit 1; \
 	fi
-	cd $(TAURI_DIR) && npm run tauri android build -- --apk
+	cd $(TAURI_DIR) && npm run tauri android build -- --apk --target aarch64 --target x86_64 --target i686
 	@echo "signing apk with apksigner..."
 	$(ANDROID_APKSIGNER) sign \
 		--ks "$(ANDROID_KEYSTORE)" \
@@ -326,6 +333,36 @@ build-tauri-android:
 	cp $(TAURI_DIR)/src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release-unsigned.apk \
 		$(BUILD_DIR)/$(VERSION)/freqhole_charnel_$(VERSION)_android-universal.apk
 	@echo "built: $(BUILD_DIR)/$(VERSION)/freqhole_charnel_$(VERSION)_android-universal.apk"
+
+# Android arm64-only apk — for distribution to real devices. roughly 1/3 the
+# size of the universal apk since it skips the emulator (i686, x86_64) and
+# 32-bit arm (armv7) slices.
+build-tauri-android-arm64:
+	@echo "building Tauri app for Android (arm64-only apk)..."
+	@if [ ! -d "$(ANDROID_SDK_ROOT)" ]; then \
+		echo "error: ANDROID_SDK_ROOT not found at $(ANDROID_SDK_ROOT)"; \
+		echo "set ANDROID_SDK_ROOT in .env or your environment"; exit 1; \
+	fi
+	@if [ ! -x "$(ANDROID_APKSIGNER)" ]; then \
+		echo "error: apksigner not found at $(ANDROID_APKSIGNER)"; \
+		echo "install android build-tools $(ANDROID_BUILD_TOOLS_VERSION) or set ANDROID_BUILD_TOOLS_VERSION"; exit 1; \
+	fi
+	@if [ ! -f "$(ANDROID_KEYSTORE)" ]; then \
+		echo "error: keystore not found at $(ANDROID_KEYSTORE)"; \
+		echo "set ANDROID_KEYSTORE in .env or your environment"; exit 1; \
+	fi
+	cd $(TAURI_DIR) && npm run tauri android build -- --apk --target aarch64
+	@echo "signing apk with apksigner..."
+	$(ANDROID_APKSIGNER) sign \
+		--ks "$(ANDROID_KEYSTORE)" \
+		--ks-key-alias "$(ANDROID_KEY_ALIAS)" \
+		$(if $(ANDROID_KEYSTORE_PASSWORD),--ks-pass pass:$(ANDROID_KEYSTORE_PASSWORD)) \
+		$(if $(ANDROID_KEY_PASSWORD),--key-pass pass:$(ANDROID_KEY_PASSWORD)) \
+		$(TAURI_DIR)/src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release-unsigned.apk
+	@mkdir -p $(BUILD_DIR)/$(VERSION)
+	cp $(TAURI_DIR)/src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release-unsigned.apk \
+		$(BUILD_DIR)/$(VERSION)/freqhole_charnel_$(VERSION)_android-arm64.apk
+	@echo "built: $(BUILD_DIR)/$(VERSION)/freqhole_charnel_$(VERSION)_android-arm64.apk"
 # Flatpak builds (via Docker - no special privileges needed)
 .PHONY: build-flatpak-intel build-flatpak-arm64 build-flatpak-builder
 

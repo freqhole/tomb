@@ -6,6 +6,7 @@
 mod persist;
 mod player;
 mod run;
+pub mod serve_monitor;
 mod transport;
 
 pub use transport::LocalTransport;

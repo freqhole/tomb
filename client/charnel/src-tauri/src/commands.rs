@@ -186,6 +186,7 @@ pub async fn run_setup_core(
         data_dir: PathBuf::from(&data_dir),
         server_name,
         server_port,
+        description: None,
         image_path: final_image_path,
         admin_username: None,        // no admin user in core setup
         generate_api_key: false,     // no API key without admin user

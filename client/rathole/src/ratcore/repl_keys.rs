@@ -25,6 +25,13 @@ pub fn enter(state: &mut AppState) {
     state.ephemeral.focus = Focus::Repl;
 }
 
+/// build the public spume invite url for a given p2p node id.
+/// shared by `/info`, `/copy-invite`, and `/open-invite` so the
+/// hostname only lives in one place.
+fn invite_url(node_id: &str) -> String {
+    format!("https://spume.freqhole.net/?r={node_id}")
+}
+
 /// enter the repl with `seed` already typed and the cursor placed
 /// at the end. used by the `/` keybind so the user can start typing
 /// a slash command without first hitting ctrl-k. seed is usually
@@ -266,6 +273,329 @@ pub fn apply_navigation(
             state.ephemeral.focus = Focus::ResultPanel;
             ReplOutcome::Done
         }
+        SlashAction::Info => {
+            // synthesize a result-panel snapshot of "everything you
+            // might want to know about this rathole instance":
+            // server config (name/desc/version/image), p2p identity
+            // (node_id, keypair path, federation flags), serve
+            // subprocess status, and key filesystem paths. all
+            // values come from sync grimoire helpers so we don't
+            // have to await anything in this navigation slice.
+            let cfg = grimoire::config::get_config();
+            let mut rows: Vec<serde_json::Value> = Vec::new();
+            let mut idx: usize = 0;
+            let push = |rows: &mut Vec<serde_json::Value>,
+                        idx: &mut usize,
+                        section: &str,
+                        label: &str,
+                        value: String| {
+                rows.push(serde_json::json!({
+                    "type": "info_field",
+                    "id": format!("{section}.{label}"),
+                    "title": format!("{section}: {label}"),
+                    "subtitle": value,
+                    "position": *idx,
+                }));
+                *idx += 1;
+            };
+            // --- server section ---
+            if let Some(s) = cfg.server.as_ref() {
+                push(&mut rows, &mut idx, "server", "name", s.name.clone());
+                push(
+                    &mut rows,
+                    &mut idx,
+                    "server",
+                    "description",
+                    s.description.clone().unwrap_or_else(|| "(none)".into()),
+                );
+                push(&mut rows, &mut idx, "server", "version", s.version.clone());
+                push(
+                    &mut rows,
+                    &mut idx,
+                    "server",
+                    "host:port",
+                    format!("{}:{}", s.host, s.port),
+                );
+                push(
+                    &mut rows,
+                    &mut idx,
+                    "server",
+                    "enabled",
+                    s.enabled.to_string(),
+                );
+                push(
+                    &mut rows,
+                    &mut idx,
+                    "server",
+                    "image_blob_id",
+                    s.image_blob_id.clone().unwrap_or_else(|| "(none)".into()),
+                );
+            } else {
+                push(
+                    &mut rows,
+                    &mut idx,
+                    "server",
+                    "config",
+                    "(no [server] section in config)".to_string(),
+                );
+            }
+            // --- p2p / federation section ---
+            let identity = grimoire::federation::get_identity_info();
+            push(
+                &mut rows,
+                &mut idx,
+                "p2p",
+                "node_id",
+                identity
+                    .node_id
+                    .clone()
+                    .unwrap_or_else(|| "(no keypair on disk)".into()),
+            );
+            push(
+                &mut rows,
+                &mut idx,
+                "p2p",
+                "keypair_path",
+                identity.keypair_path.display().to_string(),
+            );
+            push(
+                &mut rows,
+                &mut idx,
+                "p2p",
+                "keypair_exists",
+                identity.keypair_exists.to_string(),
+            );
+            // spume invite url — handy to share so a peer can land
+            // directly on the spume webclient pre-targeted at this
+            // node id. /copy-invite + /open-invite act on this same
+            // url. only meaningful when the keypair is on disk.
+            if let Some(node_id) = identity.node_id.as_deref() {
+                push(
+                    &mut rows,
+                    &mut idx,
+                    "p2p",
+                    "invite_url",
+                    invite_url(node_id),
+                );
+            }
+            if let Some(f) = cfg.federation.as_ref() {
+                push(
+                    &mut rows,
+                    &mut idx,
+                    "federation",
+                    "enabled",
+                    f.enabled.to_string(),
+                );
+                push(
+                    &mut rows,
+                    &mut idx,
+                    "federation",
+                    "knocking_enabled",
+                    f.knocking_enabled.to_string(),
+                );
+                if let Some(p) = f.bind_port {
+                    push(
+                        &mut rows,
+                        &mut idx,
+                        "federation",
+                        "bind_port",
+                        p.to_string(),
+                    );
+                }
+            } else {
+                push(
+                    &mut rows,
+                    &mut idx,
+                    "federation",
+                    "config",
+                    "(no [federation] section in config)".to_string(),
+                );
+            }
+            // --- serve subprocess section (rathole-managed) ---
+            let serve = &state.ephemeral.serve;
+            push(
+                &mut rows,
+                &mut idx,
+                "serve",
+                "subprocess",
+                if serve.running {
+                    format!(
+                        "running ({}{})",
+                        serve.mode.label(),
+                        serve.pid.map(|p| format!(", pid {p}")).unwrap_or_default()
+                    )
+                } else if let Some(msg) = serve.last_message.as_deref() {
+                    format!("stopped ({msg})")
+                } else {
+                    "not started".into()
+                },
+            );
+            // --- paths section ---
+            if let Some(p) = grimoire::config::get_config_path() {
+                push(
+                    &mut rows,
+                    &mut idx,
+                    "paths",
+                    "config_file",
+                    p.display().to_string(),
+                );
+            }
+            push(
+                &mut rows,
+                &mut idx,
+                "paths",
+                "data_dir",
+                cfg.data_dir.display().to_string(),
+            );
+            if let Some(p) = cfg.log_file_path() {
+                push(
+                    &mut rows,
+                    &mut idx,
+                    "paths",
+                    "log_file",
+                    p.display().to_string(),
+                );
+            }
+            // --- remote section (currently-connected peer) ---
+            if let Some(peer) = state.ephemeral.connected_peer.as_deref() {
+                push(
+                    &mut rows,
+                    &mut idx,
+                    "remote",
+                    "connected_to",
+                    peer.to_string(),
+                );
+                if let Some(name) = state.ephemeral.remote_name.as_deref() {
+                    push(&mut rows, &mut idx, "remote", "name", name.to_string());
+                }
+            }
+
+            let total = rows.len();
+            state.ephemeral.last_dispatch = Some(crate::ratcore::app::LastDispatch {
+                command: "info".to_string(),
+                success: true,
+                message: format!("local info ({total} fields)"),
+                data_pretty: None,
+                rows,
+                cursor: 0,
+            });
+            state.ephemeral.last_dispatch_scroll = 0;
+            state.ephemeral.repl.clear_input();
+            state.ephemeral.repl.status = Some(ReplStatus::ok("info"));
+            leave(state);
+            state.ephemeral.focus = Focus::ResultPanel;
+            ReplOutcome::Done
+        }
+        SlashAction::CopyInvite => {
+            // copy the spume invite link to the system clipboard.
+            // requires a node id (i.e. the local p2p keypair must
+            // have been generated). errors surface in the repl
+            // status line so the user knows what went wrong.
+            let identity = grimoire::federation::get_identity_info();
+            state.ephemeral.repl.clear_input();
+            match identity.node_id.as_deref() {
+                None => {
+                    state.ephemeral.repl.status = Some(ReplStatus::err(
+                        "no p2p node id yet — run /serve or /p2p first",
+                    ));
+                }
+                Some(node_id) => {
+                    let url = invite_url(node_id);
+                    match arboard::Clipboard::new().and_then(|mut c| c.set_text(url.clone())) {
+                        Ok(()) => {
+                            state.ephemeral.repl.status =
+                                Some(ReplStatus::ok(format!("copied: {url}")));
+                        }
+                        Err(e) => {
+                            state.ephemeral.repl.status =
+                                Some(ReplStatus::err(format!("clipboard error: {e}")));
+                        }
+                    }
+                }
+            }
+            leave(state);
+            ReplOutcome::Done
+        }
+        SlashAction::Logs => {
+            // dump the most recent log lines into the result
+            // panel. requires that the rathole bin (or `freqhole
+            // rathole` cli wrapper) installed the in-memory ring
+            // buffer at log-init time. if not, we report a clear
+            // error rather than silently producing zero rows.
+            use crate::ratcore::app::LastDispatch;
+            state.ephemeral.repl.clear_input();
+            let snapshot = crate::log_buffer::global().map(|b| b.snapshot());
+            let lines = match snapshot {
+                None => {
+                    state.ephemeral.repl.status = Some(ReplStatus::err(
+                        "log buffer not installed (rebuild + relaunch rathole)",
+                    ));
+                    leave(state);
+                    return ReplOutcome::Done;
+                }
+                Some(v) => v,
+            };
+            // newest-first feels right for an interactive log
+            // dump: the user almost always wants the latest line
+            // at the top of the result panel.
+            let total = lines.len();
+            let mut rows: Vec<serde_json::Value> = Vec::with_capacity(total);
+            for (i, line) in lines.iter().rev().enumerate() {
+                rows.push(serde_json::json!({
+                    "type": "log_line",
+                    "id": format!("log-{i}"),
+                    "title": line,
+                    "subtitle": "",
+                    "position": i,
+                }));
+            }
+            let message = if total == 0 {
+                "no log lines yet".to_string()
+            } else {
+                format!("{total} log lines (newest first)")
+            };
+            state.ephemeral.last_dispatch = Some(LastDispatch {
+                command: "log".to_string(),
+                success: true,
+                message,
+                data_pretty: None,
+                rows,
+                cursor: 0,
+            });
+            state.ephemeral.last_dispatch_scroll = 0;
+            state.ephemeral.repl.status = Some(ReplStatus::ok("log"));
+            leave(state);
+            state.ephemeral.focus = Focus::ResultPanel;
+            ReplOutcome::Done
+        }
+        SlashAction::OpenInvite => {
+            // open the spume invite link in the system default
+            // browser. same node-id precondition as /copy-invite.
+            let identity = grimoire::federation::get_identity_info();
+            state.ephemeral.repl.clear_input();
+            match identity.node_id.as_deref() {
+                None => {
+                    state.ephemeral.repl.status = Some(ReplStatus::err(
+                        "no p2p node id yet — run /serve or /p2p first",
+                    ));
+                }
+                Some(node_id) => {
+                    let url = invite_url(node_id);
+                    match open::that_detached(&url) {
+                        Ok(()) => {
+                            state.ephemeral.repl.status =
+                                Some(ReplStatus::ok(format!("opened: {url}")));
+                        }
+                        Err(e) => {
+                            state.ephemeral.repl.status =
+                                Some(ReplStatus::err(format!("could not open browser: {e}")));
+                        }
+                    }
+                }
+            }
+            leave(state);
+            ReplOutcome::Done
+        }
         SlashAction::Music => {
             state.ephemeral.repl.clear_input();
             state.ephemeral.repl.status = Some(ReplStatus::ok("focus: music"));
@@ -278,11 +608,7 @@ pub fn apply_navigation(
             // open the peer-input modal seeded with the
             // currently-connected remote (if any) so the user can
             // either edit it or paste a new addr.
-            let seed = state
-                .ephemeral
-                .connected_peer
-                .clone()
-                .unwrap_or_default();
+            let seed = state.ephemeral.connected_peer.clone().unwrap_or_default();
             let cursor = seed.chars().count();
             state.ephemeral.peer_input = seed;
             state.ephemeral.peer_cursor = cursor;
@@ -328,7 +654,10 @@ pub fn apply_navigation(
             // surface the live local node (web shell) if it isn't
             // already in the saved list.
             if let Some(me) = local {
-                if !saved.iter().any(|r| r.peer_addr.as_deref() == Some(me.as_str())) {
+                if !saved
+                    .iter()
+                    .any(|r| r.peer_addr.as_deref() == Some(me.as_str()))
+                {
                     rows.push(serde_json::json!({
                         "type": "remote",
                         "id": me.clone(),

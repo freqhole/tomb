@@ -30,21 +30,25 @@ pub fn draw(frame: &mut Frame, area: Rect, _app: &App) {
     let banner_h = banner_lines.len() as u16;
     let pad_top = 1u16;
     // available rows for the triangle = total - pad_top - banner -
-    // gap - gap - hint. clamp at 0 if the terminal is tiny.
-    let avail_for_tri = area.height.saturating_sub(pad_top + banner_h + 1 + 1 + 1);
+    // gap - gap - hint - hint_pad. clamp at 0 if the terminal is
+    // tiny.
+    let avail_for_tri = area
+        .height
+        .saturating_sub(pad_top + banner_h + 1 + 1 + 1 + 1);
     // triangle is twice as wide as it is tall (half-block cells).
     let max_tri_w = area.width.min(60);
     let tri_w = max_tri_w.min(avail_for_tri.saturating_mul(2));
     let tri = render_triangle(tri_w as usize);
     let tri_h = tri.len() as u16;
 
-    let total = pad_top + banner_h + 1 + tri_h + 1 + 1;
+    let total = pad_top + banner_h + 1 + tri_h + 1 + 1 + 1;
     let pad_bot = area.height.saturating_sub(total);
-    let [_, banner_a, _, tri_a, _, hint_a, _] = Layout::vertical([
+    let [_, banner_a, _, tri_a, _, hint_a, _, _] = Layout::vertical([
         Length(pad_top),
         Length(banner_h),
         Length(1),
         Length(tri_h),
+        Length(1),
         Length(1),
         Length(1),
         Length(pad_bot),
@@ -73,7 +77,7 @@ pub fn draw(frame: &mut Frame, area: Rect, _app: &App) {
         Span::styled("/help", Style::new().fg(ACCENT).bold()),
         Span::raw(" for help  \u{00b7}  ").dim(),
         Span::styled("/", Style::new().fg(ACCENT).bold()),
-        Span::raw(" for slash commands  \u{00b7}  ").dim(),
+        Span::raw(" for slash commandz ").dim(),
     ]);
     frame.render_widget(
         Paragraph::new(hint).alignment(ratatui::layout::Alignment::Center),

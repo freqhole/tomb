@@ -42,15 +42,18 @@ fn build_commands() -> Vec<AdminCommand> {
     cmds
 }
 
-pub async fn run(terminal: ratatui::DefaultTerminal, _opts: LaunchOpts) -> color_eyre::Result<()> {
+pub async fn run(terminal: ratatui::DefaultTerminal, opts: LaunchOpts) -> color_eyre::Result<()> {
     // wrap in a LocalSet so we can use `tokio::task::spawn_local` —
     // the `Transport` trait is `?Send` (matches the wasm shell's
     // single-threaded constraint) so we can't use `tokio::spawn`.
     let local = LocalSet::new();
-    local.run_until(run_inner(terminal)).await
+    local.run_until(run_inner(terminal, opts)).await
 }
 
-async fn run_inner(mut terminal: ratatui::DefaultTerminal) -> color_eyre::Result<()> {
+async fn run_inner(
+    mut terminal: ratatui::DefaultTerminal,
+    opts: LaunchOpts,
+) -> color_eyre::Result<()> {
     let commands = build_commands();
     let persisted: PersistedState = persist::load().unwrap_or_else(|e| {
         tracing::warn!("rathole: statefile load failed ({e}); using defaults");
@@ -67,6 +70,63 @@ async fn run_inner(mut terminal: ratatui::DefaultTerminal) -> color_eyre::Result
     let player = super::player::RodioPlayer::spawn(action_tx.clone());
     let mut app = App::new(state, transport, commands).with_player(player);
 
+    // build the serve subprocess monitor. uses the same binary the
+    // user invoked (so dev `cargo run --bin freqhole` keeps using
+    // the dev build) and forwards the same --config path so both
+    // processes see the same db / log file. failures here are
+    // non-fatal: monitor just won't be able to spawn anything.
+    let mut serve_monitor = match std::env::current_exe() {
+        Ok(bin) => Some(super::serve_monitor::ServeMonitor::new(
+            bin,
+            opts.config.clone(),
+        )),
+        Err(e) => {
+            tracing::warn!("rathole: current_exe failed ({e}); /serve disabled");
+            None
+        }
+    };
+
+    // autostart the serve subprocess based on the persisted config
+    // flags. set by the setup wizard (or hand-edited in
+    // freqhole-config.toml). `serve` (auto) handles both http and
+    // p2p subject to the same config flags, so we only need to pick
+    // a more specific kind when exactly one is enabled.
+    if let Some(monitor) = serve_monitor.as_mut() {
+        let cfg = grimoire::config::get_config();
+        let http_on = cfg.server.as_ref().map(|s| s.enabled).unwrap_or(false);
+        let p2p_on = cfg.federation.as_ref().map(|f| f.enabled).unwrap_or(false);
+        let kind = match (http_on, p2p_on) {
+            (true, true) => Some(super::serve_monitor::ServeKind::Auto),
+            (true, false) => Some(super::serve_monitor::ServeKind::Http),
+            (false, true) => Some(super::serve_monitor::ServeKind::P2p),
+            (false, false) => None,
+        };
+        if let Some(kind) = kind {
+            if let Err(e) = monitor.start(kind) {
+                tracing::warn!("rathole: serve autostart failed: {e}");
+            } else {
+                tracing::info!("rathole: serve autostarted ({:?})", kind);
+            }
+            sync_serve_badge(&mut app, monitor);
+        }
+    }
+
+    // background job processor. picks up any pending jobs left over
+    // from a prior session (e.g. a music scan the user backgrounded
+    // out of the wizard, or a previous rathole that was closed
+    // mid-scan). runs for the lifetime of the tty and is gracefully
+    // cancelled on exit so the current job (if any) can finish before
+    // shutdown. note: any jobs that were "claimed" but not finished
+    // when a previous process died hard will be re-picked-up by
+    // grimoire's job queue once their lock expires.
+    let job_proc_token = grimoire::jobs::CancellationToken::new();
+    let job_proc_handle = {
+        let token = job_proc_token.clone();
+        tokio::spawn(async move {
+            let _ = grimoire::jobs::run_job_processor_with_token(token).await;
+        })
+    };
+
     let mut events = EventStream::new();
     let mut tick = tokio::time::interval(Duration::from_millis(250));
 
@@ -78,13 +138,34 @@ async fn run_inner(mut terminal: ratatui::DefaultTerminal) -> color_eyre::Result
                 Some(Err(e)) => return Err(color_eyre::eyre::eyre!("input stream error: {e}")),
                 None => break,
             },
-            _ = tick.tick() => {}
-            Some(action) = action_rx.recv() => on_action(&mut app, action, &action_tx),
+            _ = tick.tick() => {
+                // poll the serve subprocess so the badge reacts to
+                // exits without waiting for the user to act.
+                if let Some(m) = serve_monitor.as_mut() {
+                    m.refresh();
+                    sync_serve_badge(&mut app, m);
+                }
+            }
+            Some(action) = action_rx.recv() => {
+                if handle_serve_action(&mut app, &action, serve_monitor.as_mut()) {
+                    continue;
+                }
+                on_action(&mut app, action, &action_tx);
+            }
         }
     }
 
     if let Err(e) = persist::save(&app.state.persisted) {
         tracing::warn!("rathole: statefile save failed: {e}");
+    }
+    // graceful shutdown: tell the job processor to stop after its
+    // current job, then give it a few seconds to wind down. if it
+    // doesn't finish in time we drop the handle and let the runtime
+    // tear it down (the current job will be re-claimed next launch
+    // once the row's claim lock expires).
+    job_proc_token.cancel();
+    if let Err(e) = tokio::time::timeout(Duration::from_secs(5), job_proc_handle).await {
+        tracing::warn!("rathole: job processor did not stop within 5s ({e}); abandoning");
     }
     Ok(())
 }
@@ -365,6 +446,113 @@ fn on_peer_input_key(app: &mut App, code: KeyCode) {
     }
 }
 
+/// intercept serve-related app actions so we can route them to the
+/// subprocess monitor before falling through to the generic
+/// `on_action` dispatcher. returns `true` when the action was
+/// consumed and the caller should skip its normal handling.
+fn handle_serve_action(
+    app: &mut App,
+    action: &AppAction,
+    monitor: Option<&mut super::serve_monitor::ServeMonitor>,
+) -> bool {
+    use super::serve_monitor::ServeKind;
+    use crate::ratcore::app::{ReplStatus, ServeKindRequest};
+
+    match action {
+        AppAction::ServeStart { kind } => {
+            let Some(monitor) = monitor else {
+                app.state.ephemeral.repl.status = Some(ReplStatus::err(
+                    "serve unavailable: current_exe lookup failed",
+                ));
+                return true;
+            };
+            let mapped = match kind {
+                ServeKindRequest::Auto => ServeKind::Auto,
+                ServeKindRequest::Http => ServeKind::Http,
+                ServeKindRequest::P2p => ServeKind::P2p,
+            };
+            match monitor.start(mapped) {
+                Ok(()) => {
+                    app.state.ephemeral.repl.status = Some(ReplStatus::ok(format!(
+                        "started {}",
+                        match kind {
+                            ServeKindRequest::Auto => "serve",
+                            ServeKindRequest::Http => "http",
+                            ServeKindRequest::P2p => "p2p",
+                        }
+                    )));
+                }
+                Err(e) => {
+                    app.state.ephemeral.repl.status =
+                        Some(ReplStatus::err(format!("serve start failed: {e}")));
+                }
+            }
+            sync_serve_badge(app, monitor);
+            true
+        }
+        AppAction::ServeStop => {
+            let Some(monitor) = monitor else {
+                app.state.ephemeral.repl.status =
+                    Some(ReplStatus::err("no serve subprocess to stop"));
+                return true;
+            };
+            match monitor.stop() {
+                Ok(()) => {
+                    app.state.ephemeral.repl.status = Some(ReplStatus::ok("serve stopped"));
+                }
+                Err(e) => {
+                    app.state.ephemeral.repl.status =
+                        Some(ReplStatus::err(format!("serve stop: {e}")));
+                }
+            }
+            sync_serve_badge(app, monitor);
+            true
+        }
+        _ => false,
+    }
+}
+
+/// translate the monitor's snapshot into the portable `ServeBadge`
+/// the views layer reads, and stash it on `EphemeralState`.
+fn sync_serve_badge(app: &mut App, monitor: &super::serve_monitor::ServeMonitor) {
+    use super::serve_monitor::{ServeKind, ServeStatus};
+    use crate::ratcore::app::{ServeBadge, ServeMode};
+
+    let map_kind = |k: ServeKind| match k {
+        ServeKind::Auto => ServeMode::Auto,
+        ServeKind::Http => ServeMode::Http,
+        ServeKind::P2p => ServeMode::P2p,
+    };
+
+    let badge = match monitor.status() {
+        ServeStatus::Stopped => ServeBadge::default(),
+        ServeStatus::Running { kind, pid } => ServeBadge {
+            mode: map_kind(kind),
+            running: true,
+            pid: Some(pid),
+            last_message: None,
+        },
+        ServeStatus::Exited { kind, code } => ServeBadge {
+            mode: map_kind(kind),
+            running: false,
+            pid: None,
+            last_message: Some(format!(
+                "exited (code {})",
+                code.map(|c| c.to_string())
+                    .unwrap_or_else(|| "signal".into())
+            )),
+        },
+        ServeStatus::SpawnError { message } => ServeBadge {
+            mode: ServeMode::None,
+            running: false,
+            pid: None,
+            last_message: Some(message),
+        },
+    };
+
+    app.state.ephemeral.serve = badge;
+}
+
 fn on_action(app: &mut App, action: AppAction, action_tx: &mpsc::UnboundedSender<AppAction>) {
     match action {
         AppAction::AdminDispatchResult { command, response } => {
@@ -597,6 +785,12 @@ fn on_action(app: &mut App, action: AppAction, action_tx: &mpsc::UnboundedSender
                 if n == 1 { "" } else { "s" }
             )));
         }
+        // serve actions are intercepted by `handle_serve_action`
+        // before reaching this dispatcher; reaching them here means
+        // the monitor was unavailable and the action was already
+        // converted into a repl status by the interceptor, so
+        // there's nothing to do.
+        AppAction::ServeStart { .. } | AppAction::ServeStop => {}
     }
 }
 
@@ -2567,6 +2761,23 @@ fn execute_slash_with_player(
                     result,
                 });
             });
+        }
+        SlashAction::ServeStart { kind } => {
+            use crate::ratcore::app::ServeKindRequest;
+            use crate::ratcore::slash::ServeKindArg;
+            let mapped = match kind {
+                ServeKindArg::Auto => ServeKindRequest::Auto,
+                ServeKindArg::Http => ServeKindRequest::Http,
+                ServeKindArg::P2p => ServeKindRequest::P2p,
+            };
+            let _ = tx.send(AppAction::ServeStart { kind: mapped });
+            app.state.ephemeral.repl.clear_input();
+            rk::leave(&mut app.state);
+        }
+        SlashAction::ServeStop => {
+            let _ = tx.send(AppAction::ServeStop);
+            app.state.ephemeral.repl.clear_input();
+            rk::leave(&mut app.state);
         }
         _ => {}
     }

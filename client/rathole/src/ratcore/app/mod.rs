@@ -8,11 +8,14 @@ pub mod state;
 
 pub use events::{
     ActionMenu, ActionMenuOption, AdminCommand, AppAction, ArgKind, ArgSpec, CommandForm,
-    CommandKind, DispatchResponse, FieldState, LastDispatch, SelectOption,
+    CommandKind, DispatchResponse, FieldState, LastDispatch, SelectOption, ServeKindRequest,
 };
 pub use music::{MusicEvent, MusicMode, MusicState, PlayerState, SongRow};
 pub use repl::{ReplState, ReplStatus, ReplStatusLevel};
-pub use state::{AppState, EphemeralState, Focus, LocalRef, PersistedState, RemoteEntry, UiPrefs};
+pub use state::{
+    AppState, EphemeralState, Focus, LocalRef, PersistedState, RemoteEntry, ServeBadge, ServeMode,
+    UiPrefs,
+};
 
 use super::transport::{MusicPlayer, Transport};
 use std::rc::Rc;

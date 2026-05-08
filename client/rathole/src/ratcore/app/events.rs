@@ -8,6 +8,16 @@ use serde_json::Value as JsonValue;
 
 use super::music::{MusicEvent, SongRow};
 
+/// portable arg for [`AppAction::ServeStart`]. mirrors
+/// [`crate::ratcore::slash::ServeKindArg`] but lives here so the
+/// app crate has no dependency on slash-parsing types.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ServeKindRequest {
+    Auto,
+    Http,
+    P2p,
+}
+
 /// dispatch result, transport-agnostic. mirrors the useful subset
 /// of `grimoire::response::GrimoireResponse<JsonValue>`.
 #[derive(Debug, Clone)]
@@ -483,6 +493,13 @@ impl CommandForm {
 /// background-task → ui-loop messages.
 #[derive(Debug)]
 pub enum AppAction {
+    /// user asked the shell to start a `freqhole serve` subprocess.
+    /// shells (tty) translate to a real spawn; web ignores. carries
+    /// the kind selected on the slash command (`/serve`, `/http`,
+    /// `/p2p`).
+    ServeStart { kind: ServeKindRequest },
+    /// user asked the shell to stop the running serve subprocess.
+    ServeStop,
     /// result of an admin dispatch fired from the palette.
     AdminDispatchResult {
         command: String,

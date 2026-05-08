@@ -56,17 +56,34 @@ fn init_file_logging() {
         .open(&log_path)
     {
         Ok(file) => {
-            let layer = tracing_subscriber::fmt::layer()
+            let file_layer = tracing_subscriber::fmt::layer()
                 .with_writer(std::sync::Mutex::new(file))
+                .with_ansi(false);
+            // also mirror everything into a process-wide ring
+            // buffer so the `/logs` slash command can dump recent
+            // log lines into the result panel without having to
+            // tail the on-disk file.
+            let ring = rathole::log_buffer::install();
+            let ring_layer = tracing_subscriber::fmt::layer()
+                .with_writer(ring)
                 .with_ansi(false);
             let _ = tracing_subscriber::registry()
                 .with(filter)
-                .with(layer)
+                .with(file_layer)
+                .with(ring_layer)
                 .try_init();
         }
         Err(_) => {
-            // silence rather than corrupt the tui.
-            let _ = tracing_subscriber::registry().with(filter).try_init();
+            // even without a file, install the ring buffer so
+            // /logs still works in-memory.
+            let ring = rathole::log_buffer::install();
+            let ring_layer = tracing_subscriber::fmt::layer()
+                .with_writer(ring)
+                .with_ansi(false);
+            let _ = tracing_subscriber::registry()
+                .with(filter)
+                .with(ring_layer)
+                .try_init();
         }
     }
 }

@@ -25,7 +25,7 @@ pub struct Cli {
     pub json_output: bool,
 
     #[command(subcommand)]
-    pub command: Commands,
+    pub command: Option<Commands>,
 }
 
 #[derive(Subcommand)]
@@ -154,7 +154,26 @@ pub async fn run() -> Result<()> {
 /// like `run` but accepts a pre-built `Cli` (lets callers inject a
 /// custom argv vector — useful for the tauri passthrough where the
 /// host process may want to munge args before dispatch).
-pub async fn run_with(cli: Cli) -> Result<()> {
+pub async fn run_with(mut cli: Cli) -> Result<()> {
+    // no subcommand → default to launching rathole (the tui client).
+    // this lets users just type `rathole` with no args.
+    if cli.command.is_none() {
+        cli.command = Some(Commands::Rathole);
+    }
+    let command = cli.command.expect("command set above");
+    // rebuild a local view so the rest of this function can use a
+    // non-Option `command` field unchanged.
+    struct Cli2 {
+        config: Option<std::path::PathBuf>,
+        json_output: bool,
+        command: Commands,
+    }
+    let cli = Cli2 {
+        config: cli.config,
+        json_output: cli.json_output,
+        command,
+    };
+
     // first-run wizard: when launching rathole and no config file
     // exists at the resolved path, run the setup wizard before
     // doing anything else. on success the wizard creates the config
@@ -262,9 +281,17 @@ pub async fn run_with(cli: Cli) -> Result<()> {
                 let file_layer = tracing_subscriber::fmt::layer()
                     .with_writer(std::sync::Mutex::new(file))
                     .with_ansi(false);
+                // mirror into rathole's in-memory ring buffer so
+                // the `/logs` slash command can show recent log
+                // lines without reading the on-disk file.
+                let ring = rathole::log_buffer::install();
+                let ring_layer = tracing_subscriber::fmt::layer()
+                    .with_writer(ring)
+                    .with_ansi(false);
                 let _ = tracing_subscriber::registry()
                     .with(env_filter)
                     .with(file_layer)
+                    .with(ring_layer)
                     .try_init();
             }
             Err(e) => {
@@ -272,9 +299,16 @@ pub async fn run_with(cli: Cli) -> Result<()> {
                     "warning: could not open {:?} for logging ({e}); tui logs will be silenced",
                     log_path
                 );
-                // install a no-op subscriber so tracing macros don't write
-                // anywhere — corrupting the tui is worse than missing logs.
-                let _ = tracing_subscriber::registry().with(env_filter).try_init();
+                // even without a file, install the ring buffer so
+                // /logs still works (in-memory only).
+                let ring = rathole::log_buffer::install();
+                let ring_layer = tracing_subscriber::fmt::layer()
+                    .with_writer(ring)
+                    .with_ansi(false);
+                let _ = tracing_subscriber::registry()
+                    .with(env_filter)
+                    .with(ring_layer)
+                    .try_init();
             }
         }
     } else {

@@ -12,6 +12,18 @@
 
 use crate::ratcore::app::Focus;
 
+/// arg to [`SlashAction::ServeStart`]: which subcommand the shell
+/// should launch the freqhole binary with.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ServeKindArg {
+    /// `freqhole serve` — starts http + p2p per config
+    Auto,
+    /// `freqhole http` — http only
+    Http,
+    /// `freqhole p2p` — p2p only
+    P2p,
+}
+
 /// a typed slash command, ready for the shell to execute. arg
 /// payloads are kept as borrowed strings against the original input
 /// where possible to avoid extra allocations in the hot path.
@@ -76,6 +88,25 @@ pub enum SlashAction {
     },
     /// no-op — empty input or whitespace.
     Empty,
+    /// start the local serve subprocess (auto / http / p2p).
+    /// shells route to their own subprocess monitor.
+    ServeStart {
+        kind: ServeKindArg,
+    },
+    /// stop a running serve subprocess.
+    ServeStop,
+    /// dump local server config + p2p identity + paths into the
+    /// result panel. like `server_info` but with extra context that
+    /// only the local process knows (node_id, config path, etc.).
+    Info,
+    /// copy the spume invite link (https://spume.freqhole.net/?r={node_id})
+    /// to the system clipboard.
+    CopyInvite,
+    /// open the spume invite link in the system default browser.
+    OpenInvite,
+    /// dump the most recent log lines (from the in-memory ring
+    /// buffer installed at log-init) into the result panel.
+    Logs,
     /// recognised name but malformed args. `hint` describes what
     /// the user needs to type instead.
     BadArgs {
@@ -116,6 +147,29 @@ pub const COMMANDS: &[(&str, &str)] = &[
     ("radio", "/radio             list radio stations"),
     ("help", "/help              list every slash command"),
     ("clear", "/clear             clear the playback queue"),
+    ("serve", "/serve             start http + p2p subprocess"),
+    ("http", "/http              start http-only subprocess"),
+    ("p2p", "/p2p               start p2p-only subprocess"),
+    (
+        "serve-stop",
+        "/serve-stop        stop the running serve subprocess",
+    ),
+    (
+        "info",
+        "/info              show server config + p2p node id + paths",
+    ),
+    (
+        "copy-invite",
+        "/copy-invite       copy spume invite link to clipboard",
+    ),
+    (
+        "open-invite",
+        "/open-invite       open spume invite link in browser",
+    ),
+    (
+        "log",
+        "/log               show recent log lines (in-memory ring buffer)",
+    ),
     ("quit", "/quit              exit rathole"),
 ];
 
@@ -186,6 +240,20 @@ pub fn parse(input: &str) -> SlashAction {
         "quit" | "exit" | "q" => SlashAction::Quit,
         "help" | "?" | "h" => SlashAction::Help,
         "clear" | "cq" | "clearqueue" => SlashAction::ClearQueue,
+        "serve" => SlashAction::ServeStart {
+            kind: ServeKindArg::Auto,
+        },
+        "http" | "serve-http" => SlashAction::ServeStart {
+            kind: ServeKindArg::Http,
+        },
+        "p2p" | "serve-p2p" => SlashAction::ServeStart {
+            kind: ServeKindArg::P2p,
+        },
+        "serve-stop" | "servestop" | "stop-serve" => SlashAction::ServeStop,
+        "info" => SlashAction::Info,
+        "copy-invite" | "copyinvite" | "invite-copy" => SlashAction::CopyInvite,
+        "open-invite" | "openinvite" | "invite-open" | "invite" => SlashAction::OpenInvite,
+        "log" => SlashAction::Logs,
         other => SlashAction::Unknown {
             name: other.to_string(),
         },

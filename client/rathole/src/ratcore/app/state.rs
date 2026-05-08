@@ -10,6 +10,42 @@ use super::events::{ActionMenu, CommandForm, LastDispatch};
 use super::music::MusicState;
 use super::repl::ReplState;
 
+/// portable view-layer representation of the serve subprocess state.
+/// shells translate their concrete monitor types into this; views
+/// read it to render the http/p2p header badges.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ServeBadge {
+    /// which mode is currently running (or last attempted).
+    pub mode: ServeMode,
+    /// is the child alive right now?
+    pub running: bool,
+    /// pid of the running child, when known. for ui display only.
+    pub pid: Option<u32>,
+    /// most recent exit-code or spawn-error message, surfaced in
+    /// the header tooltip / repl when the user asks.
+    pub last_message: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ServeMode {
+    #[default]
+    None,
+    Auto,
+    Http,
+    P2p,
+}
+
+impl ServeMode {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::None => "",
+            Self::Auto => "serve",
+            Self::Http => "http",
+            Self::P2p => "p2p",
+        }
+    }
+}
+
 /// the persisted slice — serialized to whatever the shell uses
 /// (toml on tty, localStorage / IndexedDB on web later).
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -181,6 +217,11 @@ pub struct EphemeralState {
     pub remotes_view: Vec<RemoteEntry>,
     /// cursor index into [`Self::remotes_view`].
     pub remotes_view_cursor: usize,
+    /// snapshot of any in-tui-spawned `freqhole serve` subprocess.
+    /// shells (tty for now) push updates whenever a serve child is
+    /// started, exits, or is reaped on a tick. views read this to
+    /// render the http/p2p badges in the top bar.
+    pub serve: ServeBadge,
 }
 
 impl Default for EphemeralState {
@@ -210,6 +251,7 @@ impl Default for EphemeralState {
             palette_filter: String::new(),
             remotes_view: Vec::new(),
             remotes_view_cursor: 0,
+            serve: ServeBadge::default(),
         }
     }
 }

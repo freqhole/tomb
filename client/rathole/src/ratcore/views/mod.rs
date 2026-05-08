@@ -149,7 +149,36 @@ fn header_line(app: &App) -> Line<'static> {
         spans.push(Span::raw(kid.clone()));
     }
 
+    // serve subprocess badge. shows the kind running (`http`, `p2p`,
+    // `serve`) with bg color encoding the state: green = alive,
+    // dim red = exited / spawn error. nothing renders when no
+    // subprocess has ever been spawned in this session.
+    push_serve_badge(&mut spans, &app.state.ephemeral.serve);
+
     Line::from(spans)
+}
+
+fn push_serve_badge(spans: &mut Vec<Span<'static>>, badge: &crate::ratcore::app::ServeBadge) {
+    use crate::ratcore::app::ServeMode;
+    if matches!(badge.mode, ServeMode::None) && badge.last_message.is_none() {
+        return;
+    }
+    let label = match badge.mode {
+        ServeMode::None => "serve",
+        m => m.label(),
+    };
+    let style = if badge.running {
+        // green bg = up. black text for contrast on the bright bg.
+        Style::new()
+            .bg(Color::Green)
+            .fg(Color::Black)
+            .bold()
+    } else {
+        // dim red bg = stopped / errored. white text stays legible.
+        Style::new().bg(Color::Red).fg(Color::White).dim()
+    };
+    spans.push(Span::raw("   "));
+    spans.push(Span::styled(format!(" {label} "), style));
 }
 
 /// short tag identifying which top-level view is active. shows up
