@@ -691,6 +691,38 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
     }
   };
 
+  // shuffle all songs and replace the current queue. uses fisher-yates
+  // for an unbiased shuffle and tags the source as "shuffle" so playQueue
+  // wipes the existing queue (same behavior as picking an album/playlist).
+  const handleShuffleAll = async () => {
+    const songs = playlistSongs();
+    if (songs.length === 0) return;
+    const shuffled = songs.slice();
+    for (let i = shuffled.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+    }
+    const playlist = selectedPlaylist();
+    await playQueue(shuffled, {
+      source: {
+        type: "shuffle",
+        label: playlist?.title ? `shuffle: ${playlist.title}` : "shuffle",
+        entity_id: playlist?.playlist_id,
+        image: playlist?.images?.[0],
+      },
+    });
+    if (playlist?.playlist_id) {
+      try {
+        const remoteClient = await getRemoteClient();
+        if (remoteClient) {
+          void remoteClient.music.recordPlaylistPlay(playlist.playlist_id);
+        }
+      } catch (err) {
+        console.warn("[playlist] recordPlaylistPlay failed:", err);
+      }
+    }
+  };
+
   // toggle edit mode
   const handleEditToggle = () => {
     const playlist = selectedPlaylist();
@@ -1086,21 +1118,39 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
                                     variant="ghost"
                                     onClick={handleEditToggle}
                                     aria-label="edit playlist"
+                                    title="edit playlist"
                                   />
                                 </Show>
                                 <Show when={playlistSongs().length > 0}>
-                                  <Button variant="primary" onClick={handlePlayAll}>
+                                  <Button
+                                    variant="primary"
+                                    onClick={handlePlayAll}
+                                    title="play all songs in this playlist"
+                                  >
                                     play all
                                   </Button>
-                                  <Button variant="secondary" onClick={handleAddToQueue}>
+                                  <Button
+                                    variant="secondary"
+                                    onClick={handleAddToQueue}
+                                    title="add all songs to the end of the queue"
+                                  >
                                     add to queue
                                   </Button>
+                                  <IconButton
+                                    icon="shuffle"
+                                    size="default"
+                                    variant="ghost"
+                                    onClick={handleShuffleAll}
+                                    aria-label="shuffle playlist"
+                                    title="shuffle playlist"
+                                  />
                                 </Show>
                                 <IconButton
                                   icon="carousel"
                                   size="default"
                                   onClick={handleOpenImageCarousel}
                                   aria-label="view all images"
+                                  title="view all playlist images"
                                 />
                                 <Show when={playlistSongs().length > 0}>
                                   <IconButton
@@ -1109,6 +1159,7 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
                                     variant="ghost"
                                     onClick={handleAddToStation}
                                     aria-label="send playlist to a radio station"
+                                    title="send playlist to a radio station"
                                   />
                                 </Show>
                                 <FavoriteToggle
@@ -1142,25 +1193,43 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
                                 variant="ghost"
                                 onClick={handleEditToggle}
                                 aria-label="edit playlist"
+                                title="edit playlist"
                               />
                             </Show>
                             <Show when={playlistSongs().length > 0}>
-                              <Button variant="primary" onClick={handlePlayAll}>
+                              <Button
+                                variant="primary"
+                                onClick={handlePlayAll}
+                                title="play all songs in this playlist"
+                              >
                                 <Show when={!isNarrow()} fallback={"play"}>
                                   play all
                                 </Show>
                               </Button>
-                              <Button variant="secondary" onClick={handleAddToQueue}>
+                              <Button
+                                variant="secondary"
+                                onClick={handleAddToQueue}
+                                title="add all songs to the end of the queue"
+                              >
                                 <Show when={!isNarrow()} fallback={"queue"}>
                                   add to queue
                                 </Show>
                               </Button>
+                              <IconButton
+                                icon="shuffle"
+                                size="default"
+                                variant="ghost"
+                                onClick={handleShuffleAll}
+                                aria-label="shuffle playlist"
+                                title="shuffle playlist (replaces current queue)"
+                              />
                             </Show>
                             <IconButton
                               icon="carousel"
                               size="default"
                               onClick={handleOpenImageCarousel}
                               aria-label="view all images"
+                              title="view all playlist images"
                             />
                             <Show when={playlistSongs().length > 0}>
                               <IconButton
@@ -1169,6 +1238,7 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
                                 variant="ghost"
                                 onClick={handleAddToStation}
                                 aria-label="send playlist to a radio station"
+                                title="send playlist to a radio station"
                               />
                             </Show>
                             <FavoriteToggle
