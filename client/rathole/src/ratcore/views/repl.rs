@@ -59,7 +59,7 @@ pub fn draw(frame: &mut Frame, area: Rect, app: &App) {
         };
         Line::from(vec![prompt, Span::styled(status.message.clone(), style)])
     } else {
-        Line::from(vec![prompt, Span::raw("ctrl-k for slash commands").dim()])
+        Line::from(vec![prompt, Span::raw("").dim()])
     };
 
     frame.render_widget(Paragraph::new(line), area);
