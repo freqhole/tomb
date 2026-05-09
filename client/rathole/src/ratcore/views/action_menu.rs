@@ -38,18 +38,13 @@ pub fn draw(frame: &mut Frame, app: &App) {
         lines.push(Line::from(vec![
             Span::styled(marker, Style::new().fg(ACCENT).bold()),
             Span::styled(opt.label.clone(), style),
-            Span::raw("   "),
-            Span::styled(format!("({})", opt.target_command), Style::new().dim()),
         ]));
     }
 
     frame.render_widget(
         Paragraph::new(lines)
             .alignment(Alignment::Left)
-            .block(Block::bordered().title(Span::styled(
-                title,
-                Style::new().fg(ACCENT).bold(),
-            )))
+            .block(Block::bordered().title(Span::styled(title, Style::new().fg(ACCENT).bold())))
             .wrap(Wrap { trim: false }),
         area,
     );

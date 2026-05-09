@@ -127,6 +127,82 @@ async fn run_inner(
         })
     };
 
+    // forward grimoire broadcast events (job progress, knock create/
+    // process) into the ui loop so the top-bar badges + bell stay
+    // current. uses tokio::spawn (not spawn_local) so the broadcast
+    // receiver lives outside the LocalSet — `AppAction` is Send.
+    let grimoire_events_handle = {
+        let tx = action_tx.clone();
+        tokio::spawn(async move {
+            let mut rx = grimoire::events::subscribe();
+            // remember the kind we classified each session as, so the
+            // top-bar label doesn't flip from "fetch" to "scan" once
+            // the FetchMedia row finishes and child ProcessFile rows
+            // start emitting progress with concrete file paths.
+            let mut session_kinds: std::collections::HashMap<String, &'static str> =
+                std::collections::HashMap::new();
+            loop {
+                match rx.recv().await {
+                    Ok(ev) => {
+                        let action = match ev {
+                            grimoire::events::GrimoireEvent::JobProgress {
+                                session_id,
+                                directory,
+                                songs_added,
+                                jobs_pending,
+                                jobs_total,
+                            } => {
+                                // first event for a session classifies
+                                // it; subsequent events keep the same
+                                // label even if `directory` switches
+                                // shape (fetch → child file paths).
+                                let kind =
+                                    *session_kinds.entry(session_id.clone()).or_insert_with(|| {
+                                        if directory.starts_with("fetch://")
+                                            || directory.starts_with("http://")
+                                            || directory.starts_with("https://")
+                                        {
+                                            "fetch"
+                                        } else {
+                                            "scan"
+                                        }
+                                    });
+                                AppAction::JobProgress {
+                                    session_id,
+                                    kind: kind.to_string(),
+                                    songs_added,
+                                    jobs_pending,
+                                    jobs_total,
+                                }
+                            }
+                            grimoire::events::GrimoireEvent::JobSessionComplete {
+                                session_id,
+                                ..
+                            } => {
+                                session_kinds.remove(&session_id);
+                                AppAction::JobSessionComplete { session_id }
+                            }
+                            grimoire::events::GrimoireEvent::KnockCreated {
+                                id, username, ..
+                            } => AppAction::KnockCreated {
+                                id,
+                                username: Some(username),
+                            },
+                            grimoire::events::GrimoireEvent::KnockProcessed { id, .. } => {
+                                AppAction::KnockProcessed { id }
+                            }
+                        };
+                        if tx.send(action).is_err() {
+                            break;
+                        }
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                }
+            }
+        })
+    };
+
     let mut events = EventStream::new();
     let mut tick = tokio::time::interval(Duration::from_millis(250));
 
@@ -167,6 +243,7 @@ async fn run_inner(
     if let Err(e) = tokio::time::timeout(Duration::from_secs(5), job_proc_handle).await {
         tracing::warn!("rathole: job processor did not stop within 5s ({e}); abandoning");
     }
+    grimoire_events_handle.abort();
     Ok(())
 }
 
@@ -208,6 +285,9 @@ fn on_event(app: &mut App, ev: Event, action_tx: &mpsc::UnboundedSender<AppActio
         return;
     }
     // pending-quit confirm overlay swallows all keys until resolved.
+    // (the bare-`q` shortcut was removed; this branch only fires
+    // when something else — e.g. a future menu item — sets
+    // `pending_quit`. left intact so the overlay still works.)
     if app.state.ephemeral.pending_quit {
         match k.code {
             KeyCode::Char('y') | KeyCode::Char('Y') | KeyCode::Enter => {
@@ -221,17 +301,6 @@ fn on_event(app: &mut App, ev: Event, action_tx: &mpsc::UnboundedSender<AppActio
     }
 
     match (k.code, k.modifiers) {
-        // 'q' quits only when not editing text (otherwise you couldn't
-        // type 'q' into the peer-input field).
-        (KeyCode::Char('q'), _)
-            if !matches!(
-                app.state.ephemeral.focus,
-                Focus::PeerInput | Focus::MusicView | Focus::Repl
-            ) =>
-        {
-            app.state.ephemeral.pending_quit = true;
-            return;
-        }
         // bare '/' opens the slash repl with `/` already typed,
         // matching the convention used by vim/less/spotlight. skip
         // when the focused area is itself a text input (peer modal,
@@ -292,10 +361,10 @@ fn on_palette_key(app: &mut App, code: KeyCode, _action_tx: &mpsc::UnboundedSend
         KeyCode::Tab => {
             eph.focus = Focus::ResultPanel;
         }
-        KeyCode::Up | KeyCode::Char('k') => {
+        KeyCode::Up => {
             eph.last_dispatch_scroll = eph.last_dispatch_scroll.saturating_sub(1);
         }
-        KeyCode::Down | KeyCode::Char('j') => {
+        KeyCode::Down => {
             eph.last_dispatch_scroll = eph.last_dispatch_scroll.saturating_add(1);
         }
         KeyCode::PageUp => {
@@ -700,6 +769,38 @@ fn on_action(app: &mut App, action: AppAction, action_tx: &mpsc::UnboundedSender
         // converted into a repl status by the interceptor, so
         // there's nothing to do.
         AppAction::ServeStart { .. } | AppAction::ServeStop => {}
+        AppAction::JobProgress {
+            session_id,
+            kind,
+            songs_added: _,
+            jobs_pending,
+            jobs_total,
+        } => {
+            let percent = if jobs_total > 0 {
+                let done = jobs_total.saturating_sub(jobs_pending);
+                ((done as u64 * 100) / jobs_total as u64) as u8
+            } else {
+                0
+            };
+            app.state.ephemeral.jobs_status = Some(crate::ratcore::app::JobsStatus {
+                kind,
+                percent,
+                jobs_total,
+                jobs_pending,
+            });
+            let _ = session_id;
+        }
+        AppAction::JobSessionComplete { session_id: _ } => {
+            app.state.ephemeral.jobs_status = None;
+        }
+        AppAction::KnockCreated { id: _, username: _ } => {
+            app.state.ephemeral.pending_knocks =
+                app.state.ephemeral.pending_knocks.saturating_add(1);
+        }
+        AppAction::KnockProcessed { id: _ } => {
+            app.state.ephemeral.pending_knocks =
+                app.state.ephemeral.pending_knocks.saturating_sub(1);
+        }
     }
 }
 
@@ -783,7 +884,7 @@ fn on_result_panel_key(app: &mut App, code: KeyCode, mods: KeyModifiers) {
         KeyCode::Tab => {
             crate::ratcore::player_row_keys::enter(&mut app.state);
         }
-        KeyCode::Up | KeyCode::Char('k') => {
+        KeyCode::Up => {
             let step = if big { 10 } else { 1 };
             if has_rows {
                 if big {
@@ -797,7 +898,7 @@ fn on_result_panel_key(app: &mut App, code: KeyCode, mods: KeyModifiers) {
                 eph.last_dispatch_scroll = eph.last_dispatch_scroll.saturating_sub(step);
             }
         }
-        KeyCode::Down | KeyCode::Char('j') => {
+        KeyCode::Down => {
             let step = if big { 10 } else { 1 };
             if has_rows {
                 if big {
@@ -811,7 +912,7 @@ fn on_result_panel_key(app: &mut App, code: KeyCode, mods: KeyModifiers) {
                 eph.last_dispatch_scroll = eph.last_dispatch_scroll.saturating_add(step);
             }
         }
-        KeyCode::Enter | KeyCode::Char('a') => {
+        KeyCode::Enter => {
             // open the per-row action menu — `result_actions` always
             // returns at least the generic "view full row" option,
             // so any focused row will produce a menu. /help rows are
@@ -1310,10 +1411,10 @@ fn on_action_menu_key(app: &mut App, code: KeyCode, tx: &mpsc::UnboundedSender<A
             eph.action_menu = None;
             eph.focus = Focus::ResultPanel;
         }
-        KeyCode::Up | KeyCode::Char('k') => {
+        KeyCode::Up => {
             menu.selected = menu.selected.saturating_sub(1);
         }
-        KeyCode::Down | KeyCode::Char('j') => {
+        KeyCode::Down => {
             let max = menu.options.len().saturating_sub(1);
             menu.selected = (menu.selected + 1).min(max);
         }
@@ -1753,13 +1854,13 @@ fn on_music_key(app: &mut App, code: KeyCode, tx: &mpsc::UnboundedSender<AppActi
         (MusicMode::Results, KeyCode::Char('/')) => {
             app.state.ephemeral.music.mode = MusicMode::Results;
         }
-        (MusicMode::Results, KeyCode::Char('j') | KeyCode::Down) => {
+        (MusicMode::Results, KeyCode::Down) => {
             let m = &mut app.state.ephemeral.music;
             if !m.results.is_empty() {
                 m.results_cursor = (m.results_cursor + 1).min(m.results.len() - 1);
             }
         }
-        (MusicMode::Results, KeyCode::Char('k') | KeyCode::Up) => {
+        (MusicMode::Results, KeyCode::Up) => {
             let m = &mut app.state.ephemeral.music;
             m.results_cursor = m.results_cursor.saturating_sub(1);
         }
@@ -2421,7 +2522,7 @@ fn on_player_row_key(app: &mut App, code: KeyCode, tx: &mpsc::UnboundedSender<Ap
     use crate::ratcore::player_row_keys as prk;
     use crate::ratcore::transport::PlayerCmd;
     match code {
-        KeyCode::Esc | KeyCode::Char('q') => prk::leave(&mut app.state),
+        KeyCode::Esc => prk::leave(&mut app.state),
         KeyCode::Left | KeyCode::Char('h') => prk::cursor_left(&mut app.state),
         KeyCode::Right | KeyCode::Char('l') => prk::cursor_right(&mut app.state),
         KeyCode::Tab => prk::tab_or_leave(&mut app.state),
@@ -2858,14 +2959,14 @@ fn on_remote_list_key_tty(
         KeyCode::Esc => {
             app.state.ephemeral.focus = Focus::Landing;
         }
-        KeyCode::Down | KeyCode::Char('j') => {
+        KeyCode::Down => {
             let len = app.state.ephemeral.remotes_view.len();
             if len > 0 {
                 let next = (app.state.ephemeral.remotes_view_cursor + 1).min(len - 1);
                 app.state.ephemeral.remotes_view_cursor = next;
             }
         }
-        KeyCode::Up | KeyCode::Char('k') => {
+        KeyCode::Up => {
             app.state.ephemeral.remotes_view_cursor =
                 app.state.ephemeral.remotes_view_cursor.saturating_sub(1);
         }

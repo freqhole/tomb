@@ -134,7 +134,10 @@ fn draw_result_box(frame: &mut Frame, result_area: Rect, app: &App) {
             format!(" {} / {} ", cursor + 1, d.rows.len()),
             Style::new().fg(ACCENT).bold(),
         ),
-        Span::styled(" j/k navigate, a or enter for actions", Style::new().dim()),
+        Span::styled(
+            " \u{2191}/\u{2193} navigate, enter for actions",
+            Style::new().dim(),
+        ),
     ]);
 
     // /help is self-explanatory: drop the status/count header so the
@@ -295,11 +298,14 @@ fn row_summary(row: &serde_json::Value) -> String {
     // music wrapper rows: `{ playlist: {...}, song_count: N }`,
     // `{ album: {...}, artist: {...} }`, `{ artist: {...}, song_count }`,
     // `{ song: {...}, artist, album, ... }`. unwrap to the inner entity.
+    // song is checked FIRST so song-with-joined-album rows (e.g.
+    // /goto-album results) render the per-track title instead of
+    // collapsing every row into the same album label.
     for (kind, glyph) in [
+        ("song", "[song]"),
         ("playlist", "[playlist]"),
         ("album", "[album]"),
         ("artist", "[artist]"),
-        ("song", "[song]"),
         ("genre", "[genre]"),
     ] {
         if let Some(inner) = obj.get(kind).and_then(|v| v.as_object()) {
@@ -309,6 +315,23 @@ fn row_summary(row: &serde_json::Value) -> String {
                 .and_then(|v| v.as_str())
                 .unwrap_or("(untitled)");
             let mut s = format!("{glyph} {title}");
+            // for song rows, append the track number prefix (when
+            // present) and the joined artist name suffix so the
+            // album-detail listing is scannable.
+            if kind == "song" {
+                if let Some(tn) = inner.get("track_number").and_then(|v| v.as_i64()) {
+                    s = format!("{glyph} {tn:>3}  {title}");
+                }
+                if let Some(artist) = obj
+                    .get("artist")
+                    .and_then(|v| v.as_object())
+                    .and_then(|a| a.get("name"))
+                    .and_then(|v| v.as_str())
+                    .filter(|x| !x.is_empty())
+                {
+                    s.push_str(&format!("  \u{2014} {artist}"));
+                }
+            }
             if let Some(desc) = inner
                 .get("description")
                 .and_then(|v| v.as_str())
@@ -322,7 +345,7 @@ fn row_summary(row: &serde_json::Value) -> String {
                 s.push_str(&format!("  \u{2014} {trimmed}"));
             }
             // append a small stat suffix when present.
-            let extras = ["song_count", "album_count", "play_count", "track_number"];
+            let extras = ["song_count", "album_count", "play_count"];
             let mut bits: Vec<String> = vec![];
             for k in extras {
                 if let Some(n) = obj.get(k).and_then(|v| v.as_i64()) {

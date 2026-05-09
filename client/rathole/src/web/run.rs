@@ -220,13 +220,10 @@ fn on_key(
 }
 
 /// landing-screen key handler (web). landing is intentionally
-/// minimal: `/` opens the repl, `q` shows the quit confirm, and
-/// everything else is a no-op. all navigation lives in the slash
-/// repl now.
-fn on_landing_key_web(app: &mut App, code: KeyCode, _action_tx: &mpsc::UnboundedSender<AppAction>) {
-    if matches!(code, KeyCode::Char('q')) {
-        app.state.ephemeral.pending_quit = true;
-    }
+/// minimal: `/` opens the repl, and everything else is a no-op.
+/// all navigation lives in the slash repl now.
+fn on_landing_key_web(app: &mut App, _code: KeyCode, _action_tx: &mpsc::UnboundedSender<AppAction>) {
+    let _ = app;
 }
 
 fn on_palette_key(app: &mut App, code: KeyCode, _tx: &mpsc::UnboundedSender<AppAction>) {
@@ -241,10 +238,10 @@ fn on_palette_key(app: &mut App, code: KeyCode, _tx: &mpsc::UnboundedSender<AppA
         KeyCode::Tab => {
             eph.focus = Focus::ResultPanel;
         }
-        KeyCode::Up | KeyCode::Char('k') => {
+        KeyCode::Up => {
             eph.last_dispatch_scroll = eph.last_dispatch_scroll.saturating_sub(1);
         }
-        KeyCode::Down | KeyCode::Char('j') => {
+        KeyCode::Down => {
             eph.last_dispatch_scroll = eph.last_dispatch_scroll.saturating_add(1);
         }
         KeyCode::PageUp => {
@@ -306,13 +303,13 @@ fn on_remote_list_key(
         KeyCode::Esc => {
             app.state.ephemeral.focus = Focus::Landing;
         }
-        KeyCode::Up | KeyCode::Char('k') => {
+        KeyCode::Up => {
             if len > 0 {
                 let cur = app.state.ephemeral.remotes_view_cursor;
                 app.state.ephemeral.remotes_view_cursor = cur.saturating_sub(1);
             }
         }
-        KeyCode::Down | KeyCode::Char('j') => {
+        KeyCode::Down => {
             if len > 0 {
                 let cur = app.state.ephemeral.remotes_view_cursor;
                 app.state.ephemeral.remotes_view_cursor = (cur + 1).min(len - 1);
@@ -471,7 +468,7 @@ fn on_result_panel_key(app: &mut App, code: KeyCode, shift: bool) {
         KeyCode::Tab => {
             crate::ratcore::player_row_keys::enter(&mut app.state);
         }
-        KeyCode::Up | KeyCode::Char('k') => {
+        KeyCode::Up => {
             if has_rows {
                 if shift {
                     eph.last_dispatch_scroll = eph.last_dispatch_scroll.saturating_sub(step);
@@ -483,7 +480,7 @@ fn on_result_panel_key(app: &mut App, code: KeyCode, shift: bool) {
                 eph.last_dispatch_scroll = eph.last_dispatch_scroll.saturating_sub(step);
             }
         }
-        KeyCode::Down | KeyCode::Char('j') => {
+        KeyCode::Down => {
             if has_rows {
                 if shift {
                     eph.last_dispatch_scroll = eph.last_dispatch_scroll.saturating_add(step);
@@ -496,7 +493,7 @@ fn on_result_panel_key(app: &mut App, code: KeyCode, shift: bool) {
                 eph.last_dispatch_scroll = eph.last_dispatch_scroll.saturating_add(step);
             }
         }
-        KeyCode::Enter | KeyCode::Char('a') => {
+        KeyCode::Enter => {
             if let Some(ld) = eph.last_dispatch.as_ref() {
                 if let Some(row) = ld.rows.get(ld.cursor) {
                     // /help rows: route enter through the slash repl
@@ -816,10 +813,10 @@ fn on_action_menu_key(app: &mut App, code: KeyCode, tx: &mpsc::UnboundedSender<A
             eph.action_menu = None;
             eph.focus = Focus::ResultPanel;
         }
-        KeyCode::Up | KeyCode::Char('k') => {
+        KeyCode::Up => {
             menu.selected = menu.selected.saturating_sub(1);
         }
-        KeyCode::Down | KeyCode::Char('j') => {
+        KeyCode::Down => {
             let max = menu.options.len().saturating_sub(1);
             menu.selected = (menu.selected + 1).min(max);
         }
@@ -1459,6 +1456,13 @@ fn on_action(app: &mut App, action: AppAction, action_tx: &mpsc::UnboundedSender
                 if n == 1 { "" } else { "s" }
             )));
         }
+        // jobs / knock indicators are produced by grimoire's broadcast
+        // channel which only exists on native shells. the web shell
+        // doesn't subscribe today; arms exist solely for exhaustiveness.
+        AppAction::JobProgress { .. }
+        | AppAction::JobSessionComplete { .. }
+        | AppAction::KnockCreated { .. }
+        | AppAction::KnockProcessed { .. } => {}
     }
 }
 
@@ -1506,13 +1510,13 @@ fn on_music_key_web(app: &mut App, code: KeyCode, action_tx: &mpsc::UnboundedSen
         (MusicMode::Results, KeyCode::Char('/') | KeyCode::Tab) => {
             app.state.ephemeral.music.mode = MusicMode::Results;
         }
-        (MusicMode::Results, KeyCode::Char('j') | KeyCode::Down) => {
+        (MusicMode::Results, KeyCode::Down) => {
             let m = &mut app.state.ephemeral.music;
             if !m.results.is_empty() {
                 m.results_cursor = (m.results_cursor + 1).min(m.results.len() - 1);
             }
         }
-        (MusicMode::Results, KeyCode::Char('k') | KeyCode::Up) => {
+        (MusicMode::Results, KeyCode::Up) => {
             let m = &mut app.state.ephemeral.music;
             m.results_cursor = m.results_cursor.saturating_sub(1);
         }
@@ -2266,7 +2270,7 @@ fn on_player_row_key_web(
     use crate::ratcore::player_row_keys as prk;
     use crate::ratcore::transport::PlayerCmd;
     match code {
-        KeyCode::Esc | KeyCode::Char('q') => prk::leave(&mut app.state),
+        KeyCode::Esc => prk::leave(&mut app.state),
         KeyCode::Left | KeyCode::Char('h') => prk::cursor_left(&mut app.state),
         KeyCode::Right | KeyCode::Char('l') => prk::cursor_right(&mut app.state),
         KeyCode::Tab => prk::tab_or_leave(&mut app.state),

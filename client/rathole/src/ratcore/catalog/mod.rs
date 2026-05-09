@@ -218,6 +218,7 @@ pub fn result_actions_for_row(
         Some("album") => {
             push(&mut out, "play", "__play_album__");
             push(&mut out, "add to queue", "__enqueue_album__");
+            push(&mut out, "go to album", "__goto_album__");
             push(&mut out, "go to artist", "__goto_artist__");
             push(&mut out, "toggle favorite", "__toggle_favorite_album__");
             push(&mut out, "add to playlist", "__add_album_to_playlist__");
@@ -228,6 +229,7 @@ pub fn result_actions_for_row(
             push(&mut out, "toggle favorite", "__toggle_favorite_playlist__");
         }
         Some("artist") => {
+            push(&mut out, "go to artist", "__goto_artist__");
             push(&mut out, "toggle favorite", "__toggle_favorite_artist__");
         }
         _ => {}

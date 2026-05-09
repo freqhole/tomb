@@ -108,6 +108,7 @@ pub async fn handle(
         "library_list_directories" => handlers::library::list_directories().await,
         "library_remove_directory" => handlers::library::remove_directory(args).await,
         "library_rescan_all" => handlers::library::rescan_all(caller).await,
+        "library_fetch" => handlers::library::fetch(args, caller).await,
 
         // -- config / server --
         "config_get" => handlers::server_config::config_get().await,

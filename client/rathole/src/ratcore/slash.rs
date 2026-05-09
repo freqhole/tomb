@@ -151,6 +151,10 @@ pub const COMMANDS: &[(&str, &str)] = &[
     ("vol", "/vol <0-200>       set volume percent"),
     ("music", "/music             focus music view"),
     ("local", "/local             list local downloaded songs"),
+    (
+        "fetch",
+        "/fetch <url>       queue a yt-dlp fetch job (download + import)",
+    ),
     ("queue", "/queue [sub]       show queue (sub: clear)"),
     ("remote", "/remote            connect to a new remote peer"),
     ("remotes", "/remotes           list saved remotes"),
@@ -202,6 +206,10 @@ pub const COMMANDS: &[(&str, &str)] = &[
     (
         "analytics",
         "/analytics [sub]   analytics (sub: top-songs|top-artists|listens|summary)",
+    ),
+    (
+        "jobs",
+        "/jobs [sub]        jobs (sub: list|stats|session <id>)",
     ),
     ("quit", "/quit              exit rathole"),
 ];
@@ -267,6 +275,14 @@ pub const GROUPS: &[(&str, &[(&str, &str)])] = &[
             ("tune", "tune by name: /radio tune <name>"),
         ],
     ),
+    (
+        "jobs",
+        &[
+            ("list", "list recent jobs"),
+            ("stats", "queue stats (counts per status)"),
+            ("session", "list jobs in a session: /jobs session <id>"),
+        ],
+    ),
 ];
 
 /// parse a raw repl input line into a typed action.
@@ -309,6 +325,16 @@ pub fn parse(input: &str) -> SlashAction {
         },
         "music" | "m" => SlashAction::Music,
         "local" | "l" => SlashAction::Local,
+        "fetch" | "dl" | "download" | "yt" => match arg.as_deref().map(str::trim) {
+            Some(url) if !url.is_empty() => SlashAction::AdminDispatch {
+                name: "library_fetch",
+                body: serde_json::json!({ "url": url }),
+            },
+            _ => SlashAction::BadArgs {
+                name: "fetch",
+                hint: "usage: /fetch <url> (yt-dlp — youtube, soundcloud, bandcamp, …)",
+            },
+        },
         // /admin is an alias for /help — both surface the slash
         // command list in the result panel.
         "admin" | "a" | "commands" | "cmds" | "c" => SlashAction::Help,
@@ -346,6 +372,7 @@ pub fn parse(input: &str) -> SlashAction {
         "knock" | "knocks" => parse_knock_sub(arg.as_deref()),
         "users" | "user" => parse_users_sub(arg.as_deref()),
         "analytics" | "stats" => parse_analytics_sub(arg.as_deref()),
+        "jobs" | "j" => parse_jobs_sub(arg.as_deref()),
         "quit" | "exit" | "q" => SlashAction::Quit,
         "help" | "?" | "h" => SlashAction::Help,
         "clear" | "cq" | "clearqueue" => SlashAction::ClearQueue,
@@ -561,6 +588,32 @@ fn parse_analytics_sub(arg: Option<&str>) -> SlashAction {
         _ => SlashAction::BadArgs {
             name: "analytics",
             hint: "usage: /analytics [top-songs|top-artists|top-albums|listens|summary]",
+        },
+    }
+}
+
+/// parse `/jobs [list|stats|session <id>]`. bare and `list` list
+/// recent jobs across all sessions. `stats` shows queue-wide
+/// counters. `session <id>` filters to one session.
+fn parse_jobs_sub(arg: Option<&str>) -> SlashAction {
+    let (sub, rest) = split_sub(arg);
+    let id = rest.trim();
+    match sub.as_str() {
+        "" | "list" | "ls" => SlashAction::AdminDispatch {
+            name: "jobs_list",
+            body: serde_json::json!({}),
+        },
+        "stats" | "queue" => SlashAction::AdminDispatch {
+            name: "jobs_stats",
+            body: serde_json::json!({}),
+        },
+        "session" | "for" if !id.is_empty() => SlashAction::AdminDispatch {
+            name: "jobs_list",
+            body: serde_json::json!({ "session_id": id }),
+        },
+        _ => SlashAction::BadArgs {
+            name: "jobs",
+            hint: "usage: /jobs [list|stats|session <id>]",
         },
     }
 }
@@ -1030,5 +1083,41 @@ mod tests {
                 query: Some("mellow jams".into()),
             }
         );
+    }
+
+    #[test]
+    fn parses_fetch_with_url() {
+        match parse("/fetch https://www.youtube.com/watch?v=abc") {
+            SlashAction::AdminDispatch { name, body } => {
+                assert_eq!(name, "library_fetch");
+                assert_eq!(
+                    body.get("url").and_then(|v| v.as_str()),
+                    Some("https://www.youtube.com/watch?v=abc")
+                );
+            }
+            other => panic!("expected AdminDispatch, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn rejects_bare_fetch() {
+        assert!(matches!(
+            parse("/fetch"),
+            SlashAction::BadArgs { name: "fetch", .. }
+        ));
+        assert!(matches!(
+            parse("/fetch   "),
+            SlashAction::BadArgs { name: "fetch", .. }
+        ));
+    }
+
+    #[test]
+    fn fetch_aliases() {
+        for alias in ["/dl https://x.test/y", "/download https://x.test/y", "/yt https://x.test/y"] {
+            match parse(alias) {
+                SlashAction::AdminDispatch { name: "library_fetch", .. } => {}
+                other => panic!("alias {alias} did not dispatch: {other:?}"),
+            }
+        }
     }
 }

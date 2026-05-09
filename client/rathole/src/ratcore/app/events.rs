@@ -556,6 +556,29 @@ pub enum AppAction {
     /// player backend emitted an event (state change, progress tick,
     /// track-changed, error, etc.).
     MusicEvent(MusicEvent),
+    /// grimoire emitted a `JobProgress` event for one of the in-flight
+    /// job sessions. shells forward these into the ui loop so the
+    /// top-bar `jobs_status` badge can update.
+    JobProgress {
+        session_id: String,
+        kind: String,
+        songs_added: u32,
+        jobs_pending: u32,
+        jobs_total: u32,
+    },
+    /// grimoire emitted a `JobSessionComplete` event. the ui loop
+    /// clears the matching `jobs_status` badge.
+    JobSessionComplete { session_id: String },
+    /// grimoire emitted a `KnockCreated` event — a federation peer
+    /// is asking to be allowed in. the ui loop bumps the pending
+    /// knocks counter that drives the right-aligned bell indicator.
+    KnockCreated {
+        id: String,
+        username: Option<String>,
+    },
+    /// grimoire emitted a `KnockProcessed` event (accepted/rejected/
+    /// deleted). the ui loop decrements the pending knocks counter.
+    KnockProcessed { id: String },
     /// a playlist/album/etc. was fetched in the background and the
     /// ui loop should now populate the queue + start progressive
     /// blob resolution. used by the web shell to avoid holding a

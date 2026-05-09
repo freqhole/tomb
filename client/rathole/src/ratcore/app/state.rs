@@ -208,6 +208,30 @@ pub struct EphemeralState {
     /// started, exits, or is reaped on a tick. views read this to
     /// render the http/p2p badges in the top bar.
     pub serve: ServeBadge,
+    /// snapshot of the most recent grimoire job-progress event.
+    /// rendered as a small `{kind} {pct}%` badge in the top bar.
+    /// cleared on a matching `JobSessionComplete`.
+    pub jobs_status: Option<JobsStatus>,
+    /// number of pending knock requests known to the local node.
+    /// surfaces a small bell-style indicator on the right of the
+    /// top bar. fed by the same grimoire event channel that drives
+    /// `jobs_status`.
+    pub pending_knocks: u32,
+}
+
+/// minimal portable view of an in-flight job session for the
+/// header badge. populated from `GrimoireEvent::JobProgress` by
+/// the shell.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct JobsStatus {
+    /// short label for the job kind (e.g. "scan", "fetch").
+    pub kind: String,
+    /// 0..=100 progress estimate.
+    pub percent: u8,
+    /// total jobs in the session (for the "x / y" summary).
+    pub jobs_total: u32,
+    /// jobs still pending.
+    pub jobs_pending: u32,
 }
 
 impl Default for EphemeralState {
@@ -233,6 +257,8 @@ impl Default for EphemeralState {
             remotes_view: Vec::new(),
             remotes_view_cursor: 0,
             serve: ServeBadge::default(),
+            jobs_status: None,
+            pending_knocks: 0,
         }
     }
 }

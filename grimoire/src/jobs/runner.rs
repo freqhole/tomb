@@ -62,11 +62,16 @@ pub async fn process_job(job: Job) -> GrimoireResponse<JobResult> {
                 let _ = delete_job(&job.id).await;
             }
 
-            // emit progress event for ImportMusic and ProcessFile jobs (for UI updates).
-            // ProcessFile rows are deleted on completion, so we read the canonical
-            // `total` from the session.progress field (set once by the scanner) and
-            // derive completed = total - (pending + running + failed).
-            if job_type == JobType::ImportMusic || job_type == JobType::ProcessFile {
+            // emit progress event for ImportMusic, ProcessFile, and
+            // FetchMedia jobs (for UI updates). ProcessFile / FetchMedia
+            // rows are deleted on completion, so we read the canonical
+            // `total` from the session.progress field (set once by the
+            // scanner / fetch-handler) and derive
+            // completed = total - (pending + running + failed).
+            if job_type == JobType::ImportMusic
+                || job_type == JobType::ProcessFile
+                || job_type == JobType::FetchMedia
+            {
                 if let Some(session_id) = &job.session_id {
                     if let Ok(counts) = get_session_job_counts(session_id).await.data.ok_or(()) {
                         // try to read the original total from session.progress;
@@ -84,16 +89,23 @@ pub async fn process_job(job: Job) -> GrimoireResponse<JobResult> {
                             .saturating_sub(in_flight)
                             .saturating_sub(counts.failed);
 
-                        // extract directory from job parameters
+                        // extract directory from job parameters.
+                        // for FetchMedia jobs there's no path on disk
+                        // yet, so fall back to the source url so ui
+                        // subscribers can classify it as a fetch.
                         let directory = job
                             .parameters()
                             .ok()
                             .and_then(|p: serde_json::Value| {
-                                p.get("local_path")
+                                if let Some(path) = p
+                                    .get("local_path")
                                     .or_else(|| p.get("file_path"))
                                     .and_then(|v| v.as_str())
-                                    .and_then(|path| Path::new(path).parent())
-                                    .map(|p| p.display().to_string())
+                                {
+                                    Path::new(path).parent().map(|p| p.display().to_string())
+                                } else {
+                                    p.get("url").and_then(|v| v.as_str()).map(|s| s.to_string())
+                                }
                             })
                             .unwrap_or_default();
 
@@ -136,6 +148,63 @@ pub async fn process_job(job: Job) -> GrimoireResponse<JobResult> {
             let error_detail: ErrorDetail = error.into();
             let _failed_job_response =
                 mark_job_failed(&job.id, vec![error_detail.clone()], is_retryable).await;
+
+            // mirror the success-path progress + completion emit so
+            // ui badges don't get stuck when a session ends in
+            // failure (e.g. yt-dlp 404, last ProcessFile bombs). only
+            // applies to job types we already wired into the badge.
+            if matches!(
+                job_type,
+                JobType::ImportMusic | JobType::ProcessFile | JobType::FetchMedia
+            ) {
+                if let Some(session_id) = &job.session_id {
+                    if let Ok(counts) = get_session_job_counts(session_id).await.data.ok_or(()) {
+                        let session_total = get_job_session(session_id)
+                            .await
+                            .data
+                            .and_then(|s| s.progress().ok())
+                            .map(|p| p.total as u32)
+                            .filter(|t| *t > 0)
+                            .unwrap_or(counts.total);
+                        let in_flight = counts.pending + counts.running;
+                        let completed_so_far = session_total
+                            .saturating_sub(in_flight)
+                            .saturating_sub(counts.failed);
+                        let directory = job
+                            .parameters()
+                            .ok()
+                            .and_then(|p: serde_json::Value| {
+                                if let Some(path) = p
+                                    .get("local_path")
+                                    .or_else(|| p.get("file_path"))
+                                    .and_then(|v| v.as_str())
+                                {
+                                    Path::new(path).parent().map(|p| p.display().to_string())
+                                } else {
+                                    p.get("url").and_then(|v| v.as_str()).map(|s| s.to_string())
+                                }
+                            })
+                            .unwrap_or_default();
+                        emit(GrimoireEvent::JobProgress {
+                            session_id: session_id.clone(),
+                            directory,
+                            songs_added: completed_so_far,
+                            jobs_pending: in_flight,
+                            jobs_total: session_total,
+                        });
+                        // session is "done" when nothing is in flight,
+                        // regardless of whether trailing jobs failed.
+                        if counts.pending == 0 && counts.running == 0 {
+                            emit(GrimoireEvent::JobSessionComplete {
+                                session_id: session_id.clone(),
+                                songs_added: completed_so_far,
+                                albums_added: 0,
+                                artists_added: 0,
+                            });
+                        }
+                    }
+                }
+            }
             GrimoireResponse::failure("job processing failed", vec![error_detail])
         }
     }
