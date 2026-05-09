@@ -100,13 +100,21 @@ export function installPlaybackOrchestrator(): void {
       }
 
       // 3. completion marker — fires once per song at the threshold.
+      //    `markSongCompleted` requires an active listen-history
+      //    entry (server session progress, queue history accumulator)
+      //    so it stays gated. the analytics `play_complete` event
+      //    is independent — single-song playback (no album/playlist
+      //    queue context, so no history entry) should still record
+      //    a play. this used to be inside the same gate, which
+      //    silently dropped analytics for single-song listens.
       if (
-        activeHistoryEntryId() &&
         completionRecordedFor !== current_sha256 &&
         progress >= COMPLETION_THRESHOLD
       ) {
         completionRecordedFor = current_sha256;
-        markSongCompleted(songIdx >= 0 ? songIdx : 0, currentSong);
+        if (activeHistoryEntryId()) {
+          markSongCompleted(songIdx >= 0 ? songIdx : 0, currentSong);
+        }
 
         if (currentSong) {
           let targetBaseUrl: string | undefined;

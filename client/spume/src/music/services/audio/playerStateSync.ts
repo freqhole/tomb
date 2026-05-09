@@ -113,7 +113,15 @@ function applyEvent(event: PlayerEvent): void {
       // event before/after `ended` if they want to clear isPlaying;
       // we don't infer it here so that "ended → auto-advance to next
       // track" can keep isPlaying true through the transition.
-      setCurrentTime(0);
+      //
+      // **do not reset currentTime to 0 here.** for mid-queue songs
+      // the next track's first `progress` event overwrites it
+      // anyway, and for the LAST song in the queue (no successor)
+      // resetting to 0 leaves the playerbar visually rewound to the
+      // beginning of a song that just finished — a regression
+      // introduced during the rodio backend split. leaving the
+      // signal at its last value (≈duration) keeps the bar at the
+      // end where the user expects it.
       return;
     }
     case "track_changed":
