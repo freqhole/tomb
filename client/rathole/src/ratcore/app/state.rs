@@ -3,7 +3,6 @@
 //!
 //! statefile schema is documented in [docs/TUI_PLAN.md](../../../../docs/TUI_PLAN.md) §5.
 
-use ratatui::widgets::ListState;
 use serde::{Deserialize, Serialize};
 
 use super::events::{ActionMenu, CommandForm, LastDispatch};
@@ -154,7 +153,6 @@ impl Default for Focus {
 /// in-memory slice. rebuilt on every launch.
 pub struct EphemeralState {
     pub focus: Focus,
-    pub palette_list: ListState,
     pub last_dispatch: Option<LastDispatch>,
     /// edit buffer for the peer-input modal.
     pub peer_input: String,
@@ -199,18 +197,6 @@ pub struct EphemeralState {
     /// when true, render a confirm-quit overlay; y/enter quits, n/esc
     /// cancels.
     pub pending_quit: bool,
-    /// admin-palette layout knob: when true, the left commands list
-    /// is rendered alongside the form/results. when false (default),
-    /// the form/results pane uses the full body width and the user
-    /// can toggle the list with `/help` or `/commands`.
-    pub show_command_list: bool,
-    /// substring filter applied to the admin command palette.
-    /// case-insensitive match against `AdminCommand::name`. when
-    /// non-empty, the palette shows only commands whose name
-    /// contains this string. typed printable chars in the palette
-    /// focus append to this; backspace pops; esc (when non-empty)
-    /// clears it.
-    pub palette_filter: String,
     /// rows for the remotes-list view ([`Focus::RemoteList`]). loaded
     /// from the shell's storage on demand. portable shape so both
     /// shells can populate it.
@@ -226,11 +212,8 @@ pub struct EphemeralState {
 
 impl Default for EphemeralState {
     fn default() -> Self {
-        let mut palette_list = ListState::default();
-        palette_list.select(Some(0));
         Self {
             focus: Focus::default(),
-            palette_list,
             last_dispatch: None,
             peer_input: String::new(),
             peer_cursor: 0,
@@ -247,8 +230,6 @@ impl Default for EphemeralState {
             player_row_cursor: 0,
             player_row_return_focus: None,
             pending_quit: false,
-            show_command_list: false,
-            palette_filter: String::new(),
             remotes_view: Vec::new(),
             remotes_view_cursor: 0,
             serve: ServeBadge::default(),

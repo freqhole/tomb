@@ -3,6 +3,7 @@
 pub mod action_menu;
 pub mod admin;
 pub mod command_form;
+pub mod flyout;
 pub mod landing;
 pub mod music;
 pub mod peer_input;
@@ -68,6 +69,10 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     }
 
     repl::draw(frame, repl_area, app);
+
+    // slash-completion flyout sits above the repl row when matches
+    // narrow. drawn after the repl so it overlays cleanly.
+    flyout::draw(frame, repl_area, app);
 
     if app.state.ephemeral.focus == Focus::PeerInput {
         peer_input::draw(frame, app);
@@ -211,24 +216,24 @@ fn view_label(app: &App) -> Span<'static> {
 fn footer_hints(app: &App) -> &'static str {
     match app.state.ephemeral.focus {
         Focus::Landing => {
-            "c commands   m music   r remote   p player   ctrl-k repl   q quit"
+            "/ slash repl   q quit"
         }
         Focus::AdminPalette => {
-            "↑/↓ j/k: move   enter: dispatch/form   tab: focus resultz   ctrl-m: music   ctrl-r: remote   ctrl-p: player   ctrl-k: repl   q: quit"
+            "\u{2191}/\u{2193} j/k: move   enter: dispatch/form   tab: focus resultz   /: repl   q: quit"
         }
         Focus::PeerInput => "type/paste node id   enter: connect   esc: cancel",
-        Focus::RemoteList => "↑/↓: select   enter: connect   a: add   d: delete   esc: back",
-        Focus::CommandForm => "←/→: cycle option   tab/enter: next   esc: cancel",
-        Focus::ResultPanel => "↑/↓ j/k: move row   pgup/pgdn: page   a/enter: actions   tab/esc: back",
-        Focus::ResultActionMenu => "↑/↓: pick   enter: open form   esc: cancel",
+        Focus::RemoteList => "\u{2191}/\u{2193}: select   enter: connect   a: add   d: delete   esc: back",
+        Focus::CommandForm => "\u{2190}/\u{2192}: cycle option   tab/enter: next   esc: cancel",
+        Focus::ResultPanel => "\u{2191}/\u{2193} j/k: move row   pgup/pgdn: page   a/enter: actions   tab/esc: back",
+        Focus::ResultActionMenu => "\u{2191}/\u{2193}: pick   enter: open form   esc: cancel",
         Focus::MusicView => {
-            "j/k: move   enter: play   space: pause   n/p: skip   ←/→: seek   -/=: vol   f: favorite   /local /search   esc: home"
+            "j/k: move   enter: play   space: pause   n/p: skip   \u{2190}/\u{2192}: seek   -/=: vol   f: favorite   /: repl   esc: home"
         }
         Focus::Repl => {
-            "type /command   tab: complete   ↑/↓: history   enter: run   esc: cancel"
+            "type /command   tab: complete   \u{2191}/\u{2193}: history   enter: run   esc: cancel"
         }
         Focus::PlayerRow => {
-            "←/→ h/l: pick control   enter/space: activate   tab: next/exit   esc/q/ctrl-p: leave"
+            "\u{2190}/\u{2192} h/l: pick control   enter/space: activate   tab: next/exit   esc/q: leave"
         }
     }
 }

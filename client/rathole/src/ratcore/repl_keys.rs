@@ -129,14 +129,193 @@ pub fn handle_escape(state: &mut AppState) {
 }
 
 /// tab-complete the current command name from the canonical list.
+///
+/// behavior:
+///   - 0 matches → no-op.
+///   - 1 match  → complete the input with `/name ` (trailing space
+///     so the user can keep typing args).
+///   - >1 matches → cycle. each tab rotates `flyout_cursor`
+///     through the match list and rewrites the input to the
+///     highlighted name (no trailing space, so subsequent tabs
+///     keep cycling). the original prefix is captured in
+///     `cycle_stem` so the candidate list stays stable across
+///     cycles — it would otherwise narrow to one match after the
+///     first cycle and lock the rotation. cycling clears as soon
+///     as the user edits the input (insert/backspace/delete) or
+///     submits with enter.
 pub fn handle_tab(state: &mut AppState) {
-    let r = &mut state.ephemeral.repl;
-    let completions = crate::ratcore::slash::complete(&r.input);
-    if let Some(first) = completions.first() {
-        r.input = format!("/{first} ");
-        r.cursor = r.input.chars().count();
-        r.history_cursor = None;
+    let matches = flyout_matches(state);
+    if matches.is_empty() {
+        return;
     }
+    if matches.len() == 1 {
+        // single hit — finalize with trailing space and clear any
+        // previous cycling state.
+        flyout_complete(state);
+        let r = &mut state.ephemeral.repl;
+        r.cycle_stem = None;
+        return;
+    }
+    // multiple hits — capture stem on first tab so subsequent
+    // tabs rotate over the same list.
+    let raw = state.ephemeral.repl.input.as_str();
+    let trimmed_left = raw.trim_start();
+    let body = trimmed_left.strip_prefix('/').unwrap_or(trimmed_left);
+    if state.ephemeral.repl.cycle_stem.is_none() {
+        state.ephemeral.repl.cycle_stem = Some(body.to_string());
+        state.ephemeral.repl.flyout_cursor = 0;
+    } else {
+        let cur = state.ephemeral.repl.flyout_cursor;
+        state.ephemeral.repl.flyout_cursor = (cur + 1) % matches.len();
+    }
+    let pick_idx = state.ephemeral.repl.flyout_cursor;
+    let pick = matches[pick_idx].0.clone();
+    // preserve the group prefix when we're cycling subcommands
+    // (`/group <sub>`).
+    let new_input = if let Some(idx) = body.find(char::is_whitespace) {
+        let group = &body[..idx];
+        format!("/{group} {pick}")
+    } else {
+        format!("/{pick}")
+    };
+    let r = &mut state.ephemeral.repl;
+    r.input = new_input;
+    r.cursor = r.input.chars().count();
+    r.history_cursor = None;
+}
+
+/// compute the current flyout entries `(label, description)` for
+/// the repl input. shape:
+///   - bare partial like `/se` \u2192 top-level commands prefixed by
+///     "se" (from [`crate::ratcore::slash::COMMANDS`]); only when
+///     matches narrow (1..total).
+///   - `/group ` or `/group <partial>` \u2192 subcommands of the
+///     group from [`crate::ratcore::slash::GROUPS`] filtered by
+///     prefix. always shown when the group is recognized so users
+///     can discover subcommands.
+///   - empty input or fully-typed args \u2192 empty (no flyout).
+pub fn flyout_matches(state: &AppState) -> Vec<(String, String)> {
+    use crate::ratcore::slash::{complete, complete_sub, COMMANDS, GROUPS};
+    // when the user is mid-cycle, anchor matches to the original
+    // stem so the candidate list doesn't collapse as we rewrite
+    // input to each cycled name.
+    let owned_input;
+    let raw = if let Some(stem) = state.ephemeral.repl.cycle_stem.as_deref() {
+        owned_input = format!("/{stem}");
+        owned_input.as_str()
+    } else {
+        state.ephemeral.repl.input.as_str()
+    };
+    let trimmed_left = raw.trim_start();
+    let body = trimmed_left.strip_prefix('/').unwrap_or(trimmed_left);
+    if body.is_empty() {
+        return vec![];
+    }
+    // sub completion: input has whitespace after the group name.
+    if let Some(idx) = body.find(char::is_whitespace) {
+        let group = &body[..idx];
+        let after = body[idx..].trim_start();
+        // more than one whitespace-separated token after the group
+        // means we're typing args, not a subcommand. hide flyout.
+        let mut tokens = after.split_whitespace();
+        let sub_partial = tokens.next().unwrap_or("");
+        if tokens.next().is_some() {
+            return vec![];
+        }
+        let subs = complete_sub(group, sub_partial);
+        if subs.is_empty() {
+            return vec![];
+        }
+        let group_lower = group.to_ascii_lowercase();
+        let descs: &[(&str, &str)] = GROUPS
+            .iter()
+            .find(|(g, _)| g.eq_ignore_ascii_case(&group_lower))
+            .map(|(_, s)| *s)
+            .unwrap_or(&[]);
+        return subs
+            .into_iter()
+            .map(|s| {
+                let desc = descs
+                    .iter()
+                    .find(|(n, _)| *n == s)
+                    .map(|(_, d)| (*d).to_string())
+                    .unwrap_or_default();
+                (s.to_string(), desc)
+            })
+            .collect();
+    }
+    // top-level partial. only show when matches narrow (less than
+    // the full command set) so users don't see the whole list when
+    // they haven't typed anything meaningful yet.
+    let matches = complete(body);
+    if matches.is_empty() || matches.len() >= COMMANDS.len() {
+        return vec![];
+    }
+    matches
+        .into_iter()
+        .map(|name| {
+            let desc = COMMANDS
+                .iter()
+                .find(|(n, _)| *n == name)
+                .map(|(_, h)| (*h).to_string())
+                .unwrap_or_default();
+            (name.to_string(), desc)
+        })
+        .collect()
+}
+
+/// move the flyout cursor up by one. returns `true` when the
+/// flyout is visible (so shells can fall through to history nav
+/// when it isn't).
+pub fn flyout_up(state: &mut AppState) -> bool {
+    if flyout_matches(state).is_empty() {
+        return false;
+    }
+    let r = &mut state.ephemeral.repl;
+    if r.flyout_cursor > 0 {
+        r.flyout_cursor -= 1;
+    }
+    true
+}
+
+/// move the flyout cursor down by one. returns `true` when the
+/// flyout is visible.
+pub fn flyout_down(state: &mut AppState) -> bool {
+    let len = flyout_matches(state).len();
+    if len == 0 {
+        return false;
+    }
+    let r = &mut state.ephemeral.repl;
+    if r.flyout_cursor + 1 < len {
+        r.flyout_cursor += 1;
+    }
+    true
+}
+
+/// replace the input with the currently-highlighted flyout entry
+/// (plus a trailing space so the user can keep typing args).
+/// no-op when the flyout has no matches.
+pub fn flyout_complete(state: &mut AppState) {
+    let matches = flyout_matches(state);
+    if matches.is_empty() {
+        return;
+    }
+    let cursor = state.ephemeral.repl.flyout_cursor.min(matches.len() - 1);
+    let pick = matches[cursor].0.clone();
+    let raw = state.ephemeral.repl.input.as_str();
+    let trimmed_left = raw.trim_start();
+    let body = trimmed_left.strip_prefix('/').unwrap_or(trimmed_left);
+    let new_input = if let Some(idx) = body.find(char::is_whitespace) {
+        let group = &body[..idx];
+        format!("/{group} {pick} ")
+    } else {
+        format!("/{pick} ")
+    };
+    let r = &mut state.ephemeral.repl;
+    r.input = new_input;
+    r.cursor = r.input.chars().count();
+    r.history_cursor = None;
+    r.flyout_cursor = 0;
 }
 
 /// browse history backwards (older entries).
@@ -153,6 +332,7 @@ pub fn history_prev(state: &mut AppState) {
     r.history_cursor = Some(next_idx);
     r.input = r.history[next_idx].clone();
     r.cursor = r.input.chars().count();
+    r.flyout_cursor = 0;
 }
 
 /// browse history forwards (newer entries; clears input at end).
@@ -169,6 +349,7 @@ pub fn history_next(state: &mut AppState) {
             r.history_cursor = Some(next);
             r.input = r.history[next].clone();
             r.cursor = r.input.chars().count();
+            r.flyout_cursor = 0;
         }
     }
 }
@@ -192,16 +373,22 @@ pub fn backspace(state: &mut AppState) {
     let r = &mut state.ephemeral.repl;
     ti::backspace(&mut r.input, &mut r.cursor);
     r.history_cursor = None;
+    r.flyout_cursor = 0;
+    r.cycle_stem = None;
 }
 pub fn delete(state: &mut AppState) {
     let r = &mut state.ephemeral.repl;
     ti::delete(&mut r.input, &mut r.cursor);
     r.history_cursor = None;
+    r.flyout_cursor = 0;
+    r.cycle_stem = None;
 }
 pub fn insert_char(state: &mut AppState, c: char) {
     let r = &mut state.ephemeral.repl;
     ti::insert_char(&mut r.input, &mut r.cursor, c);
     r.history_cursor = None;
+    r.flyout_cursor = 0;
+    r.cycle_stem = None;
 }
 
 /// handle the pure-state slice of a parsed slash action — focus
@@ -234,7 +421,6 @@ pub fn apply_navigation(
         SlashAction::Admin => {
             state.ephemeral.repl.clear_input();
             state.ephemeral.repl.status = Some(ReplStatus::ok("admin"));
-            state.ephemeral.show_command_list = true;
             leave(state);
             state.ephemeral.focus = Focus::AdminPalette;
             ReplOutcome::Done
@@ -247,14 +433,40 @@ pub fn apply_navigation(
             let rows: Vec<serde_json::Value> = crate::ratcore::slash::COMMANDS
                 .iter()
                 .enumerate()
-                .map(|(i, (name, help))| {
-                    serde_json::json!({
+                .flat_map(|(i, (name, help))| {
+                    // strip the leading `/name` from the help blurb
+                    // so the row doesn't render the command name
+                    // twice (title already shows it).
+                    let prefix = format!("/{name}");
+                    let blurb = help
+                        .strip_prefix(prefix.as_str())
+                        .unwrap_or(help)
+                        .trim_start()
+                        .to_string();
+                    let mut entries = vec![serde_json::json!({
                         "type": "slash_command",
                         "id": (*name).to_string(),
                         "title": format!("/{name}"),
-                        "subtitle": help.to_string(),
+                        "subtitle": blurb,
                         "position": i,
-                    })
+                    })];
+                    // expand grouped subcommands as their own rows so
+                    // /help is the one-stop reference.
+                    if let Some((_, subs)) = crate::ratcore::slash::GROUPS
+                        .iter()
+                        .find(|(g, _)| g == name)
+                    {
+                        for (sub, sub_help) in *subs {
+                            entries.push(serde_json::json!({
+                                "type": "slash_command",
+                                "id": format!("{name} {sub}"),
+                                "title": format!("/{name} {sub}"),
+                                "subtitle": (*sub_help).to_string(),
+                                "position": i,
+                            }));
+                        }
+                    }
+                    entries
                 })
                 .collect();
             let total = rows.len();

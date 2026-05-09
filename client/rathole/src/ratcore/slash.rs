@@ -107,6 +107,15 @@ pub enum SlashAction {
     /// dump the most recent log lines (from the in-memory ring
     /// buffer installed at log-init) into the result panel.
     Logs,
+    /// generic admin-rpc dispatch produced by the slash group
+    /// commands (`/knock`, `/users`, `/analytics`, `/radio` subs).
+    /// shells route this through their existing `admin_dispatch`
+    /// path so the result lands in the result panel like any other
+    /// admin call.
+    AdminDispatch {
+        name: &'static str,
+        body: serde_json::Value,
+    },
     /// recognised name but malformed args. `hint` describes what
     /// the user needs to type instead.
     BadArgs {
@@ -122,6 +131,12 @@ pub enum SlashAction {
 
 /// canonical list of known slash command names + one-line help.
 /// used by the repl autocompleter and the help hint line.
+///
+/// commands are roughly grouped:
+///   - playback bare verbs (`/play`, `/pause`, `/seek`, `/vol`, ...)
+///   - top-level views (`/music`, `/admin`, `/queue`, ...)
+///   - subcommand groups (`/library <kind>`, `/serve <sub>`, `/queue <sub>`)
+///   - housekeeping (`/help`, `/info`, `/log`, `/quit`)
 pub const COMMANDS: &[(&str, &str)] = &[
     ("search", "/search [query]    open music view, seed search"),
     (
@@ -136,10 +151,13 @@ pub const COMMANDS: &[(&str, &str)] = &[
     ("vol", "/vol <0-200>       set volume percent"),
     ("music", "/music             focus music view"),
     ("local", "/local             list local downloaded songs"),
-    ("admin", "/admin             browse all admin commands"),
-    ("queue", "/queue             show current playback queue"),
+    ("queue", "/queue [sub]       show queue (sub: clear)"),
     ("remote", "/remote            connect to a new remote peer"),
     ("remotes", "/remotes           list saved remotes"),
+    (
+        "library",
+        "/library <kind>    album|artist|playlist|favorites|radio",
+    ),
     ("album", "/album [query]     browse albums (or search)"),
     ("artist", "/artist [query]    browse artists (or search)"),
     ("playlist", "/playlist [query]  list playlists (or search)"),
@@ -147,7 +165,10 @@ pub const COMMANDS: &[(&str, &str)] = &[
     ("radio", "/radio             list radio stations"),
     ("help", "/help              list every slash command"),
     ("clear", "/clear             clear the playback queue"),
-    ("serve", "/serve             start http + p2p subprocess"),
+    (
+        "serve",
+        "/serve [sub]       start subprocess (sub: http|p2p|stop)",
+    ),
     ("http", "/http              start http-only subprocess"),
     ("p2p", "/p2p               start p2p-only subprocess"),
     (
@@ -170,7 +191,82 @@ pub const COMMANDS: &[(&str, &str)] = &[
         "log",
         "/log               show recent log lines (in-memory ring buffer)",
     ),
+    (
+        "knock",
+        "/knock [sub]       knocks (sub: list|accept|reject|reject-all|delete)",
+    ),
+    (
+        "users",
+        "/users [sub]       users (sub: list|grant|revoke|delete)",
+    ),
+    (
+        "analytics",
+        "/analytics [sub]   analytics (sub: top-songs|top-artists|listens|summary)",
+    ),
     ("quit", "/quit              exit rathole"),
+];
+
+/// known subcommands per command group, used by `complete_sub` for
+/// tab-completion of `/group <sub>` partials. order is the order
+/// shown in the flyout / help.
+pub const GROUPS: &[(&str, &[(&str, &str)])] = &[
+    (
+        "library",
+        &[
+            ("album", "browse albums"),
+            ("artist", "browse artists"),
+            ("playlist", "list playlists"),
+            ("favorites", "list favorited songs"),
+            ("radio", "list radio stations"),
+        ],
+    ),
+    (
+        "serve",
+        &[
+            ("http", "start http-only subprocess"),
+            ("p2p", "start p2p-only subprocess"),
+            ("stop", "stop the running subprocess"),
+        ],
+    ),
+    ("queue", &[("clear", "clear the playback queue")]),
+    (
+        "knock",
+        &[
+            ("list", "list pending knocks"),
+            ("accept", "accept a knock by id"),
+            ("reject", "reject a knock by id"),
+            ("reject-all", "reject every pending knock"),
+            ("delete", "delete a knock by id"),
+        ],
+    ),
+    (
+        "users",
+        &[
+            ("list", "list users"),
+            ("grant", "grant role: /users grant <id> <role>"),
+            ("revoke", "revoke admin: /users revoke <id>"),
+            ("delete", "soft-delete a user by id"),
+        ],
+    ),
+    (
+        "analytics",
+        &[
+            ("top-songs", "top played songs"),
+            ("top-artists", "top played artists"),
+            ("top-albums", "top played albums"),
+            ("listens", "per-user listen stats"),
+            ("summary", "top songs summary"),
+        ],
+    ),
+    (
+        "radio",
+        &[
+            ("list", "list radio stations"),
+            ("start", "start station: /radio start <id>"),
+            ("stop", "stop station: /radio stop <id>"),
+            ("tune", "tune by name: /radio tune <name>"),
+        ],
+    ),
 ];
 
 /// parse a raw repl input line into a typed action.
@@ -212,11 +308,24 @@ pub fn parse(input: &str) -> SlashAction {
             },
         },
         "music" | "m" => SlashAction::Music,
-        "local" | "l" | "library" | "lib" => SlashAction::Local,
-        "admin" | "a" | "commands" | "cmds" | "c" => SlashAction::Admin,
-        "queue" | "q!" => SlashAction::Queue,
+        "local" | "l" => SlashAction::Local,
+        // /admin is an alias for /help — both surface the slash
+        // command list in the result panel.
+        "admin" | "a" | "commands" | "cmds" | "c" => SlashAction::Help,
+        "queue" | "q!" => match arg
+            .as_deref()
+            .map(|s| s.split_whitespace().next().unwrap_or(""))
+        {
+            None | Some("") => SlashAction::Queue,
+            Some("clear") => SlashAction::ClearQueue,
+            Some(_) => SlashAction::BadArgs {
+                name: "queue",
+                hint: "usage: /queue [clear]",
+            },
+        },
         "remote" | "connect" => SlashAction::AddRemote,
         "remotes" => SlashAction::ListRemotes,
+        "library" | "lib" => parse_library_sub(arg.as_deref()),
         "album" | "al" => SlashAction::Library {
             kind: "album",
             query: arg,
@@ -233,16 +342,14 @@ pub fn parse(input: &str) -> SlashAction {
             kind: "favorites",
             query: None,
         },
-        "radio" | "r" => SlashAction::Library {
-            kind: "radio",
-            query: arg,
-        },
+        "radio" | "r" => parse_radio_sub(arg.as_deref()),
+        "knock" | "knocks" => parse_knock_sub(arg.as_deref()),
+        "users" | "user" => parse_users_sub(arg.as_deref()),
+        "analytics" | "stats" => parse_analytics_sub(arg.as_deref()),
         "quit" | "exit" | "q" => SlashAction::Quit,
         "help" | "?" | "h" => SlashAction::Help,
         "clear" | "cq" | "clearqueue" => SlashAction::ClearQueue,
-        "serve" => SlashAction::ServeStart {
-            kind: ServeKindArg::Auto,
-        },
+        "serve" => parse_serve_sub(arg.as_deref()),
         "http" | "serve-http" => SlashAction::ServeStart {
             kind: ServeKindArg::Http,
         },
@@ -273,6 +380,73 @@ fn parse_seek(s: &str) -> Option<u64> {
     s.trim().parse().ok()
 }
 
+/// parse `/serve [http|p2p|stop]` \u2014 bare resolves to Auto.
+fn parse_serve_sub(arg: Option<&str>) -> SlashAction {
+    let sub = arg.and_then(|s| s.split_whitespace().next()).unwrap_or("");
+    match sub.to_ascii_lowercase().as_str() {
+        "" | "auto" => SlashAction::ServeStart {
+            kind: ServeKindArg::Auto,
+        },
+        "http" => SlashAction::ServeStart {
+            kind: ServeKindArg::Http,
+        },
+        "p2p" => SlashAction::ServeStart {
+            kind: ServeKindArg::P2p,
+        },
+        "stop" => SlashAction::ServeStop,
+        _ => SlashAction::BadArgs {
+            name: "serve",
+            hint: "usage: /serve [http|p2p|stop]",
+        },
+    }
+}
+
+/// parse `/library <kind> [query]` \u2014 kind is required.
+fn parse_library_sub(arg: Option<&str>) -> SlashAction {
+    let raw = arg.unwrap_or("").trim();
+    if raw.is_empty() {
+        return SlashAction::BadArgs {
+            name: "library",
+            hint: "usage: /library <album|artist|playlist|favorites|radio> [query]",
+        };
+    }
+    let (sub, rest) = match raw.split_once(char::is_whitespace) {
+        Some((s, r)) => (s, r.trim()),
+        None => (raw, ""),
+    };
+    let query = if rest.is_empty() {
+        None
+    } else {
+        Some(rest.to_string())
+    };
+    match sub.to_ascii_lowercase().as_str() {
+        "album" | "albums" => SlashAction::Library {
+            kind: "album",
+            query,
+        },
+        "artist" | "artists" => SlashAction::Library {
+            kind: "artist",
+            query,
+        },
+        "playlist" | "playlists" => SlashAction::Library {
+            kind: "playlist",
+            query,
+        },
+        "favorites" | "favs" | "fav" => SlashAction::Library {
+            kind: "favorites",
+            query: None,
+        },
+        "radio" | "stations" => SlashAction::Library {
+            kind: "radio",
+            query,
+        },
+        _ => SlashAction::BadArgs {
+            name: "library",
+            hint: "usage: /library <album|artist|playlist|favorites|radio> [query]",
+        },
+    }
+}
+
 /// parse a volume percent (0..=200), tolerating a trailing `%`.
 fn parse_volume(s: &str) -> Option<u8> {
     let s = s.trim().trim_end_matches('%').trim();
@@ -281,6 +455,160 @@ fn parse_volume(s: &str) -> Option<u8> {
         return None;
     }
     Some(pct as u8)
+}
+
+/// split `<sub> <rest...>` from a raw arg, tolerating empty input.
+fn split_sub(arg: Option<&str>) -> (String, String) {
+    let raw = arg.unwrap_or("").trim();
+    if raw.is_empty() {
+        return (String::new(), String::new());
+    }
+    match raw.split_once(char::is_whitespace) {
+        Some((s, r)) => (s.to_ascii_lowercase(), r.trim().to_string()),
+        None => (raw.to_ascii_lowercase(), String::new()),
+    }
+}
+
+/// parse `/knock [list|accept|reject|reject-all|delete] [id]`.
+/// bare `/knock` and `/knock list` both list pending knocks.
+/// accept defaults to role=user (operators can use the form for
+/// finer control).
+fn parse_knock_sub(arg: Option<&str>) -> SlashAction {
+    let (sub, rest) = split_sub(arg);
+    let id = rest.trim();
+    match sub.as_str() {
+        "" | "list" => SlashAction::AdminDispatch {
+            name: "knocks_list",
+            body: serde_json::json!({}),
+        },
+        "accept" if !id.is_empty() => SlashAction::AdminDispatch {
+            name: "knocks_accept",
+            body: serde_json::json!({ "knock_id": id, "role": "User" }),
+        },
+        "reject" if !id.is_empty() => SlashAction::AdminDispatch {
+            name: "knocks_reject",
+            body: serde_json::json!({ "knock_id": id }),
+        },
+        "reject-all" | "rejectall" => SlashAction::AdminDispatch {
+            name: "knocks_reject_all",
+            body: serde_json::json!({}),
+        },
+        "delete" if !id.is_empty() => SlashAction::AdminDispatch {
+            name: "knocks_delete",
+            body: serde_json::json!({ "knock_id": id }),
+        },
+        _ => SlashAction::BadArgs {
+            name: "knock",
+            hint: "usage: /knock [list|accept <id>|reject <id>|reject-all|delete <id>]",
+        },
+    }
+}
+
+/// parse `/users [list|grant <id> <role>|revoke <id>|delete <id>]`.
+/// bare `/users` lists. revoke downgrades to the `User` role.
+fn parse_users_sub(arg: Option<&str>) -> SlashAction {
+    let (sub, rest) = split_sub(arg);
+    let mut tokens = rest.split_whitespace();
+    let first = tokens.next().unwrap_or("").trim();
+    let second = tokens.next().unwrap_or("").trim();
+    match sub.as_str() {
+        "" | "list" => SlashAction::AdminDispatch {
+            name: "users_list",
+            body: serde_json::json!({}),
+        },
+        "grant" if !first.is_empty() && !second.is_empty() => SlashAction::AdminDispatch {
+            name: "users_update_role",
+            body: serde_json::json!({ "user_id": first, "role": second }),
+        },
+        "revoke" if !first.is_empty() => SlashAction::AdminDispatch {
+            name: "users_update_role",
+            body: serde_json::json!({ "user_id": first, "role": "User" }),
+        },
+        "delete" if !first.is_empty() => SlashAction::AdminDispatch {
+            name: "users_delete",
+            body: serde_json::json!({ "user_id": first }),
+        },
+        _ => SlashAction::BadArgs {
+            name: "users",
+            hint: "usage: /users [list|grant <id> <role>|revoke <id>|delete <id>]",
+        },
+    }
+}
+
+/// parse `/analytics [top-songs|top-artists|top-albums|listens|summary]`.
+/// bare maps to `summary` (top songs). subs map to the matching
+/// `analytics_*` admin RPC. limit defaults to 20.
+fn parse_analytics_sub(arg: Option<&str>) -> SlashAction {
+    let (sub, _rest) = split_sub(arg);
+    let body = serde_json::json!({ "limit": 20 });
+    match sub.as_str() {
+        "" | "summary" | "top-songs" | "topsongs" | "songs" => SlashAction::AdminDispatch {
+            name: "analytics_top_songs",
+            body,
+        },
+        "top-artists" | "topartists" | "artists" => SlashAction::AdminDispatch {
+            name: "analytics_top_artists",
+            body,
+        },
+        "top-albums" | "topalbums" | "albums" => SlashAction::AdminDispatch {
+            name: "analytics_top_albums",
+            body,
+        },
+        "listens" | "users" | "user-stats" => SlashAction::AdminDispatch {
+            name: "analytics_all_user_stats",
+            body: serde_json::json!({}),
+        },
+        _ => SlashAction::BadArgs {
+            name: "analytics",
+            hint: "usage: /analytics [top-songs|top-artists|top-albums|listens|summary]",
+        },
+    }
+}
+
+/// parse `/radio [list|start <id>|stop <id>|tune <name>]`. bare and
+/// `list` list stations. unknown subs fall back to legacy
+/// fuzzy-match-and-tune so `/radio mellow` still works.
+fn parse_radio_sub(arg: Option<&str>) -> SlashAction {
+    let raw = arg.unwrap_or("").trim();
+    if raw.is_empty() {
+        return SlashAction::Library {
+            kind: "radio",
+            query: None,
+        };
+    }
+    let (sub, rest) = match raw.split_once(char::is_whitespace) {
+        Some((s, r)) => (s.to_ascii_lowercase(), r.trim().to_string()),
+        None => (raw.to_ascii_lowercase(), String::new()),
+    };
+    let id = rest.trim();
+    match sub.as_str() {
+        "list" => SlashAction::Library {
+            kind: "radio",
+            query: None,
+        },
+        "start" | "play" if !id.is_empty() => SlashAction::AdminDispatch {
+            name: "radio_supervisor_start",
+            body: serde_json::json!({ "station_id": id }),
+        },
+        "stop" if !id.is_empty() => SlashAction::AdminDispatch {
+            name: "radio_supervisor_stop",
+            body: serde_json::json!({ "station_id": id }),
+        },
+        "tune" if !id.is_empty() => SlashAction::Library {
+            kind: "radio",
+            query: Some(id.to_string()),
+        },
+        // start/stop/tune without an id is a usage error.
+        "start" | "stop" | "play" | "tune" => SlashAction::BadArgs {
+            name: "radio",
+            hint: "usage: /radio [list|start <id>|stop <id>|tune <name>]",
+        },
+        // unknown sub \u2014 legacy fuzzy-match-and-tune.
+        _ => SlashAction::Library {
+            kind: "radio",
+            query: Some(raw.to_string()),
+        },
+    }
 }
 
 /// best-match autocompletion for a partial command name. returns
@@ -294,6 +622,32 @@ pub fn complete(partial: &str) -> Vec<&'static str> {
     COMMANDS
         .iter()
         .filter_map(|(n, _)| if n.starts_with(&p) { Some(*n) } else { None })
+        .collect()
+}
+
+/// best-match autocompletion for a `/group <sub>` partial. returns
+/// the matching subcommand names from the [`GROUPS`] table for the
+/// given `group`, filtered by `sub_partial` prefix. used by the
+/// flyout (and tab-completion) so users discover subcommands
+/// without needing to know them upfront. returns an empty vec when
+/// the group is unknown.
+pub fn complete_sub(group: &str, sub_partial: &str) -> Vec<&'static str> {
+    let g = group.to_ascii_lowercase();
+    let p = sub_partial.trim().to_ascii_lowercase();
+    let Some((_, subs)) = GROUPS
+        .iter()
+        .find(|(name, _)| name.eq_ignore_ascii_case(&g))
+    else {
+        return vec![];
+    };
+    subs.iter()
+        .filter_map(|(n, _)| {
+            if p.is_empty() || n.starts_with(&p) {
+                Some(*n)
+            } else {
+                None
+            }
+        })
         .collect()
 }
 
@@ -441,5 +795,240 @@ mod tests {
     fn match_station_returns_none_for_no_match() {
         let data = serde_json::json!([{ "id": "x", "name": "Smooth Jams" }]);
         assert!(match_station_id(&Some(data), Some("metal")).is_none());
+    }
+
+    #[test]
+    fn parses_serve_subcommands() {
+        assert!(matches!(
+            parse("/serve"),
+            SlashAction::ServeStart {
+                kind: ServeKindArg::Auto
+            }
+        ));
+        assert!(matches!(
+            parse("/serve http"),
+            SlashAction::ServeStart {
+                kind: ServeKindArg::Http
+            }
+        ));
+        assert!(matches!(
+            parse("/serve p2p"),
+            SlashAction::ServeStart {
+                kind: ServeKindArg::P2p
+            }
+        ));
+        assert!(matches!(parse("/serve stop"), SlashAction::ServeStop));
+        assert!(matches!(parse("/serve nope"), SlashAction::BadArgs { .. }));
+    }
+
+    #[test]
+    fn parses_queue_subcommands() {
+        assert_eq!(parse("/queue"), SlashAction::Queue);
+        assert_eq!(parse("/queue clear"), SlashAction::ClearQueue);
+        assert!(matches!(parse("/queue nope"), SlashAction::BadArgs { .. }));
+    }
+
+    #[test]
+    fn parses_library_subcommands() {
+        assert_eq!(
+            parse("/library album"),
+            SlashAction::Library {
+                kind: "album",
+                query: None
+            }
+        );
+        assert_eq!(
+            parse("/library artist coltrane"),
+            SlashAction::Library {
+                kind: "artist",
+                query: Some("coltrane".into())
+            }
+        );
+        assert_eq!(
+            parse("/library favorites"),
+            SlashAction::Library {
+                kind: "favorites",
+                query: None
+            }
+        );
+        assert!(matches!(parse("/library"), SlashAction::BadArgs { .. }));
+        assert!(matches!(
+            parse("/library bogus"),
+            SlashAction::BadArgs { .. }
+        ));
+    }
+
+    #[test]
+    fn complete_sub_returns_known_subs() {
+        assert!(complete_sub("serve", "").contains(&"http"));
+        assert!(complete_sub("serve", "h").contains(&"http"));
+        assert!(complete_sub("library", "a").contains(&"album"));
+        assert!(complete_sub("library", "a").contains(&"artist"));
+        assert!(complete_sub("queue", "").contains(&"clear"));
+        assert!(complete_sub("unknown", "").is_empty());
+        assert!(complete_sub("knock", "").contains(&"accept"));
+        assert!(complete_sub("users", "").contains(&"grant"));
+        assert!(complete_sub("analytics", "top-").contains(&"top-songs"));
+        assert!(complete_sub("radio", "").contains(&"start"));
+    }
+
+    #[test]
+    fn parses_knock_subcommands() {
+        assert!(matches!(
+            parse("/knock"),
+            SlashAction::AdminDispatch {
+                name: "knocks_list",
+                ..
+            }
+        ));
+        assert!(matches!(
+            parse("/knock list"),
+            SlashAction::AdminDispatch {
+                name: "knocks_list",
+                ..
+            }
+        ));
+        assert!(matches!(
+            parse("/knock accept abc123"),
+            SlashAction::AdminDispatch {
+                name: "knocks_accept",
+                ..
+            }
+        ));
+        assert!(matches!(
+            parse("/knock reject abc123"),
+            SlashAction::AdminDispatch {
+                name: "knocks_reject",
+                ..
+            }
+        ));
+        assert!(matches!(
+            parse("/knock reject-all"),
+            SlashAction::AdminDispatch {
+                name: "knocks_reject_all",
+                ..
+            }
+        ));
+        assert!(matches!(
+            parse("/knock delete abc123"),
+            SlashAction::AdminDispatch {
+                name: "knocks_delete",
+                ..
+            }
+        ));
+        // missing id => bad args
+        assert!(matches!(
+            parse("/knock accept"),
+            SlashAction::BadArgs { name: "knock", .. }
+        ));
+    }
+
+    #[test]
+    fn parses_users_subcommands() {
+        assert!(matches!(
+            parse("/users"),
+            SlashAction::AdminDispatch {
+                name: "users_list",
+                ..
+            }
+        ));
+        assert!(matches!(
+            parse("/users grant uid Admin"),
+            SlashAction::AdminDispatch {
+                name: "users_update_role",
+                ..
+            }
+        ));
+        assert!(matches!(
+            parse("/users revoke uid"),
+            SlashAction::AdminDispatch {
+                name: "users_update_role",
+                ..
+            }
+        ));
+        assert!(matches!(
+            parse("/users delete uid"),
+            SlashAction::AdminDispatch {
+                name: "users_delete",
+                ..
+            }
+        ));
+        assert!(matches!(
+            parse("/users grant uid"),
+            SlashAction::BadArgs { name: "users", .. }
+        ));
+    }
+
+    #[test]
+    fn parses_analytics_subcommands() {
+        assert!(matches!(
+            parse("/analytics"),
+            SlashAction::AdminDispatch {
+                name: "analytics_top_songs",
+                ..
+            }
+        ));
+        assert!(matches!(
+            parse("/analytics top-artists"),
+            SlashAction::AdminDispatch {
+                name: "analytics_top_artists",
+                ..
+            }
+        ));
+        assert!(matches!(
+            parse("/analytics listens"),
+            SlashAction::AdminDispatch {
+                name: "analytics_all_user_stats",
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn parses_radio_subcommands() {
+        // bare + list both list stations.
+        assert_eq!(
+            parse("/radio"),
+            SlashAction::Library {
+                kind: "radio",
+                query: None
+            }
+        );
+        assert_eq!(
+            parse("/radio list"),
+            SlashAction::Library {
+                kind: "radio",
+                query: None
+            }
+        );
+        assert!(matches!(
+            parse("/radio start station-1"),
+            SlashAction::AdminDispatch {
+                name: "radio_supervisor_start",
+                ..
+            }
+        ));
+        assert!(matches!(
+            parse("/radio stop station-1"),
+            SlashAction::AdminDispatch {
+                name: "radio_supervisor_stop",
+                ..
+            }
+        ));
+        assert_eq!(
+            parse("/radio tune mellow"),
+            SlashAction::Library {
+                kind: "radio",
+                query: Some("mellow".into()),
+            }
+        );
+        // legacy fuzzy match still works.
+        assert_eq!(
+            parse("/radio mellow jams"),
+            SlashAction::Library {
+                kind: "radio",
+                query: Some("mellow jams".into()),
+            }
+        );
     }
 }

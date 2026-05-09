@@ -28,9 +28,12 @@ use crate::ratcore::theme::ACCENT;
 /// render the form into `area`. caller is responsible for sizing
 /// (palette gives us the same slot the "selected" panel occupies).
 ///
-/// rendering is wizard-style: only the focused field (or the
-/// confirm step) is shown; a small header tells the user what
-/// step they're on.
+/// renders ALL fields as a scrollable view (the focused field is
+/// highlighted in accent + bold; unfocused fields render dim).
+/// help text under each field is always visible. PgUp/PgDn scroll
+/// the form body when content overflows. on the confirm step the
+/// pretty-printed JSON body replaces the field list so users can
+/// review what they're about to submit.
 pub fn draw(frame: &mut Frame, area: Rect, app: &App) {
     let Some(form) = app.state.ephemeral.form.as_ref() else {
         return;
@@ -47,6 +50,12 @@ pub fn draw(frame: &mut Frame, area: Rect, app: &App) {
         Span::raw("    "),
         Span::styled(format!("step {} of {}", step, total), Style::new().dim()),
     ]));
+    if !cmd.args.is_empty() && !form.confirming {
+        lines.push(Line::from(Span::styled(
+            "tab/enter: next   \u{2190}/\u{2192}: pick   pgup/pgdn: scroll   esc: cancel",
+            Style::new().dim(),
+        )));
+    }
     lines.push(Line::from(""));
 
     if form.confirming {
@@ -69,14 +78,19 @@ pub fn draw(frame: &mut Frame, area: Rect, app: &App) {
                 ]));
             }
         }
-    } else if let (Some(spec), Some(state)) = (
-        cmd.args.get(form.focused),
-        form.fields.get(form.focused),
-    ) {
-        // single-field view, with its label/help/value rendered
-        // exactly like the multi-field renderer used to.
-        for line in render_field(spec, state, true) {
-            lines.push(line);
+    } else {
+        // multi-field view: every field is rendered, focused one
+        // highlighted. blank line between fields keeps things
+        // breathable for long help text.
+        for (i, (spec, state)) in cmd.args.iter().zip(form.fields.iter()).enumerate() {
+            if matches!(state, FieldState::HiddenLocalNodeId) {
+                continue;
+            }
+            let is_focused = i == form.focused;
+            for line in render_field(spec, state, is_focused) {
+                lines.push(line);
+            }
+            lines.push(Line::from(""));
         }
     }
 
@@ -105,15 +119,22 @@ pub fn draw(frame: &mut Frame, area: Rect, app: &App) {
         if is_long {
             "enter: newline   tab: next step   esc: cancel".to_string()
         } else {
-            "←/→: pick   enter: next step   esc: cancel".to_string()
+            "\u{2190}/\u{2192}: pick   enter: next step   esc: cancel".to_string()
         }
     };
+
+    // clamp scroll so it never overflows the rendered content.
+    let viewport = area.height.saturating_sub(2); // borders
+    let max_scroll = (lines.len() as u16).saturating_sub(viewport);
+    let scroll = form.scroll.min(max_scroll);
+
     let para = Paragraph::new(lines)
         .block(
             Block::bordered()
                 .title(Span::styled(title, Style::new().fg(ACCENT).bold()))
                 .title_bottom(Span::styled(hint, Style::new().dim())),
         )
+        .scroll((scroll, 0))
         .wrap(Wrap { trim: false });
     frame.render_widget(para, area);
 }
@@ -153,10 +174,7 @@ fn render_field(spec: &ArgSpec, state: &FieldState, focused: bool) -> Vec<Line<'
                 line_starts.push(i + 1);
             }
         }
-        let cursor_line = line_starts
-            .iter()
-            .rposition(|&s| s <= cur)
-            .unwrap_or(0);
+        let cursor_line = line_starts.iter().rposition(|&s| s <= cur).unwrap_or(0);
         let cursor_col = cur - line_starts[cursor_line];
         let lines_iter: Vec<&str> = if buf.is_empty() {
             vec![""]
@@ -166,11 +184,7 @@ fn render_field(spec: &ArgSpec, state: &FieldState, focused: bool) -> Vec<Line<'
             buf.split('\n').collect()
         };
         for (idx, line_text) in lines_iter.iter().enumerate() {
-            let prefix = if focused && idx == 0 {
-                "> "
-            } else {
-                "  "
-            };
+            let prefix = if focused && idx == 0 { "> " } else { "  " };
             let mut spans = vec![Span::styled(prefix, Style::new().fg(ACCENT).bold())];
             if focused && idx == cursor_line {
                 let before: String = line_text.chars().take(cursor_col).collect();
@@ -184,10 +198,7 @@ fn render_field(spec: &ArgSpec, state: &FieldState, focused: bool) -> Vec<Line<'
                 if at.is_empty() {
                     spans.push(Span::styled("█", Style::new().fg(ACCENT)));
                 } else {
-                    spans.push(Span::styled(
-                        at,
-                        Style::new().fg(ACCENT).bold().reversed(),
-                    ));
+                    spans.push(Span::styled(at, Style::new().fg(ACCENT).bold().reversed()));
                 }
                 spans.push(Span::raw(after));
             } else {
@@ -215,10 +226,7 @@ fn render_field(spec: &ArgSpec, state: &FieldState, focused: bool) -> Vec<Line<'
                     if at.is_empty() {
                         spans.push(Span::styled("█", Style::new().fg(ACCENT)));
                     } else {
-                        spans.push(Span::styled(
-                            at,
-                            Style::new().fg(ACCENT).bold().reversed(),
-                        ));
+                        spans.push(Span::styled(at, Style::new().fg(ACCENT).bold().reversed()));
                     }
                 } else if !at.is_empty() {
                     spans.push(Span::raw(at));
@@ -295,10 +303,7 @@ fn render_field(spec: &ArgSpec, state: &FieldState, focused: bool) -> Vec<Line<'
             if *loading {
                 Line::from(vec![
                     Span::styled(prefix, Style::new().fg(ACCENT).bold()),
-                    Span::styled(
-                        format!("loading {}…", source_command),
-                        Style::new().dim(),
-                    ),
+                    Span::styled(format!("loading {}…", source_command), Style::new().dim()),
                 ])
             } else if let Some(err) = error {
                 Line::from(vec![
@@ -309,10 +314,7 @@ fn render_field(spec: &ArgSpec, state: &FieldState, focused: bool) -> Vec<Line<'
                 if opts.is_empty() {
                     Line::from(vec![
                         Span::styled(prefix, Style::new().fg(ACCENT).bold()),
-                        Span::styled(
-                            format!("(no {} found)", source_command),
-                            Style::new().dim(),
-                        ),
+                        Span::styled(format!("(no {} found)", source_command), Style::new().dim()),
                     ])
                 } else {
                     let sel = (*selected).min(opts.len() - 1);
@@ -370,7 +372,10 @@ pub fn build_body(
                         return Err(format!("`{}` is required", spec.name));
                     }
                 } else {
-                    map.insert(spec.name.clone(), serde_json::Value::String(trimmed.to_string()));
+                    map.insert(
+                        spec.name.clone(),
+                        serde_json::Value::String(trimmed.to_string()),
+                    );
                 }
             }
             (ArgKind::LongText { .. }, FieldState::LongText { buf, .. }) => {
@@ -382,7 +387,10 @@ pub fn build_body(
                         return Err(format!("`{}` is required", spec.name));
                     }
                 } else {
-                    map.insert(spec.name.clone(), serde_json::Value::String(trimmed.to_string()));
+                    map.insert(
+                        spec.name.clone(),
+                        serde_json::Value::String(trimmed.to_string()),
+                    );
                 }
             }
             (ArgKind::Number { min, max, .. }, FieldState::Number { buf, .. }) => {
@@ -491,16 +499,12 @@ pub fn build_body(
                 }
                 let sel = (*selected).min(opts.len() - 1);
                 let raw = opts[sel].row.get(source_row_field).ok_or_else(|| {
-                    format!(
-                        "`{}` row missing field `{}`",
-                        from_field, source_row_field
-                    )
+                    format!("`{}` row missing field `{}`", from_field, source_row_field)
                 })?;
                 map.insert(spec.name.clone(), raw.clone());
             }
             (ArgKind::HiddenLocalNodeId, FieldState::HiddenLocalNodeId) => {
-                let id = local_node_id
-                    .ok_or_else(|| "local node id not ready yet".to_string())?;
+                let id = local_node_id.ok_or_else(|| "local node id not ready yet".to_string())?;
                 map.insert(spec.name.clone(), serde_json::Value::String(id.to_string()));
             }
             _ => return Err(format!("field `{}` shape mismatch", spec.name)),
@@ -553,9 +557,9 @@ pub fn build_select_source_body(
             FieldState::SelectFrom {
                 options, selected, ..
             } => {
-                let opts = options.as_ref().ok_or_else(|| {
-                    format!("`{}` not loaded yet — pick it first", sibling_name)
-                })?;
+                let opts = options
+                    .as_ref()
+                    .ok_or_else(|| format!("`{}` not loaded yet — pick it first", sibling_name))?;
                 if opts.is_empty() {
                     return Err(format!("`{}` has no options", sibling_name));
                 }
@@ -563,9 +567,7 @@ pub fn build_select_source_body(
                 serde_json::Value::String(opts[s].value.clone())
             }
             FieldState::OneOf { selected } => {
-                if let Some(ArgKind::OneOf { choices }) =
-                    cmd.args.get(sib_idx).map(|a| &a.kind)
-                {
+                if let Some(ArgKind::OneOf { choices }) = cmd.args.get(sib_idx).map(|a| &a.kind) {
                     let v = choices
                         .get(*selected)
                         .cloned()

@@ -28,6 +28,17 @@ pub struct ReplState {
     pub history_cursor: Option<usize>,
     /// the focus we came from, so esc returns there cleanly.
     pub return_focus: Option<super::Focus>,
+    /// cursor into the slash-completion flyout (rendered above the
+    /// repl row when matches narrow). 0 = first match. reset to 0
+    /// whenever the input changes so the flyout always opens at
+    /// the top.
+    pub flyout_cursor: usize,
+    /// when present, the original prefix the user typed before
+    /// starting to tab-cycle through completions. lets repeated
+    /// `tab` rotate through every match (otherwise the input would
+    /// narrow to one match after the first cycle and lock cycling).
+    /// cleared on any non-tab input edit, on enter, and on esc.
+    pub cycle_stem: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -86,5 +97,7 @@ impl ReplState {
         self.input.clear();
         self.cursor = 0;
         self.history_cursor = None;
+        self.flyout_cursor = 0;
+        self.cycle_stem = None;
     }
 }

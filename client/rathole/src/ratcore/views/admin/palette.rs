@@ -1,15 +1,13 @@
-//! admin command palette. left pane: scrolling list of every entry
-//! in `app.commands` (built by the shell). right pane: details for
-//! the selected command + result of the most recent dispatch.
-//!
-//! m0 dispatches with empty args (no typed forms yet — see
-//! [docs/TUI_PLAN.md](../../../../../docs/TUI_PLAN.md) m1).
+//! admin command palette body. just the result container now —
+//! the left commands list and "selected" info box were dropped in
+//! favor of driving everything from the bottom slash repl + flyout.
+//! command forms still render full-body when one is open.
 
 use ratatui::{
     layout::{Constraint::*, Layout, Rect},
     style::{Style, Stylize},
     text::{Line, Span},
-    widgets::{Block, List, ListItem, Paragraph, Wrap},
+    widgets::{Block, Paragraph, Wrap},
     Frame,
 };
 
@@ -19,188 +17,71 @@ use crate::ratcore::app::{App, Focus};
 use crate::ratcore::views::command_form;
 
 pub fn draw(frame: &mut Frame, area: Rect, app: &mut App) {
-    // when the user explicitly opened the commands list (via /commands
-    // or 'c' from landing), render it on the left. otherwise the form
-    // / results pane gets the full body width.
-    if !app.state.ephemeral.show_command_list {
-        draw_detail(frame, area, app);
-        return;
-    }
-
-    let [left, right] = Layout::horizontal([Length(40), Min(0)]).areas(area);
-
-    // resolve which commands the filter currently shows. clamp the
-    // palette selection so it never points past the visible list
-    // (typing a filter that shrinks the list shouldn't strand the
-    // cursor).
-    let visible: Vec<usize> = app.palette_visible_indices();
-    if !visible.is_empty() {
-        let sel = app
-            .state
-            .ephemeral
-            .palette_list
-            .selected()
-            .unwrap_or(0)
-            .min(visible.len() - 1);
-        app.state.ephemeral.palette_list.select(Some(sel));
-    } else {
-        app.state.ephemeral.palette_list.select(None);
-    }
-
-    let filter = app.state.ephemeral.palette_filter.clone();
-
-    let items: Vec<ListItem> = visible
-        .iter()
-        .map(|i| {
-            let c = &app.commands[*i];
-            let group = c.group();
-            // split the name into "[group]_[rest]" and dim the group
-            // prefix so the eye can find groups (knocks_, users_,
-            // analytics_, etc.) without losing the full name.
-            let rest = c.name.strip_prefix(group).unwrap_or(c.name.as_str());
-            ListItem::new(Line::from(vec![
-                Span::styled(group.to_string(), Style::new().fg(ACCENT)),
-                Span::raw(rest.to_string()),
-            ]))
-        })
-        .collect();
-
-    // title carries both the visible/total count and (when active)
-    // the filter string so the user knows why the list shrunk.
-    let title_text = if filter.is_empty() {
-        format!("commands ({})", app.commands.len())
-    } else {
-        format!(
-            "commands ({}/{}) /{}",
-            visible.len(),
-            app.commands.len(),
-            filter
-        )
-    };
-
-    let list = List::new(items)
-        .block(Block::bordered().title(Span::styled(title_text, Style::new().fg(ACCENT).bold())))
-        .highlight_style(ratatui::style::Style::new().reversed())
-        .highlight_symbol("\u{25B6} ");
-
-    frame.render_stateful_widget(list, left, &mut app.state.ephemeral.palette_list);
-
-    draw_detail(frame, right, app);
-}
-
-fn draw_detail(frame: &mut Frame, area: Rect, app: &App) {
-    // resolve the selected command via the filter-aware index map so
-    // the "selected" info box always matches the highlighted row.
-    let cmd_idx = app.palette_selected_index();
-    let cmd = cmd_idx.and_then(|i| app.commands.get(i));
-
-    // when a form is open, give it the entire right pane — args
-    // previews, long help text, and the confirm summary all need
-    // room to breathe. when not, the upper "selected" details box
-    // is fixed at 8 lines (only when the commands list is visible)
-    // and the rest is the resultz pane.
+    // when a form is open, give it the entire body. otherwise show
+    // the resultz container full-width.
     if app.state.ephemeral.focus == Focus::CommandForm && app.state.ephemeral.form.is_some() {
         command_form::draw(frame, area, app);
         return;
     }
-
-    if !app.state.ephemeral.show_command_list {
-        // commands list hidden -> no need for the "selected" info
-        // box; the resultz pane uses the full body.
-        draw_result_box(frame, area, app);
-        return;
-    }
-
-    let info_height = 8u16;
-    let [info_area, result_area] = Layout::vertical([Length(info_height), Min(0)]).areas(area);
-
-    draw_selected_box(frame, info_area, cmd);
-    draw_result_box(frame, result_area, app);
+    draw_result_box(frame, area, app);
 }
 
-fn draw_selected_box(
-    frame: &mut Frame,
-    info_area: Rect,
-    cmd: Option<&crate::ratcore::app::AdminCommand>,
-) {
-    let info_lines = if let Some(c) = cmd {
-        let kind_label = match &c.kind {
-            crate::ratcore::app::CommandKind::Admin => "admin".to_string(),
-            crate::ratcore::app::CommandKind::Public { route, method } => {
-                format!("public ({} {})", method, route)
-            }
-        };
-        vec![
-            Line::from(vec![
-                Span::raw("name:           "),
-                Span::raw(c.name.clone()).bold(),
-            ]),
-            Line::from(vec![
-                Span::raw("request type:   "),
-                Span::raw(c.request_type.clone()),
-            ]),
-            Line::from(vec![
-                Span::raw("response type:  "),
-                Span::raw(c.response_type.clone()),
-            ]),
-            Line::from(vec![
-                Span::raw("auth:           "),
-                Span::raw(c.auth.clone()),
-            ]),
-            Line::from(vec![Span::raw("channel:        "), Span::raw(kind_label)]),
-            Line::from(vec![
-                Span::raw("args:           "),
-                Span::raw(if c.args.is_empty() {
-                    "(none)".to_string()
-                } else {
-                    c.args
-                        .iter()
-                        .map(|a| a.name.clone())
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                }),
-            ]),
-        ]
-    } else {
-        vec![Line::from("no command selected".dim())]
+/// human-friendly title for the resultz container, keyed off the
+/// last-dispatch command name. unrecognized commands fall through
+/// to a tidied version of the raw name.
+fn friendly_title(command: &str, row_count: usize) -> String {
+    let pretty = match command {
+        "help" => "slash commandz".to_string(),
+        "info" => "local info".to_string(),
+        "log" | "logs" => "logz".to_string(),
+        "queue" => "queue".to_string(),
+        "remotes" => "remotez".to_string(),
+        "library_album" | "album" => "albumz".to_string(),
+        "library_artist" | "artist" => "artistz".to_string(),
+        "library_playlist" | "playlist" => "playlistz".to_string(),
+        "library_favorites" | "favorites" => "favoritez".to_string(),
+        "library_radio" | "radio" => "radio stationz".to_string(),
+        other => {
+            // turn snake_case into spaces for readability.
+            other.replace('_', " ")
+        }
     };
-    frame.render_widget(
-        Paragraph::new(info_lines)
-            .block(
-                Block::bordered().title(Span::styled("selected", Style::new().fg(ACCENT).bold())),
-            )
-            .wrap(Wrap { trim: false }),
-        info_area,
-    );
+    if row_count > 0 {
+        format!("{pretty} ({row_count})")
+    } else {
+        pretty
+    }
 }
 
 fn draw_result_box(frame: &mut Frame, result_area: Rect, app: &App) {
     let Some(d) = &app.state.ephemeral.last_dispatch else {
         let title_style = title_style(app);
-        let para = Paragraph::new(vec![Line::from(
-            "press enter to dispatch the selected command (forms open inline if it has args)".dim(),
-        )])
+        let para = Paragraph::new(vec![
+            Line::from(""),
+            Line::from("  type a slash command in the prompt below to get started".dim()),
+            Line::from(
+                "  try /help to list every command, or /admin to browse all admin RPC".dim(),
+            ),
+        ])
         .block(Block::bordered().title(Span::styled("resultz", title_style)));
         frame.render_widget(para, result_area);
         return;
     };
 
-    // common header: command + status + message.
-    let header_lines: Vec<Line> = vec![
-        Line::from(vec![
-            Span::raw("command: "),
-            Span::raw(d.command.clone()).bold(),
-        ]),
-        Line::from(vec![
-            Span::raw("status:  "),
-            if d.success {
-                Span::raw("ok").green()
-            } else {
-                Span::raw("fail").red()
-            },
-        ]),
-        Line::from(vec![Span::raw("message: "), Span::raw(d.message.clone())]),
-    ];
+    // friendly title carries the command identity + row count;
+    // the message slides under it as a single header line so the
+    // body has more room for actual rows.
+    let title_text = friendly_title(&d.command, d.rows.len());
+    let status_glyph = if d.success { "✓" } else { "✗" };
+    let status_style = if d.success {
+        Style::new().green()
+    } else {
+        Style::new().red()
+    };
+    let header_lines: Vec<Line> = vec![Line::from(vec![
+        Span::styled(format!(" {status_glyph} "), status_style),
+        Span::raw(d.message.clone()).dim(),
+    ])];
 
     if d.rows.is_empty() {
         // no rows: show pretty json (or "(no data)") with vertical
@@ -218,9 +99,9 @@ fn draw_result_box(frame: &mut Frame, result_area: Rect, app: &App) {
         let max_scroll = (lines.len() as u16).saturating_sub(viewport);
         let scroll = app.state.ephemeral.last_dispatch_scroll.min(max_scroll);
         let title = if max_scroll > 0 {
-            format!("resultz  [{}/{}]", scroll, max_scroll)
+            format!("{title_text}  [{}/{}]", scroll, max_scroll)
         } else {
-            "resultz".to_string()
+            title_text.clone()
         };
         frame.render_widget(
             Paragraph::new(lines)
@@ -239,25 +120,33 @@ fn draw_result_box(frame: &mut Frame, result_area: Rect, app: &App) {
     // pane on the right showing pretty-printed json of the focused
     // row — gives users at-a-glance detail while navigating.
     let cursor = d.cursor.min(d.rows.len() - 1);
-    let (rows_area, info_area) = if result_area.width >= 80 {
+    // /help rows are self-explanatory (title + blurb); skip the
+    // info pane to give the row list the full width.
+    let show_info = d.command != "help";
+    let (rows_area, info_area) = if show_info && result_area.width >= 80 {
         let [a, b] = Layout::horizontal([Min(0), Length(result_area.width / 2)]).areas(result_area);
         (a, Some(b))
     } else {
         (result_area, None)
     };
     let summary_line = Line::from(vec![
-        Span::raw("rows:    "),
         Span::styled(
-            format!("{} / {}", cursor + 1, d.rows.len()),
+            format!(" {} / {} ", cursor + 1, d.rows.len()),
             Style::new().fg(ACCENT).bold(),
         ),
-        Span::raw("   "),
-        Span::styled("(j/k navigate, a or enter for actions)", Style::new().dim()),
+        Span::styled(" j/k navigate, a or enter for actions", Style::new().dim()),
     ]);
 
-    let mut header = header_lines.clone();
-    header.push(summary_line);
-    header.push(Line::from(""));
+    // /help is self-explanatory: drop the status/count header so the
+    // row list starts flush against the top border.
+    let header: Vec<Line> = if d.command == "help" {
+        Vec::new()
+    } else {
+        let mut h = header_lines.clone();
+        h.push(summary_line);
+        h.push(Line::from(""));
+        h
+    };
 
     // build row lines beneath the header. cursor stays on screen by
     // computing a top offset against the rendered viewport (full
@@ -291,7 +180,7 @@ fn draw_result_box(frame: &mut Frame, result_area: Rect, app: &App) {
     }
     frame.render_widget(
         Paragraph::new(lines)
-            .block(Block::bordered().title(Span::styled("resultz", title_style(app)))),
+            .block(Block::bordered().title(Span::styled(title_text, title_style(app)))),
         rows_area,
     );
 
@@ -339,6 +228,39 @@ fn row_summary(row: &serde_json::Value) -> String {
     if let Some(ty) = pick("type") {
         let title = pick("title").unwrap_or_else(|| pick("name").unwrap_or_default());
         let subtitle = pick("subtitle").unwrap_or_default();
+        // /help rows: just `/name   blurb`. no position, no type tag,
+        // no glyph — the result panel title already says "slash
+        // commandz" and the title field already starts with `/`.
+        if ty == "slash_command" {
+            if subtitle.is_empty() {
+                return title;
+            }
+            return format!("{title:<18} {subtitle}");
+        }
+        // remote rows: status glyph (filled = active, hollow = idle)
+        // followed by name, transport in parens, and a peer hint.
+        // long node ids get middle-truncated so the row fits.
+        if ty == "remote" {
+            let transport = pick("transport").unwrap_or_default();
+            let active = obj.get("active").and_then(|v| v.as_bool()).unwrap_or(false);
+            let glyph = if active { "\u{25CF}" } else { "\u{25CB}" };
+            let mut s = format!("{glyph} {title}");
+            if !transport.is_empty() {
+                s.push_str(&format!("  ({transport})"));
+            }
+            if !subtitle.is_empty() && subtitle != transport {
+                let short = if subtitle.chars().count() > 40 {
+                    let chars: Vec<char> = subtitle.chars().collect();
+                    let head: String = chars.iter().take(20).collect();
+                    let tail: String = chars.iter().skip(chars.len().saturating_sub(8)).collect();
+                    format!("{head}\u{2026}{tail}")
+                } else {
+                    subtitle.clone()
+                };
+                s.push_str(&format!("  \u{00B7} {short}"));
+            }
+            return s;
+        }
         // queue rows carry a `position`, `now_playing`, `pending`
         // status. render with a leading glyph + position so the
         // /queue view reads as an ordered list.

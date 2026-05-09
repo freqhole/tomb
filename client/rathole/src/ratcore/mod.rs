@@ -15,7 +15,6 @@
 
 pub mod app;
 pub mod catalog;
-pub mod palette_filter;
 pub mod player_row_keys;
 pub mod repl_keys;
 pub mod slash;

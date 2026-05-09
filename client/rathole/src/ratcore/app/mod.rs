@@ -53,40 +53,4 @@ impl App {
         self.player = Some(player);
         self
     }
-
-    /// indices into [`Self::commands`] visible in the admin palette
-    /// given the current `palette_filter`. when the filter is empty
-    /// every command is visible (and indices are `0..len`).
-    /// case-insensitive substring match against the command name.
-    pub fn palette_visible_indices(&self) -> Vec<usize> {
-        let filter = self.state.ephemeral.palette_filter.trim().to_lowercase();
-        if filter.is_empty() {
-            return (0..self.commands.len()).collect();
-        }
-        self.commands
-            .iter()
-            .enumerate()
-            .filter(|(_, c)| c.name.to_lowercase().contains(&filter))
-            .map(|(i, _)| i)
-            .collect()
-    }
-
-    /// resolve the palette `palette_list` selection (which is an
-    /// index into the *filtered* visible list) back to a real index
-    /// into [`Self::commands`]. returns `None` if no commands match
-    /// the current filter or the selection is out of range.
-    pub fn palette_selected_index(&self) -> Option<usize> {
-        let visible = self.palette_visible_indices();
-        if visible.is_empty() {
-            return None;
-        }
-        let sel = self
-            .state
-            .ephemeral
-            .palette_list
-            .selected()
-            .unwrap_or(0)
-            .min(visible.len() - 1);
-        visible.get(sel).copied()
-    }
 }

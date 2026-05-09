@@ -281,6 +281,11 @@ pub struct CommandForm {
     pub confirming: bool,
     pub inflight: bool,
     pub error: Option<String>,
+    /// vertical scroll offset (in lines) for the form body. lets
+    /// long help text + multi-line LongText fields render past the
+    /// viewport. PgUp/PgDn drive this from the form key handler;
+    /// it's clamped at render time so it never overflows.
+    pub scroll: u16,
 }
 
 impl CommandForm {
@@ -294,6 +299,7 @@ impl CommandForm {
             confirming: false,
             inflight: false,
             error: None,
+            scroll: 0,
         }
     }
 
@@ -412,6 +418,7 @@ impl CommandForm {
             confirming: false,
             inflight: false,
             error: None,
+            scroll: 0,
         }
     }
 

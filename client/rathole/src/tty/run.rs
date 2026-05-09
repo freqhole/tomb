@@ -197,55 +197,15 @@ fn on_event(app: &mut App, ev: Event, action_tx: &mpsc::UnboundedSender<AppActio
         return;
     }
 
-    // global hotkeys first. macos terminals (iterm2, kitty, wezterm,
-    // ghostty) report the cmd modifier as either SUPER or META
-    // depending on key-protocol setup; treat all three the same as
-    // ctrl so cmd+k / cmd+c / cmd+p all work in the tty shell.
+    // global hotkey: only ctrl-c quits. all other navigation is
+    // driven through the slash repl ('/' anywhere) — no cmd/ctrl
+    // letter chords (which were unreliable on macOS terminals
+    // anyway) and no single-letter landing shortcuts.
     let cmdlike =
         KeyModifiers::CONTROL | KeyModifiers::SUPER | KeyModifiers::META | KeyModifiers::ALT;
-    if k.modifiers.intersects(cmdlike) {
-        match k.code {
-            KeyCode::Char('c') => {
-                app.exit = true;
-                return;
-            }
-            KeyCode::Char('k') => {
-                enter_repl(app);
-                return;
-            }
-            KeyCode::Char('p') => {
-                // toggle player-row focus: enter if not focused,
-                // leave if already focused.
-                if matches!(app.state.ephemeral.focus, Focus::PlayerRow) {
-                    crate::ratcore::player_row_keys::leave(&mut app.state);
-                } else {
-                    crate::ratcore::player_row_keys::enter(&mut app.state);
-                }
-                return;
-            }
-            KeyCode::Char('m') => {
-                let eph = &mut app.state.ephemeral;
-                eph.focus = Focus::MusicView;
-                eph.music.mode = crate::ratcore::app::MusicMode::Results;
-                return;
-            }
-            KeyCode::Char('r') => {
-                // open the connect-remote modal from any focus.
-                let seed = app
-                    .state
-                    .ephemeral
-                    .connected_peer
-                    .clone()
-                    .unwrap_or_default();
-                let cursor = seed.chars().count();
-                app.state.ephemeral.peer_input = seed;
-                app.state.ephemeral.peer_cursor = cursor;
-                app.state.ephemeral.peer_error = None;
-                app.state.ephemeral.focus = Focus::PeerInput;
-                return;
-            }
-            _ => {}
-        }
+    if k.modifiers.intersects(cmdlike) && matches!(k.code, KeyCode::Char('c')) {
+        app.exit = true;
+        return;
     }
     // pending-quit confirm overlay swallows all keys until resolved.
     if app.state.ephemeral.pending_quit {
@@ -312,94 +272,43 @@ fn on_event(app: &mut App, ev: Event, action_tx: &mpsc::UnboundedSender<AppActio
     }
 }
 
-/// landing-screen key handler: bare letter shortcuts for terminals
-/// that can't pass ctrl/cmd modifiers cleanly (e.g. macOS
-/// Terminal.app where ctrl-m == Enter, ctrl-i == Tab). landing has
-/// no text input so plain keys are safe here.
-fn on_landing_key(app: &mut App, code: KeyCode, action_tx: &mpsc::UnboundedSender<AppAction>) {
-    match code {
-        KeyCode::Char('c') | KeyCode::Char('a') | KeyCode::Enter => {
-            app.state.ephemeral.show_command_list = true;
-            app.state.ephemeral.focus = Focus::AdminPalette;
-        }
-        KeyCode::Char('m') => {
-            app.state.ephemeral.focus = Focus::MusicView;
-            app.state.ephemeral.music.mode = crate::ratcore::app::MusicMode::Results;
-        }
-        KeyCode::Char('r') => {
-            // ephemeral remotes_view is just a render cache; the
-            // source of truth is grimoire's `remotez` sqlite table.
-            open_remote_list_tty(app, action_tx);
-        }
-        KeyCode::Char('p') => {
-            crate::ratcore::player_row_keys::enter(&mut app.state);
-        }
-        _ => {}
-    }
-}
+/// landing-screen key handler. landing is intentionally minimal:
+/// the `/` global hotkey opens the slash repl, `q` quits, and
+/// everything else is a no-op. no single-letter shortcuts here
+/// anymore — the repl + flyout are the one true command surface.
+fn on_landing_key(_app: &mut App, _code: KeyCode, _action_tx: &mpsc::UnboundedSender<AppAction>) {}
 
-fn on_palette_key(app: &mut App, code: KeyCode, action_tx: &mpsc::UnboundedSender<AppAction>) {
-    use crate::ratcore::palette_filter as pf;
-    let visible = app.palette_visible_indices();
-    let len = visible.len();
-    let selected = app.state.ephemeral.palette_list.selected().unwrap_or(0);
+fn on_palette_key(app: &mut App, code: KeyCode, _action_tx: &mpsc::UnboundedSender<AppAction>) {
+    // the palette body is now just the result viewer; the left
+    // commands list and inline filter were dropped in favor of the
+    // bottom slash repl + flyout. arrow keys scroll the result
+    // body, tab promotes to ResultPanel for row-cursor + actions,
+    // esc bails to landing.
+    let eph = &mut app.state.ephemeral;
     match code {
-        KeyCode::Down => {
-            if len == 0 {
-                return;
-            }
-            let next = (selected + 1).min(len - 1);
-            app.state.ephemeral.palette_list.select(Some(next));
-        }
-        KeyCode::Up => {
-            if len == 0 {
-                return;
-            }
-            let next = selected.saturating_sub(1);
-            app.state.ephemeral.palette_list.select(Some(next));
-        }
-        KeyCode::Home => {
-            if len == 0 {
-                return;
-            }
-            app.state.ephemeral.palette_list.select(Some(0));
-        }
-        KeyCode::End => {
-            if len == 0 {
-                return;
-            }
-            app.state.ephemeral.palette_list.select(Some(len - 1));
-        }
-        KeyCode::Backspace => {
-            pf::pop_char(app);
-        }
-        KeyCode::Enter => {
-            let Some(real_idx) = app.palette_selected_index() else {
-                return;
-            };
-            let cmd = app.commands[real_idx].clone();
-            if !cmd.args.is_empty() {
-                app.state.ephemeral.form = Some(CommandForm::new(&cmd));
-                app.state.ephemeral.focus = Focus::CommandForm;
-                maybe_fetch_select_options(app, action_tx);
-                return;
-            }
-            spawn_admin_dispatch(app, &cmd.name, serde_json::json!({}), action_tx);
+        KeyCode::Esc => {
+            eph.focus = Focus::Landing;
         }
         KeyCode::Tab => {
-            app.state.ephemeral.focus = Focus::ResultPanel;
+            eph.focus = Focus::ResultPanel;
         }
-        KeyCode::Esc => {
-            // esc clears an active filter first; only when the filter
-            // is already empty does it unwind to the landing screen.
-            if pf::clear(app) {
-                return;
-            }
-            app.state.ephemeral.show_command_list = false;
-            app.state.ephemeral.focus = Focus::Landing;
+        KeyCode::Up | KeyCode::Char('k') => {
+            eph.last_dispatch_scroll = eph.last_dispatch_scroll.saturating_sub(1);
         }
-        KeyCode::Char(c) if pf::is_filter_char(c) => {
-            pf::push_char(app, c);
+        KeyCode::Down | KeyCode::Char('j') => {
+            eph.last_dispatch_scroll = eph.last_dispatch_scroll.saturating_add(1);
+        }
+        KeyCode::PageUp => {
+            eph.last_dispatch_scroll = eph.last_dispatch_scroll.saturating_sub(10);
+        }
+        KeyCode::PageDown => {
+            eph.last_dispatch_scroll = eph.last_dispatch_scroll.saturating_add(10);
+        }
+        KeyCode::Home | KeyCode::Char('g') => {
+            eph.last_dispatch_scroll = 0;
+        }
+        KeyCode::End | KeyCode::Char('G') => {
+            eph.last_dispatch_scroll = u16::MAX;
         }
         _ => {}
     }
@@ -905,11 +814,37 @@ fn on_result_panel_key(app: &mut App, code: KeyCode, mods: KeyModifiers) {
         KeyCode::Enter | KeyCode::Char('a') => {
             // open the per-row action menu — `result_actions` always
             // returns at least the generic "view full row" option,
-            // so any focused row will produce a menu.
+            // so any focused row will produce a menu. /help rows are
+            // a special case: they route back through the slash
+            // repl so enter dispatches the chosen command directly.
             if let Some(ld) = eph.last_dispatch.as_ref() {
                 if let Some(row) = ld.rows.get(ld.cursor) {
+                    if ld.command == "help" {
+                        let id = row.get("id").and_then(|v| v.as_str()).unwrap_or("");
+                        if !id.is_empty() {
+                            let seed = format!("/{id} ");
+                            crate::ratcore::repl_keys::enter_with_seed(&mut app.state, &seed);
+                        }
+                        return;
+                    }
                     let actions =
                         crate::ratcore::catalog::result_actions_for_row(&ld.command, Some(row));
+                    // single "view full row" action — skip the menu
+                    // and render the json detail inline.
+                    if actions.len() == 1 && actions[0].target_command == "__view_row__" {
+                        let pretty =
+                            serde_json::to_string_pretty(row).unwrap_or_else(|_| row.to_string());
+                        eph.last_dispatch = Some(crate::ratcore::app::LastDispatch {
+                            command: "(view row)".to_string(),
+                            success: true,
+                            message: "row detail".to_string(),
+                            data_pretty: Some(pretty),
+                            rows: vec![],
+                            cursor: 0,
+                        });
+                        eph.last_dispatch_scroll = 0;
+                        return;
+                    }
                     if !actions.is_empty() {
                         eph.action_menu = Some(crate::ratcore::app::ActionMenu {
                             source_command: ld.command.clone(),
@@ -982,6 +917,13 @@ fn on_form_key(
         KeyCode::Esc => {
             app.state.ephemeral.form = None;
             app.state.ephemeral.focus = Focus::AdminPalette;
+        }
+        // PgUp/PgDn scroll the form body when content overflows.
+        KeyCode::PageUp => {
+            form.scroll = form.scroll.saturating_sub(5);
+        }
+        KeyCode::PageDown => {
+            form.scroll = form.scroll.saturating_add(5);
         }
         // Tab tries path completion when the focused Text/LongText
         // field looks path-like; otherwise advances the wizard.
@@ -2474,10 +2416,6 @@ fn adjust_volume(app: &mut App, delta: f32, tx: &mpsc::UnboundedSender<AppAction
     );
 }
 
-fn enter_repl(app: &mut App) {
-    crate::ratcore::repl_keys::enter(&mut app.state);
-}
-
 fn on_player_row_key(app: &mut App, code: KeyCode, tx: &mpsc::UnboundedSender<AppAction>) {
     use crate::ratcore::app::PlayerState;
     use crate::ratcore::player_row_keys as prk;
@@ -2574,8 +2512,16 @@ fn on_repl_key(
             }
         }
         KeyCode::Tab => rk::handle_tab(&mut app.state),
-        KeyCode::Up => rk::history_prev(&mut app.state),
-        KeyCode::Down => rk::history_next(&mut app.state),
+        KeyCode::Up => {
+            if !rk::flyout_up(&mut app.state) {
+                rk::history_prev(&mut app.state);
+            }
+        }
+        KeyCode::Down => {
+            if !rk::flyout_down(&mut app.state) {
+                rk::history_next(&mut app.state);
+            }
+        }
         KeyCode::Left => rk::move_left(&mut app.state),
         KeyCode::Right => rk::move_right(&mut app.state),
         KeyCode::Home => rk::move_home(&mut app.state),
@@ -2779,6 +2725,17 @@ fn execute_slash_with_player(
             app.state.ephemeral.repl.clear_input();
             rk::leave(&mut app.state);
         }
+        SlashAction::AdminDispatch { name, body } => {
+            // generic admin-rpc dispatch from /knock /users /analytics
+            // /radio subcommands. result lands in the result panel
+            // like any other admin call.
+            spawn_admin_dispatch(app, name, body, tx);
+            app.state.ephemeral.repl.status =
+                Some(ReplStatus::info(format!("dispatching {name}\u{2026}")));
+            app.state.ephemeral.repl.clear_input();
+            rk::leave(&mut app.state);
+            app.state.ephemeral.focus = Focus::ResultPanel;
+        }
         _ => {}
     }
 }
@@ -2847,6 +2804,7 @@ fn now_unix_secs() -> i64 {
 /// switch focus to the remotes-list view and kick off an async load
 /// from grimoire's `remotez` table. the loader sends the result back
 /// via [`AppAction::RemotesLoaded`].
+#[allow(dead_code)]
 fn open_remote_list_tty(app: &mut App, action_tx: &mpsc::UnboundedSender<AppAction>) {
     app.state.ephemeral.focus = Focus::RemoteList;
     app.state.ephemeral.remotes_view_cursor = 0;
@@ -2855,6 +2813,7 @@ fn open_remote_list_tty(app: &mut App, action_tx: &mpsc::UnboundedSender<AppActi
 
 /// fire a fresh load of grimoire's `remotez` table and post the
 /// mapped entries back as [`AppAction::RemotesLoaded`].
+#[allow(dead_code)]
 fn spawn_remotes_reload(action_tx: &mpsc::UnboundedSender<AppAction>) {
     let tx = action_tx.clone();
     tokio::task::spawn_local(async move {
