@@ -211,6 +211,14 @@ pub const COMMANDS: &[(&str, &str)] = &[
         "jobs",
         "/jobs [sub]        jobs (sub: list|stats|session <id>)",
     ),
+    (
+        "genre",
+        "/genre [sub]       genres (sub: list|stats|songs <id>|add|remove)",
+    ),
+    (
+        "tag",
+        "/tag [sub]         album tags (sub: list|search|add|remove|of <album_id>)",
+    ),
     ("quit", "/quit              exit rathole"),
 ];
 
@@ -281,6 +289,36 @@ pub const GROUPS: &[(&str, &[(&str, &str)])] = &[
             ("list", "list recent jobs"),
             ("stats", "queue stats (counts per status)"),
             ("session", "list jobs in a session: /jobs session <id>"),
+        ],
+    ),
+    (
+        "genre",
+        &[
+            ("list", "list all genres"),
+            ("stats", "genre stats (song/album counts)"),
+            ("songs", "songs in a genre: /genre songs <genre_id>"),
+            (
+                "add",
+                "link genre to album: /genre add <album_id> <genre_id>",
+            ),
+            (
+                "remove",
+                "unlink genre: /genre remove <album_id> <genre_id>",
+            ),
+            ("create", "create a genre: /genre create <name>"),
+            ("delete", "delete a genre: /genre delete <genre_id>"),
+        ],
+    ),
+    (
+        "tag",
+        &[
+            ("list", "list all album tags"),
+            ("search", "search tags: /tag search <name>"),
+            ("of", "tags on an album: /tag of <album_id>"),
+            ("add", "add tag to album: /tag add <album_id> <tag_name>"),
+            ("remove", "remove tag: /tag remove <album_id> <tag_id>"),
+            ("create", "create a tag: /tag create <name>"),
+            ("delete", "delete a tag: /tag delete <tag_id>"),
         ],
     ),
 ];
@@ -373,6 +411,8 @@ pub fn parse(input: &str) -> SlashAction {
         "users" | "user" => parse_users_sub(arg.as_deref()),
         "analytics" | "stats" => parse_analytics_sub(arg.as_deref()),
         "jobs" | "j" => parse_jobs_sub(arg.as_deref()),
+        "genre" | "genres" | "g" => parse_genre_sub(arg.as_deref()),
+        "tag" | "tags" | "t" => parse_tag_sub(arg.as_deref()),
         "quit" | "exit" | "q" => SlashAction::Quit,
         "help" | "?" | "h" => SlashAction::Help,
         "clear" | "cq" | "clearqueue" => SlashAction::ClearQueue,
@@ -614,6 +654,117 @@ fn parse_jobs_sub(arg: Option<&str>) -> SlashAction {
         _ => SlashAction::BadArgs {
             name: "jobs",
             hint: "usage: /jobs [list|stats|session <id>]",
+        },
+    }
+}
+
+/// parse `/genre [list|stats|songs <id>|create <name>|delete <id>|add <album_id> <genre_id>|remove <album_id> <genre_id>]`.
+/// bare and `list` show all genres.
+fn parse_genre_sub(arg: Option<&str>) -> SlashAction {
+    let (sub, rest) = split_sub(arg);
+    let mut tokens = rest.split_whitespace();
+    let first = tokens.next().unwrap_or("").trim();
+    let second_and_rest = rest
+        .trim_start()
+        .strip_prefix(first)
+        .map(|s| s.trim().to_string())
+        .unwrap_or_default();
+    let second = tokens.next().unwrap_or("").trim();
+    match sub.as_str() {
+        "" | "list" | "ls" => SlashAction::AdminDispatch {
+            name: "genres_list_with_stats",
+            body: serde_json::json!({}),
+        },
+        "stats" => SlashAction::AdminDispatch {
+            name: "genres_stats",
+            body: serde_json::json!({}),
+        },
+        "songs" if !first.is_empty() => SlashAction::AdminDispatch {
+            name: "genres_songs",
+            body: serde_json::json!({ "genre_id": first }),
+        },
+        "get" if !first.is_empty() => SlashAction::AdminDispatch {
+            name: "genres_get",
+            body: serde_json::json!({ "genre_id": first }),
+        },
+        "create" | "new" if !second_and_rest.is_empty() => SlashAction::AdminDispatch {
+            name: "genres_create",
+            body: serde_json::json!({ "name": format!("{first} {second_and_rest}").trim().to_string() }),
+        },
+        "delete" | "rm" if !first.is_empty() => SlashAction::AdminDispatch {
+            name: "genres_delete",
+            body: serde_json::json!({ "genre_id": first }),
+        },
+        "add" if !first.is_empty() && !second.is_empty() => SlashAction::AdminDispatch {
+            name: "genres_add_to_album",
+            body: serde_json::json!({ "album_id": first, "genre_id": second }),
+        },
+        "remove" | "unlink" if !first.is_empty() && !second.is_empty() => {
+            SlashAction::AdminDispatch {
+                name: "genres_remove_from_album",
+                body: serde_json::json!({ "album_id": first, "genre_id": second }),
+            }
+        }
+        "of" | "for" if !first.is_empty() => SlashAction::AdminDispatch {
+            name: "genres_album_genres",
+            body: serde_json::json!({ "album_id": first }),
+        },
+        _ => SlashAction::BadArgs {
+            name: "genre",
+            hint: "usage: /genre [list|stats|songs <id>|of <album_id>|add <album_id> <genre_id>|remove <album_id> <genre_id>|create <name>|delete <id>]",
+        },
+    }
+}
+
+/// parse `/tag [list|search <q>|of <album_id>|add <album_id> <name>|remove <album_id> <tag_id>|create <name>|delete <id>]`.
+fn parse_tag_sub(arg: Option<&str>) -> SlashAction {
+    let (sub, rest) = split_sub(arg);
+    let mut tokens = rest.split_whitespace();
+    let first = tokens.next().unwrap_or("").trim();
+    let second_and_rest = rest
+        .trim_start()
+        .strip_prefix(first)
+        .map(|s| s.trim().to_string())
+        .unwrap_or_default();
+    let second = tokens.next().unwrap_or("").trim();
+    match sub.as_str() {
+        "" | "list" | "ls" => SlashAction::AdminDispatch {
+            name: "tags_list",
+            body: serde_json::json!({}),
+        },
+        "search" | "find" | "q" if !first.is_empty() => SlashAction::AdminDispatch {
+            name: "tags_query",
+            body: serde_json::json!({ "search": format!("{first} {second_and_rest}").trim().to_string() }),
+        },
+        "get" if !first.is_empty() => SlashAction::AdminDispatch {
+            name: "tags_get",
+            body: serde_json::json!({ "tag_id": first }),
+        },
+        "of" | "for" if !first.is_empty() => SlashAction::AdminDispatch {
+            name: "tags_album_tags",
+            body: serde_json::json!({ "album_id": first }),
+        },
+        "add" if !first.is_empty() && !second.is_empty() => SlashAction::AdminDispatch {
+            name: "tags_add_to_album",
+            body: serde_json::json!({ "album_id": first, "tag_name": format!("{second} {}", tokens.collect::<Vec<_>>().join(" ")).trim().to_string() }),
+        },
+        "remove" | "unlink" if !first.is_empty() && !second.is_empty() => {
+            SlashAction::AdminDispatch {
+                name: "tags_remove_from_album",
+                body: serde_json::json!({ "album_id": first, "tag_id": second }),
+            }
+        }
+        "create" | "new" if !first.is_empty() => SlashAction::AdminDispatch {
+            name: "tags_create",
+            body: serde_json::json!({ "name": format!("{first} {second_and_rest}").trim().to_string() }),
+        },
+        "delete" | "rm" if !first.is_empty() => SlashAction::AdminDispatch {
+            name: "tags_delete",
+            body: serde_json::json!({ "tag_id": first }),
+        },
+        _ => SlashAction::BadArgs {
+            name: "tag",
+            hint: "usage: /tag [list|search <q>|of <album_id>|add <album_id> <name>|remove <album_id> <tag_id>|create <name>|delete <id>]",
         },
     }
 }
@@ -1113,9 +1264,16 @@ mod tests {
 
     #[test]
     fn fetch_aliases() {
-        for alias in ["/dl https://x.test/y", "/download https://x.test/y", "/yt https://x.test/y"] {
+        for alias in [
+            "/dl https://x.test/y",
+            "/download https://x.test/y",
+            "/yt https://x.test/y",
+        ] {
             match parse(alias) {
-                SlashAction::AdminDispatch { name: "library_fetch", .. } => {}
+                SlashAction::AdminDispatch {
+                    name: "library_fetch",
+                    ..
+                } => {}
                 other => panic!("alias {alias} did not dispatch: {other:?}"),
             }
         }

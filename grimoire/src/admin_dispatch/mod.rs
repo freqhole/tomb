@@ -213,6 +213,28 @@ pub async fn handle(
         "jobs_list" => handlers::jobs::list(args).await,
         "jobs_stats" => handlers::jobs::stats().await,
 
+        // -- genres --
+        "genres_list" => handlers::genres::list().await,
+        "genres_list_with_stats" => handlers::genres::list_with_stats().await,
+        "genres_stats" => handlers::genres::stats().await,
+        "genres_get" => handlers::genres::get(args).await,
+        "genres_create" => handlers::genres::create(args).await,
+        "genres_delete" => handlers::genres::delete(args, caller).await,
+        "genres_add_to_album" => handlers::genres::add_to_album(args).await,
+        "genres_remove_from_album" => handlers::genres::remove_from_album(args).await,
+        "genres_album_genres" => handlers::genres::album_genres(args).await,
+        "genres_songs" => handlers::genres::songs(args).await,
+
+        // -- tags (album tags) --
+        "tags_list" => handlers::tags::list().await,
+        "tags_query" => handlers::tags::query(args).await,
+        "tags_get" => handlers::tags::get(args).await,
+        "tags_create" => handlers::tags::create(args).await,
+        "tags_delete" => handlers::tags::delete(args, caller).await,
+        "tags_album_tags" => handlers::tags::album_tags(args).await,
+        "tags_add_to_album" => handlers::tags::add_to_album(args).await,
+        "tags_remove_from_album" => handlers::tags::remove_from_album(args).await,
+
         // -- blobz --
         "blobz_blake3_status" => handlers::blobz::blake3_status().await,
         "blobz_backfill_blake3" => handlers::blobz::backfill_blake3(args).await,
