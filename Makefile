@@ -44,6 +44,7 @@ build-all:
 	$(MAKE)	build-flatpak-intel
 	$(MAKE)	build-flatpak-arm64
 	$(MAKE) build-tauri-android
+	$(MAKE) build-tauri-android-arm64
 	@echo ""
 	@echo "building cli binz..."
 	@echo ""
@@ -52,6 +53,8 @@ build-all:
 	$(MAKE) build-linux
 	$(MAKE) build-pi
 	$(MAKE) build-pi32
+	@echo ""
+	$(MAKE) docker-cleanup-all
 	@echo ""
 	@echo "all targets built! artifacts in $(BUILD_DIR)/$(VERSION)/:"
 	@find $(BUILD_DIR)/$(VERSION) -type f | sort | sed 's|^|  |'
@@ -120,6 +123,7 @@ build-linux:
 	docker run --rm -v $(PWD)/$(BUILD_DIR)/$(VERSION):/output freqhole-linux-builder \
 		sh -c "cp /app/target/$(LINUX_TARGET)/release/rathole /output/rathole_$(VERSION)_linux-x86_64"
 	@echo "built: $(BUILD_DIR)/$(VERSION)/rathole_$(VERSION)_linux-x86_64"
+	$(MAKE) docker-cleanup IMAGE=freqhole-linux-builder
 
 # Raspberry Pi aarch64 CLI binary (via Docker)
 .PHONY: build-pi
@@ -131,6 +135,7 @@ build-pi:
 	docker run --rm -v $(PWD)/$(BUILD_DIR)/$(VERSION):/output freqhole-pi-builder \
 		sh -c "cp /app/target/$(PI_TARGET)/release/rathole /output/rathole_$(VERSION)_linux-aarch64"
 	@echo "built: $(BUILD_DIR)/$(VERSION)/rathole_$(VERSION)_linux-aarch64"
+	$(MAKE) docker-cleanup IMAGE=freqhole-pi-builder
 
 # Raspberry Pi 32-bit CLI binary (via Docker, webauthn disabled)
 .PHONY: build-pi32
@@ -145,6 +150,40 @@ build-pi32:
 	docker run --rm -v $(PWD)/$(BUILD_DIR)/$(VERSION):/output freqhole-pi32-builder \
 		sh -c "cp /app/target/$(PI32_TARGET)/release/rathole /output/rathole_$(VERSION)_linux-armv7"
 	@echo "built: $(BUILD_DIR)/$(VERSION)/rathole_$(VERSION)_linux-armv7"
+	$(MAKE) docker-cleanup IMAGE=freqhole-pi32-builder
+
+# remove a single named docker image + prune dangling images and unused build cache
+# usage: $(MAKE) docker-cleanup IMAGE=<image-name>
+# non-aggressive: leaves other tagged images, named volumes, and running containers alone.
+# safe to run even if the image is missing.
+.PHONY: docker-cleanup docker-cleanup-all
+docker-cleanup:
+	@if [ -z "$(IMAGE)" ]; then \
+		echo "docker-cleanup: IMAGE not set, skipping image rm"; \
+	else \
+		echo "docker-cleanup: removing image $(IMAGE) (if present)..."; \
+		docker image rm -f $(IMAGE) >/dev/null 2>&1 || true; \
+	fi
+	@echo "docker-cleanup: pruning dangling images..."
+	@docker image prune -f >/dev/null 2>&1 || true
+	@echo "docker-cleanup: pruning unused build cache..."
+	@docker builder prune -f >/dev/null 2>&1 || true
+
+# scrub every freqhole builder image + all unused build cache. still preserves
+# unrelated images, named volumes, and running containers. handy at the end of
+# `build-all` or whenever you want to reclaim disk without `prune -a --volumes`.
+docker-cleanup-all:
+	@echo "docker-cleanup-all: removing freqhole builder images..."
+	@for img in freqhole-linux-builder freqhole-pi-builder freqhole-pi32-builder \
+		freqhole-tauri-builder-amd64 freqhole-tauri-builder-arm64 \
+		freqhole-flatpak-builder freqhole-flatpak-builder-arm64; do \
+		docker image rm -f $$img >/dev/null 2>&1 || true; \
+	done
+	@echo "docker-cleanup-all: pruning dangling images + unused build cache..."
+	@docker image prune -f >/dev/null 2>&1 || true
+	@docker builder prune -f >/dev/null 2>&1 || true
+	@docker container prune -f >/dev/null 2>&1 || true
+	@echo "docker-cleanup-all: done."
 
 .PHONY: clean
 clean:
@@ -194,6 +233,10 @@ info:
 	@echo "Build all:"
 	@echo "  make build-all  - build everything"
 	@echo "  make clean      - remove build artifacts"
+	@echo ""
+	@echo "Docker disk cleanup (non-aggressive):"
+	@echo "  make docker-cleanup IMAGE=<name> - rm one image + prune dangling + build cache"
+	@echo "  make docker-cleanup-all          - rm all freqhole builder images + prune cache"
 	@echo ""
 	@echo "Database:"
 	@echo "  make db-reset   - reset database and run migrations"
@@ -284,6 +327,7 @@ build-tauri-linux-intel:
 		       cp /app/target/x86_64-unknown-linux-gnu/release/bundle/rpm/*.rpm /output/freqhole_charnel_$(VERSION)_x86_64.rpm"
 	@echo "built: $(BUILD_DIR)/$(VERSION)/freqhole_charnel_$(VERSION)_x86_64.deb"
 	@echo "built: $(BUILD_DIR)/$(VERSION)/freqhole_charnel_$(VERSION)_x86_64.rpm"
+	$(MAKE) docker-cleanup IMAGE=freqhole-tauri-builder-amd64
 
 build-tauri-linux-arm64:
 	@echo "building Tauri app for Linux aarch64 using Docker..."
@@ -297,6 +341,7 @@ build-tauri-linux-arm64:
 		       cp /app/target/aarch64-unknown-linux-gnu/release/bundle/rpm/*.rpm /output/freqhole_charnel_$(VERSION)_aarch64.rpm"
 	@echo "built: $(BUILD_DIR)/$(VERSION)/freqhole_charnel_$(VERSION)_aarch64.deb"
 	@echo "built: $(BUILD_DIR)/$(VERSION)/freqhole_charnel_$(VERSION)_aarch64.rpm"
+	$(MAKE) docker-cleanup IMAGE=freqhole-tauri-builder-arm64
 
 # Android Tauri app (release apk, signed with apksigner)
 # requires: ANDROID_SDK_ROOT, ANDROID_KEYSTORE (optionally ANDROID_BUILD_TOOLS_VERSION,
@@ -379,6 +424,7 @@ build-flatpak-intel: $(BUILD_DIR)/$(VERSION)/freqhole_charnel_$(VERSION)_x86_64.
 		freqhole-flatpak-builder \
 		/debs/freqhole_charnel_$(VERSION)_x86_64.deb /output/freqhole_charnel_$(VERSION)_x86_64.flatpak x86_64
 	@echo "built: $(BUILD_DIR)/$(VERSION)/freqhole_charnel_$(VERSION)_x86_64.flatpak"
+	$(MAKE) docker-cleanup IMAGE=freqhole-flatpak-builder
 
 build-flatpak-arm64: $(BUILD_DIR)/$(VERSION)/freqhole_charnel_$(VERSION)_aarch64.deb
 	@echo "building Flatpak for aarch64..."
@@ -389,6 +435,7 @@ build-flatpak-arm64: $(BUILD_DIR)/$(VERSION)/freqhole_charnel_$(VERSION)_aarch64
 		freqhole-flatpak-builder-arm64 \
 		/debs/freqhole_charnel_$(VERSION)_aarch64.deb /output/freqhole_charnel_$(VERSION)_aarch64.flatpak aarch64
 	@echo "built: $(BUILD_DIR)/$(VERSION)/freqhole_charnel_$(VERSION)_aarch64.flatpak"
+	$(MAKE) docker-cleanup IMAGE=freqhole-flatpak-builder-arm64
 # version management
 .PHONY: bump-version
 bump-version:
