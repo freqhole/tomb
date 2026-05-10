@@ -9,7 +9,7 @@ import {
   queueFullModal,
   closeQueueFullModal,
   calculateRemoveCount,
-  QUEUE_SIZE_LIMIT,
+  getQueueSizeLimit,
 } from "../services/queue/queueLimit";
 
 export function QueueFullModal() {
@@ -28,7 +28,7 @@ export function QueueFullModal() {
         <div class="space-y-4">
           <Alert variant="warning">
             <p>
-              your queue has {state().currentQueueSize} songs (limit: {QUEUE_SIZE_LIMIT}).
+              your queue has {state().currentQueueSize} songs (limit: {getQueueSizeLimit()}).
             </p>
             <p class="mt-1">
               adding {state().songsToAdd.length} more song

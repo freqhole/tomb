@@ -16,7 +16,7 @@ import { addHistoryEntry, updateHistoryEntrySongs, unwrapSongs } from "./queueHi
 import { activeHistoryEntryId, resumeTracking, startTracking, stopTracking } from "./listenProgress";
 import { clearAllQueueProgress, clearQueueItemProgress } from "./queueProgress";
 import { createServerSession, stopServerSession, updateServerSessionSongs, activeServerSessionId, reconnectServerSession } from "./serverSession";
-import { QUEUE_SIZE_LIMIT, showQueueFullModal } from "./queueLimit";
+import { getQueueSizeLimit, showQueueFullModal } from "./queueLimit";
 import { syncPlaylistToLocalFromQueue } from "../sync";
 import type { Song } from "../storage/types";
 import { leaveRadio } from "../../../app/services/radio/radioService";
@@ -31,8 +31,20 @@ export {
   resetPlaybackEnded,
 } from "./queueState";
 
-// re-export queue limit constant
-export { QUEUE_SIZE_LIMIT } from "./queueLimit";
+// re-export queue limit helper
+export { getQueueSizeLimit } from "./queueLimit";
+
+// source types whose `playQueue` calls should replace the current queue
+// rather than insert after the currently-playing song. selecting an album,
+// artist, genre, playlist, or shuffle (of an album/playlist) wipes whatever
+// was queued before. single songs and radio stations still insert after.
+const REPLACE_SOURCE_TYPES: ReadonlySet<string> = new Set([
+  "album",
+  "artist",
+  "genre",
+  "playlist",
+  "shuffle",
+]);
 
 // check if songs can be structured-cloned (required for Tauri IPC and IndexedDB)
 // logs a warning with diagnostic info if cloning fails after unwrapping
@@ -91,18 +103,19 @@ export async function playQueue(
   let finalSongs = unwrappedSongs;
 
   // truncate incoming songs if they exceed the limit (before any queue logic)
-  if (unwrappedSongs.length > QUEUE_SIZE_LIMIT) {
-    if (startIndex < QUEUE_SIZE_LIMIT) {
+  const queueSizeLimit = getQueueSizeLimit();
+  if (unwrappedSongs.length > queueSizeLimit) {
+    if (startIndex < queueSizeLimit) {
       // startIndex is within limit - take first N songs
-      finalSongs = unwrappedSongs.slice(0, QUEUE_SIZE_LIMIT);
+      finalSongs = unwrappedSongs.slice(0, queueSizeLimit);
     } else {
       // startIndex is beyond limit - center window around it
-      const start = startIndex - Math.floor(QUEUE_SIZE_LIMIT / 2);
-      const adjustedStart = Math.max(0, Math.min(start, unwrappedSongs.length - QUEUE_SIZE_LIMIT));
-      finalSongs = unwrappedSongs.slice(adjustedStart, adjustedStart + QUEUE_SIZE_LIMIT);
+      const start = startIndex - Math.floor(queueSizeLimit / 2);
+      const adjustedStart = Math.max(0, Math.min(start, unwrappedSongs.length - queueSizeLimit));
+      finalSongs = unwrappedSongs.slice(adjustedStart, adjustedStart + queueSizeLimit);
       startIndex = startIndex - adjustedStart;
     }
-    console.log(`[playQueue] truncated ${unwrappedSongs.length} songs to ${finalSongs.length} (limit: ${QUEUE_SIZE_LIMIT})`);
+    console.log(`[playQueue] truncated ${unwrappedSongs.length} songs to ${finalSongs.length} (limit: ${queueSizeLimit})`);
   }
 
   // mark songs from playlist source to skip album feed events when syncing
@@ -141,9 +154,47 @@ export async function playQueue(
     return;
   }
 
+  // explicit replace: when the source is an album/artist/genre/playlist/shuffle
+  // we wipe the current queue and start fresh (same shape as the empty-queue
+  // branch above, but with cleanup of any prior tracking/server session).
+  const shouldReplace =
+    options?.source && REPLACE_SOURCE_TYPES.has(options.source.type);
+  if (shouldReplace) {
+    // tear down prior tracking + server session before swapping queues so
+    // we don't end up with two listen sessions racing on the same songs.
+    stopTracking(true);
+    void stopServerSession("abandoned");
+    clearAllQueueProgress();
+    clearPendingUpNext();
+
+    await setQueue(finalSongs);
+    await playSong(finalSongs[startIndex], { userInitiated: true });
+    void preCacheNextP2PSongs(finalSongs[startIndex].sha256, finalSongs);
+
+    if (options?.source) {
+      const entryId = await addHistoryEntry(
+        finalSongs,
+        options.source,
+        options.resumeProgress,
+      );
+      if (entryId) {
+        if (options.resumeProgress) {
+          resumeTracking(entryId, options.resumeProgress);
+        } else {
+          startTracking(entryId);
+        }
+      }
+      if (!options?.skipServerSession) {
+        void createServerSession(finalSongs, options.source, entryId ?? undefined);
+      }
+    }
+    return;
+  }
+
   // queue has songs - insert after current position (don't replace)
   // check if adding would exceed limit
-  if (currentQueue.length + finalSongs.length > QUEUE_SIZE_LIMIT) {
+  const queueSizeLimitForPlay = getQueueSizeLimit();
+  if (currentQueue.length + finalSongs.length > queueSizeLimitForPlay) {
     const choice = await showQueueFullModal(finalSongs, currentQueue.length);
 
     if (choice === "cancel") {
@@ -166,7 +217,7 @@ export async function playQueue(
     }
 
     // choice === "remove-from-start"
-    const removeCount = currentQueue.length + finalSongs.length - QUEUE_SIZE_LIMIT;
+    const removeCount = currentQueue.length + finalSongs.length - queueSizeLimitForPlay;
     const currentIdx = currentId ? currentQueue.findIndex((s) => s.sha256 === currentId) : -1;
     const removableSongCount = currentIdx > 0 ? currentIdx : currentQueue.length;
 
@@ -276,9 +327,10 @@ export async function addToQueue(
 
   // truncate incoming songs if they exceed the limit
   let finalSongs = unwrappedSongs;
-  if (unwrappedSongs.length > QUEUE_SIZE_LIMIT) {
-    finalSongs = unwrappedSongs.slice(0, QUEUE_SIZE_LIMIT);
-    console.log(`[addToQueue] truncated ${unwrappedSongs.length} songs to ${finalSongs.length} (limit: ${QUEUE_SIZE_LIMIT})`);
+  const queueSizeLimitForAdd = getQueueSizeLimit();
+  if (unwrappedSongs.length > queueSizeLimitForAdd) {
+    finalSongs = unwrappedSongs.slice(0, queueSizeLimitForAdd);
+    console.log(`[addToQueue] truncated ${unwrappedSongs.length} songs to ${finalSongs.length} (limit: ${queueSizeLimitForAdd})`);
   }
 
   // mark songs from playlist source to skip album feed events when syncing
@@ -299,7 +351,7 @@ export async function addToQueue(
   }
 
   // check if adding would exceed limit
-  if (currentQueue.length + finalSongs.length > QUEUE_SIZE_LIMIT) {
+  if (currentQueue.length + finalSongs.length > queueSizeLimitForAdd) {
     const choice = await showQueueFullModal(finalSongs, currentQueue.length);
 
     if (choice === "cancel") {
@@ -321,7 +373,7 @@ export async function addToQueue(
     }
 
     // choice === "remove-from-start": remove oldest songs to make room
-    const removeCount = currentQueue.length + finalSongs.length - QUEUE_SIZE_LIMIT;
+    const removeCount = currentQueue.length + finalSongs.length - queueSizeLimitForAdd;
     const currentIdx = currentId ? currentQueue.findIndex((s) => s.sha256 === currentId) : -1;
     const removableSongCount = currentIdx > 0 ? currentIdx : currentQueue.length;
 
@@ -592,6 +644,9 @@ export async function reorderQueue(
 // clears any pending up-next song
 export async function clearQueue(): Promise<void> {
   const state = appState();
+  console.info(
+    `[clearQueue] START len=${state?.queue?.length ?? 0} current=${state?.current_sha256?.slice(0, 8) ?? "null"}`,
+  );
 
   stop();
   stopTracking(true); // skipQueueSave - avoids race with setQueue([])
@@ -600,9 +655,12 @@ export async function clearQueue(): Promise<void> {
   void stopServerSession("abandoned");
   await setCurrentSong(null);
 
-  // stop radio if currently tuned
+  // stop radio if currently tuned. must be awaited before setQueue([])
+  // below — clearCurrentRadioStation reads STORE_APP_STATE directly,
+  // mutates one field, and writes back, so a fire-and-forget call
+  // would race with setQueue([]) and resurrect the queue.
   leaveRadio();
-  void clearCurrentRadioStation();
+  await clearCurrentRadioStation();
 
   // evict cached audio for all remote songs in the queue
   if (state?.queue) {
@@ -622,6 +680,7 @@ export async function clearQueue(): Promise<void> {
   }
 
   await setQueue([]);
+  console.info(`[clearQueue] DONE — setQueue([]) persisted`);
 }
 
 // re-export db helpers that consumers commonly need alongside queue ops

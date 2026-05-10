@@ -6,6 +6,7 @@ interface User {
   username: string;
   role: string;
   created_at: number;
+  deleted_at?: number | null;
 }
 
 interface InviteCode {
@@ -52,6 +53,7 @@ export default function UsersView() {
   const [showInactive, setShowInactive] = createSignal(false);
   const [deactivatingAll, setDeactivatingAll] = createSignal(false);
   const [confirmDeactivateAll, setConfirmDeactivateAll] = createSignal(false);
+  const [includeDeleted, setIncludeDeleted] = createSignal(false);
   const [linkCopiedUserId, setLinkCopiedUserId] = createSignal<string | null>(
     null,
   );
@@ -59,9 +61,10 @@ export default function UsersView() {
     null,
   );
 
-  // reload whenever the active admin target changes (incl. initial mount)
+  // reload whenever the active admin target or include-deleted flag changes
   createEffect(() => {
     admin.current();
+    includeDeleted();
     void Promise.all([loadUsers(), loadInvites()]);
   });
 
@@ -70,7 +73,7 @@ export default function UsersView() {
     setError("");
     try {
       const result = await admin.dispatchOrThrow<User[]>("users_list", {
-        include_deleted: false,
+        include_deleted: includeDeleted(),
       });
       setUsers(result);
     } catch (e) {
@@ -110,6 +113,30 @@ export default function UsersView() {
     if (!confirm(`delete user "${username}"? this cannot be undone.`)) return;
     try {
       await admin.dispatchOrThrow("users_delete", { user_id: userId });
+      await loadUsers();
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
+  async function hardDeleteUser(userId: string, username: string) {
+    if (
+      !confirm(
+        `permanently delete user "${username}" forever?\n\nthis removes the account and all FK references that don't cascade. this cannot be undone.`,
+      )
+    )
+      return;
+    try {
+      await admin.dispatchOrThrow("users_hard_delete", { user_id: userId });
+      await loadUsers();
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
+  async function restoreUser(userId: string) {
+    try {
+      await admin.dispatchOrThrow("users_restore", { user_id: userId });
       await loadUsers();
     } catch (e) {
       setError(String(e));
@@ -226,6 +253,15 @@ export default function UsersView() {
 
       {/* users section */}
       <div class="section">
+        <div class="invite-toolbar">
+          <div class="flex-spacer" />
+          <button
+            class={`small ${includeDeleted() ? "active" : "secondary"}`}
+            onClick={() => setIncludeDeleted(!includeDeleted())}
+          >
+            {includeDeleted() ? "hide deleted" : "show deleted"}
+          </button>
+        </div>
         <Show when={loading()}>
           <div class="loading">
             <div class="spinner" />
@@ -243,13 +279,29 @@ export default function UsersView() {
           </Show>
           <For each={users()}>
             {(user) => (
-              <div class="list-item user-item">
+              <div
+                class="list-item user-item"
+                style={user.deleted_at ? { opacity: 0.6 } : {}}
+              >
                 <div class="user-row">
                   <div class="item-info">
                     <div class="item-name username-row">
-                      {user.username}
+                      <span
+                        style={
+                          user.deleted_at
+                            ? { "text-decoration": "line-through" }
+                            : {}
+                        }
+                      >
+                        {user.username}
+                      </span>
+                      <Show when={user.deleted_at}>
+                        <span class="item-meta" style={{ color: "#ef4444" }}>
+                          (deleted)
+                        </span>
+                      </Show>
 
-                      <Show when={user.role !== "root"}>
+                      <Show when={user.role !== "root" && !user.deleted_at}>
                         <span class="role-item-actions">
                           <select
                             value={user.role}
@@ -259,7 +311,7 @@ export default function UsersView() {
                           >
                             <option value="admin">admin</option>
                             <option value="member">member</option>
-                            <option value="guest">guest</option>
+                            <option value="viewer">viewer</option>
                           </select>
                         </span>
                       </Show>
@@ -272,20 +324,38 @@ export default function UsersView() {
                 </div>
                 <Show when={user.role !== "root"}>
                   <div class="user-actions-row">
-                    <button
-                      class="danger small"
-                      onClick={() => deleteUser(user.id, user.username)}
-                    >
-                      delete
-                    </button>
+                    <Show when={!user.deleted_at}>
+                      <button
+                        class="danger small"
+                        onClick={() => deleteUser(user.id, user.username)}
+                      >
+                        delete
+                      </button>
 
-                    <button
-                      class="secondary small"
-                      onClick={() => generateAccountLink(user.id)}
-                      title="generate account-link code"
-                    >
-                      {linkCopiedUserId() === user.id ? "created!" : "+ link"}
-                    </button>
+                      <button
+                        class="secondary small"
+                        onClick={() => generateAccountLink(user.id)}
+                        title="generate account-link code"
+                      >
+                        {linkCopiedUserId() === user.id ? "created!" : "+ link"}
+                      </button>
+                    </Show>
+                    <Show when={user.deleted_at}>
+                      <button
+                        class="primary small"
+                        style={{ color: "#ffffff" }}
+                        onClick={() => restoreUser(user.id)}
+                      >
+                        restore
+                      </button>
+                      <button
+                        class="danger small"
+                        onClick={() => hardDeleteUser(user.id, user.username)}
+                        title="permanently delete forever"
+                      >
+                        delete forever
+                      </button>
+                    </Show>
                   </div>
                 </Show>
               </div>

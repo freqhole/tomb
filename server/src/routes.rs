@@ -95,14 +95,17 @@ pub fn build_router(max_upload_bytes: u64) -> Router<AppState> {
         .layer(axum_middleware::from_fn(auth::middleware::require_auth));
 
     // blob streaming routes - custom handlers, auth only
+    // both GET and HEAD: webkit issues HEAD first to probe Content-Length +
+    // Accept-Ranges before issuing the Range GET. without explicit HEAD
+    // routing axum returns 405 and webkit falls back to non-range full GETs.
     let blob_routes = Router::new()
         .route(
             routes_map["music"]["stream_blob"].path,
-            get(blobs::stream_blob_handler),
+            get(blobs::stream_blob_handler).head(blobs::stream_blob_handler),
         )
         .route(
             routes_map["music"]["get_blob_thumbnail"].path,
-            get(blobs::blob_thumbnail_handler),
+            get(blobs::blob_thumbnail_handler).head(blobs::blob_thumbnail_handler),
         )
         .layer(axum_middleware::from_fn(auth::middleware::require_auth));
 

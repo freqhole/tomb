@@ -15,9 +15,10 @@ use axum::{
     extract::{Path, Request},
     http::{
         header::{
-            ACCEPT_RANGES, CACHE_CONTROL, CONTENT_LENGTH, CONTENT_RANGE, CONTENT_TYPE, RANGE,
+            ACCEPT_RANGES, CACHE_CONTROL, CONTENT_LENGTH, CONTENT_RANGE, CONTENT_TYPE, ETAG,
+            IF_NONE_MATCH, RANGE,
         },
-        HeaderValue, StatusCode,
+        HeaderValue, Method, StatusCode,
     },
     response::Response,
     Extension,
@@ -28,12 +29,80 @@ use tokio::{
     fs::File,
     io::{AsyncReadExt, AsyncSeekExt},
 };
+use tokio_util::io::ReaderStream;
 
 use crate::{auth::AuthenticatedUser, error::ApiError};
+
+/// chunk size for streaming media file bodies. larger chunks = fewer
+/// syscalls + lower per-byte overhead, but also higher memory per
+/// in-flight request. 64 KiB is a good balance for audio: webkit / chrome
+/// typically request ~2 MiB chunks via Range, so each request resolves in
+/// ~32 reads.
+const STREAM_CHUNK_SIZE: usize = 64 * 1024;
+
+// ============================================================================
+// ETag + HEAD helpers
+// ============================================================================
+
+/// build a quoted strong etag from a content sha256.
+///
+/// blobs are content-addressed so the sha256 *is* the etag. quoted form
+/// per RFC 7232 \u00a72.3.
+fn format_etag(sha256: &str) -> String {
+    format!("\"{}\"", sha256)
+}
+
+/// check whether the request's `If-None-Match` matches our etag.
+///
+/// supports `*` (match anything) and exact-string match. ignores weak/strong
+/// distinction since our etags are always strong.
+fn etag_matches(req: &Request, etag: &str) -> bool {
+    let Some(header) = req.headers().get(IF_NONE_MATCH) else {
+        return false;
+    };
+    let Ok(value) = header.to_str() else {
+        return false;
+    };
+    let value = value.trim();
+    if value == "*" {
+        return true;
+    }
+    // value may be a comma-separated list. split and compare each entry.
+    value
+        .split(',')
+        .map(str::trim)
+        .any(|entry| entry == etag || entry.trim_start_matches("W/") == etag)
+}
+
+/// build a 304 Not Modified response (empty body, etag echoed back).
+fn not_modified_response(etag: &str) -> Response {
+    Response::builder()
+        .status(StatusCode::NOT_MODIFIED)
+        .header(ETAG, etag)
+        .header(CACHE_CONTROL, "public, max-age=2592000")
+        .body(Body::empty())
+        .unwrap()
+}
+
+/// build a HEAD response: same headers as a full GET would have, but no
+/// body and no file IO. lets webkit probe Content-Length + Accept-Ranges
+/// before issuing a Range GET.
+fn head_response(size: u64, content_type: &str, etag: &str) -> Response {
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(CONTENT_TYPE, content_type)
+        .header(CONTENT_LENGTH, size)
+        .header(ACCEPT_RANGES, "bytes")
+        .header(CACHE_CONTROL, "public, max-age=2592000")
+        .header(ETAG, etag)
+        .body(Body::empty())
+        .unwrap()
+}
 
 /// stream blob with range request support
 ///
 /// GET /api/blobs/{id}
+/// HEAD /api/blobs/{id}  -- returns headers only, no body, no file IO
 pub async fn stream_blob_handler(
     Extension(_user): Extension<AuthenticatedUser>,
     Path(blob_id): Path<String>,
@@ -41,6 +110,7 @@ pub async fn stream_blob_handler(
 ) -> Result<Response, ApiError> {
     tracing::debug!(
         blob_id = %blob_id,
+        method = %req.method(),
         has_range = req.headers().contains_key(RANGE),
         "streaming blob"
     );
@@ -56,13 +126,32 @@ pub async fn stream_blob_handler(
         .unwrap_or_else(|| "application/octet-stream".to_string());
     let size = blob.size.unwrap_or(0) as u64;
 
+    // content-addressed etag — sha256 is stable and unique per blob version.
+    // wrapped in quotes per RFC 7232. lets webkit's media cache revalidate
+    // (cheap 304) instead of re-streaming on `audio.src` reassignment.
+    let etag = format_etag(&blob.sha256);
+
+    // 304 Not Modified short-circuit: skip ALL data work if the client
+    // already has this exact blob cached.
+    if etag_matches(&req, &etag) {
+        return Ok(not_modified_response(&etag));
+    }
+
+    // HEAD short-circuit: respond with headers only, no body, no file IO.
+    // webkit issues this to probe Content-Length + Accept-Ranges before a
+    // Range GET; without explicit handling axum returns 405 and webkit may
+    // fall back to non-range full-body GETs (the stutter path).
+    if req.method() == Method::HEAD {
+        return Ok(head_response(size, &content_type, &etag));
+    }
+
     // determine data source and stream
     if let Some(local_path) = blob.local_path {
         // stream from filesystem
-        stream_from_file(local_path, size, content_type, req).await
+        stream_from_file(local_path, size, content_type, &etag, req).await
     } else if let Some(data) = db_data {
         // stream from memory (database)
-        stream_from_memory(data, content_type, req).await
+        stream_from_memory(data, content_type, &etag, req).await
     } else {
         Err(ApiError::NotFound)
     }
@@ -117,9 +206,23 @@ pub async fn blob_thumbnail_handler(
         .clone()
         .unwrap_or_else(|| "image/webp".to_string());
 
+    // content-addressed etag from sha256 (RFC 7232 quoted form). enables
+    // 304 short-circuit on revalidation \u2014 cheap for thumbnails which the
+    // ui re-requests on every list re-render.
+    let etag = format_etag(&blob.sha256);
+
+    if etag_matches(&req, &etag) {
+        return Ok(not_modified_response(&etag));
+    }
+
+    if req.method() == Method::HEAD {
+        let size = blob.size.unwrap_or(0) as u64;
+        return Ok(head_response(size, &content_type, &etag));
+    }
+
     // thumbnails are always in database (not local files)
     if let Some(data) = db_data {
-        stream_from_memory(data, content_type, req).await
+        stream_from_memory(data, content_type, &etag, req).await
     } else {
         Err(ApiError::NotFound)
     }
@@ -134,6 +237,7 @@ async fn stream_from_file(
     local_path: String,
     size: u64,
     content_type: String,
+    etag: &str,
     req: Request,
 ) -> Result<Response, ApiError> {
     let path = std::path::PathBuf::from(&local_path);
@@ -144,26 +248,31 @@ async fn stream_from_file(
 
     // check for range header
     if let Some(range_header) = req.headers().get(RANGE) {
-        stream_file_range(path, size, content_type, range_header).await
+        stream_file_range(path, size, content_type, etag, range_header).await
     } else {
-        stream_file_full(path, size, content_type).await
+        stream_file_full(path, size, content_type, etag).await
     }
 }
 
 /// stream entire file (no range)
+///
+/// uses chunked streaming via `ReaderStream` so the first byte hits the
+/// wire immediately (no full read-into-Vec stall) and memory usage stays
+/// flat regardless of file size. critical for `<audio>` on linux/webkitgtk
+/// where high time-to-first-byte causes the gstreamer decoder to underrun
+/// and audibly stutter.
 async fn stream_file_full(
     path: std::path::PathBuf,
     size: u64,
     content_type: String,
+    etag: &str,
 ) -> Result<Response, ApiError> {
-    let mut file = File::open(&path)
+    let file = File::open(&path)
         .await
         .map_err(|_| ApiError::Internal("failed to open file".to_string()))?;
 
-    let mut buffer = Vec::new();
-    file.read_to_end(&mut buffer)
-        .await
-        .map_err(|_| ApiError::Internal("failed to read file".to_string()))?;
+    let stream = ReaderStream::with_capacity(file, STREAM_CHUNK_SIZE);
+    let body = Body::from_stream(stream);
 
     let response = Response::builder()
         .status(StatusCode::OK)
@@ -171,17 +280,23 @@ async fn stream_file_full(
         .header(CONTENT_LENGTH, size)
         .header(ACCEPT_RANGES, "bytes")
         .header(CACHE_CONTROL, "public, max-age=2592000")
-        .body(Body::from(buffer))
+        .header(ETAG, etag)
+        .body(body)
         .unwrap();
 
     Ok(response)
 }
 
 /// stream file with range request
+///
+/// like `stream_file_full`, this streams the requested byte range in
+/// chunks via `ReaderStream` instead of reading the whole range into a
+/// `Vec` first.
 async fn stream_file_range(
     path: std::path::PathBuf,
     file_size: u64,
     content_type: String,
+    etag: &str,
     range_header: &HeaderValue,
 ) -> Result<Response, ApiError> {
     // parse range header
@@ -201,12 +316,13 @@ async fn stream_file_range(
         .await
         .map_err(|_| ApiError::Internal("failed to seek file".to_string()))?;
 
-    // read requested range
     let content_length = end - start + 1;
-    let mut buffer = vec![0; content_length as usize];
-    file.read_exact(&mut buffer)
-        .await
-        .map_err(|_| ApiError::Internal("failed to read file".to_string()))?;
+
+    // limit the reader to exactly content_length bytes so we don't stream
+    // past the requested range.
+    let limited = file.take(content_length);
+    let stream = ReaderStream::with_capacity(limited, STREAM_CHUNK_SIZE);
+    let body = Body::from_stream(stream);
 
     // build 206 partial content response
     let response = Response::builder()
@@ -219,7 +335,8 @@ async fn stream_file_range(
             format!("bytes {}-{}/{}", start, end, file_size),
         )
         .header(CACHE_CONTROL, "public, max-age=2592000")
-        .body(Body::from(buffer))
+        .header(ETAG, etag)
+        .body(body)
         .unwrap();
 
     Ok(response)
@@ -233,18 +350,23 @@ async fn stream_file_range(
 async fn stream_from_memory(
     data: Vec<u8>,
     content_type: String,
+    etag: &str,
     req: Request,
 ) -> Result<Response, ApiError> {
     // check for range header
     if let Some(range_header) = req.headers().get(RANGE) {
-        stream_memory_range(data, content_type, range_header).await
+        stream_memory_range(data, content_type, etag, range_header).await
     } else {
-        stream_memory_full(data, content_type).await
+        stream_memory_full(data, content_type, etag).await
     }
 }
 
 /// stream entire data from memory (no range)
-async fn stream_memory_full(data: Vec<u8>, content_type: String) -> Result<Response, ApiError> {
+async fn stream_memory_full(
+    data: Vec<u8>,
+    content_type: String,
+    etag: &str,
+) -> Result<Response, ApiError> {
     let size = data.len();
 
     let response = Response::builder()
@@ -253,6 +375,7 @@ async fn stream_memory_full(data: Vec<u8>, content_type: String) -> Result<Respo
         .header(CONTENT_LENGTH, size)
         .header(ACCEPT_RANGES, "bytes")
         .header(CACHE_CONTROL, "public, max-age=2592000")
+        .header(ETAG, etag)
         .body(Body::from(data))
         .unwrap();
 
@@ -263,6 +386,7 @@ async fn stream_memory_full(data: Vec<u8>, content_type: String) -> Result<Respo
 async fn stream_memory_range(
     data: Vec<u8>,
     content_type: String,
+    etag: &str,
     range_header: &HeaderValue,
 ) -> Result<Response, ApiError> {
     let size = data.len() as u64;
@@ -287,6 +411,7 @@ async fn stream_memory_range(
         .header(ACCEPT_RANGES, "bytes")
         .header(CONTENT_RANGE, format!("bytes {}-{}/{}", start, end, size))
         .header(CACHE_CONTROL, "public, max-age=2592000")
+        .header(ETAG, etag)
         .body(Body::from(range_data))
         .unwrap();
 

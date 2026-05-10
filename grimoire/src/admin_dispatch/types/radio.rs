@@ -9,9 +9,9 @@
 //! - `radio_filters_list`   -> `Vec<StationFilter>`
 //! - `radio_filters_add`    -> `StationFilter`
 //! - `radio_filters_remove` -> `EmptyResponse`
-//! - `radio_songs_list`     -> `Vec<StationSong>`
-//! - `radio_songs_add`      -> `EmptyResponse`
-//! - `radio_songs_remove`   -> `EmptyResponse`
+//!
+//! per-track inclusion is expressed via `radio_filters_add` with
+//! `filter_type = "track"` (the FK column is `song_id`).
 
 use serde::{Deserialize, Serialize};
 use zod_gen_derive::ZodSchema;
@@ -22,18 +22,24 @@ pub struct RadioStationsByIdRequest {
     pub id: String,
 }
 
-/// request for `radio_filters_list` and `radio_songs_list`.
+/// request for `radio_filters_list`.
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct RadioStationByStationIdRequest {
     pub station_id: String,
 }
 
 /// request for `radio_filters_add`.
+///
+/// `filter_value` is always the FK id of the referenced record — an
+/// artist id when `filter_type = "artist"`, an album id for `"album"`,
+/// a song id for `"track"`, a playlist id for `"playlist"`, etc. the
+/// server no longer matches by name.
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct RadioFiltersAddRequest {
     pub station_id: String,
-    /// e.g. `"tag"`, `"genre"`, `"artist"`, `"album"`
+    /// `"artist"` | `"album"` | `"genre"` | `"tag"` | `"track"` | `"playlist"`
     pub filter_type: String,
+    /// FK id (artist id / album id / genre id / tag id / song id / playlist id).
     pub filter_value: String,
     /// `"include"` or `"exclude"`
     pub mode: String,
@@ -45,28 +51,12 @@ pub struct RadioFiltersRemoveRequest {
     pub filter_id: String,
 }
 
-/// request for `radio_songs_add`.
-#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
-pub struct RadioSongsAddRequest {
-    pub station_id: String,
-    pub song_id: String,
-    #[serde(default)]
-    pub sort_order: Option<i64>,
-}
-
-/// request for `radio_songs_remove`.
-#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
-pub struct RadioSongsRemoveRequest {
-    pub station_id: String,
-    pub song_id: String,
-}
-
 /// request for `radio_seed_suggest`. powers the wizard's autocomplete
 /// helpers — the dispatch layer maps `kind` to the right repository
 /// search and returns up to `limit` matches.
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct RadioSeedSuggestRequest {
-    /// one of `"tag"`, `"genre"`, `"artist"`, `"album"`, `"song"`
+    /// one of `"tag"`, `"genre"`, `"artist"`, `"album"`, `"song"`, `"playlist"`
     pub kind: String,
     /// search prefix; empty string returns top results when supported
     pub query: String,
@@ -78,10 +68,10 @@ pub struct RadioSeedSuggestRequest {
 /// single suggestion row returned by `radio_seed_suggest`.
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct RadioSeedSuggestion {
-    /// stable id (uuid) — for songs always required, for tag/genre/artist/album
-    /// it's the canonical id; filters store either id or name.
+    /// stable id (uuid) — always required.
     pub id: String,
-    /// human-readable label (tag name, genre name, artist name, "title — artist" for songs).
+    /// human-readable label (tag name, genre name, artist name,
+    /// "title — artist" for songs).
     pub name: String,
     /// secondary line, when meaningful (artist for albums, album for songs).
     #[serde(default, skip_serializing_if = "Option::is_none")]

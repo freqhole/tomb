@@ -27,6 +27,8 @@ import { isCharnelMode } from "../../app/services/charnel";
 import { Icon } from "../../components/icons/registry";
 import { ReauthModal } from "../../components/auth/ReauthModal";
 import { CopyButton } from "../../components/buttons/CopyButton";
+import { QrCodeModal } from "../../components/modals/QrCodeModal";
+import { DEFAULT_SHARE_WEB_HOST } from "../../utils/permalink";
 import { formatDate } from "../../utils/dateTime";
 import { truncateMiddle } from "../../utils/truncate";
 import { resolveBlobUrl } from "../../music/services/storage/blobResolver";
@@ -159,6 +161,11 @@ export function RemotesSettingsView() {
   const [deleting, setDeleting] = createSignal<string | null>(null);
   const [loggingOut, setLoggingOut] = createSignal<string | null>(null);
   const [rechecking, setRechecking] = createSignal<string | null>(null);
+  // qr modal state
+  const [qrPayload, setQrPayload] = createSignal<{
+    payload: string;
+    name: string;
+  } | null>(null);
   // auth status per remote: null = checking, AuthInfo = resolved.
   // sourced from the global authStatusStore so other views (share modal,
   // eligible-remotes service, etc.) see the same data.
@@ -433,14 +440,38 @@ export function RemotesSettingsView() {
                           </Show>
                         </div>
                         <Show when={remote.base_url}>
-                          <p class="text-xs text-[var(--color-text-muted)] truncate mb-2">
-                            {remote.base_url}
-                          </p>
+                          <div class="flex flex-wrap items-center gap-2 mb-2">
+                            <p
+                              class="text-xs text-[var(--color-text-muted)] truncate"
+                              title={remote.base_url}
+                            >
+                              {remote.base_url}
+                            </p>
+                            <CopyButton
+                              text={remote.base_url!}
+                              label="copy"
+                              copiedLabel="copied!"
+                              title="copy url"
+                            />
+                            <button
+                              type="button"
+                              class="text-xs px-2 py-0.5 rounded bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-bg-quaternary)] text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] border border-[var(--color-border-default)] transition-colors"
+                              onClick={() =>
+                                setQrPayload({
+                                  payload: remote.base_url!,
+                                  name: remote.name,
+                                })
+                              }
+                              title="show qr code"
+                            >
+                              qr code
+                            </button>
+                          </div>
                         </Show>
                         <Show when={remote.peer_addr}>
-                          <div class="flex items-center gap-2 mb-2">
+                          <div class="flex flex-wrap items-center gap-2 mb-2">
                             <p
-                              class="text-xs text-[var(--color-text-muted)] font-mono flex-1 min-w-0"
+                              class="text-xs text-[var(--color-text-muted)] font-mono truncate"
                               title={extractNodeId(remote.peer_addr!)}
                             >
                               node id: {truncateMiddle(extractNodeId(remote.peer_addr!), 24)}
@@ -451,6 +482,19 @@ export function RemotesSettingsView() {
                               copiedLabel="copied!"
                               title="copy node id"
                             />
+                            <button
+                              type="button"
+                              class="text-xs px-2 py-0.5 rounded bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-bg-quaternary)] text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] border border-[var(--color-border-default)] transition-colors"
+                              onClick={() =>
+                                setQrPayload({
+                                  payload: `${DEFAULT_SHARE_WEB_HOST}/?r=${extractNodeId(remote.peer_addr!)}`,
+                                  name: remote.name,
+                                })
+                              }
+                              title="show qr code"
+                            >
+                              qr code
+                            </button>
                           </div>
                         </Show>
                         {/* logged in user info */}
@@ -617,6 +661,15 @@ export function RemotesSettingsView() {
           );
         }}
       </Show>
+
+      {/* qr code modal */}
+      <QrCodeModal
+        isOpen={qrPayload() !== null}
+        onClose={() => setQrPayload(null)}
+        payload={qrPayload()?.payload ?? ""}
+        title={qrPayload() ? `qr code: ${qrPayload()!.name}` : "qr code"}
+        subtitle="scan to open this source"
+      />
     </div>
   );
 }

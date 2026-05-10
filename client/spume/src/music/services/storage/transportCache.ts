@@ -1,6 +1,7 @@
 // transport type cache - tracks which remotes use P2P vs HTTP
 // separate file to avoid circular dependency between blobResolver and blobCache
 
+import { createSignal } from "solid-js";
 import { getRemoteById } from "../../../app/services/remotes/remoteManager";
 import { isCharnelAvailable } from "../../../app/api/client";
 import { getPendingRemoteById } from "../../../app/services/storage/db";
@@ -13,6 +14,30 @@ interface TransportCacheEntry {
   isCharnelManaged: boolean;
 }
 const transportTypeCache = new Map<string, TransportCacheEntry>();
+
+// reactive version counter that bumps every time the cache gains a
+// new entry. memos that depend on the sync transport lookups (e.g.
+// `useResolvedP2PImageUrl`) read this so they re-run once an async
+// `preCacheRemoteTransport` populates the entry they were waiting on.
+// without this, a memo that observed `undefined` for an unknown remote
+// would never re-evaluate when the entry later landed.
+const [transportCacheVersion, setTransportCacheVersion] = createSignal(0);
+
+/**
+ * accessor that bumps each time `transportTypeCache` gains an entry.
+ * read this inside a memo to re-run when transport info becomes known.
+ */
+export function transportCacheVersionSignal(): number {
+  return transportCacheVersion();
+}
+
+function setCacheEntry(remoteId: string, entry: TransportCacheEntry) {
+  const had = transportTypeCache.has(remoteId);
+  transportTypeCache.set(remoteId, entry);
+  if (!had) {
+    setTransportCacheVersion((v) => v + 1);
+  }
+}
 
 function pendingIdFromRemoteId(remoteId: string): string | null {
   if (!remoteId.startsWith("pending-")) return null;
@@ -27,7 +52,7 @@ async function getTransportEntry(remoteId: string): Promise<TransportCacheEntry 
       transport: remote.transport,
       isCharnelManaged: remote.is_charnel_managed ?? false,
     };
-    transportTypeCache.set(remoteId, entry);
+    setCacheEntry(remoteId, entry);
     return entry;
   }
 
@@ -41,7 +66,7 @@ async function getTransportEntry(remoteId: string): Promise<TransportCacheEntry 
     transport: pending.transport,
     isCharnelManaged: false,
   };
-  transportTypeCache.set(remoteId, entry);
+  setCacheEntry(remoteId, entry);
   return entry;
 }
 
@@ -70,7 +95,7 @@ export function isCharnelManagedRemoteSync(remoteId: string): boolean | undefine
  * cache a remote's transport info for future sync lookups.
  */
 export function cacheTransportType(remoteId: string, transport: "http" | "wasm" | "app", isCharnelManaged: boolean = false) {
-  transportTypeCache.set(remoteId, { transport, isCharnelManaged });
+  setCacheEntry(remoteId, { transport, isCharnelManaged });
 }
 
 /**

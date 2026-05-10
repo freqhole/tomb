@@ -195,6 +195,11 @@ pub mod type_registry {
     // error types
     use crate::error::ErrorDetail;
 
+    // player control types (rodio plan phase 1 — no http route consumes
+    // these yet, but the typescript codegen needs them so the spume
+    // PlayerBackend interface can import generated zod schemas.)
+    use crate::player::{PlayerCommand, PlayerEvent, PlayerSnapshot, PlayerState, RestartPolicy};
+
     // search types
     use crate::search::{
         AlbumSearchResult, ArtistSearchResult, FilterSet, GenreSearchResult, PlaylistSearchResult,
@@ -223,20 +228,20 @@ pub mod type_registry {
     };
     use crate::admin_dispatch::types::peers::{
         AdminPeerNodeSummary, AdminPeerSummary, AdminPeersAllowRequest, AdminPeersAllowResponse,
-        AdminPeersListForUserRequest, AdminPeersRemoveRequest,
+        AdminPeersListAllRequest, AdminPeersListForUserRequest, AdminPeersRemoveRequest,
+        AdminPeersRestoreRequest,
     };
     use crate::admin_dispatch::types::radio::{
         RadioBumper, RadioBumpersAddRequest, RadioBumpersListRequest, RadioBumpersRemoveRequest,
         RadioBumpersSetFrequencyRequest, RadioConfigPayload, RadioFiltersAddRequest,
         RadioFiltersRemoveRequest, RadioSeedSuggestRequest, RadioSeedSuggestion,
-        RadioSongsAddRequest, RadioSongsRemoveRequest, RadioStationByStationIdRequest,
-        RadioStationSupervisorStatus, RadioStationsByIdRequest, RadioSupervisorStationRequest,
-        RadioSupervisorStatusResponse,
+        RadioStationByStationIdRequest, RadioStationSupervisorStatus, RadioStationsByIdRequest,
+        RadioSupervisorStationRequest, RadioSupervisorStatusResponse,
     };
     use crate::admin_dispatch::types::users::{
         AdminAccountLinkResponse, AdminUserSummary, AdminUsersDeleteRequest,
-        AdminUsersGenerateAccountLinkRequest, AdminUsersGetRequest, AdminUsersListRequest,
-        AdminUsersUpdateRoleRequest,
+        AdminUsersGenerateAccountLinkRequest, AdminUsersGetRequest, AdminUsersHardDeleteRequest,
+        AdminUsersListRequest, AdminUsersRestoreRequest, AdminUsersUpdateRoleRequest,
     };
 
     // blob metadata request types
@@ -261,7 +266,7 @@ pub mod type_registry {
 
     // radio admin types
     use crate::radio::stations::models::{
-        CreateStationRequest, RadioStation, StationFilter, StationSong, UpdateStationRequest,
+        CreateStationRequest, RadioStation, StationFilter, UpdateStationRequest,
     };
 
     pub fn register_all_types(gen: &mut ZodGenerator, registered: &mut HashSet<String>) {
@@ -272,6 +277,20 @@ pub mod type_registry {
         // error types (used across API responses and job failures)
         gen.add_schema::<ErrorDetail>("ErrorDetail");
         registered.insert("ErrorDetail".to_string());
+
+        // player control types — order matters for codegen: leaf
+        // types (used by other types' manual zod_schema strings)
+        // must register first.
+        gen.add_schema::<PlayerState>("PlayerState");
+        registered.insert("PlayerState".to_string());
+        gen.add_schema::<PlayerSnapshot>("PlayerSnapshot");
+        registered.insert("PlayerSnapshot".to_string());
+        gen.add_schema::<RestartPolicy>("RestartPolicy");
+        registered.insert("RestartPolicy".to_string());
+        gen.add_schema::<PlayerCommand>("PlayerCommand");
+        registered.insert("PlayerCommand".to_string());
+        gen.add_schema::<PlayerEvent>("PlayerEvent");
+        registered.insert("PlayerEvent".to_string());
 
         // health types
         gen.add_schema::<HealthResponse>("HealthResponse");
@@ -820,6 +839,10 @@ pub mod type_registry {
         registered.insert("AdminUsersUpdateRoleRequest".to_string());
         gen.add_schema::<AdminUsersDeleteRequest>("AdminUsersDeleteRequest");
         registered.insert("AdminUsersDeleteRequest".to_string());
+        gen.add_schema::<AdminUsersHardDeleteRequest>("AdminUsersHardDeleteRequest");
+        registered.insert("AdminUsersHardDeleteRequest".to_string());
+        gen.add_schema::<AdminUsersRestoreRequest>("AdminUsersRestoreRequest");
+        registered.insert("AdminUsersRestoreRequest".to_string());
         gen.add_schema::<AdminUsersGenerateAccountLinkRequest>(
             "AdminUsersGenerateAccountLinkRequest",
         );
@@ -852,8 +875,12 @@ pub mod type_registry {
         registered.insert("AdminPeerNodeSummary".to_string());
         gen.add_schema::<AdminPeersListForUserRequest>("AdminPeersListForUserRequest");
         registered.insert("AdminPeersListForUserRequest".to_string());
+        gen.add_schema::<AdminPeersListAllRequest>("AdminPeersListAllRequest");
+        registered.insert("AdminPeersListAllRequest".to_string());
         gen.add_schema::<AdminPeersRemoveRequest>("AdminPeersRemoveRequest");
         registered.insert("AdminPeersRemoveRequest".to_string());
+        gen.add_schema::<AdminPeersRestoreRequest>("AdminPeersRestoreRequest");
+        registered.insert("AdminPeersRestoreRequest".to_string());
         gen.add_schema::<AdminPeersAllowRequest>("AdminPeersAllowRequest");
         registered.insert("AdminPeersAllowRequest".to_string());
         gen.add_schema::<AdminPeersAllowResponse>("AdminPeersAllowResponse");
@@ -874,10 +901,6 @@ pub mod type_registry {
         registered.insert("RadioFiltersAddRequest".to_string());
         gen.add_schema::<RadioFiltersRemoveRequest>("RadioFiltersRemoveRequest");
         registered.insert("RadioFiltersRemoveRequest".to_string());
-        gen.add_schema::<RadioSongsAddRequest>("RadioSongsAddRequest");
-        registered.insert("RadioSongsAddRequest".to_string());
-        gen.add_schema::<RadioSongsRemoveRequest>("RadioSongsRemoveRequest");
-        registered.insert("RadioSongsRemoveRequest".to_string());
         gen.add_schema::<RadioSeedSuggestRequest>("RadioSeedSuggestRequest");
         registered.insert("RadioSeedSuggestRequest".to_string());
         gen.add_schema::<RadioSeedSuggestion>("RadioSeedSuggestion");
@@ -902,8 +925,6 @@ pub mod type_registry {
         registered.insert("RadioBumpersSetFrequencyRequest".to_string());
         gen.add_schema::<StationFilter>("StationFilter");
         registered.insert("StationFilter".to_string());
-        gen.add_schema::<StationSong>("StationSong");
-        registered.insert("StationSong".to_string());
 
         // listen session request types
         gen.add_schema::<GetListenSessionRequest>("GetListenSessionRequest");

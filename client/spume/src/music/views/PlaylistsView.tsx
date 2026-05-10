@@ -34,6 +34,7 @@ import { usePlaylistContextMenu, useSongContextMenu } from "../hooks/contextMenu
 import { getBlobObjectURL } from "../services/storage/blobs";
 import { resolveBlobUrl } from "../services/storage/blobResolver";
 import { ShareButton } from "../../components/buttons/ShareButton";
+import { showStationSelector } from "../hooks/stationSelectorState";
 import { createCurrentRemoteFull } from "../../app/services/remotes/currentRemoteFull";
 import type { SendPayload } from "../services/send/sendToRemote";
 import type { RemoteSong } from "../data/remote/adapters";
@@ -289,6 +290,16 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
     playlistId: () => selectedPlaylistId() ?? undefined,
   });
 
+  // auto-fetch additional pages so playlists larger than the default
+  // page size still render in full. the songs list itself isn't
+  // virtualized + scroll-paged yet, so this is the simplest safety
+  // net for huge (>1000-song) playlists.
+  createEffect(() => {
+    if (playlistSongsQuery.hasNextPage && !playlistSongsQuery.isFetchingNextPage) {
+      void playlistSongsQuery.fetchNextPage();
+    }
+  });
+
   // flatten playlist songs
   const playlistSongs = createMemo(() => {
     const pages = playlistSongsQuery.data?.pages;
@@ -534,6 +545,25 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
     return songs.reduce((sum, song) => sum + (song.duration_seconds || 0), 0);
   });
 
+  // send the current playlist to a radio station as a `playlist` filter.
+  // opens the AddToStationModal which lists existing stations; when the
+  // user picks one we dispatch `radio_filters_add` with
+  // `filter_type: "playlist"`. the server resolves the playlist's
+  // current contents at tune time, so later edits to the playlist
+  // automatically flow through to every station seeded by it.
+  const handleAddToStation = async () => {
+    const playlist = selectedPlaylist();
+    if (!playlist) return;
+    await showStationSelector(
+      {
+        kind: "playlist",
+        playlistId: playlist.playlist_id,
+        playlistTitle: playlist.title,
+      },
+      getCurrentRemote()?.remote_id ?? null
+    );
+  };
+
   // open image carousel with all playlist and song images
   const handleOpenImageCarousel = async () => {
     const playlist = selectedPlaylist();
@@ -658,6 +688,38 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
           image: playlist?.images?.[0],
         },
       });
+    }
+  };
+
+  // shuffle all songs and replace the current queue. uses fisher-yates
+  // for an unbiased shuffle and tags the source as "shuffle" so playQueue
+  // wipes the existing queue (same behavior as picking an album/playlist).
+  const handleShuffleAll = async () => {
+    const songs = playlistSongs();
+    if (songs.length === 0) return;
+    const shuffled = songs.slice();
+    for (let i = shuffled.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+    }
+    const playlist = selectedPlaylist();
+    await playQueue(shuffled, {
+      source: {
+        type: "shuffle",
+        label: playlist?.title ? `shuffle: ${playlist.title}` : "shuffle",
+        entity_id: playlist?.playlist_id,
+        image: playlist?.images?.[0],
+      },
+    });
+    if (playlist?.playlist_id) {
+      try {
+        const remoteClient = await getRemoteClient();
+        if (remoteClient) {
+          void remoteClient.music.recordPlaylistPlay(playlist.playlist_id);
+        }
+      } catch (err) {
+        console.warn("[playlist] recordPlaylistPlay failed:", err);
+      }
     }
   };
 
@@ -1056,22 +1118,50 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
                                     variant="ghost"
                                     onClick={handleEditToggle}
                                     aria-label="edit playlist"
+                                    title="edit playlist"
                                   />
                                 </Show>
                                 <Show when={playlistSongs().length > 0}>
-                                  <Button variant="primary" onClick={handlePlayAll}>
+                                  <Button
+                                    variant="primary"
+                                    onClick={handlePlayAll}
+                                    title="play all songs in this playlist"
+                                  >
                                     play all
                                   </Button>
-                                  <Button variant="secondary" onClick={handleAddToQueue}>
+                                  <Button
+                                    variant="secondary"
+                                    onClick={handleAddToQueue}
+                                    title="add all songs to the end of the queue"
+                                  >
                                     add to queue
                                   </Button>
+                                  <IconButton
+                                    icon="shuffle"
+                                    size="default"
+                                    variant="ghost"
+                                    onClick={handleShuffleAll}
+                                    aria-label="shuffle playlist"
+                                    title="shuffle playlist"
+                                  />
                                 </Show>
                                 <IconButton
                                   icon="carousel"
                                   size="default"
                                   onClick={handleOpenImageCarousel}
                                   aria-label="view all images"
+                                  title="view all playlist images"
                                 />
+                                <Show when={playlistSongs().length > 0}>
+                                  <IconButton
+                                    icon="radioTower"
+                                    size="default"
+                                    variant="ghost"
+                                    onClick={handleAddToStation}
+                                    aria-label="send playlist to a radio station"
+                                    title="send playlist to a radio station"
+                                  />
+                                </Show>
                                 <FavoriteToggle
                                   targetType="playlist"
                                   targetId={selectedPlaylist()?.playlist_id || ""}
@@ -1103,26 +1193,54 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
                                 variant="ghost"
                                 onClick={handleEditToggle}
                                 aria-label="edit playlist"
+                                title="edit playlist"
                               />
                             </Show>
                             <Show when={playlistSongs().length > 0}>
-                              <Button variant="primary" onClick={handlePlayAll}>
+                              <Button
+                                variant="primary"
+                                onClick={handlePlayAll}
+                                title="play all songs in this playlist"
+                              >
                                 <Show when={!isNarrow()} fallback={"play"}>
                                   play all
                                 </Show>
                               </Button>
-                              <Button variant="secondary" onClick={handleAddToQueue}>
+                              <Button
+                                variant="secondary"
+                                onClick={handleAddToQueue}
+                                title="add all songs to the end of the queue"
+                              >
                                 <Show when={!isNarrow()} fallback={"queue"}>
                                   add to queue
                                 </Show>
                               </Button>
+                              <IconButton
+                                icon="shuffle"
+                                size="default"
+                                variant="ghost"
+                                onClick={handleShuffleAll}
+                                aria-label="shuffle playlist"
+                                title="shuffle playlist (replaces current queue)"
+                              />
                             </Show>
                             <IconButton
                               icon="carousel"
                               size="default"
                               onClick={handleOpenImageCarousel}
                               aria-label="view all images"
+                              title="view all playlist images"
                             />
+                            <Show when={playlistSongs().length > 0}>
+                              <IconButton
+                                icon="radioTower"
+                                size="default"
+                                variant="ghost"
+                                onClick={handleAddToStation}
+                                aria-label="send playlist to a radio station"
+                                title="send playlist to a radio station"
+                              />
+                            </Show>
                             <FavoriteToggle
                               targetType="playlist"
                               targetId={selectedPlaylist()?.playlist_id || ""}

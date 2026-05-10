@@ -4,8 +4,43 @@
 import { createSignal } from "solid-js";
 import type { Song } from "../storage/types";
 
-// maximum number of songs allowed in the queue
-export const QUEUE_SIZE_LIMIT = 150;
+// default queue size limit. used as the fallback when no override
+// has been loaded (browser mode, or before `initQueueSizeLimit()`
+// has run in tauri mode). the actual runtime value comes from the
+// `[client] queue_size_limit` field in `freqhole-config.toml`,
+// surfaced via the `get_client_config` tauri command and cached
+// below by `initQueueSizeLimit()`.
+const DEFAULT_QUEUE_SIZE_LIMIT = 150;
+
+let cachedQueueSizeLimit = DEFAULT_QUEUE_SIZE_LIMIT;
+
+/** current effective queue size limit. reads the cache populated by
+ *  `initQueueSizeLimit()` (falls back to `DEFAULT_QUEUE_SIZE_LIMIT`). */
+export function getQueueSizeLimit(): number {
+  return cachedQueueSizeLimit;
+}
+
+/** hydrate the queue size limit from the host's `[client]` config.
+ *  safe to call outside tauri (no-op, leaves the default). idempotent. */
+export async function initQueueSizeLimit(): Promise<number> {
+  if (typeof window !== "undefined" && "__TAURI__" in window) {
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      const cfg = await invoke<{ queue_size_limit: number }>("get_client_config");
+      if (cfg && Number.isFinite(cfg.queue_size_limit) && cfg.queue_size_limit > 0) {
+        cachedQueueSizeLimit = Math.floor(cfg.queue_size_limit);
+        return cachedQueueSizeLimit;
+      }
+    } catch {
+      // tauri command missing or threw — fall through to default.
+    }
+  }
+  cachedQueueSizeLimit = DEFAULT_QUEUE_SIZE_LIMIT;
+  return cachedQueueSizeLimit;
+}
+
+/** @deprecated use `getQueueSizeLimit()` so config overrides take effect. */
+export const QUEUE_SIZE_LIMIT = DEFAULT_QUEUE_SIZE_LIMIT;
 
 // user's choice when queue is full
 export type QueueFullChoice = "cancel" | "remove-from-start" | "clear-all";
@@ -62,9 +97,10 @@ export function calculateRemoveCount(
   currentQueueSize: number,
   songsToAddCount: number,
 ): number {
+  const limit = getQueueSizeLimit();
   const totalAfterAdd = currentQueueSize + songsToAddCount;
-  if (totalAfterAdd <= QUEUE_SIZE_LIMIT) {
+  if (totalAfterAdd <= limit) {
     return 0;
   }
-  return totalAfterAdd - QUEUE_SIZE_LIMIT;
+  return totalAfterAdd - limit;
 }

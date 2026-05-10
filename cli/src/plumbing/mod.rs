@@ -24,6 +24,8 @@ mod jobs;
 mod maintenance;
 mod music;
 mod radio;
+#[cfg(feature = "rodio-playback")]
+mod player;
 mod sync;
 mod users;
 pub mod utils;
@@ -40,6 +42,8 @@ pub use jobs::JobAction;
 pub use maintenance::MaintenanceAction;
 pub use music::MusicAction;
 pub use radio::RadioAction;
+#[cfg(feature = "rodio-playback")]
+pub use player::PlayerAction;
 pub use sync::SyncAction;
 pub use users::UserAction;
 pub use wordlist::WordlistAction;
@@ -237,6 +241,13 @@ pub async fn handle_sync(action: SyncAction, json_output: bool) -> anyhow::Resul
 pub async fn handle_radio(action: RadioAction, json_output: bool) -> anyhow::Result<()> {
     let format = OutputFormat::from_json_flag(json_output);
     let output = radio::handle_command(action).await;
+    utils::print_and_exit(output, format);
+}
+
+#[cfg(feature = "rodio-playback")]
+pub async fn handle_player(action: PlayerAction, json_output: bool) -> anyhow::Result<()> {
+    let format = OutputFormat::from_json_flag(json_output);
+    let output = player::handle_command(action).await;
     utils::print_and_exit(output, format);
 }
 

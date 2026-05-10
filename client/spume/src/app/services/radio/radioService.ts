@@ -1033,6 +1033,12 @@ export async function tuneIntoRadio(
     }
   };
 
+  // how far behind currentTime we keep buffered media before evicting.
+  // bounded so the SourceBuffer doesn't grow unbounded across tracks
+  // and eventually trip MSE's per-element quota (which manifests as
+  // appendBuffer throwing QuotaExceededError mid-stream).
+  const BUFFER_BEHIND_LIMIT_S = 30;
+  const BUFFER_BEHIND_TARGET_S = 10;
   const drain = () => {
     if (!isActiveTune()) return;
     if (!sb || sb.updating) return;
@@ -1041,9 +1047,38 @@ export async function tuneIntoRadio(
       try {
         sb.appendBuffer(next as BufferSource);
       } catch (e) {
-        console.warn("[radio] appendBuffer failed:", e);
+        // synchronous appendBuffer failure (quota exceeded, codec
+        // mismatch on a fresh init, sourcebuffer in an invalid state).
+        // the chunk is gone and `updateend` won't fire — without
+        // recovery the queue would never drain again and the radio
+        // session would silently freeze. trigger a SourceBuffer reset
+        // and wait for the next init segment so we can resume cleanly.
+        console.warn(
+          "[radio] appendBuffer failed; resetting SourceBuffer to recover:",
+          e,
+        );
+        const nextResync = (lastAppliedInit ?? -1) + 1;
+        // resetSourceBuffer rebuilds `sb` and waits for an init >= nextResync.
+        resetSourceBuffer(nextResync);
       }
       return;
+    }
+    // opportunistic eviction: trim media that's well behind the playhead
+    // so the buffered range doesn't grow forever across track changes.
+    if (
+      sb.buffered.length > 0 &&
+      audio.currentTime - sb.buffered.start(0) > BUFFER_BEHIND_LIMIT_S
+    ) {
+      const removeUpTo = audio.currentTime - BUFFER_BEHIND_TARGET_S;
+      if (removeUpTo > sb.buffered.start(0)) {
+        try {
+          sb.remove(sb.buffered.start(0), removeUpTo);
+          // remove triggers updateend → drain reruns naturally.
+          return;
+        } catch (e) {
+          console.warn("[radio] sb.remove failed:", e);
+        }
+      }
     }
     // jump to the live edge once after the first append settles. catchup
     // chunks carry mid-track media timestamps, so the playhead at 0 sits

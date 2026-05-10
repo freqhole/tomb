@@ -7,6 +7,12 @@ use base64::Engine;
 use serde_json::{json, Value as JsonValue};
 
 /// build the standard blob-path response used by blob route handlers.
+///
+/// `id` is a `media_blobz.id` short pk (7-16 hex chars, generated
+/// per-instance by `lower(hex(randomblob(8)))`). it is NOT a
+/// sha256 or blake3 content hash. callers that only have a sha256
+/// must resolve it to the local media_blob_id first (e.g. via
+/// `get_media_blob_by_sha256`) before hitting this path.
 pub async fn build_blob_path_response(id: &str) -> GrimoireResponse<JsonValue> {
     match get_media_blob(id).await {
         Ok(blob) => {

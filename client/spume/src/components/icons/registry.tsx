@@ -131,6 +131,12 @@ export const DeleteIcon = (props: IconProps) => (
   </BaseIcon>
 );
 
+export const CopyIcon = (props: IconProps) => (
+  <BaseIcon {...props} defaultSize={14} aria-label={props["aria-label"] ?? "Copy"}>
+    <path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z" />
+  </BaseIcon>
+);
+
 export const DragIcon = (props: IconProps) => (
   <BaseIcon {...props} defaultSize={14} aria-label={props["aria-label"] ?? "Drag to reorder"}>
     <path d="M11 18c0 1.1-.9 2-2 2s-2-.9-2-2 .9-2 2-2 2 .9 2 2zm-2-8c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0-6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm6 4c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" />
@@ -488,6 +494,7 @@ export const IconRegistry = {
   add: AddIcon,
   edit: EditIcon,
   delete: DeleteIcon,
+  copy: CopyIcon,
   close: CloseIcon,
   drag: DragIcon,
   more: MoreIcon,
@@ -587,6 +594,7 @@ export const IconNames = {
   add: "add",
   edit: "edit",
   delete: "delete",
+  copy: "copy",
   close: "close",
   drag: "drag",
   more: "more",

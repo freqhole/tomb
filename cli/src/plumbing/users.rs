@@ -54,6 +54,24 @@ pub enum UserAction {
         #[arg(long)]
         user_id: String,
     },
+    /// Permanently delete a user account ("delete forever"; bypasses soft-delete
+    /// and removes the user_accountz row plus FK references). cannot delete root
+    /// or yourself.
+    HardDelete {
+        /// User ID
+        #[arg(long)]
+        user_id: String,
+    },
+    /// Permanently delete a peer node row (hard DELETE; bypasses soft-delete).
+    /// the admin ui's "remove peer" only soft-deletes; this is reserved for cleanup.
+    HardDeletePeerNode {
+        /// User ID that owns the peer node
+        #[arg(long)]
+        user_id: String,
+        /// Peer node_id (64 hex characters)
+        #[arg(long)]
+        node_id: String,
+    },
     /// Generate invite codes
     GenerateInvites {
         /// Number of codes to generate
@@ -264,6 +282,26 @@ pub async fn handle_command(action: UserAction) -> CommandOutput<serde_json::Val
             }
 
             let message = format!("User deleted: {}", user_id);
+            CommandOutput::success(message, ())
+        }
+        UserAction::HardDelete { user_id } => {
+            let admin_user = match get_root_user(&service).await {
+                Ok(user) => user,
+                Err(e) => return e,
+            };
+            let response = service.hard_delete_user(&user_id, &admin_user).await;
+            if !response.success {
+                return CommandOutput::failure(response.message, response.errors, ());
+            }
+            let message = format!("user permanently deleted: {}", user_id);
+            CommandOutput::success(message, ())
+        }
+        UserAction::HardDeletePeerNode { user_id, node_id } => {
+            let response = service.hard_delete_peer_node(&user_id, &node_id).await;
+            if !response.success {
+                return CommandOutput::failure(response.message, response.errors, ());
+            }
+            let message = format!("peer node hard-deleted: user={} node={}", user_id, node_id);
             CommandOutput::success(message, ())
         }
         UserAction::GenerateInvites {

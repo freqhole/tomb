@@ -3,11 +3,50 @@
 mod admin_commands;
 mod app_config;
 mod commands;
-mod media_server;
+mod ephemeral_blob_commands;
+
 #[cfg(desktop)]
 mod menu;
 mod p2p_commands;
 mod p2p_state;
+#[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
+mod player_commands;
+#[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
+mod player_commands {
+    //! mobile fallback: rodio is desktop-only. these stubs satisfy the
+    //! single `invoke_handler!` list so spume can call them on every
+    //! target; on mobile they reply with a structured "unsupported"
+    //! error and the frontend falls back to the html backend.
+    use serde_json::Value;
+
+    #[derive(Default)]
+    pub struct PlayerState;
+    impl PlayerState {
+        pub fn new() -> Self {
+            Self
+        }
+    }
+
+    #[tauri::command]
+    pub async fn player_send(_cmd: Value) -> Result<(), String> {
+        Err("rodio backend is desktop-only".to_string())
+    }
+
+    #[tauri::command]
+    pub async fn player_snapshot() -> Result<Value, String> {
+        Err("rodio backend is desktop-only".to_string())
+    }
+
+    #[tauri::command]
+    pub async fn player_init() -> Result<(), String> {
+        Err("rodio backend is desktop-only".to_string())
+    }
+
+    #[tauri::command]
+    pub async fn resolve_blob_path(_blob_id: String) -> Result<Value, String> {
+        Err("rodio backend is desktop-only".to_string())
+    }
+}
 mod radio_commands;
 mod remotez_commands;
 mod server_controls;
@@ -215,6 +254,7 @@ fn mobile_auto_init(app_handle: &tauri::AppHandle) -> Result<(), Box<dyn std::er
         // from any remote freqhole server they later add.
         server_name: "local library".to_string(),
         server_port: 8081,
+        description: None,
         image_path: None,
         admin_username: None,
         generate_api_key: false,
@@ -297,6 +337,45 @@ pub fn run() {
         let _ = rustls::crypto::ring::default_provider().install_default();
     }
 
+    // desktop terminal-passthrough: if the binary was invoked with any
+    // additional argv beyond the program name (e.g. `freqhole users list`,
+    // `freqhole rathole`, `freqhole --help`) hand off to the cli library
+    // and exit instead of bringing up the gui. this lets a single binary
+    // serve as both gui app (no args) and full cli (any args) without
+    // bundling a second executable. mobile targets never have argv so
+    // skip this entirely.
+    #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
+    {
+        let argc = std::env::args().count();
+        // tauri itself sometimes injects flags on macos when launched
+        // from finder (e.g. `-psn_<pid>`). filter those out so the gui
+        // still launches when double-clicked from finder.
+        let real_args: Vec<String> = std::env::args()
+            .skip(1)
+            .filter(|a| !a.starts_with("-psn_"))
+            .collect();
+        if argc > 1 && !real_args.is_empty() {
+            let rt = match tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build()
+            {
+                Ok(rt) => rt,
+                Err(e) => {
+                    eprintln!("failed to start tokio runtime for cli: {e}");
+                    std::process::exit(1);
+                }
+            };
+            let exit_code = match rt.block_on(cli::run()) {
+                Ok(()) => 0,
+                Err(e) => {
+                    eprintln!("error: {e}");
+                    1
+                }
+            };
+            std::process::exit(exit_code);
+        }
+    }
+
     setup_tracing();
 
     let p2p_state = Arc::new(P2pState::new());
@@ -304,8 +383,14 @@ pub fn run() {
     let builder = tauri::Builder::default()
         .manage(ShutdownToken::new())
         .manage(p2p_state.clone())
-        .manage(media_server::MediaServerState::new())
-        .manage(PendingDeepLinks::default())
+        .manage(PendingDeepLinks::default());
+
+    // rodio player state. on desktop this is the real supervised
+    // controller-holder; on mobile it's a zero-sized stub so the
+    // single invoke_handler list works on every target.
+    let builder = builder.manage(player_commands::PlayerState::new());
+
+    let builder = builder
         .setup(|app| {
             // ---- deep-link plugin -----------------------------------------
             // register `freqhole://` handler. on_open_url fires for runtime
@@ -448,22 +533,10 @@ pub fn run() {
                     }
                 });
 
-                // spawn embedded media http server (loopback only).
-                // serves blob streaming routes with full http range support so
-                // <audio src> works smoothly on linux webkitgtk (where the
-                // tauri asset:// protocol can't stream into media elements).
-                let media_app_handle = app.handle().clone();
-                let media_state_clone = app
-                    .state::<media_server::MediaServerState>()
-                    .inner()
-                    .clone();
-                tauri::async_runtime::spawn(async move {
-                    if let Err(e) =
-                        media_server::start_and_register(media_app_handle, media_state_clone).await
-                    {
-                        tracing::error!(error = %e, "failed to start embedded media server");
-                    }
-                });
+                // (the embedded http loopback media server used to be
+                // spawned here. it's been removed in favor of the rodio
+                // backend, which bypasses html `<audio>` entirely on linux.
+                // see `client/spume/src/music/services/audio/`.)
 
                 // spawn job runner in tauri process for tauri-local transport (api_call)
                 // SQLite handles concurrent access safely.
@@ -657,10 +730,10 @@ pub fn run() {
             commands::get_os_username,
             commands::get_app_version,
             commands::take_pending_deep_links,
-            commands::media_server_info,
             commands::get_config_path,
             commands::get_data_dir,
             commands::get_freqhole_config,
+            commands::get_client_config,
             commands::open_config_dir,
             commands::scan_directory,
             commands::rescan_directories,
@@ -673,6 +746,8 @@ pub fn run() {
             // app config settings
             commands::get_sync_queue_to_local,
             commands::set_sync_queue_to_local,
+            commands::get_rodio_playback,
+            commands::set_rodio_playback,
             commands::check_config_needs_upgrade,
             commands::upgrade_config,
             // server config / image management
@@ -716,6 +791,17 @@ pub fn run() {
             // single dispatch entry-point for wizard / settings admin ops
             admin_commands::admin_dispatch,
             admin_commands::admin_dispatch_remote,
+            // rust rodio player (desktop-real, mobile-stub)
+            player_commands::player_send,
+            player_commands::player_snapshot,
+            player_commands::player_init,
+            player_commands::resolve_blob_path,
+            // ephemeral blob fetch + cleanup (sync_queue_to_local OFF path)
+            ephemeral_blob_commands::fetch_ephemeral_blob,
+            ephemeral_blob_commands::delete_ephemeral_blob,
+            ephemeral_blob_commands::purge_ephemeral_dir,
+            ephemeral_blob_commands::list_ephemeral_blobs,
+            ephemeral_blob_commands::reconcile_ephemeral_dir,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

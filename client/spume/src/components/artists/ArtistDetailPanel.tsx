@@ -327,7 +327,7 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
                     size="sm"
                     onClick={() =>
                       void showStationSelector(
-                        { kind: "artist", artistName: props.artist.name },
+                        { kind: "artist", artistId: props.artist.artist_id, artistName: props.artist.name },
                         getCurrentRemote()?.remote_id,
                       )
                     }
@@ -489,7 +489,7 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
                     size="sm"
                     onClick={() =>
                       void showStationSelector(
-                        { kind: "artist", artistName: props.artist.name },
+                        { kind: "artist", artistId: props.artist.artist_id, artistName: props.artist.name },
                         getCurrentRemote()?.remote_id,
                       )
                     }

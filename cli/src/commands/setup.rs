@@ -324,6 +324,7 @@ pub async fn run(args: SetupArgs) -> Result<()> {
         data_dir: data_dir.clone(),
         server_name: server_name.clone(),
         server_port,
+        description: None,
         image_path,
         admin_username: Some(username.clone()), // user-provided username becomes admin
         generate_api_key,

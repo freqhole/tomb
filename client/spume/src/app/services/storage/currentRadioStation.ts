@@ -2,9 +2,9 @@
 // tracks the currently tuned station in IndexedDB so it can be resumed on page reload
 
 import { createSignal } from "solid-js";
-import { initAppDB } from "./db";
+import { initAppDB, updateAppState } from "./db";
 import { STORE_APP_STATE } from "./types";
-import type { AppState, RadioStationRef } from "./types";
+import type { RadioStationRef } from "./types";
 
 // reactive signal for the current radio station (null when not tuned)
 const [currentRadioStation, setCurrentRadioStation] = createSignal<RadioStationRef | null>(null);
@@ -14,8 +14,8 @@ export { currentRadioStation };
 export async function loadCurrentRadioStation(): Promise<RadioStationRef | null> {
   try {
     const db = await initAppDB();
-    const appState = await db.get(STORE_APP_STATE, "app_state");
-    const station = appState?.current_radio_station ?? null;
+    const state = await db.get(STORE_APP_STATE, "app_state");
+    const station = state?.current_radio_station ?? null;
     setCurrentRadioStation(station);
     return station;
   } catch (error) {
@@ -24,25 +24,15 @@ export async function loadCurrentRadioStation(): Promise<RadioStationRef | null>
   }
 }
 
-// save the current radio station to IndexedDB (and update signal)
+// save the current radio station to IndexedDB (and update signal).
+// routes through updateAppStatePublic so we don't race against other
+// concurrent appState writers (e.g. setQueue) by reading + writing
+// STORE_APP_STATE directly with a stale snapshot.
 export async function setCurrentRadioStationPersisted(
   station: RadioStationRef | null,
 ): Promise<void> {
   try {
-    const db = await initAppDB();
-    const appState: AppState = (await db.get(STORE_APP_STATE, "app_state")) || {
-      id: "app_state",
-      current_sha256: null,
-      queue: [],
-      queue_open: false,
-      active_remote_id: null,
-      last_updated: Date.now(),
-    };
-
-    appState.current_radio_station = station;
-    appState.last_updated = Date.now();
-
-    await db.put(STORE_APP_STATE, appState);
+    await updateAppState({ current_radio_station: station });
     setCurrentRadioStation(station);
   } catch (error) {
     console.error("failed to save current radio station:", error);

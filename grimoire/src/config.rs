@@ -34,6 +34,11 @@ pub struct GrimoireConfig {
     /// Radio streaming configuration (optional - only when broadcasting).
     #[serde(default)]
     pub radio: Option<crate::radio::config::RadioConfig>,
+    /// Client UI configuration (optional). knobs that only the
+    /// frontend cares about (queue limits, etc.) — fetched by the
+    /// charnel host via a tauri command on app boot.
+    #[serde(default)]
+    pub client: Option<ClientConfig>,
 
     /// Path this config was loaded from. Set by `init_config`; not
     /// (de)serialized. Used by admin handlers that need to write changes
@@ -224,6 +229,12 @@ pub struct FederationConfig {
     /// rejected. see docs/wizard-remote-admin.md.
     #[serde(default)]
     pub remote_admin: Option<RemoteAdminConfig>,
+    /// remote player configuration (`freqhole-player/1` ALPN).
+    /// when absent or `enabled = false`, incoming player-control
+    /// connections are rejected. opt-in. see
+    /// docs/rodio-into-freqhole-plan.md.
+    #[serde(default)]
+    pub remote_player: Option<RemotePlayerConfig>,
 }
 
 /// remote admin configuration for the `freqhole-admin/1` ALPN
@@ -260,6 +271,46 @@ impl RemoteAdminConfig {
     /// is this peer node id allowed?
     /// returns true when the allowlist is empty (admin role check still
     /// applies elsewhere) or when the node id is explicitly listed.
+    pub fn is_allowed_node(&self, node_id: &str) -> bool {
+        self.allowed_node_ids.is_empty() || self.allowed_node_ids.iter().any(|n| n == node_id)
+    }
+}
+
+/// remote player configuration for the `freqhole-player/1` ALPN.
+///
+/// opt-in. structure mirrors [`RemoteAdminConfig`] for symmetry: an
+/// `enabled` switch, an optional explicit allowlist, and a frame size
+/// cap. peer must resolve to a User with `role == Admin` to be
+/// accepted; this protocol is intentionally admin-only because it
+/// drives a process running real audio output on the host machine.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct RemotePlayerConfig {
+    /// main switch (default: false)
+    #[serde(default)]
+    pub enabled: bool,
+    /// optional explicit allowlist of player peer node IDs.
+    /// empty = any admin peer is allowed; non-empty = require both
+    /// role==admin AND node_id membership.
+    #[serde(default)]
+    pub allowed_node_ids: Vec<String>,
+    /// per-frame size cap, in mb (default: 1). much smaller than the
+    /// admin cap because player frames are typed commands/events, not
+    /// blob payloads.
+    #[serde(default = "default_player_max_message_size_mb")]
+    pub max_message_size_mb: u32,
+}
+
+fn default_player_max_message_size_mb() -> u32 {
+    1
+}
+
+impl RemotePlayerConfig {
+    /// max message size in bytes
+    pub fn max_message_size_bytes(&self) -> usize {
+        (self.max_message_size_mb as usize) * 1024 * 1024
+    }
+
+    /// is this peer node id allowed?
     pub fn is_allowed_node(&self, node_id: &str) -> bool {
         self.allowed_node_ids.is_empty() || self.allowed_node_ids.iter().any(|n| n == node_id)
     }
@@ -423,6 +474,30 @@ pub struct StaticFilesConfig {
     pub enabled: bool,
     /// Directory to serve static files from (relative to data_dir or absolute)
     pub directory: Option<PathBuf>,
+}
+
+/// Client-only UI configuration. read by the charnel tauri host and
+/// surfaced to the spume frontend via `get_client_config`. nothing
+/// in the server / cli paths consumes these.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClientConfig {
+    /// Maximum number of songs allowed in the play queue. when an
+    /// add would exceed this, the ui prompts the user to either
+    /// trim from the head or cancel. default: 150.
+    #[serde(default = "default_queue_size_limit")]
+    pub queue_size_limit: u32,
+}
+
+impl Default for ClientConfig {
+    fn default() -> Self {
+        Self {
+            queue_size_limit: default_queue_size_limit(),
+        }
+    }
+}
+
+fn default_queue_size_limit() -> u32 {
+    150
 }
 
 /// Fetch music configuration
@@ -736,6 +811,7 @@ pub fn create_config_with_server_info(
         force,
         server_name,
         server_port,
+        None,  // description
         None,  // image_path
         false, // ytdlp_available
         None,  // fetch_music_dir
@@ -773,6 +849,7 @@ pub fn create_config_full(
     force: bool,
     server_name: Option<String>,
     server_port: Option<u16>,
+    description: Option<String>,
     image_path: Option<String>,
     ytdlp_available: bool,
     fetch_music_dir: Option<PathBuf>,
@@ -813,6 +890,7 @@ pub fn create_config_full(
         &data,
         server_name.as_deref().unwrap_or("freqhole"),
         port,
+        description.as_deref(),
         image_path.as_deref(),
         ytdlp_available,
         &fetch_dir,
@@ -842,6 +920,7 @@ fn generate_config_template(
     data_dir: &Path,
     server_name: &str,
     server_port: u16,
+    description: Option<&str>,
     image_path: Option<&str>,
     ytdlp_available: bool,
     fetch_dir: &Path,
@@ -874,6 +953,17 @@ fn generate_config_template(
     doc["server"]["name"] = value(server_name);
     doc["server"]["version"] = value(env!("CARGO_PKG_VERSION"));
     doc["server"]["port"] = value(server_port as i64);
+
+    // set or remove description
+    if let Some(d) = description {
+        if d.is_empty() {
+            doc["server"]
+                .as_table_mut()
+                .map(|t| t.remove("description"));
+        } else {
+            doc["server"]["description"] = value(d);
+        }
+    }
 
     // set or remove image_path
     if let Some(path) = image_path {

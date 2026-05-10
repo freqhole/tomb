@@ -614,7 +614,7 @@ export function useAlbumContextMenu(
       icon: IconNames.headphones,
       onClick: () => {
         void showStationSelector(
-          { kind: "album", albumTitle: album.title },
+          { kind: "album", albumId: album.id, albumTitle: album.title },
           getCurrentRemote()?.remote_id,
         );
       },
@@ -936,7 +936,7 @@ export function useArtistContextMenu(
       icon: IconNames.headphones,
       onClick: () => {
         void showStationSelector(
-          { kind: "artist", artistName: artist.name },
+          { kind: "artist", artistId: artist.id, artistName: artist.name },
           getCurrentRemote()?.remote_id,
         );
       },
@@ -1016,7 +1016,7 @@ export function useGenreContextMenu(
       icon: IconNames.headphones,
       onClick: () => {
         void showStationSelector(
-          { kind: "genre", genreName: genre.name },
+          { kind: "genre", genreId: genre.id, genreName: genre.name },
           getCurrentRemote()?.remote_id,
         );
       },

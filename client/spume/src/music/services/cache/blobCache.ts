@@ -7,7 +7,7 @@ import { debug, warn, error as errorLog } from "../../../utils/logger";
 import type { ImageMetadata } from "../storage/types";
 import { getWaveformImage } from "../../../utils/images";
 import { getRemoteById } from "../../../app/services/remotes/remoteManager";
-import { isP2PRemote, isCharnelManagedRemoteSync } from "../storage/transportCache";
+import { isP2PRemote, isCharnelManagedRemoteSync, transportCacheVersionSignal } from "../storage/transportCache";
 import {
   addToLoadingSet,
   updateLoadingProgress,
@@ -73,11 +73,17 @@ export function isBlobCachedReactive(url: string | null | undefined): boolean {
 // tauri-managed remotes are treated as always cached (local files)
 export function isSongCachedReactive(remoteId: string | null | undefined, sha256: string | null | undefined): boolean {
   if (!remoteId || !sha256) return false;
-  
+
+  // read the transport-cache version signal so memos that ran *before*
+  // the remote's transport entry was populated re-run once it lands.
+  // without this, an underline check that observed `undefined` for a
+  // not-yet-known charnel-managed remote would stay false forever.
+  transportCacheVersionSignal();
+
   // tauri-managed remotes have local files - always "cached"
   const isCharnelManaged = isCharnelManagedRemoteSync(remoteId);
   if (isCharnelManaged) return true;
-  
+
   const key = `${remoteId}/${sha256}`;
   return cacheStatus[key] ?? false;
 }

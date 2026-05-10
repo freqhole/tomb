@@ -52,6 +52,40 @@ pub async fn process_fetch_media_job(job: &Job) -> Result<Option<Value>, JobErro
     // get database connection for metadata storage
     let pool = database::connect().await?;
 
+    // bump session.progress total to reflect the soon-to-be-spawned
+    // child ProcessFile jobs. without this the runner's progress
+    // calculation stays pegged at the original total (1 — set by
+    // the /fetch admin handler) so the ui badge never advances.
+    if let Some(session_id) = job.session_id.as_deref() {
+        let n = result.items_downloaded_files.len() as u64;
+        if n > 0 {
+            // existing total is the FetchMedia row itself (1); add
+            // the children. completed = 1 once this row finishes.
+            let _ = crate::jobs::update_session_progress(
+                session_id,
+                crate::jobs::JobProgress::new(0, 1 + n),
+                None,
+            )
+            .await;
+            // emit an immediate progress event reflecting the new
+            // total so the ui badge advances the moment the fetch
+            // download finishes — without waiting for the runner's
+            // post-completion emit (which fires after the row is
+            // marked done and deleted).
+            let directory = serde_json::from_str::<serde_json::Value>(&job.parameters)
+                .ok()
+                .and_then(|p| p.get("url").and_then(|v| v.as_str()).map(str::to_string))
+                .unwrap_or_default();
+            crate::events::emit(crate::events::GrimoireEvent::JobProgress {
+                session_id: session_id.to_string(),
+                directory,
+                songs_added: 0,
+                jobs_pending: (1 + n) as u32,
+                jobs_total: (1 + n) as u32,
+            });
+        }
+    }
+
     // create ProcessFile jobs for each downloaded file
     for downloaded_file in &result.items_downloaded_files {
         let file_metadata = &downloaded_file.metadata;

@@ -1,6 +1,6 @@
 //! Integration test infrastructure for Grimoire CLI
 //!
-//! These tests validate the CLI by invoking the `freqhole` binary as a subprocess
+//! These tests validate the CLI by invoking the `rathole` binary as a subprocess
 //! and verifying its output. This approach provides true end-to-end testing.
 //!
 //! ## Test Database
@@ -99,21 +99,21 @@ impl TestContext {
         })
     }
 
-    /// Find the freqhole binary to execute
+    /// Find the rathole binary to execute
     ///
     /// Search order:
-    /// 1. CARGO_BIN_EXE_freqhole env var (set by cargo test)
-    /// 2. Instrumented binary at target/llvm-cov-target/debug/freqhole (for coverage)
-    /// 3. Regular debug binary at target/debug/freqhole
+    /// 1. CARGO_BIN_EXE_rathole env var (set by cargo test)
+    /// 2. Instrumented binary at target/llvm-cov-target/debug/rathole (for coverage)
+    /// 3. Regular debug binary at target/debug/rathole
     fn find_binary() -> String {
-        if let Ok(path) = std::env::var("CARGO_BIN_EXE_freqhole") {
+        if let Ok(path) = std::env::var("CARGO_BIN_EXE_rathole") {
             return path;
         }
 
         // Check for instrumented binary (when running with cargo-llvm-cov)
         let mut coverage_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         coverage_path.pop();
-        coverage_path.push("target/llvm-cov-target/debug/freqhole");
+        coverage_path.push("target/llvm-cov-target/debug/rathole");
 
         if coverage_path.exists() {
             return coverage_path.to_string_lossy().to_string();
@@ -122,7 +122,7 @@ impl TestContext {
         // Fallback: regular debug binary
         let mut debug_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         debug_path.pop();
-        debug_path.push("target/debug/freqhole");
+        debug_path.push("target/debug/rathole");
         debug_path.to_string_lossy().to_string()
     }
 }

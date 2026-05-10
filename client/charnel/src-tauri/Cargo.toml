@@ -45,11 +45,32 @@ base64 = "0.22"
 # internal dependencies
 grimoire = { path = "../../../grimoire", default-features = false }
 server = { path = "../../../server", default-features = false }
+async-trait = "0.1"
 iroh = { workspace = true }
 tauri-plugin-android-media-session = { path = "plugins/tauri-plugin-android-media-session" }
 
+# desktop-only: the cli library exposes the full `rathole` subcommand
+# surface as a callable function. when the tauri binary is launched
+# from a terminal with any args (`freqhole users list`, `freqhole
+# rathole`, etc.) we hand off to `cli::run()` and exit, instead of
+# starting the GUI. mobile targets never see argv beyond the
+# launcher path so we skip this dep there.
+[target."cfg(any(target_os = \"macos\", target_os = \"linux\", target_os = \"windows\"))".dependencies.cli]
+path = "../../../cli"
+default-features = false
+features = ["rodio-playback"]
+
 [target."cfg(unix)".dependencies]
 nix = { version = "0.29", features = ["signal"] }
+
+# rust rodio playback is desktop-only — android can technically use cpal
+# but we don't want the extra build cost there yet, and the existing html
+# audio path keeps working. cargo unions features across target tables, so
+# this just adds `rodio-playback` to the base grimoire dep on desktop.
+[target."cfg(any(target_os = \"macos\", target_os = \"linux\", target_os = \"windows\"))".dependencies]
+grimoire = { path = "../../../grimoire", default-features = false, features = [
+    "rodio-playback",
+] }
 
 # android only: wry's android WebViewClient.handleRequest builds a reqwest
 # client that uses rustls 0.23, which panics ("No provider set") if no

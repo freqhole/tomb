@@ -146,13 +146,32 @@ pub async fn init_p2p_client(config_path: &Path) -> Result<(), String> {
     // listener; this lets us toggle radio on/off at runtime without a
     // router rebuild (iroh's Router has no runtime add/remove protocol
     // API as of 0.98).
-    tracing::info!("starting router for blob serving + radio");
+    //
+    // PLAYER_ALPN is registered on desktop targets too. the inner
+    // handler enforces the auth gate (federation.remote_player.enabled
+    // + admin role + optional allowlist), so registering it here is a
+    // no-op when the operator hasn't opted in. this matches RADIO_ALPN's
+    // "register-once, gate-at-connect-time" pattern and keeps us off
+    // iroh-Router's missing runtime add/remove API.
+    #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
+    let player_protocol = {
+        let controller = crate::player_commands::get_or_init_for_alpn().await;
+        Some(grimoire::player::PlayerProtocol::new(controller))
+    };
+
+    tracing::info!("starting router for blob serving + radio + player");
     endpoint
         .start_router_with(|builder| {
-            builder.accept(
+            let builder = builder.accept(
                 grimoire::radio::RADIO_ALPN,
                 grimoire::radio::RadioProtocol::new(),
-            )
+            );
+            #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
+            let builder = match player_protocol {
+                Some(proto) => builder.accept(grimoire::player::PLAYER_ALPN, proto),
+                None => builder,
+            };
+            builder
         })
         .await
         .map_err(|e| format!("failed to start P2P router: {}", e))?;

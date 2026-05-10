@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, user-scalable=no"
+    />
+    <title>rathole</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        width: 100vw;
+        height: 100vh;
+        overflow: hidden;
+        background-color: #121212;
+      }
+      body {
+        display: flex;
+        flex-direction: column;
+        justify-content: stretch;
+        align-items: stretch;
+      }
+      /* ratzilla's WebGl2Backend appends a <canvas>; make it fill the
+         viewport so its per-frame check_canvas_resize() picks up the
+         actual window dimensions on every browser resize. */
+      canvas {
+        display: block;
+        width: 100vw !important;
+        height: 100vh !important;
+        outline: none;
+      }
+    </style>
+  </head>
+  <body>
+    <script type="module">
+      import init, { boot } from "./pkg/rathole.js";
+      await init();
+      boot();
+    </script>
+  </body>
+</html>
