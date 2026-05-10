@@ -19,10 +19,10 @@ stuff that's here:
    - `npm run tauri dev` to get started
    - see also: [/client/charnel/README.md](/client/charnel/README.md)
 
-4. `/cli/` a rust cli `cargo run --bin freqhole help` that:
-   - does api "plumbing" commands
-   - bundles the server/ package and can start the http server (`freqhole serve`), P2P endpoint (`freqhole p2p`), or both
-   - a bunch of other useful custom commands (like `users generate-invites`, etc.)
+4. `/cli/` + `/client/rathole/` a rust cli `cargo run -p cli --bin rathole` that:
+   - uses [ratatui](https://ratatui.rs/) for fabulous terminal user interfacez! see: [/client/rathole/](/client/rathole/) see also: [spume.freqhole.net/rathole](https://spume.freqhole.net/rathole)
+   - does api "plumbing" commands via args `cargo run -p cli --bin rathole help`; wrapz most of the [/grimoire/](/grimoire/) api.
+   - bundles the server/ package and can start the http server (`freqhole http`), P2P endpoint (`freqhole p2p`), or both (`freqhole serve`).
    - see also: [/docs/grimoire-cli-testing.md](/docs/grimoire-cli-testing.md)
 
 5. `/server/` a rust server: `cargo run --bin server` that does http stuff:
