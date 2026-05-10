@@ -2,7 +2,7 @@
   "name": "rathole",
   "type": "module",
   "description": "ratatui-based client for freqhole (terminal + browser)",
-  "version": "0.1.22",
+  "version": "0.1.23",
   "files": [
     "rathole_bg.wasm",
     "rathole.js"

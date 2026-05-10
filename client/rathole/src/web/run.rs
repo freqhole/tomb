@@ -1463,6 +1463,10 @@ fn on_action(app: &mut App, action: AppAction, action_tx: &mpsc::UnboundedSender
         | AppAction::JobSessionComplete { .. }
         | AppAction::KnockCreated { .. }
         | AppAction::KnockProcessed { .. } => {}
+        // serve subprocess control is native-only (rathole spawns a
+        // child `freqhole serve`). the web shell has no subprocess
+        // model; arms exist solely for exhaustiveness.
+        AppAction::ServeStart { .. } | AppAction::ServeStop => {}
     }
 }
 

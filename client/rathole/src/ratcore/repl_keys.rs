@@ -485,6 +485,7 @@ pub fn apply_navigation(
             state.ephemeral.focus = Focus::ResultPanel;
             ReplOutcome::Done
         }
+        #[cfg(not(target_arch = "wasm32"))]
         SlashAction::Info => {
             // synthesize a result-panel snapshot of "everything you
             // might want to know about this rathole instance":
@@ -698,6 +699,7 @@ pub fn apply_navigation(
             state.ephemeral.focus = Focus::ResultPanel;
             ReplOutcome::Done
         }
+        #[cfg(not(target_arch = "wasm32"))]
         SlashAction::CopyInvite => {
             // copy the spume invite link to the system clipboard.
             // requires a node id (i.e. the local p2p keypair must
@@ -728,6 +730,7 @@ pub fn apply_navigation(
             leave(state);
             ReplOutcome::Done
         }
+        #[cfg(not(target_arch = "wasm32"))]
         SlashAction::Logs => {
             // dump the most recent log lines into the result
             // panel. requires that the rathole bin (or `freqhole
@@ -780,6 +783,7 @@ pub fn apply_navigation(
             state.ephemeral.focus = Focus::ResultPanel;
             ReplOutcome::Done
         }
+        #[cfg(not(target_arch = "wasm32"))]
         SlashAction::OpenInvite => {
             // open the spume invite link in the system default
             // browser. same node-id precondition as /copy-invite.
@@ -805,6 +809,21 @@ pub fn apply_navigation(
                     }
                 }
             }
+            leave(state);
+            ReplOutcome::Done
+        }
+        // wasm fallback for the native-only commands above. these all
+        // depend on grimoire/arboard/open/log_buffer which aren't
+        // available in the browser shell — surface a friendly status
+        // line instead of failing to compile.
+        #[cfg(target_arch = "wasm32")]
+        SlashAction::Info
+        | SlashAction::CopyInvite
+        | SlashAction::OpenInvite
+        | SlashAction::Logs => {
+            state.ephemeral.repl.clear_input();
+            state.ephemeral.repl.status =
+                Some(ReplStatus::err("not available in the web shell"));
             leave(state);
             ReplOutcome::Done
         }
