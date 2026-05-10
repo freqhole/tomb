@@ -49,6 +49,17 @@ async-trait = "0.1"
 iroh = { workspace = true }
 tauri-plugin-android-media-session = { path = "plugins/tauri-plugin-android-media-session" }
 
+# desktop-only: the cli library exposes the full `rathole` subcommand
+# surface as a callable function. when the tauri binary is launched
+# from a terminal with any args (`freqhole users list`, `freqhole
+# rathole`, etc.) we hand off to `cli::run()` and exit, instead of
+# starting the GUI. mobile targets never see argv beyond the
+# launcher path so we skip this dep there.
+[target."cfg(any(target_os = \"macos\", target_os = \"linux\", target_os = \"windows\"))".dependencies.cli]
+path = "../../../cli"
+default-features = false
+features = ["rodio-playback"]
+
 [target."cfg(unix)".dependencies]
 nix = { version = "0.29", features = ["signal"] }
 

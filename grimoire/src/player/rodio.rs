@@ -190,9 +190,42 @@ fn handle_command(
             for p in paths {
                 match load_source(&p) {
                     Ok((src, dur)) => {
-                        loaded_totals.push(dur);
-                        loaded_paths.push(p);
-                        new_sink.append(src);
+                        // Sink::append decodes lazily and can panic on
+                        // malformed inputs that slipped past the
+                        // load_source decoder init. wrap in
+                        // catch_unwind so a single bad file doesn't
+                        // tear down the audio thread.
+                        let path_for_panic = p.clone();
+                        let sink_ref = &new_sink;
+                        let appended =
+                            std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
+                                sink_ref.append(src);
+                            }));
+                        match appended {
+                            Ok(()) => {
+                                loaded_totals.push(dur);
+                                loaded_paths.push(p);
+                            }
+                            Err(panic) => {
+                                let msg = panic_msg(&panic);
+                                warn!(
+                                    target: "player",
+                                    path = %path_for_panic,
+                                    panic = %msg,
+                                    "[player] rodio Sink::append panicked; skipping track"
+                                );
+                                emit(
+                                    events,
+                                    PlayerEvent::Error {
+                                        detail: ErrorDetail::new(
+                                            "audio_append_panic",
+                                            "Audio Append Panic",
+                                            format!("{path_for_panic}: {msg}"),
+                                        ),
+                                    },
+                                );
+                            }
+                        }
                     }
                     Err(detail) => {
                         // skip this track but report it; continue with the rest
@@ -234,6 +267,74 @@ fn handle_command(
                 );
             }
             emit_state(events, last_state, PlayerState::Playing);
+        }
+        PlayerCommand::Enqueue { paths } => {
+            // if no sink exists yet, treat enqueue as load.
+            if sink.is_none() {
+                handle_command(
+                    PlayerCommand::Load { paths },
+                    handle,
+                    events,
+                    sink,
+                    queue,
+                    current_index,
+                    total_per_track,
+                    volume,
+                    last_state,
+                );
+                return;
+            }
+            // sink is live; append to it without disturbing playback.
+            // we still emit per-track errors for files that fail
+            // decoder init or panic during append.
+            let Some(active_sink) = sink.as_ref() else {
+                return;
+            };
+            for p in paths {
+                match load_source(&p) {
+                    Ok((src, dur)) => {
+                        let path_for_panic = p.clone();
+                        let appended =
+                            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                                active_sink.append(src);
+                            }));
+                        match appended {
+                            Ok(()) => {
+                                queue.push(p.clone());
+                                total_per_track.push(dur);
+                                info!(
+                                    target: "player",
+                                    path = %p,
+                                    queue_len = queue.len(),
+                                    "[player] rodio sink Enqueue: appended track"
+                                );
+                            }
+                            Err(panic) => {
+                                let msg = panic_msg(&panic);
+                                warn!(
+                                    target: "player",
+                                    path = %path_for_panic,
+                                    panic = %msg,
+                                    "[player] rodio Sink::append panicked during enqueue; skipping track"
+                                );
+                                emit(
+                                    events,
+                                    PlayerEvent::Error {
+                                        detail: ErrorDetail::new(
+                                            "audio_append_panic",
+                                            "Audio Append Panic",
+                                            format!("{path_for_panic}: {msg}"),
+                                        ),
+                                    },
+                                );
+                            }
+                        }
+                    }
+                    Err(detail) => {
+                        emit(events, PlayerEvent::Error { detail });
+                    }
+                }
+            }
         }
         PlayerCommand::Play => {
             if let Some(s) = sink.as_ref() {
@@ -366,8 +467,36 @@ fn advance(
     for p in &queue[next_idx..] {
         match load_source(p) {
             Ok((src, dur)) => {
-                new_totals.push(dur);
-                new_sink.append(src);
+                let path_for_panic = p.clone();
+                let sink_ref = &new_sink;
+                let appended = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
+                    sink_ref.append(src);
+                }));
+                match appended {
+                    Ok(()) => new_totals.push(dur),
+                    Err(panic) => {
+                        let msg = panic_msg(&panic);
+                        warn!(
+                            target: "player",
+                            path = %path_for_panic,
+                            panic = %msg,
+                            "[player] rodio Sink::append panicked during advance; skipping track"
+                        );
+                        emit(
+                            events,
+                            PlayerEvent::Error {
+                                detail: ErrorDetail::new(
+                                    "audio_append_panic",
+                                    "Audio Append Panic",
+                                    format!("{path_for_panic}: {msg}"),
+                                ),
+                            },
+                        );
+                        // push a placeholder so the indices stay
+                        // aligned with `queue`.
+                        new_totals.push(Duration::ZERO);
+                    }
+                }
             }
             Err(detail) => emit(events, PlayerEvent::Error { detail }),
         }
@@ -407,9 +536,58 @@ fn advance(
 
 /// open a file path and decode it into a rodio source. returns the
 /// decoded source plus its total duration (zero if unknown).
+///
+/// pre-validates the file (exists, non-empty, plausible audio
+/// extension) before invoking the decoder, and wraps the
+/// `Decoder::new` call in `catch_unwind` because rodio's symphonia
+/// adapter (rodio 0.20.x) can panic on malformed/seek-unsupported
+/// streams during initialization rather than returning an Err. we
+/// convert any such panic into an `ErrorDetail` so the supervisor
+/// loop survives and can advance to the next queued track.
 fn load_source(
     path: &str,
 ) -> Result<(Decoder<std::io::BufReader<std::fs::File>>, Duration), ErrorDetail> {
+    let p = std::path::Path::new(path);
+    if !p.exists() {
+        return Err(ErrorDetail::new(
+            "audio_file_missing",
+            "Audio File Missing",
+            format!("{path}: file does not exist"),
+        ));
+    }
+    let meta = std::fs::metadata(p).map_err(|e| {
+        ErrorDetail::new(
+            "audio_file_stat_failed",
+            "Audio File Stat Failed",
+            format!("{path}: {e}"),
+        )
+    })?;
+    if meta.len() == 0 {
+        return Err(ErrorDetail::new(
+            "audio_file_empty",
+            "Audio File Empty",
+            format!("{path}: zero-byte file"),
+        ));
+    }
+    // soft extension check: warn-only for unusual extensions, but
+    // still attempt to decode (rodio/symphonia auto-detects most).
+    let ext_ok = p
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| {
+            matches!(
+                e.to_ascii_lowercase().as_str(),
+                "mp3" | "m4a" | "mp4" | "aac" | "flac" | "ogg" | "oga" | "opus" | "wav" | "wave"
+            )
+        })
+        .unwrap_or(false);
+    if !ext_ok {
+        warn!(
+            target: "player",
+            path = %path,
+            "[player] unusual audio extension; attempting decode anyway"
+        );
+    }
     let file = std::fs::File::open(path).map_err(|e| {
         ErrorDetail::new(
             "audio_file_open_failed",
@@ -417,15 +595,55 @@ fn load_source(
             format!("{path}: {e}"),
         )
     })?;
-    let src = Decoder::new(std::io::BufReader::new(file)).map_err(|e| {
-        ErrorDetail::new(
-            "audio_decode_failed",
-            "Audio Decode Failed",
-            format!("{path}: {e}"),
-        )
-    })?;
+    let reader = std::io::BufReader::new(file);
+    // wrap Decoder::new in catch_unwind: rodio's symphonia adapter
+    // can panic at decoder/symphonia.rs:45 ("Seek errors should not
+    // occur during initialization") on certain malformed inputs.
+    // AssertUnwindSafe is needed because BufReader<File> isn't
+    // declared UnwindSafe, but it's safe here since we drop it on
+    // panic and don't observe broken state.
+    let result =
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || Decoder::new(reader)));
+    let src = match result {
+        Ok(Ok(src)) => src,
+        Ok(Err(e)) => {
+            return Err(ErrorDetail::new(
+                "audio_decode_failed",
+                "Audio Decode Failed",
+                format!("{path}: {e}"),
+            ));
+        }
+        Err(panic) => {
+            let msg = panic_msg(&panic);
+            warn!(
+                target: "player",
+                path = %path,
+                panic = %msg,
+                "[player] rodio decoder panicked during init; treating as decode error"
+            );
+            return Err(ErrorDetail::new(
+                "audio_decoder_panic",
+                "Audio Decoder Panic",
+                format!("{path}: {msg}"),
+            ));
+        }
+    };
     let dur = src.total_duration().unwrap_or(Duration::ZERO);
     Ok((src, dur))
+}
+
+/// extract a best-effort string message from a `catch_unwind`
+/// payload. rodio/symphonia panic with `&'static str` payloads in
+/// most cases; format!() panics produce `String`. anything else
+/// gets a generic placeholder so callers don't have to.
+fn panic_msg(panic: &Box<dyn std::any::Any + Send>) -> String {
+    if let Some(s) = panic.downcast_ref::<&'static str>() {
+        (*s).to_string()
+    } else if let Some(s) = panic.downcast_ref::<String>() {
+        s.clone()
+    } else {
+        "decoder panicked".to_string()
+    }
 }
 
 /// emit an event; quietly drop if no subscribers.

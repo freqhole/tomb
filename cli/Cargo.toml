@@ -4,8 +4,12 @@ version.workspace = true
 edition = "2021"
 
 [[bin]]
-name = "freqhole"
+name = "rathole"
 path = "src/main.rs"
+
+[lib]
+name = "cli"
+path = "src/lib.rs"
 
 [features]
 default = ["server/webauthn", "rodio-playback"]
@@ -20,6 +24,7 @@ rodio-playback = ["grimoire/rodio-playback"]
 [dependencies]
 grimoire = { path = "../grimoire", default-features = false }
 server = { path = "../server", default-features = false }
+rathole = { path = "../client/rathole" }
 clap = { version = "4", features = ["derive"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

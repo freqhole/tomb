@@ -811,6 +811,7 @@ pub fn create_config_with_server_info(
         force,
         server_name,
         server_port,
+        None,  // description
         None,  // image_path
         false, // ytdlp_available
         None,  // fetch_music_dir
@@ -848,6 +849,7 @@ pub fn create_config_full(
     force: bool,
     server_name: Option<String>,
     server_port: Option<u16>,
+    description: Option<String>,
     image_path: Option<String>,
     ytdlp_available: bool,
     fetch_music_dir: Option<PathBuf>,
@@ -888,6 +890,7 @@ pub fn create_config_full(
         &data,
         server_name.as_deref().unwrap_or("freqhole"),
         port,
+        description.as_deref(),
         image_path.as_deref(),
         ytdlp_available,
         &fetch_dir,
@@ -917,6 +920,7 @@ fn generate_config_template(
     data_dir: &Path,
     server_name: &str,
     server_port: u16,
+    description: Option<&str>,
     image_path: Option<&str>,
     ytdlp_available: bool,
     fetch_dir: &Path,
@@ -949,6 +953,17 @@ fn generate_config_template(
     doc["server"]["name"] = value(server_name);
     doc["server"]["version"] = value(env!("CARGO_PKG_VERSION"));
     doc["server"]["port"] = value(server_port as i64);
+
+    // set or remove description
+    if let Some(d) = description {
+        if d.is_empty() {
+            doc["server"]
+                .as_table_mut()
+                .map(|t| t.remove("description"));
+        } else {
+            doc["server"]["description"] = value(d);
+        }
+    }
 
     // set or remove image_path
     if let Some(path) = image_path {

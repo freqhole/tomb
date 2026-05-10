@@ -56,6 +56,12 @@ export function QrScanner(props: QrScannerProps) {
       setError(null);
       scanner = new Html5Qrcode("qr-reader", {
         formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE],
+        // ios safari 17+ ships a native BarcodeDetector that's
+        // dramatically more reliable than the wasm fallback.
+        // html5-qrcode only uses it when we opt in here.
+        experimentalFeatures: {
+          useBarCodeDetectorIfSupported: true,
+        },
         verbose: false,
       });
 
@@ -63,7 +69,19 @@ export function QrScanner(props: QrScannerProps) {
         { facingMode: "environment" },
         {
           fps: 10,
-          qrbox: { width: 250, height: 250 },
+          // size the scan region as a fraction of the live
+          // viewfinder rather than a fixed 250x250 box. on
+          // iphone the rear camera streams at >=1280x720, so a
+          // hard-coded 250px box only covers ~20% of the frame
+          // and most hand-held qr codes never land in it. a
+          // responsive box (~70% of the shorter side, capped at
+          // 320) consistently catches the spume invite qrs.
+          qrbox: (viewW: number, viewH: number) => {
+            const min = Math.min(viewW, viewH);
+            const size = Math.max(180, Math.min(320, Math.floor(min * 0.7)));
+            return { width: size, height: size };
+          },
+          aspectRatio: 1.0,
         },
         (decodedText) => {
           debug("QrScanner", `scanned: ${decodedText.slice(0, 50)}...`);

@@ -69,7 +69,7 @@ import {
   type BuildSyncAlbumOptions,
   type BuildSyncPlaylistOptions,
 } from "./buildSyncRequests";
-import { uploadImagesToDest } from "./uploadImagesToDest";
+import { uploadImagesToDest, createImageBlobCache } from "./uploadImagesToDest";
 
 const TAG = "sendToRemote";
 
@@ -78,6 +78,7 @@ export type SendPhase =
   | "syncing-album"
   | "syncing-songs"
   | "syncing-playlist"
+  | "verifying"
   | "done"
   | "failed";
 
@@ -317,6 +318,11 @@ export async function sendToRemote(
   }
   info(TAG, `${lp} eligible songs: ${eligibleSongs.length}`);
 
+  // shared per-send cache: source-image bytes are fetched once and reused
+  // across album / song / playlist uploads. dramatically cuts redundant
+  // source-bandwidth when embedded artwork is repeated across N tracks.
+  const imageCache = createImageBlobCache();
+
   // optional pre-check: ask dest which blobs it already has.
   let alreadyPresent: Set<string> = new Set();
   if (skipExisting && eligibleSongs.length > 0) {
@@ -412,10 +418,23 @@ export async function sendToRemote(
         entityId: destAlbumId,
         images: payload.images,
         logPrefix: lp,
+        imageCache,
       }).catch((e) => {
         warn(TAG, `${lp} album image upload threw: ${String(e)}`);
         return { attempted: 0, uploaded: 0, skipped: 0, failed: 0 };
       });
+    }
+  }
+
+  // collect album-image source blob_ids so per-song image uploads can skip
+  // them: embedded artwork extracted from audio tags is normally tagged on
+  // BOTH the album and every song that came from the album, leading to N+1
+  // duplicate uploads of the same JPEG. one upload at the album level is
+  // canonical; per-song associations of the same blob are noise.
+  const albumImageBlobIds = new Set<string>();
+  if (payload.kind === "album") {
+    for (const img of payload.images ?? []) {
+      if (img.remote_blob_id) albumImageBlobIds.add(img.remote_blob_id);
     }
   }
 
@@ -428,23 +447,41 @@ export async function sendToRemote(
     `${lp} song phase: ${eligibleSongs.length} song(s), concurrency=${concurrency}`,
   );
 
+  // when the payload is an album, propagate the album_type so the server's
+  // per-song find_or_create_album_for_artist call doesn't auto-flip the
+  // existing album_type back to "album" (clobbering a compilation set by
+  // sync_album).
+  const songIsCompilation =
+    payload.kind === "album" && payload.albumType === "compilation";
+
+  // for album / playlist payloads we ALWAYS call sync_song_by_blake3 even
+  // when the dest already has the blob: the server's blake3 shortcut is
+  // cheap (no blob pull), and it now reconciles artist/album/genre
+  // junctions. skipping these calls would leave previously-imported songs
+  // orphaned from the freshly-created dest album (the classic "missing
+  // last song" symptom on partial-album sync).
+  const reconcileEvenIfPresent =
+    payload.kind === "album" || payload.kind === "playlist";
+
   await runWithConcurrency(eligibleSongs, concurrency, async (song) => {
     const blake3 = song.blake3 as string;
     const shortHash = blake3.slice(0, 16);
 
-    if (alreadyPresent.has(blake3)) {
+    if (alreadyPresent.has(blake3) && !reconcileEvenIfPresent) {
       progress.syncedSongs += 1;
       progress.syncedBlake3s.push(blake3);
       info(TAG, `${lp} song "${song.title}" (${shortHash}) already on dest, skipping pull`);
       emit();
       return;
     }
+    const blobAlready = alreadyPresent.has(blake3);
 
     const req: SyncSongByBlake3Request | null = buildSyncSongByBlake3Request({
       remoteName,
       sourceRemoteId,
       sourceNodeId,
       song,
+      isCompilation: songIsCompilation,
     });
     if (!req) {
       progress.skippedSongs += 1;
@@ -461,7 +498,7 @@ export async function sendToRemote(
     try {
       info(
         TAG,
-        `${lp} POST /api/sync/song-by-blake3 "${song.title}" blake3=${blake3} sha256=${(song.sha256 as string).slice(0, 16)} size=${song.file_size ?? "?"} source_node_id=${sourceNodeId} source_remote=${sourceRemoteId}`,
+        `${lp} POST /api/sync/song-by-blake3 "${song.title}" blake3=${blake3} sha256=${(song.sha256 as string).slice(0, 16)} size=${song.file_size ?? "?"} source_node_id=${sourceNodeId} source_remote=${sourceRemoteId}${blobAlready ? " (blob already on dest, reconciling links)" : ""}`,
       );
       const resp = await destTransport.request(
         "POST",
@@ -508,6 +545,8 @@ export async function sendToRemote(
     }
 
     // upload song images now that we have the dest song id.
+    // skip any song image whose source blob_id is already covered by the
+    // album cover (avoids N copies of embedded artwork on the dest).
     if (destSongId && song.images && song.images.length > 0) {
       await uploadImagesToDest({
         sourceTransport,
@@ -516,6 +555,8 @@ export async function sendToRemote(
         entityId: destSongId,
         images: song.images,
         logPrefix: `${lp} "${song.title}"`,
+        imageCache,
+        skipBlobIds: albumImageBlobIds,
       }).catch((e) => {
         warn(TAG, `${lp} song image upload threw for "${song.title}": ${String(e)}`);
         return { attempted: 0, uploaded: 0, skipped: 0, failed: 0 };
@@ -594,10 +635,125 @@ export async function sendToRemote(
         entityId: destPlaylistId,
         images: payload.images,
         logPrefix: lp,
+        imageCache,
       }).catch((e) => {
         warn(TAG, `${lp} playlist image upload threw: ${String(e)}`);
         return { attempted: 0, uploaded: 0, skipped: 0, failed: 0 };
       });
+    }
+  }
+
+  // ---- VERIFY pass (single retry, never loops) ----
+  //
+  // after the song-phase loop completes, ask dest one more time which
+  // blake3s actually landed. anything in `eligibleSongs` that's still
+  // missing gets ONE more sync_song_by_blake3 attempt (sequentially, low
+  // concurrency to avoid thrash). this catches songs that were lost to
+  // transient network errors or partial-failure races without requiring
+  // the user to spot the gap and hit "retry failed".
+  //
+  // explicit single-pass: we never re-verify after retries, so an
+  // infinite loop is impossible by construction.
+  if (!retrySet && eligibleSongs.length > 0) {
+    progress.phase = "verifying";
+    emit();
+    try {
+      const allBlake3s = eligibleSongs.map((s) => s.blake3 as string);
+      debug(TAG, `${lp} verify: POST /api/blobz/has (${allBlake3s.length} hashes)`);
+      const resp = await destTransport.request(
+        "POST",
+        "/api/blobz/has",
+        JSON.stringify({ blake3s: allBlake3s }),
+      );
+      if (resp.status >= 200 && resp.status < 300) {
+        const rawJson = JSON.parse(resp.body) as { data?: unknown };
+        const inner = rawJson?.data ?? rawJson;
+        const parsed = HasBlobsResponseSchema.safeParse(inner);
+        if (parsed.success) {
+          const present = new Set(parsed.data.blake3s_present);
+          const missing = eligibleSongs.filter(
+            (s) => !present.has(s.blake3 as string),
+          );
+          if (missing.length === 0) {
+            info(TAG, `${lp} verify: all ${allBlake3s.length} song(s) present on dest`);
+          } else {
+            warn(
+              TAG,
+              `${lp} verify: ${missing.length}/${allBlake3s.length} song(s) missing on dest, attempting one resync pass`,
+            );
+            // sequential, no concurrency — these are stragglers, prefer
+            // gentle pressure over speed.
+            for (const song of missing) {
+              const blake3 = song.blake3 as string;
+              const shortHash = blake3.slice(0, 16);
+              const req: SyncSongByBlake3Request | null =
+                buildSyncSongByBlake3Request({
+                  remoteName,
+                  sourceRemoteId,
+                  sourceNodeId,
+                  song,
+                  isCompilation: songIsCompilation,
+                });
+              if (!req) continue;
+              try {
+                info(
+                  TAG,
+                  `${lp} verify: resync "${song.title}" (${shortHash})`,
+                );
+                const r = await destTransport.request(
+                  "POST",
+                  "/api/sync/song-by-blake3",
+                  JSON.stringify(req),
+                );
+                const data = unwrapEnvelope<SyncSongByBlake3Response>(
+                  "sync_song_by_blake3 (verify)",
+                  r.body,
+                  r.status,
+                  (v) => SyncSongByBlake3ResponseSchema.safeParse(v),
+                );
+                // recover: drop from failed counters / lists if previously
+                // recorded as failed; bump synced if not already counted.
+                if (!progress.syncedBlake3s.includes(blake3)) {
+                  progress.syncedSongs += 1;
+                  progress.syncedBlake3s.push(blake3);
+                }
+                const failedIdx = progress.failedBlake3s.indexOf(blake3);
+                if (failedIdx >= 0) {
+                  progress.failedBlake3s.splice(failedIdx, 1);
+                  progress.failedSongs = Math.max(0, progress.failedSongs - 1);
+                }
+                info(
+                  TAG,
+                  `${lp} verify: recovered "${song.title}" song_id=${data.song_id} existing=${data.existing}`,
+                );
+                emit();
+              } catch (e) {
+                warn(
+                  TAG,
+                  `${lp} verify: resync failed for "${song.title}" (${shortHash}): ${String(e)}`,
+                );
+                if (!progress.failedBlake3s.includes(blake3)) {
+                  progress.failedBlake3s.push(blake3);
+                  progress.failedSongs += 1;
+                }
+                progress.errors.unshift(
+                  `verify resync failed for ${song.title}: ${String(e)}`,
+                );
+                emit();
+              }
+            }
+          }
+        } else {
+          warn(
+            TAG,
+            `${lp} verify: /api/blobz/has returned invalid shape: ${parsed.error.message}`,
+          );
+        }
+      } else {
+        warn(TAG, `${lp} verify: /api/blobz/has -> http ${resp.status}`);
+      }
+    } catch (e) {
+      warn(TAG, `${lp} verify pass failed: ${String(e)}`);
     }
   }
 

@@ -816,10 +816,14 @@ pub async fn find_or_create_album_for_artist(
     .await?;
 
     if let Some(row) = existing {
-        // check if we need to update album_type
+        // album_type auto-update is intentionally narrow: we only "upgrade"
+        // a generic "album" to a more-specific value (e.g. "compilation").
+        // we never downgrade or sideways-update -- per-song imports should
+        // not silently reclassify an album that an authoritative caller
+        // (sync_album, manual edit) already set. callers wanting a forced
+        // change should use `update_album` directly.
         if let Some(ref new_album_type) = req.album_type {
-            if row.album_type != *new_album_type {
-                // update the album_type
+            if row.album_type == "album" && new_album_type != "album" {
                 let _ = sqlx::query!(
                     "UPDATE albumz SET album_type = ?, updated_at = unixepoch() WHERE id = ?",
                     new_album_type,

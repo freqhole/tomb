@@ -27,11 +27,42 @@ export interface UploadImagesResult {
 }
 
 /**
+ * shared cache for source-image bytes within a single send run.
+ *
+ * keyed by source `remote_blob_id`, so the same physical image (e.g. an
+ * embedded album cover that surfaces both as `album.images` and as
+ * `song.images` for every track) is fetched from the source ONCE per send,
+ * even when uploaded to multiple dest entities.
+ *
+ * callers create one cache per `sendToRemote` invocation and pass it into
+ * each `uploadImagesToDest` call.
+ */
+export interface ImageBlobCache {
+  get(blobId: string): { bytes: Uint8Array; mime: string } | undefined;
+  set(blobId: string, value: { bytes: Uint8Array; mime: string }): void;
+}
+
+export function createImageBlobCache(): ImageBlobCache {
+  const m = new Map<string, { bytes: Uint8Array; mime: string }>();
+  return {
+    get: (id) => m.get(id),
+    set: (id, v) => {
+      m.set(id, v);
+    },
+  };
+}
+
+/**
  * fetch each image from the source and upload to dest as a normal
  * /api/upload/image call with associate_with pointing at `entityId`.
  *
  * - images without `remote_blob_id` are skipped (no source-side id to
  *   pull from).
+ * - images whose `remote_blob_id` is in `skipBlobIds` are skipped (used
+ *   to drop song-cover entries that are byte-identical to the album
+ *   cover, avoiding duplicate associations on the dest).
+ * - bytes are pulled through `imageCache` so the same source blob is
+ *   fetched at most once per send run.
  * - the first image (or the one flagged `is_primary` on the source) is
  *   uploaded with `is_primary: true`.
  * - returns aggregated counts for logging.
@@ -43,8 +74,19 @@ export async function uploadImagesToDest(opts: {
   entityId: string;
   images: ImageMetadata[] | undefined;
   logPrefix: string;
+  imageCache?: ImageBlobCache;
+  skipBlobIds?: Set<string>;
 }): Promise<UploadImagesResult> {
-  const { sourceTransport, destTransport, entityType, entityId, images, logPrefix } = opts;
+  const {
+    sourceTransport,
+    destTransport,
+    entityType,
+    entityId,
+    images,
+    logPrefix,
+    imageCache,
+    skipBlobIds,
+  } = opts;
   const result: UploadImagesResult = {
     attempted: 0,
     uploaded: 0,
@@ -73,33 +115,52 @@ export async function uploadImagesToDest(opts: {
       );
       continue;
     }
-    result.attempted += 1;
-
-    // 1. pull bytes from source via its transport.
-    let bytes: Uint8Array;
-    let mimeType: string;
-    try {
+    if (skipBlobIds?.has(blobId)) {
+      result.skipped += 1;
       debug(
         "uploadImagesToDest",
-        `${logPrefix} [img ${idx}] fetching source blob ${blobId}`,
-      );
-      const blob = await sourceTransport.fetchBlob(blobId);
-      // copy into a fresh ArrayBuffer-backed view so Blob/FormData is happy
-      // across all worker/threadpool combinations.
-      bytes = new Uint8Array(blob.data.byteLength);
-      bytes.set(blob.data);
-      mimeType = blob.contentType || "image/jpeg";
-      debug(
-        "uploadImagesToDest",
-        `${logPrefix} [img ${idx}] got ${bytes.byteLength}b (${mimeType})`,
-      );
-    } catch (e) {
-      result.failed += 1;
-      warn(
-        "uploadImagesToDest",
-        `${logPrefix} [img ${idx}] source fetchBlob failed for ${blobId}: ${String(e)}`,
+        `${logPrefix} [img ${idx}] skipped — blob ${blobId} already covered by a higher-level entity (e.g. album cover)`,
       );
       continue;
+    }
+    result.attempted += 1;
+
+    // 1. pull bytes from source via its transport (with per-send cache).
+    let bytes: Uint8Array;
+    let mimeType: string;
+    const cached = imageCache?.get(blobId);
+    if (cached) {
+      bytes = cached.bytes;
+      mimeType = cached.mime;
+      debug(
+        "uploadImagesToDest",
+        `${logPrefix} [img ${idx}] cache hit for source blob ${blobId} (${bytes.byteLength}b)`,
+      );
+    } else {
+      try {
+        debug(
+          "uploadImagesToDest",
+          `${logPrefix} [img ${idx}] fetching source blob ${blobId}`,
+        );
+        const blob = await sourceTransport.fetchBlob(blobId);
+        // copy into a fresh ArrayBuffer-backed view so Blob/FormData is happy
+        // across all worker/threadpool combinations.
+        bytes = new Uint8Array(blob.data.byteLength);
+        bytes.set(blob.data);
+        mimeType = blob.contentType || "image/jpeg";
+        imageCache?.set(blobId, { bytes, mime: mimeType });
+        debug(
+          "uploadImagesToDest",
+          `${logPrefix} [img ${idx}] got ${bytes.byteLength}b (${mimeType})`,
+        );
+      } catch (e) {
+        result.failed += 1;
+        warn(
+          "uploadImagesToDest",
+          `${logPrefix} [img ${idx}] source fetchBlob failed for ${blobId}: ${String(e)}`,
+        );
+        continue;
+      }
     }
 
     // 2. upload to dest via /api/upload/image (multipart).

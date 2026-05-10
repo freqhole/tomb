@@ -49,6 +49,14 @@ RUN rustup target add $TARGET_ARCH
 ENV CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc
 ENV CARGO_TARGET_ARMV7_UNKNOWN_LINUX_GNUEABIHF_LINKER=arm-linux-gnueabihf-gcc
 
+# allow pkg-config to find the multiarch libs we installed above
+# (`libssl-dev:armhf`, `libasound2-dev:armhf`, etc.). without this, alsa-sys
+# and openssl-sys panic with "pkg-config has not been configured to support
+# cross-compilation".
+ENV PKG_CONFIG_ALLOW_CROSS=1
+ENV PKG_CONFIG_PATH_aarch64_unknown_linux_gnu=/usr/lib/aarch64-linux-gnu/pkgconfig
+ENV PKG_CONFIG_PATH_armv7_unknown_linux_gnueabihf=/usr/lib/arm-linux-gnueabihf/pkgconfig
+
 WORKDIR /app
 COPY . .
 

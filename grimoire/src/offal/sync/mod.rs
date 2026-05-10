@@ -270,15 +270,32 @@ pub async fn sync_song_by_blake3(caller: &Caller, body: JsonValue) -> GrimoireRe
         req.filename,
     );
 
-    // 2. shortcut: song already linked to this blake3 -> idempotent success
+    // 2. shortcut: song already linked to this blake3 -> idempotent success.
+    //
+    //    before returning we reconcile artist/album/genre membership using the
+    //    request's metadata. without this, a partial-album sync (where some
+    //    songs were already on the dest from a prior run, a manual upload, or
+    //    a re-tag of the source album) would leave those songs orphaned from
+    //    the freshly-created dest album row, producing the classic "missing
+    //    last song" symptom on send-to-remote.
     if let Ok(Some(existing_song_id)) =
         crate::music::entities::songs::get_song_by_blake3(&req.blake3).await
     {
         tracing::info!(
-            "sync_song_by_blake3: song already exists for blake3 {} -> {}",
-            &req.blake3[..16],
+            "sync_song_by_blake3: song already exists for blake3 {} -> {}; reconciling links",
+            &req.blake3[..16.min(req.blake3.len())],
             existing_song_id
         );
+
+        if let Err(e) = reconcile_existing_song_links(&existing_song_id, &req, caller).await {
+            tracing::warn!(
+                "sync_song_by_blake3: reconcile failed for song {} (blake3 {}): {}",
+                existing_song_id,
+                &req.blake3[..16.min(req.blake3.len())],
+                e,
+            );
+        }
+
         let media_blob_id = crate::media_blobz::get_media_blob_by_blake3(&req.blake3)
             .await
             .map(|b| b.id)
@@ -479,6 +496,126 @@ pub async fn sync_song_by_blake3(caller: &Caller, body: JsonValue) -> GrimoireRe
         "song synced successfully",
         serde_json::to_value(response).unwrap_or_default(),
     )
+}
+
+/// idempotently ensure an existing song is linked to the artist / album /
+/// genres carried in the sync request. all inserts are `INSERT OR IGNORE`.
+///
+/// passes `album_type: None` to `find_or_create_album_for_artist` so the
+/// auto-album_type-update branch in that helper does NOT fire from this
+/// reconcile path -- the sync_album call (which ran first and is the
+/// authoritative source for album_type) already set the right value, and
+/// per-song requests are not authoritative here.
+async fn reconcile_existing_song_links(
+    song_id: &str,
+    req: &SyncSongByBlake3Request,
+    caller: &Caller,
+) -> Result<(), String> {
+    use crate::music::crud::create_or_update::{
+        find_or_create_album_for_artist, find_or_create_artist, find_or_create_genre,
+    };
+    use crate::music::crud::{AlbumImportRequest, ArtistImportRequest};
+
+    let pool = crate::database::connect()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    // 1. resolve / create artist by name (case-insensitive).
+    let artist_resp = find_or_create_artist(ArtistImportRequest {
+        name: req.artist_name.clone(),
+        created_by: Some(caller.user_id.clone()),
+    })
+    .await;
+    let artist_id = match artist_resp.data {
+        Some((a, _)) => a.id,
+        None => return Err(format!("artist resolve failed: {}", artist_resp.message)),
+    };
+
+    // 2. resolve genre names -> genre_ids (best-effort; matches sync_album).
+    //    genre_name on the request is a comma-separated list; matches the
+    //    behavior of import_song_with_metadata.
+    let genre_ids: Vec<String> = match &req.genre_name {
+        Some(g) => {
+            let mut ids = Vec::new();
+            for name in g.split(',').map(str::trim).filter(|s| !s.is_empty()) {
+                let resp = find_or_create_genre(name.to_string()).await;
+                if let Some((genre, _)) = resp.data {
+                    ids.push(genre.id);
+                }
+            }
+            ids
+        }
+        None => Vec::new(),
+    };
+    let genre_ids_opt = if genre_ids.is_empty() {
+        None
+    } else {
+        Some(genre_ids.clone())
+    };
+
+    // 3. resolve / create album for this artist.
+    //    album_type=None ensures we don't clobber whatever sync_album already
+    //    set. release_date / label likewise omitted; sync_album owns those.
+    let album_req = AlbumImportRequest {
+        title: req.album_title.clone(),
+        album_type: None,
+        release_date: None,
+        label: None,
+        genre_ids: genre_ids_opt,
+        created_by: Some(caller.user_id.clone()),
+    };
+    let (album, _was_created) = find_or_create_album_for_artist(album_req, &artist_id)
+        .await
+        .map_err(|e| format!("album resolve failed: {}", e))?;
+
+    // 4. idempotent junction inserts.
+    sqlx::query!(
+        "INSERT OR IGNORE INTO artist_songz (artist_id, song_id) VALUES (?, ?)",
+        artist_id,
+        song_id,
+    )
+    .execute(&pool)
+    .await
+    .map_err(|e| format!("artist_songz insert failed: {}", e))?;
+
+    sqlx::query!(
+        "INSERT OR IGNORE INTO album_songz (album_id, song_id) VALUES (?, ?)",
+        album.id,
+        song_id,
+    )
+    .execute(&pool)
+    .await
+    .map_err(|e| format!("album_songz insert failed: {}", e))?;
+
+    sqlx::query!(
+        "INSERT OR IGNORE INTO artist_albumz (artist_id, album_id) VALUES (?, ?)",
+        artist_id,
+        album.id,
+    )
+    .execute(&pool)
+    .await
+    .map_err(|e| format!("artist_albumz insert failed: {}", e))?;
+
+    // 5. attach genres to album (junction is album_genrez, not song-level).
+    for gid in &genre_ids {
+        let _ = sqlx::query!(
+            "INSERT OR IGNORE INTO album_genrez (album_id, genre_id) VALUES (?, ?)",
+            album.id,
+            gid,
+        )
+        .execute(&pool)
+        .await;
+    }
+
+    tracing::debug!(
+        "sync_song_by_blake3: reconciled song {} -> artist {} album {} ({} genres)",
+        song_id,
+        artist_id,
+        album.id,
+        genre_ids.len(),
+    );
+
+    Ok(())
 }
 
 /// sync a playlist to local grimoire storage.
