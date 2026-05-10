@@ -6,7 +6,7 @@ description: understanding freqhole's transport options
 freqhole supports two ways to connect clients to servers: traditional HTTP and peer-to-peer (P2P).
 
 :::note[headsup]
-the desktop app accepts incoming connections over P2P only — it doesn't run an HTTP server. you can still connect to HTTP remotes as a client. to host an HTTP server, use the CLI.
+the desktop app accepts incoming connections over P2P only — it doesn't run an HTTP server. you can still connect to HTTP remotes as a client. to host an HTTP server, use the rathole CLI.
 :::
 
 ## HTTP transport
@@ -77,18 +77,6 @@ it's a permanent cryptographic identity. share it with friends to let them conne
 
 ---
 
-## comparing transports
-
-| aspect            | HTTP                       | P2P                        |
-| ----------------- | -------------------------- | -------------------------- |
-| setup complexity  | higher (DNS, ports, certs) | lower (just share node ID) |
-| works behind NAT  | no (needs port forwarding) | yes                        |
-| latency           | lower                      | slightly higher            |
-| reliability       | high                       | high (with relay fallback) |
-| third-party relay | no                         | yes (for NAT traversal)    |
-
----
-
 ## using both
 
 you can enable both transports simultaneously:
@@ -96,21 +84,19 @@ you can enable both transports simultaneously:
 - local network clients use HTTP (faster)
 - remote friends use P2P (easier setup)
 
-the cli app can handle both, but the desktop app only let's other users connect via p2p.
+the cli app can handle both, but the desktop app (at the moment) doesn't start a http server (it can connect to other freqhole http servers, tho!)
 
 ---
 
-## security
+## security thoughtz
 
 ### HTTP
 
-- use HTTPS in production (reverse proxy with TLS)
-- authentication via sessions/cookies
-- standard web security practices
+- use HTTPS in production (like a reverse proxy with TLS)
+- authentication via sessions/cookies is a huge chore, and basically only will work with one domain origin (e.g. `spume.freqhole.net`).
 
 ### P2P
 
-- all connections encrypted (QUIC/TLS)
+- all connections encrypted (QUIC/TLS); web browser uses HTTP relay
 - node ID is cryptographic identity
-- authentication still required (invite codes)
-- relay sees connection metadata but not content
+- freqhole authentication via node_id allow list and invite codes (plus optional knock feature so users can request access)

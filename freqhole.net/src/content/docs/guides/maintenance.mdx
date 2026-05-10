@@ -3,7 +3,27 @@ title: maintenance
 description: keeping your freqhole server healthy
 ---
 
-regular maintenance keeps your library clean and the database efficient.
+## updating
+
+### desktop app
+
+1. download new release for your platform
+
+_in-app/over-the-wire updates coming soon(ish)!_
+
+:::note[headsup]
+some app updates need an extra app restart after updating
+:::
+
+### CLI
+
+1. download new binary from releases
+2. replace old binary
+3. restart server
+
+database migrations run automatically on startup.
+
+---
 
 ## database health
 
@@ -74,12 +94,14 @@ removes unreferenced data. run `find-orphans` first to see what will be deleted.
 the SQLite database contains all your metadata, accounts, and settings:
 
 ```bash
+cd /path/to/your/freqhole-install/
 cp data/grimoire.db data/grimoire-backup.db
 ```
 
 or use SQLite's backup command:
 
 ```bash
+cd /path/to/your/freqhole-install/
 sqlite3 data/grimoire.db ".backup data/grimoire-backup.db"
 ```
 
@@ -87,9 +109,10 @@ sqlite3 data/grimoire.db ".backup data/grimoire-backup.db"
 
 cover art and other blobs are in `data/blobs/`. copy this directory to back up artwork.
 
-### complete backup
+### data backup
 
 ```bash
+cd /path/to/your/freqhole-install/
 tar -czf freqhole-backup.tar.gz data/
 ```
 
@@ -140,35 +163,18 @@ RUST_LOG=warn freqhole serve   # quiet
 
 ---
 
-## updating
-
-### desktop app
-
-downloads updates automatically and prompts to restart.
-
-### CLI
-
-1. download new binary from releases
-2. replace old binary
-3. restart server
-
-migrations run automatically on startup.
-
----
-
 ## performance tuning
 
 ### for large libraries (10k+ songs)
 
-- use SSD for data directory
+- use NVMe or SSD for data directory
 - increase OS file descriptor limits
 - consider dedicated machine (not shared server)
 
 ### for many concurrent users
 
-- SSD essential
-- WAL mode (default) handles contention well
-- monitor memory usage
+- NVMe or SSD essential
+- sqlite WAL mode (default) handles contention mostly ok, but postgres would be better (node: there's no pg adaptor right now)
 
 ### settings
 
@@ -199,3 +205,7 @@ SQLite can't handle too many concurrent writes. freqhole handles this automatica
 2. clean orphan blobs: `freqhole maintenance cleanup-orphans`
 3. delete old backups
 4. add disk space
+
+### can't connect via p2p
+
+1. make sure your router has UPnP [universal plug and play](https://en.wikipedia.org/wiki/Universal_Plug_and_Play) enabled

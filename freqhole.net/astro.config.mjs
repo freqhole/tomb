@@ -13,7 +13,7 @@ export default defineConfig({
 			head: [
 				{ tag: 'link', attrs: { rel: 'icon', href: '/favicon.ico', sizes: 'any' } },
 			],
-			social: [{ icon: 'github', label: 'GitHub', href: 'https://github.com/freqhole/tomb' }],
+			social: [{ icon: 'external', label: 'spume', href: 'https://spume.freqhole.net' }, { icon: 'github', label: 'GitHub', href: 'https://github.com/freqhole/tomb' }],
 			components: {
 				Hero: './src/components/CustomHero.astro',
 			},
