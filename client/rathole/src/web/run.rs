@@ -222,7 +222,11 @@ fn on_key(
 /// landing-screen key handler (web). landing is intentionally
 /// minimal: `/` opens the repl, and everything else is a no-op.
 /// all navigation lives in the slash repl now.
-fn on_landing_key_web(app: &mut App, _code: KeyCode, _action_tx: &mpsc::UnboundedSender<AppAction>) {
+fn on_landing_key_web(
+    app: &mut App,
+    _code: KeyCode,
+    _action_tx: &mpsc::UnboundedSender<AppAction>,
+) {
     let _ = app;
 }
 

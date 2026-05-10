@@ -822,8 +822,7 @@ pub fn apply_navigation(
         | SlashAction::OpenInvite
         | SlashAction::Logs => {
             state.ephemeral.repl.clear_input();
-            state.ephemeral.repl.status =
-                Some(ReplStatus::err("not available in the web shell"));
+            state.ephemeral.repl.status = Some(ReplStatus::err("not available in the web shell"));
             leave(state);
             ReplOutcome::Done
         }
