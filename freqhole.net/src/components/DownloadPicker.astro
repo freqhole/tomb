@@ -25,6 +25,7 @@ const ASSETS: Record<string, string> = {
   "charnel-linux-arm-deb": `freqhole_charnel_${VERSION}_aarch64.deb`,
   "charnel-linux-arm-rpm": `freqhole_charnel_${VERSION}_aarch64.rpm`,
   "charnel-android": `freqhole_charnel_${VERSION}_android-universal.apk`,
+  "charnel-android-arm64": `freqhole_charnel_${VERSION}_android-arm64.apk`,
   "cli-mac-arm": `freqhole_cli_${VERSION}_darwin-aarch64`,
   "cli-mac-intel": `freqhole_cli_${VERSION}_darwin-x86_64`,
   "cli-linux-x86": `freqhole_cli_${VERSION}_linux-x86_64`,
@@ -87,7 +88,7 @@ const url = (key: string) => `${BASE}/${ASSETS[key]}`;
     <h2 class="dl-more-title">all releases</h2>
     <h3 class="dl-section-title">
       <span class="dl-section-icon"><Icon name="laptop" size="1.1rem" /></span>
-      charnel <small>(desktop app)</small>
+      charnel <small>(gui app)</small>
     </h3>
 
     <div class="dl-platform-grid">
@@ -140,13 +141,19 @@ const url = (key: string) => `${BASE}/${ASSETS[key]}`;
               <li><a data-dl="charnel-android" href={url("charnel-android")}>.apk</a></li>
             </ul>
           </div>
+          <div class="dl-arch">
+            <div class="dl-arch-label">arm64</div>
+            <ul class="dl-list">
+              <li><a data-dl="charnel-android-arm64" href={url("charnel-android-arm64")}>.apk</a></li>
+            </ul>
+          </div>
         </div>
       </section>
     </div>
 
     <h3 class="dl-section-title">
       <span class="dl-section-icon"><Icon name="seti:powershell" size="1.1rem" /></span>
-      cli <small>(terminal binary)</small>
+      rathole <small>(tui binary)</small>
     </h3>
 
     <div class="dl-platform-grid">
@@ -203,7 +210,7 @@ const url = (key: string) => `${BASE}/${ASSETS[key]}`;
     </ul>
 
     <p class="dl-foot">
-      see all assets on <a href="https://github.com/freqhole/tomb/releases/latest" rel="noopener">github releases</a>.
+      see all assets on <a href="https://github.com/freqhole/tomb/releases/latest" rel="noopener">github releases</a>. using a different platform? you might be able to build it from the source code: <a href="https://github.com/freqhole/tomb/" rel="noopener">/freqhole/tomb/ on github</a>
     </p>
   </div>
   )}
