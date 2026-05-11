@@ -20,6 +20,9 @@ interface LastFmReviewModalProps {
   onClose: () => void;
   album: AlbumSummary;
   remote: Remote;
+  /** when false, the fetch/refetch button is disabled. non-admins can
+   *  still open the modal to read the stored snapshot read-only. */
+  isAdmin: boolean;
 }
 
 type JobState =
@@ -262,14 +265,18 @@ export function LastFmReviewModal(props: LastFmReviewModalProps) {
           <button
             type="button"
             class="text-xs px-2 py-1 rounded border border-[var(--color-accent-500)]/40 text-[var(--color-accent-400)] hover:bg-[var(--color-accent-500)]/10 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed bg-transparent"
-            disabled={isBusy()}
+            disabled={isBusy() || !props.isAdmin}
+            title={!props.isAdmin ? "admin only" : undefined}
             onClick={onEnqueue}
           >
             <Show when={hasSnapshot()} fallback={<>fetch from last.fm</>}>
               refetch from last.fm
             </Show>
           </button>
-          <Show when={!hasSnapshot() && state().kind === "idle"}>
+          <Show when={!props.isAdmin}>
+            <span class="text-xs text-[var(--color-text-muted)]">admin only</span>
+          </Show>
+          <Show when={props.isAdmin && !hasSnapshot() && state().kind === "idle"}>
             <span class="text-xs text-[var(--color-text-muted)]">
               no last.fm snapshot stored yet for this album
             </span>

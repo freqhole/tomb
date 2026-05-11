@@ -26,6 +26,7 @@ import {
 import { useLibraryAlbumsQuery } from "../queries/useLibraryAlbums";
 import { handleAlbumClick, isAlbumSelected, updateAlbumIdList } from "../hooks/albumSelection";
 import { useInflightJobs } from "../hooks/useMbLookupJobs";
+import { useRemoteIsAdmin } from "../hooks/useRemoteRole";
 import { AlbumCandidatesPanel } from "./AlbumCandidatesPanel";
 import { LastFmReviewModal } from "./LastFmReviewModal";
 import { AudioDbReviewModal } from "./AudioDbReviewModal";
@@ -84,6 +85,11 @@ export function AlbumsTable(props: AlbumsTableProps) {
   const audiodbAlbum = createMemo(() =>
     audiodbAlbumId() ? (filteredItems().find((a) => a.album_id === audiodbAlbumId()) ?? null) : null
   );
+
+  // admin gating for the enqueue actions inside the lastfm/audiodb
+  // review modals. non-admins can still open the modals to read stored
+  // snapshots; the "fetch" button itself is what gets disabled.
+  const isRemoteAdmin = useRemoteIsAdmin(() => props.remote);
 
   // simple debounce on the search input
   let searchTimer: ReturnType<typeof setTimeout> | undefined;
@@ -403,6 +409,7 @@ export function AlbumsTable(props: AlbumsTableProps) {
             onClose={() => setLastfmAlbumId(null)}
             album={album()}
             remote={props.remote}
+            isAdmin={isRemoteAdmin()}
           />
         )}
       </Show>
@@ -413,6 +420,7 @@ export function AlbumsTable(props: AlbumsTableProps) {
             onClose={() => setAudiodbAlbumId(null)}
             album={album()}
             remote={props.remote}
+            isAdmin={isRemoteAdmin()}
           />
         )}
       </Show>

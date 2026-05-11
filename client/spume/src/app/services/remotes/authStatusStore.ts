@@ -38,6 +38,25 @@ function patch(remoteId: string, entry: AuthEntry): void {
 }
 
 async function resolveOne(remote: Remote): Promise<AuthInfo> {
+  // charnel-managed remotes (the tauri sidecar's own owner): query
+  // whoami through the charnel local IPC transport. `getClientForRemote`
+  // already routes is_charnel_managed remotes to that transport, so
+  // `whoamiForRemote` returns the embedded owner caller (always admin
+  // per `get_caller_from_app_config`). this MUST run before the p2p /
+  // http branches below since charnel-managed remotes also typically
+  // satisfy `isHttpRemote`.
+  if (remote.is_charnel_managed) {
+    try {
+      const result = await whoamiForRemote(remote);
+      return {
+        loggedIn: result.success,
+        username: result.username,
+        role: result.role,
+      };
+    } catch {
+      return { loggedIn: false };
+    }
+  }
   // p2p remotes: query whoami over the p2p client to learn the role.
   // needed for admin-button gating. transport readiness is no longer
   // the store's concern — the remote-status-change subscription below
@@ -57,9 +76,8 @@ async function resolveOne(remote: Remote): Promise<AuthInfo> {
       return { loggedIn: false };
     }
   }
-  // skip charnel-managed remotes — they use embedded auth and don't have
-  // a queryable session.
-  if (remote.is_charnel_managed || !remote.base_url) {
+  // http remotes without a base_url can't be queried; treat as logged-out.
+  if (!remote.base_url) {
     return { loggedIn: false };
   }
   try {
