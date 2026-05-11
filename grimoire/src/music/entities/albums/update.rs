@@ -4,13 +4,13 @@
 use super::models::{Album, UpdateAlbumRequest};
 use crate::database;
 use crate::error::ErrorDetail;
+use crate::music::analytics::feed_events::{
+    handle_album_feed_reassignment, handle_artist_feed_reassignment,
+};
 use crate::music::crud::create_or_update::{
     find_or_create_album_for_artist, find_or_create_artist, find_or_create_genre,
 };
 use crate::music::crud::delete::{delete_album_if_unused, delete_artist_if_unused};
-use crate::music::analytics::feed_events::{
-    handle_album_feed_reassignment, handle_artist_feed_reassignment,
-};
 use crate::music::crud::ArtistImportRequest;
 use crate::music::crud::ImageMetadata;
 use crate::music::entities::genres;
@@ -103,6 +103,7 @@ pub async fn update_album(req: UpdateAlbumRequest) -> GrimoireResponse<Album> {
             release_date: row.release_date,
             label: row.label,
             genres: None,
+            taxons: None,
             song_count: row.song_count,
             total_duration: row.total_duration,
             created_at: row.created_at,
@@ -204,9 +205,9 @@ pub async fn update_album(req: UpdateAlbumRequest) -> GrimoireResponse<Album> {
         .execute(&pool)
         .await;
 
-        // carry over genres that don't already exist on the target
+        // carry over genre/taxon links that don't already exist on the target
         let _ = sqlx::query!(
-            "INSERT OR IGNORE INTO album_genrez (album_id, genre_id) SELECT ?, genre_id FROM album_genrez WHERE album_id = ?",
+            "INSERT OR IGNORE INTO album_taxonz (album_id, taxon_id, origin) SELECT ?, taxon_id, origin FROM album_taxonz WHERE album_id = ?",
             target_id,
             req.album_id
         )
@@ -236,12 +237,9 @@ pub async fn update_album(req: UpdateAlbumRequest) -> GrimoireResponse<Album> {
         // clean up the now-empty source album
         let delete_result = delete_album_if_unused(&req.album_id).await;
         if delete_result.data == Some(true) {
-            let _ = handle_album_feed_reassignment(
-                &req.album_id,
-                target_id,
-                req.updated_by.as_deref(),
-            )
-            .await;
+            let _ =
+                handle_album_feed_reassignment(&req.album_id, target_id, req.updated_by.as_deref())
+                    .await;
         }
 
         // return the target album
@@ -305,7 +303,7 @@ pub async fn update_album(req: UpdateAlbumRequest) -> GrimoireResponse<Album> {
             has_any_genre_input = true;
             for genre_id in genre_ids {
                 match sqlx::query_scalar!(
-                    r#"SELECT id as "id!" FROM genrez WHERE id = ? AND deleted_at IS NULL"#,
+                    r#"SELECT t.id as "id!" FROM taxonz t JOIN taxon_kindz k ON k.id = t.kind_id WHERE t.id = ? AND k.slug = 'genre' AND t.deleted_at IS NULL"#,
                     genre_id
                 )
                 .fetch_optional(&pool)
@@ -625,11 +623,11 @@ pub async fn update_album(req: UpdateAlbumRequest) -> GrimoireResponse<Album> {
             return GrimoireResponse::failure("failed to copy images to new album", vec![e.into()]);
         }
 
-        // copy genres from old album to new album
+        // copy taxon links (genre + label + ...) from old album to new album
         if let Err(e) = sqlx::query!(
-            "INSERT OR IGNORE INTO album_genrez (album_id, genre_id)
-             SELECT ?, genre_id
-             FROM album_genrez
+            "INSERT OR IGNORE INTO album_taxonz (album_id, taxon_id, origin)
+             SELECT ?, taxon_id, origin
+             FROM album_taxonz
              WHERE album_id = ?",
             new_album.id,
             existing_album.id

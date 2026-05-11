@@ -1045,6 +1045,202 @@ export function createMusicMethods(call: CallFn) {
         undefined,
       );
     },
+
+    // ----------------------------------------------------------------------
+    // taxonomy (cross-kind labels: genre, label, mood, era, region, ...)
+    // ----------------------------------------------------------------------
+
+    listTaxonKinds: () => {
+      return call(
+        "music",
+        "list_taxon_kinds",
+        routes.music.list_taxon_kinds.resp,
+        routes.music.list_taxon_kinds.req,
+        routes.music.list_taxon_kinds.method,
+        routes.music.list_taxon_kinds.path,
+        undefined,
+      );
+    },
+
+    createTaxonKind: (params: s.CreateTaxonKindRequest) => {
+      return call(
+        "music",
+        "create_taxon_kind",
+        routes.music.create_taxon_kind.resp,
+        routes.music.create_taxon_kind.req,
+        routes.music.create_taxon_kind.method,
+        routes.music.create_taxon_kind.path,
+        params,
+      );
+    },
+
+    listTaxonsByKind: (params: s.ListTaxonsByKindRequest) => {
+      return call(
+        "music",
+        "list_taxons_by_kind",
+        routes.music.list_taxons_by_kind.resp,
+        routes.music.list_taxons_by_kind.req,
+        routes.music.list_taxons_by_kind.method,
+        routes.music.list_taxons_by_kind.path,
+        params,
+      );
+    },
+
+    queryTaxons: (params: s.QueryTaxonsRequest) => {
+      return call(
+        "music",
+        "query_taxons",
+        routes.music.query_taxons.resp,
+        routes.music.query_taxons.req,
+        routes.music.query_taxons.method,
+        routes.music.query_taxons.path,
+        params,
+      );
+    },
+
+    getTaxon: (params: s.GetTaxonRequest) => {
+      return call(
+        "music",
+        "get_taxon",
+        routes.music.get_taxon.resp,
+        routes.music.get_taxon.req,
+        routes.music.get_taxon.method,
+        routes.music.get_taxon.path,
+        params,
+      );
+    },
+
+    createTaxon: (params: s.CreateTaxonRequest) => {
+      return call(
+        "music",
+        "create_taxon",
+        routes.music.create_taxon.resp,
+        routes.music.create_taxon.req,
+        routes.music.create_taxon.method,
+        routes.music.create_taxon.path,
+        params,
+      );
+    },
+
+    addTaxonParent: (params: s.AddTaxonParentRequest) => {
+      return call(
+        "music",
+        "add_taxon_parent",
+        routes.music.add_taxon_parent.resp,
+        routes.music.add_taxon_parent.req,
+        routes.music.add_taxon_parent.method,
+        routes.music.add_taxon_parent.path,
+        params,
+      );
+    },
+
+    removeTaxonParent: (params: s.RemoveTaxonParentRequest) => {
+      return call(
+        "music",
+        "remove_taxon_parent",
+        routes.music.remove_taxon_parent.resp,
+        routes.music.remove_taxon_parent.req,
+        routes.music.remove_taxon_parent.method,
+        routes.music.remove_taxon_parent.path,
+        params,
+      );
+    },
+
+    getTaxonAncestors: (params: s.GetTaxonRequest) => {
+      return call(
+        "music",
+        "get_taxon_ancestors",
+        routes.music.get_taxon_ancestors.resp,
+        routes.music.get_taxon_ancestors.req,
+        routes.music.get_taxon_ancestors.method,
+        routes.music.get_taxon_ancestors.path,
+        params,
+      );
+    },
+
+    getTaxonDescendants: (params: s.GetTaxonRequest) => {
+      return call(
+        "music",
+        "get_taxon_descendants",
+        routes.music.get_taxon_descendants.resp,
+        routes.music.get_taxon_descendants.req,
+        routes.music.get_taxon_descendants.method,
+        routes.music.get_taxon_descendants.path,
+        params,
+      );
+    },
+
+    getAlbumTaxonLinks: (params: s.GetAlbumTaxonLinksRequest) => {
+      return call(
+        "music",
+        "get_album_taxon_links",
+        routes.music.get_album_taxon_links.resp,
+        routes.music.get_album_taxon_links.req,
+        routes.music.get_album_taxon_links.method,
+        routes.music.get_album_taxon_links.path,
+        params,
+      );
+    },
+
+    addAlbumTaxon: (params: s.AddAlbumTaxonRequest) => {
+      return call(
+        "music",
+        "add_album_taxon",
+        routes.music.add_album_taxon.resp,
+        routes.music.add_album_taxon.req,
+        routes.music.add_album_taxon.method,
+        routes.music.add_album_taxon.path,
+        params,
+      );
+    },
+
+    removeAlbumTaxon: (params: s.RemoveAlbumTaxonRequest) => {
+      return call(
+        "music",
+        "remove_album_taxon",
+        routes.music.remove_album_taxon.resp,
+        routes.music.remove_album_taxon.req,
+        routes.music.remove_album_taxon.method,
+        routes.music.remove_album_taxon.path,
+        params,
+      );
+    },
+
+    setAlbumTaxons: (params: s.SetAlbumTaxonsRequest) => {
+      return call(
+        "music",
+        "set_album_taxons",
+        routes.music.set_album_taxons.resp,
+        routes.music.set_album_taxons.req,
+        routes.music.set_album_taxons.method,
+        routes.music.set_album_taxons.path,
+        params,
+      );
+    },
+
+    setScalarAttribute: (params: s.SetScalarAttributeRequest) => {
+      return call(
+        "music",
+        "set_scalar_attribute",
+        routes.music.set_scalar_attribute.resp,
+        routes.music.set_scalar_attribute.req,
+        routes.music.set_scalar_attribute.method,
+        routes.music.set_scalar_attribute.path,
+        params,
+      );
+    },
+
+    queryAlbumsByScalarRange: (params: s.QueryScalarRangeRequest) => {
+      return call(
+        "music",
+        "query_albums_by_scalar_range",
+        routes.music.query_albums_by_scalar_range.resp,
+        routes.music.query_albums_by_scalar_range.req,
+        routes.music.query_albums_by_scalar_range.method,
+        routes.music.query_albums_by_scalar_range.path,
+        params,
+      );
+    },
   };
 }
 

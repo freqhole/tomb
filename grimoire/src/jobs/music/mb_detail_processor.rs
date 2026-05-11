@@ -241,10 +241,7 @@ pub async fn process_mb_album_detail_job(job: &Job) -> Result<Option<Value>, Job
     .await;
     info!(
         "mb auto-apply for {}: year={} label={} genres_added={}",
-        album_id,
-        apply_summary.year_set,
-        apply_summary.label_set,
-        apply_summary.genres_added
+        album_id, apply_summary.year_set, apply_summary.label_set, apply_summary.genres_added
     );
 
     // step 6: flip status to enriched
@@ -452,7 +449,7 @@ struct ApplySummary {
 }
 
 /// fill `release_date` and `label` columns only when currently NULL/empty,
-/// and link any new genres into `album_genrez` (existing links untouched).
+/// and link any new genres into `album_taxonz` (existing links untouched).
 /// never updates title, album_type, artist, or song-level data.
 async fn apply_mb_album_columns_if_empty(
     album_id: &str,
@@ -542,7 +539,7 @@ async fn apply_mb_album_columns_if_empty(
             None => continue,
         };
         match sqlx::query!(
-            r#"INSERT OR IGNORE INTO album_genrez (album_id, genre_id) VALUES (?, ?)"#,
+            r#"INSERT OR IGNORE INTO album_taxonz (album_id, taxon_id, origin) VALUES (?, ?, 'musicbrainz')"#,
             album_id,
             genre.id,
         )

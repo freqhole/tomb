@@ -19,12 +19,13 @@ pub async fn create_genre(req: CreateGenreRequest) -> GrimoireResponse<Genre> {
     };
 
     let row = match sqlx::query!(
-        r#"INSERT INTO genrez (name, created_at)
-         VALUES (?, unixepoch())
+        r#"INSERT INTO taxonz (kind_id, slug, label, is_user_defined, created_at)
+         VALUES ((SELECT id FROM taxon_kindz WHERE slug = 'genre'), LOWER(REPLACE(REPLACE(REPLACE(REPLACE(TRIM(?), ' ', '-'), '/', '-'), '&', 'and'), '--', '-')), ?, 1, unixepoch())
          RETURNING
             id as "id!",
-            name as "name!",
+            label as "name!",
             created_at as "created_at!""#,
+        req.name,
         req.name
     )
     .fetch_one(&pool)
@@ -59,12 +60,13 @@ pub async fn list_genres() -> GrimoireResponse<Vec<Genre>> {
 
     let rows = match sqlx::query!(
         r#"SELECT
-            id as "id!",
-            name as "name!",
-            created_at as "created_at!"
-           FROM genrez
-           WHERE deleted_at IS NULL
-           ORDER BY name ASC"#
+            t.id as "id!",
+            t.label as "name!",
+            t.created_at as "created_at!"
+           FROM taxonz t
+           JOIN taxon_kindz k ON k.id = t.kind_id AND k.slug = 'genre'
+           WHERE t.deleted_at IS NULL
+           ORDER BY t.label ASC"#
     )
     .fetch_all(&pool)
     .await
@@ -141,12 +143,13 @@ pub async fn query_genres(search: &str) -> GrimoireResponse<Vec<Genre>> {
 
     let rows = match sqlx::query!(
         r#"SELECT
-            id as "id!",
-            name as "name!",
-            created_at as "created_at!"
-           FROM genrez
-           WHERE name LIKE ? AND deleted_at IS NULL
-           ORDER BY name ASC
+            t.id as "id!",
+            t.label as "name!",
+            t.created_at as "created_at!"
+           FROM taxonz t
+           JOIN taxon_kindz k ON k.id = t.kind_id AND k.slug = 'genre'
+           WHERE t.label LIKE ? AND t.deleted_at IS NULL
+           ORDER BY t.label ASC
            LIMIT 50"#,
         search_pattern
     )
@@ -185,11 +188,12 @@ pub async fn get_genre(id: &str) -> GrimoireResponse<Genre> {
 
     let row_opt = match sqlx::query!(
         r#"SELECT
-            id as "id!",
-            name as "name!",
-            created_at as "created_at!"
-           FROM genrez
-           WHERE id = ? AND deleted_at IS NULL"#,
+            t.id as "id!",
+            t.label as "name!",
+            t.created_at as "created_at!"
+           FROM taxonz t
+           JOIN taxon_kindz k ON k.id = t.kind_id AND k.slug = 'genre'
+           WHERE t.id = ? AND t.deleted_at IS NULL"#,
         id
     )
     .fetch_optional(&pool)
@@ -269,14 +273,15 @@ pub async fn find_or_create_genre(name: &str) -> GrimoireResponse<(Genre, bool)>
 
     let trimmed_name = name.trim();
 
-    // try to find existing genre (case-insensitive)
+    // try to find existing genre (case-insensitive) in taxonz/kind=genre
     let existing = match sqlx::query!(
         r#"SELECT
-            id as "id!",
-            name as "name!",
-            created_at as "created_at!"
-           FROM genrez
-           WHERE LOWER(TRIM(name)) = LOWER(?) AND deleted_at IS NULL"#,
+            t.id as "id!",
+            t.label as "name!",
+            t.created_at as "created_at!"
+           FROM taxonz t
+           JOIN taxon_kindz k ON k.id = t.kind_id AND k.slug = 'genre'
+           WHERE LOWER(TRIM(t.label)) = LOWER(?) AND t.deleted_at IS NULL"#,
         trimmed_name
     )
     .fetch_optional(&pool)
@@ -328,7 +333,7 @@ pub async fn add_genre_to_album(album_id: &str, genre_id: &str) -> GrimoireRespo
     };
 
     match sqlx::query!(
-        "INSERT OR IGNORE INTO album_genrez (album_id, genre_id) VALUES (?, ?)",
+        "INSERT OR IGNORE INTO album_taxonz (album_id, taxon_id, origin) VALUES (?, ?, 'user')",
         album_id,
         genre_id
     )
@@ -355,7 +360,7 @@ pub async fn remove_genre_from_album(album_id: &str, genre_id: &str) -> Grimoire
     };
 
     match sqlx::query!(
-        "DELETE FROM album_genrez WHERE album_id = ? AND genre_id = ?",
+        "DELETE FROM album_taxonz WHERE album_id = ? AND taxon_id = ?",
         album_id,
         genre_id
     )
@@ -382,8 +387,11 @@ pub async fn set_album_genres(album_id: &str, genre_ids: &[String]) -> GrimoireR
         }
     };
 
-    // remove all existing genres
-    if let Err(e) = sqlx::query!("DELETE FROM album_genrez WHERE album_id = ?", album_id)
+    // remove all existing genre links (only kind=genre; preserves other taxon kinds)
+    if let Err(e) = sqlx::query!(
+        "DELETE FROM album_taxonz WHERE album_id = ? AND taxon_id IN (SELECT t.id FROM taxonz t JOIN taxon_kindz k ON k.id = t.kind_id AND k.slug = 'genre')",
+        album_id
+    )
         .execute(&pool)
         .await
     {
@@ -396,7 +404,7 @@ pub async fn set_album_genres(album_id: &str, genre_ids: &[String]) -> GrimoireR
     // add new genres
     for genre_id in genre_ids {
         if let Err(e) = sqlx::query!(
-            "INSERT INTO album_genrez (album_id, genre_id) VALUES (?, ?)",
+            "INSERT INTO album_taxonz (album_id, taxon_id, origin) VALUES (?, ?, 'user')",
             album_id,
             genre_id
         )
@@ -426,7 +434,7 @@ pub async fn get_album_genre_ids(album_id: &str) -> GrimoireResponse<Vec<String>
     };
 
     let ids = match sqlx::query_scalar!(
-        r#"SELECT genre_id as "genre_id!" FROM album_genrez WHERE album_id = ?"#,
+        r#"SELECT ag.taxon_id as "genre_id!" FROM album_taxonz ag JOIN taxonz t ON t.id = ag.taxon_id JOIN taxon_kindz k ON k.id = t.kind_id AND k.slug = 'genre' WHERE ag.album_id = ?"#,
         album_id
     )
     .fetch_all(&pool)
@@ -458,7 +466,7 @@ pub async fn delete_genre(id: &str, deleted_by: Option<String>) -> GrimoireRespo
 
     let now = time::OffsetDateTime::now_utc().unix_timestamp();
     let rows_affected = match sqlx::query!(
-        "UPDATE genrez SET deleted_at = ?, deleted_by = ? WHERE id = ? AND deleted_at IS NULL",
+        "UPDATE taxonz SET deleted_at = ?, deleted_by = ? WHERE id = ? AND deleted_at IS NULL AND kind_id = (SELECT id FROM taxon_kindz WHERE slug = 'genre')",
         now,
         deleted_by,
         id

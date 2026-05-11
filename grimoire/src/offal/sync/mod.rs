@@ -596,10 +596,10 @@ async fn reconcile_existing_song_links(
     .await
     .map_err(|e| format!("artist_albumz insert failed: {}", e))?;
 
-    // 5. attach genres to album (junction is album_genrez, not song-level).
+    // 5. attach genres to album (junction is album_taxonz with kind=genre).
     for gid in &genre_ids {
         let _ = sqlx::query!(
-            "INSERT OR IGNORE INTO album_genrez (album_id, genre_id) VALUES (?, ?)",
+            "INSERT OR IGNORE INTO album_taxonz (album_id, taxon_id, origin) VALUES (?, ?, 'user')",
             album.id,
             gid,
         )

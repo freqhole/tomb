@@ -675,6 +675,7 @@ pub async fn get_current_album_for_song(song_id: &str) -> GrimoireResult<Option<
             release_date: row.release_date,
             label: row.label,
             genres: None,
+            taxons: None,
             images: None,
             urls: None,
             song_count: row.song_count,
@@ -706,15 +707,16 @@ pub async fn find_or_create_genre(name: String) -> GrimoireResponse<(Genre, bool
         }
     };
 
-    // Try to find existing genre by name (case-insensitive)
+    // Try to find existing genre by name (case-insensitive) in taxonz/kind=genre
     let existing = match sqlx::query_as!(
         Genre,
         r#"SELECT
-            id as "id!",
-            name as "name!",
-            created_at as "created_at!"
-           FROM genrez
-           WHERE LOWER(name) = LOWER(?)
+            t.id as "id!",
+            t.label as "name!",
+            t.created_at as "created_at!"
+           FROM taxonz t
+           JOIN taxon_kindz k ON k.id = t.kind_id AND k.slug = 'genre'
+           WHERE LOWER(t.label) = LOWER(?) AND t.deleted_at IS NULL
            LIMIT 1"#,
         name
     )
@@ -846,6 +848,7 @@ pub async fn find_or_create_album_for_artist(
                 release_date: row.release_date,
                 label: row.label,
                 genres: None,
+                taxons: None,
                 images: None,
                 urls: None,
                 song_count: row.song_count,
@@ -897,7 +900,7 @@ pub async fn find_or_create_album_for_artist(
         if let Some(genre_ids) = req.genre_ids {
             for genre_id in &genre_ids {
                 let _ = sqlx::query!(
-                    "INSERT OR IGNORE INTO album_genrez (album_id, genre_id) VALUES (?, ?)",
+                    "INSERT OR IGNORE INTO album_taxonz (album_id, taxon_id, origin) VALUES (?, ?, 'user')",
                     album.id,
                     genre_id
                 )

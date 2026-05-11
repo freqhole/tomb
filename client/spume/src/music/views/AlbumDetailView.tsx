@@ -26,6 +26,7 @@ import type { ImageMetadata } from "../services/storage/types";
 import { buildRoute } from "../utils/routing";
 import { sortSongsCanonical } from "../utils/songSort";
 import { EntityLinks } from "../../components/media/EntityLinks";
+import { TaxonChipList } from "../../components/badges/TaxonChips";
 import MarqueeText from "../../components/text/MarqueeText";
 import { resolveBlobUrl, usesBlobResolver } from "../services/storage/blobResolver";
 import { ShareButton } from "../../components/buttons/ShareButton";
@@ -343,6 +344,7 @@ export function AlbumDetailView() {
                   <Show
                     when={
                       (songs()[0]?.album_genres?.length ?? 0) > 0 ||
+                      (songs()[0]?.album_taxons?.length ?? 0) > 0 ||
                       (songs()[0]?.album_tags?.length ?? 0) > 0 ||
                       (albumQuery.data?.urls?.length ?? 0) > 0
                     }
@@ -373,6 +375,8 @@ export function AlbumDetailView() {
                             </button>
                           )}
                         </For>
+                        {/* non-genre taxons (label, mood, era, region, ...) */}
+                        <TaxonChipList taxons={songs()[0]?.album_taxons} excludeKinds={["genre"]} />
                         <For each={songs()[0]?.album_tags ?? []}>
                           {(tag) => (
                             <span class="px-2 py-0.5 bg-[var(--color-accent-primary)]/10 text-[var(--color-accent-primary)] rounded-full text-xs">

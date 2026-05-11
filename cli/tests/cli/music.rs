@@ -32,11 +32,11 @@ fn test_music_query_workflow() {
 
     let song_id = songs[0]["song"]["id"].as_str().unwrap();
 
-    // 2. List songs and verify we can find our song
-    let result = ctx.run_json(&["music", "list-songs", "--limit", "100"]);
+    // 2. query songs and verify we can find our song
+    let result = ctx.run_json(&["music", "query-songs", "--limit", "100"]);
     assert!(result["success"].as_bool().unwrap());
-    let all_songs = result["data"].as_array().unwrap();
-    assert!(all_songs.iter().any(|s| s["id"] == song_id));
+    let all_songs = result["data"]["items"].as_array().unwrap();
+    assert!(all_songs.iter().any(|s| s["song"]["id"] == song_id));
 
     // 3. Get album if present
     if let Some(album_id) = songs[0]["album"]["id"].as_str() {
@@ -44,10 +44,10 @@ fn test_music_query_workflow() {
         assert!(result["success"].as_bool().unwrap());
     }
 
-    // 4. List artists
-    let result = ctx.run_json(&["music", "list-artists", "--limit", "10"]);
+    // 4. query artists
+    let result = ctx.run_json(&["music", "query-artists", "--limit", "10"]);
     assert!(result["success"].as_bool().unwrap());
-    let artists = result["data"].as_array().unwrap();
+    let artists = result["data"]["items"].as_array().unwrap();
     assert!(!artists.is_empty());
 }
 
@@ -108,24 +108,17 @@ fn test_music_error_cases() {
 fn test_music_genres() {
     let ctx = TestContext::from_snapshot();
 
-    // List genres
-    let result = ctx.run_json(&["music", "list-genres"]);
-    assert!(result["success"].as_bool().unwrap(), "Should list genres");
-    let genres = result["data"].as_array().unwrap();
+    // query genres
+    let result = ctx.run_json(&["music", "query-genres", "--limit", "100"]);
+    assert!(result["success"].as_bool().unwrap(), "Should query genres");
+    let genres = result["data"]["items"].as_array().unwrap();
 
     if !genres.is_empty() {
-        let genre_id = genres[0]["id"].as_str().unwrap();
+        let genre_id = genres[0]["genre"]["id"].as_str().unwrap();
 
-        // Get genre by ID
+        // get genre by id
         let result = ctx.run_json(&["music", "get-genre", "--genre-id", genre_id]);
         assert!(result["success"].as_bool().unwrap(), "Should get genre");
-
-        // Get genre stats
-        let result = ctx.run_json(&["music", "get-genre-stats", "--genre-id", genre_id]);
-        assert!(
-            result["success"].as_bool().unwrap(),
-            "Should get genre stats"
-        );
     }
 }
 
@@ -199,15 +192,15 @@ fn test_music_recent_songs() {
 fn test_music_artist_operations() {
     let ctx = TestContext::from_snapshot();
 
-    // List artists
-    let result = ctx.run_json(&["music", "list-artists"]);
-    assert!(result["success"].as_bool().unwrap(), "Should list artists");
+    // query artists
+    let result = ctx.run_json(&["music", "query-artists", "--limit", "100"]);
+    assert!(result["success"].as_bool().unwrap(), "Should query artists");
 
-    let artists = result["data"].as_array().unwrap();
+    let artists = result["data"]["items"].as_array().unwrap();
     if !artists.is_empty() {
-        let artist_id = artists[0]["id"].as_str().unwrap();
+        let artist_id = artists[0]["artist"]["id"].as_str().unwrap();
 
-        // Get artist by ID
+        // get artist by id
         let result = ctx.run_json(&["music", "get-artist", "--artist-id", artist_id]);
         assert!(result["success"].as_bool().unwrap(), "Should get artist");
     }
@@ -217,19 +210,19 @@ fn test_music_artist_operations() {
 fn test_music_album_operations() {
     let ctx = TestContext::from_snapshot();
 
-    // List albums
-    let result = ctx.run_json(&["music", "list-albums"]);
-    assert!(result["success"].as_bool().unwrap(), "Should list albums");
+    // query albums
+    let result = ctx.run_json(&["music", "query-albums", "--limit", "100"]);
+    assert!(result["success"].as_bool().unwrap(), "Should query albums");
 
-    let albums = result["data"].as_array().unwrap();
+    let albums = result["data"]["items"].as_array().unwrap();
     if !albums.is_empty() {
-        let album_id = albums[0]["id"].as_str().unwrap();
+        let album_id = albums[0]["album"]["id"].as_str().unwrap();
 
-        // Get album by ID
+        // get album by id
         let result = ctx.run_json(&["music", "get-album", "--album-id", album_id]);
         assert!(result["success"].as_bool().unwrap(), "Should get album");
 
-        // Get album tags
+        // get album tags
         let result = ctx.run_json(&["music", "get-album-tags", "--album-id", album_id]);
         assert!(
             result["success"].as_bool().unwrap(),
@@ -330,12 +323,12 @@ fn test_music_update_songs() {
 fn test_music_query_playlist_songs() {
     let ctx = TestContext::from_snapshot();
 
-    // Get a playlist
-    let playlists_result = ctx.run_json(&["music", "list-playlists"]);
+    // get a playlist
+    let playlists_result = ctx.run_json(&["music", "query-playlists", "--limit", "100"]);
     if playlists_result["success"].as_bool().unwrap() {
-        let playlists = playlists_result["data"].as_array().unwrap();
+        let playlists = playlists_result["data"]["items"].as_array().unwrap();
         if !playlists.is_empty() {
-            let playlist_id = playlists[0]["id"].as_str().unwrap();
+            let playlist_id = playlists[0]["playlist"]["id"].as_str().unwrap();
 
             // Query songs in the playlist
             let result = ctx.run_json(&[

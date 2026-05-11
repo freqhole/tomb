@@ -223,7 +223,7 @@ pub async fn get_combined_feed(
             fe.total_songs,
             fe.artist_name,
             fe.album_title,
-            COALESCE((SELECT g.name FROM json_each(fe.genres) je, genrez g WHERE g.id = json_extract(je.value, '$.id') LIMIT 1), NULL) as genre,
+            COALESCE((SELECT g.label FROM json_each(fe.genres) je, taxonz g WHERE g.id = json_extract(je.value, '$.id') LIMIT 1), NULL) as genre,
             COALESCE((SELECT json_extract(je.value, '$.id') FROM json_each(fe.genres) je LIMIT 1), NULL) as genre_id,
             fe.year,
             fe.song_count,

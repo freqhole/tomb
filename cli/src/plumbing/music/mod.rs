@@ -15,6 +15,7 @@ mod images;
 mod maintenance;
 mod musicbrainz;
 mod scan;
+mod taxonomy;
 mod user_favorites;
 mod user_ratings;
 
@@ -22,6 +23,7 @@ pub use fetch::FetchAction;
 pub use images::ImageAction;
 pub use musicbrainz::MusicBrainzAction;
 pub use scan::ScanAction;
+pub use taxonomy::TaxonomyAction;
 pub use user_favorites::FavoritesAction;
 pub use user_ratings::RatingsAction;
 
@@ -237,6 +239,12 @@ pub enum MusicAction {
         #[command(subcommand)]
         action: ScanAction,
     },
+    /// Cross-kind taxonomy operations (genre / mood / instrument / era /
+    /// key / location / label / bpm / loudness_db / energy / ...)
+    Taxonomy {
+        #[command(subcommand)]
+        action: TaxonomyAction,
+    },
 }
 
 /// Handle music commands
@@ -438,5 +446,6 @@ pub async fn handle_command(action: MusicAction) -> CommandOutput<serde_json::Va
         MusicAction::Ratings { action } => user_ratings::handle_command(action).await,
         MusicAction::Fetch { action } => fetch::handle_command(action).await,
         MusicAction::Scan { action } => scan::handle_command(action).await,
+        MusicAction::Taxonomy { action } => taxonomy::handle_command(action).await,
     }
 }

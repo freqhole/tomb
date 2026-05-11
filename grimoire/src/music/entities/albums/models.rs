@@ -1,6 +1,7 @@
 //! album domain models
 
 use crate::music::crud::{EntityUrl, ImageMetadata};
+use crate::music::entities::taxonomy::TaxonRef;
 use crate::JsonVec;
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
@@ -22,6 +23,10 @@ pub struct Album {
     pub release_date: Option<String>,
     pub label: Option<String>,
     pub genres: Option<JsonVec<GenreRef>>,
+    /// every taxon linked to this album, across all kinds (genre, label,
+    /// mood, era, region, ...). prefer this over `genres` for kind-aware
+    /// rendering. populated from `album_query_view.album_taxons`.
+    pub taxons: Option<JsonVec<TaxonRef>>,
     pub images: Option<JsonVec<ImageMetadata>>,
     pub urls: Option<JsonVec<EntityUrl>>,
     pub song_count: i64,

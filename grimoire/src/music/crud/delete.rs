@@ -115,13 +115,13 @@ pub async fn delete_genre_if_unused(genre_id: &str) -> GrimoireResponse<bool> {
         }
     };
 
-    // check if genre is used by any albums via junction table
+    // check if genre-taxon is used by any albums via taxon junction
     let album_count = match sqlx::query_scalar!(
         r#"
         SELECT COUNT(*) as "count!"
-        FROM album_genrez ag
+        FROM album_taxonz ag
         JOIN albumz a ON ag.album_id = a.id
-        WHERE ag.genre_id = ? AND a.deleted_at IS NULL
+        WHERE ag.taxon_id = ? AND a.deleted_at IS NULL
         "#,
         genre_id
     )
@@ -146,7 +146,7 @@ pub async fn delete_genre_if_unused(genre_id: &str) -> GrimoireResponse<bool> {
     let now = time::OffsetDateTime::now_utc().unix_timestamp();
     match sqlx::query!(
         r#"
-        UPDATE genrez
+        UPDATE taxonz
         SET deleted_at = ?, deleted_by = NULL
         WHERE id = ? AND deleted_at IS NULL
         "#,

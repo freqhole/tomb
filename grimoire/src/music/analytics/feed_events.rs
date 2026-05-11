@@ -393,8 +393,11 @@ pub async fn upsert_album_feed_event(
             COALESCE((SELECT json_group_array(json_object('blob_id', ai.media_blob_id, 'is_primary', ai.is_primary, 'blob_type', mb.blob_type))
              FROM album_imagez ai JOIN media_blobz mb ON ai.media_blob_id = mb.id
              WHERE ai.album_id = a.id AND mb.blob_type NOT IN ('waveform') AND ai.is_primary = 0), '[]') as "extra_images!: String",
-            COALESCE((SELECT json_group_array(json_object('id', g.id, 'name', g.name))
-             FROM album_genrez ag JOIN genrez g ON g.id = ag.genre_id WHERE ag.album_id = a.id), '[]') as "genres!: String",
+            COALESCE((SELECT json_group_array(json_object('id', g.id, 'name', g.label))
+             FROM album_taxonz ag
+             JOIN taxonz g ON g.id = ag.taxon_id
+             JOIN taxon_kindz k ON k.id = g.kind_id AND k.slug = 'genre'
+             WHERE ag.album_id = a.id), '[]') as "genres!: String",
             COALESCE((SELECT json_group_array(json_object('id', t.id, 'name', t.name))
              FROM album_tagz at JOIN tagz t ON t.id = at.tag_id WHERE at.album_id = a.id), '[]') as "tags!: String",
             COALESCE((SELECT json_group_array(s.id) FROM album_songz als JOIN songz s ON s.id = als.song_id WHERE als.album_id = a.id ORDER BY s.disc_number, s.track_number), '[]') as "song_ids!: String",
@@ -1371,10 +1374,11 @@ pub async fn create_image_feed_event(
                     s.duration,
                     (SELECT art.name FROM artist_songz asa JOIN artistz art ON art.id = asa.artist_id WHERE asa.song_id = s.id LIMIT 1) as "artist_name?: String",
                     (SELECT alb.title FROM album_songz als JOIN albumz alb ON alb.id = als.album_id WHERE als.song_id = s.id LIMIT 1) as "album_title?: String",
-                    (SELECT COALESCE(json_group_array(json_object('id', g.id, 'name', g.name)), '[]') 
+                    (SELECT COALESCE(json_group_array(json_object('id', g.id, 'name', g.label)), '[]') 
                      FROM album_songz als2 
-                     JOIN album_genrez ag ON ag.album_id = als2.album_id 
-                     JOIN genrez g ON g.id = ag.genre_id 
+                     JOIN album_taxonz ag ON ag.album_id = als2.album_id 
+                     JOIN taxonz g ON g.id = ag.taxon_id 
+                     JOIN taxon_kindz k ON k.id = g.kind_id AND k.slug = 'genre'
                      WHERE als2.song_id = s.id) as "genres_json!: String"
                 FROM songz s WHERE s.id = ?
                 "#,
@@ -1411,7 +1415,7 @@ pub async fn create_image_feed_event(
                     (SELECT art.name FROM artist_albumz aa JOIN artistz art ON art.id = aa.artist_id WHERE aa.album_id = a.id LIMIT 1) as "artist_name?: String",
                     (SELECT COUNT(*) FROM album_songz WHERE album_id = a.id) as "song_count!: i64",
                     (SELECT COALESCE(SUM(s.duration), 0) * 1000 FROM album_songz als JOIN songz s ON s.id = als.song_id WHERE als.album_id = a.id) as "total_duration_ms!: i64",
-                    (SELECT COALESCE(json_group_array(json_object('id', g.id, 'name', g.name)), '[]') FROM album_genrez ag JOIN genrez g ON g.id = ag.genre_id WHERE ag.album_id = a.id) as "genres_json!: String"
+                    (SELECT COALESCE(json_group_array(json_object('id', g.id, 'name', g.label)), '[]') FROM album_taxonz ag JOIN taxonz g ON g.id = ag.taxon_id JOIN taxon_kindz k ON k.id = g.kind_id AND k.slug = 'genre' WHERE ag.album_id = a.id) as "genres_json!: String"
                 FROM albumz a WHERE a.id = ?
                 "#,
                 entity_id
@@ -1803,8 +1807,11 @@ pub async fn handle_album_feed_reassignment(
                     COALESCE((SELECT json_group_array(json_object('blob_id', ai.media_blob_id, 'is_primary', ai.is_primary, 'blob_type', mb.blob_type))
                      FROM album_imagez ai JOIN media_blobz mb ON ai.media_blob_id = mb.id
                      WHERE ai.album_id = a.id AND mb.blob_type NOT IN ('waveform') AND ai.is_primary = 0), '[]') as "extra_images!: String",
-                    COALESCE((SELECT json_group_array(json_object('id', g.id, 'name', g.name))
-                     FROM album_genrez ag JOIN genrez g ON g.id = ag.genre_id WHERE ag.album_id = a.id), '[]') as "genres!: String",
+                    COALESCE((SELECT json_group_array(json_object('id', g.id, 'name', g.label))
+                     FROM album_taxonz ag
+                     JOIN taxonz g ON g.id = ag.taxon_id
+                     JOIN taxon_kindz k ON k.id = g.kind_id AND k.slug = 'genre'
+                     WHERE ag.album_id = a.id), '[]') as "genres!: String",
                     COALESCE((SELECT json_group_array(json_object('id', t.id, 'name', t.name))
                      FROM album_tagz at JOIN tagz t ON t.id = at.tag_id WHERE at.album_id = a.id), '[]') as "tags!: String",
                     COALESCE((SELECT json_group_array(s.id) FROM album_songz als JOIN songz s ON s.id = als.song_id WHERE als.album_id = a.id ORDER BY s.disc_number, s.track_number), '[]') as "song_ids!: String",

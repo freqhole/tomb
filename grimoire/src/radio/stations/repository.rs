@@ -167,12 +167,12 @@ pub async fn list_filters(station_id: &str) -> GrimoireResult<Vec<StationFilter>
         r#"SELECT f.id as "id!", f.station_id as "station_id!",
                   f.filter_type as "filter_type!",
                   COALESCE(f.artist_id, f.album_id, f.genre_id, f.tag_id, f.song_id, f.playlist_id) as "filter_value!: String",
-                  COALESCE(ar.name, al.title, g.name, t.name, s.title, p.title, '') as "filter_label!: String",
+                  COALESCE(ar.name, al.title, g.label, t.name, s.title, p.title, '') as "filter_label!: String",
                   f.mode as "mode!", f.created_at as "created_at!"
            FROM radio_station_filterz f
            LEFT JOIN artistz   ar ON ar.id = f.artist_id
            LEFT JOIN albumz    al ON al.id = f.album_id
-           LEFT JOIN genrez    g  ON g.id  = f.genre_id
+           LEFT JOIN taxonz    g  ON g.id  = f.genre_id
            LEFT JOIN tagz      t  ON t.id  = f.tag_id
            LEFT JOIN songz     s  ON s.id  = f.song_id
            LEFT JOIN playlistz p  ON p.id  = f.playlist_id
@@ -249,12 +249,12 @@ pub async fn add_filter(
         r#"SELECT f.id as "id!", f.station_id as "station_id!",
                   f.filter_type as "filter_type!",
                   COALESCE(f.artist_id, f.album_id, f.genre_id, f.tag_id, f.song_id, f.playlist_id) as "filter_value!: String",
-                  COALESCE(ar.name, al.title, g.name, t.name, s.title, p.title, '') as "filter_label!: String",
+                  COALESCE(ar.name, al.title, g.label, t.name, s.title, p.title, '') as "filter_label!: String",
                   f.mode as "mode!", f.created_at as "created_at!"
            FROM radio_station_filterz f
            LEFT JOIN artistz   ar ON ar.id = f.artist_id
            LEFT JOIN albumz    al ON al.id = f.album_id
-           LEFT JOIN genrez    g  ON g.id  = f.genre_id
+           LEFT JOIN taxonz    g  ON g.id  = f.genre_id
            LEFT JOIN tagz      t  ON t.id  = f.tag_id
            LEFT JOIN songz     s  ON s.id  = f.song_id
            LEFT JOIN playlistz p  ON p.id  = f.playlist_id
@@ -421,9 +421,9 @@ async fn song_ids_for_clause(
             Some(id) => {
                 sqlx::query_scalar!(
                     r#"SELECT DISTINCT als.song_id as "song_id!"
-                   FROM album_genrez ag
+                   FROM album_taxonz ag
                    JOIN album_songz als ON als.album_id = ag.album_id
-                   WHERE ag.genre_id = ?"#,
+                   WHERE ag.taxon_id = ?"#,
                     id
                 )
                 .fetch_all(pool)

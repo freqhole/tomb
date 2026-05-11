@@ -84,8 +84,8 @@ pub async fn cleanup_orphaned_tags(dry_run: bool) -> GrimoireResponse<OrphanedTa
 
 /// find and optionally delete orphaned genres
 ///
-/// orphaned genres are genres that exist in the `genrez` table but are not
-/// referenced by any album in the `album_genrez` junction table
+/// orphaned genres are genre-kind taxons that exist in the `taxonz` table
+/// but are not referenced by any album in the `album_taxonz` junction table
 pub async fn cleanup_orphaned_genres(dry_run: bool) -> GrimoireResponse<OrphanedGenresSummary> {
     let pool = match database::connect().await {
         Ok(p) => p,
@@ -94,12 +94,13 @@ pub async fn cleanup_orphaned_genres(dry_run: bool) -> GrimoireResponse<Orphaned
         }
     };
 
-    // find orphaned genres (not used by any album via album_genrez)
+    // find orphaned genre-taxons (not used by any album via album_taxonz)
     let orphaned_genres = match sqlx::query!(
         r#"
-        SELECT id, name FROM genrez
-        WHERE id NOT IN (SELECT DISTINCT genre_id FROM album_genrez)
-        ORDER BY name
+        SELECT t.id as "id!", t.label as "name!" FROM taxonz t
+        JOIN taxon_kindz k ON k.id = t.kind_id AND k.slug = 'genre'
+        WHERE t.id NOT IN (SELECT DISTINCT taxon_id FROM album_taxonz)
+        ORDER BY t.label
         "#
     )
     .fetch_all(&pool)
@@ -118,7 +119,7 @@ pub async fn cleanup_orphaned_genres(dry_run: bool) -> GrimoireResponse<Orphaned
 
     if !dry_run && !orphaned_genres.is_empty() {
         for row in orphaned_genres {
-            match sqlx::query!("DELETE FROM genrez WHERE id = ?", row.id)
+            match sqlx::query!("DELETE FROM taxonz WHERE id = ?", row.id)
                 .execute(&pool)
                 .await
             {

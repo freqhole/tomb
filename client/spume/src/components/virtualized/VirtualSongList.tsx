@@ -472,9 +472,16 @@ export function VirtualSongList(props: VirtualSongListProps) {
                       padClass={CELL_PAD}
                       isHovering={isHovered()}
                     />
-                    {/* genres */}
+                    {/* genres + non-genre taxons (label, mood, era, ...) */}
                     <MarqueeText
-                      text={song.album_genres?.map((g) => g.name)?.join(", ") || ""}
+                      text={
+                        [
+                          ...(song.album_genres?.map((g) => g.name) ?? []),
+                          ...(song.album_taxons
+                            ?.filter((t) => t.kind_slug !== "genre")
+                            .map((t) => `${t.kind_slug}·${t.label}`) ?? []),
+                        ].join(", ") || ""
+                      }
                       class={`${colWidth.genres()} shrink-0 text-sm text-[var(--color-text-tertiary)] text-center`}
                       padClass={CELL_PAD}
                       isHovering={isHovered()}

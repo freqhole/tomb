@@ -109,8 +109,15 @@ export function AlbumsView(props: AlbumsViewProps) {
 
     // map AlbumSummary to CollectionCardData format
     return allAlbums.map((album) => {
-      // format genres (GenreRef[] -> string)
-      const genreText = (album.genres || []).map((g) => g.name).join(" • ") || null;
+      // format genres (GenreRef[] -> string), augmented with non-genre
+      // taxons (label, mood, era, ...) so cross-kind classification is
+      // visible at a glance in the grid.
+      const genreNames = (album.genres || []).map((g) => g.name);
+      const otherTaxonLabels = (album.taxons || [])
+        .filter((t) => t.kind_slug !== "genre")
+        .map((t) => `${t.kind_slug}·${t.label}`);
+      const allLabels = [...genreNames, ...otherTaxonLabels];
+      const genreText = allLabels.length > 0 ? allLabels.join(" • ") : null;
 
       // extract year from release_date (YYYY, YYYY-MM, or YYYY-MM-DD)
       const year = album.release_date

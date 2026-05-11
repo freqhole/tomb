@@ -5,7 +5,7 @@ import {
   useArtistContextMenu,
   useSongContextMenu,
 } from "../../music/hooks/contextMenu";
-import type { Song, ImageMetadata, GenreRef } from "../../music/services/storage/types";
+import type { Song, ImageMetadata, GenreRef, TaxonRef } from "../../music/services/storage/types";
 import { getArtistAbbreviation } from "../../music/utils/format";
 import { AlbumSection } from "../albums/AlbumSection";
 import { Button } from "../buttons/Button";
@@ -50,6 +50,7 @@ interface AlbumGroup {
   rating?: number;
   genre?: string | null;
   genres?: GenreRef[];
+  taxons?: TaxonRef[];
   tags?: string[];
 }
 
@@ -125,6 +126,7 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
           rating: song.album_rating,
           genre: song.album_primary_genre_name,
           genres: song.album_genres,
+          taxons: song.album_taxons,
           tags: song.album_tags,
         });
       } else if (
@@ -327,8 +329,12 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
                     size="sm"
                     onClick={() =>
                       void showStationSelector(
-                        { kind: "artist", artistId: props.artist.artist_id, artistName: props.artist.name },
-                        getCurrentRemote()?.remote_id,
+                        {
+                          kind: "artist",
+                          artistId: props.artist.artist_id,
+                          artistName: props.artist.name,
+                        },
+                        getCurrentRemote()?.remote_id
                       )
                     }
                   >
@@ -489,8 +495,12 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
                     size="sm"
                     onClick={() =>
                       void showStationSelector(
-                        { kind: "artist", artistId: props.artist.artist_id, artistName: props.artist.name },
-                        getCurrentRemote()?.remote_id,
+                        {
+                          kind: "artist",
+                          artistId: props.artist.artist_id,
+                          artistName: props.artist.name,
+                        },
+                        getCurrentRemote()?.remote_id
                       )
                     }
                   >
@@ -578,6 +588,7 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
                     rating={album().rating}
                     genre={album().genre}
                     genres={album().genres}
+                    taxons={album().taxons}
                     tags={album().tags}
                     onRatingChange={(rating) =>
                       props.onAlbumRatingChange?.(album().albumId, rating)

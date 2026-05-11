@@ -53,6 +53,13 @@ export interface GenreRef {
   name: string;
 }
 
+// taxon reference (cross-kind label: genre, label, mood, era, region, ...)
+export interface TaxonRef {
+  id: string;
+  kind_slug: string;
+  label: string;
+}
+
 // ===== SONGS TABLE =====
 export interface Song {
   /** local database primary key (auto-increment converted to string) */
@@ -99,6 +106,7 @@ export interface Song {
   album_rating?: number; // user's rating for the album this song belongs to (1-5)
   album_tags?: string[]; // tags applied to the album this song belongs to
   album_genres?: GenreRef[]; // genres for the album this song belongs to (array with id+name)
+  album_taxons?: TaxonRef[]; // every taxon linked to this song's album, across all kinds
   album_images?: ImageMetadata[]; // images associated with the album this song belongs to
   artist_images?: ImageMetadata[]; // images associated with the artist this song belongs to
 
@@ -208,6 +216,7 @@ export interface AlbumQueryResult {
   song_count: number;
   total_duration: number;
   genres?: GenreRef[];
+  taxons?: TaxonRef[];
 }
 
 // artist with aggregated stats

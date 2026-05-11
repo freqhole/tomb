@@ -1,7 +1,7 @@
 // reusable album section component for displaying an album with its songs
 import { For, type JSX } from "solid-js";
 import { PlayIcon, AddStrokeIcon } from "../icons/registry";
-import type { Song, GenreRef } from "../../music/data/types";
+import type { Song, GenreRef, TaxonRef } from "../../music/data/types";
 import type { ImageMetadata } from "../../music/services/storage/types";
 import { formatDuration, formatHumanDuration } from "../../utils/formatDuration";
 import { ContextMenu, type MenuAction } from "../overlays/ContextMenu";
@@ -37,6 +37,8 @@ export interface AlbumSectionProps {
   genre?: string | null;
   /** album genres */
   genres?: GenreRef[];
+  /** every taxon linked to this album, across all kinds */
+  taxons?: TaxonRef[];
   /** album tags */
   tags?: string[];
   /** rating change handler */
@@ -76,6 +78,7 @@ function AlbumHeader(props: {
   rating?: number;
   genre?: string | null;
   genres?: GenreRef[];
+  taxons?: TaxonRef[];
   tags?: string[];
   onAlbumClick?: () => void;
   onPlayAlbum?: () => void;
@@ -88,6 +91,13 @@ function AlbumHeader(props: {
     const parts: string[] = [];
     if (props.genre) parts.push(props.genre);
     if (props.genres) parts.push(...props.genres.map((g) => g.name));
+    if (props.taxons) {
+      parts.push(
+        ...props.taxons
+          .filter((t) => t.kind_slug !== "genre")
+          .map((t) => `${t.kind_slug}·${t.label}`)
+      );
+    }
     if (props.tags) parts.push(...props.tags.map((t) => `#${t}`));
     return parts.join(" · ");
   };
@@ -273,6 +283,7 @@ export function AlbumSection(props: AlbumSectionProps): JSX.Element {
               rating={props.rating}
               genre={props.genre}
               genres={props.genres}
+              taxons={props.taxons}
               tags={props.tags}
               onAlbumClick={handleAlbumClick}
               onPlayAlbum={props.onPlayAlbum}

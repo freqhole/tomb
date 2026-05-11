@@ -224,6 +224,11 @@ export const AlbumSchema = z.object({
   id: z.string(),
   name: z.string()
 })).nullish(),
+  taxons: z.array(z.object({
+  id: z.string(),
+  kind_slug: z.string(),
+  label: z.string()
+})).nullish(),
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
@@ -394,6 +399,11 @@ export const AlbumQueryResultSchema = z.object({
   id: z.string(),
   name: z.string()
 })).nullish(),
+  taxons: z.array(z.object({
+  id: z.string(),
+  kind_slug: z.string(),
+  label: z.string()
+})).nullish(),
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
@@ -502,6 +512,11 @@ export const AlbumsQueryResultSchema = z.object({
   genres: z.array(z.object({
   id: z.string(),
   name: z.string()
+})).nullish(),
+  taxons: z.array(z.object({
+  id: z.string(),
+  kind_slug: z.string(),
+  label: z.string()
 })).nullish(),
   images: z.array(z.object({
   blob_id: z.string(),
@@ -1013,6 +1028,11 @@ export const FavoriteAlbumResultSchema = z.object({
   id: z.string(),
   name: z.string()
 })).nullish(),
+  taxons: z.array(z.object({
+  id: z.string(),
+  kind_slug: z.string(),
+  label: z.string()
+})).nullish(),
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
@@ -1185,6 +1205,11 @@ export const FavoriteItemSchema = z.union([z.intersection(z.object({
   id: z.string(),
   name: z.string()
 })).nullish(),
+  taxons: z.array(z.object({
+  id: z.string(),
+  kind_slug: z.string(),
+  label: z.string()
+})).nullish(),
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
@@ -1267,6 +1292,11 @@ export const FavoriteItemSchema = z.union([z.intersection(z.object({
   genres: z.array(z.object({
   id: z.string(),
   name: z.string()
+})).nullish(),
+  taxons: z.array(z.object({
+  id: z.string(),
+  kind_slug: z.string(),
+  label: z.string()
 })).nullish(),
   images: z.array(z.object({
   blob_id: z.string(),
@@ -1505,6 +1535,11 @@ export const FavoriteSongResultSchema = z.object({
   genres: z.array(z.object({
   id: z.string(),
   name: z.string()
+})).nullish(),
+  taxons: z.array(z.object({
+  id: z.string(),
+  kind_slug: z.string(),
+  label: z.string()
 })).nullish(),
   images: z.array(z.object({
   blob_id: z.string(),
@@ -2116,6 +2151,11 @@ export const ListFavoritesResponseSchema = z.object({
   id: z.string(),
   name: z.string()
 })).nullish(),
+  taxons: z.array(z.object({
+  id: z.string(),
+  kind_slug: z.string(),
+  label: z.string()
+})).nullish(),
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
@@ -2198,6 +2238,11 @@ export const ListFavoritesResponseSchema = z.object({
   genres: z.array(z.object({
   id: z.string(),
   name: z.string()
+})).nullish(),
+  taxons: z.array(z.object({
+  id: z.string(),
+  kind_slug: z.string(),
+  label: z.string()
 })).nullish(),
   images: z.array(z.object({
   blob_id: z.string(),
@@ -2988,6 +3033,11 @@ export const PlaylistSongResultSchema = z.object({
   id: z.string(),
   name: z.string()
 })).nullish(),
+  taxons: z.array(z.object({
+  id: z.string(),
+  kind_slug: z.string(),
+  label: z.string()
+})).nullish(),
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
@@ -3125,6 +3175,11 @@ export const PlaylistSongsQueryResultSchema = z.object({
   genres: z.array(z.object({
   id: z.string(),
   name: z.string()
+})).nullish(),
+  taxons: z.array(z.object({
+  id: z.string(),
+  kind_slug: z.string(),
+  label: z.string()
 })).nullish(),
   images: z.array(z.object({
   blob_id: z.string(),
@@ -4035,6 +4090,11 @@ export const SongQueryResultSchema = z.object({
   id: z.string(),
   name: z.string()
 })).nullish(),
+  taxons: z.array(z.object({
+  id: z.string(),
+  kind_slug: z.string(),
+  label: z.string()
+})).nullish(),
   images: z.array(z.object({
   blob_id: z.string(),
   is_primary: z.number(),
@@ -4190,6 +4250,11 @@ export const SongsQueryResultSchema = z.object({
   genres: z.array(z.object({
   id: z.string(),
   name: z.string()
+})).nullish(),
+  taxons: z.array(z.object({
+  id: z.string(),
+  kind_slug: z.string(),
+  label: z.string()
 })).nullish(),
   images: z.array(z.object({
   blob_id: z.string(),
@@ -4745,6 +4810,11 @@ export const UpdateSongsResultSchema = z.object({
   genres: z.array(z.object({
   id: z.string(),
   name: z.string()
+})).nullish(),
+  taxons: z.array(z.object({
+  id: z.string(),
+  kind_slug: z.string(),
+  label: z.string()
 })).nullish(),
   images: z.array(z.object({
   blob_id: z.string(),

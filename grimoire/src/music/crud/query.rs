@@ -174,6 +174,7 @@ pub struct SongViewRow {
     album_created_by: Option<String>,
     album_updated_by: Option<String>,
     album_genres: Option<String>, // JSON array of {id, name} objects from view
+    album_taxons: Option<String>, // JSON array of {id, kind_slug, label, ...} from view
     album_tags: Option<String>,   // JSON array of tag names from view
     album_images: Option<String>, // JSON array from album_imagez
     // User context fields from view joins
@@ -219,6 +220,15 @@ impl SongViewRow {
         let album_genres = self
             .album_genres
             .and_then(|json_str| serde_json::from_str::<Vec<GenreRef>>(&json_str).ok())
+            .map(crate::JsonVec);
+
+        // parse album taxons JSON array (cross-kind labels)
+        let album_taxons = self
+            .album_taxons
+            .and_then(|json_str| {
+                serde_json::from_str::<Vec<crate::music::entities::taxonomy::TaxonRef>>(&json_str)
+                    .ok()
+            })
             .map(crate::JsonVec);
 
         // parse album images JSON array
@@ -286,6 +296,7 @@ impl SongViewRow {
                 release_date: self.album_release_date,
                 label: self.album_label,
                 genres: album_genres,
+                taxons: album_taxons,
                 images: album_images,
                 urls: None,
                 song_count: self.album_song_count.unwrap_or(0),
@@ -494,6 +505,7 @@ pub struct AlbumViewRow {
     album_created_by_username: Option<String>,
     album_updated_by_username: Option<String>,
     album_genres: Option<String>, // JSON array of {id, name} objects from view
+    album_taxons: Option<String>, // JSON array of {id, kind_slug, label, ...} from view
     album_images: Option<String>, // JSON array from view
     album_tags: Option<String>,   // JSON array of tag names from view
     album_urls: Option<String>,   // JSON array of entity URLs from view
@@ -573,6 +585,22 @@ impl AlbumViewRow {
             }
         });
 
+        // parse album taxons JSON array (cross-kind labels)
+        let album_taxons = self.album_taxons.and_then(|json_str| {
+            match serde_json::from_str::<Vec<crate::music::entities::taxonomy::TaxonRef>>(&json_str)
+            {
+                Ok(taxons) => Some(crate::JsonVec(taxons)),
+                Err(e) => {
+                    tracing::warn!(
+                        "failed to parse album taxons JSON: {} - error: {}",
+                        json_str,
+                        e
+                    );
+                    None
+                }
+            }
+        });
+
         // parse artist images JSON array
         let artist_images = self
             .artist_images
@@ -592,6 +620,7 @@ impl AlbumViewRow {
             release_date: self.album_release_date,
             label: self.album_label,
             genres: album_genres,
+            taxons: album_taxons,
             images: images.clone().map(crate::JsonVec),
             urls: album_urls,
             song_count: self.album_song_count.unwrap_or(0),

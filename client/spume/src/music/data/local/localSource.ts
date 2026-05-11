@@ -856,7 +856,6 @@ export class LocalMusicDataSource implements MusicDataSource {
     label?: string;
     genre_id?: string;
     genre?: string;
-    sub_genres?: string[];
     year?: number;
   }): Promise<void> {
     // if genre name is provided without id, create/fetch genre first
@@ -877,22 +876,6 @@ export class LocalMusicDataSource implements MusicDataSource {
     if (params.year !== undefined) updates.year = params.year;
     
     await updateAlbum(params.album_id, updates);
-    
-    // if sub_genres were provided, update all songs in this album
-    if (params.sub_genres !== undefined) {
-      const db = await initMusicDB();
-      const allSongs = await db.getAll(STORE_SONGS);
-      const albumSongs = allSongs.filter(song => song.album_id === params.album_id);
-      
-      for (const song of albumSongs) {
-        const updated = {
-          ...song,
-          album_sub_genres: params.sub_genres,
-          updated_at: Date.now(),
-        };
-        await db.put(STORE_SONGS, updated);
-      }
-    }
   }
 
   async updateSong(params: {
@@ -904,8 +887,6 @@ export class LocalMusicDataSource implements MusicDataSource {
     album_id?: string | null;
     genre?: string | null;
     genre_id?: string | null;
-    sub_genre_ids?: string[] | null;
-    sub_genres?: string[] | null;
     track_number?: number | null;
     disc_number?: number | null;
     year?: number | null;

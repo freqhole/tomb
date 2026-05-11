@@ -325,6 +325,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
           release_date: item.album.release_date ?? undefined,
           label: item.album.label ?? undefined,
           genres: item.album.genres ?? undefined,
+          taxons: item.album.taxons ?? undefined,
           song_count: item.album.song_count,
           total_duration: item.album.total_duration,
           images: item.images && item.images.length > 0
@@ -872,6 +873,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
               release_date: apiFav.album.album.release_date || undefined,
               label: apiFav.album.album.label || undefined,
               genres: apiFav.album.album.genres || undefined,
+              taxons: apiFav.album.album.taxons || undefined,
               song_count: apiFav.album.album.song_count,
               total_duration: apiFav.album.album.total_duration,
               images: apiFav.album.images && apiFav.album.images.length > 0

@@ -43,6 +43,13 @@ export interface GenreRef {
   name: string;
 }
 
+// taxon reference (cross-kind label: genre, label, mood, era, region, ...)
+export interface TaxonRef {
+  id: string;
+  kind_slug: string;
+  label: string;
+}
+
 // clean entity URL type for app use (adapter filters out incomplete entries)
 export interface EntityUrl {
   id: string;
@@ -61,6 +68,9 @@ export interface AlbumSummary {
   release_date?: string;
   label?: string;
   genres?: GenreRef[];
+  /** every taxon linked to this album, across all kinds. prefer over
+   *  `genres` for kind-aware rendering (chips grouped by kind). */
+  taxons?: TaxonRef[];
   song_count: number;
   total_duration: number;
   images?: ImageMetadata[];
@@ -389,8 +399,6 @@ export interface MusicDataSource {
     album_id?: string | null;
     genre?: string | null;
     genre_id?: string | null;
-    sub_genre_ids?: string[] | null;
-    sub_genres?: string[] | null;
     track_number?: number | null;
     disc_number?: number | null;
     year?: number | null;
