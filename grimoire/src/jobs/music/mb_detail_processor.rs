@@ -1,0 +1,391 @@
+//! musicbrainz album-detail job processor (phase 8)
+//!
+//! one job per confirmed album. flow:
+//! 1. mark `mb_lookup_status = FetchingDetail`.
+//! 2. fetch release-group with `+genres+tags+artist-credits`.
+//! 3. if a release_id is present, also fetch the release with
+//!    `+genres+tags+...`.
+//! 4. map MB `Tag`/`Genre` rows -> `FolksonomyTag` and stuff them into a
+//!    single `MbFolksonomy` blob (release_genres / release_tags /
+//!    release_group_genres / release_group_tags + fetched_at).
+//! 5. merge via `patch_mb_folksonomy` so writes stay centralized.
+//! 6. flip status to `Enriched` (or `Error` on failure).
+//!
+//! heuristics like top-K folksonomy summaries are computed at read time
+//! by callers; this processor just persists the raw lists.
+
+use crate::config;
+use crate::jobs::models::{Job, JobError};
+use crate::music::entities::albums as albums_repo;
+use crate::music::entities::albums::metadata::{self, FolksonomyTag, MbFolksonomy, MbLookupStatus};
+use crate::music::musicbrainz::models::{Genre, Tag};
+use crate::music::musicbrainz::MusicBrainzClient;
+use serde_json::Value;
+use tracing::info;
+
+use super::models::{MbAlbumDetailParams, MbAlbumDetailResult};
+
+pub async fn process_mb_album_detail_job(job: &Job) -> Result<Option<Value>, JobError> {
+    let params: MbAlbumDetailParams =
+        serde_json::from_str(&job.parameters).map_err(|e| JobError::ProcessingFailed {
+            reason: format!("invalid parameters: {}", e),
+        })?;
+
+    let album_id = params.album_id.clone();
+    info!(
+        "mb album-detail starting for album {} rg={} release={:?}",
+        album_id, params.release_group_id, params.release_id
+    );
+
+    // step 1: mark fetching (best-effort)
+    let _ = albums_repo::update_mb_lookup_status(
+        &album_id,
+        MbLookupStatus::FetchingDetail,
+        job.created_by.as_deref(),
+    )
+    .await;
+
+    // step 2: build client
+    let cfg = config::get_config();
+    let client = match MusicBrainzClient::new(cfg.musicbrainz.clone()) {
+        Ok(c) => c,
+        Err(e) => {
+            let _ = albums_repo::update_mb_lookup_status(
+                &album_id,
+                MbLookupStatus::Error,
+                job.created_by.as_deref(),
+            )
+            .await;
+            return Err(JobError::ProcessingFailed {
+                reason: format!("musicbrainz client unavailable: {}", e),
+            });
+        }
+    };
+
+    // step 3: fetch release-group
+    let rg_resp = client.get_release_group(&params.release_group_id).await;
+    if !rg_resp.success {
+        let _ = albums_repo::update_mb_lookup_status(
+            &album_id,
+            MbLookupStatus::Error,
+            job.created_by.as_deref(),
+        )
+        .await;
+        return Err(JobError::ProcessingFailed {
+            reason: format!("mb release-group fetch failed: {}", rg_resp.message),
+        });
+    }
+    let rg = rg_resp.data.ok_or_else(|| JobError::ProcessingFailed {
+        reason: "mb release-group response empty".to_string(),
+    })?;
+
+    let release_group_genres = map_genres(rg.genres.as_deref());
+    let release_group_tags = map_tags(rg.tags.as_deref());
+
+    info!(
+        "mb release-group {} title={:?} primary_type={:?} secondary_types={:?} first_release_date={:?} artist_credits={}",
+        rg.id,
+        rg.title,
+        rg.primary_type,
+        rg.secondary_types,
+        rg.first_release_date,
+        format_artist_credits(rg.artist_credit.as_deref()),
+    );
+    info!(
+        "  rg genres ({}): {}",
+        release_group_genres.len(),
+        format_folksonomy_top(&release_group_genres, 10)
+    );
+    info!(
+        "  rg tags ({}): {}",
+        release_group_tags.len(),
+        format_folksonomy_top(&release_group_tags, 10)
+    );
+
+    // step 4: optionally fetch release
+    let (release_genres, release_tags) = if let Some(release_id) = params.release_id.as_deref() {
+        let r_resp = client.get_release(release_id).await;
+        if r_resp.success {
+            let r = r_resp.data.unwrap();
+            let r_genres = map_genres(r.genres.as_deref());
+            let r_tags = map_tags(r.tags.as_deref());
+            info!(
+                "mb release {} title={:?} status={:?} packaging={:?} country={:?} date={:?} text_repr={:?}",
+                r.id,
+                r.title,
+                r.status,
+                r.packaging,
+                r.country,
+                r.date,
+                r.text_representation,
+            );
+            info!(
+                "  release labels: {}",
+                format_label_info(r.label_info.as_deref())
+            );
+            info!("  release media: {}", format_media(r.media.as_deref()));
+            info!("  release cover_art: {:?}", r.cover_art_archive);
+            info!(
+                "  release genres ({}): {}",
+                r_genres.len(),
+                format_folksonomy_top(&r_genres, 10)
+            );
+            info!(
+                "  release tags ({}): {}",
+                r_tags.len(),
+                format_folksonomy_top(&r_tags, 10)
+            );
+            (r_genres, r_tags)
+        } else {
+            // release fetch failure is non-fatal; we still have release-group
+            // data. log and continue.
+            info!(
+                "mb release fetch failed for {} (continuing with rg-only): {}",
+                release_id, r_resp.message
+            );
+            (Vec::new(), Vec::new())
+        }
+    } else {
+        (Vec::new(), Vec::new())
+    };
+
+    let folksonomy = MbFolksonomy {
+        release_genres,
+        release_tags,
+        release_group_genres,
+        release_group_tags,
+        fetched_at: Some(time::OffsetDateTime::now_utc().unix_timestamp()),
+    };
+
+    // mb has no dedicated "mood" field — moods live in the same folksonomy
+    // tag pool as everything else. surface them so we can see what's
+    // available before deciding whether to extract them into a first-class
+    // dimension. matches against a (deliberately-loose) list of common mood
+    // tags applied to releases on musicbrainz.
+    let mood_hits = collect_mood_hits(&folksonomy);
+    if !mood_hits.is_empty() {
+        info!(
+            "  mood-like tags ({}): {}",
+            mood_hits.len(),
+            format_folksonomy_top(&mood_hits, mood_hits.len())
+        );
+    } else {
+        info!("  mood-like tags: (none detected)");
+    }
+
+    let result_summary = MbAlbumDetailResult {
+        album_id: album_id.clone(),
+        release_genre_count: folksonomy.release_genres.len() as u64,
+        release_tag_count: folksonomy.release_tags.len() as u64,
+        release_group_genre_count: folksonomy.release_group_genres.len() as u64,
+        release_group_tag_count: folksonomy.release_group_tags.len() as u64,
+        final_status: MbLookupStatus::Enriched.as_str().to_string(),
+    };
+
+    // step 5: merge folksonomy patch
+    let patch = metadata::patch_mb_folksonomy(&folksonomy);
+    let merge_resp = albums_repo::merge_album_metadata(&album_id, &patch).await;
+    if !merge_resp.success {
+        let _ = albums_repo::update_mb_lookup_status(
+            &album_id,
+            MbLookupStatus::Error,
+            job.created_by.as_deref(),
+        )
+        .await;
+        return Err(JobError::ProcessingFailed {
+            reason: format!("metadata merge failed: {}", merge_resp.message),
+        });
+    }
+
+    // step 6: flip status to enriched
+    let _ = albums_repo::update_mb_lookup_status(
+        &album_id,
+        MbLookupStatus::Enriched,
+        job.created_by.as_deref(),
+    )
+    .await;
+
+    info!(
+        "mb album-detail complete for {}: rg_genres={} rg_tags={} r_genres={} r_tags={}",
+        album_id,
+        result_summary.release_group_genre_count,
+        result_summary.release_group_tag_count,
+        result_summary.release_genre_count,
+        result_summary.release_tag_count,
+    );
+
+    Ok(Some(serde_json::to_value(result_summary).map_err(|e| {
+        JobError::ProcessingFailed {
+            reason: format!("serialize result: {}", e),
+        }
+    })?))
+}
+
+fn map_tags(src: Option<&[Tag]>) -> Vec<FolksonomyTag> {
+    src.map(|list| {
+        list.iter()
+            .map(|t| FolksonomyTag {
+                name: t.name.clone(),
+                count: t.count.unwrap_or(0) as i32,
+            })
+            .collect()
+    })
+    .unwrap_or_default()
+}
+
+fn map_genres(src: Option<&[Genre]>) -> Vec<FolksonomyTag> {
+    src.map(|list| {
+        list.iter()
+            .map(|g| FolksonomyTag {
+                name: g.name.clone(),
+                count: g.count.unwrap_or(0) as i32,
+            })
+            .collect()
+    })
+    .unwrap_or_default()
+}
+
+// ---------------------------------------------------------------------------
+// log formatting helpers (info-level only, no debug! per ux directive)
+// ---------------------------------------------------------------------------
+
+fn format_folksonomy_top(tags: &[FolksonomyTag], n: usize) -> String {
+    if tags.is_empty() {
+        return "(none)".to_string();
+    }
+    let mut sorted: Vec<&FolksonomyTag> = tags.iter().collect();
+    sorted.sort_by(|a, b| b.count.cmp(&a.count).then_with(|| a.name.cmp(&b.name)));
+    sorted
+        .into_iter()
+        .take(n)
+        .map(|t| format!("{}({})", t.name, t.count))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+fn format_artist_credits(
+    src: Option<&[crate::music::musicbrainz::models::ArtistCredit]>,
+) -> String {
+    match src {
+        None => "(none)".to_string(),
+        Some(list) => list
+            .iter()
+            .map(|c| {
+                let join = c.joinphrase.clone().unwrap_or_default();
+                format!("{}{}", c.name, join)
+            })
+            .collect::<String>(),
+    }
+}
+
+fn format_label_info(src: Option<&[crate::music::musicbrainz::models::LabelInfo]>) -> String {
+    match src {
+        None => "(none)".to_string(),
+        Some(list) if list.is_empty() => "(none)".to_string(),
+        Some(list) => list
+            .iter()
+            .map(|li| {
+                let label = li.label.as_ref().map(|l| l.name.as_str()).unwrap_or("?");
+                let cat = li.catalog_number.as_deref().unwrap_or("-");
+                format!("{} [{}]", label, cat)
+            })
+            .collect::<Vec<_>>()
+            .join(", "),
+    }
+}
+
+fn format_media(src: Option<&[crate::music::musicbrainz::models::Medium]>) -> String {
+    match src {
+        None => "(none)".to_string(),
+        Some(list) if list.is_empty() => "(none)".to_string(),
+        Some(list) => list
+            .iter()
+            .map(|m| {
+                let format = m.format.as_deref().unwrap_or("?");
+                let count = m
+                    .track_count
+                    .or_else(|| m.tracks.as_ref().map(|t| t.len() as u32))
+                    .unwrap_or(0);
+                format!("{}x{}", format, count)
+            })
+            .collect::<Vec<_>>()
+            .join(", "),
+    }
+}
+
+/// rough mood detector. mb's folksonomy is freeform so this is a best-effort
+/// match against common mood vocabulary; misses are expected.
+fn collect_mood_hits(folksonomy: &MbFolksonomy) -> Vec<FolksonomyTag> {
+    const MOOD_TERMS: &[&str] = &[
+        "angry",
+        "atmospheric",
+        "calm",
+        "cathartic",
+        "cheerful",
+        "chill",
+        "contemplative",
+        "dark",
+        "dreamy",
+        "driving",
+        "energetic",
+        "epic",
+        "ethereal",
+        "euphoric",
+        "feelgood",
+        "happy",
+        "haunting",
+        "hopeful",
+        "hypnotic",
+        "introspective",
+        "laid-back",
+        "lonely",
+        "longing",
+        "melancholic",
+        "melancholy",
+        "mellow",
+        "meditative",
+        "moody",
+        "nostalgic",
+        "ominous",
+        "peaceful",
+        "playful",
+        "reflective",
+        "relaxing",
+        "romantic",
+        "sad",
+        "sensual",
+        "sentimental",
+        "serene",
+        "soothing",
+        "spacey",
+        "spiritual",
+        "sweet",
+        "tense",
+        "trippy",
+        "uplifting",
+        "warm",
+        "yearning",
+    ];
+    let mut hits: Vec<FolksonomyTag> = Vec::new();
+    let mut seen: std::collections::HashMap<String, i32> = std::collections::HashMap::new();
+    let pools = [
+        &folksonomy.release_tags,
+        &folksonomy.release_group_tags,
+        &folksonomy.release_genres,
+        &folksonomy.release_group_genres,
+    ];
+    for pool in pools {
+        for tag in pool.iter() {
+            let key = tag.name.to_lowercase();
+            if MOOD_TERMS.contains(&key.as_str()) {
+                let entry = seen.entry(key.clone()).or_insert(0);
+                *entry += tag.count.max(1);
+            }
+        }
+    }
+    for (name, count) in seen {
+        hits.push(FolksonomyTag { name, count });
+    }
+    hits.sort_by(|a, b| b.count.cmp(&a.count).then_with(|| a.name.cmp(&b.name)));
+    hits
+}

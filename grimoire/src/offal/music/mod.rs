@@ -81,6 +81,9 @@ pub async fn dispatch(
         "/api/albums/update" => Some(albums::update(caller, body.clone()).await),
         "/api/albums/mb-confirm" => Some(albums::confirm_mb_match(caller, body.clone()).await),
         "/api/albums/mb-reject" => Some(albums::reject_mb_match(caller, body.clone()).await),
+        "/api/albums/mb-auto-confirm" => {
+            Some(albums::auto_confirm_mb_matches(caller, body.clone()).await)
+        }
 
         // artists
         "/api/artists/query" => Some(artists::query(caller, body.clone()).await),

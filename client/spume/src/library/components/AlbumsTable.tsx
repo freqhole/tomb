@@ -18,13 +18,17 @@ import MediaImage from "../../components/media/MediaImage";
 import {
   MB_LOOKUP_STATUSES,
   mbLookupStatusLabel,
+  parseAlbumMetadata,
   parseMbLookupStatus,
+  topFolksonomyTags,
   type MbLookupStatus,
 } from "../data/albumMetadata";
 import { useLibraryAlbumsQuery } from "../queries/useLibraryAlbums";
 import { handleAlbumClick, isAlbumSelected, updateAlbumIdList } from "../hooks/albumSelection";
 import { useInflightJobs } from "../hooks/useMbLookupJobs";
 import { AlbumCandidatesPanel } from "./AlbumCandidatesPanel";
+import { getClientForRemote } from "../../app/api/client";
+import { queryClient } from "../../queryClient";
 import type { AlbumSummary } from "../../music/data/types";
 
 type SortField = "title" | "artist" | "year" | "song_count" | "added_at";
@@ -50,6 +54,21 @@ export function AlbumsTable(props: AlbumsTableProps) {
   const [statusFilters, setStatusFilters] = createSignal<Set<MbLookupStatus>>(new Set());
   const [sortField, setSortField] = createSignal<SortField>("added_at");
   const [sortDirection, setSortDirection] = createSignal<"asc" | "desc">("desc");
+
+  // auto-confirm controls (admin bulk action)
+  const [minConfidence, setMinConfidence] = createSignal(0.9);
+  const [minGap, setMinGap] = createSignal(0.15);
+  type AutoConfirmState =
+    | { kind: "idle" }
+    | { kind: "running" }
+    | {
+        kind: "done";
+        confirmed: number;
+        skipped: number;
+        errors: number;
+      }
+    | { kind: "error"; message: string };
+  const [autoConfirm, setAutoConfirm] = createSignal<AutoConfirmState>({ kind: "idle" });
 
   // simple debounce on the search input
   let searchTimer: ReturnType<typeof setTimeout> | undefined;
@@ -103,6 +122,36 @@ export function AlbumsTable(props: AlbumsTableProps) {
   const clearStatusFilters = () => setStatusFilters(new Set<MbLookupStatus>());
 
   const toggleSortDirection = () => setSortDirection((prev) => (prev === "asc" ? "desc" : "asc"));
+
+  const runAutoConfirm = async () => {
+    const ids = filteredItems().map((a) => a.album_id);
+    if (ids.length === 0) return;
+    setAutoConfirm({ kind: "running" });
+    try {
+      const client = await getClientForRemote(props.remote);
+      const resp = await client.music.autoConfirmMbMatches({
+        album_ids: ids,
+        min_confidence: minConfidence(),
+        min_gap: minGap(),
+      });
+      if (!resp.success) {
+        setAutoConfirm({ kind: "error", message: resp.error.message });
+        return;
+      }
+      const data = resp.data;
+      void queryClient.invalidateQueries({
+        queryKey: ["library-albums", props.remote.remote_id],
+      });
+      setAutoConfirm({
+        kind: "done",
+        confirmed: data.confirmed.length,
+        skipped: data.skipped.length,
+        errors: data.errors.length,
+      });
+    } catch (e) {
+      setAutoConfirm({ kind: "error", message: (e as Error).message });
+    }
+  };
 
   // load-more sentinel: trigger when scrolled near bottom.
   let scrollEl: HTMLDivElement | undefined;
@@ -190,6 +239,68 @@ export function AlbumsTable(props: AlbumsTableProps) {
               lookup all matching
             </button>
           </Show>
+
+          {/* auto-confirm bulk control. confirms top candidate where it
+           *  clears confidence + gap thresholds. admin-only on the server
+           *  side; non-admins see a 403 surfaced inline. */}
+          <Show when={filteredItems().length > 0}>
+            <div
+              class="flex items-center gap-1 px-2 py-1 text-xs rounded border border-[var(--color-border-subtle)] bg-transparent"
+              title="auto-confirm top candidate when it beats the thresholds"
+            >
+              <span class="text-[var(--color-text-muted)]">conf≥</span>
+              <input
+                type="number"
+                min="0"
+                max="1"
+                step="0.05"
+                value={minConfidence()}
+                onInput={(e) => setMinConfidence(Number.parseFloat(e.currentTarget.value) || 0)}
+                class="w-12 bg-[var(--color-bg-elevated)] border border-[var(--color-border-subtle)] rounded px-1 py-0.5 text-xs text-[var(--color-text-primary)]"
+              />
+              <span class="text-[var(--color-text-muted)]">gap≥</span>
+              <input
+                type="number"
+                min="0"
+                max="1"
+                step="0.05"
+                value={minGap()}
+                onInput={(e) => setMinGap(Number.parseFloat(e.currentTarget.value) || 0)}
+                class="w-12 bg-[var(--color-bg-elevated)] border border-[var(--color-border-subtle)] rounded px-1 py-0.5 text-xs text-[var(--color-text-primary)]"
+              />
+              <button
+                type="button"
+                onClick={runAutoConfirm}
+                disabled={autoConfirm().kind === "running"}
+                class="px-2 py-0.5 rounded border border-[var(--color-accent-500)]/40 text-[var(--color-accent-500)] hover:bg-[var(--color-accent-500)]/10 cursor-pointer bg-transparent disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <Show when={autoConfirm().kind === "running"} fallback={<>auto-confirm</>}>
+                  running...
+                </Show>
+              </button>
+              <Show when={autoConfirm().kind === "done"}>
+                {(() => {
+                  const s = autoConfirm() as Extract<AutoConfirmState, { kind: "done" }>;
+                  return (
+                    <span class="text-[var(--color-text-muted)]">
+                      ok {s.confirmed} · skip {s.skipped}
+                      <Show when={s.errors > 0}> · err {s.errors}</Show>
+                    </span>
+                  );
+                })()}
+              </Show>
+              <Show when={autoConfirm().kind === "error"}>
+                {(() => {
+                  const s = autoConfirm() as Extract<AutoConfirmState, { kind: "error" }>;
+                  return (
+                    <span class="text-[var(--color-error-500)]" title={s.message}>
+                      error
+                    </span>
+                  );
+                })()}
+              </Show>
+            </div>
+          </Show>
         </div>
 
         {/* status filter chips */}
@@ -244,6 +355,7 @@ export function AlbumsTable(props: AlbumsTableProps) {
                   <th class="px-2 py-2 font-medium w-20">released</th>
                   <th class="px-2 py-2 font-medium w-12 text-right">songs</th>
                   <th class="px-2 py-2 font-medium">genres</th>
+                  <th class="px-2 py-2 font-medium">folksonomy</th>
                   <th class="px-2 py-2 font-medium w-32">mb status</th>
                   <th class="px-2 py-2 font-medium w-24">last lookup</th>
                   <th class="px-2 py-2 font-medium w-16">actions</th>
@@ -276,11 +388,13 @@ function AlbumRow(props: { album: AlbumSummary; remote: Remote; index: number })
     return d.toISOString().slice(0, 10);
   };
   const genreList = () => (props.album.genres ?? []).map((g) => g.name).join(", ");
+  const albumMeta = () => parseAlbumMetadata(props.album.metadata);
+  const folksonomy = () => topFolksonomyTags(albumMeta(), 5);
   const selected = () => isAlbumSelected(props.album.album_id);
   const inflight = useInflightJobs();
   const [expanded, setExpanded] = createSignal(false);
   const reviewable = () =>
-    status() === "Candidates" || status() === "NeedsReview" || status() === "Confirmed";
+    status() === "candidates" || status() === "needs_review" || status() === "confirmed";
 
   return (
     <>
@@ -317,6 +431,25 @@ function AlbumRow(props: { album: AlbumSummary; remote: Remote; index: number })
         <td class="px-2 py-1 text-[var(--color-text-muted)] max-w-[200px] truncate">
           {genreList()}
         </td>
+        <td class="px-2 py-1 max-w-[220px]">
+          <Show
+            when={folksonomy().length > 0}
+            fallback={<span class="text-[var(--color-text-disabled)]">—</span>}
+          >
+            <div class="flex flex-wrap gap-1">
+              <For each={folksonomy()}>
+                {(t) => (
+                  <span
+                    class="inline-block px-1.5 py-0.5 rounded text-[10px] bg-[var(--color-bg-elevated)] text-[var(--color-text-secondary)]"
+                    title={`${t.name} (${t.count})`}
+                  >
+                    {t.name}
+                  </span>
+                )}
+              </For>
+            </div>
+          </Show>
+        </td>
         <td class="px-2 py-1">
           <Show
             when={inflight().has(props.album.album_id)}
@@ -325,17 +458,17 @@ function AlbumRow(props: { album: AlbumSummary; remote: Remote; index: number })
                 class="inline-block px-1.5 py-0.5 rounded text-[10px]"
                 classList={{
                   "bg-emerald-500/15 text-emerald-400":
-                    status() === "Confirmed" || status() === "Enriched",
+                    status() === "confirmed" || status() === "enriched",
                   "bg-amber-500/15 text-amber-400":
-                    status() === "NeedsReview" || status() === "Candidates",
+                    status() === "needs_review" || status() === "candidates",
                   "bg-blue-500/15 text-blue-400":
-                    status() === "Queued" ||
-                    status() === "Searching" ||
-                    status() === "FetchingDetail",
+                    status() === "queued" ||
+                    status() === "searching" ||
+                    status() === "fetching_detail",
                   "bg-rose-500/15 text-rose-400":
-                    status() === "Error" || status() === "NoMatch" || status() === "Rejected",
+                    status() === "error" || status() === "no_match" || status() === "rejected",
                   "bg-[var(--color-bg-elevated)] text-[var(--color-text-muted)]":
-                    status() === "NotAttempted",
+                    status() === "not_attempted",
                 }}
               >
                 {mbLookupStatusLabel(status())}
@@ -371,7 +504,7 @@ function AlbumRow(props: { album: AlbumSummary; remote: Remote; index: number })
       </tr>
       <Show when={expanded() && reviewable()}>
         <tr class="border-b border-[var(--color-border-subtle)]">
-          <td colspan={9} class="p-0">
+          <td colspan={10} class="p-0">
             <AlbumCandidatesPanel album={props.album} remote={props.remote} />
           </td>
         </tr>

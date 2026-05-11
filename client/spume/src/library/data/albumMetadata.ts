@@ -17,60 +17,63 @@ export type { AlbumMetadata, MbCandidate, MbLookupStatus } from "freqhole-api-cl
 
 /** every known mb_lookup_status value, in display order. */
 export const MB_LOOKUP_STATUSES: readonly MbLookupStatus[] = [
-  "NotAttempted",
-  "Queued",
-  "Searching",
-  "Candidates",
-  "NeedsReview",
-  "FetchingDetail",
-  "Confirmed",
-  "Enriched",
-  "Rejected",
-  "NoMatch",
-  "Error",
+  "not_attempted",
+  "queued",
+  "searching",
+  "candidates",
+  "needs_review",
+  "fetching_detail",
+  "confirmed",
+  "enriched",
+  "rejected",
+  "no_match",
+  "error",
 ] as const;
 
 /** human-readable label for a status. */
 export function mbLookupStatusLabel(status: MbLookupStatus | null | undefined): string {
   switch (status) {
-    case "NotAttempted":
+    case "not_attempted":
     case null:
     case undefined:
       return "not attempted";
-    case "Queued":
+    case "queued":
       return "queued";
-    case "Searching":
+    case "searching":
       return "searching";
-    case "Candidates":
+    case "candidates":
       return "candidates";
-    case "NeedsReview":
+    case "needs_review":
       return "needs review";
-    case "FetchingDetail":
+    case "fetching_detail":
       return "fetching detail";
-    case "Confirmed":
+    case "confirmed":
       return "confirmed";
-    case "Enriched":
+    case "enriched":
       return "enriched";
-    case "Rejected":
+    case "rejected":
       return "rejected";
-    case "NoMatch":
+    case "no_match":
       return "no match";
-    case "Error":
+    case "error":
       return "error";
     default:
       return String(status);
   }
 }
 
-/** parse the raw status string. unknown values fall back to "NotAttempted". */
+/** parse the raw status string. unknown values fall back to "not_attempted". */
 export function parseMbLookupStatus(
   raw: string | null | undefined,
 ): MbLookupStatus {
-  if (!raw) return "NotAttempted";
+  if (!raw) return "not_attempted";
   if ((MB_LOOKUP_STATUSES as readonly string[]).includes(raw)) {
     return raw as MbLookupStatus;
   }
-  return "NotAttempted";
+  if (typeof console !== "undefined") {
+    console.warn("[album-metadata] unknown mb_lookup_status value", raw);
+  }
+  return "not_attempted";
 }
 
 const EMPTY: AlbumMetadata = {
@@ -80,6 +83,29 @@ const EMPTY: AlbumMetadata = {
   log: [],
 };
 
+/** fill in array fields that the rust side omits when empty (via
+ *  `skip_serializing_if = "Vec::is_empty"`). mutates in place. */
+function normalizeAlbumMetadata(meta: any): void {
+  if (!meta || typeof meta !== "object") return;
+  if (!Array.isArray(meta.log)) meta.log = [];
+  const mb = meta.musicbrainz;
+  if (mb && typeof mb === "object") {
+    if (!Array.isArray(mb.candidates)) mb.candidates = [];
+    for (const c of mb.candidates) {
+      if (c && typeof c === "object" && !Array.isArray(c.secondary_types)) {
+        c.secondary_types = [];
+      }
+    }
+  }
+  const fk = meta.folksonomy?.musicbrainz;
+  if (fk && typeof fk === "object") {
+    if (!Array.isArray(fk.release_genres)) fk.release_genres = [];
+    if (!Array.isArray(fk.release_tags)) fk.release_tags = [];
+    if (!Array.isArray(fk.release_group_genres)) fk.release_group_genres = [];
+    if (!Array.isArray(fk.release_group_tags)) fk.release_group_tags = [];
+  }
+}
+
 /** parse the raw json metadata string into a typed AlbumMetadata.
  *  returns the empty default for null/empty/malformed input (logged in dev).
  */
@@ -87,6 +113,10 @@ export function parseAlbumMetadata(raw: string | null | undefined): AlbumMetadat
   if (!raw) return EMPTY;
   try {
     const parsed = JSON.parse(raw);
+    // the rust side serializes with `skip_serializing_if = "Vec::is_empty"` so
+    // empty array fields are omitted from the wire JSON. zod codegen doesn't
+    // currently default these, so we fill them in before validation.
+    normalizeAlbumMetadata(parsed);
     const result = schema.AlbumMetadataSchema.safeParse(parsed);
     if (result.success) return result.data;
     if (typeof console !== "undefined") {

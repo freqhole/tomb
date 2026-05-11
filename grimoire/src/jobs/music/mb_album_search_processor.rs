@@ -21,11 +21,11 @@
 use crate::config;
 use crate::database;
 use crate::jobs::models::{Job, JobError};
-use crate::music::entities::albums::metadata::{self, MbCandidate, MbLastQuery, MbLookupStatus};
 use crate::music::entities::albums as albums_repo;
+use crate::music::entities::albums::metadata::{self, MbCandidate, MbLastQuery, MbLookupStatus};
 use crate::music::musicbrainz::{MusicBrainzClient, ReleaseSearchQuery};
 use serde_json::Value;
-use tracing::{debug, info};
+use tracing::info;
 
 use super::models::{MbAlbumSearchParams, MbAlbumSearchResult};
 
@@ -127,7 +127,7 @@ pub async fn process_mb_album_search_job(job: &Job) -> Result<Option<Value>, Job
     }
     query = query.limit(DEFAULT_LIMIT);
 
-    debug!(
+    info!(
         "mb album-search querying: artist={:?} title={}",
         artist, title
     );
@@ -269,6 +269,16 @@ pub async fn process_mb_album_search_job(job: &Job) -> Result<Option<Value>, Job
     let _ =
         albums_repo::update_mb_lookup_status(&album_id, final_status, job.created_by.as_deref())
             .await;
+
+    info!(
+        "mb album-search done album={} status={} candidates={} top_local_confidence={:?} mb_score_top={:?} auto_confirmed={:?}",
+        album_id,
+        final_status.as_str(),
+        sorted.len(),
+        top_conf,
+        sorted.first().and_then(|c| c.mb_score),
+        auto_confirmed_release_id,
+    );
 
     let result = MbAlbumSearchResult {
         album_id: album_id.clone(),

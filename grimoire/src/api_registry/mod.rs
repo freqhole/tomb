@@ -149,9 +149,10 @@ pub mod type_registry {
 
     // upload types
     use crate::music::entities::albums::metadata::{
-        AlbumMetadata, ConfirmMbMatchRequest, EnrichmentLogEntry, FolksonomyMetadata,
-        FolksonomyTag, MbCandidate, MbFolksonomy, MbLastQuery, MbLookupStatus,
-        MbMatchActionResponse, MbMetadata, RejectMbMatchRequest,
+        AlbumMetadata, AutoConfirmMbMatchesRequest, AutoConfirmMbMatchesResult, AutoConfirmSkip,
+        ConfirmMbMatchRequest, EnrichmentLogEntry, FolksonomyMetadata, FolksonomyTag, MbCandidate,
+        MbFolksonomy, MbLastQuery, MbLookupStatus, MbMatchActionResponse, MbMetadata,
+        RejectMbMatchRequest,
     };
     use crate::music::entities::albums::{Album, GenreRef, UpdateAlbumRequest};
     use crate::music::entities::artists::{Artist, CreateArtistRequest, UpdateArtistRequest};
@@ -620,6 +621,12 @@ pub mod type_registry {
         gen.add_schema::<crate::jobs::EnqueueMbAlbumSearchResponse>("EnqueueMbAlbumSearchResponse");
         registered.insert("EnqueueMbAlbumSearchResponse".to_string());
 
+        // mb album-detail job request/response (phase 8)
+        gen.add_schema::<crate::jobs::MbAlbumDetailParams>("MbAlbumDetailParams");
+        registered.insert("MbAlbumDetailParams".to_string());
+        gen.add_schema::<crate::jobs::MbAlbumDetailResult>("MbAlbumDetailResult");
+        registered.insert("MbAlbumDetailResult".to_string());
+
         // mb candidate review request/response (phase 7)
         gen.add_schema::<ConfirmMbMatchRequest>("ConfirmMbMatchRequest");
         registered.insert("ConfirmMbMatchRequest".to_string());
@@ -627,6 +634,12 @@ pub mod type_registry {
         registered.insert("RejectMbMatchRequest".to_string());
         gen.add_schema::<MbMatchActionResponse>("MbMatchActionResponse");
         registered.insert("MbMatchActionResponse".to_string());
+        gen.add_schema::<AutoConfirmMbMatchesRequest>("AutoConfirmMbMatchesRequest");
+        registered.insert("AutoConfirmMbMatchesRequest".to_string());
+        gen.add_schema::<AutoConfirmSkip>("AutoConfirmSkip");
+        registered.insert("AutoConfirmSkip".to_string());
+        gen.add_schema::<AutoConfirmMbMatchesResult>("AutoConfirmMbMatchesResult");
+        registered.insert("AutoConfirmMbMatchesResult".to_string());
 
         gen.add_schema::<GenreRef>("GenreRef");
         registered.insert("GenreRef".to_string());

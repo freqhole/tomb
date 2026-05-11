@@ -121,3 +121,33 @@ pub struct EnqueueMbAlbumSearchResponse {
     pub job_ids: Vec<String>,
     pub skipped_album_ids: Vec<String>,
 }
+
+// =============================================================================
+// musicbrainz album detail (folksonomy enrichment, phase 8)
+// =============================================================================
+
+/// parameters for `JobType::MbAlbumDetail`. enqueued by `confirm_mb_match`
+/// after the user (or auto-confirm) picks a candidate. fetches release-group
+/// + release detail with `+genres+tags` and merges folksonomy data into the
+/// album's metadata blob.
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct MbAlbumDetailParams {
+    pub album_id: String,
+    pub release_group_id: String,
+    /// optional release id; when present the processor also fetches the
+    /// release-level genres/tags, otherwise only release-group-level data
+    /// is captured.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub release_id: Option<String>,
+}
+
+/// summary written into the job's `result` column on success.
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct MbAlbumDetailResult {
+    pub album_id: String,
+    pub release_genre_count: u64,
+    pub release_tag_count: u64,
+    pub release_group_genre_count: u64,
+    pub release_group_tag_count: u64,
+    pub final_status: String,
+}

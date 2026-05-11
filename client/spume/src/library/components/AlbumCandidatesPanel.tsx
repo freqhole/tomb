@@ -1,7 +1,7 @@
 // AlbumCandidatesPanel — phase 7 review surface.
 //
 // rendered inline beneath an album row when its mb_lookup_status is
-// "Candidates" or "NeedsReview" (or, optionally, "Confirmed" so the user
+// "candidates" or "needs_review" (or, optionally, "confirmed" so the user
 // can revisit alternatives). lists the stored mb candidates ranked by
 // local_confidence and offers per-row [confirm] / [open in MB] actions
 // plus a global [reject all].
@@ -153,6 +153,29 @@ export function AlbumCandidatesPanel(props: AlbumCandidatesPanelProps) {
                       !isConfirmed(),
                   }}
                 >
+                  {/* cover-art-archive thumb. cover art archive serves a 250px
+                   *  redirect at /release/{id}/front-250; if the release has
+                   *  no art the request 404s and the broken-img is hidden via
+                   *  onError. lazy-loaded so off-screen rows don't trigger
+                   *  network. */}
+                  <Show
+                    when={cand.release_id}
+                    fallback={
+                      <div class="w-10 h-10 rounded bg-[var(--color-bg-elevated)] shrink-0" />
+                    }
+                  >
+                    <img
+                      src={`https://coverartarchive.org/release/${cand.release_id}/front-250`}
+                      alt=""
+                      loading="lazy"
+                      width={40}
+                      height={40}
+                      class="w-10 h-10 rounded object-cover bg-[var(--color-bg-elevated)] shrink-0"
+                      onError={(e) => {
+                        e.currentTarget.style.visibility = "hidden";
+                      }}
+                    />
+                  </Show>
                   <div class="flex-1 min-w-0">
                     <div class="flex items-center gap-2 flex-wrap">
                       <span class="text-[var(--color-text-primary)] font-medium truncate">

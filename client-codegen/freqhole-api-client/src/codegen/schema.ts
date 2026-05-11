@@ -605,6 +605,32 @@ export const AssociationInfoSchema = z.object({
 });
 export type AssociationInfo = z.infer<typeof AssociationInfoSchema>;
 
+export const AutoConfirmMbMatchesRequestSchema = z.object({
+  album_ids: z.array(z.string()),
+  min_confidence: z.number(),
+  min_gap: z.number()
+});
+export type AutoConfirmMbMatchesRequest = z.infer<typeof AutoConfirmMbMatchesRequestSchema>;
+
+export const AutoConfirmMbMatchesResultSchema = z.object({
+  confirmed: z.array(z.string()),
+  skipped: z.array(z.object({
+  album_id: z.string(),
+  reason: z.string()
+})),
+  errors: z.array(z.object({
+  album_id: z.string(),
+  reason: z.string()
+}))
+});
+export type AutoConfirmMbMatchesResult = z.infer<typeof AutoConfirmMbMatchesResultSchema>;
+
+export const AutoConfirmSkipSchema = z.object({
+  album_id: z.string(),
+  reason: z.string()
+});
+export type AutoConfirmSkip = z.infer<typeof AutoConfirmSkipSchema>;
+
 export const BlobMetadataResponseSchema = z.object({
   id: z.string(),
   sha256: z.string(),
@@ -657,7 +683,7 @@ export const CreateArtistRequestSchema = z.object({
 export type CreateArtistRequest = z.infer<typeof CreateArtistRequestSchema>;
 
 export const CreateJobRequestSchema = z.object({
-  job_type: z.union([z.literal('ScanDirectory'), z.literal('RescanDirectories'), z.literal('ProcessFile'), z.literal('FetchMedia'), z.literal('ConvertWebp'), z.literal('ImportMusic'), z.literal('MbAlbumSearch')]),
+  job_type: z.union([z.literal('ScanDirectory'), z.literal('RescanDirectories'), z.literal('ProcessFile'), z.literal('FetchMedia'), z.literal('ConvertWebp'), z.literal('ImportMusic'), z.literal('MbAlbumSearch'), z.literal('MbAlbumDetail')]),
   session_id: z.string().nullish(),
   parameters: z.any(),
   max_retries: z.number().nullish(),
@@ -2243,6 +2269,23 @@ export const ListeningHistoryResponseSchema = z.object({
 });
 export type ListeningHistoryResponse = z.infer<typeof ListeningHistoryResponseSchema>;
 
+export const MbAlbumDetailParamsSchema = z.object({
+  album_id: z.string(),
+  release_group_id: z.string(),
+  release_id: z.string().nullish()
+});
+export type MbAlbumDetailParams = z.infer<typeof MbAlbumDetailParamsSchema>;
+
+export const MbAlbumDetailResultSchema = z.object({
+  album_id: z.string(),
+  release_genre_count: z.number(),
+  release_tag_count: z.number(),
+  release_group_genre_count: z.number(),
+  release_group_tag_count: z.number(),
+  final_status: z.string()
+});
+export type MbAlbumDetailResult = z.infer<typeof MbAlbumDetailResultSchema>;
+
 export const MbAlbumSearchParamsSchema = z.object({
   album_id: z.string(),
   artist_override: z.string().nullish(),
@@ -2335,12 +2378,12 @@ export const MbLastQuerySchema = z.object({
 });
 export type MbLastQuery = z.infer<typeof MbLastQuerySchema>;
 
-export const MbLookupStatusSchema = z.union([z.literal('NotAttempted'), z.literal('Queued'), z.literal('Searching'), z.literal('Candidates'), z.literal('Confirmed'), z.literal('Rejected'), z.literal('NoMatch'), z.literal('NeedsReview'), z.literal('FetchingDetail'), z.literal('Enriched'), z.literal('Error')]);
+export const MbLookupStatusSchema = z.union([z.literal("not_attempted"), z.literal("queued"), z.literal("searching"), z.literal("candidates"), z.literal("confirmed"), z.literal("rejected"), z.literal("no_match"), z.literal("needs_review"), z.literal("fetching_detail"), z.literal("enriched"), z.literal("error")]);
 export type MbLookupStatus = z.infer<typeof MbLookupStatusSchema>;
 
 export const MbMatchActionResponseSchema = z.object({
   album_id: z.string(),
-  status: z.union([z.literal('NotAttempted'), z.literal('Queued'), z.literal('Searching'), z.literal('Candidates'), z.literal('Confirmed'), z.literal('Rejected'), z.literal('NoMatch'), z.literal('NeedsReview'), z.literal('FetchingDetail'), z.literal('Enriched'), z.literal('Error')])
+  status: z.union([z.literal("not_attempted"), z.literal("queued"), z.literal("searching"), z.literal("candidates"), z.literal("confirmed"), z.literal("rejected"), z.literal("no_match"), z.literal("needs_review"), z.literal("fetching_detail"), z.literal("enriched"), z.literal("error")])
 });
 export type MbMatchActionResponse = z.infer<typeof MbMatchActionResponseSchema>;
 

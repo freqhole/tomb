@@ -410,6 +410,26 @@ pub async fn confirm_mb_match(
         return GrimoireResponse::failure(status_resp.message, status_resp.errors);
     }
 
+    // enqueue a detail-fetch job so the row progresses Confirmed ->
+    // FetchingDetail -> Enriched. failures here don't roll back the
+    // confirmation; the user can retry via re-enrichment.
+    let detail_params = crate::jobs::MbAlbumDetailParams {
+        album_id: album_id.to_string(),
+        release_group_id: release_group_id.to_string(),
+        release_id: release_id.map(|s| s.to_string()),
+    };
+    if let Ok(parameters) = serde_json::to_value(&detail_params) {
+        let _ = crate::jobs::create_job(crate::jobs::CreateJobRequest {
+            job_type: crate::jobs::JobType::MbAlbumDetail,
+            session_id: None,
+            parameters,
+            max_retries: Some(2),
+            scheduled_at: None,
+            created_by: Some(user_id.to_string()),
+        })
+        .await;
+    }
+
     merged
 }
 
@@ -445,6 +465,122 @@ pub async fn reject_mb_match(
     }
 
     merged
+}
+
+/// auto-confirm the top musicbrainz candidate for each album whose stored
+/// candidates pass two thresholds: top `local_confidence >= min_confidence`
+/// AND `(top - second) >= min_gap`. albums with no candidates, no top
+/// candidate over the threshold, or already `Confirmed`/`Enriched` are
+/// skipped (returned in `skipped`). errors per-album are collected but do
+/// not abort the whole batch.
+///
+/// returns a per-album breakdown so the caller can show "auto-confirmed N
+/// of M" inline.
+pub async fn auto_confirm_mb_matches(
+    album_ids: &[String],
+    min_confidence: f64,
+    min_gap: f64,
+    user_id: &str,
+) -> GrimoireResponse<super::metadata::AutoConfirmMbMatchesResult> {
+    let mut confirmed: Vec<String> = Vec::new();
+    let mut skipped: Vec<super::metadata::AutoConfirmSkip> = Vec::new();
+    let mut errors: Vec<super::metadata::AutoConfirmSkip> = Vec::new();
+
+    for album_id in album_ids {
+        let meta_resp = read_album_metadata(album_id).await;
+        let meta = match meta_resp.data {
+            Some(m) => m,
+            None => {
+                errors.push(super::metadata::AutoConfirmSkip {
+                    album_id: album_id.clone(),
+                    reason: format!("read_metadata failed: {}", meta_resp.message),
+                });
+                continue;
+            }
+        };
+
+        // skip already-confirmed / enriched
+        let cur_status = meta.musicbrainz.as_ref().and_then(|mb| {
+            // `match_confirmed_at` set means previously confirmed; the
+            // status column is the source of truth for whether it's been
+            // accepted, but we don't have it on AlbumMetadata. fall back
+            // to the canonical status fetched alongside via get_album.
+            mb.match_confirmed_at.map(|_| ())
+        });
+        if cur_status.is_some() {
+            skipped.push(super::metadata::AutoConfirmSkip {
+                album_id: album_id.clone(),
+                reason: "already confirmed".to_string(),
+            });
+            continue;
+        }
+
+        let mut cands: Vec<&super::metadata::MbCandidate> = meta
+            .musicbrainz
+            .as_ref()
+            .map(|mb| mb.candidates.iter().collect())
+            .unwrap_or_default();
+        if cands.is_empty() {
+            skipped.push(super::metadata::AutoConfirmSkip {
+                album_id: album_id.clone(),
+                reason: "no candidates".to_string(),
+            });
+            continue;
+        }
+        cands.sort_by(|a, b| {
+            b.local_confidence
+                .unwrap_or(0.0)
+                .partial_cmp(&a.local_confidence.unwrap_or(0.0))
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+
+        let top = cands[0];
+        let top_conf = top.local_confidence.unwrap_or(0.0);
+        let second_conf = cands.get(1).and_then(|c| c.local_confidence).unwrap_or(0.0);
+
+        if top_conf < min_confidence {
+            skipped.push(super::metadata::AutoConfirmSkip {
+                album_id: album_id.clone(),
+                reason: format!(
+                    "top confidence {:.2} below min {:.2}",
+                    top_conf, min_confidence
+                ),
+            });
+            continue;
+        }
+        if (top_conf - second_conf) < min_gap {
+            skipped.push(super::metadata::AutoConfirmSkip {
+                album_id: album_id.clone(),
+                reason: format!("gap {:.2} below min {:.2}", top_conf - second_conf, min_gap),
+            });
+            continue;
+        }
+
+        let resp = confirm_mb_match(
+            album_id,
+            &top.release_group_id,
+            top.release_id.as_deref(),
+            user_id,
+        )
+        .await;
+        if resp.data.is_some() {
+            confirmed.push(album_id.clone());
+        } else {
+            errors.push(super::metadata::AutoConfirmSkip {
+                album_id: album_id.clone(),
+                reason: format!("confirm failed: {}", resp.message),
+            });
+        }
+    }
+
+    GrimoireResponse::success(
+        format!("auto-confirmed {} of {}", confirmed.len(), album_ids.len()),
+        super::metadata::AutoConfirmMbMatchesResult {
+            confirmed,
+            skipped,
+            errors,
+        },
+    )
 }
 
 /// soft delete an album

@@ -87,6 +87,9 @@ pub struct Release {
 
     /// Official genres on the release itself (via inc=genres)
     pub genres: Option<Vec<Genre>>,
+
+    /// Folksonomy tags on the release (via inc=tags)
+    pub tags: Option<Vec<Tag>>,
 }
 
 /// MusicBrainz release group
@@ -116,6 +119,9 @@ pub struct ReleaseGroup {
 
     /// Official genres from musicbrainz (via inc=genres)
     pub genres: Option<Vec<Genre>>,
+
+    /// Folksonomy tags on the release group (via inc=tags)
+    pub tags: Option<Vec<Tag>>,
 
     /// MusicBrainz score (relevance in search results)
     pub score: Option<u32>,

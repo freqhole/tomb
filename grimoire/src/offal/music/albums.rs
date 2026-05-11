@@ -4,9 +4,10 @@ use crate::api_registry::{Domain, Method, RouteAuth, RouteInfo};
 use crate::error::ErrorDetail;
 use crate::music::crud::{query_albums, DeleteAlbumRequest, GetAlbumRequest, QueryParams};
 use crate::music::entities::albums::metadata::{
-    ConfirmMbMatchRequest, MbMatchActionResponse, RejectMbMatchRequest,
+    AutoConfirmMbMatchesRequest, ConfirmMbMatchRequest, MbMatchActionResponse, RejectMbMatchRequest,
 };
 use crate::music::entities::albums::{
+    auto_confirm_mb_matches as grimoire_auto_confirm_mb_matches,
     confirm_mb_match as grimoire_confirm_mb_match, delete_album as grimoire_delete_album,
     get_album as grimoire_get_album, get_album_images as grimoire_get_album_images,
     reject_mb_match as grimoire_reject_mb_match, remove_album_image, set_primary_album_image,
@@ -84,6 +85,15 @@ pub const ROUTES: &[RouteInfo] = &[
         domain: Domain::Music,
         request_type: "RejectMbMatchRequest",
         response_type: "MbMatchActionResponse",
+        auth: RouteAuth::Role(UserRole::Admin),
+    },
+    RouteInfo {
+        name: "auto_confirm_mb_matches",
+        path: "/api/albums/mb-auto-confirm",
+        method: Method::POST,
+        domain: Domain::Music,
+        request_type: "AutoConfirmMbMatchesRequest",
+        response_type: "AutoConfirmMbMatchesResult",
         auth: RouteAuth::Role(UserRole::Admin),
     },
 ];
@@ -403,4 +413,43 @@ pub async fn reject_mb_match(caller: &Caller, body: JsonValue) -> GrimoireRespon
         })
         .unwrap()
     })
+}
+
+/// auto-confirm musicbrainz matches in bulk
+///
+/// path: POST /api/albums/mb-auto-confirm
+pub async fn auto_confirm_mb_matches(
+    caller: &Caller,
+    body: JsonValue,
+) -> GrimoireResponse<JsonValue> {
+    if !caller.is_admin() {
+        return GrimoireResponse::failure(
+            "forbidden",
+            vec![ErrorDetail::new("forbidden", "forbidden", "admin only")],
+        );
+    }
+
+    let req: AutoConfirmMbMatchesRequest = match serde_json::from_value(body) {
+        Ok(r) => r,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "bad request",
+                vec![ErrorDetail::new(
+                    "bad_request",
+                    "bad request",
+                    &e.to_string(),
+                )],
+            )
+        }
+    };
+
+    let response = grimoire_auto_confirm_mb_matches(
+        &req.album_ids,
+        req.min_confidence,
+        req.min_gap,
+        &caller.user_id,
+    )
+    .await;
+
+    response.map(|data| serde_json::to_value(data).unwrap())
 }

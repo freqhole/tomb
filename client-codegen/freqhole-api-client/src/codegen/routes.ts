@@ -55,6 +55,7 @@ export const routes = {
     activity_feed: { method: 'POST', path: '/api/analytics/feed', req: s.FeedRequestSchema, resp: s.FeedResponseSchema, auth: { type: 'authenticated' } as const },
     add_albums_tags: { method: 'POST', path: '/api/tags/albums/add', req: s.AddAlbumsTagsRequestSchema, resp: s.EmptyResponseSchema, auth: { type: 'role', role: 'admin' } as const },
     add_songs_to_playlist: { method: 'POST', path: '/api/playlists/add-songs', req: s.AddSongsToPlaylistRequestSchema, resp: s.EmptyResponseSchema, auth: { type: 'owner_or', role: 'admin' } as const },
+    auto_confirm_mb_matches: { method: 'POST', path: '/api/albums/mb-auto-confirm', req: s.AutoConfirmMbMatchesRequestSchema, resp: s.AutoConfirmMbMatchesResultSchema, auth: { type: 'role', role: 'admin' } as const },
     blob_metadata: { method: 'POST', path: '/api/blob_metadata', req: s.GetBlobMetadataRequestSchema, resp: s.BlobMetadataResponseSchema, auth: { type: 'authenticated' } as const },
     blob_metadata_by_blake3: { method: 'POST', path: '/api/blob_metadata_by_blake3', req: s.GetBlobMetadataByBlake3RequestSchema, resp: s.BlobMetadataResponseSchema, auth: { type: 'authenticated' } as const },
     bulk_clear_song_artwork: { method: 'POST', path: '/api/songs/bulk-clear-artwork', req: s.BulkClearSongArtworkRequestSchema, resp: s.BulkClearSongArtworkResponseSchema, auth: { type: 'role', role: 'admin' } as const },

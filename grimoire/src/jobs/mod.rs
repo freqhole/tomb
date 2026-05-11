@@ -26,9 +26,10 @@ pub use models::{
 
 // re-export music job types for backward compatibility
 pub use music::{
-    EnqueueMbAlbumSearchRequest, EnqueueMbAlbumSearchResponse, MbAlbumSearchParams,
-    MbAlbumSearchResult, ProcessFileParams, ProcessFileResult, ProcessJobCreatedResponse,
-    ScanDirectoryParams, ScanDirectoryResult, ScanJobCreatedResponse,
+    EnqueueMbAlbumSearchRequest, EnqueueMbAlbumSearchResponse, MbAlbumDetailParams,
+    MbAlbumDetailResult, MbAlbumSearchParams, MbAlbumSearchResult, ProcessFileParams,
+    ProcessFileResult, ProcessJobCreatedResponse, ScanDirectoryParams, ScanDirectoryResult,
+    ScanJobCreatedResponse,
 };
 
 // re-export scanned directories functions

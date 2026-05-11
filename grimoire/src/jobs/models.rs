@@ -23,6 +23,7 @@ pub enum JobType {
 
     // musicbrainz enrichment
     MbAlbumSearch,
+    MbAlbumDetail,
 }
 
 /// job status lifecycle

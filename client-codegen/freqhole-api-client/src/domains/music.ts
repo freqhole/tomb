@@ -946,6 +946,21 @@ export function createMusicMethods(call: CallFn) {
       );
     },
 
+    // bulk auto-confirm musicbrainz matches (admin only). confirms the
+    // top candidate per album where it clears both a confidence floor
+    // and a gap-to-#2 floor. returns per-album confirmed/skipped/errors.
+    autoConfirmMbMatches: (params: s.AutoConfirmMbMatchesRequest) => {
+      return call(
+        "music",
+        "auto_confirm_mb_matches",
+        routes.music.auto_confirm_mb_matches.resp,
+        routes.music.auto_confirm_mb_matches.req,
+        routes.music.auto_confirm_mb_matches.method,
+        routes.music.auto_confirm_mb_matches.path,
+        params,
+      );
+    },
+
     // special routes - these exist for route coverage but have alternate implementations
     // for actual blob streaming, use client.fetchBlob(id) instead
     streamBlob: (params: { id: string }) => {

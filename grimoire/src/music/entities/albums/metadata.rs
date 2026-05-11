@@ -25,7 +25,12 @@ use zod_gen_derive::ZodSchema;
 /// values are also used as string literals on the wire and in filters.
 ///
 /// add new variants here; never spell the strings inline elsewhere.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, ZodSchema)]
+//
+// note: zod codegen for this enum is hand-rolled below (see
+// `impl ZodSchema for MbLookupStatus`) because `zod_gen_derive` does not
+// honor `#[serde(rename_all = ...)]` on enum variants. follow the same
+// pattern as `BlobType` for any future renamed enums.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum MbLookupStatus {
     /// no attempt has been made (also represented by NULL in the db)
@@ -94,6 +99,14 @@ impl MbLookupStatus {
             "error" => Self::Error,
             _ => return None,
         })
+    }
+}
+
+impl zod_gen::ZodSchema for MbLookupStatus {
+    fn zod_schema() -> String {
+        // keep in sync with `MbLookupStatus::as_str` (snake_case wire form).
+        // hand-rolled because `zod_gen_derive` does not honor `serde(rename_all)`.
+        r#"z.union([z.literal("not_attempted"), z.literal("queued"), z.literal("searching"), z.literal("candidates"), z.literal("confirmed"), z.literal("rejected"), z.literal("no_match"), z.literal("needs_review"), z.literal("fetching_detail"), z.literal("enriched"), z.literal("error")])"#.to_string()
     }
 }
 
@@ -246,6 +259,33 @@ pub struct RejectMbMatchRequest {
 pub struct MbMatchActionResponse {
     pub album_id: String,
     pub status: MbLookupStatus,
+}
+
+/// bulk auto-confirm: confirm the top candidate per album where it clears
+/// both a confidence floor and a gap-to-#2 floor.
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema, PartialEq)]
+pub struct AutoConfirmMbMatchesRequest {
+    pub album_ids: Vec<String>,
+    /// minimum `local_confidence` for the top candidate (e.g. 0.9).
+    pub min_confidence: f64,
+    /// minimum gap between top and #2 candidates (e.g. 0.15). use 0 to
+    /// disable the gap check.
+    pub min_gap: f64,
+}
+
+/// per-album skip/error reason returned from auto-confirm so the ui can
+/// explain inline why a row didn't get auto-confirmed.
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema, PartialEq)]
+pub struct AutoConfirmSkip {
+    pub album_id: String,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema, PartialEq)]
+pub struct AutoConfirmMbMatchesResult {
+    pub confirmed: Vec<String>,
+    pub skipped: Vec<AutoConfirmSkip>,
+    pub errors: Vec<AutoConfirmSkip>,
 }
 
 // =============================================================================

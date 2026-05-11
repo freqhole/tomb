@@ -120,13 +120,27 @@ impl MusicBrainzClient {
     pub async fn get_release(&self, mbid: &str) -> GrimoireResponse<Release> {
         let url = format!("{}/release/{}", BASE_URL, mbid);
         let query_string =
-            "fmt=json&inc=artist-credits+recordings+media+release-groups+labels+genres";
+            "fmt=json&inc=artist-credits+recordings+media+release-groups+labels+genres+tags";
 
         debug!("Fetching release: {}", mbid);
 
         match self.execute_request(&url, query_string).await {
             Ok(result) => GrimoireResponse::success("Successfully fetched release", result),
             Err(e) => GrimoireResponse::failure("Failed to fetch release", vec![e.into()]),
+        }
+    }
+
+    /// Get specific release group by MusicBrainz ID, with folksonomy data
+    /// (genres + tags) and artist credits.
+    pub async fn get_release_group(&self, mbid: &str) -> GrimoireResponse<ReleaseGroup> {
+        let url = format!("{}/release-group/{}", BASE_URL, mbid);
+        let query_string = "fmt=json&inc=artist-credits+genres+tags";
+
+        debug!("Fetching release-group: {}", mbid);
+
+        match self.execute_request(&url, query_string).await {
+            Ok(result) => GrimoireResponse::success("Successfully fetched release-group", result),
+            Err(e) => GrimoireResponse::failure("Failed to fetch release-group", vec![e.into()]),
         }
     }
 
