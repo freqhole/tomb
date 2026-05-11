@@ -21,7 +21,7 @@ import { AlbumBulkActionBar } from "../components/AlbumBulkActionBar";
 import { MbProgressStrip } from "../components/MbProgressStrip";
 import { useAlbumSelectionLifecycle, useSelectedAlbumIds } from "../hooks/albumSelection";
 import { useRemoteIsAdmin } from "../hooks/useRemoteRole";
-import { enqueueMbLookup } from "../hooks/useMbLookupJobs";
+import { enqueueAlbumEnrichment } from "../hooks/useMbLookupJobs";
 import { getAllRemotes } from "../../app/services/remotes/remoteManager";
 import type { Remote } from "../../app/services/storage/schemas/remote";
 
@@ -66,11 +66,11 @@ export function LibraryView() {
 
   const isRemoteAdmin = useRemoteIsAdmin(selectedRemote);
 
-  const triggerMbLookup = (albumIds: string[]) => {
+  const triggerEnrichment = (albumIds: string[]) => {
     if (albumIds.length === 0) return;
     const remote = selectedRemote();
     if (!remote) return;
-    void enqueueMbLookup(remote, albumIds);
+    void enqueueAlbumEnrichment(remote, albumIds);
   };
 
   return (
@@ -128,12 +128,12 @@ export function LibraryView() {
             <GraphPlaceholder />
           </Match>
           <Match when={subview() === "table"}>
-            <TablePlaceholder remote={selectedRemote()} onMbLookupAllMatching={triggerMbLookup} />
+            <TablePlaceholder remote={selectedRemote()} onEnrichAllMatching={triggerEnrichment} />
           </Match>
         </Switch>
         <AlbumBulkActionBar
           isAdmin={isRemoteAdmin()}
-          onMbLookup={() => triggerMbLookup(selectedAlbumIds())}
+          onEnrich={() => triggerEnrichment(selectedAlbumIds())}
         />
       </div>
     </div>
@@ -152,7 +152,7 @@ function GraphPlaceholder() {
 
 function TablePlaceholder(props: {
   remote: Remote | undefined;
-  onMbLookupAllMatching?: (ids: string[]) => void;
+  onEnrichAllMatching?: (ids: string[]) => void;
 }) {
   return (
     <Show
@@ -166,7 +166,7 @@ function TablePlaceholder(props: {
         </div>
       }
     >
-      {(r) => <AlbumsTable remote={r()} onMbLookupAllMatching={props.onMbLookupAllMatching} />}
+      {(r) => <AlbumsTable remote={r()} onEnrichAllMatching={props.onEnrichAllMatching} />}
     </Show>
   );
 }

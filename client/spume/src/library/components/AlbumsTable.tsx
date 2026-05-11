@@ -25,7 +25,7 @@ import {
 } from "../data/albumMetadata";
 import { useLibraryAlbumsQuery } from "../queries/useLibraryAlbums";
 import { handleAlbumClick, isAlbumSelected, updateAlbumIdList } from "../hooks/albumSelection";
-import { useInflightJobs } from "../hooks/useMbLookupJobs";
+import { useInflightJobs, getInflightSourcesForAlbum } from "../hooks/useMbLookupJobs";
 import { useRemoteIsAdmin } from "../hooks/useRemoteRole";
 import { AlbumCandidatesPanel } from "./AlbumCandidatesPanel";
 import { LastFmReviewModal } from "./LastFmReviewModal";
@@ -38,9 +38,10 @@ type SortField = "title" | "artist" | "year" | "song_count" | "added_at";
 
 interface AlbumsTableProps {
   remote: Remote;
-  /** invoked when the user clicks the header "lookup mb for all matching"
-   *  control. receives the album ids currently visible (post-filter). */
-  onMbLookupAllMatching?: (albumIds: string[]) => void;
+  /** invoked when the user clicks the header "lookup all matching"
+   *  control. fans out to mb + last.fm + theaudiodb in parallel for the
+   *  album ids currently visible (post-filter). */
+  onEnrichAllMatching?: (albumIds: string[]) => void;
 }
 
 const SORT_OPTIONS: { value: SortField; label: string }[] = [
@@ -248,13 +249,13 @@ export function AlbumsTable(props: AlbumsTableProps) {
           </div>
 
           {/* lookup-all-matching control (header level; works without
-           *  selection). */}
-          <Show when={props.onMbLookupAllMatching && filteredItems().length > 0}>
+           *  selection). fans out to mb + last.fm + theaudiodb. */}
+          <Show when={props.onEnrichAllMatching && filteredItems().length > 0}>
             <button
               type="button"
-              onClick={() => props.onMbLookupAllMatching?.(filteredItems().map((a) => a.album_id))}
+              onClick={() => props.onEnrichAllMatching?.(filteredItems().map((a) => a.album_id))}
               class="flex items-center gap-1 px-2 py-1 text-xs rounded border border-[var(--color-accent-500)]/40 text-[var(--color-accent-500)] hover:bg-[var(--color-accent-500)]/10 cursor-pointer bg-transparent"
-              title="enqueue a musicbrainz lookup for every matching album"
+              title="enqueue musicbrainz + last.fm + theaudiodb lookups for every matching album"
             >
               <Icon name="search" size={10} />
               lookup all matching
@@ -377,7 +378,7 @@ export function AlbumsTable(props: AlbumsTableProps) {
                   <th class="px-2 py-2 font-medium w-12 text-right">songs</th>
                   <th class="px-2 py-2 font-medium">genres</th>
                   <th class="px-2 py-2 font-medium">folksonomy</th>
-                  <th class="px-2 py-2 font-medium w-32">mb status</th>
+                  <th class="px-2 py-2 font-medium w-40">enrichment</th>
                   <th class="px-2 py-2 font-medium w-24">last lookup</th>
                   <th class="px-2 py-2 font-medium w-28">actions</th>
                 </tr>
@@ -447,6 +448,26 @@ function AlbumRow(props: {
   const folksonomy = () => topFolksonomyTags(albumMeta(), 5);
   const selected = () => isAlbumSelected(props.album.album_id);
   const inflight = useInflightJobs();
+  const inflightSources = () => {
+    inflight(); // subscribe
+    return getInflightSourcesForAlbum(props.album.album_id);
+  };
+  const lastfmState = (): SourceBadgeState => {
+    if (inflightSources().has("lastfm")) return "inflight";
+    const lf = albumMeta().lastfm;
+    if (!lf) return "missing";
+    if (lf.error) return "error";
+    if (lf.fetched_at) return "ok";
+    return "missing";
+  };
+  const audiodbState = (): SourceBadgeState => {
+    if (inflightSources().has("audiodb")) return "inflight";
+    const ad = albumMeta().audiodb;
+    if (!ad) return "missing";
+    if (ad.error) return "error";
+    if (ad.fetched_at) return "ok";
+    return "missing";
+  };
   const [expanded, setExpanded] = createSignal(false);
   const reviewable = () =>
     status() === "candidates" || status() === "needs_review" || status() === "confirmed";
@@ -506,35 +527,41 @@ function AlbumRow(props: {
           </Show>
         </td>
         <td class="px-2 py-1">
-          <Show
-            when={inflight().has(props.album.album_id)}
-            fallback={
-              <span
-                class="inline-block px-1.5 py-0.5 rounded text-[10px]"
-                classList={{
-                  "bg-emerald-500/15 text-emerald-400":
-                    status() === "confirmed" || status() === "enriched",
-                  "bg-amber-500/15 text-amber-400":
-                    status() === "needs_review" || status() === "candidates",
-                  "bg-blue-500/15 text-blue-400":
-                    status() === "queued" ||
-                    status() === "searching" ||
-                    status() === "fetching_detail",
-                  "bg-rose-500/15 text-rose-400":
-                    status() === "error" || status() === "no_match" || status() === "rejected",
-                  "bg-[var(--color-bg-elevated)] text-[var(--color-text-muted)]":
-                    status() === "not_attempted",
-                }}
-              >
-                {mbLookupStatusLabel(status())}
+          <div class="flex flex-wrap items-center gap-1">
+            {/* musicbrainz status — primary, uses the rich mb_lookup_status enum */}
+            <Show
+              when={inflightSources().has("mb")}
+              fallback={
+                <span
+                  class="inline-block px-1.5 py-0.5 rounded text-[10px]"
+                  title={`musicbrainz: ${mbLookupStatusLabel(status())}`}
+                  classList={{
+                    "bg-emerald-500/15 text-emerald-400":
+                      status() === "confirmed" || status() === "enriched",
+                    "bg-amber-500/15 text-amber-400":
+                      status() === "needs_review" || status() === "candidates",
+                    "bg-blue-500/15 text-blue-400":
+                      status() === "queued" ||
+                      status() === "searching" ||
+                      status() === "fetching_detail",
+                    "bg-rose-500/15 text-rose-400":
+                      status() === "error" || status() === "no_match" || status() === "rejected",
+                    "bg-[var(--color-bg-elevated)] text-[var(--color-text-muted)]":
+                      status() === "not_attempted",
+                  }}
+                >
+                  mb: {mbLookupStatusLabel(status())}
+                </span>
+              }
+            >
+              <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-blue-500/15 text-blue-400">
+                <span class="inline-block w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
+                mb
               </span>
-            }
-          >
-            <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-blue-500/15 text-blue-400">
-              <span class="inline-block w-2 h-2 rounded-full bg-blue-400 animate-pulse" />
-              looking up…
-            </span>
-          </Show>
+            </Show>
+            <SourceBadge label="lf" title="last.fm" state={lastfmState()} />
+            <SourceBadge label="ad" title="theaudiodb" state={audiodbState()} />
+          </div>
         </td>
         <td class="px-2 py-1 text-[var(--color-text-muted)]">{lastLookup() ?? "—"}</td>
         <td class="px-2 py-1 text-[10px]">
@@ -589,5 +616,39 @@ function AlbumRow(props: {
         </tr>
       </Show>
     </>
+  );
+}
+
+type SourceBadgeState = "missing" | "ok" | "error" | "inflight";
+
+function SourceBadge(props: { label: string; title: string; state: SourceBadgeState }) {
+  const tooltip = () => {
+    switch (props.state) {
+      case "inflight":
+        return `${props.title}: looking up…`;
+      case "ok":
+        return `${props.title}: fetched`;
+      case "error":
+        return `${props.title}: error (see modal)`;
+      case "missing":
+        return `${props.title}: not fetched`;
+    }
+  };
+  return (
+    <span
+      class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px]"
+      title={tooltip()}
+      classList={{
+        "bg-blue-500/15 text-blue-400": props.state === "inflight",
+        "bg-emerald-500/15 text-emerald-400": props.state === "ok",
+        "bg-rose-500/15 text-rose-400": props.state === "error",
+        "bg-[var(--color-bg-elevated)] text-[var(--color-text-muted)]": props.state === "missing",
+      }}
+    >
+      <Show when={props.state === "inflight"}>
+        <span class="inline-block w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
+      </Show>
+      {props.label}
+    </span>
   );
 }

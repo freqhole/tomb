@@ -1,17 +1,17 @@
 // floating bulk-action bar shown when one or more albums are selected.
 //
-// phase 4 ships a single action ("lookup musicbrainz for N selected") that
-// is wired up in phase 5 (job dispatch). for now the action button calls a
-// callback prop so the LibraryView can decide what to do with it.
+// the primary action enriches the selected albums against all three
+// metadata sources (musicbrainz, last.fm, theaudiodb) in parallel.
+// rate limiting and retry/backoff are enforced server-side per source.
 
 import { Show } from "solid-js";
 import { Icon } from "../../components/icons/registry";
 import { clearAlbumSelection, useAlbumSelectionCount } from "../hooks/albumSelection";
 
 interface AlbumBulkActionBarProps {
-  /** invoked when the user clicks "lookup musicbrainz". phase 4 stub: shows
-   *  a toast; phase 5 enqueues a JobType::MbAlbumSearch job per selected id. */
-  onMbLookup?: () => void;
+  /** invoked when the user clicks "enrich N selected". fans out to all
+   *  three metadata-source enqueue endpoints (mb / lastfm / audiodb). */
+  onEnrich?: () => void;
   /** disable destructive/admin actions when the user is not an admin on the
    *  selected remote. */
   isAdmin?: boolean;
@@ -27,17 +27,17 @@ export function AlbumBulkActionBar(props: AlbumBulkActionBarProps) {
 
         <button
           type="button"
-          disabled={!props.onMbLookup || props.isAdmin === false}
-          onClick={() => props.onMbLookup?.()}
+          disabled={!props.onEnrich || props.isAdmin === false}
+          onClick={() => props.onEnrich?.()}
           class="flex items-center gap-1.5 px-2.5 py-1 text-xs rounded border border-[var(--color-accent-500)]/40 text-[var(--color-accent-500)] hover:bg-[var(--color-accent-500)]/10 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed bg-transparent"
           title={
             props.isAdmin === false
               ? "requires admin on this remote"
-              : "lookup musicbrainz for the selected albums"
+              : "look up musicbrainz + last.fm + theaudiodb for the selected albums"
           }
         >
           <Icon name="search" size={11} />
-          lookup musicbrainz for {count()} selected
+          enrich {count()} selected
         </button>
 
         <button

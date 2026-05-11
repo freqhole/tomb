@@ -1,11 +1,30 @@
-// inline header strip showing the current MB-lookup session progress.
+// inline header strip showing the current album-enrichment session.
 // non-modal, slim, lives next to the view-switcher in the LibraryView
 // header. fades in while a burst is active and lingers briefly with the
 // final tally after the burst settles.
+//
+// shows aggregate progress across all three metadata sources
+// (musicbrainz / last.fm / theaudiodb) plus a per-source breakdown.
 
-import { Show, createMemo } from "solid-js";
+import { Show, createMemo, For } from "solid-js";
 import { Icon } from "../../components/icons/registry";
-import { dismissMbSession, useMbSession } from "../hooks/useMbLookupJobs";
+import {
+  dismissMbSession,
+  useMbSession,
+  ENRICHMENT_SOURCES,
+  type EnrichmentSource,
+} from "../hooks/useMbLookupJobs";
+
+const SOURCE_LABEL: Record<EnrichmentSource, string> = {
+  mb: "musicbrainz",
+  lastfm: "last.fm",
+  audiodb: "theaudiodb",
+};
+const SOURCE_SHORT: Record<EnrichmentSource, string> = {
+  mb: "mb",
+  lastfm: "lf",
+  audiodb: "ad",
+};
 
 export function MbProgressStrip() {
   const session = useMbSession();
@@ -55,12 +74,12 @@ export function MbProgressStrip() {
 
         <Show when={!settled()} fallback={<SettledSummary />}>
           <span>
-            musicbrainz lookup: {totalDone()} / {session().enqueued}
+            enrichment: {totalDone()} / {session().enqueued}
             <Show when={session().failed > 0}>
               <span class="text-[var(--color-error-500)]"> · {session().failed} failed</span>
             </Show>
           </span>
-          {/* slim progress bar */}
+          {/* aggregate progress bar */}
           <span
             class="inline-block h-1 w-24 rounded-full bg-[var(--color-bg-base)] overflow-hidden"
             aria-hidden="true"
@@ -69,6 +88,29 @@ export function MbProgressStrip() {
               class="block h-full bg-[var(--color-accent-500)] transition-[width] duration-300"
               style={{ width: `${percent()}%` }}
             />
+          </span>
+          {/* per-source breakdown */}
+          <span class="flex items-center gap-1.5 ml-1">
+            <For each={ENRICHMENT_SOURCES}>
+              {(src) => {
+                const c = () => session().bySource[src];
+                const done = () => c().completed + c().failed;
+                return (
+                  <span
+                    class="inline-block px-1.5 py-0.5 rounded text-[10px] bg-[var(--color-bg-base)]"
+                    title={`${SOURCE_LABEL[src]}: ${done()} / ${c().enqueued}${
+                      c().failed > 0 ? ` · ${c().failed} failed` : ""
+                    }${c().skippedAtEnqueue > 0 ? ` · ${c().skippedAtEnqueue} skipped` : ""}`}
+                    classList={{
+                      "text-[var(--color-error-500)]": c().failed > 0,
+                      "text-[var(--color-text-tertiary)]": c().failed === 0,
+                    }}
+                  >
+                    {SOURCE_SHORT[src]} {done()}/{c().enqueued}
+                  </span>
+                );
+              }}
+            </For>
           </span>
         </Show>
 
@@ -100,7 +142,7 @@ function SettledSummary() {
           </>
         }
       >
-        musicbrainz lookup complete · {session().completed} album
+        enrichment complete · {session().completed} job
         {session().completed === 1 ? "" : "s"}
       </Show>
       <Show when={session().lastError}>
