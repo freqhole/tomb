@@ -8,9 +8,11 @@
 //! - models: music-specific job parameters and results
 //! - directory_tag_rules: auto-tagging albums based on file location
 
+mod audiodb_detail_processor;
 mod directory_tag_rules;
 mod fetch_processor;
 mod file_processor;
+mod lastfm_detail_processor;
 mod mb_album_search_processor;
 mod mb_detail_processor;
 mod models;
@@ -20,8 +22,10 @@ mod scanned_directories;
 mod upload_processors;
 
 // re-export public processor functions
+pub use audiodb_detail_processor::process_audiodb_album_detail_job;
 pub use fetch_processor::process_fetch_media_job;
 pub use file_processor::process_file_job;
+pub use lastfm_detail_processor::process_lastfm_album_detail_job;
 pub use mb_album_search_processor::process_mb_album_search_job;
 pub use mb_detail_processor::process_mb_album_detail_job;
 pub use rescan_processor::process_rescan_directories_job;
@@ -30,10 +34,12 @@ pub use upload_processors::{process_convert_webp_job, process_import_music_job};
 
 // re-export music job models
 pub use models::{
-    EnqueueMbAlbumSearchRequest, EnqueueMbAlbumSearchResponse, MbAlbumDetailParams,
-    MbAlbumDetailResult, MbAlbumSearchParams, MbAlbumSearchResult, ProcessFileParams,
-    ProcessFileResult, ProcessJobCreatedResponse, ScanDirectoryParams, ScanDirectoryResult,
-    ScanJobCreatedResponse,
+    AudioDbAlbumDetailParams, AudioDbAlbumDetailResult, EnqueueAudioDbAlbumDetailRequest,
+    EnqueueAudioDbAlbumDetailResponse, EnqueueLastFmAlbumDetailRequest,
+    EnqueueLastFmAlbumDetailResponse, EnqueueMbAlbumSearchRequest, EnqueueMbAlbumSearchResponse,
+    LastFmAlbumDetailParams, LastFmAlbumDetailResult, MbAlbumDetailParams, MbAlbumDetailResult,
+    MbAlbumSearchParams, MbAlbumSearchResult, ProcessFileParams, ProcessFileResult,
+    ProcessJobCreatedResponse, ScanDirectoryParams, ScanDirectoryResult, ScanJobCreatedResponse,
 };
 
 // re-export scanned directories

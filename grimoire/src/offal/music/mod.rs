@@ -124,6 +124,12 @@ pub async fn dispatch(
         "/api/music/albums/mb-search/enqueue" => {
             Some(jobs::enqueue_mb_album_search(caller, body.clone()).await)
         }
+        "/api/music/albums/lastfm/enqueue" => {
+            Some(jobs::enqueue_lastfm_album_detail(caller, body.clone()).await)
+        }
+        "/api/music/albums/audiodb/enqueue" => {
+            Some(jobs::enqueue_audiodb_album_detail(caller, body.clone()).await)
+        }
 
         // search
         "/api/music/search" => Some(search::search_handler(caller, body.clone()).await),

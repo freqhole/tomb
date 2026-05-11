@@ -7,9 +7,12 @@
 pub mod entities;
 
 // public modules
+pub mod allmusic;
 pub mod analytics;
+pub mod audiodb;
 pub mod crud;
 pub mod fetch;
+pub mod lastfm;
 pub mod musicbrainz;
 pub mod scanner;
 pub mod users;

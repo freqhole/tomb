@@ -627,6 +627,34 @@ pub mod type_registry {
         gen.add_schema::<crate::jobs::MbAlbumDetailResult>("MbAlbumDetailResult");
         registered.insert("MbAlbumDetailResult".to_string());
 
+        // last.fm album-detail job request/response (phase 13)
+        gen.add_schema::<crate::jobs::LastFmAlbumDetailParams>("LastFmAlbumDetailParams");
+        registered.insert("LastFmAlbumDetailParams".to_string());
+        gen.add_schema::<crate::jobs::LastFmAlbumDetailResult>("LastFmAlbumDetailResult");
+        registered.insert("LastFmAlbumDetailResult".to_string());
+        gen.add_schema::<crate::jobs::EnqueueLastFmAlbumDetailRequest>(
+            "EnqueueLastFmAlbumDetailRequest",
+        );
+        registered.insert("EnqueueLastFmAlbumDetailRequest".to_string());
+        gen.add_schema::<crate::jobs::EnqueueLastFmAlbumDetailResponse>(
+            "EnqueueLastFmAlbumDetailResponse",
+        );
+        registered.insert("EnqueueLastFmAlbumDetailResponse".to_string());
+
+        // theaudiodb album-detail job request/response (phase 13)
+        gen.add_schema::<crate::jobs::AudioDbAlbumDetailParams>("AudioDbAlbumDetailParams");
+        registered.insert("AudioDbAlbumDetailParams".to_string());
+        gen.add_schema::<crate::jobs::AudioDbAlbumDetailResult>("AudioDbAlbumDetailResult");
+        registered.insert("AudioDbAlbumDetailResult".to_string());
+        gen.add_schema::<crate::jobs::EnqueueAudioDbAlbumDetailRequest>(
+            "EnqueueAudioDbAlbumDetailRequest",
+        );
+        registered.insert("EnqueueAudioDbAlbumDetailRequest".to_string());
+        gen.add_schema::<crate::jobs::EnqueueAudioDbAlbumDetailResponse>(
+            "EnqueueAudioDbAlbumDetailResponse",
+        );
+        registered.insert("EnqueueAudioDbAlbumDetailResponse".to_string());
+
         // mb candidate review request/response (phase 7)
         gen.add_schema::<ConfirmMbMatchRequest>("ConfirmMbMatchRequest");
         registered.insert("ConfirmMbMatchRequest".to_string());

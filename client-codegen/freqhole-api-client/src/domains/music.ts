@@ -961,6 +961,38 @@ export function createMusicMethods(call: CallFn) {
       );
     },
 
+    // last.fm album-detail bulk enqueue (admin only). spawns one
+    // `LastFmAlbumDetail` job per album id, fetching album.getInfo and
+    // artist.getInfo and storing the raw response under
+    // `metadata.lastfm` for review.
+    enqueueLastFmAlbumDetail: (params: s.EnqueueLastFmAlbumDetailRequest) => {
+      return call(
+        "music",
+        "enqueue_lastfm_album_detail",
+        routes.music.enqueue_lastfm_album_detail.resp,
+        routes.music.enqueue_lastfm_album_detail.req,
+        routes.music.enqueue_lastfm_album_detail.method,
+        routes.music.enqueue_lastfm_album_detail.path,
+        params,
+      );
+    },
+
+    // theaudiodb album-detail bulk enqueue (admin only). spawns one
+    // `AudioDbAlbumDetail` job per album id, fetching the album record
+    // (by mbid or text-search) and the artist record (by mbid), and
+    // storing the captured snapshot under `metadata.audiodb` for review.
+    enqueueAudioDbAlbumDetail: (params: s.EnqueueAudioDbAlbumDetailRequest) => {
+      return call(
+        "music",
+        "enqueue_audiodb_album_detail",
+        routes.music.enqueue_audiodb_album_detail.resp,
+        routes.music.enqueue_audiodb_album_detail.req,
+        routes.music.enqueue_audiodb_album_detail.method,
+        routes.music.enqueue_audiodb_album_detail.path,
+        params,
+      );
+    },
+
     // special routes - these exist for route coverage but have alternate implementations
     // for actual blob streaming, use client.fetchBlob(id) instead
     streamBlob: (params: { id: string }) => {

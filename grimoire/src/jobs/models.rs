@@ -24,6 +24,12 @@ pub enum JobType {
     // musicbrainz enrichment
     MbAlbumSearch,
     MbAlbumDetail,
+
+    // last.fm enrichment
+    LastFmAlbumDetail,
+
+    // theaudiodb enrichment
+    AudioDbAlbumDetail,
 }
 
 /// job status lifecycle

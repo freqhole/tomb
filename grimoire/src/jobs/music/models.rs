@@ -151,3 +151,77 @@ pub struct MbAlbumDetailResult {
     pub release_group_tag_count: u64,
     pub final_status: String,
 }
+
+// =============================================================================
+// last.fm album detail (phase 13)
+// =============================================================================
+
+/// parameters for `JobType::LastFmAlbumDetail`. one job per album.
+/// fetches `album.getInfo` and `artist.getInfo` (which carries `similar`
+/// artists), persists the result into `metadata.lastfm.*`.
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct LastFmAlbumDetailParams {
+    pub album_id: String,
+    /// optional MBID hint to make the lookup deterministic when we already
+    /// have a confirmed musicbrainz match.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mbid: Option<String>,
+}
+
+/// summary written into the job's `result` column on success.
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct LastFmAlbumDetailResult {
+    pub album_id: String,
+    pub album_fetched: bool,
+    pub artist_fetched: bool,
+    pub album_tag_count: u64,
+    pub artist_tag_count: u64,
+    pub similar_artist_count: u64,
+}
+
+/// request body for the bulk-enqueue offal endpoint.
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct EnqueueLastFmAlbumDetailRequest {
+    pub album_ids: Vec<String>,
+}
+
+/// response from the bulk-enqueue endpoint. one job id per album that was
+/// successfully scheduled.
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct EnqueueLastFmAlbumDetailResponse {
+    pub job_ids: Vec<String>,
+    pub skipped_album_ids: Vec<String>,
+}
+
+/// parameters for `JobType::AudioDbAlbumDetail`. one job per album.
+/// fetches album by mbid (preferred) or text search, then artist by mbid.
+/// persists into `metadata.audiodb.*`.
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct AudioDbAlbumDetailParams {
+    pub album_id: String,
+    /// optional release-group MBID for direct `album-mb.php` lookup.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mbid: Option<String>,
+    /// optional artist MBID for `artist-mb.php` lookup.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub artist_mbid: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct AudioDbAlbumDetailResult {
+    pub album_id: String,
+    pub album_fetched: bool,
+    pub artist_fetched: bool,
+    pub matched_by: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct EnqueueAudioDbAlbumDetailRequest {
+    pub album_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct EnqueueAudioDbAlbumDetailResponse {
+    pub job_ids: Vec<String>,
+    pub skipped_album_ids: Vec<String>,
+}

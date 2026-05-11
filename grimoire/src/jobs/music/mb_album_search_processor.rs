@@ -163,12 +163,20 @@ pub async fn process_mb_album_search_job(job: &Job) -> Result<Option<Value>, Job
                     .filter_map(|m| m.tracks.as_ref().map(|t| t.len() as i64))
                     .next()
             });
+            // grab the first medium's format (cd, digital media, vinyl, ...)
+            let media_format = r
+                .media
+                .as_ref()
+                .and_then(|m| m.first())
+                .and_then(|m| m.format.clone());
             let local_confidence = compute_local_confidence(
                 &title,
                 artist.as_deref(),
                 &r.title,
                 &primary_artist,
                 r.score,
+                r.country.as_deref(),
+                media_format.as_deref(),
             );
             MbCandidate {
                 release_group_id: r
@@ -305,13 +313,17 @@ pub async fn process_mb_album_search_job(job: &Job) -> Result<Option<Value>, Job
 
 /// cheap, deterministic confidence score in [0.0, 1.0].
 /// blends MB's lucene score (when present) with token-overlap on title
-/// + artist. exact normalised matches on both fields cap at 1.0.
+/// + artist, then applies small additive boosts for canonical release
+/// shapes (worldwide / digital / cd) — these are weak signals that one
+/// release is more likely to be the canonical one than a regional pressing.
 fn compute_local_confidence(
     query_title: &str,
     query_artist: Option<&str>,
     cand_title: &str,
     cand_artist: &str,
     mb_score: Option<u32>,
+    country: Option<&str>,
+    media_format: Option<&str>,
 ) -> f64 {
     let title_overlap = token_jaccard(query_title, cand_title);
     let artist_overlap = match query_artist {
@@ -323,7 +335,24 @@ fn compute_local_confidence(
         .unwrap_or(0.5);
 
     // weights: title 0.45, artist 0.35, mb 0.20
-    let blended = 0.45 * title_overlap + 0.35 * artist_overlap + 0.20 * mb_norm;
+    let mut blended = 0.45 * title_overlap + 0.35 * artist_overlap + 0.20 * mb_norm;
+
+    // small additive boosts for canonical release shapes. capped at 1.0
+    // and only applied when the base score is already in the ballpark
+    // (>=0.5) so a low-quality match doesn't tip across thresholds just
+    // because it happens to be a worldwide cd.
+    if blended >= 0.5 {
+        if matches!(country, Some("XW")) {
+            blended += 0.05;
+        }
+        if let Some(fmt) = media_format {
+            let f = fmt.to_lowercase();
+            if f.contains("cd") || f.contains("digital") {
+                blended += 0.03;
+            }
+        }
+    }
+
     blended.clamp(0.0, 1.0)
 }
 
@@ -382,14 +411,66 @@ mod tests {
 
     #[test]
     fn confidence_combines_signals() {
-        let c =
-            compute_local_confidence("Kid A", Some("Radiohead"), "Kid A", "Radiohead", Some(100));
+        let c = compute_local_confidence(
+            "Kid A",
+            Some("Radiohead"),
+            "Kid A",
+            "Radiohead",
+            Some(100),
+            None,
+            None,
+        );
         assert!(c >= 0.95);
     }
 
     #[test]
     fn confidence_low_when_nothing_matches() {
-        let c = compute_local_confidence("foo", Some("bar"), "baz", "qux", Some(0));
+        let c = compute_local_confidence(
+            "foo",
+            Some("bar"),
+            "baz",
+            "qux",
+            Some(0),
+            None,
+            None,
+        );
+        assert!(c < 0.3);
+    }
+
+    #[test]
+    fn confidence_boosts_xw_and_cd() {
+        let base = compute_local_confidence(
+            "Kid A",
+            Some("Radiohead"),
+            "Kid A",
+            "Radiohead",
+            Some(50),
+            None,
+            None,
+        );
+        let boosted = compute_local_confidence(
+            "Kid A",
+            Some("Radiohead"),
+            "Kid A",
+            "Radiohead",
+            Some(50),
+            Some("XW"),
+            Some("CD"),
+        );
+        assert!(boosted > base);
+    }
+
+    #[test]
+    fn boosts_dont_apply_to_low_quality_matches() {
+        let c = compute_local_confidence(
+            "foo",
+            Some("bar"),
+            "baz",
+            "qux",
+            Some(0),
+            Some("XW"),
+            Some("CD"),
+        );
         assert!(c < 0.3);
     }
 }

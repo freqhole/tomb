@@ -27,6 +27,8 @@ import { useLibraryAlbumsQuery } from "../queries/useLibraryAlbums";
 import { handleAlbumClick, isAlbumSelected, updateAlbumIdList } from "../hooks/albumSelection";
 import { useInflightJobs } from "../hooks/useMbLookupJobs";
 import { AlbumCandidatesPanel } from "./AlbumCandidatesPanel";
+import { LastFmReviewModal } from "./LastFmReviewModal";
+import { AudioDbReviewModal } from "./AudioDbReviewModal";
 import { getClientForRemote } from "../../app/api/client";
 import { queryClient } from "../../queryClient";
 import type { AlbumSummary } from "../../music/data/types";
@@ -69,6 +71,19 @@ export function AlbumsTable(props: AlbumsTableProps) {
       }
     | { kind: "error"; message: string };
   const [autoConfirm, setAutoConfirm] = createSignal<AutoConfirmState>({ kind: "idle" });
+
+  // last.fm review modal — hoisted to table scope so it survives row
+  // re-mounts when the album list query is invalidated mid-job.
+  const [lastfmAlbumId, setLastfmAlbumId] = createSignal<string | null>(null);
+  const lastfmAlbum = createMemo(() =>
+    lastfmAlbumId() ? (filteredItems().find((a) => a.album_id === lastfmAlbumId()) ?? null) : null
+  );
+
+  // theaudiodb review modal — same hoisting reasoning as lastfm above.
+  const [audiodbAlbumId, setAudiodbAlbumId] = createSignal<string | null>(null);
+  const audiodbAlbum = createMemo(() =>
+    audiodbAlbumId() ? (filteredItems().find((a) => a.album_id === audiodbAlbumId()) ?? null) : null
+  );
 
   // simple debounce on the search input
   let searchTimer: ReturnType<typeof setTimeout> | undefined;
@@ -358,13 +373,19 @@ export function AlbumsTable(props: AlbumsTableProps) {
                   <th class="px-2 py-2 font-medium">folksonomy</th>
                   <th class="px-2 py-2 font-medium w-32">mb status</th>
                   <th class="px-2 py-2 font-medium w-24">last lookup</th>
-                  <th class="px-2 py-2 font-medium w-16">actions</th>
+                  <th class="px-2 py-2 font-medium w-28">actions</th>
                 </tr>
               </thead>
               <tbody>
                 <For each={filteredItems()}>
                   {(album, index) => (
-                    <AlbumRow album={album} remote={props.remote} index={index()} />
+                    <AlbumRow
+                      album={album}
+                      remote={props.remote}
+                      index={index()}
+                      onOpenLastFm={() => setLastfmAlbumId(album.album_id)}
+                      onOpenAudioDb={() => setAudiodbAlbumId(album.album_id)}
+                    />
                   )}
                 </For>
               </tbody>
@@ -375,11 +396,37 @@ export function AlbumsTable(props: AlbumsTableProps) {
           </Show>
         </Show>
       </div>
+      <Show when={lastfmAlbum()}>
+        {(album) => (
+          <LastFmReviewModal
+            isOpen={true}
+            onClose={() => setLastfmAlbumId(null)}
+            album={album()}
+            remote={props.remote}
+          />
+        )}
+      </Show>
+      <Show when={audiodbAlbum()}>
+        {(album) => (
+          <AudioDbReviewModal
+            isOpen={true}
+            onClose={() => setAudiodbAlbumId(null)}
+            album={album()}
+            remote={props.remote}
+          />
+        )}
+      </Show>
     </div>
   );
 }
 
-function AlbumRow(props: { album: AlbumSummary; remote: Remote; index: number }) {
+function AlbumRow(props: {
+  album: AlbumSummary;
+  remote: Remote;
+  index: number;
+  onOpenLastFm: () => void;
+  onOpenAudioDb: () => void;
+}) {
   const status = () => parseMbLookupStatus(props.album.mb_lookup_status);
   const lastLookup = () => {
     const ts = props.album.mb_lookup_at;
@@ -483,23 +530,47 @@ function AlbumRow(props: { album: AlbumSummary; remote: Remote; index: number })
         </td>
         <td class="px-2 py-1 text-[var(--color-text-muted)]">{lastLookup() ?? "—"}</td>
         <td class="px-2 py-1 text-[10px]">
-          <Show
-            when={reviewable()}
-            fallback={<span class="text-[var(--color-text-disabled)]">—</span>}
-          >
+          <div class="flex flex-col gap-1">
+            <Show
+              when={reviewable()}
+              fallback={<span class="text-[var(--color-text-disabled)]">—</span>}
+            >
+              <button
+                type="button"
+                class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border border-[var(--color-border-subtle)] text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:border-[var(--color-text-secondary)] cursor-pointer bg-transparent"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setExpanded((p) => !p);
+                }}
+                title={expanded() ? "hide candidates" : "review candidates"}
+              >
+                <Icon name={expanded() ? "arrowUp" : "arrowDown"} size={8} />
+                review
+              </button>
+            </Show>
             <button
               type="button"
               class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border border-[var(--color-border-subtle)] text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:border-[var(--color-text-secondary)] cursor-pointer bg-transparent"
               onClick={(e) => {
                 e.stopPropagation();
-                setExpanded((p) => !p);
+                props.onOpenLastFm();
               }}
-              title={expanded() ? "hide candidates" : "review candidates"}
+              title="view last.fm raw data"
             >
-              <Icon name={expanded() ? "arrowUp" : "arrowDown"} size={8} />
-              review
+              last.fm
             </button>
-          </Show>
+            <button
+              type="button"
+              class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border border-[var(--color-border-subtle)] text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:border-[var(--color-text-secondary)] cursor-pointer bg-transparent"
+              onClick={(e) => {
+                e.stopPropagation();
+                props.onOpenAudioDb();
+              }}
+              title="view theaudiodb raw data"
+            >
+              audiodb
+            </button>
+          </div>
         </td>
       </tr>
       <Show when={expanded() && reviewable()}>

@@ -128,6 +128,10 @@ pub struct AlbumMetadata {
     pub musicbrainz: Option<MbMetadata>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub folksonomy: Option<FolksonomyMetadata>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lastfm: Option<LastFmMetadata>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub audiodb: Option<AudioDbMetadata>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub log: Vec<EnrichmentLogEntry>,
 }
@@ -229,6 +233,184 @@ pub struct EnrichmentLogEntry {
     pub step: String,
     /// human-readable result summary
     pub result: String,
+}
+
+// =============================================================================
+// last.fm enrichment blob (phase 13)
+// =============================================================================
+
+/// snapshot of last.fm data captured by the lastfm-detail job. raw enough to
+/// dump in a debug modal; consumers (mood unifier, similar-artist viz) can
+/// read structured fields off this without re-fetching.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, ZodSchema, PartialEq)]
+#[serde(default)]
+pub struct LastFmMetadata {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub album: Option<LastFmAlbumSnapshot>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub artist: Option<LastFmArtistSnapshot>,
+    /// unix timestamp when this data was fetched
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fetched_at: Option<i64>,
+    /// last.fm api error envelope, when the call failed
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, ZodSchema, PartialEq)]
+#[serde(default)]
+pub struct LastFmAlbumSnapshot {
+    pub name: String,
+    pub artist: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mbid: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub listeners: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub playcount: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub tags: Vec<LastFmTagRef>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub wiki_summary: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub wiki_published: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, ZodSchema, PartialEq)]
+#[serde(default)]
+pub struct LastFmArtistSnapshot {
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mbid: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub listeners: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub playcount: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub tags: Vec<LastFmTagRef>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub similar: Vec<LastFmSimilarArtistRef>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bio_summary: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bio_published: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, ZodSchema, PartialEq)]
+#[serde(default)]
+pub struct LastFmTagRef {
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, ZodSchema, PartialEq)]
+#[serde(default)]
+pub struct LastFmSimilarArtistRef {
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+}
+
+/// snapshot of theaudiodb data captured by the audiodb-detail job. raw
+/// enough to dump in a debug modal; consumers (mood unifier, asset puller)
+/// can read structured fields off this without re-fetching.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, ZodSchema, PartialEq)]
+#[serde(default)]
+pub struct AudioDbMetadata {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub album: Option<AudioDbAlbumSnapshot>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub artist: Option<AudioDbArtistSnapshot>,
+    /// unix timestamp when this data was fetched
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fetched_at: Option<i64>,
+    /// last error message when the call failed (no envelope; audiodb
+    /// just returns `{album:null}` on miss, so this is parse/transport).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, ZodSchema, PartialEq)]
+#[serde(default)]
+pub struct AudioDbAlbumSnapshot {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id_album: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id_artist: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub artist: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub year_released: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub genre: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub subgenre: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub style: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mood: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub theme: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub speed: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub score: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub score_votes: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description_en: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub album_thumb: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub album_thumb_hq: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub album_thumb_back: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub album_cdart: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub album_spine: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub album_3d_case: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub musicbrainz_release_group_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub musicbrainz_artist_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, ZodSchema, PartialEq)]
+#[serde(default)]
+pub struct AudioDbArtistSnapshot {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id_artist: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub genre: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub style: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mood: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub biography_en: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub country: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub formed_year: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub artist_thumb: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub artist_fanart: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub musicbrainz_artist_id: Option<String>,
 }
 
 // =============================================================================
@@ -392,6 +574,21 @@ pub fn patch_mb_folksonomy(folksonomy: &MbFolksonomy) -> JsonValue {
             "musicbrainz": folksonomy,
         }
     })
+}
+
+/// convenience: build a json patch that records last.fm enrichment data.
+/// passes the whole `LastFmMetadata` so callers can include album-only,
+/// artist-only, or both. completely replaces the `lastfm` sub-tree (it's
+/// always written together as a snapshot from one job run).
+pub fn patch_lastfm(lastfm: &LastFmMetadata) -> JsonValue {
+    json!({ "lastfm": lastfm })
+}
+
+/// convenience: build a json patch that records theaudiodb enrichment
+/// data. completely replaces the `audiodb` sub-tree (always written
+/// together as a snapshot from one job run).
+pub fn patch_audiodb(audiodb: &AudioDbMetadata) -> JsonValue {
+    json!({ "audiodb": audiodb })
 }
 
 /// convenience: append an entry to the `log` array. log is rebuilt server-side

@@ -23,6 +23,15 @@ pub struct GrimoireConfig {
     pub media: MediaConfig,
     /// MusicBrainz integration
     pub musicbrainz: MusicBrainzConfig,
+    /// last.fm integration (optional)
+    #[serde(default)]
+    pub lastfm: LastFmConfig,
+    /// theaudiodb integration (optional)
+    #[serde(default)]
+    pub audiodb: AudioDbConfig,
+    /// allmusic via apify integration (optional)
+    #[serde(default)]
+    pub allmusic: AllMusicConfig,
     /// Logging configuration
     pub logging: LoggingConfig,
     /// Server configuration (optional - only needed for server mode)
@@ -182,6 +191,65 @@ pub struct MusicBrainzConfig {
     /// Enable MusicBrainz API integration (default: false)
     #[serde(default)]
     pub enabled: bool,
+}
+
+/// last.fm web api integration. requires a free api key from
+/// <https://www.last.fm/api/account/create>.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct LastFmConfig {
+    /// enable last.fm enrichment (default: false)
+    #[serde(default)]
+    pub enabled: bool,
+    /// last.fm api key. write-style endpoints would also need a shared
+    /// secret, but read-only enrichment only needs this.
+    #[serde(default)]
+    pub api_key: String,
+}
+
+/// theaudiodb integration. test key `123` is the public free key for low
+/// volume non-commercial requests; donate at theaudiodb.com to get a real
+/// key. `AUDIODB_API_KEY` env var overrides any value here.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AudioDbConfig {
+    /// enable theaudiodb enrichment (default: false)
+    #[serde(default)]
+    pub enabled: bool,
+    /// api key (default: "123", the public free key)
+    #[serde(default = "default_audiodb_api_key")]
+    pub api_key: String,
+}
+
+impl Default for AudioDbConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            api_key: default_audiodb_api_key(),
+        }
+    }
+}
+
+fn default_audiodb_api_key() -> String {
+    "123".to_string()
+}
+
+/// allmusic via apify scraper. paid third-party scraper-as-a-service;
+/// disabled by default. **only enable on libraries you own and only run
+/// on explicitly-confirmed albums.**
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct AllMusicConfig {
+    /// enable allmusic enrichment (default: false)
+    #[serde(default)]
+    pub enabled: bool,
+    /// apify api token (NOT an allmusic key — this hits apify's actor api)
+    #[serde(default)]
+    pub api_token: String,
+    /// override the default actor id; defaults to
+    /// `lexis-solutions~allmusic-scraper`.
+    #[serde(default)]
+    pub actor_id: Option<String>,
+    /// per-run timeout in seconds (default 180; allmusic scraping is slow).
+    #[serde(default)]
+    pub timeout_seconds: Option<u64>,
 }
 
 /// federation/p2p configuration for peer-to-peer music sharing
@@ -1485,6 +1553,9 @@ mod tests {
                 thumbnail_on_demand_enabled: false,
             },
             musicbrainz: MusicBrainzConfig { enabled: false },
+            lastfm: LastFmConfig::default(),
+            audiodb: AudioDbConfig::default(),
+            allmusic: AllMusicConfig::default(),
             logging: LoggingConfig {
                 level: "info".to_string(),
                 log_file: "freqhole.log".to_string(),
@@ -1526,6 +1597,9 @@ mod tests {
                 thumbnail_on_demand_enabled: false,
             },
             musicbrainz: MusicBrainzConfig { enabled: false },
+            lastfm: LastFmConfig::default(),
+            audiodb: AudioDbConfig::default(),
+            allmusic: AllMusicConfig::default(),
             logging: LoggingConfig {
                 level: "invalid".to_string(),
                 log_file: "freqhole.log".to_string(),
@@ -1565,6 +1639,9 @@ mod tests {
                 thumbnail_on_demand_enabled: false,
             },
             musicbrainz: MusicBrainzConfig { enabled: false },
+            lastfm: LastFmConfig::default(),
+            audiodb: AudioDbConfig::default(),
+            allmusic: AllMusicConfig::default(),
             logging: LoggingConfig {
                 level: "info".to_string(),
                 log_file: "freqhole.log".to_string(),

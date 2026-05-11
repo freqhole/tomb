@@ -82,6 +82,15 @@ pub async fn process_mb_album_detail_job(job: &Job) -> Result<Option<Value>, Job
     let release_group_genres = map_genres(rg.genres.as_deref());
     let release_group_tags = map_tags(rg.tags.as_deref());
 
+    // collect official MB genre names from the release-group up front so we
+    // can use them later when auto-filling album columns.
+    let mut mb_genre_names: Vec<String> = rg
+        .genres
+        .as_deref()
+        .map(|g| g.iter().map(|x| x.name.clone()).collect())
+        .unwrap_or_default();
+    let rg_first_release_date = rg.first_release_date.clone();
+
     info!(
         "mb release-group {} title={:?} primary_type={:?} secondary_types={:?} first_release_date={:?} artist_credits={}",
         rg.id,
@@ -103,6 +112,8 @@ pub async fn process_mb_album_detail_job(job: &Job) -> Result<Option<Value>, Job
     );
 
     // step 4: optionally fetch release
+    let mut release_date_for_apply: Option<String> = None;
+    let mut release_label_for_apply: Option<String> = None;
     let (release_genres, release_tags) = if let Some(release_id) = params.release_id.as_deref() {
         let r_resp = client.get_release(release_id).await;
         if r_resp.success {
@@ -135,6 +146,25 @@ pub async fn process_mb_album_detail_job(job: &Job) -> Result<Option<Value>, Job
                 r_tags.len(),
                 format_folksonomy_top(&r_tags, 10)
             );
+            // capture for auto-apply: prefer release.date over rg.first_release_date
+            release_date_for_apply = r.date.clone();
+            release_label_for_apply = r
+                .label_info
+                .as_ref()
+                .and_then(|li| li.first())
+                .and_then(|li| li.label.as_ref())
+                .map(|l| l.name.clone());
+            // merge release-level genres into the names pool (deduped lowercase)
+            if let Some(gs) = r.genres.as_deref() {
+                for g in gs {
+                    if !mb_genre_names
+                        .iter()
+                        .any(|n| n.eq_ignore_ascii_case(&g.name))
+                    {
+                        mb_genre_names.push(g.name.clone());
+                    }
+                }
+            }
             (r_genres, r_tags)
         } else {
             // release fetch failure is non-fatal; we still have release-group
@@ -196,6 +226,26 @@ pub async fn process_mb_album_detail_job(job: &Job) -> Result<Option<Value>, Job
             reason: format!("metadata merge failed: {}", merge_resp.message),
         });
     }
+
+    // step 5b: auto-apply year/label/genres to album columns where currently
+    // empty. user-facing convention: never overwrite hand-edited values.
+    // never touches title/artist/track-level fields (those need explicit
+    // user opt-in via ui).
+    let release_date_to_apply = release_date_for_apply.or(rg_first_release_date);
+    let apply_summary = apply_mb_album_columns_if_empty(
+        &album_id,
+        release_date_to_apply.as_deref(),
+        release_label_for_apply.as_deref(),
+        &mb_genre_names,
+    )
+    .await;
+    info!(
+        "mb auto-apply for {}: year={} label={} genres_added={}",
+        album_id,
+        apply_summary.year_set,
+        apply_summary.label_set,
+        apply_summary.genres_added
+    );
 
     // step 6: flip status to enriched
     let _ = albums_repo::update_mb_lookup_status(
@@ -388,4 +438,124 @@ fn collect_mood_hits(folksonomy: &MbFolksonomy) -> Vec<FolksonomyTag> {
     }
     hits.sort_by(|a, b| b.count.cmp(&a.count).then_with(|| a.name.cmp(&b.name)));
     hits
+}
+
+// ---------------------------------------------------------------------------
+// auto-apply mb-derived data to album columns (year/label/genres only)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Default)]
+struct ApplySummary {
+    year_set: bool,
+    label_set: bool,
+    genres_added: usize,
+}
+
+/// fill `release_date` and `label` columns only when currently NULL/empty,
+/// and link any new genres into `album_genrez` (existing links untouched).
+/// never updates title, album_type, artist, or song-level data.
+async fn apply_mb_album_columns_if_empty(
+    album_id: &str,
+    release_date: Option<&str>,
+    label: Option<&str>,
+    genre_names: &[String],
+) -> ApplySummary {
+    use crate::database;
+    let mut summary = ApplySummary::default();
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            tracing::warn!("auto-apply: db connect failed: {}", e);
+            return summary;
+        }
+    };
+
+    // read current values
+    let current = match sqlx::query!(
+        r#"SELECT release_date, label FROM albumz WHERE id = ? AND deleted_at IS NULL"#,
+        album_id
+    )
+    .fetch_optional(&pool)
+    .await
+    {
+        Ok(Some(row)) => Some((row.release_date, row.label)),
+        Ok(None) => None,
+        Err(e) => {
+            tracing::warn!("auto-apply: read album failed: {}", e);
+            None
+        }
+    };
+
+    let (cur_date, cur_label) = current.unwrap_or((None, None));
+
+    // release_date: only fill when empty
+    let new_date = release_date
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .filter(|_| {
+            cur_date
+                .as_deref()
+                .map(|s| s.trim().is_empty())
+                .unwrap_or(true)
+        });
+
+    // label: only fill when empty
+    let new_label = label
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .filter(|_| {
+            cur_label
+                .as_deref()
+                .map(|s| s.trim().is_empty())
+                .unwrap_or(true)
+        });
+
+    if new_date.is_some() || new_label.is_some() {
+        let date_param = new_date.or(cur_date.as_deref());
+        let label_param = new_label.or(cur_label.as_deref());
+        if let Err(e) = sqlx::query!(
+            r#"UPDATE albumz SET release_date = ?, label = ?, updated_at = unixepoch() WHERE id = ?"#,
+            date_param,
+            label_param,
+            album_id
+        )
+        .execute(&pool)
+        .await
+        {
+            tracing::warn!("auto-apply: write album cols failed: {}", e);
+        } else {
+            summary.year_set = new_date.is_some();
+            summary.label_set = new_label.is_some();
+        }
+    }
+
+    // genres: add any that aren't already linked. find_or_create handles
+    // case-insensitive dedupe at the genre table level.
+    for raw_name in genre_names {
+        let name = raw_name.trim();
+        if name.is_empty() {
+            continue;
+        }
+        let resp = crate::music::entities::genres::find_or_create_genre(name).await;
+        let genre = match resp.data {
+            Some((g, _created)) => g,
+            None => continue,
+        };
+        match sqlx::query!(
+            r#"INSERT OR IGNORE INTO album_genrez (album_id, genre_id) VALUES (?, ?)"#,
+            album_id,
+            genre.id,
+        )
+        .execute(&pool)
+        .await
+        {
+            Ok(res) if res.rows_affected() > 0 => summary.genres_added += 1,
+            Ok(_) => {}
+            Err(e) => {
+                tracing::warn!("auto-apply: link genre {} failed: {}", genre.id, e);
+            }
+        }
+    }
+
+    summary
 }

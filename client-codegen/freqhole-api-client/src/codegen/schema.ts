@@ -284,6 +284,83 @@ export const AlbumMetadataSchema = z.object({
   fetched_at: z.number().nullish()
 }).nullish()
 }).nullish(),
+  lastfm: z.object({
+  album: z.object({
+  name: z.string(),
+  artist: z.string(),
+  mbid: z.string().nullish(),
+  url: z.string().nullish(),
+  listeners: z.string().nullish(),
+  playcount: z.string().nullish(),
+  tags: z.array(z.object({
+  name: z.string(),
+  url: z.string().nullish()
+})),
+  wiki_summary: z.string().nullish(),
+  wiki_published: z.string().nullish()
+}).nullish(),
+  artist: z.object({
+  name: z.string(),
+  mbid: z.string().nullish(),
+  url: z.string().nullish(),
+  listeners: z.string().nullish(),
+  playcount: z.string().nullish(),
+  tags: z.array(z.object({
+  name: z.string(),
+  url: z.string().nullish()
+})),
+  similar: z.array(z.object({
+  name: z.string(),
+  url: z.string().nullish()
+})),
+  bio_summary: z.string().nullish(),
+  bio_published: z.string().nullish()
+}).nullish(),
+  fetched_at: z.number().nullish(),
+  error: z.string().nullish()
+}).nullish(),
+  audiodb: z.object({
+  album: z.object({
+  id_album: z.string().nullish(),
+  id_artist: z.string().nullish(),
+  title: z.string().nullish(),
+  artist: z.string().nullish(),
+  year_released: z.string().nullish(),
+  genre: z.string().nullish(),
+  subgenre: z.string().nullish(),
+  style: z.string().nullish(),
+  mood: z.string().nullish(),
+  theme: z.string().nullish(),
+  speed: z.string().nullish(),
+  label: z.string().nullish(),
+  score: z.string().nullish(),
+  score_votes: z.string().nullish(),
+  description_en: z.string().nullish(),
+  album_thumb: z.string().nullish(),
+  album_thumb_hq: z.string().nullish(),
+  album_thumb_back: z.string().nullish(),
+  album_cdart: z.string().nullish(),
+  album_spine: z.string().nullish(),
+  album_3d_case: z.string().nullish(),
+  musicbrainz_release_group_id: z.string().nullish(),
+  musicbrainz_artist_id: z.string().nullish()
+}).nullish(),
+  artist: z.object({
+  id_artist: z.string().nullish(),
+  name: z.string().nullish(),
+  genre: z.string().nullish(),
+  style: z.string().nullish(),
+  mood: z.string().nullish(),
+  biography_en: z.string().nullish(),
+  country: z.string().nullish(),
+  formed_year: z.string().nullish(),
+  artist_thumb: z.string().nullish(),
+  artist_fanart: z.string().nullish(),
+  musicbrainz_artist_id: z.string().nullish()
+}).nullish(),
+  fetched_at: z.number().nullish(),
+  error: z.string().nullish()
+}).nullish(),
   log: z.array(z.object({
   at: z.number(),
   step: z.string(),
@@ -605,6 +682,21 @@ export const AssociationInfoSchema = z.object({
 });
 export type AssociationInfo = z.infer<typeof AssociationInfoSchema>;
 
+export const AudioDbAlbumDetailParamsSchema = z.object({
+  album_id: z.string(),
+  mbid: z.string().nullish(),
+  artist_mbid: z.string().nullish()
+});
+export type AudioDbAlbumDetailParams = z.infer<typeof AudioDbAlbumDetailParamsSchema>;
+
+export const AudioDbAlbumDetailResultSchema = z.object({
+  album_id: z.string(),
+  album_fetched: z.boolean(),
+  artist_fetched: z.boolean(),
+  matched_by: z.string()
+});
+export type AudioDbAlbumDetailResult = z.infer<typeof AudioDbAlbumDetailResultSchema>;
+
 export const AutoConfirmMbMatchesRequestSchema = z.object({
   album_ids: z.array(z.string()),
   min_confidence: z.number(),
@@ -683,7 +775,7 @@ export const CreateArtistRequestSchema = z.object({
 export type CreateArtistRequest = z.infer<typeof CreateArtistRequestSchema>;
 
 export const CreateJobRequestSchema = z.object({
-  job_type: z.union([z.literal('ScanDirectory'), z.literal('RescanDirectories'), z.literal('ProcessFile'), z.literal('FetchMedia'), z.literal('ConvertWebp'), z.literal('ImportMusic'), z.literal('MbAlbumSearch'), z.literal('MbAlbumDetail')]),
+  job_type: z.union([z.literal('ScanDirectory'), z.literal('RescanDirectories'), z.literal('ProcessFile'), z.literal('FetchMedia'), z.literal('ConvertWebp'), z.literal('ImportMusic'), z.literal('MbAlbumSearch'), z.literal('MbAlbumDetail'), z.literal('LastFmAlbumDetail'), z.literal('AudioDbAlbumDetail')]),
   session_id: z.string().nullish(),
   parameters: z.any(),
   max_retries: z.number().nullish(),
@@ -807,6 +899,28 @@ export const EmptyResponseSchema = z.object({
   success: z.boolean()
 });
 export type EmptyResponse = z.infer<typeof EmptyResponseSchema>;
+
+export const EnqueueAudioDbAlbumDetailRequestSchema = z.object({
+  album_ids: z.array(z.string())
+});
+export type EnqueueAudioDbAlbumDetailRequest = z.infer<typeof EnqueueAudioDbAlbumDetailRequestSchema>;
+
+export const EnqueueAudioDbAlbumDetailResponseSchema = z.object({
+  job_ids: z.array(z.string()),
+  skipped_album_ids: z.array(z.string())
+});
+export type EnqueueAudioDbAlbumDetailResponse = z.infer<typeof EnqueueAudioDbAlbumDetailResponseSchema>;
+
+export const EnqueueLastFmAlbumDetailRequestSchema = z.object({
+  album_ids: z.array(z.string())
+});
+export type EnqueueLastFmAlbumDetailRequest = z.infer<typeof EnqueueLastFmAlbumDetailRequestSchema>;
+
+export const EnqueueLastFmAlbumDetailResponseSchema = z.object({
+  job_ids: z.array(z.string()),
+  skipped_album_ids: z.array(z.string())
+});
+export type EnqueueLastFmAlbumDetailResponse = z.infer<typeof EnqueueLastFmAlbumDetailResponseSchema>;
 
 export const EnqueueMbAlbumSearchRequestSchema = z.object({
   album_ids: z.array(z.string()),
@@ -1847,6 +1961,22 @@ export const KnocksRejectRequestSchema = z.object({
   knock_id: z.string()
 });
 export type KnocksRejectRequest = z.infer<typeof KnocksRejectRequestSchema>;
+
+export const LastFmAlbumDetailParamsSchema = z.object({
+  album_id: z.string(),
+  mbid: z.string().nullish()
+});
+export type LastFmAlbumDetailParams = z.infer<typeof LastFmAlbumDetailParamsSchema>;
+
+export const LastFmAlbumDetailResultSchema = z.object({
+  album_id: z.string(),
+  album_fetched: z.boolean(),
+  artist_fetched: z.boolean(),
+  album_tag_count: z.number(),
+  artist_tag_count: z.number(),
+  similar_artist_count: z.number()
+});
+export type LastFmAlbumDetailResult = z.infer<typeof LastFmAlbumDetailResultSchema>;
 
 export const ListFavoritesRequestSchema = z.object({
   user_id: z.string().nullish(),
