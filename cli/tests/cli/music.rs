@@ -164,15 +164,14 @@ fn test_music_query_operations() {
 fn test_music_search_operations() {
     let ctx = TestContext::from_snapshot();
 
-    // Search tags
-    let result = ctx.run_json(&["music", "query-tags-search", "--search", "test"]);
-    assert!(result["success"].as_bool().unwrap(), "Should search tags");
+    // tags and genres are now queried via the standard query commands
+    let result = ctx.run_json(&["music", "list-tags"]);
+    assert!(result["success"].as_bool().unwrap(), "Should list tags");
     assert!(result["data"].is_array());
 
-    // Search genres
-    let result = ctx.run_json(&["music", "query-genres-search", "--search", "test"]);
-    assert!(result["success"].as_bool().unwrap(), "Should search genres");
-    assert!(result["data"].is_array());
+    let result = ctx.run_json(&["music", "query-genres", "--limit", "5"]);
+    assert!(result["success"].as_bool().unwrap(), "Should query genres");
+    assert!(result["data"]["items"].is_array());
 }
 
 #[test]
@@ -255,15 +254,13 @@ fn test_music_maintenance_operations() {
 fn test_music_favorites() {
     let ctx = TestContext::from_snapshot();
 
-    // Get an existing user from the DB
+    // get an existing user from the db
     let users_result = ctx.run_json(&["users", "list"]);
     if users_result["success"].as_bool().unwrap() {
         let users = users_result["data"]["users"].as_array().unwrap();
         if !users.is_empty() {
-            let user_id = users[0]["id"].as_str().unwrap();
-
-            // List favorites for this user (may be empty)
-            let result = ctx.run_json(&["music", "favorites", "list", "--user-id", user_id]);
+            // list favorites (uses default caller)
+            let result = ctx.run_json(&["music", "favorites", "list"]);
 
             assert!(
                 result["success"].as_bool().unwrap(),
@@ -349,47 +346,6 @@ fn test_music_query_playlist_songs() {
 }
 
 #[test]
-fn test_music_update_song_position() {
-    let ctx = TestContext::from_snapshot();
-
-    // This requires a playlist with songs, which is complex to set up
-    // Just test that the command doesn't crash with invalid input
-    let result = ctx.run_json(&[
-        "music",
-        "update-song-position",
-        "--playlist-id",
-        "fake-playlist-id",
-        "--song-ids",
-        "fake-song-id",
-        "--new-position",
-        "1",
-    ]);
-
-    assert!(
-        result["success"].as_bool().is_some(),
-        "Should return a response"
-    );
-}
-
-#[test]
-fn test_music_remove_playlist_thumbnail() {
-    let ctx = TestContext::from_snapshot();
-
-    // Try to remove a thumbnail from a non-existent playlist
-    let result = ctx.run_json(&[
-        "music",
-        "remove-playlist-thumbnail",
-        "--playlist-id",
-        "fake-playlist-id",
-    ]);
-
-    assert!(
-        result["success"].as_bool().is_some(),
-        "Should return a response"
-    );
-}
-
-#[test]
 fn test_music_delete_operations() {
     let ctx = TestContext::from_snapshot();
 
@@ -414,18 +370,6 @@ fn test_music_delete_operations() {
     assert!(
         result["success"].as_bool().is_some(),
         "Should return a response for delete-artist"
-    );
-
-    // Delete sub-genre
-    let result = ctx.run_json(&[
-        "music",
-        "delete-sub-genre",
-        "--sub-genre-id",
-        "fake-sub-genre-id",
-    ]);
-    assert!(
-        result["success"].as_bool().is_some(),
-        "Should return a response for delete-sub-genre"
     );
 
     // Delete tag

@@ -389,7 +389,11 @@ pub async fn handle_command(action: MusicAction) -> CommandOutput<serde_json::Va
             .await
         }
         MusicAction::DeletePlaylist { playlist_id } => {
-            dispatch_to_offal("/api/playlists/delete", json!({ "id": playlist_id })).await
+            dispatch_to_offal(
+                "/api/playlists/delete",
+                json!({ "playlist_id": playlist_id }),
+            )
+            .await
         }
         MusicAction::UpdatePlaylist {
             json_input,

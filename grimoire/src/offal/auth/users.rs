@@ -203,7 +203,7 @@ pub async fn update(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonVa
     };
 
     // can only update self unless admin
-    if req.user_id != caller.user_id && caller.role != UserRole::Admin {
+    if req.user_id != caller.user_id && !caller.is_admin() {
         return GrimoireResponse::failure(
             "forbidden",
             vec![ErrorDetail::new(
@@ -298,7 +298,7 @@ pub async fn generate_api_key(caller: &Caller, body: JsonValue) -> GrimoireRespo
     let target_user = req.user_id.unwrap_or_else(|| caller.user_id.clone());
 
     // can only generate for self unless admin
-    if target_user != caller.user_id && caller.role != UserRole::Admin {
+    if target_user != caller.user_id && !caller.is_admin() {
         return GrimoireResponse::failure(
             "forbidden",
             vec![ErrorDetail::new(
@@ -326,7 +326,7 @@ pub async fn revoke_api_key(caller: &Caller, body: JsonValue) -> GrimoireRespons
     let target_user = req.user_id.unwrap_or_else(|| caller.user_id.clone());
 
     // can only revoke for self unless admin
-    if target_user != caller.user_id && caller.role != UserRole::Admin {
+    if target_user != caller.user_id && !caller.is_admin() {
         return GrimoireResponse::failure(
             "forbidden",
             vec![ErrorDetail::new(

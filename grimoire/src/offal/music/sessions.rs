@@ -141,7 +141,7 @@ pub async fn list(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValu
 
     // non-admins can only list their own sessions
     match &req.user_id {
-        Some(uid) if uid != &caller.user_id && caller.role != UserRole::Admin => {
+        Some(uid) if uid != &caller.user_id && !caller.is_admin() => {
             return GrimoireResponse::failure(
                 "forbidden",
                 vec![ErrorDetail::new(
@@ -182,7 +182,7 @@ pub async fn get(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue
 
     if let Some(session) = &get_response.data {
         // verify ownership unless admin
-        if session.user_id != caller.user_id && caller.role != UserRole::Admin {
+        if session.user_id != caller.user_id && !caller.is_admin() {
             return GrimoireResponse::failure(
                 "forbidden",
                 vec![ErrorDetail::new(
@@ -284,7 +284,7 @@ pub async fn delete(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonVa
     // verify ownership before deleting
     let get_response = get_listen_session(&req.id).await;
     if let Some(session) = &get_response.data {
-        if session.user_id != caller.user_id && caller.role != UserRole::Admin {
+        if session.user_id != caller.user_id && !caller.is_admin() {
             return GrimoireResponse::failure(
                 "forbidden",
                 vec![ErrorDetail::new(

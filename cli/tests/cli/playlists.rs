@@ -292,15 +292,8 @@ fn test_playlists_delete() {
 fn test_playlists_search() {
     let ctx = TestContext::from_snapshot();
 
-    // Search for playlists
-    let result = ctx.run_json(&[
-        "music",
-        "search-playlists",
-        "--query",
-        "test",
-        "--limit",
-        "10",
-    ]);
+    // search for playlists via query-playlists
+    let result = ctx.run_json(&["music", "query-playlists", "--q", "test", "--limit", "10"]);
 
     assert!(
         result["success"].as_bool().unwrap(),
@@ -344,10 +337,10 @@ fn test_playlists_user_list() {
         user_id,
     ]);
 
-    // List user's playlists
+    // list user's playlists via query-playlists --user-id
     let result = ctx.run_json(&[
         "music",
-        "list-user-playlists",
+        "query-playlists",
         "--user-id",
         user_id,
         "--limit",

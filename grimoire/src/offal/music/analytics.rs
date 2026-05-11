@@ -203,7 +203,7 @@ pub async fn history(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonV
     // can only query own history unless admin
     let target_user = match req.user_id {
         Some(uid) if uid != caller.user_id => {
-            if caller.role != UserRole::Admin {
+            if !caller.is_admin() {
                 return GrimoireResponse::failure(
                     "forbidden",
                     vec![ErrorDetail::new(
@@ -316,7 +316,7 @@ pub async fn user_stats(caller: &Caller, body: JsonValue) -> GrimoireResponse<Js
 
     let target_user = match req.user_id {
         Some(uid) if uid != caller.user_id => {
-            if caller.role != UserRole::Admin {
+            if !caller.is_admin() {
                 return GrimoireResponse::failure(
                     "forbidden",
                     vec![ErrorDetail::new(
@@ -364,7 +364,7 @@ pub async fn feed(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValu
 
     // admins can filter by user, non-admins see all feed
     let user_filter = match req.user_id {
-        Some(uid) if caller.role != UserRole::Admin && uid != caller.user_id => {
+        Some(uid) if !caller.is_admin() && uid != caller.user_id => {
             return GrimoireResponse::failure(
                 "forbidden",
                 vec![ErrorDetail::new(
@@ -425,7 +425,7 @@ pub async fn delete_feed_event(caller: &Caller, body: JsonValue) -> GrimoireResp
     };
 
     // permission check: own items always deletable, admin can delete any
-    if owner_user_id != caller.user_id && caller.role != UserRole::Admin {
+    if owner_user_id != caller.user_id && !caller.is_admin() {
         return GrimoireResponse::failure(
             "forbidden",
             vec![ErrorDetail::new(
