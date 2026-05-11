@@ -374,12 +374,9 @@ export function AlbumDetailView() {
                           }
                         >
                           {(genre) => (
-                            <button
-                              class="px-2 py-0.5 bg-[var(--color-bg-elevated)] text-[var(--color-text-secondary)] rounded-full text-xs transition-colors hover:bg-[var(--color-bg-hover)] cursor-pointer"
-                              onClick={() => navigate(buildRoute(`/genres/${genre.id}`))}
-                            >
+                            <span class="px-2 py-0.5 bg-[var(--color-bg-elevated)] text-[var(--color-text-secondary)] rounded-full text-xs">
                               {genre.label}
-                            </button>
+                            </span>
                           )}
                         </For>
                         {/* non-genre taxons (label, mood, era, region, ...) */}

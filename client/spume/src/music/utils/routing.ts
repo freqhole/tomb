@@ -50,7 +50,6 @@ export const routes = {
   albums: () => buildRoute("/albums"),
   artists: () => buildRoute("/artists"),
   playlists: () => buildRoute("/playlists"),
-  genres: () => buildRoute("/genres"),
   search: (query?: string) => {
     const base = buildRoute("/search");
     return query ? `${base}?q=${encodeURIComponent(query)}` : base;
@@ -60,7 +59,6 @@ export const routes = {
   album: (albumId: string) => buildRoute(`/albums/${albumId}`),
   artist: (artistId: string) => buildRoute(`/artists/${artistId}`),
   playlist: (playlistId: string) => buildRoute(`/playlists/${playlistId}`),
-  genre: (genreId: string) => buildRoute(`/genres/${genreId}`),
 
   // settings & admin (top-level, not context-aware)
   settings: () => "/settings",
@@ -95,7 +93,7 @@ export function getDefaultRoute(remoteId?: string): string {
 }
 
 /** parameterless view route keys */
-const VIEW_KEYS = ["feed", "songs", "albums", "artists", "playlists", "genres", "favorites", "search", "remotes", "settings", "shared", "library"] as const;
+const VIEW_KEYS = ["feed", "songs", "albums", "artists", "playlists", "favorites", "search", "remotes", "settings", "shared", "library"] as const;
 
 export type RouteKey = (typeof VIEW_KEYS)[number];
 

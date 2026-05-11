@@ -891,7 +891,6 @@ export function AppLayout(props: AppLayoutProps) {
       > = {
         artist: { label: "view artist", route: routes.artist, icon: IconNames.artist },
         playlist: { label: "view playlist", route: routes.playlist, icon: IconNames.playlist },
-        genre: { label: "view genre", route: routes.genre, icon: IconNames.genre },
       };
       const nav = typeNavMap[entry.type];
       if (nav) {
@@ -929,7 +928,6 @@ export function AppLayout(props: AppLayoutProps) {
       { label: "songs", path: `${prefix}/songs` },
       { label: "albums", path: `${prefix}/albums` },
       { label: "artists", path: `${prefix}/artists` },
-      { label: "genres", path: `${prefix}/genres` },
       { label: "playlists", path: `${prefix}/playlists` },
       { label: "favorites", path: `${prefix}/favorites` },
     ];
@@ -1073,13 +1071,6 @@ export function AppLayout(props: AppLayoutProps) {
                 onClick: () => {
                   const prefix = routeContext.isLocal() ? "/local" : `/${routeContext.remoteId()}`;
                   navigate(`${prefix}/artists`);
-                },
-              },
-              {
-                label: "genres",
-                onClick: () => {
-                  const prefix = routeContext.isLocal() ? "/local" : `/${routeContext.remoteId()}`;
-                  navigate(`${prefix}/genres`);
                 },
               },
               {

@@ -244,9 +244,6 @@ export function TopNavSearch(props: TopNavSearchProps) {
       case "album":
         props.onNavigate?.(routes.album(s.entity_id));
         break;
-      case "genre":
-        props.onNavigate?.(routes.genre(s.entity_id));
-        break;
       case "playlist":
         props.onNavigate?.(routes.playlist(s.entity_id));
         break;

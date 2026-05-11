@@ -22,7 +22,6 @@ import { FavoritesView } from "../../music/views/FavoritesView";
 import { FeedView } from "../../music/views/FeedView";
 import { AggregateFeedView } from "../../music/views/AggregateFeedView";
 import { LibraryView } from "../../library/views/LibraryView";
-import { GenresView } from "../../music/views/GenresView";
 import { PlaylistsView } from "../../music/views/PlaylistsView";
 import { SongsView } from "../../music/views/SongsView";
 import { RadioView } from "../../music/views/RadioView";
@@ -145,7 +144,6 @@ export function routes(props: RoutesProps) {
                 />
               )}
             />
-            <Route path="/genres" component={() => <GenresView onAddMusic={props.onAddMusic} />} />
             <Route
               path="/playlists/:id?"
               component={() => <PlaylistsView onAddMusic={props.onAddMusic} />}
@@ -184,10 +182,6 @@ export function routes(props: RoutesProps) {
                 onArtistClick={(artistId) => debug("routes", "artist clicked:", artistId)}
               />
             )}
-          />
-          <Route
-            path="/genres/:genreId?"
-            component={() => <GenresView onAddMusic={props.onAddMusic} />}
           />
           <Route
             path="/playlists/:id?"

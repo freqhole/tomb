@@ -299,8 +299,9 @@ export function FavoritesView(props: FavoritesViewProps) {
     navigate(routes.album(albumId));
   };
 
-  const handleGenreClick = (genre: GenreRef) => {
-    navigate(routes.genre(genre.id));
+  const handleGenreClick = (_genre: GenreRef) => {
+    // genre detail view was removed in the taxonomy refactor; click is a
+    // no-op until phase-9 replaces it with a taxon picker.
   };
 
   return (

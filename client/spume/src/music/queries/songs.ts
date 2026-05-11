@@ -368,27 +368,6 @@ export function useGenresQuery(options?: UseGenresQueryOptions) {
   }));
 }
 
-export function useGenreSongsQuery(genreId: Accessor<string | undefined>) {
-  return createQuery(() => ({
-    queryKey: queryKeys.genres.songs(genreId() || ""),
-    queryFn: async () => {
-      const id = genreId();
-      if (!id)
-        return { items: [], total: 0, offset: 0, limit: 100, has_more: false };
-
-      const dataSource = getDataSource();
-      if (!dataSource.getGenreSongs) {
-        return { items: [], total: 0, offset: 0, limit: 100, has_more: false };
-      }
-
-      return dataSource.getGenreSongs(id, { limit: 1000 });
-    },
-    enabled: () => !!genreId(),
-    staleTime: 5 * 60 * 1000,
-    gcTime: 10 * 60 * 1000,
-  }));
-}
-
 // mutation hooks
 
 import { createMutation, useQueryClient } from "@tanstack/solid-query";

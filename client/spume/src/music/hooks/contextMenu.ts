@@ -962,7 +962,6 @@ export function useGenreContextMenu(
   genre: GenreContextMenuData,
   options: ContextMenuOptions = {},
 ): MenuAction[] {
-  const navigate = useNavigate();
   const actions: MenuAction[] = [];
 
   // play actions (if callbacks provided)
@@ -1000,14 +999,8 @@ export function useGenreContextMenu(
     actions.push({ type: "separator" });
   }
 
-  // navigation
-  actions.push({
-    label: "view genre",
-    icon: IconNames.genre,
-    onClick: () => {
-      navigate(routes.genre(genre.id));
-    },
-  });
+  // navigation: genre detail view was removed in the taxonomy refactor;
+  // the "view genre" entry is suppressed pending a taxon browser.
 
   // radio station: local (charnel) or remote (if browsing a remote)
   if (isCharnelMode() || !!getCurrentRemote()) {

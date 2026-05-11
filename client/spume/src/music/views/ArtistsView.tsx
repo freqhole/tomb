@@ -552,10 +552,9 @@ export function ArtistsView(props: ArtistsViewProps) {
     });
   };
 
-  // navigate to genre detail
-  const handleGenreClick = (genreId: string, _genreName: string) => {
-    navigate(buildRoute(`/genres/${genreId}`));
-  };
+  // genre detail view was removed in the taxonomy refactor; chip clicks
+  // are kept as no-ops until phase-9 replaces them with a taxon picker.
+  const handleGenreClick = (_genreId: string, _genreName: string) => {};
 
   // build context menu actions for each artist
   const getContextMenuActions = (item: ListItem, _index: number) => {
