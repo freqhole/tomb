@@ -37,10 +37,6 @@ mod views {
             sql: include_str!("../../migrations/views/album_query_view.sql"),
         },
         View {
-            name: "genre_query_view",
-            sql: include_str!("../../migrations/views/genre_query_view.sql"),
-        },
-        View {
             name: "song_query_view",
             sql: include_str!("../../migrations/views/song_query_view.sql"),
         },

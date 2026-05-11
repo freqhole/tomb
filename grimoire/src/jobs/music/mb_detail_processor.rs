@@ -561,22 +561,22 @@ async fn apply_mb_album_columns_if_empty(
         }
     }
 
-    // genres: add any that aren't already linked. find_or_create handles
-    // case-insensitive dedupe at the genre table level.
+    // genres: add any that aren't already linked. find_or_create_taxon handles
+    // case-insensitive dedupe at the taxonomy table level.
     for raw_name in genre_names {
         let name = raw_name.trim();
         if name.is_empty() {
             continue;
         }
-        let resp = crate::music::entities::genres::find_or_create_genre(name).await;
-        let genre = match resp.data {
-            Some((g, _created)) => g,
+        let resp = crate::music::entities::taxonomy::find_or_create_taxon("genre", name).await;
+        let taxon = match resp.data {
+            Some(t) => t,
             None => continue,
         };
         match sqlx::query!(
             r#"INSERT OR IGNORE INTO album_taxonz (album_id, taxon_id, origin) VALUES (?, ?, 'musicbrainz')"#,
             album_id,
-            genre.id,
+            taxon.id,
         )
         .execute(&pool)
         .await
@@ -584,7 +584,7 @@ async fn apply_mb_album_columns_if_empty(
             Ok(res) if res.rows_affected() > 0 => summary.genres_added += 1,
             Ok(_) => {}
             Err(e) => {
-                tracing::warn!("auto-apply: link genre {} failed: {}", genre.id, e);
+                tracing::warn!("auto-apply: link genre {} failed: {}", taxon.id, e);
             }
         }
     }

@@ -16,11 +16,10 @@ pub use models::{
     AlbumImportRequest, AlbumImportResult, AlbumQueryResult, AlbumsQueryResult,
     ArtistImportRequest, ArtistQueryResult, ArtistsQueryResult, BulkImportRequest,
     BulkImportResult, CreateSongWithMetadataRequest, EntityUrl, FavoriteAlbumResult,
-    FavoriteArtistResult, FavoriteItem, FavoritePlaylistResult, FavoriteSongResult,
-    GenreQueryResult, GenresQueryResult, ImageMetadata, ImportSongRequest, ImportSongResult,
-    PlaylistQueryResult, PlaylistSongResult, PlaylistSongsQueryResult, PlaylistsQueryResult,
-    QueryParams, QueryPlaylistSongsRequest, QueryResult, SongImportError, SongQueryResult,
-    SongUpdateError, SongsQueryResult,
+    FavoriteArtistResult, FavoriteItem, FavoritePlaylistResult, FavoriteSongResult, ImageMetadata,
+    ImportSongRequest, ImportSongResult, PlaylistQueryResult, PlaylistSongResult,
+    PlaylistSongsQueryResult, PlaylistsQueryResult, QueryParams, QueryPlaylistSongsRequest,
+    QueryResult, SongImportError, SongQueryResult, SongUpdateError, SongsQueryResult,
 };
 
 // re-export update types from models
@@ -34,9 +33,9 @@ pub use models::{
     BulkClearSongArtworkRequest, BulkClearSongArtworkResponse, BulkDeleteSongsRequest,
     BulkDeleteSongsResponse, DeleteAlbumRequest, DeleteAlbumResponse, DeleteArtistRequest,
     DeleteArtistResponse, DeleteSongRequest, DeleteSongResponse, GetAlbumRequest, GetArtistRequest,
-    GetGenreRequest, GetRatingStatsRequest, ListFavoritesRequest, ListFavoritesResponse,
-    RatingStats, RecentSongsRequest, RemoveRatingRequest, RemoveRatingResponse,
-    SetFavoriteResponse, SetRatingResponse,
+    GetRatingStatsRequest, ListFavoritesRequest, ListFavoritesResponse, RatingStats,
+    RecentSongsRequest, RemoveRatingRequest, RemoveRatingResponse, SetFavoriteResponse,
+    SetRatingResponse,
 };
 
 // re-export update functions
@@ -75,7 +74,6 @@ pub use query::{
     // new unified query API
     query_albums,
     query_artists,
-    query_genres,
     query_songs,
     search_songs,
 };
@@ -106,10 +104,13 @@ pub use crate::music::entities::songs::{
     bulk_clear_song_artwork, bulk_delete_songs, delete_song, list_songs,
 };
 
-// re-export genre operations
-pub use crate::music::entities::genres::{
-    delete_genre, get_genre, get_genre_stats, list_genres, query_genres as search_genres,
-};
+// genres are now stored as taxons (kind=genre) in `taxonz`. consumers
+// drive everything through `entities::taxonomy` (`find_or_create_taxon`,
+// `query_taxons`, `add_album_taxon`, ...). the legacy `entities::genres`
+// module was deleted; the only crud-level holdover is the
+// `find_or_create_genre` shim in `create_or_update.rs` which still
+// returns the legacy `Genre` shape so `ImportSongResult` etc. keep
+// their existing wire format.
 
 // re-export tag operations
 pub use crate::music::entities::tags::{
@@ -117,15 +118,11 @@ pub use crate::music::entities::tags::{
 };
 
 // re-export delete operations
-pub use delete::{
-    delete_album_if_unused, delete_artist_if_unused, delete_genre_if_unused,
-    remove_song_from_all_playlists,
-};
+pub use delete::{delete_album_if_unused, delete_artist_if_unused, remove_song_from_all_playlists};
 
 // re-export deduplication utilities
 pub use deduplication::{
-    albums_match, artists_match, genres_match, normalize_album_title, normalize_artist_name,
-    normalize_genre_name, normalize_name,
+    albums_match, artists_match, normalize_album_title, normalize_artist_name, normalize_name,
 };
 
 // High-level workflow operations that handle:
@@ -141,7 +138,6 @@ pub use deduplication::{
 // - query_songs() - unified query API with FTS, filters, pagination
 // - query_artists() - unified artist queries with aggregated stats
 // - query_albums() - unified album queries with metadata
-// - query_genres() - unified genre queries
 // - search_songs() - (legacy) full-text search across entities
 // - list_songs_by_artist() - (legacy) complex queries with joins
 // - list_albums_by_artist() - (legacy) artist discography with stats

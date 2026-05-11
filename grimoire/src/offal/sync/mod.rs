@@ -512,9 +512,10 @@ async fn reconcile_existing_song_links(
     caller: &Caller,
 ) -> Result<(), String> {
     use crate::music::crud::create_or_update::{
-        find_or_create_album_for_artist, find_or_create_artist, find_or_create_genre,
+        find_or_create_album_for_artist, find_or_create_artist,
     };
     use crate::music::crud::{AlbumImportRequest, ArtistImportRequest};
+    use crate::music::entities::taxonomy::find_or_create_taxon;
 
     let pool = crate::database::connect()
         .await
@@ -531,16 +532,16 @@ async fn reconcile_existing_song_links(
         None => return Err(format!("artist resolve failed: {}", artist_resp.message)),
     };
 
-    // 2. resolve genre names -> genre_ids (best-effort; matches sync_album).
+    // 2. resolve genre names -> taxon ids (best-effort; matches sync_album).
     //    genre_name on the request is a comma-separated list; matches the
     //    behavior of import_song_with_metadata.
     let genre_ids: Vec<String> = match &req.genre_name {
         Some(g) => {
             let mut ids = Vec::new();
             for name in g.split(',').map(str::trim).filter(|s| !s.is_empty()) {
-                let resp = find_or_create_genre(name.to_string()).await;
-                if let Some((genre, _)) = resp.data {
-                    ids.push(genre.id);
+                let resp = find_or_create_taxon("genre", name).await;
+                if let Some(taxon) = resp.data {
+                    ids.push(taxon.id);
                 }
             }
             ids
@@ -981,9 +982,10 @@ pub struct SyncAlbumResponse {
 /// path: POST /api/sync/album
 pub async fn sync_album(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
     use crate::music::crud::create_or_update::{
-        find_or_create_album_for_artist, find_or_create_artist, find_or_create_genre,
+        find_or_create_album_for_artist, find_or_create_artist,
     };
     use crate::music::crud::{AlbumImportRequest, ArtistImportRequest};
+    use crate::music::entities::taxonomy::find_or_create_taxon;
 
     let req: SyncAlbumRequest = match serde_json::from_value(body) {
         Ok(r) => r,
@@ -1033,16 +1035,16 @@ pub async fn sync_album(caller: &Caller, body: JsonValue) -> GrimoireResponse<Js
         }
     };
 
-    // 2. resolve genre names → genre_ids (best-effort; skip any that fail)
+    // 2. resolve genre names → taxon ids (best-effort; skip any that fail)
     let mut genre_ids: Vec<String> = Vec::new();
     for name in &req.genres {
         let trimmed = name.trim();
         if trimmed.is_empty() {
             continue;
         }
-        let resp = find_or_create_genre(trimmed.to_string()).await;
-        if let Some((genre, _)) = resp.data {
-            genre_ids.push(genre.id);
+        let resp = find_or_create_taxon("genre", trimmed).await;
+        if let Some(taxon) = resp.data {
+            genre_ids.push(taxon.id);
         } else {
             tracing::warn!(
                 "sync_album: failed to resolve genre {}: {}",

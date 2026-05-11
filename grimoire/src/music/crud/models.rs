@@ -7,7 +7,8 @@ use zod_gen_derive::ZodSchema;
 
 use crate::media_blobz::BlobType;
 use crate::media_blobz::MediaBlob;
-use crate::music::entities::{albums::Album, artists::Artist, genres::Genre, songs::Song};
+use crate::music::crud::create_or_update::Genre;
+use crate::music::entities::{albums::Album, artists::Artist, songs::Song};
 use crate::music::users::models::FavoriteTarget;
 use crate::music::users::models::RatingTarget;
 
@@ -297,16 +298,6 @@ pub struct AlbumQueryResult {
     pub rating: Option<i32>,                // User's rating (1-5)
     pub favorited_at: Option<i64>,          // When user favorited (unix timestamp)
     pub rating_created_at: Option<i64>,     // When user rated (unix timestamp)
-}
-
-/// genre with optional aggregated metadata for query results
-#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
-pub struct GenreQueryResult {
-    pub genre: Genre,
-    pub song_count: Option<i64>,   // Could be computed if needed
-    pub album_count: Option<i64>,  // Could be computed if needed
-    pub is_favorite: Option<bool>, // User's favorite status (no ratings for genres)
-    pub favorited_at: Option<i64>, // When user favorited (unix timestamp)
 }
 
 /// playlist with optional aggregated metadata for query results
@@ -973,34 +964,4 @@ pub struct RemoveRatingResponse {
 pub struct RatingStats {
     pub average_rating: f64,
     pub total_ratings: u64,
-}
-
-/// concrete query result type for genres
-#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
-pub struct GenresQueryResult {
-    pub items: Vec<GenreQueryResult>,
-    pub total_count: i64,
-    pub has_more: bool,
-    pub offset: i64,
-    pub limit: i64,
-    pub query_time_ms: Option<u64>,
-}
-
-impl From<QueryResult<GenreQueryResult>> for GenresQueryResult {
-    fn from(qr: QueryResult<GenreQueryResult>) -> Self {
-        Self {
-            items: qr.items,
-            total_count: qr.total_count,
-            has_more: qr.has_more,
-            offset: qr.offset,
-            limit: qr.limit,
-            query_time_ms: qr.query_time_ms,
-        }
-    }
-}
-
-/// request for getting a genre
-#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
-pub struct GetGenreRequest {
-    pub id: String,
 }

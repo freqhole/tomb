@@ -8,8 +8,7 @@ use crate::music::users::models::{FavoriteTarget, RatingTarget};
 use crate::music::users::ratings::RatingsService;
 
 use super::models::{
-    AlbumQueryResult, ArtistQueryResult, GenreQueryResult, PlaylistQueryResult, PlaylistSongResult,
-    SongQueryResult,
+    AlbumQueryResult, ArtistQueryResult, PlaylistQueryResult, PlaylistSongResult, SongQueryResult,
 };
 
 /// apply user favorites and ratings to artist results
@@ -214,34 +213,6 @@ pub async fn apply_user_preferences_songs(items: &mut [SongQueryResult], user_id
         if let Some(ref album) = item.album {
             item.album_is_favorite = Some(album_fav_set.contains(&album.id));
             item.album_rating = album_rating_map.get(&album.id).copied();
-        }
-    }
-}
-
-/// apply user favorites to genre results (genres don't have ratings)
-pub async fn apply_user_preferences_genres(items: &mut [GenreQueryResult], user_id: &str) {
-    if items.is_empty() {
-        return;
-    }
-
-    let ids: Vec<_> = items
-        .iter()
-        .map(|g| (FavoriteTarget::Taxon, g.genre.id.clone()))
-        .collect();
-
-    let favorites = FavoritesService::new()
-        .get_favorite_status_bulk(user_id, ids)
-        .await;
-
-    if let Some(favs) = favorites.data {
-        let fav_set: std::collections::HashSet<String> = favs
-            .into_iter()
-            .filter(|(_, _, is_fav)| *is_fav)
-            .map(|(_, id, _)| id)
-            .collect();
-
-        for item in items.iter_mut() {
-            item.is_favorite = Some(fav_set.contains(&item.genre.id));
         }
     }
 }

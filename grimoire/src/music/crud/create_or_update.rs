@@ -12,9 +12,10 @@ use crate::error::{ErrorDetail, GrimoireError, GrimoireResult};
 use crate::jobs::apply_directory_tags_for_file;
 use crate::media_blobz::get_media_blob;
 use crate::music::analytics::feed_events::upsert_album_feed_event;
+use crate::music::entities::taxonomy;
 use crate::music::entities::{
-    albums, artists, genres, songs, Album, Artist, CreateAlbumRequest, CreateArtistRequest,
-    CreateGenreRequest, CreateSongRequest, Genre, Playlist,
+    albums, artists, songs, Album, Artist, CreateAlbumRequest, CreateArtistRequest,
+    CreateSongRequest, Playlist,
 };
 use crate::music::EntityUrl;
 use crate::GrimoireResponse;
@@ -700,49 +701,51 @@ pub async fn get_current_album_for_song(song_id: &str) -> GrimoireResult<Option<
     }
 }
 
-/// find existing genre by name or create new one
+/// minimal `(id, name, created_at)` shape returned by
+/// `find_or_create_genre`. kept for backwards compat with
+/// `ImportSongResult.genres` and friends; under the hood the row
+/// lives in `taxonz` (kind = `genre`).
+#[derive(
+    Debug,
+    Clone,
+    serde::Serialize,
+    serde::Deserialize,
+    PartialEq,
+    sqlx::FromRow,
+    zod_gen_derive::ZodSchema,
+)]
+pub struct Genre {
+    pub id: String,
+    pub name: String,
+    pub created_at: i64,
+}
+
+/// find existing genre by name or create new one. delegates to
+/// `taxonomy::find_or_create_taxon` and converts the resulting
+/// `Taxon` to the legacy `Genre` shape; the `bool` return flag is
+/// true iff the row was inserted on this call.
 pub async fn find_or_create_genre(name: String) -> GrimoireResponse<(Genre, bool)> {
-    let pool = match database::connect().await {
-        Ok(p) => p,
-        Err(e) => {
-            return GrimoireResponse::failure("Failed to connect to database", vec![e.into()])
-        }
-    };
-
-    // Try to find existing genre by name (case-insensitive) in taxonz/kind=genre
-    let existing = match sqlx::query_as!(
-        Genre,
-        r#"SELECT
-            t.id as "id!",
-            t.label as "name!",
-            t.created_at as "created_at!"
-           FROM taxonz t
-           JOIN taxon_kindz k ON k.id = t.kind_id AND k.slug = 'genre'
-           WHERE LOWER(t.label) = LOWER(?) AND t.deleted_at IS NULL
-           LIMIT 1"#,
-        name
-    )
-    .fetch_optional(&pool)
-    .await
-    {
-        Ok(e) => e,
-        Err(e) => return GrimoireResponse::failure("Failed to query genre", vec![e.into()]),
-    };
-
-    if let Some(genre) = existing {
-        GrimoireResponse::success("Genre found", (genre, false))
-    } else {
-        let create_req = CreateGenreRequest { name };
-        let genre_response = genres::create_genre(create_req).await;
-        if !genre_response.success {
-            return GrimoireResponse::failure("Failed to create genre", genre_response.errors);
-        }
-        let genre = match genre_response.data {
-            Some(g) => g,
-            None => return GrimoireResponse::failure("No genre returned after creation", vec![]),
-        };
-        GrimoireResponse::success("Genre created successfully", (genre, true))
+    let resp = taxonomy::find_or_create_taxon("genre", &name).await;
+    if !resp.success {
+        return GrimoireResponse::failure(&resp.message, resp.errors);
     }
+    let was_created = resp.message == "taxon created";
+    let Some(taxon) = resp.data else {
+        return GrimoireResponse::failure("no taxon returned after find_or_create", vec![]);
+    };
+    let genre = Genre {
+        id: taxon.id,
+        name: taxon.label,
+        created_at: taxon.created_at,
+    };
+    GrimoireResponse::success(
+        if was_created {
+            "genre created"
+        } else {
+            "genre found"
+        },
+        (genre, was_created),
+    )
 }
 
 /// create relationship between artist and song

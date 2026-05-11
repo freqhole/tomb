@@ -8,12 +8,10 @@ use crate::database;
 
 use crate::media_blobz::{BlobType, MediaBlob};
 use crate::music::crud::models::{
-    AlbumQueryResult, ArtistQueryResult, EntityUrl, GenreQueryResult, ImageMetadata, QueryParams,
-    QueryResult, SongQueryResult,
+    AlbumQueryResult, ArtistQueryResult, EntityUrl, ImageMetadata, QueryParams, QueryResult,
+    SongQueryResult,
 };
-use crate::music::entities::{
-    albums::Album, albums::GenreRef, artists::Artist, genres::Genre, songs::Song,
-};
+use crate::music::entities::{albums::Album, albums::GenreRef, artists::Artist, songs::Song};
 use crate::response::GrimoireResponse;
 
 // Table identifiers for type-safe queries
@@ -95,16 +93,6 @@ enum ArtistView {
     AlbumCount,
     #[iden = "total_duration"]
     TotalDuration,
-}
-
-#[derive(Iden)]
-enum GenreView {
-    #[iden = "genre_query_view"]
-    Table,
-    #[iden = "genre_name"]
-    GenreName,
-    #[iden = "genre_created_at"]
-    GenreCreatedAt,
 }
 
 #[derive(Iden)]
@@ -690,48 +678,6 @@ impl AlbumViewRow {
     }
 }
 
-#[derive(sqlx::FromRow)]
-pub struct GenreViewRow {
-    genre_id: String,
-    genre_name: String,
-    genre_created_at: i64,
-    // aggregated stats
-    song_count: i64,
-    album_count: i64,
-    // User context fields from view joins (no ratings for genres)
-    #[allow(dead_code)]
-    favorite_id: Option<String>,
-    favorite_user_id: Option<String>,
-    favorited_at: Option<i64>,
-}
-
-impl GenreViewRow {
-    pub fn to_genre_query_result(self, user_id: Option<&str>) -> GenreQueryResult {
-        let genre = Genre {
-            id: self.genre_id,
-            name: self.genre_name,
-            created_at: self.genre_created_at,
-        };
-
-        // Determine favorite status based on user_id match
-        let (is_favorite, favorited_at) = if let Some(uid) = user_id {
-            let is_fav = self.favorite_user_id.as_ref() == Some(&uid.to_string());
-            let fav_at = if is_fav { self.favorited_at } else { None };
-            (Some(is_fav), fav_at)
-        } else {
-            (None, None)
-        };
-
-        GenreQueryResult {
-            genre,
-            song_count: Some(self.song_count),
-            album_count: Some(self.album_count),
-            is_favorite,
-            favorited_at,
-        }
-    }
-}
-
 // Shared filter logic
 fn add_global_filters(
     query: &mut SelectStatement,
@@ -1249,94 +1195,6 @@ pub async fn query_artists(
             items: artists,
             total_count: artist_count as i64,
             has_more: artist_count == limit as usize,
-            limit: limit as i64,
-            offset: offset as i64,
-            query_time_ms: Some(start_time.elapsed().as_millis() as u64),
-        },
-    )
-}
-
-pub async fn query_genres(params: QueryParams) -> GrimoireResponse<QueryResult<GenreQueryResult>> {
-    let start_time = Instant::now();
-    let pool = match database::connect().await {
-        Ok(pool) => pool,
-        Err(err) => {
-            return GrimoireResponse::failure("Failed to connect to database", vec![err.into()])
-        }
-    };
-    let limit = params.limit.unwrap_or(50).min(1000);
-    let offset = params.offset.unwrap_or(0);
-
-    let mut query = Query::select();
-    query.column(sea_query::Asterisk).from(GenreView::Table);
-
-    // Genre-specific search filter
-    if let Some(search_term) = params.q.as_ref().filter(|s| !s.trim().is_empty()) {
-        let pattern = format!("%{}%", search_term);
-        query.cond_where(Expr::col(GenreView::GenreName).like(pattern));
-    }
-
-    let sort_direction = match params.sort_direction.as_deref() {
-        Some("desc") => Order::Desc,
-        _ => Order::Asc,
-    };
-
-    match params.sort_by.as_deref() {
-        Some("name") => {
-            query.order_by(GenreView::GenreName, sort_direction);
-        }
-        Some("created_at") => {
-            query.order_by(GenreView::GenreCreatedAt, sort_direction);
-        }
-        _ => {
-            query.order_by(GenreView::GenreName, Order::Asc);
-        }
-    }
-
-    query.limit(limit as u64).offset(offset as u64);
-
-    let (sql, values) = query.build(SqliteQueryBuilder);
-
-    let mut sqlx_query = sqlx::query_as::<_, GenreViewRow>(&sql);
-    for value in values.0 {
-        match value {
-            sea_query::Value::String(Some(s)) => {
-                sqlx_query = sqlx_query.bind(s.as_ref().to_string());
-            }
-            sea_query::Value::BigInt(Some(i)) => {
-                sqlx_query = sqlx_query.bind(i);
-            }
-            sea_query::Value::BigUnsigned(Some(i)) => {
-                sqlx_query = sqlx_query.bind(i as i64);
-            }
-            _ => {}
-        }
-    }
-
-    let rows = match sqlx_query.fetch_all(&pool).await {
-        Ok(rows) => rows,
-        Err(err) => return GrimoireResponse::failure("Failed to query genres", vec![err.into()]),
-    };
-
-    let user_id_ref = params.user_id.as_ref().map(|uid| uid.as_str());
-    let mut genres: Vec<GenreQueryResult> = rows
-        .into_iter()
-        .map(|r| r.to_genre_query_result(user_id_ref))
-        .collect();
-
-    // apply user favorites if user_id provided (genres don't have ratings)
-    if let Some(uid) = &params.user_id {
-        user_prefs::apply_user_preferences_genres(&mut genres, uid).await;
-    }
-
-    let genre_count = genres.len();
-
-    GrimoireResponse::success(
-        format!("Found {} genre(s)", genre_count),
-        QueryResult {
-            items: genres,
-            total_count: genre_count as i64,
-            has_more: genre_count == limit as usize,
             limit: limit as i64,
             offset: offset as i64,
             query_time_ms: Some(start_time.elapsed().as_millis() as u64),

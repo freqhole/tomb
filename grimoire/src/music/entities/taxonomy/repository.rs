@@ -1147,6 +1147,40 @@ pub async fn query_albums_by_scalar_range(
     )
 }
 
+/// soft-delete a taxon by id (sets `deleted_at` + `deleted_by`).
+/// returns ok with an `()` payload if the row was already deleted or
+/// did not exist; only sql failure produces an error response. callers
+/// who care about whether the row actually existed should consult
+/// `get_taxon` first.
+pub async fn delete_taxon(id: &str, deleted_by: Option<String>) -> GrimoireResponse<()> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "failed to connect to database",
+                vec![ErrorDetail::from(e)],
+            );
+        }
+    };
+
+    let now = time::OffsetDateTime::now_utc().unix_timestamp();
+    if let Err(e) = sqlx::query!(
+        r#"UPDATE taxonz
+              SET deleted_at = ?, deleted_by = ?
+            WHERE id = ? AND deleted_at IS NULL"#,
+        now,
+        deleted_by,
+        id,
+    )
+    .execute(&pool)
+    .await
+    {
+        return GrimoireResponse::failure("failed to delete taxon", vec![ErrorDetail::from(e)]);
+    }
+
+    GrimoireResponse::success("taxon deleted", ())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

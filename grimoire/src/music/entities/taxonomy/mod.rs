@@ -33,9 +33,9 @@ pub use models::{
     TaxonsQueryResult,
 };
 pub use repository::{
-    add_album_taxon, add_taxon_parent, create_taxon, create_taxon_kind, find_or_create_taxon,
-    get_album_taxon_links, get_taxon, get_taxon_ancestors, get_taxon_descendants, list_taxon_kinds,
-    list_taxons_by_kind, query_albums_by_scalar_range, query_taxons, remove_album_taxon,
-    remove_taxon_parent, set_album_taxons, set_scalar_attribute, slugify_taxon_label,
-    sync_album_user_taxon,
+    add_album_taxon, add_taxon_parent, create_taxon, create_taxon_kind, delete_taxon,
+    find_or_create_taxon, get_album_taxon_links, get_taxon, get_taxon_ancestors,
+    get_taxon_descendants, list_taxon_kinds, list_taxons_by_kind, query_albums_by_scalar_range,
+    query_taxons, remove_album_taxon, remove_taxon_parent, set_album_taxons, set_scalar_attribute,
+    slugify_taxon_label, sync_album_user_taxon,
 };

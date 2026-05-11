@@ -1783,26 +1783,6 @@ export const FolksonomyTagSchema = z.object({
 });
 export type FolksonomyTag = z.infer<typeof FolksonomyTagSchema>;
 
-export const GenreSchema = z.object({
-  id: z.string(),
-  name: z.string(),
-  created_at: z.number()
-});
-export type Genre = z.infer<typeof GenreSchema>;
-
-export const GenreQueryResultSchema = z.object({
-  genre: z.object({
-  id: z.string(),
-  name: z.string(),
-  created_at: z.number()
-}),
-  song_count: z.number().nullish(),
-  album_count: z.number().nullish(),
-  is_favorite: z.boolean().nullish(),
-  favorited_at: z.number().nullish()
-});
-export type GenreQueryResult = z.infer<typeof GenreQueryResultSchema>;
-
 export const GenreRefSchema = z.object({
   id: z.string(),
   name: z.string()
@@ -1820,26 +1800,6 @@ export const GenreSearchResultSchema = z.object({
   search_rank: z.number()
 });
 export type GenreSearchResult = z.infer<typeof GenreSearchResultSchema>;
-
-export const GenresQueryResultSchema = z.object({
-  items: z.array(z.object({
-  genre: z.object({
-  id: z.string(),
-  name: z.string(),
-  created_at: z.number()
-}),
-  song_count: z.number().nullish(),
-  album_count: z.number().nullish(),
-  is_favorite: z.boolean().nullish(),
-  favorited_at: z.number().nullish()
-})),
-  total_count: z.number(),
-  has_more: z.boolean(),
-  offset: z.number(),
-  limit: z.number(),
-  query_time_ms: z.number().nullish()
-});
-export type GenresQueryResult = z.infer<typeof GenresQueryResultSchema>;
 
 export const GetAlbumRequestSchema = z.object({
   id: z.string()
@@ -1875,11 +1835,6 @@ export const GetCoverArtRequestSchema = z.object({
   mbid: z.string()
 });
 export type GetCoverArtRequest = z.infer<typeof GetCoverArtRequestSchema>;
-
-export const GetGenreRequestSchema = z.object({
-  id: z.string()
-});
-export type GetGenreRequest = z.infer<typeof GetGenreRequestSchema>;
 
 export const GetJobRequestSchema = z.object({
   job_id: z.string()

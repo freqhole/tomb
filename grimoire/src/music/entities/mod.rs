@@ -3,7 +3,6 @@
 
 pub mod albums;
 pub mod artists;
-pub mod genres;
 pub mod playlists;
 pub mod songs;
 pub mod tags;
@@ -12,7 +11,6 @@ pub mod taxonomy;
 // re-export models for internal use within music module
 pub use albums::{Album, CreateAlbumRequest};
 pub use artists::{Artist, CreateArtistRequest};
-pub use genres::{CreateGenreRequest, Genre, GenreStat, GenreWithStats};
 pub use playlists::{CreatePlaylistRequest, Playlist};
 pub use songs::{CreateSongRequest, Song};
 pub use tags::Tag;

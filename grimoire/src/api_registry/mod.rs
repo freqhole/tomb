@@ -139,12 +139,12 @@ pub mod type_registry {
         BulkDeleteSongsResponse, DeleteAlbumRequest, DeleteAlbumResponse, DeleteArtistRequest,
         DeleteArtistResponse, DeleteSongRequest, DeleteSongResponse, FavoriteAlbumResult,
         FavoriteArtistResult, FavoriteItem, FavoritePlaylistResult, FavoriteSongResult,
-        GenreQueryResult, GenresQueryResult, GetAlbumRequest, GetArtistRequest, GetGenreRequest,
-        GetRatingStatsRequest, ListFavoritesRequest, ListFavoritesResponse, PlaylistQueryResult,
-        PlaylistSongResult, PlaylistSongsQueryResult, PlaylistsQueryResult, QueryParams,
-        QueryPlaylistSongsRequest, RatingStats, RecentSongsRequest, RemoveRatingRequest,
-        RemoveRatingResponse, SetFavoriteResponse, SetRatingResponse, SongQueryResult,
-        SongUpdateError, SongsQueryResult, UpdateSongsRequest, UpdateSongsResult,
+        GetAlbumRequest, GetArtistRequest, GetRatingStatsRequest, ListFavoritesRequest,
+        ListFavoritesResponse, PlaylistQueryResult, PlaylistSongResult, PlaylistSongsQueryResult,
+        PlaylistsQueryResult, QueryParams, QueryPlaylistSongsRequest, RatingStats,
+        RecentSongsRequest, RemoveRatingRequest, RemoveRatingResponse, SetFavoriteResponse,
+        SetRatingResponse, SongQueryResult, SongUpdateError, SongsQueryResult, UpdateSongsRequest,
+        UpdateSongsResult,
     };
 
     // upload types
@@ -156,7 +156,6 @@ pub mod type_registry {
     };
     use crate::music::entities::albums::{Album, GenreRef, UpdateAlbumRequest};
     use crate::music::entities::artists::{Artist, CreateArtistRequest, UpdateArtistRequest};
-    use crate::music::entities::genres::Genre;
     use crate::music::entities::playlists::{
         AddSongsToPlaylistRequest, CreatePlaylistRequest, DeletePlaylistRequest,
         GetPlaylistRequest, Playlist, RemovePlaylistThumbnailRequest,
@@ -679,9 +678,6 @@ pub mod type_registry {
         gen.add_schema::<GenreRef>("GenreRef");
         registered.insert("GenreRef".to_string());
 
-        gen.add_schema::<Genre>("Genre");
-        registered.insert("Genre".to_string());
-
         // ---- taxonomy ----
         gen.add_schema::<TaxonKind>("TaxonKind");
         registered.insert("TaxonKind".to_string());
@@ -835,16 +831,6 @@ pub mod type_registry {
 
         gen.add_schema::<RatingStats>("RatingStats");
         registered.insert("RatingStats".to_string());
-
-        // genres types
-        gen.add_schema::<GenreQueryResult>("GenreQueryResult");
-        registered.insert("GenreQueryResult".to_string());
-
-        gen.add_schema::<GenresQueryResult>("GenresQueryResult");
-        registered.insert("GenresQueryResult".to_string());
-
-        gen.add_schema::<GetGenreRequest>("GetGenreRequest");
-        registered.insert("GetGenreRequest".to_string());
 
         // upload types
         gen.add_schema::<ImageUploadResponse>("ImageUploadResponse");
