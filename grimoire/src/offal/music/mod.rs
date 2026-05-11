@@ -1,7 +1,7 @@
 //! music domain handlers
 //!
-//! covers: songs, albums, artists, playlists, genres, favorites, ratings,
-//! tags, blobs, uploads, jobs, analytics, sessions, search
+//! covers: songs, albums, artists, playlists, genres, taxonomy, favorites,
+//! ratings, tags, blobs, uploads, jobs, analytics, sessions, search
 
 pub mod albums;
 pub mod analytics;
@@ -15,6 +15,7 @@ pub mod search;
 pub mod sessions;
 pub mod songs;
 pub mod tags;
+pub mod taxonomy;
 
 use crate::api_registry::{Method, RouteInfo};
 use crate::offal::caller::Caller;
@@ -36,6 +37,7 @@ pub fn routes() -> Vec<RouteInfo> {
     all.extend_from_slice(sessions::ROUTES);
     all.extend_from_slice(songs::ROUTES);
     all.extend_from_slice(tags::ROUTES);
+    all.extend_from_slice(taxonomy::ROUTES);
     all
 }
 
@@ -115,6 +117,38 @@ pub async fn dispatch(
         "/api/tags/albums/remove" => Some(tags::remove_from_albums(caller, body.clone()).await),
         "/api/tags/albums/replace" => Some(tags::replace_on_albums(caller, body.clone()).await),
         "/api/tags/albums/get" => Some(tags::get_for_albums(caller, body.clone()).await),
+
+        // taxonomy (kinds, taxons, parents, album links, scalar attributes)
+        "/api/taxonomy/kinds/list" => Some(taxonomy::list_kinds(caller, body.clone()).await),
+        "/api/taxonomy/kinds/create" => Some(taxonomy::create_kind(caller, body.clone()).await),
+        "/api/taxonomy/taxons/list-by-kind" => {
+            Some(taxonomy::list_taxons_by_kind(caller, body.clone()).await)
+        }
+        "/api/taxonomy/taxons/query" => Some(taxonomy::query_taxons(caller, body.clone()).await),
+        "/api/taxonomy/taxons/get" => Some(taxonomy::get_taxon(caller, body.clone()).await),
+        "/api/taxonomy/taxons/create" => Some(taxonomy::create_taxon(caller, body.clone()).await),
+        "/api/taxonomy/taxons/ancestors" => Some(taxonomy::ancestors(caller, body.clone()).await),
+        "/api/taxonomy/taxons/descendants" => {
+            Some(taxonomy::descendants(caller, body.clone()).await)
+        }
+        "/api/taxonomy/parents/add" => Some(taxonomy::add_parent(caller, body.clone()).await),
+        "/api/taxonomy/parents/remove" => Some(taxonomy::remove_parent(caller, body.clone()).await),
+        "/api/taxonomy/album-links/get" => {
+            Some(taxonomy::get_album_links(caller, body.clone()).await)
+        }
+        "/api/taxonomy/album-links/add" => {
+            Some(taxonomy::add_album_link(caller, body.clone()).await)
+        }
+        "/api/taxonomy/album-links/remove" => {
+            Some(taxonomy::remove_album_link(caller, body.clone()).await)
+        }
+        "/api/taxonomy/album-links/set" => {
+            Some(taxonomy::set_album_links(caller, body.clone()).await)
+        }
+        "/api/taxonomy/scalars/set" => Some(taxonomy::set_scalar(caller, body.clone()).await),
+        "/api/taxonomy/scalars/query-range" => {
+            Some(taxonomy::query_scalar_range(caller, body.clone()).await)
+        }
 
         // jobs
         "/api/jobs/status" => Some(jobs::status(caller, body.clone()).await),

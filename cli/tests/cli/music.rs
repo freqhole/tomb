@@ -126,34 +126,6 @@ fn test_music_genres() {
             result["success"].as_bool().unwrap(),
             "Should get genre stats"
         );
-
-        // List sub-genres for this genre
-        let result = ctx.run_json(&["music", "list-sub-genres-for-genre", "--genre-id", genre_id]);
-        assert!(
-            result["success"].as_bool().unwrap(),
-            "Should list sub-genres"
-        );
-    }
-}
-
-#[test]
-fn test_music_sub_genres() {
-    let ctx = TestContext::from_snapshot();
-
-    // List all sub-genres
-    let result = ctx.run_json(&["music", "list-sub-genres"]);
-    assert!(
-        result["success"].as_bool().unwrap(),
-        "Should list sub-genres"
-    );
-
-    let sub_genres = result["data"].as_array().unwrap();
-    if !sub_genres.is_empty() {
-        let sub_genre_id = sub_genres[0]["id"].as_str().unwrap();
-
-        // Get sub-genre by ID
-        let result = ctx.run_json(&["music", "get-sub-genre", "--sub-genre-id", sub_genre_id]);
-        assert!(result["success"].as_bool().unwrap(), "Should get sub-genre");
     }
 }
 
@@ -207,14 +179,6 @@ fn test_music_search_operations() {
     // Search genres
     let result = ctx.run_json(&["music", "query-genres-search", "--search", "test"]);
     assert!(result["success"].as_bool().unwrap(), "Should search genres");
-    assert!(result["data"].is_array());
-
-    // Search sub-genres
-    let result = ctx.run_json(&["music", "query-sub-genres-search", "--search", "test"]);
-    assert!(
-        result["success"].as_bool().unwrap(),
-        "Should search sub-genres"
-    );
     assert!(result["data"].is_array());
 }
 
@@ -331,35 +295,6 @@ fn test_music_ratings() {
         "Should show help or subcommand error: {}",
         output.stderr
     );
-}
-
-#[test]
-fn test_music_find_or_create_sub_genre() {
-    let ctx = TestContext::from_snapshot();
-
-    // Get a genre first to associate the sub-genre with
-    let genres_result = ctx.run_json(&["music", "list-genres"]);
-    if genres_result["success"].as_bool().unwrap() {
-        let genres = genres_result["data"].as_array().unwrap();
-        if !genres.is_empty() {
-            let genre_id = genres[0]["id"].as_str().unwrap();
-
-            // Try to find or create a sub-genre
-            let result = ctx.run_json(&[
-                "music",
-                "find-or-create-sub-genre",
-                "--name",
-                "Test Sub Genre",
-                "--genre-id",
-                genre_id,
-            ]);
-
-            assert!(
-                result["success"].as_bool().unwrap(),
-                "Should find or create sub-genre successfully"
-            );
-        }
-    }
 }
 
 #[test]

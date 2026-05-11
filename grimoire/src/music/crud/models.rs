@@ -480,9 +480,6 @@ pub struct UpdateSongsRequest {
     #[arg(long)]
     pub genre: Option<String>,
 
-    #[arg(long)]
-    pub sub_genre: Option<String>,
-
     // tag operations (album-level)
     /// Tags to add (comma-separated)
     #[arg(long, value_delimiter = ',')]

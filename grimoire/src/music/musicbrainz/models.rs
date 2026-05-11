@@ -652,6 +652,7 @@ mod tests {
             text_representation: None,
             release_group: None,
             genres: None,
+            tags: None,
             label_info: None,
         };
 
@@ -673,6 +674,7 @@ mod tests {
             text_representation: None,
             release_group: None,
             genres: None,
+            tags: None,
             label_info: None,
         };
 

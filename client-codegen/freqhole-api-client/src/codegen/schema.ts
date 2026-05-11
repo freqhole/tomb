@@ -9,6 +9,14 @@ export const AcceptKnockRequestSchema = z.object({
 });
 export type AcceptKnockRequest = z.infer<typeof AcceptKnockRequestSchema>;
 
+export const AddAlbumTaxonRequestSchema = z.object({
+  album_id: z.string(),
+  taxon_id: z.string(),
+  origin: z.string(),
+  confidence: z.number().nullish()
+});
+export type AddAlbumTaxonRequest = z.infer<typeof AddAlbumTaxonRequestSchema>;
+
 export const AddAlbumsTagsRequestSchema = z.object({
   album_ids: z.array(z.string()),
   tag_ids: z.array(z.string()),
@@ -21,6 +29,12 @@ export const AddSongsToPlaylistRequestSchema = z.object({
   song_ids: z.array(z.string())
 });
 export type AddSongsToPlaylistRequest = z.infer<typeof AddSongsToPlaylistRequestSchema>;
+
+export const AddTaxonParentRequestSchema = z.object({
+  child_id: z.string(),
+  parent_id: z.string()
+});
+export type AddTaxonParentRequest = z.infer<typeof AddTaxonParentRequestSchema>;
 
 export const AdminAccountLinkResponseSchema = z.object({
   code: z.string()
@@ -458,6 +472,25 @@ export const AlbumSearchResultSchema = z.object({
 });
 export type AlbumSearchResult = z.infer<typeof AlbumSearchResultSchema>;
 
+export const AlbumTaxonLinkSchema = z.object({
+  album_id: z.string(),
+  taxon_id: z.string(),
+  kind_slug: z.string(),
+  label: z.string(),
+  origin: z.string(),
+  confidence: z.number().nullish(),
+  created_at: z.number(),
+  created_by: z.string().nullish()
+});
+export type AlbumTaxonLink = z.infer<typeof AlbumTaxonLinkSchema>;
+
+export const AlbumTaxonLinkInputSchema = z.object({
+  taxon_id: z.string(),
+  origin: z.string(),
+  confidence: z.number().nullish()
+});
+export type AlbumTaxonLinkInput = z.infer<typeof AlbumTaxonLinkInputSchema>;
+
 export const AlbumsQueryResultSchema = z.object({
   items: z.array(z.object({
   album: z.object({
@@ -825,6 +858,25 @@ export const CreateTagRequestSchema = z.object({
   name: z.string()
 });
 export type CreateTagRequest = z.infer<typeof CreateTagRequestSchema>;
+
+export const CreateTaxonKindRequestSchema = z.object({
+  slug: z.string(),
+  label: z.string(),
+  description: z.string().nullish(),
+  color: z.string().nullish(),
+  value_type: z.string().nullish(),
+  unit: z.string().nullish(),
+  display_order: z.number().nullish()
+});
+export type CreateTaxonKindRequest = z.infer<typeof CreateTaxonKindRequestSchema>;
+
+export const CreateTaxonRequestSchema = z.object({
+  kind_slug: z.string(),
+  label: z.string(),
+  description: z.string().nullish(),
+  parent_ids: z.array(z.string()).nullish()
+});
+export type CreateTaxonRequest = z.infer<typeof CreateTaxonRequestSchema>;
 
 export const DeleteAlbumRequestSchema = z.object({
   id: z.string(),
@@ -1759,6 +1811,11 @@ export const GetAlbumRequestSchema = z.object({
 });
 export type GetAlbumRequest = z.infer<typeof GetAlbumRequestSchema>;
 
+export const GetAlbumTaxonLinksRequestSchema = z.object({
+  album_id: z.string()
+});
+export type GetAlbumTaxonLinksRequest = z.infer<typeof GetAlbumTaxonLinksRequestSchema>;
+
 export const GetAlbumsTagsRequestSchema = z.object({
   album_ids: z.array(z.string())
 });
@@ -1858,6 +1915,11 @@ export const GetTagRequestSchema = z.object({
   tag_id: z.string()
 });
 export type GetTagRequest = z.infer<typeof GetTagRequestSchema>;
+
+export const GetTaxonRequestSchema = z.object({
+  id: z.string()
+});
+export type GetTaxonRequest = z.infer<typeof GetTaxonRequestSchema>;
 
 export const HasBlobsRequestSchema = z.object({
   blake3s: z.array(z.string()),
@@ -2319,6 +2381,11 @@ export const ListListenSessionsResponseSchema = z.object({
   total: z.number()
 });
 export type ListListenSessionsResponse = z.infer<typeof ListListenSessionsResponseSchema>;
+
+export const ListTaxonsByKindRequestSchema = z.object({
+  kind_slug: z.string()
+});
+export type ListTaxonsByKindRequest = z.infer<typeof ListTaxonsByKindRequestSchema>;
 
 export const ListenSessionSchema = z.object({
   id: z.string(),
@@ -3338,10 +3405,27 @@ export const QueryPlaylistSongsRequestSchema = z.object({
 });
 export type QueryPlaylistSongsRequest = z.infer<typeof QueryPlaylistSongsRequestSchema>;
 
+export const QueryScalarRangeRequestSchema = z.object({
+  kind_slug: z.string(),
+  min: z.number().nullish(),
+  max: z.number().nullish(),
+  limit: z.number().nullish(),
+  offset: z.number().nullish()
+});
+export type QueryScalarRangeRequest = z.infer<typeof QueryScalarRangeRequestSchema>;
+
 export const QueryTagsRequestSchema = z.object({
   search: z.string().nullish()
 });
 export type QueryTagsRequest = z.infer<typeof QueryTagsRequestSchema>;
+
+export const QueryTaxonsRequestSchema = z.object({
+  kind_slug: z.string().nullish(),
+  q: z.string().nullish(),
+  limit: z.number().nullish(),
+  offset: z.number().nullish()
+});
+export type QueryTaxonsRequest = z.infer<typeof QueryTaxonsRequestSchema>;
 
 export const RadioBumperSchema = z.object({
   id: z.string(),
@@ -3563,6 +3647,13 @@ export const RejectMbMatchRequestSchema = z.object({
 });
 export type RejectMbMatchRequest = z.infer<typeof RejectMbMatchRequestSchema>;
 
+export const RemoveAlbumTaxonRequestSchema = z.object({
+  album_id: z.string(),
+  taxon_id: z.string(),
+  origin: z.string().nullish()
+});
+export type RemoveAlbumTaxonRequest = z.infer<typeof RemoveAlbumTaxonRequestSchema>;
+
 export const RemoveAlbumsTagsRequestSchema = z.object({
   album_ids: z.array(z.string()),
   tag_ids: z.array(z.string())
@@ -3595,6 +3686,12 @@ export const RemoveSongsFromPlaylistRequestSchema = z.object({
 });
 export type RemoveSongsFromPlaylistRequest = z.infer<typeof RemoveSongsFromPlaylistRequestSchema>;
 
+export const RemoveTaxonParentRequestSchema = z.object({
+  child_id: z.string(),
+  parent_id: z.string()
+});
+export type RemoveTaxonParentRequest = z.infer<typeof RemoveTaxonParentRequestSchema>;
+
 export const ReorderPlaylistSongsRequestSchema = z.object({
   playlist_id: z.string(),
   song_ids: z.array(z.string()),
@@ -3615,6 +3712,18 @@ export const RestartPolicySchema = z.object({
   max_backoff_ms: z.number()
 });
 export type RestartPolicy = z.infer<typeof RestartPolicySchema>;
+
+export const ScalarAttributeSchema = z.object({
+  album_id: z.string(),
+  taxon_kind_id: z.string(),
+  kind_slug: z.string(),
+  value_f64: z.number(),
+  origin: z.string(),
+  confidence: z.number().nullish(),
+  created_at: z.number(),
+  created_by: z.string().nullish()
+});
+export type ScalarAttribute = z.infer<typeof ScalarAttributeSchema>;
 
 export const SearchFieldSchema = z.union([z.literal("all"), z.literal("artists"), z.literal("albums"), z.literal("songs"), z.literal("genres"), z.literal("playlists")]);
 export type SearchField = z.infer<typeof SearchFieldSchema>;
@@ -3771,6 +3880,16 @@ export const SessionSummarySchema = z.object({
 });
 export type SessionSummary = z.infer<typeof SessionSummarySchema>;
 
+export const SetAlbumTaxonsRequestSchema = z.object({
+  album_id: z.string(),
+  links: z.array(z.object({
+  taxon_id: z.string(),
+  origin: z.string(),
+  confidence: z.number().nullish()
+}))
+});
+export type SetAlbumTaxonsRequest = z.infer<typeof SetAlbumTaxonsRequestSchema>;
+
 export const SetFavoriteRequestSchema = z.object({
   user_id: z.string().nullish(),
   target_type: z.union([z.literal("song"), z.literal("artist"), z.literal("album"), z.literal("genre"), z.literal("playlist")]),
@@ -3805,6 +3924,15 @@ export const SetRatingResponseSchema = z.object({
   message: z.string()
 });
 export type SetRatingResponse = z.infer<typeof SetRatingResponseSchema>;
+
+export const SetScalarAttributeRequestSchema = z.object({
+  album_id: z.string(),
+  kind_slug: z.string(),
+  value_f64: z.number(),
+  origin: z.string(),
+  confidence: z.number().nullish()
+});
+export type SetScalarAttributeRequest = z.infer<typeof SetScalarAttributeRequestSchema>;
 
 export const SongSchema = z.object({
   id: z.string(),
@@ -4331,6 +4459,72 @@ export const TagSchema = z.object({
 });
 export type Tag = z.infer<typeof TagSchema>;
 
+export const TaxonSchema = z.object({
+  id: z.string(),
+  kind_id: z.string(),
+  kind_slug: z.string(),
+  slug: z.string(),
+  label: z.string(),
+  description: z.string().nullish(),
+  is_user_defined: z.boolean(),
+  created_at: z.number(),
+  created_by: z.string().nullish()
+});
+export type Taxon = z.infer<typeof TaxonSchema>;
+
+export const TaxonKindSchema = z.object({
+  id: z.string(),
+  slug: z.string(),
+  label: z.string(),
+  description: z.string().nullish(),
+  color: z.string().nullish(),
+  value_type: z.string(),
+  unit: z.string().nullish(),
+  display_order: z.number(),
+  is_user_defined: z.boolean(),
+  created_at: z.number()
+});
+export type TaxonKind = z.infer<typeof TaxonKindSchema>;
+
+export const TaxonRefSchema = z.object({
+  id: z.string(),
+  kind_slug: z.string(),
+  label: z.string()
+});
+export type TaxonRef = z.infer<typeof TaxonRefSchema>;
+
+export const TaxonWithStatsSchema = z.object({
+  id: z.string(),
+  kind_id: z.string(),
+  kind_slug: z.string(),
+  slug: z.string(),
+  label: z.string(),
+  created_at: z.number(),
+  album_count: z.number(),
+  song_count: z.number(),
+  total_duration: z.number()
+});
+export type TaxonWithStats = z.infer<typeof TaxonWithStatsSchema>;
+
+export const TaxonsQueryResultSchema = z.object({
+  items: z.array(z.object({
+  id: z.string(),
+  kind_id: z.string(),
+  kind_slug: z.string(),
+  slug: z.string(),
+  label: z.string(),
+  created_at: z.number(),
+  album_count: z.number(),
+  song_count: z.number(),
+  total_duration: z.number()
+})),
+  total_count: z.number(),
+  has_more: z.boolean(),
+  offset: z.number(),
+  limit: z.number()
+});
+export type TaxonsQueryResult = z.infer<typeof TaxonsQueryResultSchema>;
+
 export const TopAlbumSchema = z.object({
   album_id: z.string(),
   title: z.string(),
@@ -4490,7 +4684,6 @@ export const UpdateSongsRequestSchema = z.object({
   release_date: z.string().nullish(),
   label: z.string().nullish(),
   genre: z.string().nullish(),
-  sub_genre: z.string().nullish(),
   add_tags: z.array(z.string()).nullish(),
   remove_tags: z.array(z.string()).nullish(),
   replace_tags: z.array(z.string()).nullish(),

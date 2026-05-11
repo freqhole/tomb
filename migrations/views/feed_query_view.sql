@@ -35,8 +35,8 @@ SELECT
     NULL as total_songs,
     (SELECT a.name FROM artist_songz asz3 JOIN artistz a ON a.id = asz3.artist_id WHERE asz3.song_id = uf.target_id LIMIT 1) as artist_name,
     (SELECT alb.title FROM album_songz als2 JOIN albumz alb ON alb.id = als2.album_id WHERE als2.song_id = uf.target_id LIMIT 1) as album_title,
-    (SELECT g.name FROM album_songz als3 JOIN album_genrez ag ON ag.album_id = als3.album_id JOIN genrez g ON g.id = ag.genre_id WHERE als3.song_id = uf.target_id LIMIT 1) as genre,
-    (SELECT g.id FROM album_songz als4 JOIN album_genrez ag ON ag.album_id = als4.album_id JOIN genrez g ON g.id = ag.genre_id WHERE als4.song_id = uf.target_id LIMIT 1) as genre_id,
+    (SELECT t.label FROM album_songz als3 JOIN album_taxonz at ON at.album_id = als3.album_id JOIN taxonz t ON t.id = at.taxon_id JOIN taxon_kindz k ON k.id = t.kind_id WHERE als3.song_id = uf.target_id AND k.slug = 'genre' AND t.deleted_at IS NULL LIMIT 1) as genre,
+    (SELECT t.id FROM album_songz als4 JOIN album_taxonz at ON at.album_id = als4.album_id JOIN taxonz t ON t.id = at.taxon_id JOIN taxon_kindz k ON k.id = t.kind_id WHERE als4.song_id = uf.target_id AND k.slug = 'genre' AND t.deleted_at IS NULL LIMIT 1) as genre_id,
     (SELECT CAST(SUBSTR(alb2.release_date, 1, 4) AS INTEGER) FROM album_songz als5 JOIN albumz alb2 ON alb2.id = als5.album_id WHERE als5.song_id = uf.target_id LIMIT 1) as year,
     NULL as song_count,
     NULL as total_duration_ms,
@@ -79,8 +79,8 @@ SELECT
     NULL as total_songs,
     (SELECT a.name FROM artist_albumz aa3 JOIN artistz a ON a.id = aa3.artist_id WHERE aa3.album_id = alb.id LIMIT 1) as artist_name,
     alb.title as album_title,
-    (SELECT g.name FROM album_genrez ag JOIN genrez g ON g.id = ag.genre_id WHERE ag.album_id = alb.id LIMIT 1) as genre,
-    (SELECT g.id FROM album_genrez ag2 JOIN genrez g ON g.id = ag2.genre_id WHERE ag2.album_id = alb.id LIMIT 1) as genre_id,
+    (SELECT t.label FROM album_taxonz at JOIN taxonz t ON t.id = at.taxon_id JOIN taxon_kindz k ON k.id = t.kind_id WHERE at.album_id = alb.id AND k.slug = 'genre' AND t.deleted_at IS NULL LIMIT 1) as genre,
+    (SELECT t.id FROM album_taxonz at2 JOIN taxonz t ON t.id = at2.taxon_id JOIN taxon_kindz k ON k.id = t.kind_id WHERE at2.album_id = alb.id AND k.slug = 'genre' AND t.deleted_at IS NULL LIMIT 1) as genre_id,
     CAST(SUBSTR(alb.release_date, 1, 4) AS INTEGER) as year,
     alb.song_count as song_count,
     alb.total_duration as total_duration_ms,
@@ -156,13 +156,13 @@ SELECT
         ELSE NULL
     END as album_title,
     CASE
-        WHEN ur.target_type = 'song' THEN (SELECT g.name FROM album_songz als JOIN album_genrez ag ON ag.album_id = als.album_id JOIN genrez g ON g.id = ag.genre_id WHERE als.song_id = ur.target_id LIMIT 1)
-        WHEN ur.target_type = 'album' THEN (SELECT g.name FROM album_genrez ag JOIN genrez g ON g.id = ag.genre_id WHERE ag.album_id = ur.target_id LIMIT 1)
+        WHEN ur.target_type = 'song' THEN (SELECT t.label FROM album_songz als JOIN album_taxonz at ON at.album_id = als.album_id JOIN taxonz t ON t.id = at.taxon_id JOIN taxon_kindz k ON k.id = t.kind_id WHERE als.song_id = ur.target_id AND k.slug = 'genre' AND t.deleted_at IS NULL LIMIT 1)
+        WHEN ur.target_type = 'album' THEN (SELECT t.label FROM album_taxonz at JOIN taxonz t ON t.id = at.taxon_id JOIN taxon_kindz k ON k.id = t.kind_id WHERE at.album_id = ur.target_id AND k.slug = 'genre' AND t.deleted_at IS NULL LIMIT 1)
         ELSE NULL
     END as genre,
     CASE
-        WHEN ur.target_type = 'song' THEN (SELECT g.id FROM album_songz als JOIN album_genrez ag ON ag.album_id = als.album_id JOIN genrez g ON g.id = ag.genre_id WHERE als.song_id = ur.target_id LIMIT 1)
-        WHEN ur.target_type = 'album' THEN (SELECT g.id FROM album_genrez ag JOIN genrez g ON g.id = ag.genre_id WHERE ag.album_id = ur.target_id LIMIT 1)
+        WHEN ur.target_type = 'song' THEN (SELECT t.id FROM album_songz als JOIN album_taxonz at ON at.album_id = als.album_id JOIN taxonz t ON t.id = at.taxon_id JOIN taxon_kindz k ON k.id = t.kind_id WHERE als.song_id = ur.target_id AND k.slug = 'genre' AND t.deleted_at IS NULL LIMIT 1)
+        WHEN ur.target_type = 'album' THEN (SELECT t.id FROM album_taxonz at JOIN taxonz t ON t.id = at.taxon_id JOIN taxon_kindz k ON k.id = t.kind_id WHERE at.album_id = ur.target_id AND k.slug = 'genre' AND t.deleted_at IS NULL LIMIT 1)
         ELSE NULL
     END as genre_id,
     CASE

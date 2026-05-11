@@ -7,6 +7,7 @@ pub mod genres;
 pub mod playlists;
 pub mod songs;
 pub mod tags;
+pub mod taxonomy;
 
 // re-export models for internal use within music module
 pub use albums::{Album, CreateAlbumRequest};

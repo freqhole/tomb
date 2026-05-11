@@ -77,7 +77,16 @@ SELECT
     al.title as album_title,
     al.album_type as album_album_type,
     al.release_date as album_release_date,
-    al.label as album_label,
+    -- legacy `album_label` column sourced from album_taxonz (kind='label')
+    (SELECT t.label
+       FROM album_taxonz at
+       JOIN taxonz t ON t.id = at.taxon_id
+       JOIN taxon_kindz k ON k.id = t.kind_id
+      WHERE at.album_id = al.id
+        AND k.slug = 'label'
+        AND t.deleted_at IS NULL
+      ORDER BY at.created_at ASC
+      LIMIT 1) as album_label,
     al.song_count as album_song_count,
     al.total_duration as album_total_duration,
     al.created_at as album_created_at,
@@ -87,15 +96,34 @@ SELECT
     al.created_by as album_created_by,
     al.updated_by as album_updated_by,
 
-    -- album genres as JSON array of objects with id and name
+    -- album genres (legacy contract; sourced from album_taxonz kind='genre')
     COALESCE(
-        (SELECT json_group_array(json_object('id', g.id, 'name', g.name))
-         FROM album_genrez ag
-         INNER JOIN genrez g ON ag.genre_id = g.id
-         WHERE ag.album_id = al.id
-         ORDER BY g.name ASC),
+        (SELECT json_group_array(json_object('id', t.id, 'name', t.label))
+         FROM album_taxonz at
+         INNER JOIN taxonz t ON t.id = at.taxon_id
+         INNER JOIN taxon_kindz k ON k.id = t.kind_id
+         WHERE at.album_id = al.id
+           AND k.slug = 'genre'
+           AND t.deleted_at IS NULL),
         '[]'
     ) as album_genres,
+
+    -- new: every taxon linked to the album, across all kinds
+    COALESCE(
+        (SELECT json_group_array(json_object(
+            'id', t.id,
+            'kind_slug', k.slug,
+            'label', t.label,
+            'origin', at.origin,
+            'confidence', at.confidence
+         ))
+         FROM album_taxonz at
+         INNER JOIN taxonz t ON t.id = at.taxon_id
+         INNER JOIN taxon_kindz k ON k.id = t.kind_id
+         WHERE at.album_id = al.id
+           AND t.deleted_at IS NULL),
+        '[]'
+    ) as album_taxons,
 
     -- album tags as JSON array
     COALESCE(

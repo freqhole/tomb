@@ -167,6 +167,13 @@ pub mod type_registry {
         AddAlbumsTagsRequest, CreateTagRequest, DeleteTagRequest, GetAlbumsTagsRequest,
         GetTagRequest, QueryTagsRequest, RemoveAlbumsTagsRequest, ReplaceAlbumsTagsRequest, Tag,
     };
+    use crate::music::entities::taxonomy::{
+        AddAlbumTaxonRequest, AddTaxonParentRequest, AlbumTaxonLink, AlbumTaxonLinkInput,
+        CreateTaxonKindRequest, CreateTaxonRequest, GetAlbumTaxonLinksRequest, GetTaxonRequest,
+        ListTaxonsByKindRequest, QueryScalarRangeRequest, QueryTaxonsRequest,
+        RemoveAlbumTaxonRequest, RemoveTaxonParentRequest, ScalarAttribute, SetAlbumTaxonsRequest,
+        SetScalarAttributeRequest, Taxon, TaxonKind, TaxonRef, TaxonWithStats, TaxonsQueryResult,
+    };
     use crate::music::fetch::{FetchMediaParams, FetchMediaResult};
     use crate::upload::{
         AssociationHint, AssociationInfo, DeleteImageRequest, ImageUploadResponse,
@@ -674,6 +681,50 @@ pub mod type_registry {
 
         gen.add_schema::<Genre>("Genre");
         registered.insert("Genre".to_string());
+
+        // ---- taxonomy ----
+        gen.add_schema::<TaxonKind>("TaxonKind");
+        registered.insert("TaxonKind".to_string());
+        gen.add_schema::<Taxon>("Taxon");
+        registered.insert("Taxon".to_string());
+        gen.add_schema::<TaxonRef>("TaxonRef");
+        registered.insert("TaxonRef".to_string());
+        gen.add_schema::<TaxonWithStats>("TaxonWithStats");
+        registered.insert("TaxonWithStats".to_string());
+        gen.add_schema::<TaxonsQueryResult>("TaxonsQueryResult");
+        registered.insert("TaxonsQueryResult".to_string());
+        gen.add_schema::<AlbumTaxonLink>("AlbumTaxonLink");
+        registered.insert("AlbumTaxonLink".to_string());
+        gen.add_schema::<AlbumTaxonLinkInput>("AlbumTaxonLinkInput");
+        registered.insert("AlbumTaxonLinkInput".to_string());
+        gen.add_schema::<ScalarAttribute>("ScalarAttribute");
+        registered.insert("ScalarAttribute".to_string());
+        gen.add_schema::<CreateTaxonKindRequest>("CreateTaxonKindRequest");
+        registered.insert("CreateTaxonKindRequest".to_string());
+        gen.add_schema::<CreateTaxonRequest>("CreateTaxonRequest");
+        registered.insert("CreateTaxonRequest".to_string());
+        gen.add_schema::<GetTaxonRequest>("GetTaxonRequest");
+        registered.insert("GetTaxonRequest".to_string());
+        gen.add_schema::<ListTaxonsByKindRequest>("ListTaxonsByKindRequest");
+        registered.insert("ListTaxonsByKindRequest".to_string());
+        gen.add_schema::<GetAlbumTaxonLinksRequest>("GetAlbumTaxonLinksRequest");
+        registered.insert("GetAlbumTaxonLinksRequest".to_string());
+        gen.add_schema::<QueryTaxonsRequest>("QueryTaxonsRequest");
+        registered.insert("QueryTaxonsRequest".to_string());
+        gen.add_schema::<AddTaxonParentRequest>("AddTaxonParentRequest");
+        registered.insert("AddTaxonParentRequest".to_string());
+        gen.add_schema::<RemoveTaxonParentRequest>("RemoveTaxonParentRequest");
+        registered.insert("RemoveTaxonParentRequest".to_string());
+        gen.add_schema::<AddAlbumTaxonRequest>("AddAlbumTaxonRequest");
+        registered.insert("AddAlbumTaxonRequest".to_string());
+        gen.add_schema::<RemoveAlbumTaxonRequest>("RemoveAlbumTaxonRequest");
+        registered.insert("RemoveAlbumTaxonRequest".to_string());
+        gen.add_schema::<SetAlbumTaxonsRequest>("SetAlbumTaxonsRequest");
+        registered.insert("SetAlbumTaxonsRequest".to_string());
+        gen.add_schema::<SetScalarAttributeRequest>("SetScalarAttributeRequest");
+        registered.insert("SetScalarAttributeRequest".to_string());
+        gen.add_schema::<QueryScalarRangeRequest>("QueryScalarRangeRequest");
+        registered.insert("QueryScalarRangeRequest".to_string());
 
         gen.add_schema::<MediaBlob>("MediaBlob");
         registered.insert("MediaBlob".to_string());
