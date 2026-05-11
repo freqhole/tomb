@@ -24,6 +24,7 @@ import {
 import { useLibraryAlbumsQuery } from "../queries/useLibraryAlbums";
 import { handleAlbumClick, isAlbumSelected, updateAlbumIdList } from "../hooks/albumSelection";
 import { useInflightJobs } from "../hooks/useMbLookupJobs";
+import { AlbumCandidatesPanel } from "./AlbumCandidatesPanel";
 import type { AlbumSummary } from "../../music/data/types";
 
 type SortField = "title" | "artist" | "year" | "song_count" | "added_at";
@@ -88,7 +89,6 @@ export function AlbumsTable(props: AlbumsTableProps) {
     updateAlbumIdList(filteredItems().map((a) => a.album_id));
   });
 
-  const totalCount = () => albumsQuery.data?.pages?.[0]?.total ?? 0;
   const loadedCount = () => allItems().length;
 
   const toggleStatus = (status: MbLookupStatus) => {
@@ -165,10 +165,14 @@ export function AlbumsTable(props: AlbumsTableProps) {
             </button>
           </div>
 
-          {/* count */}
+          {/* count. note: server's `total_count` is currently the page count
+           *  (see grimoire/src/music/crud/query.rs query_albums) so we can't
+           *  show "loaded of total" reliably yet — just show what's loaded.
+           *  TODO: separate COUNT(*) on the server, then restore "of N". */}
           <div class="text-xs text-[var(--color-text-muted)] ml-auto">
             <Show when={loadedCount() > 0} fallback={<span>0 albums</span>}>
-              {loadedCount()} of {totalCount() || loadedCount()} loaded
+              {loadedCount()}
+              <Show when={albumsQuery.hasNextPage}>+</Show>
               <Show when={statusFilters().size > 0}> · {filteredItems().length} match filters</Show>
             </Show>
           </div>
@@ -232,7 +236,7 @@ export function AlbumsTable(props: AlbumsTableProps) {
             }
           >
             <table class="w-full text-xs border-collapse">
-              <thead class="sticky top-0 bg-[var(--color-bg-base)] z-10">
+              <thead class="sticky top-0 bg-black z-10">
                 <tr class="text-left text-[var(--color-text-muted)] border-b border-[var(--color-border-subtle)]">
                   <th class="px-2 py-2 w-10"></th>
                   <th class="px-2 py-2 font-medium">title</th>
@@ -274,72 +278,104 @@ function AlbumRow(props: { album: AlbumSummary; remote: Remote; index: number })
   const genreList = () => (props.album.genres ?? []).map((g) => g.name).join(", ");
   const selected = () => isAlbumSelected(props.album.album_id);
   const inflight = useInflightJobs();
+  const [expanded, setExpanded] = createSignal(false);
+  const reviewable = () =>
+    status() === "Candidates" || status() === "NeedsReview" || status() === "Confirmed";
 
   return (
-    <tr
-      class="border-b border-[var(--color-border-subtle)] cursor-pointer"
-      classList={{
-        "bg-[var(--color-accent-500)]/10": selected(),
-        "hover:bg-[var(--color-bg-hover)]": !selected(),
-      }}
-      onClick={(e) => handleAlbumClick(props.album.album_id, props.index, e)}
-      data-album-id={props.album.album_id}
-      data-remote-id={props.remote.remote_id}
-    >
-      <td class="px-2 py-1">
-        <div class="w-8 h-8 rounded overflow-hidden bg-[var(--color-bg-elevated)]">
-          <MediaImage
-            images={props.album.images}
-            alt={props.album.title}
-            size="xs"
-            domainType="album"
-          />
-        </div>
-      </td>
-      <td class="px-2 py-1 text-[var(--color-text-primary)] max-w-[260px] truncate">
-        {props.album.title}
-      </td>
-      <td class="px-2 py-1 text-[var(--color-text-secondary)] max-w-[200px] truncate">
-        {props.album.artist_name}
-      </td>
-      <td class="px-2 py-1 text-[var(--color-text-muted)]">{props.album.release_date ?? ""}</td>
-      <td class="px-2 py-1 text-[var(--color-text-muted)] text-right">{props.album.song_count}</td>
-      <td class="px-2 py-1 text-[var(--color-text-muted)] max-w-[200px] truncate">{genreList()}</td>
-      <td class="px-2 py-1">
-        <Show
-          when={inflight().has(props.album.album_id)}
-          fallback={
-            <span
-              class="inline-block px-1.5 py-0.5 rounded text-[10px]"
-              classList={{
-                "bg-emerald-500/15 text-emerald-400":
-                  status() === "Confirmed" || status() === "Enriched",
-                "bg-amber-500/15 text-amber-400":
-                  status() === "NeedsReview" || status() === "Candidates",
-                "bg-blue-500/15 text-blue-400":
-                  status() === "Queued" ||
-                  status() === "Searching" ||
-                  status() === "FetchingDetail",
-                "bg-rose-500/15 text-rose-400":
-                  status() === "Error" || status() === "NoMatch" || status() === "Rejected",
-                "bg-[var(--color-bg-elevated)] text-[var(--color-text-muted)]":
-                  status() === "NotAttempted",
-              }}
-            >
-              {mbLookupStatusLabel(status())}
+    <>
+      <tr
+        class="border-b border-[var(--color-border-subtle)] cursor-pointer"
+        classList={{
+          "bg-[var(--color-accent-500)]/10": selected(),
+          "hover:bg-[var(--color-bg-hover)]": !selected(),
+        }}
+        onClick={(e) => handleAlbumClick(props.album.album_id, props.index, e)}
+        data-album-id={props.album.album_id}
+        data-remote-id={props.remote.remote_id}
+      >
+        <td class="px-2 py-1">
+          <div class="w-8 h-8 rounded overflow-hidden bg-[var(--color-bg-elevated)]">
+            <MediaImage
+              images={props.album.images}
+              alt={props.album.title}
+              size="xs"
+              domainType="album"
+            />
+          </div>
+        </td>
+        <td class="px-2 py-1 text-[var(--color-text-primary)] max-w-[260px] truncate">
+          {props.album.title}
+        </td>
+        <td class="px-2 py-1 text-[var(--color-text-secondary)] max-w-[200px] truncate">
+          {props.album.artist_name}
+        </td>
+        <td class="px-2 py-1 text-[var(--color-text-muted)]">{props.album.release_date ?? ""}</td>
+        <td class="px-2 py-1 text-[var(--color-text-muted)] text-right">
+          {props.album.song_count}
+        </td>
+        <td class="px-2 py-1 text-[var(--color-text-muted)] max-w-[200px] truncate">
+          {genreList()}
+        </td>
+        <td class="px-2 py-1">
+          <Show
+            when={inflight().has(props.album.album_id)}
+            fallback={
+              <span
+                class="inline-block px-1.5 py-0.5 rounded text-[10px]"
+                classList={{
+                  "bg-emerald-500/15 text-emerald-400":
+                    status() === "Confirmed" || status() === "Enriched",
+                  "bg-amber-500/15 text-amber-400":
+                    status() === "NeedsReview" || status() === "Candidates",
+                  "bg-blue-500/15 text-blue-400":
+                    status() === "Queued" ||
+                    status() === "Searching" ||
+                    status() === "FetchingDetail",
+                  "bg-rose-500/15 text-rose-400":
+                    status() === "Error" || status() === "NoMatch" || status() === "Rejected",
+                  "bg-[var(--color-bg-elevated)] text-[var(--color-text-muted)]":
+                    status() === "NotAttempted",
+                }}
+              >
+                {mbLookupStatusLabel(status())}
+              </span>
+            }
+          >
+            <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-blue-500/15 text-blue-400">
+              <span class="inline-block w-2 h-2 rounded-full bg-blue-400 animate-pulse" />
+              looking up…
             </span>
-          }
-        >
-          <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-blue-500/15 text-blue-400">
-            <span class="inline-block w-2 h-2 rounded-full bg-blue-400 animate-pulse" />
-            looking up…
-          </span>
-        </Show>
-      </td>
-      <td class="px-2 py-1 text-[var(--color-text-muted)]">{lastLookup() ?? "—"}</td>
-      <td class="px-2 py-1 text-[var(--color-text-disabled)] text-[10px]">
-        {/* admin actions land in phase 4+ */}—
-      </td>
-    </tr>
+          </Show>
+        </td>
+        <td class="px-2 py-1 text-[var(--color-text-muted)]">{lastLookup() ?? "—"}</td>
+        <td class="px-2 py-1 text-[10px]">
+          <Show
+            when={reviewable()}
+            fallback={<span class="text-[var(--color-text-disabled)]">—</span>}
+          >
+            <button
+              type="button"
+              class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border border-[var(--color-border-subtle)] text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:border-[var(--color-text-secondary)] cursor-pointer bg-transparent"
+              onClick={(e) => {
+                e.stopPropagation();
+                setExpanded((p) => !p);
+              }}
+              title={expanded() ? "hide candidates" : "review candidates"}
+            >
+              <Icon name={expanded() ? "arrowUp" : "arrowDown"} size={8} />
+              review
+            </button>
+          </Show>
+        </td>
+      </tr>
+      <Show when={expanded() && reviewable()}>
+        <tr class="border-b border-[var(--color-border-subtle)]">
+          <td colspan={9} class="p-0">
+            <AlbumCandidatesPanel album={props.album} remote={props.remote} />
+          </td>
+        </tr>
+      </Show>
+    </>
   );
 }

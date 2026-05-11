@@ -79,6 +79,8 @@ pub async fn dispatch(
         "/api/albums/delete" => Some(albums::delete(caller, body.clone()).await),
         "/api/albums/images" => Some(albums::get_images(caller, body.clone()).await),
         "/api/albums/update" => Some(albums::update(caller, body.clone()).await),
+        "/api/albums/mb-confirm" => Some(albums::confirm_mb_match(caller, body.clone()).await),
+        "/api/albums/mb-reject" => Some(albums::reject_mb_match(caller, body.clone()).await),
 
         // artists
         "/api/artists/query" => Some(artists::query(caller, body.clone()).await),

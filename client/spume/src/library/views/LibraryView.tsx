@@ -18,6 +18,7 @@ import { Icon } from "../../components/icons/registry";
 import { RemotePicker } from "../../components/forms/RemotePicker";
 import { AlbumsTable } from "../components/AlbumsTable";
 import { AlbumBulkActionBar } from "../components/AlbumBulkActionBar";
+import { MbProgressStrip } from "../components/MbProgressStrip";
 import { useAlbumSelectionLifecycle, useSelectedAlbumIds } from "../hooks/albumSelection";
 import { useRemoteIsAdmin } from "../hooks/useRemoteRole";
 import { enqueueMbLookup } from "../hooks/useMbLookupJobs";
@@ -76,7 +77,9 @@ export function LibraryView() {
     <div class="flex flex-col h-full">
       {/* header — leaves room on the left for the floating topnav button */}
       <div class="flex items-center justify-between gap-4 px-4 pt-3 pb-2 wide:pl-[140px] flex-wrap">
-        <div class="flex items-center gap-2">&nbsp;</div>
+        <div class="flex items-center gap-2">
+          <MbProgressStrip />
+        </div>
 
         <div class="flex items-center gap-3 flex-wrap">
           {/* remote picker (single-select for phase 2) */}

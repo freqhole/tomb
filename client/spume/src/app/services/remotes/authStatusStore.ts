@@ -46,24 +46,14 @@ async function resolveOne(remote: Remote): Promise<AuthInfo> {
   if (!isHttpRemote(remote)) {
     try {
       const result = await whoamiForRemote(remote);
-      console.log(
-        "[authStatusStore] whoami(p2p) result",
-        remote.remote_id,
-        result,
-      );
       return {
         loggedIn: result.success,
         username: result.username,
         role: result.role,
       };
-    } catch (e) {
+    } catch {
       // expected on cold reload before the remote-status-change event
       // fires. we'll be retried then.
-      console.warn(
-        "[authStatusStore] whoami(p2p) threw, will retry on status change",
-        remote.remote_id,
-        e,
-      );
       return { loggedIn: false };
     }
   }
@@ -140,9 +130,5 @@ onRemoteStatusChange(async (remoteId, isOffline) => {
   if (isOffline) return;
   const remote = await getRemoteById(remoteId);
   if (!remote) return;
-  console.log(
-    "[authStatusStore] remote went online, refreshing auth",
-    remoteId,
-  );
   await refreshOne(remote);
 });

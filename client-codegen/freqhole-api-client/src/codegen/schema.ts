@@ -643,6 +643,13 @@ export const BulkDeleteSongsResponseSchema = z.object({
 });
 export type BulkDeleteSongsResponse = z.infer<typeof BulkDeleteSongsResponseSchema>;
 
+export const ConfirmMbMatchRequestSchema = z.object({
+  album_id: z.string(),
+  release_group_id: z.string(),
+  release_id: z.string().nullish()
+});
+export type ConfirmMbMatchRequest = z.infer<typeof ConfirmMbMatchRequestSchema>;
+
 export const CreateArtistRequestSchema = z.object({
   name: z.string(),
   created_by: z.string().nullish()
@@ -2331,6 +2338,12 @@ export type MbLastQuery = z.infer<typeof MbLastQuerySchema>;
 export const MbLookupStatusSchema = z.union([z.literal('NotAttempted'), z.literal('Queued'), z.literal('Searching'), z.literal('Candidates'), z.literal('Confirmed'), z.literal('Rejected'), z.literal('NoMatch'), z.literal('NeedsReview'), z.literal('FetchingDetail'), z.literal('Enriched'), z.literal('Error')]);
 export type MbLookupStatus = z.infer<typeof MbLookupStatusSchema>;
 
+export const MbMatchActionResponseSchema = z.object({
+  album_id: z.string(),
+  status: z.union([z.literal('NotAttempted'), z.literal('Queued'), z.literal('Searching'), z.literal('Candidates'), z.literal('Confirmed'), z.literal('Rejected'), z.literal('NoMatch'), z.literal('NeedsReview'), z.literal('FetchingDetail'), z.literal('Enriched'), z.literal('Error')])
+});
+export type MbMatchActionResponse = z.infer<typeof MbMatchActionResponseSchema>;
+
 export const MbMediumDetailSchema = z.object({
   position: z.number().nullish(),
   title: z.string().nullish(),
@@ -3371,6 +3384,11 @@ export const RejectKnockRequestSchema = z.object({
   id: z.string()
 });
 export type RejectKnockRequest = z.infer<typeof RejectKnockRequestSchema>;
+
+export const RejectMbMatchRequestSchema = z.object({
+  album_id: z.string()
+});
+export type RejectMbMatchRequest = z.infer<typeof RejectMbMatchRequestSchema>;
 
 export const RemoveAlbumsTagsRequestSchema = z.object({
   album_ids: z.array(z.string()),

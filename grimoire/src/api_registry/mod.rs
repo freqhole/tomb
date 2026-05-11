@@ -149,8 +149,9 @@ pub mod type_registry {
 
     // upload types
     use crate::music::entities::albums::metadata::{
-        AlbumMetadata, EnrichmentLogEntry, FolksonomyMetadata, FolksonomyTag, MbCandidate,
-        MbFolksonomy, MbLastQuery, MbLookupStatus, MbMetadata,
+        AlbumMetadata, ConfirmMbMatchRequest, EnrichmentLogEntry, FolksonomyMetadata,
+        FolksonomyTag, MbCandidate, MbFolksonomy, MbLastQuery, MbLookupStatus,
+        MbMatchActionResponse, MbMetadata, RejectMbMatchRequest,
     };
     use crate::music::entities::albums::{Album, GenreRef, UpdateAlbumRequest};
     use crate::music::entities::artists::{Artist, CreateArtistRequest, UpdateArtistRequest};
@@ -618,6 +619,14 @@ pub mod type_registry {
         registered.insert("EnqueueMbAlbumSearchRequest".to_string());
         gen.add_schema::<crate::jobs::EnqueueMbAlbumSearchResponse>("EnqueueMbAlbumSearchResponse");
         registered.insert("EnqueueMbAlbumSearchResponse".to_string());
+
+        // mb candidate review request/response (phase 7)
+        gen.add_schema::<ConfirmMbMatchRequest>("ConfirmMbMatchRequest");
+        registered.insert("ConfirmMbMatchRequest".to_string());
+        gen.add_schema::<RejectMbMatchRequest>("RejectMbMatchRequest");
+        registered.insert("RejectMbMatchRequest".to_string());
+        gen.add_schema::<MbMatchActionResponse>("MbMatchActionResponse");
+        registered.insert("MbMatchActionResponse".to_string());
 
         gen.add_schema::<GenreRef>("GenreRef");
         registered.insert("GenreRef".to_string());

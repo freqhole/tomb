@@ -30,15 +30,7 @@ export function useRemoteIsAdmin(remote: () => Remote | undefined) {
   createEffect(
     on(remote, (r) => {
       if (!r) return;
-      const existing = getAuthInfo(r.remote_id);
-      console.log(
-        "[useRemoteIsAdmin] remote changed",
-        r.remote_id,
-        "existing entry:",
-        existing,
-      );
-      if (existing !== undefined) return;
-      console.log("[useRemoteIsAdmin] triggering refreshOne for", r.remote_id);
+      if (getAuthInfo(r.remote_id) !== undefined) return;
       void refreshOne(r);
     }),
   );
@@ -47,9 +39,7 @@ export function useRemoteIsAdmin(remote: () => Remote | undefined) {
     const r = remote();
     if (!r) return false;
     const entry = authStatus().get(r.remote_id);
-    const result =
-      !!entry && entry.loggedIn && !!entry.role && permissions.isAdmin(entry.role as UserRoleName);
-    console.log("[useRemoteIsAdmin] memo", r.remote_id, "entry:", entry, "isAdmin:", result);
-    return result;
+    if (!entry || !entry.loggedIn || !entry.role) return false;
+    return permissions.isAdmin(entry.role as UserRoleName);
   });
 }

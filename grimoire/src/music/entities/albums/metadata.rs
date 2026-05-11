@@ -219,6 +219,36 @@ pub struct EnrichmentLogEntry {
 }
 
 // =============================================================================
+// review-flow request/response types (phase 7)
+// =============================================================================
+
+/// confirm a specific musicbrainz candidate as the canonical match for an
+/// album. updates `mb_lookup_status` to `Confirmed`, writes the chosen
+/// release / release-group ids into `metadata.musicbrainz`, and stamps the
+/// confirming user. (the follow-up detail-fetch job is wired in phase 8.)
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema, PartialEq)]
+pub struct ConfirmMbMatchRequest {
+    pub album_id: String,
+    pub release_group_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub release_id: Option<String>,
+}
+
+/// reject all candidates for an album. sets `mb_lookup_status` to
+/// `Rejected` and clears stored candidates so the next lookup starts fresh.
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema, PartialEq)]
+pub struct RejectMbMatchRequest {
+    pub album_id: String,
+}
+
+/// uniform shape for both confirm and reject responses.
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema, PartialEq)]
+pub struct MbMatchActionResponse {
+    pub album_id: String,
+    pub status: MbLookupStatus,
+}
+
+// =============================================================================
 // json path constants — sole source of truth for `json_extract` callers
 // =============================================================================
 

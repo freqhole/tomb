@@ -201,9 +201,7 @@ pub async fn get_album(id: &str) -> GrimoireResponse<Album> {
 ///
 /// returns the parsed `AlbumMetadata` (default if the row has NULL/empty
 /// metadata or if parsing fails — failures are logged via `tracing::warn`).
-pub async fn read_album_metadata(
-    id: &str,
-) -> GrimoireResponse<super::metadata::AlbumMetadata> {
+pub async fn read_album_metadata(id: &str) -> GrimoireResponse<super::metadata::AlbumMetadata> {
     let pool = match database::connect().await {
         Ok(p) => p,
         Err(e) => {
@@ -381,6 +379,72 @@ pub async fn update_mb_lookup_status(
             vec![ErrorDetail::from(e)],
         ),
     }
+}
+
+/// confirm a candidate as the canonical match. merges the chosen ids and
+/// confirmation stamp into `metadata.musicbrainz`, then flips
+/// `mb_lookup_status` to `Confirmed`. the candidate list is intentionally
+/// preserved so the user can revisit alternatives later.
+pub async fn confirm_mb_match(
+    album_id: &str,
+    release_group_id: &str,
+    release_id: Option<&str>,
+    user_id: &str,
+) -> GrimoireResponse<super::metadata::AlbumMetadata> {
+    let now = time::OffsetDateTime::now_utc().unix_timestamp();
+    let patch =
+        super::metadata::patch_mb_confirmation(release_group_id, release_id, now, Some(user_id));
+
+    let merged = merge_album_metadata(album_id, &patch).await;
+    if merged.data.is_none() {
+        return merged;
+    }
+
+    let status_resp = update_mb_lookup_status(
+        album_id,
+        super::metadata::MbLookupStatus::Confirmed,
+        Some(user_id),
+    )
+    .await;
+    if status_resp.data.is_none() {
+        return GrimoireResponse::failure(status_resp.message, status_resp.errors);
+    }
+
+    merged
+}
+
+/// reject all candidates for an album. clears the candidate list (so the
+/// next lookup starts fresh) and flips `mb_lookup_status` to `Rejected`.
+pub async fn reject_mb_match(
+    album_id: &str,
+    user_id: &str,
+) -> GrimoireResponse<super::metadata::AlbumMetadata> {
+    // empty array in the patch will REPLACE the existing candidates array
+    // (per merge_patch contract). also clear release ids if present.
+    let patch = serde_json::json!({
+        "musicbrainz": {
+            "candidates": [],
+            "release_id": serde_json::Value::Null,
+            "release_group_id": serde_json::Value::Null,
+        },
+    });
+
+    let merged = merge_album_metadata(album_id, &patch).await;
+    if merged.data.is_none() {
+        return merged;
+    }
+
+    let status_resp = update_mb_lookup_status(
+        album_id,
+        super::metadata::MbLookupStatus::Rejected,
+        Some(user_id),
+    )
+    .await;
+    if status_resp.data.is_none() {
+        return GrimoireResponse::failure(status_resp.message, status_resp.errors);
+    }
+
+    merged
 }
 
 /// soft delete an album

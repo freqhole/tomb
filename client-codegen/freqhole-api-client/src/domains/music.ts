@@ -916,6 +916,36 @@ export function createMusicMethods(call: CallFn) {
       );
     },
 
+    // confirm a musicbrainz candidate as the canonical match for an album
+    // (admin only). updates `mb_lookup_status` to `Confirmed` and stamps
+    // the chosen release/release-group ids into `metadata.musicbrainz`.
+    confirmMbMatch: (params: s.ConfirmMbMatchRequest) => {
+      return call(
+        "music",
+        "confirm_mb_match",
+        routes.music.confirm_mb_match.resp,
+        routes.music.confirm_mb_match.req,
+        routes.music.confirm_mb_match.method,
+        routes.music.confirm_mb_match.path,
+        params,
+      );
+    },
+
+    // reject all candidates for an album (admin only). flips
+    // `mb_lookup_status` to `Rejected` and clears stored candidates so
+    // the next lookup starts fresh.
+    rejectMbMatch: (params: s.RejectMbMatchRequest) => {
+      return call(
+        "music",
+        "reject_mb_match",
+        routes.music.reject_mb_match.resp,
+        routes.music.reject_mb_match.req,
+        routes.music.reject_mb_match.method,
+        routes.music.reject_mb_match.path,
+        params,
+      );
+    },
+
     // special routes - these exist for route coverage but have alternate implementations
     // for actual blob streaming, use client.fetchBlob(id) instead
     streamBlob: (params: { id: string }) => {

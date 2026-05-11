@@ -3,9 +3,13 @@
 use crate::api_registry::{Domain, Method, RouteAuth, RouteInfo};
 use crate::error::ErrorDetail;
 use crate::music::crud::{query_albums, DeleteAlbumRequest, GetAlbumRequest, QueryParams};
+use crate::music::entities::albums::metadata::{
+    ConfirmMbMatchRequest, MbMatchActionResponse, RejectMbMatchRequest,
+};
 use crate::music::entities::albums::{
-    delete_album as grimoire_delete_album, get_album as grimoire_get_album,
-    get_album_images as grimoire_get_album_images, remove_album_image, set_primary_album_image,
+    confirm_mb_match as grimoire_confirm_mb_match, delete_album as grimoire_delete_album,
+    get_album as grimoire_get_album, get_album_images as grimoire_get_album_images,
+    reject_mb_match as grimoire_reject_mb_match, remove_album_image, set_primary_album_image,
     update_album as grimoire_update_album, UpdateAlbumRequest,
 };
 use crate::music::entities::artists::{remove_artist_image, set_primary_artist_image};
@@ -63,6 +67,24 @@ pub const ROUTES: &[RouteInfo] = &[
         request_type: "GetAlbumRequest",
         response_type: "Vec<String>",
         auth: RouteAuth::Authenticated,
+    },
+    RouteInfo {
+        name: "confirm_mb_match",
+        path: "/api/albums/mb-confirm",
+        method: Method::POST,
+        domain: Domain::Music,
+        request_type: "ConfirmMbMatchRequest",
+        response_type: "MbMatchActionResponse",
+        auth: RouteAuth::Role(UserRole::Admin),
+    },
+    RouteInfo {
+        name: "reject_mb_match",
+        path: "/api/albums/mb-reject",
+        method: Method::POST,
+        domain: Domain::Music,
+        request_type: "RejectMbMatchRequest",
+        response_type: "MbMatchActionResponse",
+        auth: RouteAuth::Role(UserRole::Admin),
     },
 ];
 
@@ -301,4 +323,84 @@ pub async fn set_primary_image(caller: &Caller, body: JsonValue) -> GrimoireResp
         }
     };
     response.map(|_| JsonValue::Null)
+}
+
+/// confirm musicbrainz match
+///
+/// path: POST /api/albums/mb-confirm
+pub async fn confirm_mb_match(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
+    if !caller.is_admin() {
+        return GrimoireResponse::failure(
+            "forbidden",
+            vec![ErrorDetail::new("forbidden", "forbidden", "admin only")],
+        );
+    }
+
+    let req: ConfirmMbMatchRequest = match serde_json::from_value(body) {
+        Ok(r) => r,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "bad request",
+                vec![ErrorDetail::new(
+                    "bad_request",
+                    "bad request",
+                    &e.to_string(),
+                )],
+            )
+        }
+    };
+
+    let response = grimoire_confirm_mb_match(
+        &req.album_id,
+        &req.release_group_id,
+        req.release_id.as_deref(),
+        &caller.user_id,
+    )
+    .await;
+
+    let album_id = req.album_id.clone();
+    response.map(|_meta| {
+        serde_json::to_value(MbMatchActionResponse {
+            album_id,
+            status: crate::music::entities::albums::metadata::MbLookupStatus::Confirmed,
+        })
+        .unwrap()
+    })
+}
+
+/// reject musicbrainz match
+///
+/// path: POST /api/albums/mb-reject
+pub async fn reject_mb_match(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
+    if !caller.is_admin() {
+        return GrimoireResponse::failure(
+            "forbidden",
+            vec![ErrorDetail::new("forbidden", "forbidden", "admin only")],
+        );
+    }
+
+    let req: RejectMbMatchRequest = match serde_json::from_value(body) {
+        Ok(r) => r,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "bad request",
+                vec![ErrorDetail::new(
+                    "bad_request",
+                    "bad request",
+                    &e.to_string(),
+                )],
+            )
+        }
+    };
+
+    let response = grimoire_reject_mb_match(&req.album_id, &caller.user_id).await;
+
+    let album_id = req.album_id.clone();
+    response.map(|_meta| {
+        serde_json::to_value(MbMatchActionResponse {
+            album_id,
+            status: crate::music::entities::albums::metadata::MbLookupStatus::Rejected,
+        })
+        .unwrap()
+    })
 }
