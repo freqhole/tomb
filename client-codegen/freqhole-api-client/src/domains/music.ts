@@ -901,6 +901,21 @@ export function createMusicMethods(call: CallFn) {
       );
     },
 
+    // musicbrainz album-search bulk enqueue (admin only). spawns one
+    // `MbAlbumSearch` job per album id, returns the job ids so the caller
+    // can poll status.
+    enqueueMbAlbumSearch: (params: s.EnqueueMbAlbumSearchRequest) => {
+      return call(
+        "music",
+        "enqueue_mb_album_search",
+        routes.music.enqueue_mb_album_search.resp,
+        routes.music.enqueue_mb_album_search.req,
+        routes.music.enqueue_mb_album_search.method,
+        routes.music.enqueue_mb_album_search.path,
+        params,
+      );
+    },
+
     // special routes - these exist for route coverage but have alternate implementations
     // for actual blob streaming, use client.fetchBlob(id) instead
     streamBlob: (params: { id: string }) => {

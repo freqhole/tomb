@@ -1,4 +1,4 @@
-// AlbumsTable v0 — read-only airtable-style table for browsing albums
+// AlbumsTable v0 — read-only data table for browsing albums
 // across a single remote.
 //
 // scope (phase 3):
@@ -23,6 +23,7 @@ import {
 } from "../data/albumMetadata";
 import { useLibraryAlbumsQuery } from "../queries/useLibraryAlbums";
 import { handleAlbumClick, isAlbumSelected, updateAlbumIdList } from "../hooks/albumSelection";
+import { useInflightJobs } from "../hooks/useMbLookupJobs";
 import type { AlbumSummary } from "../../music/data/types";
 
 type SortField = "title" | "artist" | "year" | "song_count" | "added_at";
@@ -272,6 +273,7 @@ function AlbumRow(props: { album: AlbumSummary; remote: Remote; index: number })
   };
   const genreList = () => (props.album.genres ?? []).map((g) => g.name).join(", ");
   const selected = () => isAlbumSelected(props.album.album_id);
+  const inflight = useInflightJobs();
 
   return (
     <tr
@@ -304,23 +306,35 @@ function AlbumRow(props: { album: AlbumSummary; remote: Remote; index: number })
       <td class="px-2 py-1 text-[var(--color-text-muted)] text-right">{props.album.song_count}</td>
       <td class="px-2 py-1 text-[var(--color-text-muted)] max-w-[200px] truncate">{genreList()}</td>
       <td class="px-2 py-1">
-        <span
-          class="inline-block px-1.5 py-0.5 rounded text-[10px]"
-          classList={{
-            "bg-emerald-500/15 text-emerald-400":
-              status() === "Confirmed" || status() === "Enriched",
-            "bg-amber-500/15 text-amber-400":
-              status() === "NeedsReview" || status() === "Candidates",
-            "bg-blue-500/15 text-blue-400":
-              status() === "Queued" || status() === "Searching" || status() === "FetchingDetail",
-            "bg-rose-500/15 text-rose-400":
-              status() === "Error" || status() === "NoMatch" || status() === "Rejected",
-            "bg-[var(--color-bg-elevated)] text-[var(--color-text-muted)]":
-              status() === "NotAttempted",
-          }}
+        <Show
+          when={inflight().has(props.album.album_id)}
+          fallback={
+            <span
+              class="inline-block px-1.5 py-0.5 rounded text-[10px]"
+              classList={{
+                "bg-emerald-500/15 text-emerald-400":
+                  status() === "Confirmed" || status() === "Enriched",
+                "bg-amber-500/15 text-amber-400":
+                  status() === "NeedsReview" || status() === "Candidates",
+                "bg-blue-500/15 text-blue-400":
+                  status() === "Queued" ||
+                  status() === "Searching" ||
+                  status() === "FetchingDetail",
+                "bg-rose-500/15 text-rose-400":
+                  status() === "Error" || status() === "NoMatch" || status() === "Rejected",
+                "bg-[var(--color-bg-elevated)] text-[var(--color-text-muted)]":
+                  status() === "NotAttempted",
+              }}
+            >
+              {mbLookupStatusLabel(status())}
+            </span>
+          }
         >
-          {mbLookupStatusLabel(status())}
-        </span>
+          <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-blue-500/15 text-blue-400">
+            <span class="inline-block w-2 h-2 rounded-full bg-blue-400 animate-pulse" />
+            looking up…
+          </span>
+        </Show>
       </td>
       <td class="px-2 py-1 text-[var(--color-text-muted)]">{lastLookup() ?? "—"}</td>
       <td class="px-2 py-1 text-[var(--color-text-disabled)] text-[10px]">

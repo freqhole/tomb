@@ -39,25 +39,25 @@ export async function whoami(baseUrl: string): Promise<WhoamiResult> {
  * whoami against any remote (HTTP or P2P) using the existing client factory.
  * required for gating admin-only UI on P2P remotes where role isn't carried
  * implicitly by the iroh node id.
+ *
+ * NOTE: this does NOT swallow transport errors — callers (e.g. the auth
+ * status store) need to distinguish "not authenticated" (success:false)
+ * from "p2p transport not warm yet" (throws) so they can retry.
  */
 export async function whoamiForRemote(
   remote: import("../storage/schemas/remote").Remote,
 ): Promise<WhoamiResult> {
-  try {
-    const client = await getClientForRemote(remote);
-    const result = await client.auth.whoami();
-    if (result.success && result.data) {
-      return {
-        success: true,
-        userId: result.data.user_id,
-        username: result.data.username,
-        role: result.data.role,
-      };
-    }
-    return { success: false };
-  } catch {
-    return { success: false };
+  const client = await getClientForRemote(remote);
+  const result = await client.auth.whoami();
+  if (result.success && result.data) {
+    return {
+      success: true,
+      userId: result.data.user_id,
+      username: result.data.username,
+      role: result.data.role,
+    };
   }
+  return { success: false };
 }
 
 // get server info (public endpoint)

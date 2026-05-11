@@ -1,5 +1,5 @@
 // library view — top-level view for the music library across all remotes.
-// hosts the upcoming albums force-graph viz + airtable-style metadata table.
+// hosts the upcoming albums force-graph viz + data-table.
 //
 // phase 1 scope: route shell + view switcher.
 // phase 2: remote picker (single-select) wired to a `selectedRemoteId`
@@ -20,6 +20,7 @@ import { AlbumsTable } from "../components/AlbumsTable";
 import { AlbumBulkActionBar } from "../components/AlbumBulkActionBar";
 import { useAlbumSelectionLifecycle, useSelectedAlbumIds } from "../hooks/albumSelection";
 import { useRemoteIsAdmin } from "../hooks/useRemoteRole";
+import { enqueueMbLookup } from "../hooks/useMbLookupJobs";
 import { getAllRemotes } from "../../app/services/remotes/remoteManager";
 import type { Remote } from "../../app/services/storage/schemas/remote";
 
@@ -65,25 +66,17 @@ export function LibraryView() {
   const isRemoteAdmin = useRemoteIsAdmin(selectedRemote);
 
   const triggerMbLookup = (albumIds: string[]) => {
-    // phase 5 hooks the actual job dispatch; for now log + no-op so the UI
-    // can be exercised end-to-end.
     if (albumIds.length === 0) return;
-    // eslint-disable-next-line no-console
-    console.info(
-      `[library] mb lookup requested for ${albumIds.length} album(s) on remote`,
-      selectedRemote()?.name,
-      albumIds.slice(0, 5)
-    );
+    const remote = selectedRemote();
+    if (!remote) return;
+    void enqueueMbLookup(remote, albumIds);
   };
 
   return (
     <div class="flex flex-col h-full">
       {/* header — leaves room on the left for the floating topnav button */}
       <div class="flex items-center justify-between gap-4 px-4 pt-3 pb-2 wide:pl-[140px] flex-wrap">
-        <div class="flex items-center gap-2">
-          <h1 class="text-lg font-medium text-[var(--color-text-primary)] m-0">library</h1>
-          <span class="text-xs text-[var(--color-text-muted)]">airtable-style albums browser</span>
-        </div>
+        <div class="flex items-center gap-2">&nbsp;</div>
 
         <div class="flex items-center gap-3 flex-wrap">
           {/* remote picker (single-select for phase 2) */}

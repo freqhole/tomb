@@ -141,6 +141,7 @@ export async function getMiddenNode(): Promise<MiddenNodeLike> {
     middenNode = node;
     const nodeId = node.node_id();
     console.log("[midden] node ready, node_id:", nodeId);
+    notifyMiddenReady();
 
     // start blob server to accept incoming iroh-blobs connections
     // (allows remote peers to pull blobs from us during P2P upload)
@@ -161,6 +162,36 @@ export async function getMiddenNode(): Promise<MiddenNodeLike> {
  */
 export function isMiddenReady(): boolean {
   return middenNode !== null;
+}
+
+// ---- midden-ready subscription ----
+// fired exactly once, when the midden node finishes init. callers added
+// after the fact are invoked synchronously (so the api stays single-shot
+// without consumers needing to race against init).
+const middenReadyListeners = new Set<() => void>();
+
+function notifyMiddenReady() {
+  for (const fn of middenReadyListeners) {
+    try {
+      fn();
+    } catch (e) {
+      console.warn("[midden] ready listener threw", e);
+    }
+  }
+  middenReadyListeners.clear();
+}
+
+/**
+ * subscribe to the one-shot "midden node is ready" event. if midden is
+ * already ready, the callback fires synchronously. returns an unsubscribe.
+ */
+export function onMiddenReady(cb: () => void): () => void {
+  if (isMiddenReady()) {
+    cb();
+    return () => {};
+  }
+  middenReadyListeners.add(cb);
+  return () => middenReadyListeners.delete(cb);
 }
 
 /**

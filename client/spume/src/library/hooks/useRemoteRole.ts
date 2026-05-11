@@ -1,82 +1,55 @@
-// hook + cache for "is the current authenticated user an admin on remote X?".
+// reactive "is the current user an admin on remote X?" helper.
 //
-// admin-gated UI affordances (e.g. inline album metadata editing, bulk
-// musicbrainz lookups) need a quick synchronous answer per remote without
-// re-issuing whoami every render.
-//
-// the cache is module-scoped + invalidated when remotes are added/removed.
+// thin wrapper over the global authStatusStore (which is populated by
+// AppLayout when remotes come online and refreshed on login/logout).
+// no parallel cache, no whoami calls of our own — just consume the
+// canonical signal so we stay in sync with the topnav role display.
 
-import { createMemo, createResource } from "solid-js";
+import { createEffect, createMemo, on } from "solid-js";
+import { permissions, type UserRoleName } from "freqhole-api-client";
 import type { Remote } from "../../app/services/storage/schemas/remote";
-import { whoamiForRemote } from "../../app/services/remotes/authService";
-
-type RoleStatus = "unknown" | "admin" | "user" | "anonymous";
-
-const roleCache = new Map<string, RoleStatus>();
-const inflight = new Map<string, Promise<RoleStatus>>();
-
-function classify(role?: string): RoleStatus {
-  if (!role) return "anonymous";
-  const r = role.toLowerCase();
-  if (r === "admin" || r === "owner" || r === "superuser") return "admin";
-  return "user";
-}
-
-async function loadRole(remote: Remote): Promise<RoleStatus> {
-  const id = remote.remote_id;
-  const existing = inflight.get(id);
-  if (existing) return existing;
-
-  const p = (async () => {
-    try {
-      const result = await whoamiForRemote(remote);
-      const status = result.success ? classify(result.role) : "anonymous";
-      roleCache.set(id, status);
-      return status;
-    } catch {
-      roleCache.set(id, "anonymous");
-      return "anonymous" as RoleStatus;
-    } finally {
-      inflight.delete(id);
-    }
-  })();
-  inflight.set(id, p);
-  return p;
-}
-
-export function getCachedRemoteRole(remoteId: string): RoleStatus {
-  return roleCache.get(remoteId) ?? "unknown";
-}
-
-export function clearRemoteRoleCache(remoteId?: string) {
-  if (remoteId) {
-    roleCache.delete(remoteId);
-    inflight.delete(remoteId);
-  } else {
-    roleCache.clear();
-    inflight.clear();
-  }
-}
+import {
+  getAuthInfo,
+  getAuthStatus,
+  refreshOne,
+} from "../../app/services/remotes/authStatusStore";
 
 /**
- * resolves a remote's role with caching. returns a Solid resource so
- * components re-render once the role is known.
- */
-export function useRemoteRole(remote: () => Remote | undefined) {
-  const [role] = createResource(remote, async (r) => {
-    if (!r) return "unknown" as RoleStatus;
-    const cached = roleCache.get(r.remote_id);
-    if (cached) return cached;
-    return loadRole(r);
-  });
-  return role;
-}
-
-/**
- * convenience: boolean memo for "is admin on this remote?".
- * returns false while loading (callers should treat as conservative).
+ * reactive boolean: is the current authenticated user an admin on the
+ * given remote? returns false while the auth check is pending or absent.
+ *
+ * if the global authStatusStore has no entry for this remote yet, this
+ * triggers a one-shot refresh so views that aren't AppLayout (e.g. the
+ * library view) get a populated entry without depending on the user
+ * having visited remote settings first.
  */
 export function useRemoteIsAdmin(remote: () => Remote | undefined) {
-  const role = useRemoteRole(remote);
-  return createMemo(() => role() === "admin");
+  const authStatus = getAuthStatus();
+
+  // kick off a refresh whenever a remote first appears with no entry.
+  createEffect(
+    on(remote, (r) => {
+      if (!r) return;
+      const existing = getAuthInfo(r.remote_id);
+      console.log(
+        "[useRemoteIsAdmin] remote changed",
+        r.remote_id,
+        "existing entry:",
+        existing,
+      );
+      if (existing !== undefined) return;
+      console.log("[useRemoteIsAdmin] triggering refreshOne for", r.remote_id);
+      void refreshOne(r);
+    }),
+  );
+
+  return createMemo(() => {
+    const r = remote();
+    if (!r) return false;
+    const entry = authStatus().get(r.remote_id);
+    const result =
+      !!entry && entry.loggedIn && !!entry.role && permissions.isAdmin(entry.role as UserRoleName);
+    console.log("[useRemoteIsAdmin] memo", r.remote_id, "entry:", entry, "isAdmin:", result);
+    return result;
+  });
 }

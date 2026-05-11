@@ -16,6 +16,7 @@
 import { createSignal, type Accessor } from "solid-js";
 import { whoami, whoamiForRemote } from "./authService";
 import { isHttpRemote, type Remote } from "../storage/types";
+import { getRemoteById, onRemoteStatusChange } from "./remoteManager";
 
 export interface AuthInfo {
   loggedIn: boolean;
@@ -38,17 +39,31 @@ function patch(remoteId: string, entry: AuthEntry): void {
 
 async function resolveOne(remote: Remote): Promise<AuthInfo> {
   // p2p remotes: query whoami over the p2p client to learn the role.
-  // needed for admin-button gating; falls back to loggedIn:false on any
-  // failure.
+  // needed for admin-button gating. transport readiness is no longer
+  // the store's concern — the remote-status-change subscription below
+  // re-runs this once the remote is verified online (which means midden
+  // is ready and discovery has succeeded).
   if (!isHttpRemote(remote)) {
     try {
       const result = await whoamiForRemote(remote);
+      console.log(
+        "[authStatusStore] whoami(p2p) result",
+        remote.remote_id,
+        result,
+      );
       return {
         loggedIn: result.success,
         username: result.username,
         role: result.role,
       };
-    } catch {
+    } catch (e) {
+      // expected on cold reload before the remote-status-change event
+      // fires. we'll be retried then.
+      console.warn(
+        "[authStatusStore] whoami(p2p) threw, will retry on status change",
+        remote.remote_id,
+        e,
+      );
       return { loggedIn: false };
     }
   }
@@ -113,3 +128,21 @@ export function clearRemote(remoteId: string): void {
     return next;
   });
 }
+
+// ---- event-driven refresh on remote-online transitions ----
+//
+// when a remote transitions from offline -> online (e.g. midden finishing
+// init triggers a deferred health check, or the user reconnects), the
+// p2p transport is now verifiably warm — re-resolve auth so we don't
+// hold a stale `loggedIn:false` from a cold-boot attempt that fired
+// before the transport was ready.
+onRemoteStatusChange(async (remoteId, isOffline) => {
+  if (isOffline) return;
+  const remote = await getRemoteById(remoteId);
+  if (!remote) return;
+  console.log(
+    "[authStatusStore] remote went online, refreshing auth",
+    remoteId,
+  );
+  await refreshOne(remote);
+});

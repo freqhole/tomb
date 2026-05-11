@@ -71,6 +71,7 @@ export const routes = {
     delete_playlist: { method: 'POST', path: '/api/playlists/delete', req: s.DeletePlaylistRequestSchema, resp: s.EmptyResponseSchema, auth: { type: 'owner_or', role: 'admin' } as const },
     delete_song: { method: 'POST', path: '/api/songs/delete', req: s.DeleteSongRequestSchema, resp: s.DeleteSongResponseSchema, auth: { type: 'role', role: 'admin' } as const },
     delete_tag: { method: 'POST', path: '/api/tags/delete', req: s.DeleteTagRequestSchema, resp: s.EmptyResponseSchema, auth: { type: 'role', role: 'admin' } as const },
+    enqueue_mb_album_search: { method: 'POST', path: '/api/music/albums/mb-search/enqueue', req: s.EnqueueMbAlbumSearchRequestSchema, resp: s.EnqueueMbAlbumSearchResponseSchema, auth: { type: 'role', role: 'admin' } as const },
     get_album: { method: 'POST', path: '/api/albums/get', req: s.GetAlbumRequestSchema, resp: s.AlbumSchema, auth: { type: 'authenticated' } as const },
     get_album_images: { method: 'POST', path: '/api/albums/images', req: s.GetAlbumRequestSchema, resp: z.string().array(), auth: { type: 'authenticated' } as const },
     get_albums_tags: { method: 'POST', path: '/api/tags/albums/get', req: s.GetAlbumsTagsRequestSchema, resp: s.TagSchema.array(), auth: { type: 'authenticated' } as const },

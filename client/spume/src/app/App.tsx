@@ -66,7 +66,7 @@ import { initMusicDB } from "../music/services/storage/db";
 import type { Song } from "../music/services/storage/types";
 import { debug } from "../utils/logger";
 import { extractShareTokenFromHash, SHARE_HASH_PARAM } from "../utils/permalink";
-import { isMiddenReady } from "./api/client";
+import { onMiddenReady } from "./api/client";
 import { routes } from "./routes";
 import {
   getConfig,
@@ -510,18 +510,28 @@ export function App() {
       void (async () => {
         const allRemotes = await getAllRemotes();
         if (allRemotes.length > 0) {
-          // filter out P2P remotes if midden isn't ready yet
-          const remotesToCheck = allRemotes.filter((r) => {
-            if (isP2PRemote(r) && !isMiddenReady()) {
-              debug("App", `skipping health check for P2P remote ${r.name} (midden not ready)`);
-              return false;
-            }
-            return true;
-          });
-          if (remotesToCheck.length > 0) {
-            debug("App", `background: checking health of ${remotesToCheck.length} remotes`);
-            await Promise.all(remotesToCheck.map((r) => checkRemoteHealth(r)));
-            debug("App", "background: health check complete");
+          // partition: http remotes can be checked now; p2p remotes have
+          // to wait for midden to finish initializing.
+          const httpRemotes = allRemotes.filter((r) => !isP2PRemote(r));
+          const p2pRemotes = allRemotes.filter((r) => isP2PRemote(r));
+
+          if (httpRemotes.length > 0) {
+            debug("App", `background: checking health of ${httpRemotes.length} http remotes`);
+            await Promise.all(httpRemotes.map((r) => checkRemoteHealth(r)));
+            debug("App", "background: http health check complete");
+          }
+
+          if (p2pRemotes.length > 0) {
+            // event-driven: kick off when midden is ready (fires sync
+            // if it already is).
+            onMiddenReady(async () => {
+              debug(
+                "App",
+                `background: midden ready, checking health of ${p2pRemotes.length} p2p remotes`
+              );
+              await Promise.all(p2pRemotes.map((r) => checkRemoteHealth(r)));
+              debug("App", "background: p2p health check complete");
+            });
           }
         }
       })();

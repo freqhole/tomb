@@ -18,7 +18,7 @@ import { Icon } from "../icons/registry";
 // flip to true to trace MediaImage url resolution. very chatty;
 // off by default. set to true when investigating missing artwork /
 // waveform display issues.
-const DEBUG_MEDIA_IMAGE = true;
+const DEBUG_MEDIA_IMAGE = false;
 function logMI(...args: unknown[]) {
   if (DEBUG_MEDIA_IMAGE) console.debug("[MediaImage]", ...args);
 }

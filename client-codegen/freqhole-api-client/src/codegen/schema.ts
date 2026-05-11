@@ -650,7 +650,7 @@ export const CreateArtistRequestSchema = z.object({
 export type CreateArtistRequest = z.infer<typeof CreateArtistRequestSchema>;
 
 export const CreateJobRequestSchema = z.object({
-  job_type: z.union([z.literal('ScanDirectory'), z.literal('RescanDirectories'), z.literal('ProcessFile'), z.literal('FetchMedia'), z.literal('ConvertWebp'), z.literal('ImportMusic')]),
+  job_type: z.union([z.literal('ScanDirectory'), z.literal('RescanDirectories'), z.literal('ProcessFile'), z.literal('FetchMedia'), z.literal('ConvertWebp'), z.literal('ImportMusic'), z.literal('MbAlbumSearch')]),
   session_id: z.string().nullish(),
   parameters: z.any(),
   max_retries: z.number().nullish(),
@@ -774,6 +774,18 @@ export const EmptyResponseSchema = z.object({
   success: z.boolean()
 });
 export type EmptyResponse = z.infer<typeof EmptyResponseSchema>;
+
+export const EnqueueMbAlbumSearchRequestSchema = z.object({
+  album_ids: z.array(z.string()),
+  auto_confirm_threshold: z.number().nullish()
+});
+export type EnqueueMbAlbumSearchRequest = z.infer<typeof EnqueueMbAlbumSearchRequestSchema>;
+
+export const EnqueueMbAlbumSearchResponseSchema = z.object({
+  job_ids: z.array(z.string()),
+  skipped_album_ids: z.array(z.string())
+});
+export type EnqueueMbAlbumSearchResponse = z.infer<typeof EnqueueMbAlbumSearchResponseSchema>;
 
 export const EnrichmentLogEntrySchema = z.object({
   at: z.number(),
@@ -2223,6 +2235,23 @@ export const ListeningHistoryResponseSchema = z.object({
   total: z.number()
 });
 export type ListeningHistoryResponse = z.infer<typeof ListeningHistoryResponseSchema>;
+
+export const MbAlbumSearchParamsSchema = z.object({
+  album_id: z.string(),
+  artist_override: z.string().nullish(),
+  title_override: z.string().nullish(),
+  auto_confirm_threshold: z.number().nullish()
+});
+export type MbAlbumSearchParams = z.infer<typeof MbAlbumSearchParamsSchema>;
+
+export const MbAlbumSearchResultSchema = z.object({
+  album_id: z.string(),
+  candidate_count: z.number(),
+  top_local_confidence: z.number().nullish(),
+  auto_confirmed_release_id: z.string().nullish(),
+  final_status: z.string()
+});
+export type MbAlbumSearchResult = z.infer<typeof MbAlbumSearchResultSchema>;
 
 export const MbArtistCreditEntrySchema = z.object({
   name: z.string(),
