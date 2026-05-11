@@ -69,9 +69,11 @@ pub struct UpdateAlbumRequest {
     pub album_type: Option<String>,
     pub release_date: Option<String>, // flexible: "2023", "2023-06", "2023-06-15"
     pub label: Option<String>,
-    /// genre ids (preferred) or names (will find or create)
-    pub genre_ids: Option<Vec<String>>,
-    pub genres: Option<Vec<String>>,
+    // NOTE: `genre_ids` / `genres` were removed during the taxonomy
+    // refactor. clients edit album genres (and every other taxon kind)
+    // via the dedicated taxonomy routes (`add_album_taxon`,
+    // `remove_album_taxon`, `find_or_create_taxon`) instead of through
+    // this endpoint.
     /// entity URLs (replaces all existing URLs)
     pub entity_urls: Option<Vec<EntityUrl>>,
     pub updated_by: Option<String>,

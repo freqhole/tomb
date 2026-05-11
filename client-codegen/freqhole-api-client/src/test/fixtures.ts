@@ -170,11 +170,6 @@ export const removePlaylistThumbnailRequest: s.RemovePlaylistThumbnailRequest =
     deleted_by: null,
   };
 
-// Genres
-export const getGenreRequest: s.GetGenreRequest = {
-  id: PLACEHOLDER_ID,
-};
-
 // Favorites
 export const listFavoritesRequest: s.ListFavoritesRequest = {
   user_id: PLACEHOLDER_ID,
@@ -416,9 +411,6 @@ export const fixtures = {
   removeSongsFromPlaylist: removeSongsFromPlaylistRequest,
   reorderPlaylistSongs: reorderPlaylistSongsRequest,
   removePlaylistThumbnail: removePlaylistThumbnailRequest,
-
-  // genres
-  getGenre: getGenreRequest,
 
   // favorites
   listFavorites: listFavoritesRequest,

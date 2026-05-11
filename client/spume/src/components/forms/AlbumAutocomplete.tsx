@@ -1,9 +1,20 @@
-// album autocomplete component using kobalte combobox
-// provides search-as-you-type with proper value syncing and "create new" option
-// optionally filters by artist_id to show only albums by that artist
+// album autocomplete - lightweight typeahead with "create new" option.
+//
+// rewritten during the taxonomy refactor to drop the kobalte combobox
+// in favor of the same plain-input + absolute popover pattern used by
+// TaxonAutocomplete and ArtistAutocomplete. props/onSelect signature
+// is unchanged, so existing call sites still work.
 
-import { Combobox } from "@kobalte/core/combobox";
-import { createEffect, createMemo, createSignal, Show, type Accessor } from "solid-js";
+import {
+  createEffect,
+  createMemo,
+  createSignal,
+  For,
+  on,
+  onCleanup,
+  Show,
+  type Accessor,
+} from "solid-js";
 import type { ImageMetadata } from "../../music/services/storage/types";
 import { useAlbumAutocompleteQuery } from "../../music/queries/autocomplete";
 import { MediaImage } from "../media/MediaImage";
@@ -30,191 +41,232 @@ export interface AlbumAutocompleteProps {
 }
 
 interface AlbumOption {
-  /** unique key - album_id for existing, "new:title" for create new, "temp:title" for unresolved */
-  key: string;
-  /** album title */
+  id: string;
   title: string;
-  /** label shown in dropdown (may include "create new:" prefix) */
-  label: string;
-  /** album id if this is an existing album */
-  id?: string;
   artistName?: string;
   songCount?: number;
-  thumbnailUrl?: string;
   images?: ImageMetadata[];
+  thumbnailUrl?: string;
   isFavorite?: boolean;
-  isNew?: boolean;
-  /** placeholder items are in options for display but hidden from dropdown */
-  isPlaceholder?: boolean;
 }
 
+const DEBOUNCE_MS = 180;
+
 export function AlbumAutocomplete(props: AlbumAutocompleteProps) {
-  // local controlled value that syncs with props.value
-  const [localValue, setLocalValue] = createSignal<AlbumOption | undefined>(
-    props.value && props.value.trim().length > 0
-      ? { key: `temp:${props.value}`, title: props.value, label: props.value }
-      : undefined
+  let inputEl: HTMLInputElement | undefined;
+  let containerEl: HTMLDivElement | undefined;
+
+  const [text, setText] = createSignal(props.value ?? "");
+  const [debounced, setDebounced] = createSignal("");
+  const [open, setOpen] = createSignal(false);
+  const [highlight, setHighlight] = createSignal(0);
+
+  // sync local text when props.value changes externally (eg. reset).
+  // skip while focused so the user's typing isn't clobbered.
+  createEffect(() => {
+    const v = props.value ?? "";
+    if (document.activeElement !== inputEl) setText(v);
+  });
+
+  // debounce the query string
+  createEffect(
+    on(text, (t) => {
+      const timer = window.setTimeout(() => setDebounced(t.trim()), DEBOUNCE_MS);
+      onCleanup(() => window.clearTimeout(timer));
+    })
   );
 
-  // sync local value when props.value changes (e.g., on reset)
-  createEffect(() => {
-    const value = props.value;
-    if (value && value.trim().length > 0) {
-      setLocalValue({ key: `temp:${value}`, title: value, label: value });
-    } else {
-      setLocalValue(undefined);
-    }
-  });
+  const debouncedAccessor = () => (debounced().length > 0 ? debounced() : undefined);
+  const albumQuery = useAlbumAutocompleteQuery(debouncedAccessor, props.artistId);
 
-  // track what user is typing for query purposes
-  const [searchInput, setSearchInput] = createSignal<string | undefined>(undefined);
-
-  // query albums based on what user types, optionally filtered by artist
-  const albumQuery = useAlbumAutocompleteQuery(searchInput, props.artistId);
-
-  // build options from query results
-  const options = createMemo((): AlbumOption[] => {
-    const results: AlbumOption[] = [];
+  const options = createMemo<AlbumOption[]>(() => {
     const items = albumQuery.data?.items || [];
-
-    // add existing albums - use album_id as key for uniqueness
-    // this allows multiple albums with the same title to appear separately
-    for (const item of items) {
-      results.push({
-        key: item.album_id,
-        title: item.title,
-        label: item.title,
-        id: item.album_id,
-        artistName: item.artist_name,
-        songCount: item.song_count,
-        thumbnailUrl: undefined,
-        images: item.images,
-        isFavorite: item.is_favorite === true,
-      });
-    }
-
-    // always add current value to options so Combobox can display it in the input
-    // temp: items are always placeholders - they exist only to display text in the input
-    // (they were created from props.value and have no real metadata)
-    const currentVal = localValue();
-    if (currentVal && !results.find((r) => r.key === currentVal.key)) {
-      results.push({
-        ...currentVal,
-        isPlaceholder: currentVal.key.startsWith("temp:"),
-      });
-    }
-
-    // add "create new" option if user has typed something
-    // always show it so user can create albums with duplicate titles if needed
-    const input = searchInput();
-    if (input && input.trim().length > 0) {
-      const trimmed = input.trim();
-      const exactMatch = items.find((item) => item.title === trimmed);
-      const label = exactMatch ? `create new album: ${trimmed}` : `create new: ${trimmed}`;
-      results.unshift({
-        key: `new:${trimmed}`,
-        title: trimmed,
-        label,
-        isNew: true,
-      });
-    }
-
-    return results;
+    return items.map((item) => ({
+      id: item.album_id,
+      title: item.title,
+      artistName: item.artist_name,
+      songCount: item.song_count,
+      images: item.images,
+      thumbnailUrl: undefined,
+      isFavorite: item.is_favorite === true,
+    }));
   });
+
+  const exactMatch = createMemo<AlbumOption | undefined>(() => {
+    const q = text().trim().toLowerCase();
+    if (!q) return undefined;
+    return options().find((o) => o.title.toLowerCase() === q);
+  });
+  // we always allow create-new (even when an exact title match exists),
+  // because albums with duplicate titles are common (eg. self-titled re-
+  // releases) — the create row sits below existing matches in that case.
+  const canCreate = createMemo(() => text().trim().length > 0);
+
+  createEffect(() => {
+    const max = options().length - 1;
+    if (highlight() > Math.max(0, max)) setHighlight(0);
+  });
+
+  const onDocClick = (e: MouseEvent) => {
+    if (!containerEl) return;
+    if (!containerEl.contains(e.target as Node)) setOpen(false);
+  };
+  document.addEventListener("mousedown", onDocClick);
+  onCleanup(() => document.removeEventListener("mousedown", onDocClick));
+
+  const pickExisting = (opt: AlbumOption) => {
+    setText(opt.title);
+    setOpen(false);
+    setHighlight(0);
+    props.onSelect({ id: opt.id, title: opt.title, isNew: false });
+  };
+
+  const pickNew = () => {
+    const trimmed = text().trim();
+    if (!trimmed) return;
+    setOpen(false);
+    setHighlight(0);
+    props.onSelect({ id: undefined, title: trimmed, isNew: true });
+  };
+
+  const onKeyDown = (e: KeyboardEvent) => {
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      const max = options().length - 1;
+      setHighlight((h) => Math.min(h + 1, Math.max(0, max)));
+      setOpen(true);
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setHighlight((h) => Math.max(h - 1, 0));
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      const opts = options();
+      const idx = highlight();
+      // when there's an exact match in options, prefer picking it.
+      const m = exactMatch();
+      if (m && opts[idx]?.id === m.id) {
+        pickExisting(opts[idx]);
+      } else if (opts[idx]) {
+        pickExisting(opts[idx]);
+      } else if (canCreate()) {
+        pickNew();
+      }
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      setOpen(false);
+    }
+  };
+
+  const newLabel = (input: string) => {
+    if (props.newLabel) return props.newLabel(input);
+    return exactMatch() ? `create new album: ${input}` : `create new: ${input}`;
+  };
 
   return (
-    <Combobox<AlbumOption>
-      value={localValue()}
-      onChange={(option) => {
-        setLocalValue(option ?? undefined);
-        if (option) {
-          props.onSelect({
-            id: option.id,
-            title: option.title,
-            isNew: option.isNew || false,
-          });
-        }
-      }}
-      onInputChange={(value) => {
-        // update search query as user types
-        setSearchInput(value.trim().length > 0 ? value : undefined);
-      }}
-      options={options()}
-      optionValue="key"
-      optionTextValue="title"
-      optionLabel="title"
-      placeholder={props.placeholder || "search or type album title..."}
-      triggerMode="input"
-      disabled={props.disabled}
-      itemComponent={(props) => (
-        <Combobox.Item item={props.item} class="outline-none">
-          {/* hide placeholder items from dropdown - they're only in options for display purposes */}
-          <Show when={!props.item.rawValue.isPlaceholder}>
-            <div class="px-4 py-2 cursor-pointer hover:bg-[var(--color-bg-hover)] data-[highlighted]:bg-[var(--color-accent-500)] data-[highlighted]:text-[var(--color-text-on-accent)] transition-colors flex items-center gap-3">
-              <MediaImage
-                images={props.item.rawValue.images}
-                imageUrl={props.item.rawValue.thumbnailUrl || null}
-                alt=""
-                class="w-10 h-10 object-cover rounded flex-shrink-0"
-                domainType="album"
-                thumbnailSize={50}
-              />
-
-              <div class="flex-1 min-w-0">
-                <Show when={props.item.rawValue.isNew}>
-                  <div class="text-sm font-medium">
-                    <Combobox.ItemLabel>{props.item.rawValue.label}</Combobox.ItemLabel>
-                  </div>
-                </Show>
-                <Show when={!props.item.rawValue.isNew}>
-                  <div class="text-sm">
-                    <Combobox.ItemLabel>{props.item.rawValue.title}</Combobox.ItemLabel>
-                  </div>
-                  <div class="text-xs text-[var(--color-text-tertiary)]">
-                    {props.item.rawValue.artistName}
-                    {" · "}
-                    {props.item.rawValue.songCount || 0} song
-                    {props.item.rawValue.songCount === 1 ? "" : "s"}
-                  </div>
-                </Show>
-              </div>
-
-              <Show when={props.item.rawValue.isFavorite}>
-                <div class="text-[var(--color-accent-500)] flex-shrink-0">♥</div>
-              </Show>
-            </div>
-          </Show>
-        </Combobox.Item>
-      )}
-      class={props.class}
-    >
+    <div ref={containerEl} class={`relative ${props.class ?? ""}`}>
       <Show when={props.label}>
-        <Combobox.Label class="block text-sm text-[var(--color-text-secondary)] mb-1">
-          {props.label}
-        </Combobox.Label>
+        <label class="block text-sm text-[var(--color-text-secondary)] mb-1">{props.label}</label>
       </Show>
 
-      <Combobox.Control class="relative">
-        <Combobox.Input class="w-full px-3 py-2 bg-[var(--color-bg-primary)] border border-[var(--color-border-default)] rounded text-[var(--color-text-primary)] placeholder:text-[var(--color-text-muted)] focus:outline-none focus:border-[var(--color-accent-500)] focus:ring-2 focus:ring-[var(--color-accent-500)] focus:ring-opacity-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed" />
-
+      <div class="relative">
+        <input
+          ref={inputEl}
+          type="text"
+          value={text()}
+          disabled={props.disabled}
+          placeholder={props.placeholder || "search or type album title..."}
+          onInput={(e) => {
+            setText(e.currentTarget.value);
+            setOpen(true);
+          }}
+          onFocus={() => setOpen(true)}
+          onKeyDown={onKeyDown}
+          class="w-full px-3 py-2 bg-[var(--color-bg-primary)] border border-[var(--color-border-default)] rounded text-[var(--color-text-primary)] placeholder:text-[var(--color-text-muted)] focus:outline-none focus:border-[var(--color-accent-500)] focus:ring-2 focus:ring-[var(--color-accent-500)] focus:ring-opacity-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+        />
         <Show when={albumQuery.isFetching}>
           <div class="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none">
             <div class="animate-spin w-4 h-4 border-2 border-[var(--color-accent-500)] border-t-transparent rounded-full" />
           </div>
         </Show>
-      </Combobox.Control>
+      </div>
 
       <Show when={props.hint}>
-        <Combobox.Description class="text-xs text-[var(--color-text-tertiary)] mt-1">
-          {props.hint}
-        </Combobox.Description>
+        <p class="text-xs text-[var(--color-text-tertiary)] mt-1">{props.hint}</p>
       </Show>
 
-      <Combobox.Portal>
-        <Combobox.Content class="z-[1100] mt-1 bg-[var(--color-bg-elevated)] border border-[var(--color-border-default)] rounded shadow-lg max-h-80 overflow-y-auto animate-in fade-in-0 zoom-in-95">
-          <Combobox.Listbox />
-        </Combobox.Content>
-      </Combobox.Portal>
-    </Combobox>
+      <Show when={open() && !props.disabled}>
+        <div class="absolute left-0 right-0 top-full mt-1 z-[1100] bg-[var(--color-bg-elevated)] border border-[var(--color-border-default)] rounded shadow-lg max-h-80 overflow-y-auto">
+          <Show
+            when={options().length > 0 || canCreate()}
+            fallback={
+              <div class="px-4 py-2 text-xs text-[var(--color-text-tertiary)]">
+                {albumQuery.isFetching ? "searching…" : "no matches"}
+              </div>
+            }
+          >
+            <For each={options()}>
+              {(opt, i) => (
+                <button
+                  type="button"
+                  onMouseEnter={() => setHighlight(i())}
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    pickExisting(opt);
+                  }}
+                  class={`w-full text-left px-4 py-2 transition-colors flex items-center gap-3 ${
+                    i() === highlight()
+                      ? "bg-[var(--color-accent-500)] text-[var(--color-text-on-accent)]"
+                      : "hover:bg-[var(--color-bg-hover)]"
+                  }`}
+                >
+                  <MediaImage
+                    images={opt.images}
+                    imageUrl={opt.thumbnailUrl || null}
+                    alt=""
+                    class="w-10 h-10 object-cover rounded flex-shrink-0"
+                    domainType="album"
+                    thumbnailSize={50}
+                  />
+                  <div class="flex-1 min-w-0">
+                    <div class="text-sm truncate">{opt.title}</div>
+                    <div
+                      class={`text-xs ${
+                        i() === highlight() ? "opacity-90" : "text-[var(--color-text-tertiary)]"
+                      }`}
+                    >
+                      {opt.artistName}
+                      {" · "}
+                      {opt.songCount || 0} song{opt.songCount === 1 ? "" : "s"}
+                    </div>
+                  </div>
+                  <Show when={opt.isFavorite}>
+                    <div
+                      class={`flex-shrink-0 ${
+                        i() === highlight() ? "" : "text-[var(--color-accent-500)]"
+                      }`}
+                    >
+                      ♥
+                    </div>
+                  </Show>
+                </button>
+              )}
+            </For>
+
+            <Show when={canCreate()}>
+              <button
+                type="button"
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  pickNew();
+                }}
+                class="w-full text-left px-4 py-2 text-sm border-t border-[var(--color-border-default)] hover:bg-[var(--color-bg-hover)] flex items-center gap-2 text-[var(--color-text-secondary)]"
+              >
+                <span class="font-medium">{newLabel(text().trim())}</span>
+              </button>
+            </Show>
+          </Show>
+        </div>
+      </Show>
+    </div>
   );
 }

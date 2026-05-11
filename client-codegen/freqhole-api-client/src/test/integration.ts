@@ -158,15 +158,8 @@ export async function runIntegrationTests() {
       fn: () => client.music.deleteImage(fixtures.deleteImage),
     },
 
-    // genres
-    {
-      name: "music.queryGenres",
-      fn: () => client.music.queryGenres(fixtures.queryParams),
-    },
-    {
-      name: "music.getGenre",
-      fn: () => client.music.getGenre(fixtures.getGenre),
-    },
+    // genres are now exposed via the unified taxonomy api
+    // (queryTaxons / getTaxon with kind_slug='genre').
 
     // favorites
     {

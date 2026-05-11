@@ -1,13 +1,12 @@
 //! music domain handlers
 //!
-//! covers: songs, albums, artists, playlists, genres, taxonomy, favorites,
+//! covers: songs, albums, artists, playlists, taxonomy, favorites,
 //! ratings, tags, blobs, uploads, jobs, analytics, sessions, search
 
 pub mod albums;
 pub mod analytics;
 pub mod artists;
 pub mod favorites;
-pub mod genres;
 pub mod jobs;
 pub mod playlists;
 pub mod ratings;
@@ -29,7 +28,6 @@ pub fn routes() -> Vec<RouteInfo> {
     all.extend_from_slice(analytics::ROUTES);
     all.extend_from_slice(artists::ROUTES);
     all.extend_from_slice(favorites::ROUTES);
-    all.extend_from_slice(genres::ROUTES);
     all.extend_from_slice(jobs::ROUTES);
     all.extend_from_slice(playlists::ROUTES);
     all.extend_from_slice(ratings::ROUTES);
@@ -94,10 +92,6 @@ pub async fn dispatch(
         "/api/artists/images" => Some(artists::get_images(caller, body.clone()).await),
         "/api/artists/update" => Some(artists::update(caller, body.clone()).await),
         "/api/music/artists" => Some(artists::create(caller, body.clone()).await),
-
-        // genres
-        "/api/genres/query" => Some(genres::query(caller, body.clone()).await),
-        "/api/genres/get" => Some(genres::get(caller, body.clone()).await),
 
         // favorites
         "/api/favorites/set" => Some(favorites::set(caller, body.clone()).await),

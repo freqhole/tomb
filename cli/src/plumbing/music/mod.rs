@@ -44,11 +44,6 @@ pub enum MusicAction {
         #[command(flatten)]
         params: QueryParams,
     },
-    /// Query genres
-    QueryGenres {
-        #[command(flatten)]
-        params: QueryParams,
-    },
     /// Query playlists
     QueryPlaylists {
         #[command(flatten)]
@@ -190,12 +185,6 @@ pub enum MusicAction {
         artist_id: String,
     },
 
-    /// Get genre by ID
-    GetGenre {
-        #[arg(long)]
-        genre_id: String,
-    },
-
     /// List all tags
     ListTags,
     /// Get tag by ID
@@ -260,9 +249,6 @@ pub async fn handle_command(action: MusicAction) -> CommandOutput<serde_json::Va
         MusicAction::QueryAlbums { params } => {
             dispatch_to_offal("/api/albums/query", serde_json::to_value(params).unwrap()).await
         }
-        MusicAction::QueryGenres { params } => {
-            dispatch_to_offal("/api/genres/query", serde_json::to_value(params).unwrap()).await
-        }
         MusicAction::QueryPlaylists { params } => {
             dispatch_to_offal(
                 "/api/music/playlists/list",
@@ -320,11 +306,6 @@ pub async fn handle_command(action: MusicAction) -> CommandOutput<serde_json::Va
         }
         MusicAction::DeleteArtist { artist_id } => {
             dispatch_to_offal("/api/artists/delete", json!({ "id": artist_id })).await
-        }
-
-        // Genre commands
-        MusicAction::GetGenre { genre_id } => {
-            dispatch_to_offal("/api/genres/get", json!({ "id": genre_id })).await
         }
 
         // Tag commands

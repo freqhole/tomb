@@ -70,7 +70,11 @@ export interface AlbumTaxonsEditorProps {
   /** kinds to render. when omitted, queries `listTaxonKinds` and shows
    *  every kind except those in `excludeKinds`. */
   kinds?: KindOption[];
-  /** kinds that should never be rendered (defaults to `["genre"]`). */
+  /** kinds that should never be rendered. defaults to `[]` (show every
+   *  kind, including genre). pre-taxonomy-refactor this defaulted to
+   *  `["genre"]` because GenreAutocomplete owned the genre flow; that
+   *  component was deleted, so the editor is now the single owner of
+   *  every taxon kind. */
   excludeKinds?: string[];
   /** called once on mount with the imperative handle the parent can
    *  use to flush / reset pending edits and inspect dirty state. */
@@ -82,7 +86,7 @@ export interface AlbumTaxonsEditorProps {
 
 export function AlbumTaxonsEditor(props: AlbumTaxonsEditorProps) {
   const queryClient = useQueryClient();
-  const excludeKinds = createMemo(() => new Set(props.excludeKinds ?? ["genre"]));
+  const excludeKinds = createMemo(() => new Set(props.excludeKinds ?? []));
 
   // 1. resolve the kinds we want to render — explicit prop wins,
   //    otherwise pull the live list and filter excludeKinds out. note:

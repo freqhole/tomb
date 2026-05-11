@@ -258,30 +258,9 @@ export function createMusicMethods(call: CallFn) {
       );
     },
 
-    // genres
-    queryGenres: (params: s.QueryParams) => {
-      return call(
-        "music",
-        "query_genres",
-        routes.music.query_genres.resp,
-        routes.music.query_genres.req,
-        routes.music.query_genres.method,
-        routes.music.query_genres.path,
-        params,
-      );
-    },
-
-    getGenre: (params: s.GetGenreRequest) => {
-      return call(
-        "music",
-        "get_genre",
-        routes.music.get_genre.resp,
-        routes.music.get_genre.req,
-        routes.music.get_genre.method,
-        routes.music.get_genre.path,
-        params,
-      );
-    },
+    // genres are now exposed via the unified taxonomy api
+    // (queryTaxons / getTaxon with kind_slug='genre'). dedicated genre
+    // routes were removed during the taxonomy refactor.
 
     // playlists
     listPlaylists: (params: s.QueryParams) => {

@@ -102,14 +102,18 @@ export async function runStatefulTests() {
   });
 
   await test("discover existing genre", async () => {
-    const result = await client.music.queryGenres(queryParams);
+    const result = await client.music.queryTaxons({
+      kind_slug: "genre",
+      limit: 1,
+      offset: 0,
+    });
     if (!result.success) {
-      throw new Error(`failed to query genres: ${result.error.message}`);
+      throw new Error(`failed to query taxons: ${result.error.message}`);
     }
     if (result.data.items.length === 0) {
-      throw new Error("no genres found in database - cannot run tests");
+      throw new Error("no genre taxons found in database - cannot run tests");
     }
-    testState.existingGenreId = result.data.items[0].genre.id;
+    testState.existingGenreId = result.data.items[0].id;
   });
 
   console.log("");

@@ -287,12 +287,9 @@ export interface MusicDataSource {
     params?: QueryParams,
   ): Promise<PaginatedResponse<Song>>;
 
-  // genres (optional - may aggregate from albums/songs)
-  getGenres?(params?: QueryParams): Promise<PaginatedResponse<GenreSummary>>;
-  getGenreSongs?(
-    genreId: string,
-    params?: QueryParams,
-  ): Promise<PaginatedResponse<Song>>;
+  // genres were removed during the taxonomy refactor — fetch them via
+  // the unified taxonomy api (queryTaxons / getTaxon with kind='genre')
+  // instead of dedicated genre routes.
 
   // playlists (optional)
   getPlaylists?(

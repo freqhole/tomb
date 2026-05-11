@@ -4658,8 +4658,6 @@ export const UpdateAlbumRequestSchema = z.object({
   album_type: z.string().nullish(),
   release_date: z.string().nullish(),
   label: z.string().nullish(),
-  genre_ids: z.array(z.string()).nullish(),
-  genres: z.array(z.string()).nullish(),
   entity_urls: z.array(z.object({
   id: z.string().nullish(),
   name: z.string().nullish(),

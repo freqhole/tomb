@@ -51,13 +51,11 @@ import {
   type PlaylistSong,
   type Song,
 } from "../../services/storage/types";
-import { sortSongsCanonical } from "../../utils/songSort";
 import type {
   AlbumSummary,
   ArtistSummary,
   FavoriteTarget,
   FavoriteItem,
-  GenreSummary,
   ImageMetadata,
   ListFavoritesParams,
   MusicDataSource,
@@ -361,61 +359,10 @@ export class LocalMusicDataSource implements MusicDataSource {
     };
   }
 
-  // genres
-  async getGenres(
-    params?: QueryParams,
-  ): Promise<PaginatedResponse<GenreSummary>> {
-    const limit = params?.limit ?? 50;
-    const offset = params?.offset ?? 0;
-
-    const results = await queryGenres({
-      limit,
-      offset,
-      search: params?.search,
-    });
-
-    const items: GenreSummary[] = results.map((r) => ({
-      genre_id: r.genre.genre_id,
-      name: r.genre.name,
-      album_count: r.album_count,
-      song_count: r.song_count,
-    }));
-
-    return {
-      items,
-      total: items.length,
-      offset,
-      limit,
-      has_more: items.length === limit,
-    };
-  }
-
-  async getGenreSongs(
-    genreId: string,
-    params?: QueryParams,
-  ): Promise<PaginatedResponse<Song>> {
-    const limit = params?.limit ?? 50;
-    const offset = params?.offset ?? 0;
-
-    // use querySongsWithDetails to get fully hydrated songs
-    const results = await querySongsWithDetails({
-      limit,
-      offset,
-      genreId,
-    });
-
-    // enrich with images and apply canonical sorting
-    const songs = enrichSongsWithImages(results);
-    const sortedSongs = sortSongsCanonical(songs);
-
-    return {
-      items: sortedSongs,
-      total: sortedSongs.length,
-      offset,
-      limit,
-      has_more: sortedSongs.length === limit,
-    };
-  }
+  // genres + getGenreSongs were dropped during the taxonomy refactor —
+  // genres are now stored as taxons (kind='genre'). consumers fetch
+  // them via the unified taxonomy queries on the remote, or by walking
+  // each cached song's `album_taxons` locally.
 
   // playlists
   async getPlaylists(

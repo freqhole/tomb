@@ -325,48 +325,9 @@ export function useArtistSongsQuery(artistId: Accessor<string | undefined>) {
   }));
 }
 
-// genres query hooks
-
-interface UseGenresQueryOptions {
-  query?: Accessor<string | undefined>;
-  pageSize?: number;
-}
-
-export function useGenresQuery(options?: UseGenresQueryOptions) {
-  const pageSize = options?.pageSize || 100;
-  const query = options?.query;
-
-  return createInfiniteQuery(() => ({
-    queryKey: queryKeys.genres.list(query?.()),
-    queryFn: async ({ pageParam }: { pageParam: number }) => {
-      const dataSource = getDataSource();
-      if (!dataSource.getGenres) {
-        return {
-          items: [],
-          total: 0,
-          offset: 0,
-          limit: pageSize,
-          has_more: false,
-        };
-      }
-      return dataSource.getGenres({
-        offset: pageParam,
-        limit: pageSize,
-        search: query?.(),
-      });
-    },
-    getNextPageParam: (lastPage) => {
-      if (!lastPage.has_more) return undefined;
-      return lastPage.offset + lastPage.items.length;
-    },
-    initialPageParam: 0,
-    placeholderData: (previousData) => previousData,
-    staleTime: 5 * 60 * 1000,
-    gcTime: 10 * 60 * 1000,
-    refetchOnMount: false,
-    refetchOnWindowFocus: false,
-  }));
-}
+// genres query hooks were removed during the taxonomy refactor — genres are
+// now a kind under the unified taxon system. fetch them via the taxonomy
+// queries (or the AlbumTaxonsEditor) instead of a dedicated genres list.
 
 // mutation hooks
 

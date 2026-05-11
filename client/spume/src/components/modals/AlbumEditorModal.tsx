@@ -14,7 +14,6 @@ import { Button } from "../buttons/Button";
 import { toast } from "../feedback/Toast";
 import { ArtistAutocomplete } from "../forms/ArtistAutocomplete";
 import { AlbumAutocomplete } from "../forms/AlbumAutocomplete";
-import { GenreAutocomplete } from "../forms/GenreAutocomplete";
 import { Icon, IconNames } from "../icons/registry";
 import { Tabs, TabList, Tab, TabPanel } from "../navigation/Tabs";
 import { EntityImages } from "../layout/EntityImages";
@@ -128,9 +127,6 @@ interface FormData {
   artist_id: string | undefined;
   artist_name: string;
   album_type: string;
-  genre_ids: string[];
-  genres: string[];
-  new_genres: string[]; // genres without IDs (will be created on save)
   uploaded_blob_id: string | null;
 }
 
@@ -145,9 +141,7 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
     artist_id: undefined,
     artist_name: "",
     album_type: "album",
-    genre_ids: [],
-    genres: [],
-    new_genres: [],
+
     uploaded_blob_id: null,
   });
 
@@ -184,9 +178,6 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
       artist_id: firstSong.artist_id,
       artist_name: firstSong.artist_name || "",
       album_type: album.album_type || "album",
-      genre_ids: album.genres?.map((g) => g.id) || [],
-      genres: album.genres?.map((g) => g.name) || [],
-      new_genres: [],
       uploaded_blob_id: null,
     };
     setFormData(data);
@@ -254,9 +245,6 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
       current.artist_id !== initial.artist_id ||
       current.artist_name !== initial.artist_name ||
       current.album_type !== initial.album_type ||
-      JSON.stringify(current.genre_ids) !== JSON.stringify(initial.genre_ids) ||
-      JSON.stringify(current.genres) !== JSON.stringify(initial.genres) ||
-      current.new_genres.length > 0 ||
       current.uploaded_blob_id !== null ||
       mergeTargetAlbumId() !== undefined ||
       urlsChanged() ||
@@ -298,12 +286,6 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
       return;
     }
 
-    // determine if genres changed (either IDs or new genres added)
-    const genresChanged =
-      JSON.stringify(data.genre_ids) !== JSON.stringify(initial?.genre_ids) ||
-      JSON.stringify(data.genres) !== JSON.stringify(initial?.genres) ||
-      data.new_genres.length > 0;
-
     try {
       await updateMutation.mutateAsync({
         album_id: props.albumId,
@@ -311,10 +293,8 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
         artist_id: data.artist_id !== initial?.artist_id ? data.artist_id : undefined,
         artist_name: data.artist_name !== initial?.artist_name ? data.artist_name : undefined,
         album_type: data.album_type !== initial?.album_type ? data.album_type : undefined,
-        // send existing genre IDs (or empty array to clear all)
-        genre_ids: genresChanged ? data.genre_ids : undefined,
-        // send new genre names to be created
-        genres: genresChanged && data.new_genres.length > 0 ? data.new_genres : undefined,
+        // genres are now managed via the AlbumTaxonsEditor below (kind=genre)
+        // alongside every other taxon kind, so no genre payload is sent here.
         // send entity URLs if changed (filter out deleted, map with null id for new)
         entity_urls: urlsChanged()
           ? entityUrls()
@@ -693,40 +673,7 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
               </p>
             </div>
 
-            {/* genres */}
-            <div class="space-y-2">
-              <div class="flex items-center justify-between">
-                <Show
-                  when={JSON.stringify(formData().genres) !== JSON.stringify(initialData()?.genres)}
-                >
-                  <button
-                    onClick={() => handleResetField("genres")}
-                    class="text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]"
-                  >
-                    reset
-                  </button>
-                </Show>
-              </div>
-              <GenreAutocomplete
-                label="genres"
-                value={formData().genres}
-                valueIds={formData().genre_ids}
-                onSelect={(genres, genreIds, newGenreNames) =>
-                  setFormData((prev) => ({
-                    ...prev,
-                    genre_ids: genreIds,
-                    genres: genres,
-                    new_genres: newGenreNames,
-                  }))
-                }
-                placeholder="select or type genres"
-                hint="choose one or more genres for this album"
-              />
-            </div>
-
-            {/* taxons (label, mood, era, region, ...) — live edits, applied
-                immediately. genres are intentionally handled by the dedicated
-                section above so the existing deferred-save flow is preserved. */}
+            {/* taxons (genre, label, mood, era, region, ...) — deferred\n                add/remove buffered until the modal's save handler flushes\n                them via `taxonsHandle.apply()`. all kinds (including\n                genre, which used to live in a dedicated GenreAutocomplete\n                section) flow through the same chip ui. */}
             <div class="space-y-2">
               <AlbumTaxonsEditor
                 albumId={props.albumId}
@@ -897,7 +844,7 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
               albumType={formData().album_type}
               releaseDate={albumQuery.data?.release_date || undefined}
               label={albumQuery.data?.label || undefined}
-              genres={formData().genres}
+              genres={albumQuery.data?.genres?.map((g) => g.name) || []}
               songs={songs()}
               onAlbumUpdated={async () => {
                 // invalidate broad query families so all views update

@@ -16,7 +16,6 @@ import type {
   ArtistSummary,
   FavoriteItem,
   FavoriteTarget,
-  GenreSummary,
   ListFavoritesParams,
   MusicDataSource,
   PaginatedResponse,
@@ -448,62 +447,10 @@ export class RemoteMusicDataSource implements MusicDataSource {
     };
   }
 
-  // genres
-  async getGenres(
-    params?: QueryParams,
-  ): Promise<PaginatedResponse<GenreSummary>> {
-    const apiParams = this.buildApiParams(params);
-    const result = await (await this.getClient()).music.queryGenres(apiParams);
-
-    if (!result.success) {
-      await this.handleFailedRequest(result);
-      throw new Error("failed to query genres");
-    }
-
-    // clear offline status on successful request
-    await this.handleSuccessfulRequest();
-
-    // adapt API response to our interface
-    return {
-      items: result.data.items.map((item) => ({
-        genre_id: item.genre.id,
-        name: item.genre.name,
-        album_count: item.album_count || 0,
-        song_count: item.song_count || 0,
-      })),
-      total: result.data.total_count,
-      offset: result.data.offset,
-      limit: result.data.limit,
-      has_more: result.data.has_more,
-    };
-  }
-
-  async getGenreSongs(
-    genreId: string,
-    params?: QueryParams,
-  ): Promise<PaginatedResponse<RemoteSong>> {
-    const apiParams = this.buildApiParams({
-      ...params,
-      genre_id: genreId,
-    });
-
-    const result = await (await this.getClient()).music.querySongs(apiParams);
-
-    if (!result.success) {
-      await this.handleFailedRequest(result);
-      throw new Error("failed to query genre songs");
-    }
-
-    return {
-      items: result.data.items.map((item) =>
-        adaptSongFromAPI(item, this.baseUrl, this.remoteId),
-      ),
-      total: result.data.total_count,
-      offset: result.data.offset,
-      limit: result.data.limit,
-      has_more: result.data.has_more,
-    };
-  }
+  // genres + getGenreSongs were removed during the taxonomy refactor —
+  // genres are now a kind under the unified taxonomy api. fetch via
+  // queryTaxons({ kind_slug: 'genre' }) and follow the album_taxonz
+  // links from there.
 
   // playlists
   async getPlaylists(
@@ -1032,8 +979,10 @@ export class RemoteMusicDataSource implements MusicDataSource {
     album_type?: string;
     release_date?: string;
     label?: string;
-    genre_ids?: string[];
-    genres?: string[]; // new genre names to create
+    // genre_ids / genres were removed from the album-update payload
+    // during the taxonomy refactor — clients now manage album genres
+    // (and every other taxon kind) via the dedicated taxonomy routes
+    // (`add_album_taxon` / `remove_album_taxon` / `find_or_create_taxon`).
     year?: number;
     entity_urls?: Array<{ id?: string | null; name?: string | null; url: string }>;
     merge_into_album_id?: string;
@@ -1046,8 +995,6 @@ export class RemoteMusicDataSource implements MusicDataSource {
       album_type: params.album_type ?? null,
       release_date: params.release_date ?? null,
       label: params.label ?? null,
-      genre_ids: params.genre_ids ?? null,
-      genres: params.genres ?? null,
       entity_urls: params.entity_urls?.map(u => ({ id: u.id ?? null, name: u.name ?? null, url: u.url })) ?? null,
       updated_by: null,
       merge_into_album_id: params.merge_into_album_id ?? null,

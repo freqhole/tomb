@@ -108,17 +108,30 @@ fn test_music_error_cases() {
 fn test_music_genres() {
     let ctx = TestContext::from_snapshot();
 
-    // query genres
-    let result = ctx.run_json(&["music", "query-genres", "--limit", "100"]);
-    assert!(result["success"].as_bool().unwrap(), "Should query genres");
-    let genres = result["data"]["items"].as_array().unwrap();
+    // genres are now exposed via the unified taxonomy api (kind=genre)
+    let result = ctx.run_json(&[
+        "music",
+        "taxonomy",
+        "query-taxons",
+        "--kind-slug",
+        "genre",
+        "--limit",
+        "100",
+    ]);
+    assert!(
+        result["success"].as_bool().unwrap(),
+        "should query genre taxons"
+    );
+    let taxons = result["data"]["items"].as_array().unwrap();
 
-    if !genres.is_empty() {
-        let genre_id = genres[0]["genre"]["id"].as_str().unwrap();
-
-        // get genre by id
-        let result = ctx.run_json(&["music", "get-genre", "--genre-id", genre_id]);
-        assert!(result["success"].as_bool().unwrap(), "Should get genre");
+    if !taxons.is_empty() {
+        let taxon_id = taxons[0]["id"].as_str().unwrap();
+        // get the same taxon by id
+        let result = ctx.run_json(&["music", "taxonomy", "get-taxon", "--id", taxon_id]);
+        assert!(
+            result["success"].as_bool().unwrap(),
+            "should get genre taxon"
+        );
     }
 }
 
@@ -154,9 +167,20 @@ fn test_music_query_operations() {
     assert!(result["success"].as_bool().unwrap(), "Should query albums");
     assert!(result["data"]["items"].is_array());
 
-    // Query genres
-    let result = ctx.run_json(&["music", "query-genres", "--limit", "10"]);
-    assert!(result["success"].as_bool().unwrap(), "Should query genres");
+    // Query genre taxons (genres now flow through the taxonomy module)
+    let result = ctx.run_json(&[
+        "music",
+        "taxonomy",
+        "query-taxons",
+        "--kind-slug",
+        "genre",
+        "--limit",
+        "10",
+    ]);
+    assert!(
+        result["success"].as_bool().unwrap(),
+        "Should query genre taxons"
+    );
     assert!(result["data"]["items"].is_array());
 }
 
@@ -169,8 +193,19 @@ fn test_music_search_operations() {
     assert!(result["success"].as_bool().unwrap(), "Should list tags");
     assert!(result["data"].is_array());
 
-    let result = ctx.run_json(&["music", "query-genres", "--limit", "5"]);
-    assert!(result["success"].as_bool().unwrap(), "Should query genres");
+    let result = ctx.run_json(&[
+        "music",
+        "taxonomy",
+        "query-taxons",
+        "--kind-slug",
+        "genre",
+        "--limit",
+        "5",
+    ]);
+    assert!(
+        result["success"].as_bool().unwrap(),
+        "Should query genre taxons"
+    );
     assert!(result["data"]["items"].is_array());
 }
 
