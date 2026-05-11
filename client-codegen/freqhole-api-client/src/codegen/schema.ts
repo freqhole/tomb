@@ -2077,7 +2077,7 @@ export type LastFmAlbumDetailResult = z.infer<typeof LastFmAlbumDetailResultSche
 
 export const ListFavoritesRequestSchema = z.object({
   user_id: z.string().nullish(),
-  target_type: z.union([z.literal("song"), z.literal("artist"), z.literal("album"), z.literal("genre"), z.literal("playlist")]).nullish(),
+  target_type: z.union([z.literal("song"), z.literal("artist"), z.literal("album"), z.literal("taxon"), z.literal("playlist")]).nullish(),
   limit: z.number().nullish(),
   offset: z.number().nullish()
 });
@@ -2407,7 +2407,7 @@ export const ListListenSessionsResponseSchema = z.object({
   items: z.array(z.object({
   id: z.string(),
   user_id: z.string(),
-  session_type: z.union([z.literal("song"), z.literal("album"), z.literal("artist"), z.literal("genre"), z.literal("playlist"), z.literal("shuffle"), z.literal("radio")]),
+  session_type: z.union([z.literal("song"), z.literal("album"), z.literal("artist"), z.literal("taxon"), z.literal("playlist"), z.literal("shuffle"), z.literal("radio")]),
   entity_id: z.string().nullish(),
   label: z.string(),
   song_ids: z.array(z.string()),
@@ -2435,7 +2435,7 @@ export type ListTaxonsByKindRequest = z.infer<typeof ListTaxonsByKindRequestSche
 export const ListenSessionSchema = z.object({
   id: z.string(),
   user_id: z.string(),
-  session_type: z.union([z.literal("song"), z.literal("album"), z.literal("artist"), z.literal("genre"), z.literal("playlist"), z.literal("shuffle"), z.literal("radio")]),
+  session_type: z.union([z.literal("song"), z.literal("album"), z.literal("artist"), z.literal("taxon"), z.literal("playlist"), z.literal("shuffle"), z.literal("radio")]),
   entity_id: z.string().nullish(),
   label: z.string(),
   song_ids: z.array(z.string()),
@@ -2456,7 +2456,7 @@ export type ListenSession = z.infer<typeof ListenSessionSchema>;
 export const ListenSessionStatusSchema = z.union([z.literal("active"), z.literal("paused"), z.literal("completed"), z.literal("abandoned")]);
 export type ListenSessionStatus = z.infer<typeof ListenSessionStatusSchema>;
 
-export const ListenSessionTypeSchema = z.union([z.literal("song"), z.literal("album"), z.literal("artist"), z.literal("genre"), z.literal("playlist"), z.literal("shuffle"), z.literal("radio")]);
+export const ListenSessionTypeSchema = z.union([z.literal("song"), z.literal("album"), z.literal("artist"), z.literal("taxon"), z.literal("playlist"), z.literal("shuffle"), z.literal("radio")]);
 export type ListenSessionType = z.infer<typeof ListenSessionTypeSchema>;
 
 export const ListeningHistoryItemSchema = z.object({
@@ -3565,7 +3565,8 @@ export type RadioInfoResponse = z.infer<typeof RadioInfoResponseSchema>;
 export const RadioSeedSuggestRequestSchema = z.object({
   kind: z.string(),
   query: z.string(),
-  limit: z.number().nullish()
+  limit: z.number().nullish(),
+  kind_slug: z.string().nullish()
 });
 export type RadioSeedSuggestRequest = z.infer<typeof RadioSeedSuggestRequestSchema>;
 
@@ -3947,7 +3948,7 @@ export type SetAlbumTaxonsRequest = z.infer<typeof SetAlbumTaxonsRequestSchema>;
 
 export const SetFavoriteRequestSchema = z.object({
   user_id: z.string().nullish(),
-  target_type: z.union([z.literal("song"), z.literal("artist"), z.literal("album"), z.literal("genre"), z.literal("playlist")]),
+  target_type: z.union([z.literal("song"), z.literal("artist"), z.literal("album"), z.literal("taxon"), z.literal("playlist")]),
   target_id: z.string(),
   is_favorite: z.boolean()
 });

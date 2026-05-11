@@ -226,7 +226,7 @@ pub async fn apply_user_preferences_genres(items: &mut [GenreQueryResult], user_
 
     let ids: Vec<_> = items
         .iter()
-        .map(|g| (FavoriteTarget::Genre, g.genre.id.clone()))
+        .map(|g| (FavoriteTarget::Taxon, g.genre.id.clone()))
         .collect();
 
     let favorites = FavoritesService::new()

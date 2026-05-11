@@ -13,14 +13,18 @@ use tracing;
 use zod_gen::ZodSchema as ZodSchemaTrait;
 use zod_gen_derive::ZodSchema;
 
-/// session type — what kind of entity is being listened to
+/// session type — what kind of entity is being listened to.
+///
+/// note: "taxon" replaced "genre" in migration 037; entity_id for a taxon
+/// session points at `taxonz.id`, which can be any kind (genre, label,
+/// mood, era, region, ...).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum ListenSessionType {
     Song,
     Album,
     Artist,
-    Genre,
+    Taxon,
     Playlist,
     Shuffle,
     Radio,
@@ -28,7 +32,7 @@ pub enum ListenSessionType {
 
 impl ZodSchemaTrait for ListenSessionType {
     fn zod_schema() -> String {
-        r#"z.union([z.literal("song"), z.literal("album"), z.literal("artist"), z.literal("genre"), z.literal("playlist"), z.literal("shuffle"), z.literal("radio")])"#.to_string()
+        r#"z.union([z.literal("song"), z.literal("album"), z.literal("artist"), z.literal("taxon"), z.literal("playlist"), z.literal("shuffle"), z.literal("radio")])"#.to_string()
     }
 }
 
@@ -38,7 +42,7 @@ impl std::fmt::Display for ListenSessionType {
             Self::Song => write!(f, "song"),
             Self::Album => write!(f, "album"),
             Self::Artist => write!(f, "artist"),
-            Self::Genre => write!(f, "genre"),
+            Self::Taxon => write!(f, "taxon"),
             Self::Playlist => write!(f, "playlist"),
             Self::Shuffle => write!(f, "shuffle"),
             Self::Radio => write!(f, "radio"),
@@ -52,7 +56,9 @@ impl ListenSessionType {
             "song" => Self::Song,
             "album" => Self::Album,
             "artist" => Self::Artist,
-            "genre" => Self::Genre,
+            // accept legacy "genre" string from cached payloads; the db column
+            // was renamed by migration 037
+            "taxon" | "genre" => Self::Taxon,
             "playlist" => Self::Playlist,
             "shuffle" => Self::Shuffle,
             "radio" => Self::Radio,

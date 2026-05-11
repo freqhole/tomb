@@ -34,7 +34,7 @@ interface StationFilter {
 
 const FILTER_TYPES = [
   "tag",
-  "genre",
+  "taxon",
   "artist",
   "album",
   "playlist",
@@ -858,7 +858,7 @@ function StationSeedEditor(props: StationSeedEditorProps) {
             fallback={
               <SeedSuggestInput
                 kind={
-                  fType() as "tag" | "genre" | "artist" | "album" | "playlist"
+                  fType() as "tag" | "taxon" | "artist" | "album" | "playlist"
                 }
                 value={fValue()}
                 onChange={setFValue}
@@ -897,7 +897,7 @@ interface RadioSeedSuggestion {
 }
 
 interface SeedSuggestInputProps {
-  kind: "tag" | "genre" | "artist" | "album" | "playlist";
+  kind: "tag" | "taxon" | "artist" | "album" | "playlist";
   value: string;
   onChange: (v: string) => void;
   dispatch: Dispatch;

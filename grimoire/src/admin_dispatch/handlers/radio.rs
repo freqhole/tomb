@@ -196,7 +196,6 @@ pub(in crate::admin_dispatch) async fn seed_suggest(
     args: JsonValue,
 ) -> GrimoireResponse<JsonValue> {
     use crate::music::crud::{query_albums, query_artists, search_songs, QueryParams};
-    use crate::music::entities::genres::query_genres;
     use crate::music::entities::tags::query_tags;
 
     let req: RadioSeedSuggestRequest = match decode(args) {
@@ -220,16 +219,32 @@ pub(in crate::admin_dispatch) async fn seed_suggest(
                 })
                 .collect()
         }
-        "genre" => {
-            let resp = query_genres(&q).await;
+        // "taxon" returns matches across every taxon kind unless the
+        // caller scopes it via `kind_slug`. "genre" is kept as a
+        // backward-compatible shortcut for `kind="taxon", kind_slug="genre"`.
+        "taxon" | "genre" => {
+            use crate::music::entities::taxonomy::{query_taxons, QueryTaxonsRequest};
+            let kind_slug = if req.kind == "genre" {
+                Some("genre".to_string())
+            } else {
+                req.kind_slug.clone()
+            };
+            let taxon_req = QueryTaxonsRequest {
+                kind_slug,
+                q: if q.is_empty() { None } else { Some(q.clone()) },
+                limit: Some(limit),
+                offset: Some(0),
+            };
+            let resp = query_taxons(taxon_req).await;
             resp.data
+                .map(|r| r.items)
                 .unwrap_or_default()
                 .into_iter()
                 .take(limit as usize)
-                .map(|g| RadioSeedSuggestion {
-                    id: g.id,
-                    name: g.name,
-                    subtitle: None,
+                .map(|t| RadioSeedSuggestion {
+                    id: t.id,
+                    name: t.label,
+                    subtitle: Some(t.kind_slug),
                 })
                 .collect()
         }

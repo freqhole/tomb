@@ -21,6 +21,7 @@ import { Tabs, TabList, Tab, TabPanel } from "../navigation/Tabs";
 import { EntityImages } from "../layout/EntityImages";
 import { MusicBrainzPanel } from "../musicbrainz/MusicBrainzPanel";
 import { Modal } from "./Modal";
+import { AlbumTaxonsEditor, type AlbumTaxonsEditorHandle } from "./AlbumTaxonsEditor";
 import { EntityUrlz, type EntityUrlFormItem } from "../forms/EntityUrlz";
 import { formatDuration } from "../../utils/formatDuration";
 import { formatDateTime } from "../../utils/dateTime";
@@ -172,6 +173,12 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
     message: string;
   } | null>(null);
 
+  // taxons editor handle + dirty bit. the editor batches add/remove
+  // operations until apply() is called from handleSave so the modal's
+  // save/reset/dirty flow stays consistent.
+  let taxonsHandle: AlbumTaxonsEditorHandle | undefined;
+  const [taxonsDirty, setTaxonsDirty] = createSignal(false);
+
   // helper to sync form state from query data
   const syncFormFromData = (album: NonNullable<typeof albumQuery.data>, songs: Song[]) => {
     const firstSong = songs[0];
@@ -261,7 +268,8 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
       current.label !== initial.label ||
       current.uploaded_blob_id !== null ||
       mergeTargetAlbumId() !== undefined ||
-      urlsChanged()
+      urlsChanged() ||
+      taxonsDirty()
     );
   });
 
@@ -329,6 +337,18 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
           : undefined,
       });
 
+      // flush any pending taxon link add/remove ops in the same save.
+      // these go through the dedicated `addAlbumTaxon` / `removeAlbumTaxon`
+      // routes so musicbrainz / audiodb provenance stays untouched.
+      if (taxonsHandle?.isDirty()) {
+        try {
+          await taxonsHandle.apply();
+        } catch (err) {
+          console.error("failed to apply taxon edits:", err);
+          toast.error("failed to save taxon changes");
+        }
+      }
+
       // invalidate before closing so the UI refreshes even if the modal unmounts
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: queryKeys.albums.detail(props.albumId) }),
@@ -354,6 +374,8 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
       setImagePreview(null);
       setMergeTargetAlbumId(undefined);
     }
+    // discard any buffered taxon add/remove ops too
+    taxonsHandle?.reset();
   };
 
   const handleDelete = async () => {
@@ -713,6 +735,17 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
                 }
                 placeholder="select or type genres"
                 hint="choose one or more genres for this album"
+              />
+            </div>
+
+            {/* taxons (label, mood, era, region, ...) — live edits, applied
+                immediately. genres are intentionally handled by the dedicated
+                section above so the existing deferred-save flow is preserved. */}
+            <div class="space-y-2">
+              <AlbumTaxonsEditor
+                albumId={props.albumId}
+                ref={(h) => (taxonsHandle = h)}
+                onDirtyChange={setTaxonsDirty}
               />
             </div>
 
