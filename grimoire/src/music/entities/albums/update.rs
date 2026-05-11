@@ -73,24 +73,27 @@ pub async fn update_album(req: UpdateAlbumRequest) -> GrimoireResponse<Album> {
         }
     };
 
-    // verify album exists (including deleted ones)
+    // verify album exists (including deleted ones). label/release_date
+    // no longer live on `albumz` (migration 039) \u2014 source them from the
+    // album_query_view so callers still get the synthesized values.
     let existing_album = match sqlx::query!(
         r#"SELECT
-            id as "id!",
-            title as "title!",
-            album_type as "album_type!",
-            release_date,
-            label,
-            song_count as "song_count!",
-            total_duration as "total_duration!",
-            created_at as "created_at!",
-            updated_at as "updated_at!",
-            deleted_at,
-            deleted_by,
-            created_by,
-            updated_by
-        FROM albumz
-        WHERE id = ?"#,
+            a.id as "id!",
+            a.title as "title!",
+            a.album_type as "album_type!",
+            v.album_release_date as "release_date?",
+            v.album_label as "label?",
+            a.song_count as "song_count!",
+            a.total_duration as "total_duration!",
+            a.created_at as "created_at!",
+            a.updated_at as "updated_at!",
+            a.deleted_at,
+            a.deleted_by,
+            a.created_by,
+            a.updated_by
+        FROM albumz a
+        LEFT JOIN album_query_view v ON v.album_id = a.id
+        WHERE a.id = ?"#,
         req.album_id
     )
     .fetch_optional(&pool)
@@ -224,15 +227,9 @@ pub async fn update_album(req: UpdateAlbumRequest) -> GrimoireResponse<Album> {
         .execute(&pool)
         .await;
 
-        // fill in label and release_date on target only if the target doesn't have them
-        let _ = sqlx::query!(
-            "UPDATE albumz SET label = COALESCE(label, (SELECT label FROM albumz WHERE id = ?)), release_date = COALESCE(release_date, (SELECT release_date FROM albumz WHERE id = ?)), updated_at = unixepoch() WHERE id = ?",
-            req.album_id,
-            req.album_id,
-            target_id
-        )
-        .execute(&pool)
-        .await;
+        // label and release_date are now taxon links (kind=label,
+        // kind=release_date), already carried over by the album_taxonz
+        // INSERT OR IGNORE above. nothing else to copy on `albumz`.
 
         // clean up the now-empty source album
         let delete_result = delete_album_if_unused(&req.album_id).await;
@@ -721,20 +718,18 @@ pub async fn update_album(req: UpdateAlbumRequest) -> GrimoireResponse<Album> {
         (req.album_id.clone(), None, Vec::new())
     };
 
-    // update the album record (either the new one or existing one)
+    // update the album record (either the new one or existing one).
+    // label and release_date are now taxon-backed; routed below via
+    // sync_album_user_taxon.
     let _final_album = match sqlx::query!(
         r#"UPDATE albumz
         SET title = COALESCE(?, title),
             album_type = COALESCE(?, album_type),
-            release_date = COALESCE(?, release_date),
-            label = COALESCE(?, label),
             updated_by = COALESCE(?, updated_by),
             updated_at = unixepoch()
         WHERE id = ?"#,
         req.title,
         req.album_type,
-        parsed_date,
-        req.label,
         req.updated_by,
         new_album_id
     )
@@ -744,6 +739,34 @@ pub async fn update_album(req: UpdateAlbumRequest) -> GrimoireResponse<Album> {
         Ok(album) => album,
         Err(e) => return GrimoireResponse::failure("failed to update album", vec![e.into()]),
     };
+
+    // sync the legacy `label` field through the taxonomy (kind=label,
+    // origin=user). only when caller provided a value (None = no change).
+    if req.label.is_some() {
+        let resp = crate::music::entities::taxonomy::sync_album_user_taxon(
+            &new_album_id,
+            crate::music::entities::taxonomy::KIND_LABEL,
+            req.label.as_deref(),
+        )
+        .await;
+        if !resp.success {
+            tracing::warn!(album_id = %new_album_id, "failed to sync label taxon: {}", resp.message);
+        }
+    }
+    // sync the legacy `release_date` field through the taxonomy
+    // (kind=release_date, origin=user).
+    if parsed_date.is_some() || req.release_date.is_some() {
+        let value = parsed_date.as_deref().or(req.release_date.as_deref());
+        let resp = crate::music::entities::taxonomy::sync_album_user_taxon(
+            &new_album_id,
+            crate::music::entities::taxonomy::KIND_RELEASE_DATE,
+            value,
+        )
+        .await;
+        if !resp.success {
+            tracing::warn!(album_id = %new_album_id, "failed to sync release_date taxon: {}", resp.message);
+        }
+    }
 
     // update genre relationships if provided
     if let Some(genre_ids) = genre_ids_to_set {

@@ -30,13 +30,11 @@ pub async fn create_album(req: CreateAlbumRequest) -> GrimoireResponse<Album> {
     let now = OffsetDateTime::now_utc().unix_timestamp();
 
     let album_id = match sqlx::query_scalar!(
-        r#"INSERT INTO albumz (title, album_type, release_date, label, created_by, updated_by)
-         VALUES (?, ?, ?, ?, ?, ?)
+        r#"INSERT INTO albumz (title, album_type, created_by, updated_by)
+         VALUES (?, ?, ?, ?)
          RETURNING id"#,
         req.title,
         album_type,
-        req.release_date,
-        req.label,
         req.created_by,
         req.created_by
     )
@@ -51,6 +49,33 @@ pub async fn create_album(req: CreateAlbumRequest) -> GrimoireResponse<Album> {
             return GrimoireResponse::failure("failed to create album", vec![ErrorDetail::from(e)])
         }
     };
+
+    // route legacy `label` / `release_date` request fields through the
+    // taxonomy as user-origin links. these columns no longer live on
+    // `albumz` (migration 039); the album_query_view synthesizes them
+    // back into `Album.label` / `Album.release_date`.
+    if req.label.is_some() {
+        let resp = crate::music::entities::taxonomy::sync_album_user_taxon(
+            &album_id,
+            crate::music::entities::taxonomy::KIND_LABEL,
+            req.label.as_deref(),
+        )
+        .await;
+        if !resp.success {
+            tracing::warn!(album_id = %album_id, "failed to sync label taxon: {}", resp.message);
+        }
+    }
+    if req.release_date.is_some() {
+        let resp = crate::music::entities::taxonomy::sync_album_user_taxon(
+            &album_id,
+            crate::music::entities::taxonomy::KIND_RELEASE_DATE,
+            req.release_date.as_deref(),
+        )
+        .await;
+        if !resp.success {
+            tracing::warn!(album_id = %album_id, "failed to sync release_date taxon: {}", resp.message);
+        }
+    }
 
     // return the album directly without fetching from view
     // (the view filters out albums with song_count = 0)

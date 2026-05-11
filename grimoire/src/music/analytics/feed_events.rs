@@ -384,7 +384,7 @@ pub async fn upsert_album_feed_event(
             a.title,
             a.song_count,
             a.total_duration,
-            CAST(SUBSTR(a.release_date, 1, 4) AS INTEGER) as "year: i64",
+            CAST(SUBSTR((SELECT t.label FROM album_taxonz at3 JOIN taxonz t ON t.id = at3.taxon_id JOIN taxon_kindz k ON k.id = t.kind_id WHERE at3.album_id = a.id AND k.slug = 'release_date' AND t.deleted_at IS NULL ORDER BY at3.created_at ASC LIMIT 1), 1, 4) AS INTEGER) as "year: i64",
             (SELECT art.name FROM artist_albumz aa JOIN artistz art ON art.id = aa.artist_id WHERE aa.album_id = a.id LIMIT 1) as artist_name,
             (SELECT art.id FROM artist_albumz aa JOIN artistz art ON art.id = aa.artist_id WHERE aa.album_id = a.id LIMIT 1) as artist_id,
             COALESCE((SELECT json_group_array(json_object('blob_id', ai.media_blob_id, 'is_primary', ai.is_primary, 'blob_type', mb.blob_type))
@@ -1411,7 +1411,7 @@ pub async fn create_image_feed_event(
                 r#"
                 SELECT 
                     a.title,
-                    CAST(SUBSTR(a.release_date, 1, 4) AS INTEGER) as "year?: i64",
+                    CAST(SUBSTR((SELECT t.label FROM album_taxonz at3 JOIN taxonz t ON t.id = at3.taxon_id JOIN taxon_kindz k ON k.id = t.kind_id WHERE at3.album_id = a.id AND k.slug = 'release_date' AND t.deleted_at IS NULL ORDER BY at3.created_at ASC LIMIT 1), 1, 4) AS INTEGER) as "year?: i64",
                     (SELECT art.name FROM artist_albumz aa JOIN artistz art ON art.id = aa.artist_id WHERE aa.album_id = a.id LIMIT 1) as "artist_name?: String",
                     (SELECT COUNT(*) FROM album_songz WHERE album_id = a.id) as "song_count!: i64",
                     (SELECT COALESCE(SUM(s.duration), 0) * 1000 FROM album_songz als JOIN songz s ON s.id = als.song_id WHERE als.album_id = a.id) as "total_duration_ms!: i64",
@@ -1798,7 +1798,7 @@ pub async fn handle_album_feed_reassignment(
                     a.title,
                     a.song_count,
                     a.total_duration,
-                    CAST(SUBSTR(a.release_date, 1, 4) AS INTEGER) as "year: i64",
+                    CAST(SUBSTR((SELECT t.label FROM album_taxonz at3 JOIN taxonz t ON t.id = at3.taxon_id JOIN taxon_kindz k ON k.id = t.kind_id WHERE at3.album_id = a.id AND k.slug = 'release_date' AND t.deleted_at IS NULL ORDER BY at3.created_at ASC LIMIT 1), 1, 4) AS INTEGER) as "year: i64",
                     (SELECT art.name FROM artist_albumz aa JOIN artistz art ON art.id = aa.artist_id WHERE aa.album_id = a.id LIMIT 1) as artist_name,
                     (SELECT art.id FROM artist_albumz aa JOIN artistz art ON art.id = aa.artist_id WHERE aa.album_id = a.id LIMIT 1) as artist_id,
                     COALESCE((SELECT json_group_array(json_object('blob_id', ai.media_blob_id, 'is_primary', ai.is_primary, 'blob_type', mb.blob_type))

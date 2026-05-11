@@ -10,7 +10,7 @@ pub const KIND_ERA: &str = "era";
 pub const KIND_KEY: &str = "key";
 pub const KIND_LOCATION: &str = "location";
 pub const KIND_LABEL: &str = "label";
-pub const KIND_BPM: &str = "bpm";
+pub const KIND_RELEASE_DATE: &str = "release_date";
 pub const KIND_LOUDNESS_DB: &str = "loudness_db";
 pub const KIND_ENERGY: &str = "energy";
 
@@ -23,7 +23,7 @@ pub const SEEDED_KIND_SLUGS: &[&str] = &[
     KIND_KEY,
     KIND_LOCATION,
     KIND_LABEL,
-    KIND_BPM,
+    KIND_RELEASE_DATE,
     KIND_LOUDNESS_DB,
     KIND_ENERGY,
 ];

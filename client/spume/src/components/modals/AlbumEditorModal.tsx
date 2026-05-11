@@ -15,7 +15,6 @@ import { toast } from "../feedback/Toast";
 import { ArtistAutocomplete } from "../forms/ArtistAutocomplete";
 import { AlbumAutocomplete } from "../forms/AlbumAutocomplete";
 import { GenreAutocomplete } from "../forms/GenreAutocomplete";
-import { TextInput } from "../forms/TextInput";
 import { Icon, IconNames } from "../icons/registry";
 import { Tabs, TabList, Tab, TabPanel } from "../navigation/Tabs";
 import { EntityImages } from "../layout/EntityImages";
@@ -132,8 +131,6 @@ interface FormData {
   genre_ids: string[];
   genres: string[];
   new_genres: string[]; // genres without IDs (will be created on save)
-  release_date: string;
-  label: string;
   uploaded_blob_id: string | null;
 }
 
@@ -151,8 +148,6 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
     genre_ids: [],
     genres: [],
     new_genres: [],
-    release_date: "",
-    label: "",
     uploaded_blob_id: null,
   });
 
@@ -192,8 +187,6 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
       genre_ids: album.genres?.map((g) => g.id) || [],
       genres: album.genres?.map((g) => g.name) || [],
       new_genres: [],
-      release_date: album.release_date || "",
-      label: album.label || "",
       uploaded_blob_id: null,
     };
     setFormData(data);
@@ -264,8 +257,6 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
       JSON.stringify(current.genre_ids) !== JSON.stringify(initial.genre_ids) ||
       JSON.stringify(current.genres) !== JSON.stringify(initial.genres) ||
       current.new_genres.length > 0 ||
-      current.release_date !== initial.release_date ||
-      current.label !== initial.label ||
       current.uploaded_blob_id !== null ||
       mergeTargetAlbumId() !== undefined ||
       urlsChanged() ||
@@ -324,11 +315,6 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
         genre_ids: genresChanged ? data.genre_ids : undefined,
         // send new genre names to be created
         genres: genresChanged && data.new_genres.length > 0 ? data.new_genres : undefined,
-        release_date:
-          data.release_date !== initial?.release_date && data.release_date
-            ? data.release_date
-            : undefined,
-        label: data.label !== initial?.label ? data.label : undefined,
         // send entity URLs if changed (filter out deleted, map with null id for new)
         entity_urls: urlsChanged()
           ? entityUrls()
@@ -780,67 +766,8 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
               </select>
             </div>
 
-            {/* label */}
-            <div class="space-y-2">
-              <div class="flex items-center justify-between">
-                <label class="block text-sm font-medium text-[var(--color-text-primary)]">
-                  label
-                </label>
-                <Show when={formData().label !== initialData()?.label}>
-                  <button
-                    onClick={() => handleResetField("label")}
-                    class="text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]"
-                  >
-                    reset
-                  </button>
-                </Show>
-              </div>
-              <TextInput
-                value={formData().label}
-                onInput={(e) =>
-                  setFormData((prev) => ({
-                    ...prev,
-                    label: e.currentTarget.value,
-                  }))
-                }
-                placeholder="record label"
-                class="w-full"
-              />
-              <p class="text-xs text-[var(--color-text-tertiary)]">
-                the record label that released this album
-              </p>
-            </div>
-
-            {/* release date */}
-            <div class="space-y-2">
-              <div class="flex items-center justify-between">
-                <label class="block text-sm font-medium text-[var(--color-text-primary)]">
-                  release date
-                </label>
-                <Show when={formData().release_date !== initialData()?.release_date}>
-                  <button
-                    onClick={() => handleResetField("release_date")}
-                    class="text-xs text-[var(--color-text-tertiary)} hover:text-[var(--color-text-primary)]"
-                  >
-                    reset
-                  </button>
-                </Show>
-              </div>
-              <TextInput
-                value={formData().release_date}
-                onInput={(e) => {
-                  setFormData((prev) => ({
-                    ...prev,
-                    release_date: e.currentTarget.value,
-                  }));
-                }}
-                placeholder="YYYY, YYYY-MM, or YYYY-MM-DD"
-                class="w-full"
-              />
-              <p class="text-xs text-[var(--color-text-tertiary)]">
-                release year or full date (accepts YYYY, YYYY-MM, or YYYY-MM-DD)
-              </p>
-            </div>
+            {/* label and release_date are edited via the taxonomy editor
+                above (kind=label, kind=release_date). */}
 
             {/* entity URLs */}
             <div class="space-y-2">
@@ -968,8 +895,8 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
               artistId={formData().artist_id || ""}
               artistName={formData().artist_name}
               albumType={formData().album_type}
-              releaseDate={formData().release_date || undefined}
-              label={formData().label || undefined}
+              releaseDate={albumQuery.data?.release_date || undefined}
+              label={albumQuery.data?.label || undefined}
               genres={formData().genres}
               songs={songs()}
               onAlbumUpdated={async () => {

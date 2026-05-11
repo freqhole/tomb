@@ -467,9 +467,15 @@ async fn apply_mb_album_columns_if_empty(
         }
     };
 
-    // read current values
+    // read current values from album_query_view (label and release_date
+    // are now synthesized from `album_taxonz`).
     let current = match sqlx::query!(
-        r#"SELECT release_date, label FROM albumz WHERE id = ? AND deleted_at IS NULL"#,
+        r#"SELECT
+            v.album_release_date as "release_date?: String",
+            v.album_label as "label?: String"
+             FROM albumz a
+             LEFT JOIN album_query_view v ON v.album_id = a.id
+            WHERE a.id = ? AND a.deleted_at IS NULL"#,
         album_id
     )
     .fetch_optional(&pool)
@@ -507,22 +513,51 @@ async fn apply_mb_album_columns_if_empty(
                 .unwrap_or(true)
         });
 
-    if new_date.is_some() || new_label.is_some() {
-        let date_param = new_date.or(cur_date.as_deref());
-        let label_param = new_label.or(cur_label.as_deref());
-        if let Err(e) = sqlx::query!(
-            r#"UPDATE albumz SET release_date = ?, label = ?, updated_at = unixepoch() WHERE id = ?"#,
-            date_param,
-            label_param,
-            album_id
-        )
-        .execute(&pool)
-        .await
-        {
-            tracing::warn!("auto-apply: write album cols failed: {}", e);
-        } else {
-            summary.year_set = new_date.is_some();
-            summary.label_set = new_label.is_some();
+    // route the legacy `release_date` / `label` columns through the
+    // taxonomy. add_album_taxon with origin='musicbrainz' so the link
+    // can be distinguished from user-set values.
+    if let Some(date) = new_date {
+        let resp =
+            crate::music::entities::taxonomy::find_or_create_taxon("release_date", date).await;
+        if let Some(taxon) = resp.data {
+            let _ = crate::music::entities::taxonomy::add_album_taxon(
+                crate::music::entities::taxonomy::AddAlbumTaxonRequest {
+                    album_id: album_id.to_string(),
+                    taxon_id: taxon.id,
+                    origin: "musicbrainz".to_string(),
+                    confidence: None,
+                },
+            )
+            .await;
+            summary.year_set = true;
+            // bump updated_at so cache invalidation triggers
+            let _ = sqlx::query!(
+                "UPDATE albumz SET updated_at = unixepoch() WHERE id = ?",
+                album_id
+            )
+            .execute(&pool)
+            .await;
+        }
+    }
+    if let Some(label_val) = new_label {
+        let resp = crate::music::entities::taxonomy::find_or_create_taxon("label", label_val).await;
+        if let Some(taxon) = resp.data {
+            let _ = crate::music::entities::taxonomy::add_album_taxon(
+                crate::music::entities::taxonomy::AddAlbumTaxonRequest {
+                    album_id: album_id.to_string(),
+                    taxon_id: taxon.id,
+                    origin: "musicbrainz".to_string(),
+                    confidence: None,
+                },
+            )
+            .await;
+            summary.label_set = true;
+            let _ = sqlx::query!(
+                "UPDATE albumz SET updated_at = unixepoch() WHERE id = ?",
+                album_id
+            )
+            .execute(&pool)
+            .await;
         }
     }
 

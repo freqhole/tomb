@@ -21,8 +21,8 @@ mod models;
 mod repository;
 
 pub use kinds::{
-    KIND_BPM, KIND_ENERGY, KIND_ERA, KIND_GENRE, KIND_INSTRUMENT, KIND_KEY, KIND_LABEL,
-    KIND_LOCATION, KIND_LOUDNESS_DB, KIND_MOOD, SEEDED_KIND_SLUGS,
+    KIND_ENERGY, KIND_ERA, KIND_GENRE, KIND_INSTRUMENT, KIND_KEY, KIND_LABEL, KIND_LOCATION,
+    KIND_LOUDNESS_DB, KIND_MOOD, KIND_RELEASE_DATE, SEEDED_KIND_SLUGS,
 };
 pub use models::{
     AddAlbumTaxonRequest, AddTaxonParentRequest, AlbumTaxonLink, AlbumTaxonLinkInput,
@@ -37,4 +37,5 @@ pub use repository::{
     get_album_taxon_links, get_taxon, get_taxon_ancestors, get_taxon_descendants, list_taxon_kinds,
     list_taxons_by_kind, query_albums_by_scalar_range, query_taxons, remove_album_taxon,
     remove_taxon_parent, set_album_taxons, set_scalar_attribute, slugify_taxon_label,
+    sync_album_user_taxon,
 };

@@ -325,6 +325,9 @@ export function AlbumTaxonsEditor(props: AlbumTaxonsEditorProps) {
   const reset = () => {
     setPendingAdds([]);
     setPendingRemoves(new Map());
+    // also collapse any half-filled new-kind form so "reset" feels
+    // like a clean slate even mid-edit.
+    resetNewKindForm();
   };
 
   onMount(() => {
@@ -486,13 +489,20 @@ export function AlbumTaxonsEditor(props: AlbumTaxonsEditorProps) {
       </Show>
 
       <Show when={!linksResource.loading && !linksResource.error}>
-        <button
-          type="button"
-          onClick={() => void refetchLinks()}
-          class="text-[10px] text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] transition-colors"
-        >
-          refresh
-        </button>
+        <div class="flex justify-end">
+          <button
+            type="button"
+            onClick={() => {
+              // drop any not-yet-saved adds/removes, then re-pull the
+              // server-side links so the chips reflect ground truth.
+              reset();
+              void refetchLinks();
+            }}
+            class="text-[10px] text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] transition-colors"
+          >
+            {isDirty() ? "reset" : "refresh"}
+          </button>
+        </div>
       </Show>
     </div>
   );

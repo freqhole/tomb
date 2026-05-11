@@ -81,7 +81,7 @@ SELECT
     alb.title as album_title,
     (SELECT t.label FROM album_taxonz at JOIN taxonz t ON t.id = at.taxon_id JOIN taxon_kindz k ON k.id = t.kind_id WHERE at.album_id = alb.id AND k.slug = 'genre' AND t.deleted_at IS NULL LIMIT 1) as genre,
     (SELECT t.id FROM album_taxonz at2 JOIN taxonz t ON t.id = at2.taxon_id JOIN taxon_kindz k ON k.id = t.kind_id WHERE at2.album_id = alb.id AND k.slug = 'genre' AND t.deleted_at IS NULL LIMIT 1) as genre_id,
-    CAST(SUBSTR(alb.release_date, 1, 4) AS INTEGER) as year,
+    CAST(SUBSTR((SELECT t.label FROM album_taxonz at3 JOIN taxonz t ON t.id = at3.taxon_id JOIN taxon_kindz k ON k.id = t.kind_id WHERE at3.album_id = alb.id AND k.slug = 'release_date' AND t.deleted_at IS NULL ORDER BY at3.created_at ASC LIMIT 1), 1, 4) AS INTEGER) as year,
     alb.song_count as song_count,
     alb.total_duration as total_duration_ms,
     NULL as description,

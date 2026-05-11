@@ -7,7 +7,19 @@ SELECT
     al.id as album_id,
     al.title as album_title,
     al.album_type as album_album_type,
-    al.release_date as album_release_date,
+    -- album_release_date: first taxon under kind='release_date' linked
+    -- to this album. preserves the legacy `album_release_date` column
+    -- contract for callers that still expect a string. populated from
+    -- `album_taxonz` so `albumz.release_date` can be dropped.
+    (SELECT t.label
+       FROM album_taxonz at
+       JOIN taxonz t ON t.id = at.taxon_id
+       JOIN taxon_kindz k ON k.id = t.kind_id
+      WHERE at.album_id = al.id
+        AND k.slug = 'release_date'
+        AND t.deleted_at IS NULL
+      ORDER BY at.created_at ASC
+      LIMIT 1) as album_release_date,
     -- album_label: first taxon under kind='label' linked to this album.
     -- preserves the legacy `album_label` column contract for callers
     -- that still expect a string. populated from `album_taxonz` so

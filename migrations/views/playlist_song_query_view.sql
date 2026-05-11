@@ -87,7 +87,16 @@ SELECT
     al.id as album_id,
     al.title as album_title,
     al.album_type as album_album_type,
-    al.release_date as album_release_date,
+    -- legacy `album_release_date` column sourced from album_taxonz (kind='release_date')
+    (SELECT t.label
+       FROM album_taxonz at
+       JOIN taxonz t ON t.id = at.taxon_id
+       JOIN taxon_kindz k ON k.id = t.kind_id
+      WHERE at.album_id = al.id
+        AND k.slug = 'release_date'
+        AND t.deleted_at IS NULL
+      ORDER BY at.created_at ASC
+      LIMIT 1) as album_release_date,
     -- legacy `album_label` column sourced from album_taxonz (kind='label')
     (SELECT t.label
        FROM album_taxonz at

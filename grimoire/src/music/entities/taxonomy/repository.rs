@@ -957,6 +957,75 @@ pub async fn set_album_taxons(req: SetAlbumTaxonsRequest) -> GrimoireResponse<Ve
     get_album_taxon_links(&req.album_id).await
 }
 
+/// sync the single user-origin taxon link for `(album_id, kind_slug)`.
+///
+/// removes any existing user-origin link for that album under that kind,
+/// then (if `value` is `Some` and non-empty) finds-or-creates a taxon
+/// with that label and links it back with origin='user'.
+///
+/// used by writers that previously stored a single string value as a
+/// column on `albumz` (e.g. `label`, `release_date`) and now route it
+/// through the taxonomy. callers should pass the trimmed user input.
+pub async fn sync_album_user_taxon(
+    album_id: &str,
+    kind_slug: &str,
+    value: Option<&str>,
+) -> GrimoireResponse<()> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "failed to connect to database",
+                vec![ErrorDetail::from(e)],
+            );
+        }
+    };
+
+    // remove any existing user-origin link for this album+kind. other
+    // origins (musicbrainz/lastfm/audiodb) are preserved.
+    if let Err(e) = sqlx::query!(
+        r#"DELETE FROM album_taxonz
+            WHERE album_id = ?
+              AND origin = 'user'
+              AND taxon_id IN (
+                  SELECT t.id FROM taxonz t
+                  JOIN taxon_kindz k ON k.id = t.kind_id
+                  WHERE k.slug = ?
+              )"#,
+        album_id,
+        kind_slug,
+    )
+    .execute(&pool)
+    .await
+    {
+        return GrimoireResponse::failure(
+            "failed to clear existing user taxon link",
+            vec![ErrorDetail::from(e)],
+        );
+    }
+
+    let trimmed = value.map(str::trim).filter(|s| !s.is_empty());
+    let Some(label) = trimmed else {
+        return GrimoireResponse::success("album user taxon cleared", ());
+    };
+
+    let taxon_resp = find_or_create_taxon(kind_slug, label).await;
+    let Some(taxon) = taxon_resp.data else {
+        return GrimoireResponse::failure(
+            &format!("failed to find_or_create taxon for kind={}", kind_slug),
+            taxon_resp.errors,
+        );
+    };
+
+    add_album_taxon(AddAlbumTaxonRequest {
+        album_id: album_id.to_string(),
+        taxon_id: taxon.id,
+        origin: "user".to_string(),
+        confidence: None,
+    })
+    .await
+}
+
 // ---- scalar attributes ----
 
 pub async fn set_scalar_attribute(

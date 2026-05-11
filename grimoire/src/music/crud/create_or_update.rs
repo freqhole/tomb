@@ -649,20 +649,22 @@ pub async fn get_current_album_for_song(song_id: &str) -> GrimoireResult<Option<
     if let Some(album_id) = album_id {
         let album = sqlx::query!(
             r#"SELECT
-                id as "id!",
-                title as "title!",
-                album_type as "album_type!",
-                release_date,
-                label,
-                song_count as "song_count!",
-                total_duration as "total_duration!",
-                created_at as "created_at!",
-                updated_at as "updated_at!",
-                deleted_at,
-                deleted_by,
-                created_by,
-                updated_by
-            FROM albumz WHERE id = ? AND deleted_at IS NULL"#,
+                a.id as "id!",
+                a.title as "title!",
+                a.album_type as "album_type!",
+                v.album_release_date as "release_date?",
+                v.album_label as "label?",
+                a.song_count as "song_count!",
+                a.total_duration as "total_duration!",
+                a.created_at as "created_at!",
+                a.updated_at as "updated_at!",
+                a.deleted_at,
+                a.deleted_by,
+                a.created_by,
+                a.updated_by
+            FROM albumz a
+            LEFT JOIN album_query_view v ON v.album_id = a.id
+            WHERE a.id = ? AND a.deleted_at IS NULL"#,
             album_id
         )
         .fetch_optional(&pool)
@@ -801,8 +803,8 @@ pub async fn find_or_create_album_for_artist(
             al.id as "id!",
             al.title as "title!",
             al.album_type as "album_type!",
-            al.release_date,
-            al.label,
+            v.album_release_date as "release_date?",
+            v.album_label as "label?",
             al.song_count as "song_count!",
             al.total_duration as "total_duration!",
             al.created_at as "created_at!",
@@ -813,6 +815,7 @@ pub async fn find_or_create_album_for_artist(
             al.updated_by
            FROM albumz al
            JOIN artist_albumz aa ON al.id = aa.album_id
+           LEFT JOIN album_query_view v ON v.album_id = al.id
            WHERE LOWER(al.title) = LOWER(?) AND aa.artist_id = ? AND al.deleted_at IS NULL
            LIMIT 1"#,
         req.title,
