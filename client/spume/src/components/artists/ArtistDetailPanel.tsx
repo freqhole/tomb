@@ -125,7 +125,9 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
           isFavorite: song.album_is_favorite ?? false,
           rating: song.album_rating,
           genre: song.album_primary_genre_name,
-          genres: song.album_genres,
+          genres: song.album_taxons
+            ?.filter((t) => t.kind_slug === "genre")
+            .map((t) => ({ id: t.id, name: t.label })),
           taxons: song.album_taxons,
           tags: song.album_tags,
         });
@@ -158,10 +160,12 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
       if (name) {
         genreMap.set(name, { id, name });
       }
-      // album_genres now has {id, name} objects
-      if (song.album_genres) {
-        song.album_genres.forEach((g) => {
-          genreMap.set(g.name, { id: g.id, name: g.name });
+      // album_taxons (kind=genre) backfills genre map for albums missing primary genre id
+      if (song.album_taxons) {
+        song.album_taxons.forEach((t) => {
+          if (t.kind_slug === "genre") {
+            genreMap.set(t.label, { id: t.id, name: t.label });
+          }
         });
       }
     });

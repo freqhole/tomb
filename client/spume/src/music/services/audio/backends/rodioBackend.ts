@@ -271,7 +271,7 @@ export class RodioBackend implements PlayerBackend {
           metadata: song.metadata,
           images: song.images,
           urls: song.urls,
-          album_genres: song.album_genres,
+          album_taxons: song.album_taxons,
           album_images: song.album_images,
           album_tags: song.album_tags,
           artist_images: song.artist_images,

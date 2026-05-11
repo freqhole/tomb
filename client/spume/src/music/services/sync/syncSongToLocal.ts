@@ -29,7 +29,7 @@ import {
   isDownloadInProgress,
   registerDownload,
 } from "../download";
-import type { GenreRef, ImageMetadata, Song } from "../storage/types";
+import type { ImageMetadata, Song, TaxonRef } from "../storage/types";
 import type { Remote } from "../../../app/services/storage/schemas/remote";
 
 /**
@@ -89,7 +89,7 @@ async function syncSongViaLocalGrimoire(
       track_artist: song.track_artist ?? null,
       lyrics: song.lyrics ?? null,
       metadata: song.metadata ?? null,
-      genre_name: song.album_genres?.[0]?.name ?? null,
+      genre_name: song.album_taxons?.find((t) => t.kind_slug === "genre")?.label ?? null,
       song_images: [] as Array<{
         content_sha256: string;
         data_base64: string | null;
@@ -190,7 +190,7 @@ export interface SyncableSong {
   metadata?: string | null;
   images?: ImageMetadata[];
   urls?: Array<{ id?: string; name?: string; url: string }>;
-  album_genres?: GenreRef[];
+  album_taxons?: TaxonRef[];
   album_images?: ImageMetadata[];
   album_tags?: string[]; // tags from remote album
   artist_images?: ImageMetadata[]; // artist images from remote
@@ -297,37 +297,45 @@ export async function downloadAndStoreImages(
 }
 
 /**
- * sync album genres from remote data to local IDB.
+ * sync album taxons (genre kind) from remote data to local IDB.
  * creates genre records and sets album.genre_id to the primary (first) genre.
- * returns the primary genre id and GenreRef array for denormalization on songs.
+ * non-genre taxons are passed through verbatim onto the local song record so
+ * chips still render offline; only genre kinds materialize as local genre rows.
+ * returns the primary genre id and the full TaxonRef array for denormalization on songs.
  */
-async function syncAlbumGenres(
+async function syncAlbumTaxons(
   albumId: string,
-  remoteGenres: GenreRef[] | undefined,
-): Promise<{ primaryGenreId: string | null; primaryGenreName: string | null; genreRefs: GenreRef[] }> {
-  if (!remoteGenres?.length) {
-    return { primaryGenreId: null, primaryGenreName: null, genreRefs: [] };
+  remoteTaxons: TaxonRef[] | undefined,
+): Promise<{ primaryGenreId: string | null; primaryGenreName: string | null; taxonRefs: TaxonRef[] }> {
+  if (!remoteTaxons?.length) {
+    return { primaryGenreId: null, primaryGenreName: null, taxonRefs: [] };
   }
 
-  const genreRefs: GenreRef[] = [];
+  const taxonRefs: TaxonRef[] = [];
   let primaryGenreId: string | null = null;
   let primaryGenreName: string | null = null;
 
-  for (const remoteGenre of remoteGenres) {
-    const localGenre = await getOrCreateGenre(remoteGenre.name);
-    genreRefs.push({ id: localGenre.genre_id, name: localGenre.name });
-
-    // first genre is the primary one
-    if (!primaryGenreId) {
-      primaryGenreId = localGenre.genre_id;
-      primaryGenreName = localGenre.name;
+  for (const remoteTaxon of remoteTaxons) {
+    if (remoteTaxon.kind_slug === "genre") {
+      const localGenre = await getOrCreateGenre(remoteTaxon.label);
+      taxonRefs.push({ id: localGenre.genre_id, kind_slug: "genre", label: localGenre.name });
+      // first genre is the primary one
+      if (!primaryGenreId) {
+        primaryGenreId = localGenre.genre_id;
+        primaryGenreName = localGenre.name;
+      }
+    } else {
+      // non-genre taxon: pass through verbatim (no local table for these yet)
+      taxonRefs.push({ ...remoteTaxon });
     }
   }
 
   // set album.genre_id to the primary genre
-  await updateAlbum(albumId, { genre_id: primaryGenreId });
+  if (primaryGenreId) {
+    await updateAlbum(albumId, { genre_id: primaryGenreId });
+  }
 
-  return { primaryGenreId, primaryGenreName, genreRefs };
+  return { primaryGenreId, primaryGenreName, taxonRefs };
 }
 
 /**
@@ -470,10 +478,10 @@ export async function syncSongToLocal(
       await updateAlbum(albumId, { images: albumImages });
     }
 
-    // sync album genres
-    const { primaryGenreId, primaryGenreName, genreRefs } = await syncAlbumGenres(
+    // sync album taxons (genre kind plus pass-through of others)
+    const { primaryGenreId, primaryGenreName, taxonRefs } = await syncAlbumTaxons(
       albumId,
-      song.album_genres,
+      song.album_taxons,
     );
 
     // create local song record
@@ -502,7 +510,7 @@ export async function syncSongToLocal(
       album_added_at: Date.now(),
       album_primary_genre_id: primaryGenreId,
       album_primary_genre_name: primaryGenreName,
-      album_genres: genreRefs.length > 0 ? genreRefs : undefined,
+      album_taxons: taxonRefs.length > 0 ? taxonRefs : undefined,
       source_type: "synced" as Song["source_type"],
       opfs_path: opfsPath,
       file_name: `${song.title || "untitled"}.${extension}`,

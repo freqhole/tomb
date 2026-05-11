@@ -20,7 +20,7 @@ export type RemoteSong = Required<Pick<Song,
   | 'images' | 'urls'
   // user-specific metadata (always present: boolean/arrays)
   | 'is_favorite' | 'album_is_favorite'
-  | 'album_tags' | 'album_genres' | 'album_taxons' | 'album_images'
+  | 'album_tags' | 'album_taxons' | 'album_images'
   // source type and metadata
   | 'source_type' | 'opfs_path' | 'file_name' | 'file_size'
   | 'last_modified' | 'mime_type' | 'source_url' | 'downloaded_at'
@@ -172,8 +172,10 @@ export function adaptSongFromAPI(item: ApiSongQueryItem, baseUrl: string, remote
     album_is_favorite: item.album_is_favorite ?? false,
     album_rating: item.album_rating ?? undefined,
     album_tags: item.album_tags ?? [],
-    album_genres: album?.genres ?? [],
-    album_taxons: album?.taxons ?? [],
+    album_taxons:
+      album?.taxons ??
+      album?.genres?.map((g) => ({ id: g.id, kind_slug: "genre", label: g.name })) ??
+      [],
     album_images: album?.images?.map(img => adaptApiImage(img, baseUrl, remoteServerId)) ?? [],
     artist_images: artist?.images?.map(img => adaptApiImage(img, baseUrl, remoteServerId)) ?? [],
 

@@ -644,7 +644,7 @@ export function useAlbumContextMenu(
           albumType: songList[0]?.album_type ?? null,
           releaseDate: null,
           label: null,
-          genres: songList[0]?.album_genres?.map((g) => g.name).filter(Boolean) ?? [],
+          genres: songList[0]?.album_taxons?.filter((t) => t.kind_slug === "genre").map((t) => t.label).filter(Boolean) ?? [],
           // album-level images live on each song (denormalized). use the first
           // song's copy so dest gets cover art alongside the album row.
           images: songList[0]?.album_images ?? [],

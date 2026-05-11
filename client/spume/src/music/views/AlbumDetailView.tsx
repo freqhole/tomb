@@ -124,7 +124,11 @@ export function AlbumDetailView() {
       albumType: songList[0]?.album_type ?? null,
       releaseDate: null,
       label: null,
-      genres: songList[0]?.album_genres?.map((g) => g.name).filter(Boolean) ?? [],
+      genres:
+        songList[0]?.album_taxons
+          ?.filter((t) => t.kind_slug === "genre")
+          .map((t) => t.label)
+          .filter(Boolean) ?? [],
       songs: songList as unknown as RemoteSong[],
     };
   };
@@ -343,7 +347,6 @@ export function AlbumDetailView() {
                   {/* genres, tags, and links — collapsed to 2 lines on narrow screens */}
                   <Show
                     when={
-                      (songs()[0]?.album_genres?.length ?? 0) > 0 ||
                       (songs()[0]?.album_taxons?.length ?? 0) > 0 ||
                       (songs()[0]?.album_tags?.length ?? 0) > 0 ||
                       (albumQuery.data?.urls?.length ?? 0) > 0
@@ -365,13 +368,17 @@ export function AlbumDetailView() {
                           !tagsExpanded() ? "max-h-[3.25rem] overflow-hidden wide:max-h-none" : ""
                         }`}
                       >
-                        <For each={songs()[0]?.album_genres ?? []}>
+                        <For
+                          each={
+                            songs()[0]?.album_taxons?.filter((t) => t.kind_slug === "genre") ?? []
+                          }
+                        >
                           {(genre) => (
                             <button
                               class="px-2 py-0.5 bg-[var(--color-bg-elevated)] text-[var(--color-text-secondary)] rounded-full text-xs transition-colors hover:bg-[var(--color-bg-hover)] cursor-pointer"
                               onClick={() => navigate(buildRoute(`/genres/${genre.id}`))}
                             >
-                              {genre.name}
+                              {genre.label}
                             </button>
                           )}
                         </For>

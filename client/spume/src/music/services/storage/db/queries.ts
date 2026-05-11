@@ -75,13 +75,13 @@ export async function queryAlbums(options?: {
       // genre exists in map - we don't need to use it since we gather from songs
     }
 
-    // gather unique genres from songs in this album (album_genres is GenreRef[])
+    // gather unique genres from songs in this album (filter taxons by kind_slug='genre')
     const genresMap = new Map<string, GenreRef>();
     for (const song of songs) {
-      if (song.album_genres) {
-        song.album_genres.forEach(g => {
-          if (!genresMap.has(g.id)) {
-            genresMap.set(g.id, { id: g.id, name: g.name });
+      if (song.album_taxons) {
+        song.album_taxons.forEach(t => {
+          if (t.kind_slug === "genre" && !genresMap.has(t.id)) {
+            genresMap.set(t.id, { id: t.id, name: t.label });
           }
         });
       }

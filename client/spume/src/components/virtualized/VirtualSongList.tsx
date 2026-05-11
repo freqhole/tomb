@@ -476,7 +476,9 @@ export function VirtualSongList(props: VirtualSongListProps) {
                     <MarqueeText
                       text={
                         [
-                          ...(song.album_genres?.map((g) => g.name) ?? []),
+                          ...(song.album_taxons
+                            ?.filter((t) => t.kind_slug === "genre")
+                            .map((t) => t.label) ?? []),
                           ...(song.album_taxons
                             ?.filter((t) => t.kind_slug !== "genre")
                             .map((t) => `${t.kind_slug}·${t.label}`) ?? []),

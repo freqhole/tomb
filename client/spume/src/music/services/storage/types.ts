@@ -105,8 +105,7 @@ export interface Song {
   album_is_favorite?: boolean; // whether user has favorited the album this song belongs to
   album_rating?: number; // user's rating for the album this song belongs to (1-5)
   album_tags?: string[]; // tags applied to the album this song belongs to
-  album_genres?: GenreRef[]; // genres for the album this song belongs to (array with id+name)
-  album_taxons?: TaxonRef[]; // every taxon linked to this song's album, across all kinds
+  album_taxons?: TaxonRef[]; // every taxon linked to this song's album, across all kinds (filter by kind_slug==='genre' for genres)
   album_images?: ImageMetadata[]; // images associated with the album this song belongs to
   artist_images?: ImageMetadata[]; // images associated with the artist this song belongs to
 
@@ -270,7 +269,7 @@ export interface GenreWithStats {
 
 // database metadata
 export const MUSIC_DB_NAME = "freqhole_music";
-export const MUSIC_DB_VERSION = 11;
+export const MUSIC_DB_VERSION = 12;
 
 // store names
 export const STORE_ARTISTS = "artists";
