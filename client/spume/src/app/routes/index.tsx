@@ -21,6 +21,7 @@ import { ArtistsView } from "../../music/views/ArtistsView";
 import { FavoritesView } from "../../music/views/FavoritesView";
 import { FeedView } from "../../music/views/FeedView";
 import { AggregateFeedView } from "../../music/views/AggregateFeedView";
+import { LibraryView } from "../../library/views/LibraryView";
 import { GenresView } from "../../music/views/GenresView";
 import { PlaylistsView } from "../../music/views/PlaylistsView";
 import { SongsView } from "../../music/views/SongsView";
@@ -110,6 +111,9 @@ export function routes(props: RoutesProps) {
 
         {/* aggregate feed - combines all remotes */}
         <Route path="/feed" component={AggregateFeedView} />
+
+        {/* library - cross-remote albums browser (graph + table) */}
+        <Route path="/library" component={LibraryView} />
 
         {/* radio - works with zero remotes; ?node_id=… can deep-link a peer */}
         <Route path="/radio" component={RadioView} />

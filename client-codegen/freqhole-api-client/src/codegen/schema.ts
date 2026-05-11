@@ -229,9 +229,68 @@ export const AlbumSchema = z.object({
   created_by: z.string().nullish(),
   updated_by: z.string().nullish(),
   created_by_username: z.string().nullish(),
-  updated_by_username: z.string().nullish()
+  updated_by_username: z.string().nullish(),
+  metadata: z.string().nullish(),
+  mb_lookup_status: z.string().nullish(),
+  mb_lookup_at: z.number().nullish(),
+  mb_lookup_by: z.string().nullish()
 });
 export type Album = z.infer<typeof AlbumSchema>;
+
+export const AlbumMetadataSchema = z.object({
+  version: z.number(),
+  musicbrainz: z.object({
+  release_id: z.string().nullish(),
+  release_group_id: z.string().nullish(),
+  match_confirmed_at: z.number().nullish(),
+  match_confirmed_by: z.string().nullish(),
+  candidates: z.array(z.object({
+  release_group_id: z.string(),
+  release_id: z.string().nullish(),
+  title: z.string(),
+  artist: z.string(),
+  first_release_date: z.string().nullish(),
+  track_count: z.number().nullish(),
+  country: z.string().nullish(),
+  primary_type: z.string().nullish(),
+  secondary_types: z.array(z.string()),
+  mb_score: z.number().nullish(),
+  local_confidence: z.number().nullish()
+})),
+  last_query: z.object({
+  artist: z.string(),
+  release: z.string(),
+  tracks: z.number().nullish()
+}).nullish()
+}).nullish(),
+  folksonomy: z.object({
+  musicbrainz: z.object({
+  release_genres: z.array(z.object({
+  name: z.string(),
+  count: z.number()
+})),
+  release_tags: z.array(z.object({
+  name: z.string(),
+  count: z.number()
+})),
+  release_group_genres: z.array(z.object({
+  name: z.string(),
+  count: z.number()
+})),
+  release_group_tags: z.array(z.object({
+  name: z.string(),
+  count: z.number()
+})),
+  fetched_at: z.number().nullish()
+}).nullish()
+}).nullish(),
+  log: z.array(z.object({
+  at: z.number(),
+  step: z.string(),
+  result: z.string()
+}))
+});
+export type AlbumMetadata = z.infer<typeof AlbumMetadataSchema>;
 
 export const AlbumQueryResultSchema = z.object({
   album: z.object({
@@ -263,7 +322,11 @@ export const AlbumQueryResultSchema = z.object({
   created_by: z.string().nullish(),
   updated_by: z.string().nullish(),
   created_by_username: z.string().nullish(),
-  updated_by_username: z.string().nullish()
+  updated_by_username: z.string().nullish(),
+  metadata: z.string().nullish(),
+  mb_lookup_status: z.string().nullish(),
+  mb_lookup_at: z.number().nullish(),
+  mb_lookup_by: z.string().nullish()
 }),
   artist: z.object({
   id: z.string(),
@@ -349,7 +412,11 @@ export const AlbumsQueryResultSchema = z.object({
   created_by: z.string().nullish(),
   updated_by: z.string().nullish(),
   created_by_username: z.string().nullish(),
-  updated_by_username: z.string().nullish()
+  updated_by_username: z.string().nullish(),
+  metadata: z.string().nullish(),
+  mb_lookup_status: z.string().nullish(),
+  mb_lookup_at: z.number().nullish(),
+  mb_lookup_by: z.string().nullish()
 }),
   artist: z.object({
   id: z.string(),
@@ -708,6 +775,13 @@ export const EmptyResponseSchema = z.object({
 });
 export type EmptyResponse = z.infer<typeof EmptyResponseSchema>;
 
+export const EnrichmentLogEntrySchema = z.object({
+  at: z.number(),
+  step: z.string(),
+  result: z.string()
+});
+export type EnrichmentLogEntry = z.infer<typeof EnrichmentLogEntrySchema>;
+
 export const ErrorDetailSchema = z.object({
   error_type: z.string(),
   title: z.string(),
@@ -747,7 +821,11 @@ export const FavoriteAlbumResultSchema = z.object({
   created_by: z.string().nullish(),
   updated_by: z.string().nullish(),
   created_by_username: z.string().nullish(),
-  updated_by_username: z.string().nullish()
+  updated_by_username: z.string().nullish(),
+  metadata: z.string().nullish(),
+  mb_lookup_status: z.string().nullish(),
+  mb_lookup_at: z.number().nullish(),
+  mb_lookup_by: z.string().nullish()
 }),
   artist: z.object({
   id: z.string(),
@@ -915,7 +993,11 @@ export const FavoriteItemSchema = z.union([z.intersection(z.object({
   created_by: z.string().nullish(),
   updated_by: z.string().nullish(),
   created_by_username: z.string().nullish(),
-  updated_by_username: z.string().nullish()
+  updated_by_username: z.string().nullish(),
+  metadata: z.string().nullish(),
+  mb_lookup_status: z.string().nullish(),
+  mb_lookup_at: z.number().nullish(),
+  mb_lookup_by: z.string().nullish()
 }).nullish(),
   genre: z.object({
   id: z.string(),
@@ -994,7 +1076,11 @@ export const FavoriteItemSchema = z.union([z.intersection(z.object({
   created_by: z.string().nullish(),
   updated_by: z.string().nullish(),
   created_by_username: z.string().nullish(),
-  updated_by_username: z.string().nullish()
+  updated_by_username: z.string().nullish(),
+  metadata: z.string().nullish(),
+  mb_lookup_status: z.string().nullish(),
+  mb_lookup_at: z.number().nullish(),
+  mb_lookup_by: z.string().nullish()
 }),
   artist: z.object({
   id: z.string(),
@@ -1228,7 +1314,11 @@ export const FavoriteSongResultSchema = z.object({
   created_by: z.string().nullish(),
   updated_by: z.string().nullish(),
   created_by_username: z.string().nullish(),
-  updated_by_username: z.string().nullish()
+  updated_by_username: z.string().nullish(),
+  metadata: z.string().nullish(),
+  mb_lookup_status: z.string().nullish(),
+  mb_lookup_at: z.number().nullish(),
+  mb_lookup_by: z.string().nullish()
 }).nullish(),
   genre: z.object({
   id: z.string(),
@@ -1417,6 +1507,35 @@ export const FilterSetSchema = z.object({
   exclude: z.array(z.string())
 });
 export type FilterSet = z.infer<typeof FilterSetSchema>;
+
+export const FolksonomyMetadataSchema = z.object({
+  musicbrainz: z.object({
+  release_genres: z.array(z.object({
+  name: z.string(),
+  count: z.number()
+})),
+  release_tags: z.array(z.object({
+  name: z.string(),
+  count: z.number()
+})),
+  release_group_genres: z.array(z.object({
+  name: z.string(),
+  count: z.number()
+})),
+  release_group_tags: z.array(z.object({
+  name: z.string(),
+  count: z.number()
+})),
+  fetched_at: z.number().nullish()
+}).nullish()
+});
+export type FolksonomyMetadata = z.infer<typeof FolksonomyMetadataSchema>;
+
+export const FolksonomyTagSchema = z.object({
+  name: z.string(),
+  count: z.number()
+});
+export type FolksonomyTag = z.infer<typeof FolksonomyTagSchema>;
 
 export const GenreSchema = z.object({
   id: z.string(),
@@ -1779,7 +1898,11 @@ export const ListFavoritesResponseSchema = z.object({
   created_by: z.string().nullish(),
   updated_by: z.string().nullish(),
   created_by_username: z.string().nullish(),
-  updated_by_username: z.string().nullish()
+  updated_by_username: z.string().nullish(),
+  metadata: z.string().nullish(),
+  mb_lookup_status: z.string().nullish(),
+  mb_lookup_at: z.number().nullish(),
+  mb_lookup_by: z.string().nullish()
 }).nullish(),
   genre: z.object({
   id: z.string(),
@@ -1858,7 +1981,11 @@ export const ListFavoritesResponseSchema = z.object({
   created_by: z.string().nullish(),
   updated_by: z.string().nullish(),
   created_by_username: z.string().nullish(),
-  updated_by_username: z.string().nullish()
+  updated_by_username: z.string().nullish(),
+  metadata: z.string().nullish(),
+  mb_lookup_status: z.string().nullish(),
+  mb_lookup_at: z.number().nullish(),
+  mb_lookup_by: z.string().nullish()
 }),
   artist: z.object({
   id: z.string(),
@@ -2103,6 +2230,21 @@ export const MbArtistCreditEntrySchema = z.object({
 });
 export type MbArtistCreditEntry = z.infer<typeof MbArtistCreditEntrySchema>;
 
+export const MbCandidateSchema = z.object({
+  release_group_id: z.string(),
+  release_id: z.string().nullish(),
+  title: z.string(),
+  artist: z.string(),
+  first_release_date: z.string().nullish(),
+  track_count: z.number().nullish(),
+  country: z.string().nullish(),
+  primary_type: z.string().nullish(),
+  secondary_types: z.array(z.string()),
+  mb_score: z.number().nullish(),
+  local_confidence: z.number().nullish()
+});
+export type MbCandidate = z.infer<typeof MbCandidateSchema>;
+
 export const MbCoverArtImageSchema = z.object({
   id: z.string(),
   image_url: z.string(),
@@ -2129,6 +2271,37 @@ export const MbCoverArtThumbnailsSchema = z.object({
 });
 export type MbCoverArtThumbnails = z.infer<typeof MbCoverArtThumbnailsSchema>;
 
+export const MbFolksonomySchema = z.object({
+  release_genres: z.array(z.object({
+  name: z.string(),
+  count: z.number()
+})),
+  release_tags: z.array(z.object({
+  name: z.string(),
+  count: z.number()
+})),
+  release_group_genres: z.array(z.object({
+  name: z.string(),
+  count: z.number()
+})),
+  release_group_tags: z.array(z.object({
+  name: z.string(),
+  count: z.number()
+})),
+  fetched_at: z.number().nullish()
+});
+export type MbFolksonomy = z.infer<typeof MbFolksonomySchema>;
+
+export const MbLastQuerySchema = z.object({
+  artist: z.string(),
+  release: z.string(),
+  tracks: z.number().nullish()
+});
+export type MbLastQuery = z.infer<typeof MbLastQuerySchema>;
+
+export const MbLookupStatusSchema = z.union([z.literal('NotAttempted'), z.literal('Queued'), z.literal('Searching'), z.literal('Candidates'), z.literal('Confirmed'), z.literal('Rejected'), z.literal('NoMatch'), z.literal('NeedsReview'), z.literal('FetchingDetail'), z.literal('Enriched'), z.literal('Error')]);
+export type MbLookupStatus = z.infer<typeof MbLookupStatusSchema>;
+
 export const MbMediumDetailSchema = z.object({
   position: z.number().nullish(),
   title: z.string().nullish(),
@@ -2145,6 +2318,32 @@ export const MbMediumDetailSchema = z.object({
   track_count: z.number()
 });
 export type MbMediumDetail = z.infer<typeof MbMediumDetailSchema>;
+
+export const MbMetadataSchema = z.object({
+  release_id: z.string().nullish(),
+  release_group_id: z.string().nullish(),
+  match_confirmed_at: z.number().nullish(),
+  match_confirmed_by: z.string().nullish(),
+  candidates: z.array(z.object({
+  release_group_id: z.string(),
+  release_id: z.string().nullish(),
+  title: z.string(),
+  artist: z.string(),
+  first_release_date: z.string().nullish(),
+  track_count: z.number().nullish(),
+  country: z.string().nullish(),
+  primary_type: z.string().nullish(),
+  secondary_types: z.array(z.string()),
+  mb_score: z.number().nullish(),
+  local_confidence: z.number().nullish()
+})),
+  last_query: z.object({
+  artist: z.string(),
+  release: z.string(),
+  tracks: z.number().nullish()
+}).nullish()
+});
+export type MbMetadata = z.infer<typeof MbMetadataSchema>;
 
 export const MbReleaseDetailSchema = z.object({
   id: z.string(),
@@ -2526,7 +2725,11 @@ export const PlaylistSongResultSchema = z.object({
   created_by: z.string().nullish(),
   updated_by: z.string().nullish(),
   created_by_username: z.string().nullish(),
-  updated_by_username: z.string().nullish()
+  updated_by_username: z.string().nullish(),
+  metadata: z.string().nullish(),
+  mb_lookup_status: z.string().nullish(),
+  mb_lookup_at: z.number().nullish(),
+  mb_lookup_by: z.string().nullish()
 }).nullish(),
   genre: z.object({
   id: z.string(),
@@ -2660,7 +2863,11 @@ export const PlaylistSongsQueryResultSchema = z.object({
   created_by: z.string().nullish(),
   updated_by: z.string().nullish(),
   created_by_username: z.string().nullish(),
-  updated_by_username: z.string().nullish()
+  updated_by_username: z.string().nullish(),
+  metadata: z.string().nullish(),
+  mb_lookup_status: z.string().nullish(),
+  mb_lookup_at: z.number().nullish(),
+  mb_lookup_by: z.string().nullish()
 }).nullish(),
   genre: z.object({
   id: z.string(),
@@ -3499,7 +3706,11 @@ export const SongQueryResultSchema = z.object({
   created_by: z.string().nullish(),
   updated_by: z.string().nullish(),
   created_by_username: z.string().nullish(),
-  updated_by_username: z.string().nullish()
+  updated_by_username: z.string().nullish(),
+  metadata: z.string().nullish(),
+  mb_lookup_status: z.string().nullish(),
+  mb_lookup_at: z.number().nullish(),
+  mb_lookup_by: z.string().nullish()
 }).nullish(),
   genre: z.object({
   id: z.string(),
@@ -3651,7 +3862,11 @@ export const SongsQueryResultSchema = z.object({
   created_by: z.string().nullish(),
   updated_by: z.string().nullish(),
   created_by_username: z.string().nullish(),
-  updated_by_username: z.string().nullish()
+  updated_by_username: z.string().nullish(),
+  metadata: z.string().nullish(),
+  mb_lookup_status: z.string().nullish(),
+  mb_lookup_at: z.number().nullish(),
+  mb_lookup_by: z.string().nullish()
 }).nullish(),
   genre: z.object({
   id: z.string(),
@@ -4137,7 +4352,11 @@ export const UpdateSongsResultSchema = z.object({
   created_by: z.string().nullish(),
   updated_by: z.string().nullish(),
   created_by_username: z.string().nullish(),
-  updated_by_username: z.string().nullish()
+  updated_by_username: z.string().nullish(),
+  metadata: z.string().nullish(),
+  mb_lookup_status: z.string().nullish(),
+  mb_lookup_at: z.number().nullish(),
+  mb_lookup_by: z.string().nullish()
 }).nullish(),
   genre: z.object({
   id: z.string(),

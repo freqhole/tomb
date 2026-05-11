@@ -3,6 +3,7 @@
 //! request/response types for music-specific job processors
 
 use serde::{Deserialize, Serialize};
+use zod_gen_derive::ZodSchema;
 
 /// parameters for directory scan jobs
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -66,4 +67,57 @@ pub struct ScanJobCreatedResponse {
 pub struct ProcessJobCreatedResponse {
     pub job_id: String,
     pub file_path: String,
+}
+
+// =============================================================================
+// musicbrainz album search
+// =============================================================================
+
+/// parameters for a single `JobType::MbAlbumSearch` job. one job covers one
+/// album so the queue can be checkpointed/retried per-row and the existing
+/// jobs status endpoint surfaces granular progress.
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct MbAlbumSearchParams {
+    pub album_id: String,
+    /// optional admin override for the artist string sent to the search api;
+    /// when None, the processor derives it from the artist_albumz join.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub artist_override: Option<String>,
+    /// optional admin override for the release/title string sent to the search
+    /// api; when None, uses `albumz.title`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title_override: Option<String>,
+    /// auto-confirm the top hit when local_confidence >= this threshold (0..1).
+    /// `None` means never auto-confirm (default behaviour).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auto_confirm_threshold: Option<f64>,
+}
+
+/// result summary written into the job's `result` column on success.
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct MbAlbumSearchResult {
+    pub album_id: String,
+    pub candidate_count: u64,
+    pub top_local_confidence: Option<f64>,
+    pub auto_confirmed_release_id: Option<String>,
+    pub final_status: String,
+}
+
+/// request body for the bulk-enqueue offal endpoint. accepts a list of album
+/// ids (e.g. the current selection or filter result from the library view).
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct EnqueueMbAlbumSearchRequest {
+    pub album_ids: Vec<String>,
+    /// auto-confirm threshold passed through to every spawned job. None to
+    /// keep results unconfirmed for review.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auto_confirm_threshold: Option<f64>,
+}
+
+/// response from the bulk-enqueue endpoint. one job id per album that was
+/// successfully scheduled.
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct EnqueueMbAlbumSearchResponse {
+    pub job_ids: Vec<String>,
+    pub skipped_album_ids: Vec<String>,
 }

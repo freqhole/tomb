@@ -338,6 +338,10 @@ export class RemoteMusicDataSource implements MusicDataSource {
           updated_at: item.album.updated_at,
           created_by_username: item.album.created_by_username ?? undefined,
           updated_by_username: item.album.updated_by_username ?? undefined,
+          metadata: item.album.metadata ?? null,
+          mb_lookup_status: item.album.mb_lookup_status ?? null,
+          mb_lookup_at: item.album.mb_lookup_at ?? null,
+          mb_lookup_by: item.album.mb_lookup_by ?? null,
         };
       }),
       total: result.data.total_count,

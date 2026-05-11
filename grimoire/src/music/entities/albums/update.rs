@@ -115,6 +115,10 @@ pub async fn update_album(req: UpdateAlbumRequest) -> GrimoireResponse<Album> {
             updated_by_username: None,
             images: None,
             urls: None,
+            metadata: None,
+            mb_lookup_status: None,
+            mb_lookup_at: None,
+            mb_lookup_by: None,
         },
         Ok(None) => {
             return GrimoireResponse::failure(

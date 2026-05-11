@@ -20,6 +20,9 @@ pub enum JobType {
     // upload processing
     ConvertWebp,
     ImportMusic,
+
+    // musicbrainz enrichment
+    MbAlbumSearch,
 }
 
 /// job status lifecycle

@@ -1492,6 +1492,7 @@ mod tests {
             server: None,
             federation: None,
             radio: None,
+            client: None,
             loaded_from: None,
         };
 
@@ -1532,6 +1533,7 @@ mod tests {
             server: None,
             federation: None,
             radio: None,
+            client: None,
             loaded_from: None,
         };
 
@@ -1570,6 +1572,7 @@ mod tests {
             server: None,
             federation: None,
             radio: None,
+            client: None,
             loaded_from: None,
         };
 

@@ -19,6 +19,10 @@ SELECT
     al.updated_by as album_updated_by,
     ucb_album.username as album_created_by_username,
     uub_album.username as album_updated_by_username,
+    al.metadata as album_metadata,
+    al.mb_lookup_status as album_mb_lookup_status,
+    al.mb_lookup_at as album_mb_lookup_at,
+    al.mb_lookup_by as album_mb_lookup_by,
 
     -- genres as JSON array of objects with id and name
     COALESCE(

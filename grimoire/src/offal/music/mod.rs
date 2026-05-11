@@ -116,6 +116,9 @@ pub async fn dispatch(
         "/api/jobs/list" => Some(jobs::list(caller, body.clone()).await),
         "/api/music/fetch" => Some(jobs::create_fetch(caller, body.clone()).await),
         "/api/music/fetch/status" => Some(jobs::get_fetch(caller, body.clone()).await),
+        "/api/music/albums/mb-search/enqueue" => {
+            Some(jobs::enqueue_mb_album_search(caller, body.clone()).await)
+        }
 
         // search
         "/api/music/search" => Some(search::search_handler(caller, body.clone()).await),

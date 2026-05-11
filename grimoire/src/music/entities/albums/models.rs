@@ -34,6 +34,13 @@ pub struct Album {
     pub updated_by: Option<String>,
     pub created_by_username: Option<String>,
     pub updated_by_username: Option<String>,
+    /// raw json blob; parse via `crate::music::entities::albums::metadata::parse`
+    pub metadata: Option<String>,
+    /// musicbrainz lookup status as plain text; parse via
+    /// `crate::music::entities::albums::metadata::MbLookupStatus::parse_opt`
+    pub mb_lookup_status: Option<String>,
+    pub mb_lookup_at: Option<i64>,
+    pub mb_lookup_by: Option<String>,
 }
 
 /// request for creating a new album

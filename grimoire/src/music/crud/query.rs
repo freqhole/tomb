@@ -298,6 +298,10 @@ impl SongViewRow {
                 updated_by: self.album_updated_by,
                 created_by_username: None,
                 updated_by_username: None,
+                metadata: None,
+                mb_lookup_status: None,
+                mb_lookup_at: None,
+                mb_lookup_by: None,
             })
         } else {
             None
@@ -493,6 +497,10 @@ pub struct AlbumViewRow {
     album_images: Option<String>, // JSON array from view
     album_tags: Option<String>,   // JSON array of tag names from view
     album_urls: Option<String>,   // JSON array of entity URLs from view
+    album_metadata: Option<String>, // raw json blob (parse via albums::metadata)
+    album_mb_lookup_status: Option<String>,
+    album_mb_lookup_at: Option<i64>,
+    album_mb_lookup_by: Option<String>,
     artist_id: Option<String>,
     artist_name: Option<String>,
     artist_images: Option<String>, // JSON array from view
@@ -596,6 +604,10 @@ impl AlbumViewRow {
             updated_by: self.album_updated_by,
             created_by_username: self.album_created_by_username,
             updated_by_username: self.album_updated_by_username,
+            metadata: self.album_metadata,
+            mb_lookup_status: self.album_mb_lookup_status,
+            mb_lookup_at: self.album_mb_lookup_at,
+            mb_lookup_by: self.album_mb_lookup_by,
         };
 
         let artist = if self.artist_id.is_some() {

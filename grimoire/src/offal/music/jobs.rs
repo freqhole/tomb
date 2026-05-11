@@ -51,6 +51,15 @@ pub const ROUTES: &[RouteInfo] = &[
         response_type: "JobResponse",
         auth: RouteAuth::Authenticated,
     },
+    RouteInfo {
+        name: "enqueue_mb_album_search",
+        path: "/api/music/albums/mb-search/enqueue",
+        method: Method::POST,
+        domain: Domain::Music,
+        request_type: "EnqueueMbAlbumSearchRequest",
+        response_type: "EnqueueMbAlbumSearchResponse",
+        auth: RouteAuth::Role(UserRole::Admin),
+    },
 ];
 
 /// get status of multiple jobs
@@ -172,4 +181,74 @@ pub async fn get_fetch(_caller: &Caller, body: JsonValue) -> GrimoireResponse<Js
 
     let response = get_job(&req.job_id).await;
     response.map(|job| serde_json::to_value(crate::jobs::JobResponse::from(job)).unwrap())
+}
+
+/// enqueue a `MbAlbumSearch` job per album id. admin only.
+///
+/// path: POST /api/music/albums/mb-search/enqueue
+pub async fn enqueue_mb_album_search(
+    caller: &Caller,
+    body: JsonValue,
+) -> GrimoireResponse<JsonValue> {
+    if !caller.is_admin() {
+        return GrimoireResponse::failure(
+            "forbidden",
+            vec![ErrorDetail::new("forbidden", "forbidden", "admin only")],
+        );
+    }
+
+    let req: crate::jobs::EnqueueMbAlbumSearchRequest = match serde_json::from_value(body) {
+        Ok(r) => r,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "bad request",
+                vec![ErrorDetail::new(
+                    "bad_request",
+                    "bad request",
+                    &e.to_string(),
+                )],
+            )
+        }
+    };
+
+    let mut job_ids: Vec<String> = Vec::with_capacity(req.album_ids.len());
+    let mut skipped: Vec<String> = Vec::new();
+
+    for album_id in &req.album_ids {
+        let params = crate::jobs::MbAlbumSearchParams {
+            album_id: album_id.clone(),
+            artist_override: None,
+            title_override: None,
+            auto_confirm_threshold: req.auto_confirm_threshold,
+        };
+        let parameters = match serde_json::to_value(&params) {
+            Ok(v) => v,
+            Err(_) => {
+                skipped.push(album_id.clone());
+                continue;
+            }
+        };
+        let job_request = CreateJobRequest {
+            job_type: JobType::MbAlbumSearch,
+            session_id: None,
+            parameters,
+            max_retries: Some(2),
+            scheduled_at: None,
+            created_by: Some(caller.user_id.clone()),
+        };
+        let resp = create_job(job_request).await;
+        match resp.data {
+            Some(j) => job_ids.push(j.id),
+            None => skipped.push(album_id.clone()),
+        }
+    }
+
+    let body = crate::jobs::EnqueueMbAlbumSearchResponse {
+        job_ids,
+        skipped_album_ids: skipped,
+    };
+    GrimoireResponse::success(
+        "mb album search enqueued",
+        serde_json::to_value(body).unwrap(),
+    )
 }

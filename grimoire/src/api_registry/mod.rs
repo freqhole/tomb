@@ -148,6 +148,10 @@ pub mod type_registry {
     };
 
     // upload types
+    use crate::music::entities::albums::metadata::{
+        AlbumMetadata, EnrichmentLogEntry, FolksonomyMetadata, FolksonomyTag, MbCandidate,
+        MbFolksonomy, MbLastQuery, MbLookupStatus, MbMetadata,
+    };
     use crate::music::entities::albums::{Album, GenreRef, UpdateAlbumRequest};
     use crate::music::entities::artists::{Artist, CreateArtistRequest, UpdateArtistRequest};
     use crate::music::entities::genres::Genre;
@@ -584,6 +588,36 @@ pub mod type_registry {
 
         gen.add_schema::<Album>("Album");
         registered.insert("Album".to_string());
+
+        // album metadata blob types — single source of truth.
+        gen.add_schema::<MbLookupStatus>("MbLookupStatus");
+        registered.insert("MbLookupStatus".to_string());
+        gen.add_schema::<FolksonomyTag>("FolksonomyTag");
+        registered.insert("FolksonomyTag".to_string());
+        gen.add_schema::<MbCandidate>("MbCandidate");
+        registered.insert("MbCandidate".to_string());
+        gen.add_schema::<MbLastQuery>("MbLastQuery");
+        registered.insert("MbLastQuery".to_string());
+        gen.add_schema::<MbFolksonomy>("MbFolksonomy");
+        registered.insert("MbFolksonomy".to_string());
+        gen.add_schema::<MbMetadata>("MbMetadata");
+        registered.insert("MbMetadata".to_string());
+        gen.add_schema::<FolksonomyMetadata>("FolksonomyMetadata");
+        registered.insert("FolksonomyMetadata".to_string());
+        gen.add_schema::<EnrichmentLogEntry>("EnrichmentLogEntry");
+        registered.insert("EnrichmentLogEntry".to_string());
+        gen.add_schema::<AlbumMetadata>("AlbumMetadata");
+        registered.insert("AlbumMetadata".to_string());
+
+        // mb album-search job request/response (phase 5)
+        gen.add_schema::<crate::jobs::MbAlbumSearchParams>("MbAlbumSearchParams");
+        registered.insert("MbAlbumSearchParams".to_string());
+        gen.add_schema::<crate::jobs::MbAlbumSearchResult>("MbAlbumSearchResult");
+        registered.insert("MbAlbumSearchResult".to_string());
+        gen.add_schema::<crate::jobs::EnqueueMbAlbumSearchRequest>("EnqueueMbAlbumSearchRequest");
+        registered.insert("EnqueueMbAlbumSearchRequest".to_string());
+        gen.add_schema::<crate::jobs::EnqueueMbAlbumSearchResponse>("EnqueueMbAlbumSearchResponse");
+        registered.insert("EnqueueMbAlbumSearchResponse".to_string());
 
         gen.add_schema::<GenreRef>("GenreRef");
         registered.insert("GenreRef".to_string());

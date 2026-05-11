@@ -72,6 +72,13 @@ export interface AlbumSummary {
   updated_at?: number;
   created_by_username?: string;
   updated_by_username?: string;
+  /** raw json string from `albumz.metadata`. parse with `parseAlbumMetadata`
+   *  from `library/data/albumMetadata` to get the typed shape. */
+  metadata?: string | null;
+  /** raw musicbrainz lookup status string. parse with `parseMbLookupStatus`. */
+  mb_lookup_status?: string | null;
+  mb_lookup_at?: number | null;
+  mb_lookup_by?: string | null;
 }
 
 // artist summary data for lists

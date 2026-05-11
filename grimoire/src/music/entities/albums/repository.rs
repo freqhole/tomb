@@ -73,6 +73,10 @@ pub async fn create_album(req: CreateAlbumRequest) -> GrimoireResponse<Album> {
         updated_by: req.created_by,
         created_by_username: None,
         updated_by_username: None,
+        metadata: None,
+        mb_lookup_status: None,
+        mb_lookup_at: None,
+        mb_lookup_by: None,
     };
 
     GrimoireResponse::success("album created successfully", album)
@@ -112,7 +116,11 @@ pub async fn list_albums(limit: Option<u32>, offset: Option<u32>) -> GrimoireRes
             album_created_by_username as "created_by_username?",
             album_updated_by_username as "updated_by_username?",
             album_images as "images: JsonVec<ImageMetadata>",
-            NULL as "urls: JsonVec<EntityUrl>"
+            NULL as "urls: JsonVec<EntityUrl>",
+            album_metadata as "metadata?",
+            album_mb_lookup_status as "mb_lookup_status?",
+            album_mb_lookup_at as "mb_lookup_at?",
+            album_mb_lookup_by as "mb_lookup_by?"
            FROM album_query_view
            ORDER BY album_title ASC
            LIMIT ? OFFSET ?"#,
@@ -164,7 +172,11 @@ pub async fn get_album(id: &str) -> GrimoireResponse<Album> {
             album_created_by_username as "created_by_username?",
             album_updated_by_username as "updated_by_username?",
             album_images as "images: JsonVec<ImageMetadata>",
-            NULL as "urls: JsonVec<EntityUrl>"
+            NULL as "urls: JsonVec<EntityUrl>",
+            album_metadata as "metadata?",
+            album_mb_lookup_status as "mb_lookup_status?",
+            album_mb_lookup_at as "mb_lookup_at?",
+            album_mb_lookup_by as "mb_lookup_by?"
            FROM album_query_view
            WHERE album_id = ?"#,
         id
@@ -183,6 +195,192 @@ pub async fn get_album(id: &str) -> GrimoireResponse<Album> {
     };
 
     GrimoireResponse::success("album retrieved successfully", album)
+}
+
+/// read and parse the metadata blob for an album.
+///
+/// returns the parsed `AlbumMetadata` (default if the row has NULL/empty
+/// metadata or if parsing fails — failures are logged via `tracing::warn`).
+pub async fn read_album_metadata(
+    id: &str,
+) -> GrimoireResponse<super::metadata::AlbumMetadata> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "failed to connect to database",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
+
+    let raw = match sqlx::query_scalar!(
+        r#"SELECT metadata FROM albumz WHERE id = ? AND deleted_at IS NULL"#,
+        id
+    )
+    .fetch_optional(&pool)
+    .await
+    {
+        Ok(Some(raw)) => raw,
+        Ok(None) => {
+            let err = GrimoireError::AlbumNotFound { id: id.to_string() };
+            return GrimoireResponse::failure("album not found", vec![ErrorDetail::from(&err)]);
+        }
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "failed to read album metadata",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
+
+    let parsed = match super::metadata::parse(raw.as_deref()) {
+        Ok(m) => m,
+        Err(e) => {
+            tracing::warn!(
+                "album {} metadata is malformed json; returning default ({})",
+                id,
+                e
+            );
+            super::metadata::AlbumMetadata::default()
+        }
+    };
+
+    GrimoireResponse::success("album metadata retrieved", parsed)
+}
+
+/// deep-merge a json patch into an album's metadata blob.
+///
+/// reads the current blob, deep-merges the patch (objects merge recursively;
+/// arrays in the patch REPLACE arrays in the base), and writes the result
+/// back. always sets `version = CURRENT_VERSION`. concurrent writers from
+/// different jobs that touch different sub-trees compose cleanly.
+pub async fn merge_album_metadata(
+    id: &str,
+    patch: &serde_json::Value,
+) -> GrimoireResponse<super::metadata::AlbumMetadata> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "failed to connect to database",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
+
+    // read current
+    let raw = match sqlx::query_scalar!(
+        r#"SELECT metadata FROM albumz WHERE id = ? AND deleted_at IS NULL"#,
+        id
+    )
+    .fetch_optional(&pool)
+    .await
+    {
+        Ok(Some(raw)) => raw,
+        Ok(None) => {
+            let err = GrimoireError::AlbumNotFound { id: id.to_string() };
+            return GrimoireResponse::failure("album not found", vec![ErrorDetail::from(&err)]);
+        }
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "failed to read album metadata for merge",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
+
+    let base = super::metadata::parse(raw.as_deref()).unwrap_or_default();
+    let merged = match super::metadata::merge_patch(&base, patch) {
+        Ok(m) => m,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "failed to merge album metadata patch",
+                vec![ErrorDetail::new(
+                    "metadata_merge_failed",
+                    "Bad Patch",
+                    &e.to_string(),
+                )],
+            )
+        }
+    };
+
+    let serialized = match super::metadata::to_string(&merged) {
+        Ok(s) => s,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "failed to serialize merged album metadata",
+                vec![ErrorDetail::new(
+                    "metadata_serialize_failed",
+                    "Serialization Error",
+                    &e.to_string(),
+                )],
+            )
+        }
+    };
+
+    if let Err(e) = sqlx::query!(
+        r#"UPDATE albumz SET metadata = ?, updated_at = unixepoch() WHERE id = ?"#,
+        serialized,
+        id
+    )
+    .execute(&pool)
+    .await
+    {
+        return GrimoireResponse::failure(
+            "failed to write merged album metadata",
+            vec![ErrorDetail::from(e)],
+        );
+    }
+
+    GrimoireResponse::success("album metadata merged", merged)
+}
+
+/// update the `mb_lookup_status` tracking column.
+///
+/// `user_id = None` means the change was driven by an automated job; `Some`
+/// records which admin made the change (used by the audit/log surface). also
+/// stamps `mb_lookup_at = now`.
+pub async fn update_mb_lookup_status(
+    id: &str,
+    status: super::metadata::MbLookupStatus,
+    user_id: Option<&str>,
+) -> GrimoireResponse<()> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "failed to connect to database",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
+
+    let status_str = status.as_str();
+    let now = time::OffsetDateTime::now_utc().unix_timestamp();
+    let result = sqlx::query!(
+        r#"UPDATE albumz
+           SET mb_lookup_status = ?, mb_lookup_at = ?, mb_lookup_by = ?
+           WHERE id = ? AND deleted_at IS NULL"#,
+        status_str,
+        now,
+        user_id,
+        id
+    )
+    .execute(&pool)
+    .await;
+
+    match result {
+        Ok(r) if r.rows_affected() == 0 => {
+            let err = GrimoireError::AlbumNotFound { id: id.to_string() };
+            GrimoireResponse::failure("album not found", vec![ErrorDetail::from(&err)])
+        }
+        Ok(_) => GrimoireResponse::success("mb lookup status updated", ()),
+        Err(e) => GrimoireResponse::failure(
+            "failed to update mb lookup status",
+            vec![ErrorDetail::from(e)],
+        ),
+    }
 }
 
 /// soft delete an album

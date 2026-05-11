@@ -346,6 +346,10 @@ impl PlaylistSongViewRow {
                 updated_by: self.album_updated_by,
                 created_by_username: None,
                 updated_by_username: None,
+                metadata: None,
+                mb_lookup_status: None,
+                mb_lookup_at: None,
+                mb_lookup_by: None,
             })
         } else {
             None

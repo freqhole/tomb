@@ -66,6 +66,7 @@ export const routes = {
   settings: () => "/settings",
   settingsStorage: () => "/settings/storage",
   shared: () => "/shared",
+  library: () => "/library",
   remotes: () => buildRoute("/remotes"),
   favorites: () => buildRoute("/favorites"),
 };
@@ -94,7 +95,7 @@ export function getDefaultRoute(remoteId?: string): string {
 }
 
 /** parameterless view route keys */
-const VIEW_KEYS = ["feed", "songs", "albums", "artists", "playlists", "genres", "favorites", "search", "remotes", "settings", "shared"] as const;
+const VIEW_KEYS = ["feed", "songs", "albums", "artists", "playlists", "genres", "favorites", "search", "remotes", "settings", "shared", "library"] as const;
 
 export type RouteKey = (typeof VIEW_KEYS)[number];
 
@@ -110,6 +111,7 @@ export function matchRoute(path: string): RouteKey | null {
   // check settings first (top-level route)
   if (pathname.startsWith("/settings")) return "settings";
   if (pathname.startsWith("/shared")) return "shared";
+  if (pathname.startsWith("/library")) return "library";
   
   // check each view key - exact match or detail view (starts with route + /)
   for (const key of VIEW_KEYS) {

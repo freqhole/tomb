@@ -11,6 +11,7 @@
 mod directory_tag_rules;
 mod fetch_processor;
 mod file_processor;
+mod mb_album_search_processor;
 mod models;
 mod rescan_processor;
 mod scan_processor;
@@ -20,14 +21,16 @@ mod upload_processors;
 // re-export public processor functions
 pub use fetch_processor::process_fetch_media_job;
 pub use file_processor::process_file_job;
+pub use mb_album_search_processor::process_mb_album_search_job;
 pub use rescan_processor::process_rescan_directories_job;
 pub use scan_processor::process_scan_directory_job;
 pub use upload_processors::{process_convert_webp_job, process_import_music_job};
 
 // re-export music job models
 pub use models::{
-    ProcessFileParams, ProcessFileResult, ProcessJobCreatedResponse, ScanDirectoryParams,
-    ScanDirectoryResult, ScanJobCreatedResponse,
+    EnqueueMbAlbumSearchRequest, EnqueueMbAlbumSearchResponse, MbAlbumSearchParams,
+    MbAlbumSearchResult, ProcessFileParams, ProcessFileResult, ProcessJobCreatedResponse,
+    ScanDirectoryParams, ScanDirectoryResult, ScanJobCreatedResponse,
 };
 
 // re-export scanned directories

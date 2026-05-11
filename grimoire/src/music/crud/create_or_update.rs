@@ -687,6 +687,10 @@ pub async fn get_current_album_for_song(song_id: &str) -> GrimoireResult<Option<
             updated_by: row.updated_by,
             created_by_username: None,
             updated_by_username: None,
+            metadata: None,
+            mb_lookup_status: None,
+            mb_lookup_at: None,
+            mb_lookup_by: None,
         }))
     } else {
         Ok(None)
@@ -854,6 +858,10 @@ pub async fn find_or_create_album_for_artist(
                 updated_by: row.updated_by,
                 created_by_username: None,
                 updated_by_username: None,
+                metadata: None,
+                mb_lookup_status: None,
+                mb_lookup_at: None,
+                mb_lookup_by: None,
             },
             false,
         ))
