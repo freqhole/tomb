@@ -144,7 +144,7 @@ export function LibraryView() {
   return (
     <div class="flex flex-col h-full">
       {/* header — leaves room on the left for the floating topnav button */}
-      <div class="flex items-center justify-between gap-4 px-4 pt-3 pb-2 wide:pl-[140px] flex-wrap">
+      <div class="flex items-center justify-end gap-4 px-4 pt-3 pb-2 wide:pl-[140px] flex-wrap">
         <div class="flex items-center gap-2">
           <MbProgressStrip />
         </div>
