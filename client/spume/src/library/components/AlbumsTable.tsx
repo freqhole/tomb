@@ -734,7 +734,7 @@ function AutoConfirmModal(props: AutoConfirmModalProps) {
           the auto-confirm action picks the top musicbrainz candidate for each album in the current
           filter and confirms it whenever both thresholds are met. albums that don't have
           candidates, or whose status is outside <code>candidates</code> / <code>needs_review</code>
-          , are skipped server-side.
+          , are skipped.
         </p>
         <div class="flex items-center gap-3">
           <label class="flex items-center gap-2 flex-1">
