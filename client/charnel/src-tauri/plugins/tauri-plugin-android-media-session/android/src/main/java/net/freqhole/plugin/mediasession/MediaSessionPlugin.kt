@@ -337,7 +337,7 @@ class MediaSessionPlugin(private val activity: Activity) : Plugin(activity) {
         // coalesce: skip rebuild + service-restart if nothing material
         // changed since last time. without this, every JS-side state
         // tick (setMetadata, setPlaybackState, setPosition with duration)
-        // restarts the foreground service \u2014 we observed 28 onStartCommand
+        // restarts the foreground service - we observed 28 onStartCommand
         // calls in 5 minutes, several within 5ms of each other, which
         // causes service-binder thrash and contributed to a webview crash.
         // coalesce: skip rebuild + service-restart if nothing material

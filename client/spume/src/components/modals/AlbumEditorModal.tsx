@@ -204,15 +204,17 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
   let taxonsHandle: AlbumTaxonsEditorHandle | undefined;
   const [taxonsDirty, setTaxonsDirty] = createSignal(false);
 
-  // helper to sync form state from query data
+  // helper to sync form state from query data. songs are best-effort -
+  // when an album has no songs (or the songs query hasn't resolved yet
+  // for a review-mode album), we still initialize so the modal renders
+  // instead of staying stuck on "loading...".
   const syncFormFromData = (album: NonNullable<typeof albumQuery.data>, songs: Song[]) => {
     const firstSong = songs[0];
-    if (!firstSong) return;
 
     const data: FormData = {
       title: album.title || "",
-      artist_id: firstSong.artist_id,
-      artist_name: firstSong.artist_name || "",
+      artist_id: firstSong?.artist_id,
+      artist_name: firstSong?.artist_name || "",
       album_type: album.album_type || "album",
       uploaded_blob_id: null,
     };
@@ -224,9 +226,12 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
   // guarded by loadedAlbumId to prevent refetchOnWindowFocus from wiping unsaved edits
   createEffect(() => {
     const album = albumQuery.data;
-    const songs = songsQuery.data?.items;
-    // reinitialize if this is a different album or first load
-    if (album && songs && songs.length > 0 && loadedAlbumId() !== props.albumId) {
+    const songs = songsQuery.data?.items ?? [];
+    // reinitialize if this is a different album or first load.
+    // we no longer wait for songs.length > 0 - albums with zero songs
+    // (or while the songs query is still in flight) used to leave the
+    // modal stuck on "loading..." indefinitely.
+    if (album && loadedAlbumId() !== props.albumId) {
       syncFormFromData(album, songs);
 
       // sync images
@@ -707,7 +712,7 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
             <span class="font-mono">
               {reviewIndex() + 1} / {reviewTotal()}
             </span>
-            <span class="text-[var(--color-text-tertiary)]">\u2014</span>
+            <span class="text-[var(--color-text-tertiary)]">-</span>
             <span class="truncate text-[var(--color-text-primary)]">
               {formData().title || albumQuery.data?.title || ""}
             </span>

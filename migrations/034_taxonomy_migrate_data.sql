@@ -8,7 +8,7 @@
 --     SELECT id FROM taxon_kindz WHERE slug IN ('genre','label')
 --   );
 --
--- nothing here is dropped \u2014 old tables / columns survive until
+-- nothing here is dropped - old tables / columns survive until
 -- `036_taxonomy_drop_old.sql`.
 
 -- step 1: copy every (non-deleted) genre into taxonz under

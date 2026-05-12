@@ -27,17 +27,23 @@ pub enum JobType {
 
     // last.fm enrichment
     LastFmAlbumDetail,
+    LastFmArtistDetail,
 
     // theaudiodb enrichment
     AudioDbAlbumDetail,
+    AudioDbArtistDetail,
 
     // bulk multi-source enrichment orchestrator (phase 14.4)
     AlbumEnrichmentPipeline,
 }
 
 /// external enrichment sources the pipeline can run against.
+///
+/// NOTE: variants serialize as PascalCase ("Mb" / "Lastfm" / "Audiodb")
+/// to match the zod codegen output (which doesn't honor `#[serde(rename_all)]`).
+/// internal string keys (db, log lines, source-status maps) use the
+/// lowercase form returned by `as_str()`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, ZodSchema)]
-#[serde(rename_all = "snake_case")]
 pub enum EnrichmentSource {
     Mb,
     Lastfm,

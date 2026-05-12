@@ -73,7 +73,7 @@ pub async fn update_album(req: UpdateAlbumRequest) -> GrimoireResponse<Album> {
     };
 
     // verify album exists (including deleted ones). label/release_date
-    // no longer live on `albumz` (migration 039) \u2014 source them from the
+    // no longer live on `albumz` (migration 039) - source them from the
     // album_query_view so callers still get the synthesized values.
     let existing_album = match sqlx::query!(
         r#"SELECT

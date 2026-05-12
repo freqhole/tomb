@@ -17,7 +17,8 @@
 use crate::config;
 use crate::jobs::models::{Job, JobError};
 use crate::jobs::{
-    create_job, AudioDbAlbumDetailParams, CreateJobRequest, JobType, LastFmAlbumDetailParams,
+    create_job, AudioDbAlbumDetailParams, AudioDbArtistDetailParams, CreateJobRequest, JobType,
+    LastFmAlbumDetailParams, LastFmArtistDetailParams,
 };
 use crate::music::entities::albums as albums_repo;
 use crate::music::entities::albums::metadata::{self, FolksonomyTag, MbFolksonomy, MbLookupStatus};
@@ -404,6 +405,124 @@ async fn chain_external_enrichment(job: &Job, album_id: &str, release_group_id: 
                 }
             }
             Err(e) => warn!("mb-detail chain: serialize audiodb params: {}", e),
+        }
+    }
+
+    // phase 13h — also enqueue artist-detail jobs for the album's
+    // primary artist. lastfm fires unconditionally (its lookup tolerates
+    // a missing mbid via text search); audiodb only fires when the
+    // artist already has a stored mbid (its text fallback is weaker and
+    // we don't want to burn its tighter daily quota on long-shot misses).
+    chain_artist_enrichment(job, album_id).await;
+}
+
+async fn chain_artist_enrichment(job: &Job, album_id: &str) {
+    let cfg = config::get_config();
+    if !cfg.lastfm.enabled && !cfg.audiodb.enabled {
+        return;
+    }
+
+    let pool = match crate::database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            warn!("mb-detail chain: db connect for artist lookup failed: {}", e);
+            return;
+        }
+    };
+
+    let row = match sqlx::query!(
+        r#"SELECT
+            ar.id as "id!",
+            ar.name as "name!",
+            CAST(json_extract(ar.metadata, '$.musicbrainz.artist_mbid') AS TEXT) as "artist_mbid?: String"
+           FROM artist_albumz aa
+           JOIN artistz ar ON ar.id = aa.artist_id
+           WHERE aa.album_id = ? AND ar.deleted_at IS NULL
+           LIMIT 1"#,
+        album_id
+    )
+    .fetch_optional(&pool)
+    .await
+    {
+        Ok(Some(r)) => r,
+        Ok(None) => return,
+        Err(e) => {
+            warn!("mb-detail chain: artist lookup failed for {}: {}", album_id, e);
+            return;
+        }
+    };
+
+    let artist_id = row.id;
+    let artist_mbid = row.artist_mbid;
+
+    if cfg.lastfm.enabled {
+        let p = LastFmArtistDetailParams {
+            artist_id: artist_id.clone(),
+            mbid: artist_mbid.clone(),
+            artist_override: None,
+        };
+        match serde_json::to_value(&p) {
+            Ok(parameters) => {
+                let req = CreateJobRequest {
+                    job_type: JobType::LastFmArtistDetail,
+                    session_id: job.session_id.clone(),
+                    parameters,
+                    max_retries: Some(2),
+                    scheduled_at: None,
+                    created_by: job.created_by.clone(),
+                    priority: None,
+                };
+                let resp = create_job(req).await;
+                if resp.data.is_none() {
+                    warn!(
+                        "mb-detail chain: failed to enqueue lastfm-artist for {}: {}",
+                        artist_id, resp.message
+                    );
+                } else {
+                    info!("mb-detail chain: enqueued lastfm-artist for {}", artist_id);
+                }
+            }
+            Err(e) => warn!("mb-detail chain: serialize lastfm-artist params: {}", e),
+        }
+    }
+
+    if cfg.audiodb.enabled {
+        if let Some(mbid) = artist_mbid {
+            let p = AudioDbArtistDetailParams {
+                artist_id: artist_id.clone(),
+                mbid: Some(mbid),
+                artist_override: None,
+            };
+            match serde_json::to_value(&p) {
+                Ok(parameters) => {
+                    let req = CreateJobRequest {
+                        job_type: JobType::AudioDbArtistDetail,
+                        session_id: job.session_id.clone(),
+                        parameters,
+                        max_retries: Some(2),
+                        scheduled_at: None,
+                        created_by: job.created_by.clone(),
+                        priority: None,
+                    };
+                    let resp = create_job(req).await;
+                    if resp.data.is_none() {
+                        warn!(
+                            "mb-detail chain: failed to enqueue audiodb-artist for {}: {}",
+                            artist_id, resp.message
+                        );
+                    } else {
+                        info!("mb-detail chain: enqueued audiodb-artist for {}", artist_id);
+                    }
+                }
+                Err(e) => {
+                    warn!("mb-detail chain: serialize audiodb-artist params: {}", e)
+                }
+            }
+        } else {
+            info!(
+                "mb-detail chain: skipping audiodb-artist for {} (no mbid)",
+                artist_id
+            );
         }
     }
 }

@@ -447,7 +447,7 @@ fn parse_seek(s: &str) -> Option<u64> {
     s.trim().parse().ok()
 }
 
-/// parse `/serve [http|p2p|stop]` \u2014 bare resolves to Auto.
+/// parse `/serve [http|p2p|stop]` - bare resolves to Auto.
 fn parse_serve_sub(arg: Option<&str>) -> SlashAction {
     let sub = arg.and_then(|s| s.split_whitespace().next()).unwrap_or("");
     match sub.to_ascii_lowercase().as_str() {
@@ -468,7 +468,7 @@ fn parse_serve_sub(arg: Option<&str>) -> SlashAction {
     }
 }
 
-/// parse `/library <kind> [query]` \u2014 kind is required.
+/// parse `/library <kind> [query]` - kind is required.
 fn parse_library_sub(arg: Option<&str>) -> SlashAction {
     let raw = arg.unwrap_or("").trim();
     if raw.is_empty() {
@@ -807,7 +807,7 @@ fn parse_radio_sub(arg: Option<&str>) -> SlashAction {
             name: "radio",
             hint: "usage: /radio [list|start <id>|stop <id>|tune <name>]",
         },
-        // unknown sub \u2014 legacy fuzzy-match-and-tune.
+        // unknown sub - legacy fuzzy-match-and-tune.
         _ => SlashAction::Library {
             kind: "radio",
             query: Some(raw.to_string()),

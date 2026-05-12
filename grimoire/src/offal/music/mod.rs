@@ -10,6 +10,7 @@ pub mod favorites;
 pub mod jobs;
 pub mod playlists;
 pub mod ratings;
+pub mod related_artists;
 pub mod search;
 pub mod sessions;
 pub mod songs;
@@ -31,6 +32,7 @@ pub fn routes() -> Vec<RouteInfo> {
     all.extend_from_slice(jobs::ROUTES);
     all.extend_from_slice(playlists::ROUTES);
     all.extend_from_slice(ratings::ROUTES);
+    all.extend_from_slice(related_artists::ROUTES);
     all.extend_from_slice(search::ROUTES);
     all.extend_from_slice(sessions::ROUTES);
     all.extend_from_slice(songs::ROUTES);
@@ -99,6 +101,12 @@ pub async fn dispatch(
             Some(artists::update_metadata(caller, body.clone()).await)
         }
         "/api/music/artists" => Some(artists::create(caller, body.clone()).await),
+
+        // related artists (phase 13h)
+        "/api/related-artists/list" => Some(related_artists::list(caller, body.clone()).await),
+        "/api/related-artists/set-bandcamp" => {
+            Some(related_artists::set_bandcamp(caller, body.clone()).await)
+        }
 
         // favorites
         "/api/favorites/set" => Some(favorites::set(caller, body.clone()).await),

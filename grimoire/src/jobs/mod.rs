@@ -29,12 +29,14 @@ pub use models::{
 // re-export music job types for backward compatibility
 pub use music::{
     AlbumEnrichmentPipelineParams, AlbumEnrichmentPipelineResult, AlbumEnrichmentProgress,
-    AudioDbAlbumDetailParams, AudioDbAlbumDetailResult, BulkEnrichmentRequest,
+    AudioDbAlbumDetailParams, AudioDbAlbumDetailResult, AudioDbArtistDetailParams,
+    AudioDbArtistDetailResult, BulkEnrichmentRequest,
     BulkEnrichmentResponse, CancelBulkEnrichmentRequest, CancelBulkEnrichmentResponse,
     EnqueueAudioDbAlbumDetailRequest, EnqueueAudioDbAlbumDetailResponse,
     EnqueueLastFmAlbumDetailRequest, EnqueueLastFmAlbumDetailResponse, EnqueueMbAlbumSearchRequest,
     EnqueueMbAlbumSearchResponse, EnrichmentSourceStatus, GetEnrichmentProgressRequest,
     GetEnrichmentProgressResponse, LastFmAlbumDetailParams, LastFmAlbumDetailResult,
+    LastFmArtistDetailParams, LastFmArtistDetailResult,
     MbAlbumDetailParams, MbAlbumDetailResult, MbAlbumSearchParams, MbAlbumSearchResult,
     ProcessFileParams, ProcessFileResult, ProcessJobCreatedResponse, RequeryEnrichmentRequest,
     RequeryEnrichmentResponse, RequeryOverride, ScanDirectoryParams, ScanDirectoryResult,

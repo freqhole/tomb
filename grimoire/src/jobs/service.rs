@@ -587,7 +587,7 @@ pub async fn update_session_progress(
         }
     };
 
-    // phase 9.0 \u2014 broadcast a typed progress event so live
+    // phase 9.0 - broadcast a typed progress event so live
     // subscribers (jobz alpn / tauri bridge) get an immediate signal
     // without polling. silent no-op when there are no subscribers.
     crate::jobs::job_events::emit(crate::jobs::job_events::JobEvent::Progress {

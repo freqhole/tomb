@@ -207,7 +207,7 @@ pub async fn blob_thumbnail_handler(
         .unwrap_or_else(|| "image/webp".to_string());
 
     // content-addressed etag from sha256 (RFC 7232 quoted form). enables
-    // 304 short-circuit on revalidation \u2014 cheap for thumbnails which the
+    // 304 short-circuit on revalidation - cheap for thumbnails which the
     // ui re-requests on every list re-render.
     let etag = format_etag(&blob.sha256);
 

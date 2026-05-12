@@ -1307,6 +1307,33 @@ export function createMusicMethods(call: CallFn) {
         params,
       );
     },
+
+    // related-artists (phase 13h). cross-source index of artist
+    // recommendations harvested from lastfm / audiodb / mb enrichment.
+    listRelatedArtists: (params: s.ListRelatedArtistsRequest) => {
+      return call(
+        "music",
+        "list_related_artists",
+        routes.music.list_related_artists.resp,
+        routes.music.list_related_artists.req,
+        routes.music.list_related_artists.method,
+        routes.music.list_related_artists.path,
+        params,
+      );
+    },
+
+    // admin-only manual override for a related artist's bandcamp links.
+    setRelatedArtistBandcamp: (params: s.SetRelatedArtistBandcampRequest) => {
+      return call(
+        "music",
+        "set_related_artist_bandcamp",
+        routes.music.set_related_artist_bandcamp.resp,
+        routes.music.set_related_artist_bandcamp.req,
+        routes.music.set_related_artist_bandcamp.method,
+        routes.music.set_related_artist_bandcamp.path,
+        params,
+      );
+    },
   };
 }
 

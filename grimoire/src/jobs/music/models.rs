@@ -240,6 +240,60 @@ pub struct EnqueueAudioDbAlbumDetailResponse {
     pub skipped_album_ids: Vec<String>,
 }
 
+// =============================================================================
+// last.fm artist detail (phase 13h)
+// =============================================================================
+
+/// parameters for `JobType::LastFmArtistDetail`. one job per artist.
+/// fetches `artist.getInfo` (bio + similar) and persists the snapshot
+/// into `artistz.metadata.lastfm.*`. each similar artist becomes a
+/// `related_artistz` row.
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct LastFmArtistDetailParams {
+    pub artist_id: String,
+    /// optional MBID hint (artist mbid) to make the lookup deterministic.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mbid: Option<String>,
+    /// admin override for the artist string sent to last.fm.
+    /// when None, derived from `artistz.name`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub artist_override: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct LastFmArtistDetailResult {
+    pub artist_id: String,
+    pub artist_fetched: bool,
+    pub tag_count: u64,
+    pub similar_count: u64,
+    pub related_upserted: u64,
+}
+
+// =============================================================================
+// theaudiodb artist detail (phase 13h)
+// =============================================================================
+
+/// parameters for `JobType::AudioDbArtistDetail`. one job per artist.
+/// resolves via mbid (preferred) -> `search.php?s=` text fallback;
+/// persists into `artistz.metadata.audiodb.*`. audiodb does not expose
+/// a "related artists" endpoint we use today, so this processor only
+/// populates the bio/image snapshot.
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct AudioDbArtistDetailParams {
+    pub artist_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mbid: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub artist_override: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct AudioDbArtistDetailResult {
+    pub artist_id: String,
+    pub artist_fetched: bool,
+    pub matched_by: String,
+}
+
 /// parameters for `JobType::AlbumEnrichmentPipeline` (phase 14.4).
 /// orchestrator job: enqueues per-source detail jobs for one album,
 /// optionally skipping sources whose `metadata.<source>.fetched_at` is

@@ -277,6 +277,13 @@ pub mod type_registry {
         SyncPlaylistResponse, SyncSongByBlake3Request, SyncSongByBlake3Response,
     };
 
+    // related artists (phase 13h)
+    use crate::music::entities::related_artists::{BandcampAlbumLink, ExternalUrl};
+    use crate::offal::music::related_artists::{
+        ListRelatedArtistsRequest, ListRelatedArtistsResponse, RelatedArtistApi,
+        SetRelatedArtistBandcampRequest,
+    };
+
     // radio public types
     use crate::offal::public::radio::{
         PublicAssetRef, PublicNowPlaying, PublicStation, PublicTimelineManifest,
@@ -417,6 +424,20 @@ pub mod type_registry {
 
         gen.add_schema::<UpdateArtistMetadataResponse>("UpdateArtistMetadataResponse");
         registered.insert("UpdateArtistMetadataResponse".to_string());
+
+        // related artists (phase 13h) — leaf types first
+        gen.add_schema::<ExternalUrl>("ExternalUrl");
+        registered.insert("ExternalUrl".to_string());
+        gen.add_schema::<BandcampAlbumLink>("BandcampAlbumLink");
+        registered.insert("BandcampAlbumLink".to_string());
+        gen.add_schema::<RelatedArtistApi>("RelatedArtistApi");
+        registered.insert("RelatedArtistApi".to_string());
+        gen.add_schema::<ListRelatedArtistsRequest>("ListRelatedArtistsRequest");
+        registered.insert("ListRelatedArtistsRequest".to_string());
+        gen.add_schema::<ListRelatedArtistsResponse>("ListRelatedArtistsResponse");
+        registered.insert("ListRelatedArtistsResponse".to_string());
+        gen.add_schema::<SetRelatedArtistBandcampRequest>("SetRelatedArtistBandcampRequest");
+        registered.insert("SetRelatedArtistBandcampRequest".to_string());
 
         gen.add_schema::<UpdateAlbumRequest>("UpdateAlbumRequest");
         registered.insert("UpdateAlbumRequest".to_string());

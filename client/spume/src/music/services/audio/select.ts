@@ -107,13 +107,13 @@ function readLocalFallback(): boolean {
 
 /// pick the appropriate backend for the current host.
 ///
-/// **callers must pass `htmlBackend`** \u2014 the always-allocated
+/// **callers must pass `htmlBackend`** - the always-allocated
 /// html instance owned by the player facade. when html is the
 /// chosen backend, we return that same instance (not a fresh one)
 /// so its dom event stream is the single source of truth feeding
 /// `playerStateSync`. constructing a second `HtmlAudioBackend`
 /// would create a "ghost" instance whose audio element plays but
-/// whose events nobody is listening to \u2014 the UI would freeze
+/// whose events nobody is listening to - the UI would freeze
 /// while audio kept going.
 ///
 /// returns:

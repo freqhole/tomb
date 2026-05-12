@@ -1002,7 +1002,7 @@ export const CreateArtistRequestSchema = z.object({
 export type CreateArtistRequest = z.infer<typeof CreateArtistRequestSchema>;
 
 export const CreateJobRequestSchema = z.object({
-  job_type: z.union([z.literal('ScanDirectory'), z.literal('RescanDirectories'), z.literal('ProcessFile'), z.literal('FetchMedia'), z.literal('ConvertWebp'), z.literal('ImportMusic'), z.literal('MbAlbumSearch'), z.literal('MbAlbumDetail'), z.literal('LastFmAlbumDetail'), z.literal('AudioDbAlbumDetail'), z.literal('AlbumEnrichmentPipeline')]),
+  job_type: z.union([z.literal('ScanDirectory'), z.literal('RescanDirectories'), z.literal('ProcessFile'), z.literal('FetchMedia'), z.literal('ConvertWebp'), z.literal('ImportMusic'), z.literal('MbAlbumSearch'), z.literal('MbAlbumDetail'), z.literal('LastFmAlbumDetail'), z.literal('LastFmArtistDetail'), z.literal('AudioDbAlbumDetail'), z.literal('AudioDbArtistDetail'), z.literal('AlbumEnrichmentPipeline')]),
   session_id: z.string().nullish(),
   parameters: z.any(),
   max_retries: z.number().nullish(),
@@ -2659,6 +2659,40 @@ export const ListListenSessionsResponseSchema = z.object({
 });
 export type ListListenSessionsResponse = z.infer<typeof ListListenSessionsResponseSchema>;
 
+export const ListRelatedArtistsRequestSchema = z.object({
+  artist_id: z.string()
+});
+export type ListRelatedArtistsRequest = z.infer<typeof ListRelatedArtistsRequestSchema>;
+
+export const ListRelatedArtistsResponseSchema = z.object({
+  artist_id: z.string(),
+  items: z.array(z.object({
+  id: z.string(),
+  source_artist_id: z.string(),
+  related_artist_id: z.string().nullish(),
+  related_name: z.string(),
+  related_name_key: z.string(),
+  related_mbid: z.string().nullish(),
+  source: z.string(),
+  match_score: z.number().nullish(),
+  bandcamp_url: z.string().nullish(),
+  bandcamp_albums: z.array(z.object({
+  title: z.string(),
+  url: z.string()
+})),
+  image_url: z.string().nullish(),
+  external_urls: z.array(z.object({
+  name: z.string(),
+  url: z.string()
+})),
+  in_library: z.boolean(),
+  fetched_at: z.number(),
+  created_at: z.number(),
+  updated_at: z.number()
+}))
+});
+export type ListRelatedArtistsResponse = z.infer<typeof ListRelatedArtistsResponseSchema>;
+
 export const ListTaxonsByKindRequestSchema = z.object({
   kind_slug: z.string()
 });
@@ -3966,6 +4000,32 @@ export const RelatedArtistSchema = z.object({
 });
 export type RelatedArtist = z.infer<typeof RelatedArtistSchema>;
 
+export const RelatedArtistApiSchema = z.object({
+  id: z.string(),
+  source_artist_id: z.string(),
+  related_artist_id: z.string().nullish(),
+  related_name: z.string(),
+  related_name_key: z.string(),
+  related_mbid: z.string().nullish(),
+  source: z.string(),
+  match_score: z.number().nullish(),
+  bandcamp_url: z.string().nullish(),
+  bandcamp_albums: z.array(z.object({
+  title: z.string(),
+  url: z.string()
+})),
+  image_url: z.string().nullish(),
+  external_urls: z.array(z.object({
+  name: z.string(),
+  url: z.string()
+})),
+  in_library: z.boolean(),
+  fetched_at: z.number(),
+  created_at: z.number(),
+  updated_at: z.number()
+});
+export type RelatedArtistApi = z.infer<typeof RelatedArtistApiSchema>;
+
 export const RelatedArtistSourceSchema = z.union([z.literal('Lastfm'), z.literal('Audiodb'), z.literal('Mb')]);
 export type RelatedArtistSource = z.infer<typeof RelatedArtistSourceSchema>;
 
@@ -4271,6 +4331,16 @@ export const SetRatingResponseSchema = z.object({
   message: z.string()
 });
 export type SetRatingResponse = z.infer<typeof SetRatingResponseSchema>;
+
+export const SetRelatedArtistBandcampRequestSchema = z.object({
+  id: z.string(),
+  bandcamp_url: z.string().nullish(),
+  bandcamp_albums: z.array(z.object({
+  title: z.string(),
+  url: z.string()
+}))
+});
+export type SetRelatedArtistBandcampRequest = z.infer<typeof SetRelatedArtistBandcampRequestSchema>;
 
 export const SetScalarAttributeRequestSchema = z.object({
   album_id: z.string(),

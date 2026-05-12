@@ -21,6 +21,7 @@ import { Icon } from "../icons/registry";
 import { getCurrentRemote } from "../../music/data";
 import { getClientForRemote } from "../../app/api/client";
 import { useArtistQuery } from "../../music/queries/songs";
+import { ArtistRelatedPanel } from "./ArtistRelatedPanel";
 
 interface AlbumArtistTabProps {
   artistId: string | undefined;
@@ -232,6 +233,11 @@ export function AlbumArtistTab(props: AlbumArtistTabProps) {
               {ingesting() ? "saving…" : "save image"}
             </Button>
           </div>
+        </div>
+
+        {/* related artists (phase 13h) */}
+        <div class="mt-2 pt-3 border-t border-[var(--color-border-subtle)]">
+          <ArtistRelatedPanel artistId={props.artistId} />
         </div>
       </div>
     </Show>
