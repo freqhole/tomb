@@ -1329,48 +1329,70 @@ export function BulkEnrichmentReviewModal(props: BulkEnrichmentReviewModalProps)
             onToggle={onToggleArtistImage}
           />
         </Show>
-        {/* compare tracks — top-level section so the user can see the
-            track lineup of any candidate release without scrolling
-            back up into the requery panel. picker is a single dropdown
-            of merged candidates (mb + lastfm + audiodb mbids) so the
-            common case (one confirmed release) is one-click; advanced
-            users can switch releases to compare. */}
-        <Show when={(songs() ?? []).length > 0 && mergedCandidates().length > 0}>
+        {/* tracks — always visible (even before mb results land) so
+            the user can sanity-check the album title against the
+            actual song titles. when one or more candidate releases
+            exist we also surface a dropdown picker for side-by-side
+            comparison against any mb release. */}
+        <Show when={(songs() ?? []).length > 0}>
           <div class="flex flex-col gap-2 p-2 rounded border border-[var(--color-border-subtle)]">
             <div class="flex items-center justify-between gap-2 flex-wrap">
               <span class="text-xs uppercase tracking-wide text-[var(--color-text-secondary)]">
-                compare tracks
+                tracks ({(songs() ?? []).length})
               </span>
-              <label class="flex items-center gap-2 text-xs">
-                <span class="text-[var(--color-text-muted)]">release</span>
-                <select
-                  value={compareReleaseId() ?? ""}
-                  onChange={(e) => setCompareReleaseId(e.currentTarget.value || null)}
-                  class="px-2 py-0.5 text-xs bg-[var(--color-bg-base)] border border-[var(--color-border-subtle)] rounded text-[var(--color-text-primary)] max-w-[28rem] truncate"
-                >
-                  <option value="">— pick release —</option>
-                  <For each={mergedCandidates().filter((c) => !!c.release_id)}>
-                    {(c) => (
-                      <option value={c.release_id!}>
-                        {(c.title || "(untitled)") +
-                          (c.first_release_date ? ` · ${c.first_release_date}` : "") +
-                          (c.country ? ` · ${c.country}` : "") +
-                          (c.track_count != null
-                            ? ` · ${c.track_count} track${c.track_count === 1 ? "" : "s"}`
-                            : "") +
-                          (c.via !== "mb" ? ` · via ${c.via}` : "")}
-                      </option>
-                    )}
-                  </For>
-                </select>
-              </label>
+              <Show when={mergedCandidates().filter((c) => !!c.release_id).length > 0}>
+                <label class="flex items-center gap-2 text-xs">
+                  <span class="text-[var(--color-text-muted)]">compare to release</span>
+                  <select
+                    value={compareReleaseId() ?? ""}
+                    onChange={(e) => setCompareReleaseId(e.currentTarget.value || null)}
+                    class="px-2 py-0.5 text-xs bg-[var(--color-bg-base)] border border-[var(--color-border-subtle)] rounded text-[var(--color-text-primary)] max-w-[28rem] truncate"
+                  >
+                    <option value="">— none (local tracks only) —</option>
+                    <For each={mergedCandidates().filter((c) => !!c.release_id)}>
+                      {(c) => (
+                        <option value={c.release_id!}>
+                          {(c.title || "(untitled)") +
+                            (c.first_release_date ? ` · ${c.first_release_date}` : "") +
+                            (c.country ? ` · ${c.country}` : "") +
+                            (c.track_count != null
+                              ? ` · ${c.track_count} track${c.track_count === 1 ? "" : "s"}`
+                              : "") +
+                            (c.via !== "mb" ? ` · via ${c.via}` : "")}
+                        </option>
+                      )}
+                    </For>
+                  </select>
+                </label>
+              </Show>
             </div>
             <Show
               when={compareReleaseId()}
               fallback={
-                <div class="text-xs text-[var(--color-text-disabled)] italic">
-                  pick a candidate release to load its track list and compare side-by-side.
-                </div>
+                <ul class="flex flex-col gap-0.5 text-xs text-[var(--color-text-secondary)] max-h-72 overflow-y-auto">
+                  <For each={songs() ?? []}>
+                    {(s) => (
+                      <li class="flex items-baseline gap-2 px-1 py-0.5">
+                        <span class="text-[var(--color-text-muted)] tabular-nums w-12 flex-shrink-0">
+                          {s.disc_number > 1 ? `${s.disc_number}.` : ""}
+                          {s.track_number || "—"}
+                        </span>
+                        <span class="flex-1 min-w-0 truncate text-[var(--color-text-primary)]">
+                          {s.title || "(untitled)"}
+                          <Show when={s.track_artist}>
+                            <span class="text-[var(--color-text-muted)]"> — {s.track_artist}</span>
+                          </Show>
+                        </span>
+                        <Show when={s.duration_seconds > 0}>
+                          <span class="text-[var(--color-text-muted)] tabular-nums flex-shrink-0">
+                            {Math.floor(s.duration_seconds / 60)}:
+                            {String(Math.floor(s.duration_seconds % 60)).padStart(2, "0")}
+                          </span>
+                        </Show>
+                      </li>
+                    )}
+                  </For>
+                </ul>
               }
             >
               <Show

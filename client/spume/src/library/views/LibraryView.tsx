@@ -27,6 +27,8 @@ import { getAllRemotes } from "../../app/services/remotes/remoteManager";
 import { getClientForRemote } from "../../app/api/client";
 import { queryClient } from "../../queryClient";
 import { toast } from "../../components/feedback/Toast";
+import { BulkEditAlbumsModal } from "../../components/modals/BulkEditAlbumsModal";
+import { TagSelectorModal } from "../../components/modals/TagSelectorModal";
 import type { Remote } from "../../app/services/storage/schemas/remote";
 
 type LibrarySubview = "graph" | "table";
@@ -47,6 +49,11 @@ export function LibraryView() {
   // selection lifecycle (clear on route change + esc, ctrl/cmd-a select-all).
   useAlbumSelectionLifecycle();
   const selectedAlbumIds = useSelectedAlbumIds();
+
+  // bulk-action modal state
+  const [bulkEditMode, setBulkEditMode] = createSignal<"metadata" | "disc">("metadata");
+  const [showBulkEditModal, setShowBulkEditModal] = createSignal(false);
+  const [showTagSelectorModal, setShowTagSelectorModal] = createSignal(false);
 
   // pick a sensible default once remotes load (first non-offline, else first).
   createEffect(() => {
@@ -191,8 +198,53 @@ export function LibraryView() {
           onEnrich={() => triggerEnrichment(selectedAlbumIds())}
           onReview={() => triggerReview(selectedAlbumIds())}
           onMarkDone={() => void markSelectedDone(selectedAlbumIds())}
+          onEditMetadata={() => {
+            if (selectedAlbumIds().length === 0) return;
+            setBulkEditMode("metadata");
+            setShowBulkEditModal(true);
+          }}
+          onSetDiscNumber={() => {
+            if (selectedAlbumIds().length === 0) return;
+            setBulkEditMode("disc");
+            setShowBulkEditModal(true);
+          }}
+          onManageTags={() => {
+            if (selectedAlbumIds().length === 0) return;
+            setShowTagSelectorModal(true);
+          }}
         />
       </div>
+
+      {/* bulk edit albums modal — wrapped in Show so it remounts fresh
+          (clears prior form state) for each open. */}
+      <Show when={showBulkEditModal() && selectedRemote() && selectedAlbumIds().length > 0}>
+        <BulkEditAlbumsModal
+          isOpen={true}
+          onClose={() => setShowBulkEditModal(false)}
+          albumIds={selectedAlbumIds()}
+          remote={selectedRemote()!}
+          mode={bulkEditMode()}
+          onSuccess={() => {
+            void queryClient.invalidateQueries({
+              queryKey: ["library-albums", selectedRemote()!.remote_id],
+            });
+          }}
+        />
+      </Show>
+
+      {/* tag selector modal */}
+      <Show when={showTagSelectorModal() && selectedRemote() && selectedAlbumIds().length > 0}>
+        <TagSelectorModal
+          albumIds={selectedAlbumIds()}
+          remote={selectedRemote()!}
+          onClose={() => setShowTagSelectorModal(false)}
+          onSave={() => {
+            void queryClient.invalidateQueries({
+              queryKey: ["library-albums", selectedRemote()!.remote_id],
+            });
+          }}
+        />
+      </Show>
     </div>
   );
 }

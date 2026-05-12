@@ -20,6 +20,15 @@ interface AlbumBulkActionBarProps {
    *  `mb_lookup_status='enriched'` on every selected album without
    *  going through the review wizard. */
   onMarkDone?: () => void;
+  /** opens the bulk-edit modal in metadata mode (rename single album,
+   *  pick album_type for any number, optionally combine the selection
+   *  into one). */
+  onEditMetadata?: () => void;
+  /** opens the bulk-edit modal in disc-number mode (sets a disc # on
+   *  every song in every selected album). */
+  onSetDiscNumber?: () => void;
+  /** opens the album-tag picker for every selected album. */
+  onManageTags?: () => void;
   /** disable destructive/admin actions when the user is not an admin on the
    *  selected remote. */
   isAdmin?: boolean;
@@ -79,6 +88,57 @@ export function AlbumBulkActionBar(props: AlbumBulkActionBarProps) {
           >
             <Icon name="check" size={11} />
             mark done
+          </button>
+        </Show>
+
+        <Show when={props.onEditMetadata}>
+          <button
+            type="button"
+            disabled={props.isAdmin === false}
+            onClick={() => props.onEditMetadata?.()}
+            class="flex items-center gap-1.5 px-2.5 py-1 text-xs rounded border border-[var(--color-border-default)] text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed bg-transparent"
+            title={
+              props.isAdmin === false
+                ? "requires admin on this remote"
+                : "edit album title / type, or combine selected albums into one"
+            }
+          >
+            <Icon name="edit" size={11} />
+            edit
+          </button>
+        </Show>
+
+        <Show when={props.onSetDiscNumber}>
+          <button
+            type="button"
+            disabled={props.isAdmin === false}
+            onClick={() => props.onSetDiscNumber?.()}
+            class="flex items-center gap-1.5 px-2.5 py-1 text-xs rounded border border-[var(--color-border-default)] text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed bg-transparent"
+            title={
+              props.isAdmin === false
+                ? "requires admin on this remote"
+                : "set a disc number on every song in every selected album"
+            }
+          >
+            <Icon name="album" size={11} />
+            set disc #
+          </button>
+        </Show>
+
+        <Show when={props.onManageTags}>
+          <button
+            type="button"
+            disabled={props.isAdmin === false}
+            onClick={() => props.onManageTags?.()}
+            class="flex items-center gap-1.5 px-2.5 py-1 text-xs rounded border border-[var(--color-border-default)] text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed bg-transparent"
+            title={
+              props.isAdmin === false
+                ? "requires admin on this remote"
+                : "manage tags across the selected albums"
+            }
+          >
+            <Icon name="tag" size={11} />
+            tags
           </button>
         </Show>
 
