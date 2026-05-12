@@ -345,15 +345,14 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
                 <ArtistBio bio={props.artist.bio!} />
               </Show>
 
-              {/* genres, taxons, tags, and entity links — collapsed to
-                  ~2 lines on narrow screens with a see-more toggle.
-                  mirrors the AlbumDetailView pattern. */}
+              {/* genres, taxons, tags — collapsed to ~2 lines on all
+                  breakpoints with a see-more toggle. entity urls live
+                  in their own collapsible row below. */}
               <Show
                 when={
                   artistGenres().length > 0 ||
                   aggregatedTaxons().some((t) => t.kind_slug !== "genre") ||
-                  artistTags().length > 0 ||
-                  (props.artist.urls?.length ?? 0) > 0
+                  artistTags().length > 0
                 }
               >
                 <div class="text-sm">
@@ -369,7 +368,7 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
                       obs.observe(el);
                     }}
                     class={`flex flex-wrap gap-1.5 items-center ${
-                      !chipsExpanded() ? "max-h-[3.25rem] overflow-hidden wide:max-h-none" : ""
+                      !chipsExpanded() ? "max-h-[3.25rem] overflow-hidden" : ""
                     }`}
                   >
                     <For each={artistGenres()}>
@@ -392,16 +391,22 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
                         </span>
                       )}
                     </For>
-                    <EntityLinks urls={props.artist.urls} />
                   </div>
                   <Show when={chipsOverflowing() || chipsExpanded()}>
                     <button
                       onClick={() => setChipsExpanded((v) => !v)}
-                      class="pb-1 text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)] wide:hidden"
+                      class="pb-1 text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]"
                     >
                       {chipsExpanded() ? "see less" : "see more"}
                     </button>
                   </Show>
+                </div>
+              </Show>
+
+              {/* entity links — independently collapsible row */}
+              <Show when={(props.artist.urls?.length ?? 0) > 0}>
+                <div class="text-sm">
+                  <EntityLinks urls={props.artist.urls} collapsible />
                 </div>
               </Show>
 
@@ -569,7 +574,7 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
               </div>
 
               {/* entity links */}
-              <EntityLinks urls={props.artist.urls} class="justify-center" />
+              <EntityLinks urls={props.artist.urls} class="justify-center" collapsible />
 
               {/* artist actions: edit, play controls, favorite, rating */}
               <div class="mt-2 flex items-center justify-center flex-wrap gap-2">

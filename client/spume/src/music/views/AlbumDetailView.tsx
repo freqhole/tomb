@@ -344,12 +344,14 @@ export function AlbumDetailView() {
                     </div>
                   </div>
 
-                  {/* genres, tags, and links — collapsed to 2 lines on narrow screens */}
+                  {/* genres, tags, and links — collapsed to ~2 lines on
+                      all breakpoints with a see-more toggle. entity urls
+                      get their own collapsible row below so the two can
+                      expand/collapse independently. */}
                   <Show
                     when={
                       (songs()[0]?.album_taxons?.length ?? 0) > 0 ||
-                      (songs()[0]?.album_tags?.length ?? 0) > 0 ||
-                      (albumQuery.data?.urls?.length ?? 0) > 0
+                      (songs()[0]?.album_tags?.length ?? 0) > 0
                     }
                   >
                     <div class="mt-1">
@@ -365,7 +367,7 @@ export function AlbumDetailView() {
                           obs.observe(el);
                         }}
                         class={`flex flex-wrap gap-1.5 wide:justify-start ${
-                          !tagsExpanded() ? "max-h-[3.25rem] overflow-hidden wide:max-h-none" : ""
+                          !tagsExpanded() ? "max-h-[3.25rem] overflow-hidden" : ""
                         }`}
                       >
                         <For
@@ -388,16 +390,22 @@ export function AlbumDetailView() {
                             </span>
                           )}
                         </For>
-                        <EntityLinks urls={albumQuery.data?.urls} />
                       </div>
                       <Show when={tagsOverflowing() || tagsExpanded()}>
                         <button
                           onClick={() => setTagsExpanded((v) => !v)}
-                          class="pb-2 text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)] wide:hidden"
+                          class="pb-2 text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]"
                         >
                           {tagsExpanded() ? "see less" : "see more"}
                         </button>
                       </Show>
+                    </div>
+                  </Show>
+
+                  {/* entity links — independently collapsible row */}
+                  <Show when={(albumQuery.data?.urls?.length ?? 0) > 0}>
+                    <div class="mt-1">
+                      <EntityLinks urls={albumQuery.data?.urls} collapsible />
                     </div>
                   </Show>
 

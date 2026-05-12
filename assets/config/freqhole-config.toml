@@ -130,6 +130,33 @@ enabled = true
 # note: user agent is hardcoded in grimoire as "tomb-musicbrainz/1.0"
 
 # ============================================================================
+# last.fm integration for metadata enrichment
+# ============================================================================
+# fetches album wiki summaries, artist bios, top tags (folksonomy), and
+# similar artists. requires a free api key from:
+#   https://www.last.fm/api/account/create
+# the `LASTFM_API_KEY` env var overrides the value here.
+[lastfm]
+# OPTIONAL: enable last.fm enrichment (default: false)
+enabled = false
+# OPTIONAL: last.fm api key (default: "")
+# read-only enrichment only needs the api key (no shared secret).
+api_key = ""
+
+# ============================================================================
+# theaudiodb integration for metadata enrichment
+# ============================================================================
+# fetches artist bios, artist images (thumbnails, banners, fanart), album
+# artwork, and genre/style tags. the `AUDIODB_API_KEY` env var overrides
+# the value here.
+[audiodb]
+# OPTIONAL: enable theaudiodb enrichment (default: false)
+enabled = true
+# OPTIONAL: api key (default: "123", the public free test key for low-volume
+# non-commercial use). donate at https://www.theaudiodb.com/ for a real key.
+api_key = "123"
+
+# ============================================================================
 # logging configuration
 # ============================================================================
 [logging]
