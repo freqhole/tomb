@@ -21,5 +21,5 @@
 pub mod client;
 pub mod models;
 
-pub use client::LastFmClient;
+pub use client::{lastfm_is_configured, LastFmClient};
 pub use models::{LastFmAlbumInfo, LastFmArtistInfo, LastFmTag, LastFmWiki};

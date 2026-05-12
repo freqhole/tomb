@@ -2,9 +2,23 @@
 import { createInfiniteQuery, createQuery } from "@tanstack/solid-query";
 import type { Accessor } from "solid-js";
 import type { TagFilter } from "../../components/forms/TagFilterPicker";
+import type { Remote } from "../../app/services/storage/schemas/remote";
 import { debug } from "../../utils/logger";
 import { getDataSource } from "../data";
+import { RemoteMusicDataSource } from "../data/remote/remoteSource";
 import { queryKeys } from "./queryKeys";
+
+// pick a data source: a remote-scoped one when an explicit remote is
+// supplied (e.g. the library view's selected remote), otherwise the
+// globally-active source. used by the album editor modal so it works
+// for both context-menu edits (active source) and bulk-enrichment review
+// (per-remote source).
+function pickAlbumSource(remote: Remote | undefined) {
+  if (remote && remote.remote_id) {
+    return new RemoteMusicDataSource(remote);
+  }
+  return getDataSource();
+}
 
 export type SongSortField =
   | "added_at"
@@ -183,46 +197,48 @@ export function useAlbumsQuery(options?: UseAlbumsQueryOptions) {
   }));
 }
 
-export function useAlbumQuery(albumId: Accessor<string | undefined>) {
+export function useAlbumQuery(
+  albumId: Accessor<string | undefined>,
+  remote?: Accessor<Remote | undefined>
+) {
   return createQuery(() => ({
-    queryKey: queryKeys.albums.detail(albumId() || ""),
+    queryKey: queryKeys.albums.detail(albumId() || "", remote?.()?.remote_id),
     queryFn: async () => {
       const id = albumId();
       if (!id) return null;
-
-      const dataSource = getDataSource();
-      if (!dataSource.getAlbums) {
-        return null;
-      }
+      const dataSource = pickAlbumSource(remote?.());
+      if (!dataSource.getAlbums) return null;
 
       // query for specific album by id
       const result = await dataSource.getAlbums({
         album_id: id,
         limit: 1,
       });
-
       return result.items[0] || null;
     },
     enabled: () => !!albumId(),
   }));
 }
 
-export function useAlbumSongsQuery(albumId: Accessor<string | undefined>) {
+export function useAlbumSongsQuery(
+  albumId: Accessor<string | undefined>,
+  remote?: Accessor<Remote | undefined>
+) {
   return createQuery(() => ({
-    queryKey: queryKeys.albums.songs(albumId() || ""),
+    queryKey: queryKeys.albums.songs(albumId() || "", remote?.()?.remote_id),
     queryFn: async () => {
       const id = albumId();
       if (!id)
         return { items: [], total: 0, offset: 0, limit: 100, has_more: false };
 
-      const dataSource = getDataSource();
+      const dataSource = pickAlbumSource(remote?.());
       if (!dataSource.getAlbumSongs) {
         return { items: [], total: 0, offset: 0, limit: 100, has_more: false };
       }
 
       return dataSource.getAlbumSongs(id, { limit: 1000 });
     },
-    enabled: !!albumId(),
+    enabled: () => !!albumId(),
     staleTime: 5 * 60 * 1000,
     gcTime: 10 * 60 * 1000,
   }));

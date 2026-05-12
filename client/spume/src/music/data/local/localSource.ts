@@ -194,11 +194,21 @@ export class LocalMusicDataSource implements MusicDataSource {
     const limit = params?.limit ?? 50;
     const offset = params?.offset ?? 0;
     const albumId = params?.album_id;
+    // TEMP DEBUG
+    console.log("[LocalMusicDataSource.getAlbums] request", {
+      limit,
+      offset,
+      albumId,
+    });
 
     const results = await queryAlbums({
       limit,
       offset,
       albumId,
+    });
+    // TEMP DEBUG
+    console.log("[LocalMusicDataSource.getAlbums] queryAlbums returned", {
+      count: results.length,
     });
 
     // use adapter to convert IDB results to AlbumSummary with images array

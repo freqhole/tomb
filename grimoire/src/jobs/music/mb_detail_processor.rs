@@ -343,7 +343,7 @@ pub async fn process_mb_album_detail_job(job: &Job) -> Result<Option<Value>, Job
 async fn chain_external_enrichment(job: &Job, album_id: &str, release_group_id: &str) {
     let cfg = config::get_config();
 
-    if cfg.lastfm.enabled {
+    if cfg.lastfm.enabled && crate::music::lastfm::lastfm_is_configured(&cfg.lastfm) {
         let p = LastFmAlbumDetailParams {
             album_id: album_id.to_string(),
             mbid: Some(release_group_id.to_string()),
@@ -425,7 +425,10 @@ async fn chain_artist_enrichment(job: &Job, album_id: &str) {
     let pool = match crate::database::connect().await {
         Ok(p) => p,
         Err(e) => {
-            warn!("mb-detail chain: db connect for artist lookup failed: {}", e);
+            warn!(
+                "mb-detail chain: db connect for artist lookup failed: {}",
+                e
+            );
             return;
         }
     };

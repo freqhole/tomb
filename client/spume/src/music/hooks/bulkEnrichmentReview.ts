@@ -17,6 +17,7 @@ import { toast } from "../../components/feedback/Toast";
 import type { Remote } from "../../app/services/storage/schemas/remote";
 
 interface ReviewSession {
+  remote: Remote;
   remoteId: string;
   jobSessionId: string;
   ids: string[];
@@ -60,26 +61,32 @@ export async function startBulkEnrichmentReview(
   }
 
   const session: ReviewSession = {
+    remote,
     remoteId: remote.remote_id,
     jobSessionId: resp.data.job_session_id,
     ids: [...albumIds],
   };
   setActiveSession(session);
-  toast.success(
-    `enrichment review queued for ${albumIds.length} album${albumIds.length === 1 ? "" : "s"}`,
-  );
 
   openAt(session, 0);
 }
 
 function openAt(session: ReviewSession, index: number): void {
   const id = session.ids[index];
+  // TEMP DEBUG
+  console.log("[bulkEnrichmentReview] openAt", {
+    index,
+    id,
+    totalIds: session.ids.length,
+    sessionId: session.jobSessionId,
+  });
   if (!id) {
     exitReview();
     return;
   }
   showAlbumEditor({
     albumId: id,
+    remote: session.remote,
     review: {
       ids: session.ids,
       currentIndex: index,

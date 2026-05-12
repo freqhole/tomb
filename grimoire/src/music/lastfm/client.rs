@@ -34,6 +34,16 @@ pub struct LastFmClient {
     rate_limiter: RateLimiter,
 }
 
+/// returns true when last.fm has a usable api key (either in config
+/// or via the `LASTFM_API_KEY` env var). callers can use this to skip
+/// enqueuing dead jobs without trying to construct a client.
+pub fn lastfm_is_configured(config: &LastFmConfig) -> bool {
+    if !config.api_key.trim().is_empty() {
+        return true;
+    }
+    matches!(std::env::var("LASTFM_API_KEY"), Ok(k) if !k.trim().is_empty())
+}
+
 impl LastFmClient {
     /// build a client; if `config.api_key` is empty, falls back to the
     /// `LASTFM_API_KEY` environment variable (handy for dev where the key

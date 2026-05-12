@@ -2,6 +2,7 @@
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import { useQueryClient } from "@tanstack/solid-query";
 import type { ImageMetadata, Song } from "../../music/services/storage/types";
+import type { Remote } from "../../app/services/storage/schemas/remote";
 import { getDataSource, getCurrentRemote } from "../../music/data";
 import { getRemoteMediaUrl } from "../../utils/urls";
 import { canUpdateAlbum, canDeleteAlbum } from "../../music/data/permissions";
@@ -33,6 +34,11 @@ import { formatDateTime } from "../../utils/dateTime";
 
 interface AlbumEditorModalProps {
   albumId: string;
+  /** when set, the modal queries against this remote instead of the
+   *  globally-active data source. used by the library view's bulk
+   *  enrichment review flow, where the user has explicitly picked a
+   *  remote that may differ from the active source. */
+  remote?: Remote;
   onClose: () => void;
   onSave?: () => void;
   /** if true, hides buttons that would open other modals (prevents infinite recursion) */
@@ -159,8 +165,14 @@ interface FormData {
 
 export function AlbumEditorModal(props: AlbumEditorModalProps) {
   const queryClient = useQueryClient();
-  const albumQuery = useAlbumQuery(() => props.albumId);
-  const songsQuery = useAlbumSongsQuery(() => props.albumId);
+  const albumQuery = useAlbumQuery(
+    () => props.albumId,
+    () => props.remote
+  );
+  const songsQuery = useAlbumSongsQuery(
+    () => props.albumId,
+    () => props.remote
+  );
   const updateMutation = useUpdateAlbumMutation();
 
   const [formData, setFormData] = createSignal<FormData>({
@@ -227,11 +239,27 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
   createEffect(() => {
     const album = albumQuery.data;
     const songs = songsQuery.data?.items ?? [];
+    // TEMP DEBUG
+    console.log("[AlbumEditorModal] init effect tick", {
+      propsAlbumId: props.albumId,
+      loadedAlbumId: loadedAlbumId(),
+      hasAlbum: !!album,
+      albumStatus: albumQuery.status,
+      albumFetchStatus: albumQuery.fetchStatus,
+      albumError: albumQuery.error?.message,
+      songsStatus: songsQuery.status,
+      songCount: songs.length,
+    });
     // reinitialize if this is a different album or first load.
     // we no longer wait for songs.length > 0 - albums with zero songs
     // (or while the songs query is still in flight) used to leave the
     // modal stuck on "loading..." indefinitely.
     if (album && loadedAlbumId() !== props.albumId) {
+      // TEMP DEBUG
+      console.log("[AlbumEditorModal] syncing initialData", {
+        albumId: props.albumId,
+        albumTitle: album.title,
+      });
       syncFormFromData(album, songs);
 
       // sync images
@@ -431,10 +459,15 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
   // free.
   const albumMetadata = createMemo(() => parseAlbumMetadata(albumQuery.data?.metadata ?? null));
 
+  // pick the remote the modal should target. when the caller (e.g. the
+  // library view's bulk-enrichment review) supplied an explicit remote,
+  // use it; otherwise fall back to whatever the active data source is.
+  const currentRemote = () => props.remote ?? getCurrentRemote();
+
   // poll per-source enrichment progress while the modal is open. polled
   // every 5s; bumped to 2s briefly after a manual refetch/requery.
   const refreshEnrichmentProgress = async () => {
-    const remote = getCurrentRemote();
+    const remote = currentRemote();
     if (!remote) return;
     try {
       const client = await getClientForRemote(remote);
@@ -558,7 +591,7 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
       });
 
       // poll for job completion
-      const remote = getCurrentRemote();
+      const remote = currentRemote();
       if (remote) {
         setProcessingJob({ status: "processing", message: "processing image..." });
         const pollResult = await pollJobUntilComplete(remote, job_id, 10000);
@@ -743,7 +776,31 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
         when={initialData()}
         fallback={
           <div class="flex-1 flex items-center justify-center p-6">
-            <div class="text-[var(--color-text-secondary)]">loading...</div>
+            <Show
+              when={albumQuery.error}
+              fallback={
+                <Show
+                  when={albumQuery.status === "success" && !albumQuery.data}
+                  fallback={<div class="text-[var(--color-text-secondary)]">loading...</div>}
+                >
+                  <div class="flex flex-col items-center gap-2 text-center">
+                    <div class="text-[var(--color-text-secondary)]">album not found</div>
+                    <div class="text-xs text-[var(--color-text-tertiary)] font-mono">
+                      id: {props.albumId}
+                    </div>
+                  </div>
+                </Show>
+              }
+            >
+              <div class="flex flex-col items-center gap-2 text-center">
+                <div class="text-[var(--color-text-error,var(--color-text-secondary))]">
+                  failed to load album
+                </div>
+                <div class="text-xs text-[var(--color-text-tertiary)] font-mono">
+                  {albumQuery.error?.message}
+                </div>
+              </div>
+            </Show>
           </div>
         }
       >
@@ -1044,6 +1101,7 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
             <AlbumEnrichmentSourceTab
               albumId={props.albumId}
               source="lastfm"
+              remote={currentRemote() ?? undefined}
               initialArtist={formData().artist_name}
               initialTitle={formData().title}
               snapshot={albumMetadata().lastfm}
@@ -1056,6 +1114,7 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
             <AlbumEnrichmentSourceTab
               albumId={props.albumId}
               source="audiodb"
+              remote={currentRemote() ?? undefined}
               initialArtist={formData().artist_name}
               initialTitle={formData().title}
               snapshot={albumMetadata().audiodb}
@@ -1068,6 +1127,7 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
             <AlbumArtistTab
               artistId={formData().artist_id}
               artistName={formData().artist_name}
+              remote={currentRemote() ?? undefined}
               onSaved={refreshEnrichmentProgress}
             />
           </TabPanel>

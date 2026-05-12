@@ -1,5 +1,6 @@
 // modal state helpers for song, artist, and album editors
 import { createSignal } from "solid-js";
+import type { Remote } from "../../app/services/storage/schemas/remote";
 
 // modal stack to track which modal is topmost for esc key handling
 interface ModalEntry {
@@ -63,6 +64,10 @@ interface ArtistEditorOptions {
 
 interface AlbumEditorOptions {
   albumId: string;
+  /** when set, the modal queries against this remote instead of the
+   *  globally-active data source. needed because the library view lets
+   *  the user pick a remote independently of `getDataSource()`. */
+  remote?: Remote;
   onSave?: () => void;
   disableNestedModals?: boolean;
   /** called after a successful merge with the target album id, so callers can navigate */
@@ -190,7 +195,6 @@ export function useAddMusicState() {
 // kept generic via a `source` accessor so callers can pass either a
 // reactive `createCurrentRemoteFull()` or a one-shot snapshot getter.
 import type { ShareTarget } from "../../components/share/types";
-import type { Remote } from "../../app/services/storage/schemas/remote";
 import type { SendPayload } from "../services/send/sendToRemote";
 
 export interface ShareModalOptions {

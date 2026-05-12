@@ -301,7 +301,17 @@ export class RemoteMusicDataSource implements MusicDataSource {
     params?: QueryParams,
   ): Promise<PaginatedResponse<AlbumSummary>> {
     const apiParams = this.buildApiParams(params);
+    // TEMP DEBUG
+    console.log("[RemoteMusicDataSource.getAlbums] request", { apiParams });
     const result = await (await this.getClient()).music.queryAlbums(apiParams);
+    // TEMP DEBUG
+    console.log("[RemoteMusicDataSource.getAlbums] response", {
+      success: result.success,
+      itemCount: result.success ? result.data.items.length : 0,
+      total: result.success ? result.data.total_count : 0,
+      firstId: result.success ? result.data.items[0]?.album.id : undefined,
+      error: result.success ? undefined : result.error,
+    });
 
     if (!result.success) {
       await this.handleFailedRequest(result);

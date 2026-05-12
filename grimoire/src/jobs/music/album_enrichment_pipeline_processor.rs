@@ -15,12 +15,14 @@
 use serde_json::Value;
 use tracing::{info, warn};
 
+use crate::config;
 use crate::jobs::models::{Job, JobError};
 use crate::jobs::{
     create_job, AudioDbAlbumDetailParams, CreateJobRequest, EnrichmentSource, JobType,
     LastFmAlbumDetailParams, MbAlbumSearchParams,
 };
 use crate::music::entities::albums as albums_repo;
+use crate::music::lastfm::lastfm_is_configured;
 
 use super::models::{AlbumEnrichmentPipelineParams, AlbumEnrichmentPipelineResult};
 
@@ -64,6 +66,16 @@ pub async fn process_album_enrichment_pipeline_job(
     for source in sources {
         if !params.force && is_fresh(&meta, source, now) {
             info!("  skip {:?} (fresh within window)", source);
+            result.skipped_sources.push(source.as_str().to_string());
+            continue;
+        }
+
+        // skip sources whose api credentials aren't configured. enqueuing
+        // a dead job just wastes retries and clutters the queue ui.
+        if matches!(source, EnrichmentSource::Lastfm)
+            && !lastfm_is_configured(&config::get_config().lastfm)
+        {
+            info!("  skip {:?} (not configured)", source);
             result.skipped_sources.push(source.as_str().to_string());
             continue;
         }

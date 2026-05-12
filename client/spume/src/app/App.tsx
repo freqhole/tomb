@@ -861,6 +861,7 @@ export function App() {
         {(state) => (
           <AlbumEditorModal
             albumId={state().albumId}
+            remote={state().remote}
             onClose={hideAlbumEditor}
             onSave={() => state().onSave?.()}
             disableNestedModals={state().disableNestedModals}

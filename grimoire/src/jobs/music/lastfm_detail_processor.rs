@@ -80,13 +80,30 @@ pub async fn process_lastfm_album_detail_job(job: &Job) -> Result<Option<Value>,
     .flatten();
     let artist_name = params.artist_override.clone().or(artist_name);
 
-    // build client (env-var fallback handled inside `LastFmClient::new`)
+    // build client (env-var fallback handled inside `LastFmClient::new`).
+    // when last.fm isn't configured at all, skip cleanly instead of
+    // failing — the job is a no-op rather than a retryable error so the
+    // queue doesn't churn against a missing api key.
     let cfg = config::get_config();
     let client = match LastFmClient::new(cfg.lastfm.clone()) {
         Ok(c) => c,
         Err(e) => {
-            return Err(JobError::ProcessingFailed {
-                reason: format!("last.fm client unavailable: {}", e),
+            info!(
+                "lastfm album-detail skipped for {}: {} (treating as no-op)",
+                album_id, e
+            );
+            let result = LastFmAlbumDetailResult {
+                album_id: album_id.clone(),
+                album_fetched: false,
+                artist_fetched: false,
+                album_tag_count: 0,
+                artist_tag_count: 0,
+                similar_artist_count: 0,
+            };
+            return serde_json::to_value(&result).map(Some).map_err(|e| {
+                JobError::ProcessingFailed {
+                    reason: format!("serialize result: {}", e),
+                }
             });
         }
     };

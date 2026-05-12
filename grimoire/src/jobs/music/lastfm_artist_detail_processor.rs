@@ -72,8 +72,23 @@ pub async fn process_lastfm_artist_detail_job(job: &Job) -> Result<Option<Value>
     let client = match LastFmClient::new(cfg.lastfm.clone()) {
         Ok(c) => c,
         Err(e) => {
-            return Err(JobError::ProcessingFailed {
-                reason: format!("last.fm client unavailable: {}", e),
+            // last.fm not configured: bail cleanly with an empty result
+            // instead of an error so we don't loop on retries.
+            info!(
+                "lastfm artist-detail skipped for {}: {} (treating as no-op)",
+                artist_id, e
+            );
+            let result = LastFmArtistDetailResult {
+                artist_id: artist_id.clone(),
+                artist_fetched: false,
+                tag_count: 0,
+                similar_count: 0,
+                related_upserted: 0,
+            };
+            return serde_json::to_value(&result).map(Some).map_err(|e| {
+                JobError::ProcessingFailed {
+                    reason: format!("serialize result: {}", e),
+                }
             });
         }
     };
