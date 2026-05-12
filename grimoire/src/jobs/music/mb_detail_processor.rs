@@ -25,6 +25,16 @@ use tracing::info;
 
 use super::models::{MbAlbumDetailParams, MbAlbumDetailResult};
 
+/// minimum local_confidence for a sibling release to be considered for
+/// the walk-and-union path. matches the auto-confirm threshold ballpark
+/// so we only fold in tags from candidates we'd otherwise trust.
+const SIBLING_WALK_CONFIDENCE_THRESHOLD: f64 = 0.7;
+
+/// hard cap on how many sibling releases we'll detail-fetch when the
+/// auto-confirmed winner has zero tags. mb is rate-limited at 1 req/s,
+/// so each sibling adds ~1s of latency to the job.
+const SIBLING_WALK_MAX: usize = 5;
+
 pub async fn process_mb_album_detail_job(job: &Job) -> Result<Option<Value>, JobError> {
     let params: MbAlbumDetailParams =
         serde_json::from_str(&job.parameters).map_err(|e| JobError::ProcessingFailed {
@@ -114,7 +124,7 @@ pub async fn process_mb_album_detail_job(job: &Job) -> Result<Option<Value>, Job
     // step 4: optionally fetch release
     let mut release_date_for_apply: Option<String> = None;
     let mut release_label_for_apply: Option<String> = None;
-    let (release_genres, release_tags) = if let Some(release_id) = params.release_id.as_deref() {
+    let (mut release_genres, mut release_tags) = if let Some(release_id) = params.release_id.as_deref() {
         let r_resp = client.get_release(release_id).await;
         if r_resp.success {
             let r = r_resp.data.unwrap();
@@ -179,6 +189,41 @@ pub async fn process_mb_album_detail_job(job: &Job) -> Result<Option<Value>, Job
         (Vec::new(), Vec::new())
     };
 
+    // step 4b (phase 14.1): walk-and-union. when the auto-confirmed winner
+    // has zero release-level tags, walk down sibling candidates with
+    // confidence >= SIBLING_WALK_CONFIDENCE_THRESHOLD (sorted desc, capped
+    // at SIBLING_WALK_MAX) and union their release tags. tracks which
+    // release_ids contributed so the review ui can surface provenance.
+    let mut tag_source_release_ids: Vec<String> = Vec::new();
+    if let Some(primary_rid) = params.release_id.as_deref() {
+        // primary release contributed iff it had any tags to begin with.
+        if !release_genres.is_empty() || !release_tags.is_empty() {
+            tag_source_release_ids.push(primary_rid.to_string());
+        }
+    }
+    if release_genres.is_empty() && release_tags.is_empty() {
+        let extra = walk_sibling_releases_for_tags(
+            &client,
+            &album_id,
+            params.release_id.as_deref(),
+        )
+        .await;
+        if !extra.contributing_release_ids.is_empty() {
+            info!(
+                "mb walk-and-union: folded tags from {} sibling release(s) for album {}",
+                extra.contributing_release_ids.len(),
+                album_id,
+            );
+        }
+        merge_folksonomy_into(&mut release_genres, extra.genres);
+        merge_folksonomy_into(&mut release_tags, extra.tags);
+        for rid in extra.contributing_release_ids {
+            if !tag_source_release_ids.contains(&rid) {
+                tag_source_release_ids.push(rid);
+            }
+        }
+    }
+
     let folksonomy = MbFolksonomy {
         release_genres,
         release_tags,
@@ -226,6 +271,12 @@ pub async fn process_mb_album_detail_job(job: &Job) -> Result<Option<Value>, Job
             reason: format!("metadata merge failed: {}", merge_resp.message),
         });
     }
+
+    // step 5a: persist which release_ids contributed to the folksonomy
+    // snapshot. always written (may be empty) so a re-run cleanly overwrites
+    // an earlier walk-and-union from a previous detail pass.
+    let sources_patch = metadata::patch_mb_tag_sources(&tag_source_release_ids);
+    let _ = albums_repo::merge_album_metadata(&album_id, &sources_patch).await;
 
     // step 5b: auto-apply year/label/genres to album columns where currently
     // empty. user-facing convention: never overwrite hand-edited values.
@@ -290,6 +341,137 @@ fn map_genres(src: Option<&[Genre]>) -> Vec<FolksonomyTag> {
             .collect()
     })
     .unwrap_or_default()
+}
+
+// ---------------------------------------------------------------------------
+// walk-and-union helpers (phase 14.1)
+// ---------------------------------------------------------------------------
+
+struct WalkResult {
+    genres: Vec<FolksonomyTag>,
+    tags: Vec<FolksonomyTag>,
+    contributing_release_ids: Vec<String>,
+}
+
+/// fetch sibling release candidates for an album and union their
+/// release-level genres+tags. returns empty if there are no candidates,
+/// no metadata, or no candidate clears the confidence threshold.
+///
+/// reads the album's `metadata.musicbrainz.candidates` list, filters to
+/// `local_confidence >= SIBLING_WALK_CONFIDENCE_THRESHOLD`, sorts desc,
+/// skips the primary release_id, caps at SIBLING_WALK_MAX, and detail-
+/// fetches each. each fetch is naturally rate-limited by the global mb
+/// throttle (1 req/s).
+async fn walk_sibling_releases_for_tags(
+    client: &MusicBrainzClient,
+    album_id: &str,
+    primary_release_id: Option<&str>,
+) -> WalkResult {
+    let mut out = WalkResult {
+        genres: Vec::new(),
+        tags: Vec::new(),
+        contributing_release_ids: Vec::new(),
+    };
+
+    let meta_resp = albums_repo::read_album_metadata(album_id).await;
+    if !meta_resp.success {
+        info!(
+            "walk-and-union: read_album_metadata failed for {}: {}",
+            album_id, meta_resp.message
+        );
+        return out;
+    }
+    let meta = match meta_resp.data {
+        Some(m) => m,
+        None => return out,
+    };
+    let mb = match meta.musicbrainz {
+        Some(m) => m,
+        None => return out,
+    };
+
+    // collect siblings: confidence >= threshold, has a release_id, not the
+    // primary. sort desc by confidence so we walk the most-likely-to-have-
+    // -tags releases first.
+    let mut siblings: Vec<(f64, String)> = mb
+        .candidates
+        .iter()
+        .filter_map(|c| {
+            let conf = c.local_confidence?;
+            if conf < SIBLING_WALK_CONFIDENCE_THRESHOLD {
+                return None;
+            }
+            let rid = c.release_id.as_ref()?.clone();
+            if Some(rid.as_str()) == primary_release_id {
+                return None;
+            }
+            Some((conf, rid))
+        })
+        .collect();
+    siblings.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+    siblings.truncate(SIBLING_WALK_MAX);
+
+    if siblings.is_empty() {
+        info!(
+            "walk-and-union: no eligible sibling releases for album {} (winner has no tags)",
+            album_id
+        );
+        return out;
+    }
+
+    info!(
+        "walk-and-union: trying {} sibling release(s) for album {} (winner has no tags)",
+        siblings.len(),
+        album_id
+    );
+
+    for (conf, rid) in siblings {
+        let resp = client.get_release(&rid).await;
+        if !resp.success {
+            info!(
+                "  sibling {} (conf={:.2}) fetch failed: {}",
+                rid, conf, resp.message
+            );
+            continue;
+        }
+        let r = match resp.data {
+            Some(r) => r,
+            None => continue,
+        };
+        let g = map_genres(r.genres.as_deref());
+        let t = map_tags(r.tags.as_deref());
+        if g.is_empty() && t.is_empty() {
+            info!("  sibling {} (conf={:.2}): no tags", rid, conf);
+            continue;
+        }
+        info!(
+            "  sibling {} (conf={:.2}): +{} genres, +{} tags",
+            rid,
+            conf,
+            g.len(),
+            t.len()
+        );
+        merge_folksonomy_into(&mut out.genres, g);
+        merge_folksonomy_into(&mut out.tags, t);
+        out.contributing_release_ids.push(rid);
+    }
+
+    out
+}
+
+/// merge a batch of folksonomy tags into a destination vec, summing counts
+/// for entries that match by case-insensitive name.
+fn merge_folksonomy_into(dst: &mut Vec<FolksonomyTag>, src: Vec<FolksonomyTag>) {
+    for tag in src {
+        if let Some(existing) = dst
+            .iter_mut()
+            .find(|t| t.name.eq_ignore_ascii_case(&tag.name))
+        {
+            existing.count = existing.count.saturating_add(tag.count);
+        } else {
+            dst.push(tag);
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------

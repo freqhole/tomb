@@ -154,8 +154,15 @@ pub mod type_registry {
         MbFolksonomy, MbLastQuery, MbLookupStatus, MbMatchActionResponse, MbMetadata,
         RejectMbMatchRequest,
     };
+    use crate::music::entities::albums::taxon_proposals::{
+        AcceptedProposal, ApplyTaxonProposalsRequest, ApplyTaxonProposalsResult, ProposalSource,
+        ProposeTaxonsRequest, TaxonProposal,
+    };
     use crate::music::entities::albums::{Album, GenreRef, UpdateAlbumRequest};
-    use crate::music::entities::artists::{Artist, CreateArtistRequest, UpdateArtistRequest};
+    use crate::music::entities::artists::{
+        Artist, ArtistAudioDbMetadata, ArtistLastFmMetadata, ArtistMetadata, CreateArtistRequest,
+        UpdateArtistRequest,
+    };
     use crate::music::entities::playlists::{
         AddSongsToPlaylistRequest, CreatePlaylistRequest, DeletePlaylistRequest,
         GetPlaylistRequest, Playlist, RemovePlaylistThumbnailRequest,
@@ -617,6 +624,14 @@ pub mod type_registry {
         gen.add_schema::<AlbumMetadata>("AlbumMetadata");
         registered.insert("AlbumMetadata".to_string());
 
+        // artist metadata blob types (phase 14 / 15) — single source of truth.
+        gen.add_schema::<ArtistLastFmMetadata>("ArtistLastFmMetadata");
+        registered.insert("ArtistLastFmMetadata".to_string());
+        gen.add_schema::<ArtistAudioDbMetadata>("ArtistAudioDbMetadata");
+        registered.insert("ArtistAudioDbMetadata".to_string());
+        gen.add_schema::<ArtistMetadata>("ArtistMetadata");
+        registered.insert("ArtistMetadata".to_string());
+
         // mb album-search job request/response (phase 5)
         gen.add_schema::<crate::jobs::MbAlbumSearchParams>("MbAlbumSearchParams");
         registered.insert("MbAlbumSearchParams".to_string());
@@ -674,6 +689,19 @@ pub mod type_registry {
         registered.insert("AutoConfirmSkip".to_string());
         gen.add_schema::<AutoConfirmMbMatchesResult>("AutoConfirmMbMatchesResult");
         registered.insert("AutoConfirmMbMatchesResult".to_string());
+
+        gen.add_schema::<ProposalSource>("ProposalSource");
+        registered.insert("ProposalSource".to_string());
+        gen.add_schema::<TaxonProposal>("TaxonProposal");
+        registered.insert("TaxonProposal".to_string());
+        gen.add_schema::<ProposeTaxonsRequest>("ProposeTaxonsRequest");
+        registered.insert("ProposeTaxonsRequest".to_string());
+        gen.add_schema::<AcceptedProposal>("AcceptedProposal");
+        registered.insert("AcceptedProposal".to_string());
+        gen.add_schema::<ApplyTaxonProposalsRequest>("ApplyTaxonProposalsRequest");
+        registered.insert("ApplyTaxonProposalsRequest".to_string());
+        gen.add_schema::<ApplyTaxonProposalsResult>("ApplyTaxonProposalsResult");
+        registered.insert("ApplyTaxonProposalsResult".to_string());
 
         gen.add_schema::<GenreRef>("GenreRef");
         registered.insert("GenreRef".to_string());

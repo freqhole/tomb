@@ -13,6 +13,9 @@ SELECT
     ar.deleted_by as artist_deleted_by,
     ar.created_by as artist_created_by,
     ar.updated_by as artist_updated_by,
+    ar.metadata as artist_metadata,
+    ar.lastfm_lookup_status as artist_lastfm_lookup_status,
+    ar.audiodb_lookup_status as artist_audiodb_lookup_status,
 
     -- images as JSON array
     COALESCE(
@@ -52,5 +55,6 @@ LEFT JOIN artist_songz ars ON ar.id = ars.artist_id
 LEFT JOIN songz s ON ars.song_id = s.id AND s.deleted_at IS NULL
 WHERE ar.deleted_at IS NULL
 GROUP BY ar.id, ar.name, ar.bio, ar.created_at, ar.updated_at, ar.deleted_at,
-         ar.deleted_by, ar.created_by, ar.updated_by
+         ar.deleted_by, ar.created_by, ar.updated_by,
+         ar.metadata, ar.lastfm_lookup_status, ar.audiodb_lookup_status
 HAVING COUNT(DISTINCT ars.song_id) > 0;

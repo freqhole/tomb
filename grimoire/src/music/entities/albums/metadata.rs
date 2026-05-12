@@ -157,6 +157,13 @@ pub struct MbMetadata {
     /// the query inputs used in the most recent search (for debugging)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_query: Option<MbLastQuery>,
+    /// release ids whose tag/genre payloads contributed to the current
+    /// folksonomy snapshot. populated by the walk-and-union path in
+    /// `mb_detail_processor` when the winner alone has sparse tags;
+    /// surfaces in the review modal so the user can audit which
+    /// siblings were folded into the result.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub tag_source_release_ids: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, ZodSchema, PartialEq)]
@@ -177,6 +184,10 @@ pub struct MbCandidate {
     pub primary_type: Option<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub secondary_types: Vec<String>,
+    /// first medium's format (e.g. "CD", "Digital Media", "12\" Vinyl").
+    /// used both by the local confidence ladder and by the review ui.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub media: Option<String>,
     /// musicbrainz' own lucene score (0..100)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mb_score: Option<i32>,
@@ -572,6 +583,18 @@ pub fn patch_mb_folksonomy(folksonomy: &MbFolksonomy) -> JsonValue {
     json!({
         "folksonomy": {
             "musicbrainz": folksonomy,
+        }
+    })
+}
+
+/// convenience: build a json patch that records which release_ids
+/// contributed to the current folksonomy snapshot. used by the
+/// walk-and-union path in `mb_detail_processor` when the auto-confirmed
+/// winner has sparse tags and we fall back to detail-fetching siblings.
+pub fn patch_mb_tag_sources(release_ids: &[String]) -> JsonValue {
+    json!({
+        "musicbrainz": {
+            "tag_source_release_ids": release_ids,
         }
     })
 }

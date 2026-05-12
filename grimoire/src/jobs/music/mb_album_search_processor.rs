@@ -203,6 +203,7 @@ pub async fn process_mb_album_search_job(job: &Job) -> Result<Option<Value>, Job
                     .as_ref()
                     .and_then(|rg| rg.secondary_types.clone())
                     .unwrap_or_default(),
+                media: media_format.clone(),
                 mb_score: r.score.map(|s| s as i32),
                 local_confidence: Some(local_confidence),
             }
@@ -425,15 +426,7 @@ mod tests {
 
     #[test]
     fn confidence_low_when_nothing_matches() {
-        let c = compute_local_confidence(
-            "foo",
-            Some("bar"),
-            "baz",
-            "qux",
-            Some(0),
-            None,
-            None,
-        );
+        let c = compute_local_confidence("foo", Some("bar"), "baz", "qux", Some(0), None, None);
         assert!(c < 0.3);
     }
 

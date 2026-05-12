@@ -13,6 +13,11 @@ use crate::music::entities::albums::{
     reject_mb_match as grimoire_reject_mb_match, remove_album_image, set_primary_album_image,
     update_album as grimoire_update_album, UpdateAlbumRequest,
 };
+use crate::music::entities::albums::taxon_proposals::{
+    apply_taxon_proposals as grimoire_apply_taxon_proposals,
+    propose_taxons_for_album as grimoire_propose_taxons_for_album, ApplyTaxonProposalsRequest,
+    ProposeTaxonsRequest,
+};
 use crate::music::entities::artists::{remove_artist_image, set_primary_artist_image};
 use crate::music::entities::playlists::{remove_playlist_image, set_primary_playlist_image};
 use crate::music::entities::songs::{remove_song_image, set_primary_song_image};
@@ -94,6 +99,24 @@ pub const ROUTES: &[RouteInfo] = &[
         domain: Domain::Music,
         request_type: "AutoConfirmMbMatchesRequest",
         response_type: "AutoConfirmMbMatchesResult",
+        auth: RouteAuth::Role(UserRole::Admin),
+    },
+    RouteInfo {
+        name: "propose_taxons",
+        path: "/api/albums/propose-taxons",
+        method: Method::POST,
+        domain: Domain::Music,
+        request_type: "ProposeTaxonsRequest",
+        response_type: "Vec<TaxonProposal>",
+        auth: RouteAuth::Role(UserRole::Admin),
+    },
+    RouteInfo {
+        name: "apply_taxon_proposals",
+        path: "/api/albums/apply-taxon-proposals",
+        method: Method::POST,
+        domain: Domain::Music,
+        request_type: "ApplyTaxonProposalsRequest",
+        response_type: "ApplyTaxonProposalsResult",
         auth: RouteAuth::Role(UserRole::Admin),
     },
 ];
@@ -451,5 +474,66 @@ pub async fn auto_confirm_mb_matches(
     )
     .await;
 
+    response.map(|data| serde_json::to_value(data).unwrap())
+}
+
+/// list proposed taxons for an album (phase 14.2)
+///
+/// reads the album's enrichment metadata blob and returns proposed
+/// `(kind, label)` links the user can accept/edit/drop in the review ui.
+/// purely read-only — no writes to `album_taxonz`.
+///
+/// path: POST /api/albums/propose-taxons
+pub async fn propose_taxons(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
+    if !caller.is_admin() {
+        return GrimoireResponse::failure(
+            "forbidden",
+            vec![ErrorDetail::new("forbidden", "forbidden", "admin only")],
+        );
+    }
+    let req: ProposeTaxonsRequest = match serde_json::from_value(body) {
+        Ok(r) => r,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "bad request",
+                vec![ErrorDetail::new(
+                    "bad_request",
+                    "bad request",
+                    &e.to_string(),
+                )],
+            )
+        }
+    };
+    let response = grimoire_propose_taxons_for_album(&req.album_id).await;
+    response.map(|data| serde_json::to_value(data).unwrap())
+}
+
+/// commit the user's accepted taxon proposals (phase 14.3)
+///
+/// path: POST /api/albums/apply-taxon-proposals
+pub async fn apply_taxon_proposals(
+    caller: &Caller,
+    body: JsonValue,
+) -> GrimoireResponse<JsonValue> {
+    if !caller.is_admin() {
+        return GrimoireResponse::failure(
+            "forbidden",
+            vec![ErrorDetail::new("forbidden", "forbidden", "admin only")],
+        );
+    }
+    let req: ApplyTaxonProposalsRequest = match serde_json::from_value(body) {
+        Ok(r) => r,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "bad request",
+                vec![ErrorDetail::new(
+                    "bad_request",
+                    "bad request",
+                    &e.to_string(),
+                )],
+            )
+        }
+    };
+    let response = grimoire_apply_taxon_proposals(req).await;
     response.map(|data| serde_json::to_value(data).unwrap())
 }

@@ -84,6 +84,10 @@ pub async fn dispatch(
         "/api/albums/mb-auto-confirm" => {
             Some(albums::auto_confirm_mb_matches(caller, body.clone()).await)
         }
+        "/api/albums/propose-taxons" => Some(albums::propose_taxons(caller, body.clone()).await),
+        "/api/albums/apply-taxon-proposals" => {
+            Some(albums::apply_taxon_proposals(caller, body.clone()).await)
+        }
 
         // artists
         "/api/artists/query" => Some(artists::query(caller, body.clone()).await),
