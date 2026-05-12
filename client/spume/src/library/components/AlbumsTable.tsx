@@ -10,7 +10,8 @@
 //
 // future phases add: selection, bulk-action bar, inline editing, mb lookup.
 
-import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import { useSearchParams } from "@solidjs/router";
 import type { Remote } from "../../app/services/storage/schemas/remote";
 import { Icon } from "../../components/icons/registry";
 import { LoadingState, LoadingMoreIndicator } from "../../components/feedback";
@@ -36,6 +37,8 @@ import { useInflightJobs, getInflightSourcesForAlbum } from "../hooks/useMbLooku
 import { showBulkReview } from "../review/bulkReviewModal";
 import { getClientForRemote } from "../../app/api/client";
 import { queryClient } from "../../queryClient";
+import { setPageInfo, clearPageInfo } from "../../app/services/pageInfo";
+import type { StatusFilter } from "../../app/services/pageInfo";
 import type { AlbumSummary } from "../../music/data/types";
 
 type SortField = "title" | "artist" | "year" | "song_count" | "added_at";
@@ -48,18 +51,25 @@ interface AlbumsTableProps {
   onEnrichAllMatching?: (albumIds: string[]) => void;
 }
 
-const SORT_OPTIONS: { value: SortField; label: string }[] = [
-  { value: "added_at", label: "added" },
-  { value: "title", label: "title" },
-  { value: "artist", label: "artist" },
-  { value: "year", label: "year" },
-  { value: "song_count", label: "song count" },
+const SORT_OPTIONS: { value: SortField; label: string; description?: string }[] = [
+  { value: "added_at", label: "added", description: "sort by date added" },
+  { value: "title", label: "title", description: "sort by album title" },
+  { value: "artist", label: "artist", description: "sort by artist name" },
+  { value: "year", label: "year", description: "sort by release year" },
+  { value: "song_count", label: "song count", description: "sort by song count" },
 ];
 
 export function AlbumsTable(props: AlbumsTableProps) {
-  const [searchInput, setSearchInput] = createSignal("");
-  const [debouncedSearch, setDebouncedSearch] = createSignal<string | undefined>(undefined);
-  const [statusFilters, setStatusFilters] = createSignal<Set<MbLookupStatus>>(new Set());
+  // search comes from `?q=` in the url, driven by the topnav search bar
+  // (see TopNavSearch -> handleSearchSubmit). reading via useSearchParams
+  // keeps it reactive across hash-route changes.
+  const [searchParams] = useSearchParams();
+  const debouncedSearch = () => {
+    const q = searchParams.q;
+    const v = Array.isArray(q) ? q[0] : q;
+    return v?.trim() || undefined;
+  };
+  const [statusFilters, setStatusFilters] = createSignal<StatusFilter[]>([]);
   const [sortField, setSortField] = createSignal<SortField>("added_at");
   const [sortDirection, setSortDirection] = createSignal<"asc" | "desc">("desc");
 
@@ -86,16 +96,6 @@ export function AlbumsTable(props: AlbumsTableProps) {
   // those modals moved into the bulk review flow, so the hook isn't
   // needed at table scope anymore.
 
-  // simple debounce on the search input
-  let searchTimer: ReturnType<typeof setTimeout> | undefined;
-  const onSearchInput = (value: string) => {
-    setSearchInput(value);
-    clearTimeout(searchTimer);
-    searchTimer = setTimeout(() => {
-      setDebouncedSearch(value.trim() || undefined);
-    }, 250);
-  };
-
   const remoteAccessor = () => props.remote;
   const sortByAccessor = () => sortField() as string;
 
@@ -113,10 +113,20 @@ export function AlbumsTable(props: AlbumsTableProps) {
 
   // status filtering happens client-side over loaded rows. coarse but fine
   // for v0 — server-side filter follows later when the schema settles.
+  // include semantics: if any include filters are set, row's status must
+  // be in the include set. exclude semantics: row's status must not be
+  // in the exclude set.
   const filteredItems = createMemo<AlbumSummary[]>(() => {
-    const active = statusFilters();
-    if (active.size === 0) return allItems();
-    return allItems().filter((a) => active.has(parseMbLookupStatus(a.mb_lookup_status)));
+    const filters = statusFilters();
+    if (filters.length === 0) return allItems();
+    const include = new Set(filters.filter((f) => f.mode === "include").map((f) => f.value));
+    const exclude = new Set(filters.filter((f) => f.mode === "exclude").map((f) => f.value));
+    return allItems().filter((a) => {
+      const s = parseMbLookupStatus(a.mb_lookup_status);
+      if (include.size > 0 && !include.has(s)) return false;
+      if (exclude.has(s)) return false;
+      return true;
+    });
   });
 
   // keep the selection range list aligned with the visible rows.
@@ -143,17 +153,76 @@ export function AlbumsTable(props: AlbumsTableProps) {
   };
 
   const toggleStatus = (status: MbLookupStatus) => {
+    // legacy single-arg toggle: flip presence as include filter.
     setStatusFilters((prev) => {
-      const next = new Set<MbLookupStatus>(prev);
-      if (next.has(status)) next.delete(status);
-      else next.add(status);
-      return next;
+      const exists = prev.find((f) => f.value === status);
+      if (exists) return prev.filter((f) => f.value !== status);
+      return [...prev, { value: status, mode: "include" }];
     });
   };
-
-  const clearStatusFilters = () => setStatusFilters(new Set<MbLookupStatus>());
+  const addStatusFilter = (value: string) => {
+    setStatusFilters((prev) => {
+      if (prev.some((f) => f.value === value)) return prev;
+      return [...prev, { value: value as MbLookupStatus, mode: "include" }];
+    });
+  };
+  const removeStatusFilter = (value: string) => {
+    setStatusFilters((prev) => prev.filter((f) => f.value !== value));
+  };
+  const toggleStatusMode = (value: string) => {
+    setStatusFilters((prev) =>
+      prev.map((f) =>
+        f.value === value ? { ...f, mode: f.mode === "include" ? "exclude" : "include" } : f
+      )
+    );
+  };
+  const clearStatusFilters = () => setStatusFilters([]);
 
   const toggleSortDirection = () => setSortDirection((prev) => (prev === "asc" ? "desc" : "asc"));
+  void toggleStatus; // legacy chip toggle; topnav status picker uses add/remove/toggle helpers below
+  void toggleSortDirection;
+
+  // wire pageInfo so the topnav surfaces search / sort / status filters
+  // for the library/table view, matching the pattern used by
+  // AlbumsView / SongsView / etc.
+  const statusOptionsWithCounts = createMemo(() => {
+    const items = allItems();
+    const counts = new Map<string, number>();
+    for (const a of items) {
+      const s = parseMbLookupStatus(a.mb_lookup_status);
+      counts.set(s, (counts.get(s) ?? 0) + 1);
+    }
+    return MB_LOOKUP_STATUS_FILTERS.map((s) => ({
+      value: s,
+      label: mbLookupStatusLabel(s),
+      count: counts.get(s),
+    }));
+  });
+  createEffect(() => {
+    setPageInfo({
+      title: "library",
+      count: filteredItems().length,
+      sortFields: SORT_OPTIONS,
+      sortBy: sortField(),
+      sortDirection: sortDirection(),
+      defaultSortBy: "added_at",
+      defaultSortDirection: "desc",
+      onSortChange: (field, direction) => {
+        setSortField(field as SortField);
+        setSortDirection(direction);
+      },
+      statusFilterOptions: statusOptionsWithCounts(),
+      selectedStatusFilters: statusFilters(),
+      statusFilterLabel: "mb status filters",
+      onAddStatusFilter: addStatusFilter,
+      onRemoveStatusFilter: removeStatusFilter,
+      onToggleStatusFilterMode: toggleStatusMode,
+      onClearStatusFilters: clearStatusFilters,
+    });
+  });
+  onMount(() => {
+    onCleanup(() => clearPageInfo());
+  });
 
   const runAutoConfirm = async () => {
     const ids = filteredItems().map((a) => a.album_id);
@@ -246,157 +315,81 @@ export function AlbumsTable(props: AlbumsTableProps) {
 
   return (
     <div class="flex flex-col h-full min-h-0">
-      {/* controls */}
-      <div class="flex flex-col gap-2 px-4 py-2 border-b border-[var(--color-border-subtle)] bg-[var(--color-bg-base)]">
-        <div class="flex items-center gap-3 flex-wrap">
-          {/* search */}
-          <div class="flex items-center gap-2 bg-[var(--color-bg-elevated)] rounded px-2 py-1 min-w-[200px] flex-1 max-w-md">
-            <Icon name="search" size={12} />
-            <input
-              type="text"
-              placeholder="search title, artist..."
-              value={searchInput()}
-              onInput={(e) => onSearchInput(e.currentTarget.value)}
-              class="bg-transparent border-none outline-none text-sm text-[var(--color-text-primary)] flex-1 placeholder:text-[var(--color-text-muted)]"
-            />
-            <Show when={searchInput().length > 0}>
-              <button
-                type="button"
-                class="bg-transparent border-none cursor-pointer text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] p-0"
-                onClick={() => onSearchInput("")}
-                aria-label="clear search"
-              >
-                <Icon name="close" size={12} />
-              </button>
-            </Show>
-          </div>
-
-          {/* sort */}
-          <div class="flex items-center gap-1 text-xs">
-            <span class="text-[var(--color-text-muted)]">sort:</span>
-            <select
-              value={sortField()}
-              onChange={(e) => setSortField(e.currentTarget.value as SortField)}
-              class="bg-[var(--color-bg-elevated)] border border-[var(--color-border-subtle)] rounded px-2 py-1 text-xs text-[var(--color-text-primary)]"
+      {/* slim toolbar — search / sort / status filters live in the
+       *  topnav now; this strip just shows counts + the bulk action
+       *  buttons that operate over the entire filtered set. */}
+      <div class="flex items-center gap-3 flex-wrap px-4 py-2 border-b border-[var(--color-border-subtle)] bg-[var(--color-bg-base)]">
+        {/* count. note: server's `total_count` is currently the page count
+         *  (see grimoire/src/music/crud/query.rs query_albums) so we can't
+         *  show "loaded of total" reliably yet — just show what's loaded.
+         *  TODO: separate COUNT(*) on the server, then restore "of N". */}
+        <div class="text-xs text-[var(--color-text-muted)]">
+          <Show when={loadedCount() > 0} fallback={<span>0 albums</span>}>
+            {loadedCount()}
+            <Show when={albumsQuery.hasNextPage}>+</Show>
+            <Show when={statusFilters().length > 0}> · {filteredItems().length} match filters</Show>
+            <span
+              class="ml-1.5 text-[var(--color-text-tertiary)]"
+              title={`${coveredCount()} of ${loadedCount()} loaded albums are confirmed or enriched`}
             >
-              <For each={SORT_OPTIONS}>
-                {(opt) => <option value={opt.value}>{opt.label}</option>}
-              </For>
-            </select>
-            <button
-              type="button"
-              onClick={toggleSortDirection}
-              title={`sort ${sortDirection() === "asc" ? "ascending" : "descending"}`}
-              aria-label="toggle sort direction"
-              class="bg-[var(--color-bg-elevated)] border border-[var(--color-border-subtle)] rounded px-2 py-1 cursor-pointer text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]"
-            >
-              <Icon name={sortDirection() === "asc" ? "arrowUp" : "arrowDown"} size={10} />
-            </button>
-          </div>
-
-          {/* count. note: server's `total_count` is currently the page count
-           *  (see grimoire/src/music/crud/query.rs query_albums) so we can't
-           *  show "loaded of total" reliably yet — just show what's loaded.
-           *  TODO: separate COUNT(*) on the server, then restore "of N". */}
-          <div class="text-xs text-[var(--color-text-muted)] ml-auto">
-            <Show when={loadedCount() > 0} fallback={<span>0 albums</span>}>
-              {loadedCount()}
-              <Show when={albumsQuery.hasNextPage}>+</Show>
-              <Show when={statusFilters().size > 0}> · {filteredItems().length} match filters</Show>
-              <span
-                class="ml-1.5 text-[var(--color-text-tertiary)]"
-                title={`${coveredCount()} of ${loadedCount()} loaded albums are confirmed or enriched`}
-              >
-                · {coveragePct()}% enriched
-              </span>
-            </Show>
-          </div>
-
-          {/* lookup-all-matching control (header level; works without
-           *  selection). fans out to mb + last.fm + theaudiodb. */}
-          <Show when={props.onEnrichAllMatching && filteredItems().length > 0}>
-            <button
-              type="button"
-              onClick={() => props.onEnrichAllMatching?.(filteredItems().map((a) => a.album_id))}
-              class="flex items-center gap-1 px-2 py-1 text-xs rounded border border-[var(--color-accent-500)]/40 text-[var(--color-accent-500)] hover:bg-[var(--color-accent-500)]/10 cursor-pointer bg-transparent"
-              title="enqueue musicbrainz + last.fm + theaudiodb lookups for every matching album"
-            >
-              <Icon name="search" size={10} />
-              lookup all matching
-            </button>
-          </Show>
-
-          {/* auto-confirm bulk control. confirms top candidate where it
-           *  clears confidence + gap thresholds. admin-only on the server
-           *  side; non-admins see a 403 surfaced inline. opens a
-           *  confirmation modal that lets the user tweak thresholds and
-           *  preview how many albums would be affected before firing. */}
-          <Show when={filteredItems().length > 0}>
-            <button
-              type="button"
-              onClick={() => setAutoConfirmModalOpen(true)}
-              disabled={autoConfirm().kind === "running"}
-              class="flex items-center gap-1 px-2 py-1 text-xs rounded border border-[var(--color-accent-500)]/40 text-[var(--color-accent-500)] hover:bg-[var(--color-accent-500)]/10 cursor-pointer bg-transparent disabled:opacity-50 disabled:cursor-not-allowed"
-              title="auto-confirm top mb candidate when confidence + gap thresholds are met"
-            >
-              <Show when={autoConfirm().kind === "running"} fallback={<>auto-confirm…</>}>
-                running…
-              </Show>
-            </button>
-            <Show when={autoConfirm().kind === "done"}>
-              {(() => {
-                const s = autoConfirm() as Extract<AutoConfirmState, { kind: "done" }>;
-                return (
-                  <span class="text-xs text-[var(--color-text-muted)]">
-                    last run: ok {s.confirmed} · skip {s.skipped}
-                    <Show when={s.errors > 0}> · err {s.errors}</Show>
-                  </span>
-                );
-              })()}
-            </Show>
-            <Show when={autoConfirm().kind === "error"}>
-              {(() => {
-                const s = autoConfirm() as Extract<AutoConfirmState, { kind: "error" }>;
-                return (
-                  <span class="text-xs text-[var(--color-error-500)]" title={s.message}>
-                    auto-confirm error
-                  </span>
-                );
-              })()}
-            </Show>
+              · {coveragePct()}% enriched
+            </span>
           </Show>
         </div>
 
-        {/* status filter chips */}
-        <div class="flex items-center gap-1 flex-wrap text-xs">
-          <span class="text-[var(--color-text-muted)] mr-1">mb status:</span>
-          <For each={MB_LOOKUP_STATUS_FILTERS}>
-            {(status) => (
-              <button
-                type="button"
-                onClick={() => toggleStatus(status)}
-                class="px-2 py-0.5 rounded-full border transition-colors cursor-pointer"
-                classList={{
-                  "bg-[var(--color-accent-500)]/15 text-[var(--color-accent-500)] border-[var(--color-accent-500)]/40":
-                    statusFilters().has(status),
-                  "bg-transparent text-[var(--color-text-muted)] border-[var(--color-border-subtle)] hover:text-[var(--color-text-primary)]":
-                    !statusFilters().has(status),
-                }}
-              >
-                {mbLookupStatusLabel(status)}
-              </button>
-            )}
-          </For>
-          <Show when={statusFilters().size > 0}>
-            <button
-              type="button"
-              onClick={clearStatusFilters}
-              class="px-2 py-0.5 rounded-full border border-transparent cursor-pointer text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]"
-            >
-              clear
-            </button>
+        {/* lookup-all-matching control (header level; works without
+         *  selection). fans out to mb + last.fm + theaudiodb. */}
+        <Show when={props.onEnrichAllMatching && filteredItems().length > 0}>
+          <button
+            type="button"
+            onClick={() => props.onEnrichAllMatching?.(filteredItems().map((a) => a.album_id))}
+            class="flex items-center gap-1 px-2 py-1 text-xs rounded border border-[var(--color-accent-500)]/40 text-[var(--color-accent-500)] hover:bg-[var(--color-accent-500)]/10 cursor-pointer bg-transparent ml-auto"
+            title="enqueue musicbrainz + last.fm + theaudiodb lookups for every matching album"
+          >
+            <Icon name="search" size={10} />
+            lookup all matching
+          </button>
+        </Show>
+
+        {/* auto-confirm bulk control. confirms top candidate where it
+         *  clears confidence + gap thresholds. admin-only on the server
+         *  side; non-admins see a 403 surfaced inline. opens a
+         *  confirmation modal that lets the user tweak thresholds and
+         *  preview how many albums would be affected before firing. */}
+        <Show when={filteredItems().length > 0}>
+          <button
+            type="button"
+            onClick={() => setAutoConfirmModalOpen(true)}
+            disabled={autoConfirm().kind === "running"}
+            class="flex items-center gap-1 px-2 py-1 text-xs rounded border border-[var(--color-accent-500)]/40 text-[var(--color-accent-500)] hover:bg-[var(--color-accent-500)]/10 cursor-pointer bg-transparent disabled:opacity-50 disabled:cursor-not-allowed"
+            title="auto-confirm top mb candidate when confidence + gap thresholds are met"
+          >
+            <Show when={autoConfirm().kind === "running"} fallback={<>auto-confirm…</>}>
+              running…
+            </Show>
+          </button>
+          <Show when={autoConfirm().kind === "done"}>
+            {(() => {
+              const s = autoConfirm() as Extract<AutoConfirmState, { kind: "done" }>;
+              return (
+                <span class="text-xs text-[var(--color-text-muted)]">
+                  last run: ok {s.confirmed} · skip {s.skipped}
+                  <Show when={s.errors > 0}> · err {s.errors}</Show>
+                </span>
+              );
+            })()}
           </Show>
-        </div>
+          <Show when={autoConfirm().kind === "error"}>
+            {(() => {
+              const s = autoConfirm() as Extract<AutoConfirmState, { kind: "error" }>;
+              return (
+                <span class="text-xs text-[var(--color-error-500)]" title={s.message}>
+                  auto-confirm error
+                </span>
+              );
+            })()}
+          </Show>
+        </Show>
       </div>
 
       {/* table */}

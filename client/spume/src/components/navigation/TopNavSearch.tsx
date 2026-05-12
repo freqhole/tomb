@@ -26,7 +26,9 @@ export interface TopNavSearchProps {
 }
 
 // filterable route keys — used for the "press return to filter X" hint
-const FILTERABLE_KEYS = new Set(["songs", "albums", "artists", "playlists", "genres"]);
+const FILTERABLE_KEYS = new Set(["songs", "albums", "artists", "playlists", "genres", "library"]);
+// routes that filter inline (no autocomplete dropdown, debounced as-you-type)
+const FILTER_ONLY_KEYS = new Set(["library"]);
 
 export function TopNavSearch(props: TopNavSearchProps) {
   const [searchValue, setSearchValue] = createSignal("");
@@ -37,6 +39,7 @@ export function TopNavSearch(props: TopNavSearchProps) {
   const [isNarrow, setIsNarrow] = createSignal(isNarrowViewport());
   let inputRef: HTMLInputElement | undefined;
   let collapseTimer: ReturnType<typeof setTimeout> | undefined;
+  let filterDebounceTimer: ReturnType<typeof setTimeout> | undefined;
 
   // track narrow viewport for touch-friendly icon sizing
   if (typeof window !== "undefined") {
@@ -109,7 +112,10 @@ export function TopNavSearch(props: TopNavSearchProps) {
     )
   );
 
-  onCleanup(() => clearTimeout(collapseTimer));
+  onCleanup(() => {
+    clearTimeout(collapseTimer);
+    clearTimeout(filterDebounceTimer);
+  });
 
   const handleMouseEnter = () => {
     clearTimeout(collapseTimer);
@@ -156,6 +162,14 @@ export function TopNavSearch(props: TopNavSearchProps) {
     setSearchValue(value);
     props.onSearchChange?.(value);
     if (value && !isExpanded()) setIsExpanded(true);
+    // filter-only routes (e.g. library): suppress autocomplete + debounce-submit
+    const key = currentRouteKey();
+    if (key && FILTER_ONLY_KEYS.has(key)) {
+      setSuggestionsOpen(false);
+      clearTimeout(filterDebounceTimer);
+      filterDebounceTimer = setTimeout(() => submitFilter(), 250);
+      return;
+    }
     setSuggestionsOpen(value.length >= 2);
   };
 
@@ -182,6 +196,8 @@ export function TopNavSearch(props: TopNavSearchProps) {
 
   const handleFocus = () => {
     setIsFocused(true);
+    const key = currentRouteKey();
+    if (key && FILTER_ONLY_KEYS.has(key)) return;
     // reopen suggestions if there's a query (results may still be cached from previous search)
     if (searchValue().length >= 2 || (props.suggestions?.length ?? 0) > 0) {
       setSuggestionsOpen(true);
@@ -212,14 +228,19 @@ export function TopNavSearch(props: TopNavSearchProps) {
   };
 
   const submitFilter = () => {
+    clearTimeout(filterDebounceTimer);
     const q = searchValue();
-    if (q.length < 2) return;
     const fullPath = props.currentPath || "";
     const pathname = fullPath.split("?")[0];
     const key = matchRoute(fullPath);
-    if (key && FILTERABLE_KEYS.has(key)) {
-      props.onNavigate?.(`${pathname}?q=${encodeURIComponent(q)}`);
+    if (!key || !FILTERABLE_KEYS.has(key)) return;
+    // empty q on filter-only routes clears the filter; otherwise require >=2 chars
+    if (!q) {
+      props.onNavigate?.(pathname);
+      return;
     }
+    if (q.length < 2 && !FILTER_ONLY_KEYS.has(key)) return;
+    props.onNavigate?.(`${pathname}?q=${encodeURIComponent(q)}`);
   };
 
   // --- selection (row click or keyboard Enter on highlighted item) ---

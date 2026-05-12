@@ -58,6 +58,7 @@ import {
 } from "../../components/musicbrainz/MusicBrainzTrackComparison";
 import type { MbReleaseDetail } from "../../music/data/types";
 import { parseAlbumMetadata, type MbCandidate } from "../data/albumMetadata";
+import { queryClient } from "../../queryClient";
 import { LastFmReviewModal } from "../components/LastFmReviewModal";
 import { AudioDbReviewModal } from "../components/AudioDbReviewModal";
 import { useRemoteIsAdmin } from "../hooks/useRemoteRole";
@@ -1031,6 +1032,11 @@ export function BulkEnrichmentReviewModal(props: BulkEnrichmentReviewModalProps)
         toast.error(statusResp.error.message || "failed to mark album enriched");
         return;
       }
+      // refresh the library table so the row's status column reflects
+      // the new mb_lookup_status without a manual reload.
+      void queryClient.invalidateQueries({
+        queryKey: ["library-albums", props.remote.remote_id],
+      });
       if (terminal && !hasNext()) {
         props.onExit();
       } else {
@@ -1059,6 +1065,10 @@ export function BulkEnrichmentReviewModal(props: BulkEnrichmentReviewModalProps)
         });
         if (!resp.success) {
           toast.error(resp.error.message || "failed to mark album skipped");
+        } else {
+          void queryClient.invalidateQueries({
+            queryKey: ["library-albums", props.remote.remote_id],
+          });
         }
       } catch (err) {
         toast.error(`skip failed: ${(err as Error).message}`);

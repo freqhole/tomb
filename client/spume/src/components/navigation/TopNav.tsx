@@ -340,6 +340,9 @@ export function TopNav(props: TopNavProps) {
   const [tagLocked, setTagLocked] = createSignal(false);
   const [feedFilterOpen, setFeedFilterOpen] = createSignal(false);
   const [feedFilterLocked, setFeedFilterLocked] = createSignal(false);
+  const [statusFilterOpen, setStatusFilterOpen] = createSignal(false);
+  const [statusFilterLocked, setStatusFilterLocked] = createSignal(false);
+  let statusFilterCloseTimeout: ReturnType<typeof setTimeout> | undefined;
   const [navHovered, setNavHovered] = createSignal(false);
   const [recheckingRemoteIds, setRecheckingRemoteIds] = createSignal<Set<string>>(new Set());
 
@@ -519,11 +522,18 @@ export function TopNav(props: TopNavProps) {
   const hasActiveTags = () => (info().selectedTagFilters?.length || 0) > 0;
   const hasActiveFeedFilters = () =>
     (info().selectedFeedTypes?.length || 0) > 0 || info().myItemsOnly;
+  const hasActiveStatusFilters = () => (info().selectedStatusFilters?.length || 0) > 0;
   const unselectedTags = () => {
     const i = info();
     if (!i.availableTags?.length) return [];
     const selected = new Set((i.selectedTagFilters || []).map((f) => f.tag));
     return i.availableTags.filter((t) => !selected.has(t.value));
+  };
+  const unselectedStatusFilters = () => {
+    const i = info();
+    if (!i.statusFilterOptions?.length) return [];
+    const selected = new Set((i.selectedStatusFilters || []).map((f) => f.value));
+    return i.statusFilterOptions.filter((o) => !selected.has(o.value));
   };
 
   onMount(() => {
@@ -650,8 +660,16 @@ export function TopNav(props: TopNavProps) {
 
   // handle remote click - recheck if offline, otherwise switch
   const handleRemoteClick = async (remote: NonNullable<typeof props.remotes>[number]) => {
-    // if it's the current source and not on aggregate feed, do nothing
-    if (!isAggregateFeedRoute() && props.currentSourceId === remote.id) return;
+    // if it's the current source and we're not on a global root route
+    // (feed/library/radio/shared), do nothing
+    if (
+      !isAggregateFeedRoute() &&
+      !isLibraryRoute() &&
+      !isRadioRoute() &&
+      !isSharedRoute() &&
+      props.currentSourceId === remote.id
+    )
+      return;
 
     // if offline, try to recheck
     if (remote.isOffline && props.onRecheckRemote) {
@@ -715,7 +733,13 @@ export function TopNav(props: TopNavProps) {
                 aria-label="menu"
               >
                 <Show
-                  when={!isAggregateFeedRoute() && currentRemote()}
+                  when={
+                    !isAggregateFeedRoute() &&
+                    !isLibraryRoute() &&
+                    !isRadioRoute() &&
+                    !isSharedRoute() &&
+                    currentRemote()
+                  }
                   fallback={
                     <Icon
                       name="freqhole"
@@ -935,7 +959,11 @@ export function TopNav(props: TopNavProps) {
                                 {(remote) => {
                                   const isRechecking = () => recheckingRemoteIds().has(remote.id);
                                   const isCurrentSource = () =>
-                                    !isAggregateFeedRoute() && props.currentSourceId === remote.id;
+                                    !isAggregateFeedRoute() &&
+                                    !isLibraryRoute() &&
+                                    !isRadioRoute() &&
+                                    !isSharedRoute() &&
+                                    props.currentSourceId === remote.id;
                                   const offlineTitle = () => {
                                     if (!remote.isOffline) return undefined;
                                     const lastChecked = remote.lastChecked
@@ -1229,11 +1257,7 @@ export function TopNav(props: TopNavProps) {
             </Show>
 
             {/* search - last item on right, grows to fill remaining space (hidden on aggregate feed + radio) */}
-            <Show
-              when={
-                !isAggregateFeedRoute() && !isRadioRoute() && !isSharedRoute() && !isLibraryRoute()
-              }
-            >
+            <Show when={!isAggregateFeedRoute() && !isRadioRoute() && !isSharedRoute()}>
               <div
                 class="order-last"
                 classList={{
@@ -1263,7 +1287,6 @@ export function TopNav(props: TopNavProps) {
                 !isAggregateFeedRoute() &&
                 !isRadioRoute() &&
                 !isSharedRoute() &&
-                !isLibraryRoute() &&
                 info().sortFields?.length &&
                 (!isNarrow() || !searchExpanded())
               }
@@ -1499,6 +1522,95 @@ export function TopNav(props: TopNavProps) {
               </div>
             </Show>
 
+            {/* status filter icon - mirrors the tag picker (include /
+             *  exclude with badges below the nav) but populated from
+             *  pageInfo.statusFilterOptions. used by the library/table
+             *  view for `mb_lookup_status`; other views can opt in by
+             *  setting the same fields. */}
+            <Show when={info().statusFilterOptions?.length && (!isNarrow() || !searchExpanded())}>
+              <div
+                class="relative flex-shrink-0 order-2"
+                onMouseEnter={() => {
+                  clearTimeout(statusFilterCloseTimeout);
+                  if (!statusFilterOpen()) setStatusFilterOpen(true);
+                }}
+                onMouseLeave={() => {
+                  if (statusFilterLocked()) return;
+                  statusFilterCloseTimeout = setTimeout(() => setStatusFilterOpen(false), 150);
+                }}
+              >
+                <button
+                  class={`${iconBtnPad()} rounded transition-colors border-none bg-transparent cursor-pointer`}
+                  classList={{
+                    "text-[var(--color-accent-500)]":
+                      hasActiveStatusFilters() || statusFilterOpen(),
+                    "text-white/60 hover:text-white":
+                      !hasActiveStatusFilters() && !statusFilterOpen(),
+                  }}
+                  onClick={() => {
+                    if (statusFilterOpen() && statusFilterLocked()) {
+                      setStatusFilterLocked(false);
+                      setStatusFilterOpen(false);
+                    } else {
+                      setStatusFilterOpen(true);
+                      setStatusFilterLocked(true);
+                    }
+                    setSortOpen(false);
+                    setSortLocked(false);
+                    setTagOpen(false);
+                    setTagLocked(false);
+                    setFeedFilterOpen(false);
+                    setFeedFilterLocked(false);
+                  }}
+                  title={info().statusFilterLabel || "status filters"}
+                >
+                  <Icon name="filter" size={iconBtnSize()} />
+                </button>
+                <Show when={statusFilterOpen()}>
+                  <div class="absolute top-full right-0 mt-1 bg-[var(--color-bg-elevated)] border border-[var(--color-border-default)] rounded-lg shadow-xl z-[1001] min-w-[200px] max-w-[320px]">
+                    <div class="p-2">
+                      <Show when={hasActiveStatusFilters()}>
+                        <div class="border-b border-[var(--color-border-subtle)] pb-2 mb-2">
+                          <button
+                            onClick={() => info().onClearStatusFilters?.()}
+                            class="w-full text-left px-2 py-1.5 text-xs hover:bg-[var(--color-bg-hover)] text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] rounded transition-colors"
+                          >
+                            clear all
+                          </button>
+                        </div>
+                      </Show>
+                      <Show when={unselectedStatusFilters().length === 0}>
+                        <div class="text-xs text-[var(--color-text-tertiary)] py-2 px-2">
+                          {(info().statusFilterOptions?.length || 0) === 0
+                            ? "no statuses available"
+                            : "all statuses selected"}
+                        </div>
+                      </Show>
+                      <Show when={unselectedStatusFilters().length > 0}>
+                        <div class="max-h-64 overflow-y-auto scrollbar-thin scrollbar-track-transparent scrollbar-thumb-[var(--color-border-default)]">
+                          <For each={unselectedStatusFilters()}>
+                            {(opt) => (
+                              <button
+                                onClick={() => info().onAddStatusFilter?.(opt.value)}
+                                class="w-full text-left px-2 py-1.5 text-xs hover:bg-[var(--color-bg-hover)] text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] rounded transition-colors flex items-center justify-between"
+                              >
+                                <span>{opt.label}</span>
+                                <Show when={opt.count !== undefined}>
+                                  <span class="text-[var(--color-text-tertiary)] text-xs">
+                                    ({opt.count})
+                                  </span>
+                                </Show>
+                              </button>
+                            )}
+                          </For>
+                        </div>
+                      </Show>
+                    </div>
+                  </div>
+                </Show>
+              </div>
+            </Show>
+
             {/* my items toggle - when view supports it, hidden when search expanded on small */}
             <Show when={info().onToggleMyItems && (!isNarrow() || !searchExpanded())}>
               <button
@@ -1599,6 +1711,39 @@ export function TopNav(props: TopNavProps) {
                 my items
               </Badge>
             </Show>
+          </div>
+        </Show>
+
+        {/* selected status filter badges - parallel to tag/feed badges */}
+        <Show when={hasActiveStatusFilters()}>
+          <div class="flex gap-1.5 flex-wrap mt-1.5 px-1">
+            <For each={info().selectedStatusFilters}>
+              {(filter) => {
+                const label = () =>
+                  info().statusFilterOptions?.find((o) => o.value === filter.value)?.label ??
+                  filter.value;
+                return (
+                  <button
+                    onClick={() => info().onToggleStatusFilterMode?.(filter.value)}
+                    title={
+                      filter.mode === "include"
+                        ? `include: ${label()} (click to exclude)`
+                        : `exclude: ${label()} (click to include)`
+                    }
+                    class="cursor-pointer hover:opacity-90 transition-opacity border-none bg-transparent p-0"
+                  >
+                    <Badge
+                      variant={filter.mode === "include" ? "success" : "error"}
+                      size="sm"
+                      removable={true}
+                      onRemove={() => info().onRemoveStatusFilter?.(filter.value)}
+                    >
+                      {label()}
+                    </Badge>
+                  </button>
+                );
+              }}
+            </For>
           </div>
         </Show>
       </nav>

@@ -1006,7 +1006,7 @@ pub async fn query_albums(params: QueryParams) -> GrimoireResponse<QueryResult<A
         Some("artist") => {
             query.order_by(AlbumView::ArtistName, sort_direction);
         }
-        Some("release_date") => {
+        Some("release_date") | Some("year") => {
             query.order_by(AlbumView::AlbumReleaseDate, sort_direction);
         }
         Some("duration") => {
@@ -1016,7 +1016,13 @@ pub async fn query_albums(params: QueryParams) -> GrimoireResponse<QueryResult<A
             query.order_by(AlbumView::AlbumSongCount, sort_direction);
         }
         _ => {
-            query.order_by(AlbumView::AlbumCreatedAt, Order::Desc);
+            // default ("added_at" or unknown) sorts by created_at and
+            // honors sort_direction (defaults to desc upstream)
+            let dir = match params.sort_direction.as_deref() {
+                Some("asc") => Order::Asc,
+                _ => Order::Desc,
+            };
+            query.order_by(AlbumView::AlbumCreatedAt, dir);
         }
     }
 

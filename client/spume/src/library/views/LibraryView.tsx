@@ -19,15 +19,13 @@ import { RemotePicker } from "../../components/forms/RemotePicker";
 import { AlbumsTable } from "../components/AlbumsTable";
 import { AlbumBulkActionBar } from "../components/AlbumBulkActionBar";
 import { MbProgressStrip } from "../components/MbProgressStrip";
-import {
-  filterReviewableAlbumIds,
-  useAlbumSelectionLifecycle,
-  useSelectedAlbumIds,
-} from "../hooks/albumSelection";
+import { useAlbumSelectionLifecycle, useSelectedAlbumIds } from "../hooks/albumSelection";
 import { useRemoteIsAdmin } from "../hooks/useRemoteRole";
 import { enqueueAlbumEnrichment } from "../hooks/useMbLookupJobs";
 import { startBulkEnrichmentReview } from "../../music/hooks/bulkEnrichmentReview";
 import { getAllRemotes } from "../../app/services/remotes/remoteManager";
+import { getClientForRemote } from "../../app/api/client";
+import { queryClient } from "../../queryClient";
 import { toast } from "../../components/feedback/Toast";
 import type { Remote } from "../../app/services/storage/schemas/remote";
 
@@ -80,30 +78,54 @@ export function LibraryView() {
   };
 
   // phase 14.9 / phase 11 slice 1: enqueue bulk enrichment + open the
-  // bulk-review wizard. selection is filtered to albums whose
-  // `mb_lookup_status` is NOT `enriched` or `skipped` (or unknown —
-  // those get the optimistic pass-through and the modal's
-  // `propose_taxons` call is the source of truth). albums already
-  // terminally reviewed are dropped here so the wizard never has to
-  // render a no-op page.
+  // bulk-review wizard. albums that are already terminally reviewed
+  // (`mb_lookup_status='enriched'` / `'skipped'`) are still allowed
+  // through so the user can re-open the wizard for one without an
+  // intervening toast.
   const triggerReview = (albumIds: string[]) => {
     if (albumIds.length === 0) return;
     const remote = selectedRemote();
     if (!remote) return;
-    const pending = filterReviewableAlbumIds(albumIds);
-    const skipped = albumIds.length - pending.length;
-    if (pending.length === 0) {
-      toast.info(
-        skipped === 1
-          ? "the selected album is already reviewed"
-          : `all ${skipped} selected albums are already reviewed`
-      );
+    void startBulkEnrichmentReview(remote, albumIds);
+  };
+
+  // bulk "mark done": flips `mb_lookup_status='enriched'` on every
+  // selected album without going through the review wizard. used when
+  // the user has already curated the metadata externally (or just
+  // wants the row off the "needs review" pile).
+  const markSelectedDone = async (albumIds: string[]) => {
+    if (albumIds.length === 0) return;
+    const remote = selectedRemote();
+    if (!remote) return;
+    let client;
+    try {
+      client = await getClientForRemote(remote);
+    } catch (err) {
+      toast.error(`failed to reach remote: ${(err as Error).message}`);
       return;
     }
-    if (skipped > 0) {
-      toast.info(`skipping ${skipped} already-reviewed album${skipped === 1 ? "" : "s"}`);
+    let ok = 0;
+    let failed = 0;
+    for (const id of albumIds) {
+      try {
+        const resp = await client.music.setMbLookupStatus({
+          album_id: id,
+          status: "enriched",
+        });
+        if (resp.success) ok += 1;
+        else failed += 1;
+      } catch {
+        failed += 1;
+      }
     }
-    void startBulkEnrichmentReview(remote, pending);
+    void queryClient.invalidateQueries({
+      queryKey: ["library-albums", remote.remote_id],
+    });
+    if (failed > 0) {
+      toast.error(`marked ${ok} done, ${failed} failed`);
+    } else {
+      toast.success(`marked ${ok} album${ok === 1 ? "" : "s"} done`);
+    }
   };
 
   return (
@@ -168,6 +190,7 @@ export function LibraryView() {
           isAdmin={isRemoteAdmin()}
           onEnrich={() => triggerEnrichment(selectedAlbumIds())}
           onReview={() => triggerReview(selectedAlbumIds())}
+          onMarkDone={() => void markSelectedDone(selectedAlbumIds())}
         />
       </div>
     </div>
