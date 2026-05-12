@@ -712,6 +712,32 @@ pub mod type_registry {
         gen.add_schema::<crate::jobs::AlbumEnrichmentProgress>("AlbumEnrichmentProgress");
         registered.insert("AlbumEnrichmentProgress".to_string());
 
+        // phase 9.1 — typed job-lifecycle event payload (broadcast over
+        // jobz alpn / tauri bridge / http poll wrapper). registered now
+        // so codegen sees it; streaming routes that consume it land in
+        // phase 9.2 (RouteKind::Streaming).
+        gen.add_schema::<crate::jobs::job_events::JobEvent>("JobEvent");
+        registered.insert("JobEvent".to_string());
+        gen.add_schema::<crate::jobs::job_events::JobStatusWire>("JobStatusWire");
+        registered.insert("JobStatusWire".to_string());
+
+        // phase 13h — related-artists cross-ref store. processors that
+        // populate this and offal routes that read it land in 13h.next;
+        // models registered now so the codegen + ts client see them
+        // alongside the rest of the music domain.
+        gen.add_schema::<crate::music::entities::related_artists::RelatedArtist>("RelatedArtist");
+        registered.insert("RelatedArtist".to_string());
+        gen.add_schema::<crate::music::entities::related_artists::RelatedArtistSource>(
+            "RelatedArtistSource",
+        );
+        registered.insert("RelatedArtistSource".to_string());
+        gen.add_schema::<crate::music::entities::related_artists::BandcampAlbumLink>(
+            "BandcampAlbumLink",
+        );
+        registered.insert("BandcampAlbumLink".to_string());
+        gen.add_schema::<crate::music::entities::related_artists::ExternalUrl>("ExternalUrl");
+        registered.insert("ExternalUrl".to_string());
+
         // requery (phase 14.5)
         gen.add_schema::<crate::jobs::RequeryOverride>("RequeryOverride");
         registered.insert("RequeryOverride".to_string());

@@ -11,6 +11,7 @@
 //! - fetch_processor: downloading from external sources (YouTube, etc.)
 //! - upload_processors: user upload handling (WebP conversion, music import)
 
+pub mod job_events;
 mod models;
 mod music;
 pub mod rate_limit;
@@ -36,8 +37,8 @@ pub use music::{
     GetEnrichmentProgressResponse, LastFmAlbumDetailParams, LastFmAlbumDetailResult,
     MbAlbumDetailParams, MbAlbumDetailResult, MbAlbumSearchParams, MbAlbumSearchResult,
     ProcessFileParams, ProcessFileResult, ProcessJobCreatedResponse, RequeryEnrichmentRequest,
-    RequeryEnrichmentResponse, RequeryOverride, ScanDirectoryParams,
-    ScanDirectoryResult, ScanJobCreatedResponse,
+    RequeryEnrichmentResponse, RequeryOverride, ScanDirectoryParams, ScanDirectoryResult,
+    ScanJobCreatedResponse,
 };
 
 // re-export scanned directories functions

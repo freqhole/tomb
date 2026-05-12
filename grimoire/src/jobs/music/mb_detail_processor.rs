@@ -16,12 +16,15 @@
 
 use crate::config;
 use crate::jobs::models::{Job, JobError};
+use crate::jobs::{
+    create_job, AudioDbAlbumDetailParams, CreateJobRequest, JobType, LastFmAlbumDetailParams,
+};
 use crate::music::entities::albums as albums_repo;
 use crate::music::entities::albums::metadata::{self, FolksonomyTag, MbFolksonomy, MbLookupStatus};
 use crate::music::musicbrainz::models::{Genre, Tag};
 use crate::music::musicbrainz::MusicBrainzClient;
 use serde_json::Value;
-use tracing::info;
+use tracing::{info, warn};
 
 use super::models::{MbAlbumDetailParams, MbAlbumDetailResult};
 
@@ -303,6 +306,16 @@ pub async fn process_mb_album_detail_job(job: &Job) -> Result<Option<Value>, Job
     )
     .await;
 
+    // phase 13c: auto-chain lastfm + audiodb detail jobs.
+    // we now have a confirmed MBID for this album, which is the
+    // cheapest+highest-quality lookup key for both downstream sources.
+    // chain only when the source is config-enabled and the album has an
+    // mbid. respects existing per-source throttles via the runner's rate
+    // limiter; deduped by the freshness check on `AlbumEnrichmentPipeline`
+    // when invoked through that path, but here we go direct so the user
+    // sees richer data immediately after the mb confirm flow.
+    chain_external_enrichment(job, &album_id, &params.release_group_id).await;
+
     info!(
         "mb album-detail complete for {}: rg_genres={} rg_tags={} r_genres={} r_tags={}",
         album_id,
@@ -317,6 +330,82 @@ pub async fn process_mb_album_detail_job(job: &Job) -> Result<Option<Value>, Job
             reason: format!("serialize result: {}", e),
         }
     })?))
+}
+
+/// phase 13c — enqueue lastfm + audiodb album-detail jobs after a
+/// successful mb enrichment. silent no-op when the source is disabled,
+/// or job-creation fails (we don't want a downstream queueing hiccup to
+/// fail the mb job itself). dedup against fresh-window data is not done
+/// here — `AlbumEnrichmentPipeline` is the path for skip-if-fresh; this
+/// chain fires every time the user explicitly confirms an mb match so
+/// they get richer data without an extra click.
+async fn chain_external_enrichment(job: &Job, album_id: &str, release_group_id: &str) {
+    let cfg = config::get_config();
+
+    if cfg.lastfm.enabled {
+        let p = LastFmAlbumDetailParams {
+            album_id: album_id.to_string(),
+            mbid: Some(release_group_id.to_string()),
+            artist_override: None,
+            title_override: None,
+        };
+        match serde_json::to_value(&p) {
+            Ok(parameters) => {
+                let req = CreateJobRequest {
+                    job_type: JobType::LastFmAlbumDetail,
+                    session_id: job.session_id.clone(),
+                    parameters,
+                    max_retries: Some(2),
+                    scheduled_at: None,
+                    created_by: job.created_by.clone(),
+                    priority: None,
+                };
+                let resp = create_job(req).await;
+                if resp.data.is_none() {
+                    warn!(
+                        "mb-detail chain: failed to enqueue lastfm for {}: {}",
+                        album_id, resp.message
+                    );
+                } else {
+                    info!("mb-detail chain: enqueued lastfm for {}", album_id);
+                }
+            }
+            Err(e) => warn!("mb-detail chain: serialize lastfm params: {}", e),
+        }
+    }
+
+    if cfg.audiodb.enabled {
+        let p = AudioDbAlbumDetailParams {
+            album_id: album_id.to_string(),
+            mbid: Some(release_group_id.to_string()),
+            artist_mbid: None,
+            artist_override: None,
+            title_override: None,
+        };
+        match serde_json::to_value(&p) {
+            Ok(parameters) => {
+                let req = CreateJobRequest {
+                    job_type: JobType::AudioDbAlbumDetail,
+                    session_id: job.session_id.clone(),
+                    parameters,
+                    max_retries: Some(2),
+                    scheduled_at: None,
+                    created_by: job.created_by.clone(),
+                    priority: None,
+                };
+                let resp = create_job(req).await;
+                if resp.data.is_none() {
+                    warn!(
+                        "mb-detail chain: failed to enqueue audiodb for {}: {}",
+                        album_id, resp.message
+                    );
+                } else {
+                    info!("mb-detail chain: enqueued audiodb for {}", album_id);
+                }
+            }
+            Err(e) => warn!("mb-detail chain: serialize audiodb params: {}", e),
+        }
+    }
 }
 
 fn map_tags(src: Option<&[Tag]>) -> Vec<FolksonomyTag> {

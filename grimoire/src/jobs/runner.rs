@@ -4,10 +4,10 @@
 
 use super::models::{Job, JobResult, JobType};
 use super::music::{
-    process_audiodb_album_detail_job, process_album_enrichment_pipeline_job,
-    process_convert_webp_job, process_fetch_media_job, process_file_job,
-    process_import_music_job, process_lastfm_album_detail_job, process_mb_album_detail_job,
-    process_mb_album_search_job, process_rescan_directories_job, process_scan_directory_job,
+    process_album_enrichment_pipeline_job, process_audiodb_album_detail_job,
+    process_convert_webp_job, process_fetch_media_job, process_file_job, process_import_music_job,
+    process_lastfm_album_detail_job, process_mb_album_detail_job, process_mb_album_search_job,
+    process_rescan_directories_job, process_scan_directory_job,
 };
 use super::service::{
     delete_job, get_job_session, get_next_pending_job, get_session_job_counts, mark_job_completed,
@@ -15,6 +15,7 @@ use super::service::{
 };
 use crate::error::ErrorDetail;
 use crate::events::{emit, GrimoireEvent};
+use crate::jobs::job_events::{self, JobEvent, JobStatusWire};
 use crate::response::GrimoireResponse;
 use std::path::Path;
 use std::sync::Arc;
@@ -67,6 +68,34 @@ pub async fn process_job(job: Job) -> GrimoireResponse<JobResult> {
             // clean up completed ProcessFile jobs to avoid bloating the jobz table
             if job_type == JobType::ProcessFile {
                 let _ = delete_job(&job.id).await;
+            }
+
+            // phase 9.0 — typed job-lifecycle emit. fires for every
+            // session-bound job (the import/scan world also benefits;
+            // the legacy `GrimoireEvent::JobProgress` block below stays
+            // for backwards-compat with the add-music modal until
+            // phase 9.8 swaps that consumer over).
+            if let Some(session_id) = &job.session_id {
+                job_events::emit(JobEvent::StatusChanged {
+                    session_id: session_id.clone(),
+                    job_id: job.id.clone(),
+                    from: Some(JobStatusWire::Running),
+                    to: JobStatusWire::Completed,
+                });
+                if let Some(counts) = get_session_job_counts(session_id).await.data {
+                    let total = counts.total as i64;
+                    let complete = (counts.completed + counts.failed) as i64;
+                    job_events::emit(JobEvent::Progress {
+                        session_id: session_id.clone(),
+                        complete,
+                        total,
+                    });
+                    if counts.pending == 0 && counts.running == 0 {
+                        job_events::emit(JobEvent::Completed {
+                            session_id: session_id.clone(),
+                        });
+                    }
+                }
             }
 
             // emit progress event for ImportMusic, ProcessFile, and
@@ -155,6 +184,47 @@ pub async fn process_job(job: Job) -> GrimoireResponse<JobResult> {
             let error_detail: ErrorDetail = error.into();
             let _failed_job_response =
                 mark_job_failed(&job.id, vec![error_detail.clone()], is_retryable).await;
+
+            // phase 9.0 — typed job-lifecycle emit (failure path).
+            // when retryable, mark_job_failed pushes the row back to
+            // Pending so we emit StatusChanged { to: Pending } and skip
+            // the Failed event; only emit Failed when the job has truly
+            // exhausted retries.
+            if let Some(session_id) = &job.session_id {
+                let to_status = if is_retryable {
+                    JobStatusWire::Pending
+                } else {
+                    JobStatusWire::Failed
+                };
+                job_events::emit(JobEvent::StatusChanged {
+                    session_id: session_id.clone(),
+                    job_id: job.id.clone(),
+                    from: Some(JobStatusWire::Running),
+                    to: to_status,
+                });
+                if !is_retryable {
+                    job_events::emit(JobEvent::Failed {
+                        session_id: session_id.clone(),
+                        job_id: job.id.clone(),
+                        error_type: error_detail.error_type.clone(),
+                        message: error_detail.detail.clone(),
+                    });
+                }
+                if let Some(counts) = get_session_job_counts(session_id).await.data {
+                    let total = counts.total as i64;
+                    let complete = (counts.completed + counts.failed) as i64;
+                    job_events::emit(JobEvent::Progress {
+                        session_id: session_id.clone(),
+                        complete,
+                        total,
+                    });
+                    if counts.pending == 0 && counts.running == 0 {
+                        job_events::emit(JobEvent::Completed {
+                            session_id: session_id.clone(),
+                        });
+                    }
+                }
+            }
 
             // mirror the success-path progress + completion emit so
             // ui badges don't get stuck when a session ends in

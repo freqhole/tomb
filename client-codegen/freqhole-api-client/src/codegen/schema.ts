@@ -918,6 +918,12 @@ export const AutoConfirmSkipSchema = z.object({
 });
 export type AutoConfirmSkip = z.infer<typeof AutoConfirmSkipSchema>;
 
+export const BandcampAlbumLinkSchema = z.object({
+  title: z.string(),
+  url: z.string()
+});
+export type BandcampAlbumLink = z.infer<typeof BandcampAlbumLinkSchema>;
+
 export const BlobMetadataResponseSchema = z.object({
   id: z.string(),
   sha256: z.string(),
@@ -1200,6 +1206,12 @@ export const ErrorDetailSchema = z.object({
   detail: z.string()
 });
 export type ErrorDetail = z.infer<typeof ErrorDetailSchema>;
+
+export const ExternalUrlSchema = z.object({
+  name: z.string(),
+  url: z.string()
+});
+export type ExternalUrl = z.infer<typeof ExternalUrlSchema>;
 
 export const FavoriteAlbumResultSchema = z.object({
   favorited_at: z.number(),
@@ -2183,6 +2195,29 @@ export const IngestRemoteImageResponseSchema = z.object({
 });
 export type IngestRemoteImageResponse = z.infer<typeof IngestRemoteImageResponseSchema>;
 
+export const JobEventSchema = z.union([z.object({
+  kind: z.literal('Progress'),
+  session_id: z.string(),
+  complete: z.number(),
+  total: z.number()
+}), z.object({
+  kind: z.literal('StatusChanged'),
+  session_id: z.string(),
+  job_id: z.string(),
+  from: z.union([z.literal('Pending'), z.literal('Running'), z.literal('Completed'), z.literal('Failed'), z.literal('Cancelled')]).nullish(),
+  to: z.union([z.literal('Pending'), z.literal('Running'), z.literal('Completed'), z.literal('Failed'), z.literal('Cancelled')])
+}), z.object({
+  kind: z.literal('Failed'),
+  session_id: z.string(),
+  job_id: z.string(),
+  error_type: z.string(),
+  message: z.string()
+}), z.object({
+  kind: z.literal('Completed'),
+  session_id: z.string()
+})]);
+export type JobEvent = z.infer<typeof JobEventSchema>;
+
 export const JobResponseSchema = z.object({
   id: z.string(),
   session_id: z.string().nullish(),
@@ -2204,6 +2239,9 @@ export const JobResponseSchema = z.object({
   created_by: z.string().nullish()
 });
 export type JobResponse = z.infer<typeof JobResponseSchema>;
+
+export const JobStatusWireSchema = z.union([z.literal('Pending'), z.literal('Running'), z.literal('Completed'), z.literal('Failed'), z.literal('Cancelled')]);
+export type JobStatusWire = z.infer<typeof JobStatusWireSchema>;
 
 export const KnockRequestSchema = z.object({
   id: z.string(),
@@ -3907,6 +3945,29 @@ export const RejectMbMatchRequestSchema = z.object({
   album_id: z.string()
 });
 export type RejectMbMatchRequest = z.infer<typeof RejectMbMatchRequestSchema>;
+
+export const RelatedArtistSchema = z.object({
+  id: z.string(),
+  source_artist_id: z.string(),
+  related_artist_id: z.string().nullish(),
+  related_name: z.string(),
+  related_name_key: z.string(),
+  related_mbid: z.string().nullish(),
+  source: z.string(),
+  match_score: z.number().nullish(),
+  bandcamp_url: z.string().nullish(),
+  bandcamp_album_urlz: z.string().nullish(),
+  image_url: z.string().nullish(),
+  external_urlz: z.string().nullish(),
+  fetched_at: z.number(),
+  created_at: z.number(),
+  updated_at: z.number(),
+  deleted_at: z.number().nullish()
+});
+export type RelatedArtist = z.infer<typeof RelatedArtistSchema>;
+
+export const RelatedArtistSourceSchema = z.union([z.literal('Lastfm'), z.literal('Audiodb'), z.literal('Mb')]);
+export type RelatedArtistSource = z.infer<typeof RelatedArtistSourceSchema>;
 
 export const RemoveAlbumTaxonRequestSchema = z.object({
   album_id: z.string(),

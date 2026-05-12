@@ -587,6 +587,15 @@ pub async fn update_session_progress(
         }
     };
 
+    // phase 9.0 \u2014 broadcast a typed progress event so live
+    // subscribers (jobz alpn / tauri bridge) get an immediate signal
+    // without polling. silent no-op when there are no subscribers.
+    crate::jobs::job_events::emit(crate::jobs::job_events::JobEvent::Progress {
+        session_id: session_id.to_string(),
+        complete: progress.current as i64,
+        total: progress.total as i64,
+    });
+
     GrimoireResponse::success("Session progress updated", session)
 }
 
