@@ -268,9 +268,7 @@ export const AlbumSchema = z.object({
   metadata: z.string().nullish(),
   mb_lookup_status: z.string().nullish(),
   mb_lookup_at: z.number().nullish(),
-  mb_lookup_by: z.string().nullish(),
-  review_status: z.string(),
-  reviewed_at: z.number().nullish()
+  mb_lookup_by: z.string().nullish()
 });
 export type Album = z.infer<typeof AlbumSchema>;
 
@@ -531,9 +529,7 @@ export const AlbumQueryResultSchema = z.object({
   metadata: z.string().nullish(),
   mb_lookup_status: z.string().nullish(),
   mb_lookup_at: z.number().nullish(),
-  mb_lookup_by: z.string().nullish(),
-  review_status: z.string(),
-  reviewed_at: z.number().nullish()
+  mb_lookup_by: z.string().nullish()
 }),
   artist: z.object({
   id: z.string(),
@@ -647,9 +643,7 @@ export const AlbumsQueryResultSchema = z.object({
   metadata: z.string().nullish(),
   mb_lookup_status: z.string().nullish(),
   mb_lookup_at: z.number().nullish(),
-  mb_lookup_by: z.string().nullish(),
-  review_status: z.string(),
-  reviewed_at: z.number().nullish()
+  mb_lookup_by: z.string().nullish()
 }),
   artist: z.object({
   id: z.string(),
@@ -1465,9 +1459,7 @@ export const FavoriteAlbumResultSchema = z.object({
   metadata: z.string().nullish(),
   mb_lookup_status: z.string().nullish(),
   mb_lookup_at: z.number().nullish(),
-  mb_lookup_by: z.string().nullish(),
-  review_status: z.string(),
-  reviewed_at: z.number().nullish()
+  mb_lookup_by: z.string().nullish()
 }),
   artist: z.object({
   id: z.string(),
@@ -1644,9 +1636,7 @@ export const FavoriteItemSchema = z.union([z.intersection(z.object({
   metadata: z.string().nullish(),
   mb_lookup_status: z.string().nullish(),
   mb_lookup_at: z.number().nullish(),
-  mb_lookup_by: z.string().nullish(),
-  review_status: z.string(),
-  reviewed_at: z.number().nullish()
+  mb_lookup_by: z.string().nullish()
 }).nullish(),
   genre: z.object({
   id: z.string(),
@@ -1734,9 +1724,7 @@ export const FavoriteItemSchema = z.union([z.intersection(z.object({
   metadata: z.string().nullish(),
   mb_lookup_status: z.string().nullish(),
   mb_lookup_at: z.number().nullish(),
-  mb_lookup_by: z.string().nullish(),
-  review_status: z.string(),
-  reviewed_at: z.number().nullish()
+  mb_lookup_by: z.string().nullish()
 }),
   artist: z.object({
   id: z.string(),
@@ -1979,9 +1967,7 @@ export const FavoriteSongResultSchema = z.object({
   metadata: z.string().nullish(),
   mb_lookup_status: z.string().nullish(),
   mb_lookup_at: z.number().nullish(),
-  mb_lookup_by: z.string().nullish(),
-  review_status: z.string(),
-  reviewed_at: z.number().nullish()
+  mb_lookup_by: z.string().nullish()
 }).nullish(),
   genre: z.object({
   id: z.string(),
@@ -2630,9 +2616,7 @@ export const ListFavoritesResponseSchema = z.object({
   metadata: z.string().nullish(),
   mb_lookup_status: z.string().nullish(),
   mb_lookup_at: z.number().nullish(),
-  mb_lookup_by: z.string().nullish(),
-  review_status: z.string(),
-  reviewed_at: z.number().nullish()
+  mb_lookup_by: z.string().nullish()
 }).nullish(),
   genre: z.object({
   id: z.string(),
@@ -2720,9 +2704,7 @@ export const ListFavoritesResponseSchema = z.object({
   metadata: z.string().nullish(),
   mb_lookup_status: z.string().nullish(),
   mb_lookup_at: z.number().nullish(),
-  mb_lookup_by: z.string().nullish(),
-  review_status: z.string(),
-  reviewed_at: z.number().nullish()
+  mb_lookup_by: z.string().nullish()
 }),
   artist: z.object({
   id: z.string(),
@@ -3110,12 +3092,12 @@ export const MbLastQuerySchema = z.object({
 });
 export type MbLastQuery = z.infer<typeof MbLastQuerySchema>;
 
-export const MbLookupStatusSchema = z.union([z.literal("not_attempted"), z.literal("queued"), z.literal("searching"), z.literal("candidates"), z.literal("confirmed"), z.literal("rejected"), z.literal("no_match"), z.literal("needs_review"), z.literal("fetching_detail"), z.literal("enriched"), z.literal("error")]);
+export const MbLookupStatusSchema = z.union([z.literal("not_attempted"), z.literal("queued"), z.literal("searching"), z.literal("candidates"), z.literal("confirmed"), z.literal("rejected"), z.literal("no_match"), z.literal("needs_review"), z.literal("fetching_detail"), z.literal("enriched"), z.literal("skipped"), z.literal("error")]);
 export type MbLookupStatus = z.infer<typeof MbLookupStatusSchema>;
 
 export const MbMatchActionResponseSchema = z.object({
   album_id: z.string(),
-  status: z.union([z.literal("not_attempted"), z.literal("queued"), z.literal("searching"), z.literal("candidates"), z.literal("confirmed"), z.literal("rejected"), z.literal("no_match"), z.literal("needs_review"), z.literal("fetching_detail"), z.literal("enriched"), z.literal("error")])
+  status: z.union([z.literal("not_attempted"), z.literal("queued"), z.literal("searching"), z.literal("candidates"), z.literal("confirmed"), z.literal("rejected"), z.literal("no_match"), z.literal("needs_review"), z.literal("fetching_detail"), z.literal("enriched"), z.literal("skipped"), z.literal("error")])
 });
 export type MbMatchActionResponse = z.infer<typeof MbMatchActionResponseSchema>;
 
@@ -3563,9 +3545,7 @@ export const PlaylistSongResultSchema = z.object({
   metadata: z.string().nullish(),
   mb_lookup_status: z.string().nullish(),
   mb_lookup_at: z.number().nullish(),
-  mb_lookup_by: z.string().nullish(),
-  review_status: z.string(),
-  reviewed_at: z.number().nullish()
+  mb_lookup_by: z.string().nullish()
 }).nullish(),
   genre: z.object({
   id: z.string(),
@@ -3708,9 +3688,7 @@ export const PlaylistSongsQueryResultSchema = z.object({
   metadata: z.string().nullish(),
   mb_lookup_status: z.string().nullish(),
   mb_lookup_at: z.number().nullish(),
-  mb_lookup_by: z.string().nullish(),
-  review_status: z.string(),
-  reviewed_at: z.number().nullish()
+  mb_lookup_by: z.string().nullish()
 }).nullish(),
   genre: z.object({
   id: z.string(),
@@ -4592,12 +4570,6 @@ export const SessionSummarySchema = z.object({
 });
 export type SessionSummary = z.infer<typeof SessionSummarySchema>;
 
-export const SetAlbumReviewStatusRequestSchema = z.object({
-  album_id: z.string(),
-  status: z.string()
-});
-export type SetAlbumReviewStatusRequest = z.infer<typeof SetAlbumReviewStatusRequestSchema>;
-
 export const SetAlbumTaxonsRequestSchema = z.object({
   album_id: z.string(),
   links: z.array(z.object({
@@ -4621,6 +4593,12 @@ export const SetFavoriteResponseSchema = z.object({
   message: z.string()
 });
 export type SetFavoriteResponse = z.infer<typeof SetFavoriteResponseSchema>;
+
+export const SetMbLookupStatusRequestSchema = z.object({
+  album_id: z.string(),
+  status: z.string()
+});
+export type SetMbLookupStatusRequest = z.infer<typeof SetMbLookupStatusRequestSchema>;
 
 export const SetPrimaryImageRequestSchema = z.object({
   entity_type: z.string(),
@@ -4791,9 +4769,7 @@ export const SongQueryResultSchema = z.object({
   metadata: z.string().nullish(),
   mb_lookup_status: z.string().nullish(),
   mb_lookup_at: z.number().nullish(),
-  mb_lookup_by: z.string().nullish(),
-  review_status: z.string(),
-  reviewed_at: z.number().nullish()
+  mb_lookup_by: z.string().nullish()
 }).nullish(),
   genre: z.object({
   id: z.string(),
@@ -4954,9 +4930,7 @@ export const SongsQueryResultSchema = z.object({
   metadata: z.string().nullish(),
   mb_lookup_status: z.string().nullish(),
   mb_lookup_at: z.number().nullish(),
-  mb_lookup_by: z.string().nullish(),
-  review_status: z.string(),
-  reviewed_at: z.number().nullish()
+  mb_lookup_by: z.string().nullish()
 }).nullish(),
   genre: z.object({
   id: z.string(),
@@ -5612,9 +5586,7 @@ export const UpdateSongsResultSchema = z.object({
   metadata: z.string().nullish(),
   mb_lookup_status: z.string().nullish(),
   mb_lookup_at: z.number().nullish(),
-  mb_lookup_by: z.string().nullish(),
-  review_status: z.string(),
-  reviewed_at: z.number().nullish()
+  mb_lookup_by: z.string().nullish()
 }).nullish(),
   genre: z.object({
   id: z.string(),

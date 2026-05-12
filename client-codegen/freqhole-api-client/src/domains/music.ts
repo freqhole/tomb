@@ -208,14 +208,14 @@ export function createMusicMethods(call: CallFn) {
       );
     },
 
-    setAlbumReviewStatus: (params: s.SetAlbumReviewStatusRequest) => {
+    setMbLookupStatus: (params: s.SetMbLookupStatusRequest) => {
       return call(
         "music",
-        "set_album_review_status",
-        routes.music.set_album_review_status.resp,
-        routes.music.set_album_review_status.req,
-        routes.music.set_album_review_status.method,
-        routes.music.set_album_review_status.path,
+        "set_mb_lookup_status",
+        routes.music.set_mb_lookup_status.resp,
+        routes.music.set_mb_lookup_status.req,
+        routes.music.set_mb_lookup_status.method,
+        routes.music.set_mb_lookup_status.path,
         params,
       );
     },

@@ -20,7 +20,7 @@ import { AlbumsTable } from "../components/AlbumsTable";
 import { AlbumBulkActionBar } from "../components/AlbumBulkActionBar";
 import { MbProgressStrip } from "../components/MbProgressStrip";
 import {
-  filterPendingReviewAlbumIds,
+  filterReviewableAlbumIds,
   useAlbumSelectionLifecycle,
   useSelectedAlbumIds,
 } from "../hooks/albumSelection";
@@ -81,15 +81,16 @@ export function LibraryView() {
 
   // phase 14.9 / phase 11 slice 1: enqueue bulk enrichment + open the
   // bulk-review wizard. selection is filtered to albums whose
-  // `review_status='pending'` (or unknown — those get the optimistic
-  // pass-through and the modal's `propose_taxons` call is the source of
-  // truth). albums already `complete` or `dismissed` are skipped here so
-  // the wizard never has to render a no-op page.
+  // `mb_lookup_status` is NOT `enriched` or `skipped` (or unknown —
+  // those get the optimistic pass-through and the modal's
+  // `propose_taxons` call is the source of truth). albums already
+  // terminally reviewed are dropped here so the wizard never has to
+  // render a no-op page.
   const triggerReview = (albumIds: string[]) => {
     if (albumIds.length === 0) return;
     const remote = selectedRemote();
     if (!remote) return;
-    const pending = filterPendingReviewAlbumIds(albumIds);
+    const pending = filterReviewableAlbumIds(albumIds);
     const skipped = albumIds.length - pending.length;
     if (pending.length === 0) {
       toast.info(

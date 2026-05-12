@@ -88,8 +88,6 @@ export function useLibraryAlbumsQuery(opts: LibraryAlbumsQueryOptions) {
           mb_lookup_status: item.album.mb_lookup_status ?? null,
           mb_lookup_at: item.album.mb_lookup_at ?? null,
           mb_lookup_by: item.album.mb_lookup_by ?? null,
-          review_status: item.album.review_status ?? null,
-          reviewed_at: item.album.reviewed_at ?? null,
         })),
         total: result.data.total_count,
         offset: result.data.offset,

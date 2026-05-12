@@ -163,7 +163,7 @@ pub mod type_registry {
         ProposeTaxonsRequest, TaxonProposal,
     };
     use crate::music::entities::albums::{
-        Album, GenreRef, SetAlbumReviewStatusRequest, UpdateAlbumRequest,
+        Album, GenreRef, SetMbLookupStatusRequest, UpdateAlbumRequest,
     };
     use crate::music::entities::artists::{
         ApplyArtistBioRequest, ApplyArtistBioResult, ApplyRelatedArtistsRequest,
@@ -451,8 +451,8 @@ pub mod type_registry {
 
         gen.add_schema::<UpdateAlbumRequest>("UpdateAlbumRequest");
         registered.insert("UpdateAlbumRequest".to_string());
-        gen.add_schema::<SetAlbumReviewStatusRequest>("SetAlbumReviewStatusRequest");
-        registered.insert("SetAlbumReviewStatusRequest".to_string());
+        gen.add_schema::<SetMbLookupStatusRequest>("SetMbLookupStatusRequest");
+        registered.insert("SetMbLookupStatusRequest".to_string());
 
         gen.add_schema::<JobResponse>("JobResponse");
         registered.insert("JobResponse".to_string());

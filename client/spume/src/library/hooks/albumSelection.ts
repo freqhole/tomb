@@ -11,7 +11,7 @@ import { useLocation } from "@solidjs/router";
 const [selectedAlbumIds, setSelectedAlbumIds] = createSignal<Set<string>>(new Set());
 const [lastSelectedIndex, setLastSelectedIndex] = createSignal<number | null>(null);
 const [albumIdList, setAlbumIdList] = createSignal<string[]>([]);
-const [albumReviewStatusById, setAlbumReviewStatusById] = createSignal<
+const [albumMbLookupStatusById, setAlbumMbLookupStatusById] = createSignal<
   Map<string, string>
 >(new Map());
 
@@ -38,34 +38,36 @@ export function updateAlbumIdList(ids: string[]): void {
   setAlbumIdList(ids);
 }
 
-/** track per-album review_status for callers that want to filter by it
- *  (e.g. the bulk-review entry point in LibraryView only opens the
- *  wizard for `pending` albums). populated by AlbumsTable as rows load. */
-export function updateAlbumReviewStatusMap(
+/** track per-album `mb_lookup_status` for callers that want to filter
+ *  by it (e.g. the bulk-review entry point in LibraryView skips
+ *  albums already terminally `enriched` or `skipped`). populated by
+ *  AlbumsTable as rows load. */
+export function updateAlbumMbLookupStatusMap(
   entries: Array<[string, string | null | undefined]>,
 ): void {
   const m = new Map<string, string>();
   for (const [id, status] of entries) {
     if (status) m.set(id, status);
   }
-  setAlbumReviewStatusById(m);
+  setAlbumMbLookupStatusById(m);
 }
 
-/** look up the loaded review_status for an album id, or undefined if
- *  the row isn't currently in view. */
-export function getAlbumReviewStatus(albumId: string): string | undefined {
-  return albumReviewStatusById().get(albumId);
+/** look up the loaded mb_lookup_status for an album id, or undefined
+ *  if the row isn't currently in view. */
+export function getAlbumMbLookupStatus(albumId: string): string | undefined {
+  return albumMbLookupStatusById().get(albumId);
 }
 
-/** filter a set of selected ids to those with `review_status === 'pending'`.
- *  ids whose status is unknown (not currently loaded) are included
- *  optimistically — the modal will see whatever the server says. */
-export function filterPendingReviewAlbumIds(ids: Iterable<string>): string[] {
-  const m = albumReviewStatusById();
+/** filter a set of selected ids to those NOT yet in a terminal
+ *  reviewed state (`enriched` or `skipped`). ids whose status is
+ *  unknown (not currently loaded) are included optimistically — the
+ *  bulk-review modal will see whatever the server says. */
+export function filterReviewableAlbumIds(ids: Iterable<string>): string[] {
+  const m = albumMbLookupStatusById();
   const out: string[] = [];
   for (const id of ids) {
     const s = m.get(id);
-    if (s === undefined || s === "pending") out.push(id);
+    if (s === undefined || (s !== "enriched" && s !== "skipped")) out.push(id);
   }
   return out;
 }

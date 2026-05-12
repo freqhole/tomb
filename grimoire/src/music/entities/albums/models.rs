@@ -46,16 +46,6 @@ pub struct Album {
     pub mb_lookup_status: Option<String>,
     pub mb_lookup_at: Option<i64>,
     pub mb_lookup_by: Option<String>,
-    /// bulk-enrichment review status. one of `pending` (default,
-    /// surfaced in the bulk-review wizard), `complete` (user finished
-    /// reviewing this album), or `dismissed` (user explicitly skipped;
-    /// re-includable from the album editor). owned exclusively by the
-    /// review wizard — per-album taxon edits via `AlbumEditorModal` do
-    /// NOT auto-flip this flag. added in migration 042.
-    pub review_status: String,
-    /// unix timestamp UTC when `review_status` last flipped to
-    /// `complete` or `dismissed`. NULL while `pending`.
-    pub reviewed_at: Option<i64>,
 }
 
 /// request for creating a new album
@@ -91,12 +81,12 @@ pub struct UpdateAlbumRequest {
     pub merge_into_album_id: Option<String>,
 }
 
-/// request to flip an album's `review_status`. driven by the bulk
-/// enrichment review wizard (phase 11). `status` must be one of
-/// `pending`, `complete`, `dismissed`. when status flips away from
-/// `pending`, `reviewed_at` is stamped to `now`.
+/// request to flip an album's musicbrainz lookup status. used by the
+/// bulk-enrichment review wizard on save (`enriched`) and skip
+/// (`skipped`). replaces the legacy `set_album_review_status` route.
+/// `status` must be a valid `MbLookupStatus` snake_case literal.
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
-pub struct SetAlbumReviewStatusRequest {
+pub struct SetMbLookupStatusRequest {
     pub album_id: String,
     pub status: String,
 }

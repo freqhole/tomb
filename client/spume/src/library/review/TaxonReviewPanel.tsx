@@ -154,8 +154,10 @@ function ChipButton(props: {
           checked() && !linked(),
         // already-linked: keep readable. accent-tinted bg + accent-on-dark
         // text instead of disabled-grey-on-elevated-grey which became
-        // unreadable in dark mode.
-        "bg-[var(--color-success-500)]/15 text-[var(--color-success-500)] border-[var(--color-success-500)]/30 cursor-not-allowed":
+        // unreadable in dark mode. border is intentionally `transparent`
+        // so the chip doesn't read as a clickable item; the bg tint
+        // alone signals "linked".
+        "bg-[var(--color-success-500)]/15 text-[var(--color-success-500)] border-transparent cursor-not-allowed":
           linked(),
         "bg-[var(--color-bg-elevated)] text-[var(--color-text-secondary)] border-[var(--color-border-subtle)] hover:bg-[var(--color-bg-hover)]":
           !checked() && !linked(),

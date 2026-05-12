@@ -90,8 +90,8 @@ pub async fn dispatch(
         "/api/albums/apply-taxon-proposals" => {
             Some(albums::apply_taxon_proposals(caller, body.clone()).await)
         }
-        "/api/albums/set-review-status" => {
-            Some(albums::set_album_review_status(caller, body.clone()).await)
+        "/api/albums/set-mb-lookup-status" => {
+            Some(albums::set_mb_lookup_status(caller, body.clone()).await)
         }
         "/api/albums/propose-external-urls" => {
             Some(albums::propose_external_urls(caller, body.clone()).await)

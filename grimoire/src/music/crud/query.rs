@@ -301,8 +301,6 @@ impl SongViewRow {
                 mb_lookup_status: None,
                 mb_lookup_at: None,
                 mb_lookup_by: None,
-                review_status: "pending".to_string(),
-                reviewed_at: None,
             })
         } else {
             None
@@ -627,8 +625,6 @@ impl AlbumViewRow {
             mb_lookup_status: self.album_mb_lookup_status,
             mb_lookup_at: self.album_mb_lookup_at,
             mb_lookup_by: self.album_mb_lookup_by,
-            review_status: "pending".to_string(),
-            reviewed_at: None,
         };
 
         let artist = if self.artist_id.is_some() {

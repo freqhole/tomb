@@ -89,9 +89,7 @@ pub async fn update_album(req: UpdateAlbumRequest) -> GrimoireResponse<Album> {
             a.deleted_at,
             a.deleted_by,
             a.created_by,
-            a.updated_by,
-            a.review_status as "review_status!",
-            a.reviewed_at
+            a.updated_by
         FROM albumz a
         LEFT JOIN album_query_view v ON v.album_id = a.id
         WHERE a.id = ?"#,
@@ -124,8 +122,6 @@ pub async fn update_album(req: UpdateAlbumRequest) -> GrimoireResponse<Album> {
             mb_lookup_status: None,
             mb_lookup_at: None,
             mb_lookup_by: None,
-            review_status: row.review_status,
-            reviewed_at: row.reviewed_at,
         },
         Ok(None) => {
             return GrimoireResponse::failure(

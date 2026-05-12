@@ -14,16 +14,11 @@
 // proposal/progress polling will pick up the new snapshots on the
 // next tick.
 
-import { For, Show, createMemo, createResource, createSignal } from "solid-js";
+import { For, Show, createMemo, createSignal } from "solid-js";
 import { toast } from "../../components/feedback/Toast";
 import { getClientForRemote } from "../../app/api/client";
 import type { Remote } from "../../app/services/storage/schemas/remote";
-import type { MbReleaseDetail } from "../../music/data/types";
 import { parseAlbumMetadata, type MbCandidate } from "../data/albumMetadata";
-import {
-  MusicBrainzTrackComparison,
-  type ComparisonSong,
-} from "../../components/musicbrainz/MusicBrainzTrackComparison";
 
 // note: edits made here are saved by the parent modal on "save & next"
 // via `updateAlbum`. confirming an mb candidate also persists
@@ -47,10 +42,6 @@ export interface BulkRequeryPanelProps {
   title: string;
   onArtistChange: (v: string) => void;
   onTitleChange: (v: string) => void;
-  /** local songs for this album. when present + a candidate has a
-   *  release_id we render a track comparison panel below the
-   *  candidate list. */
-  songs?: ComparisonSong[];
   /** called after a successful confirm/requery so the parent modal can
    *  refresh proposal panels + re-fetch the album row without waiting
    *  for the next poll tick. */
@@ -90,11 +81,6 @@ export function BulkRequeryPanel(props: BulkRequeryPanelProps) {
   const [busy, setBusy] = createSignal<Set<Source>>(new Set());
   const [showCandidates, setShowCandidates] = createSignal(false);
   const [confirmingRgId, setConfirmingRgId] = createSignal<string | null>(null);
-  // when set, render the track-comparison ui below the candidate list
-  // for that mb release id (defaults to the confirmed candidate's id
-  // when the section is opened so the user immediately sees the
-  // confirmed release's tracks).
-  const [previewReleaseId, setPreviewReleaseId] = createSignal<string | null>(null);
 
   const meta = createMemo(() => parseAlbumMetadata(props.metadataRaw ?? null));
   const candidates = createMemo<MbCandidate[]>(() => {
@@ -102,28 +88,6 @@ export function BulkRequeryPanel(props: BulkRequeryPanelProps) {
     return [...list].sort((a, b) => (b.local_confidence ?? 0) - (a.local_confidence ?? 0));
   });
   const confirmedRgId = createMemo(() => meta().musicbrainz?.release_group_id ?? null);
-  const confirmedReleaseId = createMemo(() => meta().musicbrainz?.release_id ?? null);
-
-  // fetch mb release detail for the previewed release id so we can
-  // render the track comparison panel inline.
-  const [releaseDetail] = createResource(
-    () => previewReleaseId(),
-    async (rid) => {
-      if (!rid) return null;
-      try {
-        const client = await getClientForRemote(props.remote);
-        const resp = await client.music.getMusicbrainzRelease({ mbid: rid });
-        if (!resp.success) {
-          toast.error(`failed to load release: ${resp.error?.message ?? "unknown"}`);
-          return null;
-        }
-        return (resp.data ?? null) as MbReleaseDetail | null;
-      } catch (err) {
-        toast.error(`failed to load release: ${(err as Error).message}`);
-        return null;
-      }
-    }
-  );
 
   // edits become "dirty" once they diverge from the initial values; we
   // pass them as overrides on requery whenever they differ, otherwise
@@ -348,26 +312,6 @@ export function BulkRequeryPanel(props: BulkRequeryPanelProps) {
                         >
                           mb↗
                         </a>
-                        <Show when={cand.release_id && (props.songs?.length ?? 0) > 0}>
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setPreviewReleaseId((cur) =>
-                                cur === cand.release_id ? null : (cand.release_id ?? null)
-                              )
-                            }
-                            class="px-1.5 py-0.5 text-[10px] rounded border border-[var(--color-border-subtle)] hover:bg-[var(--color-bg-hover)] cursor-pointer"
-                            classList={{
-                              "bg-[var(--color-accent-500)]/10 border-[var(--color-accent-500)]/40":
-                                previewReleaseId() === cand.release_id,
-                            }}
-                            title="show side-by-side track comparison vs this release"
-                          >
-                            {previewReleaseId() === cand.release_id
-                              ? "hide tracks"
-                              : "compare tracks"}
-                          </button>
-                        </Show>
                         <button
                           type="button"
                           onClick={() => void onConfirmCandidate(cand)}
@@ -391,40 +335,6 @@ export function BulkRequeryPanel(props: BulkRequeryPanelProps) {
                 }}
               </For>
             </ul>
-          </Show>
-
-          {/* track comparison: rendered when a release is being
-              previewed (or, if none picked yet, default to the
-              confirmed release once the user opens the section). */}
-          <Show when={showCandidates() && (props.songs?.length ?? 0) > 0}>
-            <Show when={previewReleaseId() == null && confirmedReleaseId()}>
-              <button
-                type="button"
-                onClick={() => setPreviewReleaseId(confirmedReleaseId())}
-                class="self-start text-[11px] text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] cursor-pointer"
-              >
-                ▸ compare tracks vs confirmed release
-              </button>
-            </Show>
-            <Show when={previewReleaseId()}>
-              <div class="mt-2 border-t border-[var(--color-border-subtle)] pt-2">
-                <Show
-                  when={!releaseDetail.loading && releaseDetail()}
-                  fallback={
-                    <div class="text-xs text-[var(--color-text-disabled)] italic">
-                      loading release details…
-                    </div>
-                  }
-                >
-                  <MusicBrainzTrackComparison
-                    release={releaseDetail()!}
-                    songs={props.songs!}
-                    remote={props.remote}
-                    onAlbumUpdated={() => props.onChanged?.()}
-                  />
-                </Show>
-              </div>
-            </Show>
           </Show>
         </Show>
       </div>

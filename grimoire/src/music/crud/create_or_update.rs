@@ -695,8 +695,6 @@ pub async fn get_current_album_for_song(song_id: &str) -> GrimoireResult<Option<
             mb_lookup_status: None,
             mb_lookup_at: None,
             mb_lookup_by: None,
-            review_status: "pending".to_string(),
-            reviewed_at: None,
         }))
     } else {
         Ok(None)
@@ -873,8 +871,6 @@ pub async fn find_or_create_album_for_artist(
                 mb_lookup_status: None,
                 mb_lookup_at: None,
                 mb_lookup_by: None,
-                review_status: "pending".to_string(),
-                reviewed_at: None,
             },
             false,
         ))

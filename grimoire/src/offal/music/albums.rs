@@ -26,8 +26,8 @@ use crate::music::entities::albums::{
     confirm_mb_match as grimoire_confirm_mb_match, delete_album as grimoire_delete_album,
     get_album as grimoire_get_album, get_album_images as grimoire_get_album_images,
     reject_mb_match as grimoire_reject_mb_match, remove_album_image,
-    set_album_review_status as grimoire_set_album_review_status, set_primary_album_image,
-    update_album as grimoire_update_album, SetAlbumReviewStatusRequest, UpdateAlbumRequest,
+    set_mb_lookup_status as grimoire_set_mb_lookup_status, set_primary_album_image,
+    update_album as grimoire_update_album, SetMbLookupStatusRequest, UpdateAlbumRequest,
 };
 use crate::music::entities::artists::{
     add_artist_image, remove_artist_image, set_primary_artist_image,
@@ -133,11 +133,11 @@ pub const ROUTES: &[RouteInfo] = &[
         auth: RouteAuth::Role(UserRole::Admin),
     },
     RouteInfo {
-        name: "set_album_review_status",
-        path: "/api/albums/set-review-status",
+        name: "set_mb_lookup_status",
+        path: "/api/albums/set-mb-lookup-status",
         method: Method::POST,
         domain: Domain::Music,
-        request_type: "SetAlbumReviewStatusRequest",
+        request_type: "SetMbLookupStatusRequest",
         response_type: "EmptyResponse",
         auth: RouteAuth::Role(UserRole::Admin),
     },
@@ -596,22 +596,19 @@ pub async fn apply_taxon_proposals(
     response.map(|data| serde_json::to_value(data).unwrap())
 }
 
-/// flip an album's `review_status` (phase 11). called by the bulk
-/// enrichment review wizard on save+next (`complete`) and dismiss
-/// (`dismissed`).
+/// flip an album's `mb_lookup_status` (phase 11.x). called by the
+/// bulk enrichment review wizard on save (`enriched`) and skip
+/// (`skipped`). replaces the legacy `set_album_review_status` route.
 ///
-/// path: POST /api/albums/set-review-status
-pub async fn set_album_review_status(
-    caller: &Caller,
-    body: JsonValue,
-) -> GrimoireResponse<JsonValue> {
+/// path: POST /api/albums/set-mb-lookup-status
+pub async fn set_mb_lookup_status(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
     if !caller.is_admin() {
         return GrimoireResponse::failure(
             "forbidden",
             vec![ErrorDetail::new("forbidden", "forbidden", "admin only")],
         );
     }
-    let req: SetAlbumReviewStatusRequest = match serde_json::from_value(body) {
+    let req: SetMbLookupStatusRequest = match serde_json::from_value(body) {
         Ok(r) => r,
         Err(e) => {
             return GrimoireResponse::failure(
@@ -624,7 +621,7 @@ pub async fn set_album_review_status(
             )
         }
     };
-    let response = grimoire_set_album_review_status(req).await;
+    let response = grimoire_set_mb_lookup_status(req).await;
     response.map(|_| serde_json::Value::Null)
 }
 
@@ -1117,10 +1114,7 @@ pub async fn propose_external_urls(
 /// (phase 11.x).
 ///
 /// path: POST /api/albums/apply-external-urls
-pub async fn apply_external_urls(
-    caller: &Caller,
-    body: JsonValue,
-) -> GrimoireResponse<JsonValue> {
+pub async fn apply_external_urls(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
     if !caller.is_admin() {
         return GrimoireResponse::failure(
             "forbidden",

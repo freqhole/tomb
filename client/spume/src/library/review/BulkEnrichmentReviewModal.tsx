@@ -52,6 +52,15 @@ import {
 } from "./ExternalUrlsReviewPanel";
 import { ImagePickGrid, type ImageCandidateLike } from "./ImagePickGrid";
 import { BulkRequeryPanel } from "./BulkRequeryPanel";
+import {
+  MusicBrainzTrackComparison,
+  type ComparisonSong,
+} from "../../components/musicbrainz/MusicBrainzTrackComparison";
+import type { MbReleaseDetail } from "../../music/data/types";
+import { parseAlbumMetadata, type MbCandidate } from "../data/albumMetadata";
+import { LastFmReviewModal } from "../components/LastFmReviewModal";
+import { AudioDbReviewModal } from "../components/AudioDbReviewModal";
+import { useRemoteIsAdmin } from "../hooks/useRemoteRole";
 
 const PROGRESS_POLL_INTERVAL_MS = 5000;
 
@@ -146,11 +155,129 @@ export function BulkEnrichmentReviewModal(props: BulkEnrichmentReviewModalProps)
         track_number: it.song.track_number ?? 0,
         duration_seconds: it.song.duration ?? 0,
         track_artist: it.song.track_artist ?? null,
-      }));
+      })) satisfies ComparisonSong[];
     } catch {
       return [];
     }
   });
+
+  // admin gating — non-admins can still open the lastfm/audiodb peek
+  // modals to read stored snapshots; the "fetch" buttons inside them
+  // disable accordingly.
+  const isRemoteAdmin = useRemoteIsAdmin(() => props.remote);
+
+  // visibility flags for the two raw-data peek modals (moved out of
+  // the library row actions per phase 11.x cleanup).
+  const [showLastFm, setShowLastFm] = createSignal(false);
+  const [showAudioDb, setShowAudioDb] = createSignal(false);
+  // reset peek visibility when the album changes so we don't carry
+  // a half-open snapshot of album N into album N+1.
+  createEffect(
+    on(albumId, () => {
+      setShowLastFm(false);
+      setShowAudioDb(false);
+    })
+  );
+
+  // merged mb candidate list — the canonical source is
+  // `meta.musicbrainz.candidates`, but lastfm + audiodb sometimes
+  // surface mbids of their own that we want to make confirmable from
+  // the same picker. each merged entry gets a `via` field tagging its
+  // origin so the ui can render a small badge when the candidate isn't
+  // already in the mb list.
+  type MergedCandidate = MbCandidate & {
+    via: "mb" | "lastfm" | "audiodb";
+  };
+  const mergedCandidates = createMemo<MergedCandidate[]>(() => {
+    const a = album();
+    const meta = parseAlbumMetadata(a?.metadata ?? null);
+    const out: MergedCandidate[] = [];
+    const seenReleaseIds = new Set<string>();
+    const seenRgIds = new Set<string>();
+    for (const c of meta.musicbrainz?.candidates ?? []) {
+      out.push({ ...c, via: "mb" });
+      if (c.release_id) seenReleaseIds.add(c.release_id);
+      if (c.release_group_id) seenRgIds.add(c.release_group_id);
+    }
+    const lf = meta.lastfm?.album as
+      | {
+          mbid?: string | null;
+        }
+      | undefined;
+    // last.fm `mbid` on an album record is the release-group mbid in
+    // most cases (lastfm doesn't distinguish strongly). treat it as a
+    // release_group_id candidate so the user can confirm it; the mb
+    // detail fetch will fan out to release-group → release as needed.
+    if (lf?.mbid && !seenRgIds.has(lf.mbid) && !seenReleaseIds.has(lf.mbid)) {
+      out.push({
+        release_id: null,
+        release_group_id: lf.mbid,
+        title: a?.title ?? "",
+        artist: a?.artist_name ?? "",
+        secondary_types: [],
+        local_confidence: null,
+        first_release_date: null,
+        country: null,
+        media: null,
+        via: "lastfm",
+      } as MergedCandidate);
+      seenRgIds.add(lf.mbid);
+    }
+    const ad = meta.audiodb?.album as { musicbrainz_release_group_id?: string | null } | undefined;
+    if (ad?.musicbrainz_release_group_id && !seenRgIds.has(ad.musicbrainz_release_group_id)) {
+      out.push({
+        release_id: null,
+        release_group_id: ad.musicbrainz_release_group_id,
+        title: a?.title ?? "",
+        artist: a?.artist_name ?? "",
+        secondary_types: [],
+        local_confidence: null,
+        first_release_date: null,
+        country: null,
+        media: null,
+        via: "audiodb",
+      } as MergedCandidate);
+      seenRgIds.add(ad.musicbrainz_release_group_id);
+    }
+    return out;
+  });
+
+  // compare-tracks: top-level section rendered after the artist images
+  // grid. user picks one mb release id from the merged-candidates
+  // dropdown and we render the side-by-side track comparison.
+  const [compareReleaseId, setCompareReleaseId] = createSignal<string | null>(null);
+  // reset on album change.
+  createEffect(on(albumId, () => setCompareReleaseId(null)));
+  // default-pick: prefer the confirmed release id, otherwise the first
+  // candidate that has a release_id (release-group-only candidates
+  // can't power the comparison ui).
+  createEffect(() => {
+    if (compareReleaseId() != null) return;
+    const a = album();
+    if (!a) return;
+    const meta = parseAlbumMetadata(a.metadata);
+    const confirmed = meta.musicbrainz?.release_id ?? null;
+    if (confirmed) {
+      setCompareReleaseId(confirmed);
+      return;
+    }
+    const firstWithRelease = mergedCandidates().find((c) => !!c.release_id);
+    if (firstWithRelease?.release_id) {
+      setCompareReleaseId(firstWithRelease.release_id);
+    }
+  });
+  const [compareReleaseDetail] = createResource(compareReleaseId, async (rid) => {
+    if (!rid) return null;
+    try {
+      const client = await getClientForRemote(props.remote);
+      const resp = await client.music.getMusicbrainzRelease({ mbid: rid });
+      if (!resp.success) return null;
+      return (resp.data ?? null) as MbReleaseDetail | null;
+    } catch {
+      return null;
+    }
+  });
+
   // editable artist + title — seeded from the album row, reset every
   // time the visible album changes. these get sent on requery (as
   // override_query) and persisted via `updateAlbum` on save if dirty.
@@ -896,12 +1023,12 @@ export function BulkEnrichmentReviewModal(props: BulkEnrichmentReviewModalProps)
           artistLinkedCount += 1;
         }
       }
-      const statusResp = await client.music.setAlbumReviewStatus({
+      const statusResp = await client.music.setMbLookupStatus({
         album_id: id,
-        status: "complete",
+        status: "enriched",
       });
       if (!statusResp.success) {
-        toast.error(statusResp.error.message || "failed to mark album complete");
+        toast.error(statusResp.error.message || "failed to mark album enriched");
         return;
       }
       if (terminal && !hasNext()) {
@@ -916,36 +1043,37 @@ export function BulkEnrichmentReviewModal(props: BulkEnrichmentReviewModalProps)
     }
   };
 
-  const skipAndAdvance = () => {
+  const skipAndAdvance = async () => {
     if (busy()) return;
+    const id = albumId();
+    // mark `mb_lookup_status='skipped'` so the library view's filter
+    // chips can pile these up under their own bucket. fire-and-forget
+    // (best effort): a failure here shouldn't block the user from
+    // moving on.
+    if (id) {
+      try {
+        const client = await getClientForRemote(props.remote);
+        const resp = await client.music.setMbLookupStatus({
+          album_id: id,
+          status: "skipped",
+        });
+        if (!resp.success) {
+          toast.error(resp.error.message || "failed to mark album skipped");
+        }
+      } catch (err) {
+        toast.error(`skip failed: ${(err as Error).message}`);
+      }
+    }
     if (hasNext()) props.onNext();
     else props.onExit();
   };
 
-  const dismissAndAdvance = async () => {
-    const id = albumId();
-    if (!id) return;
-    if (busy()) return;
-    setBusy(true);
-    try {
-      const client = await getClientForRemote(props.remote);
-      const resp = await client.music.setAlbumReviewStatus({
-        album_id: id,
-        status: "dismissed",
-      });
-      if (!resp.success) {
-        toast.error(resp.error.message || "failed to dismiss album");
-        return;
-      }
-      if (hasNext()) props.onNext();
-      else props.onExit();
-    } catch (err) {
-      toast.error(`dismiss failed: ${(err as Error).message}`);
-    } finally {
-      setBusy(false);
-    }
-  };
-
+  // dismiss/minimize/exit footer buttons were removed (phase 11.x
+  // cleanup) — modal close now goes through the shell's X /
+  // escape / backdrop only. `props.onMinimize` stays in the props
+  // surface so external callers (App.tsx) don't need rewiring; it's
+  // wired below to the modal's onClose alongside `props.onExit` so
+  // the parent's hide-vs-cancel state machine still works.
   // keyboard nav. ignored when typing in inputs/textareas/contenteditable.
   onMount(() => {
     const handler = (e: KeyboardEvent) => {
@@ -980,6 +1108,28 @@ export function BulkEnrichmentReviewModal(props: BulkEnrichmentReviewModalProps)
     return n;
   });
 
+  // footer "N selected" — union across every panel that contributes to
+  // an apply payload (taxons, bio, related artists, external urls,
+  // album + artist images, and the artist/title text edits when
+  // dirty). prior version only counted taxon picks, which under-
+  // reported in every other panel.
+  const totalSelectedCount = createMemo(() => {
+    let n = acceptedCount();
+    if (bioNeedsApply()) n += 1;
+    n += acceptRelatedIds().size + rejectRelatedIds().size;
+    n += acceptExternalUrlKeys().size;
+    n += selectedAlbumImageUrls().size;
+    n += selectedArtistImageUrls().size;
+    const a = album();
+    if (a) {
+      const newArtist = editedArtist().trim();
+      const newTitle = editedTitle().trim();
+      if (newArtist.length > 0 && newArtist !== (a.artist_name ?? "").trim()) n += 1;
+      if (newTitle.length > 0 && newTitle !== (a.title ?? "").trim()) n += 1;
+    }
+    return n;
+  });
+
   const isProposalsEmpty = createMemo(() => {
     const list = proposals();
     if (list === undefined) return false; // still loading
@@ -1002,7 +1152,13 @@ export function BulkEnrichmentReviewModal(props: BulkEnrichmentReviewModalProps)
       title={`${props.currentIndex + 1} / ${total()} — ${headerTitle()}`}
       headerActions={
         <div class="flex items-center gap-3 text-xs">
-          <ProgressBadges progress={progress()} />
+          <ProgressBadges
+            progress={progress()}
+            onClickSource={(s) => {
+              if (s === "lastfm") setShowLastFm(true);
+              else if (s === "audiodb") setShowAudioDb(true);
+            }}
+          />
           <ProgressErrorList progress={progress()} />
           <button
             type="button"
@@ -1029,8 +1185,8 @@ export function BulkEnrichmentReviewModal(props: BulkEnrichmentReviewModalProps)
       footer={
         <div class="flex items-center justify-between gap-2 p-3 border-t border-[var(--color-border-default)]">
           <div class="flex items-center gap-2 text-xs text-[var(--color-text-secondary)]">
-            <Show when={acceptedCount() > 0}>
-              <span>{acceptedCount()} selected</span>
+            <Show when={totalSelectedCount() > 0}>
+              <span>{totalSelectedCount()} selected</span>
             </Show>
             <Show when={isProposalsEmpty() && proposals() !== undefined}>
               <span class="italic">nothing new to review · save & next flips to complete</span>
@@ -1045,32 +1201,6 @@ export function BulkEnrichmentReviewModal(props: BulkEnrichmentReviewModalProps)
               title="leave as pending and move on"
             >
               skip
-            </button>
-            <button
-              type="button"
-              onClick={() => void dismissAndAdvance()}
-              disabled={busy()}
-              class="px-3 py-1.5 rounded text-xs border border-[var(--color-border-subtle)] hover:bg-[var(--color-bg-hover)] cursor-pointer disabled:opacity-50"
-              title="hide this album from future bulk reviews"
-            >
-              dismiss
-            </button>
-            <button
-              type="button"
-              onClick={() => props.onMinimize()}
-              disabled={busy()}
-              class="px-3 py-1.5 rounded text-xs border border-[var(--color-border-subtle)] hover:bg-[var(--color-bg-hover)] cursor-pointer disabled:opacity-50"
-              title="close the modal but keep the bulk session running"
-            >
-              minimize
-            </button>
-            <button
-              type="button"
-              onClick={() => props.onExit()}
-              disabled={busy()}
-              class="px-3 py-1.5 rounded text-xs border border-[var(--color-border-subtle)] hover:bg-[var(--color-bg-hover)] cursor-pointer disabled:opacity-50"
-            >
-              exit
             </button>
             <button
               type="button"
@@ -1123,7 +1253,6 @@ export function BulkEnrichmentReviewModal(props: BulkEnrichmentReviewModalProps)
               title={editedTitle()}
               onArtistChange={setEditedArtist}
               onTitleChange={setEditedTitle}
-              songs={songs() ?? []}
               onChanged={() => {
                 setProposalReloadKey((k) => k + 1);
                 setAlbumReloadKey((k) => k + 1);
@@ -1190,47 +1319,177 @@ export function BulkEnrichmentReviewModal(props: BulkEnrichmentReviewModalProps)
             onToggle={onToggleArtistImage}
           />
         </Show>
+        {/* compare tracks — top-level section so the user can see the
+            track lineup of any candidate release without scrolling
+            back up into the requery panel. picker is a single dropdown
+            of merged candidates (mb + lastfm + audiodb mbids) so the
+            common case (one confirmed release) is one-click; advanced
+            users can switch releases to compare. */}
+        <Show when={(songs() ?? []).length > 0 && mergedCandidates().length > 0}>
+          <div class="flex flex-col gap-2 p-2 rounded border border-[var(--color-border-subtle)]">
+            <div class="flex items-center justify-between gap-2 flex-wrap">
+              <span class="text-xs uppercase tracking-wide text-[var(--color-text-secondary)]">
+                compare tracks
+              </span>
+              <label class="flex items-center gap-2 text-xs">
+                <span class="text-[var(--color-text-muted)]">release</span>
+                <select
+                  value={compareReleaseId() ?? ""}
+                  onChange={(e) => setCompareReleaseId(e.currentTarget.value || null)}
+                  class="px-2 py-0.5 text-xs bg-[var(--color-bg-base)] border border-[var(--color-border-subtle)] rounded text-[var(--color-text-primary)] max-w-[28rem] truncate"
+                >
+                  <option value="">— pick release —</option>
+                  <For each={mergedCandidates().filter((c) => !!c.release_id)}>
+                    {(c) => (
+                      <option value={c.release_id!}>
+                        {(c.title || "(untitled)") +
+                          (c.first_release_date ? ` · ${c.first_release_date}` : "") +
+                          (c.country ? ` · ${c.country}` : "") +
+                          (c.track_count != null
+                            ? ` · ${c.track_count} track${c.track_count === 1 ? "" : "s"}`
+                            : "") +
+                          (c.via !== "mb" ? ` · via ${c.via}` : "")}
+                      </option>
+                    )}
+                  </For>
+                </select>
+              </label>
+            </div>
+            <Show
+              when={compareReleaseId()}
+              fallback={
+                <div class="text-xs text-[var(--color-text-disabled)] italic">
+                  pick a candidate release to load its track list and compare side-by-side.
+                </div>
+              }
+            >
+              <Show
+                when={!compareReleaseDetail.loading && compareReleaseDetail()}
+                fallback={
+                  <div class="text-xs text-[var(--color-text-disabled)] italic">
+                    loading release details…
+                  </div>
+                }
+              >
+                <MusicBrainzTrackComparison
+                  release={compareReleaseDetail()!}
+                  songs={songs() ?? []}
+                  remote={props.remote}
+                  onAlbumUpdated={() => {
+                    setProposalReloadKey((k) => k + 1);
+                    setAlbumReloadKey((k) => k + 1);
+                  }}
+                />
+              </Show>
+            </Show>
+          </div>
+        </Show>
         <Show when={refetchProposals as unknown}>
           <></>
         </Show>
       </div>
+      <Show when={showLastFm() && album()}>
+        <LastFmReviewModal
+          isOpen={true}
+          onClose={() => setShowLastFm(false)}
+          album={
+            {
+              album_id: album()!.album_id,
+              title: album()!.title,
+              artist_id: album()!.artist_id ?? "",
+              artist_name: album()!.artist_name ?? "",
+              album_type: "",
+              song_count: 0,
+              total_duration: 0,
+              metadata: album()!.metadata ?? null,
+            } as any
+          }
+          remote={props.remote}
+          isAdmin={isRemoteAdmin()}
+        />
+      </Show>
+      <Show when={showAudioDb() && album()}>
+        <AudioDbReviewModal
+          isOpen={true}
+          onClose={() => setShowAudioDb(false)}
+          album={
+            {
+              album_id: album()!.album_id,
+              title: album()!.title,
+              artist_id: album()!.artist_id ?? "",
+              artist_name: album()!.artist_name ?? "",
+              album_type: "",
+              song_count: 0,
+              total_duration: 0,
+              metadata: album()!.metadata ?? null,
+            } as any
+          }
+          remote={props.remote}
+          isAdmin={isRemoteAdmin()}
+        />
+      </Show>
     </Modal>
   );
 }
 
 function ProgressBadges(props: {
   progress: Array<{ source: string; status: string; last_error?: string | null }>;
+  /** when set, clicking the badge for `lastfm` / `audiodb` opens that
+   *  source's raw-data peek modal. `mb` is intentionally not
+   *  clickable here — the candidate list is already rendered inline
+   *  in the main modal body. */
+  onClickSource?: (source: string) => void;
 }) {
   return (
     <div class="flex items-center gap-1.5">
       <For each={props.progress}>
-        {(p) => (
-          <span
-            class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] uppercase tracking-wide"
-            classList={{
-              "bg-[var(--color-error-500)]/15 text-[var(--color-error-500)]":
-                isFailed(p.status) || !!p.last_error,
-              "bg-[var(--color-success-500)]/15 text-[var(--color-success-500)]":
-                isTerminalDone(p.status) && !p.last_error,
-              "bg-[var(--color-warning-500)]/15 text-[var(--color-warning-500)]": isInflight(
-                p.status
-              ),
-              "bg-[var(--color-bg-elevated)] text-[var(--color-text-disabled)]":
-                !isTerminalDone(p.status) &&
-                !isInflight(p.status) &&
-                !isFailed(p.status) &&
-                !p.last_error,
-            }}
-            title={
-              p.last_error
-                ? `${p.source}: ${p.status}\n${p.last_error}`
-                : `${p.source}: ${p.status}`
-            }
-          >
-            {sourceShort(p.source)}
-            <span class="opacity-70">{statusGlyph(p.status, !!p.last_error)}</span>
-          </span>
-        )}
+        {(p) => {
+          const clickable = () =>
+            !!props.onClickSource && (p.source === "lastfm" || p.source === "audiodb");
+          return (
+            <span
+              role={clickable() ? "button" : undefined}
+              tabindex={clickable() ? 0 : undefined}
+              onClick={clickable() ? () => props.onClickSource?.(p.source) : undefined}
+              onKeyDown={
+                clickable()
+                  ? (e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        props.onClickSource?.(p.source);
+                      }
+                    }
+                  : undefined
+              }
+              class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] uppercase tracking-wide"
+              classList={{
+                "bg-[var(--color-error-500)]/15 text-[var(--color-error-500)]":
+                  isFailed(p.status) || !!p.last_error,
+                "bg-[var(--color-success-500)]/15 text-[var(--color-success-500)]":
+                  isTerminalDone(p.status) && !p.last_error,
+                "bg-[var(--color-warning-500)]/15 text-[var(--color-warning-500)]": isInflight(
+                  p.status
+                ),
+                "bg-[var(--color-bg-elevated)] text-[var(--color-text-disabled)]":
+                  !isTerminalDone(p.status) &&
+                  !isInflight(p.status) &&
+                  !isFailed(p.status) &&
+                  !p.last_error,
+                "cursor-pointer hover:ring-1 hover:ring-[var(--color-border-subtle)]": clickable(),
+              }}
+              title={
+                clickable()
+                  ? `${p.source}: ${p.status}${p.last_error ? `\n${p.last_error}` : ""}\nclick to view raw ${p.source} data`
+                  : p.last_error
+                    ? `${p.source}: ${p.status}\n${p.last_error}`
+                    : `${p.source}: ${p.status}`
+              }
+            >
+              {sourceShort(p.source)}
+              <span class="opacity-70">{statusGlyph(p.status, !!p.last_error)}</span>
+            </span>
+          );
+        }}
       </For>
     </div>
   );

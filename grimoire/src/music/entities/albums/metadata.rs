@@ -53,6 +53,14 @@ pub enum MbLookupStatus {
     FetchingDetail,
     /// detail fetched and folksonomy persisted
     Enriched,
+    /// user explicitly skipped this album in the bulk-review wizard.
+    /// distinct from `Rejected` (which means the candidates list was
+    /// rejected) and from `NoMatch` (which means search returned
+    /// nothing). carved out so the library filter chip can show the
+    /// pile of "i looked at this and chose not to deal with it"
+    /// albums separately from the "machine couldn't find anything"
+    /// pile.
+    Skipped,
     /// last attempt failed; retry-able
     Error,
 }
@@ -71,6 +79,7 @@ impl MbLookupStatus {
             Self::NeedsReview => "needs_review",
             Self::FetchingDetail => "fetching_detail",
             Self::Enriched => "enriched",
+            Self::Skipped => "skipped",
             Self::Error => "error",
         }
     }
@@ -96,6 +105,7 @@ impl MbLookupStatus {
             "needs_review" => Self::NeedsReview,
             "fetching_detail" => Self::FetchingDetail,
             "enriched" => Self::Enriched,
+            "skipped" => Self::Skipped,
             "error" => Self::Error,
             _ => return None,
         })
@@ -106,7 +116,7 @@ impl zod_gen::ZodSchema for MbLookupStatus {
     fn zod_schema() -> String {
         // keep in sync with `MbLookupStatus::as_str` (snake_case wire form).
         // hand-rolled because `zod_gen_derive` does not honor `serde(rename_all)`.
-        r#"z.union([z.literal("not_attempted"), z.literal("queued"), z.literal("searching"), z.literal("candidates"), z.literal("confirmed"), z.literal("rejected"), z.literal("no_match"), z.literal("needs_review"), z.literal("fetching_detail"), z.literal("enriched"), z.literal("error")])"#.to_string()
+        r#"z.union([z.literal("not_attempted"), z.literal("queued"), z.literal("searching"), z.literal("candidates"), z.literal("confirmed"), z.literal("rejected"), z.literal("no_match"), z.literal("needs_review"), z.literal("fetching_detail"), z.literal("enriched"), z.literal("skipped"), z.literal("error")])"#.to_string()
     }
 }
 

@@ -15,11 +15,13 @@ import type { Remote } from "../../app/services/storage/schemas/remote";
 import { Icon } from "../../components/icons/registry";
 import { LoadingState, LoadingMoreIndicator } from "../../components/feedback";
 import MediaImage from "../../components/media/MediaImage";
+import { Modal } from "../../components/modals/Modal";
 import {
-  MB_LOOKUP_STATUSES,
+  MB_LOOKUP_STATUS_FILTERS,
   mbLookupStatusLabel,
   parseAlbumMetadata,
   parseMbLookupStatus,
+  topCandidate,
   topFolksonomyTags,
   type MbLookupStatus,
 } from "../data/albumMetadata";
@@ -28,13 +30,10 @@ import {
   handleAlbumClick,
   isAlbumSelected,
   updateAlbumIdList,
-  updateAlbumReviewStatusMap,
+  updateAlbumMbLookupStatusMap,
 } from "../hooks/albumSelection";
 import { useInflightJobs, getInflightSourcesForAlbum } from "../hooks/useMbLookupJobs";
-import { useRemoteIsAdmin } from "../hooks/useRemoteRole";
-import { AlbumCandidatesPanel } from "./AlbumCandidatesPanel";
-import { LastFmReviewModal } from "./LastFmReviewModal";
-import { AudioDbReviewModal } from "./AudioDbReviewModal";
+import { showBulkReview } from "../review/bulkReviewModal";
 import { getClientForRemote } from "../../app/api/client";
 import { queryClient } from "../../queryClient";
 import type { AlbumSummary } from "../../music/data/types";
@@ -78,24 +77,14 @@ export function AlbumsTable(props: AlbumsTableProps) {
       }
     | { kind: "error"; message: string };
   const [autoConfirm, setAutoConfirm] = createSignal<AutoConfirmState>({ kind: "idle" });
+  // controls the auto-confirm confirmation modal. opens when the user
+  // clicks the header button; runs `runAutoConfirm` only after they
+  // confirm again from inside the modal.
+  const [autoConfirmModalOpen, setAutoConfirmModalOpen] = createSignal(false);
 
-  // last.fm review modal — hoisted to table scope so it survives row
-  // re-mounts when the album list query is invalidated mid-job.
-  const [lastfmAlbumId, setLastfmAlbumId] = createSignal<string | null>(null);
-  const lastfmAlbum = createMemo(() =>
-    lastfmAlbumId() ? (filteredItems().find((a) => a.album_id === lastfmAlbumId()) ?? null) : null
-  );
-
-  // theaudiodb review modal — same hoisting reasoning as lastfm above.
-  const [audiodbAlbumId, setAudiodbAlbumId] = createSignal<string | null>(null);
-  const audiodbAlbum = createMemo(() =>
-    audiodbAlbumId() ? (filteredItems().find((a) => a.album_id === audiodbAlbumId()) ?? null) : null
-  );
-
-  // admin gating for the enqueue actions inside the lastfm/audiodb
-  // review modals. non-admins can still open the modals to read stored
-  // snapshots; the "fetch" button itself is what gets disabled.
-  const isRemoteAdmin = useRemoteIsAdmin(() => props.remote);
+  // admin gating used to live here for the lastfm/audiodb peek modals;
+  // those modals moved into the bulk review flow, so the hook isn't
+  // needed at table scope anymore.
 
   // simple debounce on the search input
   let searchTimer: ReturnType<typeof setTimeout> | undefined;
@@ -133,7 +122,7 @@ export function AlbumsTable(props: AlbumsTableProps) {
   // keep the selection range list aligned with the visible rows.
   createEffect(() => {
     updateAlbumIdList(filteredItems().map((a) => a.album_id));
-    updateAlbumReviewStatusMap(filteredItems().map((a) => [a.album_id, a.review_status]));
+    updateAlbumMbLookupStatusMap(filteredItems().map((a) => [a.album_id, a.mb_lookup_status]));
   });
 
   const loadedCount = () => allItems().length;
@@ -195,6 +184,54 @@ export function AlbumsTable(props: AlbumsTableProps) {
       setAutoConfirm({ kind: "error", message: (e as Error).message });
     }
   };
+
+  // pre-flight stats for the auto-confirm modal. computed against the
+  // currently-loaded + filtered album set, so the user sees an estimate
+  // of what the bulk action will do before they commit. eligibility =
+  // mb_lookup_status is `candidates`/`needs_review`, AND the top
+  // candidate beats both thresholds. albums already in `confirmed` /
+  // `enriched` are skipped server-side regardless.
+  const autoConfirmStats = createMemo(() => {
+    const items = filteredItems();
+    let totalLoaded = items.length;
+    let withCandidates = 0;
+    let eligibleByStatus = 0;
+    let meetsConfidence = 0;
+    let meetsGap = 0;
+    let meetsBoth = 0;
+    const conf = minConfidence();
+    const gap = minGap();
+    for (const a of items) {
+      const st = parseMbLookupStatus(a.mb_lookup_status);
+      const reviewable = st === "candidates" || st === "needs_review";
+      const meta = parseAlbumMetadata(a.metadata);
+      const cands = meta.musicbrainz?.candidates ?? [];
+      if (cands.length > 0) withCandidates += 1;
+      if (!reviewable || cands.length === 0) continue;
+      eligibleByStatus += 1;
+      const top = topCandidate(meta);
+      if (!top) continue;
+      const score = top.local_confidence ?? 0;
+      const sorted = [...cands].sort(
+        (a, b) => (b.local_confidence ?? 0) - (a.local_confidence ?? 0)
+      );
+      const second = sorted[1]?.local_confidence ?? 0;
+      const localGap = score - second;
+      const okConf = score >= conf;
+      const okGap = localGap >= gap;
+      if (okConf) meetsConfidence += 1;
+      if (okGap) meetsGap += 1;
+      if (okConf && okGap) meetsBoth += 1;
+    }
+    return {
+      totalLoaded,
+      withCandidates,
+      eligibleByStatus,
+      meetsConfidence,
+      meetsGap,
+      meetsBoth,
+    };
+  });
 
   // load-more sentinel: trigger when scrolled near bottom.
   let scrollEl: HTMLDivElement | undefined;
@@ -291,71 +328,49 @@ export function AlbumsTable(props: AlbumsTableProps) {
 
           {/* auto-confirm bulk control. confirms top candidate where it
            *  clears confidence + gap thresholds. admin-only on the server
-           *  side; non-admins see a 403 surfaced inline. */}
+           *  side; non-admins see a 403 surfaced inline. opens a
+           *  confirmation modal that lets the user tweak thresholds and
+           *  preview how many albums would be affected before firing. */}
           <Show when={filteredItems().length > 0}>
-            <div
-              class="flex items-center gap-1 px-2 py-1 text-xs rounded border border-[var(--color-border-subtle)] bg-transparent"
-              title="auto-confirm top candidate when it beats the thresholds"
+            <button
+              type="button"
+              onClick={() => setAutoConfirmModalOpen(true)}
+              disabled={autoConfirm().kind === "running"}
+              class="flex items-center gap-1 px-2 py-1 text-xs rounded border border-[var(--color-accent-500)]/40 text-[var(--color-accent-500)] hover:bg-[var(--color-accent-500)]/10 cursor-pointer bg-transparent disabled:opacity-50 disabled:cursor-not-allowed"
+              title="auto-confirm top mb candidate when confidence + gap thresholds are met"
             >
-              <span class="text-[var(--color-text-muted)]">conf≥</span>
-              <input
-                type="number"
-                min="0"
-                max="1"
-                step="0.05"
-                value={minConfidence()}
-                onInput={(e) => setMinConfidence(Number.parseFloat(e.currentTarget.value) || 0)}
-                class="w-12 bg-[var(--color-bg-elevated)] border border-[var(--color-border-subtle)] rounded px-1 py-0.5 text-xs text-[var(--color-text-primary)]"
-              />
-              <span class="text-[var(--color-text-muted)]">gap≥</span>
-              <input
-                type="number"
-                min="0"
-                max="1"
-                step="0.05"
-                value={minGap()}
-                onInput={(e) => setMinGap(Number.parseFloat(e.currentTarget.value) || 0)}
-                class="w-12 bg-[var(--color-bg-elevated)] border border-[var(--color-border-subtle)] rounded px-1 py-0.5 text-xs text-[var(--color-text-primary)]"
-              />
-              <button
-                type="button"
-                onClick={runAutoConfirm}
-                disabled={autoConfirm().kind === "running"}
-                class="px-2 py-0.5 rounded border border-[var(--color-accent-500)]/40 text-[var(--color-accent-500)] hover:bg-[var(--color-accent-500)]/10 cursor-pointer bg-transparent disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <Show when={autoConfirm().kind === "running"} fallback={<>auto-confirm</>}>
-                  running...
-                </Show>
-              </button>
-              <Show when={autoConfirm().kind === "done"}>
-                {(() => {
-                  const s = autoConfirm() as Extract<AutoConfirmState, { kind: "done" }>;
-                  return (
-                    <span class="text-[var(--color-text-muted)]">
-                      ok {s.confirmed} · skip {s.skipped}
-                      <Show when={s.errors > 0}> · err {s.errors}</Show>
-                    </span>
-                  );
-                })()}
+              <Show when={autoConfirm().kind === "running"} fallback={<>auto-confirm…</>}>
+                running…
               </Show>
-              <Show when={autoConfirm().kind === "error"}>
-                {(() => {
-                  const s = autoConfirm() as Extract<AutoConfirmState, { kind: "error" }>;
-                  return (
-                    <span class="text-[var(--color-error-500)]" title={s.message}>
-                      error
-                    </span>
-                  );
-                })()}
-              </Show>
-            </div>
+            </button>
+            <Show when={autoConfirm().kind === "done"}>
+              {(() => {
+                const s = autoConfirm() as Extract<AutoConfirmState, { kind: "done" }>;
+                return (
+                  <span class="text-xs text-[var(--color-text-muted)]">
+                    last run: ok {s.confirmed} · skip {s.skipped}
+                    <Show when={s.errors > 0}> · err {s.errors}</Show>
+                  </span>
+                );
+              })()}
+            </Show>
+            <Show when={autoConfirm().kind === "error"}>
+              {(() => {
+                const s = autoConfirm() as Extract<AutoConfirmState, { kind: "error" }>;
+                return (
+                  <span class="text-xs text-[var(--color-error-500)]" title={s.message}>
+                    auto-confirm error
+                  </span>
+                );
+              })()}
+            </Show>
           </Show>
         </div>
 
         {/* status filter chips */}
         <div class="flex items-center gap-1 flex-wrap text-xs">
           <span class="text-[var(--color-text-muted)] mr-1">mb status:</span>
-          <For each={MB_LOOKUP_STATUSES}>
+          <For each={MB_LOOKUP_STATUS_FILTERS}>
             {(status) => (
               <button
                 type="button"
@@ -413,13 +428,7 @@ export function AlbumsTable(props: AlbumsTableProps) {
               <tbody>
                 <For each={filteredItems()}>
                   {(album, index) => (
-                    <AlbumRow
-                      album={album}
-                      remote={props.remote}
-                      index={index()}
-                      onOpenLastFm={() => setLastfmAlbumId(album.album_id)}
-                      onOpenAudioDb={() => setAudiodbAlbumId(album.album_id)}
-                    />
+                    <AlbumRow album={album} remote={props.remote} index={index()} />
                   )}
                 </For>
               </tbody>
@@ -430,39 +439,25 @@ export function AlbumsTable(props: AlbumsTableProps) {
           </Show>
         </Show>
       </div>
-      <Show when={lastfmAlbum()}>
-        {(album) => (
-          <LastFmReviewModal
-            isOpen={true}
-            onClose={() => setLastfmAlbumId(null)}
-            album={album()}
-            remote={props.remote}
-            isAdmin={isRemoteAdmin()}
-          />
-        )}
-      </Show>
-      <Show when={audiodbAlbum()}>
-        {(album) => (
-          <AudioDbReviewModal
-            isOpen={true}
-            onClose={() => setAudiodbAlbumId(null)}
-            album={album()}
-            remote={props.remote}
-            isAdmin={isRemoteAdmin()}
-          />
-        )}
-      </Show>
+      <AutoConfirmModal
+        isOpen={autoConfirmModalOpen()}
+        onClose={() => setAutoConfirmModalOpen(false)}
+        minConfidence={minConfidence()}
+        minGap={minGap()}
+        setMinConfidence={setMinConfidence}
+        setMinGap={setMinGap}
+        eligibleStats={autoConfirmStats()}
+        onConfirm={async () => {
+          await runAutoConfirm();
+          setAutoConfirmModalOpen(false);
+        }}
+        running={autoConfirm().kind === "running"}
+      />
     </div>
   );
 }
 
-function AlbumRow(props: {
-  album: AlbumSummary;
-  remote: Remote;
-  index: number;
-  onOpenLastFm: () => void;
-  onOpenAudioDb: () => void;
-}) {
+function AlbumRow(props: { album: AlbumSummary; remote: Remote; index: number }) {
   const status = () => parseMbLookupStatus(props.album.mb_lookup_status);
   const lastLookup = () => {
     const ts = props.album.mb_lookup_at;
@@ -495,9 +490,24 @@ function AlbumRow(props: {
     if (ad.fetched_at) return "ok";
     return "missing";
   };
-  const [expanded, setExpanded] = createSignal(false);
   const reviewable = () =>
     status() === "candidates" || status() === "needs_review" || status() === "confirmed";
+  const openReview = () => {
+    showBulkReview({
+      ids: [props.album.album_id],
+      currentIndex: 0,
+      remote: props.remote,
+      onNext: () => {
+        /* single-album review — no-op */
+      },
+      onPrev: () => {
+        /* single-album review — no-op */
+      },
+      onExit: () => {
+        /* dismiss only — no global session to tear down */
+      },
+    });
+  };
 
   return (
     <>
@@ -602,46 +612,28 @@ function AlbumRow(props: {
                 class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border border-[var(--color-border-subtle)] text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:border-[var(--color-text-secondary)] cursor-pointer bg-transparent"
                 onClick={(e) => {
                   e.stopPropagation();
-                  setExpanded((p) => !p);
+                  openReview();
                 }}
-                title={expanded() ? "hide candidates" : "review candidates"}
+                title="open in review modal"
               >
-                <Icon name={expanded() ? "arrowUp" : "arrowDown"} size={8} />
+                <Icon name="search" size={8} />
                 review
               </button>
             </Show>
-            <button
-              type="button"
-              class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border border-[var(--color-border-subtle)] text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:border-[var(--color-text-secondary)] cursor-pointer bg-transparent"
+            <a
+              href={`#/${props.remote.remote_id}/albums/${encodeURIComponent(props.album.album_id)}`}
+              class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border border-[var(--color-border-subtle)] text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:border-[var(--color-text-secondary)] cursor-pointer bg-transparent no-underline"
               onClick={(e) => {
+                // stop the row's selection click handler from also firing
                 e.stopPropagation();
-                props.onOpenLastFm();
               }}
-              title="view last.fm raw data"
+              title="open album page"
             >
-              last.fm
-            </button>
-            <button
-              type="button"
-              class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border border-[var(--color-border-subtle)] text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:border-[var(--color-text-secondary)] cursor-pointer bg-transparent"
-              onClick={(e) => {
-                e.stopPropagation();
-                props.onOpenAudioDb();
-              }}
-              title="view theaudiodb raw data"
-            >
-              audiodb
-            </button>
+              album
+            </a>
           </div>
         </td>
       </tr>
-      <Show when={expanded() && reviewable()}>
-        <tr class="border-b border-[var(--color-border-subtle)]">
-          <td colspan={10} class="p-0">
-            <AlbumCandidatesPanel album={props.album} remote={props.remote} />
-          </td>
-        </tr>
-      </Show>
     </>
   );
 }
@@ -677,5 +669,133 @@ function SourceBadge(props: { label: string; title: string; state: SourceBadgeSt
       </Show>
       {props.label}
     </span>
+  );
+}
+
+// confirmation modal for the bulk auto-confirm action. lets the user
+// tweak min-confidence + min-gap thresholds and shows a live count of
+// how many of the currently-loaded + filtered albums would be eligible
+// at those thresholds. server-side eligibility is the source of truth;
+// the modal numbers are just an estimate based on the candidate
+// metadata that's already loaded on the client.
+interface AutoConfirmModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  minConfidence: number;
+  minGap: number;
+  setMinConfidence: (v: number) => void;
+  setMinGap: (v: number) => void;
+  eligibleStats: {
+    totalLoaded: number;
+    withCandidates: number;
+    eligibleByStatus: number;
+    meetsConfidence: number;
+    meetsGap: number;
+    meetsBoth: number;
+  };
+  onConfirm: () => Promise<void> | void;
+  running: boolean;
+}
+
+function AutoConfirmModal(props: AutoConfirmModalProps) {
+  return (
+    <Modal
+      isOpen={props.isOpen}
+      onClose={props.onClose}
+      title="auto-confirm musicbrainz matches"
+      size="sm"
+      disableBackdropClose={props.running}
+      footer={
+        <div class="flex items-center justify-end gap-2 px-4 py-3">
+          <button
+            type="button"
+            onClick={props.onClose}
+            disabled={props.running}
+            class="px-3 py-1.5 text-sm rounded border border-[var(--color-border-subtle)] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-elevated)] cursor-pointer bg-transparent disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            cancel
+          </button>
+          <button
+            type="button"
+            onClick={() => void props.onConfirm()}
+            disabled={props.running || props.eligibleStats.meetsBoth === 0}
+            class="px-3 py-1.5 text-sm rounded border border-[var(--color-accent-500)]/40 text-[var(--color-accent-500)] hover:bg-[var(--color-accent-500)]/10 cursor-pointer bg-transparent disabled:opacity-50 disabled:cursor-not-allowed"
+            title={
+              props.eligibleStats.meetsBoth === 0
+                ? "no albums in the current filter would be confirmed at these thresholds"
+                : `confirm ${props.eligibleStats.meetsBoth} albums`
+            }
+          >
+            <Show
+              when={props.running}
+              fallback={<>confirm {props.eligibleStats.meetsBoth} matches</>}
+            >
+              running…
+            </Show>
+          </button>
+        </div>
+      }
+    >
+      <div class="flex flex-col gap-4 px-4 py-3 text-sm text-[var(--color-text-secondary)]">
+        <p class="text-[var(--color-text-muted)]">
+          the auto-confirm action picks the top musicbrainz candidate for each album in the current
+          filter and confirms it whenever both thresholds are met. albums that don't have
+          candidates, or whose status is outside <code>candidates</code> / <code>needs_review</code>
+          , are skipped server-side.
+        </p>
+        <div class="flex items-center gap-3">
+          <label class="flex items-center gap-2 flex-1">
+            <span class="text-[var(--color-text-muted)] w-24">min confidence</span>
+            <input
+              type="number"
+              min="0"
+              max="1"
+              step="0.05"
+              value={props.minConfidence}
+              onInput={(e) => props.setMinConfidence(Number.parseFloat(e.currentTarget.value) || 0)}
+              class="w-20 bg-[var(--color-bg-elevated)] border border-[var(--color-border-subtle)] rounded px-2 py-1 text-sm text-[var(--color-text-primary)]"
+            />
+          </label>
+          <label class="flex items-center gap-2 flex-1">
+            <span class="text-[var(--color-text-muted)] w-16">min gap</span>
+            <input
+              type="number"
+              min="0"
+              max="1"
+              step="0.05"
+              value={props.minGap}
+              onInput={(e) => props.setMinGap(Number.parseFloat(e.currentTarget.value) || 0)}
+              class="w-20 bg-[var(--color-bg-elevated)] border border-[var(--color-border-subtle)] rounded px-2 py-1 text-sm text-[var(--color-text-primary)]"
+            />
+          </label>
+        </div>
+        <div class="rounded border border-[var(--color-border-subtle)] p-3 flex flex-col gap-1 text-xs">
+          <div class="flex justify-between">
+            <span class="text-[var(--color-text-muted)]">albums in current filter</span>
+            <span>{props.eligibleStats.totalLoaded}</span>
+          </div>
+          <div class="flex justify-between">
+            <span class="text-[var(--color-text-muted)]">with candidates</span>
+            <span>{props.eligibleStats.withCandidates}</span>
+          </div>
+          <div class="flex justify-between">
+            <span class="text-[var(--color-text-muted)]">in reviewable status</span>
+            <span>{props.eligibleStats.eligibleByStatus}</span>
+          </div>
+          <div class="flex justify-between">
+            <span class="text-[var(--color-text-muted)]">meets confidence threshold</span>
+            <span>{props.eligibleStats.meetsConfidence}</span>
+          </div>
+          <div class="flex justify-between">
+            <span class="text-[var(--color-text-muted)]">meets gap threshold</span>
+            <span>{props.eligibleStats.meetsGap}</span>
+          </div>
+          <div class="flex justify-between font-medium text-[var(--color-text-primary)] mt-1 pt-1 border-t border-[var(--color-border-subtle)]">
+            <span>would auto-confirm</span>
+            <span>{props.eligibleStats.meetsBoth}</span>
+          </div>
+        </div>
+      </div>
+    </Modal>
   );
 }

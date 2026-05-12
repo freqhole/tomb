@@ -15,7 +15,8 @@ import {
 
 export type { AlbumMetadata, MbCandidate, MbLookupStatus } from "freqhole-api-client";
 
-/** every known mb_lookup_status value, in display order. */
+/** every known mb_lookup_status value, in display order. canonical
+ *  superset — used by `parseMbLookupStatus` for value validation. */
 export const MB_LOOKUP_STATUSES: readonly MbLookupStatus[] = [
   "not_attempted",
   "queued",
@@ -25,6 +26,25 @@ export const MB_LOOKUP_STATUSES: readonly MbLookupStatus[] = [
   "fetching_detail",
   "confirmed",
   "enriched",
+  "skipped",
+  "rejected",
+  "no_match",
+  "error",
+] as const;
+
+/** subset of statuses surfaced as filter chips in the library view.
+ *  intermediate / job-queue states (`queued`, `searching`,
+ *  `fetching_detail`) are noisy and almost never useful as a filter
+ *  target, so they're hidden from the chip strip. they still appear
+ *  on individual album rows because they come straight from
+ *  `albumz.mb_lookup_status`. */
+export const MB_LOOKUP_STATUS_FILTERS: readonly MbLookupStatus[] = [
+  "not_attempted",
+  "candidates",
+  "needs_review",
+  "confirmed",
+  "enriched",
+  "skipped",
   "rejected",
   "no_match",
   "error",
@@ -50,7 +70,9 @@ export function mbLookupStatusLabel(status: MbLookupStatus | null | undefined): 
     case "confirmed":
       return "confirmed";
     case "enriched":
-      return "enriched";
+      return "done";
+    case "skipped":
+      return "skipped";
     case "rejected":
       return "rejected";
     case "no_match":
