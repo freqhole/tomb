@@ -118,6 +118,39 @@ export function BulkEnrichmentReviewModal(props: BulkEnrichmentReviewModalProps)
     }
   });
 
+  // load the album's songs (minimal shape) so the inline mb track
+  // comparison ui can pair them against any candidate release. keyed
+  // by albumId only — songs don't change as a side-effect of any of
+  // the enrichment writes we do here, so no manual reload key.
+  const [songs] = createResource(albumId, async (id) => {
+    if (!id) return [];
+    try {
+      const client = await getClientForRemote(props.remote);
+      const resp = await client.music.querySongs({
+        q: null,
+        search_fields: null,
+        filters: { album_id: id },
+        sort_by: "track_number",
+        sort_direction: "asc",
+        limit: 1000,
+        offset: 0,
+        user_id: null,
+        favorites_only: null,
+        min_rating: null,
+      });
+      if (!resp.success || !resp.data) return [];
+      return resp.data.items.map((it) => ({
+        id: it.song.id,
+        title: it.song.title,
+        disc_number: it.song.disc_number ?? 1,
+        track_number: it.song.track_number ?? 0,
+        duration_seconds: it.song.duration ?? 0,
+        track_artist: it.song.track_artist ?? null,
+      }));
+    } catch {
+      return [];
+    }
+  });
   // editable artist + title — seeded from the album row, reset every
   // time the visible album changes. these get sent on requery (as
   // override_query) and persisted via `updateAlbum` on save if dirty.
@@ -1090,6 +1123,7 @@ export function BulkEnrichmentReviewModal(props: BulkEnrichmentReviewModalProps)
               title={editedTitle()}
               onArtistChange={setEditedArtist}
               onTitleChange={setEditedTitle}
+              songs={songs() ?? []}
               onChanged={() => {
                 setProposalReloadKey((k) => k + 1);
                 setAlbumReloadKey((k) => k + 1);

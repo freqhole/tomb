@@ -40,8 +40,8 @@ use crate::music::entities::taxonomy::{
 use crate::response::GrimoireResponse;
 
 use super::metadata::{
-    AlbumMetadata, AudioDbAlbumSnapshot, FolksonomyTag, LastFmAlbumSnapshot, MbCandidate,
-    MbFolksonomy,
+    AlbumMetadata, AudioDbAlbumSnapshot, AudioDbArtistSnapshot, FolksonomyTag, LastFmAlbumSnapshot,
+    MbCandidate, MbFolksonomy,
 };
 use super::repository::read_album_metadata;
 
@@ -225,14 +225,18 @@ pub async fn apply_taxon_proposals(
 
     let mut errors: Vec<ErrorDetail> = Vec::new();
     for proposal in req.accepted {
+        // accept any kind_slug — if it's not seeded, we materialize a
+        // user-defined kind on the fly. enrichment processors emit
+        // arbitrary keys (e.g. audiodb `members`, `gender`, `charted`)
+        // and we don't want a migration per upstream field.
         if !SEEDED_KIND_SLUGS.contains(&proposal.kind_slug.as_str()) {
-            result.skipped_invalid += 1;
-            errors.push(ErrorDetail::new(
-                "invalid_kind",
-                "invalid taxon kind",
-                &format!("unknown kind_slug `{}`", proposal.kind_slug),
-            ));
-            continue;
+            let kind_resp =
+                taxonomy::find_or_create_taxon_kind(&proposal.kind_slug, &proposal.kind_slug).await;
+            if !kind_resp.success {
+                result.skipped_invalid += 1;
+                errors.extend(kind_resp.errors);
+                continue;
+            }
         }
         let trimmed = proposal.label.trim();
         if trimmed.is_empty() {
@@ -491,10 +495,12 @@ fn propose_from_audiodb(meta: &AlbumMetadata, bag: &mut ProposalBag) {
     let Some(audiodb) = meta.audiodb.as_ref() else {
         return;
     };
-    let Some(album) = audiodb.album.as_ref() else {
-        return;
-    };
-    propose_from_audiodb_album(album, bag);
+    if let Some(album) = audiodb.album.as_ref() {
+        propose_from_audiodb_album(album, bag);
+    }
+    if let Some(artist) = audiodb.artist.as_ref() {
+        propose_from_audiodb_artist(artist, bag);
+    }
 }
 
 fn propose_from_audiodb_album(album: &AudioDbAlbumSnapshot, bag: &mut ProposalBag) {
@@ -531,6 +537,93 @@ fn propose_from_audiodb_album(album: &AudioDbAlbumSnapshot, bag: &mut ProposalBa
                 ProposalSource::Audiodb,
                 Some(format!("audiodb intYearReleased={}", year)),
             );
+        }
+    }
+}
+
+/// fields on the audiodb artist snapshot that are *not* taxons:
+/// identifiers, urls, image blobs, free-form prose. anything not in
+/// this set is considered a candidate taxon kind. the snake_case slug
+/// is used as the kind slug, so `country_code`, `formed_year`, etc.
+/// become first-class kinds the first time we see a value.
+const AUDIODB_ARTIST_NON_TAXON_KEYS: &[&str] = &[
+    "id_artist",
+    "name",
+    "biography_en",
+    "musicbrainz_artist_id",
+    "website",
+    "facebook",
+    "twitter",
+    "artist_thumb",
+    "artist_fanart",
+    "artist_logo",
+    "artist_cutout",
+    "artist_clearart",
+    "artist_wide_thumb",
+    "artist_fanart_2",
+    "artist_fanart_3",
+    "artist_fanart_4",
+    "artist_banner",
+];
+
+/// project the audiodb artist snapshot onto taxon proposals using a
+/// denylist-driven walk of the serialized fields. any string field with
+/// a truthy value (non-empty after trimming, not "null"/"0") that's not
+/// in [`AUDIODB_ARTIST_NON_TAXON_KEYS`] becomes a proposal — the
+/// snake_case field name is the kind slug. compound values (comma /
+/// slash separated) are split into multiple proposals.
+///
+/// also routes a couple of well-known fields back through the seeded
+/// kinds for consistency: `formed_year` → `decade` (in addition to
+/// staying as `formed_year`), and `country` / `country_code` both stay
+/// as their respective kinds.
+fn propose_from_audiodb_artist(artist: &AudioDbArtistSnapshot, bag: &mut ProposalBag) {
+    let value = match serde_json::to_value(artist) {
+        Ok(v) => v,
+        Err(_) => return,
+    };
+    let serde_json::Value::Object(map) = value else {
+        return;
+    };
+    for (key, val) in map.iter() {
+        if AUDIODB_ARTIST_NON_TAXON_KEYS.contains(&key.as_str()) {
+            continue;
+        }
+        let raw = match val {
+            serde_json::Value::String(s) => s.clone(),
+            serde_json::Value::Number(n) => n.to_string(),
+            _ => continue,
+        };
+        let trimmed = raw.trim();
+        // skip falsy / placeholder values audiodb sometimes returns.
+        if trimmed.is_empty()
+            || trimmed.eq_ignore_ascii_case("null")
+            || trimmed == "0"
+            || trimmed.eq_ignore_ascii_case("none")
+        {
+            continue;
+        }
+        // split comma/slash-style compound values; for numerics this
+        // is a no-op and the single value falls through.
+        for label in split_compound(trimmed) {
+            bag.add(
+                key.as_str(),
+                &label,
+                ProposalSource::Audiodb,
+                Some(format!("audiodb artist.{} = {}", key, trimmed)),
+            );
+        }
+        // additionally bucket `formed_year` into `decade` so it lights
+        // up the existing decade ui when a user accepts it.
+        if key == "formed_year" {
+            if let Some(decade) = year_to_decade(trimmed) {
+                bag.add(
+                    KIND_DECADE,
+                    &decade,
+                    ProposalSource::Audiodb,
+                    Some(format!("audiodb artist.formed_year = {}", trimmed)),
+                );
+            }
         }
     }
 }

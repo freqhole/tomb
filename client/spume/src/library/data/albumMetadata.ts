@@ -92,6 +92,7 @@ function normalizeAlbumMetadata(meta: any): void {
   if (mb && typeof mb === "object") {
     if (!Array.isArray(mb.candidates)) mb.candidates = [];
     if (!Array.isArray(mb.tag_source_release_ids)) mb.tag_source_release_ids = [];
+    if (!Array.isArray(mb.urls)) mb.urls = [];
     for (const c of mb.candidates) {
       if (c && typeof c === "object" && !Array.isArray(c.secondary_types)) {
         c.secondary_types = [];

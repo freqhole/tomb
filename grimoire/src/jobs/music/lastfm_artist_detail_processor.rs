@@ -139,7 +139,7 @@ pub async fn process_lastfm_artist_detail_job(job: &Job) -> Result<Option<Value>
     // (~5 rows, name+url only) if it fails.
     crate::jobs::rate_limit::acquire(crate::jobs::rate_limit::Source::Lastfm).await;
     let getsim_resp = client
-        .artist_get_similar(&name, params.mbid.as_deref(), 25)
+        .artist_get_similar(&name, params.mbid.as_deref(), 50)
         .await;
     let mut related_upserted: u64 = 0;
     if getsim_resp.success {

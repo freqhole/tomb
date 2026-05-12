@@ -1190,72 +1190,101 @@ pub fn extract_urls_from_text(text: &str) -> Vec<String> {
     urls
 }
 
-/// extract the domain name from a URL for use as a label
-/// e.g. "https://some-artist.bandcamp.com/album/test" -> "bandcamp"
+/// extract a domain label suitable for the `name` column of
+/// `entity_urlz`. uses real url parsing (no hardcoded service list)
+/// and returns the registrable domain (eTLD+1-ish), e.g.:
+///
+///   `https://artist.bandcamp.com/album/foo` -> `Some("bandcamp.com")`
+///   `https://music.apple.com/...`           -> `Some("apple.com")`
+///   `https://www.spotify.com/...`           -> `Some("spotify.com")`
+///   `https://example.co.uk/...`             -> `Some("example.co.uk")`
+///
+/// returns `None` for malformed input or hosts without at least one
+/// dot (e.g. `https://`, `https://1`, `localhost`).
 pub fn extract_url_domain_label(url: &str) -> Option<String> {
-    // parse the URL and extract the host
-    let url_lower = url.to_lowercase();
+    parse_external_url(url).map(|(_, label)| label)
+}
 
-    // strip protocol
-    let without_protocol = url_lower
-        .strip_prefix("https://")
-        .or_else(|| url_lower.strip_prefix("http://"))?;
+/// short list of two-part public suffixes we care about. avoids
+/// pulling in the full `publicsuffix` crate just for prettifying
+/// link names. anything not listed falls through to a simple
+/// "last two dot parts" rule which is correct for the vast majority
+/// of music-related links.
+const MULTIPART_TLDS: &[&str] = &[
+    "co.uk", "co.jp", "co.nz", "co.kr", "co.za", "co.in", "com.au", "com.br", "com.mx", "com.ar",
+    "com.tr", "com.cn", "com.hk", "com.tw", "com.sg", "com.my",
+];
 
-    // get the host part (before the first /)
-    let host = without_protocol.split('/').next()?;
-
-    // remove www. prefix if present
-    let host = host.strip_prefix("www.").unwrap_or(host);
-
-    // extract meaningful domain label
-    // for subdomains like "artist.bandcamp.com", we want "bandcamp"
-    // for regular domains like "discogs.com", we want "discogs"
-    let parts: Vec<&str> = host.split('.').collect();
-
-    if parts.len() >= 2 {
-        // check for known services with subdomains
-        let known_services = [
-            "bandcamp",
-            "soundcloud",
-            "spotify",
-            "youtube",
-            "youtu",
-            "discogs",
-            "musicbrainz",
-            "lastfm",
-            "beatport",
-            "apple",
-            "amazon",
-            "deezer",
-            "tidal",
-            "facebook",
-            "instagram",
-            "twitter",
-            "wikipedia",
-        ];
-
-        // look if any of the parts match a known service
-        for part in &parts {
-            if known_services.contains(part) {
-                return Some(part.to_string());
-            }
-        }
-
-        // fallback: use the second-to-last part (main domain name)
-        // e.g., "example.com" -> "example", "sub.example.co.uk" -> "example"
-        let idx = if parts.len() >= 3
-            && (parts[parts.len() - 1] == "uk"
-                || parts[parts.len() - 1] == "au"
-                || parts[parts.len() - 1] == "jp")
-        {
-            parts.len().saturating_sub(3)
-        } else {
-            parts.len().saturating_sub(2)
-        };
-
-        Some(parts[idx].to_string())
-    } else {
-        // just one part? return it
-        Some(host.to_string())
+/// parse and validate an external url. returns `(normalized_url,
+/// domain_label)` on success or `None` for anything that looks like
+/// junk (audiodb sometimes returns bare `"1"` or empty strings, which
+/// the old `format!("https://{}", s)` path would happily turn into
+/// `"https://1"` — rejected here).
+///
+/// the normalized url has its scheme defaulted to `https://` if
+/// missing and lower-cased host. the domain label is the registrable
+/// domain (eTLD+1-ish — see [`MULTIPART_TLDS`]) with any leading
+/// `www.` stripped.
+pub fn parse_external_url(raw: &str) -> Option<(String, String)> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return None;
     }
+
+    // bare twitter handles -> twitter.com/<handle>
+    let with_scheme = if let Some(handle) = trimmed.strip_prefix('@') {
+        if handle.is_empty() {
+            return None;
+        }
+        format!("https://twitter.com/{}", handle)
+    } else if trimmed.starts_with("http://") || trimmed.starts_with("https://") {
+        trimmed.to_string()
+    } else {
+        // only attempt to prefix `https://` if it at least looks like
+        // a hostname (has a dot, no whitespace). bare numbers or
+        // single tokens are rejected.
+        if !trimmed.contains('.') || trimmed.contains(char::is_whitespace) {
+            return None;
+        }
+        format!("https://{}", trimmed)
+    };
+
+    let parsed = url::Url::parse(&with_scheme).ok()?;
+    let host = parsed.host_str()?.to_lowercase();
+    if host.is_empty() || !host.contains('.') {
+        return None;
+    }
+    // host must have at least one alphabetic character — guards
+    // against ip-only or numeric-only "domains".
+    if !host.chars().any(|c| c.is_ascii_alphabetic()) {
+        return None;
+    }
+    let host_no_www = host.strip_prefix("www.").unwrap_or(&host).to_string();
+
+    let parts: Vec<&str> = host_no_www.split('.').collect();
+    let label = if parts.len() <= 2 {
+        host_no_www.clone()
+    } else {
+        let last_two = format!("{}.{}", parts[parts.len() - 2], parts[parts.len() - 1]);
+        if MULTIPART_TLDS.contains(&last_two.as_str()) && parts.len() >= 3 {
+            format!(
+                "{}.{}.{}",
+                parts[parts.len() - 3],
+                parts[parts.len() - 2],
+                parts[parts.len() - 1]
+            )
+        } else {
+            last_two
+        }
+    };
+
+    // rebuild the normalized url with the lower-cased host.
+    let normalized = {
+        let mut out = parsed.clone();
+        // url::Url::set_host can fail for non-network schemes; ignore.
+        let _ = out.set_host(Some(&host));
+        out.to_string()
+    };
+
+    Some((normalized, label))
 }

@@ -105,6 +105,124 @@ pub async fn list_taxon_kinds() -> GrimoireResponse<Vec<TaxonKind>> {
     GrimoireResponse::success("taxon kinds retrieved", kinds)
 }
 
+/// look up an existing taxon kind by slug, or create one if missing.
+/// kinds created here are flagged `is_user_defined=1` so the ui can
+/// distinguish them from seeded kinds. defaults: `value_type =
+/// categorical`, `display_order = 500` (after seeded kinds).
+///
+/// used by enrichment paths that want to ingest arbitrary keys from
+/// upstream apis (e.g. audiodb artist fields like `members`,
+/// `gender`, `charted`) without requiring a migration per field.
+pub async fn find_or_create_taxon_kind(slug: &str, label: &str) -> GrimoireResponse<TaxonKind> {
+    let slug = slug.trim();
+    if slug.is_empty() {
+        return GrimoireResponse::failure("kind slug is required", vec![]);
+    }
+    let label_owned = if label.trim().is_empty() {
+        slug.to_string()
+    } else {
+        label.trim().to_string()
+    };
+
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "failed to connect to database",
+                vec![ErrorDetail::from(e)],
+            );
+        }
+    };
+
+    if let Ok(Some(row)) = sqlx::query!(
+        r#"SELECT
+              id              as "id!",
+              slug            as "slug!",
+              label           as "label!",
+              description,
+              color,
+              value_type      as "value_type!",
+              unit,
+              display_order   as "display_order!",
+              is_user_defined as "is_user_defined!: bool",
+              created_at      as "created_at!"
+           FROM taxon_kindz
+           WHERE slug = ? AND deleted_at IS NULL"#,
+        slug,
+    )
+    .fetch_optional(&pool)
+    .await
+    {
+        return GrimoireResponse::success(
+            "taxon kind found",
+            TaxonKind {
+                id: row.id,
+                slug: row.slug,
+                label: row.label,
+                description: row.description,
+                color: row.color,
+                value_type: row.value_type,
+                unit: row.unit,
+                display_order: row.display_order,
+                is_user_defined: row.is_user_defined,
+                created_at: row.created_at,
+            },
+        );
+    }
+
+    // not found: insert with conservative defaults. categorical is the
+    // safest default since we don't know the value shape upfront.
+    let value_type = ScalarValueType::Categorical.as_str().to_string();
+    let display_order: i64 = 500;
+    let row = match sqlx::query!(
+        r#"INSERT INTO taxon_kindz
+              (slug, label, value_type, display_order, is_user_defined)
+            VALUES (?, ?, ?, ?, 1)
+            RETURNING
+              id              as "id!",
+              slug            as "slug!",
+              label           as "label!",
+              description,
+              color,
+              value_type      as "value_type!",
+              unit,
+              display_order   as "display_order!",
+              is_user_defined as "is_user_defined!: bool",
+              created_at      as "created_at!""#,
+        slug,
+        label_owned,
+        value_type,
+        display_order,
+    )
+    .fetch_one(&pool)
+    .await
+    {
+        Ok(r) => r,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "failed to create taxon kind",
+                vec![ErrorDetail::from(e)],
+            );
+        }
+    };
+
+    GrimoireResponse::success(
+        "taxon kind created",
+        TaxonKind {
+            id: row.id,
+            slug: row.slug,
+            label: row.label,
+            description: row.description,
+            color: row.color,
+            value_type: row.value_type,
+            unit: row.unit,
+            display_order: row.display_order,
+            is_user_defined: row.is_user_defined,
+            created_at: row.created_at,
+        },
+    )
+}
+
 /// create a user-defined taxon kind.
 pub async fn create_taxon_kind(req: CreateTaxonKindRequest) -> GrimoireResponse<TaxonKind> {
     let slug = req.slug.trim().to_string();

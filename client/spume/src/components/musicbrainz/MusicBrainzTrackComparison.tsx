@@ -22,18 +22,25 @@ import { formatDuration } from "../../utils/formatDuration";
 import { error as errorLog } from "../../utils/logger";
 import { computeFuzzyMatches, detectMismatch } from "./fuzzyTrackMatch";
 
+/** the minimal song fields the comparison ui needs. accepts the full
+ *  `Song` interface as well (it's a structural superset). */
+export type ComparisonSong = Pick<
+  Song,
+  "id" | "title" | "disc_number" | "track_number" | "duration_seconds" | "track_artist"
+>;
+
 export interface TrackMatch {
   discNumber: number;
   trackNumber: number;
   mbTrack: MbTrack | null;
-  fhSong: Song | null;
+  fhSong: ComparisonSong | null;
 }
 
 export interface MusicBrainzTrackComparisonProps {
   /** the resolved mb release whose tracks we compare against. */
   release: MbReleaseDetail;
   /** local freqhole songs for the album we're reviewing. */
-  songs: Song[];
+  songs: ComparisonSong[];
   /** optional remote — when set, songs are updated against this
    *  specific remote (multi-remote views). when omitted, we fall back
    *  to `getDataSource()` (single-remote / album-editor flow). */
@@ -76,7 +83,7 @@ export function MusicBrainzTrackComparison(props: MusicBrainzTrackComparisonProp
 
   const positionMatches = createMemo((): TrackMatch[] => {
     const songs = props.songs;
-    const songsByKey = new Map<string, Song[]>();
+    const songsByKey = new Map<string, ComparisonSong[]>();
     for (const s of songs) {
       const key = `${s.disc_number || 1}:${s.track_number || 0}`;
       const arr = songsByKey.get(key) || [];

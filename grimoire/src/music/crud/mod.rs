@@ -59,6 +59,7 @@ pub use create_or_update::{
     find_or_create_genre,
     get_or_create_playlist_by_name,
     import_song_with_metadata as add_song, // renamed for cleaner API
+    parse_external_url,
     // duplicate report functions
     init_duplicate_report,
     write_duplicate_report,

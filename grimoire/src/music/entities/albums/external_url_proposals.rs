@@ -276,14 +276,19 @@ pub async fn propose_external_urls(
                 seen: &mut std::collections::HashSet<(String, String)>,
                 entity_type: &str,
                 entity_id: &str,
-                name: &str,
+                _name_hint: &str,
                 url: &str,
                 source: &str| {
-        let url_trim = url.trim();
-        if url_trim.is_empty() {
+        // proper url parsing: rejects junk like `https://`, `https://1`,
+        // bare numerics, hosts without a tld, etc. (audiodb in
+        // particular returns these). also derives a clean domain label
+        // (e.g. `apple.com`, `bandcamp.com`) for use as the link name —
+        // we no longer rely on mb relation_type strings or hardcoded
+        // "website"/"facebook" labels.
+        let Some((normalized, label)) = crate::music::crud::parse_external_url(url) else {
             return;
-        }
-        let url_lower = url_trim.to_lowercase();
+        };
+        let url_lower = normalized.to_lowercase();
         if existing_urls.contains(&(entity_type.to_string(), url_lower.clone())) {
             return;
         }
@@ -294,8 +299,8 @@ pub async fn propose_external_urls(
         proposals.push(ExternalUrlProposal {
             entity_type: entity_type.to_string(),
             entity_id: entity_id.to_string(),
-            name: name.to_string(),
-            url: url_trim.to_string(),
+            name: label,
+            url: normalized,
             source: source.to_string(),
         });
     };
@@ -375,7 +380,7 @@ pub async fn propose_external_urls(
                         "artist",
                         aid,
                         "website",
-                        &normalize_external_url(url),
+                        url,
                         "audiodb",
                     );
                 }
@@ -386,7 +391,7 @@ pub async fn propose_external_urls(
                         "artist",
                         aid,
                         "facebook",
-                        &normalize_external_url(url),
+                        url,
                         "audiodb",
                     );
                 }
@@ -397,7 +402,7 @@ pub async fn propose_external_urls(
                         "artist",
                         aid,
                         "twitter",
-                        &normalize_external_url(url),
+                        url,
                         "audiodb",
                     );
                 }
@@ -547,18 +552,4 @@ pub async fn apply_external_urls(
         "external urls applied",
         ApplyExternalUrlsResult { inserted, skipped },
     )
-}
-
-/// audiodb returns bare handles for facebook/twitter (e.g.
-/// `"facebook.com/foo"` or `"@bar"`). best-effort coerce them to
-/// fully-qualified urls so the stored row is clickable.
-fn normalize_external_url(raw: &str) -> String {
-    let s = raw.trim();
-    if s.starts_with("http://") || s.starts_with("https://") {
-        return s.to_string();
-    }
-    if let Some(handle) = s.strip_prefix('@') {
-        return format!("https://twitter.com/{}", handle);
-    }
-    format!("https://{}", s)
 }

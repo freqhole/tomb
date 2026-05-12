@@ -9,7 +9,7 @@
 // keep this presentational: parent owns the pending sets so they can
 // be applied alongside the bio + taxon writes in one save action.
 
-import { For, Show } from "solid-js";
+import { createMemo, For, Show } from "solid-js";
 
 /** matches `RelatedArtistProposalSchema` in codegen/schema.ts. */
 export interface RelatedArtistProposalLike {
@@ -38,6 +38,20 @@ export interface RelatedArtistsReviewPanelProps {
 }
 
 export function RelatedArtistsReviewPanel(props: RelatedArtistsReviewPanelProps) {
+  // sort: in-library matches first (by match_score desc), then the rest
+  // (also by match_score desc). preserves stable ordering within each
+  // bucket when scores are missing/equal.
+  const sortedProposals = createMemo(() => {
+    const score = (p: RelatedArtistProposalLike) =>
+      typeof p.match_score === "number" ? p.match_score : -1;
+    return [...props.proposals].sort((a, b) => {
+      const aIn = a.related_artist_id ? 1 : 0;
+      const bIn = b.related_artist_id ? 1 : 0;
+      if (aIn !== bIn) return bIn - aIn;
+      return score(b) - score(a);
+    });
+  });
+
   return (
     <div class="flex flex-col gap-2 p-2 rounded border border-[var(--color-border-subtle)]">
       <div class="flex items-center justify-between gap-2">
@@ -74,8 +88,8 @@ export function RelatedArtistsReviewPanel(props: RelatedArtistsReviewPanelProps)
         </div>
       </Show>
 
-      <ul class="flex flex-col gap-1">
-        <For each={props.proposals}>
+      <ul class="flex flex-col gap-1 max-h-72 overflow-y-auto pr-1">
+        <For each={sortedProposals()}>
           {(p) => (
             <RelatedRow
               proposal={p}
