@@ -273,7 +273,63 @@ pub async fn enqueue_mb_album_search(
     let mut job_ids: Vec<String> = Vec::with_capacity(req.album_ids.len());
     let mut skipped: Vec<String> = Vec::new();
 
+    // pre-load each album's metadata so we can detect already-confirmed
+    // matches and ALSO enqueue a detail-fetch alongside the search. without
+    // this, re-running enrich on previously-confirmed albums never
+    // re-fetches the detail (so newly-added detail-side fields like
+    // artist url-rels never land).
+    let pool = match crate::database::connect().await {
+        Ok(p) => Some(p),
+        Err(e) => {
+            tracing::warn!("enqueue_mb_album_search: db connect failed: {}", e);
+            None
+        }
+    };
+
     for album_id in &req.album_ids {
+        // best-effort: if the album already has a confirmed mbid, fire
+        // a detail job directly so the user's "enrich" click actually
+        // re-pulls fresh data even when no new search candidates exist.
+        if let Some(p) = pool.as_ref() {
+            let raw_outer: Option<Option<String>> = sqlx::query_scalar!(
+                r#"SELECT metadata FROM albumz WHERE id = ? AND deleted_at IS NULL"#,
+                album_id
+            )
+            .fetch_optional(p)
+            .await
+            .ok()
+            .flatten();
+            let raw: Option<String> = raw_outer.flatten();
+            if let Some(raw) = raw {
+                if let Ok(meta) = crate::music::entities::albums::metadata::parse(Some(&raw)) {
+                    if let Some(mb) = meta.musicbrainz.as_ref() {
+                        if let Some(rg_id) = mb.release_group_id.as_deref() {
+                            let detail_params = crate::jobs::MbAlbumDetailParams {
+                                album_id: album_id.clone(),
+                                release_group_id: rg_id.to_string(),
+                                release_id: mb.release_id.clone(),
+                            };
+                            if let Ok(parameters) = serde_json::to_value(&detail_params) {
+                                let detail_req = CreateJobRequest {
+                                    job_type: JobType::MbAlbumDetail,
+                                    session_id: None,
+                                    parameters,
+                                    max_retries: Some(2),
+                                    scheduled_at: None,
+                                    created_by: Some(caller.user_id.clone()),
+                                    priority: None,
+                                };
+                                let resp = create_job(detail_req).await;
+                                if let Some(j) = resp.data {
+                                    job_ids.push(j.id);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         let params = crate::jobs::MbAlbumSearchParams {
             album_id: album_id.clone(),
             artist_override: None,

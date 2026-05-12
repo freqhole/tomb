@@ -220,6 +220,31 @@ export function createMusicMethods(call: CallFn) {
       );
     },
 
+    // external-url proposals (phase 11.x)
+    proposeExternalUrls: (params: s.ProposeExternalUrlsRequest) => {
+      return call(
+        "music",
+        "propose_external_urls",
+        routes.music.propose_external_urls.resp,
+        routes.music.propose_external_urls.req,
+        routes.music.propose_external_urls.method,
+        routes.music.propose_external_urls.path,
+        params,
+      );
+    },
+
+    applyExternalUrls: (params: s.ApplyExternalUrlsRequest) => {
+      return call(
+        "music",
+        "apply_external_urls",
+        routes.music.apply_external_urls.resp,
+        routes.music.apply_external_urls.req,
+        routes.music.apply_external_urls.method,
+        routes.music.apply_external_urls.path,
+        params,
+      );
+    },
+
     // artist bio review (slice 4a)
     proposeArtistBios: (params: s.ProposeArtistBiosRequest) => {
       return call(

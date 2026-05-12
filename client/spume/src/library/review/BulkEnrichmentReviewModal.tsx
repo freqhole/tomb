@@ -45,7 +45,13 @@ import {
   RelatedArtistsReviewPanel,
   type RelatedArtistProposalLike,
 } from "./RelatedArtistsReviewPanel";
+import {
+  ExternalUrlsReviewPanel,
+  externalUrlKey,
+  type ExternalUrlProposalLike,
+} from "./ExternalUrlsReviewPanel";
 import { ImagePickGrid, type ImageCandidateLike } from "./ImagePickGrid";
+import { BulkRequeryPanel } from "./BulkRequeryPanel";
 
 const PROGRESS_POLL_INTERVAL_MS = 5000;
 
@@ -65,17 +71,83 @@ export function BulkEnrichmentReviewModal(props: BulkEnrichmentReviewModalProps)
   const hasPrev = createMemo(() => props.currentIndex > 0);
   const hasNext = createMemo(() => props.currentIndex < total() - 1);
 
-  // load the album for the header strip (title only, cheap).
-  const [album] = createResource(albumId, async (id) => {
+  // load the album for the header strip + the inline requery panel.
+  // we use `queryAlbums` (not `getAlbum`) so the same call gives us
+  // the joined artist row (id + name) — needed both for the editable
+  // artist field and for downstream `updateAlbum` calls when the user
+  // renames things.
+  //
+  // bumped to force a refetch of the album row (after we mutate via
+  // updateAlbum or after confirming a different mb match).
+  const [albumReloadKey, setAlbumReloadKey] = createSignal(0);
+  const albumKey = createMemo<[string | null, number] | null>(() => {
+    const id = albumId();
+    if (!id) return null;
+    return [id, albumReloadKey()];
+  });
+  const [album, { refetch: _refetchAlbum }] = createResource(albumKey, async (k) => {
+    if (!k) return null;
+    const [id] = k;
     if (!id) return null;
     try {
       const client = await getClientForRemote(props.remote);
-      const resp = await client.music.getAlbum({ id });
+      const resp = await client.music.queryAlbums({
+        q: null,
+        search_fields: null,
+        filters: { album_id: id },
+        sort_by: null,
+        sort_direction: null,
+        limit: 1,
+        offset: 0,
+        user_id: null,
+        favorites_only: null,
+        min_rating: null,
+      });
       if (!resp.success || !resp.data) return null;
-      return resp.data;
+      const item = resp.data.items[0];
+      if (!item) return null;
+      return {
+        album_id: item.album.id,
+        title: item.album.title,
+        artist_id: item.artist?.id ?? null,
+        artist_name: item.artist?.name ?? "",
+        metadata: item.album.metadata ?? null,
+      };
     } catch {
       return null;
     }
+  });
+
+  // editable artist + title — seeded from the album row, reset every
+  // time the visible album changes. these get sent on requery (as
+  // override_query) and persisted via `updateAlbum` on save if dirty.
+  //
+  // we key the seeding off of `albumId` (not the `album` resource)
+  // because `setAlbumReloadKey` after a requery / mb-confirm refetches
+  // the album row — if we seeded off the resource itself, every
+  // refetch would clobber whatever the user just typed.
+  const [editedArtist, setEditedArtist] = createSignal("");
+  const [editedTitle, setEditedTitle] = createSignal("");
+  const [seededForId, setSeededForId] = createSignal<string | null>(null);
+  createEffect(
+    on(albumId, (id) => {
+      // album id changed — clear edits + mark unseeded so the next
+      // album resolution can fill them in.
+      setEditedArtist("");
+      setEditedTitle("");
+      setSeededForId(null);
+      void id;
+    })
+  );
+  createEffect(() => {
+    if (album.loading) return;
+    const a = album();
+    const id = albumId();
+    if (!a || !id) return;
+    if (seededForId() === id) return;
+    setEditedArtist(a.artist_name ?? "");
+    setEditedTitle(a.title ?? "");
+    setSeededForId(id);
   });
 
   // proposals — refetched on album change AND when an enrichment source
@@ -147,10 +219,13 @@ export function BulkEnrichmentReviewModal(props: BulkEnrichmentReviewModalProps)
       const entry = resp.data.albums.find((a) => a.album_id === id);
       const sources = entry?.sources ?? [];
       setProgress(sources);
-      // when any source flipped state, refetch proposals to surface
-      // newly-arrived candidates without waiting for the next poll.
+      // when any source flipped state, refetch proposals + the album
+      // row to surface newly-arrived candidates (the mb candidates
+      // list lives inside `album.metadata`, so without bumping
+      // `albumReloadKey` the requery panel keeps showing stale data).
       if (lastTerminalSig(sources)) {
         setProposalReloadKey((k) => k + 1);
+        setAlbumReloadKey((k) => k + 1);
       }
     } catch {
       // soft-fail — header badges just stay stale.
@@ -172,11 +247,33 @@ export function BulkEnrichmentReviewModal(props: BulkEnrichmentReviewModalProps)
   // selection — keyed by `proposalKey()`. resets on album change so a
   // user can't leak picks from album N into album N+1.
   const [selected, setSelected] = createSignal<Set<string>>(new Set<string>());
+  const [taxonsAutoFor, setTaxonsAutoFor] = createSignal<string | null>(null);
   createEffect(
     on(albumId, () => {
       setSelected(new Set<string>());
+      setTaxonsAutoFor(null);
     })
   );
+  // default-select every not-already-linked taxon proposal on first
+  // arrival for a given album. user can toggle individual rows off.
+  // gate on `!proposals.loading` so we don't default using the
+  // previous album's stale data (which would mark the new album as
+  // "already auto'd" and skip the real default once data arrives).
+  createEffect(() => {
+    if (proposals.loading) return;
+    const list = proposals();
+    if (!list || list.length === 0) return;
+    const id = albumId();
+    if (!id) return;
+    if (taxonsAutoFor() === id) return;
+    const next = new Set<string>();
+    for (const p of list) {
+      if (p.already_linked) continue;
+      next.add(proposalKey(p));
+    }
+    setSelected(next);
+    setTaxonsAutoFor(id);
+  });
 
   // ---- artist bio (slice 4a) ----
   // server resolves album_id -> artist_id and returns the bio
@@ -313,20 +410,23 @@ export function BulkEnrichmentReviewModal(props: BulkEnrichmentReviewModalProps)
       setAutoAcceptedFor(null);
     })
   );
-  // default-accept all proposals on first load for a given album. user
-  // requested all-accept-by-default (in-library + external) since
-  // related artists are persisted as `pending` until applied; rejecting
-  // is a one-click opt-out, accepting all is the common case.
-  createEffect(
-    on(relatedResp, (r) => {
-      if (!r) return;
-      const id = albumId();
-      if (!id) return;
-      if (autoAcceptedFor() === id) return;
-      setAcceptRelatedIds(new Set<string>(r.proposals.map((p) => p.id)));
-      setAutoAcceptedFor(id);
-    })
-  );
+  // default-accept only the related-artist proposals that are already
+  // matched to a local artist (`related_artist_id` non-null). external
+  // / unmatched candidates start unchecked so the user explicitly
+  // opts in (linking a brand-new artist is a heavier decision).
+  createEffect(() => {
+    if (relatedResp.loading) return;
+    const r = relatedResp();
+    if (!r) return;
+    const id = albumId();
+    if (!id) return;
+    if (autoAcceptedFor() === id) return;
+    const inLibrary = r.proposals
+      .filter((p) => !!(p as { related_artist_id?: string | null }).related_artist_id)
+      .map((p) => p.id);
+    setAcceptRelatedIds(new Set<string>(inLibrary));
+    setAutoAcceptedFor(id);
+  });
 
   const toggleAcceptRelated = (id: string) => {
     setAcceptRelatedIds((prev) => {
@@ -369,6 +469,85 @@ export function BulkEnrichmentReviewModal(props: BulkEnrichmentReviewModalProps)
   };
   const relatedNeedsApply = (): boolean =>
     acceptRelatedIds().size > 0 || rejectRelatedIds().size > 0;
+
+  // ---- external urls (phase 11.x) ----
+  // surface external links harvested from already-stored snapshots
+  // (mb url-rels, last.fm pages, audiodb website/facebook/twitter).
+  // defaults to all-checked per user request: ingest is the common
+  // case, opt-out is one click. only proposes urls not already in
+  // entity_urlz so re-runs converge cleanly.
+  const [externalUrlsReloadKey, setExternalUrlsReloadKey] = createSignal(0);
+  const externalUrlsKey = createMemo<[string | null, number] | null>(() => {
+    const id = albumId();
+    if (!id) return null;
+    return [id, externalUrlsReloadKey()];
+  });
+  const [externalUrlsResp] = createResource(externalUrlsKey, async (k) => {
+    if (!k) return null;
+    const [id] = k;
+    if (!id) return null;
+    try {
+      const client = await getClientForRemote(props.remote);
+      const resp = await client.music.proposeExternalUrls({ album_id: id });
+      if (!resp.success || !resp.data) return null;
+      return resp.data as {
+        album_id: string;
+        artist_id?: string | null;
+        proposals: ExternalUrlProposalLike[];
+      };
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn("[BulkReview] externalUrlsResp threw", err);
+      return null;
+    }
+  });
+  createEffect(
+    on(proposalReloadKey, (k, prev) => {
+      if (prev !== undefined && k !== prev) setExternalUrlsReloadKey((x) => x + 1);
+    })
+  );
+
+  const [acceptExternalUrlKeys, setAcceptExternalUrlKeys] = createSignal<Set<string>>(
+    new Set<string>()
+  );
+  const [externalUrlsAutoFor, setExternalUrlsAutoFor] = createSignal<string | null>(null);
+  createEffect(
+    on(albumId, () => {
+      setAcceptExternalUrlKeys(new Set<string>());
+      setExternalUrlsAutoFor(null);
+    })
+  );
+  // default-check every proposal on first arrival for a given album.
+  // user can toggle individual rows off before save.
+  createEffect(() => {
+    if (externalUrlsResp.loading) return;
+    const r = externalUrlsResp();
+    if (!r) return;
+    const id = albumId();
+    if (!id) return;
+    if (externalUrlsAutoFor() === id) return;
+    setAcceptExternalUrlKeys(new Set<string>(r.proposals.map((p) => externalUrlKey(p))));
+    setExternalUrlsAutoFor(id);
+  });
+
+  const toggleExternalUrl = (p: ExternalUrlProposalLike) => {
+    const k = externalUrlKey(p);
+    setAcceptExternalUrlKeys((prev) => {
+      const next = new Set<string>(prev);
+      if (next.has(k)) next.delete(k);
+      else next.add(k);
+      return next;
+    });
+  };
+  const acceptAllExternalUrls = () => {
+    const r = externalUrlsResp();
+    if (!r) return;
+    setAcceptExternalUrlKeys(new Set<string>(r.proposals.map((p) => externalUrlKey(p))));
+  };
+  const clearExternalUrls = () => {
+    setAcceptExternalUrlKeys(new Set<string>());
+  };
+  const externalUrlsNeedsApply = (): boolean => acceptExternalUrlKeys().size > 0;
 
   // ---- album image candidates (slice 3) ----
   // surface remote image urls from stored audiodb / mb metadata so
@@ -552,6 +731,34 @@ export function BulkEnrichmentReviewModal(props: BulkEnrichmentReviewModalProps)
     setBusy(true);
     try {
       const client = await getClientForRemote(props.remote);
+      // persist any artist / title edits before doing anything else.
+      // both flow through `updateAlbum` — passing artist_name (with no
+      // artist_id) lets the server reuse-or-create the artist row.
+      const a = album();
+      if (a) {
+        const newArtist = editedArtist().trim();
+        const newTitle = editedTitle().trim();
+        const artistDirty = newArtist.length > 0 && newArtist !== (a.artist_name ?? "").trim();
+        const titleDirty = newTitle.length > 0 && newTitle !== (a.title ?? "").trim();
+        if (artistDirty || titleDirty) {
+          const upd = await client.music.updateAlbum({
+            album_id: id,
+            title: titleDirty ? newTitle : null,
+            artist_id: null,
+            artist_name: artistDirty ? newArtist : null,
+            album_type: null,
+            release_date: null,
+            label: null,
+            entity_urls: null,
+            updated_by: null,
+            merge_into_album_id: null,
+          });
+          if (!upd.success) {
+            toast.error(upd.error.message || "failed to save album/artist edits");
+            return;
+          }
+        }
+      }
       // apply bio first (cheap, no cascading effects on taxons).
       if (bioNeedsApply()) {
         const r = bioResp()!;
@@ -578,6 +785,27 @@ export function BulkEnrichmentReviewModal(props: BulkEnrichmentReviewModalProps)
           if (!relApply.success) {
             toast.error(relApply.error.message || "failed to apply related artists");
             return;
+          }
+        }
+      }
+      // apply external-url ingestions (mb url-rels, lf, audiodb).
+      if (externalUrlsNeedsApply()) {
+        const r = externalUrlsResp();
+        if (r) {
+          const accepted = r.proposals
+            .filter((p) => acceptExternalUrlKeys().has(externalUrlKey(p)))
+            .map((p) => ({
+              entity_type: p.entity_type,
+              entity_id: p.entity_id,
+              name: p.name,
+              url: p.url,
+            }));
+          if (accepted.length > 0) {
+            const urlApply = await client.music.applyExternalUrls({ accept: accepted });
+            if (!urlApply.success) {
+              toast.error(urlApply.error.message || "failed to apply external urls");
+              return;
+            }
           }
         }
       }
@@ -742,6 +970,7 @@ export function BulkEnrichmentReviewModal(props: BulkEnrichmentReviewModalProps)
       headerActions={
         <div class="flex items-center gap-3 text-xs">
           <ProgressBadges progress={progress()} />
+          <ProgressErrorList progress={progress()} />
           <button
             type="button"
             onClick={() => props.onPrev()}
@@ -850,6 +1079,27 @@ export function BulkEnrichmentReviewModal(props: BulkEnrichmentReviewModalProps)
             <div class="text-xs text-[var(--color-text-disabled)] italic">loading proposals…</div>
           }
         >
+          <Show when={album() && albumId()}>
+            <BulkRequeryPanel
+              albumId={albumId()!}
+              remote={props.remote}
+              metadataRaw={album()?.metadata ?? null}
+              initialArtist={album()?.artist_name ?? ""}
+              initialTitle={album()?.title ?? ""}
+              artist={editedArtist()}
+              title={editedTitle()}
+              onArtistChange={setEditedArtist}
+              onTitleChange={setEditedTitle}
+              onChanged={() => {
+                setProposalReloadKey((k) => k + 1);
+                setAlbumReloadKey((k) => k + 1);
+                // poll immediately so the user sees the new job's
+                // status (queued/running) without waiting for the
+                // 5s timer.
+                void pollProgress();
+              }}
+            />
+          </Show>
           <TaxonReviewPanel
             proposals={proposals() ?? []}
             selected={selected()}
@@ -879,6 +1129,15 @@ export function BulkEnrichmentReviewModal(props: BulkEnrichmentReviewModalProps)
             onClear={clearRelated}
           />
         </Show>
+        <Show when={externalUrlsResp() !== undefined}>
+          <ExternalUrlsReviewPanel
+            proposals={externalUrlsResp()?.proposals ?? []}
+            acceptKeys={acceptExternalUrlKeys()}
+            onToggle={toggleExternalUrl}
+            onAcceptAll={acceptAllExternalUrls}
+            onClear={clearExternalUrls}
+          />
+        </Show>
         <Show when={albumImagesResp() !== undefined}>
           <ImagePickGrid
             title="album images"
@@ -905,7 +1164,9 @@ export function BulkEnrichmentReviewModal(props: BulkEnrichmentReviewModalProps)
   );
 }
 
-function ProgressBadges(props: { progress: Array<{ source: string; status: string }> }) {
+function ProgressBadges(props: {
+  progress: Array<{ source: string; status: string; last_error?: string | null }>;
+}) {
   return (
     <div class="flex items-center gap-1.5">
       <For each={props.progress}>
@@ -913,23 +1174,59 @@ function ProgressBadges(props: { progress: Array<{ source: string; status: strin
           <span
             class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] uppercase tracking-wide"
             classList={{
-              "bg-[var(--color-success-500)]/15 text-[var(--color-success-500)]": isTerminalDone(
-                p.status
-              ),
+              "bg-[var(--color-error-500)]/15 text-[var(--color-error-500)]":
+                isFailed(p.status) || !!p.last_error,
+              "bg-[var(--color-success-500)]/15 text-[var(--color-success-500)]":
+                isTerminalDone(p.status) && !p.last_error,
               "bg-[var(--color-warning-500)]/15 text-[var(--color-warning-500)]": isInflight(
                 p.status
               ),
               "bg-[var(--color-bg-elevated)] text-[var(--color-text-disabled)]":
-                !isTerminalDone(p.status) && !isInflight(p.status),
+                !isTerminalDone(p.status) &&
+                !isInflight(p.status) &&
+                !isFailed(p.status) &&
+                !p.last_error,
             }}
-            title={`${p.source}: ${p.status}`}
+            title={
+              p.last_error
+                ? `${p.source}: ${p.status}\n${p.last_error}`
+                : `${p.source}: ${p.status}`
+            }
           >
             {sourceShort(p.source)}
-            <span class="opacity-70">{statusGlyph(p.status)}</span>
+            <span class="opacity-70">{statusGlyph(p.status, !!p.last_error)}</span>
           </span>
         )}
       </For>
     </div>
+  );
+}
+
+// inline expandable error list — surfaces backend failure messages so
+// the user can see *why* a source returned no candidates (e.g. mb api
+// rate-limit, network error, mismatched artist/title).
+function ProgressErrorList(props: {
+  progress: Array<{ source: string; status: string; last_error?: string | null }>;
+}) {
+  const errors = () => props.progress.filter((p) => p.last_error || isFailed(p.status));
+  return (
+    <Show when={errors().length > 0}>
+      <details class="text-[10px] text-[var(--color-error-500)] mt-0.5">
+        <summary class="cursor-pointer">
+          {errors().length} enrichment error{errors().length === 1 ? "" : "s"} — click to show
+        </summary>
+        <ul class="mt-1 pl-3 flex flex-col gap-0.5">
+          <For each={errors()}>
+            {(p) => (
+              <li>
+                <span class="font-medium">{sourceShort(p.source)}</span>: 
+                <span class="opacity-90 break-all">{p.last_error || p.status}</span>
+              </li>
+            )}
+          </For>
+        </ul>
+      </details>
+    </Show>
   );
 }
 
@@ -964,10 +1261,15 @@ function isInflight(status: string): boolean {
   );
 }
 
-function statusGlyph(status: string): string {
+function isFailed(status: string): boolean {
+  const s = status.toLowerCase();
+  return s === "failed" || s === "error" || s.includes("error");
+}
+
+function statusGlyph(status: string, hasError = false): string {
+  if (hasError || isFailed(status)) return "!";
   if (isTerminalDone(status)) return "✓";
   if (isInflight(status)) return "…";
-  if (status.toLowerCase().includes("error") || status.toLowerCase() === "failed") return "!";
   return "·";
 }
 

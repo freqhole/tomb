@@ -120,7 +120,7 @@ impl MusicBrainzClient {
     pub async fn get_release(&self, mbid: &str) -> GrimoireResponse<Release> {
         let url = format!("{}/release/{}", BASE_URL, mbid);
         let query_string =
-            "fmt=json&inc=artist-credits+recordings+media+release-groups+labels+genres+tags";
+            "fmt=json&inc=artist-credits+recordings+media+release-groups+labels+genres+tags+url-rels";
 
         debug!("Fetching release: {}", mbid);
 
@@ -134,13 +134,31 @@ impl MusicBrainzClient {
     /// (genres + tags) and artist credits.
     pub async fn get_release_group(&self, mbid: &str) -> GrimoireResponse<ReleaseGroup> {
         let url = format!("{}/release-group/{}", BASE_URL, mbid);
-        let query_string = "fmt=json&inc=artist-credits+genres+tags";
+        let query_string = "fmt=json&inc=artist-credits+genres+tags+url-rels";
 
         debug!("Fetching release-group: {}", mbid);
 
         match self.execute_request(&url, query_string).await {
             Ok(result) => GrimoireResponse::success("Successfully fetched release-group", result),
             Err(e) => GrimoireResponse::failure("Failed to fetch release-group", vec![e.into()]),
+        }
+    }
+
+    /// Get specific artist by MusicBrainz ID with url relations.
+    /// the artist endpoint is by far the richest source of external
+    /// links (bandcamp, allmusic, last.fm, songkick, streaming
+    /// services, discogs, wikidata, etc.) — the release/release-group
+    /// endpoints typically only carry a handful of release-specific
+    /// links (free streaming, review, wikidata).
+    pub async fn get_artist(&self, mbid: &str) -> GrimoireResponse<crate::music::musicbrainz::models::Artist> {
+        let url = format!("{}/artist/{}", BASE_URL, mbid);
+        let query_string = "fmt=json&inc=url-rels";
+
+        debug!("Fetching artist: {}", mbid);
+
+        match self.execute_request(&url, query_string).await {
+            Ok(result) => GrimoireResponse::success("Successfully fetched artist", result),
+            Err(e) => GrimoireResponse::failure("Failed to fetch artist", vec![e.into()]),
         }
     }
 

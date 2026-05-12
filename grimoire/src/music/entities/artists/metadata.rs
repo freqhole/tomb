@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use zod_gen_derive::ZodSchema;
 
 use crate::music::entities::albums::metadata::{
-    AudioDbArtistSnapshot, EnrichmentLogEntry, LastFmArtistSnapshot,
+    AudioDbArtistSnapshot, EnrichmentLogEntry, LastFmArtistSnapshot, MbUrl,
 };
 
 /// versioned blob persisted as json in `artistz.metadata`.
@@ -28,6 +28,9 @@ pub struct ArtistMetadata {
     pub version: Option<i32>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub musicbrainz: Option<ArtistMbMetadata>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub lastfm: Option<ArtistLastFmMetadata>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -36,6 +39,27 @@ pub struct ArtistMetadata {
     /// chronological log of enrichment attempts (success + failure).
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub log: Vec<EnrichmentLogEntry>,
+}
+
+/// musicbrainz-side artist metadata snapshot. currently just the
+/// external url relations harvested via `inc=url-rels` from the
+/// `/artist/{mbid}` endpoint, surfaced into the bulk review modal as
+/// `entity_urlz` proposals.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, ZodSchema, PartialEq)]
+#[serde(default)]
+pub struct ArtistMbMetadata {
+    /// confirmed musicbrainz artist id (uuid string).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub artist_id: Option<String>,
+    /// external url relations harvested from MB's artist endpoint.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub urls: Vec<MbUrl>,
+    /// unix timestamp when this data was fetched.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fetched_at: Option<i64>,
+    /// last error message when the call failed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, ZodSchema, PartialEq)]
@@ -86,6 +110,7 @@ impl ArtistMetadata {
 
     fn is_empty(&self) -> bool {
         self.version.is_none()
+            && self.musicbrainz.is_none()
             && self.lastfm.is_none()
             && self.audiodb.is_none()
             && self.log.is_empty()

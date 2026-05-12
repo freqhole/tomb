@@ -164,6 +164,21 @@ pub struct MbMetadata {
     /// siblings were folded into the result.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub tag_source_release_ids: Vec<String>,
+    /// external url relations harvested via `inc=url-rels` from the
+    /// release and release-group endpoints. unioned + deduped by url.
+    /// surfaces in the review modal as toggle-to-ingest into entity_urlz.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub urls: Vec<MbUrl>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, ZodSchema, PartialEq)]
+#[serde(default)]
+pub struct MbUrl {
+    /// musicbrainz relation type (e.g. "bandcamp", "discogs", "wikidata",
+    /// "free streaming", "streaming", "last.fm", "allmusic").
+    pub relation_type: String,
+    /// the resource url itself.
+    pub url: String,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, ZodSchema, PartialEq)]
@@ -395,6 +410,31 @@ pub struct AudioDbAlbumSnapshot {
     pub musicbrainz_release_group_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub musicbrainz_artist_id: Option<String>,
+    // ---- additional fields surfaced by the api-sample audit ----
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub review: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub discogs_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub itunes_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub amazon_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub allmusic_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub wikipedia_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub wikidata_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub location: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub album_back: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub album_3d_face: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub album_3d_flat: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub album_3d_thumb: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, ZodSchema, PartialEq)]
@@ -422,6 +462,45 @@ pub struct AudioDbArtistSnapshot {
     pub artist_fanart: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub musicbrainz_artist_id: Option<String>,
+    // ---- additional fields surfaced by the api-sample audit ----
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub website: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub facebook: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub twitter: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub born_year: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub died_year: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub disbanded: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub members: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gender: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub country_code: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub artist_logo: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub artist_cutout: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub artist_clearart: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub artist_wide_thumb: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub artist_fanart_2: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub artist_fanart_3: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub artist_fanart_4: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub artist_banner: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub charted: Option<String>,
 }
 
 // =============================================================================
@@ -583,6 +662,16 @@ pub fn patch_mb_folksonomy(folksonomy: &MbFolksonomy) -> JsonValue {
     json!({
         "folksonomy": {
             "musicbrainz": folksonomy,
+        }
+    })
+}
+
+/// convenience: build a json patch that records external url relations
+/// harvested from MB `inc=url-rels`. completely replaces the urls list.
+pub fn patch_mb_urls(urls: &[MbUrl]) -> JsonValue {
+    json!({
+        "musicbrainz": {
+            "urls": urls,
         }
     })
 }

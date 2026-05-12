@@ -21,8 +21,10 @@ use crate::jobs::{
     LastFmAlbumDetailParams, LastFmArtistDetailParams,
 };
 use crate::music::entities::albums as albums_repo;
-use crate::music::entities::albums::metadata::{self, FolksonomyTag, MbFolksonomy, MbLookupStatus};
-use crate::music::musicbrainz::models::{Genre, Tag};
+use crate::music::entities::albums::metadata::{
+    self, FolksonomyTag, MbFolksonomy, MbLookupStatus, MbUrl,
+};
+use crate::music::musicbrainz::models::{Genre, Relation, Tag};
 use crate::music::musicbrainz::MusicBrainzClient;
 use serde_json::Value;
 use tracing::{info, warn};
@@ -96,6 +98,10 @@ pub async fn process_mb_album_detail_job(job: &Job) -> Result<Option<Value>, Job
 
     let release_group_genres = map_genres(rg.genres.as_deref());
     let release_group_tags = map_tags(rg.tags.as_deref());
+
+    // collect external url relations from rg.
+    let mut mb_urls: Vec<MbUrl> = Vec::new();
+    push_url_relations(&mut mb_urls, rg.relations.as_deref());
 
     // collect official MB genre names from the release-group up front so we
     // can use them later when auto-filling album columns.
@@ -183,6 +189,8 @@ pub async fn process_mb_album_detail_job(job: &Job) -> Result<Option<Value>, Job
                     }
                 }
             }
+            // merge release-level url relations.
+            push_url_relations(&mut mb_urls, r.relations.as_deref());
             (r_genres, r_tags)
         } else {
             // release fetch failure is non-fatal; we still have release-group
@@ -281,6 +289,48 @@ pub async fn process_mb_album_detail_job(job: &Job) -> Result<Option<Value>, Job
     // an earlier walk-and-union from a previous detail pass.
     let sources_patch = metadata::patch_mb_tag_sources(&tag_source_release_ids);
     let _ = albums_repo::merge_album_metadata(&album_id, &sources_patch).await;
+
+    // step 5c: persist external url relations harvested from MB. always
+    // written (may be empty) so a re-run cleanly overwrites prior data.
+    info!(
+        "  mb url-rels ({}): {}",
+        mb_urls.len(),
+        format_url_summary(&mb_urls)
+    );
+    let urls_patch = metadata::patch_mb_urls(&mb_urls);
+    let _ = albums_repo::merge_album_metadata(&album_id, &urls_patch).await;
+
+    // step 5d: fetch MB artist endpoint with `inc=url-rels` to capture
+    // the rich set of artist-level external links (bandcamp, allmusic,
+    // last.fm, songkick, streaming services, discogs, wikidata, etc.).
+    // these are not present on the release/release-group endpoints, so
+    // without this step the bulk-review url proposals miss the bulk of
+    // an artist's external presence. best-effort: per-artist fetch
+    // failures are logged and don't fail the album-detail job.
+    let primary_artist_mbid = rg
+        .artist_credit
+        .as_deref()
+        .and_then(|credits| credits.first())
+        .and_then(|ac| ac.artist.as_ref())
+        .map(|a| a.id.to_string());
+    info!(
+        "  mb step 5d: artist_credit_count={} primary_artist_mbid={:?}",
+        rg.artist_credit.as_deref().map(|c| c.len()).unwrap_or(0),
+        primary_artist_mbid
+    );
+    if let Some(artist_mbid) = primary_artist_mbid.as_deref() {
+        if let Err(e) = fetch_and_persist_mb_artist_urls(&client, &album_id, artist_mbid).await {
+            warn!(
+                "mb artist url-rels fetch failed for album {} artist_mbid {}: {}",
+                album_id, artist_mbid, e
+            );
+        }
+    } else {
+        info!(
+            "  mb artist url-rels: skipped (no artist mbid in release-group artist_credit) for album {}",
+            album_id
+        );
+    }
 
     // step 5b: auto-apply year/label/genres to album columns where currently
     // empty. user-facing convention: never overwrite hand-edited values.
@@ -552,6 +602,141 @@ fn map_genres(src: Option<&[Genre]>) -> Vec<FolksonomyTag> {
             .collect()
     })
     .unwrap_or_default()
+}
+
+/// extend `out` with url relations from the given list, deduping by url
+/// (case-insensitive) against entries already present. relations without
+/// a url object (e.g. work/artist rels) are silently skipped.
+fn push_url_relations(out: &mut Vec<MbUrl>, src: Option<&[Relation]>) {
+    let Some(list) = src else { return };
+    for rel in list {
+        let Some(u) = rel.url.as_ref() else { continue };
+        let url = u.resource.trim();
+        if url.is_empty() {
+            continue;
+        }
+        if out
+            .iter()
+            .any(|existing| existing.url.eq_ignore_ascii_case(url))
+        {
+            continue;
+        }
+        out.push(MbUrl {
+            relation_type: rel.relation_type.clone(),
+            url: url.to_string(),
+        });
+    }
+}
+
+/// pretty-print a small inline summary of the harvested url relations
+/// (e.g. "bandcamp=1, discogs=1, wikidata=1") for log lines.
+fn format_url_summary(urls: &[MbUrl]) -> String {
+    if urls.is_empty() {
+        return "(none)".to_string();
+    }
+    let mut counts: std::collections::BTreeMap<&str, usize> = std::collections::BTreeMap::new();
+    for u in urls {
+        *counts.entry(u.relation_type.as_str()).or_insert(0) += 1;
+    }
+    counts
+        .into_iter()
+        .map(|(k, v)| format!("{}={}", k, v))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// fetch the MB artist endpoint with `inc=url-rels`, harvest external
+/// url relations, and merge a `musicbrainz` sub-tree into the local
+/// artist's metadata snapshot. resolves the local artist id by joining
+/// album_songz -> artist_songz (matches the lookup used by
+/// `propose_external_urls`). best-effort: any failure (no linked
+/// artist row, MB call failure, merge failure) is bubbled up as `Err`
+/// so the caller can log and continue without failing the album-detail
+/// job.
+async fn fetch_and_persist_mb_artist_urls(
+    client: &MusicBrainzClient,
+    album_id: &str,
+    artist_mbid: &str,
+) -> Result<(), String> {
+    use crate::database;
+
+    let pool = database::connect()
+        .await
+        .map_err(|e| format!("db connect: {}", e))?;
+
+    let local_artist_id: Option<String> = sqlx::query_scalar!(
+        r#"SELECT artist_songz.artist_id as "artist_id!"
+           FROM album_songz
+           JOIN artist_songz ON artist_songz.song_id = album_songz.song_id
+           WHERE album_songz.album_id = ?
+           LIMIT 1"#,
+        album_id
+    )
+    .fetch_optional(&pool)
+    .await
+    .map_err(|e| format!("resolve local artist id: {}", e))?;
+
+    let Some(local_artist_id) = local_artist_id else {
+        info!(
+            "  mb artist url-rels: no local artist linked to album {}; skipping",
+            album_id
+        );
+        return Ok(());
+    };
+
+    crate::jobs::rate_limit::acquire(crate::jobs::rate_limit::Source::Mb).await;
+    let resp = client.get_artist(artist_mbid).await;
+    if !resp.success {
+        // persist the error stamp so users can see the failure in the
+        // metadata blob.
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
+        let err_msg = resp.message.clone();
+        let patch = serde_json::json!({
+            "musicbrainz": {
+                "artist_id": artist_mbid,
+                "fetched_at": now,
+                "error": err_msg,
+            }
+        });
+        let _ =
+            crate::music::entities::artists::merge_artist_metadata(&local_artist_id, &patch).await;
+        return Err(format!("mb artist fetch failed: {}", resp.message));
+    }
+    let artist = resp
+        .data
+        .ok_or_else(|| "empty mb artist response".to_string())?;
+
+    let mut artist_urls: Vec<MbUrl> = Vec::new();
+    push_url_relations(&mut artist_urls, artist.relations.as_deref());
+
+    info!(
+        "  mb artist url-rels for {} ({} urls): {}",
+        artist_mbid,
+        artist_urls.len(),
+        format_url_summary(&artist_urls)
+    );
+
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    let patch = serde_json::json!({
+        "musicbrainz": {
+            "artist_id": artist_mbid,
+            "urls": artist_urls,
+            "fetched_at": now,
+            "error": serde_json::Value::Null,
+        }
+    });
+    let merge =
+        crate::music::entities::artists::merge_artist_metadata(&local_artist_id, &patch).await;
+    if !merge.success {
+        return Err(format!("merge artist metadata: {}", merge.message));
+    }
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------

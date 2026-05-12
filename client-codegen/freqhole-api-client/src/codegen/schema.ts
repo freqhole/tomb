@@ -9,6 +9,14 @@ export const AcceptKnockRequestSchema = z.object({
 });
 export type AcceptKnockRequest = z.infer<typeof AcceptKnockRequestSchema>;
 
+export const AcceptedExternalUrlSchema = z.object({
+  entity_type: z.string(),
+  entity_id: z.string(),
+  name: z.string().nullish(),
+  url: z.string()
+});
+export type AcceptedExternalUrl = z.infer<typeof AcceptedExternalUrlSchema>;
+
 export const AcceptedProposalSchema = z.object({
   kind_slug: z.string(),
   label: z.string(),
@@ -341,7 +349,11 @@ export const AlbumMetadataSchema = z.object({
   release: z.string(),
   tracks: z.number().nullish()
 }).nullish(),
-  tag_source_release_ids: z.array(z.string())
+  tag_source_release_ids: z.array(z.string()),
+  urls: z.array(z.object({
+  relation_type: z.string(),
+  url: z.string()
+}))
 }).nullish(),
   folksonomy: z.object({
   musicbrainz: z.object({
@@ -423,7 +435,19 @@ export const AlbumMetadataSchema = z.object({
   album_spine: z.string().nullish(),
   album_3d_case: z.string().nullish(),
   musicbrainz_release_group_id: z.string().nullish(),
-  musicbrainz_artist_id: z.string().nullish()
+  musicbrainz_artist_id: z.string().nullish(),
+  review: z.string().nullish(),
+  discogs_id: z.string().nullish(),
+  itunes_id: z.string().nullish(),
+  amazon_id: z.string().nullish(),
+  allmusic_id: z.string().nullish(),
+  wikipedia_id: z.string().nullish(),
+  wikidata_id: z.string().nullish(),
+  location: z.string().nullish(),
+  album_back: z.string().nullish(),
+  album_3d_face: z.string().nullish(),
+  album_3d_flat: z.string().nullish(),
+  album_3d_thumb: z.string().nullish()
 }).nullish(),
   artist: z.object({
   id_artist: z.string().nullish(),
@@ -436,7 +460,26 @@ export const AlbumMetadataSchema = z.object({
   formed_year: z.string().nullish(),
   artist_thumb: z.string().nullish(),
   artist_fanart: z.string().nullish(),
-  musicbrainz_artist_id: z.string().nullish()
+  musicbrainz_artist_id: z.string().nullish(),
+  label: z.string().nullish(),
+  website: z.string().nullish(),
+  facebook: z.string().nullish(),
+  twitter: z.string().nullish(),
+  born_year: z.string().nullish(),
+  died_year: z.string().nullish(),
+  disbanded: z.string().nullish(),
+  members: z.string().nullish(),
+  gender: z.string().nullish(),
+  country_code: z.string().nullish(),
+  artist_logo: z.string().nullish(),
+  artist_cutout: z.string().nullish(),
+  artist_clearart: z.string().nullish(),
+  artist_wide_thumb: z.string().nullish(),
+  artist_fanart_2: z.string().nullish(),
+  artist_fanart_3: z.string().nullish(),
+  artist_fanart_4: z.string().nullish(),
+  artist_banner: z.string().nullish(),
+  charted: z.string().nullish()
 }).nullish(),
   fetched_at: z.number().nullish(),
   error: z.string().nullish()
@@ -679,6 +722,22 @@ export const ApplyArtistBioResultSchema = z.object({
 });
 export type ApplyArtistBioResult = z.infer<typeof ApplyArtistBioResultSchema>;
 
+export const ApplyExternalUrlsRequestSchema = z.object({
+  accept: z.array(z.object({
+  entity_type: z.string(),
+  entity_id: z.string(),
+  name: z.string().nullish(),
+  url: z.string()
+}))
+});
+export type ApplyExternalUrlsRequest = z.infer<typeof ApplyExternalUrlsRequestSchema>;
+
+export const ApplyExternalUrlsResultSchema = z.object({
+  inserted: z.number(),
+  skipped: z.number()
+});
+export type ApplyExternalUrlsResult = z.infer<typeof ApplyExternalUrlsResultSchema>;
+
 export const ApplyRelatedArtistsRequestSchema = z.object({
   artist_id: z.string(),
   accept_ids: z.array(z.string()),
@@ -747,7 +806,26 @@ export const ArtistAudioDbMetadataSchema = z.object({
   formed_year: z.string().nullish(),
   artist_thumb: z.string().nullish(),
   artist_fanart: z.string().nullish(),
-  musicbrainz_artist_id: z.string().nullish()
+  musicbrainz_artist_id: z.string().nullish(),
+  label: z.string().nullish(),
+  website: z.string().nullish(),
+  facebook: z.string().nullish(),
+  twitter: z.string().nullish(),
+  born_year: z.string().nullish(),
+  died_year: z.string().nullish(),
+  disbanded: z.string().nullish(),
+  members: z.string().nullish(),
+  gender: z.string().nullish(),
+  country_code: z.string().nullish(),
+  artist_logo: z.string().nullish(),
+  artist_cutout: z.string().nullish(),
+  artist_clearart: z.string().nullish(),
+  artist_wide_thumb: z.string().nullish(),
+  artist_fanart_2: z.string().nullish(),
+  artist_fanart_3: z.string().nullish(),
+  artist_fanart_4: z.string().nullish(),
+  artist_banner: z.string().nullish(),
+  charted: z.string().nullish()
 }).nullish(),
   fetched_at: z.number().nullish(),
   error: z.string().nullish()
@@ -794,8 +872,28 @@ export const ArtistLastFmMetadataSchema = z.object({
 });
 export type ArtistLastFmMetadata = z.infer<typeof ArtistLastFmMetadataSchema>;
 
+export const ArtistMbMetadataSchema = z.object({
+  artist_id: z.string().nullish(),
+  urls: z.array(z.object({
+  relation_type: z.string(),
+  url: z.string()
+})),
+  fetched_at: z.number().nullish(),
+  error: z.string().nullish()
+});
+export type ArtistMbMetadata = z.infer<typeof ArtistMbMetadataSchema>;
+
 export const ArtistMetadataSchema = z.object({
   version: z.number().nullish(),
+  musicbrainz: z.object({
+  artist_id: z.string().nullish(),
+  urls: z.array(z.object({
+  relation_type: z.string(),
+  url: z.string()
+})),
+  fetched_at: z.number().nullish(),
+  error: z.string().nullish()
+}).nullish(),
   lastfm: z.object({
   artist: z.object({
   name: z.string(),
@@ -829,7 +927,26 @@ export const ArtistMetadataSchema = z.object({
   formed_year: z.string().nullish(),
   artist_thumb: z.string().nullish(),
   artist_fanart: z.string().nullish(),
-  musicbrainz_artist_id: z.string().nullish()
+  musicbrainz_artist_id: z.string().nullish(),
+  label: z.string().nullish(),
+  website: z.string().nullish(),
+  facebook: z.string().nullish(),
+  twitter: z.string().nullish(),
+  born_year: z.string().nullish(),
+  died_year: z.string().nullish(),
+  disbanded: z.string().nullish(),
+  members: z.string().nullish(),
+  gender: z.string().nullish(),
+  country_code: z.string().nullish(),
+  artist_logo: z.string().nullish(),
+  artist_cutout: z.string().nullish(),
+  artist_clearart: z.string().nullish(),
+  artist_wide_thumb: z.string().nullish(),
+  artist_fanart_2: z.string().nullish(),
+  artist_fanart_3: z.string().nullish(),
+  artist_fanart_4: z.string().nullish(),
+  artist_banner: z.string().nullish(),
+  charted: z.string().nullish()
 }).nullish(),
   fetched_at: z.number().nullish(),
   error: z.string().nullish()
@@ -1297,6 +1414,15 @@ export const ExternalUrlSchema = z.object({
   url: z.string()
 });
 export type ExternalUrl = z.infer<typeof ExternalUrlSchema>;
+
+export const ExternalUrlProposalSchema = z.object({
+  entity_type: z.string(),
+  entity_id: z.string(),
+  name: z.string(),
+  url: z.string(),
+  source: z.string()
+});
+export type ExternalUrlProposal = z.infer<typeof ExternalUrlProposalSchema>;
 
 export const FavoriteAlbumResultSchema = z.object({
   favorited_at: z.number(),
@@ -3034,7 +3160,11 @@ export const MbMetadataSchema = z.object({
   release: z.string(),
   tracks: z.number().nullish()
 }).nullish(),
-  tag_source_release_ids: z.array(z.string())
+  tag_source_release_ids: z.array(z.string()),
+  urls: z.array(z.object({
+  relation_type: z.string(),
+  url: z.string()
+}))
 });
 export type MbMetadata = z.infer<typeof MbMetadataSchema>;
 
@@ -3145,6 +3275,12 @@ export const MbTrackDetailSchema = z.object({
 }))
 });
 export type MbTrackDetail = z.infer<typeof MbTrackDetailSchema>;
+
+export const MbUrlSchema = z.object({
+  relation_type: z.string(),
+  url: z.string()
+});
+export type MbUrl = z.infer<typeof MbUrlSchema>;
 
 export const MediaBlobSchema = z.object({
   id: z.string(),
@@ -3695,6 +3831,24 @@ export const ProposeArtistBiosResponseSchema = z.object({
 }))
 });
 export type ProposeArtistBiosResponse = z.infer<typeof ProposeArtistBiosResponseSchema>;
+
+export const ProposeExternalUrlsRequestSchema = z.object({
+  album_id: z.string()
+});
+export type ProposeExternalUrlsRequest = z.infer<typeof ProposeExternalUrlsRequestSchema>;
+
+export const ProposeExternalUrlsResponseSchema = z.object({
+  album_id: z.string(),
+  artist_id: z.string().nullish(),
+  proposals: z.array(z.object({
+  entity_type: z.string(),
+  entity_id: z.string(),
+  name: z.string(),
+  url: z.string(),
+  source: z.string()
+}))
+});
+export type ProposeExternalUrlsResponse = z.infer<typeof ProposeExternalUrlsResponseSchema>;
 
 export const ProposeRelatedArtistsRequestSchema = z.object({
   artist_id: z.string().nullish(),
@@ -5204,6 +5358,15 @@ export const UpdateArtistMetadataRequestSchema = z.object({
   bio: z.string().nullish(),
   metadata_patch: z.object({
   version: z.number().nullish(),
+  musicbrainz: z.object({
+  artist_id: z.string().nullish(),
+  urls: z.array(z.object({
+  relation_type: z.string(),
+  url: z.string()
+})),
+  fetched_at: z.number().nullish(),
+  error: z.string().nullish()
+}).nullish(),
   lastfm: z.object({
   artist: z.object({
   name: z.string(),
@@ -5237,7 +5400,26 @@ export const UpdateArtistMetadataRequestSchema = z.object({
   formed_year: z.string().nullish(),
   artist_thumb: z.string().nullish(),
   artist_fanart: z.string().nullish(),
-  musicbrainz_artist_id: z.string().nullish()
+  musicbrainz_artist_id: z.string().nullish(),
+  label: z.string().nullish(),
+  website: z.string().nullish(),
+  facebook: z.string().nullish(),
+  twitter: z.string().nullish(),
+  born_year: z.string().nullish(),
+  died_year: z.string().nullish(),
+  disbanded: z.string().nullish(),
+  members: z.string().nullish(),
+  gender: z.string().nullish(),
+  country_code: z.string().nullish(),
+  artist_logo: z.string().nullish(),
+  artist_cutout: z.string().nullish(),
+  artist_clearart: z.string().nullish(),
+  artist_wide_thumb: z.string().nullish(),
+  artist_fanart_2: z.string().nullish(),
+  artist_fanart_3: z.string().nullish(),
+  artist_fanart_4: z.string().nullish(),
+  artist_banner: z.string().nullish(),
+  charted: z.string().nullish()
 }).nullish(),
   fetched_at: z.number().nullish(),
   error: z.string().nullish()

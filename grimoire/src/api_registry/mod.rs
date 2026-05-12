@@ -148,10 +148,14 @@ pub mod type_registry {
     };
 
     // upload types
+    use crate::music::entities::albums::external_url_proposals::{
+        AcceptedExternalUrl, ApplyExternalUrlsRequest, ApplyExternalUrlsResult,
+        ExternalUrlProposal, ProposeExternalUrlsRequest, ProposeExternalUrlsResponse,
+    };
     use crate::music::entities::albums::metadata::{
         AlbumMetadata, AutoConfirmMbMatchesRequest, AutoConfirmMbMatchesResult, AutoConfirmSkip,
         ConfirmMbMatchRequest, EnrichmentLogEntry, FolksonomyMetadata, FolksonomyTag, MbCandidate,
-        MbFolksonomy, MbLastQuery, MbLookupStatus, MbMatchActionResponse, MbMetadata,
+        MbFolksonomy, MbLastQuery, MbLookupStatus, MbMatchActionResponse, MbMetadata, MbUrl,
         RejectMbMatchRequest,
     };
     use crate::music::entities::albums::taxon_proposals::{
@@ -164,10 +168,10 @@ pub mod type_registry {
     use crate::music::entities::artists::{
         ApplyArtistBioRequest, ApplyArtistBioResult, ApplyRelatedArtistsRequest,
         ApplyRelatedArtistsResult, Artist, ArtistAudioDbMetadata, ArtistLastFmMetadata,
-        ArtistMetadata, BioProposal, BioSource, CreateArtistRequest, ProposeArtistBiosRequest,
-        ProposeArtistBiosResponse, ProposeRelatedArtistsRequest, ProposeRelatedArtistsResponse,
-        RelatedArtistProposal, UpdateArtistMetadataRequest, UpdateArtistMetadataResponse,
-        UpdateArtistRequest,
+        ArtistMbMetadata, ArtistMetadata, BioProposal, BioSource, CreateArtistRequest,
+        ProposeArtistBiosRequest, ProposeArtistBiosResponse, ProposeRelatedArtistsRequest,
+        ProposeRelatedArtistsResponse, RelatedArtistProposal, UpdateArtistMetadataRequest,
+        UpdateArtistMetadataResponse, UpdateArtistRequest,
     };
     use crate::music::entities::playlists::{
         AddSongsToPlaylistRequest, CreatePlaylistRequest, DeletePlaylistRequest,
@@ -664,6 +668,8 @@ pub mod type_registry {
         registered.insert("ArtistLastFmMetadata".to_string());
         gen.add_schema::<ArtistAudioDbMetadata>("ArtistAudioDbMetadata");
         registered.insert("ArtistAudioDbMetadata".to_string());
+        gen.add_schema::<ArtistMbMetadata>("ArtistMbMetadata");
+        registered.insert("ArtistMbMetadata".to_string());
         gen.add_schema::<ArtistMetadata>("ArtistMetadata");
         registered.insert("ArtistMetadata".to_string());
 
@@ -857,6 +863,22 @@ pub mod type_registry {
         registered.insert("ApplyRelatedArtistsRequest".to_string());
         gen.add_schema::<ApplyRelatedArtistsResult>("ApplyRelatedArtistsResult");
         registered.insert("ApplyRelatedArtistsResult".to_string());
+
+        // ---- external-url proposals (phase 11.x) ----
+        gen.add_schema::<MbUrl>("MbUrl");
+        registered.insert("MbUrl".to_string());
+        gen.add_schema::<ExternalUrlProposal>("ExternalUrlProposal");
+        registered.insert("ExternalUrlProposal".to_string());
+        gen.add_schema::<ProposeExternalUrlsRequest>("ProposeExternalUrlsRequest");
+        registered.insert("ProposeExternalUrlsRequest".to_string());
+        gen.add_schema::<ProposeExternalUrlsResponse>("ProposeExternalUrlsResponse");
+        registered.insert("ProposeExternalUrlsResponse".to_string());
+        gen.add_schema::<AcceptedExternalUrl>("AcceptedExternalUrl");
+        registered.insert("AcceptedExternalUrl".to_string());
+        gen.add_schema::<ApplyExternalUrlsRequest>("ApplyExternalUrlsRequest");
+        registered.insert("ApplyExternalUrlsRequest".to_string());
+        gen.add_schema::<ApplyExternalUrlsResult>("ApplyExternalUrlsResult");
+        registered.insert("ApplyExternalUrlsResult".to_string());
 
         gen.add_schema::<GenreRef>("GenreRef");
         registered.insert("GenreRef".to_string());

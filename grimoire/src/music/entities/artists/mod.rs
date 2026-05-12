@@ -13,7 +13,7 @@ pub use bio_proposals::{
     apply_artist_bio, propose_artist_bios, ApplyArtistBioRequest, ApplyArtistBioResult,
     BioProposal, BioSource, ProposeArtistBiosRequest, ProposeArtistBiosResponse,
 };
-pub use metadata::{ArtistAudioDbMetadata, ArtistLastFmMetadata, ArtistMetadata};
+pub use metadata::{ArtistAudioDbMetadata, ArtistLastFmMetadata, ArtistMbMetadata, ArtistMetadata};
 pub use models::{
     Artist, CreateArtistRequest, UpdateArtistMetadataRequest, UpdateArtistMetadataResponse,
     UpdateArtistRequest,

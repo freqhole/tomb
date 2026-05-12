@@ -8,6 +8,11 @@ use crate::media_blobz::{
 };
 use crate::music::crud::{query_albums, DeleteAlbumRequest, GetAlbumRequest, QueryParams};
 use crate::music::entities::albums::add_album_image;
+use crate::music::entities::albums::external_url_proposals::{
+    apply_external_urls as grimoire_apply_external_urls,
+    propose_external_urls as grimoire_propose_external_urls, ApplyExternalUrlsRequest,
+    ProposeExternalUrlsRequest,
+};
 use crate::music::entities::albums::metadata::{
     AutoConfirmMbMatchesRequest, ConfirmMbMatchRequest, MbMatchActionResponse, RejectMbMatchRequest,
 };
@@ -134,6 +139,24 @@ pub const ROUTES: &[RouteInfo] = &[
         domain: Domain::Music,
         request_type: "SetAlbumReviewStatusRequest",
         response_type: "EmptyResponse",
+        auth: RouteAuth::Role(UserRole::Admin),
+    },
+    RouteInfo {
+        name: "propose_external_urls",
+        path: "/api/albums/propose-external-urls",
+        method: Method::POST,
+        domain: Domain::Music,
+        request_type: "ProposeExternalUrlsRequest",
+        response_type: "ProposeExternalUrlsResponse",
+        auth: RouteAuth::Role(UserRole::Admin),
+    },
+    RouteInfo {
+        name: "apply_external_urls",
+        path: "/api/albums/apply-external-urls",
+        method: Method::POST,
+        domain: Domain::Music,
+        request_type: "ApplyExternalUrlsRequest",
+        response_type: "ApplyExternalUrlsResult",
         auth: RouteAuth::Role(UserRole::Admin),
     },
     RouteInfo {
@@ -1057,4 +1080,67 @@ pub async fn image_candidates_for_album(
         "album image candidates",
         serde_json::to_value(resp).unwrap(),
     )
+}
+
+/// surface external-url proposals for an album + its primary artist
+/// from already-stored metadata snapshots (phase 11.x).
+///
+/// path: POST /api/albums/propose-external-urls
+pub async fn propose_external_urls(
+    caller: &Caller,
+    body: JsonValue,
+) -> GrimoireResponse<JsonValue> {
+    if !caller.is_admin() {
+        return GrimoireResponse::failure(
+            "forbidden",
+            vec![ErrorDetail::new("forbidden", "forbidden", "admin only")],
+        );
+    }
+    let req: ProposeExternalUrlsRequest = match serde_json::from_value(body) {
+        Ok(r) => r,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "bad request",
+                vec![ErrorDetail::new(
+                    "bad_request",
+                    "bad request",
+                    &e.to_string(),
+                )],
+            )
+        }
+    };
+    let response = grimoire_propose_external_urls(req).await;
+    response.map(|data| serde_json::to_value(data).unwrap())
+}
+
+/// insert accepted external-url proposals into `entity_urlz`
+/// (phase 11.x).
+///
+/// path: POST /api/albums/apply-external-urls
+pub async fn apply_external_urls(
+    caller: &Caller,
+    body: JsonValue,
+) -> GrimoireResponse<JsonValue> {
+    if !caller.is_admin() {
+        return GrimoireResponse::failure(
+            "forbidden",
+            vec![ErrorDetail::new("forbidden", "forbidden", "admin only")],
+        );
+    }
+    let req: ApplyExternalUrlsRequest = match serde_json::from_value(body) {
+        Ok(r) => r,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "bad request",
+                vec![ErrorDetail::new(
+                    "bad_request",
+                    "bad request",
+                    &e.to_string(),
+                )],
+            )
+        }
+    };
+    let created_by = Some(caller.user_id.as_str());
+    let response = grimoire_apply_external_urls(req, created_by).await;
+    response.map(|data| serde_json::to_value(data).unwrap())
 }

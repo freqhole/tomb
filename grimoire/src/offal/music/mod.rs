@@ -93,6 +93,12 @@ pub async fn dispatch(
         "/api/albums/set-review-status" => {
             Some(albums::set_album_review_status(caller, body.clone()).await)
         }
+        "/api/albums/propose-external-urls" => {
+            Some(albums::propose_external_urls(caller, body.clone()).await)
+        }
+        "/api/albums/apply-external-urls" => {
+            Some(albums::apply_external_urls(caller, body.clone()).await)
+        }
 
         // artists
         "/api/artists/query" => Some(artists::query(caller, body.clone()).await),

@@ -249,6 +249,7 @@ pub async fn process_mb_album_search_job(job: &Job) -> Result<Option<Value>, Job
         .count();
 
     let mut auto_confirmed_release_id: Option<String> = None;
+    let mut auto_confirmed_release_group_id: Option<String> = None;
     let final_status = if sorted.is_empty() {
         MbLookupStatus::NoMatch
     } else if let (Some(threshold), Some(top)) = (params.auto_confirm_threshold, sorted.first()) {
@@ -264,6 +265,7 @@ pub async fn process_mb_album_search_job(job: &Job) -> Result<Option<Value>, Job
             );
             let _ = albums_repo::merge_album_metadata(&album_id, &confirm_patch).await;
             auto_confirmed_release_id = top.release_id.clone();
+            auto_confirmed_release_group_id = Some(top.release_group_id.clone());
             MbLookupStatus::Confirmed
         } else if strong_count > 1 {
             MbLookupStatus::NeedsReview
@@ -279,6 +281,43 @@ pub async fn process_mb_album_search_job(job: &Job) -> Result<Option<Value>, Job
     let _ =
         albums_repo::update_mb_lookup_status(&album_id, final_status, job.created_by.as_deref())
             .await;
+
+    // chain to detail when we auto-confirmed a top match. without this,
+    // re-running enrich on previously-confirmed albums never re-fetches
+    // detail (so newly-added detail-side fields like artist url-rels
+    // never land). mirrors what `confirm_mb_match` does for the manual
+    // single-album review path.
+    if let Some(rg_id) = auto_confirmed_release_group_id.as_deref() {
+        let detail_params = crate::jobs::MbAlbumDetailParams {
+            album_id: album_id.clone(),
+            release_group_id: rg_id.to_string(),
+            release_id: auto_confirmed_release_id.clone(),
+        };
+        if let Ok(parameters) = serde_json::to_value(&detail_params) {
+            let req = crate::jobs::CreateJobRequest {
+                job_type: crate::jobs::JobType::MbAlbumDetail,
+                session_id: job.session_id.clone(),
+                parameters,
+                max_retries: Some(2),
+                scheduled_at: None,
+                created_by: job.created_by.clone(),
+                priority: None,
+            };
+            let chain_resp = crate::jobs::create_job(req).await;
+            if chain_resp.data.is_some() {
+                info!(
+                    "mb album-search: auto-chained detail job for album {}",
+                    album_id
+                );
+            } else {
+                tracing::warn!(
+                    "mb album-search: failed to chain detail for album {}: {}",
+                    album_id,
+                    chain_resp.message
+                );
+            }
+        }
+    }
 
     info!(
         "mb album-search done album={} status={} candidates={} top_local_confidence={:?} mb_score_top={:?} auto_confirmed={:?}",

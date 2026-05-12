@@ -27,7 +27,9 @@ export interface RelatedArtistsReviewPanelProps {
   proposals: RelatedArtistProposalLike[];
   /** ids the user has accepted. */
   acceptIds: Set<string>;
-  /** ids the user has rejected. */
+  /** ids the user has rejected. only kept on the type so parent
+   *  callers don't need to change; the row ui no longer surfaces a
+   *  reject control (whole row toggles accept). */
   rejectIds: Set<string>;
   onToggleAccept: (id: string) => void;
   onToggleReject: (id: string) => void;
@@ -78,9 +80,7 @@ export function RelatedArtistsReviewPanel(props: RelatedArtistsReviewPanelProps)
             <RelatedRow
               proposal={p}
               accepted={props.acceptIds.has(p.id)}
-              rejected={props.rejectIds.has(p.id)}
               onToggleAccept={() => props.onToggleAccept(p.id)}
-              onToggleReject={() => props.onToggleReject(p.id)}
             />
           )}
         </For>
@@ -92,33 +92,35 @@ export function RelatedArtistsReviewPanel(props: RelatedArtistsReviewPanelProps)
 function RelatedRow(props: {
   proposal: RelatedArtistProposalLike;
   accepted: boolean;
-  rejected: boolean;
   onToggleAccept: () => void;
-  onToggleReject: () => void;
 }) {
   const inLibrary = () => Boolean(props.proposal.related_artist_id);
   return (
     <li
-      class="flex items-center gap-2 px-2 py-1 rounded text-xs border transition-colors"
+      role="checkbox"
+      aria-checked={props.accepted}
+      tabindex="0"
+      onClick={() => props.onToggleAccept()}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          props.onToggleAccept();
+        }
+      }}
+      class="flex items-center gap-2 px-2 py-1 rounded text-xs border transition-colors cursor-pointer hover:bg-[var(--color-bg-hover)]"
       classList={{
         "bg-[var(--color-accent-500)]/10 border-[var(--color-accent-500)]/30": props.accepted,
-        "bg-[var(--color-error-500)]/10 border-[var(--color-error-500)]/30 opacity-60":
-          props.rejected,
-        "bg-[var(--color-bg-elevated)] border-[var(--color-border-subtle)]":
-          !props.accepted && !props.rejected,
+        "bg-[var(--color-bg-elevated)] border-[var(--color-border-subtle)]": !props.accepted,
       }}
+      title={props.accepted ? "click to unaccept" : "click to accept"}
     >
-      <button
-        type="button"
-        role="checkbox"
-        aria-checked={props.accepted}
-        onClick={() => props.onToggleAccept()}
-        class="inline-flex items-center justify-center w-4 h-4 rounded-sm border cursor-pointer"
+      <span
+        class="inline-flex items-center justify-center w-4 h-4 rounded-sm border shrink-0"
         classList={{
           "bg-[var(--color-accent-500)] border-[var(--color-accent-500)]": props.accepted,
           "border-[var(--color-border-default)]": !props.accepted,
         }}
-        title={props.accepted ? "unaccept" : "accept this related artist"}
+        aria-hidden="true"
       />
       <span class="flex-1 truncate">
         {props.proposal.related_name}
@@ -132,19 +134,6 @@ function RelatedRow(props: {
           {(props.proposal.match_score! * 100).toFixed(0)}%
         </span>
       </Show>
-      <button
-        type="button"
-        onClick={() => props.onToggleReject()}
-        class="px-1.5 py-0.5 rounded border text-[10px] cursor-pointer"
-        classList={{
-          "bg-[var(--color-error-500)]/20 border-[var(--color-error-500)]/40 text-[var(--color-error-500)]":
-            props.rejected,
-          "border-[var(--color-border-subtle)] hover:bg-[var(--color-bg-hover)]": !props.rejected,
-        }}
-        title={props.rejected ? "undo reject" : "reject (soft-delete)"}
-      >
-        reject
-      </button>
     </li>
   );
 }

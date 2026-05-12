@@ -1,6 +1,7 @@
 //! albums module
 //! handles album domain logic
 
+pub mod external_url_proposals;
 pub mod metadata;
 mod models;
 mod repository;
@@ -8,6 +9,11 @@ pub mod taxon_proposals;
 mod update;
 
 // re-export public types
+pub use external_url_proposals::{
+    apply_external_urls, propose_external_urls, AcceptedExternalUrl, ApplyExternalUrlsRequest,
+    ApplyExternalUrlsResult, ExternalUrlProposal, ProposeExternalUrlsRequest,
+    ProposeExternalUrlsResponse,
+};
 pub use models::{
     Album, CreateAlbumRequest, GenreRef, SetAlbumReviewStatusRequest, UpdateAlbumRequest,
 };
