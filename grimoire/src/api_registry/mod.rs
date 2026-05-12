@@ -161,7 +161,7 @@ pub mod type_registry {
     use crate::music::entities::albums::{Album, GenreRef, UpdateAlbumRequest};
     use crate::music::entities::artists::{
         Artist, ArtistAudioDbMetadata, ArtistLastFmMetadata, ArtistMetadata, CreateArtistRequest,
-        UpdateArtistRequest,
+        UpdateArtistMetadataRequest, UpdateArtistMetadataResponse, UpdateArtistRequest,
     };
     use crate::music::entities::playlists::{
         AddSongsToPlaylistRequest, CreatePlaylistRequest, DeletePlaylistRequest,
@@ -411,6 +411,12 @@ pub mod type_registry {
 
         gen.add_schema::<UpdateArtistRequest>("UpdateArtistRequest");
         registered.insert("UpdateArtistRequest".to_string());
+
+        gen.add_schema::<UpdateArtistMetadataRequest>("UpdateArtistMetadataRequest");
+        registered.insert("UpdateArtistMetadataRequest".to_string());
+
+        gen.add_schema::<UpdateArtistMetadataResponse>("UpdateArtistMetadataResponse");
+        registered.insert("UpdateArtistMetadataResponse".to_string());
 
         gen.add_schema::<UpdateAlbumRequest>("UpdateAlbumRequest");
         registered.insert("UpdateAlbumRequest".to_string());
@@ -675,6 +681,56 @@ pub mod type_registry {
             "EnqueueAudioDbAlbumDetailResponse",
         );
         registered.insert("EnqueueAudioDbAlbumDetailResponse".to_string());
+
+        // album enrichment pipeline + bulk orchestration (phase 14.4)
+        gen.add_schema::<crate::jobs::EnrichmentSource>("EnrichmentSource");
+        registered.insert("EnrichmentSource".to_string());
+        gen.add_schema::<crate::jobs::AlbumEnrichmentPipelineParams>(
+            "AlbumEnrichmentPipelineParams",
+        );
+        registered.insert("AlbumEnrichmentPipelineParams".to_string());
+        gen.add_schema::<crate::jobs::AlbumEnrichmentPipelineResult>(
+            "AlbumEnrichmentPipelineResult",
+        );
+        registered.insert("AlbumEnrichmentPipelineResult".to_string());
+        gen.add_schema::<crate::jobs::BulkEnrichmentRequest>("BulkEnrichmentRequest");
+        registered.insert("BulkEnrichmentRequest".to_string());
+        gen.add_schema::<crate::jobs::BulkEnrichmentResponse>("BulkEnrichmentResponse");
+        registered.insert("BulkEnrichmentResponse".to_string());
+        gen.add_schema::<crate::jobs::CancelBulkEnrichmentRequest>("CancelBulkEnrichmentRequest");
+        registered.insert("CancelBulkEnrichmentRequest".to_string());
+        gen.add_schema::<crate::jobs::CancelBulkEnrichmentResponse>("CancelBulkEnrichmentResponse");
+        registered.insert("CancelBulkEnrichmentResponse".to_string());
+        gen.add_schema::<crate::jobs::GetEnrichmentProgressRequest>("GetEnrichmentProgressRequest");
+        registered.insert("GetEnrichmentProgressRequest".to_string());
+        gen.add_schema::<crate::jobs::GetEnrichmentProgressResponse>(
+            "GetEnrichmentProgressResponse",
+        );
+        registered.insert("GetEnrichmentProgressResponse".to_string());
+        gen.add_schema::<crate::jobs::EnrichmentSourceStatus>("EnrichmentSourceStatus");
+        registered.insert("EnrichmentSourceStatus".to_string());
+        gen.add_schema::<crate::jobs::AlbumEnrichmentProgress>("AlbumEnrichmentProgress");
+        registered.insert("AlbumEnrichmentProgress".to_string());
+
+        // requery (phase 14.5)
+        gen.add_schema::<crate::jobs::RequeryOverride>("RequeryOverride");
+        registered.insert("RequeryOverride".to_string());
+        gen.add_schema::<crate::jobs::RequeryEnrichmentRequest>("RequeryEnrichmentRequest");
+        registered.insert("RequeryEnrichmentRequest".to_string());
+        gen.add_schema::<crate::jobs::RequeryEnrichmentResponse>("RequeryEnrichmentResponse");
+        registered.insert("RequeryEnrichmentResponse".to_string());
+
+        // remote image ingestion (phase 14.6)
+        gen.add_schema::<crate::offal::music::albums::ImageIngestTarget>("ImageIngestTarget");
+        registered.insert("ImageIngestTarget".to_string());
+        gen.add_schema::<crate::offal::music::albums::IngestRemoteImageRequest>(
+            "IngestRemoteImageRequest",
+        );
+        registered.insert("IngestRemoteImageRequest".to_string());
+        gen.add_schema::<crate::offal::music::albums::IngestRemoteImageResponse>(
+            "IngestRemoteImageResponse",
+        );
+        registered.insert("IngestRemoteImageResponse".to_string());
 
         // mb candidate review request/response (phase 7)
         gen.add_schema::<ConfirmMbMatchRequest>("ConfirmMbMatchRequest");

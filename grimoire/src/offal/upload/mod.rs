@@ -369,6 +369,7 @@ pub async fn upload_music(caller: &Caller, body: JsonValue) -> GrimoireResponse<
         max_retries: Some(3),
         scheduled_at: None,
         created_by: Some(caller.user_id.clone()),
+        priority: None,
     })
     .await;
 
@@ -658,6 +659,7 @@ pub async fn upload_image(caller: &Caller, body: JsonValue) -> GrimoireResponse<
         max_retries: Some(3),
         scheduled_at: None,
         created_by: Some(caller.user_id.clone()),
+        priority: None,
     })
     .await;
 
@@ -925,6 +927,7 @@ pub async fn import_music_paths(caller: &Caller, body: JsonValue) -> GrimoireRes
                 max_retries: Some(3),
                 scheduled_at: None,
                 created_by: Some(caller.user_id.clone()),
+                priority: None,
             };
 
             let job_response = create_job(job_request).await;
@@ -1146,6 +1149,7 @@ pub async fn upload_music_by_blake3(
         max_retries: Some(3),
         scheduled_at: None,
         created_by: Some(caller.user_id.clone()),
+        priority: None,
     })
     .await;
 

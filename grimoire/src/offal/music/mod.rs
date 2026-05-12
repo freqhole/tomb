@@ -95,6 +95,9 @@ pub async fn dispatch(
         "/api/artists/delete" => Some(artists::delete(caller, body.clone()).await),
         "/api/artists/images" => Some(artists::get_images(caller, body.clone()).await),
         "/api/artists/update" => Some(artists::update(caller, body.clone()).await),
+        "/api/artists/update-metadata" => {
+            Some(artists::update_metadata(caller, body.clone()).await)
+        }
         "/api/music/artists" => Some(artists::create(caller, body.clone()).await),
 
         // favorites
@@ -162,6 +165,18 @@ pub async fn dispatch(
         "/api/music/albums/audiodb/enqueue" => {
             Some(jobs::enqueue_audiodb_album_detail(caller, body.clone()).await)
         }
+        "/api/music/albums/enrichment/bulk" => {
+            Some(jobs::enqueue_bulk_enrichment(caller, body.clone()).await)
+        }
+        "/api/music/albums/enrichment/cancel" => {
+            Some(jobs::cancel_bulk_enrichment(caller, body.clone()).await)
+        }
+        "/api/music/albums/enrichment/progress" => {
+            Some(jobs::get_enrichment_progress(caller, body.clone()).await)
+        }
+        "/api/music/albums/enrichment/requery" => {
+            Some(jobs::requery_enrichment(caller, body.clone()).await)
+        }
 
         // search
         "/api/music/search" => Some(search::search_handler(caller, body.clone()).await),
@@ -172,6 +187,7 @@ pub async fn dispatch(
         "/api/music/images/set-primary" => {
             Some(albums::set_primary_image(caller, body.clone()).await)
         }
+        "/api/music/images/ingest" => Some(albums::ingest_remote_image(caller, body.clone()).await),
 
         // analytics
         "/api/analytics/play" => Some(analytics::record_play(caller, body.clone()).await),

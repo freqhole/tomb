@@ -14,6 +14,7 @@ import {
   ENRICHMENT_SOURCES,
   type EnrichmentSource,
 } from "../hooks/useMbLookupJobs";
+import { cancelActiveReview, useActiveReviewSession } from "../../music/hooks/bulkEnrichmentReview";
 
 const SOURCE_LABEL: Record<EnrichmentSource, string> = {
   mb: "musicbrainz",
@@ -122,6 +123,21 @@ export function MbProgressStrip() {
         >
           <Icon name="x" size={12} />
         </button>
+
+        {/* phase 14.11: cancel the active bulk-review session (if any).
+            this only fires when the user kicked off a `[review N selected]`
+            burst from AlbumBulkActionBar; manually-enqueued single-album
+            enrichments don't belong to a session and have nothing to cancel. */}
+        <Show when={useActiveReviewSession()() && !settled()}>
+          <button
+            type="button"
+            class="ml-1 text-[10px] px-2 py-0.5 rounded border border-[var(--color-border-subtle)] text-[var(--color-text-tertiary)] hover:text-[var(--color-error-500)] hover:border-[var(--color-error-500)]/40 bg-transparent cursor-pointer"
+            onClick={() => void cancelActiveReview()}
+            title="cancel any pending jobs in this bulk-review session"
+          >
+            cancel bulk
+          </button>
+        </Show>
       </div>
     </Show>
   );

@@ -30,6 +30,28 @@ pub enum JobType {
 
     // theaudiodb enrichment
     AudioDbAlbumDetail,
+
+    // bulk multi-source enrichment orchestrator (phase 14.4)
+    AlbumEnrichmentPipeline,
+}
+
+/// external enrichment sources the pipeline can run against.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, ZodSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum EnrichmentSource {
+    Mb,
+    Lastfm,
+    Audiodb,
+}
+
+impl EnrichmentSource {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            EnrichmentSource::Mb => "mb",
+            EnrichmentSource::Lastfm => "lastfm",
+            EnrichmentSource::Audiodb => "audiodb",
+        }
+    }
 }
 
 /// job status lifecycle
@@ -233,6 +255,10 @@ pub struct CreateJobRequest {
     pub max_retries: Option<i32>,
     pub scheduled_at: Option<i64>, // unix timestamp, None = immediate
     pub created_by: Option<String>,
+    /// queue priority — higher runs first within same scheduled_at.
+    /// defaults to 0 when None. user-initiated lookups should pass 10+;
+    /// background batch fills should stay at 0.
+    pub priority: Option<i32>,
 }
 
 /// request for getting a job by id

@@ -89,12 +89,13 @@ pub async fn create_job(request: CreateJobRequest) -> GrimoireResponse<Job> {
             .unwrap()
             .as_secs() as i64
     });
+    let priority = request.priority.unwrap_or(0);
 
     let job = match sqlx::query_as!(
         Job,
         r#"
-        INSERT INTO jobz (session_id, job_type, status, parameters, max_retries, scheduled_at, created_by)
-        VALUES (?, ?, 'Pending', ?, ?, ?, ?)
+        INSERT INTO jobz (session_id, job_type, status, parameters, max_retries, scheduled_at, created_by, priority)
+        VALUES (?, ?, 'Pending', ?, ?, ?, ?, ?)
         RETURNING id as "id!", session_id, job_type as "job_type!", status as "status!",
                   parameters as "parameters!", result, retry_count as "retry_count!: i32",
                   max_retries as "max_retries!: i32", scheduled_at as "scheduled_at!",
@@ -105,7 +106,8 @@ pub async fn create_job(request: CreateJobRequest) -> GrimoireResponse<Job> {
         parameters_json,
         max_retries,
         scheduled_at,
-        request.created_by
+        request.created_by,
+        priority
     )
     .fetch_one(&pool)
     .await
@@ -277,7 +279,7 @@ pub async fn get_next_pending_job() -> GrimoireResponse<Option<Job>> {
         WHERE id = (
             SELECT id FROM jobz
             WHERE status = 'Pending' AND scheduled_at <= unixepoch()
-            ORDER BY scheduled_at ASC
+            ORDER BY priority DESC, scheduled_at ASC
             LIMIT 1
         )
         RETURNING id as "id!", session_id, job_type as "job_type!", status as "status!",

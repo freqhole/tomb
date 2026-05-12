@@ -6,7 +6,7 @@ use crate::offal::caller::Caller;
 use crate::response::GrimoireResponse;
 use crate::users::{
     CreateUserRequest, InviteCodeType, RedeemInviteRequest, UpdateUserRequest, UserQueryParams,
-    UserRole, UserService, WhoAmIResponse,
+    UserService, WhoAmIResponse,
 };
 use serde::Deserialize;
 use serde_json::Value as JsonValue;

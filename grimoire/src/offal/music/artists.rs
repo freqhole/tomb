@@ -6,7 +6,8 @@ use crate::music::crud::{query_artists, DeleteArtistRequest, GetArtistRequest, Q
 use crate::music::entities::artists::{
     create_artist, delete_artist as grimoire_delete_artist, get_artist as grimoire_get_artist,
     get_artist_images as grimoire_get_artist_images, update_artist as grimoire_update_artist,
-    CreateArtistRequest, UpdateArtistRequest,
+    update_artist_metadata as grimoire_update_artist_metadata, CreateArtistRequest,
+    UpdateArtistMetadataRequest, UpdateArtistRequest,
 };
 use crate::offal::caller::Caller;
 use crate::response::GrimoireResponse;
@@ -58,6 +59,15 @@ pub const ROUTES: &[RouteInfo] = &[
         domain: Domain::Music,
         request_type: "UpdateArtistRequest",
         response_type: "Artist",
+        auth: RouteAuth::Role(UserRole::Admin),
+    },
+    RouteInfo {
+        name: "update_artist_metadata",
+        path: "/api/artists/update-metadata",
+        method: Method::POST,
+        domain: Domain::Music,
+        request_type: "UpdateArtistMetadataRequest",
+        response_type: "UpdateArtistMetadataResponse",
         auth: RouteAuth::Role(UserRole::Admin),
     },
     RouteInfo {
@@ -215,6 +225,46 @@ pub async fn update(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonVa
     req.updated_by = Some(caller.user_id.clone());
 
     let response = grimoire_update_artist(req).await;
+    response.map(|data| serde_json::to_value(data).unwrap())
+}
+
+/// update artist enrichment metadata (phase 14.10)
+///
+/// path: POST /api/artists/update-metadata
+///
+/// admin-only. takes a typed `UpdateArtistMetadataRequest`. unlike the
+/// general `/api/artists/update` route this one:
+///
+/// * never updates `name` (renames live in the artist detail view)
+/// * merges `metadata_patch` per-source into the existing `artistz.metadata`
+///   blob (`Some(_)` overwrites that bucket; `None` preserves)
+/// * skips the write when the artist already has bio + image unless
+///   `force = true`
+pub async fn update_metadata(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
+    if !caller.is_admin() {
+        return GrimoireResponse::failure(
+            "forbidden",
+            vec![ErrorDetail::new("forbidden", "forbidden", "admin only")],
+        );
+    }
+
+    let mut req: UpdateArtistMetadataRequest = match serde_json::from_value(body) {
+        Ok(r) => r,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "bad request",
+                vec![ErrorDetail::new(
+                    "bad_request",
+                    "bad request",
+                    &e.to_string(),
+                )],
+            )
+        }
+    };
+
+    req.updated_by = Some(caller.user_id.clone());
+
+    let response = grimoire_update_artist_metadata(req).await;
     response.map(|data| serde_json::to_value(data).unwrap())
 }
 

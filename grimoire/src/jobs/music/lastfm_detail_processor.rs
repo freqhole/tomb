@@ -64,6 +64,8 @@ pub async fn process_lastfm_album_detail_job(job: &Job) -> Result<Option<Value>,
             });
         }
     };
+    // requery overrides win over db-derived values (phase 14.5).
+    let title = params.title_override.clone().unwrap_or(title);
 
     let artist_name: Option<String> = sqlx::query_scalar!(
         r#"SELECT art.name FROM artist_albumz aa
@@ -76,6 +78,7 @@ pub async fn process_lastfm_album_detail_job(job: &Job) -> Result<Option<Value>,
     .await
     .ok()
     .flatten();
+    let artist_name = params.artist_override.clone().or(artist_name);
 
     // build client (env-var fallback handled inside `LastFmClient::new`)
     let cfg = config::get_config();
@@ -97,6 +100,7 @@ pub async fn process_lastfm_album_detail_job(job: &Job) -> Result<Option<Value>,
     let artist_for_query = artist_name.clone().unwrap_or_default();
 
     // step 1: album.getInfo
+    crate::jobs::rate_limit::acquire(crate::jobs::rate_limit::Source::Lastfm).await;
     let album_resp = client
         .album_get_info(&artist_for_query, &title, params.mbid.as_deref())
         .await;
@@ -114,10 +118,8 @@ pub async fn process_lastfm_album_detail_job(job: &Job) -> Result<Option<Value>,
     // step 2: artist.getInfo (only if we have an artist name to query with)
     let artist_fetched = if !artist_for_query.is_empty() {
         // re-use mbid from album response if present, otherwise none
-        let artist_mbid_hint = snapshot
-            .album
-            .as_ref()
-            .and_then(|a| a.mbid.clone());
+        let artist_mbid_hint = snapshot.album.as_ref().and_then(|a| a.mbid.clone());
+        crate::jobs::rate_limit::acquire(crate::jobs::rate_limit::Source::Lastfm).await;
         let resp = client
             .artist_get_info(&artist_for_query, artist_mbid_hint.as_deref())
             .await;

@@ -1220,6 +1220,93 @@ export function createMusicMethods(call: CallFn) {
         params,
       );
     },
+
+    // bulk-enrichment review (phase 14.4e). spawns one
+    // `AlbumEnrichmentPipeline` job per album_id with shared session_id
+    // so the caller can poll progress / cancel as a group.
+    enqueueBulkEnrichment: (params: s.BulkEnrichmentRequest) => {
+      return call(
+        "music",
+        "enqueue_bulk_enrichment",
+        routes.music.enqueue_bulk_enrichment.resp,
+        routes.music.enqueue_bulk_enrichment.req,
+        routes.music.enqueue_bulk_enrichment.method,
+        routes.music.enqueue_bulk_enrichment.path,
+        params,
+      );
+    },
+
+    // cancel all pending/running jobs in a bulk-enrichment session
+    // (phase 14.4e). already-completed jobs are left untouched.
+    cancelBulkEnrichment: (params: s.CancelBulkEnrichmentRequest) => {
+      return call(
+        "music",
+        "cancel_bulk_enrichment",
+        routes.music.cancel_bulk_enrichment.resp,
+        routes.music.cancel_bulk_enrichment.req,
+        routes.music.cancel_bulk_enrichment.method,
+        routes.music.cancel_bulk_enrichment.path,
+        params,
+      );
+    },
+
+    // fetch per-source enrichment status for a batch of album ids
+    // (phase 14.4e). used by the review modal to render status badges +
+    // last-error / retry-count.
+    getEnrichmentProgress: (params: s.GetEnrichmentProgressRequest) => {
+      return call(
+        "music",
+        "get_enrichment_progress",
+        routes.music.get_enrichment_progress.resp,
+        routes.music.get_enrichment_progress.req,
+        routes.music.get_enrichment_progress.method,
+        routes.music.get_enrichment_progress.path,
+        params,
+      );
+    },
+
+    // re-enqueue a single source for a single album with optional
+    // override query (phase 14.5). supports per-album manual retry from
+    // the review modal's per-source tab.
+    requeryEnrichment: (params: s.RequeryEnrichmentRequest) => {
+      return call(
+        "music",
+        "requery_enrichment",
+        routes.music.requery_enrichment.resp,
+        routes.music.requery_enrichment.req,
+        routes.music.requery_enrichment.method,
+        routes.music.requery_enrichment.path,
+        params,
+      );
+    },
+
+    // download a remote image url and link it to an album or artist
+    // (phase 14.6). dedups by sha256.
+    ingestRemoteImage: (params: s.IngestRemoteImageRequest) => {
+      return call(
+        "music",
+        "ingest_remote_image",
+        routes.music.ingest_remote_image.resp,
+        routes.music.ingest_remote_image.req,
+        routes.music.ingest_remote_image.method,
+        routes.music.ingest_remote_image.path,
+        params,
+      );
+    },
+
+    // update an artist's enrichment metadata blob (phase 14.10).
+    // never touches `name`. honours skip-if-complete unless `force=true`.
+    updateArtistMetadata: (params: s.UpdateArtistMetadataRequest) => {
+      return call(
+        "music",
+        "update_artist_metadata",
+        routes.music.update_artist_metadata.resp,
+        routes.music.update_artist_metadata.req,
+        routes.music.update_artist_metadata.method,
+        routes.music.update_artist_metadata.path,
+        params,
+      );
+    },
   };
 }
 

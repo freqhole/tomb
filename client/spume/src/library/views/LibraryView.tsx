@@ -22,6 +22,7 @@ import { MbProgressStrip } from "../components/MbProgressStrip";
 import { useAlbumSelectionLifecycle, useSelectedAlbumIds } from "../hooks/albumSelection";
 import { useRemoteIsAdmin } from "../hooks/useRemoteRole";
 import { enqueueAlbumEnrichment } from "../hooks/useMbLookupJobs";
+import { startBulkEnrichmentReview } from "../../music/hooks/bulkEnrichmentReview";
 import { getAllRemotes } from "../../app/services/remotes/remoteManager";
 import type { Remote } from "../../app/services/storage/schemas/remote";
 
@@ -71,6 +72,15 @@ export function LibraryView() {
     const remote = selectedRemote();
     if (!remote) return;
     void enqueueAlbumEnrichment(remote, albumIds);
+  };
+
+  // phase 14.9: enqueue bulk enrichment + open the album editor in
+  // review mode so the user can walk the selection one album at a time.
+  const triggerReview = (albumIds: string[]) => {
+    if (albumIds.length === 0) return;
+    const remote = selectedRemote();
+    if (!remote) return;
+    void startBulkEnrichmentReview(remote, albumIds);
   };
 
   return (
@@ -134,6 +144,7 @@ export function LibraryView() {
         <AlbumBulkActionBar
           isAdmin={isRemoteAdmin()}
           onEnrich={() => triggerEnrichment(selectedAlbumIds())}
+          onReview={() => triggerReview(selectedAlbumIds())}
         />
       </div>
     </div>

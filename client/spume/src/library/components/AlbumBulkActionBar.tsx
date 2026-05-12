@@ -12,6 +12,10 @@ interface AlbumBulkActionBarProps {
   /** invoked when the user clicks "enrich N selected". fans out to all
    *  three metadata-source enqueue endpoints (mb / lastfm / audiodb). */
   onEnrich?: () => void;
+  /** invoked when the user clicks "review N selected" (phase 14.9). kicks
+   *  off a bulk enrichment session and opens the album editor in
+   *  review-mode pointing at the first selected album. */
+  onReview?: () => void;
   /** disable destructive/admin actions when the user is not an admin on the
    *  selected remote. */
   isAdmin?: boolean;
@@ -39,6 +43,23 @@ export function AlbumBulkActionBar(props: AlbumBulkActionBarProps) {
           <Icon name="search" size={11} />
           enrich {count()} selected
         </button>
+
+        <Show when={props.onReview}>
+          <button
+            type="button"
+            disabled={props.isAdmin === false}
+            onClick={() => props.onReview?.()}
+            class="flex items-center gap-1.5 px-2.5 py-1 text-xs rounded border border-[var(--color-accent-500)]/40 text-[var(--color-accent-500)] hover:bg-[var(--color-accent-500)]/10 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed bg-transparent"
+            title={
+              props.isAdmin === false
+                ? "requires admin on this remote"
+                : "enrich + walk through each album in the editor"
+            }
+          >
+            <Icon name="edit" size={11} />
+            review {count()} selected
+          </button>
+        </Show>
 
         <button
           type="button"

@@ -57,6 +57,19 @@ interface DisplayChip {
   label: string;
   origin: string;
   pending: "add" | null;
+  /** when this chip was seeded by a proposal (phase 14.8), the source
+   *  string ("musicbrainz", "lastfm", "audiodb", ...) is shown as a tiny
+   *  badge so the user can tell ai-suggested chips from manual ones. */
+  proposalSource?: string | null;
+}
+
+/** taxon proposal seeded by `seedProposals` (phase 14.8). looks like a
+ *  `TaxonRef` plus the `source` that suggested it. */
+export interface TaxonProposal {
+  id: string;
+  kind_slug: string;
+  label: string;
+  source: string;
 }
 
 export interface AlbumTaxonsEditorHandle {
@@ -82,6 +95,11 @@ export interface AlbumTaxonsEditorProps {
   /** fires whenever the dirty state changes so the parent's save
    *  button can react. */
   onDirtyChange?: (dirty: boolean) => void;
+  /** taxons proposed by an enrichment source (musicbrainz, last.fm,
+   *  ...). on mount they are merged into `pendingAdds` and rendered as
+   *  chips with a small source badge. the user can drop them like any
+   *  other pending add, or keep them so they flow through `apply()`. */
+  seedProposals?: TaxonProposal[];
 }
 
 export function AlbumTaxonsEditor(props: AlbumTaxonsEditorProps) {
@@ -126,6 +144,9 @@ export function AlbumTaxonsEditor(props: AlbumTaxonsEditorProps) {
   //    - pendingRemoves: server links the user clicked the X on
   const [pendingAdds, setPendingAdds] = createSignal<TaxonRef[]>([]);
   const [pendingRemoves, setPendingRemoves] = createSignal<Map<string, AlbumTaxonLink>>(new Map());
+  // taxon_id -> proposal source (e.g. "musicbrainz"). only set for adds
+  // that came from `seedProposals`; user-picked adds are not in this map.
+  const [proposalSources, setProposalSources] = createSignal<Map<string, string>>(new Map());
 
   const isDirty = () => pendingAdds().length > 0 || pendingRemoves().size > 0;
 
@@ -136,6 +157,35 @@ export function AlbumTaxonsEditor(props: AlbumTaxonsEditorProps) {
       () => isDirty(),
       (dirty) => props.onDirtyChange?.(dirty),
       { defer: true }
+    )
+  );
+
+  // seed proposals (phase 14.8). re-runs when seedProposals identity
+  // changes. only adds taxons not already pending or linked. dropping a
+  // proposed chip removes it from pendingAdds (handled below).
+  createEffect(
+    on(
+      () => props.seedProposals,
+      (proposals) => {
+        if (!proposals || proposals.length === 0) return;
+        const existing = new Set(pendingAdds().map((p) => p.id));
+        const linkedIds = new Set((linksResource() || []).map((l) => l.taxon_id));
+        const fresh = proposals.filter((p) => !existing.has(p.id) && !linkedIds.has(p.id));
+        if (fresh.length === 0) return;
+        setPendingAdds((prev) => [
+          ...prev,
+          ...fresh.map<TaxonRef>((p) => ({
+            id: p.id,
+            kind_slug: p.kind_slug,
+            label: p.label,
+          })),
+        ]);
+        setProposalSources((prev) => {
+          const next = new Map(prev);
+          for (const p of fresh) next.set(p.id, p.source);
+          return next;
+        });
+      }
     )
   );
 
@@ -166,6 +216,7 @@ export function AlbumTaxonsEditor(props: AlbumTaxonsEditorProps) {
         label: add.label,
         origin: "user",
         pending: "add",
+        proposalSource: proposalSources().get(add.id) ?? null,
       });
       map.set(add.kind_slug, arr);
     }
@@ -192,6 +243,13 @@ export function AlbumTaxonsEditor(props: AlbumTaxonsEditorProps) {
     if (chip.pending === "add") {
       // chip is a not-yet-saved add — just drop it
       setPendingAdds((prev) => prev.filter((p) => p.id !== chip.taxon_id));
+      // also drop any proposal-source bookkeeping for it (phase 14.8)
+      setProposalSources((prev) => {
+        if (!prev.has(chip.taxon_id)) return prev;
+        const next = new Map(prev);
+        next.delete(chip.taxon_id);
+        return next;
+      });
       return;
     }
     // chip is a real server link — find it and stage a remove
@@ -321,6 +379,7 @@ export function AlbumTaxonsEditor(props: AlbumTaxonsEditorProps) {
     }
     setPendingAdds([]);
     setPendingRemoves(new Map());
+    setProposalSources(new Map());
     setLinksVersion((v) => v + 1);
     queryClient.invalidateQueries({ queryKey: queryKeys.albums.detail(props.albumId) });
     queryClient.invalidateQueries({ queryKey: queryKeys.albums.all() });
@@ -329,6 +388,7 @@ export function AlbumTaxonsEditor(props: AlbumTaxonsEditorProps) {
   const reset = () => {
     setPendingAdds([]);
     setPendingRemoves(new Map());
+    setProposalSources(new Map());
     // also collapse any half-filled new-kind form so "reset" feels
     // like a clean slate even mid-edit.
     resetNewKindForm();
@@ -389,9 +449,12 @@ export function AlbumTaxonsEditor(props: AlbumTaxonsEditorProps) {
                                 ? "bg-[var(--color-accent-500)]/15 text-[var(--color-accent-600,var(--color-accent-500))] ring-1 ring-[var(--color-accent-500)]/30"
                                 : "bg-[var(--color-bg-elevated)] text-[var(--color-text-secondary)]")
                             }
-                            title={`${chip.kind_slug}: ${chip.label}${chip.pending === "add" ? " (pending add)" : ` (origin: ${chip.origin})`}`}
+                            title={`${chip.kind_slug}: ${chip.label}${chip.pending === "add" ? (chip.proposalSource ? ` (proposed by ${chip.proposalSource})` : " (pending add)") : ` (origin: ${chip.origin})`}`}
                           >
                             <span>{chip.label}</span>
+                            <Show when={chip.pending === "add" && chip.proposalSource}>
+                              <span class="opacity-70 text-[10px]">from {chip.proposalSource}</span>
+                            </Show>
                             <Show when={chip.pending === null && chip.origin !== "user"}>
                               <span class="opacity-60 text-[10px]">{chip.origin}</span>
                             </Show>

@@ -166,6 +166,13 @@ pub struct LastFmAlbumDetailParams {
     /// have a confirmed musicbrainz match.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mbid: Option<String>,
+    /// admin override for the artist string sent to last.fm
+    /// (`requery_enrichment`, phase 14.5). when None, derived from db.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub artist_override: Option<String>,
+    /// admin override for the album/title string sent to last.fm.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title_override: Option<String>,
 }
 
 /// summary written into the job's `result` column on success.
@@ -205,6 +212,13 @@ pub struct AudioDbAlbumDetailParams {
     /// optional artist MBID for `artist-mb.php` lookup.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub artist_mbid: Option<String>,
+    /// admin override for the artist string used in fallback text searches
+    /// (`requery_enrichment`, phase 14.5).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub artist_override: Option<String>,
+    /// admin override for the album/title string used in fallback text searches.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title_override: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
@@ -224,4 +238,127 @@ pub struct EnqueueAudioDbAlbumDetailRequest {
 pub struct EnqueueAudioDbAlbumDetailResponse {
     pub job_ids: Vec<String>,
     pub skipped_album_ids: Vec<String>,
+}
+
+/// parameters for `JobType::AlbumEnrichmentPipeline` (phase 14.4).
+/// orchestrator job: enqueues per-source detail jobs for one album,
+/// optionally skipping sources whose `metadata.<source>.fetched_at` is
+/// recent (`force=false` only).
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct AlbumEnrichmentPipelineParams {
+    pub album_id: String,
+    /// which sources to enqueue. defaults to `[Mb, Lastfm, Audiodb]` if
+    /// empty.
+    #[serde(default)]
+    pub sources: Vec<crate::jobs::EnrichmentSource>,
+    /// when true, ignore the freshness check and re-enqueue all selected
+    /// sources.
+    #[serde(default)]
+    pub force: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct AlbumEnrichmentPipelineResult {
+    pub album_id: String,
+    /// per-source child job ids that were enqueued.
+    pub enqueued_job_ids: Vec<String>,
+    /// sources skipped because they already have fresh data and `force=false`.
+    pub skipped_sources: Vec<String>,
+}
+
+/// admin route `enqueue_bulk_enrichment` (phase 14.4e).
+/// spawns one `AlbumEnrichmentPipeline` per album_id, optionally tagged
+/// to a single job session for grouped progress + cancel.
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct BulkEnrichmentRequest {
+    pub album_ids: Vec<String>,
+    /// when empty, defaults to `[Mb, Lastfm, Audiodb]`.
+    #[serde(default)]
+    pub sources: Vec<crate::jobs::EnrichmentSource>,
+    #[serde(default)]
+    pub force: bool,
+    /// queue priority. defaults to 0; the modal uses 10 for foreground
+    /// review so user-driven work jumps ahead of background fills.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub priority: Option<i32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct BulkEnrichmentResponse {
+    pub job_session_id: String,
+    /// pipeline orchestrator job ids (one per album).
+    pub job_ids: Vec<String>,
+    pub skipped_album_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct CancelBulkEnrichmentRequest {
+    pub job_session_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct CancelBulkEnrichmentResponse {
+    pub job_session_id: String,
+    pub cancelled_job_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct GetEnrichmentProgressRequest {
+    pub album_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct EnrichmentSourceStatus {
+    pub source: String, // "mb" | "lastfm" | "audiodb"
+    pub status: String, // JobStatus serialized; "none" when no row exists
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_attempt_at: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_error: Option<String>,
+    pub retry_count: i32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct AlbumEnrichmentProgress {
+    pub album_id: String,
+    pub sources: Vec<EnrichmentSourceStatus>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct GetEnrichmentProgressResponse {
+    pub albums: Vec<AlbumEnrichmentProgress>,
+}
+
+/// admin route `requery_enrichment` (phase 14.5). re-runs a single source
+/// for a single album with optional overrides, replacing the existing
+/// candidate set / snapshot for that source. for mb, providing `mbid`
+/// skips the search step and goes straight to detail fetch.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, ZodSchema)]
+pub struct RequeryOverride {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub artist: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mbid: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct RequeryEnrichmentRequest {
+    pub album_id: String,
+    pub source: crate::jobs::EnrichmentSource,
+    #[serde(default)]
+    pub override_query: RequeryOverride,
+    /// queue priority. defaults to 10 (foreground) so manual requery jumps
+    /// ahead of background fills.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub priority: Option<i32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct RequeryEnrichmentResponse {
+    pub job_id: String,
+    /// which underlying job type was enqueued (e.g. for mb we may pick
+    /// `MbAlbumDetail` over `MbAlbumSearch` when an mbid override is given).
+    pub job_type: String,
 }

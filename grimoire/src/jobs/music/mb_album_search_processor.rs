@@ -131,6 +131,7 @@ pub async fn process_mb_album_search_job(job: &Job) -> Result<Option<Value>, Job
         "mb album-search querying: artist={:?} title={}",
         artist, title
     );
+    crate::jobs::rate_limit::acquire(crate::jobs::rate_limit::Source::Mb).await;
     let resp = client.search_releases(&query).await;
     if !resp.success {
         let _ = albums_repo::update_mb_lookup_status(

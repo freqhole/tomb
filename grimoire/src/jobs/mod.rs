@@ -13,25 +13,31 @@
 
 mod models;
 mod music;
+pub mod rate_limit;
 mod runner;
 mod service;
 
 // re-export public types
 pub use models::{
-    CreateJobRequest, CreateJobSessionRequest, GetJobRequest, GetJobsStatusRequest,
-    GetJobsStatusResponse, Job, JobError, JobListResponse, JobProgress, JobResponse, JobResult,
-    JobSession, JobStatsResponse, JobStatus, JobType, ListJobsRequest, ProcessorResponse,
-    QueueStats, SessionStatus,
+    CreateJobRequest, CreateJobSessionRequest, EnrichmentSource, GetJobRequest,
+    GetJobsStatusRequest, GetJobsStatusResponse, Job, JobError, JobListResponse, JobProgress,
+    JobResponse, JobResult, JobSession, JobStatsResponse, JobStatus, JobType, ListJobsRequest,
+    ProcessorResponse, QueueStats, SessionStatus,
 };
 
 // re-export music job types for backward compatibility
 pub use music::{
-    AudioDbAlbumDetailParams, AudioDbAlbumDetailResult, EnqueueAudioDbAlbumDetailRequest,
-    EnqueueAudioDbAlbumDetailResponse, EnqueueLastFmAlbumDetailRequest,
-    EnqueueLastFmAlbumDetailResponse, EnqueueMbAlbumSearchRequest, EnqueueMbAlbumSearchResponse,
-    LastFmAlbumDetailParams, LastFmAlbumDetailResult, MbAlbumDetailParams, MbAlbumDetailResult,
-    MbAlbumSearchParams, MbAlbumSearchResult, ProcessFileParams, ProcessFileResult,
-    ProcessJobCreatedResponse, ScanDirectoryParams, ScanDirectoryResult, ScanJobCreatedResponse,
+    AlbumEnrichmentPipelineParams, AlbumEnrichmentPipelineResult, AlbumEnrichmentProgress,
+    AudioDbAlbumDetailParams, AudioDbAlbumDetailResult, BulkEnrichmentRequest,
+    BulkEnrichmentResponse, CancelBulkEnrichmentRequest, CancelBulkEnrichmentResponse,
+    EnqueueAudioDbAlbumDetailRequest, EnqueueAudioDbAlbumDetailResponse,
+    EnqueueLastFmAlbumDetailRequest, EnqueueLastFmAlbumDetailResponse, EnqueueMbAlbumSearchRequest,
+    EnqueueMbAlbumSearchResponse, EnrichmentSourceStatus, GetEnrichmentProgressRequest,
+    GetEnrichmentProgressResponse, LastFmAlbumDetailParams, LastFmAlbumDetailResult,
+    MbAlbumDetailParams, MbAlbumDetailResult, MbAlbumSearchParams, MbAlbumSearchResult,
+    ProcessFileParams, ProcessFileResult, ProcessJobCreatedResponse, RequeryEnrichmentRequest,
+    RequeryEnrichmentResponse, RequeryOverride, ScanDirectoryParams,
+    ScanDirectoryResult, ScanJobCreatedResponse,
 };
 
 // re-export scanned directories functions

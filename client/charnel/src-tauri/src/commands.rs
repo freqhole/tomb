@@ -644,6 +644,7 @@ pub async fn rescan_directories(app_handle: tauri::AppHandle) -> ScanResult {
         max_retries: Some(0), // no retries for rescan
         scheduled_at: None,   // immediate
         created_by: Some("tauri-wizard".to_string()),
+        priority: None,
     };
 
     let response = create_job(job_request).await;

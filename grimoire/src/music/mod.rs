@@ -7,7 +7,6 @@
 pub mod entities;
 
 // public modules
-pub mod allmusic;
 pub mod analytics;
 pub mod audiodb;
 pub mod crud;

@@ -125,6 +125,7 @@ pub async fn process_fetch_media_job(job: &Job) -> Result<Option<Value>, JobErro
             max_retries: Some(3),
             scheduled_at: None, // immediate
             created_by: job.created_by.clone(),
+            priority: None,
         };
 
         let response = create_job(job_request).await;

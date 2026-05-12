@@ -1,5 +1,5 @@
 // album editor modal - edit album metadata
-import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import { useQueryClient } from "@tanstack/solid-query";
 import type { ImageMetadata, Song } from "../../music/services/storage/types";
 import { getDataSource, getCurrentRemote } from "../../music/data";
@@ -18,6 +18,13 @@ import { Icon, IconNames } from "../icons/registry";
 import { Tabs, TabList, Tab, TabPanel } from "../navigation/Tabs";
 import { EntityImages } from "../layout/EntityImages";
 import { MusicBrainzPanel } from "../musicbrainz/MusicBrainzPanel";
+import {
+  AlbumEnrichmentSourceTab,
+  type SourceProgress,
+} from "../enrichment/AlbumEnrichmentSourceTab";
+import { AlbumArtistTab } from "../enrichment/AlbumArtistTab";
+import { parseAlbumMetadata } from "../../library/data/albumMetadata";
+import { getClientForRemote } from "../../app/api/client";
 import { Modal } from "./Modal";
 import { AlbumTaxonsEditor, type AlbumTaxonsEditorHandle } from "./AlbumTaxonsEditor";
 import { EntityUrlz, type EntityUrlFormItem } from "../forms/EntityUrlz";
@@ -34,6 +41,26 @@ interface AlbumEditorModalProps {
   onOpenSongEditor?: (songId: string) => void;
   /** called after a successful merge with the target album id, so callers can navigate */
   onMergeNavigate?: (newAlbumId: string) => void;
+  /**
+   * bulk-enrichment review mode (phase 14.7).
+   *
+   * deliberately named "review" rather than "queue" to avoid clashing
+   * with the player's song queue (`QueueSidebar`, `currentQueueIndex`).
+   *
+   * when set, the modal renders:
+   *   - a header strip showing `n / total — title`
+   *   - a footer toolbar `[skip] [save & next] [save & close] [exit]`
+   *     replacing the normal save/cancel buttons
+   *   - keyboard bindings: `j` / arrow-right → next, `k` / arrow-left
+   *     → prev, `escape` → exit (no save).
+   */
+  review?: {
+    ids: string[];
+    currentIndex: number;
+    onNext: () => void;
+    onPrev: () => void;
+    onExit: () => void;
+  };
 }
 
 // inline component for bulk-setting disc number on all songs in an album
@@ -147,8 +174,17 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
 
   const [initialData, setInitialData] = createSignal<FormData | null>(null);
   const [loadedAlbumId, setLoadedAlbumId] = createSignal<string | null>(null);
-  const [activeTab, setActiveTab] = createSignal<"info" | "images" | "musicbrainz">("info");
+  const [activeTab, setActiveTab] = createSignal<
+    "info" | "images" | "metadata" | "musicbrainz" | "lastfm" | "audiodb" | "artist"
+  >("info");
   const [images, setImages] = createSignal<ImageMetadata[]>([]);
+
+  // per-source enrichment progress (phase 14.7). polled while the modal is
+  // open so the per-source tabs can show fresh status badges, retry counts,
+  // and last-error info without each tab firing its own request.
+  const [enrichmentProgress, setEnrichmentProgress] = createSignal<Record<string, SourceProgress>>(
+    {}
+  );
 
   // when user picks an existing album from autocomplete, store its ID for merge
   const [mergeTargetAlbumId, setMergeTargetAlbumId] = createSignal<string | undefined>(undefined);
@@ -252,8 +288,12 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
     );
   });
 
-  const handleSave = async () => {
-    if (!hasChanges()) return;
+  const handleSave = async (opts: { stayOpen?: boolean } = {}) => {
+    if (!hasChanges()) {
+      // in review mode \"save & next\" with no edits should still advance.
+      if (opts.stayOpen) return true;
+      return true;
+    }
 
     const data = formData();
     const initial = initialData();
@@ -279,11 +319,12 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
 
         props.onSave?.();
         props.onMergeNavigate?.(mergeTarget);
-        props.onClose();
+        if (!opts.stayOpen) props.onClose();
+        return true;
       } catch (error) {
         console.error("failed to merge album:", error);
+        return false;
       }
-      return;
     }
 
     try {
@@ -326,12 +367,101 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
       ]);
 
       props.onSave?.();
-      props.onClose();
+      if (!opts.stayOpen) props.onClose();
+      return true;
     } catch (error) {
       console.error("failed to save album:", error);
       // toast is already shown by mutation onError handler
+      return false;
     }
   };
+
+  // review-mode helpers (phase 14.7).
+  const reviewMode = () => props.review;
+  const reviewTotal = () => reviewMode()?.ids.length ?? 0;
+  const reviewIndex = () => reviewMode()?.currentIndex ?? 0;
+  const reviewHasPrev = () => reviewMode() != null && reviewIndex() > 0;
+  const reviewHasNext = () => reviewMode() != null && reviewIndex() < reviewTotal() - 1;
+
+  const handleSkip = () => {
+    if (reviewHasNext()) reviewMode()?.onNext();
+    else reviewMode()?.onExit();
+  };
+  const handleSaveAndNext = async () => {
+    const ok = await handleSave({ stayOpen: true });
+    if (!ok) return;
+    if (reviewHasNext()) reviewMode()?.onNext();
+    else reviewMode()?.onExit();
+  };
+  const handleSaveAndClose = async () => {
+    const ok = await handleSave({ stayOpen: true });
+    if (!ok) return;
+    reviewMode()?.onExit();
+  };
+  const handleExit = () => reviewMode()?.onExit();
+
+  // keyboard navigation while in review mode. ignored when focus is in a
+  // text input / textarea / contenteditable to avoid stealing typing.
+  createEffect(() => {
+    if (!reviewMode()) return;
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      const tag = (t?.tagName ?? "").toLowerCase();
+      if (tag === "input" || tag === "textarea" || tag === "select") return;
+      if (t?.isContentEditable) return;
+      if (e.key === "j" || e.key === "ArrowRight") {
+        e.preventDefault();
+        if (reviewHasNext()) reviewMode()?.onNext();
+      } else if (e.key === "k" || e.key === "ArrowLeft") {
+        e.preventDefault();
+        if (reviewHasPrev()) reviewMode()?.onPrev();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    onCleanup(() => window.removeEventListener("keydown", onKey));
+  });
+
+  // parsed album metadata (phase 14.7). drives the snapshot summaries on
+  // the per-source tabs; the modal already loads albumQuery so this is
+  // free.
+  const albumMetadata = createMemo(() => parseAlbumMetadata(albumQuery.data?.metadata ?? null));
+
+  // poll per-source enrichment progress while the modal is open. polled
+  // every 5s; bumped to 2s briefly after a manual refetch/requery.
+  const refreshEnrichmentProgress = async () => {
+    const remote = getCurrentRemote();
+    if (!remote) return;
+    try {
+      const client = await getClientForRemote(remote);
+      const resp = await client.music.getEnrichmentProgress({
+        album_ids: [props.albumId],
+      });
+      if (!resp.success || !resp.data) return;
+      const album = resp.data.albums.find((a) => a.album_id === props.albumId);
+      if (!album) return;
+      const next: Record<string, SourceProgress> = {};
+      for (const s of album.sources) {
+        next[s.source.toLowerCase()] = {
+          status: s.status,
+          last_attempt_at: s.last_attempt_at ?? null,
+          last_error: s.last_error ?? null,
+          retry_count: s.retry_count,
+        };
+      }
+      setEnrichmentProgress(next);
+    } catch (err) {
+      // silent — the badges just stay stale; user can hit refetch.
+      if (typeof console !== "undefined") {
+        console.debug("getEnrichmentProgress failed:", err);
+      }
+    }
+  };
+  createEffect(() => {
+    if (!props.albumId) return;
+    refreshEnrichmentProgress();
+    const id = window.setInterval(refreshEnrichmentProgress, 5000);
+    onCleanup(() => window.clearInterval(id));
+  });
 
   const handleReset = () => {
     const initial = initialData();
@@ -570,6 +700,39 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
       size="xl"
       elevated={props.disableNestedModals}
     >
+      {/* review-mode header strip (phase 14.7) */}
+      <Show when={reviewMode()}>
+        <div class="flex items-center justify-between gap-4 px-6 py-2 border-b border-[var(--color-border-default)] bg-[var(--color-bg-secondary)] text-xs text-[var(--color-text-secondary)] flex-shrink-0">
+          <div class="flex items-center gap-2">
+            <span class="font-mono">
+              {reviewIndex() + 1} / {reviewTotal()}
+            </span>
+            <span class="text-[var(--color-text-tertiary)]">\u2014</span>
+            <span class="truncate text-[var(--color-text-primary)]">
+              {formData().title || albumQuery.data?.title || ""}
+            </span>
+          </div>
+          <div class="flex items-center gap-1">
+            <button
+              onClick={() => reviewMode()?.onPrev()}
+              disabled={!reviewHasPrev()}
+              title="previous (k / \u2190)"
+              class="px-2 py-1 rounded hover:bg-[var(--color-bg-tertiary)] disabled:opacity-30"
+            >
+              <Icon name={IconNames.chevronLeft} size={14} />
+            </button>
+            <button
+              onClick={() => reviewMode()?.onNext()}
+              disabled={!reviewHasNext()}
+              title="next (j / \u2192)"
+              class="px-2 py-1 rounded hover:bg-[var(--color-bg-tertiary)] disabled:opacity-30"
+            >
+              <Icon name={IconNames.chevronRight} size={14} />
+            </button>
+          </div>
+        </div>
+      </Show>
+
       {/* content */}
       <Show
         when={initialData()}
@@ -589,6 +752,9 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
             <Tab id="images" label="images" badge={images().length || undefined} />
             <Tab id="metadata" label="metadata" />
             <Tab id="musicbrainz" label="musicbrainz" />
+            <Tab id="lastfm" label="last.fm" />
+            <Tab id="audiodb" label="theaudiodb" />
+            <Tab id="artist" label="artist" />
           </TabList>
 
           <TabPanel id="info" class="flex-1 overflow-y-auto p-6 space-y-6">
@@ -868,11 +1034,43 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
               }}
             />
           </TabPanel>
+
+          <TabPanel id="lastfm" class="flex-1 overflow-y-auto p-6">
+            <AlbumEnrichmentSourceTab
+              albumId={props.albumId}
+              source="lastfm"
+              initialArtist={formData().artist_name}
+              initialTitle={formData().title}
+              snapshot={albumMetadata().lastfm}
+              progress={enrichmentProgress().lastfm}
+              onRequeried={refreshEnrichmentProgress}
+            />
+          </TabPanel>
+
+          <TabPanel id="audiodb" class="flex-1 overflow-y-auto p-6">
+            <AlbumEnrichmentSourceTab
+              albumId={props.albumId}
+              source="audiodb"
+              initialArtist={formData().artist_name}
+              initialTitle={formData().title}
+              snapshot={albumMetadata().audiodb}
+              progress={enrichmentProgress().audiodb}
+              onRequeried={refreshEnrichmentProgress}
+            />
+          </TabPanel>
+
+          <TabPanel id="artist" class="flex-1 overflow-y-auto p-6">
+            <AlbumArtistTab
+              artistId={formData().artist_id}
+              artistName={formData().artist_name}
+              onSaved={refreshEnrichmentProgress}
+            />
+          </TabPanel>
         </Tabs>
       </Show>
 
       {/* footer */}
-      <Show when={initialData() && activeTab() === "info"}>
+      <Show when={initialData() && (activeTab() === "info" || reviewMode() != null)}>
         <div class="flex items-center justify-between p-6 border-t border-[var(--color-border-default)] flex-shrink-0">
           <Show when={canDeleteAlbum()}>
             <Button onClick={handleDelete} variant="danger">
@@ -888,12 +1086,45 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
                 reset all
               </button>
             </Show>
-            <Button variant="secondary" onClick={props.onClose}>
-              cancel
-            </Button>
-            <Show when={canUpdateAlbum()}>
-              <Button variant="primary" onClick={handleSave} disabled={!hasChanges()}>
-                save changes
+            <Show
+              when={reviewMode()}
+              fallback={
+                <>
+                  <Button variant="secondary" onClick={props.onClose}>
+                    cancel
+                  </Button>
+                  <Show when={canUpdateAlbum()}>
+                    <Button variant="primary" onClick={() => handleSave()} disabled={!hasChanges()}>
+                      save changes
+                    </Button>
+                  </Show>
+                </>
+              }
+            >
+              {/* review-mode footer toolbar (phase 14.7) */}
+              <Button variant="secondary" onClick={handleSkip}>
+                skip
+              </Button>
+              <Show when={canUpdateAlbum()}>
+                <Button
+                  variant="secondary"
+                  onClick={handleSaveAndClose}
+                  disabled={!hasChanges()}
+                  title="save current and exit review"
+                >
+                  save & close
+                </Button>
+                <Button
+                  variant="primary"
+                  onClick={handleSaveAndNext}
+                  disabled={!hasChanges() && !reviewHasNext()}
+                  title="save current and advance"
+                >
+                  {reviewHasNext() ? "save & next" : "save & finish"}
+                </Button>
+              </Show>
+              <Button variant="secondary" onClick={handleExit}>
+                exit
               </Button>
             </Show>
           </div>

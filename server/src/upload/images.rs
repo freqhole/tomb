@@ -164,6 +164,7 @@ pub async fn upload_image_handler(
         max_retries: Some(3),
         scheduled_at: None,
         created_by: Some(user.user_id.clone()),
+        priority: None,
     })
     .await;
 

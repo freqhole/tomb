@@ -105,6 +105,7 @@ pub async fn handle_command(action: ScanAction) -> CommandOutput<serde_json::Val
                 max_retries: Some(0),
                 scheduled_at: None,
                 created_by: Some("cli-scan".to_string()),
+                priority: None,
             };
 
             let response = create_job(job_request).await;
@@ -140,6 +141,7 @@ pub async fn handle_command(action: ScanAction) -> CommandOutput<serde_json::Val
                 max_retries: Some(0), // no retries for rescan
                 scheduled_at: None,   // immediate
                 created_by: Some("cli".to_string()),
+                priority: None,
             };
 
             let response = create_job(job_request).await;
@@ -212,6 +214,7 @@ pub async fn handle_command(action: ScanAction) -> CommandOutput<serde_json::Val
                 max_retries: Some(0),
                 scheduled_at: None,
                 created_by: Some("cli".to_string()),
+                priority: None,
             };
 
             let response = create_job(job_request).await;

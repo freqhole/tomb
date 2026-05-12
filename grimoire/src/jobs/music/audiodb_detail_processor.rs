@@ -64,6 +64,8 @@ pub async fn process_audiodb_album_detail_job(job: &Job) -> Result<Option<Value>
             });
         }
     };
+    // requery overrides win over db-derived values (phase 14.5).
+    let title = params.title_override.clone().unwrap_or(title);
 
     let artist_name: Option<String> = sqlx::query_scalar!(
         r#"SELECT art.name FROM artist_albumz aa
@@ -76,6 +78,7 @@ pub async fn process_audiodb_album_detail_job(job: &Job) -> Result<Option<Value>
     .await
     .ok()
     .flatten();
+    let artist_name = params.artist_override.clone().or(artist_name);
 
     let cfg = config::get_config();
     let client = match AudioDbClient::new(cfg.audiodb.clone()) {
@@ -100,6 +103,7 @@ pub async fn process_audiodb_album_detail_job(job: &Job) -> Result<Option<Value>
     // effect (from search.php). reuse it for step 2 to avoid an extra hit.
     let mut artist_hint_from_search: Option<AudioDbArtist> = None;
     let album_opt: Option<AudioDbAlbum> = if let Some(mbid) = params.mbid.as_deref() {
+        crate::jobs::rate_limit::acquire(crate::jobs::rate_limit::Source::Audiodb).await;
         let resp = client.album_by_mbid(mbid).await;
         if resp.success {
             if resp.data.as_ref().and_then(|o| o.as_ref()).is_some() {
@@ -162,6 +166,7 @@ pub async fn process_audiodb_album_detail_job(job: &Job) -> Result<Option<Value>
             .and_then(|a| a.musicbrainz_artist_id.clone())
     });
     let artist_fetched = if let Some(amid) = artist_mbid_for_lookup.as_deref() {
+        crate::jobs::rate_limit::acquire(crate::jobs::rate_limit::Source::Audiodb).await;
         let resp = client.artist_by_mbid(amid).await;
         if resp.success {
             if let Some(Some(a)) = resp.data.map(Some) {
@@ -286,6 +291,7 @@ async fn album_via_text_or_discography(
     title: &str,
 ) -> AlbumFallback {
     // step 1: strict text search
+    crate::jobs::rate_limit::acquire(crate::jobs::rate_limit::Source::Audiodb).await;
     let s = client.search_album(artist, title).await;
     if !s.success {
         return AlbumFallback {
@@ -305,6 +311,7 @@ async fn album_via_text_or_discography(
     }
 
     // step 2: search artist, then fuzzy-match in their discography
+    crate::jobs::rate_limit::acquire(crate::jobs::rate_limit::Source::Audiodb).await;
     let ar = client.search_artist(artist).await;
     if !ar.success {
         return AlbumFallback {
@@ -341,6 +348,7 @@ async fn album_via_text_or_discography(
         }
     };
 
+    crate::jobs::rate_limit::acquire(crate::jobs::rate_limit::Source::Audiodb).await;
     let disc = client.albums_by_artist_id(&artist_id).await;
     if !disc.success {
         return AlbumFallback {

@@ -198,6 +198,7 @@ pub async fn scan_directory_and_create_jobs(
             max_retries: Some(3),
             scheduled_at: None,
             created_by: root_user_id.clone(),
+            priority: None,
         };
 
         let job_response = create_job(job_request).await;

@@ -132,6 +132,21 @@ export function AlbumsTable(props: AlbumsTableProps) {
 
   const loadedCount = () => allItems().length;
 
+  // phase 14.11: rough coverage indicator over the loaded rows.
+  // "covered" = enriched OR confirmed; matches what the per-row status
+  // badges would call "done". since query_albums doesn't return a server
+  // count yet, this is loaded-rows-only — informative, not authoritative.
+  const coveredCount = () =>
+    allItems().filter((a) => {
+      const s = parseMbLookupStatus(a.mb_lookup_status);
+      return s === "enriched" || s === "confirmed";
+    }).length;
+  const coveragePct = () => {
+    const n = loadedCount();
+    if (n === 0) return 0;
+    return Math.round((coveredCount() / n) * 100);
+  };
+
   const toggleStatus = (status: MbLookupStatus) => {
     setStatusFilters((prev) => {
       const next = new Set<MbLookupStatus>(prev);
@@ -245,6 +260,12 @@ export function AlbumsTable(props: AlbumsTableProps) {
               {loadedCount()}
               <Show when={albumsQuery.hasNextPage}>+</Show>
               <Show when={statusFilters().size > 0}> · {filteredItems().length} match filters</Show>
+              <span
+                class="ml-1.5 text-[var(--color-text-tertiary)]"
+                title={`${coveredCount()} of ${loadedCount()} loaded albums are confirmed or enriched`}
+              >
+                · {coveragePct()}% enriched
+              </span>
             </Show>
           </div>
 

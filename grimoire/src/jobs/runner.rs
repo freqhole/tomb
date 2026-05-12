@@ -4,10 +4,10 @@
 
 use super::models::{Job, JobResult, JobType};
 use super::music::{
-    process_audiodb_album_detail_job, process_convert_webp_job, process_fetch_media_job,
-    process_file_job, process_import_music_job, process_lastfm_album_detail_job,
-    process_mb_album_detail_job, process_mb_album_search_job, process_rescan_directories_job,
-    process_scan_directory_job,
+    process_audiodb_album_detail_job, process_album_enrichment_pipeline_job,
+    process_convert_webp_job, process_fetch_media_job, process_file_job,
+    process_import_music_job, process_lastfm_album_detail_job, process_mb_album_detail_job,
+    process_mb_album_search_job, process_rescan_directories_job, process_scan_directory_job,
 };
 use super::service::{
     delete_job, get_job_session, get_next_pending_job, get_session_job_counts, mark_job_completed,
@@ -46,6 +46,7 @@ pub async fn process_job(job: Job) -> GrimoireResponse<JobResult> {
         JobType::MbAlbumDetail => process_mb_album_detail_job(&job).await,
         JobType::LastFmAlbumDetail => process_lastfm_album_detail_job(&job).await,
         JobType::AudioDbAlbumDetail => process_audiodb_album_detail_job(&job).await,
+        JobType::AlbumEnrichmentPipeline => process_album_enrichment_pipeline_job(&job).await,
     };
 
     let processing_time = start_time.elapsed().as_millis() as u64;

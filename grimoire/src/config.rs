@@ -29,9 +29,6 @@ pub struct GrimoireConfig {
     /// theaudiodb integration (optional)
     #[serde(default)]
     pub audiodb: AudioDbConfig,
-    /// allmusic via apify integration (optional)
-    #[serde(default)]
-    pub allmusic: AllMusicConfig,
     /// Logging configuration
     pub logging: LoggingConfig,
     /// Server configuration (optional - only needed for server mode)
@@ -230,26 +227,6 @@ impl Default for AudioDbConfig {
 
 fn default_audiodb_api_key() -> String {
     "123".to_string()
-}
-
-/// allmusic via apify scraper. paid third-party scraper-as-a-service;
-/// disabled by default. **only enable on libraries you own and only run
-/// on explicitly-confirmed albums.**
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct AllMusicConfig {
-    /// enable allmusic enrichment (default: false)
-    #[serde(default)]
-    pub enabled: bool,
-    /// apify api token (NOT an allmusic key — this hits apify's actor api)
-    #[serde(default)]
-    pub api_token: String,
-    /// override the default actor id; defaults to
-    /// `lexis-solutions~allmusic-scraper`.
-    #[serde(default)]
-    pub actor_id: Option<String>,
-    /// per-run timeout in seconds (default 180; allmusic scraping is slow).
-    #[serde(default)]
-    pub timeout_seconds: Option<u64>,
 }
 
 /// federation/p2p configuration for peer-to-peer music sharing
@@ -1555,7 +1532,6 @@ mod tests {
             musicbrainz: MusicBrainzConfig { enabled: false },
             lastfm: LastFmConfig::default(),
             audiodb: AudioDbConfig::default(),
-            allmusic: AllMusicConfig::default(),
             logging: LoggingConfig {
                 level: "info".to_string(),
                 log_file: "freqhole.log".to_string(),
@@ -1599,7 +1575,6 @@ mod tests {
             musicbrainz: MusicBrainzConfig { enabled: false },
             lastfm: LastFmConfig::default(),
             audiodb: AudioDbConfig::default(),
-            allmusic: AllMusicConfig::default(),
             logging: LoggingConfig {
                 level: "invalid".to_string(),
                 log_file: "freqhole.log".to_string(),
@@ -1641,7 +1616,6 @@ mod tests {
             musicbrainz: MusicBrainzConfig { enabled: false },
             lastfm: LastFmConfig::default(),
             audiodb: AudioDbConfig::default(),
-            allmusic: AllMusicConfig::default(),
             logging: LoggingConfig {
                 level: "info".to_string(),
                 log_file: "freqhole.log".to_string(),

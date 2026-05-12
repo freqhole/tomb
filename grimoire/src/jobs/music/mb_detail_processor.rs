@@ -73,6 +73,7 @@ pub async fn process_mb_album_detail_job(job: &Job) -> Result<Option<Value>, Job
     };
 
     // step 3: fetch release-group
+    crate::jobs::rate_limit::acquire(crate::jobs::rate_limit::Source::Mb).await;
     let rg_resp = client.get_release_group(&params.release_group_id).await;
     if !rg_resp.success {
         let _ = albums_repo::update_mb_lookup_status(
@@ -124,7 +125,10 @@ pub async fn process_mb_album_detail_job(job: &Job) -> Result<Option<Value>, Job
     // step 4: optionally fetch release
     let mut release_date_for_apply: Option<String> = None;
     let mut release_label_for_apply: Option<String> = None;
-    let (mut release_genres, mut release_tags) = if let Some(release_id) = params.release_id.as_deref() {
+    let (mut release_genres, mut release_tags) = if let Some(release_id) =
+        params.release_id.as_deref()
+    {
+        crate::jobs::rate_limit::acquire(crate::jobs::rate_limit::Source::Mb).await;
         let r_resp = client.get_release(release_id).await;
         if r_resp.success {
             let r = r_resp.data.unwrap();
@@ -202,12 +206,8 @@ pub async fn process_mb_album_detail_job(job: &Job) -> Result<Option<Value>, Job
         }
     }
     if release_genres.is_empty() && release_tags.is_empty() {
-        let extra = walk_sibling_releases_for_tags(
-            &client,
-            &album_id,
-            params.release_id.as_deref(),
-        )
-        .await;
+        let extra =
+            walk_sibling_releases_for_tags(&client, &album_id, params.release_id.as_deref()).await;
         if !extra.contributing_release_ids.is_empty() {
             info!(
                 "mb walk-and-union: folded tags from {} sibling release(s) for album {}",
@@ -426,6 +426,7 @@ async fn walk_sibling_releases_for_tags(
     );
 
     for (conf, rid) in siblings {
+        crate::jobs::rate_limit::acquire(crate::jobs::rate_limit::Source::Mb).await;
         let resp = client.get_release(&rid).await;
         if !resp.success {
             info!(

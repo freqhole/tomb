@@ -1,7 +1,11 @@
 //! album API handlers
 
 use crate::api_registry::{Domain, Method, RouteAuth, RouteInfo};
+use crate::config::get_config;
 use crate::error::ErrorDetail;
+use crate::media_blobz::{
+    create_media_blob, get_media_blob_by_sha256, BlobType, CreateMediaBlobRequest,
+};
 use crate::music::crud::{query_albums, DeleteAlbumRequest, GetAlbumRequest, QueryParams};
 use crate::music::entities::albums::metadata::{
     AutoConfirmMbMatchesRequest, ConfirmMbMatchRequest, MbMatchActionResponse, RejectMbMatchRequest,
@@ -18,7 +22,10 @@ use crate::music::entities::albums::taxon_proposals::{
     propose_taxons_for_album as grimoire_propose_taxons_for_album, ApplyTaxonProposalsRequest,
     ProposeTaxonsRequest,
 };
-use crate::music::entities::artists::{remove_artist_image, set_primary_artist_image};
+use crate::music::entities::artists::{
+    add_artist_image, remove_artist_image, set_primary_artist_image,
+};
+use crate::music::entities::albums::add_album_image;
 use crate::music::entities::playlists::{remove_playlist_image, set_primary_playlist_image};
 use crate::music::entities::songs::{remove_song_image, set_primary_song_image};
 use crate::offal::caller::Caller;
@@ -117,6 +124,15 @@ pub const ROUTES: &[RouteInfo] = &[
         domain: Domain::Music,
         request_type: "ApplyTaxonProposalsRequest",
         response_type: "ApplyTaxonProposalsResult",
+        auth: RouteAuth::Role(UserRole::Admin),
+    },
+    RouteInfo {
+        name: "ingest_remote_image",
+        path: "/api/music/images/ingest",
+        method: Method::POST,
+        domain: Domain::Music,
+        request_type: "IngestRemoteImageRequest",
+        response_type: "IngestRemoteImageResponse",
         auth: RouteAuth::Role(UserRole::Admin),
     },
 ];
@@ -536,4 +552,317 @@ pub async fn apply_taxon_proposals(
     };
     let response = grimoire_apply_taxon_proposals(req).await;
     response.map(|data| serde_json::to_value(data).unwrap())
+}
+
+// =============================================================================
+// remote image ingestion (phase 14.6)
+// =============================================================================
+
+/// where to attach the ingested image. matches the discriminator on the
+/// generated typescript zod schema (`{ kind: "album", id }` or
+/// `{ kind: "artist", id }`).
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize, zod_gen_derive::ZodSchema)]
+#[serde(tag = "kind", content = "id", rename_all = "snake_case")]
+pub enum ImageIngestTarget {
+    Album(String),
+    Artist(String),
+}
+
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize, zod_gen_derive::ZodSchema)]
+pub struct IngestRemoteImageRequest {
+    pub remote_url: String,
+    pub target: ImageIngestTarget,
+    #[serde(default)]
+    pub is_primary: bool,
+    /// optional human-friendly source label for the blob's metadata json
+    /// (e.g. "lastfm", "audiodb"). purely descriptive.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+}
+
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize, zod_gen_derive::ZodSchema)]
+pub struct IngestRemoteImageResponse {
+    pub blob_id: String,
+    pub sha256: String,
+    pub size: i64,
+    pub mime: String,
+    /// true when the same sha256 was already in `media_blobz` and we
+    /// skipped the disk write + insert (just re-linked).
+    pub deduped: bool,
+}
+
+/// max bytes accepted from a remote image url. avoids accidentally pulling
+/// down arbitrarily large assets.
+const MAX_REMOTE_IMAGE_BYTES: usize = 16 * 1024 * 1024; // 16MB
+
+/// download an image from a remote url and link it to an album or artist.
+/// dedups on sha256: if we already have the blob, no fetch + no disk write,
+/// just the link row.
+///
+/// path: POST /api/music/images/ingest
+pub async fn ingest_remote_image(
+    caller: &Caller,
+    body: JsonValue,
+) -> GrimoireResponse<JsonValue> {
+    if !caller.is_admin() {
+        return GrimoireResponse::failure(
+            "forbidden",
+            vec![ErrorDetail::new("forbidden", "forbidden", "admin only")],
+        );
+    }
+    let req: IngestRemoteImageRequest = match serde_json::from_value(body) {
+        Ok(r) => r,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "bad request",
+                vec![ErrorDetail::new(
+                    "bad_request",
+                    "bad request",
+                    &e.to_string(),
+                )],
+            )
+        }
+    };
+
+    // require https/http only — guards against `file://`, `data:`, etc.
+    let scheme_ok = req.remote_url.starts_with("https://") || req.remote_url.starts_with("http://");
+    if !scheme_ok {
+        return GrimoireResponse::failure(
+            "bad request",
+            vec![ErrorDetail::new(
+                "bad_request",
+                "bad request",
+                "remote_url must be http or https",
+            )],
+        );
+    }
+
+    // GET the bytes. set a sane timeout + size cap.
+    let client = match reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .user_agent(concat!("freqhole/", env!("CARGO_PKG_VERSION")))
+        .build()
+    {
+        Ok(c) => c,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "http client unavailable",
+                vec![ErrorDetail::new(
+                    "internal_error",
+                    "http client unavailable",
+                    &e.to_string(),
+                )],
+            )
+        }
+    };
+
+    let resp = match client.get(&req.remote_url).send().await {
+        Ok(r) => r,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "remote fetch failed",
+                vec![ErrorDetail::new(
+                    "remote_fetch_failed",
+                    "remote fetch failed",
+                    &e.to_string(),
+                )],
+            )
+        }
+    };
+    if !resp.status().is_success() {
+        return GrimoireResponse::failure(
+            "remote returned non-2xx",
+            vec![ErrorDetail::new(
+                "remote_fetch_failed",
+                "remote returned non-2xx",
+                &format!("status {}", resp.status()),
+            )],
+        );
+    }
+    let mime_type = resp
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.split(';').next().unwrap_or(s).trim().to_string())
+        .unwrap_or_else(|| "image/jpeg".to_string());
+    if !mime_type.starts_with("image/") {
+        return GrimoireResponse::failure(
+            "bad request",
+            vec![ErrorDetail::new(
+                "bad_request",
+                "bad request",
+                &format!("remote content-type is not an image: {}", mime_type),
+            )],
+        );
+    }
+    let bytes = match resp.bytes().await {
+        Ok(b) => b,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "remote fetch failed",
+                vec![ErrorDetail::new(
+                    "remote_fetch_failed",
+                    "remote fetch failed",
+                    &e.to_string(),
+                )],
+            )
+        }
+    };
+    if bytes.len() > MAX_REMOTE_IMAGE_BYTES {
+        return GrimoireResponse::failure(
+            "image too large",
+            vec![ErrorDetail::new(
+                "bad_request",
+                "image too large",
+                &format!(
+                    "remote image is {} bytes (max {})",
+                    bytes.len(),
+                    MAX_REMOTE_IMAGE_BYTES
+                ),
+            )],
+        );
+    }
+    let size = bytes.len() as i64;
+
+    // sha256 dedup check first: if we already have it, just link.
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(&bytes);
+    let sha256_hex = format!("{:x}", hasher.finalize());
+
+    let (blob_id, deduped, mime_out) = match get_media_blob_by_sha256(&sha256_hex).await {
+        Ok(existing) => (
+            existing.id,
+            true,
+            existing.mime.unwrap_or_else(|| mime_type.clone()),
+        ),
+        Err(_) => {
+            // new blob: write to disk under data/fetch/YYYY/MM/<id>.<ext>
+            let blake3_hash = crate::blobz::compute_blake3_from_bytes(&bytes);
+            let ext = match mime_type.as_str() {
+                "image/png" => "png",
+                "image/webp" => "webp",
+                "image/gif" => "gif",
+                "image/avif" => "avif",
+                "image/svg+xml" => "svg",
+                _ => "jpg",
+            };
+            let blob = match create_media_blob(CreateMediaBlobRequest {
+                sha256: sha256_hex.clone(),
+                size: Some(size),
+                mime: Some(mime_type.clone()),
+                source_client_id: None,
+                local_path: None,
+                filename: None,
+                parent_blob_id: None,
+                blob_type: Some(BlobType::Original),
+                metadata: serde_json::json!({
+                    "remote_url": req.remote_url,
+                    "source": req.source.clone().unwrap_or_default(),
+                }),
+                created_by: Some(caller.user_id.clone()),
+                data: None,
+                width: None,
+                height: None,
+                blake3: Some(blake3_hash),
+            })
+            .await
+            {
+                Ok(b) => b,
+                Err(e) => {
+                    return GrimoireResponse::failure(
+                        "failed to create blob",
+                        vec![ErrorDetail::from(e)],
+                    )
+                }
+            };
+
+            // write to disk under fetch/YYYY/MM/<id>.<ext>
+            let cfg = get_config();
+            let output_dir = cfg
+                .server
+                .as_ref()
+                .and_then(|s| s.fetch_music.as_ref())
+                .and_then(|f| f.output_dir.as_ref())
+                .map(std::path::PathBuf::from)
+                .unwrap_or_else(|| cfg.data_dir.join("fetch"));
+            let now = time::OffsetDateTime::now_utc();
+            let rel_path = format!(
+                "{:04}/{:02}/{}.{}",
+                now.year(),
+                now.month() as u8,
+                blob.id,
+                ext
+            );
+            let full_path = output_dir.join(&rel_path);
+            if let Some(parent) = full_path.parent() {
+                if let Err(e) = tokio::fs::create_dir_all(parent).await {
+                    return GrimoireResponse::failure(
+                        "failed to create directory",
+                        vec![ErrorDetail::new(
+                            "internal_error",
+                            "failed to create directory",
+                            &e.to_string(),
+                        )],
+                    );
+                }
+            }
+            if let Err(e) = tokio::fs::write(&full_path, &bytes).await {
+                return GrimoireResponse::failure(
+                    "failed to write file",
+                    vec![ErrorDetail::new(
+                        "internal_error",
+                        "failed to write file",
+                        &e.to_string(),
+                    )],
+                );
+            }
+            // record local_path on the blob row
+            let _ = crate::media_blobz::update_blob_local_path(
+                &blob.id,
+                full_path.to_string_lossy().as_ref(),
+                Some(caller.user_id.clone()),
+            )
+            .await;
+
+            (blob.id, false, mime_type.clone())
+        }
+    };
+
+    // link to album or artist
+    let link_resp = match &req.target {
+        ImageIngestTarget::Album(album_id) => {
+            add_album_image(
+                album_id,
+                &blob_id,
+                req.is_primary,
+                Some((&caller.user_id, &caller.username)),
+            )
+            .await
+        }
+        ImageIngestTarget::Artist(artist_id) => {
+            add_artist_image(
+                artist_id,
+                &blob_id,
+                req.is_primary,
+                Some((&caller.user_id, &caller.username)),
+            )
+            .await
+        }
+    };
+    if !link_resp.success {
+        return GrimoireResponse::failure(&link_resp.message, link_resp.errors);
+    }
+
+    let body = IngestRemoteImageResponse {
+        blob_id,
+        sha256: sha256_hex,
+        size,
+        mime: mime_out,
+        deduped,
+    };
+    GrimoireResponse::success(
+        "image ingested",
+        serde_json::to_value(body).unwrap(),
+    )
 }

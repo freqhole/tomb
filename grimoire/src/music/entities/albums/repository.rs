@@ -454,6 +454,7 @@ pub async fn confirm_mb_match(
             max_retries: Some(2),
             scheduled_at: None,
             created_by: Some(user_id.to_string()),
+            priority: None,
         })
         .await;
     }

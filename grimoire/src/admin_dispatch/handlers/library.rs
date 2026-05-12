@@ -185,6 +185,7 @@ pub(in crate::admin_dispatch) async fn rescan_all(caller: &Caller) -> GrimoireRe
         max_retries: Some(0),
         scheduled_at: None,
         created_by: Some(caller.user_id.clone()),
+        priority: None,
     };
     let resp = crate::jobs::create_job(req).await;
     if resp.success {
@@ -283,6 +284,7 @@ pub(in crate::admin_dispatch) async fn fetch(
         max_retries: Some(3),
         scheduled_at: None,
         created_by: Some(caller.user_id.clone()),
+        priority: None,
     };
     let resp = crate::jobs::create_job(req).await;
     if resp.success {

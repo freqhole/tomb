@@ -53,7 +53,6 @@ pub enum ProposalSource {
     Mb,
     Lastfm,
     Audiodb,
-    Allmusic,
 }
 
 impl ProposalSource {
@@ -64,7 +63,6 @@ impl ProposalSource {
             Self::Mb => "musicbrainz",
             Self::Lastfm => "lastfm",
             Self::Audiodb => "audiodb",
-            Self::Allmusic => "allmusic",
         }
     }
 }
@@ -134,10 +132,7 @@ pub struct ApplyTaxonProposalsResult {
 pub async fn propose_taxons_for_album(album_id: &str) -> GrimoireResponse<Vec<TaxonProposal>> {
     let meta_resp = read_album_metadata(album_id).await;
     if !meta_resp.success {
-        return GrimoireResponse::failure(
-            "failed to read album metadata",
-            meta_resp.errors,
-        );
+        return GrimoireResponse::failure("failed to read album metadata", meta_resp.errors);
     }
     let meta = meta_resp.data.unwrap_or_default();
 
@@ -173,10 +168,7 @@ pub async fn propose_taxons_for_album(album_id: &str) -> GrimoireResponse<Vec<Ta
 
     let mut proposals = bag.finish();
     for p in proposals.iter_mut() {
-        let key = (
-            p.kind_slug.clone(),
-            taxonomy::slugify_taxon_label(&p.label),
-        );
+        let key = (p.kind_slug.clone(), taxonomy::slugify_taxon_label(&p.label));
         p.already_linked = existing_keys.contains(&key);
     }
     proposals.sort_by(|a, b| {
@@ -540,7 +532,10 @@ fn propose_from_audiodb_album(album: &AudioDbAlbumSnapshot, bag: &mut ProposalBa
 /// derive a decade label like `"1990s"` from a year-prefixed date string
 /// (`"1995"`, `"1995-04-01"`, ...). returns `None` for unparseable input.
 fn year_to_decade(date_or_year: &str) -> Option<String> {
-    let prefix: String = date_or_year.chars().take_while(|c| c.is_ascii_digit()).collect();
+    let prefix: String = date_or_year
+        .chars()
+        .take_while(|c| c.is_ascii_digit())
+        .collect();
     if prefix.len() < 4 {
         return None;
     }
@@ -684,13 +679,10 @@ mod tests {
         let by_kind: std::collections::HashMap<&str, std::collections::HashSet<&str>> = proposals
             .iter()
             .map(|p| (p.kind_slug.as_str(), p.label.as_str()))
-            .fold(
-                std::collections::HashMap::new(),
-                |mut acc, (k, l)| {
-                    acc.entry(k).or_default().insert(l);
-                    acc
-                },
-            );
+            .fold(std::collections::HashMap::new(), |mut acc, (k, l)| {
+                acc.entry(k).or_default().insert(l);
+                acc
+            });
         let genres = by_kind.get(KIND_GENRE).unwrap();
         assert!(genres.contains("Post-Rock"));
         assert!(genres.contains("instrumental"));
@@ -768,12 +760,7 @@ mod tests {
     #[test]
     fn dedup_merges_sources() {
         let mut bag = ProposalBag::new();
-        bag.add(
-            KIND_GENRE,
-            "Rock",
-            ProposalSource::Mb,
-            Some("mb".into()),
-        );
+        bag.add(KIND_GENRE, "Rock", ProposalSource::Mb, Some("mb".into()));
         bag.add(
             KIND_GENRE,
             "rock",

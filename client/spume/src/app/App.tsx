@@ -866,6 +866,7 @@ export function App() {
             disableNestedModals={state().disableNestedModals}
             onOpenSongEditor={(songId) => showSongEditor({ songId, disableNestedModals: true })}
             onMergeNavigate={state().onMergeNavigate}
+            review={state().review}
           />
         )}
       </Show>

@@ -67,6 +67,16 @@ interface AlbumEditorOptions {
   disableNestedModals?: boolean;
   /** called after a successful merge with the target album id, so callers can navigate */
   onMergeNavigate?: (newAlbumId: string) => void;
+  /** bulk-enrichment review mode (phase 14.7/14.9). when set, the modal
+   *  renders a header strip + footer toolbar + arrow/`j`/`k` keybindings
+   *  for navigating through the supplied list. */
+  review?: {
+    ids: string[];
+    currentIndex: number;
+    onNext: () => void;
+    onPrev: () => void;
+    onExit: () => void;
+  };
 }
 
 // song editor
