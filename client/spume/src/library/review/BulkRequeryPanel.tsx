@@ -127,7 +127,7 @@ export function BulkRequeryPanel(props: BulkRequeryPanelProps) {
         toast.error(`${sourceLabel(source)} requery failed: ${resp.error?.message ?? "unknown"}`);
         return;
       }
-      toast.success(`${sourceLabel(source)} re-enqueued`);
+      // no success toast — the panel polls + the row updates inline.
       props.onChanged?.();
     } catch (err) {
       toast.error(`${sourceLabel(source)} requery threw: ${(err as Error).message}`);

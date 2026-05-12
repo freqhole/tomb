@@ -15,6 +15,7 @@
 import { createEffect, createMemo, createSignal, For, on, onCleanup, Show } from "solid-js";
 import type { ImageMetadata } from "../../music/services/storage/types";
 import { useArtistAutocompleteQuery } from "../../music/queries/autocomplete";
+import type { Remote } from "../../app/services/storage/schemas/remote";
 import { MediaImage } from "../media/MediaImage";
 
 export interface ArtistAutocompleteProps {
@@ -34,6 +35,9 @@ export interface ArtistAutocompleteProps {
   hint?: string;
   /** custom label for the "create new" option (default: "create new: {input}") */
   newLabel?: (input: string) => string;
+  /** when set, autocomplete queries route through the picked remote's
+   *  client instead of the global active datasource. */
+  remote?: Remote;
 }
 
 interface ArtistOption {
@@ -76,7 +80,7 @@ export function ArtistAutocomplete(props: ArtistAutocompleteProps) {
   // pull results via the existing autocomplete query hook (same source
   // of truth as the prior kobalte version).
   const debouncedAccessor = () => (debounced().length > 0 ? debounced() : undefined);
-  const artistQuery = useArtistAutocompleteQuery(debouncedAccessor);
+  const artistQuery = useArtistAutocompleteQuery(debouncedAccessor, () => props.remote);
 
   const options = createMemo<ArtistOption[]>(() => {
     const items = artistQuery.data?.items || [];

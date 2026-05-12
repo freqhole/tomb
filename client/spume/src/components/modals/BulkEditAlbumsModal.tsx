@@ -1,11 +1,13 @@
 // bulk edit modal for one or more albums (library view).
 //
 // modes:
-//   * "metadata" — rename a single album (title) and/or change the
-//     `album_type` for any number of selected albums. when more than
-//     one album is selected the user can also pick a "combine" target
-//     from the selection; the other albums get merged into it via
-//     `merge_into_album_id` (server moves all songs over).
+//   * "metadata" — rename artist + album for one selected album, and/or
+//     change `album_type` for any number of selected albums. uses the
+//     same ArtistAutocomplete + AlbumAutocomplete used elsewhere in the
+//     app, scoped to the picked remote. when 2+ albums are selected the
+//     album picker becomes a "combine into" target picker (any existing
+//     album on the remote — songs from the others get moved into it via
+//     `merge_into_album_id`).
 //   * "disc" — set a single disc number across every song in every
 //     selected album (fans out via `updateSongs`).
 //
@@ -26,7 +28,8 @@ import {
 import { Modal } from "./Modal";
 import { Button } from "../buttons/Button";
 import { Icon, IconNames } from "../icons/registry";
-import { TextInput } from "../forms/TextInput";
+import { ArtistAutocomplete } from "../forms/ArtistAutocomplete";
+import { AlbumAutocomplete } from "../forms/AlbumAutocomplete";
 import { toast } from "../feedback/Toast";
 import { pushModal, popModal } from "../../music/hooks/modals";
 import { getClientForRemote } from "../../app/api/client";
@@ -46,6 +49,7 @@ const ALBUM_TYPE_OPTIONS = [
 interface AlbumLite {
   id: string;
   title: string;
+  artist_id: string;
   artist_name: string;
   album_type: string | null;
 }
@@ -87,6 +91,7 @@ export function BulkEditAlbumsModal(props: BulkEditAlbumsModalProps) {
             const lite: AlbumLite = {
               id: item.album.id,
               title: item.album.title,
+              artist_id: item.artist?.id ?? "",
               artist_name: item.artist?.name ?? "",
               album_type: item.album.album_type ?? null,
             };
@@ -103,10 +108,18 @@ export function BulkEditAlbumsModal(props: BulkEditAlbumsModalProps) {
   const isSingle = createMemo(() => props.albumIds.length === 1);
 
   // metadata-mode state
-  const [title, setTitle] = createSignal("");
-  const [titleTouched, setTitleTouched] = createSignal(false);
+  // artist: when picked existing → artistId set; when new → only
+  // artistName set. only applies when user actually changed it.
+  const [artistId, setArtistId] = createSignal<string | undefined>(undefined);
+  const [artistName, setArtistName] = createSignal("");
+  const [artistTouched, setArtistTouched] = createSignal(false);
+  // album: in single mode: pick existing → mergeTargetId set; new (or
+  // typed-as-create) → just rename to that title. in multi mode: only
+  // existing pick is meaningful → mergeTargetId.
+  const [albumTitle, setAlbumTitle] = createSignal("");
+  const [mergeTargetId, setMergeTargetId] = createSignal<string | undefined>(undefined);
+  const [albumTouched, setAlbumTouched] = createSignal(false);
   const [albumType, setAlbumType] = createSignal("");
-  const [mergeTargetId, setMergeTargetId] = createSignal("");
 
   // disc-mode state
   const [discNumber, setDiscNumber] = createSignal(1);
@@ -114,17 +127,19 @@ export function BulkEditAlbumsModal(props: BulkEditAlbumsModalProps) {
 
   const [isSaving, setIsSaving] = createSignal(false);
 
-  // prefill title on single-album once loaded
-  const prefilledTitle = createMemo(() => {
-    const list = albums();
-    if (!list || list.length !== 1) return "";
-    const first = list[0];
-    return first ? first.title : "";
-  });
-  // sync prefill when it lands (only if user hasn't typed yet)
+  // prefill artist + album on single-album once loaded
   createEffect(() => {
-    const t = prefilledTitle();
-    if (!titleTouched() && t) setTitle(t);
+    const list = albums();
+    if (!list || list.length !== 1) return;
+    const first = list[0];
+    if (!first) return;
+    if (!artistTouched()) {
+      setArtistName(first.artist_name);
+      setArtistId(first.artist_id || undefined);
+    }
+    if (!albumTouched()) {
+      setAlbumTitle(first.title);
+    }
   });
 
   // common album_type across all selected (for the placeholder hint)
@@ -135,6 +150,11 @@ export function BulkEditAlbumsModal(props: BulkEditAlbumsModalProps) {
     return list.every((a) => (a?.album_type ?? null) === first) ? first : null;
   });
 
+  // current artist id accessor for AlbumAutocomplete to filter by
+  // — only used in single mode (otherwise the artist picker may be
+  // intentionally cleared/changed across the whole selection).
+  const albumPickerArtistId = () => artistId();
+
   onMount(() => {
     const id = "bulk-edit-albums";
     pushModal(id, props.onClose);
@@ -143,14 +163,12 @@ export function BulkEditAlbumsModal(props: BulkEditAlbumsModalProps) {
 
   const isValid = createMemo(() => {
     if (props.mode === "disc") return discTouched();
-    // metadata: at least one of (title changed for single, album_type
-    // picked, merge target picked)
-    if (isSingle()) {
-      const t = title().trim();
-      if (t && t !== prefilledTitle()) return true;
-    }
+    // metadata: at least one of (artist changed, title changed for
+    // single, album_type picked, merge target picked)
+    if (artistTouched()) return true;
+    if (isSingle() && albumTouched()) return true;
     if (albumType()) return true;
-    if (!isSingle() && mergeTargetId()) return true;
+    if (mergeTargetId()) return true;
     return false;
   });
 
@@ -163,16 +181,19 @@ export function BulkEditAlbumsModal(props: BulkEditAlbumsModalProps) {
   const handleSaveMetadata = async () => {
     const client = await getClientForRemote(props.remote);
     const target = mergeTargetId();
-    const newTitle = isSingle() ? title().trim() : "";
+    // artist payload (only when user changed it)
+    const newArtistId = artistTouched() ? (artistId() ?? null) : null;
+    const newArtistName =
+      artistTouched() && !newArtistId && artistName().trim() ? artistName().trim() : null;
     const newType = albumType();
+    const newTitle = isSingle() && albumTouched() && !target ? albumTitle().trim() : "";
 
     let ok = 0;
     let failed = 0;
 
-    // when a merge target is picked, every other selected album gets
-    // its songs moved into the target. the target album itself can
-    // still receive a title/type change.
     if (target) {
+      // merge: every selected album (other than the target) is merged
+      // into target. artist/type changes still apply to the target.
       for (const id of props.albumIds) {
         if (id === target) continue;
         try {
@@ -184,9 +205,6 @@ export function BulkEditAlbumsModal(props: BulkEditAlbumsModalProps) {
             album_type: null,
             release_date: null,
             label: null,
-            // some codegens emit genre_ids/genres on update; pass null
-            // through `as never` to stay type-loose if the schema
-            // shape drifts.
             entity_urls: null,
             updated_by: null,
             merge_into_album_id: target,
@@ -197,14 +215,13 @@ export function BulkEditAlbumsModal(props: BulkEditAlbumsModalProps) {
           failed += 1;
         }
       }
-      // optionally update the target's title/type
-      if (newTitle || newType) {
+      if (newArtistId || newArtistName || newType) {
         try {
           const resp = await client.music.updateAlbum({
             album_id: target,
-            title: newTitle || null,
-            artist_id: null,
-            artist_name: null,
+            title: null,
+            artist_id: newArtistId,
+            artist_name: newArtistName,
             album_type: newType || null,
             release_date: null,
             label: null,
@@ -219,14 +236,15 @@ export function BulkEditAlbumsModal(props: BulkEditAlbumsModalProps) {
         }
       }
     } else {
-      // no merge: apply title (single only) + album_type to all
+      // no merge: apply artist (any mode) + title (single only) +
+      // album_type to all selected.
       for (const id of props.albumIds) {
         try {
           const resp = await client.music.updateAlbum({
             album_id: id,
             title: isSingle() && newTitle ? newTitle : null,
-            artist_id: null,
-            artist_name: null,
+            artist_id: newArtistId,
+            artist_name: newArtistName,
             album_type: newType || null,
             release_date: null,
             label: null,
@@ -346,20 +364,52 @@ export function BulkEditAlbumsModal(props: BulkEditAlbumsModalProps) {
           </div>
 
           <Show when={props.mode === "metadata"}>
-            {/* title — only for single-album rename */}
-            <Show when={isSingle()}>
-              <div>
-                <label class="text-sm text-[var(--color-text-secondary)] mb-1 block">title</label>
-                <TextInput
-                  value={title()}
-                  onInput={(e) => {
-                    setTitleTouched(true);
-                    setTitle(e.currentTarget.value);
-                  }}
-                  placeholder="album title"
-                />
-              </div>
-            </Show>
+            {/* artist — applies to all selected (rename or repoint) */}
+            <ArtistAutocomplete
+              label="artist"
+              value={artistName()}
+              remote={props.remote}
+              placeholder={isSingle() ? "artist name" : "artist for all selected"}
+              hint={
+                isSingle()
+                  ? "pick an existing artist or type a new name"
+                  : "applies to every selected album"
+              }
+              onSelect={(sel) => {
+                setArtistTouched(true);
+                setArtistName(sel.name);
+                setArtistId(sel.isNew ? undefined : sel.id);
+              }}
+            />
+
+            {/* album — single mode: rename or merge into existing.
+                multi mode: only existing pick is meaningful (= combine
+                target). */}
+            <AlbumAutocomplete
+              label={isSingle() ? "album" : "combine into album (optional)"}
+              value={isSingle() ? albumTitle() : ""}
+              artistId={albumPickerArtistId}
+              remote={props.remote}
+              placeholder={
+                isSingle() ? "album title" : "search for an album to combine selection into…"
+              }
+              hint={
+                isSingle()
+                  ? "type a new title to rename, or pick an existing album to merge this one into it."
+                  : "songs from every selected album will be moved into the picked album."
+              }
+              onSelect={(sel) => {
+                setAlbumTouched(true);
+                if (sel.isNew) {
+                  // user-typed new title — rename only (single mode)
+                  setAlbumTitle(sel.title);
+                  setMergeTargetId(undefined);
+                } else {
+                  setAlbumTitle(sel.title);
+                  setMergeTargetId(sel.id);
+                }
+              }}
+            />
 
             {/* album type — applies to all selected */}
             <div>
@@ -385,31 +435,11 @@ export function BulkEditAlbumsModal(props: BulkEditAlbumsModalProps) {
               </select>
             </div>
 
-            {/* combine — only when 2+ selected */}
-            <Show when={!isSingle()}>
-              <div>
-                <label class="text-sm text-[var(--color-text-secondary)] mb-1 block">
-                  combine into one album (optional)
-                </label>
-                <select
-                  value={mergeTargetId()}
-                  onChange={(e) => setMergeTargetId(e.currentTarget.value)}
-                  class="w-full px-2 py-1.5 text-sm bg-[var(--color-bg-base)] border border-[var(--color-border-subtle)] rounded text-[var(--color-text-primary)]"
-                >
-                  <option value="">— don't combine —</option>
-                  <For each={albums() ?? []}>
-                    {(a) => (
-                      <option value={a?.id ?? ""}>
-                        keep: {a?.title ?? ""}
-                        {a?.artist_name ? ` — ${a.artist_name}` : ""}
-                      </option>
-                    )}
-                  </For>
-                </select>
-                <p class="text-xs text-[var(--color-text-tertiary)] mt-1 m-0">
-                  picks one album to keep; songs from the others are moved into it.
-                </p>
-              </div>
+            <Show when={mergeTargetId()}>
+              <p class="text-xs text-[var(--color-warning)] m-0">
+                merge target picked — songs from {props.albumIds.length} album
+                {props.albumIds.length === 1 ? "" : "s"} will be moved into "{albumTitle()}".
+              </p>
             </Show>
           </Show>
 

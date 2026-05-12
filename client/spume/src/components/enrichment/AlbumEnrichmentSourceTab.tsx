@@ -121,7 +121,8 @@ export function AlbumEnrichmentSourceTab(props: AlbumEnrichmentSourceTabProps) {
         toast.error(resp.error?.message || "requery failed");
         return;
       }
-      toast.success(`${sourceLabel(props.source)} re-enqueued`);
+      // no success toast — the parent re-polls and the ui updates
+      // inline; toast spam during rapid requery iteration is noise.
       setEditing(false);
       props.onRequeried?.();
     } catch (err) {

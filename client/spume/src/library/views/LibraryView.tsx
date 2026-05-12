@@ -53,7 +53,13 @@ export function LibraryView() {
   // bulk-action modal state
   const [bulkEditMode, setBulkEditMode] = createSignal<"metadata" | "disc">("metadata");
   const [showBulkEditModal, setShowBulkEditModal] = createSignal(false);
+  // snapshot of selected album ids at the moment the modal opens — the
+  // modal must NOT be reactive to live selection changes, otherwise an
+  // incidental selection-clear (eg. cache invalidation) yanks the modal
+  // out from under the user mid-edit. cleared on close.
+  const [bulkEditAlbumIds, setBulkEditAlbumIds] = createSignal<string[]>([]);
   const [showTagSelectorModal, setShowTagSelectorModal] = createSignal(false);
+  const [tagSelectorAlbumIds, setTagSelectorAlbumIds] = createSignal<string[]>([]);
 
   // pick a sensible default once remotes load (first non-offline, else first).
   createEffect(() => {
@@ -199,29 +205,41 @@ export function LibraryView() {
           onReview={() => triggerReview(selectedAlbumIds())}
           onMarkDone={() => void markSelectedDone(selectedAlbumIds())}
           onEditMetadata={() => {
-            if (selectedAlbumIds().length === 0) return;
+            const ids = selectedAlbumIds();
+            if (ids.length === 0) return;
+            setBulkEditAlbumIds(ids);
             setBulkEditMode("metadata");
             setShowBulkEditModal(true);
           }}
           onSetDiscNumber={() => {
-            if (selectedAlbumIds().length === 0) return;
+            const ids = selectedAlbumIds();
+            if (ids.length === 0) return;
+            setBulkEditAlbumIds(ids);
             setBulkEditMode("disc");
             setShowBulkEditModal(true);
           }}
           onManageTags={() => {
-            if (selectedAlbumIds().length === 0) return;
+            const ids = selectedAlbumIds();
+            if (ids.length === 0) return;
+            setTagSelectorAlbumIds(ids);
             setShowTagSelectorModal(true);
           }}
         />
       </div>
 
       {/* bulk edit albums modal — wrapped in Show so it remounts fresh
-          (clears prior form state) for each open. */}
-      <Show when={showBulkEditModal() && selectedRemote() && selectedAlbumIds().length > 0}>
+          (clears prior form state) for each open. modal-visibility only
+          depends on `showBulkEditModal` + remote presence — NOT on the
+          live selection — because cache invalidations etc. can clear
+          selection mid-edit and we don't want that to dismiss the modal. */}
+      <Show when={showBulkEditModal() && selectedRemote() && bulkEditAlbumIds().length > 0}>
         <BulkEditAlbumsModal
           isOpen={true}
-          onClose={() => setShowBulkEditModal(false)}
-          albumIds={selectedAlbumIds()}
+          onClose={() => {
+            setShowBulkEditModal(false);
+            setBulkEditAlbumIds([]);
+          }}
+          albumIds={bulkEditAlbumIds()}
           remote={selectedRemote()!}
           mode={bulkEditMode()}
           onSuccess={() => {
@@ -233,11 +251,14 @@ export function LibraryView() {
       </Show>
 
       {/* tag selector modal */}
-      <Show when={showTagSelectorModal() && selectedRemote() && selectedAlbumIds().length > 0}>
+      <Show when={showTagSelectorModal() && selectedRemote() && tagSelectorAlbumIds().length > 0}>
         <TagSelectorModal
-          albumIds={selectedAlbumIds()}
+          albumIds={tagSelectorAlbumIds()}
           remote={selectedRemote()!}
-          onClose={() => setShowTagSelectorModal(false)}
+          onClose={() => {
+            setShowTagSelectorModal(false);
+            setTagSelectorAlbumIds([]);
+          }}
           onSave={() => {
             void queryClient.invalidateQueries({
               queryKey: ["library-albums", selectedRemote()!.remote_id],

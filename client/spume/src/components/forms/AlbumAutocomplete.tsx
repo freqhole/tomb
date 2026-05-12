@@ -17,6 +17,7 @@ import {
 } from "solid-js";
 import type { ImageMetadata } from "../../music/services/storage/types";
 import { useAlbumAutocompleteQuery } from "../../music/queries/autocomplete";
+import type { Remote } from "../../app/services/storage/schemas/remote";
 import { MediaImage } from "../media/MediaImage";
 
 export interface AlbumAutocompleteProps {
@@ -38,6 +39,9 @@ export interface AlbumAutocompleteProps {
   hint?: string;
   /** custom label for the "create new" option (default: "create new: {input}") */
   newLabel?: (input: string) => string;
+  /** when set, autocomplete queries route through the picked remote's
+   *  client instead of the global active datasource. */
+  remote?: Remote;
 }
 
 interface AlbumOption {
@@ -77,7 +81,11 @@ export function AlbumAutocomplete(props: AlbumAutocompleteProps) {
   );
 
   const debouncedAccessor = () => (debounced().length > 0 ? debounced() : undefined);
-  const albumQuery = useAlbumAutocompleteQuery(debouncedAccessor, props.artistId);
+  const albumQuery = useAlbumAutocompleteQuery(
+    debouncedAccessor,
+    props.artistId,
+    () => props.remote
+  );
 
   const options = createMemo<AlbumOption[]>(() => {
     const items = albumQuery.data?.items || [];
