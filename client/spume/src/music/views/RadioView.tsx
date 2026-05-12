@@ -304,6 +304,10 @@ export function RadioView() {
   // narrow-mode detail toggle.
   const [isNarrow, setIsNarrow] = createSignal(isNarrowViewport());
   const [showDetail, setShowDetail] = createSignal(false);
+  // explicit "selected for preview" station. set by row clicks so the
+  // detail view can show the station's metadata + a "listen" button
+  // without auto-tuning. cleared once the user actually tunes in.
+  const [previewStation, setPreviewStation] = createSignal<DiscoveredStation | null>(null);
   const [useStickyDetailLayout, setUseStickyDetailLayout] = createSignal(false);
   let detailViewportRef: HTMLDivElement | undefined;
   let detailHeaderRef: HTMLDivElement | undefined;
@@ -353,11 +357,34 @@ export function RadioView() {
         stationName: station.name,
         isLocal,
       });
+      // we're now actually tuned to this station — clear any preview
+      // selection so the detail view flips to the live tuned content.
+      setPreviewStation(null);
       if (isNarrowViewport()) setShowDetail(true);
     } catch (e) {
       console.error("[radio-view] tune failed:", e);
     }
   };
+
+  // row click handler — selects a station for preview in the detail
+  // view without starting playback. "listen" button in the preview
+  // card actually starts the tune.
+  const handleSelectStation = (station: DiscoveredStation) => {
+    setPreviewStation(station);
+    if (isNarrowViewport()) setShowDetail(true);
+  };
+
+  // is the previewed station different from (or in place of) the
+  // currently-tuned one? when true, the detail view renders a preview
+  // card instead of the live tuned-station card.
+  const showPreviewCard = createMemo(() => {
+    const p = previewStation();
+    if (!p) return false;
+    const c = currentStationObj();
+    if (!c) return true;
+    const sameStation = c.station_id === p.station_id && c.source.id === p.source.id;
+    return !sameStation;
+  });
 
   // no autoplay: shared links can prefill discovery filters, but tuning
   // always requires explicit user action.
@@ -586,9 +613,18 @@ export function RadioView() {
                               class="w-full text-left flex items-center gap-2 p-2 rounded transition border"
                               classList={{
                                 "bg-fuchsia-900/40 border-fuchsia-700": isCurrent(station),
-                                "hover:bg-neutral-900 border-transparent": !isCurrent(station),
+                                "bg-neutral-900 border-neutral-700":
+                                  !isCurrent(station) &&
+                                  previewStation()?.station_id === station.station_id &&
+                                  previewStation()?.source.id === station.source.id,
+                                "hover:bg-neutral-900 border-transparent":
+                                  !isCurrent(station) &&
+                                  !(
+                                    previewStation()?.station_id === station.station_id &&
+                                    previewStation()?.source.id === station.source.id
+                                  ),
                               }}
-                              onClick={() => handleTune(station)}
+                              onClick={() => handleSelectStation(station)}
                             >
                               <div class="flex-shrink-0 w-10 h-10 rounded overflow-hidden bg-gradient-to-br from-purple-700 to-indigo-900 flex items-center justify-center">
                                 <Show
@@ -677,118 +713,220 @@ export function RadioView() {
       }}
     >
       <Show
-        when={radioStatus() !== "idle"}
+        when={!showPreviewCard()}
         fallback={
-          <div class="flex-1 overflow-y-auto flex flex-col items-center text-center p-8 text-neutral-400">
-            <div class="w-32 h-32 rounded-lg bg-gradient-to-tr from-magenta-900 to-purple-700 flex items-center justify-center mb-4">
-              <span class="text-xs font-bold tracking-widest opacity-60 text-white">
-                <Icon name="radioTower" size={64} />R A D I O
-              </span>
-            </div>
-            <p class="text-sm max-w-xs mb-8">
-              pick a station from the list to tune in && tune out.
-            </p>
-            <div class="w-full max-w-md">
-              <RadioHistoryList />
-            </div>
-          </div>
-        }
-      >
-        <div
-          ref={detailViewportRef}
-          class="flex-1 min-h-0"
-          classList={{
-            "overflow-hidden": useStickyDetailLayout(),
-            "overflow-y-auto": !useStickyDetailLayout(),
-          }}
-        >
-          <div class="px-6 pb-6 pt-3 wide:pt-6 max-w-3xl mx-auto w-full h-full min-h-0 flex flex-col">
-            <div
-              ref={detailHeaderRef}
-              classList={{
-                "sticky top-0 z-10 pb-4 mb-2": useStickyDetailLayout(),
-              }}
-              style={
-                useStickyDetailLayout()
-                  ? {
-                      background:
-                        "linear-gradient(to bottom, rgba(10, 10, 10, 0.98), rgba(10, 10, 10, 0.92) 82%, rgba(10, 10, 10, 0))",
-                      "backdrop-filter": "blur(10px)",
-                    }
-                  : undefined
-              }
-            >
-              <header class="flex items-center gap-4 mb-6">
-                <div class="flex-shrink-0">
-                  <div class="w-32 h-32 sm:w-40 sm:h-40 rounded-lg overflow-hidden bg-gradient-to-br from-purple-700 to-indigo-900 flex items-center justify-center">
-                    <Show
-                      when={radioArtUrl()}
-                      fallback={
-                        <Show
-                          when={
-                            currentStationObj() &&
-                            remoteImageMetaForSource(currentStationObj()!.source)
-                          }
-                          fallback={
-                            <span class="text-sm font-bold tracking-widest opacity-60 text-white">
-                              radio
-                            </span>
-                          }
-                        >
-                          {(img) => (
-                            <MediaThumbnail
-                              images={[img()]}
-                              size={160}
-                              showPlayIcon={false}
-                              enablePlayClick={false}
-                              hideIndex
-                            />
-                          )}
-                        </Show>
-                      }
-                    >
-                      {(url) => <img src={url()} alt="" class="w-full h-full object-cover" />}
-                    </Show>
-                  </div>
-                </div>
-                <div class="flex-1 min-w-0">
-                  <div class="flex items-center justify-between gap-3 mb-1 min-h-8">
+          <div class="flex-1 overflow-y-auto p-6">
+            {(() => {
+              const station = previewStation()!;
+              const np = station.now_playing;
+              return (
+                <div class="max-w-3xl mx-auto">
+                  <div class="flex items-center justify-between mb-4">
                     <div class="text-xs uppercase tracking-wide text-neutral-500">
-                      {radioStatus() === "connecting" ? "connecting…" : "now playing"}
+                      station preview
                     </div>
                     <Show when={isNarrow()}>
                       <button
                         class="text-xs px-2 py-1 rounded bg-neutral-800 hover:bg-neutral-700 flex items-center gap-1 flex-shrink-0"
-                        onClick={() => setShowDetail(false)}
+                        onClick={() => {
+                          setShowDetail(false);
+                          setPreviewStation(null);
+                        }}
                         aria-label="back to station list"
                       >
                         <span aria-hidden="true">←</span> back
                       </button>
                     </Show>
                   </div>
-                  <Show when={radioNowPlaying()} fallback={<div>—</div>}>
-                    {(np) => (
-                      <>
-                        <div class="text-2xl font-bold truncate">{np().title}</div>
-                        <div class="text-base text-neutral-300 truncate">
-                          {np().artist ?? "unknown artist"}
-                          <Show when={np().album}> — {np().album}</Show>
-                        </div>
-                      </>
-                    )}
-                  </Show>
-                  <Show when={currentStationObj()}>
-                    {(s) => (
-                      <div class="mt-3 text-sm text-neutral-400">
-                        <div class="font-medium">{s().name}</div>
-                        <Show when={s().description}>
-                          <div class="text-xs">{s().description}</div>
-                        </Show>
-                        <div class="text-xs mt-1">
-                          {radioListenerCount()} listener
-                          {radioListenerCount() === 1 ? "" : "s"}
-                        </div>
-                        {/* <button
+                  <header class="flex items-center gap-4 mb-6">
+                    <div class="flex-shrink-0 w-32 h-32 sm:w-40 sm:h-40 rounded-lg overflow-hidden bg-gradient-to-br from-purple-700 to-indigo-900 flex items-center justify-center">
+                      <Show
+                        when={np?.art_thumb_b64}
+                        fallback={
+                          <Show
+                            when={remoteImageMetaForSource(station.source)}
+                            fallback={
+                              <span class="text-sm font-bold tracking-widest opacity-60 text-white">
+                                radio
+                              </span>
+                            }
+                          >
+                            {(img) => (
+                              <MediaThumbnail
+                                images={[img()]}
+                                size={160}
+                                showPlayIcon={false}
+                                enablePlayClick={false}
+                                hideIndex
+                              />
+                            )}
+                          </Show>
+                        }
+                      >
+                        {(b64) => (
+                          <img
+                            src={`data:${np?.art_thumb_mime ?? "image/jpeg"};base64,${b64()}`}
+                            alt=""
+                            class="w-full h-full object-cover"
+                          />
+                        )}
+                      </Show>
+                    </div>
+                    <div class="flex-1 min-w-0">
+                      <div class="text-2xl font-bold truncate">{station.name}</div>
+                      <Show when={station.description}>
+                        <div class="text-sm text-neutral-300 truncate">{station.description}</div>
+                      </Show>
+                      <Show when={np}>
+                        {(npRef) => (
+                          <div class="mt-2 text-sm text-neutral-400 truncate">
+                            now playing: {npRef().title}
+                            <Show when={npRef().artist}> — {npRef().artist}</Show>
+                          </div>
+                        )}
+                      </Show>
+                      <div class="text-xs text-neutral-500 mt-1">
+                        {station.listener_count} listener
+                        {station.listener_count === 1 ? "" : "s"}
+                      </div>
+                      <div class="mt-3 flex items-center gap-2">
+                        <button
+                          class="text-sm px-3 py-1.5 rounded bg-fuchsia-700 hover:bg-fuchsia-600 text-white font-medium transition-colors"
+                          onClick={() => void handleTune(station)}
+                          title="start playing this station"
+                        >
+                          listen
+                        </button>
+                        <button
+                          class="text-sm px-3 py-1.5 rounded border border-neutral-700 hover:border-neutral-500 hover:text-neutral-200 transition-colors"
+                          onClick={() => openStationShare(station)}
+                          disabled={!station.station_id}
+                          title="share station"
+                        >
+                          share
+                        </button>
+                      </div>
+                    </div>
+                  </header>
+                </div>
+              );
+            })()}
+          </div>
+        }
+      >
+        <Show
+          when={radioStatus() !== "idle"}
+          fallback={
+            <div class="flex-1 overflow-y-auto flex flex-col items-center text-center p-8 text-neutral-400">
+              <div class="w-32 h-32 rounded-lg bg-gradient-to-tr from-magenta-900 to-purple-700 flex items-center justify-center mb-4">
+                <span class="text-xs font-bold tracking-widest opacity-60 text-white">
+                  <Icon name="radioTower" size={64} />R A D I O
+                </span>
+              </div>
+              <p class="text-sm max-w-xs mb-8">
+                pick a station from the list to tune in && tune out.
+              </p>
+              <div class="w-full max-w-md">
+                <RadioHistoryList />
+              </div>
+            </div>
+          }
+        >
+          <div
+            ref={detailViewportRef}
+            class="flex-1 min-h-0"
+            classList={{
+              "overflow-hidden": useStickyDetailLayout(),
+              "overflow-y-auto": !useStickyDetailLayout(),
+            }}
+          >
+            <div class="px-6 pb-6 pt-3 wide:pt-6 max-w-3xl mx-auto w-full h-full min-h-0 flex flex-col">
+              <div
+                ref={detailHeaderRef}
+                classList={{
+                  "sticky top-0 z-10 pb-4 mb-2": useStickyDetailLayout(),
+                }}
+                style={
+                  useStickyDetailLayout()
+                    ? {
+                        background:
+                          "linear-gradient(to bottom, rgba(10, 10, 10, 0.98), rgba(10, 10, 10, 0.92) 82%, rgba(10, 10, 10, 0))",
+                        "backdrop-filter": "blur(10px)",
+                      }
+                    : undefined
+                }
+              >
+                <header class="flex items-center gap-4 mb-6">
+                  <div class="flex-shrink-0">
+                    <div class="w-32 h-32 sm:w-40 sm:h-40 rounded-lg overflow-hidden bg-gradient-to-br from-purple-700 to-indigo-900 flex items-center justify-center">
+                      <Show
+                        when={radioArtUrl()}
+                        fallback={
+                          <Show
+                            when={
+                              currentStationObj() &&
+                              remoteImageMetaForSource(currentStationObj()!.source)
+                            }
+                            fallback={
+                              <span class="text-sm font-bold tracking-widest opacity-60 text-white">
+                                radio
+                              </span>
+                            }
+                          >
+                            {(img) => (
+                              <MediaThumbnail
+                                images={[img()]}
+                                size={160}
+                                showPlayIcon={false}
+                                enablePlayClick={false}
+                                hideIndex
+                              />
+                            )}
+                          </Show>
+                        }
+                      >
+                        {(url) => <img src={url()} alt="" class="w-full h-full object-cover" />}
+                      </Show>
+                    </div>
+                  </div>
+                  <div class="flex-1 min-w-0">
+                    <div class="flex items-center justify-between gap-3 mb-1 min-h-8">
+                      <div class="text-xs uppercase tracking-wide text-neutral-500">
+                        {radioStatus() === "connecting" ? "connecting…" : "now playing"}
+                      </div>
+                      <Show when={isNarrow()}>
+                        <button
+                          class="text-xs px-2 py-1 rounded bg-neutral-800 hover:bg-neutral-700 flex items-center gap-1 flex-shrink-0"
+                          onClick={() => setShowDetail(false)}
+                          aria-label="back to station list"
+                        >
+                          <span aria-hidden="true">←</span> back
+                        </button>
+                      </Show>
+                    </div>
+                    <Show when={radioNowPlaying()} fallback={<div>—</div>}>
+                      {(np) => (
+                        <>
+                          <div class="text-2xl font-bold truncate">{np().title}</div>
+                          <div class="text-base text-neutral-300 truncate">
+                            {np().artist ?? "unknown artist"}
+                            <Show when={np().album}> — {np().album}</Show>
+                          </div>
+                        </>
+                      )}
+                    </Show>
+                    <Show when={currentStationObj()}>
+                      {(s) => (
+                        <div class="mt-3 text-sm text-neutral-400">
+                          <div class="font-medium">{s().name}</div>
+                          <Show when={s().description}>
+                            <div class="text-xs">{s().description}</div>
+                          </Show>
+                          <div class="text-xs mt-1">
+                            {radioListenerCount()} listener
+                            {radioListenerCount() === 1 ? "" : "s"}
+                          </div>
+                          {/* <button
                           class={`mt-2 text-xs px-2 py-1 rounded border transition-colors ${
                             bookmarked()
                               ? "border-emerald-700 text-emerald-400 bg-emerald-900/30 cursor-default"
@@ -804,34 +942,35 @@ export function RadioView() {
                               ? "saving…"
                               : "save to history"}
                         </button> */}
-                        <button
-                          class="mt-2 ml-2 text-xs px-2 py-1 rounded border border-neutral-700 hover:border-neutral-500 hover:text-neutral-200 transition-colors"
-                          onClick={() => openStationShare(s())}
-                          disabled={!s().station_id}
-                          title="share station"
-                        >
-                          share
-                        </button>
-                      </div>
-                    )}
-                  </Show>
-                  <Show when={radioError()}>
-                    <div class="mt-2 text-xs text-red-400">{radioError()}</div>
-                  </Show>
-                </div>
-              </header>
-            </div>
+                          <button
+                            class="mt-2 ml-2 text-xs px-2 py-1 rounded border border-neutral-700 hover:border-neutral-500 hover:text-neutral-200 transition-colors"
+                            onClick={() => openStationShare(s())}
+                            disabled={!s().station_id}
+                            title="share station"
+                          >
+                            share
+                          </button>
+                        </div>
+                      )}
+                    </Show>
+                    <Show when={radioError()}>
+                      <div class="mt-2 text-xs text-red-400">{radioError()}</div>
+                    </Show>
+                  </div>
+                </header>
+              </div>
 
-            <div
-              classList={{
-                "flex-1 min-h-0 overflow-y-auto": useStickyDetailLayout(),
-                "pb-6": useStickyDetailLayout(),
-              }}
-            >
-              <RadioHistoryList />
+              <div
+                classList={{
+                  "flex-1 min-h-0 overflow-y-auto": useStickyDetailLayout(),
+                  "pb-6": useStickyDetailLayout(),
+                }}
+              >
+                <RadioHistoryList />
+              </div>
             </div>
           </div>
-        </div>
+        </Show>
       </Show>
     </div>
   );

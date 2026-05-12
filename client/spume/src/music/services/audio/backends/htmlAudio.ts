@@ -563,7 +563,16 @@ export class HtmlAudioBackend implements PlayerBackend {
     // user explicitly wants to play - clear pause flag and silence radio
     await stopRadioForMusic();
     this.userExplicitlyPaused = false;
-    await audio.play();
+    try {
+      await audio.play();
+    } catch (playError) {
+      // browsers (esp. iOS, but also chrome under memory pressure /
+      // long pause / tab throttling) sometimes invalidate blob URLs.
+      // when the src is a blob and play() rejects, try refreshing the
+      // blob URL from underlying storage before giving up.
+      const refreshed = await this.tryRefreshAndPlay(audio);
+      if (!refreshed) throw playError;
+    }
   }
 
   // resume already-loaded audio without stopping radio. used by timeline
@@ -804,7 +813,9 @@ export class HtmlAudioBackend implements PlayerBackend {
       void this.handleSongEnded();
     });
 
-    // error during playback - skip to next song (unless intentional reload)
+    // error during playback - try to recover from stale blob URLs
+    // (chrome/ios may revoke or GC the underlying Blob after a long
+    // pause or tab suspension) before giving up and skipping.
     audio.addEventListener("error", () => {
       // ignore errors during intentional reload (stale blob URL errors)
       if (this.isIntentionalReload) return;
@@ -813,6 +824,14 @@ export class HtmlAudioBackend implements PlayerBackend {
         console.error(
           `media error code: ${error.code}, message: ${error.message}, src: ${audio.src?.slice(0, 120)}`,
         );
+      }
+      // attempt blob-refresh recovery for blob: URLs.
+      // MEDIA_ERR_NETWORK = 2, MEDIA_ERR_DECODE = 3, MEDIA_ERR_SRC_NOT_SUPPORTED = 4
+      if (audio.src.startsWith("blob:") && error && (error.code === 2 || error.code === 4)) {
+        void this.tryRefreshAndPlay(audio).then((ok) => {
+          if (!ok) void this.handleSongEnded();
+        });
+        return;
       }
       void this.handleSongEnded();
     });
@@ -852,6 +871,51 @@ export class HtmlAudioBackend implements PlayerBackend {
   private setIntentionalReload(active: boolean): void {
     this.isIntentionalReload = active;
     setIsIntentionalReload(active);
+  }
+
+  // attempt to recover from a stale blob URL by re-creating it from
+  // underlying storage (OPFS / API cache / P2P resolver) and resuming
+  // playback at the saved position. returns true on success.
+  // shared between play(), togglePlayback() and the audio "error" event.
+  private async tryRefreshAndPlay(audio: HTMLAudioElement): Promise<boolean> {
+    if (!audio.src.startsWith("blob:")) return false;
+    const state = appState();
+    const current_sha256 = state?.current_sha256;
+    if (!current_sha256) return false;
+    const songInQueue = state?.queue.find((s) => s.sha256 === current_sha256);
+    if (!songInQueue) return false;
+
+    const savedPosition = audio.currentTime;
+    try {
+      const freshURL = await refreshBlobURL(songInQueue);
+      if (!freshURL) return false;
+      this.setIntentionalReload(true);
+      try {
+        audio.src = freshURL;
+        await new Promise<void>((resolve, reject) => {
+          const onCanPlay = () => {
+            audio.removeEventListener("canplay", onCanPlay);
+            audio.removeEventListener("error", onError);
+            resolve();
+          };
+          const onError = () => {
+            audio.removeEventListener("canplay", onCanPlay);
+            audio.removeEventListener("error", onError);
+            reject(new Error("failed to load refreshed URL"));
+          };
+          audio.addEventListener("canplay", onCanPlay);
+          audio.addEventListener("error", onError);
+        });
+        if (savedPosition > 0) audio.currentTime = savedPosition;
+        await audio.play();
+        return true;
+      } finally {
+        this.setIntentionalReload(false);
+      }
+    } catch (err) {
+      debug("player", "tryRefreshAndPlay failed:", err);
+      return false;
+    }
   }
 
   // pre-cache scheduling lives in `queue/preCacheScheduler.ts`. it
