@@ -29,6 +29,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use zod_gen::ZodSchema as ZodSchemaTrait;
 use zod_gen_derive::ZodSchema;
 
 use crate::error::ErrorDetail;
@@ -47,12 +48,21 @@ use super::repository::read_album_metadata;
 /// where a single proposal originated. one proposal can be backed by
 /// multiple sources when the same `(kind, label)` shows up across enrichment
 /// payloads.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, ZodSchema)]
+///
+/// note: `ZodSchema` is implemented manually below because the
+/// derive does not honor `#[serde(rename_all = ...)]`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ProposalSource {
     Mb,
     Lastfm,
     Audiodb,
+}
+
+impl ZodSchemaTrait for ProposalSource {
+    fn zod_schema() -> String {
+        r#"z.union([z.literal("mb"), z.literal("lastfm"), z.literal("audiodb")])"#.to_string()
+    }
 }
 
 impl ProposalSource {

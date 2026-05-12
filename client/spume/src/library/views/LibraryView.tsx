@@ -19,11 +19,16 @@ import { RemotePicker } from "../../components/forms/RemotePicker";
 import { AlbumsTable } from "../components/AlbumsTable";
 import { AlbumBulkActionBar } from "../components/AlbumBulkActionBar";
 import { MbProgressStrip } from "../components/MbProgressStrip";
-import { useAlbumSelectionLifecycle, useSelectedAlbumIds } from "../hooks/albumSelection";
+import {
+  filterPendingReviewAlbumIds,
+  useAlbumSelectionLifecycle,
+  useSelectedAlbumIds,
+} from "../hooks/albumSelection";
 import { useRemoteIsAdmin } from "../hooks/useRemoteRole";
 import { enqueueAlbumEnrichment } from "../hooks/useMbLookupJobs";
 import { startBulkEnrichmentReview } from "../../music/hooks/bulkEnrichmentReview";
 import { getAllRemotes } from "../../app/services/remotes/remoteManager";
+import { toast } from "../../components/feedback/Toast";
 import type { Remote } from "../../app/services/storage/schemas/remote";
 
 type LibrarySubview = "graph" | "table";
@@ -74,13 +79,30 @@ export function LibraryView() {
     void enqueueAlbumEnrichment(remote, albumIds);
   };
 
-  // phase 14.9: enqueue bulk enrichment + open the album editor in
-  // review mode so the user can walk the selection one album at a time.
+  // phase 14.9 / phase 11 slice 1: enqueue bulk enrichment + open the
+  // bulk-review wizard. selection is filtered to albums whose
+  // `review_status='pending'` (or unknown — those get the optimistic
+  // pass-through and the modal's `propose_taxons` call is the source of
+  // truth). albums already `complete` or `dismissed` are skipped here so
+  // the wizard never has to render a no-op page.
   const triggerReview = (albumIds: string[]) => {
     if (albumIds.length === 0) return;
     const remote = selectedRemote();
     if (!remote) return;
-    void startBulkEnrichmentReview(remote, albumIds);
+    const pending = filterPendingReviewAlbumIds(albumIds);
+    const skipped = albumIds.length - pending.length;
+    if (pending.length === 0) {
+      toast.info(
+        skipped === 1
+          ? "the selected album is already reviewed"
+          : `all ${skipped} selected albums are already reviewed`
+      );
+      return;
+    }
+    if (skipped > 0) {
+      toast.info(`skipping ${skipped} already-reviewed album${skipped === 1 ? "" : "s"}`);
+    }
+    void startBulkEnrichmentReview(remote, pending);
   };
 
   return (

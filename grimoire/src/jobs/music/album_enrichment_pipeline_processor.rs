@@ -16,12 +16,15 @@ use serde_json::Value;
 use tracing::{info, warn};
 
 use crate::config;
+use crate::database;
 use crate::jobs::models::{Job, JobError};
 use crate::jobs::{
-    create_job, AudioDbAlbumDetailParams, CreateJobRequest, EnrichmentSource, JobType,
-    LastFmAlbumDetailParams, MbAlbumSearchParams,
+    create_job, AudioDbAlbumDetailParams, AudioDbArtistDetailParams, CreateJobRequest,
+    EnrichmentSource, JobType, LastFmAlbumDetailParams, LastFmArtistDetailParams,
+    MbAlbumSearchParams,
 };
 use crate::music::entities::albums as albums_repo;
+use crate::music::entities::artists::metadata::ArtistMetadata;
 use crate::music::lastfm::lastfm_is_configured;
 
 use super::models::{AlbumEnrichmentPipelineParams, AlbumEnrichmentPipelineResult};
@@ -29,9 +32,7 @@ use super::models::{AlbumEnrichmentPipelineParams, AlbumEnrichmentPipelineResult
 /// 7 days. arbitrary but matches the ui's "stale" badge threshold.
 const FRESHNESS_WINDOW_SECS: i64 = 7 * 24 * 60 * 60;
 
-pub async fn process_album_enrichment_pipeline_job(
-    job: &Job,
-) -> Result<Option<Value>, JobError> {
+pub async fn process_album_enrichment_pipeline_job(job: &Job) -> Result<Option<Value>, JobError> {
     let params: AlbumEnrichmentPipelineParams =
         serde_json::from_str(&job.parameters).map_err(|e| JobError::ProcessingFailed {
             reason: format!("invalid parameters: {}", e),
@@ -63,7 +64,8 @@ pub async fn process_album_enrichment_pipeline_job(
         skipped_sources: Vec::new(),
     };
 
-    for source in sources {
+    for source in &sources {
+        let source = *source;
         if !params.force && is_fresh(&meta, source, now) {
             info!("  skip {:?} (fresh within window)", source);
             result.skipped_sources.push(source.as_str().to_string());
@@ -154,6 +156,124 @@ pub async fn process_album_enrichment_pipeline_job(
         result.skipped_sources
     );
 
+    // ---- artist-side enrichment (phase 11 / slice 4a + 4b) -----------------
+    // for the album's primary artist(s), enqueue lastfm + audiodb
+    // artist-detail jobs so that the bulk-review wizard's bio +
+    // artist-image panels have data to surface. mb has no artist
+    // detail processor today, so it's skipped. honours the same
+    // freshness window against `artistz.metadata.{lastfm,audiodb}`.
+    if let Ok(pool) = database::connect().await {
+        let artist_ids: Vec<String> = match sqlx::query_scalar!(
+            r#"SELECT DISTINCT artist_songz.artist_id as "artist_id!"
+               FROM album_songz
+               JOIN artist_songz ON artist_songz.song_id = album_songz.song_id
+               WHERE album_songz.album_id = ?"#,
+            album_id
+        )
+        .fetch_all(&pool)
+        .await
+        {
+            Ok(rows) => rows,
+            Err(e) => {
+                warn!("  failed to resolve artists for album: {}", e);
+                Vec::new()
+            }
+        };
+
+        for artist_id in artist_ids {
+            // load artist metadata once for freshness checks + mbid hint.
+            let artist_meta_raw = match sqlx::query_scalar!(
+                r#"SELECT metadata FROM artistz WHERE id = ? AND deleted_at IS NULL"#,
+                artist_id
+            )
+            .fetch_optional(&pool)
+            .await
+            {
+                Ok(Some(raw)) => raw,
+                Ok(None) => continue, // artist soft-deleted / missing
+                Err(e) => {
+                    warn!("  failed to load artist metadata: {}", e);
+                    continue;
+                }
+            };
+            let artist_meta = ArtistMetadata::parse(artist_meta_raw.as_deref());
+            // best-effort artist mbid hint: try the audiodb album
+            // snapshot's `musicbrainz_artist_id`, then the audiodb
+            // artist snapshot. mb itself doesn't expose artist_mbid
+            // on `MbMetadata` (release-scoped only).
+            let artist_mbid = meta
+                .as_ref()
+                .and_then(|m| m.audiodb.as_ref())
+                .and_then(|a| a.album.as_ref())
+                .and_then(|al| al.musicbrainz_artist_id.clone())
+                .or_else(|| {
+                    artist_meta
+                        .audiodb
+                        .as_ref()
+                        .and_then(|a| a.artist.as_ref())
+                        .and_then(|ar| ar.musicbrainz_artist_id.clone())
+                });
+
+            for source in &sources {
+                let source = *source;
+                // mb has no artist-detail processor; skip silently.
+                if matches!(source, EnrichmentSource::Mb) {
+                    continue;
+                }
+                if !params.force && is_artist_fresh(&artist_meta, source, now) {
+                    info!("  skip artist {:?} (fresh within window)", source);
+                    continue;
+                }
+                if matches!(source, EnrichmentSource::Lastfm)
+                    && !lastfm_is_configured(&config::get_config().lastfm)
+                {
+                    continue;
+                }
+
+                let (job_type, parameters) = match source {
+                    EnrichmentSource::Lastfm => {
+                        let p = LastFmArtistDetailParams {
+                            artist_id: artist_id.clone(),
+                            mbid: artist_mbid.clone(),
+                            artist_override: None,
+                        };
+                        match serde_json::to_value(&p) {
+                            Ok(v) => (JobType::LastFmArtistDetail, v),
+                            Err(_) => continue,
+                        }
+                    }
+                    EnrichmentSource::Audiodb => {
+                        let p = AudioDbArtistDetailParams {
+                            artist_id: artist_id.clone(),
+                            mbid: artist_mbid.clone(),
+                            artist_override: None,
+                        };
+                        match serde_json::to_value(&p) {
+                            Ok(v) => (JobType::AudioDbArtistDetail, v),
+                            Err(_) => continue,
+                        }
+                    }
+                    EnrichmentSource::Mb => unreachable!(),
+                };
+
+                let req = CreateJobRequest {
+                    job_type,
+                    session_id: job.session_id.clone(),
+                    parameters,
+                    max_retries: Some(2),
+                    scheduled_at: None,
+                    created_by: job.created_by.clone(),
+                    priority: None,
+                };
+                let resp = create_job(req).await;
+                match resp.data {
+                    Some(j) => result.enqueued_job_ids.push(j.id),
+                    None => warn!("  failed to enqueue artist {:?}: {}", source, resp.message),
+                }
+            }
+        }
+    }
+
     serde_json::to_value(&result)
         .map(Some)
         .map_err(|e| JobError::ProcessingFailed {
@@ -177,6 +297,15 @@ fn is_fresh(
             .and_then(|mb| mb.fetched_at),
         EnrichmentSource::Lastfm => meta.lastfm.as_ref().and_then(|l| l.fetched_at),
         EnrichmentSource::Audiodb => meta.audiodb.as_ref().and_then(|a| a.fetched_at),
+    };
+    matches!(fetched_at, Some(ts) if now - ts < FRESHNESS_WINDOW_SECS)
+}
+
+fn is_artist_fresh(meta: &ArtistMetadata, source: EnrichmentSource, now: i64) -> bool {
+    let fetched_at = match source {
+        EnrichmentSource::Lastfm => meta.lastfm.as_ref().and_then(|l| l.fetched_at),
+        EnrichmentSource::Audiodb => meta.audiodb.as_ref().and_then(|a| a.fetched_at),
+        EnrichmentSource::Mb => return false,
     };
     matches!(fetched_at, Some(ts) if now - ts < FRESHNESS_WINDOW_SECS)
 }

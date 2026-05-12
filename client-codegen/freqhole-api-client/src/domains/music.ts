@@ -183,6 +183,93 @@ export function createMusicMethods(call: CallFn) {
       );
     },
 
+    // bulk enrichment review (phase 11)
+    proposeTaxons: (params: s.ProposeTaxonsRequest) => {
+      return call(
+        "music",
+        "propose_taxons",
+        routes.music.propose_taxons.resp,
+        routes.music.propose_taxons.req,
+        routes.music.propose_taxons.method,
+        routes.music.propose_taxons.path,
+        params,
+      );
+    },
+
+    applyTaxonProposals: (params: s.ApplyTaxonProposalsRequest) => {
+      return call(
+        "music",
+        "apply_taxon_proposals",
+        routes.music.apply_taxon_proposals.resp,
+        routes.music.apply_taxon_proposals.req,
+        routes.music.apply_taxon_proposals.method,
+        routes.music.apply_taxon_proposals.path,
+        params,
+      );
+    },
+
+    setAlbumReviewStatus: (params: s.SetAlbumReviewStatusRequest) => {
+      return call(
+        "music",
+        "set_album_review_status",
+        routes.music.set_album_review_status.resp,
+        routes.music.set_album_review_status.req,
+        routes.music.set_album_review_status.method,
+        routes.music.set_album_review_status.path,
+        params,
+      );
+    },
+
+    // artist bio review (slice 4a)
+    proposeArtistBios: (params: s.ProposeArtistBiosRequest) => {
+      return call(
+        "music",
+        "propose_artist_bios",
+        routes.music.propose_artist_bios.resp,
+        routes.music.propose_artist_bios.req,
+        routes.music.propose_artist_bios.method,
+        routes.music.propose_artist_bios.path,
+        params,
+      );
+    },
+
+    applyArtistBio: (params: s.ApplyArtistBioRequest) => {
+      return call(
+        "music",
+        "apply_artist_bio",
+        routes.music.apply_artist_bio.resp,
+        routes.music.apply_artist_bio.req,
+        routes.music.apply_artist_bio.method,
+        routes.music.apply_artist_bio.path,
+        params,
+      );
+    },
+
+    // related-artist review (slice 4c)
+    proposeRelatedArtists: (params: s.ProposeRelatedArtistsRequest) => {
+      return call(
+        "music",
+        "propose_related_artists",
+        routes.music.propose_related_artists.resp,
+        routes.music.propose_related_artists.req,
+        routes.music.propose_related_artists.method,
+        routes.music.propose_related_artists.path,
+        params,
+      );
+    },
+
+    applyRelatedArtists: (params: s.ApplyRelatedArtistsRequest) => {
+      return call(
+        "music",
+        "apply_related_artists",
+        routes.music.apply_related_artists.resp,
+        routes.music.apply_related_artists.req,
+        routes.music.apply_related_artists.method,
+        routes.music.apply_related_artists.path,
+        params,
+      );
+    },
+
     // artists
     queryArtists: (params: s.QueryParams) => {
       return call(
@@ -1290,6 +1377,36 @@ export function createMusicMethods(call: CallFn) {
         routes.music.ingest_remote_image.req,
         routes.music.ingest_remote_image.method,
         routes.music.ingest_remote_image.path,
+        params,
+      );
+    },
+
+    // surface remote image candidates for an album from stored
+    // metadata snapshots (audiodb thumbs + musicbrainz coverart).
+    // read-only — does not make any external http calls.
+    albumImageCandidates: (params: s.AlbumImageCandidatesRequest) => {
+      return call(
+        "music",
+        "image_candidates_for_album",
+        routes.music.image_candidates_for_album.resp,
+        routes.music.image_candidates_for_album.req,
+        routes.music.image_candidates_for_album.method,
+        routes.music.image_candidates_for_album.path,
+        params,
+      );
+    },
+
+    // surface remote image candidates for an artist from stored
+    // metadata snapshots (audiodb artist_thumb / artist_fanart).
+    // accepts artist_id directly OR album_id (resolved server-side).
+    artistImageCandidates: (params: s.ArtistImageCandidatesRequest) => {
+      return call(
+        "music",
+        "image_candidates_for_artist",
+        routes.music.image_candidates_for_artist.resp,
+        routes.music.image_candidates_for_artist.req,
+        routes.music.image_candidates_for_artist.method,
+        routes.music.image_candidates_for_artist.path,
         params,
       );
     },

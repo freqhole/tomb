@@ -47,6 +47,8 @@ SELECT
     al.mb_lookup_status as album_mb_lookup_status,
     al.mb_lookup_at as album_mb_lookup_at,
     al.mb_lookup_by as album_mb_lookup_by,
+    al.review_status as album_review_status,
+    al.reviewed_at as album_reviewed_at,
 
     -- genres as JSON array of objects with id and name (legacy contract)
     -- sourced from album_taxonz filtered to kind='genre'

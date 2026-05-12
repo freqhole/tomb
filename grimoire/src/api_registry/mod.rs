@@ -158,10 +158,16 @@ pub mod type_registry {
         AcceptedProposal, ApplyTaxonProposalsRequest, ApplyTaxonProposalsResult, ProposalSource,
         ProposeTaxonsRequest, TaxonProposal,
     };
-    use crate::music::entities::albums::{Album, GenreRef, UpdateAlbumRequest};
+    use crate::music::entities::albums::{
+        Album, GenreRef, SetAlbumReviewStatusRequest, UpdateAlbumRequest,
+    };
     use crate::music::entities::artists::{
-        Artist, ArtistAudioDbMetadata, ArtistLastFmMetadata, ArtistMetadata, CreateArtistRequest,
-        UpdateArtistMetadataRequest, UpdateArtistMetadataResponse, UpdateArtistRequest,
+        ApplyArtistBioRequest, ApplyArtistBioResult, ApplyRelatedArtistsRequest,
+        ApplyRelatedArtistsResult, Artist, ArtistAudioDbMetadata, ArtistLastFmMetadata,
+        ArtistMetadata, BioProposal, BioSource, CreateArtistRequest, ProposeArtistBiosRequest,
+        ProposeArtistBiosResponse, ProposeRelatedArtistsRequest, ProposeRelatedArtistsResponse,
+        RelatedArtistProposal, UpdateArtistMetadataRequest, UpdateArtistMetadataResponse,
+        UpdateArtistRequest,
     };
     use crate::music::entities::playlists::{
         AddSongsToPlaylistRequest, CreatePlaylistRequest, DeletePlaylistRequest,
@@ -441,6 +447,8 @@ pub mod type_registry {
 
         gen.add_schema::<UpdateAlbumRequest>("UpdateAlbumRequest");
         registered.insert("UpdateAlbumRequest".to_string());
+        gen.add_schema::<SetAlbumReviewStatusRequest>("SetAlbumReviewStatusRequest");
+        registered.insert("SetAlbumReviewStatusRequest".to_string());
 
         gen.add_schema::<JobResponse>("JobResponse");
         registered.insert("JobResponse".to_string());
@@ -778,6 +786,24 @@ pub mod type_registry {
             "IngestRemoteImageResponse",
         );
         registered.insert("IngestRemoteImageResponse".to_string());
+        gen.add_schema::<crate::offal::music::albums::AlbumImageCandidatesRequest>(
+            "AlbumImageCandidatesRequest",
+        );
+        registered.insert("AlbumImageCandidatesRequest".to_string());
+        gen.add_schema::<crate::offal::music::albums::AlbumImageCandidate>("AlbumImageCandidate");
+        registered.insert("AlbumImageCandidate".to_string());
+        gen.add_schema::<crate::offal::music::albums::AlbumImageCandidatesResponse>(
+            "AlbumImageCandidatesResponse",
+        );
+        registered.insert("AlbumImageCandidatesResponse".to_string());
+        gen.add_schema::<crate::offal::music::artists::ArtistImageCandidatesRequest>(
+            "ArtistImageCandidatesRequest",
+        );
+        registered.insert("ArtistImageCandidatesRequest".to_string());
+        gen.add_schema::<crate::offal::music::artists::ArtistImageCandidatesResponse>(
+            "ArtistImageCandidatesResponse",
+        );
+        registered.insert("ArtistImageCandidatesResponse".to_string());
 
         // mb candidate review request/response (phase 7)
         gen.add_schema::<ConfirmMbMatchRequest>("ConfirmMbMatchRequest");
@@ -805,6 +831,32 @@ pub mod type_registry {
         registered.insert("ApplyTaxonProposalsRequest".to_string());
         gen.add_schema::<ApplyTaxonProposalsResult>("ApplyTaxonProposalsResult");
         registered.insert("ApplyTaxonProposalsResult".to_string());
+
+        // ---- artist bio proposals (slice 4a) ----
+        gen.add_schema::<BioSource>("BioSource");
+        registered.insert("BioSource".to_string());
+        gen.add_schema::<BioProposal>("BioProposal");
+        registered.insert("BioProposal".to_string());
+        gen.add_schema::<ProposeArtistBiosRequest>("ProposeArtistBiosRequest");
+        registered.insert("ProposeArtistBiosRequest".to_string());
+        gen.add_schema::<ProposeArtistBiosResponse>("ProposeArtistBiosResponse");
+        registered.insert("ProposeArtistBiosResponse".to_string());
+        gen.add_schema::<ApplyArtistBioRequest>("ApplyArtistBioRequest");
+        registered.insert("ApplyArtistBioRequest".to_string());
+        gen.add_schema::<ApplyArtistBioResult>("ApplyArtistBioResult");
+        registered.insert("ApplyArtistBioResult".to_string());
+
+        // ---- related-artist proposals (slice 4c) ----
+        gen.add_schema::<RelatedArtistProposal>("RelatedArtistProposal");
+        registered.insert("RelatedArtistProposal".to_string());
+        gen.add_schema::<ProposeRelatedArtistsRequest>("ProposeRelatedArtistsRequest");
+        registered.insert("ProposeRelatedArtistsRequest".to_string());
+        gen.add_schema::<ProposeRelatedArtistsResponse>("ProposeRelatedArtistsResponse");
+        registered.insert("ProposeRelatedArtistsResponse".to_string());
+        gen.add_schema::<ApplyRelatedArtistsRequest>("ApplyRelatedArtistsRequest");
+        registered.insert("ApplyRelatedArtistsRequest".to_string());
+        gen.add_schema::<ApplyRelatedArtistsResult>("ApplyRelatedArtistsResult");
+        registered.insert("ApplyRelatedArtistsResult".to_string());
 
         gen.add_schema::<GenreRef>("GenreRef");
         registered.insert("GenreRef".to_string());

@@ -105,6 +105,15 @@ function normalizeAlbumMetadata(meta: any): void {
     if (!Array.isArray(fk.release_group_genres)) fk.release_group_genres = [];
     if (!Array.isArray(fk.release_group_tags)) fk.release_group_tags = [];
   }
+  const lfAlbum = meta.lastfm?.album;
+  if (lfAlbum && typeof lfAlbum === "object") {
+    if (!Array.isArray(lfAlbum.tags)) lfAlbum.tags = [];
+  }
+  const lfArtist = meta.lastfm?.artist;
+  if (lfArtist && typeof lfArtist === "object") {
+    if (!Array.isArray(lfArtist.tags)) lfArtist.tags = [];
+    if (!Array.isArray(lfArtist.similar)) lfArtist.similar = [];
+  }
 }
 
 /** parse the raw json metadata string into a typed AlbumMetadata.

@@ -2,7 +2,7 @@
 //! album repository
 //! clean business logic using sqlx::query_as! with no fallbacks
 
-use super::models::{Album, CreateAlbumRequest, GenreRef};
+use super::models::{Album, CreateAlbumRequest, GenreRef, SetAlbumReviewStatusRequest};
 use crate::database;
 use crate::error::{ErrorDetail, GrimoireError};
 use crate::music::crud::ImageMetadata;
@@ -103,6 +103,8 @@ pub async fn create_album(req: CreateAlbumRequest) -> GrimoireResponse<Album> {
         mb_lookup_status: None,
         mb_lookup_at: None,
         mb_lookup_by: None,
+        review_status: "pending".to_string(),
+        reviewed_at: None,
     };
 
     GrimoireResponse::success("album created successfully", album)
@@ -147,7 +149,9 @@ pub async fn list_albums(limit: Option<u32>, offset: Option<u32>) -> GrimoireRes
             album_metadata as "metadata?",
             album_mb_lookup_status as "mb_lookup_status?",
             album_mb_lookup_at as "mb_lookup_at?",
-            album_mb_lookup_by as "mb_lookup_by?"
+            album_mb_lookup_by as "mb_lookup_by?",
+            album_review_status as "review_status!",
+            album_reviewed_at as "reviewed_at?"
            FROM album_query_view
            ORDER BY album_title ASC
            LIMIT ? OFFSET ?"#,
@@ -204,7 +208,9 @@ pub async fn get_album(id: &str) -> GrimoireResponse<Album> {
             album_metadata as "metadata?",
             album_mb_lookup_status as "mb_lookup_status?",
             album_mb_lookup_at as "mb_lookup_at?",
-            album_mb_lookup_by as "mb_lookup_by?"
+            album_mb_lookup_by as "mb_lookup_by?",
+            album_review_status as "review_status!",
+            album_reviewed_at as "reviewed_at?"
            FROM album_query_view
            WHERE album_id = ?"#,
         id
@@ -953,5 +959,71 @@ pub async fn clear_album_images(album_id: &str) -> GrimoireResponse<()> {
         Err(e) => {
             GrimoireResponse::failure("Failed to clear album images", vec![ErrorDetail::from(e)])
         }
+    }
+}
+
+/// flip an album's `review_status`. validates `status` against the
+/// CHECK set (`pending` / `complete` / `dismissed`); when status moves
+/// off `pending`, stamps `reviewed_at = unixepoch()`. used by the bulk
+/// enrichment review wizard (phase 11).
+pub async fn set_album_review_status(req: SetAlbumReviewStatusRequest) -> GrimoireResponse<()> {
+    if !matches!(req.status.as_str(), "pending" | "complete" | "dismissed") {
+        return GrimoireResponse::failure(
+            "invalid review status",
+            vec![ErrorDetail::new(
+                "invalid_review_status",
+                "invalid review status",
+                &format!(
+                    "status must be one of pending|complete|dismissed; got `{}`",
+                    req.status
+                ),
+            )],
+        );
+    }
+
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "failed to connect to database",
+                vec![ErrorDetail::from(e)],
+            );
+        }
+    };
+
+    let result = if req.status == "pending" {
+        sqlx::query!(
+            r#"UPDATE albumz
+               SET review_status = ?, reviewed_at = NULL, updated_at = unixepoch()
+               WHERE id = ? AND deleted_at IS NULL"#,
+            req.status,
+            req.album_id,
+        )
+        .execute(&pool)
+        .await
+    } else {
+        sqlx::query!(
+            r#"UPDATE albumz
+               SET review_status = ?, reviewed_at = unixepoch(), updated_at = unixepoch()
+               WHERE id = ? AND deleted_at IS NULL"#,
+            req.status,
+            req.album_id,
+        )
+        .execute(&pool)
+        .await
+    };
+
+    match result {
+        Ok(r) if r.rows_affected() == 0 => {
+            let err = GrimoireError::AlbumNotFound {
+                id: req.album_id.clone(),
+            };
+            GrimoireResponse::failure("album not found", vec![ErrorDetail::from(&err)])
+        }
+        Ok(_) => GrimoireResponse::success("album review status updated", ()),
+        Err(e) => GrimoireResponse::failure(
+            "failed to update album review status",
+            vec![ErrorDetail::from(e)],
+        ),
     }
 }

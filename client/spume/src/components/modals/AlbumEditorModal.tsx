@@ -1101,7 +1101,6 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
             <AlbumEnrichmentSourceTab
               albumId={props.albumId}
               source="lastfm"
-              remote={currentRemote() ?? undefined}
               initialArtist={formData().artist_name}
               initialTitle={formData().title}
               snapshot={albumMetadata().lastfm}
@@ -1114,7 +1113,6 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
             <AlbumEnrichmentSourceTab
               albumId={props.albumId}
               source="audiodb"
-              remote={currentRemote() ?? undefined}
               initialArtist={formData().artist_name}
               initialTitle={formData().title}
               snapshot={albumMetadata().audiodb}
@@ -1127,7 +1125,6 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
             <AlbumArtistTab
               artistId={formData().artist_id}
               artistName={formData().artist_name}
-              remote={currentRemote() ?? undefined}
               onSaved={refreshEnrichmentProgress}
             />
           </TabPanel>

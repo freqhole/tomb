@@ -24,7 +24,12 @@ import {
   type MbLookupStatus,
 } from "../data/albumMetadata";
 import { useLibraryAlbumsQuery } from "../queries/useLibraryAlbums";
-import { handleAlbumClick, isAlbumSelected, updateAlbumIdList } from "../hooks/albumSelection";
+import {
+  handleAlbumClick,
+  isAlbumSelected,
+  updateAlbumIdList,
+  updateAlbumReviewStatusMap,
+} from "../hooks/albumSelection";
 import { useInflightJobs, getInflightSourcesForAlbum } from "../hooks/useMbLookupJobs";
 import { useRemoteIsAdmin } from "../hooks/useRemoteRole";
 import { AlbumCandidatesPanel } from "./AlbumCandidatesPanel";
@@ -128,6 +133,7 @@ export function AlbumsTable(props: AlbumsTableProps) {
   // keep the selection range list aligned with the visible rows.
   createEffect(() => {
     updateAlbumIdList(filteredItems().map((a) => a.album_id));
+    updateAlbumReviewStatusMap(filteredItems().map((a) => [a.album_id, a.review_status]));
   });
 
   const loadedCount = () => allItems().length;

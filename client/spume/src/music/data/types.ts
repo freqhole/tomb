@@ -89,6 +89,9 @@ export interface AlbumSummary {
   mb_lookup_status?: string | null;
   mb_lookup_at?: number | null;
   mb_lookup_by?: string | null;
+  /** bulk-review status: "pending" | "complete" | "dismissed". phase 11. */
+  review_status?: string | null;
+  reviewed_at?: number | null;
 }
 
 // artist summary data for lists

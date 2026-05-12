@@ -7,25 +7,26 @@ use crate::media_blobz::{
     create_media_blob, get_media_blob_by_sha256, BlobType, CreateMediaBlobRequest,
 };
 use crate::music::crud::{query_albums, DeleteAlbumRequest, GetAlbumRequest, QueryParams};
+use crate::music::entities::albums::add_album_image;
 use crate::music::entities::albums::metadata::{
     AutoConfirmMbMatchesRequest, ConfirmMbMatchRequest, MbMatchActionResponse, RejectMbMatchRequest,
-};
-use crate::music::entities::albums::{
-    auto_confirm_mb_matches as grimoire_auto_confirm_mb_matches,
-    confirm_mb_match as grimoire_confirm_mb_match, delete_album as grimoire_delete_album,
-    get_album as grimoire_get_album, get_album_images as grimoire_get_album_images,
-    reject_mb_match as grimoire_reject_mb_match, remove_album_image, set_primary_album_image,
-    update_album as grimoire_update_album, UpdateAlbumRequest,
 };
 use crate::music::entities::albums::taxon_proposals::{
     apply_taxon_proposals as grimoire_apply_taxon_proposals,
     propose_taxons_for_album as grimoire_propose_taxons_for_album, ApplyTaxonProposalsRequest,
     ProposeTaxonsRequest,
 };
+use crate::music::entities::albums::{
+    auto_confirm_mb_matches as grimoire_auto_confirm_mb_matches,
+    confirm_mb_match as grimoire_confirm_mb_match, delete_album as grimoire_delete_album,
+    get_album as grimoire_get_album, get_album_images as grimoire_get_album_images,
+    reject_mb_match as grimoire_reject_mb_match, remove_album_image,
+    set_album_review_status as grimoire_set_album_review_status, set_primary_album_image,
+    update_album as grimoire_update_album, SetAlbumReviewStatusRequest, UpdateAlbumRequest,
+};
 use crate::music::entities::artists::{
     add_artist_image, remove_artist_image, set_primary_artist_image,
 };
-use crate::music::entities::albums::add_album_image;
 use crate::music::entities::playlists::{remove_playlist_image, set_primary_playlist_image};
 use crate::music::entities::songs::{remove_song_image, set_primary_song_image};
 use crate::offal::caller::Caller;
@@ -127,12 +128,30 @@ pub const ROUTES: &[RouteInfo] = &[
         auth: RouteAuth::Role(UserRole::Admin),
     },
     RouteInfo {
+        name: "set_album_review_status",
+        path: "/api/albums/set-review-status",
+        method: Method::POST,
+        domain: Domain::Music,
+        request_type: "SetAlbumReviewStatusRequest",
+        response_type: "EmptyResponse",
+        auth: RouteAuth::Role(UserRole::Admin),
+    },
+    RouteInfo {
         name: "ingest_remote_image",
         path: "/api/music/images/ingest",
         method: Method::POST,
         domain: Domain::Music,
         request_type: "IngestRemoteImageRequest",
         response_type: "IngestRemoteImageResponse",
+        auth: RouteAuth::Role(UserRole::Admin),
+    },
+    RouteInfo {
+        name: "image_candidates_for_album",
+        path: "/api/music/albums/image-candidates",
+        method: Method::POST,
+        domain: Domain::Music,
+        request_type: "AlbumImageCandidatesRequest",
+        response_type: "AlbumImageCandidatesResponse",
         auth: RouteAuth::Role(UserRole::Admin),
     },
 ];
@@ -554,15 +573,49 @@ pub async fn apply_taxon_proposals(
     response.map(|data| serde_json::to_value(data).unwrap())
 }
 
+/// flip an album's `review_status` (phase 11). called by the bulk
+/// enrichment review wizard on save+next (`complete`) and dismiss
+/// (`dismissed`).
+///
+/// path: POST /api/albums/set-review-status
+pub async fn set_album_review_status(
+    caller: &Caller,
+    body: JsonValue,
+) -> GrimoireResponse<JsonValue> {
+    if !caller.is_admin() {
+        return GrimoireResponse::failure(
+            "forbidden",
+            vec![ErrorDetail::new("forbidden", "forbidden", "admin only")],
+        );
+    }
+    let req: SetAlbumReviewStatusRequest = match serde_json::from_value(body) {
+        Ok(r) => r,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "bad request",
+                vec![ErrorDetail::new(
+                    "bad_request",
+                    "bad request",
+                    &e.to_string(),
+                )],
+            )
+        }
+    };
+    let response = grimoire_set_album_review_status(req).await;
+    response.map(|_| serde_json::Value::Null)
+}
+
 // =============================================================================
 // remote image ingestion (phase 14.6)
 // =============================================================================
 
 /// where to attach the ingested image. matches the discriminator on the
-/// generated typescript zod schema (`{ kind: "album", id }` or
-/// `{ kind: "artist", id }`).
+/// generated typescript zod schema (`{ kind: "Album", id }` or
+/// `{ kind: "Artist", id }`). NOTE: PascalCase variant names — the zod
+/// codegen doesn't honor `rename_all`, so we must not set it here or
+/// serde + zod will disagree.
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize, zod_gen_derive::ZodSchema)]
-#[serde(tag = "kind", content = "id", rename_all = "snake_case")]
+#[serde(tag = "kind", content = "id")]
 pub enum ImageIngestTarget {
     Album(String),
     Artist(String),
@@ -600,10 +653,7 @@ const MAX_REMOTE_IMAGE_BYTES: usize = 16 * 1024 * 1024; // 16MB
 /// just the link row.
 ///
 /// path: POST /api/music/images/ingest
-pub async fn ingest_remote_image(
-    caller: &Caller,
-    body: JsonValue,
-) -> GrimoireResponse<JsonValue> {
+pub async fn ingest_remote_image(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
     if !caller.is_admin() {
         return GrimoireResponse::failure(
             "forbidden",
@@ -861,8 +911,150 @@ pub async fn ingest_remote_image(
         mime: mime_out,
         deduped,
     };
+    GrimoireResponse::success("image ingested", serde_json::to_value(body).unwrap())
+}
+
+// =============================================================================
+// album image candidates (slice 3)
+// =============================================================================
+
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize, zod_gen_derive::ZodSchema)]
+pub struct AlbumImageCandidatesRequest {
+    pub album_id: String,
+}
+
+/// one image candidate surfaced for review. `url` is the remote
+/// fetchable url; `kind` is a freeform descriptor ("front", "back",
+/// "cdart", "thumb_hq", etc) and `source` is the data source
+/// ("audiodb" | "musicbrainz"). dimensions / size are best-effort
+/// (not all sources expose them and we don't fetch HEAD here).
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize, zod_gen_derive::ZodSchema)]
+pub struct AlbumImageCandidate {
+    pub url: String,
+    pub source: String,
+    pub kind: String,
+}
+
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize, zod_gen_derive::ZodSchema)]
+pub struct AlbumImageCandidatesResponse {
+    pub album_id: String,
+    pub candidates: Vec<AlbumImageCandidate>,
+    /// blob ids of images currently linked to the album. lets the ui
+    /// show "N already in library" without making the dedup decision
+    /// itself — the actual dedup happens at ingest time via sha256.
+    pub ingested_blob_ids: Vec<String>,
+}
+
+/// surface remote image candidates for an album from already-stored
+/// metadata snapshots. read-only — never makes external http calls.
+///
+/// sources currently mined:
+/// * `audiodb` — `album_thumb_hq`, `album_thumb`, `album_thumb_back`,
+///   `album_cdart`, `album_spine`, `album_3d_case`
+/// * `musicbrainz` — when `mb.release_id` is confirmed, emit canonical
+///   `coverartarchive.org/release/{id}/front` + `/back` urls (we don't
+///   pre-validate; ingest will fail soft if CAA returns 404)
+///
+/// path: POST /api/music/albums/image-candidates
+pub async fn image_candidates_for_album(
+    caller: &Caller,
+    body: JsonValue,
+) -> GrimoireResponse<JsonValue> {
+    if !caller.is_admin() {
+        return GrimoireResponse::failure(
+            "forbidden",
+            vec![ErrorDetail::new("forbidden", "forbidden", "admin only")],
+        );
+    }
+    let req: AlbumImageCandidatesRequest = match serde_json::from_value(body) {
+        Ok(r) => r,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "bad request",
+                vec![ErrorDetail::new(
+                    "bad_request",
+                    "bad request",
+                    &e.to_string(),
+                )],
+            )
+        }
+    };
+
+    // pull album metadata snapshot.
+    let meta_resp = crate::music::entities::albums::read_album_metadata(&req.album_id).await;
+    if !meta_resp.success {
+        return GrimoireResponse::failure(&meta_resp.message, meta_resp.errors);
+    }
+    let meta = meta_resp.data.unwrap_or_default();
+
+    let mut candidates: Vec<AlbumImageCandidate> = Vec::new();
+
+    // audiodb album thumbs.
+    if let Some(ad) = meta.audiodb.as_ref() {
+        if let Some(album) = ad.album.as_ref() {
+            // (kind label, url) pairs. kept in priority order so the
+            // ui renders the highest-quality variants first.
+            let pairs: [(&str, Option<&String>); 6] = [
+                ("thumb_hq", album.album_thumb_hq.as_ref()),
+                ("thumb", album.album_thumb.as_ref()),
+                ("back", album.album_thumb_back.as_ref()),
+                ("cdart", album.album_cdart.as_ref()),
+                ("spine", album.album_spine.as_ref()),
+                ("3d_case", album.album_3d_case.as_ref()),
+            ];
+            for (kind, url) in pairs {
+                if let Some(u) = url {
+                    let trimmed = u.trim();
+                    if !trimmed.is_empty()
+                        && (trimmed.starts_with("http://") || trimmed.starts_with("https://"))
+                    {
+                        candidates.push(AlbumImageCandidate {
+                            url: trimmed.to_string(),
+                            source: "audiodb".to_string(),
+                            kind: kind.to_string(),
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    // musicbrainz cover art archive — derived urls only, no live http.
+    if let Some(mb) = meta.musicbrainz.as_ref() {
+        if let Some(rid) = mb.release_id.as_ref() {
+            let r = rid.trim();
+            if !r.is_empty() {
+                candidates.push(AlbumImageCandidate {
+                    url: format!("https://coverartarchive.org/release/{}/front", r),
+                    source: "musicbrainz".to_string(),
+                    kind: "front".to_string(),
+                });
+                candidates.push(AlbumImageCandidate {
+                    url: format!("https://coverartarchive.org/release/{}/back", r),
+                    source: "musicbrainz".to_string(),
+                    kind: "back".to_string(),
+                });
+            }
+        }
+    }
+
+    // currently-linked blob ids (so the ui can show "already in
+    // library: N"). actual content-level dedup happens at ingest via
+    // sha256, so the ui doesn't need a url<->blob map here.
+    let imgs_resp = grimoire_get_album_images(&req.album_id).await;
+    let ingested = if imgs_resp.success {
+        imgs_resp.data.unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+
+    let resp = AlbumImageCandidatesResponse {
+        album_id: req.album_id,
+        candidates,
+        ingested_blob_ids: ingested,
+    };
     GrimoireResponse::success(
-        "image ingested",
-        serde_json::to_value(body).unwrap(),
+        "album image candidates",
+        serde_json::to_value(resp).unwrap(),
     )
 }

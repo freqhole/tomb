@@ -82,6 +82,33 @@ pub struct LastFmSimilarArtist {
 }
 
 // ---------------------------------------------------------------------------
+// artist.getSimilar — richer than `getInfo.similar`: numeric `match`
+// score and accepts `?limit=N`. mbid sometimes present (lastfm omits
+// it on edge entries). url present.
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LastFmGetSimilarResponse {
+    pub similarartists: Option<LastFmGetSimilarWrapper>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LastFmGetSimilarWrapper {
+    #[serde(default)]
+    pub artist: Vec<LastFmGetSimilarArtist>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LastFmGetSimilarArtist {
+    pub name: String,
+    pub mbid: Option<String>,
+    pub url: Option<String>,
+    /// stringified float in [0,1]. lastfm sends as string.
+    #[serde(default, rename = "match")]
+    pub match_score: Option<String>,
+}
+
+// ---------------------------------------------------------------------------
 // shared
 // ---------------------------------------------------------------------------
 

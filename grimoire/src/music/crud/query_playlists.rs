@@ -361,6 +361,8 @@ impl PlaylistSongViewRow {
                 mb_lookup_status: None,
                 mb_lookup_at: None,
                 mb_lookup_by: None,
+                review_status: "pending".to_string(),
+                reviewed_at: None,
             })
         } else {
             None

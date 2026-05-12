@@ -90,6 +90,9 @@ pub async fn dispatch(
         "/api/albums/apply-taxon-proposals" => {
             Some(albums::apply_taxon_proposals(caller, body.clone()).await)
         }
+        "/api/albums/set-review-status" => {
+            Some(albums::set_album_review_status(caller, body.clone()).await)
+        }
 
         // artists
         "/api/artists/query" => Some(artists::query(caller, body.clone()).await),
@@ -100,6 +103,12 @@ pub async fn dispatch(
         "/api/artists/update-metadata" => {
             Some(artists::update_metadata(caller, body.clone()).await)
         }
+        "/api/artists/propose-bios" => Some(artists::propose_bios(caller, body.clone()).await),
+        "/api/artists/apply-bio" => Some(artists::apply_bio(caller, body.clone()).await),
+        "/api/artists/propose-related" => {
+            Some(artists::propose_related(caller, body.clone()).await)
+        }
+        "/api/artists/apply-related" => Some(artists::apply_related(caller, body.clone()).await),
         "/api/music/artists" => Some(artists::create(caller, body.clone()).await),
 
         // related artists (phase 13h)
@@ -196,6 +205,12 @@ pub async fn dispatch(
             Some(albums::set_primary_image(caller, body.clone()).await)
         }
         "/api/music/images/ingest" => Some(albums::ingest_remote_image(caller, body.clone()).await),
+        "/api/music/albums/image-candidates" => {
+            Some(albums::image_candidates_for_album(caller, body.clone()).await)
+        }
+        "/api/artists/image-candidates" => {
+            Some(artists::image_candidates(caller, body.clone()).await)
+        }
 
         // analytics
         "/api/analytics/play" => Some(analytics::record_play(caller, body.clone()).await),

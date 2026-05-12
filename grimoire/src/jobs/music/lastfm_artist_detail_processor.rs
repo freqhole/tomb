@@ -133,45 +133,96 @@ pub async fn process_lastfm_artist_detail_job(job: &Job) -> Result<Option<Value>
         });
     }
 
-    // upsert each similar artist as a related row. lastfm's
-    // `artist.getInfo.similar` doesn't carry mbid or a numeric match
-    // score; the dedicated `artist.getSimilar?limit=50` endpoint does
-    // and is a future enrichment.
+    // upsert each similar artist as a related row. prefer the dedicated
+    // `artist.getSimilar?limit=25` endpoint (richer: numeric match
+    // score + sometimes mbid) and fall back to `artist.getInfo.similar`
+    // (~5 rows, name+url only) if it fails.
+    crate::jobs::rate_limit::acquire(crate::jobs::rate_limit::Source::Lastfm).await;
+    let getsim_resp = client
+        .artist_get_similar(&name, params.mbid.as_deref(), 25)
+        .await;
     let mut related_upserted: u64 = 0;
-    for sim in similar_refs.into_iter() {
-        if sim.name.trim().is_empty() {
-            continue;
+    if getsim_resp.success {
+        for sim in getsim_resp.data.unwrap_or_default().into_iter() {
+            if sim.name.trim().is_empty() {
+                continue;
+            }
+            let external_urls = sim
+                .url
+                .as_ref()
+                .map(|u| {
+                    vec![crate::music::entities::related_artists::ExternalUrl {
+                        name: "last.fm".to_string(),
+                        url: u.clone(),
+                    }]
+                })
+                .unwrap_or_default();
+            let match_score = sim
+                .match_score
+                .as_deref()
+                .and_then(|s| s.parse::<f64>().ok());
+            let payload = UpsertRelatedArtist {
+                source_artist_id: artist_id.clone(),
+                related_name: sim.name,
+                related_mbid: sim.mbid.filter(|s| !s.is_empty()),
+                source: RelatedArtistSource::Lastfm,
+                match_score,
+                bandcamp_url: None,
+                bandcamp_albums: Vec::new(),
+                image_url: None,
+                external_urls,
+                fetched_at: now,
+            };
+            let r = upsert_related_artist(payload).await;
+            if r.success {
+                related_upserted += 1;
+            } else {
+                warn!(
+                    "lastfm related upsert failed for artist {}: {}",
+                    artist_id, r.message
+                );
+            }
         }
-        let external_urls = sim
-            .url
-            .as_ref()
-            .map(|u| {
-                vec![crate::music::entities::related_artists::ExternalUrl {
-                    name: "last.fm".to_string(),
-                    url: u.clone(),
-                }]
-            })
-            .unwrap_or_default();
-        let payload = UpsertRelatedArtist {
-            source_artist_id: artist_id.clone(),
-            related_name: sim.name,
-            related_mbid: None,
-            source: RelatedArtistSource::Lastfm,
-            match_score: None,
-            bandcamp_url: None,
-            bandcamp_albums: Vec::new(),
-            image_url: None,
-            external_urls,
-            fetched_at: now,
-        };
-        let r = upsert_related_artist(payload).await;
-        if r.success {
-            related_upserted += 1;
-        } else {
-            warn!(
-                "lastfm related upsert failed for artist {}: {}",
-                artist_id, r.message
-            );
+    } else {
+        warn!(
+            "lastfm artist.getSimilar failed for {}: {}; falling back to getInfo.similar",
+            artist_id, getsim_resp.message
+        );
+        for sim in similar_refs.into_iter() {
+            if sim.name.trim().is_empty() {
+                continue;
+            }
+            let external_urls = sim
+                .url
+                .as_ref()
+                .map(|u| {
+                    vec![crate::music::entities::related_artists::ExternalUrl {
+                        name: "last.fm".to_string(),
+                        url: u.clone(),
+                    }]
+                })
+                .unwrap_or_default();
+            let payload = UpsertRelatedArtist {
+                source_artist_id: artist_id.clone(),
+                related_name: sim.name,
+                related_mbid: None,
+                source: RelatedArtistSource::Lastfm,
+                match_score: None,
+                bandcamp_url: None,
+                bandcamp_albums: Vec::new(),
+                image_url: None,
+                external_urls,
+                fetched_at: now,
+            };
+            let r = upsert_related_artist(payload).await;
+            if r.success {
+                related_upserted += 1;
+            } else {
+                warn!(
+                    "lastfm related upsert failed for artist {}: {}",
+                    artist_id, r.message
+                );
+            }
         }
     }
 

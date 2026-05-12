@@ -15,6 +15,8 @@ import { ResolveShareModal } from "../components/modals/ResolveShareModal";
 import { ShareModal } from "../components/modals/ShareModal";
 import { SongEditorModal } from "../components/modals/SongEditorModal";
 import { TagSelectorModal } from "../components/modals/TagSelectorModal";
+import { BulkEnrichmentReviewModal } from "../library/review/BulkEnrichmentReviewModal";
+import { hideBulkReview, useBulkReviewState } from "../library/review/bulkReviewModal";
 import { QueueFullModal } from "../music/components/QueueFullModal";
 import {
   getCurrentRemote,
@@ -893,6 +895,27 @@ export function App() {
               state().onSave?.();
               hideTagSelector();
             }}
+          />
+        )}
+      </Show>
+
+      <Show when={useBulkReviewState()()}>
+        {(state) => (
+          <BulkEnrichmentReviewModal
+            ids={state().ids}
+            currentIndex={state().currentIndex}
+            remote={state().remote}
+            onNext={() => state().onNext()}
+            onPrev={() => state().onPrev()}
+            onExit={() => {
+              // capture handler before flipping the parent state — once
+              // hideBulkReview() runs the <Show> unmounts and `state()`
+              // becomes stale (solid throws a warning + returns undef).
+              const onExit = state().onExit;
+              hideBulkReview();
+              onExit();
+            }}
+            onMinimize={() => hideBulkReview()}
           />
         )}
       </Show>

@@ -10,7 +10,10 @@
 // just feeds it a `review` prop with onNext / onPrev / onExit callbacks.
 
 import { createSignal } from "solid-js";
-import { showAlbumEditor, hideAlbumEditor } from "./modals";
+import {
+  showBulkReview,
+  hideBulkReview,
+} from "../../library/review/bulkReviewModal";
 import { getCurrentRemote } from "../data";
 import { getClientForRemote } from "../../app/api/client";
 import { toast } from "../../components/feedback/Toast";
@@ -73,27 +76,17 @@ export async function startBulkEnrichmentReview(
 
 function openAt(session: ReviewSession, index: number): void {
   const id = session.ids[index];
-  // TEMP DEBUG
-  console.log("[bulkEnrichmentReview] openAt", {
-    index,
-    id,
-    totalIds: session.ids.length,
-    sessionId: session.jobSessionId,
-  });
   if (!id) {
     exitReview();
     return;
   }
-  showAlbumEditor({
-    albumId: id,
+  showBulkReview({
+    ids: session.ids,
+    currentIndex: index,
     remote: session.remote,
-    review: {
-      ids: session.ids,
-      currentIndex: index,
-      onNext: () => openAt(session, index + 1),
-      onPrev: () => openAt(session, Math.max(0, index - 1)),
-      onExit: () => exitReview(),
-    },
+    onNext: () => openAt(session, index + 1),
+    onPrev: () => openAt(session, Math.max(0, index - 1)),
+    onExit: () => exitReview(),
   });
 }
 
@@ -101,7 +94,7 @@ function openAt(session: ReviewSession, index: number): void {
  *  background. user can re-open via the "resume review" affordance (TBD)
  *  or just wait for the strip to drain. */
 export function exitReview(): void {
-  hideAlbumEditor();
+  hideBulkReview();
 }
 
 /** cancel every pending / running job in the active review session. */

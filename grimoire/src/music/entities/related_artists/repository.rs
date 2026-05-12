@@ -48,20 +48,13 @@ pub async fn upsert_related_artist(
     }
 
     // best-effort cross-ref to a local artistz row.
-    let resolved_local_id = resolve_local_artist(
-        &pool,
-        payload.related_mbid.as_deref(),
-        &key,
-    )
-    .await;
+    let resolved_local_id =
+        resolve_local_artist(&pool, payload.related_mbid.as_deref(), &key).await;
 
     // bandcamp_albums: cap, dedup by url, serialize.
-    let bandcamp_json = serialize_capped_json(
-        payload.bandcamp_albums.iter().take(BANDCAMP_ALBUMS_CAP),
-    );
-    let external_json = serialize_capped_json(
-        payload.external_urls.iter().take(EXTERNAL_URLS_CAP),
-    );
+    let bandcamp_json =
+        serialize_capped_json(payload.bandcamp_albums.iter().take(BANDCAMP_ALBUMS_CAP));
+    let external_json = serialize_capped_json(payload.external_urls.iter().take(EXTERNAL_URLS_CAP));
     let source_str = payload.source.as_str();
 
     // INSERT ... ON CONFLICT ... DO UPDATE pattern. id is generated
@@ -174,7 +167,7 @@ pub async fn list_related_for_artist(artist_id: &str) -> GrimoireResponse<Vec<Re
             updated_at as "updated_at!",
             deleted_at as "deleted_at?"
         FROM related_artistz
-        WHERE source_artist_id = ? AND deleted_at IS NULL
+        WHERE source_artist_id = ? AND deleted_at IS NULL AND status = 'accepted'
         ORDER BY match_score DESC NULLS LAST, related_name COLLATE NOCASE ASC
         "#,
         artist_id,
@@ -191,9 +184,7 @@ pub async fn list_related_for_artist(artist_id: &str) -> GrimoireResponse<Vec<Re
 
 /// reverse lookup: every active row that points AT the given local
 /// artist (i.e. local artists who list this one as related).
-pub async fn list_relations_pointing_at(
-    artist_id: &str,
-) -> GrimoireResponse<Vec<RelatedArtist>> {
+pub async fn list_relations_pointing_at(artist_id: &str) -> GrimoireResponse<Vec<RelatedArtist>> {
     let pool = match database::connect().await {
         Ok(p) => p,
         Err(e) => return GrimoireResponse::failure("db connect failed", vec![e.into()]),
@@ -218,7 +209,7 @@ pub async fn list_relations_pointing_at(
             updated_at as "updated_at!",
             deleted_at as "deleted_at?"
         FROM related_artistz
-        WHERE related_artist_id = ? AND deleted_at IS NULL
+        WHERE related_artist_id = ? AND deleted_at IS NULL AND status = 'accepted'
         ORDER BY match_score DESC NULLS LAST, related_name COLLATE NOCASE ASC
         "#,
         artist_id,
@@ -245,9 +236,7 @@ pub async fn set_related_bandcamp(
         Err(e) => return GrimoireResponse::failure("db connect failed", vec![e.into()]),
     };
 
-    let bandcamp_json = serialize_capped_json(
-        bandcamp_albums.iter().take(BANDCAMP_ALBUMS_CAP),
-    );
+    let bandcamp_json = serialize_capped_json(bandcamp_albums.iter().take(BANDCAMP_ALBUMS_CAP));
 
     let row = match sqlx::query_as!(
         RelatedArtist,

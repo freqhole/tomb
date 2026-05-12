@@ -19,7 +19,7 @@ use tracing::{info, warn};
 
 use super::models::{
     LastFmAlbumInfo, LastFmAlbumInfoResponse, LastFmArtistInfo, LastFmArtistInfoResponse,
-    LastFmErrorEnvelope,
+    LastFmErrorEnvelope, LastFmGetSimilarArtist, LastFmGetSimilarResponse,
 };
 
 const USER_AGENT: &str = "freqhole/1.0 (https://github.com/freqhole/tomb)";
@@ -205,6 +205,71 @@ impl LastFmClient {
             }) {
             Ok(info) => GrimoireResponse::success("lastfm artist info", info),
             Err(e) => GrimoireResponse::failure("lastfm artist.getInfo failed", vec![e.into()]),
+        }
+    }
+
+    /// `artist.getSimilar` — richer than `artist.getInfo.similar`:
+    /// includes a numeric `match` score and accepts `limit` (default
+    /// 100, we cap at 25 by default callsites). prefers mbid lookup
+    /// when available; falls back to artist name.
+    pub async fn artist_get_similar(
+        &self,
+        artist: &str,
+        mbid: Option<&str>,
+        limit: u32,
+    ) -> GrimoireResponse<Vec<LastFmGetSimilarArtist>> {
+        let limit_str = limit.to_string();
+        if let Some(id) = mbid {
+            let params: Vec<(&str, &str)> = vec![
+                ("method", "artist.getsimilar"),
+                ("autocorrect", "1"),
+                ("mbid", id),
+                ("limit", &limit_str),
+            ];
+            info!(
+                "lastfm artist.getSimilar (mbid) artist={:?} mbid={:?} limit={}",
+                artist, mbid, limit
+            );
+            match self
+                .request::<LastFmGetSimilarResponse>(&params)
+                .await
+                .map(|r| r.similarartists.map(|w| w.artist).unwrap_or_default())
+            {
+                Ok(list) => return GrimoireResponse::success("lastfm similar artists", list),
+                Err(e) => {
+                    let msg = format!("{}", e);
+                    let is_not_found = msg.contains("error 6") || msg.contains("not found");
+                    if !(is_not_found && !artist.is_empty()) {
+                        return GrimoireResponse::failure(
+                            "lastfm artist.getSimilar failed",
+                            vec![e.into()],
+                        );
+                    }
+                    warn!(
+                        "lastfm artist.getSimilar mbid={:?} not found; retrying with name",
+                        mbid
+                    );
+                }
+            }
+        }
+
+        let params: Vec<(&str, &str)> = vec![
+            ("method", "artist.getsimilar"),
+            ("autocorrect", "1"),
+            ("artist", artist),
+            ("limit", &limit_str),
+        ];
+        info!(
+            "lastfm artist.getSimilar (text) artist={:?} limit={}",
+            artist, limit
+        );
+        match self
+            .request::<LastFmGetSimilarResponse>(&params)
+            .await
+            .map(|r| r.similarartists.map(|w| w.artist).unwrap_or_default())
+        {
+            Ok(list) => GrimoireResponse::success("lastfm similar artists", list),
+            Err(e) => GrimoireResponse::failure("lastfm artist.getSimilar failed", vec![e.into()]),
         }
     }
 
