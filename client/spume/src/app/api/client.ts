@@ -22,6 +22,9 @@ import {
   type Transport,
 } from "freqhole-api-client";
 import { isCharnelMode } from "../services/charnel";
+// static import (not dynamic) so Rollup doesn't emit a live-binding chunk reference
+// that Safari JSC throws a TDZ error on before the chunk has evaluated
+import { MiddenNode } from "midden";
 
 // re-export for call sites that still need direct access
 // note: isCharnelAvailable uses local isCharnelMode which checks both env var and window.__TAURI__
@@ -114,9 +117,7 @@ export async function getMiddenNode(): Promise<MiddenNodeLike> {
     return middenNodePromise;
   }
 
-  // lazy import midden to avoid bundling it when not used
   middenNodePromise = (async (): Promise<MiddenNodeLike> => {
-    const { MiddenNode } = await import("midden");
 
     // check for persisted identity
     const existingIdentity = await getP2PIdentity();
@@ -275,22 +276,24 @@ export async function getClientForRemote(remote: RemoteLike): Promise<ApiClient>
   const baseUrl = resolveBaseUrl(remote);
 
   switch (transportType) {
-    case "app":
+    case "app": {
       if (!peerAddr) {
         throw new Error("peer_addr required for app transport");
       }
       return new FreqholeClient(await createCharnelTransport(peerAddr));
+    }
 
-    case "wasm":
+    case "wasm": {
       if (!peerAddr) {
         throw new Error("peer_addr required for wasm transport");
       }
       const clientNode = await getMiddenNode();
       const clientCacheName = remote.remote_id ? getRemoteCacheName(remote.remote_id) : undefined;
       return new FreqholeClient(new WasmTransport(clientNode, peerAddr, clientCacheName));
+    }
 
     case "http":
-    default:
+    default: {
       // charnel-managed remotes use IPC (no base_url needed)
       if (isCharnelMode() && remote.is_charnel_managed) {
         return new FreqholeClient(createCharnelLocalTransport(""));
@@ -299,6 +302,7 @@ export async function getClientForRemote(remote: RemoteLike): Promise<ApiClient>
         throw new Error("base_url required for http transport");
       }
       return new FreqholeClient(new HttpTransport(baseUrl, remote.api_key));
+    }
   }
 }
 
@@ -320,14 +324,15 @@ export async function getTransportForRemote(remote: RemoteLike): Promise<Transpo
   const baseUrl = resolveBaseUrl(remote);
 
   switch (transportType) {
-    case "app":
+    case "app": {
       if (!peerAddr) {
         throw new Error("peer_addr required for app transport");
       }
       const appCacheName = remote.remote_id ? getRemoteCacheName(remote.remote_id) : undefined;
       return createCharnelTransport(peerAddr, appCacheName);
+    }
 
-    case "wasm":
+    case "wasm": {
       if (!peerAddr) {
         throw new Error("peer_addr required for wasm transport");
       }
@@ -336,9 +341,10 @@ export async function getTransportForRemote(remote: RemoteLike): Promise<Transpo
         ? getRemoteCacheName(remote.remote_id)
         : undefined;
       return new WasmTransport(transportNode, peerAddr, transportCacheName);
+    }
 
     case "http":
-    default:
+    default: {
       // charnel-managed remotes use IPC (no base_url needed)
       if (isCharnelMode() && remote.is_charnel_managed) {
         return createCharnelLocalTransport("");
@@ -347,6 +353,7 @@ export async function getTransportForRemote(remote: RemoteLike): Promise<Transpo
         throw new Error("base_url required for http transport");
       }
       return new HttpTransport(baseUrl, remote.api_key);
+    }
   }
 }
 
