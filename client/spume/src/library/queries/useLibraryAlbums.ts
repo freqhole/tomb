@@ -105,5 +105,22 @@ export function useLibraryAlbumsQuery(opts: LibraryAlbumsQueryOptions) {
     gcTime: 5 * 60 * 1000,
     refetchOnMount: false,
     refetchOnWindowFocus: false,
+    // poll while any visible row is in `auto_applying`. that status is
+    // owned by a server-side background job (`AutoApplyAlbumEnrichment`)
+    // that wasn't enqueued from this client, so the in-flight job
+    // tracker can't invalidate us when it finishes. cheap re-poll until
+    // the row flips out of `auto_applying`.
+    refetchInterval: (query) => {
+      const data = query.state.data as
+        | { pages?: Array<{ items: Array<{ mb_lookup_status?: string | null }> }> }
+        | undefined;
+      const pages = data?.pages ?? [];
+      for (const p of pages) {
+        for (const it of p.items) {
+          if (it.mb_lookup_status === "auto_applying") return 5000;
+        }
+      }
+      return false;
+    },
   }));
 }
