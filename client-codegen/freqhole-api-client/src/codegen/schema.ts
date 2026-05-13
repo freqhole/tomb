@@ -1198,7 +1198,7 @@ export const CreateArtistRequestSchema = z.object({
 export type CreateArtistRequest = z.infer<typeof CreateArtistRequestSchema>;
 
 export const CreateJobRequestSchema = z.object({
-  job_type: z.union([z.literal('ScanDirectory'), z.literal('RescanDirectories'), z.literal('ProcessFile'), z.literal('FetchMedia'), z.literal('ConvertWebp'), z.literal('ImportMusic'), z.literal('MbAlbumSearch'), z.literal('MbAlbumDetail'), z.literal('LastFmAlbumDetail'), z.literal('LastFmArtistDetail'), z.literal('AudioDbAlbumDetail'), z.literal('AudioDbArtistDetail'), z.literal('AlbumEnrichmentPipeline')]),
+  job_type: z.union([z.literal('ScanDirectory'), z.literal('RescanDirectories'), z.literal('ProcessFile'), z.literal('FetchMedia'), z.literal('ConvertWebp'), z.literal('ImportMusic'), z.literal('MbAlbumSearch'), z.literal('MbAlbumDetail'), z.literal('LastFmAlbumDetail'), z.literal('LastFmArtistDetail'), z.literal('AudioDbAlbumDetail'), z.literal('AudioDbArtistDetail'), z.literal('AlbumEnrichmentPipeline'), z.literal('AutoApplyAlbumEnrichment')]),
   session_id: z.string().nullish(),
   parameters: z.any(),
   max_retries: z.number().nullish(),
@@ -3092,12 +3092,12 @@ export const MbLastQuerySchema = z.object({
 });
 export type MbLastQuery = z.infer<typeof MbLastQuerySchema>;
 
-export const MbLookupStatusSchema = z.union([z.literal("not_attempted"), z.literal("queued"), z.literal("searching"), z.literal("candidates"), z.literal("confirmed"), z.literal("rejected"), z.literal("no_match"), z.literal("needs_review"), z.literal("fetching_detail"), z.literal("enriched"), z.literal("skipped"), z.literal("error")]);
+export const MbLookupStatusSchema = z.union([z.literal("not_attempted"), z.literal("queued"), z.literal("searching"), z.literal("candidates"), z.literal("confirmed"), z.literal("rejected"), z.literal("no_match"), z.literal("needs_review"), z.literal("fetching_detail"), z.literal("enriched"), z.literal("auto_applying"), z.literal("skipped"), z.literal("error")]);
 export type MbLookupStatus = z.infer<typeof MbLookupStatusSchema>;
 
 export const MbMatchActionResponseSchema = z.object({
   album_id: z.string(),
-  status: z.union([z.literal("not_attempted"), z.literal("queued"), z.literal("searching"), z.literal("candidates"), z.literal("confirmed"), z.literal("rejected"), z.literal("no_match"), z.literal("needs_review"), z.literal("fetching_detail"), z.literal("enriched"), z.literal("skipped"), z.literal("error")])
+  status: z.union([z.literal("not_attempted"), z.literal("queued"), z.literal("searching"), z.literal("candidates"), z.literal("confirmed"), z.literal("rejected"), z.literal("no_match"), z.literal("needs_review"), z.literal("fetching_detail"), z.literal("enriched"), z.literal("auto_applying"), z.literal("skipped"), z.literal("error")])
 });
 export type MbMatchActionResponse = z.infer<typeof MbMatchActionResponseSchema>;
 

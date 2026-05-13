@@ -35,6 +35,14 @@ pub enum JobType {
 
     // bulk multi-source enrichment orchestrator (phase 14.4)
     AlbumEnrichmentPipeline,
+
+    // auto-apply: after `auto_confirm_mb_matches` flips an album to
+    // `confirmed`, this job waits for the chained mb/lastfm/audiodb
+    // detail jobs to settle, then applies every available proposal
+    // (taxons, entity urls, artist bio, related artists) and ingests
+    // every album + artist remote image candidate. final step flips
+    // the album to `enriched`.
+    AutoApplyAlbumEnrichment,
 }
 
 /// external enrichment sources the pipeline can run against.

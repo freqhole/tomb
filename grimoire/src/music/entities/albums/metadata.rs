@@ -53,6 +53,14 @@ pub enum MbLookupStatus {
     FetchingDetail,
     /// detail fetched and folksonomy persisted
     Enriched,
+    /// auto-confirm queued/running an `AutoApplyAlbumEnrichment` job
+    /// that fans out the wizard's full apply chain (taxons, urls,
+    /// images, bio, related artists) automatically once the upstream
+    /// mb/lastfm/audiodb detail jobs finish. row stays in this state
+    /// while the auto-apply job is pending or running so the library
+    /// table can render a spinner. flips back to `Enriched` once the
+    /// apply work completes.
+    AutoApplying,
     /// user explicitly skipped this album in the bulk-review wizard.
     /// distinct from `Rejected` (which means the candidates list was
     /// rejected) and from `NoMatch` (which means search returned
@@ -79,6 +87,7 @@ impl MbLookupStatus {
             Self::NeedsReview => "needs_review",
             Self::FetchingDetail => "fetching_detail",
             Self::Enriched => "enriched",
+            Self::AutoApplying => "auto_applying",
             Self::Skipped => "skipped",
             Self::Error => "error",
         }
@@ -105,6 +114,7 @@ impl MbLookupStatus {
             "needs_review" => Self::NeedsReview,
             "fetching_detail" => Self::FetchingDetail,
             "enriched" => Self::Enriched,
+            "auto_applying" => Self::AutoApplying,
             "skipped" => Self::Skipped,
             "error" => Self::Error,
             _ => return None,
@@ -116,7 +126,7 @@ impl zod_gen::ZodSchema for MbLookupStatus {
     fn zod_schema() -> String {
         // keep in sync with `MbLookupStatus::as_str` (snake_case wire form).
         // hand-rolled because `zod_gen_derive` does not honor `serde(rename_all)`.
-        r#"z.union([z.literal("not_attempted"), z.literal("queued"), z.literal("searching"), z.literal("candidates"), z.literal("confirmed"), z.literal("rejected"), z.literal("no_match"), z.literal("needs_review"), z.literal("fetching_detail"), z.literal("enriched"), z.literal("skipped"), z.literal("error")])"#.to_string()
+        r#"z.union([z.literal("not_attempted"), z.literal("queued"), z.literal("searching"), z.literal("candidates"), z.literal("confirmed"), z.literal("rejected"), z.literal("no_match"), z.literal("needs_review"), z.literal("fetching_detail"), z.literal("enriched"), z.literal("auto_applying"), z.literal("skipped"), z.literal("error")])"#.to_string()
     }
 }
 

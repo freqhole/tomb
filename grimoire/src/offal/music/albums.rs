@@ -693,6 +693,29 @@ pub async fn ingest_remote_image(caller: &Caller, body: JsonValue) -> GrimoireRe
             )
         }
     };
+    let resp = ingest_remote_image_inner(req, &caller.user_id, &caller.username).await;
+    if resp.success {
+        match resp.data {
+            Some(body) => GrimoireResponse::success(
+                &resp.message,
+                serde_json::to_value(body).unwrap(),
+            ),
+            None => GrimoireResponse::failure(&resp.message, resp.errors),
+        }
+    } else {
+        GrimoireResponse::failure(&resp.message, resp.errors)
+    }
+}
+
+/// pure-business-logic version of `ingest_remote_image`. caller-free so
+/// background jobs (auto-apply enrichment) can drive it without
+/// fabricating a fake `Caller`. handles fetch + dedup + disk write +
+/// album/artist link entirely.
+pub async fn ingest_remote_image_inner(
+    req: IngestRemoteImageRequest,
+    created_by_id: &str,
+    created_by_username: &str,
+) -> GrimoireResponse<IngestRemoteImageResponse> {
 
     // require https/http only — guards against `file://`, `data:`, etc.
     let scheme_ok = req.remote_url.starts_with("https://") || req.remote_url.starts_with("http://");
@@ -830,7 +853,7 @@ pub async fn ingest_remote_image(caller: &Caller, body: JsonValue) -> GrimoireRe
                     "remote_url": req.remote_url,
                     "source": req.source.clone().unwrap_or_default(),
                 }),
-                created_by: Some(caller.user_id.clone()),
+                created_by: Some(created_by_id.to_string()),
                 data: None,
                 width: None,
                 height: None,
@@ -891,7 +914,7 @@ pub async fn ingest_remote_image(caller: &Caller, body: JsonValue) -> GrimoireRe
             let _ = crate::media_blobz::update_blob_local_path(
                 &blob.id,
                 full_path.to_string_lossy().as_ref(),
-                Some(caller.user_id.clone()),
+                Some(created_by_id.to_string()),
             )
             .await;
 
@@ -906,7 +929,7 @@ pub async fn ingest_remote_image(caller: &Caller, body: JsonValue) -> GrimoireRe
                 album_id,
                 &blob_id,
                 req.is_primary,
-                Some((&caller.user_id, &caller.username)),
+                Some((created_by_id, created_by_username)),
             )
             .await
         }
@@ -915,7 +938,7 @@ pub async fn ingest_remote_image(caller: &Caller, body: JsonValue) -> GrimoireRe
                 artist_id,
                 &blob_id,
                 req.is_primary,
-                Some((&caller.user_id, &caller.username)),
+                Some((created_by_id, created_by_username)),
             )
             .await
         }
@@ -931,7 +954,7 @@ pub async fn ingest_remote_image(caller: &Caller, body: JsonValue) -> GrimoireRe
         mime: mime_out,
         deduped,
     };
-    GrimoireResponse::success("image ingested", serde_json::to_value(body).unwrap())
+    GrimoireResponse::success("image ingested", body)
 }
 
 // =============================================================================

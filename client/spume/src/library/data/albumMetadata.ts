@@ -26,6 +26,7 @@ export const MB_LOOKUP_STATUSES: readonly MbLookupStatus[] = [
   "fetching_detail",
   "confirmed",
   "enriched",
+  "auto_applying",
   "skipped",
   "rejected",
   "no_match",
@@ -71,6 +72,8 @@ export function mbLookupStatusLabel(status: MbLookupStatus | null | undefined): 
       return "confirmed";
     case "enriched":
       return "done";
+    case "auto_applying":
+      return "auto-applying…";
     case "skipped":
       return "skipped";
     case "rejected":

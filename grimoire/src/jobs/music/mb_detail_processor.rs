@@ -349,13 +349,22 @@ pub async fn process_mb_album_detail_job(job: &Job) -> Result<Option<Value>, Job
         album_id, apply_summary.year_set, apply_summary.label_set, apply_summary.genres_added
     );
 
-    // step 6: flip status to enriched
-    let _ = albums_repo::update_mb_lookup_status(
-        &album_id,
-        MbLookupStatus::Enriched,
-        job.created_by.as_deref(),
-    )
-    .await;
+    // step 6: flip status to enriched. but if the album is in
+    // `auto_applying` (queued by `auto_confirm_mb_matches`), leave the
+    // spinner up — the auto-apply processor owns the final flip after
+    // it accepts every available proposal.
+    let current_status = albums_repo::get_album(&album_id)
+        .await
+        .data
+        .and_then(|a| a.mb_lookup_status);
+    if current_status.as_deref() != Some("auto_applying") {
+        let _ = albums_repo::update_mb_lookup_status(
+            &album_id,
+            MbLookupStatus::Enriched,
+            job.created_by.as_deref(),
+        )
+        .await;
+    }
 
     // phase 13c: auto-chain lastfm + audiodb detail jobs.
     // we now have a confirmed MBID for this album, which is the

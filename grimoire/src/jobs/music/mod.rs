@@ -11,6 +11,7 @@
 mod album_enrichment_pipeline_processor;
 mod audiodb_artist_detail_processor;
 mod audiodb_detail_processor;
+mod auto_apply_album_enrichment_processor;
 mod directory_tag_rules;
 mod fetch_processor;
 mod file_processor;
@@ -28,6 +29,7 @@ mod upload_processors;
 pub use album_enrichment_pipeline_processor::process_album_enrichment_pipeline_job;
 pub use audiodb_artist_detail_processor::process_audiodb_artist_detail_job;
 pub use audiodb_detail_processor::process_audiodb_album_detail_job;
+pub use auto_apply_album_enrichment_processor::process_auto_apply_album_enrichment_job;
 pub use fetch_processor::process_fetch_media_job;
 pub use file_processor::process_file_job;
 pub use lastfm_artist_detail_processor::process_lastfm_artist_detail_job;
@@ -42,8 +44,9 @@ pub use upload_processors::{process_convert_webp_job, process_import_music_job};
 pub use models::{
     AlbumEnrichmentPipelineParams, AlbumEnrichmentPipelineResult, AlbumEnrichmentProgress,
     AudioDbAlbumDetailParams, AudioDbAlbumDetailResult, AudioDbArtistDetailParams,
-    AudioDbArtistDetailResult, BulkEnrichmentRequest, BulkEnrichmentResponse,
-    CancelBulkEnrichmentRequest, CancelBulkEnrichmentResponse, EnqueueAudioDbAlbumDetailRequest,
+    AudioDbArtistDetailResult, AutoApplyAlbumEnrichmentParams, AutoApplyAlbumEnrichmentResult,
+    BulkEnrichmentRequest, BulkEnrichmentResponse, CancelBulkEnrichmentRequest,
+    CancelBulkEnrichmentResponse, EnqueueAudioDbAlbumDetailRequest,
     EnqueueAudioDbAlbumDetailResponse, EnqueueLastFmAlbumDetailRequest,
     EnqueueLastFmAlbumDetailResponse, EnqueueMbAlbumSearchRequest, EnqueueMbAlbumSearchResponse,
     EnrichmentSourceStatus, GetEnrichmentProgressRequest, GetEnrichmentProgressResponse,

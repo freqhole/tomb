@@ -594,6 +594,59 @@ pub async fn auto_confirm_mb_matches(
         .await;
         if resp.data.is_some() {
             confirmed.push(album_id.clone());
+
+            // flip status to `auto_applying` so the library table can
+            // show a spinner until the upstream lastfm/audiodb chain
+            // finishes and the auto-apply processor accepts every
+            // available proposal.
+            let _ = update_mb_lookup_status(
+                album_id,
+                super::metadata::MbLookupStatus::AutoApplying,
+                Some(user_id),
+            )
+            .await;
+
+            // enqueue the auto-apply job. delayed start gives the
+            // mb-detail + lastfm/audiodb chain a head start so the
+            // first attempt usually finds fresh snapshots ready.
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs() as i64)
+                .unwrap_or(0);
+            let params = crate::jobs::AutoApplyAlbumEnrichmentParams {
+                album_id: album_id.clone(),
+                user_id: user_id.to_string(),
+                username: None,
+                attempts: 0,
+            };
+            match serde_json::to_value(&params) {
+                Ok(parameters) => {
+                    let job_resp = crate::jobs::create_job(crate::jobs::CreateJobRequest {
+                        job_type: crate::jobs::JobType::AutoApplyAlbumEnrichment,
+                        session_id: None,
+                        parameters,
+                        max_retries: Some(2),
+                        scheduled_at: Some(now + 30),
+                        created_by: Some(user_id.to_string()),
+                        priority: None,
+                    })
+                    .await;
+                    if !job_resp.success {
+                        tracing::warn!(
+                            "auto-apply enqueue failed for {}: {}",
+                            album_id,
+                            job_resp.message
+                        );
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        "auto-apply param serialize failed for {}: {}",
+                        album_id,
+                        e
+                    );
+                }
+            }
         } else {
             errors.push(super::metadata::AutoConfirmSkip {
                 album_id: album_id.clone(),

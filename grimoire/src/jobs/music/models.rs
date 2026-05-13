@@ -320,6 +320,42 @@ pub struct AlbumEnrichmentPipelineResult {
     pub skipped_sources: Vec<String>,
 }
 
+/// parameters for `JobType::AutoApplyAlbumEnrichment`. one job per
+/// album, scheduled by `auto_confirm_mb_matches`. the job waits for
+/// the upstream mb/lastfm/audiodb detail jobs to settle and then
+/// auto-accepts every available proposal + ingests every available
+/// remote image. final step flips the album to `enriched`.
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct AutoApplyAlbumEnrichmentParams {
+    pub album_id: String,
+    /// the user that triggered the auto-confirm (used as `created_by`
+    /// on the apply writes + the `caller` for ingest_remote_image).
+    pub user_id: String,
+    /// optional cached username for the same caller (so the inner
+    /// ingest fn can populate the right `updated_by_username` on
+    /// album/artist image link rows). when missing the inner fn falls
+    /// back to the user_id.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub username: Option<String>,
+    /// monotonically incremented each time the job reschedules itself
+    /// while waiting for upstream chain jobs to finish. capped at 20
+    /// (default rescheduled delay 30s == ~10min total wait).
+    #[serde(default)]
+    pub attempts: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct AutoApplyAlbumEnrichmentResult {
+    pub album_id: String,
+    pub taxons_applied: u32,
+    pub urls_applied: u32,
+    pub bio_applied: bool,
+    pub related_applied: u32,
+    pub album_images_ingested: u32,
+    pub artist_images_ingested: u32,
+    pub final_status: String,
+}
+
 /// admin route `enqueue_bulk_enrichment` (phase 14.4e).
 /// spawns one `AlbumEnrichmentPipeline` per album_id, optionally tagged
 /// to a single job session for grouped progress + cancel.

@@ -30,7 +30,8 @@ pub use models::{
 pub use music::{
     AlbumEnrichmentPipelineParams, AlbumEnrichmentPipelineResult, AlbumEnrichmentProgress,
     AudioDbAlbumDetailParams, AudioDbAlbumDetailResult, AudioDbArtistDetailParams,
-    AudioDbArtistDetailResult, BulkEnrichmentRequest,
+    AudioDbArtistDetailResult, AutoApplyAlbumEnrichmentParams, AutoApplyAlbumEnrichmentResult,
+    BulkEnrichmentRequest,
     BulkEnrichmentResponse, CancelBulkEnrichmentRequest, CancelBulkEnrichmentResponse,
     EnqueueAudioDbAlbumDetailRequest, EnqueueAudioDbAlbumDetailResponse,
     EnqueueLastFmAlbumDetailRequest, EnqueueLastFmAlbumDetailResponse, EnqueueMbAlbumSearchRequest,

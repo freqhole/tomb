@@ -560,7 +560,7 @@ function AlbumRow(props: { album: AlbumSummary; remote: Remote; index: number })
           <div class="flex flex-wrap items-center gap-1">
             {/* musicbrainz status — primary, uses the rich mb_lookup_status enum */}
             <Show
-              when={inflightSources().has("mb")}
+              when={inflightSources().has("mb") || status() === "auto_applying"}
               fallback={
                 <span
                   class="inline-block px-1.5 py-0.5 rounded text-[10px]"
@@ -584,9 +584,16 @@ function AlbumRow(props: { album: AlbumSummary; remote: Remote; index: number })
                 </span>
               }
             >
-              <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-blue-500/15 text-blue-400">
+              <span
+                class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-blue-500/15 text-blue-400"
+                title={
+                  status() === "auto_applying"
+                    ? "auto-applying enrichment from musicbrainz, last.fm, theaudiodb"
+                    : "musicbrainz lookup in flight"
+                }
+              >
                 <span class="inline-block w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
-                mb
+                {status() === "auto_applying" ? "auto-applying…" : "mb"}
               </span>
             </Show>
             <SourceBadge label="lf" title="last.fm" state={lastfmState()} />
