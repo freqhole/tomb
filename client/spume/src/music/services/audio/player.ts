@@ -419,7 +419,23 @@ export function setPlayerVolume(vol: number): void {
 // song finishes; the facade reacts once via `bindAutoAdvance`. each
 // attempt is bounded so a hung load can't wedge the queue.
 export async function playNext(): Promise<void> {
+  // [radio-skip-debug] #3 — log queue/current state on every playNext.
+  // if this fires with queue.length=0 around an admin skip, the
+  // facade auto-advance is racing the radio adapter.
+  const _dbgState = appState();
+  console.info(
+    "[radio-skip-debug] playNext entry",
+    "queueLen=", _dbgState?.queue.length ?? null,
+    "currentSha256=", _dbgState?.current_sha256?.slice(0, 16) ?? null,
+    "canGoNext=", canGoNext(),
+    "t=", Date.now(),
+  );
   if (!canGoNext()) {
+    // [radio-skip-debug] #4 — confirm we hit the empty-queue stop branch.
+    console.info(
+      "[radio-skip-debug] playNext markPlaybackEnded (empty queue)",
+      "t=", Date.now(),
+    );
     markPlaybackEnded();
     void stopServerSession("completed");
     return;

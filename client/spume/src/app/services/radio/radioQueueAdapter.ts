@@ -494,6 +494,16 @@ async function handleTrackTransition(
 ): Promise<void> {
   if (gen !== adapterGeneration) return;
 
+  // [radio-skip-debug] #5 — log when adapter accepts a new transition.
+  // compare timestamp vs. audio error/ended to see which fired first.
+  console.info(
+    "[radio-skip-debug] handleTrackTransition",
+    "timeline_item_id=", current.timeline_item_id,
+    "song_id=", current.song_id,
+    "gen=", gen,
+    "t=", Date.now(),
+  );
+
   const localSession = radioCurrentIsLocal();
   const remote = localSession ? await getTauriManagedRemote() : await resolveRemote();
   if (gen !== adapterGeneration) return;

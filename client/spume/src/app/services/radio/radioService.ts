@@ -1337,6 +1337,13 @@ export async function tuneIntoRadio(
   const applyControlSpecial = (msg: { type?: unknown }): boolean => {
     if (!isActiveTune()) return true;
     if (typeof msg.type !== "string") return false;
+    // [radio-skip-debug] #6b — log control-special arrivals (lag / chunk_ready /
+    // timeline) so we can see when broadcaster announces an interstitial.
+    console.info(
+      "[radio-skip-debug] applyControlSpecial",
+      "type=", msg.type,
+      "t=", Date.now(),
+    );
     if (msg.type === "lag") {
       const at = (msg as { resync_at_seq?: unknown }).resync_at_seq;
       if (typeof at === "number") {
@@ -1570,6 +1577,15 @@ export async function tuneIntoRadio(
     if (!isActiveTune()) return;
     try {
       const msg = JSON.parse(metaJson);
+      // [radio-skip-debug] #6a — log every Meta arrival with init_seq +
+      // song_id so we can correlate against audio.error / handleTrackTransition.
+      console.info(
+        "[radio-skip-debug] applyMeta",
+        "type=", (msg as { type?: unknown })?.type ?? null,
+        "init_seq=", msg?.init_seq ?? null,
+        "song_id=", msg?.now_playing?.song_id ?? null,
+        "t=", Date.now(),
+      );
       // dispatch lag / chunk_ready first — these are not metadata
       // updates, they're recovery / heartbeat signals routed through
       // the same json callback.

@@ -616,6 +616,14 @@ export class HtmlAudioBackend implements PlayerBackend {
 
     // song ended
     audio.addEventListener("ended", () => {
+      // [radio-skip-debug] #2 — log when local audio reports natural end.
+      // helps tell whether ended fires before/after radio Meta(B) on admin skip.
+      console.info(
+        "[radio-skip-debug] audio ended",
+        "songId=", this.currentSongId,
+        "src=", audio.src?.slice(0, 80) ?? null,
+        "t=", Date.now(),
+      );
       // facade's `bindAutoAdvance` reacts to this and runs queue
       // traversal for both backends.
       this.emit({ kind: "ended" });
@@ -624,6 +632,15 @@ export class HtmlAudioBackend implements PlayerBackend {
     // error during playback - skip to next song
     audio.addEventListener("error", () => {
       const error = audio.error;
+      // [radio-skip-debug] #1 — log every audio.error with code + src snippet.
+      // suspected to fire when broadcaster restarts encoder mid-skip.
+      console.info(
+        "[radio-skip-debug] audio error",
+        "code=", error?.code ?? null,
+        "songId=", this.currentSongId,
+        "src=", audio.src?.slice(0, 80) ?? null,
+        "t=", Date.now(),
+      );
       if (error) {
         console.error(
           `media error code: ${error.code}, message: ${error.message}, src: ${audio.src?.slice(0, 120)}`,
