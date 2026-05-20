@@ -141,7 +141,13 @@ export function startQueueModeAdapter(): void {
 
 /** stop the adapter. clears state and cancels any in-flight work. */
 export function stopQueueModeAdapter(): void {
-  console.info("[radio-queue-adapter] stopping (generation:", adapterGeneration, ")");
+  const wasActive = active;
+  console.info(
+    "[radio-queue-adapter] stopping generation:",
+    adapterGeneration,
+    "wasActive:",
+    wasActive,
+  );
   active = false;
   // increment generation first so any in-flight preCacheUpcoming loops
   // abort before creating more object URLs.
@@ -153,14 +159,21 @@ export function stopQueueModeAdapter(): void {
     disposeRoot();
     disposeRoot = null;
   }
-  // revoke all audio blob URLs created by timeline playback. these are
-  // audio object URLs held in audioAccess.activeBlobURLs — one per cached
-  // or currently-playing song. without this they survive the radio session
-  // and accumulate across tune/retune cycles.
+  // revoke audio blob URLs created by timeline playback ONLY if the
+  // adapter was actually active in this session. `activeBlobURLs` is
+  // shared with the music player (see audioAccess.ts) — calling
+  // cleanupAllAudioURLs() unconditionally would revoke the music
+  // player's currently-loaded blob URL, causing
+  // `WebKitBlobResource error 1` errors and song skips on resume
+  // (every music togglePlayback path goes through stopRadioForMusic →
+  // leaveRadio → stopQueueModeAdapter).
+  //
   // art blob URLs are separately managed: inline broadcaster art goes
   // through swapArtUrl() which already revokes on swap, and leaveRadio()
   // calls swapArtUrl(null) on teardown.
-  cleanupAllAudioURLs();
+  if (wasActive) {
+    cleanupAllAudioURLs();
+  }
 }
 
 // ---- internal ------------------------------------------------------------
