@@ -7,12 +7,6 @@
 // never touch `navigator.mediaSession` directly — they just emit
 // signals/events and this module translates.
 //
-// **why a separate module**: keeps the html backend focused on dom
-// audio, and gives the future rodio backend a free ride — its
-// progress events update the same `playerState` signals this bridge
-// observes, so the lock-screen "just works" regardless of which
-// backend is active.
-//
 // **external takeover** (radio): the radio service calls
 // `setExternalMediaSession()` to install live-stream metadata + its
 // own action handlers. while the external owner is active, the
@@ -21,22 +15,22 @@
 // `clearExternalMediaSession()`, the bridge re-asserts the song
 // queue's session.
 //
-// **why action handlers call back into player.ts via dynamic import**:
-// avoids a static import cycle (`player.ts` imports this module to
-// install it; this module needs to invoke `togglePlayback` etc).
-// dynamic import is invoked lazily inside the callback so the cycle
-// only resolves at runtime.
+// **action handlers + song lookup are injected via
+// `registerMediaActions()`**: the player facade registers its
+// `togglePlayback` / `pause` / etc. callbacks plus a `resolveSong`
+// lookup at module init. this keeps the bridge from statically
+// importing `player.ts` or `music/data` (both would form import
+// cycles).
 
 import { createEffect, createRoot, on } from "solid-js";
 import { appState } from "../../../app/services/storage/db";
-import { getDataSource } from "../../data";
 import { debug } from "../../../utils/logger";
-import { getMediaSessionArtwork } from "../audio/mediaSessionArtwork";
 import {
   currentTime,
   duration,
   isPlaying,
 } from "../audio/playerState";
+import type { Song } from "../storage/types";
 
 export interface ExternalMediaSessionOptions {
   title: string;
@@ -77,19 +71,64 @@ type ExpectedEndCallback = () => void;
 let expectedEndCallback: ExpectedEndCallback | null = null;
 
 /**
+ * register an android `expectedend` watchdog. backends call this from
+ * their constructor and unregister on `dispose()`. only the most
+ * recent registration is active. the bridge installs the action
+ * handler unconditionally at install time — it dispatches to the
+ * currently-registered callback (or no-ops if none).
+ */
+export function registerWatchdog(fn: ExpectedEndCallback): () => void {
+  expectedEndCallback = fn;
+  return () => {
+    if (expectedEndCallback === fn) expectedEndCallback = null;
+  };
+}
+
+// player-facade callbacks invoked by mediaSession action handlers.
+// registered by `player.ts` at module init via `registerMediaActions`
+// to avoid a static import cycle (bridge → player → bridge).
+export interface MediaActions {
+  togglePlayback: (source: "ui" | "mediaSession") => void | Promise<void>;
+  pause: () => void;
+  playNext: () => void | Promise<void>;
+  playPrevious: () => void | Promise<void>;
+  seek: (seconds: number) => void;
+}
+
+let mediaActions: MediaActions | null = null;
+let resolveSongById: ((id: string) => Promise<Song | null>) | null = null;
+let resolveArtworkForSong:
+  | ((song: Song) => Promise<MediaImage[]>)
+  | null = null;
+
+/**
+ * register player-facade callbacks + a song-lookup function + an
+ * artwork resolver used by the metadata refresh effect. called once
+ * by `player.ts` after `installMediaSessionBridge()`. returns an
+ * unregister fn.
+ */
+export function registerMediaActions(
+  actions: MediaActions,
+  resolveSong: (id: string) => Promise<Song | null>,
+  resolveArtwork: (song: Song) => Promise<MediaImage[]>,
+): () => void {
+  mediaActions = actions;
+  resolveSongById = resolveSong;
+  resolveArtworkForSong = resolveArtwork;
+  return () => {
+    if (mediaActions === actions) mediaActions = null;
+    if (resolveSongById === resolveSong) resolveSongById = null;
+    if (resolveArtworkForSong === resolveArtwork) resolveArtworkForSong = null;
+  };
+}
+
+/**
  * install the mediaSession bridge. idempotent — subsequent calls are
  * no-ops. invoked from the player facade at module init.
- *
- * `onExpectedEnd` is the android-plugin watchdog callback; the html
- * backend supplies its `handleSongEnded()` so the watchdog can
- * advance the queue when js is throttled in the background.
  */
-export function installMediaSessionBridge(opts?: {
-  onExpectedEnd?: ExpectedEndCallback;
-}): void {
+export function installMediaSessionBridge(): void {
   if (installed) return;
   installed = true;
-  if (opts?.onExpectedEnd) expectedEndCallback = opts.onExpectedEnd;
 
   if (typeof navigator === "undefined" || !("mediaSession" in navigator)) {
     return;
@@ -282,14 +321,15 @@ async function refreshMetadata(): Promise<void> {
   }
 
   // check queue first to avoid fetching from wrong remote
-  let song = queue.find((s) => s.sha256 === current_sha256);
-  if (!song) {
-    const dataSource = getDataSource();
-    song = (await dataSource.getSongById(current_sha256)) ?? undefined;
+  let song: Song | undefined = queue.find((s) => s.sha256 === current_sha256);
+  if (!song && resolveSongById) {
+    song = (await resolveSongById(current_sha256)) ?? undefined;
   }
   if (!song) return;
 
-  const artwork = await getMediaSessionArtwork(song);
+  const artwork = resolveArtworkForSong
+    ? await resolveArtworkForSong(song)
+    : [];
 
   // clear metadata first, then set it (iOS Safari workaround). don't
   // prefix with "loading..." — iOS treats title changes as different
@@ -307,45 +347,46 @@ async function refreshMetadata(): Promise<void> {
   navigator.mediaSession.playbackState = isPlaying() ? "playing" : "paused";
 
   // re-register action handlers (re-register on every metadata update
-  // for iOS compatibility). lazy-import the facade to dodge the cycle.
-  const player = await import("../audio/player");
-
-  navigator.mediaSession.setActionHandler("play", () => {
-    void player.togglePlayback("mediaSession");
-  });
-  navigator.mediaSession.setActionHandler("pause", () => player.pause());
-  navigator.mediaSession.setActionHandler("previoustrack", () => {
-    if (intentionalReloadActive) return;
-    void player.playPrevious();
-  });
-  navigator.mediaSession.setActionHandler("nexttrack", () => {
-    if (intentionalReloadActive) return;
-    void player.playNext();
-  });
-  navigator.mediaSession.setActionHandler("seekto", (details) => {
-    if (details.seekTime !== undefined) player.seek(details.seekTime);
-  });
+  // for iOS compatibility). callbacks come from the registered media
+  // actions (set by `player.ts` via `registerMediaActions`). if not
+  // yet registered, the handlers are no-ops.
+  const actions = mediaActions;
+  if (actions) {
+    navigator.mediaSession.setActionHandler("play", () => {
+      void actions.togglePlayback("mediaSession");
+    });
+    navigator.mediaSession.setActionHandler("pause", () => actions.pause());
+    navigator.mediaSession.setActionHandler("previoustrack", () => {
+      if (intentionalReloadActive) return;
+      void actions.playPrevious();
+    });
+    navigator.mediaSession.setActionHandler("nexttrack", () => {
+      if (intentionalReloadActive) return;
+      void actions.playNext();
+    });
+    navigator.mediaSession.setActionHandler("seekto", (details) => {
+      if (details.seekTime !== undefined) actions.seek(details.seekTime);
+    });
+  }
 
   // android plugin "expectedend" watchdog. fires shortly after the
   // expected end of the current track when the webview has throttled
   // js (screen-off / doze) and the audio `ended` event didn't fire
   // on time. ignored if the audio backend already advanced on its own.
-  if (expectedEndCallback) {
-    try {
-      navigator.mediaSession.setActionHandler(
-        "expectedend" as MediaSessionAction,
-        () => {
-          if (intentionalReloadActive) return;
-          debug(
-            "player",
-            "expectedend watchdog firing — invoking callback",
-          );
-          expectedEndCallback?.();
-        },
-      );
-    } catch {
-      // some browsers reject unknown action names; safe to ignore.
-    }
+  // the handler is installed unconditionally and dispatches to the
+  // currently-registered callback (set via `registerWatchdog`).
+  try {
+    navigator.mediaSession.setActionHandler(
+      "expectedend" as MediaSessionAction,
+      () => {
+        if (intentionalReloadActive) return;
+        if (!expectedEndCallback) return;
+        debug("player", "expectedend watchdog firing — invoking callback");
+        expectedEndCallback();
+      },
+    );
+  } catch {
+    // some browsers reject unknown action names; safe to ignore.
   }
 
   // position state if we have valid duration

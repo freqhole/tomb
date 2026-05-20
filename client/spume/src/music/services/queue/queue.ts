@@ -21,6 +21,7 @@ import { syncPlaylistToLocalFromQueue } from "../sync";
 import type { Song } from "../storage/types";
 import { leaveRadio } from "../../../app/services/radio/radioService";
 import { clearCurrentRadioStation } from "../../../app/services/storage/currentRadioStation";
+import { registerStopMusic } from "../../../app/services/playbackCoordinator";
 
 // re-export queue state so consumers can import everything from queue.ts
 export {
@@ -33,6 +34,31 @@ export {
 
 // re-export queue limit helper
 export { getQueueSizeLimit } from "./queueLimit";
+
+// when radio takes over, wipe the music queue so a stray `ended`/`error`
+// from the previously-loaded song can't auto-advance into another music
+// track. this only touches queue state — radio is already orchestrating
+// its own takeover, so we must NOT call leaveRadio() here (that would
+// bump the in-flight tune attempt id and abort the tune that triggered
+// us).
+registerStopMusic(async () => {
+  const state = appState();
+  stopTracking(true);
+  clearAllQueueProgress();
+  clearPendingUpNext();
+  void stopServerSession("abandoned");
+  await setCurrentSong(null);
+  if (state?.queue) {
+    for (const song of state.queue) {
+      if (song.source_type === "remote" && song.remote_server_id) {
+        void evictCachedBlob(song.remote_server_id, song.sha256);
+        cancelP2PDownload(song.sha256, song.remote_server_id);
+        void evictP2PBlob(song.sha256, song.remote_server_id);
+      }
+    }
+  }
+  await setQueue([]);
+});
 
 // source types whose `playQueue` calls should replace the current queue
 // rather than insert after the currently-playing song. selecting an album,

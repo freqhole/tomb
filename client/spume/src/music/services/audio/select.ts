@@ -30,7 +30,6 @@
 import { isCharnelMode } from "../../../app/services/charnel/mode";
 import type { PlayerBackend } from "./backend";
 import { DummyBackend } from "./backends/dummy";
-import { HtmlAudioBackend } from "./backends/htmlAudio";
 import { RodioBackend } from "./backends/rodioBackend";
 
 /// localStorage fallback key — only consulted in non-charnel mode.
@@ -116,11 +115,17 @@ function readLocalFallback(): boolean {
 /// whose events nobody is listening to - the UI would freeze
 /// while audio kept going.
 ///
+/// the parameter is typed as `PlayerBackend` rather than
+/// `HtmlAudioBackend` to avoid a static import edge
+/// `select.ts → htmlAudio.ts` (which would close cycles via
+/// `htmlAudio → mediaSessionBridge → ...`). the player facade is
+/// the only caller and always passes its own `htmlBackend` instance.
+///
 /// returns:
 /// - `RodioBackend` in tauri/charnel when the user opted in
 /// - the passed-in html instance in tauri (rodio off) and in browsers
 /// - `DummyBackend` only when the dom isn't available (tests, ssr)
-export function selectBackend(htmlBackend: HtmlAudioBackend): PlayerBackend {
+export function selectBackend(htmlBackend: PlayerBackend): PlayerBackend {
   if (isCharnelMode() && isRodioEnabled()) {
     return new RodioBackend();
   }

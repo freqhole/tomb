@@ -33,7 +33,6 @@ import { useRouteDataSource } from "../music/hooks/useRouteDataSource";
 import { useToggleFavoriteMutation } from "../music/queries/favorites";
 import { useRecentPlaylistsQuery } from "../music/queries/playlists";
 import {
-  clearExternalMediaSession,
   currentTime,
   duration,
   isLoading,
@@ -43,11 +42,14 @@ import {
   playPrevious,
   playSong,
   seek,
-  setExternalMediaSession,
   setPlayerVolume,
   togglePlayback,
   volume,
 } from "../music/services/audio/player";
+import {
+  clearExternalMediaSession,
+  setExternalMediaSession,
+} from "../music/services/audio/mediaSessionBridge";
 import { getLoadingSongIds, isSongSyncedLocally } from "../music/services/download";
 import {
   getLoadingP2PSongIds,
