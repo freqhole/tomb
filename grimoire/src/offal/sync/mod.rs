@@ -1223,6 +1223,8 @@ async fn resolve_sync_image_ref(
             parent_blob_id: None,
             blob_type: Some(match img.blob_type.as_deref() {
                 Some("thumbnail") => BlobType::Thumbnail,
+                Some("waveform") => BlobType::Waveform,
+                Some("preview") => BlobType::Preview,
                 _ => BlobType::Original,
             }),
             metadata: serde_json::json!({}),
