@@ -1,30 +1,30 @@
 // HtmlAudioBackend — owns the `<audio>` element, its dom event
-// handlers, per-song state flags, iOS blob refresh, swap-to-cached
-// glue, and the navigator.mediaSession bookkeeping that historically
-// lived at module scope in `../player.ts`. this class IS the html
-// implementation of `PlayerBackend`. `../player.ts` is now a thin
-// facade that delegates here.
+// handlers, per-song state flags, iOS blob refresh, and swap-to-
+// cached glue. this class IS the html implementation of
+// `PlayerBackend`. `../player.ts` is a thin facade that delegates
+// here via the wire interface (`send`/`subscribe`/`snapshot`/
+// `loadAndPlay`/`dispose`).
 //
-// **what changed in this refactor**: phase 4a of the player.ts ->
-// PlayerBackend extraction. the dom event handlers no longer write
-// to the playback signals (`isPlaying`/`currentTime`/`duration`/
-// `isLoading`); they emit `PlayerEvent`s and let `playerStateSync`
-// translate. that makes this backend symmetric with `RodioBackend`
-// — both emit events; one (the active one) drives the signals.
+// dom event handlers do not write to the playback signals
+// (`isPlaying`/`currentTime`/`duration`/`isLoading`) directly; they
+// emit `PlayerEvent`s and let `playerStateSync` translate. that
+// makes this backend symmetric with `RodioBackend` — both emit
+// events; one (the active one) drives the signals.
 //
-// **what's still mixed in**: the timeupdate handler still reaches
-// into queue / analytics / pre-cache helpers directly. those are
-// app-level orchestration that happen to be triggered by audio
-// progress; phase 5 may extract them into a `playbackOrchestrator`
-// module that subscribes to the active backend's progress events
-// instead.
+// app-level orchestration triggered by audio progress (analytics,
+// listen history, pre-cache, queue-row fill) lives in
+// `../playbackOrchestrator.ts`, which subscribes to the active
+// backend's progress events. nothing app-level lives in here.
+//
+// navigator.mediaSession is owned by `../mediaSessionBridge.ts`. the
+// android `expectedend` watchdog is registered with the bridge from
+// the constructor via `registerWatchdog()`.
 //
 // **load command**: rodio's `PlayerCommand::Load { paths }` doesn't
 // fit the html-element model, which takes a `Song` and resolves the
-// blob/http url itself. callers should use `playSong()` (the public
-// method on this class, also re-exported from `../player.ts`) for
-// the html backend; `send({ kind: "load", ... })` emits a structured
-// error event.
+// blob/http url itself. callers should use `loadAndPlay()` (the
+// public PlayerBackend method on this class) for the html backend;
+// `send({ kind: "load", ... })` emits a structured error event.
 
 import type {
   PlayerCommand,
@@ -43,14 +43,7 @@ import {
   appState,
   setCurrentSong,
 } from "../../../../app/services/storage/db";
-import { getDataSource } from "../../../data";
-import {
-  canGoNext,
-  canGoPrevious,
-  markPlaybackEnded,
-  resetPlaybackEnded,
-} from "../../queue/queueState";
-import { stopServerSession } from "../../queue/serverSession";
+import { resetPlaybackEnded } from "../../queue/queueState";
 import {
   cleanupAudioURL,
   getAudioURL,
@@ -60,16 +53,8 @@ import {
 } from "../../storage/audioAccess";
 import type { Song } from "../../storage/types";
 import { debug } from "../../../../utils/logger";
+import { registerWatchdog } from "../mediaSessionBridge";
 import {
-  clearExternalMediaSession as bridgeClearExternal,
-  setExternalMediaSession as bridgeSetExternal,
-  setIsIntentionalReload,
-  type ExternalMediaSessionOptions as BridgeExternalOptions,
-} from "../mediaSessionBridge";
-import { stopRadioForMusic } from "../../../../app/services/playbackCoordinator";
-import {
-  currentTime,
-  duration,
   isPlaying,
   pendingUpNextSha256,
   setPendingUpNextSha256,
@@ -78,20 +63,9 @@ import {
 } from "../playerState";
 
 // option types preserved from the previous player.ts public api.
-export interface PlaySongOptions {
-  userInitiated?: boolean;
-  initialPosition?: number;
-  initialDuration?: number;
-}
-
-export type ExternalMediaSessionOptions = BridgeExternalOptions;
-
-// hard cap on per-song setup so a hung getAudioURL or audio.play()
-// can't wedge the whole queue while the screen is off. 20s is enough
-// for slow p2p downloads but bounded enough that we recover and try
-// the next song reliably.
-const PLAY_SONG_TIMEOUT_MS = 20_000;
-const PLAY_NEXT_MAX_ATTEMPTS = 5;
+// shared with all backends via `LoadAndPlayOptions` in `../backend.ts`.
+// the `autoPlay` flag is how the facade's pause gate is honored: false
+// means load + preload but don't call `audio.play()`.
 
 export class HtmlAudioBackend implements PlayerBackend {
   readonly kind: BackendKind = "html_audio";
@@ -101,24 +75,33 @@ export class HtmlAudioBackend implements PlayerBackend {
   private currentSongId: string | null = null;
   // pending swap listener cleanup (removed when song changes)
   private pendingSwapCleanup: (() => void) | null = null;
-  // suppress error handler during blob URL refresh
-  private isIntentionalReload = false;
-  // user explicitly paused the player. when true, pending "up next"
-  // songs will load but not auto-play. cleared when user explicitly
-  // initiates playback (play button, double-click song, new queue).
-  private userExplicitlyPaused = false;
 
   // mediasession ownership notes ------------------------------------------
   // navigator.mediaSession is owned by `mediaSessionBridge` (separate
   // module). this backend just emits playback state into
   // `playerState` signals; the bridge translates. external takeover
-  // (radio etc.) is forwarded to the bridge via
-  // `setExternalMediaSession()` / `clearExternalMediaSession()`.
+  // (radio etc.) is forwarded to the bridge via the bridge's exported
+  // `setExternalMediaSession`/`clearExternalMediaSession` functions —
+  // not via this class.
 
   // PlayerBackend wire-up --------------------------------------------------
   private listeners = new Set<PlayerEventListener>();
   private snap: PlayerSnapshot = { ...emptySnapshot };
   private disposed = false;
+  // visibilitychange listener handle — installed lazily in initAudio()
+  // so we only touch document on platforms that have it. removed in
+  // dispose().
+  private visibilityListener: (() => void) | null = null;
+  // android `expectedend` watchdog unregister handle. registered in
+  // constructor, called on dispose so the bridge stops dispatching
+  // here once the backend is gone.
+  private unregisterWatchdog: (() => void) | null = null;
+
+  constructor() {
+    this.unregisterWatchdog = registerWatchdog(() =>
+      this.expectedEndWatchdog(),
+    );
+  }
 
   // PlayerBackend interface ================================================
 
@@ -138,10 +121,33 @@ export class HtmlAudioBackend implements PlayerBackend {
         this.stop();
         return;
       case "next":
-        await this.playNext();
+        // queue traversal lives at the facade. callers should invoke
+        // `playNext()` from `audio/player.ts`, not send `next` through
+        // the wire interface. emit a structured error so misuse is
+        // visible.
+        this.emit({
+          kind: "error",
+          detail: {
+            error_type: "next_unsupported_via_wire",
+            title: "Next Unsupported",
+            detail:
+              "the html backend doesn't traverse its queue from wire commands; " +
+              "call playNext() on the facade (audio/player) instead.",
+          },
+        });
         return;
       case "previous":
-        await this.playPrevious();
+        // see `next` above — same reason.
+        this.emit({
+          kind: "error",
+          detail: {
+            error_type: "previous_unsupported_via_wire",
+            title: "Previous Unsupported",
+            detail:
+              "the html backend doesn't traverse its queue from wire commands; " +
+              "call playPrevious() on the facade (audio/player) instead.",
+          },
+        });
         return;
       case "seek":
         // rodio reports + accepts position in milliseconds; the html
@@ -166,7 +172,24 @@ export class HtmlAudioBackend implements PlayerBackend {
             title: "Load Unsupported",
             detail:
               "the html audio backend doesn't accept raw file paths; " +
-              "use playSong()/loadSong() with a Song object, or switch " +
+              "use loadAndPlay() with a Song object, or switch " +
+              "to the rodio backend in settings.",
+          },
+        });
+        return;
+      case "enqueue":
+        // same paths-vs-Song mismatch as `load`. the html backend
+        // manages its queue at the facade/queue-state layer, not via
+        // wire commands; surface a structured error so misuse is
+        // visible.
+        this.emit({
+          kind: "error",
+          detail: {
+            error_type: "enqueue_unsupported_in_html_backend",
+            title: "Enqueue Unsupported",
+            detail:
+              "the html audio backend doesn't accept raw file paths; " +
+              "use the queue facade (queueState/queueActions) or switch " +
               "to the rodio backend in settings.",
           },
         });
@@ -194,8 +217,14 @@ export class HtmlAudioBackend implements PlayerBackend {
   async dispose(): Promise<void> {
     if (this.disposed) return;
     this.disposed = true;
+    this.unregisterWatchdog?.();
+    this.unregisterWatchdog = null;
     this.cleanup();
     this.listeners.clear();
+    if (this.visibilityListener && typeof document !== "undefined") {
+      document.removeEventListener("visibilitychange", this.visibilityListener);
+      this.visibilityListener = null;
+    }
     if (this.audioElement) {
       try {
         this.audioElement.removeAttribute("src");
@@ -208,35 +237,19 @@ export class HtmlAudioBackend implements PlayerBackend {
 
   // public methods used by the facade ======================================
 
-  // PlayerBackend.loadAndPlay — for the html backend this is just an
-  // alias for the existing rich `playSong` method, which already
-  // accepts a Song and the same options shape.
-  async loadAndPlay(song: Song, options?: LoadAndPlayOptions): Promise<void> {
-    return this.playSong(song, options);
-  }
-
-  // play a specific song. uses pending "up next" pattern: UI stays on
-  // current song during download, only switches when download completes.
-  // options.userInitiated: true when user explicitly starts playback
-  //   (play button, double-click, new queue) — clears userExplicitlyPaused.
-  // options.initialPosition: seek to this position after load.
-  async playSong(
-    songOrId: string | Song,
-    options?: PlaySongOptions,
+  // PlayerBackend.loadAndPlay — load a song and (if autoPlay) start
+  // playback. uses the pending "up next" pattern: UI stays on the current
+  // song during download, only switches when download completes.
+  //
+  // `options.userInitiated` is informational only at this layer (the
+  // facade has already cleared its pause gate + silenced radio). the
+  // backend itself reads `options.autoPlay` to decide whether to call
+  // audio.play() after loading.
+  async loadAndPlay(
+    song: Song,
+    options?: LoadAndPlayOptions,
   ): Promise<void> {
     const audio = this.initAudio();
-
-    // user-initiated playback wins over any active radio session.
-    if (options?.userInitiated) {
-      await stopRadioForMusic();
-      // belt-and-suspenders: explicitly release external ownership of
-      // the media session. `stopRadioForMusic()` should cause
-      // `clearExternalMediaSession()` via the playbackMode effect, but
-      // solid effect timing isn't guaranteed before the next bridge
-      // refresh runs.
-      bridgeClearExternal();
-      this.userExplicitlyPaused = false;
-    }
 
     // tracks whether we've already logged a contextual error for
     // this attempt. the outer catch below is a safety net for
@@ -245,18 +258,6 @@ export class HtmlAudioBackend implements PlayerBackend {
     let alreadyLogged = false;
 
     try {
-      let song: Song;
-      if (typeof songOrId === "string") {
-        const dataSource = getDataSource();
-        const fetchedSong = await dataSource.getSongById(songOrId);
-        if (!fetchedSong) {
-          throw new Error(`song not found: ${songOrId}`);
-        }
-        song = fetchedSong;
-      } else {
-        song = songOrId;
-      }
-
       // mark this song as pending "up next" — UI shows spinner but keeps
       // current song info.
       setPendingUpNextSha256(song.sha256);
@@ -346,10 +347,11 @@ export class HtmlAudioBackend implements PlayerBackend {
 
       audio.src = audioURL;
 
-      // decide whether to auto-play:
-      // - if user explicitly paused, just load (don't play)
-      // - otherwise, auto-play
-      const shouldPlay = !this.userExplicitlyPaused;
+      // honor the autoPlay flag (default true). the facade clears its
+      // pause gate on user-initiated loads and passes autoPlay=true; on
+      // programmatic loads (e.g. queue advance) the facade may pass
+      // autoPlay=false to preload only.
+      const shouldPlay = options?.autoPlay !== false;
 
       if (shouldPlay) {
         try {
@@ -376,18 +378,15 @@ export class HtmlAudioBackend implements PlayerBackend {
           throw playError;
         }
       } else {
-        // user explicitly paused — preload so it's ready when user hits play.
+        // autoPlay false — preload so it's ready when user hits play.
         audio.load();
-        debug(
-          "player",
-          `song ready but user paused - not auto-playing "${song.title}"`,
-        );
+        debug("player", `song ready (autoPlay=false) "${song.title}"`);
         this.emit({ kind: "state", state: "paused" });
       }
     } catch (error) {
       if (!alreadyLogged) {
         console.error(
-          `[playSong] unexpected error for "${typeof songOrId === "string" ? songOrId : songOrId.title}"`,
+          `[loadAndPlay] unexpected error for "${song.title}" (${song.sha256.slice(0, 8)}...)`,
           error,
         );
       }
@@ -398,143 +397,17 @@ export class HtmlAudioBackend implements PlayerBackend {
     }
   }
 
-  // play/pause toggle. source: 'ui' = app controls,
-  // 'mediaSession' = lock screen / control center.
-  async togglePlayback(_source: "ui" | "mediaSession" = "ui"): Promise<void> {
-    const audio = this.initAudio();
-
-    if (isPlaying()) {
-      // user explicitly paused - set flag so pending songs don't auto-play
-      this.userExplicitlyPaused = true;
-      audio.pause();
-      return;
-    }
-
-    // user explicitly wants to play - silence radio and clear pause flag
-    await stopRadioForMusic();
-    this.userExplicitlyPaused = false;
-    try {
-      const state = appState();
-      if (!state) return;
-      const { queue, current_sha256 } = state;
-
-      // if no song loaded, start first in queue
-      if (!current_sha256 && queue.length) {
-        await this.playSong(queue[0], { userInitiated: true });
-        return;
-      }
-
-      // if no src (page reload), reload the song
-      if (!audio.src && current_sha256) {
-        const savedPosition = currentTime();
-        const savedDuration = duration();
-        const songInQueue = queue.find((s) => s.sha256 === current_sha256);
-        if (songInQueue) {
-          await this.playSong(songInQueue, {
-            userInitiated: true,
-            initialPosition: savedPosition,
-            initialDuration: savedDuration,
-          });
-        } else {
-          await this.playSong(current_sha256, {
-            userInitiated: true,
-            initialPosition: savedPosition,
-            initialDuration: savedDuration,
-          });
-        }
-        if (savedPosition > 0) this.seek(savedPosition);
-        return;
-      }
-
-      // try to play directly first - this preserves iOS user gesture
-      // context. only reload blob URLs if play() actually fails.
-      try {
-        await audio.play();
-        return;
-      } catch (playError) {
-        // if it's a blob URL and play failed, the blob might be revoked
-        // by iOS — try to re-create the blob URL from cached data.
-        if (audio.src.startsWith("blob:") && current_sha256) {
-          const savedPosition = audio.currentTime;
-          const songInQueue = queue.find((s) => s.sha256 === current_sha256);
-          if (songInQueue) {
-            const freshURL = await refreshBlobURL(songInQueue);
-            if (freshURL) {
-              audio.src = freshURL;
-              await new Promise<void>((resolve, reject) => {
-                const onCanPlay = () => {
-                  audio.removeEventListener("canplay", onCanPlay);
-                  audio.removeEventListener("error", onError);
-                  resolve();
-                };
-                const onError = () => {
-                  audio.removeEventListener("canplay", onCanPlay);
-                  audio.removeEventListener("error", onError);
-                  reject(new Error("failed to load refreshed URL"));
-                };
-                audio.addEventListener("canplay", onCanPlay);
-                audio.addEventListener("error", onError);
-              });
-              if (savedPosition > 0) audio.currentTime = savedPosition;
-              await audio.play();
-              return;
-            }
-          }
-
-          // fallback to full playSong if refresh failed
-          this.setIntentionalReload(true);
-          try {
-            if (songInQueue) {
-              await this.playSong(songInQueue, { userInitiated: true });
-            } else {
-              await this.playSong(current_sha256, { userInitiated: true });
-            }
-            if (savedPosition > 0 && this.audioElement) {
-              this.audioElement.currentTime = savedPosition;
-            }
-          } finally {
-            this.setIntentionalReload(false);
-          }
-          return;
-        }
-
-        // not a blob URL failure, re-throw
-        throw playError;
-      }
-    } catch (error) {
-      console.error("error toggling playback:", error);
-    }
-  }
+  // play/pause toggle is the facade's responsibility — see
+  // `audio/player.ts`. it dispatches via `send({ kind: "play" })`
+  // / `send({ kind: "pause" })` and falls back to a full load via
+  // `playSong(...)` when no track is currently loaded.
 
   pause(): void {
     const audio = this.initAudio();
-    // user explicitly paused - set flag so pending songs don't auto-play
-    this.userExplicitlyPaused = true;
     audio.pause();
   }
 
-  // explicit pause from radio coordinator. sets the flag so any pending
-  // "up next" load doesn't auto-play, but doesn't trigger any radio side
-  // effects (radio service is the caller).
-  markUserPausedAndPause(): void {
-    try {
-      const audio = this.audioElement;
-      if (audio && !audio.paused) {
-        this.userExplicitlyPaused = true;
-        audio.pause();
-      }
-    } catch (e) {
-      debug("player", "markUserPausedAndPause failed:", e);
-    }
-  }
-
-  // clear the explicit-pause gate for timeline radio transitions without
-  // triggering stopRadioForMusic() side effects.
-  allowTimelineAutoplay(): void {
-    this.userExplicitlyPaused = false;
-  }
-
-  // pause and reset to beginning. doesn't touch userExplicitlyPaused —
+  // pause and reset to beginning. doesn't touch the facade's pause gate —
   // stop is for cleanup, not user intent.
   stop(): void {
     const audio = this.initAudio();
@@ -544,20 +417,44 @@ export class HtmlAudioBackend implements PlayerBackend {
     this.emit({ kind: "progress", ms: 0, total_ms: 0 });
   }
 
+  // resume / start playback on the currently-loaded source. handles iOS
+  // blob-revocation by re-creating the blob URL from cache and replaying.
+  // pause-gate management + radio takeover are the facade's responsibility.
   async play(): Promise<void> {
     const audio = this.initAudio();
-    // user explicitly wants to play - clear pause flag and silence radio
-    await stopRadioForMusic();
-    this.userExplicitlyPaused = false;
-    await audio.play();
-  }
-
-  // resume already-loaded audio without stopping radio. used by timeline
-  // radio mode when the user explicitly presses play.
-  async resumeLoadedAudioForRadio(): Promise<void> {
-    const audio = this.initAudio();
-    this.userExplicitlyPaused = false;
-    await audio.play();
+    try {
+      await audio.play();
+      return;
+    } catch (playError) {
+      // iOS may revoke blob URLs aggressively. attempt one re-create
+      // from the cache for the currently-loaded song before giving up.
+      if (!audio.src.startsWith("blob:")) throw playError;
+      const state = appState();
+      const current_sha256 = state?.current_sha256;
+      if (!current_sha256) throw playError;
+      const songInQueue = state?.queue.find((s) => s.sha256 === current_sha256);
+      if (!songInQueue) throw playError;
+      const freshURL = await refreshBlobURL(songInQueue);
+      if (!freshURL) throw playError;
+      const savedPosition = audio.currentTime;
+      audio.src = freshURL;
+      await new Promise<void>((resolve, reject) => {
+        const onCanPlay = () => {
+          audio.removeEventListener("canplay", onCanPlay);
+          audio.removeEventListener("error", onError);
+          resolve();
+        };
+        const onError = () => {
+          audio.removeEventListener("canplay", onCanPlay);
+          audio.removeEventListener("error", onError);
+          reject(new Error("failed to load refreshed URL"));
+        };
+        audio.addEventListener("canplay", onCanPlay);
+        audio.addEventListener("error", onError);
+      });
+      if (savedPosition > 0) audio.currentTime = savedPosition;
+      await audio.play();
+    }
   }
 
   // seek to position (in seconds)
@@ -585,82 +482,15 @@ export class HtmlAudioBackend implements PlayerBackend {
   }
 
   // play next song in queue (with retry logic for unplayable songs)
-  async playNext(): Promise<void> {
-    // don't skip during intentional reload
-    if (this.isIntentionalReload) return;
-    if (!canGoNext()) return;
+  // -- moved to the facade (audio/player.ts) in phase 4. the html
+  // backend just emits `kind: "ended"` (or `kind: "error"`) on its
+  // dom listeners; the facade subscribes via `bindAutoAdvance` and
+  // calls the unified `playNext()` for both backends.
 
-    const state = appState();
-    if (!state) return;
-    const { queue, current_sha256 } = state;
-    let currentIdx = current_sha256
-      ? queue.findIndex((s) => s.sha256 === current_sha256)
-      : -1;
-
-    let attempts = 0;
-
-    while (
-      currentIdx < queue.length - 1 &&
-      attempts < PLAY_NEXT_MAX_ATTEMPTS
-    ) {
-      const nextIdx = currentIdx + 1;
-      const nextSong = queue[nextIdx];
-      attempts++;
-
-      try {
-        await Promise.race([
-          this.playSong(nextSong),
-          new Promise<never>((_, reject) =>
-            setTimeout(
-              () =>
-                reject(
-                  new Error(
-                    `playSong timed out after ${PLAY_SONG_TIMEOUT_MS}ms`,
-                  ),
-                ),
-              PLAY_SONG_TIMEOUT_MS,
-            ),
-          ),
-        ]);
-        return; // success!
-      } catch (error) {
-        console.warn(
-          `[playNext] failed to play "${nextSong?.title}" at index ${nextIdx} (attempt ${attempts}/${PLAY_NEXT_MAX_ATTEMPTS}):`,
-          error instanceof Error ? error.message : error,
-        );
-        currentIdx = nextIdx;
-        if (nextIdx >= queue.length - 1) {
-          console.error(
-            "[playNext] reached end of queue, no playable songs found",
-          );
-          markPlaybackEnded();
-          void stopServerSession("completed");
-          return;
-        }
-      }
-    }
-
-    console.error(
-      `[playNext] exceeded max attempts (${PLAY_NEXT_MAX_ATTEMPTS}) to find playable song`,
-    );
-  }
-
-  // play previous song in queue
-  async playPrevious(): Promise<void> {
-    if (!canGoPrevious()) return;
-    const state = appState();
-    if (!state) return;
-    const { queue, current_sha256 } = state;
-    const currentIdx = current_sha256
-      ? queue.findIndex((s) => s.sha256 === current_sha256)
-      : -1;
-    const prevIdx = currentIdx - 1;
-    await this.playSong(queue[prevIdx]);
-  }
-
-  // pause audio + clear src + cleanup current blob URL. doesn't destroy
-  // the backend (use `dispose()` for that).
-  cleanup(): void {
+  // pause audio + clear src + cleanup current blob URL. private — only
+  // called from `dispose()`. for full teardown, callers should use
+  // `dispose()` (PlayerBackend interface).
+  private cleanup(): void {
     if (this.audioElement) {
       this.audioElement.pause();
       this.audioElement.src = "";
@@ -674,23 +504,15 @@ export class HtmlAudioBackend implements PlayerBackend {
 
   // mediasession external takeover (radio etc.) ============================
   //
-  // delegated to `mediaSessionBridge`. the backend keeps these methods
-  // on its public surface so existing callers (radio service, queue
-  // facade) don't break, but they're thin pass-throughs.
+  // owned by `mediaSessionBridge` directly. callers should import
+  // `setExternalMediaSession` / `clearExternalMediaSession` from
+  // `../mediaSessionBridge`. no pass-throughs on the backend.
 
-  setExternalMediaSession(options: ExternalMediaSessionOptions): void {
-    bridgeSetExternal(options);
-  }
-
-  clearExternalMediaSession(): void {
-    bridgeClearExternal();
-  }
-
-  // android `expectedend` watchdog. invoked by `mediaSessionBridge`
+  // android `expectedend` watchdog. registered with `mediaSessionBridge`
+  // via `registerWatchdog` in the constructor; the bridge invokes this
   // when the platform fires the action. checks audio-element specific
   // state (already-ended, near-end position) before advancing the queue.
-  expectedEndWatchdog(): void {
-    if (this.isIntentionalReload) return;
+  private expectedEndWatchdog(): void {
     const a = this.audioElement;
     if (!a) return;
     // already handled by the native `ended` event — nothing to do.
@@ -707,14 +529,9 @@ export class HtmlAudioBackend implements PlayerBackend {
       return;
     }
     debug("player", "expectedend watchdog firing — advancing queue");
-    void this.handleSongEnded();
-  }
-
-  // public swap entry for the visibilitychange listener (installed by the
-  // facade so we don't add document-level listeners from inside the
-  // backend constructor — keeps tests/ssr clean).
-  swapToCachedFromVisibility(): void {
-    void this.trySwapCurrentSongToCached();
+    // emit the ended event; facade's bindAutoAdvance will react and
+    // call the unified `playNext()`.
+    this.emit({ kind: "ended" });
   }
 
   // dom + helpers (private) ================================================
@@ -729,6 +546,20 @@ export class HtmlAudioBackend implements PlayerBackend {
     // iOS-specific: hints to maintain background audio session
     audio.setAttribute("playsinline", "");
     audio.setAttribute("webkit-playsinline", "");
+
+    // when returning to foreground, swap any direct remote URL to the
+    // cached blob version. installed once, lazily, alongside the audio
+    // element so ssr/tests (no document) skip it cleanly. removed in
+    // dispose().
+    if (typeof document !== "undefined" && !this.visibilityListener) {
+      const listener = (): void => {
+        if (document.visibilityState === "visible") {
+          void this.trySwapCurrentSongToCached();
+        }
+      };
+      document.addEventListener("visibilitychange", listener);
+      this.visibilityListener = listener;
+    }
 
     // time update — emit a progress event; the per-tick app-level
     // side effects (listen-history, queue-row fill, >=90% completion)
@@ -786,21 +617,32 @@ export class HtmlAudioBackend implements PlayerBackend {
 
     // song ended
     audio.addEventListener("ended", () => {
+      // facade's `bindAutoAdvance` reacts to this and runs queue
+      // traversal for both backends.
       this.emit({ kind: "ended" });
-      void this.handleSongEnded();
     });
 
-    // error during playback - skip to next song (unless intentional reload)
+    // error during playback - skip to next song
     audio.addEventListener("error", () => {
-      // ignore errors during intentional reload (stale blob URL errors)
-      if (this.isIntentionalReload) return;
       const error = audio.error;
       if (error) {
         console.error(
           `media error code: ${error.code}, message: ${error.message}, src: ${audio.src?.slice(0, 120)}`,
         );
       }
-      void this.handleSongEnded();
+      // surface as a structured error event — facade's auto-advance
+      // bridge treats this the same way it treats `ended` (advance
+      // the queue with a retry budget).
+      this.emit({
+        kind: "error",
+        detail: {
+          error_type: "audio_element_error",
+          title: "Audio Element Error",
+          detail: error
+            ? `media error code: ${error.code}, message: ${error.message}`
+            : "unknown <audio> element error",
+        },
+      });
     });
 
     // loading states. `loadstart` and `waiting` both indicate the
@@ -831,14 +673,6 @@ export class HtmlAudioBackend implements PlayerBackend {
   // `mediaSessionBridge`. it observes `appState().current_sha256`,
   // `isPlaying`, `currentTime`, and `duration` directly, so this
   // backend doesn't need to push anything explicitly.
-
-  // toggle the intentional-reload flag in lockstep with the bridge so
-  // platform media-key handlers correctly suppress prev/next during
-  // blob URL refresh.
-  private setIntentionalReload(active: boolean): void {
-    this.isIntentionalReload = active;
-    setIsIntentionalReload(active);
-  }
 
   // pre-cache scheduling lives in `queue/preCacheScheduler.ts`. it
   // observes the same `currentTime`/`duration` signals this backend
@@ -918,20 +752,6 @@ export class HtmlAudioBackend implements PlayerBackend {
       "player",
       `swapped to cached URL at ${savedTime.toFixed(1)}s (player stopped)`,
     );
-  }
-
-  // handle song ended (auto-advance to next)
-  private async handleSongEnded(): Promise<void> {
-    if (!canGoNext()) {
-      // queue has ended - set flag so we know to autoplay when new
-      // songs are added
-      markPlaybackEnded();
-      // stop server session since queue is complete
-      void stopServerSession("completed");
-      return;
-    }
-    // playNext has built-in retry logic
-    await this.playNext();
   }
 
   // PlayerEvent emit — updates the cached snapshot then notifies

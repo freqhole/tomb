@@ -77,19 +77,26 @@ type ExpectedEndCallback = () => void;
 let expectedEndCallback: ExpectedEndCallback | null = null;
 
 /**
+ * register an android `expectedend` watchdog. backends call this from
+ * their constructor and unregister on `dispose()`. only the most
+ * recent registration is active. the bridge installs the action
+ * handler unconditionally at install time — it dispatches to the
+ * currently-registered callback (or no-ops if none).
+ */
+export function registerWatchdog(fn: ExpectedEndCallback): () => void {
+  expectedEndCallback = fn;
+  return () => {
+    if (expectedEndCallback === fn) expectedEndCallback = null;
+  };
+}
+
+/**
  * install the mediaSession bridge. idempotent — subsequent calls are
  * no-ops. invoked from the player facade at module init.
- *
- * `onExpectedEnd` is the android-plugin watchdog callback; the html
- * backend supplies its `handleSongEnded()` so the watchdog can
- * advance the queue when js is throttled in the background.
  */
-export function installMediaSessionBridge(opts?: {
-  onExpectedEnd?: ExpectedEndCallback;
-}): void {
+export function installMediaSessionBridge(): void {
   if (installed) return;
   installed = true;
-  if (opts?.onExpectedEnd) expectedEndCallback = opts.onExpectedEnd;
 
   if (typeof navigator === "undefined" || !("mediaSession" in navigator)) {
     return;
@@ -330,22 +337,20 @@ async function refreshMetadata(): Promise<void> {
   // expected end of the current track when the webview has throttled
   // js (screen-off / doze) and the audio `ended` event didn't fire
   // on time. ignored if the audio backend already advanced on its own.
-  if (expectedEndCallback) {
-    try {
-      navigator.mediaSession.setActionHandler(
-        "expectedend" as MediaSessionAction,
-        () => {
-          if (intentionalReloadActive) return;
-          debug(
-            "player",
-            "expectedend watchdog firing — invoking callback",
-          );
-          expectedEndCallback?.();
-        },
-      );
-    } catch {
-      // some browsers reject unknown action names; safe to ignore.
-    }
+  // the handler is installed unconditionally and dispatches to the
+  // currently-registered callback (set via `registerWatchdog`).
+  try {
+    navigator.mediaSession.setActionHandler(
+      "expectedend" as MediaSessionAction,
+      () => {
+        if (intentionalReloadActive) return;
+        if (!expectedEndCallback) return;
+        debug("player", "expectedend watchdog firing — invoking callback");
+        expectedEndCallback();
+      },
+    );
+  } catch {
+    // some browsers reject unknown action names; safe to ignore.
   }
 
   // position state if we have valid duration
