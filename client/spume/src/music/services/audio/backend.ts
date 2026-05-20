@@ -39,12 +39,22 @@ export type Unsubscribe = () => void;
 /// options accepted by `loadAndPlay`. all backends honor what they
 /// can and silently ignore the rest — e.g. `initialPosition`/
 /// `initialDuration` are useful for restoring a paused session on
-/// page reload, while `userInitiated` lets the html backend skip
-/// auto-play gating that the rodio backend doesn't have.
+/// page reload.
+///
+/// **gate semantics**: `userInitiated` and `autoPlay` are independent.
+/// `userInitiated` reflects "the user intentionally caused this load"
+/// (used by the facade to decide whether to clear the pause gate +
+/// silence radio); `autoPlay` reflects "should the backend start
+/// audio playback after loading" (the facade computes this from its
+/// pause gate + the `userInitiated` flag and passes the result through).
+/// backends with no concept of "load without playing" can ignore
+/// `autoPlay` entirely — the facade will issue a follow-up `pause`
+/// command if needed. defaults to `true` when omitted.
 export interface LoadAndPlayOptions {
   userInitiated?: boolean;
   initialPosition?: number;
   initialDuration?: number;
+  autoPlay?: boolean;
 }
 
 /// the surface every audio backend implements.

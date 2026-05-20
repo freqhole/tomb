@@ -60,13 +60,14 @@ export function ImageCarouselModal(props: ImageCarouselModalProps) {
       onKeyDown={handleKeyDown}
       tabIndex={-1}
     >
-      {/* close button */}
+      {/* close button — offset below android/ios status bar via safe-area inset */}
       <button
         onClick={(e) => {
           e.stopPropagation();
           props.onClose();
         }}
-        class="absolute top-4 right-4 p-2 text-white hover:text-gray-300 transition-colors z-10 bg-black/50 rounded-full"
+        class="absolute right-4 p-2 text-white hover:text-gray-300 transition-colors z-10 bg-black/50 rounded-full"
+        style={{ top: "calc(env(safe-area-inset-top, 0px) + 1rem)" }}
         title="close (esc)"
       >
         <Icon name={IconNames.close} size={24} />
@@ -74,11 +75,19 @@ export function ImageCarouselModal(props: ImageCarouselModalProps) {
 
       {/* title */}
       <Show when={props.title}>
-        <div class="absolute top-4 left-4 text-white text-lg font-medium z-10">{props.title}</div>
+        <div
+          class="absolute left-4 text-white text-lg font-medium z-10"
+          style={{ top: "calc(env(safe-area-inset-top, 0px) + 1rem)" }}
+        >
+          {props.title}
+        </div>
       </Show>
 
       {/* image counter */}
-      <div class="absolute top-4 left-1/2 transform -translate-x-1/2 text-white text-sm z-10">
+      <div
+        class="absolute left-1/2 transform -translate-x-1/2 text-white text-sm z-10"
+        style={{ top: "calc(env(safe-area-inset-top, 0px) + 1rem)" }}
+      >
         {currentIndex() + 1} / {props.images.length}
       </div>
 
@@ -107,7 +116,10 @@ export function ImageCarouselModal(props: ImageCarouselModalProps) {
             src={props.images[currentIndex()]}
             alt={`image ${currentIndex() + 1}`}
             class="max-w-full max-h-full object-contain"
-            style={{ "max-height": "calc(100dvh - 8rem)" }}
+            style={{
+              "max-height":
+                "calc(100dvh - 8rem - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px))",
+            }}
           />
         </div>
 
@@ -123,9 +135,10 @@ export function ImageCarouselModal(props: ImageCarouselModalProps) {
         </Show>
       </div>
 
-      {/* thumbnail strip at bottom */}
+      {/* thumbnail strip at bottom — offset above ios home indicator / android nav bar */}
       <div
-        class="absolute bottom-4 left-1/2 transform -translate-x-1/2 flex gap-2 max-w-screen-lg overflow-x-auto overflow-y-hidden px-4 z-10"
+        class="absolute left-1/2 transform -translate-x-1/2 flex gap-2 max-w-screen-lg overflow-x-auto overflow-y-hidden px-4 z-10"
+        style={{ bottom: "calc(env(safe-area-inset-bottom, 0px) + 1rem)" }}
         onClick={(e) => e.stopPropagation()}
       >
         <For each={props.images}>
