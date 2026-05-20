@@ -15,6 +15,7 @@ import { getMiddenNode, isCharnelAvailable } from "../../api/client";
 import { tuneRadioCharnel, tuneRadioCharnelLocal } from "./charnelRadioAdapter";
 import {
   registerStopRadio,
+  registerVolumeMirror,
   stopMusicForRadio,
 } from "../playbackCoordinator";
 import { pause as pausePlayerAudio } from "../../../music/services/audio/player";
@@ -22,11 +23,31 @@ import { recordHistoryEntry } from "./radioHistory";
 import { setCurrentRadioStationPersisted } from "../storage/currentRadioStation";
 import { getRemoteByPeerAddr, getTauriManagedRemote } from "../remotes/remoteManager";
 import { getClientForRemote } from "../../api/client";
-import {
-  acknowledgeTimelineUserStart,
-  startQueueModeAdapter,
-  stopQueueModeAdapter,
-} from "./radioQueueAdapter";
+
+// queue-mode adapter api injected at module init via
+// `registerQueueAdapter`. avoids a static import cycle
+// (radioService imports adapter; adapter imports state/helpers from
+// radioService). adapter calls `registerQueueAdapter` once at its
+// module load; AppLayout's static import of the adapter ensures it
+// loads.
+interface QueueAdapterApi {
+  acknowledgeTimelineUserStart: () => void;
+  startQueueModeAdapter: () => void;
+  stopQueueModeAdapter: () => void;
+}
+let queueAdapter: QueueAdapterApi | null = null;
+export function registerQueueAdapter(api: QueueAdapterApi): void {
+  queueAdapter = api;
+}
+function acknowledgeTimelineUserStart(): void {
+  queueAdapter?.acknowledgeTimelineUserStart();
+}
+function startQueueModeAdapter(): void {
+  queueAdapter?.startQueueModeAdapter();
+}
+function stopQueueModeAdapter(): void {
+  queueAdapter?.stopQueueModeAdapter();
+}
 
 const MSE_CODEC = 'audio/mp4; codecs="mp4a.40.2"';
 
@@ -460,6 +481,11 @@ export function currentRadioSession(): RadioSession | null {
 // register our leave hook so the music player can interrupt us when
 // the user starts playing local songs.
 registerStopRadio(() => leaveRadio());
+
+// mirror the master volume slider onto the radio sink. the html
+// audio backend calls `mirrorVolumeToRadio` from its `setVolume`,
+// which dispatches here without a static cycle.
+registerVolumeMirror((vol) => setRadioVolume(vol));
 
 /**
  * register a persistent <audio> element to receive radio playback. pass

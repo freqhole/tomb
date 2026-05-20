@@ -33,7 +33,7 @@ import { BackendPlaybackError, type PlayerBackend } from "./backend";
 import { selectBackend } from "./select";
 import { registerStopMusic } from "../../../app/services/playbackCoordinator";
 import { installPreCacheScheduler } from "../queue/preCacheScheduler";
-import { installMediaSessionBridge } from "./mediaSessionBridge";
+import { installMediaSessionBridge, registerMediaActions } from "./mediaSessionBridge";
 import { installPlaybackOrchestrator } from "./playbackOrchestrator";
 import { bindActiveBackend } from "./playerStateSync";
 import {
@@ -47,6 +47,8 @@ import { appState } from "../../../app/services/storage/db";
 import { canGoNext, markPlaybackEnded } from "../queue/queueState";
 import { stopServerSession } from "../queue/serverSession";
 import { stopRadioForMusic } from "../../../app/services/playbackCoordinator";
+import { getDataSource } from "../../data";
+import { getMediaSessionArtwork } from "./mediaSessionArtwork";
 import type { Song } from "../storage/types";
 
 // retry budget for `playNext` — caps how many times the queue will
@@ -94,6 +96,24 @@ const htmlBackend = new HtmlAudioBackend();
 // registered itself via `registerWatchdog` (currently the html backend
 // from its constructor).
 installMediaSessionBridge();
+
+// register player-facade callbacks + song lookup with the bridge.
+// keeps the bridge from statically importing `player.ts` or
+// `music/data` (both would form import cycles). function decls below
+// are hoisted, so referencing them here is safe.
+registerMediaActions(
+  {
+    togglePlayback,
+    pause,
+    playNext,
+    playPrevious,
+    seek,
+  },
+  async (id: string): Promise<Song | null> => {
+    return (await getDataSource().getSongById(id)) ?? null;
+  },
+  getMediaSessionArtwork,
+);
 
 // runtime-selected. either `htmlBackend` (same instance!) or a
 // fresh `RodioBackend` / `DummyBackend`. callers should NEVER

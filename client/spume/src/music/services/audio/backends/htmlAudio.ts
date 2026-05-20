@@ -53,6 +53,7 @@ import {
 } from "../../storage/audioAccess";
 import type { Song } from "../../storage/types";
 import { debug } from "../../../../utils/logger";
+import { mirrorVolumeToRadio } from "../../../../app/services/playbackCoordinator";
 import { registerWatchdog } from "../mediaSessionBridge";
 import {
   isPlaying,
@@ -472,13 +473,11 @@ export class HtmlAudioBackend implements PlayerBackend {
     audio.volume = clamped;
 
     // mirror the volume onto the radio sink so the slider acts as a
-    // unified output volume regardless of which source is playing. lazy
-    // import to dodge the circular dep (radioService imports from music).
-    void import("../../../../app/services/radio/radioService")
-      .then((m) => m.setRadioVolume(clamped))
-      .catch(() => {
-        // radio service unavailable (e.g. tests); ignore.
-      });
+    // unified output volume regardless of which source is playing.
+    // routed through the playback coordinator's `mirrorVolumeToRadio`
+    // hook to dodge a circular import (radioService imports player
+    // which imports htmlAudio).
+    mirrorVolumeToRadio(clamped);
   }
 
   // play next song in queue (with retry logic for unplayable songs)

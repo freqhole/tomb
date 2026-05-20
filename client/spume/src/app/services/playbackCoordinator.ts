@@ -49,3 +49,27 @@ export async function stopMusicForRadio(): Promise<void> {
 export async function stopRadioForMusic(): Promise<void> {
   await fireAll(stopRadioHandlers, "stopRadio");
 }
+
+// volume mirror — the music player drives the master volume slider;
+// radio is a separate sink that should track it. radio service
+// registers a setter at module init; the html backend calls
+// `mirrorVolumeToRadio` from `setVolume` so both sinks stay in sync.
+// importing radioService directly from htmlAudio would close a circular dep
+// (radioService imports player which imports htmlAudio).
+type VolumeMirror = (volume: number) => void;
+let volumeMirror: VolumeMirror | null = null;
+
+/** register the radio-side volume sink. called once by radioService. */
+export function registerVolumeMirror(fn: VolumeMirror): void {
+  volumeMirror = fn;
+}
+
+/** mirror a master-volume change onto the radio sink (no-op if unregistered). */
+export function mirrorVolumeToRadio(volume: number): void {
+  if (!volumeMirror) return;
+  try {
+    volumeMirror(volume);
+  } catch (e) {
+    console.warn("[playback-coordinator] volume mirror failed:", e);
+  }
+}

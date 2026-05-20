@@ -35,10 +35,21 @@ import {
   markTimelinePlaybackBlocked,
   handleTimelineAutoplayBlocked,
   recordCurrentRadioTrackHistory,
+  registerQueueAdapter,
 } from "./radioService";
 import { getSongDisplayImages, pickBestImage } from "../../../utils/images";
 import type { Remote } from "../storage/schemas/remote";
 import type { Song } from "../../../music/services/storage/types";
+
+// register our queue-mode entry points with the radio service so it
+// can drive us without a static import cycle. the radio service holds
+// the function refs in a small registry; AppLayout's static import of
+// this module ensures we load on app startup.
+registerQueueAdapter({
+  acknowledgeTimelineUserStart: () => acknowledgeTimelineUserStart(),
+  startQueueModeAdapter: () => startQueueModeAdapter(),
+  stopQueueModeAdapter: () => stopQueueModeAdapter(),
+});
 
 // ---- state ---------------------------------------------------------------
 
