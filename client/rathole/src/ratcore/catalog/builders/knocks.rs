@@ -1,7 +1,7 @@
 //! knocks command builders.
 
 use crate::ratcore::app::{AdminCommand, ArgKind, ArgSpec, CommandKind};
-use crate::ratcore::catalog::widgets::{pick_pending_knock, role_choices, select_from};
+use crate::ratcore::catalog::widgets::{pick_pending_knock, role_choices};
 
 pub(in crate::ratcore::catalog) fn accept() -> AdminCommand {
     AdminCommand {
@@ -18,14 +18,8 @@ pub(in crate::ratcore::catalog) fn accept() -> AdminCommand {
                     placeholder: "(blank = use the username from the knock)".to_string(),
                 },
                 required: false,
-                help: Some("optional override for the new user's name".to_string()),
-            },
-            ArgSpec {
-                name: "user_id".to_string(),
-                kind: select_from("users_list", "id", "username"),
-                required: false,
                 help: Some(
-                    "(optional) link the knock to an existing user instead of creating one"
+                    "type a username. if it already exists the knock is linked to that user; otherwise a new user is created."
                         .to_string(),
                 ),
             },
@@ -35,7 +29,7 @@ pub(in crate::ratcore::catalog) fn accept() -> AdminCommand {
                     choices: role_choices(),
                 },
                 required: true,
-                help: Some("role for the new user (ignored if linking)".to_string()),
+                help: Some("role for the new user (ignored when linking to an existing user)".to_string()),
             },
         ],
     }
