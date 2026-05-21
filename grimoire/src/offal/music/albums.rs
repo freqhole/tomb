@@ -665,8 +665,13 @@ pub struct IngestRemoteImageResponse {
 }
 
 /// max bytes accepted from a remote image url. avoids accidentally pulling
-/// down arbitrarily large assets.
-const MAX_REMOTE_IMAGE_BYTES: usize = 16 * 1024 * 1024; // 16MB
+/// down arbitrarily large assets. raw bytes are not persisted — we decode,
+/// downscale and re-encode as webp before storing.
+const MAX_REMOTE_IMAGE_BYTES: usize = 32 * 1024 * 1024; // 32MB
+
+/// longer-edge cap for ingested album/artist art. originals are downscaled
+/// to this and re-encoded as webp; we never store the raw upstream bytes.
+const INGEST_MAX_DIMENSION: u32 = 1500;
 
 /// download an image from a remote url and link it to an album or artist.
 /// dedups on sha256: if we already have the blob, no fetch + no disk write,
@@ -696,10 +701,9 @@ pub async fn ingest_remote_image(caller: &Caller, body: JsonValue) -> GrimoireRe
     let resp = ingest_remote_image_inner(req, &caller.user_id, &caller.username).await;
     if resp.success {
         match resp.data {
-            Some(body) => GrimoireResponse::success(
-                &resp.message,
-                serde_json::to_value(body).unwrap(),
-            ),
+            Some(body) => {
+                GrimoireResponse::success(&resp.message, serde_json::to_value(body).unwrap())
+            }
             None => GrimoireResponse::failure(&resp.message, resp.errors),
         }
     } else {
@@ -716,7 +720,6 @@ pub async fn ingest_remote_image_inner(
     created_by_id: &str,
     created_by_username: &str,
 ) -> GrimoireResponse<IngestRemoteImageResponse> {
-
     // require https/http only — guards against `file://`, `data:`, etc.
     let scheme_ok = req.remote_url.starts_with("https://") || req.remote_url.starts_with("http://");
     if !scheme_ok {
@@ -815,24 +818,65 @@ pub async fn ingest_remote_image_inner(
             )],
         );
     }
-    let size = bytes.len() as i64;
+    let original_size = bytes.len() as i64;
+    let original_mime = mime_type.clone();
 
-    // sha256 dedup check first: if we already have it, just link.
+    // decode + downscale + re-encode as webp on a blocking thread so we
+    // never persist multi-megabyte upstream bytes. svg passes through as-is
+    // since rasterizing it would lose its vector nature (and the `image`
+    // crate can't decode it anyway).
+    let is_svg = mime_type == "image/svg+xml";
+    let (processed_bytes, processed_w, processed_h, processed_mime) = if is_svg {
+        (bytes.to_vec(), None, None, mime_type.clone())
+    } else {
+        let raw = bytes.to_vec();
+        match tokio::task::spawn_blocking(move || {
+            crate::blob_data::resize_to_max_dim_webp(&raw, INGEST_MAX_DIMENSION)
+        })
+        .await
+        {
+            Ok(Ok((b, w, h))) => (b, Some(w as i64), Some(h as i64), "image/webp".to_string()),
+            Ok(Err(e)) => {
+                return GrimoireResponse::failure(
+                    "image processing failed",
+                    vec![ErrorDetail::new(
+                        "image_processing_failed",
+                        "image processing failed",
+                        &format!("could not decode/resize remote image: {}", e),
+                    )],
+                );
+            }
+            Err(e) => {
+                return GrimoireResponse::failure(
+                    "image processing failed",
+                    vec![ErrorDetail::new(
+                        "image_processing_failed",
+                        "image processing failed",
+                        &format!("image processing task panicked: {}", e),
+                    )],
+                );
+            }
+        }
+    };
+    let size = processed_bytes.len() as i64;
+
+    // sha256 dedup check on the *processed* bytes so equivalent re-encodes
+    // collapse to a single blob.
     use sha2::{Digest, Sha256};
     let mut hasher = Sha256::new();
-    hasher.update(&bytes);
+    hasher.update(&processed_bytes);
     let sha256_hex = format!("{:x}", hasher.finalize());
 
     let (blob_id, deduped, mime_out) = match get_media_blob_by_sha256(&sha256_hex).await {
         Ok(existing) => (
             existing.id,
             true,
-            existing.mime.unwrap_or_else(|| mime_type.clone()),
+            existing.mime.unwrap_or_else(|| processed_mime.clone()),
         ),
         Err(_) => {
             // new blob: write to disk under data/fetch/YYYY/MM/<id>.<ext>
-            let blake3_hash = crate::blobz::compute_blake3_from_bytes(&bytes);
-            let ext = match mime_type.as_str() {
+            let blake3_hash = crate::blobz::compute_blake3_from_bytes(&processed_bytes);
+            let ext = match processed_mime.as_str() {
                 "image/png" => "png",
                 "image/webp" => "webp",
                 "image/gif" => "gif",
@@ -843,7 +887,7 @@ pub async fn ingest_remote_image_inner(
             let blob = match create_media_blob(CreateMediaBlobRequest {
                 sha256: sha256_hex.clone(),
                 size: Some(size),
-                mime: Some(mime_type.clone()),
+                mime: Some(processed_mime.clone()),
                 source_client_id: None,
                 local_path: None,
                 filename: None,
@@ -852,11 +896,15 @@ pub async fn ingest_remote_image_inner(
                 metadata: serde_json::json!({
                     "remote_url": req.remote_url,
                     "source": req.source.clone().unwrap_or_default(),
+                    "original_size": original_size,
+                    "original_mime": original_mime,
+                    "processed": !is_svg,
+                    "max_dimension": INGEST_MAX_DIMENSION,
                 }),
                 created_by: Some(created_by_id.to_string()),
                 data: None,
-                width: None,
-                height: None,
+                width: processed_w,
+                height: processed_h,
                 blake3: Some(blake3_hash),
             })
             .await
@@ -900,7 +948,7 @@ pub async fn ingest_remote_image_inner(
                     );
                 }
             }
-            if let Err(e) = tokio::fs::write(&full_path, &bytes).await {
+            if let Err(e) = tokio::fs::write(&full_path, &processed_bytes).await {
                 return GrimoireResponse::failure(
                     "failed to write file",
                     vec![ErrorDetail::new(

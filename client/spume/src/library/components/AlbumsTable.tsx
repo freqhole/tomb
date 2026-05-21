@@ -270,6 +270,15 @@ export function AlbumsTable(props: AlbumsTableProps) {
     let meetsBoth = 0;
     const conf = minConfidence();
     const gap = minGap();
+    const matched: {
+      albumId: string;
+      title: string;
+      artist: string;
+      score: number;
+      gap: number;
+      mbTitle: string;
+      primaryType: string | null;
+    }[] = [];
     for (const a of items) {
       const st = parseMbLookupStatus(a.mb_lookup_status);
       const reviewable = st === "candidates" || st === "needs_review";
@@ -290,8 +299,22 @@ export function AlbumsTable(props: AlbumsTableProps) {
       const okGap = localGap >= gap;
       if (okConf) meetsConfidence += 1;
       if (okGap) meetsGap += 1;
-      if (okConf && okGap) meetsBoth += 1;
+      if (okConf && okGap) {
+        meetsBoth += 1;
+        matched.push({
+          albumId: a.album_id,
+          title: a.title,
+          artist: a.artist_name,
+          score,
+          gap: localGap,
+          mbTitle: top.title ?? "—",
+          primaryType: top.primary_type ?? null,
+        });
+      }
     }
+    // sort highest-confidence first so the user sees the strongest
+    // matches at the top of the preview list.
+    matched.sort((a, b) => b.score - a.score);
     return {
       totalLoaded,
       withCandidates,
@@ -299,6 +322,7 @@ export function AlbumsTable(props: AlbumsTableProps) {
       meetsConfidence,
       meetsGap,
       meetsBoth,
+      matched,
     };
   });
 
@@ -675,9 +699,10 @@ function SourceBadge(props: { label: string; title: string; state: SourceBadgeSt
 // confirmation modal for the bulk auto-confirm action. lets the user
 // tweak min-confidence + min-gap thresholds and shows a live count of
 // how many of the currently-loaded + filtered albums would be eligible
-// at those thresholds. server-side eligibility is the source of truth;
-// the modal numbers are just an estimate based on the candidate
-// metadata that's already loaded on the client.
+// at those thresholds, plus a preview list of the actual matches.
+// server-side eligibility is the source of truth; the modal numbers are
+// just an estimate based on candidate metadata already loaded on the
+// client.
 interface AutoConfirmModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -692,18 +717,28 @@ interface AutoConfirmModalProps {
     meetsConfidence: number;
     meetsGap: number;
     meetsBoth: number;
+    matched: {
+      albumId: string;
+      title: string;
+      artist: string;
+      score: number;
+      gap: number;
+      mbTitle: string;
+      primaryType: string | null;
+    }[];
   };
   onConfirm: () => Promise<void> | void;
   running: boolean;
 }
 
 function AutoConfirmModal(props: AutoConfirmModalProps) {
+  const PREVIEW_LIMIT = 50;
   return (
     <Modal
       isOpen={props.isOpen}
       onClose={props.onClose}
       title="auto-confirm musicbrainz matches"
-      size="sm"
+      size="md"
       disableBackdropClose={props.running}
       footer={
         <div class="flex items-center justify-end gap-2 px-4 py-3">
@@ -738,35 +773,54 @@ function AutoConfirmModal(props: AutoConfirmModalProps) {
     >
       <div class="flex flex-col gap-4 px-4 py-3 text-sm text-[var(--color-text-secondary)]">
         <p class="text-[var(--color-text-muted)]">
-          the auto-confirm action picks the top musicbrainz candidate for each album in the current
-          filter and confirms it whenever both thresholds are met. albums that don't have
-          candidates, or whose status is outside <code>candidates</code> / <code>needs_review</code>
-          , are skipped.
+          confirm the top musicbrainz candidate for every reviewable album in the current filter
+          where both thresholds below are met. drag the sliders to preview the match list, then
+          commit.
         </p>
-        <div class="flex items-center gap-3">
-          <label class="flex items-center gap-2 flex-1">
-            <span class="text-[var(--color-text-muted)] w-24">min confidence</span>
+        <div class="flex flex-col gap-3">
+          <label class="flex flex-col gap-1">
+            <div class="flex items-center justify-between">
+              <span class="text-[var(--color-text-primary)] text-xs font-medium">
+                min confidence
+              </span>
+              <span class="text-[var(--color-text-primary)] tabular-nums text-xs">
+                {props.minConfidence.toFixed(2)}
+              </span>
+            </div>
             <input
-              type="number"
+              type="range"
               min="0"
               max="1"
-              step="0.05"
+              step="0.01"
               value={props.minConfidence}
               onInput={(e) => props.setMinConfidence(Number.parseFloat(e.currentTarget.value) || 0)}
-              class="w-20 bg-[var(--color-bg-elevated)] border border-[var(--color-border-subtle)] rounded px-2 py-1 text-sm text-[var(--color-text-primary)]"
+              class="w-full accent-[var(--color-accent-500)]"
             />
+            <span class="text-[10px] text-[var(--color-text-muted)] leading-snug">
+              how strong the top candidate must be on its own (0.00–1.00). higher = fewer false
+              positives. 0.90 is a safe default.
+            </span>
           </label>
-          <label class="flex items-center gap-2 flex-1">
-            <span class="text-[var(--color-text-muted)] w-16">min gap</span>
+          <label class="flex flex-col gap-1">
+            <div class="flex items-center justify-between">
+              <span class="text-[var(--color-text-primary)] text-xs font-medium">min gap</span>
+              <span class="text-[var(--color-text-primary)] tabular-nums text-xs">
+                {props.minGap.toFixed(2)}
+              </span>
+            </div>
             <input
-              type="number"
+              type="range"
               min="0"
               max="1"
-              step="0.05"
+              step="0.01"
               value={props.minGap}
               onInput={(e) => props.setMinGap(Number.parseFloat(e.currentTarget.value) || 0)}
-              class="w-20 bg-[var(--color-bg-elevated)] border border-[var(--color-border-subtle)] rounded px-2 py-1 text-sm text-[var(--color-text-primary)]"
+              class="w-full accent-[var(--color-accent-500)]"
             />
+            <span class="text-[10px] text-[var(--color-text-muted)] leading-snug">
+              how far ahead of the runner-up the top must be (0.00–1.00). guards against near-ties
+              between similarly-scored releases. 0.15 is a safe default.
+            </span>
           </label>
         </div>
         <div class="rounded border border-[var(--color-border-subtle)] p-3 flex flex-col gap-1 text-xs">
@@ -795,6 +849,39 @@ function AutoConfirmModal(props: AutoConfirmModalProps) {
             <span>{props.eligibleStats.meetsBoth}</span>
           </div>
         </div>
+        <Show when={props.eligibleStats.matched.length > 0}>
+          <div class="flex flex-col gap-1">
+            <div class="flex items-center justify-between text-xs">
+              <span class="text-[var(--color-text-primary)] font-medium">matches preview</span>
+              <Show when={props.eligibleStats.matched.length > PREVIEW_LIMIT}>
+                <span class="text-[var(--color-text-muted)]">
+                  showing {PREVIEW_LIMIT} of {props.eligibleStats.matched.length}
+                </span>
+              </Show>
+            </div>
+            <div class="rounded border border-[var(--color-border-subtle)] max-h-64 overflow-y-auto divide-y divide-[var(--color-border-subtle)]">
+              <For each={props.eligibleStats.matched.slice(0, PREVIEW_LIMIT)}>
+                {(m) => (
+                  <div class="flex items-center gap-3 px-3 py-1.5 text-xs hover:bg-[var(--color-bg-elevated)]">
+                    <div class="flex-1 min-w-0">
+                      <div class="truncate text-[var(--color-text-primary)]">
+                        {m.artist} — {m.title}
+                      </div>
+                      <div class="truncate text-[10px] text-[var(--color-text-muted)]">
+                        mb: {m.mbTitle}
+                        <Show when={m.primaryType}> · {m.primaryType}</Show>
+                      </div>
+                    </div>
+                    <div class="shrink-0 flex items-center gap-2 tabular-nums text-[10px] text-[var(--color-text-secondary)]">
+                      <span title="top candidate confidence">conf {m.score.toFixed(2)}</span>
+                      <span title="confidence gap to runner-up">gap {m.gap.toFixed(2)}</span>
+                    </div>
+                  </div>
+                )}
+              </For>
+            </div>
+          </div>
+        </Show>
       </div>
     </Modal>
   );

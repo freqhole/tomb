@@ -167,7 +167,7 @@ pub async fn process_mb_album_search_job(job: &Job) -> Result<Option<Value>, Job
     let cross_api_mbids: std::collections::HashSet<String> = {
         let mut set = std::collections::HashSet::new();
         let md = albums_repo::read_album_metadata(&album_id).await;
-        if let Some(meta) = md.data {
+        if let Some(meta) = md.data.as_ref() {
             if let Some(lf) = meta.lastfm.as_ref().and_then(|l| l.album.as_ref()) {
                 if let Some(m) = lf.mbid.as_ref().filter(|s| !s.is_empty()) {
                     set.insert(m.clone());
@@ -186,6 +186,17 @@ pub async fn process_mb_album_search_job(job: &Job) -> Result<Option<Value>, Job
         set
     };
 
+    // capture any previously stored confirmation pointer so we can
+    // decide whether re-querying invalidates it (see step 5 below).
+    let prev_confirmation: (Option<String>, Option<String>) = {
+        let md = albums_repo::read_album_metadata(&album_id).await;
+        md.data
+            .as_ref()
+            .and_then(|m| m.musicbrainz.as_ref())
+            .map(|mb| (mb.release_id.clone(), mb.release_group_id.clone()))
+            .unwrap_or((None, None))
+    };
+
     let local_song_summary: Option<(usize, u64)> = {
         // single COUNT(*) + SUM(duration) — keeps this cheap even for
         // big libraries.
@@ -201,6 +212,28 @@ pub async fn process_mb_album_search_job(job: &Job) -> Result<Option<Value>, Job
         .ok();
         row.map(|r| (r.n as usize, r.secs as u64))
     };
+
+    // compute earliest known release year across the result set so we can
+    // give a small "earliest pressing wins" boost during scoring. we use
+    // year only (not full date) because mb dates are often partial
+    // ("1975" vs "1975-04-12") and any finer comparison would be flaky.
+    fn parse_year(s: &str) -> Option<u32> {
+        s.get(0..4).and_then(|y| y.parse::<u32>().ok())
+    }
+    let earliest_year: Option<u32> = search
+        .results
+        .iter()
+        .filter_map(|r| {
+            r.date
+                .as_deref()
+                .or_else(|| {
+                    r.release_group
+                        .as_ref()
+                        .and_then(|rg| rg.first_release_date.as_deref())
+                })
+                .and_then(parse_year)
+        })
+        .min();
 
     let candidates: Vec<MbCandidate> = search
         .results
@@ -238,6 +271,37 @@ pub async fn process_mb_album_search_job(job: &Job) -> Result<Option<Value>, Job
                 .unwrap_or_default();
             let mbid_match =
                 !release_group_id_str.is_empty() && cross_api_mbids.contains(&release_group_id_str);
+            // cover art: drives the strongest tie-breaker between
+            // releases that share artist+title (re-issues, regional
+            // pressings). a release with rich cover art is almost
+            // always the canonical one we want for downstream
+            // enrichment.
+            let cover_art_count = r
+                .cover_art_archive
+                .as_ref()
+                .map(|caa| caa.count)
+                .unwrap_or(0);
+            let has_front_cover = r
+                .cover_art_archive
+                .as_ref()
+                .map(|caa| caa.front)
+                .unwrap_or(false);
+            // years past the earliest pressing in this result set
+            // (None = unknown date). older pressings rank higher,
+            // but cover art outweighs date.
+            let cand_year = r
+                .date
+                .as_deref()
+                .or_else(|| {
+                    r.release_group
+                        .as_ref()
+                        .and_then(|rg| rg.first_release_date.as_deref())
+                })
+                .and_then(parse_year);
+            let years_since_earliest = match (cand_year, earliest_year) {
+                (Some(cy), Some(ey)) if cy >= ey => Some(cy - ey),
+                _ => None,
+            };
             let local_confidence = compute_local_confidence(
                 &title,
                 artist.as_deref(),
@@ -254,6 +318,9 @@ pub async fn process_mb_album_search_job(job: &Job) -> Result<Option<Value>, Job
                     Some(track_lens_ms.as_slice())
                 },
                 mbid_match,
+                cover_art_count,
+                has_front_cover,
+                years_since_earliest,
             );
             MbCandidate {
                 release_group_id: release_group_id_str,
@@ -279,17 +346,107 @@ pub async fn process_mb_album_search_job(job: &Job) -> Result<Option<Value>, Job
                 media: media_format.clone(),
                 mb_score: r.score.map(|s| s as i32),
                 local_confidence: Some(local_confidence),
+                cover_art_count: Some(cover_art_count),
+                has_front_cover: Some(has_front_cover),
             }
         })
         .collect();
 
-    // sort by local_confidence desc so the ui shows best first
+    // sort by local_confidence desc so the ui shows best first.
+    // when confidences tie (within 1e-6) we apply a deterministic
+    // multi-key tiebreaker that mirrors the boost ordering inside
+    // compute_local_confidence, so identical-text candidates still
+    // surface the canonical pressing first in the ui:
+    //   1. cover-art image count (more = better)
+    //   2. has-front-cover (true beats false)
+    //   3. country priority (XW > US > others)
+    //   4. format priority (digital > cd > others)
+    //   5. earliest first_release_date (older wins)
+    fn country_rank(c: Option<&str>) -> u8 {
+        match c {
+            Some("XW") => 2,
+            Some("US") => 1,
+            _ => 0,
+        }
+    }
+    fn format_rank(f: Option<&str>) -> u8 {
+        match f.map(|s| s.to_lowercase()) {
+            Some(s) if s.contains("digital") => 2,
+            Some(s) if s.contains("cd") => 1,
+            _ => 0,
+        }
+    }
+    // build a parallel side-table of the tiebreaker fields keyed by
+    // release_id so we don't have to extend MbCandidate just for sort.
+    use std::collections::HashMap;
+    let mut sort_meta: HashMap<String, (u32, bool, u8, u8, Option<u32>)> = HashMap::new();
+    for r in &search.results {
+        let key = r.id.to_string();
+        let caa_count = r.cover_art_archive.as_ref().map(|c| c.count).unwrap_or(0);
+        let caa_front = r
+            .cover_art_archive
+            .as_ref()
+            .map(|c| c.front)
+            .unwrap_or(false);
+        let cr = country_rank(r.country.as_deref());
+        let fr = format_rank(
+            r.media
+                .as_ref()
+                .and_then(|m| {
+                    m.first()
+                        .and_then(|m0| m0.format.as_deref().map(|s| s.to_string()))
+                })
+                .as_deref(),
+        );
+        let yr = r
+            .date
+            .as_deref()
+            .or_else(|| {
+                r.release_group
+                    .as_ref()
+                    .and_then(|rg| rg.first_release_date.as_deref())
+            })
+            .and_then(parse_year);
+        sort_meta.insert(key, (caa_count, caa_front, cr, fr, yr));
+    }
     let mut sorted = candidates.clone();
     sorted.sort_by(|a, b| {
-        b.local_confidence
-            .unwrap_or(0.0)
-            .partial_cmp(&a.local_confidence.unwrap_or(0.0))
-            .unwrap_or(std::cmp::Ordering::Equal)
+        let ac = a.local_confidence.unwrap_or(0.0);
+        let bc = b.local_confidence.unwrap_or(0.0);
+        // primary: confidence desc
+        match bc.partial_cmp(&ac).unwrap_or(std::cmp::Ordering::Equal) {
+            std::cmp::Ordering::Equal => {}
+            other if (ac - bc).abs() > 1e-6 => return other,
+            _ => {}
+        }
+        let empty = (0u32, false, 0u8, 0u8, None);
+        let am = a
+            .release_id
+            .as_deref()
+            .and_then(|k| sort_meta.get(k))
+            .copied()
+            .unwrap_or(empty);
+        let bm = b
+            .release_id
+            .as_deref()
+            .and_then(|k| sort_meta.get(k))
+            .copied()
+            .unwrap_or(empty);
+        // 1. cover art count desc
+        bm.0.cmp(&am.0)
+            // 2. has front cover desc (true > false)
+            .then_with(|| bm.1.cmp(&am.1))
+            // 3. country rank desc (XW > US > 0)
+            .then_with(|| bm.2.cmp(&am.2))
+            // 4. format rank desc (digital > cd > 0)
+            .then_with(|| bm.3.cmp(&am.3))
+            // 5. earliest year asc (older wins). unknown years sort last.
+            .then_with(|| match (am.4, bm.4) {
+                (Some(ay), Some(by)) => ay.cmp(&by),
+                (Some(_), None) => std::cmp::Ordering::Less,
+                (None, Some(_)) => std::cmp::Ordering::Greater,
+                (None, None) => std::cmp::Ordering::Equal,
+            })
     });
 
     let last_query = MbLastQuery {
@@ -299,7 +456,35 @@ pub async fn process_mb_album_search_job(job: &Job) -> Result<Option<Value>, Job
     };
 
     // step 5: merge into metadata
-    let patch = metadata::patch_mb_search_result(&sorted, &last_query);
+    //
+    // re-querying may invalidate any previous confirmation pointer:
+    // the new top candidate may not match the previously-confirmed
+    // release, in which case the stored `release_id` /
+    // `release_group_id` would mis-highlight a non-top candidate as
+    // "current" in the review ui. clear stale pointers up front;
+    // the auto-confirm branch below will re-set them when appropriate.
+    let new_top_release_id = sorted.first().and_then(|c| c.release_id.clone());
+    let new_top_release_group_id = sorted.first().map(|c| c.release_group_id.clone());
+    let prev_matches_new_top = match (&prev_confirmation.0, &prev_confirmation.1) {
+        // if a release_id was previously stored, require an exact match
+        // on the new top's release_id (otherwise the user's pick — or
+        // a stale auto-confirm — points at a different pressing).
+        (Some(prev_rid), _) => new_top_release_id.as_ref() == Some(prev_rid),
+        // no release_id but a release_group_id: match on rg only.
+        (None, Some(prev_rgid)) => new_top_release_group_id.as_ref() == Some(prev_rgid),
+        // nothing stored — nothing to invalidate.
+        (None, None) => true,
+    };
+    let mut patch = metadata::patch_mb_search_result(&sorted, &last_query);
+    if !prev_matches_new_top {
+        // explicit nulls so deep_merge replaces the previous values.
+        if let Some(mb) = patch.get_mut("musicbrainz").and_then(|v| v.as_object_mut()) {
+            mb.insert("release_id".into(), Value::Null);
+            mb.insert("release_group_id".into(), Value::Null);
+            mb.insert("match_confirmed_at".into(), Value::Null);
+            mb.insert("match_confirmed_by".into(), Value::Null);
+        }
+    }
     let merge_resp = albums_repo::merge_album_metadata(&album_id, &patch).await;
     if !merge_resp.success {
         let _ = albums_repo::update_mb_lookup_status(
@@ -314,11 +499,91 @@ pub async fn process_mb_album_search_job(job: &Job) -> Result<Option<Value>, Job
     }
 
     // step 6: pick final status
+    //
+    // we have two distinct cases of "tied at the top":
+    //   a) candidates with confidence within AUTO_CONFIRM_MARGIN of
+    //      the leader (the usual case). this is enough to auto-confirm
+    //      iff exactly one candidate is in the band.
+    //   b) candidates with EXACTLY the same confidence as the leader
+    //      (typical when the tier-1 identity score clamps and several
+    //      release-group siblings differ only by tier-2 amounts that
+    //      still round to the same number). in this case the sort
+    //      comparator has already broken the tie deterministically
+    //      using cover-art / country / format / earliness; if the
+    //      leader is STRICTLY better in those keys than the runner-up
+    //      we treat it as a clear winner and auto-confirm.
     let top_conf = sorted.first().and_then(|c| c.local_confidence);
-    let strong_count = sorted
+    const AUTO_CONFIRM_MARGIN: f64 = 0.05;
+    let top_val = top_conf.unwrap_or(0.0);
+
+    // tiebreaker keys for the leader vs runner-up, in priority order:
+    // (cover_count, has_front, country_rank, format_rank, neg_year)
+    // higher is better for the first four; year is compared so that
+    // smaller (older) wins, which we express via Reverse on year only.
+    let lookup_meta = |c: &MbCandidate| -> (u32, bool, u8, u8, Option<u32>) {
+        c.release_id
+            .as_deref()
+            .and_then(|k| sort_meta.get(k))
+            .copied()
+            .unwrap_or((0, false, 0, 0, None))
+    };
+    let strictly_better_tiebreak = |a: &MbCandidate, b: &MbCandidate| -> bool {
+        let am = lookup_meta(a);
+        let bm = lookup_meta(b);
+        // same comparator as the sort step. `Greater` means `a` ranks
+        // before `b` (since sort uses bm.cmp(&am) for descending).
+        let ord =
+            bm.0.cmp(&am.0)
+                .then_with(|| bm.1.cmp(&am.1))
+                .then_with(|| bm.2.cmp(&am.2))
+                .then_with(|| bm.3.cmp(&am.3))
+                .then_with(|| match (am.4, bm.4) {
+                    (Some(ay), Some(by)) => ay.cmp(&by),
+                    (Some(_), None) => std::cmp::Ordering::Less,
+                    (None, Some(_)) => std::cmp::Ordering::Greater,
+                    (None, None) => std::cmp::Ordering::Equal,
+                });
+        ord == std::cmp::Ordering::Less
+    };
+
+    // count candidates within the auto-confirm margin of the leader.
+    let near_top_count = sorted
         .iter()
-        .filter(|c| c.local_confidence.unwrap_or(0.0) >= 0.85)
+        .filter(|c| {
+            let cv = c.local_confidence.unwrap_or(0.0);
+            cv >= 0.85 && (top_val - cv) < AUTO_CONFIRM_MARGIN
+        })
         .count();
+
+    // "is there a strict winner?" — true when either:
+    //   * only one candidate is within the margin band, OR
+    //   * the leader is at least DECISIVE_GAP ahead of the runner-up
+    //     (a real, observable lead rather than a near-tie), OR
+    //   * multiple candidates land within the margin band, but the
+    //     leader is strictly better than the runner-up on the
+    //     structural tiebreaker keys (cover art / country / format /
+    //     earliness). this catches the saturation case where every
+    //     release-group sibling clamps to ~1.0 and only structural
+    //     signals separate them.
+    //
+    // a small TIE_EPS-only check is too narrow: when tier-2 boosts
+    // separate two siblings by 0.04 but the leader still clamps to
+    // 1.0, the runner-up sits at 0.96 — far from `close` under
+    // TIE_EPS but well within the margin band. we want to auto-
+    // confirm those cases as long as the leader truly dominates.
+    const DECISIVE_GAP: f64 = 0.03;
+    let strict_winner = match (sorted.first(), sorted.get(1)) {
+        (Some(top), Some(second)) => {
+            let sc = second.local_confidence.unwrap_or(0.0);
+            let gap = top_val - sc;
+            let in_band = gap.abs() < AUTO_CONFIRM_MARGIN;
+            near_top_count == 1
+                || gap >= DECISIVE_GAP
+                || (in_band && strictly_better_tiebreak(top, second))
+        }
+        (Some(_), None) => true,
+        _ => false,
+    };
 
     let mut auto_confirmed_release_id: Option<String> = None;
     let mut auto_confirmed_release_group_id: Option<String> = None;
@@ -326,7 +591,7 @@ pub async fn process_mb_album_search_job(job: &Job) -> Result<Option<Value>, Job
         MbLookupStatus::NoMatch
     } else if let (Some(threshold), Some(top)) = (params.auto_confirm_threshold, sorted.first()) {
         let conf = top.local_confidence.unwrap_or(0.0);
-        if conf >= threshold && strong_count == 1 {
+        if conf >= threshold && strict_winner {
             // auto-confirm: write the confirmation patch too
             let confirmed_at = time::OffsetDateTime::now_utc().unix_timestamp();
             let confirm_patch = metadata::patch_mb_confirmation(
@@ -339,12 +604,12 @@ pub async fn process_mb_album_search_job(job: &Job) -> Result<Option<Value>, Job
             auto_confirmed_release_id = top.release_id.clone();
             auto_confirmed_release_group_id = Some(top.release_group_id.clone());
             MbLookupStatus::Confirmed
-        } else if strong_count > 1 {
+        } else if near_top_count > 1 {
             MbLookupStatus::NeedsReview
         } else {
             MbLookupStatus::Candidates
         }
-    } else if strong_count > 1 {
+    } else if near_top_count > 1 && !strict_winner {
         MbLookupStatus::NeedsReview
     } else {
         MbLookupStatus::Candidates
@@ -425,27 +690,54 @@ pub async fn process_mb_album_search_job(job: &Job) -> Result<Option<Value>, Job
 }
 
 /// cheap, deterministic confidence score in [0.0, 1.0].
-/// blends MB's lucene score (when present) with token-overlap on title
-/// + artist, then applies small additive boosts for canonical release
-/// shapes (worldwide / digital / cd) — these are weak signals that one
-/// release is more likely to be the canonical one than a regional pressing.
 ///
-/// optional inputs (pass `None`/`false` when unavailable):
-///   * `tag_count` — number of tags MB exposes for this release/release-group.
-///     present (>0) → small boost; explicitly empty (Some(0)) → small
-///     penalty (we strongly prefer candidates that ship folksonomy tags so
-///     the album review surfaces are useful out of the box).
-///   * `local_song_summary` — `(local_song_count, local_total_seconds)` —
-///     used together with `cand_track_lengths_ms` to handle the
+/// design: two-tier score so structural tiebreakers always survive
+/// even when the "identity" signals (text overlap, mb lucene score,
+/// cross-api mbid agreement, long-song duration match) saturate.
+///
+///   tier 1 — IDENTITY (max 0.85, clamped):
+///     0.40 * title_jaccard + 0.30 * artist_jaccard + 0.15 * mb_norm
+///     + 0.10 if cross-api mbid agrees
+///     + 0.15 (or 0.05) if local single-long-song matches mb track sum
+///     clamped to IDENTITY_CAP (0.85) so tier-2 has guaranteed room.
+///
+///   tier 2 — TIEBREAKERS (max ~0.24, only applied when identity >= 0.5):
+///     cover art (front cover + per-image bonus, max +0.08)
+///     country  (XW=+0.05, US=+0.04, other=0)
+///     format   (digital=+0.04, cd=+0.03, vinyl/cassette/other=0)
+///     earliness (earliest pressing in result set = +0.03, decays)
+///     tags     (>=5 → +0.04, >0 → +0.02, =0 → -0.04, None → no movement)
+///
+/// the cap on tier 1 is the crucial change. without it, identical-text
+/// candidates from the same release-group (cd / vinyl / digital
+/// pressings) all hit 1.0 once the mbid boost lands, and every
+/// downstream tiebreaker gets clamped away. with it, the tier-2 budget
+/// of ~0.24 is always available to differentiate.
+///
+/// ordering of importance (largest deltas first):
+///   cross-api mbid agreement > long-song duration match > cover art
+///   > country > format > earliest pressing > tags.
+/// cover art intentionally outranks release date per product spec.
+///
+/// optional inputs (pass `None`/`false`/`0` when unavailable):
+///   * `tag_count` — MB tags on this release/release-group. Some(0) =
+///     known-empty (small penalty). None = unknown (no movement —
+///     this is the search-time default; detail-time re-rank fills in).
+///   * `local_song_summary` — `(local_song_count, local_total_seconds)`,
+///     used together with `cand_track_lengths_ms` for the
 ///     "local album is one long track that should match a multi-track
 ///     mb release" case (long live mixes, dj sets, side-long suites).
-///     when the local side is exactly one song longer than ~10 minutes,
-///     we compare the candidate's summed track durations with a tolerance
-///     of ±5s per track. close match → big boost (+0.15).
 ///   * `cand_track_lengths_ms` — durations (ms) for the candidate's tracks.
 ///   * `cross_api_mbid_match` — true when this candidate's
-///     `release_group_id` matches an mbid surfaced by last.fm or audiodb
-///     for the same album (cross-source agreement is a very strong signal).
+///     `release_group_id` matches an mbid surfaced by last.fm or audiodb.
+///     NB: this is per-release-group, so MANY candidates in the same
+///     release-group will all set this true. that's why the boost is
+///     bounded and tier-1 is capped — otherwise they'd all saturate.
+///   * `cover_art_count` — number of cover-art images on coverartarchive.
+///   * `has_front_cover` — front cover present on coverartarchive.
+///   * `years_since_earliest` — years past the earliest pressing in the
+///     result set; 0 = earliest, None = unknown.
+#[allow(clippy::too_many_arguments)]
 fn compute_local_confidence(
     query_title: &str,
     query_artist: Option<&str>,
@@ -458,7 +750,14 @@ fn compute_local_confidence(
     local_song_summary: Option<(usize, u64)>,
     cand_track_lengths_ms: Option<&[u32]>,
     cross_api_mbid_match: bool,
+    cover_art_count: u32,
+    has_front_cover: bool,
+    years_since_earliest: Option<u32>,
 ) -> f64 {
+    // hard cap on the identity tier. leaves at least (1.0 - IDENTITY_CAP)
+    // of headroom for tier-2 tiebreakers to always show through.
+    const IDENTITY_CAP: f64 = 0.85;
+
     let title_overlap = token_jaccard(query_title, cand_title);
     let artist_overlap = match query_artist {
         Some(a) if !a.is_empty() => token_jaccard(a, cand_artist),
@@ -468,81 +767,105 @@ fn compute_local_confidence(
         .map(|s| (s as f64 / 100.0).clamp(0.0, 1.0))
         .unwrap_or(0.5);
 
-    // weights: title 0.45, artist 0.35, mb 0.20
-    let mut blended = 0.45 * title_overlap + 0.35 * artist_overlap + 0.20 * mb_norm;
+    // ── tier 1: identity ─────────────────────────────────────────────
+    // weights total 0.85 max, before cross-source confirmations.
+    let text_score = 0.40 * title_overlap + 0.30 * artist_overlap + 0.15 * mb_norm;
+    let mut identity = text_score;
 
-    // small additive boosts for canonical release shapes. capped at 1.0
-    // and only applied when the base score is already in the ballpark
-    // (>=0.5) so a low-quality match doesn't tip across thresholds just
-    // because it happens to be a worldwide cd.
-    if blended >= 0.5 {
-        // ── country boosts ─────────────────────────────────────────────
-        // policy: prefer worldwide ("XW") releases first, then US
-        // pressings as a fallback. this is intentionally biased toward
-        // the canonical "global digital" + "us cd" shapes that produce
-        // the richest folksonomy on last.fm + audiodb in our corpus.
-        // this is a POLICY CHOICE, not an objective ranking — if the
-        // priority order ever changes (say, prefer the artist's home
-        // country, or prefer the original-pressing country), edit here.
-        match country {
-            Some("XW") => blended += 0.05,
-            Some("US") => blended += 0.04, // slightly less than XW
-            _ => {}
-        }
-        if let Some(fmt) = media_format {
-            let f = fmt.to_lowercase();
-            if f.contains("cd") || f.contains("digital") {
-                blended += 0.03;
-            }
-        }
-    }
-
-    // ── tag presence (post-detail re-rank) ───────────────────────────
-    // tags drive the album-review modals; candidates without any
-    // tags are functionally useless for downstream enrichment, so
-    // bias against them strongly enough to break ties but not so
-    // hard that a clear identity match gets buried.
-    match tag_count {
-        Some(n) if n >= 5 => blended += 0.06,
-        Some(n) if n > 0 => blended += 0.03,
-        Some(0) => blended -= 0.05,
-        _ => {} // None = unknown (search-time) — don't move the needle
-    }
-
-    // ── cross-api mbid agreement ─────────────────────────────────────
-    // when last.fm or audiodb reported the same release-group mbid for
-    // this album, that's an independent third-party confirmation. apply
-    // the largest single boost in this function.
+    // cross-api mbid agreement: an independent confirmation that this
+    // release-group is the right ALBUM. magnitude is intentionally
+    // modest (0.10, was 0.15) because: (a) when text already maxes
+    // out, +0.15 just clamps to 1.0 across all release-group siblings;
+    // (b) tier-2 tiebreakers should remain the deciders within a
+    // release-group, since they answer the different question of
+    // which RELEASE within the group to pick.
     if cross_api_mbid_match {
-        blended += 0.15;
+        identity += 0.10;
     }
 
-    // ── single-long-song-as-album case ───────────────────────────────
-    // a local side with exactly ONE track longer than ~10 minutes is
-    // probably a single rip of a multi-track album (dj mixes, mahler
-    // symphonies, side-long prog suites). compare the candidate's
-    // summed track durations against the local single-song duration
-    // with a per-track tolerance.
+    // single-long-song-as-album: when the local side is exactly one
+    // track longer than 10 minutes and the candidate's summed track
+    // durations match within ±5s per track, this is genuine
+    // identity-level evidence (the rip really is this multi-track
+    // album), so it goes in tier 1, not tier 2.
     if let (Some((local_count, local_total)), Some(track_lens)) =
         (local_song_summary, cand_track_lengths_ms)
     {
         if local_count == 1 && local_total > 600 && !track_lens.is_empty() {
             let mb_total_secs: u64 = track_lens.iter().map(|ms| (*ms as u64) / 1000).sum();
-            // tolerance = ±5s per mb track (so a 6-track album allows
-            // ±30s of drift, which covers gapless-vs-gapped rips, missed
-            // pre-rolls, fade-outs, etc.).
             let tolerance = 5u64 * track_lens.len() as u64;
             let diff = local_total.abs_diff(mb_total_secs);
             if diff <= tolerance {
-                blended += 0.15;
+                identity += 0.15;
             } else if diff <= tolerance * 2 {
-                // not a perfect duration match but plausible — small nudge
-                blended += 0.05;
+                identity += 0.05;
             }
         }
     }
 
-    blended.clamp(0.0, 1.0)
+    let identity = identity.min(IDENTITY_CAP);
+
+    // ── tier 2: structural tiebreakers ───────────────────────────────
+    // only applied when identity is already in the ballpark so a junk
+    // match can't be tipped over auto-confirm thresholds by happening
+    // to be a worldwide cd with rich cover art. these are the signals
+    // that pick the canonical release within an already-identified
+    // release-group.
+    let mut tiebreak: f64 = 0.0;
+    if identity >= 0.5 {
+        // cover art — strongest tiebreaker per product spec.
+        if has_front_cover {
+            tiebreak += 0.04;
+        }
+        if cover_art_count > 0 {
+            // per-extra-image bonus, capped. cover_art_count of 1 just
+            // means "has front" so no extra; 2+ images progressively
+            // reward richer cover-art coverage.
+            let extras = ((cover_art_count.saturating_sub(1)) as f64 * 0.008).min(0.04);
+            tiebreak += extras;
+        }
+
+        // country — XW (worldwide) > US > others. policy choice.
+        match country {
+            Some("XW") => tiebreak += 0.05,
+            Some("US") => tiebreak += 0.04,
+            _ => {}
+        }
+
+        // format — digital > cd > vinyl/cassette/other.
+        if let Some(fmt) = media_format {
+            let f = fmt.to_lowercase();
+            if f.contains("digital") {
+                tiebreak += 0.04;
+            } else if f.contains("cd") {
+                tiebreak += 0.03;
+            }
+        }
+
+        // earliness — earliest pressing in the result set wins a
+        // small boost, decaying with delta-years. bounded strictly
+        // below the cover-art boost so cover art always wins ties.
+        if let Some(delta) = years_since_earliest {
+            let boost = match delta {
+                0 => 0.03,
+                1..=2 => 0.02,
+                3..=5 => 0.01,
+                _ => 0.0,
+            };
+            tiebreak += boost;
+        }
+
+        // tags — applies at detail-time re-rank when tag_count is
+        // known. search-time passes None so this is a no-op.
+        match tag_count {
+            Some(n) if n >= 5 => tiebreak += 0.04,
+            Some(n) if n > 0 => tiebreak += 0.02,
+            Some(0) => tiebreak -= 0.04,
+            _ => {}
+        }
+    }
+
+    (identity + tiebreak).clamp(0.0, 1.0)
 }
 
 fn token_jaccard(a: &str, b: &str) -> f64 {
@@ -600,6 +923,10 @@ mod tests {
 
     #[test]
     fn confidence_combines_signals() {
+        // base weights total 0.85 (the remaining 0.15 of headroom is
+        // reserved for structural boosts so identical-text candidates
+        // can still differentiate). a perfect title+artist+mb_score
+        // match with no structural boosts should land at exactly 0.85.
         let c = compute_local_confidence(
             "Kid A",
             Some("Radiohead"),
@@ -612,8 +939,11 @@ mod tests {
             None,
             None,
             false,
+            0,
+            false,
+            None,
         );
-        assert!(c >= 0.95);
+        assert!(c >= 0.84 && c <= 0.86, "expected ~0.85, got {}", c);
     }
 
     #[test]
@@ -630,6 +960,9 @@ mod tests {
             None,
             None,
             false,
+            0,
+            false,
+            None,
         );
         assert!(c < 0.3);
     }
@@ -648,6 +981,9 @@ mod tests {
             None,
             None,
             false,
+            0,
+            false,
+            None,
         );
         let boosted = compute_local_confidence(
             "Kid A",
@@ -661,6 +997,9 @@ mod tests {
             None,
             None,
             false,
+            0,
+            false,
+            None,
         );
         assert!(boosted > base);
     }
@@ -679,6 +1018,9 @@ mod tests {
             None,
             None,
             false,
+            0,
+            false,
+            None,
         );
         let us = compute_local_confidence(
             "Kid A",
@@ -692,6 +1034,9 @@ mod tests {
             None,
             None,
             false,
+            0,
+            false,
+            None,
         );
         assert!(xw > us);
         assert!(us > xw - 0.05);
@@ -712,6 +1057,9 @@ mod tests {
             None,
             None,
             false,
+            0,
+            false,
+            None,
         );
         let with_mbid = compute_local_confidence(
             "the moon",
@@ -725,10 +1073,13 @@ mod tests {
             None,
             None,
             true,
+            0,
+            false,
+            None,
         );
         assert!(
-            with_mbid - base >= 0.14,
-            "expected +0.15 mbid boost, got {} -> {}",
+            with_mbid - base >= 0.09,
+            "expected +0.10 mbid boost, got {} -> {}",
             base,
             with_mbid
         );
@@ -748,6 +1099,9 @@ mod tests {
             None,
             None,
             false,
+            0,
+            false,
+            None,
         );
         let with_tags = compute_local_confidence(
             "Kid A",
@@ -761,6 +1115,9 @@ mod tests {
             None,
             None,
             false,
+            0,
+            false,
+            None,
         );
         let no_tags = compute_local_confidence(
             "Kid A",
@@ -774,6 +1131,9 @@ mod tests {
             None,
             None,
             false,
+            0,
+            false,
+            None,
         );
         assert!(with_tags > none);
         assert!(no_tags < none);
@@ -798,6 +1158,9 @@ mod tests {
             None,
             None,
             false,
+            0,
+            false,
+            None,
         );
         let boosted = compute_local_confidence(
             "live set",
@@ -811,6 +1174,9 @@ mod tests {
             Some((1, total_secs + 10)),
             Some(track_lens_ms.as_slice()),
             false,
+            0,
+            false,
+            None,
         );
         assert!(
             boosted > base + 0.1,
@@ -834,7 +1200,166 @@ mod tests {
             None,
             None,
             false,
+            5,
+            true,
+            Some(0),
         );
         assert!(c < 0.3);
+    }
+
+    // ── new ranking tests ──────────────────────────────────────────────
+
+    fn perfect(
+        country: Option<&str>,
+        media: Option<&str>,
+        cover_count: u32,
+        front: bool,
+        years_since_earliest: Option<u32>,
+    ) -> f64 {
+        compute_local_confidence(
+            "Kid A",
+            Some("Radiohead"),
+            "Kid A",
+            "Radiohead",
+            Some(50),
+            country,
+            media,
+            None,
+            None,
+            None,
+            false,
+            cover_count,
+            front,
+            years_since_earliest,
+        )
+    }
+
+    #[test]
+    fn confidence_cover_art_outranks_release_date() {
+        // candidate A: oldest pressing, no cover art
+        let oldest_no_art = perfect(None, None, 0, false, Some(0));
+        // candidate B: re-issue 5 years later WITH front cover + extras
+        let reissue_with_art = perfect(None, None, 4, true, Some(5));
+        assert!(
+            reissue_with_art > oldest_no_art,
+            "cover art should outweigh earliest-pressing boost: {} vs {}",
+            reissue_with_art,
+            oldest_no_art
+        );
+    }
+
+    #[test]
+    fn confidence_digital_outranks_cd() {
+        let cd = perfect(None, Some("CD"), 0, false, None);
+        let digital = perfect(None, Some("Digital Media"), 0, false, None);
+        assert!(
+            digital > cd,
+            "digital ({}) should beat cd ({})",
+            digital,
+            cd
+        );
+    }
+
+    #[test]
+    fn confidence_cd_outranks_vinyl() {
+        let vinyl = perfect(None, Some("12\" Vinyl"), 0, false, None);
+        let cd = perfect(None, Some("CD"), 0, false, None);
+        assert!(cd > vinyl, "cd ({}) should beat vinyl ({})", cd, vinyl);
+    }
+
+    #[test]
+    fn confidence_oldest_release_wins_when_other_signals_equal() {
+        let oldest = perfect(None, None, 0, false, Some(0));
+        let reissue = perfect(None, None, 0, false, Some(8));
+        assert!(
+            oldest > reissue,
+            "oldest pressing ({}) should beat re-issue ({})",
+            oldest,
+            reissue
+        );
+    }
+
+    #[test]
+    fn confidence_xw_outranks_us_outranks_other() {
+        let xw = perfect(Some("XW"), None, 0, false, None);
+        let us = perfect(Some("US"), None, 0, false, None);
+        let de = perfect(Some("DE"), None, 0, false, None);
+        assert!(
+            xw > us && us > de,
+            "expected XW > US > other; got {} {} {}",
+            xw,
+            us,
+            de
+        );
+    }
+
+    #[test]
+    fn confidence_perfect_match_leaves_headroom_for_tiebreakers() {
+        // a perfect text+mb_score match with NO structural boosts should
+        // not saturate at 1.0 — there must be headroom for cover art,
+        // country, format, date, mbid to differentiate ties.
+        let plain = perfect(None, None, 0, false, None);
+        assert!(plain <= 0.86, "base must leave headroom, got {}", plain);
+        // and the same match WITH all positive structural boosts must
+        // sort strictly higher.
+        let loaded = perfect(Some("XW"), Some("Digital Media"), 6, true, Some(0));
+        assert!(
+            loaded > plain + 0.10,
+            "boosts should add measurable lift: {} -> {}",
+            plain,
+            loaded
+        );
+    }
+
+    #[test]
+    fn confidence_mbid_match_does_not_swallow_tiebreakers() {
+        // regression: when every candidate in a release-group has the
+        // same cross_api_mbid_match=true and perfect text overlap, the
+        // identity-tier cap MUST leave room for tier-2 tiebreakers to
+        // produce a measurable gap. without the cap, both candidates
+        // saturated at 1.0 and the leader could not auto-confirm.
+        let canonical = compute_local_confidence(
+            "Kid A",
+            Some("Radiohead"),
+            "Kid A",
+            "Radiohead",
+            Some(100),
+            Some("XW"),
+            Some("Digital Media"),
+            None,
+            None,
+            None,
+            true,
+            8,
+            true,
+            Some(0),
+        );
+        let sibling = compute_local_confidence(
+            "Kid A",
+            Some("Radiohead"),
+            "Kid A",
+            "Radiohead",
+            Some(100),
+            Some("DE"),
+            Some("12\" Vinyl"),
+            None,
+            None,
+            None,
+            true,
+            0,
+            false,
+            Some(8),
+        );
+        assert!(
+            canonical - sibling >= 0.10,
+            "canonical pressing should beat sibling by >=0.10; got {} vs {}",
+            canonical,
+            sibling
+        );
+        assert!(
+            sibling <= 0.90,
+            "sibling pressing should not also saturate to 1.0, got {}",
+            sibling
+        );
     }
 }

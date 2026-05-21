@@ -340,7 +340,9 @@ export const AlbumMetadataSchema = z.object({
   secondary_types: z.array(z.string()),
   media: z.string().nullish(),
   mb_score: z.number().nullish(),
-  local_confidence: z.number().nullish()
+  local_confidence: z.number().nullish(),
+  cover_art_count: z.number().nullish(),
+  has_front_cover: z.boolean().nullish()
 })),
   last_query: z.object({
   artist: z.string(),
@@ -3035,7 +3037,9 @@ export const MbCandidateSchema = z.object({
   secondary_types: z.array(z.string()),
   media: z.string().nullish(),
   mb_score: z.number().nullish(),
-  local_confidence: z.number().nullish()
+  local_confidence: z.number().nullish(),
+  cover_art_count: z.number().nullish(),
+  has_front_cover: z.boolean().nullish()
 });
 export type MbCandidate = z.infer<typeof MbCandidateSchema>;
 
@@ -3136,7 +3140,9 @@ export const MbMetadataSchema = z.object({
   secondary_types: z.array(z.string()),
   media: z.string().nullish(),
   mb_score: z.number().nullish(),
-  local_confidence: z.number().nullish()
+  local_confidence: z.number().nullish(),
+  cover_art_count: z.number().nullish(),
+  has_front_cover: z.boolean().nullish()
 })),
   last_query: z.object({
   artist: z.string(),

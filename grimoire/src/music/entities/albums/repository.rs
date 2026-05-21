@@ -516,6 +516,36 @@ pub async fn auto_confirm_mb_matches(
     let mut errors: Vec<super::metadata::AutoConfirmSkip> = Vec::new();
 
     for album_id in album_ids {
+        // gate eligibility on `mb_lookup_status` (the canonical source
+        // of truth, what the review ui shows). only `Candidates` and
+        // `NeedsReview` are open for bulk auto-confirm. anything else
+        // — including a stale `match_confirmed_at` left in metadata
+        // by a pre-clear-on-stale-pointer re-query — is skipped here.
+        let album_resp = get_album(album_id).await;
+        let status_str = match album_resp.data.as_ref() {
+            Some(a) => a.mb_lookup_status.clone(),
+            None => {
+                errors.push(super::metadata::AutoConfirmSkip {
+                    album_id: album_id.clone(),
+                    reason: format!("read_album failed: {}", album_resp.message),
+                });
+                continue;
+            }
+        };
+        let status = super::metadata::MbLookupStatus::parse_opt(status_str.as_deref())
+            .unwrap_or(super::metadata::MbLookupStatus::NotAttempted);
+        match status {
+            super::metadata::MbLookupStatus::Candidates
+            | super::metadata::MbLookupStatus::NeedsReview => {}
+            other => {
+                skipped.push(super::metadata::AutoConfirmSkip {
+                    album_id: album_id.clone(),
+                    reason: format!("status {:?} not eligible", other),
+                });
+                continue;
+            }
+        }
+
         let meta_resp = read_album_metadata(album_id).await;
         let meta = match meta_resp.data {
             Some(m) => m,
@@ -527,22 +557,6 @@ pub async fn auto_confirm_mb_matches(
                 continue;
             }
         };
-
-        // skip already-confirmed / enriched
-        let cur_status = meta.musicbrainz.as_ref().and_then(|mb| {
-            // `match_confirmed_at` set means previously confirmed; the
-            // status column is the source of truth for whether it's been
-            // accepted, but we don't have it on AlbumMetadata. fall back
-            // to the canonical status fetched alongside via get_album.
-            mb.match_confirmed_at.map(|_| ())
-        });
-        if cur_status.is_some() {
-            skipped.push(super::metadata::AutoConfirmSkip {
-                album_id: album_id.clone(),
-                reason: "already confirmed".to_string(),
-            });
-            continue;
-        }
 
         let mut cands: Vec<&super::metadata::MbCandidate> = meta
             .musicbrainz
@@ -640,11 +654,7 @@ pub async fn auto_confirm_mb_matches(
                     }
                 }
                 Err(e) => {
-                    tracing::warn!(
-                        "auto-apply param serialize failed for {}: {}",
-                        album_id,
-                        e
-                    );
+                    tracing::warn!("auto-apply param serialize failed for {}: {}", album_id, e);
                 }
             }
         } else {

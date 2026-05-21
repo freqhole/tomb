@@ -18,6 +18,7 @@ import { getCurrentRemote } from "../../music/data";
 import { getClientForRemote } from "../../app/api/client";
 import { formatDateTime } from "../../utils/dateTime";
 import type { EnrichmentSource } from "../../library/hooks/useMbLookupJobs";
+import { registerInflightJob } from "../../library/hooks/useMbLookupJobs";
 
 /** maps the lowercase client-side source key to the Rust-style server tag. */
 function sourceToServerTag(s: EnrichmentSource): "Mb" | "Lastfm" | "Audiodb" {
@@ -94,6 +95,15 @@ export function AlbumEnrichmentSourceTab(props: AlbumEnrichmentSourceTabProps) {
   const [submitting, setSubmitting] = createSignal(false);
 
   const status = createMemo(() => props.progress?.status ?? "idle");
+  // also disable buttons while the runner is processing this source.
+  // local `submitting` only covers the http enqueue call — once the
+  // job lands in the queue, the user shouldn't be able to fire another
+  // requery until it terminates (the runner is serialized per-source).
+  const isJobActive = createMemo(() => {
+    const s = status().toLowerCase();
+    return s === "running" || s === "pending";
+  });
+  const isBusy = createMemo(() => submitting() || isJobActive());
 
   const submit = async (useOverride: boolean) => {
     const remote = getCurrentRemote();
@@ -120,6 +130,12 @@ export function AlbumEnrichmentSourceTab(props: AlbumEnrichmentSourceTabProps) {
       if (!resp.success) {
         toast.error(resp.error?.message || "requery failed");
         return;
+      }
+      // register the returned job_id so the row-level inflight tracker
+      // (and the buttons in this tab via `isJobActive()`) reflect it.
+      const jobId = (resp.data as { job_id?: string } | undefined)?.job_id;
+      if (jobId) {
+        registerInflightJob(remote, props.source, props.albumId, jobId);
       }
       // no success toast — the parent re-polls and the ui updates
       // inline; toast spam during rapid requery iteration is noise.
@@ -171,10 +187,10 @@ export function AlbumEnrichmentSourceTab(props: AlbumEnrichmentSourceTabProps) {
 
       {/* actions */}
       <div class="flex items-center gap-2 pt-2">
-        <Button variant="secondary" onClick={() => submit(false)} disabled={submitting()}>
-          {submitting() ? "..." : "refetch"}
+        <Button variant="secondary" onClick={() => submit(false)} disabled={isBusy()}>
+          {submitting() ? "..." : isJobActive() ? `${status()}…` : "refetch"}
         </Button>
-        <Button variant="secondary" onClick={() => setEditing((v) => !v)} disabled={submitting()}>
+        <Button variant="secondary" onClick={() => setEditing((v) => !v)} disabled={isBusy()}>
           {editing() ? "cancel edit" : "edit query & retry"}
         </Button>
       </div>
@@ -215,8 +231,8 @@ export function AlbumEnrichmentSourceTab(props: AlbumEnrichmentSourceTabProps) {
             </div>
           </Show>
           <div class="flex items-center justify-end gap-2 pt-1">
-            <Button variant="primary" onClick={() => submit(true)} disabled={submitting()}>
-              {submitting() ? "..." : "retry with override"}
+            <Button variant="primary" onClick={() => submit(true)} disabled={isBusy()}>
+              {submitting() ? "..." : isJobActive() ? `${status()}…` : "retry with override"}
             </Button>
           </div>
         </div>

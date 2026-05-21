@@ -229,6 +229,14 @@ pub struct MbCandidate {
     /// our locally computed confidence (0.0..1.0)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub local_confidence: Option<f64>,
+    /// number of cover-art images on the release (per MB cover art archive).
+    /// surfaced in the review ui so users can see why a release was ranked.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cover_art_count: Option<u32>,
+    /// whether the release has a "front" cover image. front art is the
+    /// strongest visual tiebreaker, so surface it explicitly.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub has_front_cover: Option<bool>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, ZodSchema, PartialEq)]

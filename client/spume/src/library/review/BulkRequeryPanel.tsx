@@ -19,6 +19,11 @@ import { toast } from "../../components/feedback/Toast";
 import { getClientForRemote } from "../../app/api/client";
 import type { Remote } from "../../app/services/storage/schemas/remote";
 import { parseAlbumMetadata, type MbCandidate } from "../data/albumMetadata";
+import {
+  registerInflightJob,
+  useInflightJobs,
+  type EnrichmentSource,
+} from "../hooks/useMbLookupJobs";
 
 // note: edits made here are saved by the parent modal on "save & next"
 // via `updateAlbum`. confirming an mb candidate also persists
@@ -48,7 +53,7 @@ export interface BulkRequeryPanelProps {
   onChanged?: () => void;
 }
 
-type Source = "mb" | "lastfm" | "audiodb";
+type Source = EnrichmentSource;
 const SOURCES: Source[] = ["mb", "lastfm", "audiodb"];
 
 function sourceLabel(s: Source): string {
@@ -80,14 +85,36 @@ export function BulkRequeryPanel(props: BulkRequeryPanelProps) {
   const setTitle = (v: string) => props.onTitleChange(v);
   const [busy, setBusy] = createSignal<Set<Source>>(new Set());
   const [showCandidates, setShowCandidates] = createSignal(false);
-  const [confirmingRgId, setConfirmingRgId] = createSignal<string | null>(null);
+  const [confirmingKey, setConfirmingKey] = createSignal<string | null>(null);
 
   const meta = createMemo(() => parseAlbumMetadata(props.metadataRaw ?? null));
   const candidates = createMemo<MbCandidate[]>(() => {
     const list = meta().musicbrainz?.candidates ?? [];
     return [...list].sort((a, b) => (b.local_confidence ?? 0) - (a.local_confidence ?? 0));
   });
+  // identity key for a candidate: prefer release_id (precise pressing),
+  // fall back to release_group_id when the candidate predates per-release
+  // tracking. mirrored on the confirmed side so siblings within the same
+  // release group don't all light up as "current".
+  const candKey = (c: MbCandidate): string => c.release_id ?? c.release_group_id;
   const confirmedRgId = createMemo(() => meta().musicbrainz?.release_group_id ?? null);
+  const confirmedReleaseId = createMemo(() => meta().musicbrainz?.release_id ?? null);
+  const confirmedKey = createMemo(() => confirmedReleaseId() ?? confirmedRgId());
+
+  // server-side job tracker — true while the runner is processing a
+  // requery for this album+source. used to disable the buttons + show
+  // a "working" label so the user can't double-fire and knows progress
+  // is happening even though the panel state is local.
+  const inflight = useInflightJobs();
+  const inflightSources = createMemo<Set<Source>>(() => {
+    const out = new Set<Source>();
+    for (const e of inflight().values()) {
+      if (e.albumId === props.albumId) out.add(e.source);
+    }
+    return out;
+  });
+  const isSourceWorking = (s: Source) => busy().has(s) || inflightSources().has(s);
+  const anyWorking = createMemo(() => busy().size > 0 || inflightSources().size > 0);
 
   // edits become "dirty" once they diverge from the initial values; we
   // pass them as overrides on requery whenever they differ, otherwise
@@ -127,6 +154,13 @@ export function BulkRequeryPanel(props: BulkRequeryPanelProps) {
         toast.error(`${sourceLabel(source)} requery failed: ${resp.error?.message ?? "unknown"}`);
         return;
       }
+      // register the returned job_id with the inflight tracker so
+      // the buttons stay disabled until the runner actually finishes,
+      // not just until the enqueue http call returns.
+      const jobId = resp.data?.job_id;
+      if (jobId) {
+        registerInflightJob(props.remote, source, props.albumId, jobId);
+      }
       // no success toast — the panel polls + the row updates inline.
       props.onChanged?.();
     } catch (err) {
@@ -141,7 +175,7 @@ export function BulkRequeryPanel(props: BulkRequeryPanelProps) {
   };
 
   const onConfirmCandidate = async (cand: MbCandidate) => {
-    setConfirmingRgId(cand.release_group_id);
+    setConfirmingKey(candKey(cand));
     try {
       const client = await getClientForRemote(props.remote);
       const resp = await client.music.confirmMbMatch({
@@ -163,11 +197,9 @@ export function BulkRequeryPanel(props: BulkRequeryPanelProps) {
     } catch (err) {
       toast.error(`confirm threw: ${(err as Error).message}`);
     } finally {
-      setConfirmingRgId(null);
+      setConfirmingKey(null);
     }
   };
-
-  const anyBusy = createMemo(() => busy().size > 0);
 
   return (
     <div class="flex flex-col gap-2 p-2 rounded border border-[var(--color-border-subtle)]">
@@ -191,7 +223,7 @@ export function BulkRequeryPanel(props: BulkRequeryPanelProps) {
             value={artist()}
             onInput={(e) => setArtist(e.currentTarget.value)}
             class="px-2 py-1 text-sm bg-[var(--color-bg-base)] border border-[var(--color-border-subtle)] rounded text-[var(--color-text-primary)]"
-            disabled={anyBusy()}
+            disabled={anyWorking()}
           />
         </label>
         <label class="flex flex-col gap-0.5 text-xs">
@@ -201,7 +233,7 @@ export function BulkRequeryPanel(props: BulkRequeryPanelProps) {
             value={title()}
             onInput={(e) => setTitle(e.currentTarget.value)}
             class="px-2 py-1 text-sm bg-[var(--color-bg-base)] border border-[var(--color-border-subtle)] rounded text-[var(--color-text-primary)]"
-            disabled={anyBusy()}
+            disabled={anyWorking()}
           />
         </label>
       </div>
@@ -213,22 +245,30 @@ export function BulkRequeryPanel(props: BulkRequeryPanelProps) {
             <button
               type="button"
               onClick={() => void requerySource(s)}
-              disabled={busy().has(s)}
-              class="px-2 py-0.5 text-xs rounded border border-[var(--color-border-subtle)] hover:bg-[var(--color-bg-hover)] cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              disabled={isSourceWorking(s)}
+              class="px-2 py-0.5 text-xs rounded border border-[var(--color-border-subtle)] hover:bg-[var(--color-bg-hover)] cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center gap-1"
               title={`re-fetch ${sourceLabel(s)} for this album`}
             >
-              {busy().has(s) ? `${sourceLabel(s)}…` : `re-query ${sourceLabel(s)}`}
+              <Show when={isSourceWorking(s)}>
+                <span
+                  class="inline-block w-2 h-2 rounded-full bg-[var(--color-accent-500)] animate-pulse"
+                  aria-hidden="true"
+                />
+              </Show>
+              <span>
+                {isSourceWorking(s) ? `${sourceLabel(s)} working…` : `re-query ${sourceLabel(s)}`}
+              </span>
             </button>
           )}
         </For>
         <button
           type="button"
           onClick={() => void requeryAll()}
-          disabled={anyBusy()}
+          disabled={anyWorking()}
           class="px-2 py-0.5 text-xs rounded border border-[var(--color-accent-500)]/40 bg-[var(--color-accent-500)]/10 hover:bg-[var(--color-accent-500)]/20 text-[var(--color-text-primary)] cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ml-auto"
           title="re-fetch all three sources in parallel"
         >
-          {anyBusy() ? "re-querying…" : "re-query all"}
+          {anyWorking() ? "re-querying…" : "re-query all"}
         </button>
       </div>
 
@@ -261,28 +301,73 @@ export function BulkRequeryPanel(props: BulkRequeryPanelProps) {
           >
             <ul class="flex flex-col gap-1 max-h-64 overflow-y-auto">
               <For each={candidates()}>
-                {(cand) => {
-                  const isConfirmed = () => confirmedRgId() === cand.release_group_id;
-                  const isThisConfirming = () => confirmingRgId() === cand.release_group_id;
+                {(cand, i) => {
+                  const isTopRanked = () => i() === 0;
+                  const isConfirmed = () => {
+                    const ck = confirmedKey();
+                    return ck != null && candKey(cand) === ck;
+                  };
+                  const isSelected = () =>
+                    isConfirmed() || (confirmedKey() == null && isTopRanked());
+                  const isThisConfirming = () => confirmingKey() === candKey(cand);
                   const mbHref = () =>
                     cand.release_id
                       ? `${MB_RELEASE_BASE}/${cand.release_id}`
                       : `${MB_RELEASE_GROUP_BASE}/${cand.release_group_id}`;
+                  const coverCount = () => cand.cover_art_count ?? 0;
                   return (
                     <li
-                      class="flex items-start gap-2 px-2 py-1 rounded text-xs border"
-                      classList={{
-                        "bg-emerald-500/10 border-emerald-500/30": isConfirmed(),
-                        "bg-[var(--color-bg-base)] border-[var(--color-border-subtle)]":
-                          !isConfirmed(),
+                      onClick={() => {
+                        if (isConfirmed() || confirmingKey() != null) return;
+                        void onConfirmCandidate(cand);
                       }}
+                      class="flex items-start gap-2 px-2 py-1 rounded text-xs border cursor-pointer transition-colors"
+                      classList={{
+                        // confirmed (server says this is the chosen
+                        // pressing): green tint.
+                        "bg-emerald-500/10 border-emerald-500/40": isConfirmed(),
+                        // top-ranked but not yet confirmed: subtle accent
+                        // tint so the user can see the recommended pick.
+                        "bg-[var(--color-accent-500)]/5 border-[var(--color-accent-500)]/30":
+                          !isConfirmed() && isSelected(),
+                        // everything else: plain row.
+                        "bg-[var(--color-bg-base)] border-[var(--color-border-subtle)] hover:bg-[var(--color-bg-hover)]":
+                          !isSelected(),
+                      }}
+                      title={
+                        isConfirmed()
+                          ? "currently confirmed pressing"
+                          : "click to use this pressing"
+                      }
                     >
                       <div class="flex-1 min-w-0">
-                        <div class="flex items-center gap-2">
+                        <div class="flex items-center gap-2 flex-wrap">
                           <span class="font-medium truncate">{cand.title ?? "(untitled)"}</span>
                           <Show when={cand.local_confidence != null}>
-                            <span class="text-[10px] text-[var(--color-text-disabled)]">
+                            <span
+                              class="text-[10px] px-1 rounded font-mono"
+                              classList={{
+                                "bg-emerald-500/20 text-emerald-300":
+                                  (cand.local_confidence ?? 0) >= 0.9,
+                                "bg-amber-500/15 text-amber-300":
+                                  (cand.local_confidence ?? 0) >= 0.7 &&
+                                  (cand.local_confidence ?? 0) < 0.9,
+                                "bg-[var(--color-bg-hover)] text-[var(--color-text-disabled)]":
+                                  (cand.local_confidence ?? 0) < 0.7,
+                              }}
+                              title={`local rank score (mb lucene: ${cand.mb_score ?? "?"})`}
+                            >
                               {(cand.local_confidence! * 100).toFixed(0)}%
+                            </span>
+                          </Show>
+                          <Show when={isTopRanked()}>
+                            <span class="text-[9px] uppercase tracking-wide text-[var(--color-accent-500)]">
+                              top rank
+                            </span>
+                          </Show>
+                          <Show when={isConfirmed()}>
+                            <span class="text-[9px] uppercase tracking-wide text-emerald-400">
+                              confirmed
                             </span>
                           </Show>
                         </div>
@@ -300,6 +385,26 @@ export function BulkRequeryPanel(props: BulkRequeryPanelProps) {
                             {" · "}
                             {cand.media}
                           </Show>
+                          <Show when={cand.track_count != null}>
+                            {" · "}
+                            {cand.track_count}t
+                          </Show>
+                        </div>
+                        <div class="text-[10px] text-[var(--color-text-disabled)] flex items-center gap-2 mt-0.5">
+                          <span
+                            title={`${coverCount()} cover image${coverCount() === 1 ? "" : "s"} on the mb cover-art archive`}
+                          >
+                            🖼 {coverCount()}
+                            <Show when={cand.has_front_cover}>
+                              <span class="ml-0.5 text-emerald-400">·front</span>
+                            </Show>
+                          </span>
+                          <Show when={cand.mb_score != null}>
+                            <span title="musicbrainz lucene score (0-100)">mb {cand.mb_score}</span>
+                          </Show>
+                          <Show when={cand.primary_type}>
+                            <span>{cand.primary_type}</span>
+                          </Show>
                         </div>
                       </div>
                       <div class="flex items-center gap-1 shrink-0">
@@ -307,6 +412,7 @@ export function BulkRequeryPanel(props: BulkRequeryPanelProps) {
                           href={mbHref()}
                           target="_blank"
                           rel="noopener noreferrer"
+                          onClick={(e) => e.stopPropagation()}
                           class="text-[10px] text-[var(--color-text-secondary)] hover:underline"
                           title="open in musicbrainz"
                         >
@@ -314,8 +420,11 @@ export function BulkRequeryPanel(props: BulkRequeryPanelProps) {
                         </a>
                         <button
                           type="button"
-                          onClick={() => void onConfirmCandidate(cand)}
-                          disabled={isConfirmed() || confirmingRgId() != null}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            void onConfirmCandidate(cand);
+                          }}
+                          disabled={isConfirmed() || confirmingKey() != null}
                           class="px-1.5 py-0.5 text-[10px] rounded border border-[var(--color-border-subtle)] hover:bg-[var(--color-bg-hover)] cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                           title={
                             isConfirmed()

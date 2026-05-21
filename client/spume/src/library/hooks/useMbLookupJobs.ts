@@ -26,9 +26,15 @@
 
 import { createSignal } from "solid-js";
 import type { FreqholeClient } from "freqhole-api-client";
-import { getClientForRemote } from "../../app/api/client";
+import { getClientForRemote, type RemoteLike } from "../../app/api/client";
 import { queryClient } from "../../queryClient";
 import type { Remote } from "../../app/services/storage/schemas/remote";
+
+// any caller-supplied object that exposes a stable remote_id and is
+// compatible with the api-client factory. accepts both the full storage
+// `Remote` row and the lighter `CurrentRemoteInfo` record used by the
+// header/session signals.
+type RemoteRef = RemoteLike & { remote_id: string };
 
 const POLL_INTERVAL_MS = 1500;
 const TERMINAL_STATUSES = new Set(["Completed", "Failed", "Cancelled"]);
@@ -154,6 +160,32 @@ export function dismissMbSession(): void {
     lingerTimer = null;
   }
   setSession(EMPTY_SESSION());
+}
+
+/**
+ * register a single in-flight job (e.g. from a single-album requery
+ * triggered by the bulk-review panel). makes the job visible to the
+ * row-level "in flight" indicators and the polling loop, so its
+ * terminal status auto-clears the entry. callers are responsible for
+ * not double-registering — if a job is already in flight for this
+ * (source, album) the existing entry is replaced.
+ */
+export function registerInflightJob(
+  remote: RemoteRef,
+  source: EnrichmentSource,
+  albumId: string,
+  jobId: string,
+): void {
+  const next = new Map(inflight());
+  next.set(inflightKey(source, albumId), {
+    source,
+    jobId,
+    remoteId: remote.remote_id,
+    albumId,
+    startedAt: Date.now(),
+  });
+  setInflight(next);
+  ensurePollerForRemote(remote);
 }
 
 interface EnrichResult {
@@ -370,7 +402,7 @@ function scheduleSessionLinger() {
 // server-push channel. when the p2p bidi event channel lands this can be
 // replaced by an event subscription without changing the public api.
 
-function ensurePollerForRemote(remote: Remote) {
+function ensurePollerForRemote(remote: RemoteRef) {
   if (pollers.has(remote.remote_id)) return;
   const handle = setInterval(() => {
     void pollOnce(remote).catch(() => {
@@ -391,7 +423,7 @@ function stopPollerIfIdle(remoteId: string) {
   }
 }
 
-async function pollOnce(remote: Remote): Promise<void> {
+async function pollOnce(remote: RemoteRef): Promise<void> {
   const entries = [...inflight().entries()].filter(
     ([, e]) => e.remoteId === remote.remote_id,
   );
