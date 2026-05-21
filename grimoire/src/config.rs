@@ -183,11 +183,54 @@ fn default_supported_audio_formats() -> Vec<String> {
 }
 
 /// MusicBrainz integration configuration
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MusicBrainzConfig {
     /// Enable MusicBrainz API integration (default: false)
     #[serde(default)]
     pub enabled: bool,
+    /// preferred country code for release tiebreaks. matched case-sensitively
+    /// against MB `release.country`. "XW" (worldwide) always outranks any
+    /// specific country, so this only affects the second-place tier.
+    /// default: "US"
+    #[serde(default = "default_mb_preferred_country")]
+    pub preferred_country: String,
+    /// album-only fallback stage forces NeedsReview when the distinct
+    /// primary-artist count in the result set is at least this value.
+    /// lower = more conservative (more human review). default: 4
+    #[serde(default = "default_mb_diversity_review_threshold")]
+    pub diversity_review_threshold: usize,
+    /// when a confirmed match pointer already exists, skip the cascade
+    /// entirely as long as the previously-confirmed candidate still scores
+    /// at or above this threshold. default: 0.85
+    #[serde(default = "default_mb_revalidate_threshold")]
+    pub confirmed_pointer_revalidate_threshold: f64,
+    /// enable the direct `/release-group/{id}` lookup short-circuit (phase 5).
+    /// when a cross-api release-group mbid is available, fetch directly and
+    /// skip the cascade if the result matches. default: true
+    #[serde(default = "default_true")]
+    pub enable_direct_mbid_lookup: bool,
+}
+
+fn default_mb_preferred_country() -> String {
+    "US".to_string()
+}
+fn default_mb_diversity_review_threshold() -> usize {
+    4
+}
+fn default_mb_revalidate_threshold() -> f64 {
+    0.85
+}
+
+impl Default for MusicBrainzConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            preferred_country: default_mb_preferred_country(),
+            diversity_review_threshold: default_mb_diversity_review_threshold(),
+            confirmed_pointer_revalidate_threshold: default_mb_revalidate_threshold(),
+            enable_direct_mbid_lookup: default_true(),
+        }
+    }
 }
 
 /// last.fm web api integration. requires a free api key from
@@ -1529,7 +1572,7 @@ mod tests {
                 thumbnail_sizes: vec![50, 200],
                 thumbnail_on_demand_enabled: false,
             },
-            musicbrainz: MusicBrainzConfig { enabled: false },
+            musicbrainz: MusicBrainzConfig::default(),
             lastfm: LastFmConfig::default(),
             audiodb: AudioDbConfig::default(),
             logging: LoggingConfig {
@@ -1572,7 +1615,7 @@ mod tests {
                 thumbnail_sizes: vec![50, 200],
                 thumbnail_on_demand_enabled: false,
             },
-            musicbrainz: MusicBrainzConfig { enabled: false },
+            musicbrainz: MusicBrainzConfig::default(),
             lastfm: LastFmConfig::default(),
             audiodb: AudioDbConfig::default(),
             logging: LoggingConfig {
@@ -1613,7 +1656,7 @@ mod tests {
                 thumbnail_sizes: vec![50, 200],
                 thumbnail_on_demand_enabled: false,
             },
-            musicbrainz: MusicBrainzConfig { enabled: false },
+            musicbrainz: MusicBrainzConfig::default(),
             lastfm: LastFmConfig::default(),
             audiodb: AudioDbConfig::default(),
             logging: LoggingConfig {

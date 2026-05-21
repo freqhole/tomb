@@ -395,7 +395,7 @@ mod tests {
     use super::*;
 
     fn test_config() -> MusicBrainzConfig {
-        MusicBrainzConfig { enabled: true }
+        MusicBrainzConfig { enabled: true, ..Default::default() }
     }
 
     #[test]

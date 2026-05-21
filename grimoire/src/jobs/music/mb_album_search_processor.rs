@@ -22,7 +22,9 @@ use crate::config;
 use crate::database;
 use crate::jobs::models::{Job, JobError};
 use crate::music::entities::albums as albums_repo;
-use crate::music::entities::albums::metadata::{self, MbCandidate, MbLastQuery, MbLookupStatus};
+use crate::music::entities::albums::metadata::{
+    self, AlbumMetadata, MbCandidate, MbLastQuery, MbLookupStatus,
+};
 use crate::music::musicbrainz::{MusicBrainzClient, ReleaseSearchQuery};
 use serde_json::Value;
 use tracing::info;
@@ -30,6 +32,47 @@ use tracing::info;
 use super::models::{MbAlbumSearchParams, MbAlbumSearchResult};
 
 const DEFAULT_LIMIT: u32 = 10;
+
+/// mbids collected from non-MB enrichment sources.
+///
+/// used to:
+///   • boost candidates: check `release_or_rg_mbids` against both the
+///     candidate's `release_id` AND `release_group_id`.
+///   • narrow queries: attach `arid:<uuid>` instead of free-text
+///     artist clause when `artist_mbids` is non-empty.
+struct CrossApiIds {
+    /// release ids (lastfm `album.mbid`) and release-group ids
+    /// (audiodb `musicbrainz_release_group_id`) combined into one set.
+    release_or_rg_mbids: std::collections::HashSet<String>,
+    /// artist mbids from external sources (for `arid:` query narrowing).
+    artist_mbids: Vec<String>,
+}
+
+/// collect cross-api mbids from all enrichment sources present in metadata.
+fn collect_cross_api_ids(meta: &AlbumMetadata) -> CrossApiIds {
+    let mut release_or_rg_mbids = std::collections::HashSet::new();
+    let artist_mbids = Vec::new();
+    // lastfm album.mbid is a release id (not a release-group id).
+    if let Some(lf) = meta.lastfm.as_ref().and_then(|l| l.album.as_ref()) {
+        if let Some(m) = lf.mbid.as_ref().filter(|s| !s.is_empty()) {
+            release_or_rg_mbids.insert(m.clone());
+        }
+    }
+    // audiodb supplies a release-group id.
+    if let Some(adb) = meta.audiodb.as_ref().and_then(|a| a.album.as_ref()) {
+        if let Some(m) = adb
+            .musicbrainz_release_group_id
+            .as_ref()
+            .filter(|s| !s.is_empty())
+        {
+            release_or_rg_mbids.insert(m.clone());
+        }
+    }
+    CrossApiIds {
+        release_or_rg_mbids,
+        artist_mbids,
+    }
+}
 
 pub async fn process_mb_album_search_job(job: &Job) -> Result<Option<Value>, JobError> {
     let params: MbAlbumSearchParams =
@@ -104,6 +147,59 @@ pub async fn process_mb_album_search_job(job: &Job) -> Result<Option<Value>, Job
 
     // step 3: call MB
     let cfg = config::get_config();
+
+    // read album metadata once. reused for:
+    //   • entry short-circuit (confirmed pointer revalidation)
+    //   • cross_api_mbids collection
+    //   • prev_confirmation pointer capture
+    let initial_metadata = albums_repo::read_album_metadata(&album_id).await;
+
+    // entry short-circuit: if a confirmed pointer already exists and the
+    // previously-confirmed candidate still scores at or above the
+    // revalidation threshold, skip the cascade entirely. just stamp
+    // match_revalidated_at and exit. this avoids burning rate-limit budget
+    // on albums that are already correctly matched.
+    if let Some(meta) = initial_metadata.data.as_ref() {
+        if let Some(mb) = meta.musicbrainz.as_ref() {
+            if let (Some(rg_id), Some(_confirmed_at)) =
+                (mb.release_group_id.as_deref(), mb.match_confirmed_at)
+            {
+                let top = mb
+                    .candidates
+                    .iter()
+                    .find(|c| c.release_group_id.as_str() == rg_id);
+                if let Some(top) = top {
+                    let threshold = cfg.musicbrainz.confirmed_pointer_revalidate_threshold;
+                    if top.local_confidence.unwrap_or(0.0) >= threshold {
+                        let revalidated_at = time::OffsetDateTime::now_utc().unix_timestamp();
+                        let patch = serde_json::json!({
+                            "musicbrainz": { "match_revalidated_at": revalidated_at }
+                        });
+                        let _ = albums_repo::merge_album_metadata(&album_id, &patch).await;
+                        let _ = albums_repo::update_mb_lookup_status(
+                            &album_id,
+                            MbLookupStatus::Confirmed,
+                            job.created_by.as_deref(),
+                        )
+                        .await;
+                        let result = MbAlbumSearchResult {
+                            album_id: album_id.clone(),
+                            candidate_count: mb.candidates.len() as u64,
+                            top_local_confidence: top.local_confidence,
+                            auto_confirmed_release_id: mb.release_id.clone(),
+                            final_status: "confirmed".to_string(),
+                        };
+                        return Ok(Some(serde_json::to_value(result).map_err(|e| {
+                            JobError::ProcessingFailed {
+                                reason: format!("serialize revalidated result: {}", e),
+                            }
+                        })?));
+                    }
+                }
+            }
+        }
+    }
+    let preferred_country = cfg.musicbrainz.preferred_country.clone();
     let client = match MusicBrainzClient::new(cfg.musicbrainz.clone()) {
         Ok(c) => c,
         Err(e) => {
@@ -119,8 +215,33 @@ pub async fn process_mb_album_search_job(job: &Job) -> Result<Option<Value>, Job
         }
     };
 
+    // collect cross-api mbids from prior enrichment runs. used for:
+    //   • candidate mbid_match boost (release_id OR release_group_id)
+    //   • arid: query narrowing when artist mbids are available
+    let ids = initial_metadata
+        .data
+        .as_ref()
+        .map(collect_cross_api_ids)
+        .unwrap_or_else(|| CrossApiIds {
+            release_or_rg_mbids: Default::default(),
+            artist_mbids: vec![],
+        });
+
+    // capture any previously stored confirmation pointer so we can
+    // decide whether re-querying invalidates it (see step 5 below).
+    let prev_confirmation: (Option<String>, Option<String>) = initial_metadata
+        .data
+        .as_ref()
+        .and_then(|m| m.musicbrainz.as_ref())
+        .map(|mb| (mb.release_id.clone(), mb.release_group_id.clone()))
+        .unwrap_or((None, None));
+
     let mut query = ReleaseSearchQuery::new().release(&title);
-    if let Some(a) = artist.as_deref() {
+    // prefer arid: mbid clause over free-text artist when an artist mbid
+    // is available — more precise, avoids false positives on name collisions.
+    if let Some(arid) = ids.artist_mbids.first() {
+        query = query.arid(arid.clone());
+    } else if let Some(a) = artist.as_deref() {
         if !a.is_empty() {
             query = query.artist(a);
         }
@@ -164,38 +285,6 @@ pub async fn process_mb_album_search_job(job: &Job) -> Result<Option<Value>, Job
     //      match a multi-track release" case (dj sets, side-long suites).
     //      we compare local total duration vs. summed mb track durations
     //      with a per-track tolerance.
-    let cross_api_mbids: std::collections::HashSet<String> = {
-        let mut set = std::collections::HashSet::new();
-        let md = albums_repo::read_album_metadata(&album_id).await;
-        if let Some(meta) = md.data.as_ref() {
-            if let Some(lf) = meta.lastfm.as_ref().and_then(|l| l.album.as_ref()) {
-                if let Some(m) = lf.mbid.as_ref().filter(|s| !s.is_empty()) {
-                    set.insert(m.clone());
-                }
-            }
-            if let Some(adb) = meta.audiodb.as_ref().and_then(|a| a.album.as_ref()) {
-                if let Some(m) = adb
-                    .musicbrainz_release_group_id
-                    .as_ref()
-                    .filter(|s| !s.is_empty())
-                {
-                    set.insert(m.clone());
-                }
-            }
-        }
-        set
-    };
-
-    // capture any previously stored confirmation pointer so we can
-    // decide whether re-querying invalidates it (see step 5 below).
-    let prev_confirmation: (Option<String>, Option<String>) = {
-        let md = albums_repo::read_album_metadata(&album_id).await;
-        md.data
-            .as_ref()
-            .and_then(|m| m.musicbrainz.as_ref())
-            .map(|mb| (mb.release_id.clone(), mb.release_group_id.clone()))
-            .unwrap_or((None, None))
-    };
 
     let local_song_summary: Option<(usize, u64)> = {
         // single COUNT(*) + SUM(duration) — keeps this cheap even for
@@ -270,7 +359,11 @@ pub async fn process_mb_album_search_job(job: &Job) -> Result<Option<Value>, Job
                 .map(|rg| rg.id.to_string())
                 .unwrap_or_default();
             let mbid_match =
-                !release_group_id_str.is_empty() && cross_api_mbids.contains(&release_group_id_str);
+                // check release-group id (audiodb source)
+                (!release_group_id_str.is_empty()
+                    && ids.release_or_rg_mbids.contains(&release_group_id_str))
+                // check release id (lastfm source — album.mbid is a release id)
+                || ids.release_or_rg_mbids.contains(&r.id.to_string());
             // cover art: drives the strongest tie-breaker between
             // releases that share artist+title (re-issues, regional
             // pressings). a release with rich cover art is almost
@@ -321,6 +414,7 @@ pub async fn process_mb_album_search_job(job: &Job) -> Result<Option<Value>, Job
                 cover_art_count,
                 has_front_cover,
                 years_since_earliest,
+                preferred_country.as_str(),
             );
             MbCandidate {
                 release_group_id: release_group_id_str,
@@ -359,16 +453,16 @@ pub async fn process_mb_album_search_job(job: &Job) -> Result<Option<Value>, Job
     // surface the canonical pressing first in the ui:
     //   1. cover-art image count (more = better)
     //   2. has-front-cover (true beats false)
-    //   3. country priority (XW > US > others)
+    //   3. country priority (XW > preferred > others)
     //   4. format priority (digital > cd > others)
     //   5. earliest first_release_date (older wins)
-    fn country_rank(c: Option<&str>) -> u8 {
+    let country_rank = |c: Option<&str>| -> u8 {
         match c {
             Some("XW") => 2,
-            Some("US") => 1,
+            Some(s) if s == preferred_country.as_str() => 1,
             _ => 0,
         }
-    }
+    };
     fn format_rank(f: Option<&str>) -> u8 {
         match f.map(|s| s.to_lowercase()) {
             Some(s) if s.contains("digital") => 2,
@@ -453,6 +547,7 @@ pub async fn process_mb_album_search_job(job: &Job) -> Result<Option<Value>, Job
         artist: artist.clone().unwrap_or_default(),
         release: title.clone(),
         tracks: None,
+        stage: None,
     };
 
     // step 5: merge into metadata
@@ -753,6 +848,7 @@ fn compute_local_confidence(
     cover_art_count: u32,
     has_front_cover: bool,
     years_since_earliest: Option<u32>,
+    preferred_country: &str,
 ) -> f64 {
     // hard cap on the identity tier. leaves at least (1.0 - IDENTITY_CAP)
     // of headroom for tier-2 tiebreakers to always show through.
@@ -825,10 +921,10 @@ fn compute_local_confidence(
             tiebreak += extras;
         }
 
-        // country — XW (worldwide) > US > others. policy choice.
+        // country — XW (worldwide) > preferred > others. policy choice.
         match country {
             Some("XW") => tiebreak += 0.05,
-            Some("US") => tiebreak += 0.04,
+            Some(c) if c == preferred_country => tiebreak += 0.04,
             _ => {}
         }
 
@@ -942,6 +1038,7 @@ mod tests {
             0,
             false,
             None,
+            "US",
         );
         assert!(c >= 0.84 && c <= 0.86, "expected ~0.85, got {}", c);
     }
@@ -963,6 +1060,7 @@ mod tests {
             0,
             false,
             None,
+            "US",
         );
         assert!(c < 0.3);
     }
@@ -984,6 +1082,7 @@ mod tests {
             0,
             false,
             None,
+            "US",
         );
         let boosted = compute_local_confidence(
             "Kid A",
@@ -1000,6 +1099,7 @@ mod tests {
             0,
             false,
             None,
+            "US",
         );
         assert!(boosted > base);
     }
@@ -1021,6 +1121,7 @@ mod tests {
             0,
             false,
             None,
+            "US",
         );
         let us = compute_local_confidence(
             "Kid A",
@@ -1037,6 +1138,7 @@ mod tests {
             0,
             false,
             None,
+            "US",
         );
         assert!(xw > us);
         assert!(us > xw - 0.05);
@@ -1060,6 +1162,7 @@ mod tests {
             0,
             false,
             None,
+            "US",
         );
         let with_mbid = compute_local_confidence(
             "the moon",
@@ -1076,6 +1179,7 @@ mod tests {
             0,
             false,
             None,
+            "US",
         );
         assert!(
             with_mbid - base >= 0.09,
@@ -1102,6 +1206,7 @@ mod tests {
             0,
             false,
             None,
+            "US",
         );
         let with_tags = compute_local_confidence(
             "Kid A",
@@ -1118,6 +1223,7 @@ mod tests {
             0,
             false,
             None,
+            "US",
         );
         let no_tags = compute_local_confidence(
             "Kid A",
@@ -1134,6 +1240,7 @@ mod tests {
             0,
             false,
             None,
+            "US",
         );
         assert!(with_tags > none);
         assert!(no_tags < none);
@@ -1161,6 +1268,7 @@ mod tests {
             0,
             false,
             None,
+            "US",
         );
         let boosted = compute_local_confidence(
             "live set",
@@ -1177,6 +1285,7 @@ mod tests {
             0,
             false,
             None,
+            "US",
         );
         assert!(
             boosted > base + 0.1,
@@ -1203,6 +1312,7 @@ mod tests {
             5,
             true,
             Some(0),
+            "US",
         );
         assert!(c < 0.3);
     }
@@ -1231,6 +1341,7 @@ mod tests {
             cover_count,
             front,
             years_since_earliest,
+            "US",
         )
     }
 
@@ -1333,6 +1444,7 @@ mod tests {
             8,
             true,
             Some(0),
+            "US",
         );
         let sibling = compute_local_confidence(
             "Kid A",
@@ -1349,6 +1461,7 @@ mod tests {
             0,
             false,
             Some(8),
+            "US",
         );
         assert!(
             canonical - sibling >= 0.10,

@@ -171,6 +171,10 @@ pub struct MbMetadata {
     /// user id who confirmed the match (null = automated)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub match_confirmed_by: Option<String>,
+    /// unix timestamp when the match was last revalidated by the cascade
+    /// entry short-circuit. does not overwrite a human confirmation.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub match_revalidated_at: Option<i64>,
     /// candidate matches from the most recent search
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub candidates: Vec<MbCandidate>,
@@ -246,6 +250,11 @@ pub struct MbLastQuery {
     pub release: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tracks: Option<i64>,
+    /// which cascade stage produced these candidates:
+    /// "strict" | "artist_only" | "album_only" | "direct_lookup".
+    /// omitted on records written by older versions; treat None as "strict".
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stage: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, ZodSchema, PartialEq)]
