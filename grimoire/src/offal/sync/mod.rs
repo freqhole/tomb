@@ -448,19 +448,6 @@ pub async fn sync_song_by_blake3(caller: &Caller, body: JsonValue) -> GrimoireRe
     //    referenced blobs are recorded but not fatal.
     let mut images_linked: i64 = 0;
     let mut missing_image_sha256s: Vec<String> = Vec::new();
-    tracing::debug!(
-        "sync_song_by_blake3: processing {} song_images for song_id={} (inline={}, refs={})",
-        req.song_images.len(),
-        song_id,
-        req.song_images
-            .iter()
-            .filter(|i| i.data_base64.is_some())
-            .count(),
-        req.song_images
-            .iter()
-            .filter(|i| i.data_base64.is_none())
-            .count(),
-    );
     for (idx, img) in req.song_images.iter().enumerate() {
         let blob_id_opt = match resolve_sync_image_ref(
             img,
@@ -512,14 +499,6 @@ pub async fn sync_song_by_blake3(caller: &Caller, body: JsonValue) -> GrimoireRe
             .flatten(),
             Err(_) => None,
         };
-        tracing::debug!(
-            "sync_song_by_blake3: processing {} album_images for song_id={} album_id={:?} (inline={}, refs={})",
-            req.album_images.len(),
-            song_id,
-            album_id_opt,
-            req.album_images.iter().filter(|i| i.data_base64.is_some()).count(),
-            req.album_images.iter().filter(|i| i.data_base64.is_none()).count(),
-        );
         if let Some(album_id) = album_id_opt {
             for (idx, img) in req.album_images.iter().enumerate() {
                 // album-level images are almost always Original cover art, but

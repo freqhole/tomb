@@ -171,19 +171,6 @@ async function syncSongViaLocalGrimoire(
   try {
     const { invoke } = await import("@tauri-apps/api/core");
 
-    // DIAGNOSTIC: log incoming image arrays so we can see whether the source
-    // remote actually returned any images for this song / its album.
-    debug(
-      "syncSongViaLocalGrimoire",
-      `song="${song.title}" sha256=${song.sha256.slice(0, 8)} song.images=${song.images?.length ?? 0} album_images=${song.album_images?.length ?? 0} artist_images=${song.artist_images?.length ?? 0}`,
-    );
-    if (song.images && song.images.length > 0) {
-      debug(
-        "syncSongViaLocalGrimoire",
-        `song.images sample: ${song.images.slice(0, 3).map((i) => `${i.blob_type ?? "?"}:${i.remote_blob_id?.slice(0, 8) ?? "no-rbid"}`).join(", ")}`,
-      );
-    }
-
     // pull image bytes from source transport and inline as base64. without
     // this the dest grimoire receives an empty `song_images` array and no
     // images get persisted (audio path uses iroh-blobs but image path is
@@ -201,10 +188,6 @@ async function syncSongViaLocalGrimoire(
       sourceTransport,
       inlineCache,
       `[album "${song.album_title}"]`,
-    );
-    debug(
-      "syncSongViaLocalGrimoire",
-      `inlined ${songImagesBody.length} song_images + ${albumImagesBody.length} album_images for "${song.title}"`,
     );
 
     // build SyncSongByBlake3Request shape (matches grimoire offal/sync types).

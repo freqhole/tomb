@@ -156,10 +156,25 @@ export class FreqholeClient {
           return { success: false, error: result.error };
         }
       } catch (err) {
+        // tauri invoke rejects with whatever the Rust command returned in
+        // Err(...). that's often a plain string (not an Error instance), so
+        // `err.message` is undefined. coerce string/object rejections to
+        // their string form before falling back to "network error", otherwise
+        // we'd swallow useful messages like
+        //   "federation api error: failed to connect to peer ...: No addressing information available"
+        let message = "network error";
+        if (err instanceof Error) {
+          message = err.message;
+        } else if (typeof err === "string" && err.length > 0) {
+          message = err;
+        } else if (err != null) {
+          const s = String(err);
+          if (s && s !== "[object Object]") message = s;
+        }
         return {
           success: false,
           error: new z.ZodError([
-            { code: "custom", path: [], message: err instanceof Error ? err.message : "network error" },
+            { code: "custom", path: [], message },
           ]),
         };
       }
@@ -228,6 +243,9 @@ export function isNetworkError<T>(result: SafeParseResult<T>): boolean {
       
       // P2P/iroh connection errors - be generous with matching
       if (msg.includes("connection")) return true; // connection failed, closed, refused, etc
+      if (msg.includes("connect to peer")) return true; // "failed to connect to peer ..."
+      if (msg.includes("federation api error")) return true; // wrapper from p2p_client
+      if (msg.includes("no addressing information")) return true; // iroh: peer has no relay/direct addrs
       if (msg.includes("timeout") || msg.includes("unreachable")) return true;
       if (msg.includes("closed")) return true; // ClosedPath, stream closed, etc
       if (msg.includes("no route") || msg.includes("endpoint")) return true;
