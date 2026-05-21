@@ -114,6 +114,7 @@ export function buildSyncSongByBlake3Request(
     genre_name: opts.genreName ?? null,
     // images transferred post-hoc via /api/upload/image.
     song_images: [],
+    album_images: [],
     is_compilation: opts.isCompilation ?? false,
   };
 }

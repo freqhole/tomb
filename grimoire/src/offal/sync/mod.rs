@@ -126,6 +126,12 @@ pub struct SyncSongByBlake3Request {
     /// sha256). missing referenced blobs are skipped, not fatal.
     #[serde(default)]
     pub song_images: Vec<SyncImageRef>,
+    /// optional album images. linked to the song's album row on import.
+    /// same inline-or-reference shape as `song_images`. used when syncing
+    /// individual songs from a remote so the album row gets cover art on
+    /// the destination without a separate `/api/sync/album` round-trip.
+    #[serde(default)]
+    pub album_images: Vec<SyncImageRef>,
     /// is this song part of a compilation
     #[serde(default)]
     pub is_compilation: bool,
@@ -442,24 +448,42 @@ pub async fn sync_song_by_blake3(caller: &Caller, body: JsonValue) -> GrimoireRe
     //    referenced blobs are recorded but not fatal.
     let mut images_linked: i64 = 0;
     let mut missing_image_sha256s: Vec<String> = Vec::new();
+    tracing::debug!(
+        "sync_song_by_blake3: processing {} song_images for song_id={} (inline={}, refs={})",
+        req.song_images.len(),
+        song_id,
+        req.song_images
+            .iter()
+            .filter(|i| i.data_base64.is_some())
+            .count(),
+        req.song_images
+            .iter()
+            .filter(|i| i.data_base64.is_none())
+            .count(),
+    );
     for (idx, img) in req.song_images.iter().enumerate() {
-        let blob_id_opt =
-            match resolve_sync_image_ref(img, &format!("song-{}-{}", song_id, idx)).await {
-                Ok(Some(id)) => Some(id),
-                Ok(None) => {
-                    missing_image_sha256s.push(img.content_sha256.clone());
-                    None
-                }
-                Err(e) => {
-                    tracing::warn!(
-                        "sync_song_by_blake3: failed to import image {} for song {}: {}",
-                        img.content_sha256,
-                        song_id,
-                        e
-                    );
-                    None
-                }
-            };
+        let blob_id_opt = match resolve_sync_image_ref(
+            img,
+            &format!("song-{}-{}", song_id, idx),
+            Some(&pulled.blob.id),
+        )
+        .await
+        {
+            Ok(Some(id)) => Some(id),
+            Ok(None) => {
+                missing_image_sha256s.push(img.content_sha256.clone());
+                None
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "sync_song_by_blake3: failed to import image {} for song {}: {}",
+                    img.content_sha256,
+                    song_id,
+                    e
+                );
+                None
+            }
+        };
         if let Some(blob_id) = blob_id_opt {
             let is_primary = img.is_primary || idx == 0;
             let add_result =
@@ -467,6 +491,72 @@ pub async fn sync_song_by_blake3(caller: &Caller, body: JsonValue) -> GrimoireRe
                     .await;
             if add_result.success {
                 images_linked += 1;
+            }
+        }
+    }
+
+    // 5b. link album images. look up the album_id that was just associated
+    // with the imported song and attach each album image. inline-base64 refs
+    // are deduped via sha256, so an album cover that's byte-identical to a
+    // song cover already linked above will resolve to the same blob_id and
+    // simply create the album_imagez row.
+    if !req.album_images.is_empty() {
+        let album_id_opt: Option<String> = match crate::database::connect().await {
+            Ok(pool) => sqlx::query_scalar!(
+                "SELECT album_id FROM album_songz WHERE song_id = ? LIMIT 1",
+                song_id
+            )
+            .fetch_optional(&pool)
+            .await
+            .ok()
+            .flatten(),
+            Err(_) => None,
+        };
+        tracing::debug!(
+            "sync_song_by_blake3: processing {} album_images for song_id={} album_id={:?} (inline={}, refs={})",
+            req.album_images.len(),
+            song_id,
+            album_id_opt,
+            req.album_images.iter().filter(|i| i.data_base64.is_some()).count(),
+            req.album_images.iter().filter(|i| i.data_base64.is_none()).count(),
+        );
+        if let Some(album_id) = album_id_opt {
+            for (idx, img) in req.album_images.iter().enumerate() {
+                // album-level images are almost always Original cover art, but
+                // pass the song's audio blob as a fallback parent in case a
+                // derived blob_type slips through (better than a CHECK panic).
+                let blob_id_opt = match resolve_sync_image_ref(
+                    img,
+                    &format!("album-{}-{}", album_id, idx),
+                    Some(&pulled.blob.id),
+                )
+                .await
+                {
+                    Ok(Some(id)) => Some(id),
+                    Ok(None) => {
+                        missing_image_sha256s.push(img.content_sha256.clone());
+                        None
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            "sync_song_by_blake3: failed to import album image {} for album {}: {}",
+                            img.content_sha256,
+                            album_id,
+                            e
+                        );
+                        None
+                    }
+                };
+                if let Some(blob_id) = blob_id_opt {
+                    let is_primary = img.is_primary || idx == 0;
+                    let add_result = crate::music::entities::albums::add_album_image(
+                        &album_id, &blob_id, is_primary, None,
+                    )
+                    .await;
+                    if add_result.success {
+                        images_linked += 1;
+                    }
+                }
             }
         }
     }
@@ -805,7 +895,9 @@ pub async fn sync_playlist(caller: &Caller, body: JsonValue) -> GrimoireResponse
     let mut missing_image_sha256s: Vec<String> = Vec::new();
     for (idx, img) in req.images.iter().enumerate() {
         let blob_id_opt =
-            match resolve_sync_image_ref(img, &format!("playlist-{}-{}", playlist.id, idx)).await {
+            match resolve_sync_image_ref(img, &format!("playlist-{}-{}", playlist.id, idx), None)
+                .await
+            {
                 Ok(Some(id)) => Some(id),
                 Ok(None) => {
                     missing_image_sha256s.push(img.content_sha256.clone());
@@ -1090,7 +1182,7 @@ pub async fn sync_album(caller: &Caller, body: JsonValue) -> GrimoireResponse<Js
     let mut missing_image_sha256s: Vec<String> = Vec::new();
     for (idx, img) in req.images_base64.iter().enumerate() {
         let blob_id_opt =
-            match resolve_sync_image_ref(img, &format!("album-{}-{}", album.id, idx)).await {
+            match resolve_sync_image_ref(img, &format!("album-{}-{}", album.id, idx), None).await {
                 Ok(Some(id)) => Some(id),
                 Ok(None) => {
                     missing_image_sha256s.push(img.content_sha256.clone());
@@ -1188,9 +1280,15 @@ pub async fn sync_album(caller: &Caller, body: JsonValue) -> GrimoireResponse<Js
 ///     - found → `Ok(Some(id))`.
 ///     - missing → `Ok(None)` (caller treats as "skipped, not fatal").
 /// - decode/hash mismatch → `Err`.
+///
+/// `parent_blob_id` is required for non-`Original` blob types (e.g. waveforms,
+/// thumbnails, previews) — the schema CHECK constraint enforces that derived
+/// blobs carry a pointer to their source. for song-image sync, this should be
+/// the just-pulled audio blob's id. ignored for `Original` blobs.
 async fn resolve_sync_image_ref(
     img: &SyncImageRef,
     name_prefix: &str,
+    parent_blob_id: Option<&str>,
 ) -> GrimoireResult<Option<String>> {
     if let Some(data_b64) = &img.data_base64 {
         // inline path: decode, verify, create-or-dedupe
@@ -1212,21 +1310,41 @@ async fn resolve_sync_image_ref(
             });
         }
 
+        let resolved_blob_type = match img.blob_type.as_deref() {
+            Some("thumbnail") => BlobType::Thumbnail,
+            Some("waveform") => BlobType::Waveform,
+            Some("preview") => BlobType::Preview,
+            _ => BlobType::Original,
+        };
+        // non-original blobs must carry parent_blob_id (db CHECK constraint).
+        // original blobs must NOT carry one. callers without a parent for a
+        // derived blob get a clear error rather than a CHECK constraint panic
+        // surfaced as opaque sqlite text.
+        let parent_for_create = match resolved_blob_type {
+            BlobType::Original => None,
+            _ => match parent_blob_id {
+                Some(p) => Some(p.to_string()),
+                None => {
+                    return Err(GrimoireError::ProcessingFailed {
+                        message: format!(
+                            "non-original image (blob_type={:?}) for {} requires a parent_blob_id",
+                            resolved_blob_type, name_prefix
+                        ),
+                    });
+                }
+            },
+        };
         // dedupe via create_media_blob (sha256 unique constraint)
+        let ext = crate::offal::upload::detect_extension(&img.mime_type, "");
         let blob = create_media_blob(CreateMediaBlobRequest {
             sha256: img.content_sha256.clone(),
             size: Some(bytes.len() as i64),
             mime: Some(img.mime_type.clone()),
             source_client_id: None,
             local_path: None,
-            filename: Some(format!("{}.bin", name_prefix)),
-            parent_blob_id: None,
-            blob_type: Some(match img.blob_type.as_deref() {
-                Some("thumbnail") => BlobType::Thumbnail,
-                Some("waveform") => BlobType::Waveform,
-                Some("preview") => BlobType::Preview,
-                _ => BlobType::Original,
-            }),
+            filename: Some(format!("{}.{}", name_prefix, ext)),
+            parent_blob_id: parent_for_create,
+            blob_type: Some(resolved_blob_type),
             metadata: serde_json::json!({}),
             created_by: None,
             data: Some(crate::Bytes(bytes)),

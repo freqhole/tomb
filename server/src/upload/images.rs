@@ -79,7 +79,9 @@ pub async fn upload_image_handler(
         user.username,
         filename,
         data.len(),
-        association.as_ref().map(|a| format!("{}:{}", a.entity_type, a.entity_id)),
+        association
+            .as_ref()
+            .map(|a| format!("{}:{}", a.entity_type, a.entity_id)),
     );
 
     // check file size
@@ -113,7 +115,22 @@ pub async fn upload_image_handler(
 
     let size = data.len() as i64;
 
-    // all uploaded images are Original type with no parent
+    // determine blob_type: defaults to Original, but the sync pipeline can pass
+    // through other types (e.g. Waveform, Preview) via the association hint so
+    // re-uploaded blobs keep their classification on the destination.
+    let resolved_blob_type = association
+        .as_ref()
+        .and_then(|a| a.blob_type)
+        .unwrap_or(BlobType::Original);
+
+    tracing::debug!(
+        "upload_image: resolved_blob_type={} (hint={:?}) for filename=\"{}\" size={}",
+        resolved_blob_type.as_str(),
+        association.as_ref().and_then(|a| a.blob_type),
+        filename,
+        size,
+    );
+
     // entity associations are handled via *_imagez junction tables, not parent_blob_id
     // (parent_blob_id is reserved for sized thumbnails pointing to their full-res source)
 
@@ -126,7 +143,7 @@ pub async fn upload_image_handler(
         local_path: None,
         filename: Some(filename.to_string()),
         parent_blob_id: None,
-        blob_type: Some(BlobType::Original),
+        blob_type: Some(resolved_blob_type),
         metadata: json!({
             "original_filename": filename,
         }),
@@ -146,6 +163,7 @@ pub async fn upload_image_handler(
     let mut job_payload = json!({
         "blob_id": blob.id,
         "original_mime": mime_type,
+        "blob_type": resolved_blob_type.as_str(),
     });
 
     // add association hint if provided
@@ -154,6 +172,7 @@ pub async fn upload_image_handler(
             "entity_type": assoc.entity_type,
             "entity_id": assoc.entity_id,
             "is_primary": assoc.is_primary,
+            "blob_type": resolved_blob_type.as_str(),
         });
     }
 

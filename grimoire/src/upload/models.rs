@@ -52,6 +52,11 @@ pub struct AssociationHint {
     pub entity_id: String,
     /// Whether this should be the primary image (ignored if it's the first image - first is always primary)
     pub is_primary: Option<bool>,
+    /// optional blob_type override (defaults to "original"). used by the sync
+    /// pipeline so that re-uploaded waveforms / previews keep their classification
+    /// instead of being stored as Original on the destination.
+    #[serde(default)]
+    pub blob_type: Option<crate::media_blobz::BlobType>,
 }
 
 /// association info included in response

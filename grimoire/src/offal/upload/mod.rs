@@ -1676,8 +1676,12 @@ fn detect_audio_mime_type(filename: &str, data: &[u8]) -> String {
     "application/octet-stream".to_string()
 }
 
-/// detect file extension from mime type or filename
-fn detect_extension(mime_type: &str, filename: &str) -> String {
+/// detect file extension from mime type or filename.
+///
+/// tries the filename first (any short trailing extension), then falls back
+/// to a known mime-type table covering the audio + image formats this
+/// codebase actually serves. unknown types resolve to `"bin"`.
+pub fn detect_extension(mime_type: &str, filename: &str) -> String {
     // try to get extension from filename first
     if let Some(ext) = filename.rsplit('.').next() {
         if ext.len() <= 5 && !ext.is_empty() && ext != filename {
@@ -1687,6 +1691,7 @@ fn detect_extension(mime_type: &str, filename: &str) -> String {
 
     // fallback to mime type mapping
     match mime_type {
+        // audio
         "audio/mpeg" => "mp3",
         "audio/flac" => "flac",
         "audio/ogg" | "audio/vorbis" => "ogg",
@@ -1694,6 +1699,14 @@ fn detect_extension(mime_type: &str, filename: &str) -> String {
         "audio/wav" | "audio/wave" => "wav",
         "audio/aac" => "aac",
         "audio/m4a" | "audio/mp4" => "m4a",
+        // images
+        "image/webp" => "webp",
+        "image/jpeg" | "image/jpg" => "jpg",
+        "image/png" => "png",
+        "image/gif" => "gif",
+        "image/avif" => "avif",
+        "image/bmp" => "bmp",
+        "image/svg+xml" => "svg",
         _ => "bin",
     }
     .to_string()

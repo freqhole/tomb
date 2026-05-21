@@ -1050,7 +1050,8 @@ export type ArtistsQueryResult = z.infer<typeof ArtistsQueryResultSchema>;
 export const AssociationHintSchema = z.object({
   entity_type: z.string(),
   entity_id: z.string(),
-  is_primary: z.boolean().nullish()
+  is_primary: z.boolean().nullish(),
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")]).nullish()
 });
 export type AssociationHint = z.infer<typeof AssociationHintSchema>;
 
@@ -5146,6 +5147,13 @@ export const SyncSongByBlake3RequestSchema = z.object({
   metadata: z.string().nullish(),
   genre_name: z.string().nullish(),
   song_images: z.array(z.object({
+  content_sha256: z.string(),
+  data_base64: z.string().nullish(),
+  mime_type: z.string(),
+  is_primary: z.boolean(),
+  blob_type: z.string().nullish()
+})),
+  album_images: z.array(z.object({
   content_sha256: z.string(),
   data_base64: z.string().nullish(),
   mime_type: z.string(),

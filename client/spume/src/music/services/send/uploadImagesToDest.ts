@@ -182,11 +182,15 @@ export async function uploadImagesToDest(opts: {
           entity_type: entityType,
           entity_id: entityId,
           is_primary: isPrimary,
+          // preserve waveform/preview/thumbnail classification across the
+          // sync boundary so the destination doesn't reclassify everything
+          // as Original.
+          blob_type: img.blob_type,
         }),
       );
       debug(
         "uploadImagesToDest",
-        `${logPrefix} [img ${idx}] POST /api/upload/image (primary=${isPrimary}, ${bytes.byteLength}b)`,
+        `${logPrefix} [img ${idx}] POST /api/upload/image (primary=${isPrimary}, blob_type=${img.blob_type ?? "?"}, ${bytes.byteLength}b)`,
       );
       const resp = await destTransport.upload("/api/upload/image", fd);
       if (resp.status < 200 || resp.status >= 300) {

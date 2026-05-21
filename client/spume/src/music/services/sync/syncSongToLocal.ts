@@ -11,7 +11,7 @@ import { getRemoteById } from "../../../app/services/remotes/remoteManager";
 import { isCharnelMode } from "../../../app/services/charnel";
 import { extractNodeIdStrict } from "../../../app/services/remotes/peerAddr";
 import { isP2PRemote } from "../../../app/services/storage/schemas/remote";
-import { debug } from "../../../utils/logger";
+import { debug, warn } from "../../../utils/logger";
 import { writeAudioToOPFS } from "../opfs/helpers";
 import {
   getOrCreateAlbum,
@@ -31,6 +31,113 @@ import {
 } from "../download";
 import type { ImageMetadata, Song, TaxonRef } from "../storage/types";
 import type { Remote } from "../../../app/services/storage/schemas/remote";
+import type { Transport } from "freqhole-api-client";
+
+// shape sent to /api/sync/song-by-blake3 for each image. matches grimoire
+// `SyncImageRef`. `data_base64` is the inline-bytes path (preferred when
+// content is fetched from source); a null `data_base64` means "lookup by
+// sha256 on dest" (used when bytes aren't available locally).
+interface SyncImageRefBody {
+  content_sha256: string;
+  data_base64: string | null;
+  mime_type: string;
+  is_primary: boolean;
+  blob_type: string | null;
+}
+
+// per-image-bytes cache keyed by source remote_blob_id, so an album cover
+// that appears both as song.images[k] AND song.album_images[k] across many
+// tracks is fetched once.
+type InlineImageCache = Map<
+  string,
+  { sha256: string; b64: string; mime: string }
+>;
+
+function bytesToBase64(bytes: Uint8Array): string {
+  // chunked to avoid maximum-call-stack on String.fromCharCode for big arrays.
+  let s = "";
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    s += String.fromCharCode(...bytes.subarray(i, i + chunk));
+  }
+  return btoa(s);
+}
+
+async function sha256Hex(bytes: Uint8Array): Promise<string> {
+  const ab = bytes.buffer.slice(
+    bytes.byteOffset,
+    bytes.byteOffset + bytes.byteLength,
+  ) as ArrayBuffer;
+  const digest = await crypto.subtle.digest("SHA-256", ab);
+  const view = new Uint8Array(digest);
+  let hex = "";
+  for (let i = 0; i < view.length; i++) {
+    hex += view[i].toString(16).padStart(2, "0");
+  }
+  return hex;
+}
+
+/**
+ * fetch each image's bytes from the source transport and build inline
+ * `SyncImageRef` payloads (sha256 + base64). per-image fetch failures are
+ * skipped (logged as warn) so a missing remote_blob_id never blocks song
+ * sync. caches by `remote_blob_id` across calls within one sync run.
+ */
+async function inlineImagesForSync(
+  images: ImageMetadata[] | undefined,
+  sourceTransport: Transport,
+  cache: InlineImageCache,
+  logPrefix: string,
+): Promise<SyncImageRefBody[]> {
+  if (!images || images.length === 0) return [];
+  const out: SyncImageRefBody[] = [];
+  const anyPrimary = images.some((i) => !!i.is_primary);
+  for (let idx = 0; idx < images.length; idx++) {
+    const img = images[idx];
+    const blobId = img.remote_blob_id;
+    if (!blobId) {
+      debug(
+        "syncSongViaLocalGrimoire",
+        `${logPrefix} [img ${idx}] no remote_blob_id, skipping`,
+      );
+      continue;
+    }
+    let entry = cache.get(blobId);
+    if (!entry) {
+      try {
+        const blob = await sourceTransport.fetchBlob(blobId);
+        const bytes = new Uint8Array(blob.data.byteLength);
+        bytes.set(blob.data);
+        const sha256 = await sha256Hex(bytes);
+        const b64 = bytesToBase64(bytes);
+        entry = {
+          sha256,
+          b64,
+          mime: blob.contentType || "image/jpeg",
+        };
+        cache.set(blobId, entry);
+        debug(
+          "syncSongViaLocalGrimoire",
+          `${logPrefix} [img ${idx}] fetched source blob ${blobId.slice(0, 8)} (${bytes.byteLength}b, ${entry.mime}, sha=${sha256.slice(0, 8)})`,
+        );
+      } catch (e) {
+        warn(
+          "syncSongViaLocalGrimoire",
+          `${logPrefix} [img ${idx}] fetchBlob failed for ${blobId}: ${String(e)}`,
+        );
+        continue;
+      }
+    }
+    out.push({
+      content_sha256: entry.sha256,
+      data_base64: entry.b64,
+      mime_type: entry.mime,
+      is_primary: anyPrimary ? !!img.is_primary : idx === 0,
+      blob_type: img.blob_type ?? "original",
+    });
+  }
+  return out;
+}
 
 /**
  * sync a song to the local charnel-managed grimoire via the iroh-blobs path.
@@ -64,9 +171,43 @@ async function syncSongViaLocalGrimoire(
   try {
     const { invoke } = await import("@tauri-apps/api/core");
 
+    // DIAGNOSTIC: log incoming image arrays so we can see whether the source
+    // remote actually returned any images for this song / its album.
+    debug(
+      "syncSongViaLocalGrimoire",
+      `song="${song.title}" sha256=${song.sha256.slice(0, 8)} song.images=${song.images?.length ?? 0} album_images=${song.album_images?.length ?? 0} artist_images=${song.artist_images?.length ?? 0}`,
+    );
+    if (song.images && song.images.length > 0) {
+      debug(
+        "syncSongViaLocalGrimoire",
+        `song.images sample: ${song.images.slice(0, 3).map((i) => `${i.blob_type ?? "?"}:${i.remote_blob_id?.slice(0, 8) ?? "no-rbid"}`).join(", ")}`,
+      );
+    }
+
+    // pull image bytes from source transport and inline as base64. without
+    // this the dest grimoire receives an empty `song_images` array and no
+    // images get persisted (audio path uses iroh-blobs but image path is
+    // currently inline-base64 only).
+    const sourceTransport = await getTransportForRemote(remote);
+    const inlineCache: InlineImageCache = new Map();
+    const songImagesBody = await inlineImagesForSync(
+      song.images,
+      sourceTransport,
+      inlineCache,
+      `[song "${song.title}"]`,
+    );
+    const albumImagesBody = await inlineImagesForSync(
+      song.album_images,
+      sourceTransport,
+      inlineCache,
+      `[album "${song.album_title}"]`,
+    );
+    debug(
+      "syncSongViaLocalGrimoire",
+      `inlined ${songImagesBody.length} song_images + ${albumImagesBody.length} album_images for "${song.title}"`,
+    );
+
     // build SyncSongByBlake3Request shape (matches grimoire offal/sync types).
-    // image refs are sha256-only today (ImageMetadata has no sha256); the
-    // dest will report missing image sha256s in the response.
     const body = {
       blake3: song.blake3,
       sha256: song.sha256,
@@ -90,13 +231,8 @@ async function syncSongViaLocalGrimoire(
       lyrics: song.lyrics ?? null,
       metadata: song.metadata ?? null,
       genre_name: song.album_taxons?.find((t) => t.kind_slug === "genre")?.label ?? null,
-      song_images: [] as Array<{
-        content_sha256: string;
-        data_base64: string | null;
-        mime_type: string;
-        is_primary: boolean;
-        blob_type: string | null;
-      }>,
+      song_images: songImagesBody,
+      album_images: albumImagesBody,
       is_compilation: false,
     };
 
@@ -130,8 +266,14 @@ async function syncSongViaLocalGrimoire(
     markSongSynced(song.sha256);
     debug(
       "syncSongViaLocalGrimoire",
-      `synced song ${song.title} via iroh (existing=${data?.existing ?? false})`,
+      `synced song ${song.title} via iroh (existing=${data?.existing ?? false}) images_linked=${data?.images_linked ?? 0} missing_image_sha256s=${data?.missing_image_sha256s?.length ?? 0}`,
     );
+    if (data?.missing_image_sha256s && data.missing_image_sha256s.length > 0) {
+      debug(
+        "syncSongViaLocalGrimoire",
+        `missing_image_sha256s for "${song.title}": ${data.missing_image_sha256s.slice(0, 5).map((s) => s.slice(0, 8)).join(", ")}`,
+      );
+    }
     return {
       success: true,
       localSongId: data?.song_id ?? song.sha256,
@@ -229,6 +371,10 @@ export async function downloadAndStoreImages(
   remote: Remote,
   apiImages: ImageMetadata[] | undefined,
 ): Promise<ImageMetadata[]> {
+  debug(
+    "downloadAndStoreImages",
+    `remote=${remote.name} count=${apiImages?.length ?? 0}`,
+  );
   if (!apiImages?.length) return [];
 
   const results: ImageMetadata[] = [];
@@ -236,6 +382,10 @@ export async function downloadAndStoreImages(
 
   for (const img of apiImages) {
     try {
+      debug(
+        "downloadAndStoreImages",
+        `img blob_type=${img.blob_type ?? "?"} remote_blob_id=${img.remote_blob_id?.slice(0, 8) ?? "?"} primary=${!!img.is_primary}`,
+      );
       // need remote_blob_id to fetch via transport
       if (!img.remote_blob_id) {
         // keep remote_url reference if we have it
