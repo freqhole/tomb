@@ -328,6 +328,7 @@ export const AlbumMetadataSchema = z.object({
   release_group_id: z.string().nullish(),
   match_confirmed_at: z.number().nullish(),
   match_confirmed_by: z.string().nullish(),
+  match_revalidated_at: z.number().nullish(),
   candidates: z.array(z.object({
   release_group_id: z.string(),
   release_id: z.string().nullish(),
@@ -347,7 +348,8 @@ export const AlbumMetadataSchema = z.object({
   last_query: z.object({
   artist: z.string(),
   release: z.string(),
-  tracks: z.number().nullish()
+  tracks: z.number().nullish(),
+  stage: z.string().nullish()
 }).nullish(),
   tag_source_release_ids: z.array(z.string()),
   urls: z.array(z.object({
@@ -585,6 +587,12 @@ export const AlbumSearchResultSchema = z.object({
   highlight: z.string().nullish()
 });
 export type AlbumSearchResult = z.infer<typeof AlbumSearchResultSchema>;
+
+export const AlbumStatusCountsSchema = z.object({
+  total: z.number(),
+  by_status: z.record(z.string(), z.number())
+});
+export type AlbumStatusCounts = z.infer<typeof AlbumStatusCountsSchema>;
 
 export const AlbumTaxonLinkSchema = z.object({
   album_id: z.string(),
@@ -3093,7 +3101,8 @@ export type MbFolksonomy = z.infer<typeof MbFolksonomySchema>;
 export const MbLastQuerySchema = z.object({
   artist: z.string(),
   release: z.string(),
-  tracks: z.number().nullish()
+  tracks: z.number().nullish(),
+  stage: z.string().nullish()
 });
 export type MbLastQuery = z.infer<typeof MbLastQuerySchema>;
 
@@ -3128,6 +3137,7 @@ export const MbMetadataSchema = z.object({
   release_group_id: z.string().nullish(),
   match_confirmed_at: z.number().nullish(),
   match_confirmed_by: z.string().nullish(),
+  match_revalidated_at: z.number().nullish(),
   candidates: z.array(z.object({
   release_group_id: z.string(),
   release_id: z.string().nullish(),
@@ -3147,7 +3157,8 @@ export const MbMetadataSchema = z.object({
   last_query: z.object({
   artist: z.string(),
   release: z.string(),
-  tracks: z.number().nullish()
+  tracks: z.number().nullish(),
+  stage: z.string().nullish()
 }).nullish(),
   tag_source_release_ids: z.array(z.string()),
   urls: z.array(z.object({
@@ -4001,7 +4012,8 @@ export const QueryParamsSchema = z.object({
   offset: z.number().nullish(),
   user_id: z.string().nullish(),
   favorites_only: z.boolean().nullish(),
-  min_rating: z.number().nullish()
+  min_rating: z.number().nullish(),
+  mb_lookup_status: z.array(z.string()).nullish()
 });
 export type QueryParams = z.infer<typeof QueryParamsSchema>;
 

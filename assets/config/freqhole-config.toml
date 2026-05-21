@@ -125,8 +125,9 @@ thumbnail_on_demand_enabled = false
 # ============================================================================
 [musicbrainz]
 # OPTIONAL: enable MusicBrainz API integration for enhanced metadata (default: false)
-# allows searching for album/artist information and cover art
 enabled = true
+# OPTIONAL: preferred country code for release tiebreaks (default: "US")
+preferred_country = "US"
 # note: user agent is hardcoded in grimoire as "tomb-musicbrainz/1.0"
 
 # ============================================================================

@@ -17,7 +17,12 @@ import type { AlbumSummary } from "../../music/data/types";
 import { getClientForRemote } from "../../app/api/client";
 import { queryClient } from "../../queryClient";
 import { Icon } from "../../components/icons/registry";
-import { parseAlbumMetadata, type AlbumMetadata, type MbCandidate } from "../data/albumMetadata";
+import {
+  mbSearchStageLabel,
+  parseAlbumMetadata,
+  type AlbumMetadata,
+  type MbCandidate,
+} from "../data/albumMetadata";
 
 interface AlbumCandidatesPanelProps {
   album: AlbumSummary;
@@ -103,8 +108,28 @@ export function AlbumCandidatesPanel(props: AlbumCandidatesPanelProps) {
         }
       >
         <div class="flex items-center justify-between mb-2">
-          <div class="text-[11px] uppercase tracking-wide text-[var(--color-text-muted)]">
-            musicbrainz candidates ({candidates().length})
+          <div class="flex items-center gap-2">
+            <div class="text-[11px] uppercase tracking-wide text-[var(--color-text-muted)]">
+              musicbrainz candidates ({candidates().length})
+            </div>
+            <Show when={meta().musicbrainz?.last_query?.stage}>
+              {(stage) => {
+                const isNonStrict = () => stage() !== "strict" && stage() !== "direct_lookup";
+                return (
+                  <span
+                    class="text-[10px] px-1.5 py-0.5 rounded"
+                    classList={{
+                      "bg-amber-500/15 text-amber-400": isNonStrict(),
+                      "bg-[var(--color-bg-elevated)] text-[var(--color-text-muted)]":
+                        !isNonStrict(),
+                    }}
+                    title={`cascade stage: ${stage()}`}
+                  >
+                    {mbSearchStageLabel(stage())}
+                  </span>
+                );
+              }}
+            </Show>
           </div>
           <button
             type="button"
@@ -210,6 +235,11 @@ export function AlbumCandidatesPanel(props: AlbumCandidatesPanelProps) {
                       </Show>
                       <Show when={cand.mb_score != null}>
                         <span>mb {cand.mb_score}</span>
+                      </Show>
+                      <Show when={(cand.cover_art_count ?? 0) > 0}>
+                        <span>
+                          {cand.cover_art_count} img{cand.cover_art_count !== 1 ? "s" : ""}
+                        </span>
                       </Show>
                     </div>
                   </div>

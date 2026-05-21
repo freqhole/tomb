@@ -260,6 +260,7 @@ pub(in crate::admin_dispatch) async fn seed_suggest(
                 user_id: None,
                 favorites_only: None,
                 min_rating: None,
+                mb_lookup_status: None,
             };
             let resp = query_artists(params).await;
             resp.data
@@ -285,6 +286,7 @@ pub(in crate::admin_dispatch) async fn seed_suggest(
                 user_id: None,
                 favorites_only: None,
                 min_rating: None,
+                mb_lookup_status: None,
             };
             let resp = query_albums(params).await;
             resp.data

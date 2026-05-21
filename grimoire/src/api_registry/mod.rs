@@ -134,17 +134,17 @@ pub mod type_registry {
     // music types
     use crate::media_blobz::{BlobMetadataResponse, MediaBlob};
     use crate::music::crud::{
-        AlbumQueryResult, AlbumsQueryResult, ArtistQueryResult, ArtistsQueryResult,
-        BulkClearSongArtworkRequest, BulkClearSongArtworkResponse, BulkDeleteSongsRequest,
-        BulkDeleteSongsResponse, DeleteAlbumRequest, DeleteAlbumResponse, DeleteArtistRequest,
-        DeleteArtistResponse, DeleteSongRequest, DeleteSongResponse, FavoriteAlbumResult,
-        FavoriteArtistResult, FavoriteItem, FavoritePlaylistResult, FavoriteSongResult,
-        GetAlbumRequest, GetArtistRequest, GetRatingStatsRequest, ListFavoritesRequest,
-        ListFavoritesResponse, PlaylistQueryResult, PlaylistSongResult, PlaylistSongsQueryResult,
-        PlaylistsQueryResult, QueryParams, QueryPlaylistSongsRequest, RatingStats,
-        RecentSongsRequest, RemoveRatingRequest, RemoveRatingResponse, SetFavoriteResponse,
-        SetRatingResponse, SongQueryResult, SongUpdateError, SongsQueryResult, UpdateSongsRequest,
-        UpdateSongsResult,
+        AlbumQueryResult, AlbumStatusCounts, AlbumsQueryResult, ArtistQueryResult,
+        ArtistsQueryResult, BulkClearSongArtworkRequest, BulkClearSongArtworkResponse,
+        BulkDeleteSongsRequest, BulkDeleteSongsResponse, DeleteAlbumRequest, DeleteAlbumResponse,
+        DeleteArtistRequest, DeleteArtistResponse, DeleteSongRequest, DeleteSongResponse,
+        FavoriteAlbumResult, FavoriteArtistResult, FavoriteItem, FavoritePlaylistResult,
+        FavoriteSongResult, GetAlbumRequest, GetArtistRequest, GetRatingStatsRequest,
+        ListFavoritesRequest, ListFavoritesResponse, PlaylistQueryResult, PlaylistSongResult,
+        PlaylistSongsQueryResult, PlaylistsQueryResult, QueryParams, QueryPlaylistSongsRequest,
+        RatingStats, RecentSongsRequest, RemoveRatingRequest, RemoveRatingResponse,
+        SetFavoriteResponse, SetRatingResponse, SongQueryResult, SongUpdateError, SongsQueryResult,
+        UpdateSongsRequest, UpdateSongsResult,
     };
 
     // upload types
@@ -986,6 +986,8 @@ pub mod type_registry {
 
         gen.add_schema::<AlbumsQueryResult>("AlbumsQueryResult");
         registered.insert("AlbumsQueryResult".to_string());
+        gen.add_schema::<AlbumStatusCounts>("AlbumStatusCounts");
+        registered.insert("AlbumStatusCounts".to_string());
 
         gen.add_schema::<GetAlbumRequest>("GetAlbumRequest");
         registered.insert("GetAlbumRequest".to_string());

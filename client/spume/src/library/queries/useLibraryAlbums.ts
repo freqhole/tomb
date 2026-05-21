@@ -11,6 +11,8 @@ import { getClientForRemote } from "../../app/api/client";
 import type { Remote } from "../../app/services/storage/schemas/remote";
 import type { AlbumSummary, PaginatedResponse } from "../../music/data/types";
 import { adaptApiImage, adaptApiUrls } from "../../music/data/remote/adapters";
+import type { MbLookupStatus } from "../data/albumMetadata";
+import { isInFlight } from "../data/mbStatusGroups";
 
 export interface LibraryAlbumsQueryOptions {
   remote: Accessor<Remote | undefined>;
@@ -117,7 +119,7 @@ export function useLibraryAlbumsQuery(opts: LibraryAlbumsQueryOptions) {
       const pages = data?.pages ?? [];
       for (const p of pages) {
         for (const it of p.items) {
-          if (it.mb_lookup_status === "auto_applying") return 5000;
+          if (isInFlight(it.mb_lookup_status as MbLookupStatus | null | undefined)) return 5000;
         }
       }
       return false;

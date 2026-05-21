@@ -6,7 +6,9 @@ use crate::error::ErrorDetail;
 use crate::media_blobz::{
     create_media_blob, get_media_blob_by_sha256, BlobType, CreateMediaBlobRequest,
 };
-use crate::music::crud::{query_albums, DeleteAlbumRequest, GetAlbumRequest, QueryParams};
+use crate::music::crud::{
+    query_album_status_counts, query_albums, DeleteAlbumRequest, GetAlbumRequest, QueryParams,
+};
 use crate::music::entities::albums::add_album_image;
 use crate::music::entities::albums::external_url_proposals::{
     apply_external_urls as grimoire_apply_external_urls,
@@ -49,6 +51,15 @@ pub const ROUTES: &[RouteInfo] = &[
         domain: Domain::Music,
         request_type: "QueryParams",
         response_type: "AlbumsQueryResult",
+        auth: RouteAuth::Authenticated,
+    },
+    RouteInfo {
+        name: "query_album_status_counts",
+        path: "/api/albums/status-counts",
+        method: Method::POST,
+        domain: Domain::Music,
+        request_type: "QueryParams",
+        response_type: "AlbumStatusCounts",
         auth: RouteAuth::Authenticated,
     },
     RouteInfo {
@@ -218,6 +229,29 @@ pub async fn query(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonVal
     params.user_id = Some(target_user_id);
 
     let response = query_albums(params).await;
+    response.map(|data| serde_json::to_value(data).unwrap())
+}
+
+/// per-status album counts for the active filter context.
+///
+/// path: POST /api/albums/status-counts
+pub async fn status_counts(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
+    let mut params: QueryParams = match serde_json::from_value(body) {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "bad request",
+                vec![crate::error::ErrorDetail::new(
+                    "bad_request",
+                    "bad request",
+                    &e.to_string(),
+                )],
+            )
+        }
+    };
+    // ensure user context is set so favorites/ratings filters work correctly
+    params.user_id = Some(caller.user_id.clone());
+    let response = query_album_status_counts(params).await;
     response.map(|data| serde_json::to_value(data).unwrap())
 }
 

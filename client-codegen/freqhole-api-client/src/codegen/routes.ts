@@ -123,6 +123,7 @@ export const routes = {
     propose_external_urls: { method: 'POST', path: '/api/albums/propose-external-urls', req: s.ProposeExternalUrlsRequestSchema, resp: s.ProposeExternalUrlsResponseSchema, auth: { type: 'role', role: 'admin' } as const },
     propose_related_artists: { method: 'POST', path: '/api/artists/propose-related', req: s.ProposeRelatedArtistsRequestSchema, resp: s.ProposeRelatedArtistsResponseSchema, auth: { type: 'role', role: 'admin' } as const },
     propose_taxons: { method: 'POST', path: '/api/albums/propose-taxons', req: s.ProposeTaxonsRequestSchema, resp: s.TaxonProposalSchema.array(), auth: { type: 'role', role: 'admin' } as const },
+    query_album_status_counts: { method: 'POST', path: '/api/albums/status-counts', req: s.QueryParamsSchema, resp: s.AlbumStatusCountsSchema, auth: { type: 'authenticated' } as const },
     query_albums: { method: 'POST', path: '/api/albums/query', req: s.QueryParamsSchema, resp: s.AlbumsQueryResultSchema, auth: { type: 'authenticated' } as const },
     query_albums_by_scalar_range: { method: 'POST', path: '/api/taxonomy/scalars/query-range', req: s.QueryScalarRangeRequestSchema, resp: z.string().array(), auth: { type: 'authenticated' } as const },
     query_artists: { method: 'POST', path: '/api/artists/query', req: s.QueryParamsSchema, resp: s.ArtistsQueryResultSchema, auth: { type: 'authenticated' } as const },

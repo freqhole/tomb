@@ -205,6 +205,11 @@ pub struct QueryParams {
     #[arg(long)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub min_rating: Option<i32>,
+
+    /// Filter albums by mb_lookup_status (include any of these values)
+    #[arg(long, value_delimiter = ',')]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mb_lookup_status: Option<Vec<String>>,
 }
 
 impl Default for QueryParams {
@@ -220,8 +225,19 @@ impl Default for QueryParams {
             user_id: None,
             favorites_only: None,
             min_rating: None,
+            mb_lookup_status: None,
         }
     }
+}
+
+/// album status counts — total albums and breakdown by mb_lookup_status.
+/// keyed by the raw enum string so the client can fold into groups.
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct AlbumStatusCounts {
+    /// grand total matching the base filters (no status filter applied)
+    pub total: i64,
+    /// count per raw mb_lookup_status value (null coerced to "not_attempted")
+    pub by_status: std::collections::HashMap<String, i64>,
 }
 
 /// unified query result with pagination metadata

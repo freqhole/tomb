@@ -13,7 +13,7 @@ mod user_prefs;
 
 // re-export public types
 pub use models::{
-    AlbumImportRequest, AlbumImportResult, AlbumQueryResult, AlbumsQueryResult,
+    AlbumImportRequest, AlbumImportResult, AlbumQueryResult, AlbumStatusCounts, AlbumsQueryResult,
     ArtistImportRequest, ArtistQueryResult, ArtistsQueryResult, BulkImportRequest,
     BulkImportResult, CreateSongWithMetadataRequest, EntityUrl, FavoriteAlbumResult,
     FavoriteArtistResult, FavoriteItem, FavoritePlaylistResult, FavoriteSongResult, ImageMetadata,
@@ -73,6 +73,7 @@ pub use query::{
     list_songs_by_artist,
     list_songs_by_genre,
     // new unified query API
+    query_album_status_counts,
     query_albums,
     query_artists,
     query_songs,

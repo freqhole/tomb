@@ -29,6 +29,12 @@ interface AlbumBulkActionBarProps {
   onSetDiscNumber?: () => void;
   /** opens the album-tag picker for every selected album. */
   onManageTags?: () => void;
+  /** flip `mb_lookup_status='skipped'` on the selected albums: removes
+   *  them from future bulk lookups until explicitly un-skipped. */
+  onSkip?: () => void;
+  /** resets `mb_lookup_status='not_attempted'` on selected albums that are
+   *  currently `skipped`, so they re-enter the lookup queue. */
+  onUnskip?: () => void;
   /** disable destructive/admin actions when the user is not an admin on the
    *  selected remote. */
   isAdmin?: boolean;
@@ -46,7 +52,7 @@ export function AlbumBulkActionBar(props: AlbumBulkActionBarProps) {
           type="button"
           disabled={!props.onEnrich || props.isAdmin === false}
           onClick={() => props.onEnrich?.()}
-          class="flex items-center gap-1.5 px-2.5 py-1 text-xs rounded border border-[var(--color-accent-500)]/40 text-[var(--color-accent-500)] hover:bg-[var(--color-accent-500)]/10 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed bg-transparent"
+          class="flex items-center gap-1.5 px-2.5 py-1 text-xs rounded border border-[var(--color-accent-500)]/40 text-[var(--color-accent-500)] hover:bg-[var(--color-accent-500)]/10 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed bg-transparent whitespace-nowrap"
           title={
             props.isAdmin === false
               ? "requires admin on this remote"
@@ -62,7 +68,7 @@ export function AlbumBulkActionBar(props: AlbumBulkActionBarProps) {
             type="button"
             disabled={props.isAdmin === false}
             onClick={() => props.onReview?.()}
-            class="flex items-center gap-1.5 px-2.5 py-1 text-xs rounded border border-[var(--color-accent-500)]/40 text-[var(--color-accent-500)] hover:bg-[var(--color-accent-500)]/10 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed bg-transparent"
+            class="flex items-center gap-1.5 px-2.5 py-1 text-xs rounded border border-[var(--color-accent-500)]/40 text-[var(--color-accent-500)] hover:bg-[var(--color-accent-500)]/10 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed bg-transparent whitespace-nowrap"
             title={
               props.isAdmin === false
                 ? "requires admin on this remote"
@@ -79,7 +85,7 @@ export function AlbumBulkActionBar(props: AlbumBulkActionBarProps) {
             type="button"
             disabled={props.isAdmin === false}
             onClick={() => props.onMarkDone?.()}
-            class="flex items-center gap-1.5 px-2.5 py-1 text-xs rounded border border-[var(--color-success-500)]/40 text-[var(--color-success-500)] hover:bg-[var(--color-success-500)]/10 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed bg-transparent"
+            class="flex items-center gap-1.5 px-2.5 py-1 text-xs rounded border border-[var(--color-success-500)]/40 text-[var(--color-success-500)] hover:bg-[var(--color-success-500)]/10 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed bg-transparent whitespace-nowrap"
             title={
               props.isAdmin === false
                 ? "requires admin on this remote"
@@ -96,7 +102,7 @@ export function AlbumBulkActionBar(props: AlbumBulkActionBarProps) {
             type="button"
             disabled={props.isAdmin === false}
             onClick={() => props.onEditMetadata?.()}
-            class="flex items-center gap-1.5 px-2.5 py-1 text-xs rounded border border-[var(--color-border-default)] text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed bg-transparent"
+            class="flex items-center gap-1.5 px-2.5 py-1 text-xs rounded border border-[var(--color-border-default)] text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed bg-transparent whitespace-nowrap"
             title={
               props.isAdmin === false
                 ? "requires admin on this remote"
@@ -113,7 +119,7 @@ export function AlbumBulkActionBar(props: AlbumBulkActionBarProps) {
             type="button"
             disabled={props.isAdmin === false}
             onClick={() => props.onSetDiscNumber?.()}
-            class="flex items-center gap-1.5 px-2.5 py-1 text-xs rounded border border-[var(--color-border-default)] text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed bg-transparent"
+            class="flex items-center gap-1.5 px-2.5 py-1 text-xs rounded border border-[var(--color-border-default)] text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed bg-transparent whitespace-nowrap"
             title={
               props.isAdmin === false
                 ? "requires admin on this remote"
@@ -130,7 +136,7 @@ export function AlbumBulkActionBar(props: AlbumBulkActionBarProps) {
             type="button"
             disabled={props.isAdmin === false}
             onClick={() => props.onManageTags?.()}
-            class="flex items-center gap-1.5 px-2.5 py-1 text-xs rounded border border-[var(--color-border-default)] text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed bg-transparent"
+            class="flex items-center gap-1.5 px-2.5 py-1 text-xs rounded border border-[var(--color-border-default)] text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed bg-transparent whitespace-nowrap"
             title={
               props.isAdmin === false
                 ? "requires admin on this remote"
@@ -139,6 +145,40 @@ export function AlbumBulkActionBar(props: AlbumBulkActionBarProps) {
           >
             <Icon name="tag" size={11} />
             tags
+          </button>
+        </Show>
+
+        <Show when={props.onSkip}>
+          <button
+            type="button"
+            disabled={props.isAdmin === false}
+            onClick={() => props.onSkip?.()}
+            class="flex items-center gap-1.5 px-2.5 py-1 text-xs rounded border border-[var(--color-border-default)] text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed bg-transparent whitespace-nowrap"
+            title={
+              props.isAdmin === false
+                ? "requires admin on this remote"
+                : "skip musicbrainz lookup for selected albums (won't appear in future bulk lookups)"
+            }
+          >
+            <Icon name="close" size={11} />
+            skip lookup
+          </button>
+        </Show>
+
+        <Show when={props.onUnskip}>
+          <button
+            type="button"
+            disabled={props.isAdmin === false}
+            onClick={() => props.onUnskip?.()}
+            class="flex items-center gap-1.5 px-2.5 py-1 text-xs rounded border border-[var(--color-border-default)] text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed bg-transparent whitespace-nowrap"
+            title={
+              props.isAdmin === false
+                ? "requires admin on this remote"
+                : "re-enable lookup for selected albums (resets status to not attempted)"
+            }
+          >
+            <Icon name="add" size={11} />
+            un-skip
           </button>
         </Show>
 

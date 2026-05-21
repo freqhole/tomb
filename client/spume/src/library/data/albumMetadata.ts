@@ -203,6 +203,26 @@ export function topFolksonomyTags(
     .map(([name, count]) => ({ name, count }));
 }
 
+/** human-readable label for the cascade search stage that produced candidates.
+ *  "strict" is the normal path; others warrant surfacing so reviewers know
+ *  why the match might be weaker. */
+export function mbSearchStageLabel(stage: string | null | undefined): string {
+  switch (stage) {
+    case "strict":
+    case null:
+    case undefined:
+      return "artist + title";
+    case "artist_only":
+      return "artist-only fallback";
+    case "album_only":
+      return "title-only fallback";
+    case "direct_lookup":
+      return "direct mbid lookup";
+    default:
+      return stage;
+  }
+}
+
 /** convenience: highest-confidence candidate (by local_confidence). */
 export function topCandidate(meta: AlbumMetadata): MbCandidate | null {
   const list = meta.musicbrainz?.candidates ?? [];

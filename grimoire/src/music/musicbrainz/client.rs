@@ -144,13 +144,42 @@ impl MusicBrainzClient {
         }
     }
 
+    /// lightweight release-group lookup for the direct-mbid short-circuit.
+    /// uses a minimal `inc` to avoid fetching unnecessary data. returns failure
+    /// cleanly on 404 so the caller can fall back to `lookup_release_search`.
+    pub async fn lookup_release_group_search(&self, mbid: &str) -> GrimoireResponse<ReleaseGroup> {
+        let url = format!("{}/release-group/{}", BASE_URL, mbid);
+        let query_string = "fmt=json&inc=artist-credits";
+        debug!("direct lookup release-group: {}", mbid);
+        match self.execute_request(&url, query_string).await {
+            Ok(result) => GrimoireResponse::success("release-group lookup succeeded", result),
+            Err(_) => GrimoireResponse::failure("release-group lookup failed or not found", vec![]),
+        }
+    }
+
+    /// lightweight release lookup for the direct-mbid short-circuit.
+    /// fallback when `lookup_release_group_search` fails (e.g. the mbid is a
+    /// release id rather than a release-group id, as last.fm `album.mbid` often is).
+    pub async fn lookup_release_search(&self, mbid: &str) -> GrimoireResponse<Release> {
+        let url = format!("{}/release/{}", BASE_URL, mbid);
+        let query_string = "fmt=json&inc=artist-credits+release-groups";
+        debug!("direct lookup release: {}", mbid);
+        match self.execute_request(&url, query_string).await {
+            Ok(result) => GrimoireResponse::success("release lookup succeeded", result),
+            Err(_) => GrimoireResponse::failure("release lookup failed or not found", vec![]),
+        }
+    }
+
     /// Get specific artist by MusicBrainz ID with url relations.
     /// the artist endpoint is by far the richest source of external
     /// links (bandcamp, allmusic, last.fm, songkick, streaming
     /// services, discogs, wikidata, etc.) — the release/release-group
     /// endpoints typically only carry a handful of release-specific
     /// links (free streaming, review, wikidata).
-    pub async fn get_artist(&self, mbid: &str) -> GrimoireResponse<crate::music::musicbrainz::models::Artist> {
+    pub async fn get_artist(
+        &self,
+        mbid: &str,
+    ) -> GrimoireResponse<crate::music::musicbrainz::models::Artist> {
         let url = format!("{}/artist/{}", BASE_URL, mbid);
         let query_string = "fmt=json&inc=url-rels";
 
@@ -395,7 +424,10 @@ mod tests {
     use super::*;
 
     fn test_config() -> MusicBrainzConfig {
-        MusicBrainzConfig { enabled: true, ..Default::default() }
+        MusicBrainzConfig {
+            enabled: true,
+            ..Default::default()
+        }
     }
 
     #[test]

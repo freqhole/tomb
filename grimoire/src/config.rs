@@ -194,41 +194,16 @@ pub struct MusicBrainzConfig {
     /// default: "US"
     #[serde(default = "default_mb_preferred_country")]
     pub preferred_country: String,
-    /// album-only fallback stage forces NeedsReview when the distinct
-    /// primary-artist count in the result set is at least this value.
-    /// lower = more conservative (more human review). default: 4
-    #[serde(default = "default_mb_diversity_review_threshold")]
-    pub diversity_review_threshold: usize,
-    /// when a confirmed match pointer already exists, skip the cascade
-    /// entirely as long as the previously-confirmed candidate still scores
-    /// at or above this threshold. default: 0.85
-    #[serde(default = "default_mb_revalidate_threshold")]
-    pub confirmed_pointer_revalidate_threshold: f64,
-    /// enable the direct `/release-group/{id}` lookup short-circuit (phase 5).
-    /// when a cross-api release-group mbid is available, fetch directly and
-    /// skip the cascade if the result matches. default: true
-    #[serde(default = "default_true")]
-    pub enable_direct_mbid_lookup: bool,
 }
 
 fn default_mb_preferred_country() -> String {
     "US".to_string()
 }
-fn default_mb_diversity_review_threshold() -> usize {
-    4
-}
-fn default_mb_revalidate_threshold() -> f64 {
-    0.85
-}
-
 impl Default for MusicBrainzConfig {
     fn default() -> Self {
         Self {
             enabled: false,
             preferred_country: default_mb_preferred_country(),
-            diversity_review_threshold: default_mb_diversity_review_threshold(),
-            confirmed_pointer_revalidate_threshold: default_mb_revalidate_threshold(),
-            enable_direct_mbid_lookup: default_true(),
         }
     }
 }

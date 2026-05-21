@@ -18,15 +18,27 @@ import { LoadingState, LoadingMoreIndicator } from "../../components/feedback";
 import MediaImage from "../../components/media/MediaImage";
 import { Modal } from "../../components/modals/Modal";
 import {
-  MB_LOOKUP_STATUS_FILTERS,
   mbLookupStatusLabel,
+  mbSearchStageLabel,
   parseAlbumMetadata,
   parseMbLookupStatus,
   topCandidate,
   topFolksonomyTags,
   type MbLookupStatus,
 } from "../data/albumMetadata";
+import {
+  groupBadgeClass,
+  groupLabel,
+  isDone,
+  isInFlight,
+  MB_STATUS_GROUPS,
+  MB_STATUS_GROUP_MEMBERS,
+  needsReview,
+  statusGroupOf,
+  type MbStatusGroup,
+} from "../data/mbStatusGroups";
 import { useLibraryAlbumsQuery } from "../queries/useLibraryAlbums";
+import { useAlbumStatusCounts } from "../queries/useAlbumStatusCounts";
 import {
   handleAlbumClick,
   isAlbumSelected,
@@ -49,6 +61,10 @@ interface AlbumsTableProps {
    *  control. fans out to mb + last.fm + theaudiodb in parallel for the
    *  album ids currently visible (post-filter). */
   onEnrichAllMatching?: (albumIds: string[]) => void;
+  /** fired once when the album query transitions from loading → data for
+   *  the current remote. used by LibraryView's 9a switching indicator to
+   *  clear the spinner without polling. */
+  onDataReady?: () => void;
 }
 
 const SORT_OPTIONS: { value: SortField; label: string; description?: string }[] = [
@@ -106,25 +122,49 @@ export function AlbumsTable(props: AlbumsTableProps) {
     sortDirection: sortDirection,
   });
 
+  const statusCountsQuery = useAlbumStatusCounts({
+    remote: remoteAccessor,
+    search: debouncedSearch,
+  });
+
+  // signal to LibraryView that the first batch of data has arrived for
+  // this remote. used by the 9a switching indicator to clear the spinner.
+  createEffect(() => {
+    if (!albumsQuery.isLoading && albumsQuery.data) {
+      props.onDataReady?.();
+    }
+  });
+
   const allItems = createMemo<AlbumSummary[]>(() => {
     const pages = albumsQuery.data?.pages ?? [];
     return pages.flatMap((p) => p.items);
   });
 
-  // status filtering happens client-side over loaded rows. coarse but fine
-  // for v0 — server-side filter follows later when the schema settles.
-  // include semantics: if any include filters are set, row's status must
-  // be in the include set. exclude semantics: row's status must not be
-  // in the exclude set.
+  // status filtering happens client-side over loaded rows.
+  // filters are MbStatusGroup values; filteredItems expands each group to its
+  // enum members so rows match if their status belongs to any selected group.
   const filteredItems = createMemo<AlbumSummary[]>(() => {
     const filters = statusFilters();
     if (filters.length === 0) return allItems();
-    const include = new Set(filters.filter((f) => f.mode === "include").map((f) => f.value));
-    const exclude = new Set(filters.filter((f) => f.mode === "exclude").map((f) => f.value));
+    const includeGroups = new Set(
+      filters.filter((f) => f.mode === "include").map((f) => f.value as MbStatusGroup)
+    );
+    const excludeGroups = new Set(
+      filters.filter((f) => f.mode === "exclude").map((f) => f.value as MbStatusGroup)
+    );
+    // expand each group to its enum members for matching
+    const includeStatuses = new Set<string>();
+    const excludeStatuses = new Set<string>();
+    for (const g of includeGroups) {
+      for (const s of MB_STATUS_GROUP_MEMBERS[g] ?? []) includeStatuses.add(s);
+    }
+    for (const g of excludeGroups) {
+      for (const s of MB_STATUS_GROUP_MEMBERS[g] ?? []) excludeStatuses.add(s);
+    }
     return allItems().filter((a) => {
-      const s = parseMbLookupStatus(a.mb_lookup_status);
-      if (include.size > 0 && !include.has(s)) return false;
-      if (exclude.has(s)) return false;
+      const s = parseMbLookupStatus(a.mb_lookup_status) as string;
+      if (includeStatuses.size > 0 && !includeStatuses.has(s)) return false;
+      if (excludeStatuses.has(s)) return false;
       return true;
     });
   });
@@ -137,17 +177,27 @@ export function AlbumsTable(props: AlbumsTableProps) {
 
   const loadedCount = () => allItems().length;
 
-  // phase 14.11: rough coverage indicator over the loaded rows.
-  // "covered" = enriched OR confirmed; matches what the per-row status
-  // badges would call "done". since query_albums doesn't return a server
-  // count yet, this is loaded-rows-only — informative, not authoritative.
+  // coverage: use real server total when available; fall back to loaded-row count.
+  // "covered" = isDone (confirmed | enriched).
+  const serverTotal = () => statusCountsQuery.data?.total ?? 0;
   const coveredCount = () =>
-    allItems().filter((a) => {
-      const s = parseMbLookupStatus(a.mb_lookup_status);
-      return s === "enriched" || s === "confirmed";
-    }).length;
+    statusCountsQuery.data?.byGroup.done ??
+    allItems().filter((a) => isDone(parseMbLookupStatus(a.mb_lookup_status))).length;
+
+  // statuses that don't need re-lookup: user explicitly skipped, or
+  // already done (confirmed | enriched). used to split filteredItems into
+  // eligible (need lookup) vs excluded (already done/skipped).
+  const isSkippable = (s: string | null | undefined) =>
+    isDone(parseMbLookupStatus(s)) || s === "skipped";
+  const eligibleRows = () => filteredItems().filter((a) => !isSkippable(a.mb_lookup_status));
+  const excludedRows = () => filteredItems().filter((a) => isSkippable(a.mb_lookup_status));
+
+  // lookup confirmation modal: opened when some filtered rows are already
+  // confirmed/enriched/skipped. lets the user choose whether to include
+  // them anyway or skip them (default).
+  const [lookupConfirmOpen, setLookupConfirmOpen] = createSignal(false);
   const coveragePct = () => {
-    const n = loadedCount();
+    const n = serverTotal() > 0 ? serverTotal() : loadedCount();
     if (n === 0) return 0;
     return Math.round((coveredCount() / n) * 100);
   };
@@ -185,17 +235,15 @@ export function AlbumsTable(props: AlbumsTableProps) {
   // wire pageInfo so the topnav surfaces search / sort / status filters
   // for the library/table view, matching the pattern used by
   // AlbumsView / SongsView / etc.
+  // status chip options: group-based, sourced from server counts.
+  // in_flight is included in counts but hidden from selectable chips (transient,
+  // no user value as a filter target — they already see the spinner on each row).
   const statusOptionsWithCounts = createMemo(() => {
-    const items = allItems();
-    const counts = new Map<string, number>();
-    for (const a of items) {
-      const s = parseMbLookupStatus(a.mb_lookup_status);
-      counts.set(s, (counts.get(s) ?? 0) + 1);
-    }
-    return MB_LOOKUP_STATUS_FILTERS.map((s) => ({
-      value: s,
-      label: mbLookupStatusLabel(s),
-      count: counts.get(s),
+    const counts = statusCountsQuery.data;
+    return MB_STATUS_GROUPS.filter((g) => g !== "in_flight").map((g) => ({
+      value: g,
+      label: groupLabel(g),
+      count: counts?.byGroup[g],
     }));
   });
   createEffect(() => {
@@ -361,18 +409,56 @@ export function AlbumsTable(props: AlbumsTableProps) {
           </Show>
         </div>
 
-        {/* lookup-all-matching control (header level; works without
-         *  selection). fans out to mb + last.fm + theaudiodb. */}
-        <Show when={props.onEnrichAllMatching && filteredItems().length > 0}>
-          <button
-            type="button"
-            onClick={() => props.onEnrichAllMatching?.(filteredItems().map((a) => a.album_id))}
-            class="flex items-center gap-1 px-2 py-1 text-xs rounded border border-[var(--color-accent-500)]/40 text-[var(--color-accent-500)] hover:bg-[var(--color-accent-500)]/10 cursor-pointer bg-transparent ml-auto"
-            title="enqueue musicbrainz + last.fm + theaudiodb lookups for every matching album"
-          >
-            <Icon name="search" size={10} />
-            lookup all matching
-          </button>
+        {/* lookup N control (header level; works without selection).
+         *  fans out to mb + last.fm + theaudiodb for eligible rows only.
+         *  confirmed/enriched/skipped rows are excluded by default;
+         *  a modal lets the user opt to include them. */}
+        <Show when={props.onEnrichAllMatching}>
+          {(() => {
+            const eligible = eligibleRows();
+            const excluded = excludedRows();
+            const skipCounts = () => {
+              let skipped = 0;
+              let confirmed = 0;
+              let enriched = 0;
+              for (const a of excluded) {
+                const s = a.mb_lookup_status ?? "not_attempted";
+                if (s === "skipped") skipped++;
+                else if (s === "confirmed") confirmed++;
+                else if (s === "enriched") enriched++;
+              }
+              return { skipped, confirmed, enriched };
+            };
+            const titleText = () => {
+              const ex = excluded;
+              if (ex.length === 0)
+                return "enqueue musicbrainz + last.fm + theaudiodb lookups for every matching album";
+              const sc = skipCounts();
+              const parts: string[] = [];
+              if (sc.confirmed > 0) parts.push(`${sc.confirmed} confirmed`);
+              if (sc.enriched > 0) parts.push(`${sc.enriched} enriched`);
+              if (sc.skipped > 0) parts.push(`${sc.skipped} skipped`);
+              return `${eligible.length} eligible · ${parts.join(", ")} will be skipped by default`;
+            };
+            return (
+              <button
+                type="button"
+                disabled={eligible.length === 0}
+                onClick={() => {
+                  if (excluded.length === 0) {
+                    props.onEnrichAllMatching?.(eligible.map((a) => a.album_id));
+                  } else {
+                    setLookupConfirmOpen(true);
+                  }
+                }}
+                class="flex items-center gap-1 px-2 py-1 text-xs rounded border border-[var(--color-accent-500)]/40 text-[var(--color-accent-500)] hover:bg-[var(--color-accent-500)]/10 cursor-pointer bg-transparent ml-auto disabled:opacity-40 disabled:cursor-not-allowed"
+                title={titleText()}
+              >
+                <Icon name="search" size={10} />
+                lookup {eligible.length}
+              </button>
+            );
+          })()}
         </Show>
 
         {/* auto-confirm bulk control. confirms top candidate where it
@@ -470,7 +556,82 @@ export function AlbumsTable(props: AlbumsTableProps) {
         }}
         running={autoConfirm().kind === "running"}
       />
+      {/* lookup confirmation modal: shown when some filtered rows are
+       *  already confirmed/enriched/skipped. default action skips them. */}
+      <LookupConfirmModal
+        isOpen={lookupConfirmOpen()}
+        eligibleCount={eligibleRows().length}
+        excludedCount={excludedRows().length}
+        onSkipExcluded={() => {
+          setLookupConfirmOpen(false);
+          props.onEnrichAllMatching?.(eligibleRows().map((a) => a.album_id));
+        }}
+        onIncludeAll={() => {
+          setLookupConfirmOpen(false);
+          props.onEnrichAllMatching?.(filteredItems().map((a) => a.album_id));
+        }}
+        onCancel={() => setLookupConfirmOpen(false)}
+      />
     </div>
+  );
+}
+
+// ── LookupConfirmModal ────────────────────────────────────────────────────────
+// shown when the user clicks "lookup N" and some filtered rows are already
+// confirmed/enriched/skipped. default action ("skip them") only enqueues
+// eligible rows; "include all" mirrors the old "lookup all matching" behavior.
+function LookupConfirmModal(props: {
+  isOpen: boolean;
+  eligibleCount: number;
+  excludedCount: number;
+  onSkipExcluded: () => void;
+  onIncludeAll: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <Modal
+      isOpen={props.isOpen}
+      onClose={props.onCancel}
+      title="lookup albums"
+      size="sm"
+      footer={
+        <div class="flex items-center justify-end gap-2 px-4 py-3 flex-wrap">
+          <button
+            type="button"
+            onClick={props.onCancel}
+            class="px-3 py-1.5 text-sm rounded border border-[var(--color-border-subtle)] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-elevated)] cursor-pointer bg-transparent"
+          >
+            cancel
+          </button>
+          <button
+            type="button"
+            onClick={props.onIncludeAll}
+            class="px-3 py-1.5 text-sm rounded border border-[var(--color-border-subtle)] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-elevated)] cursor-pointer bg-transparent"
+          >
+            include all ({props.eligibleCount + props.excludedCount})
+          </button>
+          <button
+            type="button"
+            onClick={props.onSkipExcluded}
+            class="px-3 py-1.5 text-sm rounded border border-[var(--color-accent-500)]/40 text-[var(--color-accent-500)] hover:bg-[var(--color-accent-500)]/10 cursor-pointer bg-transparent"
+          >
+            skip them · lookup {props.eligibleCount}
+          </button>
+        </div>
+      }
+    >
+      <div class="px-4 py-3 text-sm text-[var(--color-text-secondary)]">
+        <p>
+          {props.excludedCount} album{props.excludedCount === 1 ? " is" : "s are"} already
+          confirmed, enriched, or skipped. include them in this lookup, or skip them and only
+          re-query the {props.eligibleCount} remaining album{props.eligibleCount === 1 ? "" : "s"}?
+        </p>
+        <p class="mt-2 text-[var(--color-text-muted)] text-xs">
+          "skip them" is the default \u2014 use "include all" to re-run lookup on
+          previously-confirmed or skipped rows.
+        </p>
+      </div>
+    </Modal>
   );
 }
 
@@ -485,6 +646,7 @@ function AlbumRow(props: { album: AlbumSummary; remote: Remote; index: number })
   const genreList = () => (props.album.genres ?? []).map((g) => g.name).join(", ");
   const albumMeta = () => parseAlbumMetadata(props.album.metadata);
   const folksonomy = () => topFolksonomyTags(albumMeta(), 5);
+  const lastQueryStage = () => albumMeta().musicbrainz?.last_query?.stage ?? null;
   const selected = () => isAlbumSelected(props.album.album_id);
   const inflight = useInflightJobs();
   const inflightSources = () => {
@@ -507,8 +669,7 @@ function AlbumRow(props: { album: AlbumSummary; remote: Remote; index: number })
     if (ad.fetched_at) return "ok";
     return "missing";
   };
-  const reviewable = () =>
-    status() === "candidates" || status() === "needs_review" || status() === "confirmed";
+  const reviewable = () => needsReview(status());
   const openReview = () => {
     showBulkReview({
       ids: [props.album.album_id],
@@ -581,47 +742,60 @@ function AlbumRow(props: { album: AlbumSummary; remote: Remote; index: number })
           </Show>
         </td>
         <td class="px-2 py-1">
-          <div class="flex flex-wrap items-center gap-1">
-            {/* musicbrainz status — primary, uses the rich mb_lookup_status enum */}
-            <Show
-              when={inflightSources().has("mb") || status() === "auto_applying"}
-              fallback={
-                <span
-                  class="inline-block px-1.5 py-0.5 rounded text-[10px]"
-                  title={`musicbrainz: ${mbLookupStatusLabel(status())}`}
-                  classList={{
-                    "bg-emerald-500/15 text-emerald-400":
-                      status() === "confirmed" || status() === "enriched",
-                    "bg-amber-500/15 text-amber-400":
-                      status() === "needs_review" || status() === "candidates",
-                    "bg-blue-500/15 text-blue-400":
-                      status() === "queued" ||
-                      status() === "searching" ||
-                      status() === "fetching_detail",
-                    "bg-rose-500/15 text-rose-400":
-                      status() === "error" || status() === "no_match" || status() === "rejected",
-                    "bg-[var(--color-bg-elevated)] text-[var(--color-text-muted)]":
-                      status() === "not_attempted",
-                  }}
-                >
-                  mb: {mbLookupStatusLabel(status())}
-                </span>
-              }
-            >
-              <span
-                class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-blue-500/15 text-blue-400"
-                title={
-                  status() === "auto_applying"
-                    ? "auto-applying enrichment from musicbrainz, last.fm, theaudiodb"
-                    : "musicbrainz lookup in flight"
+          {/* enrichment column: mb status on row 1, source-availability dots on row 2.
+           *  the stacked layout keeps the mb chip visually primary and distinguishes it
+           *  from the source dots (which are a different state machine). */}
+          <div class="flex flex-col gap-0.5">
+            {/* row 1: musicbrainz status chip */}
+            <div class="flex flex-wrap items-center gap-1">
+              {/* musicbrainz status — primary, uses the rich mb_lookup_status enum */}
+              <Show
+                when={inflightSources().has("mb") || isInFlight(status())}
+                fallback={
+                  <span
+                    class={`inline-block px-1.5 py-0.5 rounded text-[10px] ${groupBadgeClass(statusGroupOf(status()))}`}
+                    title={(() => {
+                      const base = `musicbrainz: ${mbLookupStatusLabel(status())}`;
+                      const stage = lastQueryStage();
+                      if (stage && needsReview(status())) {
+                        return `${base} · ${mbSearchStageLabel(stage)}`;
+                      }
+                      return base;
+                    })()}
+                  >
+                    mb: {mbLookupStatusLabel(status())}
+                  </span>
                 }
               >
-                <span class="inline-block w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
-                {status() === "auto_applying" ? "auto-applying…" : "mb"}
-              </span>
-            </Show>
-            <SourceBadge label="lf" title="last.fm" state={lastfmState()} />
-            <SourceBadge label="ad" title="theaudiodb" state={audiodbState()} />
+                <span
+                  class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-blue-500/15 text-blue-400"
+                  title={
+                    status() === "auto_applying"
+                      ? "auto-applying enrichment from musicbrainz, last.fm, theaudiodb"
+                      : "musicbrainz lookup in flight"
+                  }
+                >
+                  <span class="inline-block w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
+                  {status() === "auto_applying" ? "auto-applying…" : "mb"}
+                </span>
+              </Show>
+              {/* diversity-gate sub-badge: shown when needs_review was triggered by
+               *  an album-only cascade stage (many distinct artists, title-only match). */}
+              <Show when={status() === "needs_review" && lastQueryStage() === "album_only"}>
+                <span
+                  class="inline-block px-1 py-0.5 rounded text-[9px] bg-amber-500/10 text-amber-400/70"
+                  title="diversity gate: title-only fallback matched multiple distinct artists — manual review required"
+                >
+                  title-only
+                </span>
+              </Show>
+            </div>
+            {/* row 2: source-availability dots (last.fm, theaudiodb).
+             *  deliberately non-pill so they can't be confused with the mb chip. */}
+            <div class="flex items-center gap-2">
+              <SourceDot label="last.fm" state={lastfmState()} />
+              <SourceDot label="theaudiodb" state={audiodbState()} />
+            </div>
           </div>
         </td>
         <td class="px-2 py-1 text-[var(--color-text-muted)]">{lastLookup() ?? "—"}</td>
@@ -664,33 +838,35 @@ function AlbumRow(props: { album: AlbumSummary; remote: Remote; index: number })
 
 type SourceBadgeState = "missing" | "ok" | "error" | "inflight";
 
-function SourceBadge(props: { label: string; title: string; state: SourceBadgeState }) {
+// SourceDot: tiny colored circle + label for last.fm / theaudiodb availability.
+// deliberately non-pill (no background box) so it can't be confused with the mb chip.
+function SourceDot(props: { label: string; state: SourceBadgeState }) {
   const tooltip = () => {
     switch (props.state) {
       case "inflight":
-        return `${props.title}: looking up…`;
+        return `${props.label}: looking up…`;
       case "ok":
-        return `${props.title}: fetched`;
+        return `${props.label}: fetched`;
       case "error":
-        return `${props.title}: error (see modal)`;
+        return `${props.label}: error (see modal)`;
       case "missing":
-        return `${props.title}: not fetched`;
+        return `${props.label}: not fetched`;
     }
   };
   return (
     <span
-      class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px]"
+      class="inline-flex items-center gap-0.5 text-[9px] text-[var(--color-text-disabled)]"
       title={tooltip()}
-      classList={{
-        "bg-blue-500/15 text-blue-400": props.state === "inflight",
-        "bg-emerald-500/15 text-emerald-400": props.state === "ok",
-        "bg-rose-500/15 text-rose-400": props.state === "error",
-        "bg-[var(--color-bg-elevated)] text-[var(--color-text-muted)]": props.state === "missing",
-      }}
     >
-      <Show when={props.state === "inflight"}>
-        <span class="inline-block w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
-      </Show>
+      <span
+        class="inline-block w-1.5 h-1.5 rounded-full"
+        classList={{
+          "bg-blue-400 animate-pulse": props.state === "inflight",
+          "bg-emerald-500": props.state === "ok",
+          "bg-rose-500": props.state === "error",
+          "bg-[var(--color-border-subtle)]": props.state === "missing",
+        }}
+      />
       {props.label}
     </span>
   );

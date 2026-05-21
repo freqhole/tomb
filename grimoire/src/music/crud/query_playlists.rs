@@ -735,6 +735,7 @@ pub async fn list_user_playlists(
         user_id: None,
         favorites_only: None,
         min_rating: None,
+        mb_lookup_status: None,
     };
     query_playlists(params).await
 }
@@ -755,6 +756,7 @@ pub async fn search_playlists(
         user_id: None,
         favorites_only: None,
         min_rating: None,
+        mb_lookup_status: None,
     };
     query_playlists(params).await
 }

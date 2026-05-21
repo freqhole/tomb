@@ -8,8 +8,8 @@ use crate::database;
 
 use crate::media_blobz::{BlobType, MediaBlob};
 use crate::music::crud::models::{
-    AlbumQueryResult, ArtistQueryResult, EntityUrl, ImageMetadata, QueryParams, QueryResult,
-    SongQueryResult,
+    AlbumQueryResult, AlbumStatusCounts, ArtistQueryResult, EntityUrl, ImageMetadata, QueryParams,
+    QueryResult, SongQueryResult,
 };
 use crate::music::entities::{albums::Album, albums::GenreRef, artists::Artist, songs::Song};
 use crate::response::GrimoireResponse;
@@ -73,6 +73,8 @@ enum AlbumView {
     AlbumTotalDuration,
     #[iden = "album_song_count"]
     AlbumSongCount,
+    #[iden = "album_mb_lookup_status"]
+    AlbumMbLookupStatus,
 }
 
 #[derive(Iden)]
@@ -983,6 +985,40 @@ pub async fn query_albums(params: QueryParams) -> GrimoireResponse<QueryResult<A
     let limit = params.limit.unwrap_or(50).min(1000);
     let offset = params.offset.unwrap_or(0);
 
+    // ── count query (same WHERE, no LIMIT/OFFSET) — gives real total_count ──
+    let mut count_q = Query::select();
+    count_q.expr(Expr::cust("COUNT(*)")).from(AlbumView::Table);
+    add_global_filters(
+        &mut count_q,
+        &params,
+        AlbumView::AlbumTitle,
+        AlbumView::ArtistName,
+        AlbumView::AlbumTitle,
+    );
+    if let Some(ref statuses) = params.mb_lookup_status {
+        if !statuses.is_empty() {
+            count_q.and_where(Expr::col(AlbumView::AlbumMbLookupStatus).is_in(statuses.clone()));
+        }
+    }
+    let (count_sql, count_values) = count_q.build(SqliteQueryBuilder);
+    let mut count_sqlx = sqlx::query_scalar::<_, i64>(&count_sql);
+    for v in count_values.0 {
+        match v {
+            sea_query::Value::String(Some(s)) => {
+                count_sqlx = count_sqlx.bind(s.as_ref().to_string());
+            }
+            sea_query::Value::BigInt(Some(i)) => {
+                count_sqlx = count_sqlx.bind(i);
+            }
+            sea_query::Value::BigUnsigned(Some(i)) => {
+                count_sqlx = count_sqlx.bind(i as i64);
+            }
+            _ => {}
+        }
+    }
+    let total_count = count_sqlx.fetch_one(&pool).await.unwrap_or(0);
+
+    // ── data query ————————————————————————————————————————————
     let mut query = Query::select();
     query.column(sea_query::Asterisk).from(AlbumView::Table);
 
@@ -993,6 +1029,13 @@ pub async fn query_albums(params: QueryParams) -> GrimoireResponse<QueryResult<A
         AlbumView::ArtistName,
         AlbumView::AlbumTitle,
     );
+
+    // server-side mb_lookup_status filter (replaces client-side filtering)
+    if let Some(ref statuses) = params.mb_lookup_status {
+        if !statuses.is_empty() {
+            query.and_where(Expr::col(AlbumView::AlbumMbLookupStatus).is_in(statuses.clone()));
+        }
+    }
 
     let sort_direction = match params.sort_direction.as_deref() {
         Some("desc") => Order::Desc,
@@ -1071,12 +1114,98 @@ pub async fn query_albums(params: QueryParams) -> GrimoireResponse<QueryResult<A
         format!("Found {} album(s)", album_count),
         QueryResult {
             items: albums,
-            total_count: album_count as i64,
-            has_more: album_count == limit as usize,
+            total_count,
+            has_more: (offset as i64 + album_count as i64) < total_count,
             limit: limit as i64,
             offset: offset as i64,
             query_time_ms: Some(start_time.elapsed().as_millis() as u64),
         },
+    )
+}
+
+/// returns per-status album counts for the current library/filter context.
+/// intentionally does NOT apply the `mb_lookup_status` filter itself —
+/// the counts tell the client how many albums each filter chip would return.
+pub async fn query_album_status_counts(params: QueryParams) -> GrimoireResponse<AlbumStatusCounts> {
+    let pool = match database::connect().await {
+        Ok(pool) => pool,
+        Err(err) => {
+            return GrimoireResponse::failure("Failed to connect to database", vec![err.into()])
+        }
+    };
+
+    // build base WHERE (same global filters as query_albums, minus status filter)
+    let mut base_q = Query::select();
+    base_q
+        .column(AlbumView::AlbumMbLookupStatus)
+        .from(AlbumView::Table);
+    add_global_filters(
+        &mut base_q,
+        &params,
+        AlbumView::AlbumTitle,
+        AlbumView::ArtistName,
+        AlbumView::AlbumTitle,
+    );
+    let (base_sql, base_values) = base_q.build(SqliteQueryBuilder);
+
+    // status counts: GROUP BY on the base subquery
+    let counts_sql = format!(
+        "SELECT COALESCE(album_mb_lookup_status, 'not_attempted') AS s, COUNT(*) AS n \
+         FROM ({}) AS __t GROUP BY s",
+        base_sql
+    );
+    let total_sql = format!("SELECT COUNT(*) FROM ({}) AS __t", base_sql);
+
+    // helper: bind sea_query values to a generic sqlx query string
+    // we need to bind the same values twice so clone the Vec
+    let bind_vals: Vec<sea_query::Value> = base_values.0;
+
+    // total count
+    let mut total_q = sqlx::query_scalar::<_, i64>(&total_sql);
+    for v in &bind_vals {
+        match v {
+            sea_query::Value::String(Some(s)) => {
+                total_q = total_q.bind(s.as_ref().to_string());
+            }
+            sea_query::Value::BigInt(Some(i)) => {
+                total_q = total_q.bind(*i);
+            }
+            sea_query::Value::BigUnsigned(Some(i)) => {
+                total_q = total_q.bind(*i as i64);
+            }
+            _ => {}
+        }
+    }
+    let total = total_q.fetch_one(&pool).await.unwrap_or(0);
+
+    // per-status counts
+    #[derive(sqlx::FromRow)]
+    struct StatusCount {
+        s: String,
+        n: i64,
+    }
+    let mut counts_q = sqlx::query_as::<_, StatusCount>(&counts_sql);
+    for v in &bind_vals {
+        match v {
+            sea_query::Value::String(Some(s)) => {
+                counts_q = counts_q.bind(s.as_ref().to_string());
+            }
+            sea_query::Value::BigInt(Some(i)) => {
+                counts_q = counts_q.bind(*i);
+            }
+            sea_query::Value::BigUnsigned(Some(i)) => {
+                counts_q = counts_q.bind(*i as i64);
+            }
+            _ => {}
+        }
+    }
+    let rows = counts_q.fetch_all(&pool).await.unwrap_or_default();
+    let by_status: std::collections::HashMap<String, i64> =
+        rows.into_iter().map(|r| (r.s, r.n)).collect();
+
+    GrimoireResponse::success(
+        "album status counts".to_string(),
+        AlbumStatusCounts { total, by_status },
     )
 }
 
@@ -1223,6 +1352,7 @@ pub async fn list_recent_songs(
         user_id: None,
         favorites_only: None,
         min_rating: None,
+        mb_lookup_status: None,
     };
     query_songs(params).await
 }
@@ -1243,6 +1373,7 @@ pub async fn search_songs(
         user_id: None,
         favorites_only: None,
         min_rating: None,
+        mb_lookup_status: None,
     };
     query_songs(params).await
 }
@@ -1269,6 +1400,7 @@ pub async fn list_songs_by_artist(
         user_id: None,
         favorites_only: None,
         min_rating: None,
+        mb_lookup_status: None,
     };
     query_songs(params).await
 }
@@ -1295,6 +1427,7 @@ pub async fn list_songs_by_album(
         user_id: None,
         favorites_only: None,
         min_rating: None,
+        mb_lookup_status: None,
     };
     query_songs(params).await
 }
@@ -1321,6 +1454,7 @@ pub async fn list_songs_by_genre(
         user_id: None,
         favorites_only: None,
         min_rating: None,
+        mb_lookup_status: None,
     };
     query_songs(params).await
 }
@@ -1347,6 +1481,7 @@ pub async fn list_albums_by_artist(
         user_id: None,
         favorites_only: None,
         min_rating: None,
+        mb_lookup_status: None,
     };
     query_albums(params).await
 }

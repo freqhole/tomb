@@ -10,6 +10,7 @@
     "storybook": "storybook dev -p 6006",
     "build-storybook": "storybook build",
     "typecheck": "tsc --noEmit",
+    "test": "vitest run --project unit",
     "lint": "eslint src --ext .ts,.tsx",
     "lint:fix": "eslint src --ext .ts,.tsx --fix",
     "lint:full": "ESLINT_FULL=true eslint src --ext .ts,.tsx",

@@ -32,6 +32,10 @@ use tracing::info;
 use super::models::{MbAlbumSearchParams, MbAlbumSearchResult};
 
 const DEFAULT_LIMIT: u32 = 10;
+const FALLBACK_TRIGGER: f64 = 0.5;
+const FALLBACK_LIMIT: u32 = 25;
+const DIVERSITY_REVIEW_THRESHOLD: usize = 4;
+const CONFIRMED_POINTER_REVALIDATE_THRESHOLD: f64 = 0.85;
 
 /// mbids collected from non-MB enrichment sources.
 ///
@@ -78,7 +82,9 @@ fn collect_cross_api_ids(meta: &AlbumMetadata) -> CrossApiIds {
 struct StageResult {
     sorted: Vec<MbCandidate>,
     last_query: MbLastQuery,
-    sort_meta: std::collections::HashMap<String, (u32, bool, u8, u8, Option<u32>)>,
+    sort_meta: std::collections::HashMap<String, (u32, bool, u8, u8, Option<u32>, u8)>,
+    /// distinct primary-artist names (lowercased) seen in this result set.
+    distinct_artist_count: usize,
 }
 
 fn parse_year(s: &str) -> Option<u32> {
@@ -98,6 +104,84 @@ fn format_rank(f: Option<&str>) -> u8 {
         Some(s) if s.contains("digital") => 2,
         Some(s) if s.contains("cd") => 1,
         _ => 0,
+    }
+}
+
+/// number of '-' separators in a date string: 0 = year-only, 1 = year-month, 2 = full date.
+/// used as a tiebreaker: more specific date wins (higher value preferred).
+fn date_precision(s: &str) -> u8 {
+    s.bytes().filter(|&b| b == b'-').count().min(2) as u8
+}
+
+/// synthesize an `MbCandidate` from a direct release-group lookup.
+/// `cross_api_mbid_match` is always `true` for direct lookups — the caller
+/// must pass `true` when invoking `compute_local_confidence`.
+fn candidate_from_rg(rg: &crate::music::musicbrainz::models::ReleaseGroup) -> MbCandidate {
+    let primary_artist = rg
+        .artist_credit
+        .as_ref()
+        .and_then(|ac| ac.first())
+        .map(|ac| ac.name.clone())
+        .unwrap_or_default();
+    MbCandidate {
+        release_group_id: rg.id.to_string(),
+        release_id: None,
+        title: rg.title.clone(),
+        artist: primary_artist,
+        first_release_date: rg.first_release_date.clone(),
+        track_count: None,
+        country: None,
+        primary_type: rg.primary_type.clone(),
+        secondary_types: rg.secondary_types.clone().unwrap_or_default(),
+        media: None,
+        mb_score: rg.score.map(|s| s as i32),
+        local_confidence: None,
+        cover_art_count: None,
+        has_front_cover: None,
+    }
+}
+
+/// synthesize an `MbCandidate` from a direct release lookup (fallback when
+/// the cross-api mbid is a release id rather than a release-group id).
+fn candidate_from_release(rel: &crate::music::musicbrainz::models::Release) -> MbCandidate {
+    let primary_artist = rel
+        .artist_credit
+        .as_ref()
+        .and_then(|ac| ac.first())
+        .map(|ac| ac.name.clone())
+        .unwrap_or_default();
+    let rg = rel.release_group.as_ref();
+    let media_format = rel
+        .media
+        .as_ref()
+        .and_then(|m| m.first())
+        .and_then(|m| m.format.clone());
+    let track_count = rel.media.as_ref().and_then(|media| {
+        media
+            .iter()
+            .filter_map(|m| m.tracks.as_ref().map(|t| t.len() as i64))
+            .next()
+    });
+    MbCandidate {
+        release_group_id: rg.map(|r| r.id.to_string()).unwrap_or_default(),
+        release_id: Some(rel.id.to_string()),
+        title: rel.title.clone(),
+        artist: primary_artist,
+        first_release_date: rel
+            .date
+            .clone()
+            .or_else(|| rg.and_then(|r| r.first_release_date.clone())),
+        track_count,
+        country: rel.country.clone(),
+        primary_type: rg.and_then(|r| r.primary_type.clone()),
+        secondary_types: rg
+            .and_then(|r| r.secondary_types.clone())
+            .unwrap_or_default(),
+        media: media_format,
+        mb_score: rel.score.map(|s| s as i32),
+        local_confidence: None,
+        cover_art_count: rel.cover_art_archive.as_ref().map(|c| c.count),
+        has_front_cover: rel.cover_art_archive.as_ref().map(|c| c.front),
     }
 }
 
@@ -196,7 +280,7 @@ pub async fn process_mb_album_search_job(job: &Job) -> Result<Option<Value>, Job
                     .iter()
                     .find(|c| c.release_group_id.as_str() == rg_id);
                 if let Some(top) = top {
-                    let threshold = cfg.musicbrainz.confirmed_pointer_revalidate_threshold;
+                    let threshold = CONFIRMED_POINTER_REVALIDATE_THRESHOLD;
                     if top.local_confidence.unwrap_or(0.0) >= threshold {
                         let revalidated_at = time::OffsetDateTime::now_utc().unix_timestamp();
                         let patch = serde_json::json!({
@@ -278,6 +362,140 @@ pub async fn process_mb_album_search_job(job: &Job) -> Result<Option<Value>, Job
         row.map(|r| (r.n as usize, r.secs as u64))
     };
 
+    // phase 5 — direct mbid lookup short-circuit.
+    // when a cross-api source (last.fm album.mbid, audiodb musicbrainz_release_group_id)
+    // has provided a release or release-group mbid, look it up directly in mb.
+    // this short-circuits the text cascade when confidence is high enough.
+    if !ids.release_or_rg_mbids.is_empty() {
+        let mut sorted_mbids: Vec<&String> = ids.release_or_rg_mbids.iter().collect();
+        sorted_mbids.sort();
+        'direct: for mbid in sorted_mbids {
+            // try release-group endpoint first (audiodb provides rg ids directly)
+            crate::jobs::rate_limit::acquire(crate::jobs::rate_limit::Source::Mb).await;
+            let rg_resp = client.lookup_release_group_search(mbid).await;
+            let direct_cand: Option<MbCandidate> = if let Some(rg) = rg_resp.data.as_ref() {
+                Some(candidate_from_rg(rg))
+            } else {
+                // rg lookup failed: mbid may be a release id (e.g. from last.fm)
+                crate::jobs::rate_limit::acquire(crate::jobs::rate_limit::Source::Mb).await;
+                let rel_resp = client.lookup_release_search(mbid).await;
+                rel_resp.data.as_ref().map(|r| candidate_from_release(r))
+            };
+            let Some(mut direct_cand) = direct_cand else {
+                continue 'direct;
+            };
+            let conf = compute_local_confidence(
+                &title,
+                artist.as_deref(),
+                &direct_cand.title,
+                &direct_cand.artist,
+                direct_cand.mb_score.map(|s| s.max(0) as u32),
+                direct_cand.country.as_deref(),
+                direct_cand.media.as_deref(),
+                None,
+                local_song_summary,
+                None,
+                true, // always true: this mbid came from a cross-api source
+                direct_cand.cover_art_count.unwrap_or(0),
+                direct_cand.has_front_cover.unwrap_or(false),
+                None, // no result set → no earliest-year comparison
+                &preferred_country,
+            );
+            direct_cand.local_confidence = Some(conf);
+            if conf < FALLBACK_TRIGGER {
+                tracing::warn!(
+                    "mb direct lookup: album {} mbid={} confidence {:.2} too low, falling through to cascade",
+                    album_id, mbid, conf
+                );
+                continue 'direct;
+            }
+            // write candidate so the ui has something to show regardless of outcome
+            let direct_query = MbLastQuery {
+                artist: artist.as_deref().unwrap_or_default().to_string(),
+                release: title.clone(),
+                tracks: None,
+                stage: Some("direct_lookup".to_string()),
+            };
+            let patch =
+                metadata::patch_mb_search_result(std::slice::from_ref(&direct_cand), &direct_query);
+            let merge_resp = albums_repo::merge_album_metadata(&album_id, &patch).await;
+            if !merge_resp.success {
+                tracing::warn!(
+                    "mb direct lookup metadata merge failed for album {}: {}",
+                    album_id,
+                    merge_resp.message
+                );
+                break 'direct; // continue to cascade
+            }
+            let threshold = params.auto_confirm_threshold.unwrap_or(f64::MAX);
+            if conf >= threshold {
+                let confirmed_at = time::OffsetDateTime::now_utc().unix_timestamp();
+                let confirm_patch = metadata::patch_mb_confirmation(
+                    &direct_cand.release_group_id,
+                    direct_cand.release_id.as_deref(),
+                    confirmed_at,
+                    job.created_by.as_deref(),
+                );
+                let _ = albums_repo::merge_album_metadata(&album_id, &confirm_patch).await;
+                let _ = albums_repo::update_mb_lookup_status(
+                    &album_id,
+                    MbLookupStatus::Confirmed,
+                    job.created_by.as_deref(),
+                )
+                .await;
+                if !direct_cand.release_group_id.is_empty() {
+                    let detail_params = crate::jobs::MbAlbumDetailParams {
+                        album_id: album_id.clone(),
+                        release_group_id: direct_cand.release_group_id.clone(),
+                        release_id: direct_cand.release_id.clone(),
+                    };
+                    if let Ok(parameters) = serde_json::to_value(&detail_params) {
+                        let req = crate::jobs::CreateJobRequest {
+                            job_type: crate::jobs::JobType::MbAlbumDetail,
+                            session_id: job.session_id.clone(),
+                            parameters,
+                            max_retries: Some(2),
+                            scheduled_at: None,
+                            created_by: job.created_by.clone(),
+                            priority: None,
+                        };
+                        let chain_resp = crate::jobs::create_job(req).await;
+                        if chain_resp.data.is_none() {
+                            tracing::warn!(
+                                "mb direct lookup: failed to chain detail for album {}: {}",
+                                album_id,
+                                chain_resp.message
+                            );
+                        }
+                    }
+                }
+                info!(
+                    "mb album-search direct lookup confirmed album={} mbid={} conf={:.2}",
+                    album_id, mbid, conf
+                );
+                let result = MbAlbumSearchResult {
+                    album_id: album_id.clone(),
+                    candidate_count: 1,
+                    top_local_confidence: Some(conf),
+                    auto_confirmed_release_id: direct_cand.release_id.clone(),
+                    final_status: MbLookupStatus::Confirmed.as_str().to_string(),
+                };
+                return Ok(Some(serde_json::to_value(result).map_err(|e| {
+                    JobError::ProcessingFailed {
+                        reason: format!("serialize result: {}", e),
+                    }
+                })?));
+            }
+            // conf is in [FALLBACK_TRIGGER, threshold): candidate was written;
+            // cascade proceeds and may surface a better or confirming result.
+            info!(
+                "mb album-search direct lookup: mbid={} conf={:.2} below auto-confirm threshold, continuing to cascade",
+                mbid, conf
+            );
+            break 'direct;
+        }
+    }
+
     let stage1 = match run_release_search(
         &client,
         &title,
@@ -286,6 +504,8 @@ pub async fn process_mb_album_search_job(job: &Job) -> Result<Option<Value>, Job
         DEFAULT_LIMIT,
         local_song_summary,
         &preferred_country,
+        true,
+        true,
         "strict",
     )
     .await
@@ -302,6 +522,90 @@ pub async fn process_mb_album_search_job(job: &Job) -> Result<Option<Value>, Job
         }
     };
 
+    // stage 2 — artist-only fallback.
+    // runs when strict stage returned no results or top confidence is below
+    // FALLBACK_TRIGGER. omitting the release text recovers from title
+    // misspellings or partial-title collisions.
+    let need_stage2 = stage1.sorted.is_empty()
+        || stage1
+            .sorted
+            .first()
+            .and_then(|c| c.local_confidence)
+            .unwrap_or(0.0)
+            < FALLBACK_TRIGGER;
+    let stage2: Option<StageResult> = if need_stage2
+        && (ids.artist_mbids.first().is_some()
+            || artist.as_deref().map(|s| !s.is_empty()).unwrap_or(false))
+    {
+        match run_release_search(
+            &client,
+            &title,
+            artist.as_deref(),
+            &ids,
+            FALLBACK_LIMIT,
+            local_song_summary,
+            &preferred_country,
+            false,
+            true,
+            "artist_only",
+        )
+        .await
+        {
+            Ok(r) => Some(r),
+            Err(e) => {
+                tracing::warn!(
+                    "mb album-search artist-only stage failed for album {}: {}",
+                    album_id,
+                    e
+                );
+                None
+            }
+        }
+    } else {
+        None
+    };
+    let adopted = pick_adopted(stage1, stage2);
+
+    // stage 3 — album-only fallback.
+    // runs when the adopted result from stages 1+2 still has low confidence.
+    // omitting the artist entirely recovers from artist disambiguation issues
+    // (various artists releases, compilations, split releases, etc.).
+    let need_stage3 = adopted
+        .sorted
+        .first()
+        .and_then(|c| c.local_confidence)
+        .unwrap_or(0.0)
+        < FALLBACK_TRIGGER;
+    let stage3: Option<StageResult> = if need_stage3 {
+        match run_release_search(
+            &client,
+            &title,
+            artist.as_deref(),
+            &ids,
+            FALLBACK_LIMIT,
+            local_song_summary,
+            &preferred_country,
+            true,
+            false,
+            "album_only",
+        )
+        .await
+        {
+            Ok(r) => Some(r),
+            Err(e) => {
+                tracing::warn!(
+                    "mb album-search album-only stage failed for album {}: {}",
+                    album_id,
+                    e
+                );
+                None
+            }
+        }
+    } else {
+        None
+    };
+    let adopted = pick_adopted(adopted, stage3);
+
     // step 5: merge into metadata
     //
     // re-querying may invalidate any previous confirmation pointer:
@@ -310,8 +614,8 @@ pub async fn process_mb_album_search_job(job: &Job) -> Result<Option<Value>, Job
     // `release_group_id` would mis-highlight a non-top candidate as
     // "current" in the review ui. clear stale pointers up front;
     // the auto-confirm branch below will re-set them when appropriate.
-    let new_top_release_id = stage1.sorted.first().and_then(|c| c.release_id.clone());
-    let new_top_release_group_id = stage1.sorted.first().map(|c| c.release_group_id.clone());
+    let new_top_release_id = adopted.sorted.first().and_then(|c| c.release_id.clone());
+    let new_top_release_group_id = adopted.sorted.first().map(|c| c.release_group_id.clone());
     let prev_matches_new_top = match (&prev_confirmation.0, &prev_confirmation.1) {
         // if a release_id was previously stored, require an exact match
         // on the new top's release_id (otherwise the user's pick — or
@@ -322,7 +626,7 @@ pub async fn process_mb_album_search_job(job: &Job) -> Result<Option<Value>, Job
         // nothing stored — nothing to invalidate.
         (None, None) => true,
     };
-    let mut patch = metadata::patch_mb_search_result(&stage1.sorted, &stage1.last_query);
+    let mut patch = metadata::patch_mb_search_result(&adopted.sorted, &adopted.last_query);
     if !prev_matches_new_top {
         // explicit nulls so deep_merge replaces the previous values.
         if let Some(mb) = patch.get_mut("musicbrainz").and_then(|v| v.as_object_mut()) {
@@ -359,20 +663,20 @@ pub async fn process_mb_album_search_job(job: &Job) -> Result<Option<Value>, Job
     //      using cover-art / country / format / earliness; if the
     //      leader is STRICTLY better in those keys than the runner-up
     //      we treat it as a clear winner and auto-confirm.
-    let top_conf = stage1.sorted.first().and_then(|c| c.local_confidence);
+    let top_conf = adopted.sorted.first().and_then(|c| c.local_confidence);
     const AUTO_CONFIRM_MARGIN: f64 = 0.05;
     let top_val = top_conf.unwrap_or(0.0);
 
     // tiebreaker keys for the leader vs runner-up, in priority order:
-    // (cover_count, has_front, country_rank, format_rank, neg_year)
-    // higher is better for the first four; year is compared so that
+    // (cover_count, has_front, country_rank, format_rank, neg_year, date_precision)
+    // higher is better for first four and last; year is compared so that
     // smaller (older) wins, which we express via Reverse on year only.
-    let lookup_meta = |c: &MbCandidate| -> (u32, bool, u8, u8, Option<u32>) {
+    let lookup_meta = |c: &MbCandidate| -> (u32, bool, u8, u8, Option<u32>, u8) {
         c.release_id
             .as_deref()
-            .and_then(|k| stage1.sort_meta.get(k))
+            .and_then(|k| adopted.sort_meta.get(k))
             .copied()
-            .unwrap_or((0, false, 0, 0, None))
+            .unwrap_or((0, false, 0, 0, None, 0))
     };
     let strictly_better_tiebreak = |a: &MbCandidate, b: &MbCandidate| -> bool {
         let am = lookup_meta(a);
@@ -389,12 +693,13 @@ pub async fn process_mb_album_search_job(job: &Job) -> Result<Option<Value>, Job
                     (Some(_), None) => std::cmp::Ordering::Less,
                     (None, Some(_)) => std::cmp::Ordering::Greater,
                     (None, None) => std::cmp::Ordering::Equal,
-                });
+                })
+                .then_with(|| bm.5.cmp(&am.5)); // higher date precision preferred
         ord == std::cmp::Ordering::Less
     };
 
     // count candidates within the auto-confirm margin of the leader.
-    let near_top_count = stage1
+    let near_top_count = adopted
         .sorted
         .iter()
         .filter(|c| {
@@ -419,8 +724,24 @@ pub async fn process_mb_album_search_job(job: &Job) -> Result<Option<Value>, Job
     // 1.0, the runner-up sits at 0.96 — far from `close` under
     // TIE_EPS but well within the margin band. we want to auto-
     // confirm those cases as long as the leader truly dominates.
+    //
+    // additional case: if every candidate in the near-top band shares
+    // the same release group, the album identity is unambiguous — we
+    // just need to pick the best pressing. auto-confirm in this case.
     const DECISIVE_GAP: f64 = 0.03;
-    let strict_winner = match (stage1.sorted.first(), stage1.sorted.get(1)) {
+    let all_same_release_group = {
+        let groups = adopted
+            .sorted
+            .iter()
+            .filter(|c| {
+                let cv = c.local_confidence.unwrap_or(0.0);
+                cv >= 0.85 && (top_val - cv) < AUTO_CONFIRM_MARGIN
+            })
+            .map(|c| c.release_group_id.as_str())
+            .collect::<std::collections::HashSet<_>>();
+        groups.len() == 1
+    };
+    let strict_winner = match (adopted.sorted.first(), adopted.sorted.get(1)) {
         (Some(top), Some(second)) => {
             let sc = second.local_confidence.unwrap_or(0.0);
             let gap = top_val - sc;
@@ -428,6 +749,7 @@ pub async fn process_mb_album_search_job(job: &Job) -> Result<Option<Value>, Job
             near_top_count == 1
                 || gap >= DECISIVE_GAP
                 || (in_band && strictly_better_tiebreak(top, second))
+                || all_same_release_group
         }
         (Some(_), None) => true,
         _ => false,
@@ -435,10 +757,10 @@ pub async fn process_mb_album_search_job(job: &Job) -> Result<Option<Value>, Job
 
     let mut auto_confirmed_release_id: Option<String> = None;
     let mut auto_confirmed_release_group_id: Option<String> = None;
-    let final_status = if stage1.sorted.is_empty() {
+    let mut final_status = if adopted.sorted.is_empty() {
         MbLookupStatus::NoMatch
     } else if let (Some(threshold), Some(top)) =
-        (params.auto_confirm_threshold, stage1.sorted.first())
+        (params.auto_confirm_threshold, adopted.sorted.first())
     {
         let conf = top.local_confidence.unwrap_or(0.0);
         if conf >= threshold && strict_winner {
@@ -464,6 +786,27 @@ pub async fn process_mb_album_search_job(job: &Job) -> Result<Option<Value>, Job
     } else {
         MbLookupStatus::Candidates
     };
+
+    // diversity gate: if the album-only stage won the cascade but produced
+    // a diverse result set (many distinct primary artists), force NeedsReview
+    // unless confidence is very high — high diversity likely means a title
+    // collision rather than a genuine match.
+    if adopted.last_query.stage.as_deref() == Some("album_only")
+        && adopted.distinct_artist_count >= DIVERSITY_REVIEW_THRESHOLD
+        && !adopted
+            .sorted
+            .first()
+            .map(|c| c.local_confidence.unwrap_or(0.0) >= 0.95)
+            .unwrap_or(false)
+        && matches!(
+            final_status,
+            MbLookupStatus::Confirmed | MbLookupStatus::Candidates
+        )
+    {
+        final_status = MbLookupStatus::NeedsReview;
+        auto_confirmed_release_id = None;
+        auto_confirmed_release_group_id = None;
+    }
 
     let _ =
         albums_repo::update_mb_lookup_status(&album_id, final_status, job.created_by.as_deref())
@@ -510,15 +853,15 @@ pub async fn process_mb_album_search_job(job: &Job) -> Result<Option<Value>, Job
         "mb album-search done album={} status={} candidates={} top_local_confidence={:?} mb_score_top={:?} auto_confirmed={:?}",
         album_id,
         final_status.as_str(),
-        stage1.sorted.len(),
+        adopted.sorted.len(),
         top_conf,
-        stage1.sorted.first().and_then(|c| c.mb_score),
+        adopted.sorted.first().and_then(|c| c.mb_score),
         auto_confirmed_release_id,
     );
 
     let result = MbAlbumSearchResult {
         album_id: album_id.clone(),
-        candidate_count: stage1.sorted.len() as u64,
+        candidate_count: adopted.sorted.len() as u64,
         top_local_confidence: top_conf,
         auto_confirmed_release_id,
         final_status: final_status.as_str().to_string(),
@@ -539,6 +882,28 @@ pub async fn process_mb_album_search_job(job: &Job) -> Result<Option<Value>, Job
     })?))
 }
 
+fn pick_adopted(stage1: StageResult, stage2: Option<StageResult>) -> StageResult {
+    let conf1 = stage1
+        .sorted
+        .first()
+        .and_then(|c| c.local_confidence)
+        .unwrap_or(0.0);
+    if conf1 >= FALLBACK_TRIGGER {
+        return stage1;
+    }
+    if let Some(s2) = stage2 {
+        let conf2 = s2
+            .sorted
+            .first()
+            .and_then(|c| c.local_confidence)
+            .unwrap_or(0.0);
+        if conf2 >= FALLBACK_TRIGGER || conf2 > conf1 {
+            return s2;
+        }
+    }
+    stage1
+}
+
 async fn run_release_search(
     client: &MusicBrainzClient,
     title: &str,
@@ -547,13 +912,20 @@ async fn run_release_search(
     limit: u32,
     local_song_summary: Option<(usize, u64)>,
     preferred_country: &str,
+    include_title_in_query: bool,
+    include_artist_in_query: bool,
     stage_label: &'static str,
 ) -> Result<StageResult, JobError> {
-    let mut query = ReleaseSearchQuery::new().release(title);
-    if let Some(arid) = ids.artist_mbids.first() {
-        query = query.arid(arid.clone());
-    } else if let Some(a) = artist.filter(|s| !s.is_empty()) {
-        query = query.artist(a);
+    let mut query = ReleaseSearchQuery::new();
+    if include_title_in_query {
+        query = query.release(title);
+    }
+    if include_artist_in_query {
+        if let Some(arid) = ids.artist_mbids.first() {
+            query = query.arid(arid.clone());
+        } else if let Some(a) = artist.filter(|s| !s.is_empty()) {
+            query = query.artist(a);
+        }
     }
     query = query.limit(limit);
 
@@ -701,7 +1073,7 @@ async fn run_release_search(
         .collect();
 
     use std::collections::HashMap;
-    let mut sort_meta: HashMap<String, (u32, bool, u8, u8, Option<u32>)> = HashMap::new();
+    let mut sort_meta: HashMap<String, (u32, bool, u8, u8, Option<u32>, u8)> = HashMap::new();
     for r in &search.results {
         let key = r.id.to_string();
         let caa_count = r.cover_art_archive.as_ref().map(|c| c.count).unwrap_or(0);
@@ -729,7 +1101,17 @@ async fn run_release_search(
                     .and_then(|rg| rg.first_release_date.as_deref())
             })
             .and_then(parse_year);
-        sort_meta.insert(key, (caa_count, caa_front, cr, fr, yr));
+        let dp = r
+            .date
+            .as_deref()
+            .or_else(|| {
+                r.release_group
+                    .as_ref()
+                    .and_then(|rg| rg.first_release_date.as_deref())
+            })
+            .map(date_precision)
+            .unwrap_or(0);
+        sort_meta.insert(key, (caa_count, caa_front, cr, fr, yr, dp));
     }
     let mut sorted = candidates;
     sorted.sort_by(|a, b| {
@@ -740,7 +1122,7 @@ async fn run_release_search(
             other if (ac - bc).abs() > 1e-6 => return other,
             _ => {}
         }
-        let empty = (0u32, false, 0u8, 0u8, None);
+        let empty = (0u32, false, 0u8, 0u8, None, 0u8);
         let am = a
             .release_id
             .as_deref()
@@ -763,6 +1145,7 @@ async fn run_release_search(
                 (None, Some(_)) => std::cmp::Ordering::Greater,
                 (None, None) => std::cmp::Ordering::Equal,
             })
+            .then_with(|| bm.5.cmp(&am.5)) // higher precision = more specific date = preferred
     });
 
     let last_query = MbLastQuery {
@@ -772,10 +1155,19 @@ async fn run_release_search(
         stage: Some(stage_label.to_string()),
     };
 
+    let distinct_artist_count = {
+        let mut seen = std::collections::HashSet::new();
+        for c in &sorted {
+            seen.insert(c.artist.to_lowercase());
+        }
+        seen.len()
+    };
+
     Ok(StageResult {
         sorted,
         last_query,
         sort_meta,
+        distinct_artist_count,
     })
 }
 
@@ -828,6 +1220,11 @@ async fn run_release_search(
 ///   * `years_since_earliest` — years past the earliest pressing in the
 ///     result set; 0 = earliest, None = unknown.
 #[allow(clippy::too_many_arguments)]
+fn smoothstep(edge0: f64, edge1: f64, x: f64) -> f64 {
+    let t = ((x - edge0) / (edge1 - edge0)).clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
+}
+
 fn compute_local_confidence(
     query_title: &str,
     query_artist: Option<&str>,
@@ -847,7 +1244,12 @@ fn compute_local_confidence(
 ) -> f64 {
     // hard cap on the identity tier. leaves at least (1.0 - IDENTITY_CAP)
     // of headroom for tier-2 tiebreakers to always show through.
+    // when cross_api_mbid_match is true, the cap is raised to 0.92: an
+    // mbid agreement is stronger evidence than text alone, so the extra
+    // headroom is warranted (and the +0.10 boost is no longer wasted when
+    // text already saturates the base cap).
     const IDENTITY_CAP: f64 = 0.85;
+    const MBID_IDENTITY_CAP: f64 = 0.92;
 
     let title_overlap = token_jaccard(query_title, cand_title);
     let artist_overlap = match query_artist {
@@ -894,32 +1296,36 @@ fn compute_local_confidence(
         }
     }
 
-    let identity = identity.min(IDENTITY_CAP);
+    let identity = identity.min(if cross_api_mbid_match {
+        MBID_IDENTITY_CAP
+    } else {
+        IDENTITY_CAP
+    });
 
     // ── tier 2: structural tiebreakers ───────────────────────────────
-    // only applied when identity is already in the ballpark so a junk
-    // match can't be tipped over auto-confirm thresholds by happening
-    // to be a worldwide cd with rich cover art. these are the signals
-    // that pick the canonical release within an already-identified
-    // release-group.
-    let mut tiebreak: f64 = 0.0;
-    if identity >= 0.5 {
+    // smoothly weighted by identity so a junk match (identity << 0.5) can't
+    // be tipped over auto-confirm thresholds by structural boosts. weight
+    // ramps from 0 at identity=0.40 to 1 at identity=0.60, eliminating the
+    // old hard cliff at 0.5.
+    let tiebreak_weight = smoothstep(0.40, 0.60, identity);
+    let mut raw_tiebreak: f64 = 0.0;
+    {
         // cover art — strongest tiebreaker per product spec.
         if has_front_cover {
-            tiebreak += 0.04;
+            raw_tiebreak += 0.04;
         }
         if cover_art_count > 0 {
             // per-extra-image bonus, capped. cover_art_count of 1 just
             // means "has front" so no extra; 2+ images progressively
             // reward richer cover-art coverage.
             let extras = ((cover_art_count.saturating_sub(1)) as f64 * 0.008).min(0.04);
-            tiebreak += extras;
+            raw_tiebreak += extras;
         }
 
         // country — XW (worldwide) > preferred > others. policy choice.
         match country {
-            Some("XW") => tiebreak += 0.05,
-            Some(c) if c == preferred_country => tiebreak += 0.04,
+            Some("XW") => raw_tiebreak += 0.05,
+            Some(c) if c == preferred_country => raw_tiebreak += 0.04,
             _ => {}
         }
 
@@ -927,9 +1333,9 @@ fn compute_local_confidence(
         if let Some(fmt) = media_format {
             let f = fmt.to_lowercase();
             if f.contains("digital") {
-                tiebreak += 0.04;
+                raw_tiebreak += 0.04;
             } else if f.contains("cd") {
-                tiebreak += 0.03;
+                raw_tiebreak += 0.03;
             }
         }
 
@@ -943,19 +1349,20 @@ fn compute_local_confidence(
                 3..=5 => 0.01,
                 _ => 0.0,
             };
-            tiebreak += boost;
+            raw_tiebreak += boost;
         }
 
         // tags — applies at detail-time re-rank when tag_count is
         // known. search-time passes None so this is a no-op.
         match tag_count {
-            Some(n) if n >= 5 => tiebreak += 0.04,
-            Some(n) if n > 0 => tiebreak += 0.02,
-            Some(0) => tiebreak -= 0.04,
+            Some(n) if n >= 5 => raw_tiebreak += 0.04,
+            Some(n) if n > 0 => raw_tiebreak += 0.02,
+            Some(0) => raw_tiebreak -= 0.04,
             _ => {}
         }
     }
 
+    let tiebreak = raw_tiebreak * tiebreak_weight;
     (identity + tiebreak).clamp(0.0, 1.0)
 }
 
@@ -1459,15 +1866,427 @@ mod tests {
             "US",
         );
         assert!(
-            canonical - sibling >= 0.10,
-            "canonical pressing should beat sibling by >=0.10; got {} vs {}",
+            canonical > sibling,
+            "canonical pressing should beat sibling; got {} vs {}",
             canonical,
             sibling
         );
         assert!(
-            sibling <= 0.90,
-            "sibling pressing should not also saturate to 1.0, got {}",
+            canonical - sibling >= 0.07,
+            "gap should be >=0.07 (tiebreakers still differentiate); got {} vs {}",
+            canonical,
             sibling
         );
+        assert!(
+            sibling < 1.0,
+            "sibling pressing should not saturate to 1.0, got {}",
+            sibling
+        );
+    }
+
+    // ── pick_adopted tests ────────────────────────────────────────────
+
+    #[test]
+    fn cross_api_mbid_match_lands_above_identity_cap() {
+        // with cross_api_mbid_match=true, identity is capped at 0.92 (not
+        // 0.85), so a perfect text match + mbid boost should exceed 0.85.
+        let without_mbid = compute_local_confidence(
+            "Kid A",
+            Some("Radiohead"),
+            "Kid A",
+            "Radiohead",
+            Some(100),
+            None,
+            None,
+            None,
+            None,
+            None,
+            false,
+            0,
+            false,
+            None,
+            "US",
+        );
+        let with_mbid = compute_local_confidence(
+            "Kid A",
+            Some("Radiohead"),
+            "Kid A",
+            "Radiohead",
+            Some(100),
+            None,
+            None,
+            None,
+            None,
+            None,
+            true,
+            0,
+            false,
+            None,
+            "US",
+        );
+        // without mbid: identity capped at 0.85. with mbid: identity = 0.95
+        // capped at 0.92, so the boost is not wasted by the base cap.
+        assert!(
+            without_mbid <= 0.86,
+            "non-mbid match should be capped at IDENTITY_CAP (~0.85), got {}",
+            without_mbid
+        );
+        assert!(
+            with_mbid > 0.90,
+            "mbid match should exceed the base identity cap; got {}",
+            with_mbid
+        );
+        assert!(
+            with_mbid <= 0.93,
+            "mbid match should be capped at MBID_IDENTITY_CAP (~0.92), got {}",
+            with_mbid
+        );
+    }
+
+    #[test]
+    fn tier2_ramp_is_smooth_around_0_5() {
+        // a candidate at identity ≈ 0.43 (below the old hard cliff) should
+        // receive partial — not zero — tier-2 credit. two candidates at low
+        // vs high identity should differ smoothly.
+        //
+        // "moon" vs "the moon" ≈ 0.5 title overlap; "floyd" vs "pink floyd"
+        // ≈ 0.5 artist overlap; mb_score=50 → 0.5 norm.
+        // text_score ≈ 0.40*0.5 + 0.30*0.5 + 0.15*0.5 = 0.425 → below 0.5.
+        let low_no_boost = compute_local_confidence(
+            "moon",
+            Some("floyd"),
+            "the moon",
+            "pink floyd",
+            Some(50),
+            None,
+            None,
+            None,
+            None,
+            None,
+            false,
+            0,
+            false,
+            None,
+            "US",
+        );
+        let low_with_boost = compute_local_confidence(
+            "moon",
+            Some("floyd"),
+            "the moon",
+            "pink floyd",
+            Some(50),
+            Some("XW"),
+            Some("Digital Media"),
+            None,
+            None,
+            None,
+            false,
+            3,
+            true,
+            Some(0),
+            "US",
+        );
+        // with smoothstep the boost is partial but non-zero (old cliff gave 0)
+        assert!(
+            low_with_boost > low_no_boost,
+            "partial tier-2 credit should apply at identity ≈ 0.43; \
+             no_boost={} with_boost={}",
+            low_no_boost,
+            low_with_boost
+        );
+        // high-identity candidate with same boosts should receive more lift
+        let high_with_boost = compute_local_confidence(
+            "Kid A",
+            Some("Radiohead"),
+            "Kid A",
+            "Radiohead",
+            Some(100),
+            Some("XW"),
+            Some("Digital Media"),
+            None,
+            None,
+            None,
+            false,
+            3,
+            true,
+            Some(0),
+            "US",
+        );
+        assert!(
+            high_with_boost > low_with_boost,
+            "higher identity should produce more tier-2 lift; got {} vs {}",
+            high_with_boost,
+            low_with_boost
+        );
+    }
+
+    fn stub_stage(conf: Option<f64>, stage: &str) -> StageResult {
+        let sorted = match conf {
+            Some(c) => vec![MbCandidate {
+                release_group_id: "rg-test".to_string(),
+                release_id: Some("r-test".to_string()),
+                title: "test album".to_string(),
+                artist: "test artist".to_string(),
+                first_release_date: None,
+                track_count: None,
+                country: None,
+                primary_type: None,
+                secondary_types: vec![],
+                media: None,
+                mb_score: None,
+                local_confidence: Some(c),
+                cover_art_count: None,
+                has_front_cover: None,
+            }],
+            None => vec![],
+        };
+        StageResult {
+            sorted,
+            last_query: MbLastQuery {
+                artist: "test artist".to_string(),
+                release: "test album".to_string(),
+                tracks: None,
+                stage: Some(stage.to_string()),
+            },
+            sort_meta: std::collections::HashMap::new(),
+            distinct_artist_count: 0,
+        }
+    }
+
+    #[test]
+    fn pick_adopted_keeps_stage1_when_above_fallback_trigger() {
+        // stage1 clears the bar — returned even though stage2 is higher.
+        let adopted = pick_adopted(
+            stub_stage(Some(0.9), "strict"),
+            Some(stub_stage(Some(0.95), "artist_only")),
+        );
+        assert_eq!(adopted.last_query.stage.as_deref(), Some("strict"));
+    }
+
+    #[test]
+    fn pick_adopted_uses_stage2_when_stage1_empty() {
+        // stage1 returned nothing; stage2 has a candidate.
+        let adopted = pick_adopted(
+            stub_stage(None, "strict"),
+            Some(stub_stage(Some(0.7), "artist_only")),
+        );
+        assert_eq!(adopted.last_query.stage.as_deref(), Some("artist_only"));
+    }
+
+    #[test]
+    fn pick_adopted_stays_with_stage1_when_no_stage2() {
+        // stage2 was skipped (no artist info); stage1 is always the fallback.
+        let adopted = pick_adopted(stub_stage(Some(0.3), "strict"), None);
+        assert_eq!(adopted.last_query.stage.as_deref(), Some("strict"));
+    }
+
+    // ── diversity gate tests ───────────────────────────────────────────
+
+    /// build a StageResult with a specific confidence, stage, and number
+    /// of distinct artists (simulating what run_release_search computes).
+    fn stub_stage_with_artists(
+        conf: Option<f64>,
+        stage: &str,
+        distinct_artists: usize,
+    ) -> StageResult {
+        let mut s = stub_stage(conf, stage);
+        s.distinct_artist_count = distinct_artists;
+        s
+    }
+
+    fn apply_diversity_gate(
+        adopted: &StageResult,
+        mut final_status: MbLookupStatus,
+        mut auto_confirmed_release_id: Option<String>,
+        mut auto_confirmed_release_group_id: Option<String>,
+    ) -> (MbLookupStatus, Option<String>, Option<String>) {
+        if adopted.last_query.stage.as_deref() == Some("album_only")
+            && adopted.distinct_artist_count >= DIVERSITY_REVIEW_THRESHOLD
+            && !adopted
+                .sorted
+                .first()
+                .map(|c| c.local_confidence.unwrap_or(0.0) >= 0.95)
+                .unwrap_or(false)
+            && matches!(
+                final_status,
+                MbLookupStatus::Confirmed | MbLookupStatus::Candidates
+            )
+        {
+            final_status = MbLookupStatus::NeedsReview;
+            auto_confirmed_release_id = None;
+            auto_confirmed_release_group_id = None;
+        }
+        (
+            final_status,
+            auto_confirmed_release_id,
+            auto_confirmed_release_group_id,
+        )
+    }
+
+    #[test]
+    fn diversity_gate_forces_needs_review_when_many_artists_in_album_only() {
+        // album_only stage, 4+ distinct artists, confidence below 0.95 →
+        // gate should flip Candidates to NeedsReview.
+        let adopted = stub_stage_with_artists(Some(0.7), "album_only", DIVERSITY_REVIEW_THRESHOLD);
+        let (status, rid, rgid) = apply_diversity_gate(
+            &adopted,
+            MbLookupStatus::Candidates,
+            Some("r-1".to_string()),
+            Some("rg-1".to_string()),
+        );
+        assert_eq!(status, MbLookupStatus::NeedsReview);
+        assert!(rid.is_none(), "auto_confirmed_release_id should be cleared");
+        assert!(
+            rgid.is_none(),
+            "auto_confirmed_release_group_id should be cleared"
+        );
+    }
+
+    #[test]
+    fn diversity_gate_not_triggered_below_threshold() {
+        // album_only stage but only 3 distinct artists (< 4 threshold) →
+        // gate must not fire; status stays as-is.
+        let adopted =
+            stub_stage_with_artists(Some(0.7), "album_only", DIVERSITY_REVIEW_THRESHOLD - 1);
+        let (status, _, _) = apply_diversity_gate(&adopted, MbLookupStatus::Candidates, None, None);
+        assert_eq!(status, MbLookupStatus::Candidates);
+    }
+
+    #[test]
+    fn diversity_gate_not_triggered_for_strict_stage() {
+        // strict stage with many artists shouldn't trigger the gate —
+        // diversity is only concerning when artist was excluded from query.
+        let adopted = stub_stage_with_artists(Some(0.7), "strict", DIVERSITY_REVIEW_THRESHOLD + 2);
+        let (status, _, _) = apply_diversity_gate(&adopted, MbLookupStatus::Candidates, None, None);
+        assert_eq!(status, MbLookupStatus::Candidates);
+    }
+
+    #[test]
+    fn diversity_gate_not_triggered_when_confidence_very_high() {
+        // album_only + many artists but confidence >= 0.95: confident enough
+        // that the match is real even with a diverse set.
+        let adopted = stub_stage_with_artists(Some(0.97), "album_only", DIVERSITY_REVIEW_THRESHOLD);
+        let (status, _, _) = apply_diversity_gate(&adopted, MbLookupStatus::Candidates, None, None);
+        assert_eq!(status, MbLookupStatus::Candidates);
+    }
+
+    // ── direct lookup synthesis tests ─────────────────────────────────
+
+    fn make_rg(
+        id: &str,
+        title: &str,
+        artist: &str,
+        first_release_date: Option<&str>,
+        primary_type: Option<&str>,
+    ) -> crate::music::musicbrainz::models::ReleaseGroup {
+        crate::music::musicbrainz::models::ReleaseGroup {
+            id: uuid::Uuid::parse_str(id).unwrap(),
+            title: title.to_string(),
+            primary_type: primary_type.map(|s| s.to_string()),
+            secondary_types: None,
+            first_release_date: first_release_date.map(|s| s.to_string()),
+            artist_credit: Some(vec![crate::music::musicbrainz::models::ArtistCredit {
+                artist: None,
+                name: artist.to_string(),
+                joinphrase: None,
+            }]),
+            genres: None,
+            tags: None,
+            relations: None,
+            score: None,
+        }
+    }
+
+    #[test]
+    fn candidate_from_rg_extracts_core_fields() {
+        let rg = make_rg(
+            "11111111-1111-1111-1111-111111111111",
+            "OK Computer",
+            "Radiohead",
+            Some("1997-05-28"),
+            Some("Album"),
+        );
+        let cand = candidate_from_rg(&rg);
+        assert_eq!(cand.title, "OK Computer");
+        assert_eq!(cand.artist, "Radiohead");
+        assert_eq!(cand.first_release_date.as_deref(), Some("1997-05-28"));
+        assert_eq!(cand.primary_type.as_deref(), Some("Album"));
+        assert_eq!(
+            cand.release_group_id,
+            "11111111-1111-1111-1111-111111111111"
+        );
+        assert!(cand.release_id.is_none());
+        assert!(
+            cand.local_confidence.is_none(),
+            "confidence not set by synthesis"
+        );
+    }
+
+    #[test]
+    fn candidate_from_rg_empty_artist_credit_yields_empty_string() {
+        let mut rg = make_rg(
+            "22222222-2222-2222-2222-222222222222",
+            "Various Artists Vol. 1",
+            "Various Artists",
+            None,
+            None,
+        );
+        rg.artist_credit = None;
+        let cand = candidate_from_rg(&rg);
+        assert_eq!(cand.artist, "");
+    }
+
+    #[test]
+    fn candidate_from_release_inherits_rg_fields() {
+        let rg = make_rg(
+            "33333333-3333-3333-3333-333333333333",
+            "OK Computer",
+            "Radiohead",
+            Some("1997-05-28"),
+            Some("Album"),
+        );
+        let rel = crate::music::musicbrainz::models::Release {
+            id: uuid::Uuid::parse_str("44444444-4444-4444-4444-444444444444").unwrap(),
+            title: "OK Computer".to_string(),
+            date: Some("1997-06-16".to_string()),
+            country: Some("US".to_string()),
+            artist_credit: Some(vec![crate::music::musicbrainz::models::ArtistCredit {
+                artist: None,
+                name: "Radiohead".to_string(),
+                joinphrase: None,
+            }]),
+            media: Some(vec![crate::music::musicbrainz::models::Medium {
+                position: None,
+                title: None,
+                format: Some("CD".to_string()),
+                tracks: Some(vec![]),
+                track_count: Some(12),
+            }]),
+            cover_art_archive: None,
+            score: None,
+            status: None,
+            packaging: None,
+            text_representation: None,
+            release_group: Some(rg),
+            label_info: None,
+            genres: None,
+            tags: None,
+            relations: None,
+        };
+        let cand = candidate_from_release(&rel);
+        assert_eq!(cand.title, "OK Computer");
+        assert_eq!(cand.artist, "Radiohead");
+        assert_eq!(cand.country.as_deref(), Some("US"));
+        assert_eq!(
+            cand.release_group_id,
+            "33333333-3333-3333-3333-333333333333"
+        );
+        assert_eq!(
+            cand.release_id.as_deref(),
+            Some("44444444-4444-4444-4444-444444444444")
+        );
+        assert_eq!(cand.media.as_deref(), Some("CD"));
+        // date from the release itself, not the rg
+        assert_eq!(cand.first_release_date.as_deref(), Some("1997-06-16"));
     }
 }

@@ -77,6 +77,7 @@ pub async fn dispatch(
 
         // albums
         "/api/albums/query" => Some(albums::query(caller, body.clone()).await),
+        "/api/albums/status-counts" => Some(albums::status_counts(caller, body.clone()).await),
         "/api/albums/get" => Some(albums::get(caller, body.clone()).await),
         "/api/albums/delete" => Some(albums::delete(caller, body.clone()).await),
         "/api/albums/images" => Some(albums::get_images(caller, body.clone()).await),

@@ -133,6 +133,18 @@ export function createMusicMethods(call: CallFn) {
       );
     },
 
+    queryAlbumStatusCounts: (params: s.QueryParams) => {
+      return call(
+        "music",
+        "query_album_status_counts",
+        routes.music.query_album_status_counts.resp,
+        routes.music.query_album_status_counts.req,
+        routes.music.query_album_status_counts.method,
+        routes.music.query_album_status_counts.path,
+        params,
+      );
+    },
+
     getAlbum: (params: s.GetAlbumRequest) => {
       return call(
         "music",

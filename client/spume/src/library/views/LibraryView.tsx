@@ -5,17 +5,10 @@
 // phase 2: remote picker (single-select) wired to a `selectedRemoteId`
 //          signal that subviews can read.
 
-import {
-  createEffect,
-  createMemo,
-  createResource,
-  createSignal,
-  Match,
-  Show,
-  Switch,
-} from "solid-js";
+import { createEffect, createSignal, Match, onCleanup, Show, Switch } from "solid-js";
 import { Icon } from "../../components/icons/registry";
 import { RemotePicker } from "../../components/forms/RemotePicker";
+import { useRemoteSelection } from "../../components/forms/useRemoteSelection";
 import { AlbumsTable } from "../components/AlbumsTable";
 import { AlbumBulkActionBar } from "../components/AlbumBulkActionBar";
 import { MbProgressStrip } from "../components/MbProgressStrip";
@@ -23,8 +16,8 @@ import { useAlbumSelectionLifecycle, useSelectedAlbumIds } from "../hooks/albumS
 import { useRemoteIsAdmin } from "../hooks/useRemoteRole";
 import { enqueueAlbumEnrichment } from "../hooks/useMbLookupJobs";
 import { startBulkEnrichmentReview } from "../../music/hooks/bulkEnrichmentReview";
-import { getAllRemotes } from "../../app/services/remotes/remoteManager";
 import { getClientForRemote } from "../../app/api/client";
+import { connectToRemote } from "../../app/services/remotes/connectionProgress";
 import { queryClient } from "../../queryClient";
 import { toast } from "../../components/feedback/Toast";
 import { BulkEditAlbumsModal } from "../../components/modals/BulkEditAlbumsModal";
@@ -39,12 +32,46 @@ const SUBVIEWS: { id: LibrarySubview; label: string; icon: Parameters<typeof Ico
     { id: "table", label: "table", icon: "list" },
   ];
 
+// after 2s of a remote switch without confirmed data, escalate to the
+// ConnectionProgressModal so the user can see what's happening.
+const SLOW_SWITCH_MS = 2000;
+
 export function LibraryView() {
   const [subview, setSubview] = createSignal<LibrarySubview>("table");
-  const [remotes] = createResource(getAllRemotes);
 
-  // single-select remote for phase 2; expand to multi later.
-  const [selectedRemoteIds, setSelectedRemoteIds] = createSignal<Set<string>>(new Set());
+  // view-local remote selection (encapsulates resource + default effect + memos)
+  const { remotes, selectedRemoteIds, setSelectedRemoteIds, selectedRemoteId, selectedRemote } =
+    useRemoteSelection();
+
+  // 9a: in-pane loading indicator that appears immediately on remote switch
+  // and escalates to the ConnectionProgressModal after SLOW_SWITCH_MS.
+  const [switchingToName, setSwitchingToName] = createSignal<string | null>(null);
+  let prevRemoteId: string | null = null;
+  let switchTimerRef: ReturnType<typeof setTimeout> | null = null;
+
+  createEffect(() => {
+    const newId = selectedRemoteId();
+    onCleanup(() => {
+      if (switchTimerRef) {
+        clearTimeout(switchTimerRef);
+        switchTimerRef = null;
+      }
+    });
+    if (prevRemoteId !== null && newId !== null && prevRemoteId !== newId) {
+      const stashedPrev = prevRemoteId;
+      setSwitchingToName(selectedRemote()?.name ?? null);
+      switchTimerRef = setTimeout(async () => {
+        switchTimerRef = null;
+        setSwitchingToName(null);
+        const result = await connectToRemote(newId);
+        if (!result.success && !result.cancelled) {
+          // remote seems offline — revert selection
+          setSelectedRemoteIds(new Set(stashedPrev ? [stashedPrev] : []));
+        }
+      }, SLOW_SWITCH_MS);
+    }
+    prevRemoteId = newId;
+  });
 
   // selection lifecycle (clear on route change + esc, ctrl/cmd-a select-all).
   useAlbumSelectionLifecycle();
@@ -60,26 +87,6 @@ export function LibraryView() {
   const [bulkEditAlbumIds, setBulkEditAlbumIds] = createSignal<string[]>([]);
   const [showTagSelectorModal, setShowTagSelectorModal] = createSignal(false);
   const [tagSelectorAlbumIds, setTagSelectorAlbumIds] = createSignal<string[]>([]);
-
-  // pick a sensible default once remotes load (first non-offline, else first).
-  createEffect(() => {
-    const r = remotes();
-    if (!r || r.length === 0) return;
-    if (selectedRemoteIds().size > 0) return;
-    const preferred = r.find((rem) => !rem.is_offline) ?? r[0];
-    setSelectedRemoteIds(new Set([preferred.remote_id]));
-  });
-
-  const selectedRemoteId = createMemo<string | null>(() => {
-    const ids = [...selectedRemoteIds()];
-    return ids[0] ?? null;
-  });
-
-  const selectedRemote = createMemo<Remote | undefined>(() => {
-    const id = selectedRemoteId();
-    if (!id) return undefined;
-    return (remotes() ?? []).find((r) => r.remote_id === id);
-  });
 
   const isRemoteAdmin = useRemoteIsAdmin(selectedRemote);
 
@@ -141,6 +148,70 @@ export function LibraryView() {
     }
   };
 
+  // bulk skip: flips `mb_lookup_status='skipped'` on selected albums
+  // so they are excluded from future bulk lookups.
+  const skipSelected = async (albumIds: string[]) => {
+    if (albumIds.length === 0) return;
+    const remote = selectedRemote();
+    if (!remote) return;
+    let client;
+    try {
+      client = await getClientForRemote(remote);
+    } catch (err) {
+      toast.error(`failed to reach remote: ${(err as Error).message}`);
+      return;
+    }
+    let ok = 0;
+    let failed = 0;
+    for (const id of albumIds) {
+      try {
+        const resp = await client.music.setMbLookupStatus({ album_id: id, status: "skipped" });
+        if (resp.success) ok += 1;
+        else failed += 1;
+      } catch {
+        failed += 1;
+      }
+    }
+    void queryClient.invalidateQueries({ queryKey: ["library-albums", remote.remote_id] });
+    if (failed > 0) toast.error(`skipped ${ok}, ${failed} failed`);
+    else toast.success(`skipped ${ok} album${ok === 1 ? "" : "s"} from future lookups`);
+  };
+
+  // bulk un-skip: resets `mb_lookup_status='not_attempted'` for albums
+  // that were previously skipped, re-entering them into the lookup queue.
+  const unskipSelected = async (albumIds: string[]) => {
+    if (albumIds.length === 0) return;
+    const remote = selectedRemote();
+    if (!remote) return;
+    let client;
+    try {
+      client = await getClientForRemote(remote);
+    } catch (err) {
+      toast.error(`failed to reach remote: ${(err as Error).message}`);
+      return;
+    }
+    let ok = 0;
+    let failed = 0;
+    for (const id of albumIds) {
+      try {
+        const resp = await client.music.setMbLookupStatus({
+          album_id: id,
+          status: "not_attempted",
+        });
+        if (resp.success) ok += 1;
+        else failed += 1;
+      } catch {
+        failed += 1;
+      }
+    }
+    void queryClient.invalidateQueries({ queryKey: ["library-albums", remote.remote_id] });
+    if (failed > 0) toast.error(`un-skipped ${ok}, ${failed} failed`);
+    else
+      toast.success(
+        `un-skipped ${ok} album${ok === 1 ? "" : "s"} — they'll appear in future lookups`
+      );
+  };
+
   return (
     <div class="flex flex-col h-full">
       {/* header — leaves room on the left for the floating topnav button */}
@@ -189,6 +260,16 @@ export function LibraryView() {
         </div>
       </div>
 
+      {/* 9a: in-pane indicator while the first query for a new remote is
+       *  in-flight. clears itself via onDataReady below or after the
+       *  connection modal escalates and succeeds. */}
+      <Show when={switchingToName()}>
+        <div class="flex items-center gap-2 px-4 py-2 text-xs text-[var(--color-text-secondary)] border-b border-[var(--color-border-subtle)]">
+          <div class="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" />
+          switching to {switchingToName()}…
+        </div>
+      </Show>
+
       {/* subview body */}
       <div class="flex-1 min-h-0 overflow-hidden relative">
         <Switch>
@@ -196,7 +277,11 @@ export function LibraryView() {
             <GraphPlaceholder />
           </Match>
           <Match when={subview() === "table"}>
-            <TablePlaceholder remote={selectedRemote()} onEnrichAllMatching={triggerEnrichment} />
+            <TablePlaceholder
+              remote={selectedRemote()}
+              onEnrichAllMatching={triggerEnrichment}
+              onDataReady={() => setSwitchingToName(null)}
+            />
           </Match>
         </Switch>
         <AlbumBulkActionBar
@@ -224,6 +309,8 @@ export function LibraryView() {
             setTagSelectorAlbumIds(ids);
             setShowTagSelectorModal(true);
           }}
+          onSkip={() => void skipSelected(selectedAlbumIds())}
+          onUnskip={() => void unskipSelected(selectedAlbumIds())}
         />
       </div>
 
@@ -283,6 +370,7 @@ function GraphPlaceholder() {
 function TablePlaceholder(props: {
   remote: Remote | undefined;
   onEnrichAllMatching?: (ids: string[]) => void;
+  onDataReady?: () => void;
 }) {
   return (
     <Show
@@ -296,7 +384,13 @@ function TablePlaceholder(props: {
         </div>
       }
     >
-      {(r) => <AlbumsTable remote={r()} onEnrichAllMatching={props.onEnrichAllMatching} />}
+      {(r) => (
+        <AlbumsTable
+          remote={r()}
+          onEnrichAllMatching={props.onEnrichAllMatching}
+          onDataReady={props.onDataReady}
+        />
+      )}
     </Show>
   );
 }
