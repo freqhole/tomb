@@ -726,7 +726,7 @@ mod tests {
     use super::*;
     use crate::music::entities::albums::metadata::{
         AudioDbMetadata, FolksonomyMetadata, FolksonomyTag, LastFmMetadata, LastFmTagRef,
-        MbFolksonomy, MbMetadata,
+        MbFolksonomy,
     };
 
     fn meta_with_mb_folksonomy() -> AlbumMetadata {
