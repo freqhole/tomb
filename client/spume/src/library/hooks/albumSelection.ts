@@ -125,6 +125,29 @@ export function removeAlbumsFromSelection(ids: string[]): void {
   if (changed) setSelectedAlbumIds(next);
 }
 
+/** add the given album ids to the current selection (idempotent). */
+export function addAlbumsToSelection(ids: string[]): void {
+  const next = new Set(selectedAlbumIds());
+  let changed = false;
+  for (const id of ids) {
+    if (!next.has(id)) {
+      next.add(id);
+      changed = true;
+    }
+  }
+  if (changed) setSelectedAlbumIds(next);
+}
+
+/** toggle a single album in the selection; updates `lastSelectedIndex`
+ *  so subsequent shift-clicks anchor from this row. */
+export function toggleAlbumSelection(albumId: string, index: number): void {
+  const next = new Set(selectedAlbumIds());
+  if (next.has(albumId)) next.delete(albumId);
+  else next.add(albumId);
+  setSelectedAlbumIds(next);
+  setLastSelectedIndex(index);
+}
+
 /** clear selection on route change + escape key. also installs the
  *  global ctrl/cmd-A handler that selects all loaded rows. attach this
  *  to the LibraryView. */
