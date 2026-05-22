@@ -54,8 +54,12 @@ function RootRedirect() {
     if (isCharnelMode()) {
       const tauriRemote = await getTauriManagedRemote();
       if (tauriRemote) {
-        debug("routes", "tauri mode: navigating to tauri-managed remote");
-        navigate(getDefaultRoute(tauriRemote.remote_id), { replace: true });
+        // tauri desktop app — land on the library graph view (cross-remote
+        // browse surface) rather than the single-remote albums grid. the
+        // graph view is the canonical multi-remote browse surface and
+        // shows the user's full library at a glance on cold start.
+        debug("routes", "tauri mode: navigating to /library (graph view)");
+        navigate("/library", { replace: true });
         return;
       }
       // no tauri remote yet - stay on root (App.tsx will handle setup)

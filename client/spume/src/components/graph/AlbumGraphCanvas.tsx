@@ -45,7 +45,15 @@ export interface AlbumGraphCanvasProps {
   nodeSize?: number;
   /** controlled selection (parent owns state) */
   selectedId?: string | null;
-  onSelect?: (node: GraphNodeData | null) => void;
+  /** additional selected node ids (for shift/cmd multi-select). these
+   *  render the same magenta ring as `selectedId` but don't drive
+   *  popovers or edge-focus highlighting — the parent decides what to
+   *  do with the extra picks. */
+  selectedIds?: Set<string>;
+  /** node click — second arg conveys keyboard modifier intent:
+   *  `multi=true` when shift/meta/ctrl was held during the click,
+   *  signalling the parent to toggle into a multi-selection set. */
+  onSelect?: (node: GraphNodeData | null, opts?: { multi?: boolean }) => void;
   /**
    * controlled edge selection. when provided, the canvas matches each
    * (kind,label) tuple against its internal links and lights up siblings
@@ -579,11 +587,18 @@ export function AlbumGraphCanvas(props: AlbumGraphCanvasProps) {
 
     // nodes
     animatingMarquee = false;
+    const multiSel = props.selectedIds;
     for (const n of simNodes) {
       const isEdgeFocus = edgeFocusIds?.has(n.id) ?? false;
       const searchMiss = hasSearch && search ? !search.has(n.id) : false;
+      const isMulti = multiSel?.has(n.id) ?? false;
+      // selection takes precedence over every other state so that
+      // explicitly-picked nodes (single click or shift/cmd add) always
+      // render the magenta ring. edge-focused nodes are intentionally
+      // demoted to "idle" so they remain visible without inheriting
+      // the selection ring — only direct user picks earn the ring.
       const state =
-        n.id === sel
+        n.id === sel || isMulti
           ? "selected"
           : n.id === hov
             ? "hover"
@@ -591,7 +606,7 @@ export function AlbumGraphCanvas(props: AlbumGraphCanvasProps) {
               ? "dimmed"
               : edgeFocusIds
                 ? isEdgeFocus
-                  ? "selected"
+                  ? "idle"
                   : "dimmed"
                 : focus && focusConnected && !focusConnected.has(n.id) && n.id !== focus
                   ? "dimmed"
@@ -1201,11 +1216,16 @@ export function AlbumGraphCanvas(props: AlbumGraphCanvasProps) {
       d.node.fx = null;
       d.node.fy = null;
       if (!props.lockNodes) sim?.alphaTarget(0);
-      // click on node → select; clears any selected edges
+      // click on node → select; clears any selected edges. modifier
+      // keys (shift/meta/ctrl) signal the parent to add to a multi-
+      // selection set instead of replacing the primary selection.
+      const multi = e.shiftKey || e.metaKey || e.ctrlKey;
       setSelectedEdgeKeys(new Set<string>());
       props.onEdgeSelect?.(null);
-      props.onSelect?.(d.node);
-      if (props.selectedId === undefined) setInternalSelected(d.node.id);
+      props.onSelect?.(d.node, { multi });
+      // only mirror to internal single-selection when not modifier-add;
+      // additive picks live in the parent's selectedIds set.
+      if (!multi && props.selectedId === undefined) setInternalSelected(d.node.id);
     } else if (d.type === "lasso") {
       const rect = lassoRect();
       setLassoRect(null);

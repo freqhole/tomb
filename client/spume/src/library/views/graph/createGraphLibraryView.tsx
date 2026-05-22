@@ -66,6 +66,22 @@ export interface CreateGraphLibraryViewOpts {
   /** opens the artist editor modal. same admin-gating contract as
    *  `onEditAlbum`. */
   onEditArtistNode?: (artist: ArtistNodeData) => void;
+  /** clicking the cover tile in the album popover — typically opens
+   *  an image carousel modal with the album's image(s). */
+  onImageClickAlbum?: (album: AlbumNodeData) => void;
+  /** clicking the avatar in the artist popover — typically opens an
+   *  image carousel modal with the artist's image(s). */
+  onImageClickArtist?: (artist: ArtistNodeData) => void;
+  /** toggles favorite state for the currently-shown artist. when
+   *  defined alongside `selectedArtistIsFavorite`, the artist popover
+   *  renders a heart toggle in its action row. */
+  onToggleFavoriteArtist?: (artist: ArtistNodeData, next: boolean) => void;
+  /** biography string for the currently-selected artist node. parent
+   *  hydrates this (e.g. via getArtist query) on selection change. */
+  selectedArtistBio?: () => string | null | undefined;
+  /** favorite state for the currently-selected artist node. parent
+   *  hydrates this (e.g. via getArtist query) on selection change. */
+  selectedArtistIsFavorite?: () => boolean | undefined;
   /** fired when the lasso tool completes a selection (>=2 albums). */
   onLassoSelect?: (albums: AlbumNodeData[]) => void;
   /** when true, the sim pauses (canvas is hidden / behind another tab). */
@@ -113,6 +129,11 @@ export interface GraphLibraryView {
   /** clear the current album selection (closes the detail popover).
    *  used by the Esc keyboard shortcut in the graph subview. */
   clearSelection: () => void;
+  /** id of the currently-selected artist node (or null when no artist
+   *  is selected). callers use this to drive per-selection data
+   *  fetching (bio, favorite state) that they then feed back via
+   *  the `selectedArtistBio` / `selectedArtistIsFavorite` opts. */
+  selectedArtistId: () => string | null;
 }
 
 export function createGraphLibraryView(opts: CreateGraphLibraryViewOpts): GraphLibraryView {
@@ -157,6 +178,11 @@ export function createGraphLibraryView(opts: CreateGraphLibraryViewOpts): GraphL
   // the adapter produces a new node and `selected()` picks it up
   // immediately instead of holding onto the stale click-time snapshot.
   const [selectedId, setSelectedId] = createSignal<string | null>(null);
+  // additional node ids picked via shift/cmd/ctrl + click. these stack
+  // on top of the primary `selectedId` and render the same magenta
+  // ring on the canvas. clicking a node WITHOUT a modifier clears the
+  // set so single-click always means "only this".
+  const [multiSelectedIds, setMultiSelectedIds] = createSignal<Set<string>>(new Set<string>());
   // selected() narrows to `AlbumNodeData` only — artist nodes are
   // selectable on the canvas (for ring highlight) but never open the
   // detail popover (artist detail UI is reachable elsewhere).
@@ -168,6 +194,17 @@ export function createGraphLibraryView(opts: CreateGraphLibraryViewOpts): GraphL
     return n as AlbumNodeData;
   });
   const setSelected = (node: GraphNodeData | null) => setSelectedId(node?.id ?? null);
+  // toggle a node into the multi-select set. when the node is also the
+  // primary selection, demote the primary first so the user's mental
+  // model stays consistent ("only the picks in the set are selected").
+  const toggleMultiSelect = (node: GraphNodeData) => {
+    setMultiSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(node.id)) next.delete(node.id);
+      else next.add(node.id);
+      return next;
+    });
+  };
   // mirror of `selected()` but for artist nodes — drives the artist
   // detail popover. mutually exclusive with `selected()` because each
   // node has exactly one kind.
@@ -558,6 +595,7 @@ export function createGraphLibraryView(opts: CreateGraphLibraryViewOpts): GraphL
         enabledKinds={enabled()}
         lockNodes={opts.lockNodes ?? false}
         selectedId={canvasSelectedId()}
+        selectedIds={multiSelectedIds()}
         selectedEdges={canvasEdges()}
         tool={tool()}
         edgeCurvature={wireTension() * 0.5}
@@ -566,8 +604,17 @@ export function createGraphLibraryView(opts: CreateGraphLibraryViewOpts): GraphL
         onReady={(a) => setApi(a)}
         onUserInteract={() => setUserInteracted(true)}
         quietUpdates={userInteracted()}
-        onSelect={(album) => {
+        onSelect={(album, selectOpts) => {
           setUserInteracted(true);
+          // modifier-add: toggle into the multi-select set, keep the
+          // primary selection (and its popover) intact.
+          if (selectOpts?.multi && album) {
+            toggleMultiSelect(album);
+            return;
+          }
+          // plain click on a node or empty-space — reset multi-select
+          // so the user's single pick is the only selection.
+          setMultiSelectedIds(new Set<string>());
           setSelected(album);
           setWireEdge(null);
         }}
@@ -652,6 +699,7 @@ export function createGraphLibraryView(opts: CreateGraphLibraryViewOpts): GraphL
             onViewArtist={opts.onViewArtist}
             onToggleFavorite={opts.onToggleFavorite}
             onEdit={opts.onEditAlbum}
+            onImageClick={opts.onImageClickAlbum}
           />
         </div>
       </Show>
@@ -683,6 +731,10 @@ export function createGraphLibraryView(opts: CreateGraphLibraryViewOpts): GraphL
             onRelationClick={focusOnRelation}
             onFocusArtist={(a) => setSelectedId(a.id)}
             onEdit={opts.onEditArtistNode}
+            onImageClick={opts.onImageClickArtist}
+            bio={opts.selectedArtistBio?.() ?? null}
+            isFavorite={opts.selectedArtistIsFavorite?.()}
+            onToggleFavorite={opts.onToggleFavoriteArtist}
           />
         </div>
       </Show>
@@ -731,6 +783,10 @@ export function createGraphLibraryView(opts: CreateGraphLibraryViewOpts): GraphL
       api()?.fit();
     },
     userInteracted,
-    clearSelection: () => setSelected(null),
+    clearSelection: () => {
+      setSelected(null);
+      setMultiSelectedIds(new Set<string>());
+    },
+    selectedArtistId: () => selectedArtist()?.artistId ?? null,
   };
 }

@@ -8,11 +8,12 @@
 // data. interaction surface kept intentionally small until product
 // requirements firm up — extend incrementally.
 
-import { createMemo, For, Show } from "solid-js";
+import { createMemo, createSignal, For, Show } from "solid-js";
 import type { ArtistNodeData, RelationKindLike } from "./types";
 import { Icon, IconNames } from "../icons/registry";
 import { MarqueeText } from "../text/MarqueeText";
 import { MediaImage } from "../media/MediaImage";
+import { FavoriteHeart } from "../ratings/FavoriteHeart";
 
 export interface ArtistDetailPopoverProps {
   /** single artist shorthand. ignored when `artists` is supplied. */
@@ -38,6 +39,20 @@ export interface ArtistDetailPopoverProps {
   /** notifies parent that the user picked a different artist in the
    *  carousel — e.g. so the canvas selection can follow. */
   onFocusArtist?: (artist: ArtistNodeData) => void;
+  /** optional biography string. when present, rendered (clamped) below
+   *  the action row. the parent owns hydration — e.g. fetching the
+   *  full artist record for the current selection via getArtist. */
+  bio?: string | null;
+  /** whether the current user has favorited this artist. when defined
+   *  alongside onToggleFavorite, a heart toggle is shown in the action
+   *  row. defaults to false; undefined hides the control entirely. */
+  isFavorite?: boolean;
+  /** toggles favorite state for this artist. parent owns the mutation. */
+  onToggleFavorite?: (artist: ArtistNodeData, next: boolean) => void;
+  /** clicking the avatar tile — parent typically opens an image
+   *  carousel modal with the artist's image(s). undefined leaves the
+   *  avatar non-interactive (default). */
+  onImageClick?: (artist: ArtistNodeData) => void;
 }
 
 export function ArtistDetailPopover(props: ArtistDetailPopoverProps) {
@@ -55,7 +70,46 @@ export function ArtistDetailPopover(props: ArtistDetailPopoverProps) {
   });
   const artist = createMemo(() => list()[idx()]);
   const hasCarousel = () => list().length > 1;
-  const hasAnyAction = () => !!props.onViewArtist || !!props.onEdit;
+  const hasFavoriteToggle = () => props.isFavorite !== undefined && !!props.onToggleFavorite;
+  const hasAnyAction = () => !!props.onViewArtist || !!props.onEdit || hasFavoriteToggle();
+  // bios from upstream sources (musicbrainz, last.fm, discogs) often
+  // contain HTML — anchor tags around references, occasional <br>,
+  // etc. strip tags and decode the handful of entities we actually
+  // see in practice so the popover renders clean text. (no external
+  // sanitizer dep — this string is rendered as plain text via
+  // {bioText()}, never as innerHTML.)
+  const stripBioHtml = (raw: string): string => {
+    if (!raw) return "";
+    let s = raw;
+    // drop <script>/<style> blocks entirely (defensive — we never
+    // pass this through innerHTML, but keeps the visible text clean).
+    s = s.replace(/<\s*(script|style)[^>]*>[\s\S]*?<\s*\/\s*\1\s*>/gi, "");
+    // turn <br> / <p> / <li> boundaries into newlines before stripping
+    // tags so paragraph structure survives the strip.
+    s = s.replace(/<\s*br\s*\/?\s*>/gi, "\n");
+    s = s.replace(/<\s*\/\s*(p|div|li|h[1-6])\s*>/gi, "\n\n");
+    // strip every remaining tag.
+    s = s.replace(/<[^>]+>/g, "");
+    // decode the entities we actually encounter in bios.
+    s = s
+      .replace(/&nbsp;/gi, " ")
+      .replace(/&amp;/gi, "&")
+      .replace(/&lt;/gi, "<")
+      .replace(/&gt;/gi, ">")
+      .replace(/&quot;/gi, '"')
+      .replace(/&#39;|&apos;/gi, "'")
+      .replace(/&#x?([0-9a-f]+);/gi, (_, code) => {
+        const n = code.toLowerCase().startsWith("x")
+          ? parseInt(code.slice(1), 16)
+          : parseInt(code, 10);
+        return Number.isFinite(n) ? String.fromCodePoint(n) : "";
+      });
+    // collapse 3+ blank lines down to a single blank line.
+    s = s.replace(/\n{3,}/g, "\n\n");
+    return s.trim();
+  };
+  const bioText = createMemo(() => stripBioHtml(props.bio ?? ""));
+  const [bioExpanded, setBioExpanded] = createSignal(false);
 
   const go = (delta: number) => {
     const n = list().length;
@@ -69,7 +123,7 @@ export function ArtistDetailPopover(props: ArtistDetailPopoverProps) {
   return (
     <Show when={artist()}>
       <div
-        class="rounded-lg bg-[var(--color-bg-elevated)] border border-white/10 shadow-xl text-[var(--color-text)] w-72 max-w-[calc(100vw-2rem)] max-h-[calc(100vh-var(--nav-height,56px)-1.5rem)] overflow-y-auto flex flex-col"
+        class="rounded-lg bg-[var(--color-bg-elevated)] border border-white/10 shadow-xl text-[var(--color-text)] w-72 max-w-[calc(100vw-2rem)] max-h-[calc(100vh-var(--nav-height,56px)-5rem)] overflow-y-auto flex flex-col"
         style={
           positioned()
             ? {
@@ -84,7 +138,11 @@ export function ArtistDetailPopover(props: ArtistDetailPopoverProps) {
         onClick={(e) => e.stopPropagation()}
       >
         <div class="flex gap-3 p-3">
-          <ArtistAvatar artist={artist()!} size={72} />
+          <ArtistAvatar
+            artist={artist()!}
+            size={72}
+            onClick={props.onImageClick ? () => props.onImageClick!(artist()!) : undefined}
+          />
           <div class="flex-1 min-w-0">
             <MarqueeText text={artist()!.name} class="font-semibold text-sm leading-tight" />
             <div class="text-[11px] text-white/65 mt-1 flex flex-wrap gap-x-2 gap-y-0.5">
@@ -104,7 +162,14 @@ export function ArtistDetailPopover(props: ArtistDetailPopoverProps) {
         </div>
 
         <Show when={hasAnyAction()}>
-          <div class="px-3 pb-2 flex flex-wrap gap-1">
+          <div class="px-3 pb-2 flex flex-wrap items-center gap-1">
+            <Show when={hasFavoriteToggle()}>
+              <FavoriteHeart
+                isFavorite={!!props.isFavorite}
+                size="sm"
+                onToggle={(next) => props.onToggleFavorite?.(artist()!, next)}
+              />
+            </Show>
             <Show when={props.onViewArtist}>
               <ActionButton
                 icon={IconNames.artist}
@@ -118,6 +183,29 @@ export function ArtistDetailPopover(props: ArtistDetailPopoverProps) {
                 label="edit"
                 onClick={() => props.onEdit?.(artist()!)}
               />
+            </Show>
+          </div>
+        </Show>
+
+        <Show when={bioText().length > 0}>
+          <div class="px-3 pb-2">
+            <div class="text-[10px] uppercase tracking-wide text-white/55 mb-1">bio</div>
+            <p
+              class="text-[11px] leading-snug text-white/75 whitespace-pre-line"
+              classList={{
+                "line-clamp-4": !bioExpanded(),
+              }}
+            >
+              {bioText()}
+            </p>
+            <Show when={bioText().length > 220}>
+              <button
+                type="button"
+                class="mt-1 text-[10px] text-white/55 hover:text-white/85 cursor-pointer underline-offset-2 hover:underline"
+                onClick={() => setBioExpanded((v) => !v)}
+              >
+                {bioExpanded() ? "show less" : "show more"}
+              </button>
             </Show>
           </div>
         </Show>
@@ -194,21 +282,41 @@ export function ArtistDetailPopover(props: ArtistDetailPopoverProps) {
   );
 }
 
-function ArtistAvatar(props: { artist: ArtistNodeData; size: number }) {
+function ArtistAvatar(props: { artist: ArtistNodeData; size: number; onClick?: () => void }) {
   // prefer the structured ImageMetadata path — MediaImage handles
   // local blobs, p2p, and charnel-managed remotes via its transport-
   // aware resolver. fall back to a raw <img> for legacy pre-resolved
   // urls (storybook mocks etc), and to the abbreviation tile when no
   // image data is available at all.
   const hasImage = () => !!props.artist.image || !!props.artist.imageUrl;
+  const interactive = () => !!props.onClick && hasImage();
   return (
     <div
       class="rounded-full overflow-hidden border border-white/10 bg-white/5 flex items-center justify-center text-white/85 font-semibold shrink-0"
+      classList={{
+        "cursor-pointer hover:border-[var(--color-accent-500,#ff1a9e)]/60 transition-colors":
+          interactive(),
+      }}
       style={{
         width: `${props.size}px`,
         height: `${props.size}px`,
         "font-size": `${Math.max(11, Math.floor(props.size * 0.32))}px`,
       }}
+      onClick={(e) => {
+        if (!interactive()) return;
+        e.stopPropagation();
+        props.onClick!();
+      }}
+      role={interactive() ? "button" : undefined}
+      tabIndex={interactive() ? 0 : undefined}
+      onKeyDown={(e) => {
+        if (!interactive()) return;
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          props.onClick!();
+        }
+      }}
+      title={interactive() ? "view image" : undefined}
     >
       <Show when={hasImage()} fallback={<span>{props.artist.abbreviation || "?"}</span>}>
         <Show

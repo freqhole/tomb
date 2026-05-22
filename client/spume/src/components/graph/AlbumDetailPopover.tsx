@@ -53,6 +53,10 @@ export interface AlbumDetailPopoverProps {
   /** opens the album editor modal. parent is responsible for gating
    *  on admin permission — if undefined, the edit button is hidden. */
   onEdit?: (album: AlbumNodeData) => void;
+  /** clicking the cover tile — parent typically opens an image
+   *  carousel modal with the album's image(s). undefined leaves the
+   *  cover non-interactive (default). */
+  onImageClick?: (album: AlbumNodeData) => void;
 }
 
 function formatDuration(sec: number): string {
@@ -98,7 +102,7 @@ export function AlbumDetailPopover(props: AlbumDetailPopoverProps) {
   return (
     <Show when={album()}>
       <div
-        class="rounded-lg bg-[var(--color-bg-elevated)] border border-white/10 shadow-xl text-[var(--color-text)] w-72 max-w-[calc(100vw-2rem)] max-h-[calc(100vh-var(--nav-height,56px)-1.5rem)] overflow-y-auto flex flex-col"
+        class="rounded-lg bg-[var(--color-bg-elevated)] border border-white/10 shadow-xl text-[var(--color-text)] w-72 max-w-[calc(100vw-2rem)] max-h-[calc(100vh-var(--nav-height,56px)-5rem)] overflow-y-auto flex flex-col"
         style={
           positioned()
             ? {
@@ -113,7 +117,28 @@ export function AlbumDetailPopover(props: AlbumDetailPopoverProps) {
         onClick={(e) => e.stopPropagation()}
       >
         <div class="flex gap-3 p-3">
-          <AlbumNodeView album={album()!} size={72} />
+          <div
+            classList={{
+              "cursor-pointer hover:opacity-90 transition-opacity": !!props.onImageClick,
+            }}
+            onClick={(e) => {
+              if (!props.onImageClick) return;
+              e.stopPropagation();
+              props.onImageClick(album()!);
+            }}
+            role={props.onImageClick ? "button" : undefined}
+            tabIndex={props.onImageClick ? 0 : undefined}
+            onKeyDown={(e) => {
+              if (!props.onImageClick) return;
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                props.onImageClick(album()!);
+              }
+            }}
+            title={props.onImageClick ? "view image" : undefined}
+          >
+            <AlbumNodeView album={album()!} size={72} />
+          </div>
           <div class="flex-1 min-w-0">
             <MarqueeText text={album()!.title} class="font-semibold text-sm leading-tight" />
             <MarqueeText text={album()!.artistName} class="text-xs text-white/80 mt-0.5" />

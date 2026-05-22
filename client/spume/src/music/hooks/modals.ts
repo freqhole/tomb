@@ -50,6 +50,13 @@ export function popModal(modalId: string) {
   }
 }
 
+/** true when at least one modal is on the global modal stack. used by
+ *  view-level esc handlers to skip their own "close" behaviour when a
+ *  modal is already going to consume the keystroke. */
+export function isAnyModalOpen(): boolean {
+  return modalStack.length > 0;
+}
+
 interface SongEditorOptions {
   songId: string;
   onSave?: () => void;

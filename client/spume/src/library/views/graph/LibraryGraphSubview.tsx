@@ -41,7 +41,17 @@ import { deriveArtistNodes } from "./deriveArtistNodes";
 import { useRelatedArtistsByIds } from "../../queries/useRelatedArtistsByIds";
 import { getAuthInfo, getAuthStatus } from "../../../app/services/remotes/authStatusStore";
 import { permissions, type UserRoleName } from "freqhole-api-client";
-import { showAlbumEditor, showArtistEditor } from "../../../music/hooks/modals";
+import {
+  showAlbumEditor,
+  showArtistEditor,
+  isAnyModalOpen,
+  showImageCarousel,
+} from "../../../music/hooks/modals";
+import { resolveBlobUrl } from "../../../music/services/storage/blobResolver";
+import { usesBlobResolver } from "../../../music/services/storage/transportCache";
+import { resolveLocalBlobUrl } from "../../../music/utils/images";
+import { useArtistQuery } from "../../../music/queries/songs";
+import type { ImageMetadata } from "../../../music/services/storage/types";
 import type { ArtistNodeData } from "../../../components/graph/types";
 
 export interface LibraryGraphSubviewProps {
@@ -525,6 +535,104 @@ function Inner(props: {
     </div>
   );
 
+  // forward ref to the graph view (created below). lets us drive a
+  // per-selection `useArtistQuery` from the current artist-node id so
+  // the popover can show the bio + favorite state without the parent
+  // needing to thread them down a different way.
+  const [graphRef, setGraphRef] = createSignal<ReturnType<typeof createGraphLibraryView> | null>(
+    null
+  );
+  const selectedArtistQuery = useArtistQuery(() => graphRef()?.selectedArtistId() ?? undefined);
+
+  // resolve every URL we can pull out of an ImageMetadata + optional
+  // pre-resolved url. handles charnel-managed (tauri) and p2p remotes
+  // via the blob resolver; falls back to plain `remote_url` for HTTP
+  // remotes. returns a deduplicated list.
+  const buildImageUrls = async (
+    image: ImageMetadata | null | undefined,
+    imageUrl: string | null | undefined,
+    fallbackRemoteId?: string | null
+  ): Promise<string[]> => {
+    const urls: string[] = [];
+    const add = (u: string | null | undefined) => {
+      if (!u) return;
+      if (urls.includes(u)) return;
+      urls.push(u);
+    };
+    add(imageUrl);
+    if (image) {
+      add(image.remote_url);
+      const blobId = image.remote_blob_id || image.local_blob_id;
+      const serverId = image.remote_server_id || fallbackRemoteId;
+      if (blobId && serverId) {
+        try {
+          if (await usesBlobResolver(serverId)) {
+            const u = await resolveBlobUrl(blobId, serverId, "image");
+            add(u);
+          }
+        } catch {
+          // best-effort; leave the resolved url out and rely on what we have
+        }
+      }
+      // local-only image (no remote server) — resolve via OPFS so it
+      // shows up in the carousel instead of being silently dropped.
+      if (image.local_blob_id && !image.remote_server_id) {
+        try {
+          const u = await resolveLocalBlobUrl(image.local_blob_id);
+          add(u);
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+    return urls;
+  };
+
+  const openAlbumCarousel = async (album: AlbumNodeData) => {
+    const remoteId = album.sourceRemoteId ?? remoteForNode(album)?.remote_id ?? null;
+    const urls = await buildImageUrls(album.image, album.imageUrl, remoteId);
+    if (urls.length === 0) return;
+    showImageCarousel({ images: urls, title: `${album.title} \u2014 images` });
+  };
+
+  const openArtistCarousel = async (artist: ArtistNodeData) => {
+    // artist nodes don't have their own image data on the graph \u2014
+    // `deriveArtistNodes` uses the first album's cover as an avatar
+    // fallback (see deriveArtistNodes.ts header). that cover is NOT
+    // representative of the artist, so don't seed the carousel with
+    // it; pull only from the canonical artist record's images.
+    //
+    // guard: `selectedArtistQuery` is keyed off the currently-selected
+    // artist id, but its data may briefly lag behind a fresh selection.
+    // only consume the data when its artist_id matches the clicked
+    // artist to avoid mixing in the previous selection's images.
+    const urls: string[] = [];
+    const queryData = selectedArtistQuery.data;
+    const matches = queryData && queryData.artist_id === artist.artistId;
+    if (matches && queryData.images?.length) {
+      // only the full-res `original` records — `thumbnail` / `preview`
+      // are distinct blob ids that visually render as the same image
+      // and would clutter the carousel with duplicates.
+      for (const img of queryData.images) {
+        if (img.blob_type !== "original") continue;
+        const more = await buildImageUrls(img, null, null);
+        for (const u of more) {
+          if (!urls.includes(u)) urls.push(u);
+        }
+      }
+    }
+    // last-resort fallback: if the artist has zero real images,
+    // show the album-cover avatar (better than an empty modal).
+    if (urls.length === 0 && (artist.image || artist.imageUrl)) {
+      const more = await buildImageUrls(artist.image, artist.imageUrl, null);
+      for (const u of more) {
+        if (!urls.includes(u)) urls.push(u);
+      }
+    }
+    if (urls.length === 0) return;
+    showImageCarousel({ images: urls, title: `${artist.name} \u2014 images` });
+  };
+
   const graph = createGraphLibraryView({
     nodes: graphNodes,
     relatedArtists: relatedMap,
@@ -639,7 +747,34 @@ function Inner(props: {
           showArtistEditor({ artistId: artist.artistId });
         }
       : undefined,
+    onImageClickAlbum: (album) => {
+      void openAlbumCarousel(album);
+    },
+    onImageClickArtist: (artist) => {
+      void openArtistCarousel(artist);
+    },
+    selectedArtistBio: () => selectedArtistQuery.data?.bio ?? null,
+    selectedArtistIsFavorite: () => selectedArtistQuery.data?.is_favorite,
+    onToggleFavoriteArtist: (artist, next) => {
+      // artist favorites use the active data source (no per-artist
+      // remote since artist nodes are cross-remote aggregations).
+      favoriteMutation.mutate(
+        {
+          targetType: "artist",
+          targetId: artist.artistId,
+          isFavorite: next,
+        },
+        {
+          onError: (err) => {
+            toast.error(`failed to toggle favorite: ${(err as Error).message}`);
+          },
+        }
+      );
+    },
   });
+  // publish the graph ref so the artist query above can read its
+  // `selectedArtistId()` accessor reactively.
+  setGraphRef(graph);
 
   // wire the batched-flush hook to the now-instantiated graph. each
   // flush schedules a fit, but successive flushes within ~200ms coalesce
@@ -682,6 +817,16 @@ function Inner(props: {
     // is typing in an input/textarea/contenteditable.
     const onKey = (e: KeyboardEvent) => {
       if (!props.isActive()) return;
+      // escape gets first-class treatment: it should clear the canvas
+      // selection EVEN when focus is in an input (the search field),
+      // but only if there is no modal on the global stack — modals
+      // own escape semantics for themselves. without this guard, esc
+      // would close the modal AND clear the selection in one keystroke.
+      if (e.key === "Escape") {
+        if (isAnyModalOpen()) return;
+        graph.clearSelection();
+        return;
+      }
       const target = e.target as HTMLElement | null;
       const tag = target?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA" || target?.isContentEditable) return;
@@ -692,15 +837,12 @@ function Inner(props: {
       } else if (e.key === "r") {
         e.preventDefault();
         graph.reset();
-      } else if (e.key === "Escape") {
-        // clear current album selection (closes the detail popover).
-        // `preventDefault` is intentionally skipped so esc still also
-        // closes any open menus/dialogs higher in the tree.
-        graph.clearSelection();
       }
     };
-    window.addEventListener("keydown", onKey);
-    onCleanup(() => window.removeEventListener("keydown", onKey));
+    // capture phase so we see the keystroke before any in-tree handler
+    // can stopPropagation it (e.g. the search input's keydown).
+    window.addEventListener("keydown", onKey, true);
+    onCleanup(() => window.removeEventListener("keydown", onKey, true));
   });
 
   // reactive slot publishing — re-runs when isNarrow flips so the
