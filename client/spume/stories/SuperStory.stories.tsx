@@ -1,4 +1,4 @@
-import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import type { Meta, StoryObj } from "storybook-solidjs-vite";
 import { Button } from "../src/components/buttons/Button";
 import { IconButton } from "../src/components/buttons/IconButton";
@@ -19,6 +19,16 @@ import { PlayerBar } from "../src/components/player/PlayerBar";
 import { QueueSidebar } from "../src/components/player/QueueSidebar";
 import { VirtualAlbumGrid } from "../src/components/virtualized/VirtualAlbumGrid";
 import { VirtualSongList } from "../src/components/virtualized/VirtualSongList";
+import { AlbumGraphCanvas, type GraphActions } from "../src/components/graph/AlbumGraphCanvas";
+import { AlbumDetailPopover } from "../src/components/graph/AlbumDetailPopover";
+import { GraphTopNavTools, type GraphTool } from "../src/components/graph/GraphTopNavTools";
+import {
+  buildRelationEdges,
+  countEdgesByKind,
+  RELATION_KINDS,
+} from "../src/components/graph/relations";
+import type { AlbumNodeData, GraphEdge, RelationKindLike } from "../src/components/graph/types";
+import { MEDIUM_GRAPH } from "./mockGraphData";
 import type { Song as DomainSong } from "../src/music/data/types";
 import { isNarrowViewport } from "../src/config/breakpoints";
 import {
@@ -946,6 +956,22 @@ export const FullAppDemo: Story = {
           }
           onSearchChange={(query) => console.log("search:", query)}
           onSearchSubmit={(query) => console.log("search submit:", query)}
+          currentPath={`/${currentRoute()}`}
+          onNavigate={(path) => {
+            // map topnav's built-in route buttons (library / shared / feed
+            // / settings) onto the demo's Route set so they actually
+            // change the visible view instead of silently no-op'ing.
+            if (path.startsWith("/library")) navigateTo("albums");
+            else if (path.startsWith("/shared")) navigateTo("playlists");
+            else if (path.startsWith("/feed")) navigateTo("songs");
+            else if (path.startsWith("/favorites")) navigateTo("favorites");
+            else if (path.startsWith("/songs")) navigateTo("songs");
+            else if (path.startsWith("/albums")) navigateTo("albums");
+            else if (path.startsWith("/artists")) navigateTo("artists");
+            else if (path.startsWith("/genres")) navigateTo("genres");
+            else if (path.startsWith("/playlists")) navigateTo("playlists");
+            else console.log("navigate (unhandled):", path);
+          }}
           mainNavSections={[
             {
               items: [
@@ -1040,6 +1066,414 @@ export const FullAppDemo: Story = {
                 const duration = song().duration_seconds;
                 const timeInSeconds = (percentage / 100) * duration;
                 setCurrentTime(timeInSeconds);
+              }}
+              onVolumeChange={(vol) => setVolume(vol)}
+              onQueueToggle={() => setQueueOpen(!queueOpen())}
+              queueLength={queueSongs().length}
+            />
+          )}
+        </Show>
+      </div>
+    );
+  },
+};
+
+// ---------------------------------------------------------------------
+// LibraryGraphView
+//
+// alternate library shell where the force-directed album graph IS the
+// primary view. demonstrates how the graph composes with the rest of
+// the chrome:
+//   - the graph's zoom/tool/wire-tension/relations controls live in the
+//     topnav's right-side slot (rightContent) instead of floating over
+//     the canvas.
+//   - the topnav's search input drives a node-highlight filter that
+//     dims everything not matching, leaving matches at full opacity.
+//   - the queue sidebar runs in "inline" mode so opening it shrinks
+//     the canvas (AlbumGraphCanvas auto-resizes via ResizeObserver).
+//   - a player bar pinned to the bottom further trims the canvas height.
+// ---------------------------------------------------------------------
+export const LibraryGraphView: Story = {
+  render: () => {
+    const ALL_KINDS = RELATION_KINDS.map((r) => r.kind);
+
+    // ---- player + queue (mirrors FullAppDemo) ----
+    const [currentSong, setCurrentSong] = createSignal<Song | null>(generatedSongs[0]);
+    const [isPlaying, setIsPlaying] = createSignal(false);
+    const [volume, setVolume] = createSignal(0.75);
+    const [currentTime, setCurrentTime] = createSignal(45);
+    const [queueOpen, setQueueOpen] = createSignal(false);
+    const [queueSongs, setQueueSongs] = createSignal<Song[]>(generatedSongs.slice(0, 20));
+    const [currentQueueIndex, setCurrentQueueIndex] = createSignal(0);
+
+    onMount(() => {
+      const onResize = () => {
+        // no-op — kept for parity with FullAppDemo + future hooks
+      };
+      window.addEventListener("resize", onResize);
+      onCleanup(() => window.removeEventListener("resize", onResize));
+    });
+
+    const handlePlayPause = () => setIsPlaying((p) => !p);
+    const handleSkip = (dir: "prev" | "next") => {
+      const idx = currentQueueIndex();
+      const next = dir === "next" ? idx + 1 : idx - 1;
+      if (next >= 0 && next < queueSongs().length) {
+        setCurrentQueueIndex(next);
+        setCurrentSong(queueSongs()[next]);
+      }
+    };
+    const handleQueueSongClick = (index: number) => {
+      const song = queueSongs()[index];
+      if (!song) return;
+      setCurrentQueueIndex(index);
+      setCurrentSong(song);
+      setIsPlaying(true);
+    };
+    const handleRemoveFromQueue = (index: number) => {
+      setQueueSongs((prev) => prev.filter((_s, i) => i !== index));
+    };
+
+    // ---- graph state ----
+    const nodes = MEDIUM_GRAPH;
+    const [enabled, setEnabled] = createSignal<Set<string>>(new Set<string>(ALL_KINDS));
+    const [tool, setTool] = createSignal<GraphTool>("pan");
+    const [selected, setSelected] = createSignal<AlbumNodeData | null>(null);
+    const [pillEdges, setPillEdges] = createSignal<Map<string, GraphEdge>>(new Map());
+    const [wireEdge, setWireEdge] = createSignal<GraphEdge | null>(null);
+    const [wireTension, setWireTension] = createSignal(0.44);
+    const [api, setApi] = createSignal<GraphActions | null>(null);
+    const [searchQuery, setSearchQuery] = createSignal("");
+
+    const edgeKey = (kind: RelationKindLike, label: string) => `${String(kind)}|${label}`;
+    const edges = createMemo<GraphEdge[]>(() => buildRelationEdges(nodes));
+    const counts = createMemo(() => countEdgesByKind(edges()));
+
+    const canvasEdges = createMemo<GraphEdge[]>(() => {
+      const out = Array.from(pillEdges().values());
+      const w = wireEdge();
+      if (w && !pillEdges().has(edgeKey(w.kind, w.label ?? ""))) out.push(w);
+      return out;
+    });
+    const activeRelations = createMemo<Set<string>>(() => {
+      const s = new Set<string>(pillEdges().keys());
+      const w = wireEdge();
+      if (w) s.add(edgeKey(w.kind, w.label ?? ""));
+      return s;
+    });
+
+    // search filter — dims any node whose title/artist doesn't contain
+    // the (lowercased) query. empty query disables the filter entirely.
+    const searchMatches = createMemo<Set<string> | null>(() => {
+      const q = searchQuery().trim().toLowerCase();
+      if (!q) return null;
+      const out = new Set<string>();
+      for (const n of nodes) {
+        const t = (n.title ?? "").toLowerCase();
+        const a = (n.artistName ?? "").toLowerCase();
+        if (t.includes(q) || a.includes(q)) out.add(n.id);
+      }
+      return out;
+    });
+    // when a search lands on exactly one match, auto-focus + fit so the
+    // user can jump to a known album by typing its name.
+    createEffect(() => {
+      const m = searchMatches();
+      if (m && m.size === 1) {
+        const onlyId = m.values().next().value;
+        const hit = nodes.find((n) => n.id === onlyId) ?? null;
+        if (hit) {
+          setSelected(hit);
+          requestAnimationFrame(() => api()?.fit());
+        }
+      }
+    });
+
+    // carousel: clicked album anchored at index 0; pill toggles append.
+    const pillClusterAlbums = createMemo<AlbumNodeData[]>(() => {
+      const pills = pillEdges();
+      if (pills.size === 0) return [];
+      const tuples = new Set<string>(pills.keys());
+      const byId = new Map(nodes.map((n) => [n.id, n] as const));
+      const ids = new Set<string>();
+      for (const ee of edges()) {
+        if (tuples.has(`${String(ee.kind)}|${ee.label ?? ""}`)) {
+          const s = typeof ee.source === "string" ? ee.source : ee.source.id;
+          const t = typeof ee.target === "string" ? ee.target : ee.target.id;
+          ids.add(s);
+          ids.add(t);
+        }
+      }
+      const out: AlbumNodeData[] = [];
+      for (const id of ids) {
+        const a = byId.get(id);
+        if (a) out.push(a);
+      }
+      out.sort((a, b) => a.title.localeCompare(b.title));
+      return out;
+    });
+    const popInfo = createMemo<{ list: AlbumNodeData[]; source: "edge" | "single" | null }>(() => {
+      const pillAlbums = pillClusterAlbums();
+      const w = wireEdge();
+      if (w) {
+        const byId = new Map(nodes.map((n) => [n.id, n] as const));
+        const ids = new Set<string>();
+        for (const ee of edges()) {
+          if (ee.kind === w.kind && ee.label === w.label) {
+            const s = typeof ee.source === "string" ? ee.source : ee.source.id;
+            const t = typeof ee.target === "string" ? ee.target : ee.target.id;
+            ids.add(s);
+            ids.add(t);
+          }
+        }
+        const wireList: AlbumNodeData[] = [];
+        for (const id of ids) {
+          const a = byId.get(id);
+          if (a) wireList.push(a);
+        }
+        wireList.sort((a, b) => a.title.localeCompare(b.title));
+        const seen = new Set<string>(wireList.map((a) => a.id));
+        const merged = [...wireList, ...pillAlbums.filter((a) => !seen.has(a.id))];
+        return { list: merged, source: "edge" };
+      }
+      const s = selected();
+      if (s) {
+        const extras = pillAlbums.filter((a) => a.id !== s.id);
+        return { list: [s, ...extras], source: "single" };
+      }
+      if (pillAlbums.length > 0) return { list: pillAlbums, source: "edge" };
+      return { list: [], source: null };
+    });
+    const [popIndex, setPopIndex] = createSignal(0);
+    createEffect((prev: { currentId: string | null } | undefined) => {
+      const info = popInfo();
+      const curId = info.list[popIndex()]?.id ?? null;
+      if (prev?.currentId) {
+        const newIdx = info.list.findIndex((a) => a.id === prev.currentId);
+        if (newIdx >= 0) {
+          if (newIdx !== popIndex()) setPopIndex(newIdx);
+          return { currentId: prev.currentId };
+        }
+        setPopIndex(0);
+      }
+      return { currentId: curId };
+    }, undefined);
+    const currentSel = createMemo(() => popInfo().list[popIndex()] ?? null);
+    const canvasSelectedId = createMemo(() => currentSel()?.id ?? null);
+
+    const closeSelection = () => {
+      setSelected(null);
+      setPillEdges(new Map());
+      setWireEdge(null);
+    };
+
+    // pill tap — toggle the relation in the highlight set without
+    // disturbing the anchored album in the popover.
+    const focusOnRelation = (kind: RelationKindLike, label: string) => {
+      const key = edgeKey(kind, label);
+      const cur = pillEdges();
+      const next = new Map(cur);
+      if (next.has(key)) {
+        next.delete(key);
+      } else {
+        const match = edges().find((e) => e.kind === kind && e.label === label);
+        const target: GraphEdge =
+          match ??
+          ({
+            source: currentSel()?.id ?? nodes[0]?.id ?? "",
+            target: currentSel()?.id ?? nodes[0]?.id ?? "",
+            kind,
+            weight: 0.5,
+            label,
+          } as GraphEdge);
+        next.set(key, target);
+        setEnabled((prev) => {
+          if (prev.has(kind as string)) return prev;
+          const ns = new Set<string>(prev);
+          ns.add(kind as string);
+          return ns;
+        });
+      }
+      setPillEdges(next);
+      requestAnimationFrame(() => api()?.fit());
+    };
+
+    // pill long-press — solo this relation, clearing everything else.
+    const soloRelation = (kind: RelationKindLike, label: string) => {
+      const key = edgeKey(kind, label);
+      const match = edges().find((e) => e.kind === kind && e.label === label);
+      const target: GraphEdge =
+        match ??
+        ({
+          source: currentSel()?.id ?? nodes[0]?.id ?? "",
+          target: currentSel()?.id ?? nodes[0]?.id ?? "",
+          kind,
+          weight: 0.5,
+          label,
+        } as GraphEdge);
+      setWireEdge(null);
+      setPillEdges(new Map([[key, target]]));
+      setEnabled(new Set<string>([kind as string]));
+      requestAnimationFrame(() => api()?.fit());
+    };
+
+    // relation-kind solo (from the topnav picker)
+    const soloKind = (kind: string) => {
+      setEnabled(new Set<string>([kind]));
+      setPillEdges((prev) => {
+        const next = new Map<string, GraphEdge>();
+        for (const [k, v] of prev) if (String(v.kind) === kind) next.set(k, v);
+        return next;
+      });
+    };
+
+    return (
+      <div
+        class="h-screen flex flex-col bg-[var(--color-bg-primary)]"
+        style={{ "--player-bar-height": "var(--player-height)" }}
+      >
+        <TopNav
+          brandName="freqhole"
+          brandTagline="album graph"
+          searchPlaceholder="search albums + artists..."
+          searchComponent={
+            <TopNavSearch
+              placeholder="search albums + artists..."
+              onSearchChange={(v) => setSearchQuery(v)}
+              onNavigate={() => undefined}
+              currentPath="/library"
+            />
+          }
+          rightContent={
+            <GraphTopNavTools
+              tool={tool()}
+              onToolChange={setTool}
+              onZoomIn={() => api()?.zoomIn()}
+              onZoomOut={() => api()?.zoomOut()}
+              onFit={() => api()?.fit()}
+              wireTension={wireTension()}
+              onWireTensionChange={setWireTension}
+              relations={{
+                enabled: enabled(),
+                counts: counts(),
+                onToggle: (kind, next) => {
+                  setEnabled((prev) => {
+                    const ns = new Set<string>(prev);
+                    if (next) ns.add(kind);
+                    else ns.delete(kind);
+                    return ns;
+                  });
+                },
+                onSolo: soloKind,
+                onSelectAll: () => setEnabled(new Set<string>(ALL_KINDS)),
+                onDeselectAll: () => setEnabled(new Set<string>()),
+              }}
+            />
+          }
+          mainNavSections={[
+            {
+              items: [
+                { label: "graph", onClick: () => undefined },
+                { label: "songs", onClick: () => undefined },
+                { label: "albums", onClick: () => undefined },
+                { label: "artists", onClick: () => undefined },
+              ],
+            },
+          ]}
+          pageTitle="library graph"
+          pageCount={nodes.length}
+        />
+
+        {/* main content area + queue */}
+        <div
+          class="flex-1 overflow-hidden flex"
+          style={{ "padding-bottom": "var(--player-bar-height)" }}
+        >
+          {/* graph fills the remaining width; AlbumGraphCanvas ResizeObservers
+              the parent so opening the queue / showing the player bar
+              automatically reflows the canvas. */}
+          <div class="flex-1 relative overflow-hidden">
+            <AlbumGraphCanvas
+              nodes={nodes}
+              edges={edges()}
+              enabledKinds={enabled()}
+              selectedId={canvasSelectedId()}
+              selectedEdges={canvasEdges()}
+              tool={tool()}
+              edgeCurvature={wireTension() * 0.5}
+              searchMatches={searchMatches()}
+              onReady={(a) => setApi(a)}
+              onSelect={(album) => {
+                setSelected(album);
+                setWireEdge(null);
+              }}
+              onEdgeSelect={(edge) => {
+                setWireEdge(edge);
+              }}
+              class="absolute inset-0"
+            />
+
+            <Show when={popInfo().list.length > 0 && currentSel()}>
+              {(album) => (
+                <div class="absolute top-3 left-3 z-10 max-w-[360px]">
+                  <AlbumDetailPopover
+                    albums={popInfo().list}
+                    index={popIndex()}
+                    onIndexChange={setPopIndex}
+                    activeRelations={activeRelations()}
+                    onClose={closeSelection}
+                    onRelationClick={focusOnRelation}
+                    onRelationSolo={soloRelation}
+                    onPlay={(a) => console.log("[graph] play", a.title)}
+                    onShuffle={(a) => console.log("[graph] shuffle", a.title)}
+                    onAddToQueue={(a) => console.log("[graph] queue", a.title)}
+                    onViewAlbum={(a) => console.log("[graph] view album", a.title)}
+                    onViewArtist={(a) => console.log("[graph] view artist", a.artistName)}
+                    onToggleFavorite={(a) => console.log("[graph] favorite", a.title)}
+                  />
+                  {/* swallow the unused album binding so solid is happy */}
+                  <Show when={false}>{album().id}</Show>
+                </div>
+              )}
+            </Show>
+          </div>
+
+          {/* inline queue — shrinks the canvas instead of overlaying */}
+          <QueueSidebar
+            isOpen={queueOpen()}
+            variant="inline"
+            songs={queueSongs()}
+            currentIndex={currentQueueIndex()}
+            onClose={() => setQueueOpen(false)}
+            onSongClick={handleQueueSongClick}
+            onRemoveSong={handleRemoveFromQueue}
+            onClearAll={() => setQueueSongs([])}
+            historyEntries={[]}
+          />
+        </div>
+
+        <Show when={currentSong()}>
+          {(song) => (
+            <PlayerBar
+              song={{
+                id: song().id,
+                title: song().title,
+                artist: song().artist_name,
+                album: song().album_title,
+                thumbnailUrl: "",
+                isFavorite: song().is_favorite ?? false,
+              }}
+              isPlaying={isPlaying()}
+              volume={volume()}
+              currentTime={currentTime()}
+              duration={song().duration_seconds}
+              queueOpen={queueOpen()}
+              onPlayPause={handlePlayPause}
+              onPrevious={() => handleSkip("prev")}
+              onNext={() => handleSkip("next")}
+              onSeek={(percentage) => {
+                const duration = song().duration_seconds;
+                setCurrentTime((percentage / 100) * duration);
               }}
               onVolumeChange={(vol) => setVolume(vol)}
               onQueueToggle={() => setQueueOpen(!queueOpen())}

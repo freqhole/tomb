@@ -1256,6 +1256,14 @@ export function TopNav(props: TopNavProps) {
               </button>
             </Show>
 
+            {/* parent-supplied extra controls — page-specific tools that
+                live to the right of the icon row, just before the search
+                input. used e.g. by the library graph view to host its
+                zoom/tool/relations cluster inline in the topnav. */}
+            <Show when={props.rightContent}>
+              <div class="flex-shrink-0 order-2 flex items-center">{props.rightContent}</div>
+            </Show>
+
             {/* search - last item on right, grows to fill remaining space (hidden on aggregate feed + radio) */}
             <Show when={!isAggregateFeedRoute() && !isRadioRoute() && !isSharedRoute()}>
               <div

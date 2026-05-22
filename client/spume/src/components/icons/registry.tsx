@@ -47,6 +47,10 @@ import {
   RecentIcon,
   SearchIcon,
   SortIcon,
+  ZoomInIcon,
+  ZoomOutIcon,
+  EyeIcon,
+  EyeOffIcon,
 } from "./navigation";
 
 import type { IconProps } from "./types";
@@ -472,6 +476,10 @@ export const IconRegistry = {
   discover: DiscoverIcon,
   recent: RecentIcon,
   search: SearchIcon,
+  zoomIn: ZoomInIcon,
+  zoomOut: ZoomOutIcon,
+  eye: EyeIcon,
+  eyeOff: EyeOffIcon,
 
   // Layout & view
   menu: MenuIcon,
@@ -572,6 +580,10 @@ export const IconNames = {
   discover: "discover",
   recent: "recent",
   search: "search",
+  zoomIn: "zoomIn",
+  zoomOut: "zoomOut",
+  eye: "eye",
+  eyeOff: "eyeOff",
 
   // Layout & view
   menu: "menu",

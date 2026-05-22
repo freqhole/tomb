@@ -31,6 +31,7 @@ import type { EventFilter, JobEvent } from "freqhole-api-client";
 import { getClientForRemote, type RemoteLike } from "../../app/api/client";
 import { queryClient } from "../../queryClient";
 import type { Remote } from "../../app/services/storage/schemas/remote";
+import { debug } from "../../utils/logger";
 
 // any caller-supplied object that exposes a stable remote_id and is
 // compatible with the api-client factory. accepts both the full storage
@@ -510,7 +511,7 @@ function scheduleSessionLinger() {
 // transport's fallback provides.
 
 function ensureWatcherForRemote(remote: RemoteRef) {
-  console.log(
+  debug(
     "[job-events] watcher armed for remote",
     remote.remote_id,
   );
@@ -589,7 +590,7 @@ async function runStreamLoop(
     let iterator: AsyncIterable<JobEvent>;
     try {
       iterator = client.jobs.events.subscribe(filter, controller.signal);
-      console.log(
+      debug(
         "[job-events] subscribe iterator opened for",
         remote.remote_id,
         "kinds=",
@@ -612,14 +613,14 @@ async function runStreamLoop(
       }
       // iterator ended cleanly (broker closed the subscription). treat
       // as a transient drop and reconnect.
-      console.log(
+      debug(
         "[job-events] subscribe iterator ended cleanly for",
         remote.remote_id,
       );
     } catch (err) {
       if (controller.signal.aborted) return;
       if (err instanceof JobEventsStreamClosed) {
-        console.log(
+        debug(
           "[job-events] stream closed for",
           remote.remote_id,
           "reason=",
@@ -628,7 +629,7 @@ async function runStreamLoop(
         // lagged / unauthorized / internal — re-snapshot + reconnect on
         // the next loop iteration.
       } else {
-        console.log(
+        debug(
           "[job-events] stream errored for",
           remote.remote_id,
           "err=",
@@ -649,7 +650,7 @@ async function scheduleReconnect(remote: RemoteRef): Promise<void> {
   const idx = Math.min(state.backoffIdx, RECONNECT_BACKOFF_MS.length - 1);
   const wait = RECONNECT_BACKOFF_MS[idx];
   state.backoffIdx = idx + 1;
-  console.log(
+  debug(
     "[job-events] reconnect scheduled for",
     remote.remote_id,
     "delay_ms=",
@@ -671,7 +672,7 @@ async function scheduleReconnect(remote: RemoteRef): Promise<void> {
 }
 
 function rehydrateFromSnapshot(remoteId: string, snaps: unknown[]): void {
-  console.log(
+  debug(
     "[job-events] snapshot received for",
     remoteId,
     "count=",
@@ -772,7 +773,7 @@ function handleStreamEvent(remote: RemoteRef, evt: JobEvent): void {
     topic?: string;
     entity_ref?: { kind: string; id: string } | null;
   };
-  console.log(
+  debug(
     "[job-events] event",
     kind,
     "job_id=",
@@ -914,7 +915,7 @@ function settleJob(
 ): void {
   if (!inflight().has(key)) return; // already settled by a peer event
   const entry = inflight().get(key)!;
-  console.log(
+  debug(
     "[job-events] settling job",
     entry.jobId,
     "outcome=",
