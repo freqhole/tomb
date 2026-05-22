@@ -57,6 +57,7 @@ import {
   useJobProgressMessages,
 } from "../hooks/useMbLookupJobs";
 import { showBulkReview } from "../review/bulkReviewModal";
+import { useAlbumContextMenu } from "../../music/hooks/contextMenu";
 import { getClientForRemote } from "../../app/api/client";
 import { queryClient } from "../../queryClient";
 import { setPageInfo, clearPageInfo } from "../../app/services/pageInfo";
@@ -726,52 +727,54 @@ function AlbumRow(props: {
     });
   };
 
-  // context menu actions: navigate, review (when applicable), single-album
-  // lookup, toggle selection, copy id. items are recomputed on each open
-  // because `reviewable()` + `selected()` + admin gating (`onEnrich`)
-  // change with state.
+  // context menu actions: library-specific prefix (review + enrichment)
+  // first, then the shared album menu (play / shuffle / queue / view /
+  // favorite / playlist / station / share / tags / edit info), with
+  // library-only tail (select toggle, copy id) injected via the hook's
+  // customActions slot. recomputed on each open because reactive state
+  // (selection, review status, in-flight jobs) changes between opens.
   const menuActions = (): MenuAction[] => {
-    const actions: MenuAction[] = [
+    const base = useAlbumContextMenu(
       {
-        label: "open album page",
-        icon: "externalLink",
-        onClick: () => {
-          window.location.hash = `#/${props.remote.remote_id}/albums/${encodeURIComponent(
-            props.album.album_id
-          )}`;
-        },
+        id: props.album.album_id,
+        title: props.album.title,
+        artist_name: props.album.artist_name,
+        artist_id: props.album.artist_id,
+        song_count: props.album.song_count,
       },
-    ];
+      {
+        showPlayActions: true,
+        isFavorite: props.album.is_favorite ?? false,
+        customActions: [
+          {
+            label: selected() ? "deselect album" : "select album",
+            icon: selected() ? "close" : "check",
+            onClick: () => toggleAlbumSelection(props.album.album_id, props.index),
+          },
+        ],
+      }
+    );
+
+    const prefix: MenuAction[] = [];
     if (reviewable()) {
-      actions.push({
+      prefix.push({
         label: "review candidates",
         icon: "search",
         onClick: () => openReview(),
       });
     }
     if (props.onEnrich) {
-      actions.push({
+      prefix.push({
         label: "look up enrichment",
         icon: "database",
         disabled: inflightSources().size > 0,
         onClick: () => props.onEnrich?.(props.album.album_id),
       });
     }
-    actions.push({ type: "separator" });
-    actions.push({
-      label: selected() ? "deselect album" : "select album",
-      icon: selected() ? "close" : "check",
-      onClick: () => toggleAlbumSelection(props.album.album_id, props.index),
-    });
-    actions.push({ type: "separator" });
-    actions.push({
-      label: "copy album id",
-      icon: "copy",
-      onClick: () => {
-        void navigator.clipboard?.writeText(props.album.album_id);
-      },
-    });
-    return actions;
+    if (prefix.length > 0) {
+      prefix.push({ type: "separator" });
+    }
+    return [...prefix, ...base];
   };
 
   return (

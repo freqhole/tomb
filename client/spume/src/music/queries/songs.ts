@@ -249,11 +249,16 @@ export function useAlbumSongsQuery(
 interface UseArtistsQueryOptions {
   query?: Accessor<string | undefined>;
   pageSize?: number;
+  /** reactive enabled flag — defaults to always enabled. used to skip
+   *  fetching the full artist list on narrow viewports when only the
+   *  detail view is showing. */
+  enabled?: Accessor<boolean>;
 }
 
 export function useArtistsQuery(options?: UseArtistsQueryOptions) {
   const pageSize = options?.pageSize || 100;
   const query = options?.query;
+  const enabled = options?.enabled;
 
   return createInfiniteQuery(() => ({
     queryKey: queryKeys.artists.list(query?.()),
@@ -286,6 +291,7 @@ export function useArtistsQuery(options?: UseArtistsQueryOptions) {
     gcTime: 10 * 60 * 1000,
     refetchOnMount: false,
     refetchOnWindowFocus: false,
+    enabled: () => (enabled ? enabled() : true),
   }));
 }
 

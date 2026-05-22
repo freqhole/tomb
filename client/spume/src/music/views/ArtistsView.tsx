@@ -17,7 +17,7 @@ import { VirtualItemList, type ListItem } from "../../components/virtualized/Vir
 import { getDataSource } from "../data";
 import { RemoteOfflineError } from "../data";
 import { showArtistEditor, showImageCarousel } from "../hooks/modals";
-import { useArtistSongsQuery, useArtistsQuery } from "../queries/songs";
+import { useArtistSongsQuery, useArtistsQuery, useArtistQuery } from "../queries/songs";
 import { useSetRatingMutation } from "../queries/ratings";
 import { useToggleFavoriteMutation } from "../queries/favorites";
 import { useArtistContextMenu } from "../hooks/contextMenu";
@@ -123,14 +123,32 @@ export function ArtistsView(props: ArtistsViewProps) {
     }
   });
 
-  // fetch artists using tanstack query (works with local + remote)
+  // fetch artists using tanstack query (works with local + remote).
+  // on narrow viewports the artist detail view occupies the full screen,
+  // so we skip the (potentially huge) artists list fetch while the
+  // detail is showing — unless the user is searching, in which case
+  // they're explicitly browsing the list.
+  const artistsListEnabled = createMemo(() => {
+    const q = searchParams.q;
+    const hasSearch = !!(Array.isArray(q) ? q[0] : q);
+    if (hasSearch) return true;
+    if (isNarrow() && showingDetailOnNarrow()) return false;
+    return true;
+  });
   const artistsQuery = useArtistsQuery({
     pageSize: 100,
     query: () => {
       const q = searchParams.q;
       return Array.isArray(q) ? q[0] : q;
     },
+    enabled: artistsListEnabled,
   });
+
+  // independent single-artist fetch for the detail panel. this lets the
+  // detail render as soon as its own (small, fast) query resolves —
+  // without waiting on the full artists list to flatten + sort. crucial
+  // on slow connections + large libraries.
+  const selectedArtistQuery = useArtistQuery(() => selectedArtistId() ?? undefined);
 
   // rating mutation
   const setRatingMutation = useSetRatingMutation();
@@ -225,11 +243,15 @@ export function ArtistsView(props: ArtistsViewProps) {
     });
   });
 
-  // get selected artist data
+  // get selected artist data. prefer the dedicated single-artist query
+  // (resolves fast) and fall back to the list result so wide-viewport
+  // browsing still works seamlessly when the list arrives first.
   const selectedArtist = createMemo(() => {
     const id = selectedArtistId();
     if (!id) return null;
-    return sortedArtists().find((a) => a.artist_id === id);
+    const fromDetail = selectedArtistQuery.data;
+    if (fromDetail && fromDetail.artist_id === id) return fromDetail;
+    return sortedArtists().find((a) => a.artist_id === id) ?? null;
   });
 
   // convert to list items
