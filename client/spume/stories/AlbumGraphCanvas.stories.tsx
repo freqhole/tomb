@@ -515,7 +515,9 @@ function GraphDemo(props: DemoProps) {
             setLassoPicks([]);
             setPillEdges(new Map());
             setWireEdge(null);
-            setSelected(a);
+            // mock data is album-only, so the canvas only ever emits
+            // AlbumNodeData here.
+            setSelected((a as AlbumNodeData | null) ?? null);
           }}
           onEdgeSelect={(e) => {
             setLassoPicks([]);
@@ -530,12 +532,12 @@ function GraphDemo(props: DemoProps) {
             // eslint-disable-next-line no-console
             console.log("lasso selected", picks.length, "albums");
             if (picks.length >= 2) {
-              setLassoPicks(picks);
+              setLassoPicks(picks as AlbumNodeData[]);
               setCreating(true);
             }
           }}
           onNodeContextMenu={(album, x, y) => {
-            setCtxMenu({ album, x, y });
+            setCtxMenu({ album: album as AlbumNodeData, x, y });
           }}
         />
       </div>

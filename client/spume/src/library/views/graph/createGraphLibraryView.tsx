@@ -21,6 +21,7 @@ import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "so
 import type { JSX } from "solid-js";
 import { AlbumGraphCanvas, type GraphActions } from "../../../components/graph/AlbumGraphCanvas";
 import { AlbumDetailPopover } from "../../../components/graph/AlbumDetailPopover";
+import { ArtistDetailPopover } from "../../../components/graph/ArtistDetailPopover";
 import { GraphTopNavTools, type GraphTool } from "../../../components/graph/GraphTopNavTools";
 import { Icon } from "../../../components/icons/registry";
 import {
@@ -30,11 +31,25 @@ import {
   RELATION_KINDS,
   RELATION_LABEL,
 } from "../../../components/graph/relations";
-import type { AlbumNodeData, GraphEdge, RelationKindLike } from "../../../components/graph/types";
+import type {
+  AlbumNodeData,
+  ArtistNodeData,
+  GraphEdge,
+  GraphNodeData,
+  RelationKindLike,
+} from "../../../components/graph/types";
+import { nodeKind } from "../../../components/graph/types";
+import type { RelatedArtistsMap } from "../../queries/useRelatedArtistsByIds";
 
 export interface CreateGraphLibraryViewOpts {
-  /** live album set — accessor so the caller can stream pages in. */
-  nodes: () => AlbumNodeData[];
+  /** live node set — accessor so the caller can stream pages in. may
+   *  include both album and artist nodes when the content-kind
+   *  selector enables artist nodes. */
+  nodes: () => GraphNodeData[];
+  /** resolved last.fm related-artist relationships keyed by source
+   *  artist id (in-library targets only). drives the `related_artist`
+   *  edge kind. omit / leave empty when artist nodes aren't visible. */
+  relatedArtists?: () => RelatedArtistsMap | undefined;
   /** search query accessor — drives node-highlight filter. */
   searchQuery: () => string;
   /** album row actions; surfaced via AlbumDetailPopover. */
@@ -44,6 +59,13 @@ export interface CreateGraphLibraryViewOpts {
   onViewAlbum?: (album: AlbumNodeData) => void;
   onViewArtist?: (album: AlbumNodeData) => void;
   onToggleFavorite?: (album: AlbumNodeData) => void;
+  /** opens the album editor modal. callers (e.g. LibraryGraphSubview)
+   *  are responsible for gating on admin permission — if undefined,
+   *  the popover's edit button is hidden. */
+  onEditAlbum?: (album: AlbumNodeData) => void;
+  /** opens the artist editor modal. same admin-gating contract as
+   *  `onEditAlbum`. */
+  onEditArtistNode?: (artist: ArtistNodeData) => void;
   /** fired when the lasso tool completes a selection (>=2 albums). */
   onLassoSelect?: (albums: AlbumNodeData[]) => void;
   /** when true, the sim pauses (canvas is hidden / behind another tab). */
@@ -135,12 +157,27 @@ export function createGraphLibraryView(opts: CreateGraphLibraryViewOpts): GraphL
   // the adapter produces a new node and `selected()` picks it up
   // immediately instead of holding onto the stale click-time snapshot.
   const [selectedId, setSelectedId] = createSignal<string | null>(null);
+  // selected() narrows to `AlbumNodeData` only — artist nodes are
+  // selectable on the canvas (for ring highlight) but never open the
+  // detail popover (artist detail UI is reachable elsewhere).
   const selected = createMemo<AlbumNodeData | null>(() => {
     const id = selectedId();
     if (!id) return null;
-    return nodes().find((n) => n.id === id) ?? null;
+    const n = nodes().find((n) => n.id === id) ?? null;
+    if (!n || nodeKind(n) !== "album") return null;
+    return n as AlbumNodeData;
   });
-  const setSelected = (album: AlbumNodeData | null) => setSelectedId(album?.id ?? null);
+  const setSelected = (node: GraphNodeData | null) => setSelectedId(node?.id ?? null);
+  // mirror of `selected()` but for artist nodes — drives the artist
+  // detail popover. mutually exclusive with `selected()` because each
+  // node has exactly one kind.
+  const selectedArtist = createMemo<ArtistNodeData | null>(() => {
+    const id = selectedId();
+    if (!id) return null;
+    const n = nodes().find((n) => n.id === id) ?? null;
+    if (!n || nodeKind(n) !== "artist") return null;
+    return n as ArtistNodeData;
+  });
   const [pillEdges, setPillEdges] = createSignal<Map<string, GraphEdge>>(new Map());
   const [wireEdge, setWireEdge] = createSignal<GraphEdge | null>(null);
   const [wireTension, setWireTension] = createSignal(0.44);
@@ -155,7 +192,9 @@ export function createGraphLibraryView(opts: CreateGraphLibraryViewOpts): GraphL
   });
 
   const edgeKey = (kind: RelationKindLike, label: string) => `${String(kind)}|${label}`;
-  const edges = createMemo<GraphEdge[]>(() => buildRelationEdges(nodes()));
+  const edges = createMemo<GraphEdge[]>(() =>
+    buildRelationEdges(nodes(), { relatedArtists: opts.relatedArtists?.() })
+  );
   const counts = createMemo(() => countEdgesByKind(edges()));
 
   const canvasEdges = createMemo<GraphEdge[]>(() => {
@@ -178,9 +217,18 @@ export function createGraphLibraryView(opts: CreateGraphLibraryViewOpts): GraphL
     if (!q) return null;
     const out = new Set<string>();
     for (const n of nodes()) {
-      const t = (n.title ?? "").toLowerCase();
-      const a = (n.artistName ?? "").toLowerCase();
-      if (t.includes(q) || a.includes(q)) out.add(n.id);
+      // search matches both album metadata and artist names. for an
+      // album node we look at title + artistName; for an artist node
+      // there's just the name field.
+      if (nodeKind(n) === "artist") {
+        const a = (n as { name?: string }).name?.toLowerCase() ?? "";
+        if (a.includes(q)) out.add(n.id);
+      } else {
+        const album = n as AlbumNodeData;
+        const t = (album.title ?? "").toLowerCase();
+        const a = (album.artistName ?? "").toLowerCase();
+        if (t.includes(q) || a.includes(q)) out.add(n.id);
+      }
     }
     return out;
   });
@@ -216,7 +264,9 @@ export function createGraphLibraryView(opts: CreateGraphLibraryViewOpts): GraphL
     const out: AlbumNodeData[] = [];
     for (const id of ids) {
       const a = byId.get(id);
-      if (a) out.push(a);
+      // popover carousel is album-only; an artist node lit up via the
+      // `artist_album` edge kind shouldn't appear there.
+      if (a && nodeKind(a) === "album") out.push(a as AlbumNodeData);
     }
     out.sort((a, b) => a.title.localeCompare(b.title));
     return out;
@@ -238,7 +288,7 @@ export function createGraphLibraryView(opts: CreateGraphLibraryViewOpts): GraphL
       const wireList: AlbumNodeData[] = [];
       for (const id of ids) {
         const a = byId.get(id);
-        if (a) wireList.push(a);
+        if (a && nodeKind(a) === "album") wireList.push(a as AlbumNodeData);
       }
       wireList.sort((a, b) => a.title.localeCompare(b.title));
       const seen = new Set<string>(wireList.map((a) => a.id));
@@ -304,7 +354,41 @@ export function createGraphLibraryView(opts: CreateGraphLibraryViewOpts): GraphL
     undefined
   );
   const currentSel = createMemo(() => popInfo().list[popIndex()] ?? null);
-  const canvasSelectedId = createMemo(() => currentSel()?.id ?? null);
+  const canvasSelectedId = createMemo(() => currentSel()?.id ?? selectedArtist()?.id ?? null);
+
+  // artist popover carousel \u2014 [selectedArtist, ...relatedArtists].
+  // related artists are sourced from `opts.relatedArtists()` (last.fm
+  // map, in-library targets only) and resolved to graph nodes via the
+  // current `nodes()` snapshot so the popover only surfaces artists
+  // that are actually visible on the canvas.
+  const artistPopList = createMemo<ArtistNodeData[]>(() => {
+    const a = selectedArtist();
+    if (!a) return [];
+    const rel = opts.relatedArtists?.();
+    const relSet = rel?.get(a.artistId);
+    if (!relSet || relSet.size === 0) return [a];
+    const byArtistId = new Map<string, ArtistNodeData>();
+    for (const n of nodes()) {
+      if (nodeKind(n) === "artist") {
+        const an = n as ArtistNodeData;
+        byArtistId.set(an.artistId, an);
+      }
+    }
+    const related: ArtistNodeData[] = [];
+    for (const aid of relSet) {
+      const node = byArtistId.get(aid);
+      if (node && node.artistId !== a.artistId) related.push(node);
+    }
+    related.sort((x, y) => x.name.localeCompare(y.name));
+    return [a, ...related];
+  });
+  const [artistPopIndex, setArtistPopIndex] = createSignal(0);
+  // reset to the anchor artist whenever the user selects a different one.
+  createEffect((prev: string | null | undefined) => {
+    const id = selectedArtist()?.id ?? null;
+    if (prev !== id) setArtistPopIndex(0);
+    return id;
+  }, null);
 
   // pill tap — toggle the relation in the highlight set without
   // disturbing the anchored album in the popover. when the relation
@@ -530,9 +614,13 @@ export function createGraphLibraryView(opts: CreateGraphLibraryViewOpts): GraphL
         }}
         onLassoSelect={
           opts.onLassoSelect
-            ? (albums) => {
+            ? (picks) => {
                 setUserInteracted(true);
-                if (albums.length >= 2) opts.onLassoSelect!(albums as AlbumNodeData[]);
+                // lasso lives at the album layer only — artist nodes
+                // filter out so callers (bulk-tag flow) only ever
+                // receive album payloads.
+                const albums = picks.filter((n) => nodeKind(n) === "album") as AlbumNodeData[];
+                if (albums.length >= 2) opts.onLassoSelect!(albums);
               }
             : undefined
         }
@@ -563,6 +651,7 @@ export function createGraphLibraryView(opts: CreateGraphLibraryViewOpts): GraphL
             onViewAlbum={opts.onViewAlbum}
             onViewArtist={opts.onViewArtist}
             onToggleFavorite={opts.onToggleFavorite}
+            onEdit={opts.onEditAlbum}
           />
         </div>
       </Show>
@@ -580,6 +669,22 @@ export function createGraphLibraryView(opts: CreateGraphLibraryViewOpts): GraphL
           </span>
           <span class="text-white/60">selected — show details</span>
         </button>
+      </Show>
+
+      {/* artist detail popover \u2014 mutually exclusive with the album
+          popover above because each node has exactly one kind. */}
+      <Show when={selectedArtist() && artistPopList().length > 0}>
+        <div class="absolute bottom-3 left-3 z-10 max-w-[min(360px,calc(100%-1.5rem))] pointer-events-auto">
+          <ArtistDetailPopover
+            artists={artistPopList()}
+            index={artistPopIndex()}
+            onIndexChange={setArtistPopIndex}
+            activeRelations={activeRelations()}
+            onRelationClick={focusOnRelation}
+            onFocusArtist={(a) => setSelectedId(a.id)}
+            onEdit={opts.onEditArtistNode}
+          />
+        </div>
       </Show>
 
       {/* bottom-right status chip — shows graph size + current selection. */}

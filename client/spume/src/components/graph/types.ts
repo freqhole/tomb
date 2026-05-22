@@ -12,7 +12,15 @@ export type RelationKind =
   | "style"
   | "era"
   | "label"
-  | "favorite";
+  | "favorite"
+  /** artist node connected to one of its in-library albums */
+  | "artist_album";
+
+/** discriminator for the graph node union. albums get `"album"`, artist
+ *  avatar nodes get `"artist"`. older code paths that pre-date the union
+ *  may construct AlbumNodeData without an explicit `kind` — treat
+ *  missing as `"album"`. */
+export type NodeKind = "album" | "artist";
 
 // allow arbitrary user-defined taxon keys (e.g. "vibe", "decade") while
 // preserving autocomplete for the well-known set above.
@@ -21,6 +29,8 @@ export type RelationKindLike = RelationKind | (string & {});
 
 export interface AlbumNodeData {
   id: string;
+  /** discriminator. optional for back-compat; treat missing as "album". */
+  kind?: "album";
   title: string;
   artistId: string;
   artistName: string;
@@ -43,9 +53,6 @@ export interface AlbumNodeData {
   /** 5-year bucket label like "1990-1994" */
   era: string | null;
 
-  // graph relations
-  relatedArtistIds: string[];
-
   // sugar
   trackCount: number;
   totalDurationSec: number;
@@ -62,8 +69,61 @@ export interface TagRef {
   weight: number;
 }
 
+/** circle-avatar artist node. derived client-side from the unique
+ *  artists across the loaded album set; appears alongside album nodes
+ *  in the graph when the content-kind selector is set to `artists` or
+ *  `both`. carries unioned taxonomic fields so the existing relation
+ *  builders (genre / tag / mood / style / era / label) connect artist
+ *  nodes to album nodes (and to other artist nodes) using the same
+ *  visual + interaction language. */
+export interface ArtistNodeData {
+  /** namespaced id: `artist::${artistId}`. avoids collision with
+   *  album node ids which use `${remoteId}::${albumId}`. */
+  id: string;
+  kind: "artist";
+  /** local artist id; matches `AlbumNodeData.artistId`. */
+  artistId: string;
+  name: string;
+  /** 2–3 char fallback for the avatar tile (see getArtistAbbreviation). */
+  abbreviation: string;
+  /** absolute or remote url for the artist thumbnail; null = render
+   *  acronym tile. */
+  imageUrl: string | null;
+  /** full image metadata for canonical resolution via the blob
+   *  resolver. null when no image is known yet. */
+  image: ImageMetadata | null;
+  /** number of in-library albums attributed to this artist. used for
+   *  the bottom-right status chip and (optionally) for sizing. */
+  albumCount: number;
+
+  // unioned taxonomy from the artist's albums — drives relation edges
+  // identically to album nodes. de-duplicated, no ordering guarantee.
+  genres: string[];
+  tags: TagRef[];
+  moods: string[];
+  styles: string[];
+  /** most common label across the artist's albums, or null. */
+  label: string | null;
+  /** most common 5-year era across the artist's albums, or null. */
+  era: string | null;
+
+  /** artist nodes are never marked as favorite (no per-artist favorite
+   *  signal yet). field exists so buildRelationEdges can read it
+   *  uniformly across the union. */
+  isFavorite?: boolean;
+}
+
+/** node union as carried through the graph pipeline. */
+export type GraphNodeData = AlbumNodeData | ArtistNodeData;
+
+/** helper: extract the node kind, defaulting to `"album"` for legacy
+ *  AlbumNodeData rows that pre-date the discriminator. */
+export function nodeKind(n: GraphNodeData): NodeKind {
+  return (n as ArtistNodeData).kind === "artist" ? "artist" : "album";
+}
+
 /** node as carried through d3-force; gets mutable x/y/vx/vy assigned by sim */
-export interface GraphNode extends AlbumNodeData {
+export type GraphNode = (AlbumNodeData | ArtistNodeData) & {
   x?: number;
   y?: number;
   vx?: number;
@@ -71,7 +131,7 @@ export interface GraphNode extends AlbumNodeData {
   fx?: number | null;
   fy?: number | null;
   index?: number;
-}
+};
 
 export interface GraphEdge {
   /** node id at construction; d3-force replaces with node ref after init */

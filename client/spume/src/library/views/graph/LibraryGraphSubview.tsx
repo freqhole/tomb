@@ -21,6 +21,7 @@ import {
   type JSX,
 } from "solid-js";
 import { useNavigate } from "@solidjs/router";
+import { useQueryClient } from "@tanstack/solid-query";
 import type { Remote } from "../../../app/services/storage/schemas/remote";
 import { useLibraryAlbumsQuery } from "../../queries/useLibraryAlbums";
 import { useTopNavSlots } from "../../../app/shell/topNavSlots";
@@ -31,11 +32,17 @@ import { addToQueue, playQueue } from "../../../music/services/queue/queue";
 import { routes } from "../../../music/utils/routing";
 import { useToggleFavoriteMutation } from "../../../music/queries/favorites";
 import { toast } from "../../../components/feedback/Toast";
-import { Icon } from "../../../components/icons/registry";
 import type { TagFilter, TagOption } from "../../../components/forms/TagFilterPicker";
 import { isNarrowViewport } from "../../../config/breakpoints";
 import { setPageInfo, clearPageInfo } from "../../../app/services/pageInfo";
-import type { AlbumNodeData } from "../../../components/graph/types";
+import { useHistoryState } from "../../../utils/historyState";
+import type { AlbumNodeData, GraphNodeData } from "../../../components/graph/types";
+import { deriveArtistNodes } from "./deriveArtistNodes";
+import { useRelatedArtistsByIds } from "../../queries/useRelatedArtistsByIds";
+import { getAuthInfo, getAuthStatus } from "../../../app/services/remotes/authStatusStore";
+import { permissions, type UserRoleName } from "freqhole-api-client";
+import { showAlbumEditor, showArtistEditor } from "../../../music/hooks/modals";
+import type { ArtistNodeData } from "../../../components/graph/types";
 
 export interface LibraryGraphSubviewProps {
   /** every selected remote whose albums should be merged into the graph. */
@@ -86,18 +93,25 @@ function RemoteAlbumsLoader(props: {
   remote: Remote;
   search: () => string;
   onNodes: (remoteId: string, nodes: AlbumNodeData[]) => void;
+  /** reports the loader's in-flight status so the parent can render a
+   *  refreshing chip while a manual refresh is round-tripping. true
+   *  means a fetch (initial or `fetchNextPage`) is currently active. */
+  onFetchingChange?: (remoteId: string, fetching: boolean) => void;
 }) {
   // graph wants every album, not the table's 100-row pages. start at
   // a chunky baseline and ramp proportionally once we know `total_count`
-  // so a 10k-album library lands in ~8 fetches instead of ~100.
-  const INITIAL_PAGE_SIZE = 250;
-  const MAX_PAGE_SIZE = 1000;
-  const TARGET_PAGE_COUNT = 8;
+  // so a 10k-album library lands in ~4 fetches instead of ~100.
+  const INITIAL_PAGE_SIZE = 500;
+  const MAX_PAGE_SIZE = 2500;
+  const TARGET_PAGE_COUNT = 4;
   const [pageSize, setPageSize] = createSignal(INITIAL_PAGE_SIZE);
   const albumsQuery = useLibraryAlbumsQuery({
     remote: () => props.remote,
     search: () => props.search() || undefined,
     pageSizeFn: pageSize,
+    // graph doesn't need the 5s mb-lookup re-poll; a manual refresh
+    // button in the topnav handles staleness instead.
+    disablePolling: true,
   });
 
   // ramp page size after we see the first response. once `total_count`
@@ -123,9 +137,30 @@ function RemoteAlbumsLoader(props: {
     }
   });
 
-  // re-publish adapted nodes whenever the pages array changes.
+  // surface in-flight status to the parent so it can render the
+  // refreshing chip. a loader is "fetching" when it's actively
+  // round-tripping (initial load, manual refetch, or auto next-page).
+  createEffect(() => {
+    const q = albumsQuery;
+    const fetching = q.isFetching || q.isFetchingNextPage || q.hasNextPage;
+    props.onFetchingChange?.(props.remote.remote_id, !!fetching);
+  });
+  onCleanup(() => {
+    props.onFetchingChange?.(props.remote.remote_id, false);
+  });
+
+  // publish adapted nodes incrementally — every page is dumped into
+  // the graph as it lands so the user sees something asap instead of
+  // waiting for the full library. the rAF batcher in Inner still
+  // coalesces concurrent publishes from multiple remotes into a single
+  // graph mutation. with `disablePolling: true` above there are no
+  // spurious refetch republishes to dedup, so a simple page-count
+  // guard is enough to skip no-op re-runs of this effect.
+  let lastEmittedPages = -1;
+  let lastEmittedCount = -1;
   createEffect(() => {
     const pages = albumsQuery.data?.pages ?? [];
+    if (pages.length === 0) return;
     const id = props.remote.remote_id;
     const out: AlbumNodeData[] = [];
     for (const page of pages) {
@@ -133,6 +168,12 @@ function RemoteAlbumsLoader(props: {
         out.push(adaptAlbum(summary, { remoteId: id }));
       }
     }
+    // skip no-op re-runs: a refetch that returns the same number of
+    // pages with the same total album count means nothing visible
+    // changed for the graph.
+    if (pages.length === lastEmittedPages && out.length === lastEmittedCount) return;
+    lastEmittedPages = pages.length;
+    lastEmittedCount = out.length;
     props.onNodes(id, out);
   });
 
@@ -148,6 +189,7 @@ function Inner(props: {
 }) {
   const navigate = useNavigate();
   const slots = useTopNavSlots();
+  const queryClient = useQueryClient();
   const favoriteMutation = useToggleFavoriteMutation();
 
   // local search signal for the graph (until topnav search is wired
@@ -155,10 +197,46 @@ function Inner(props: {
   // setter is reserved for the upcoming topnav search input.
   const [searchQuery] = createSignal("");
 
+  // admin-ness is per-remote. consume the global authStatusStore signal
+  // (populated by AppLayout / useRemoteIsAdmin's refresh-on-demand) so
+  // we stay in sync with topnav role display. `isAnyRemoteAdmin()`
+  // gates whether the popovers offer an edit button at all;
+  // `isRemoteAdmin(remoteId)` re-checks per-node before opening the
+  // editor (in case multiple remotes are selected with mixed roles).
+  const authStatus = getAuthStatus();
+  const isRemoteAdmin = (remoteId: string | null | undefined): boolean => {
+    if (!remoteId) return false;
+    const entry = authStatus().get(remoteId) ?? getAuthInfo(remoteId);
+    if (!entry || !entry.loggedIn || !entry.role) return false;
+    return permissions.isAdmin(entry.role as UserRoleName);
+  };
+  const isAnyRemoteAdmin = (): boolean => {
+    for (const r of props.remotes()) if (isRemoteAdmin(r.remote_id)) return true;
+    return false;
+  };
+
   // per-remote node store, keyed by remote_id. updated by each
   // RemoteAlbumsLoader child as pages arrive. flattened into `nodes()`
   // below for the graph.
   const [nodesByRemote, setNodesByRemote] = createSignal<Map<string, AlbumNodeData[]>>(new Map());
+
+  // per-remote in-flight status — drives the small "refreshing…" chip
+  // overlaid on the graph after the initial load when the user clicks
+  // the topnav refresh button.
+  const [fetchingByRemote, setFetchingByRemote] = createSignal<Map<string, boolean>>(new Map());
+  const setFetchingFor = (remoteId: string, fetching: boolean) => {
+    setFetchingByRemote((prev) => {
+      const cur = prev.get(remoteId) ?? false;
+      if (cur === fetching) return prev;
+      const next = new Map(prev);
+      next.set(remoteId, fetching);
+      return next;
+    });
+  };
+  const isAnyRemoteRefetching = (): boolean => {
+    for (const v of fetchingByRemote().values()) if (v) return true;
+    return false;
+  };
 
   // batched-update plumbing: each `RemoteAlbumsLoader` reports a fresh
   // adapted list whenever a new page lands. publishing each one
@@ -198,10 +276,22 @@ function Inner(props: {
   };
 
   // when a remote is deselected, prune its entry so its nodes drop from
-  // the graph on the next tick.
+  // the graph on the next tick. also clean up the per-remote fetching
+  // flag so a stale `true` doesn't keep the "refreshing…" chip lit.
   createEffect(() => {
     const active = new Set(props.remotes().map((r) => r.remote_id));
     setNodesByRemote((prev) => {
+      let changed = false;
+      const next = new Map(prev);
+      for (const k of [...next.keys()]) {
+        if (!active.has(k)) {
+          next.delete(k);
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+    setFetchingByRemote((prev) => {
       let changed = false;
       const next = new Map(prev);
       for (const k of [...next.keys()]) {
@@ -330,8 +420,114 @@ function Inner(props: {
     return resp.items;
   };
 
+  // ---- content-kind selector ------------------------------------------
+  // user-controlled toggle between album-only, artist-only, and both
+  // node layers. persisted across navigations via useHistoryState so
+  // flipping to another view + back preserves the picked layer. when
+  // artists are visible we also fire the per-artist related-artist
+  // query so artist↔artist edges can be drawn.
+  type ContentKind = "albums" | "artists" | "both";
+  const [contentKind, setContentKind] = useHistoryState<ContentKind>(
+    "library.graph.contentKind",
+    "both"
+  );
+  const showArtists = createMemo(() => contentKind() === "artists" || contentKind() === "both");
+  const showAlbums = createMemo(() => contentKind() === "albums" || contentKind() === "both");
+
+  // derive artist nodes from the album set. one node per unique
+  // artistId (in-library only — the source albums are by definition
+  // in-library). image / abbreviation / aggregated taxonomy come from
+  // the constituent albums (see deriveArtistNodes for the merge rules).
+  const artistNodes = createMemo(() => deriveArtistNodes(visibleNodes()));
+
+  const uniqueArtistIds = createMemo(() => artistNodes().map((a) => a.artistId));
+
+  // fan-out per-artist related-artist queries. only enabled when
+  // artists are visible (otherwise we'd issue N http calls for nothing).
+  // currently keyed against the first selected remote — related-artist
+  // data lives per-remote and merging cross-remote relations is a
+  // future enhancement.
+  const primaryRemote = createMemo(() => props.remotes()[0]);
+  const relatedQuery = useRelatedArtistsByIds({
+    remote: primaryRemote,
+    artistIds: uniqueArtistIds,
+    enabled: showArtists,
+  });
+  const relatedMap = createMemo(() => relatedQuery.data ?? new Map<string, Set<string>>());
+
+  // final node set passed to the graph factory \u2014 union of layer
+  // toggles. order: albums first, then artists, so initial layout
+  // seeds the heavier album cluster before artist circles drop in.
+  const graphNodes = createMemo<GraphNodeData[]>(() => {
+    const out: GraphNodeData[] = [];
+    if (showAlbums()) out.push(...visibleNodes());
+    if (showArtists()) out.push(...artistNodes());
+    return out;
+  });
+
+  // segmented control rendered inside the topnav cluster. on narrow
+  // viewports we drop the labels and show icon-only buttons so the
+  // toolbar still fits.
+  const CONTENT_KIND_OPTIONS: { value: ContentKind; label: string; title: string }[] = [
+    { value: "albums", label: "albums", title: "show albums only" },
+    { value: "artists", label: "artists", title: "show artists only" },
+    { value: "both", label: "both", title: "show albums and artists" },
+  ];
+  const contentKindSelector = (
+    <div
+      class="inline-flex items-center rounded border border-white/10 bg-white/5 overflow-hidden"
+      role="radiogroup"
+      aria-label="graph content"
+    >
+      <For each={CONTENT_KIND_OPTIONS}>
+        {(opt) => (
+          <button
+            type="button"
+            role="radio"
+            aria-checked={contentKind() === opt.value}
+            title={opt.title}
+            onClick={() => setContentKind(opt.value)}
+            class="px-2 py-1 text-[11px] leading-none cursor-pointer border-0 bg-transparent text-white/70 hover:text-white"
+            classList={{
+              "bg-white/15 text-white": contentKind() === opt.value,
+            }}
+          >
+            {opt.label}
+          </button>
+        )}
+      </For>
+    </div>
+  );
+
+  // compose the content-kind selector ahead of any caller-supplied
+  // extraTools (e.g. the admin-only bulk-tag toggle from the parent).
+  // also includes a manual refresh button — the graph query opts out
+  // of the 5s mb-lookup re-poll (see RemoteAlbumsLoader), so this is
+  // the explicit way to pull in newly-added/updated albums.
+  const refreshButton = (
+    <button
+      type="button"
+      title="refresh graph data"
+      aria-label="refresh graph data"
+      onClick={() => {
+        void queryClient.invalidateQueries({ queryKey: ["library-albums"] });
+      }}
+      class="inline-flex items-center justify-center w-7 h-7 rounded border border-white/10 bg-white/5 text-white/70 hover:text-white hover:bg-white/10 cursor-pointer leading-none text-[14px]"
+    >
+      <span aria-hidden="true">↻</span>
+    </button>
+  );
+  const composedExtraTools = (
+    <div class="inline-flex items-center gap-2">
+      {contentKindSelector}
+      {refreshButton}
+      {props.extraTools}
+    </div>
+  );
+
   const graph = createGraphLibraryView({
-    nodes: visibleNodes,
+    nodes: graphNodes,
+    relatedArtists: relatedMap,
     searchQuery,
     paused: () => !props.isActive(),
     lockNodes: true,
@@ -420,7 +616,29 @@ function Inner(props: {
       props.onLassoAlbums?.(r, ids);
     },
     forceTool: () => (props.bulkTagMode?.() ? "lasso" : null),
-    extraTools: props.extraTools,
+    extraTools: composedExtraTools,
+    // admin-only edit handlers — callbacks are wired unconditionally;
+    // each one checks per-remote admin status before opening the
+    // editor. (the popover's edit button still appears only when the
+    // callback is provided, so for fully non-admin users we omit it
+    // entirely via `isAnyRemoteAdmin()` below.)
+    onEditAlbum: isAnyRemoteAdmin()
+      ? (album) => {
+          const r = remoteForNode(album);
+          if (!r || !isRemoteAdmin(r.remote_id)) {
+            toast.error("admin permission required");
+            return;
+          }
+          showAlbumEditor({ albumId: bareAlbumId(album), remote: r });
+        }
+      : undefined,
+    onEditArtistNode: isAnyRemoteAdmin()
+      ? (artist: ArtistNodeData) => {
+          // artist nodes are cross-remote aggregations — just open the
+          // editor by artist_id and let the modal pick its source.
+          showArtistEditor({ artistId: artist.artistId });
+        }
+      : undefined,
   });
 
   // wire the batched-flush hook to the now-instantiated graph. each
@@ -495,9 +713,13 @@ function Inner(props: {
         <Show when={props.remotes().length > 1}>
           <span
             class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] leading-none whitespace-nowrap border border-white/10 bg-white/5 text-white/70"
-            title="selected remotes · loaded albums"
+            title="selected remotes · loaded nodes"
           >
-            {props.remotes().length} remotes · {nodes().length} albums
+            {props.remotes().length} remotes · {visibleNodes().length} albums
+            <Show when={showArtists() && artistNodes().length > 0}>
+              {" "}
+              · {artistNodes().length} artists
+            </Show>
           </span>
         </Show>
         <Show when={graph.autoPaused()}>
@@ -531,21 +753,68 @@ function Inner(props: {
       {/* fan-out: one loader per selected remote. queryClient dedupes
        *  by key so flipping back to the table view doesn't re-fetch. */}
       <For each={props.remotes()}>
-        {(r) => <RemoteAlbumsLoader remote={r} search={searchQuery} onNodes={setNodesFor} />}
+        {(r) => (
+          <RemoteAlbumsLoader
+            remote={r}
+            search={searchQuery}
+            onNodes={setNodesFor}
+            onFetchingChange={setFetchingFor}
+          />
+        )}
       </For>
 
       <Show when={nodes().length === 0}>
-        <div class="flex flex-col items-center justify-center h-full gap-2 text-[var(--color-text-disabled)]">
-          <Icon name="share" size={32} />
-          <p class="text-sm m-0">loading albums…</p>
+        <div
+          class="flex items-center justify-center h-full text-[var(--color-text-disabled)] text-xs"
+          data-testid="library-graph-loading"
+          role="status"
+          aria-live="polite"
+        >
+          <span>loading…</span>
         </div>
       </Show>
       <Show when={nodes().length > 0}>
         {/* graph.pane's root is `flex-1 relative overflow-hidden`, so
          *  its parent MUST be a flex container for flex-1 to take
          *  effect. without `flex` here the pane collapses to ~1px
-         *  around its absolutely-positioned canvas child. */}
-        <div class="flex-1 min-h-0 flex">{graph.pane}</div>
+         *  around its absolutely-positioned canvas child. a tiny chip
+         *  in the corner signals ongoing fetches (initial pages still
+         *  streaming in, or a manual refresh round-tripping). */}
+        <div class="flex-1 min-h-0 flex relative">
+          {graph.pane}
+          <Show when={isAnyRemoteRefetching()}>
+            <div
+              class="absolute top-2 right-2 z-10 inline-flex items-center gap-1.5 px-2 py-0.5 rounded border border-white/10 bg-black/50 text-white/70 text-[10px] backdrop-blur-sm pointer-events-none"
+              role="status"
+              aria-live="polite"
+            >
+              <svg
+                class="animate-spin"
+                width="10"
+                height="10"
+                viewBox="0 0 24 24"
+                fill="none"
+                aria-hidden="true"
+              >
+                <circle
+                  cx="12"
+                  cy="12"
+                  r="10"
+                  stroke="currentColor"
+                  stroke-width="3"
+                  stroke-opacity="0.25"
+                />
+                <path
+                  d="M22 12a10 10 0 0 1-10 10"
+                  stroke="currentColor"
+                  stroke-width="3"
+                  stroke-linecap="round"
+                />
+              </svg>
+              <span>loading…</span>
+            </div>
+          </Show>
+        </div>
       </Show>
     </div>
   );

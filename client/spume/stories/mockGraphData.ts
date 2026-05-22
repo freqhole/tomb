@@ -8,7 +8,13 @@
 // this keeps a single source of truth for names, ids, thumbnails, etc.
 // across all storybook stories.
 
-import type { AlbumNodeData, TagRef } from "../src/components/graph/types";
+import type {
+  AlbumNodeData,
+  ArtistNodeData,
+  GraphNodeData,
+  TagRef,
+} from "../src/components/graph/types";
+import { deriveArtistNodes } from "../src/library/views/graph/deriveArtistNodes";
 import {
   mockAlbums,
   mockArtists,
@@ -202,9 +208,15 @@ export function enrichAlbum(
         : album.thumbnailUrl;
 
   const relatedArtistIds = RELATED_ARTISTS.get(artistId) ?? [];
+  // related-artist edges in the live app come from the
+  // `useRelatedArtistsByIds` query at the subview layer; mock data
+  // for storybook still exposes the id list as a sibling artifact in
+  // case a story wants to bridge to it via a custom relations build.
+  void relatedArtistIds;
 
   return {
     id: album.id,
+    kind: "album",
     title: album.title,
     artistId,
     artistName: album.artist,
@@ -219,7 +231,6 @@ export function enrichAlbum(
     styles,
     label,
     era: eraBucket(album.year),
-    relatedArtistIds,
     trackCount: album.trackCount,
     totalDurationSec: album.duration,
     rating: album.rating,
@@ -277,3 +288,16 @@ export function generateGraphAlbums(count: number, seed = 42): AlbumNodeData[] {
 export const SMALL_GRAPH = mockGraphAlbums;
 export const MEDIUM_GRAPH = generateGraphAlbums(200);
 export const LARGE_GRAPH = generateGraphAlbums(2000);
+
+/** derive artist avatar nodes from an album set using the same helper
+ *  the live app uses. handy for stories that want to render the album
+ *  + artist union (the graph subview's "both" content-kind mode). */
+export function withArtists(albums: AlbumNodeData[]): GraphNodeData[] {
+  const artists: ArtistNodeData[] = deriveArtistNodes(albums);
+  return [...albums, ...artists];
+}
+
+/** convenience: pre-built album+artist union datasets at three sizes. */
+export const SMALL_GRAPH_WITH_ARTISTS: GraphNodeData[] = withArtists(SMALL_GRAPH);
+export const MEDIUM_GRAPH_WITH_ARTISTS: GraphNodeData[] = withArtists(MEDIUM_GRAPH);
+export const LARGE_GRAPH_WITH_ARTISTS: GraphNodeData[] = withArtists(LARGE_GRAPH);

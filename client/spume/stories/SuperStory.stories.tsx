@@ -1,7 +1,8 @@
-import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import type { Meta, StoryObj } from "storybook-solidjs-vite";
 import { Button } from "../src/components/buttons/Button";
 import { IconButton } from "../src/components/buttons/IconButton";
+import { TagFilterPicker, type TagFilter } from "../src/components/forms/TagFilterPicker";
 import {
   formatDuration,
   formatNumber,
@@ -20,7 +21,7 @@ import { QueueSidebar } from "../src/components/player/QueueSidebar";
 import { VirtualAlbumGrid } from "../src/components/virtualized/VirtualAlbumGrid";
 import { VirtualSongList } from "../src/components/virtualized/VirtualSongList";
 import { createGraphLibraryView } from "../src/library/views/graph/createGraphLibraryView";
-import { MEDIUM_GRAPH } from "./mockGraphData";
+import { MEDIUM_GRAPH, withArtists } from "./mockGraphData";
 import type { Song as DomainSong } from "../src/music/data/types";
 import { isNarrowViewport } from "../src/config/breakpoints";
 import {
@@ -29,6 +30,7 @@ import {
   mockArtists,
   mockGenres,
   mockPlaylists,
+  mockTags,
   type Artist,
   type Genre,
   type Playlist,
@@ -138,8 +140,36 @@ export const FullAppDemo: Story = {
     // searchValue is declared here (out of order with the other
     // view-state signals below) so the factory can capture it.
     const [searchValue, setSearchValue] = createSignal("");
+
+    // tag filter picker state — shown in the topnav rightContent and
+    // wired into the graph node accessor below so toggling tags
+    // actually narrows the visible albums (and the derived artist
+    // avatars). filters use include/exclude semantics.
+    const [tagFilters, setTagFilters] = createSignal<TagFilter[]>([]);
+
+    // build the graph dataset: 200 mock albums + the derived artist
+    // avatar nodes for each unique artist across that set. memo'd so
+    // the derivation isn't redone on every render. filtered by the
+    // active tag filter set so the picker has visible effect.
+    const graphNodes = createMemo(() => {
+      const filters = tagFilters();
+      let albums = MEDIUM_GRAPH;
+      if (filters.length > 0) {
+        albums = MEDIUM_GRAPH.filter((al) => {
+          const labels = new Set(al.tags.map((t) => t.label));
+          for (const f of filters) {
+            const has = labels.has(f.tag);
+            if (f.mode === "include" && !has) return false;
+            if (f.mode === "exclude" && has) return false;
+          }
+          return true;
+        });
+      }
+      return withArtists(albums);
+    });
+
     const libraryGraph = createGraphLibraryView({
-      nodes: () => MEDIUM_GRAPH,
+      nodes: graphNodes,
       searchQuery: searchValue,
       onPlay: (a) => console.log("[graph] play", a.title),
       onShuffle: (a) => console.log("[graph] shuffle", a.title),
@@ -976,7 +1006,44 @@ export const FullAppDemo: Story = {
           onSearchChange={(query) => console.log("search:", query)}
           onSearchSubmit={(query) => console.log("search submit:", query)}
           currentPath={`/${currentRoute()}`}
-          rightContent={currentRoute() === "library" ? libraryGraph.topNavTools : undefined}
+          rightContent={
+            currentRoute() === "library" ? (
+              // tag filter picker sits to the left of the graph's own
+              // topnav tools (relation toggles, lock, etc.) so the
+              // most-frequently-touched controls (relation legend +
+              // lock) stay flush right and the tag picker has room to
+              // expand its dropdown without being clipped by the
+              // viewport edge.
+              <div class="flex items-center gap-3">
+                <TagFilterPicker
+                  availableTags={mockTags.map((t) => ({
+                    value: t.label,
+                    label: t.label,
+                    count: t.count,
+                  }))}
+                  selectedFilters={tagFilters()}
+                  onAddTag={(tag) =>
+                    setTagFilters((prev) =>
+                      prev.some((f) => f.tag === tag) ? prev : [...prev, { tag, mode: "include" }]
+                    )
+                  }
+                  onRemoveTag={(tag) => setTagFilters((prev) => prev.filter((f) => f.tag !== tag))}
+                  onToggleMode={(tag) =>
+                    setTagFilters((prev) =>
+                      prev.map((f) =>
+                        f.tag === tag
+                          ? { ...f, mode: f.mode === "include" ? "exclude" : "include" }
+                          : f
+                      )
+                    )
+                  }
+                  onClearAll={() => setTagFilters([])}
+                  compact
+                />
+                {libraryGraph.topNavTools}
+              </div>
+            ) : undefined
+          }
           secondaryRowContent={
             currentRoute() === "library" ? libraryGraph.selectedRelationChips : undefined
           }

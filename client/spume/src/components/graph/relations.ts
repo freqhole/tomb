@@ -1,5 +1,12 @@
 // relation metadata + edge construction for the album graph
-import type { AlbumNodeData, GraphEdge, RelationKind } from "./types";
+import type {
+  AlbumNodeData,
+  ArtistNodeData,
+  GraphEdge,
+  GraphNodeData,
+  RelationKind,
+} from "./types";
+import { nodeKind } from "./types";
 
 export interface RelationKindMeta {
   kind: RelationKind;
@@ -67,6 +74,12 @@ export const RELATION_KINDS: RelationKindMeta[] = [
     color: "#ff1a9e",
     description: "albums you've marked as a favorite",
   },
+  {
+    kind: "artist_album",
+    label: "artist ↔ album",
+    color: "#fbbf24",
+    description: "artist node linked to one of its in-library albums",
+  },
 ];
 
 export const RELATION_COLOR: Record<RelationKind, string> = RELATION_KINDS.reduce(
@@ -96,25 +109,45 @@ export interface BuildEdgesOptions {
   perGroupFanout?: number;
   /** drop groups smaller than this */
   minGroupSize?: number;
+  /**
+   * resolved last.fm related-artist relationships, keyed by source
+   * artist id. each entry is the set of *in-library* related artist
+   * ids (the api also returns external matches; the caller should
+   * filter those out before passing them here). drives the
+   * `related_artist` edge kind. when omitted, no related-artist
+   * edges are produced.
+   */
+  relatedArtists?: Map<string, Set<string>>;
 }
 
 const DEFAULT_FANOUT = 3;
 
 /**
- * build edges between album nodes for the requested relation kinds.
+ * build edges between graph nodes for the requested relation kinds.
  *
- * strategy per kind:
- * - group nodes by the shared value (genre name, tag, label, era, artistId,
+ * supports a heterogeneous node set: `AlbumNodeData` and
+ * `ArtistNodeData` participate uniformly in the taxonomic relation
+ * kinds (genre / tag / mood / style / era / label), because artist
+ * nodes carry a unioned view of their albums' taxonomies. specialized
+ * kinds:
+ *   - `same_artist`: clique over albums sharing an artistId. excludes
+ *     artist nodes (an artist is never "same artist" as another).
+ *   - `related_artist`: artist↔artist wires from the `relatedArtists`
+ *     map, restricted to pairs where *both* endpoints are present as
+ *     in-library artist nodes.
+ *   - `artist_album`: every artist node connects to its in-library
+ *     albums.
+ *   - `favorite`: only albums (artist favorites aren't a thing yet).
+ *
+ * other kinds use the chain-by-shared-attribute strategy:
+ * - group nodes by the shared value (genre name, tag, label, era,
  *   mood, style)
  * - within each group, connect each node to the next `fanout` nodes in
- *   stable id order, forming a sparse chain (not a clique). this keeps edge
- *   count O(N * fanout) instead of O(N^2).
- *
- * related_artist is special: edge when albumA.artist appears in
- * albumB.relatedArtistIds (or vice-versa), capped at `fanout` per source.
+ *   stable id order, forming a sparse chain (not a clique). this keeps
+ *   edge count O(N * fanout) instead of O(N^2).
  */
 export function buildRelationEdges(
-  nodes: AlbumNodeData[],
+  nodes: GraphNodeData[],
   options: BuildEdgesOptions = {}
 ): GraphEdge[] {
   const kinds = options.kinds ?? RELATION_KINDS.map((r) => r.kind);
@@ -122,10 +155,18 @@ export function buildRelationEdges(
   const minGroupSize = options.minGroupSize ?? 2;
   const edges: GraphEdge[] = [];
 
+  // partition once — most kinds only care about one slice.
+  const albumNodes: AlbumNodeData[] = [];
+  const artistNodes: ArtistNodeData[] = [];
+  for (const n of nodes) {
+    if (nodeKind(n) === "artist") artistNodes.push(n as ArtistNodeData);
+    else albumNodes.push(n as AlbumNodeData);
+  }
+
   const addChain = (
     kind: RelationKind,
     label: string | undefined,
-    members: AlbumNodeData[],
+    members: GraphNodeData[],
     weight: number
   ) => {
     if (members.length < minGroupSize) return;
@@ -143,8 +184,8 @@ export function buildRelationEdges(
     }
   };
 
-  const groupBy = (keyFn: (n: AlbumNodeData) => string[] | string | null) => {
-    const m = new Map<string, AlbumNodeData[]>();
+  const groupBy = (keyFn: (n: GraphNodeData) => string[] | string | null) => {
+    const m = new Map<string, GraphNodeData[]>();
     for (const n of nodes) {
       const k = keyFn(n);
       const keys = Array.isArray(k) ? k : k ? [k] : [];
@@ -172,9 +213,19 @@ export function buildRelationEdges(
     }
   }
   if (kinds.includes("same_artist")) {
-    for (const [a, members] of groupBy((n) => n.artistId)) {
+    // album-only: artist nodes have no peer "same artist" semantic.
+    const albumByArtist = new Map<string, AlbumNodeData[]>();
+    for (const a of albumNodes) {
+      let arr = albumByArtist.get(a.artistId);
+      if (!arr) {
+        arr = [];
+        albumByArtist.set(a.artistId, arr);
+      }
+      arr.push(a);
+    }
+    for (const [a, members] of albumByArtist) {
       // for same-artist we want a clique (usually small) — bump fanout
-      const sorted = [...members].sort((a, b) => a.id.localeCompare(b.id));
+      const sorted = [...members].sort((x, y) => x.id.localeCompare(y.id));
       // prefer the artist *name* for the label so edge tooltips read
       // "same_artist: Aphex Twin" instead of an opaque id. fall back to
       // the id when no name is available.
@@ -215,44 +266,70 @@ export function buildRelationEdges(
   if (kinds.includes("favorite")) {
     // single group: every album the user has favorited gets chained
     // together. uses the standard fanout so large favorite sets don't
-    // explode into an N² clique.
-    const favs = nodes.filter((n) => n.isFavorite);
+    // explode into an N² clique. artist favorites aren't modeled yet.
+    const favs = albumNodes.filter((n) => n.isFavorite);
     addChain("favorite", "favorites", favs, 0.6);
   }
 
-  if (kinds.includes("related_artist")) {
-    // index albums by their artistId so we can resolve relations
-    const byArtist = new Map<string, AlbumNodeData[]>();
-    for (const n of nodes) {
-      let arr = byArtist.get(n.artistId);
+  if (kinds.includes("artist_album") && artistNodes.length > 0) {
+    // every artist node wires to each in-library album by that artist.
+    // weight is 1 (structural relation, not a soft similarity) so the
+    // sim's link force keeps the album cluster anchored around the
+    // artist circle.
+    const albumsByArtistId = new Map<string, AlbumNodeData[]>();
+    for (const a of albumNodes) {
+      let arr = albumsByArtistId.get(a.artistId);
       if (!arr) {
         arr = [];
-        byArtist.set(n.artistId, arr);
+        albumsByArtistId.set(a.artistId, arr);
       }
-      arr.push(n);
+      arr.push(a);
     }
+    for (const artist of artistNodes) {
+      const albums = albumsByArtistId.get(artist.artistId);
+      if (!albums) continue;
+      for (const album of albums) {
+        edges.push({
+          source: artist.id,
+          target: album.id,
+          kind: "artist_album",
+          weight: 1,
+          label: artist.name,
+        });
+      }
+    }
+  }
+
+  if (kinds.includes("related_artist") && options.relatedArtists && artistNodes.length > 0) {
+    // artist↔artist edges from last.fm/audiodb/mb cross-references,
+    // restricted to pairs where *both* endpoints are present as
+    // in-library artist nodes. de-duped (a→b and b→a collapse to a
+    // single undirected edge by id-order).
+    const artistIdsInLibrary = new Set(artistNodes.map((a) => a.artistId));
+    const byArtistId = new Map(artistNodes.map((a) => [a.artistId, a] as const));
     const seen = new Set<string>();
-    for (const n of nodes) {
+    for (const src of artistNodes) {
+      const related = options.relatedArtists.get(src.artistId);
+      if (!related) continue;
       let drawn = 0;
-      for (const relArtistId of n.relatedArtistIds) {
+      for (const tgtArtistId of related) {
         if (drawn >= fanout) break;
-        const targets = byArtist.get(relArtistId);
-        if (!targets) continue;
-        for (const t of targets) {
-          if (t.id === n.id) continue;
-          const key =
-            n.id < t.id ? `${n.id}|${t.id}` : `${t.id}|${n.id}`;
-          if (seen.has(key)) continue;
-          seen.add(key);
-          edges.push({
-            source: n.id,
-            target: t.id,
-            kind: "related_artist",
-            weight: 0.7,
-          });
-          drawn++;
-          if (drawn >= fanout) break;
-        }
+        if (tgtArtistId === src.artistId) continue;
+        if (!artistIdsInLibrary.has(tgtArtistId)) continue;
+        const tgt = byArtistId.get(tgtArtistId);
+        if (!tgt) continue;
+        const key =
+          src.id < tgt.id ? `${src.id}|${tgt.id}` : `${tgt.id}|${src.id}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        edges.push({
+          source: src.id,
+          target: tgt.id,
+          kind: "related_artist",
+          weight: 0.7,
+          label: `${src.name} ↔ ${tgt.name}`,
+        });
+        drawn++;
       }
     }
   }

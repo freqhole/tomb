@@ -109,7 +109,10 @@ export function LibraryView() {
   });
 
   // selection lifecycle (clear on route change + esc, ctrl/cmd-a select-all).
-  useAlbumSelectionLifecycle();
+  // scoped to the table subview \u2014 the graph view has its own keyboard
+  // shortcuts (f / r / esc) and shouldn't surface the album bulk-action
+  // bar when the user hits ctrl/cmd-a.
+  useAlbumSelectionLifecycle(() => subview() === "table");
   const selectedAlbumIds = useSelectedAlbumIds();
 
   // p8 page-reload rehydration: whenever the selected remote changes
@@ -493,34 +496,39 @@ export function LibraryView() {
             />
           </Match>
         </Switch>
-        <AlbumBulkActionBar
-          isAdmin={isRemoteAdmin()}
-          onEnrich={() => triggerEnrichment(selectedAlbumIds())}
-          onReview={() => triggerReview(selectedAlbumIds())}
-          onMarkDone={() => void markSelectedDone(selectedAlbumIds())}
-          onEditMetadata={() => {
-            const ids = selectedAlbumIds();
-            if (ids.length === 0) return;
-            setBulkEditAlbumIds(ids);
-            setBulkEditMode("metadata");
-            setShowBulkEditModal(true);
-          }}
-          onSetDiscNumber={() => {
-            const ids = selectedAlbumIds();
-            if (ids.length === 0) return;
-            setBulkEditAlbumIds(ids);
-            setBulkEditMode("disc");
-            setShowBulkEditModal(true);
-          }}
-          onManageTags={() => {
-            const ids = selectedAlbumIds();
-            if (ids.length === 0) return;
-            setTagSelectorAlbumIds(ids);
-            setShowTagSelectorModal(true);
-          }}
-          onSkip={() => void skipSelected(selectedAlbumIds())}
-          onUnskip={() => void unskipSelected(selectedAlbumIds())}
-        />
+        {/* bulk-action bar belongs to the table subview \u2014 hide it on
+            graph so a leftover selection (e.g. from a prior table
+            session) doesn't pop the toolbar over the canvas. */}
+        <Show when={subview() === "table"}>
+          <AlbumBulkActionBar
+            isAdmin={isRemoteAdmin()}
+            onEnrich={() => triggerEnrichment(selectedAlbumIds())}
+            onReview={() => triggerReview(selectedAlbumIds())}
+            onMarkDone={() => void markSelectedDone(selectedAlbumIds())}
+            onEditMetadata={() => {
+              const ids = selectedAlbumIds();
+              if (ids.length === 0) return;
+              setBulkEditAlbumIds(ids);
+              setBulkEditMode("metadata");
+              setShowBulkEditModal(true);
+            }}
+            onSetDiscNumber={() => {
+              const ids = selectedAlbumIds();
+              if (ids.length === 0) return;
+              setBulkEditAlbumIds(ids);
+              setBulkEditMode("disc");
+              setShowBulkEditModal(true);
+            }}
+            onManageTags={() => {
+              const ids = selectedAlbumIds();
+              if (ids.length === 0) return;
+              setTagSelectorAlbumIds(ids);
+              setShowTagSelectorModal(true);
+            }}
+            onSkip={() => void skipSelected(selectedAlbumIds())}
+            onUnskip={() => void unskipSelected(selectedAlbumIds())}
+          />
+        </Show>
       </div>
 
       {/* bulk edit albums modal — wrapped in Show so it remounts fresh

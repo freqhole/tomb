@@ -50,6 +50,9 @@ export interface AlbumDetailPopoverProps {
   onViewAlbum?: (album: AlbumNodeData) => void;
   onViewArtist?: (album: AlbumNodeData) => void;
   onToggleFavorite?: (album: AlbumNodeData) => void;
+  /** opens the album editor modal. parent is responsible for gating
+   *  on admin permission — if undefined, the edit button is hidden. */
+  onEdit?: (album: AlbumNodeData) => void;
 }
 
 function formatDuration(sec: number): string {
@@ -81,7 +84,8 @@ export function AlbumDetailPopover(props: AlbumDetailPopoverProps) {
       props.onAddToQueue ||
       props.onViewAlbum ||
       props.onViewArtist ||
-      props.onToggleFavorite
+      props.onToggleFavorite ||
+      props.onEdit
     );
 
   const go = (delta: number) => {
@@ -94,7 +98,7 @@ export function AlbumDetailPopover(props: AlbumDetailPopoverProps) {
   return (
     <Show when={album()}>
       <div
-        class="rounded-lg bg-[var(--color-bg-elevated)] border border-white/10 shadow-xl text-[var(--color-text)] w-72 max-w-[calc(100vw-2rem)] max-h-[calc(100vh-1rem)] overflow-y-auto flex flex-col"
+        class="rounded-lg bg-[var(--color-bg-elevated)] border border-white/10 shadow-xl text-[var(--color-text)] w-72 max-w-[calc(100vw-2rem)] max-h-[calc(100vh-var(--nav-height,56px)-1.5rem)] overflow-y-auto flex flex-col"
         style={
           positioned()
             ? {
@@ -176,6 +180,13 @@ export function AlbumDetailPopover(props: AlbumDetailPopoverProps) {
                 icon={IconNames.artist}
                 label="artist"
                 onClick={() => props.onViewArtist?.(album()!)}
+              />
+            </Show>
+            <Show when={props.onEdit}>
+              <ActionButton
+                icon={IconNames.edit}
+                label="edit"
+                onClick={() => props.onEdit?.(album()!)}
               />
             </Show>
           </div>

@@ -68,6 +68,7 @@ export function adaptAlbum(summary: AlbumSummary, opts: AdaptAlbumOpts): AlbumNo
 
   return {
     id: albumNodeId(opts.remoteId, summary.album_id),
+    kind: "album",
     title: summary.title,
     artistId: summary.artist_id,
     artistName: summary.artist_name ?? "",
@@ -80,7 +81,6 @@ export function adaptAlbum(summary: AlbumSummary, opts: AdaptAlbumOpts): AlbumNo
     styles,
     label: labelFromTaxon ?? summary.label ?? null,
     era: eraFromTaxon ?? yearBucketEra(summary.year),
-    relatedArtistIds: [],
     trackCount: summary.song_count ?? 0,
     totalDurationSec: summary.total_duration ?? 0,
     rating: summary.user_rating ?? null,

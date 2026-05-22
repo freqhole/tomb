@@ -141,7 +141,13 @@ export function drawAlbumNode(args: DrawAlbumNodeArgs): void {
   // overlay label — only when showLabel (hover / selected / edge-focus).
   // shown for both image and text-only tiles so zoomed-out text-only tiles
   // still get a readable marquee on hover.
-  if (showLabel) {
+  //
+  // at low on-screen sizes the in-tile band ends up covering most of the
+  // artwork with text that's still tiny + cramped, so we suppress it
+  // here and let the canvas draw a screen-space label below the tile
+  // instead (see AlbumGraphCanvas hover/low-zoom label pass).
+  const overlayScreenSize = size * Math.max(zoom, 0.05);
+  if (showLabel && overlayScreenSize >= 64) {
     drawLabelOverlay(
       ctx,
       album,

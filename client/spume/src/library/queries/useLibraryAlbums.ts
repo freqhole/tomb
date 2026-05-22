@@ -25,6 +25,10 @@ export interface LibraryAlbumsQueryOptions {
   pageSizeFn?: Accessor<number>;
   sortBy?: Accessor<string | undefined>;
   sortDirection?: Accessor<"asc" | "desc">;
+  /** opt out of the 5s `auto_applying` re-poll. used by the graph
+   *  subview which doesn't need live mb-lookup updates and finds the
+   *  resulting periodic rebuild worse than the staleness. */
+  disablePolling?: boolean;
 }
 
 const DEFAULT_PAGE_SIZE = 100;
@@ -122,6 +126,7 @@ export function useLibraryAlbumsQuery(opts: LibraryAlbumsQueryOptions) {
     // tracker can't invalidate us when it finishes. cheap re-poll until
     // the row flips out of `auto_applying`.
     refetchInterval: (query) => {
+      if (opts.disablePolling) return false;
       const data = query.state.data as
         | { pages?: Array<{ items: Array<{ mb_lookup_status?: string | null }> }> }
         | undefined;

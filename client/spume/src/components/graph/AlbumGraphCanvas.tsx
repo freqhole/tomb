@@ -22,12 +22,22 @@ import {
   type SimulationNodeDatum,
 } from "d3-force";
 import { drawAlbumNode } from "./drawAlbumNode";
+import { drawArtistNode } from "./drawArtistNode";
 import { buildHitTester, type HitTester } from "./hitTest";
 import { RELATION_COLOR } from "./relations";
-import type { AlbumNodeData, GraphEdge, GraphNode, RelationKind, ViewportTransform } from "./types";
+import type {
+  AlbumNodeData,
+  ArtistNodeData,
+  GraphEdge,
+  GraphNode,
+  GraphNodeData,
+  RelationKind,
+  ViewportTransform,
+} from "./types";
+import { nodeKind } from "./types";
 
 export interface AlbumGraphCanvasProps {
-  nodes: AlbumNodeData[];
+  nodes: GraphNodeData[];
   edges: GraphEdge[];
   /** which relation kinds to render edges for; undefined = all */
   enabledKinds?: Set<string> | string[];
@@ -35,7 +45,7 @@ export interface AlbumGraphCanvasProps {
   nodeSize?: number;
   /** controlled selection (parent owns state) */
   selectedId?: string | null;
-  onSelect?: (album: AlbumNodeData | null) => void;
+  onSelect?: (node: GraphNodeData | null) => void;
   /**
    * controlled edge selection. when provided, the canvas matches each
    * (kind,label) tuple against its internal links and lights up siblings
@@ -47,7 +57,7 @@ export interface AlbumGraphCanvasProps {
   /** edge click — fires when user clicks an empty-space edge stroke */
   onEdgeSelect?: (edge: GraphEdge | null) => void;
   /** lasso tool — emits the set of selected nodes at the end of a drag */
-  onLassoSelect?: (albums: AlbumNodeData[]) => void;
+  onLassoSelect?: (nodes: GraphNodeData[]) => void;
   /** fires the first time the user manually pans / zooms / pinches the
    *  canvas. parents use this to stop auto-fitting the viewport when
    *  new node batches land (otherwise we'd yank the camera mid-inspect). */
@@ -59,7 +69,7 @@ export interface AlbumGraphCanvasProps {
    *  graph so late-arriving pages don't cause a periodic shift. */
   quietUpdates?: boolean;
   /** right-click / long-press on a node — parent renders its own menu */
-  onNodeContextMenu?: (album: AlbumNodeData, clientX: number, clientY: number) => void;
+  onNodeContextMenu?: (node: GraphNodeData, clientX: number, clientY: number) => void;
   /** edge hover — fires (edge, x, y) on transition, and (null) when leaving */
   onEdgeHover?: (edge: GraphEdge | null, clientX: number, clientY: number) => void;
   /** imperative actions handed to the parent once the canvas is mounted */
@@ -312,15 +322,19 @@ export function AlbumGraphCanvas(props: AlbumGraphCanvasProps) {
       )
       .force("charge", forceManyBody().strength(-sz * 8)) // stronger repulsion
       .force("center", forceCenter(width / 2, height / 2))
-      // collide: hard non-overlap. radius covers the square node's
-      // bounding circle with breathing room; strength 1 + 3 iterations
-      // means the constraint actually wins against link/charge forces
-      // even on dense clusters (default 1 iteration leaves visible
-      // overlap when nodes pile up).
+      // collide: hard non-overlap. radius depends on node kind so the
+      // album's square corners (which extend to sz * sqrt(2)/2 ≈
+      // 0.71 * sz from center along the diagonal) don't visually
+      // intersect an adjacent artist circle (radius sz/2). a uniform
+      // radius leaves a thin overlap band wherever an album corner
+      // points at an artist disc. strength 1 + 3 iterations means
+      // the constraint actually wins against link/charge forces even
+      // on dense clusters (default 1 iteration leaves visible overlap
+      // when nodes pile up).
       .force(
         "collide",
         forceCollide<SimNode>()
-          .radius(sz * 1.1)
+          .radius((n) => (nodeKind(n) === "album" ? sz * 0.95 : sz * 0.65))
           .strength(1)
           .iterations(3)
       )
@@ -355,16 +369,18 @@ export function AlbumGraphCanvas(props: AlbumGraphCanvasProps) {
     } else {
       // subsequent rebuilds (relation kinds toggled, nodes appended):
       // very low alpha so existing positions barely move — just enough
-      // for new edges to tug things into place.
+      // for new edges to tug things into place. kept gentle because
+      // bulk loads can fire several rebuilds in quick succession as
+      // pages stream in.
       if (
         typeof console !== "undefined" &&
         (window as unknown as { __DEBUG_GRAPH__?: boolean }).__DEBUG_GRAPH__
       ) {
         console.debug(
-          `[graph] rebuild: nudge alpha=0.15, nodes=${simNodes.length} links=${simLinks.length}`
+          `[graph] rebuild: nudge alpha=0.08, nodes=${simNodes.length} links=${simLinks.length}`
         );
       }
-      sim.alpha(0.15).restart();
+      sim.alpha(0.08).restart();
     }
 
     sim.on("tick", () => {
@@ -585,23 +601,161 @@ export function AlbumGraphCanvas(props: AlbumGraphCanvasProps) {
       // AlbumDetailPopover already shows the info, so overlaying a
       // marquee here would be redundant + visually noisy.
       const showLabel = n.id === hov;
-      drawAlbumNode({
-        ctx,
-        album: n,
-        x: n.x ?? 0,
-        y: n.y ?? 0,
-        size: nodeSize(),
-        state,
-        zoom: v.k,
-        showLabel,
-        time,
-        onImageReady: requestDraw,
-        onMarquee: () => {
-          animatingMarquee = true;
-        },
-      });
+      if (nodeKind(n) === "artist") {
+        drawArtistNode({
+          ctx,
+          artist: n as ArtistNodeData,
+          x: n.x ?? 0,
+          y: n.y ?? 0,
+          size: nodeSize(),
+          state,
+          zoom: v.k,
+          onImageReady: requestDraw,
+        });
+      } else {
+        drawAlbumNode({
+          ctx,
+          album: n as AlbumNodeData,
+          x: n.x ?? 0,
+          y: n.y ?? 0,
+          size: nodeSize(),
+          state,
+          zoom: v.k,
+          showLabel,
+          time,
+          onImageReady: requestDraw,
+          onMarquee: () => {
+            animatingMarquee = true;
+          },
+        });
+      }
     }
     ctx.restore();
+
+    // node labels (screen space) — hover/selection focus only.
+    // hovered or selected node gets a readable label below the node
+    // (artist name for artist circles, title + artist for albums).
+    // albums delegate the in-tile band to drawAlbumNode only when the
+    // tile is big enough on screen; at low zoom the in-tile overlay
+    // is suppressed and this pass renders the label below the tile
+    // instead so it stays legible. non-focused nodes get no label.
+    {
+      const ns = nodeSize() * v.k;
+      ctx.save();
+      ctx.font = "600 11px system-ui, sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+
+      type NodeLabel = {
+        text: string;
+        sub?: string;
+        sx: number;
+        sy: number;
+        isFocus: boolean;
+      };
+      const focusLabels: NodeLabel[] = [];
+
+      // candidate iteration — only nodes visible on screen.
+      for (const n of simNodes) {
+        const nsx = (n.x ?? 0) * v.k + v.tx;
+        const nsy = (n.y ?? 0) * v.k + v.ty;
+        if (nsx + ns < -40 || nsx - ns > width + 40) continue;
+        if (nsy + ns < -40 || nsy - ns > height + 40) continue;
+        const isFocus = n.id === hov || n.id === sel;
+        if (!isFocus) continue;
+        const kind = nodeKind(n);
+        if (kind === "artist") {
+          const a = n as ArtistNodeData;
+          focusLabels.push({
+            text: a.name ?? a.abbreviation ?? "",
+            sx: nsx,
+            sy: nsy + ns / 2 + 10,
+            isFocus: true,
+          });
+        } else {
+          const al = n as AlbumNodeData;
+          // when the in-tile overlay is rendering (large enough),
+          // suppress the external label so we don't double up.
+          if (ns >= 64) continue;
+          focusLabels.push({
+            text: al.title ?? "",
+            sub: al.artistName ?? "",
+            sx: nsx,
+            sy: nsy + ns / 2 + 10,
+            isFocus: true,
+          });
+        }
+      }
+
+      // collision-aware placement (focus labels always placed first).
+      const placed: { x: number; y: number; w: number; h: number }[] = [];
+
+      const measure = (text: string): number => ctx.measureText(text).width;
+      const clipText = (text: string, maxW: number): string => {
+        if (measure(text) <= maxW) return text;
+        const ell = "…";
+        let lo = 0,
+          hi = text.length;
+        while (lo < hi) {
+          const mid = (lo + hi + 1) >> 1;
+          if (measure(text.slice(0, mid) + ell) <= maxW) lo = mid;
+          else hi = mid - 1;
+        }
+        return text.slice(0, lo) + ell;
+      };
+
+      const maxLabelW = 180;
+      const padX = 6;
+      const lineH = 13;
+
+      const drawPill = (l: NodeLabel, primary: string, secondary: string | null) => {
+        const bh = secondary ? lineH * 2 + 4 : lineH + 4;
+        const tw1 = measure(primary);
+        const tw2 = secondary ? measure(secondary) : 0;
+        const bw = Math.max(tw1, tw2) + padX * 2;
+        const bx = l.sx - bw / 2;
+        const by = l.sy;
+        // backdrop
+        ctx.fillStyle = "rgba(20,20,28,0.88)";
+        const rr = 5;
+        ctx.beginPath();
+        ctx.moveTo(bx + rr, by);
+        ctx.lineTo(bx + bw - rr, by);
+        ctx.quadraticCurveTo(bx + bw, by, bx + bw, by + rr);
+        ctx.lineTo(bx + bw, by + bh - rr);
+        ctx.quadraticCurveTo(bx + bw, by + bh, bx + bw - rr, by + bh);
+        ctx.lineTo(bx + rr, by + bh);
+        ctx.quadraticCurveTo(bx, by + bh, bx, by + bh - rr);
+        ctx.lineTo(bx, by + rr);
+        ctx.quadraticCurveTo(bx, by, bx + rr, by);
+        ctx.closePath();
+        ctx.fill();
+        ctx.fillStyle = "#e6e6e6";
+        const baseY = secondary ? by + 2 + lineH / 2 : by + 2 + lineH / 2;
+        ctx.fillText(primary, l.sx, baseY);
+        if (secondary) {
+          ctx.fillStyle = "#9aa0aa";
+          ctx.fillText(secondary, l.sx, by + 2 + lineH + lineH / 2);
+        }
+      };
+
+      // focus labels: always render
+      for (const l of focusLabels) {
+        if (!l.text && !l.sub) continue;
+        const primary = clipText(l.text, maxLabelW);
+        const secondary = l.sub ? clipText(l.sub, maxLabelW) : null;
+        const tw1 = measure(primary);
+        const tw2 = secondary ? measure(secondary) : 0;
+        const bw = Math.max(tw1, tw2) + padX * 2;
+        const bh = secondary ? lineH * 2 + 4 : lineH + 4;
+        const bx = l.sx - bw / 2;
+        const by = l.sy;
+        placed.push({ x: bx, y: by, w: bw, h: bh });
+        drawPill(l, primary, secondary);
+      }
+
+      ctx.restore();
+    }
 
     // edge labels — render hovered edge as a follow-tip near the cursor,
     // plus a scattered subset of selected edges so dense clusters don't
@@ -1206,7 +1360,7 @@ export function AlbumGraphCanvas(props: AlbumGraphCanvasProps) {
       const hit = getHitter().find(wx, wy, nodeSize() * 0.8);
       ev.preventDefault();
       if (hit && props.onNodeContextMenu) {
-        props.onNodeContextMenu(hit as AlbumNodeData, ev.clientX, ev.clientY);
+        props.onNodeContextMenu(hit as GraphNodeData, ev.clientX, ev.clientY);
       }
     };
     canvasEl.addEventListener("contextmenu", onContextMenu);
