@@ -445,6 +445,8 @@ export function createGraphLibraryView(opts: CreateGraphLibraryViewOpts): GraphL
         searchMatches={searchMatches()}
         paused={(opts.paused?.() ?? false) || autoPaused()}
         onReady={(a) => setApi(a)}
+        onUserInteract={() => setUserInteracted(true)}
+        quietUpdates={userInteracted()}
         onSelect={(album) => {
           setUserInteracted(true);
           setSelected(album);

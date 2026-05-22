@@ -48,6 +48,16 @@ export interface AlbumGraphCanvasProps {
   onEdgeSelect?: (edge: GraphEdge | null) => void;
   /** lasso tool — emits the set of selected nodes at the end of a drag */
   onLassoSelect?: (albums: AlbumNodeData[]) => void;
+  /** fires the first time the user manually pans / zooms / pinches the
+   *  canvas. parents use this to stop auto-fitting the viewport when
+   *  new node batches land (otherwise we'd yank the camera mid-inspect). */
+  onUserInteract?: () => void;
+  /** when true, structural updates (new node batches, resize) do NOT
+   *  reheat the force sim. existing nodes keep their positions and new
+   *  nodes appear at their phyllotaxis seed without nudging neighbors.
+   *  parents flip this on once the user has started inspecting the
+   *  graph so late-arriving pages don't cause a periodic shift. */
+  quietUpdates?: boolean;
   /** right-click / long-press on a node — parent renders its own menu */
   onNodeContextMenu?: (album: AlbumNodeData, clientX: number, clientY: number) => void;
   /** edge hover — fires (edge, x, y) on transition, and (null) when leaving */
@@ -191,11 +201,23 @@ export function AlbumGraphCanvas(props: AlbumGraphCanvasProps) {
     canvasEl.style.height = `${height}px`;
     if (sim) {
       sim.force("center", forceCenter(width / 2, height / 2));
-      // gentle nudge only — resize fires on mount and on any container
-      // resize, and a 0.3 alpha here would re-explode the layout every
-      // time. 0.05 lets the center force re-balance without visible
-      // shuffle of settled nodes.
-      sim.alpha(0.05).restart();
+      if (props.quietUpdates) {
+        // user is inspecting — don't reheat; just re-anchor the center
+        // force. existing nodes keep their positions; if the container
+        // resized, the next user interaction will refit.
+        if (
+          typeof console !== "undefined" &&
+          (window as unknown as { __DEBUG_GRAPH__?: boolean }).__DEBUG_GRAPH__
+        ) {
+          console.debug("[graph] resize: quiet (no reheat)");
+        }
+      } else {
+        // gentle nudge only — resize fires on mount and on any container
+        // resize, and a 0.3 alpha here would re-explode the layout every
+        // time. 0.05 lets the center force re-balance without visible
+        // shuffle of settled nodes.
+        sim.alpha(0.05).restart();
+      }
     }
     requestDraw();
   }
@@ -288,10 +310,35 @@ export function AlbumGraphCanvas(props: AlbumGraphCanvasProps) {
       // phyllotaxis seed relaxes into a real layout.
       sim.alpha(1).restart();
       firstBuild = false;
+    } else if (props.quietUpdates) {
+      // user is inspecting — do NOT reheat. new nodes stay at their
+      // phyllotaxis seed positions; existing nodes keep their current
+      // (already-settled) positions. avoids the periodic shift caused
+      // by paginated remote loaders dropping fresh batches every few
+      // seconds.
+      if (
+        typeof console !== "undefined" &&
+        (window as unknown as { __DEBUG_GRAPH__?: boolean }).__DEBUG_GRAPH__
+      ) {
+        console.debug(
+          `[graph] rebuild: quiet (no reheat), nodes=${simNodes.length} links=${simLinks.length}`
+        );
+      }
+      sim.alpha(0).stop();
+      // still need a single redraw so new nodes show up.
+      requestDraw();
     } else {
       // subsequent rebuilds (relation kinds toggled, nodes appended):
       // very low alpha so existing positions barely move — just enough
       // for new edges to tug things into place.
+      if (
+        typeof console !== "undefined" &&
+        (window as unknown as { __DEBUG_GRAPH__?: boolean }).__DEBUG_GRAPH__
+      ) {
+        console.debug(
+          `[graph] rebuild: nudge alpha=0.15, nodes=${simNodes.length} links=${simLinks.length}`
+        );
+      }
       sim.alpha(0.15).restart();
     }
 
@@ -759,6 +806,7 @@ export function AlbumGraphCanvas(props: AlbumGraphCanvasProps) {
       const a = activePointers.get(pinchState.p1.id);
       const b = activePointers.get(pinchState.p2.id);
       if (!a || !b) return;
+      props.onUserInteract?.();
       const newDist = Math.hypot(a.sx - b.sx, a.sy - b.sy) || 1;
       const scaleRatio = newDist / pinchState.initialDist;
       const newK = clamp(pinchState.initialK * scaleRatio, 0.1, 8);
@@ -813,12 +861,16 @@ export function AlbumGraphCanvas(props: AlbumGraphCanvasProps) {
       const [wx, wy] = screenToWorld(sx, sy);
       d.node.fx = wx;
       d.node.fy = wy;
+      if (!d.moved) props.onUserInteract?.();
       d.moved = true;
       sim?.alphaTarget(0.3).restart();
     } else if (d.type === "pan") {
       const ndx = sx - d.startX;
       const ndy = sy - d.startY;
-      if (Math.abs(ndx) + Math.abs(ndy) > 3) d.moved = true;
+      if (Math.abs(ndx) + Math.abs(ndy) > 3) {
+        if (!d.moved) props.onUserInteract?.();
+        d.moved = true;
+      }
       setView((v) => ({
         ...v,
         tx: d.startTx + ndx,
@@ -894,6 +946,7 @@ export function AlbumGraphCanvas(props: AlbumGraphCanvasProps) {
   function onWheel(e: WheelEvent) {
     if (!canvasEl) return;
     e.preventDefault();
+    props.onUserInteract?.();
     const [sx, sy] = clientToScreen(e);
     const v = view();
 

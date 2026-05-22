@@ -17,6 +17,7 @@ import {
   resolveImageUrlSync,
   type ThumbnailSize,
 } from "../../music/services/storage/blobResolver";
+import { getBlobObjectURL } from "../../music/services/storage/blobs";
 import { isCharnelManagedRemoteSync } from "../../music/services/storage/transportCache";
 import type { ImageMetadata } from "../../music/services/storage/types";
 
@@ -104,12 +105,39 @@ export function getImageFor(
 ): HTMLImageElement | null {
   if (!image) return null;
 
-  // (1) sync resolution covers local opfs + cached p2p + plain http.
+  // (1) sync resolution covers local opfs (when already in the BLOB_URL
+  // cache), cached p2p, and plain http.
   const syncUrl = resolveImageUrlSync(image);
   if (syncUrl) {
     // only append `/thumb/:size` for plain http urls; blob/data urls
     // are concrete and have no thumb endpoint.
     return getImage(withThumb(syncUrl, thumbSize), onReady);
+  }
+
+  // (1b) local opfs blob present but not yet in the sync cache. mirror
+  // MediaImage's behavior: kick off `getBlobObjectURL` so opfs is read
+  // exactly once and the resulting object url lands in the shared
+  // BLOB_URL cache; subsequent `resolveImageUrlSync` calls return it
+  // synchronously.
+  if (image.local_blob_id) {
+    const key = `local:${image.local_blob_id}`;
+    if (!resolving.has(key)) {
+      resolving.add(key);
+      void getBlobObjectURL(image.local_blob_id)
+        .then((url) => {
+          if (url) getImage(url, onReady);
+          else if (onReady) onReady();
+        })
+        .catch(() => {
+          if (onReady) onReady();
+        })
+        .finally(() => {
+          resolving.delete(key);
+        });
+    }
+    // don't early-return: an album may have both a local_blob_id and a
+    // remote fallback. if the opfs read fails or is slow, the remote
+    // path below still kicks in.
   }
 
   // (2) need an async lookup: only meaningful when we have a remote
