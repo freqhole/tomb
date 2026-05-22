@@ -125,6 +125,11 @@ export interface TopNavProps {
   storageQuota?: number;
   /** additional content to render on the right side of the nav bar */
   rightContent?: JSX.Element;
+  /** content rendered as a second row directly under the main nav bar,
+      alongside (and above) the built-in selected-tag/feed badges. used
+      by views that want their own chip row (e.g. selected relations on
+      the library graph) without redefining the topnav surface. */
+  secondaryRowContent?: JSX.Element;
   /** custom search component (optional - if not provided, uses TopNavSearchContainer) */
   searchComponent?: JSX.Element;
   /** page title to show in nav bar (e.g. "songs", "playlists") */
@@ -1650,6 +1655,14 @@ export function TopNav(props: TopNavProps) {
             </Show>
           </div>
         </div>
+
+        {/* caller-supplied second row — sits directly under the main
+            nav bar, above the built-in selected-tag/feed badge rows so
+            view-specific chip rows (e.g. selected relations on the
+            library graph) stack consistently. */}
+        <Show when={props.secondaryRowContent}>
+          <div class="mt-1.5 px-1">{props.secondaryRowContent}</div>
+        </Show>
 
         {/* selected tag badges - desktop only, below nav bar */}
         <Show when={!isNarrow() && hasActiveTags()}>

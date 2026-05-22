@@ -36,6 +36,10 @@ export interface GraphRelationsPickerProps {
   onDeselectAll?: () => void;
   /** compact mode (smaller paddings, used on narrow viewports) */
   compact?: boolean;
+  /** suppress the inline active-kind chips next to the trigger. used
+      when the parent surface (e.g. topnav second row) already renders
+      its own chip list and we don't want the picker to duplicate it. */
+  hideActiveChips?: boolean;
 }
 
 export function GraphRelationsPicker(props: GraphRelationsPickerProps) {
@@ -88,10 +92,13 @@ export function GraphRelationsPicker(props: GraphRelationsPickerProps) {
           </span>
         </button>
 
-        {/* active-kind chips: click toggles off, long-press solos */}
-        <For each={enabledKinds()}>
-          {(meta) => <ActiveKindChip meta={meta} compact={props.compact} {...props} />}
-        </For>
+        {/* active-kind chips: click toggles off, long-press solos.
+            suppressed when the parent renders its own chip row. */}
+        <Show when={!props.hideActiveChips}>
+          <For each={enabledKinds()}>
+            {(meta) => <ActiveKindChip meta={meta} compact={props.compact} {...props} />}
+          </For>
+        </Show>
       </div>
 
       <Show when={open()}>
