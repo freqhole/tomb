@@ -7,6 +7,7 @@ import { createMemo, For, Show } from "solid-js";
 import type { AlbumNodeData, RelationKindLike } from "./types";
 import { AlbumNodeView } from "./AlbumNodeView";
 import { Icon, IconNames } from "../icons/registry";
+import { MarqueeText } from "../text/MarqueeText";
 
 // long-press timing — kept in sync with RelationLegend so the gesture
 // feels identical across both surfaces.
@@ -24,9 +25,6 @@ export interface AlbumDetailPopoverProps {
   /** when supplied, positions the popover absolutely at these css coords */
   x?: number;
   y?: number;
-  onClose?: () => void;
-  /** show the close button (defaults to true when onClose is provided) */
-  showClose?: boolean;
   /** clicking a taxon pill (genre/mood/style/tag) — parent can use this to
    *  trigger the same focus behavior as clicking the matching connection
    *  wire on the canvas. */
@@ -62,7 +60,6 @@ function formatDuration(sec: number): string {
 
 export function AlbumDetailPopover(props: AlbumDetailPopoverProps) {
   const positioned = () => props.x !== undefined && props.y !== undefined;
-  const showClose = () => props.showClose ?? props.onClose !== undefined;
 
   const list = createMemo<AlbumNodeData[]>(() => {
     if (props.albums && props.albums.length > 0) return props.albums;
@@ -113,8 +110,8 @@ export function AlbumDetailPopover(props: AlbumDetailPopoverProps) {
         <div class="flex gap-3 p-3">
           <AlbumNodeView album={album()!} size={72} />
           <div class="flex-1 min-w-0">
-            <div class="font-semibold text-sm leading-tight truncate">{album()!.title}</div>
-            <div class="text-xs text-white/80 truncate mt-0.5">{album()!.artistName}</div>
+            <MarqueeText text={album()!.title} class="font-semibold text-sm leading-tight" />
+            <MarqueeText text={album()!.artistName} class="text-xs text-white/80 mt-0.5" />
             <div class="text-[11px] text-white/65 mt-1 flex flex-wrap gap-x-2 gap-y-0.5">
               <Show when={album()!.year}>
                 <span>{album()!.year}</span>
@@ -130,16 +127,6 @@ export function AlbumDetailPopover(props: AlbumDetailPopoverProps) {
               <div class="text-[11px] text-white/65 truncate mt-0.5">{album()!.label}</div>
             </Show>
           </div>
-          <Show when={showClose()}>
-            <button
-              type="button"
-              class="text-white/60 hover:text-white text-lg leading-none px-1"
-              onClick={() => props.onClose?.()}
-              aria-label="close"
-            >
-              ×
-            </button>
-          </Show>
         </div>
 
         <Show when={hasAnyAction()}>

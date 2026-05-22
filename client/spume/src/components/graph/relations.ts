@@ -167,6 +167,10 @@ export function buildRelationEdges(
     for (const [a, members] of groupBy((n) => n.artistId)) {
       // for same-artist we want a clique (usually small) — bump fanout
       const sorted = [...members].sort((a, b) => a.id.localeCompare(b.id));
+      // prefer the artist *name* for the label so edge tooltips read
+      // "same_artist: Aphex Twin" instead of an opaque id. fall back to
+      // the id when no name is available.
+      const labelName = sorted[0]?.artistName || a;
       for (let i = 0; i < sorted.length; i++) {
         for (let j = i + 1; j < sorted.length; j++) {
           edges.push({
@@ -174,7 +178,7 @@ export function buildRelationEdges(
             target: sorted[j].id,
             kind: "same_artist",
             weight: 1,
-            label: a,
+            label: labelName,
           });
         }
       }

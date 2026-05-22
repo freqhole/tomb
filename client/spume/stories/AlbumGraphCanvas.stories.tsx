@@ -394,13 +394,6 @@ function GraphDemo(props: DemoProps) {
     if (info.source === "lasso") return null;
     return currentSel()?.id ?? null;
   });
-  const closeSelection = () => {
-    setSelected(null);
-    setPillEdges(new Map());
-    setWireEdge(null);
-    setLassoPicks([]);
-  };
-
   // helper: a taxon pill in the popover toggles its relation on/off in
   // the pill highlight map. lighting up a new kind also enables it in
   // the relation legend so the wires are actually visible. crucially
@@ -599,7 +592,6 @@ function GraphDemo(props: DemoProps) {
             albums={popInfo().list}
             index={popIndex()}
             onIndexChange={setPopIndex}
-            onClose={closeSelection}
             onRelationClick={(kind, label) => focusOnRelation(kind, label)}
             onRelationSolo={(kind, label) => soloRelation(kind, label)}
             activeRelations={activeRelations()}

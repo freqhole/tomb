@@ -692,14 +692,22 @@ export function AlbumGraphCanvas(props: AlbumGraphCanvasProps) {
         return true;
       };
 
+      // when zoomed out, nodes shrink on screen and edge midpoints end
+      // up near (or behind) several node rects each — strict node-overlap
+      // rejection would suppress almost every label. relax it below this
+      // threshold so labels remain visible further out; placed-label
+      // collision still prevents the pills from stacking on top of each
+      // other.
+      const lowZoom = v.k < 0.7;
+
       // hover label always renders (best-effort node collision, but
       // doesn't block).
       for (const c of hovCands) {
-        if (!tryPlace(c, false)) tryPlace(c, true);
+        if (!tryPlace(c, lowZoom)) tryPlace(c, true);
       }
       for (const c of selCands) {
         if (labelsToDraw.length >= areaCap + hovCands.length) break;
-        tryPlace(c, false);
+        if (!tryPlace(c, lowZoom) && lowZoom) tryPlace(c, true);
       }
 
       // actual draw pass

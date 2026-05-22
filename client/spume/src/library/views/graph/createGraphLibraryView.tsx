@@ -288,12 +288,6 @@ export function createGraphLibraryView(opts: CreateGraphLibraryViewOpts): GraphL
   const currentSel = createMemo(() => popInfo().list[popIndex()] ?? null);
   const canvasSelectedId = createMemo(() => currentSel()?.id ?? null);
 
-  const closeSelection = () => {
-    setSelected(null);
-    setPillEdges(new Map());
-    setWireEdge(null);
-  };
-
   // pill tap — toggle the relation in the highlight set without
   // disturbing the anchored album in the popover. when the relation
   // is currently active only because the user clicked its wire (so it
@@ -542,7 +536,6 @@ export function createGraphLibraryView(opts: CreateGraphLibraryViewOpts): GraphL
             index={popIndex()}
             onIndexChange={setPopIndex}
             activeRelations={activeRelations()}
-            onClose={closeSelection}
             onRelationClick={focusOnRelation}
             onRelationSolo={soloRelation}
             onPlay={opts.onPlay}
