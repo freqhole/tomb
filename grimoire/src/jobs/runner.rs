@@ -80,11 +80,17 @@ pub async fn process_job(job: Job) -> GrimoireResponse<JobResult> {
             // for backwards-compat with the add-music modal until
             // phase 9.8 swaps that consumer over).
             if let Some(session_id) = &job.session_id {
+                let topic = job_type.clone();
+                let entity_ref = job_events::entity_ref_for_job(&job);
+                let created_by = job.created_by.clone();
                 job_events::emit(JobEvent::StatusChanged {
                     session_id: session_id.clone(),
                     job_id: job.id.clone(),
                     from: Some(JobStatusWire::Running),
                     to: JobStatusWire::Completed,
+                    topic: topic.clone(),
+                    entity_ref: entity_ref.clone(),
+                    created_by: created_by.clone(),
                 });
                 if let Some(counts) = get_session_job_counts(session_id).await.data {
                     let total = counts.total as i64;
@@ -93,10 +99,16 @@ pub async fn process_job(job: Job) -> GrimoireResponse<JobResult> {
                         session_id: session_id.clone(),
                         complete,
                         total,
+                        topic: topic.clone(),
+                        entity_ref: None,
+                        created_by: created_by.clone(),
                     });
                     if counts.pending == 0 && counts.running == 0 {
                         job_events::emit(JobEvent::Completed {
                             session_id: session_id.clone(),
+                            topic,
+                            entity_ref: None,
+                            created_by,
                         });
                     }
                 }
@@ -200,11 +212,17 @@ pub async fn process_job(job: Job) -> GrimoireResponse<JobResult> {
                 } else {
                     JobStatusWire::Failed
                 };
+                let topic = job_type.clone();
+                let entity_ref = job_events::entity_ref_for_job(&job);
+                let created_by = job.created_by.clone();
                 job_events::emit(JobEvent::StatusChanged {
                     session_id: session_id.clone(),
                     job_id: job.id.clone(),
                     from: Some(JobStatusWire::Running),
                     to: to_status,
+                    topic: topic.clone(),
+                    entity_ref: entity_ref.clone(),
+                    created_by: created_by.clone(),
                 });
                 if !is_retryable {
                     job_events::emit(JobEvent::Failed {
@@ -212,6 +230,9 @@ pub async fn process_job(job: Job) -> GrimoireResponse<JobResult> {
                         job_id: job.id.clone(),
                         error_type: error_detail.error_type.clone(),
                         message: error_detail.detail.clone(),
+                        topic: topic.clone(),
+                        entity_ref: entity_ref.clone(),
+                        created_by: created_by.clone(),
                     });
                 }
                 if let Some(counts) = get_session_job_counts(session_id).await.data {
@@ -221,10 +242,16 @@ pub async fn process_job(job: Job) -> GrimoireResponse<JobResult> {
                         session_id: session_id.clone(),
                         complete,
                         total,
+                        topic: topic.clone(),
+                        entity_ref: None,
+                        created_by: created_by.clone(),
                     });
                     if counts.pending == 0 && counts.running == 0 {
                         job_events::emit(JobEvent::Completed {
                             session_id: session_id.clone(),
+                            topic,
+                            entity_ref: None,
+                            created_by,
                         });
                     }
                 }

@@ -7,6 +7,7 @@ pub mod albums;
 pub mod analytics;
 pub mod artists;
 pub mod favorites;
+pub mod job_events;
 pub mod jobs;
 pub mod playlists;
 pub mod ratings;
@@ -29,6 +30,7 @@ pub fn routes() -> Vec<RouteInfo> {
     all.extend_from_slice(analytics::ROUTES);
     all.extend_from_slice(artists::ROUTES);
     all.extend_from_slice(favorites::ROUTES);
+    all.extend_from_slice(job_events::ROUTES);
     all.extend_from_slice(jobs::ROUTES);
     all.extend_from_slice(playlists::ROUTES);
     all.extend_from_slice(ratings::ROUTES);
@@ -178,6 +180,7 @@ pub async fn dispatch(
         // jobs
         "/api/jobs/status" => Some(jobs::status(caller, body.clone()).await),
         "/api/jobs/list" => Some(jobs::list(caller, body.clone()).await),
+        "/api/jobs/events/snapshot" => Some(job_events::snapshot(caller, body.clone()).await),
         "/api/music/fetch" => Some(jobs::create_fetch(caller, body.clone()).await),
         "/api/music/fetch/status" => Some(jobs::get_fetch(caller, body.clone()).await),
         "/api/music/albums/mb-search/enqueue" => {
@@ -262,6 +265,19 @@ pub async fn dispatch(
             super::media_blobz::dispatch(path, caller, body).await
         }
 
+        _ => None,
+    }
+}
+
+/// streaming dispatch for music-domain routes. mirrors `dispatch`
+/// but yields an `EventStream` instead of a single response.
+pub async fn dispatch_stream(
+    path: &str,
+    caller: &Caller,
+    body: &JsonValue,
+) -> Option<crate::offal::EventStream> {
+    match path {
+        "/api/jobs/events/subscribe" => Some(job_events::subscribe(caller.clone(), body.clone())),
         _ => None,
     }
 }

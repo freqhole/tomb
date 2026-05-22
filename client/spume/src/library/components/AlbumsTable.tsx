@@ -45,7 +45,13 @@ import {
   updateAlbumIdList,
   updateAlbumMbLookupStatusMap,
 } from "../hooks/albumSelection";
-import { useInflightJobs, getInflightSourcesForAlbum } from "../hooks/useMbLookupJobs";
+import {
+  useInflightJobs,
+  getInflightSourcesForAlbum,
+  getInflightJobForAlbum,
+  getJobProgressMessage,
+  useJobProgressMessages,
+} from "../hooks/useMbLookupJobs";
 import { showBulkReview } from "../review/bulkReviewModal";
 import { getClientForRemote } from "../../app/api/client";
 import { queryClient } from "../../queryClient";
@@ -653,6 +659,16 @@ function AlbumRow(props: { album: AlbumSummary; remote: Remote; index: number })
     inflight(); // subscribe
     return getInflightSourcesForAlbum(props.album.album_id);
   };
+  // live mb-search stage caption. depends on both signals so the
+  // caption reactively appears/disappears as the job progresses.
+  const stages = useJobProgressMessages();
+  const mbStageMessage = (): string | null => {
+    inflight();
+    stages();
+    const entry = getInflightJobForAlbum(props.album.album_id, "mb");
+    if (!entry) return null;
+    return getJobProgressMessage(entry.jobId);
+  };
   const lastfmState = (): SourceBadgeState => {
     if (inflightSources().has("lastfm")) return "inflight";
     const lf = albumMeta().lastfm;
@@ -778,6 +794,17 @@ function AlbumRow(props: { album: AlbumSummary; remote: Remote; index: number })
                   <span class="inline-block w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
                   {status() === "auto_applying" ? "auto-applying…" : "mb"}
                 </span>
+                {/* live broker-stage caption (snake_case stage name or
+                 *  human message). only renders while the mb job is
+                 *  actually in flight and has emitted a stage event. */}
+                <Show when={mbStageMessage()}>
+                  <span
+                    class="text-[9px] text-blue-300/70 italic truncate max-w-[14rem]"
+                    title={mbStageMessage() ?? ""}
+                  >
+                    {mbStageMessage()}
+                  </span>
+                </Show>
               </Show>
               {/* diversity-gate sub-badge: shown when needs_review was triggered by
                *  an album-only cascade stage (many distinct artists, title-only match). */}

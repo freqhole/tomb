@@ -146,15 +146,25 @@ pub async fn cleanup_orphaned_genres(dry_run: bool) -> GrimoireResponse<Orphaned
 mod tests {
     use super::*;
 
+    // these are integration tests in disguise — they require a real
+    // sqlite database with the full schema applied (tagz, album_tagz,
+    // taxonz, taxon_kindz, album_taxonz). #[ignore] keeps them out of
+    // the default unit-test run; invoke with
+    // `cargo test -p grimoire --lib -- --ignored test_cleanup_orphaned`
+    // against a provisioned data_dir to exercise them.
     #[tokio::test]
+    #[ignore = "needs a real db with schema applied"]
     async fn test_cleanup_orphaned_tags_dry_run() {
+        crate::config::init_config_for_tests();
         // dry run should not delete anything
         let result = cleanup_orphaned_tags(true).await;
         assert!(result.success);
     }
 
     #[tokio::test]
+    #[ignore = "needs a real db with schema applied"]
     async fn test_cleanup_orphaned_genres_dry_run() {
+        crate::config::init_config_for_tests();
         let result = cleanup_orphaned_genres(true).await;
         assert!(result.success);
     }

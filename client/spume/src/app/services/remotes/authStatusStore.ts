@@ -58,21 +58,37 @@ async function resolveOne(remote: Remote): Promise<AuthInfo> {
     }
   }
   // p2p remotes: query whoami over the p2p client to learn the role.
-  // needed for admin-button gating. transport readiness is no longer
-  // the store's concern — the remote-status-change subscription below
-  // re-runs this once the remote is verified online (which means midden
-  // is ready and discovery has succeeded).
+  // needed for admin-button gating. cold-start "No addressing information"
+  // races are now handled in grimoire's `transport::peer_lock` (it
+  // serializes the first connect per peer so iroh discovery warms once),
+  // so a single call here is sufficient.
   if (!isHttpRemote(remote)) {
     try {
       const result = await whoamiForRemote(remote);
-      return {
-        loggedIn: result.success,
-        username: result.username,
-        role: result.role,
-      };
-    } catch {
-      // expected on cold reload before the remote-status-change event
-      // fires. we'll be retried then.
+      if (result.success) {
+        console.log(
+          "[auth-status] p2p whoami succeeded for",
+          remote.remote_id,
+          "role=",
+          result.role,
+        );
+        return {
+          loggedIn: true,
+          username: result.username,
+          role: result.role,
+        };
+      }
+      console.log(
+        "[auth-status] p2p whoami returned not-logged-in for",
+        remote.remote_id,
+      );
+      return { loggedIn: false };
+    } catch (err) {
+      console.warn(
+        "[auth-status] p2p whoami threw for",
+        remote.remote_id,
+        err,
+      );
       return { loggedIn: false };
     }
   }

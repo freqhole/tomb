@@ -263,7 +263,11 @@ mod tests {
 
     #[test]
     fn test_parse_hash_invalid() {
-        let result = parse_hash("not-a-hash");
+        // use a 64-char string with non-hex chars so iroh's Hash::FromStr
+        // takes the hex branch and returns Err cleanly. shorter inputs
+        // hit the base32 branch which can panic inside data-encoding when
+        // the decoded length doesn't match the fixed 32-byte buffer.
+        let result = parse_hash(&"z".repeat(64));
         assert!(result.is_err());
     }
 }

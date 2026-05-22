@@ -86,6 +86,8 @@ export const routes = {
     enqueue_bulk_enrichment: { method: 'POST', path: '/api/music/albums/enrichment/bulk', req: s.BulkEnrichmentRequestSchema, resp: s.BulkEnrichmentResponseSchema, auth: { type: 'role', role: 'admin' } as const },
     enqueue_lastfm_album_detail: { method: 'POST', path: '/api/music/albums/lastfm/enqueue', req: s.EnqueueLastFmAlbumDetailRequestSchema, resp: s.EnqueueLastFmAlbumDetailResponseSchema, auth: { type: 'role', role: 'admin' } as const },
     enqueue_mb_album_search: { method: 'POST', path: '/api/music/albums/mb-search/enqueue', req: s.EnqueueMbAlbumSearchRequestSchema, resp: s.EnqueueMbAlbumSearchResponseSchema, auth: { type: 'role', role: 'admin' } as const },
+    events_snapshot: { method: 'POST', path: '/api/jobs/events/snapshot', req: s.EventFilterSchema, resp: s.JobStateSnapshotSchema.array(), auth: { type: 'authenticated' } as const },
+    events_subscribe: { method: 'POST', path: '/api/jobs/events/subscribe', req: s.EventFilterSchema, resp: s.JobEventSchema, auth: { type: 'authenticated' } as const },
     get_album: { method: 'POST', path: '/api/albums/get', req: s.GetAlbumRequestSchema, resp: s.AlbumSchema, auth: { type: 'authenticated' } as const },
     get_album_images: { method: 'POST', path: '/api/albums/images', req: s.GetAlbumRequestSchema, resp: z.string().array(), auth: { type: 'authenticated' } as const },
     get_album_taxon_links: { method: 'POST', path: '/api/taxonomy/album-links/get', req: s.GetAlbumTaxonLinksRequestSchema, resp: s.AlbumTaxonLinkSchema.array(), auth: { type: 'authenticated' } as const },

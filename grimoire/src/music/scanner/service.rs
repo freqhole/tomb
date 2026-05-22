@@ -129,6 +129,7 @@ mod tests {
 
     #[test]
     fn test_is_supported_audio_file() {
+        crate::config::init_config_for_tests();
         let mp3 = PathBuf::from("test.mp3");
         assert!(is_supported_audio_file(&mp3));
 

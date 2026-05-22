@@ -39,7 +39,24 @@ export function useRemoteIsAdmin(remote: () => Remote | undefined) {
     const r = remote();
     if (!r) return false;
     const entry = authStatus().get(r.remote_id);
-    if (!entry || !entry.loggedIn || !entry.role) return false;
-    return permissions.isAdmin(entry.role as UserRoleName);
+    if (!entry || !entry.loggedIn || !entry.role) {
+      console.log(
+        "[useRemoteIsAdmin] non-admin for",
+        r.remote_id,
+        "entry=",
+        entry,
+      );
+      return false;
+    }
+    const admin = permissions.isAdmin(entry.role as UserRoleName);
+    console.log(
+      "[useRemoteIsAdmin] resolved for",
+      r.remote_id,
+      "role=",
+      entry.role,
+      "isAdmin=",
+      admin,
+    );
+    return admin;
   });
 }

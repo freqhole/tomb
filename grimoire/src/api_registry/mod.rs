@@ -756,6 +756,18 @@ pub mod type_registry {
         gen.add_schema::<crate::jobs::job_events::JobStatusWire>("JobStatusWire");
         registered.insert("JobStatusWire".to_string());
 
+        // phase 11 / p1 — entity ref, subscription filter, snapshot,
+        // close reason. consumed by the offal streaming routes (p3+)
+        // and the tauri bridge (p5).
+        gen.add_schema::<crate::jobs::job_events::EntityRef>("EntityRef");
+        registered.insert("EntityRef".to_string());
+        gen.add_schema::<crate::jobs::job_events::EventFilter>("EventFilter");
+        registered.insert("EventFilter".to_string());
+        gen.add_schema::<crate::jobs::job_events::JobStateSnapshot>("JobStateSnapshot");
+        registered.insert("JobStateSnapshot".to_string());
+        gen.add_schema::<crate::jobs::job_events::CloseReason>("CloseReason");
+        registered.insert("CloseReason".to_string());
+
         // phase 13h — related-artists cross-ref store. processors that
         // populate this and offal routes that read it land in 13h.next;
         // models registered now so the codegen + ts client see them

@@ -196,6 +196,22 @@ pub fn generate_all() -> Result<(), Box<dyn std::error::Error>> {
     // back to `z.union(...)`: same accepted inputs, just no discriminator
     // optimization. drops the leading `'disc',` argument.
     let schema = regex_replace_disc_union(&schema);
+    // zod_gen 1.x doesn't propagate `#[serde(rename_all = "...")]` onto
+    // the tag literals of internally-tagged enums. fix up the schemas
+    // where we actually rely on this at runtime — job_events broker
+    // over iroh/ipc emits snake_case kinds, entity refs, and statuses.
+    let schema = rewrite_kind_literals_to_snake_case(&schema, "JobEventSchema");
+    let schema = rewrite_kind_literals_to_snake_case(&schema, "CloseReasonSchema");
+    let schema = rewrite_kind_literals_to_snake_case(&schema, "EntityRefSchema");
+    let schema = rewrite_kind_literals_to_snake_case(&schema, "EventFilterSchema");
+    let schema = rewrite_kind_literals_to_snake_case(&schema, "JobStateSnapshotSchema");
+    // job status wire enum is `#[serde(rename_all = "snake_case")]` but
+    // emitted as PascalCase literals (`Pending` / `Running` / ...). every
+    // schema that references the status field carries inline copies of
+    // these literals, so rewrite each one.
+    let schema = rewrite_status_literals_to_snake_case(&schema, "JobStatusWireSchema");
+    let schema = rewrite_status_literals_to_snake_case(&schema, "JobStateSnapshotSchema");
+    let schema = rewrite_status_literals_to_snake_case(&schema, "JobEventSchema");
     std::fs::write("freqhole-api-client/src/codegen/schema.ts", schema)?;
 
     let routes_config = generate_routes_file(&routes);
@@ -275,6 +291,113 @@ fn admin_schema_ref(rust_type: &str) -> String {
     }
 
     format!("s.{}Schema", clean)
+}
+
+/// within the named schema's definition block, lowercase + snake_case
+/// every `kind: z.literal('Foo')` so it matches the actual wire format
+/// emitted by rust serde with `#[serde(tag = "kind", rename_all =
+/// "snake_case")]`. zod_gen 1.x doesn't honor `rename_all` on the
+/// discriminator, so we fix it here.
+fn rewrite_kind_literals_to_snake_case(input: &str, schema_name: &str) -> String {
+    let needle = format!("export const {schema_name} = ");
+    let Some(start) = input.find(&needle) else {
+        return input.to_string();
+    };
+    // body ends at the next blank line followed by `export ` (or eof).
+    // simpler: scan for the matching trailing `;` at brace depth 0.
+    let body_start = start + needle.len();
+    let mut depth: i32 = 0;
+    let mut end = input.len();
+    for (i, ch) in input[body_start..].char_indices() {
+        match ch {
+            '(' | '[' | '{' => depth += 1,
+            ')' | ']' | '}' => depth -= 1,
+            ';' if depth == 0 => {
+                end = body_start + i + 1;
+                break;
+            }
+            _ => {}
+        }
+    }
+    let mut out = String::with_capacity(input.len());
+    out.push_str(&input[..body_start]);
+    let body = &input[body_start..end];
+    let mut rest = body;
+    let lit = "kind: z.literal('";
+    while let Some(idx) = rest.find(lit) {
+        out.push_str(&rest[..idx]);
+        out.push_str(lit);
+        let after = &rest[idx + lit.len()..];
+        if let Some(close) = after.find('\'') {
+            let camel = &after[..close];
+            out.push_str(&pascal_to_snake(camel));
+            out.push('\'');
+            rest = &after[close + 1..];
+        } else {
+            rest = after;
+        }
+    }
+    out.push_str(rest);
+    out.push_str(&input[end..]);
+    out
+}
+
+fn pascal_to_snake(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 4);
+    for (i, ch) in s.char_indices() {
+        if ch.is_uppercase() {
+            if i > 0 {
+                out.push('_');
+            }
+            for lc in ch.to_lowercase() {
+                out.push(lc);
+            }
+        } else {
+            out.push(ch);
+        }
+    }
+    out
+}
+
+/// within the named schema's definition block, rewrite the five
+/// `JobStatusWire` literals (`'Pending'` / `'Running'` / `'Completed'`
+/// / `'Failed'` / `'Cancelled'`) to their snake_case wire form. same
+/// motivation as `rewrite_kind_literals_to_snake_case`: zod_gen 1.x
+/// doesn't propagate `rename_all = "snake_case"` onto enum variant
+/// literals. unlike `kind`, the status field has a non-uniform
+/// variable name (sometimes `status`, sometimes `from` / `to`), so
+/// we match by literal value rather than by surrounding key.
+fn rewrite_status_literals_to_snake_case(input: &str, schema_name: &str) -> String {
+    const STATUS_LITERALS: [&str; 5] = ["Pending", "Running", "Completed", "Failed", "Cancelled"];
+    let needle = format!("export const {schema_name} = ");
+    let Some(start) = input.find(&needle) else {
+        return input.to_string();
+    };
+    let body_start = start + needle.len();
+    let mut depth: i32 = 0;
+    let mut end = input.len();
+    for (i, ch) in input[body_start..].char_indices() {
+        match ch {
+            '(' | '[' | '{' => depth += 1,
+            ')' | ']' | '}' => depth -= 1,
+            ';' if depth == 0 => {
+                end = body_start + i + 1;
+                break;
+            }
+            _ => {}
+        }
+    }
+    let mut body = input[body_start..end].to_string();
+    for lit in STATUS_LITERALS {
+        let pat = format!("z.literal('{lit}')");
+        let rep = format!("z.literal('{}')", pascal_to_snake(lit));
+        body = body.replace(&pat, &rep);
+    }
+    let mut out = String::with_capacity(input.len());
+    out.push_str(&input[..body_start]);
+    out.push_str(&body);
+    out.push_str(&input[end..]);
+    out
 }
 
 /// rewrite every `z.discriminatedUnion('disc', [` occurrence to `z.union([`.

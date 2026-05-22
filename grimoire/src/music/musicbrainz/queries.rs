@@ -524,7 +524,10 @@ mod tests {
         assert!(query_string.contains("artist"));
         assert!(query_string.contains("Radiohead"));
         assert!(query_string.contains("recording"));
-        assert!(query_string.contains("Pyramid+Song"));
+        // spaces are percent-encoded as %20 by urlencoding::encode
+        // (used in to_query_string), so multi-word titles serialize as
+        // "Pyramid%20Song" not the older "Pyramid+Song" form.
+        assert!(query_string.contains("Pyramid%20Song"));
         assert!(query_string.contains("limit=25"));
     }
 
@@ -596,7 +599,9 @@ mod tests {
 
     #[test]
     fn test_clean_search_text() {
-        assert_eq!(clean_search_text("Test - Song"), "Test  Song");
+        // clean_search_text collapses " - " -> " " then any remaining
+        // '-' -> " " then double-space -> single-space then trims.
+        assert_eq!(clean_search_text("Test - Song"), "Test Song");
         assert_eq!(clean_search_text("Multi  Space"), "Multi Space");
         assert_eq!(clean_search_text("  trimmed  "), "trimmed");
     }
@@ -608,9 +613,17 @@ mod tests {
             .release("Kid A")
             .to_query_string();
         // should contain arid: without quotes
-        assert!(qs.contains("arid%3Aa1ab1c0a"), "expected arid clause, got: {}", qs);
+        assert!(
+            qs.contains("arid%3Aa1ab1c0a"),
+            "expected arid clause, got: {}",
+            qs
+        );
         // should not contain artist: clause
-        assert!(!qs.contains("artist%3A"), "should not have artist clause, got: {}", qs);
+        assert!(
+            !qs.contains("artist%3A"),
+            "should not have artist clause, got: {}",
+            qs
+        );
     }
 
     #[test]
@@ -632,7 +645,11 @@ mod tests {
             .release("Kid A")
             .rgid("12345678-abcd-ef01-2345-678901234567")
             .to_query_string();
-        assert!(qs.contains("release%3A"), "expected release clause, got: {}", qs);
+        assert!(
+            qs.contains("release%3A"),
+            "expected release clause, got: {}",
+            qs
+        );
         assert!(qs.contains("rgid%3A"), "expected rgid clause, got: {}", qs);
     }
 
@@ -642,7 +659,11 @@ mod tests {
             .release("Kid A")
             .reid("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")
             .to_query_string();
-        assert!(qs.contains("release%3A"), "expected release clause, got: {}", qs);
+        assert!(
+            qs.contains("release%3A"),
+            "expected release clause, got: {}",
+            qs
+        );
         assert!(qs.contains("reid%3A"), "expected reid clause, got: {}", qs);
     }
 }

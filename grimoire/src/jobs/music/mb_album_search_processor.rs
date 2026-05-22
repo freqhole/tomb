@@ -20,6 +20,7 @@
 
 use crate::config;
 use crate::database;
+use crate::jobs::job_events;
 use crate::jobs::models::{Job, JobError};
 use crate::music::entities::albums as albums_repo;
 use crate::music::entities::albums::metadata::{
@@ -367,6 +368,11 @@ pub async fn process_mb_album_search_job(job: &Job) -> Result<Option<Value>, Job
     // has provided a release or release-group mbid, look it up directly in mb.
     // this short-circuits the text cascade when confidence is high enough.
     if !ids.release_or_rg_mbids.is_empty() {
+        job_events::emit_stage_from_job(
+            job,
+            "direct_lookup",
+            Some("trying direct mbid lookup from cross-api sources"),
+        );
         let mut sorted_mbids: Vec<&String> = ids.release_or_rg_mbids.iter().collect();
         sorted_mbids.sort();
         'direct: for mbid in sorted_mbids {
@@ -496,6 +502,11 @@ pub async fn process_mb_album_search_job(job: &Job) -> Result<Option<Value>, Job
         }
     }
 
+    job_events::emit_stage_from_job(
+        job,
+        "strict_search",
+        Some("strict artist+title musicbrainz search"),
+    );
     let stage1 = match run_release_search(
         &client,
         &title,
@@ -537,6 +548,11 @@ pub async fn process_mb_album_search_job(job: &Job) -> Result<Option<Value>, Job
         && (ids.artist_mbids.first().is_some()
             || artist.as_deref().map(|s| !s.is_empty()).unwrap_or(false))
     {
+        job_events::emit_stage_from_job(
+            job,
+            "artist_only_fallback",
+            Some("strict search low-confidence; falling back to artist-only"),
+        );
         match run_release_search(
             &client,
             &title,
@@ -577,6 +593,11 @@ pub async fn process_mb_album_search_job(job: &Job) -> Result<Option<Value>, Job
         .unwrap_or(0.0)
         < FALLBACK_TRIGGER;
     let stage3: Option<StageResult> = if need_stage3 {
+        job_events::emit_stage_from_job(
+            job,
+            "album_only_fallback",
+            Some("prior stages low-confidence; falling back to album-only"),
+        );
         match run_release_search(
             &client,
             &title,
@@ -605,6 +626,12 @@ pub async fn process_mb_album_search_job(job: &Job) -> Result<Option<Value>, Job
         None
     };
     let adopted = pick_adopted(adopted, stage3);
+
+    job_events::emit_stage_from_job(
+        job,
+        "scoring_candidates",
+        Some("merging cascade results and scoring candidates"),
+    );
 
     // step 5: merge into metadata
     //
@@ -811,6 +838,18 @@ pub async fn process_mb_album_search_job(job: &Job) -> Result<Option<Value>, Job
     let _ =
         albums_repo::update_mb_lookup_status(&album_id, final_status, job.created_by.as_deref())
             .await;
+
+    job_events::emit_stage_from_job(
+        job,
+        "resolved",
+        Some(match final_status {
+            MbLookupStatus::Confirmed => "auto-confirmed top candidate",
+            MbLookupStatus::NeedsReview => "needs manual review",
+            MbLookupStatus::Candidates => "candidates available for review",
+            MbLookupStatus::NoMatch => "no matching releases found",
+            _ => "resolved",
+        }),
+    );
 
     // chain to detail when we auto-confirmed a top match. without this,
     // re-running enrich on previously-confirmed albums never re-fetches

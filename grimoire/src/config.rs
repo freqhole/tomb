@@ -734,6 +734,59 @@ impl GrimoireConfig {
     }
 }
 
+/// Initialize a minimal in-memory config for unit tests.
+///
+/// idempotent and safe to call from multiple tests; later calls
+/// overwrite the installed config via the inner RwLock. only
+/// intended for #[cfg(test)] callers — production code should use
+/// `init_config(...)`.
+#[doc(hidden)]
+pub fn init_config_for_tests() {
+    let config = GrimoireConfig {
+        data_dir: PathBuf::from("/tmp/grimoire-test"),
+        database: DatabaseConfig {
+            filename: "test.db".to_string(),
+            max_connections: default_max_connections(),
+            acquire_timeout_seconds: default_acquire_timeout_seconds(),
+            idle_timeout_seconds: default_idle_timeout_seconds(),
+        },
+        media: MediaConfig {
+            max_fs_file_size: default_max_fs_file_size(),
+            supported_audio_formats: default_supported_audio_formats(),
+            ffmpeg_path: default_ffmpeg_path(),
+            ffprobe_path: None,
+            ffprobe_duration_args: default_ffprobe_duration_args(),
+            ffprobe_properties_args: default_ffprobe_properties_args(),
+            extract_album_art_args: default_extract_album_art_args(),
+            generate_waveform_args: default_generate_waveform_args(),
+            skip_duplicates: default_skip_duplicates(),
+            generate_scan_duplicate_report: default_generate_scan_duplicate_report(),
+            thumbnail_sizes: default_thumbnail_sizes(),
+            thumbnail_on_demand_enabled: false,
+        },
+        musicbrainz: MusicBrainzConfig::default(),
+        lastfm: LastFmConfig::default(),
+        audiodb: AudioDbConfig::default(),
+        logging: LoggingConfig {
+            level: "info".to_string(),
+            log_file: String::new(),
+        },
+        server: None,
+        federation: None,
+        radio: None,
+        client: None,
+        loaded_from: None,
+    };
+    match CONFIG.get() {
+        Some(lock) => {
+            *lock.write().unwrap() = config;
+        }
+        None => {
+            let _ = CONFIG.set(RwLock::new(config));
+        }
+    }
+}
+
 /// Initialize or reload global config from file path
 ///
 /// First call initializes the config. Subsequent calls reload from disk,

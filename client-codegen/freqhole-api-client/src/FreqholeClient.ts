@@ -9,6 +9,7 @@ import { HttpTransport } from "./transport.js";
 import { createAdminMethods } from "./domains/admin.js";
 import { createAppMethods } from "./domains/app.js";
 import { createAuthMethods } from "./domains/auth.js";
+import { createJobsMethods } from "./domains/jobs.js";
 import { createMusicMethods } from "./domains/music.js";
 import { createUploadMethods } from "./domains/upload.js";
 import type { CallFn, SafeParseResult } from "./domains/types.js";
@@ -27,6 +28,7 @@ export class FreqholeClient {
   public readonly admin: ReturnType<typeof createAdminMethods>;
   public readonly app: ReturnType<typeof createAppMethods>;
   public readonly auth: ReturnType<typeof createAuthMethods>;
+  public readonly jobs: ReturnType<typeof createJobsMethods>;
   public readonly music: ReturnType<typeof createMusicMethods>;
   public readonly upload: ReturnType<typeof createUploadMethods>;
 
@@ -35,6 +37,7 @@ export class FreqholeClient {
     this.admin = createAdminMethods(call);
     this.app = createAppMethods(call);
     this.auth = createAuthMethods(call);
+    this.jobs = createJobsMethods(transport);
     this.music = createMusicMethods(call);
     this.upload = createUploadMethods(transport);
   }

@@ -590,10 +590,18 @@ pub async fn update_session_progress(
     // phase 9.0 - broadcast a typed progress event so live
     // subscribers (jobz alpn / tauri bridge) get an immediate signal
     // without polling. silent no-op when there are no subscribers.
+    // p1: also tag with topic + created_by from the session row so
+    // per-user filtering works; entity_ref is None (session aggregate).
+    let topic = session
+        .job_type()
+        .unwrap_or(crate::jobs::models::JobType::ProcessFile);
     crate::jobs::job_events::emit(crate::jobs::job_events::JobEvent::Progress {
         session_id: session_id.to_string(),
         complete: progress.current as i64,
         total: progress.total as i64,
+        topic,
+        entity_ref: None,
+        created_by: session.created_by.clone(),
     });
 
     GrimoireResponse::success("Session progress updated", session)

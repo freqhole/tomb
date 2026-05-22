@@ -6,8 +6,17 @@
 use super::caller::Caller;
 use crate::api_registry::Method;
 use crate::error::ErrorDetail;
+use crate::jobs::job_events::CloseReason;
 use crate::response::GrimoireResponse;
+use futures_util::stream::BoxStream;
 use serde_json::Value as JsonValue;
+
+/// a server-pushed event stream. items are pre-serialized to
+/// `JsonValue` so transports (ws, sse, iroh, tauri) can frame them
+/// without touching grimoire's event types. an `Err(CloseReason)`
+/// terminates the stream; the transport should close the connection
+/// and let the client reconnect + re-snapshot.
+pub type EventStream = BoxStream<'static, Result<JsonValue, CloseReason>>;
 
 /// dispatch an API request to its handler
 ///
@@ -67,6 +76,24 @@ pub async fn dispatch(
     )
 }
 
+/// dispatch a streaming API request. mirrors `dispatch()` but returns
+/// an `EventStream` instead of a single response. transports that
+/// don't speak streaming (legacy http POST) can poll `dispatch()` /
+/// the snapshot route instead.
+///
+/// authentication is the transport's job (same as `dispatch`); per-
+/// event visibility filtering is the handler's job (subscribe handlers
+/// already wrap their stream with `caller_can_see`).
+pub async fn dispatch_stream(path: &str, caller: &Caller, body: JsonValue) -> Option<EventStream> {
+    let path = path.trim_end_matches('/');
+    // today the only streaming routes live under music/jobs.
+    // adding domains later is the same pattern as `dispatch`.
+    if let Some(s) = super::music::dispatch_stream(path, caller, &body).await {
+        return Some(s);
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -84,5 +111,60 @@ mod tests {
         assert_eq!(err.error_type, "route_not_found");
         assert!(!err.title.is_empty());
         assert!(!err.detail.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_dispatch_stream_unknown_returns_none() {
+        let caller = Caller::new("test", "test", UserRole::Member);
+        assert!(
+            dispatch_stream("/api/nonexistent", &caller, JsonValue::Null)
+                .await
+                .is_none()
+        );
+    }
+
+    #[tokio::test]
+    async fn test_dispatch_stream_subscribe_yields_emitted_event() {
+        use crate::jobs::job_events::{self, EntityRef, JobStatusWire};
+        use crate::jobs::JobType;
+        use futures_util::StreamExt;
+
+        // unique caller id keeps this test independent of others that
+        // share the global broadcast channel.
+        let user_id = format!("dispatch-stream-user-{}", std::process::id());
+        let caller = Caller::new(user_id.clone(), "u", UserRole::Member);
+        // filter to events owned by `user_id` only — admin pollution
+        // from other tests won't match the entity_ref check either.
+        let body = serde_json::json!({
+            "kinds": ["MbAlbumSearch"],
+            "job_ids": null,
+            "session_ids": null,
+            "entity_refs": null,
+        });
+
+        // subscribe BEFORE emit so the broadcast has a receiver.
+        let stream = dispatch_stream("/api/jobs/events/subscribe", &caller, body)
+            .await
+            .expect("subscribe route must be registered");
+        let mut stream = Box::pin(stream);
+
+        // emit a status event owned by this caller so visibility passes.
+        job_events::emit(job_events::JobEvent::StatusChanged {
+            session_id: format!("sess-{}", std::process::id()),
+            job_id: format!("job-{}", std::process::id()),
+            from: None,
+            to: JobStatusWire::Running,
+            topic: JobType::MbAlbumSearch,
+            entity_ref: Some(EntityRef::Album("alb-a".to_string())),
+            created_by: Some(user_id.clone()),
+        });
+
+        let item = tokio::time::timeout(std::time::Duration::from_millis(500), stream.next())
+            .await
+            .expect("stream timed out")
+            .expect("stream ended")
+            .expect("close reason");
+        assert_eq!(item["kind"], "status_changed");
+        assert_eq!(item["created_by"], user_id);
     }
 }

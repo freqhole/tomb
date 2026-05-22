@@ -47,6 +47,7 @@ mod player_commands {
         Err("rodio backend is desktop-only".to_string())
     }
 }
+mod jobs_events_commands;
 mod radio_commands;
 mod remotez_commands;
 mod server_controls;
@@ -776,6 +777,10 @@ pub fn run() {
             radio_commands::radio_tune,
             radio_commands::radio_tune_local,
             radio_commands::radio_leave,
+            // job events broker bridge (local in-process; remote path tbd)
+            jobs_events_commands::jobs_events_snapshot,
+            jobs_events_commands::jobs_events_subscribe,
+            jobs_events_commands::jobs_events_unsubscribe,
             // P2P state control commands
             p2p_state::p2p_get_status,
             p2p_state::p2p_start,

@@ -14,7 +14,7 @@ import { AlbumBulkActionBar } from "../components/AlbumBulkActionBar";
 import { MbProgressStrip } from "../components/MbProgressStrip";
 import { useAlbumSelectionLifecycle, useSelectedAlbumIds } from "../hooks/albumSelection";
 import { useRemoteIsAdmin } from "../hooks/useRemoteRole";
-import { enqueueAlbumEnrichment } from "../hooks/useMbLookupJobs";
+import { enqueueAlbumEnrichment, rehydrateInflightForRemote } from "../hooks/useMbLookupJobs";
 import { startBulkEnrichmentReview } from "../../music/hooks/bulkEnrichmentReview";
 import { getClientForRemote } from "../../app/api/client";
 import { connectToRemote } from "../../app/services/remotes/connectionProgress";
@@ -76,6 +76,17 @@ export function LibraryView() {
   // selection lifecycle (clear on route change + esc, ctrl/cmd-a select-all).
   useAlbumSelectionLifecycle();
   const selectedAlbumIds = useSelectedAlbumIds();
+
+  // p8 page-reload rehydration: whenever the selected remote changes
+  // (including the initial mount after a hard refresh), reconnect to
+  // any in-flight enrichment jobs the server is currently running.
+  // `rehydrateInflightForRemote` is idempotent — duplicate calls for
+  // an already-watched remote are no-ops.
+  createEffect(() => {
+    const remote = selectedRemote();
+    if (!remote) return;
+    rehydrateInflightForRemote(remote);
+  });
 
   // bulk-action modal state
   const [bulkEditMode, setBulkEditMode] = createSignal<"metadata" | "disc">("metadata");

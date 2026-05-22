@@ -487,7 +487,7 @@ fn path_matches(template: &str, actual: &str) -> bool {
 ///
 /// looks up the user associated with this peer's iroh node_id
 /// and creates a Caller with their user_id and role.
-async fn get_caller_for_peer(node_id: &str) -> Option<Caller> {
+pub(crate) async fn get_caller_for_peer(node_id: &str) -> Option<Caller> {
     let service = UserService::new();
     // use repository directly via service's internal access
     match service.get_user_by_peer_node_id(node_id).await {

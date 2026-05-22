@@ -195,20 +195,6 @@ export class HtmlAudioBackend implements PlayerBackend {
           },
         });
         return;
-      case "enqueue":
-        // same paths-vs-Song mismatch as `load`. surface a typed error.
-        this.emit({
-          kind: "error",
-          detail: {
-            error_type: "enqueue_unsupported_in_html_backend",
-            title: "Enqueue Unsupported",
-            detail:
-              "the html audio backend doesn't accept raw file paths; " +
-              "build the queue from Song objects or switch to the rodio " +
-              "backend in settings.",
-          },
-        });
-        return;
       default: {
         // exhaustiveness check — if a new variant lands in grimoire and
         // we forget here, ts will surface it.

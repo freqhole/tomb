@@ -17,6 +17,7 @@ use tracing::{info, warn};
 
 use crate::config;
 use crate::database;
+use crate::jobs::job_events;
 use crate::jobs::models::{Job, JobError};
 use crate::jobs::{
     create_job, AudioDbAlbumDetailParams, AudioDbArtistDetailParams, CreateJobRequest,
@@ -52,6 +53,12 @@ pub async fn process_album_enrichment_pipeline_job(job: &Job) -> Result<Option<V
     info!(
         "enrichment-pipeline starting album={} sources={:?} force={}",
         album_id, sources, params.force
+    );
+
+    job_events::emit_stage_from_job(
+        job,
+        "enqueuing_album_sources",
+        Some("enqueuing per-source album enrichment jobs"),
     );
 
     // single read of metadata for freshness checks + mbid hints.
@@ -154,6 +161,12 @@ pub async fn process_album_enrichment_pipeline_job(job: &Job) -> Result<Option<V
         album_id,
         result.enqueued_job_ids.len(),
         result.skipped_sources
+    );
+
+    job_events::emit_stage_from_job(
+        job,
+        "enqueuing_artist_sources",
+        Some("enqueuing per-source artist enrichment jobs"),
     );
 
     // ---- artist-side enrichment (phase 11 / slice 4a + 4b) -----------------
