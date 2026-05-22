@@ -9,7 +9,6 @@ import { AlbumNodeView } from "./AlbumNodeView";
 import { Icon, IconNames } from "../icons/registry";
 import { MarqueeText } from "../text/MarqueeText";
 import { FavoriteHeart } from "../ratings/FavoriteHeart";
-
 // long-press timing — kept in sync with RelationLegend so the gesture
 // feels identical across both surfaces.
 const LONG_PRESS_MS = 450;
@@ -49,6 +48,12 @@ export interface AlbumDetailPopoverProps {
   onAddToQueue?: (album: AlbumNodeData) => void;
   onViewAlbum?: (album: AlbumNodeData) => void;
   onViewArtist?: (album: AlbumNodeData) => void;
+  /** when supplied, the artist name in the header becomes a clickable
+   *  link that asks the parent to focus the matching artist node on
+   *  the graph (which surfaces the artist detail popover). distinct
+   *  from `onViewArtist`, which navigates away to the dedicated artist
+   *  detail route. */
+  onSelectArtistById?: (artistId: string) => void;
   onToggleFavorite?: (album: AlbumNodeData) => void;
   /** opens the album editor modal. parent is responsible for gating
    *  on admin permission — if undefined, the edit button is hidden. */
@@ -57,6 +62,14 @@ export interface AlbumDetailPopoverProps {
    *  carousel modal with the album's image(s). undefined leaves the
    *  cover non-interactive (default). */
   onImageClick?: (album: AlbumNodeData) => void;
+  /** other in-library albums by the same artist as the currently-shown
+   *  album. parent supplies; we render a clickable list at the bottom
+   *  of the panel. omit / empty array hides the section. the current
+   *  album is filtered out automatically. */
+  sameArtistAlbums?: AlbumNodeData[];
+  /** click handler for an album in the sister-albums list — parent
+   *  typically focuses the matching album node on the graph. */
+  onSelectAlbum?: (album: AlbumNodeData) => void;
 }
 
 function formatDuration(sec: number): string {
@@ -141,7 +154,24 @@ export function AlbumDetailPopover(props: AlbumDetailPopoverProps) {
           </div>
           <div class="flex-1 min-w-0">
             <MarqueeText text={album()!.title} class="font-semibold text-sm leading-tight" />
-            <MarqueeText text={album()!.artistName} class="text-xs text-white/80 mt-0.5" />
+            <Show
+              when={props.onSelectArtistById}
+              fallback={
+                <MarqueeText text={album()!.artistName} class="text-xs text-white/80 mt-0.5" />
+              }
+            >
+              <button
+                type="button"
+                class="block w-full text-left text-xs text-white/80 hover:text-[var(--color-accent-500,#ff1a9e)] mt-0.5 cursor-pointer underline-offset-2 hover:underline truncate"
+                title="focus artist on graph"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  props.onSelectArtistById!(album()!.artistId);
+                }}
+              >
+                {album()!.artistName}
+              </button>
+            </Show>
             <div class="text-[11px] text-white/65 mt-1 flex flex-wrap gap-x-2 gap-y-0.5">
               <Show when={album()!.year}>
                 <span>{album()!.year}</span>
@@ -261,6 +291,7 @@ export function AlbumDetailPopover(props: AlbumDetailPopoverProps) {
             />
           </Show>
           <Show when={album()!.era}>
+            {" "}
             {(() => {
               // era is a one-off button so it gets its own long-press state
               let pressTimer: number | null = null;
@@ -330,6 +361,55 @@ export function AlbumDetailPopover(props: AlbumDetailPopoverProps) {
             })()}
           </Show>
         </div>
+
+        <Show when={(props.sameArtistAlbums ?? []).filter((a) => a.id !== album()!.id).length > 0}>
+          {(() => {
+            const others = createMemo(() =>
+              (props.sameArtistAlbums ?? []).filter((a) => a.id !== album()!.id)
+            );
+            return (
+              <div class="px-3 pb-3">
+                <div class="text-[10px] uppercase tracking-wide text-white/55 mb-1">
+                  more by {album()!.artistName} ({others().length})
+                </div>
+                <div class="flex flex-col gap-1 max-h-48 overflow-y-auto">
+                  <For each={others()}>
+                    {(alb) => {
+                      const clickable = !!props.onSelectAlbum;
+                      return (
+                        <button
+                          type="button"
+                          class="flex items-center gap-2 px-1.5 py-1 rounded border border-transparent text-left transition-colors"
+                          classList={{
+                            "hover:bg-white/5 hover:border-white/10 cursor-pointer": clickable,
+                            "cursor-default": !clickable,
+                          }}
+                          disabled={!clickable}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            props.onSelectAlbum?.(alb);
+                          }}
+                        >
+                          <AlbumNodeView album={alb} size={36} />
+                          <div class="flex-1 min-w-0">
+                            <div class="text-[11px] text-white/90 truncate leading-tight">
+                              {alb.title}
+                            </div>
+                            <Show when={alb.year}>
+                              <div class="text-[10px] text-white/55 truncate leading-tight">
+                                {alb.year}
+                              </div>
+                            </Show>
+                          </div>
+                        </button>
+                      );
+                    }}
+                  </For>
+                </div>
+              </div>
+            );
+          })()}
+        </Show>
 
         <Show when={hasCarousel()}>
           <div class="mt-auto flex items-center justify-between px-3 py-1.5 border-t border-white/10 text-[11px] text-white/75 sticky bottom-0 bg-[var(--color-bg-elevated)] z-10">

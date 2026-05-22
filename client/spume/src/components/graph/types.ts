@@ -107,9 +107,9 @@ export interface ArtistNodeData {
   /** most common 5-year era across the artist's albums, or null. */
   era: string | null;
 
-  /** artist nodes are never marked as favorite (no per-artist favorite
-   *  signal yet). field exists so buildRelationEdges can read it
-   *  uniformly across the union. */
+  /** whether the user has favorited this artist. populated by the
+   *  view layer from the favorites feed; relations.ts reads it to
+   *  include artists in the `favorite` chain alongside albums. */
   isFavorite?: boolean;
 }
 

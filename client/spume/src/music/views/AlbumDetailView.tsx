@@ -15,7 +15,7 @@ import { Rating } from "../../components/ratings/Rating";
 import { SongRow } from "../../components/songs/SongRow";
 import { formatDuration, formatLongDuration } from "../../utils/formatDuration";
 import { canUpdateAlbum } from "../data/permissions";
-import { showAlbumEditor, showImageCarousel } from "../hooks/modals";
+import { showAlbumEditor, showImageCarousel, formatImageCarouselTitle } from "../hooks/modals";
 import { useAlbumQuery, useAlbumSongsQuery } from "../queries/songs";
 import { useSetRatingMutation } from "../queries/ratings";
 import { useToggleFavoriteMutation } from "../queries/favorites";
@@ -291,7 +291,7 @@ export function AlbumDetailView() {
 
     showImageCarousel({
       images: imageUrls,
-      title: `${albumInfo()?.title || "album"} images`,
+      title: formatImageCarouselTitle(albumInfo()?.title, imageUrls.length),
     });
   };
 

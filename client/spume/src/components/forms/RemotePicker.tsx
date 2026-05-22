@@ -108,7 +108,7 @@ export function RemotePicker(props: RemotePickerProps) {
     // re-check overflow when remotes are loaded (getAllRemotes is async;
     // chipContainerRef.scrollWidth is 0 at mount when remotes haven't loaded yet)
     createEffect(() => {
-      const _ = props.remotes.length; // track dependency
+      void props.remotes.length; // track dependency
       queueMicrotask(checkOverflow);
     });
   });

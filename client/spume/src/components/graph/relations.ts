@@ -72,7 +72,7 @@ export const RELATION_KINDS: RelationKindMeta[] = [
     // accent pink — matches the heart accent the rest of the ui uses
     // (var(--color-accent-500) defaults to #ff1a9e).
     color: "#ff1a9e",
-    description: "albums you've marked as a favorite",
+    description: "albums + artists you've marked as a favorite",
   },
   {
     kind: "artist_album",
@@ -137,7 +137,8 @@ const DEFAULT_FANOUT = 3;
  *     in-library artist nodes.
  *   - `artist_album`: every artist node connects to its in-library
  *     albums.
- *   - `favorite`: only albums (artist favorites aren't a thing yet).
+ *   - `favorite`: every favorited album AND favorited artist gets
+ *     chained into one group.
  *
  * other kinds use the chain-by-shared-attribute strategy:
  * - group nodes by the shared value (genre name, tag, label, era,
@@ -264,10 +265,12 @@ export function buildRelationEdges(
     }
   }
   if (kinds.includes("favorite")) {
-    // single group: every album the user has favorited gets chained
-    // together. uses the standard fanout so large favorite sets don't
-    // explode into an N² clique. artist favorites aren't modeled yet.
-    const favs = albumNodes.filter((n) => n.isFavorite);
+    // single group: every album AND artist the user has favorited
+    // gets chained together via the standard fanout, so large
+    // favorite sets don't explode into an N² clique.
+    const favAlbums = albumNodes.filter((n) => n.isFavorite);
+    const favArtists = artistNodes.filter((n) => n.isFavorite);
+    const favs = [...favAlbums, ...favArtists];
     addChain("favorite", "favorites", favs, 0.6);
   }
 

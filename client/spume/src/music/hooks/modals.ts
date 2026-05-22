@@ -153,6 +153,20 @@ export function showImageCarousel(options: ImageCarouselOptions) {
   setImageCarouselState(options);
 }
 
+// build a consistent header title for the image carousel modal. the
+// count used to be appended ("name — N images") but it was easy to
+// drift out of sync with what the modal actually renders (failed-load
+// dedup happens inside the modal), so we just show the entity name.
+// the `_count` param is kept so existing call sites don't have to
+// change; callers can still pass it but it has no effect.
+export function formatImageCarouselTitle(
+  name: string | null | undefined,
+  _count?: number,
+): string | undefined {
+  const n = (name ?? "").trim();
+  return n || undefined;
+}
+
 export function hideImageCarousel() {
   setImageCarouselState(null);
 }

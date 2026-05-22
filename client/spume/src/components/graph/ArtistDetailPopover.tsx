@@ -9,11 +9,12 @@
 // requirements firm up — extend incrementally.
 
 import { createMemo, createSignal, For, Show } from "solid-js";
-import type { ArtistNodeData, RelationKindLike } from "./types";
+import type { AlbumNodeData, ArtistNodeData, RelationKindLike } from "./types";
 import { Icon, IconNames } from "../icons/registry";
 import { MarqueeText } from "../text/MarqueeText";
 import { MediaImage } from "../media/MediaImage";
 import { FavoriteHeart } from "../ratings/FavoriteHeart";
+import { AlbumNodeView } from "./AlbumNodeView";
 
 export interface ArtistDetailPopoverProps {
   /** single artist shorthand. ignored when `artists` is supplied. */
@@ -53,6 +54,14 @@ export interface ArtistDetailPopoverProps {
    *  carousel modal with the artist's image(s). undefined leaves the
    *  avatar non-interactive (default). */
   onImageClick?: (artist: ArtistNodeData) => void;
+  /** in-library albums for the currently-shown artist. parent supplies
+   *  this; we render a clickable list under the bio. omit / empty
+   *  array hides the section entirely. */
+  albums?: AlbumNodeData[];
+  /** click handler for an album in the list — parent typically focuses
+   *  the matching album node on the graph (which surfaces the album
+   *  detail popover). */
+  onSelectAlbum?: (album: AlbumNodeData) => void;
 }
 
 export function ArtistDetailPopover(props: ArtistDetailPopoverProps) {
@@ -207,6 +216,48 @@ export function ArtistDetailPopover(props: ArtistDetailPopoverProps) {
                 {bioExpanded() ? "show less" : "show more"}
               </button>
             </Show>
+          </div>
+        </Show>
+
+        <Show when={(props.albums ?? []).length > 0}>
+          <div class="px-3 pb-2">
+            <div class="text-[10px] uppercase tracking-wide text-white/55 mb-1">
+              albums ({(props.albums ?? []).length})
+            </div>
+            <div class="flex flex-col gap-1 max-h-48 overflow-y-auto">
+              <For each={props.albums}>
+                {(alb) => {
+                  const clickable = !!props.onSelectAlbum;
+                  return (
+                    <button
+                      type="button"
+                      class="flex items-center gap-2 px-1.5 py-1 rounded border border-transparent text-left transition-colors"
+                      classList={{
+                        "hover:bg-white/5 hover:border-white/10 cursor-pointer": clickable,
+                        "cursor-default": !clickable,
+                      }}
+                      disabled={!clickable}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        props.onSelectAlbum?.(alb);
+                      }}
+                    >
+                      <AlbumNodeView album={alb} size={36} />
+                      <div class="flex-1 min-w-0">
+                        <div class="text-[11px] text-white/90 truncate leading-tight">
+                          {alb.title}
+                        </div>
+                        <Show when={alb.year}>
+                          <div class="text-[10px] text-white/55 truncate leading-tight">
+                            {alb.year}
+                          </div>
+                        </Show>
+                      </div>
+                    </button>
+                  );
+                }}
+              </For>
+            </div>
           </div>
         </Show>
 

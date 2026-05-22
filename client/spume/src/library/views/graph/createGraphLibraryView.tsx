@@ -17,7 +17,7 @@
 // `searchQuery` accessor for the topnav search field, and optional
 // action callbacks (play/shuffle/queue/view/favorite/lasso).
 
-import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, For, onCleanup, Show, untrack } from "solid-js";
 import type { JSX } from "solid-js";
 import { AlbumGraphCanvas, type GraphActions } from "../../../components/graph/AlbumGraphCanvas";
 import { AlbumDetailPopover } from "../../../components/graph/AlbumDetailPopover";
@@ -39,6 +39,7 @@ import type {
   RelationKindLike,
 } from "../../../components/graph/types";
 import { nodeKind } from "../../../components/graph/types";
+import { artistNodeId } from "./deriveArtistNodes";
 import type { RelatedArtistsMap } from "../../queries/useRelatedArtistsByIds";
 
 export interface CreateGraphLibraryViewOpts {
@@ -58,6 +59,11 @@ export interface CreateGraphLibraryViewOpts {
   onAddToQueue?: (album: AlbumNodeData) => void;
   onViewAlbum?: (album: AlbumNodeData) => void;
   onViewArtist?: (album: AlbumNodeData) => void;
+  /** "open" action on the artist detail popover — navigates to the
+   *  dedicated artist page. distinct from the in-graph artist-name
+   *  link in the album popover, which only focuses the artist node
+   *  on the canvas. */
+  onViewArtistNode?: (artist: ArtistNodeData) => void;
   onToggleFavorite?: (album: AlbumNodeData) => void;
   /** opens the album editor modal. callers (e.g. LibraryGraphSubview)
    *  are responsible for gating on admin permission — if undefined,
@@ -308,8 +314,35 @@ export function createGraphLibraryView(opts: CreateGraphLibraryViewOpts): GraphL
     out.sort((a, b) => a.title.localeCompare(b.title));
     return out;
   });
+  // album nodes the user has shift/cmd-clicked into the multi-select
+  // set. these get folded into both popover carousels so the user can
+  // page through everything they've explicitly picked.
+  const multiSelectedAlbums = createMemo<AlbumNodeData[]>(() => {
+    const ids = multiSelectedIds();
+    if (ids.size === 0) return [];
+    const byId = new Map(nodes().map((n) => [n.id, n] as const));
+    const out: AlbumNodeData[] = [];
+    for (const id of ids) {
+      const a = byId.get(id);
+      if (a && nodeKind(a) === "album") out.push(a as AlbumNodeData);
+    }
+    return out;
+  });
+  const multiSelectedArtists = createMemo<ArtistNodeData[]>(() => {
+    const ids = multiSelectedIds();
+    if (ids.size === 0) return [];
+    const byId = new Map(nodes().map((n) => [n.id, n] as const));
+    const out: ArtistNodeData[] = [];
+    for (const id of ids) {
+      const n = byId.get(id);
+      if (n && nodeKind(n) === "artist") out.push(n as ArtistNodeData);
+    }
+    return out;
+  });
+
   const popInfo = createMemo<{ list: AlbumNodeData[]; source: "edge" | "single" | null }>(() => {
     const pillAlbums = pillClusterAlbums();
+    const multiAlbums = multiSelectedAlbums();
     const w = wireEdge();
     if (w) {
       const byId = new Map(nodes().map((n) => [n.id, n] as const));
@@ -329,15 +362,27 @@ export function createGraphLibraryView(opts: CreateGraphLibraryViewOpts): GraphL
       }
       wireList.sort((a, b) => a.title.localeCompare(b.title));
       const seen = new Set<string>(wireList.map((a) => a.id));
-      const merged = [...wireList, ...pillAlbums.filter((a) => !seen.has(a.id))];
+      const merged = [...wireList];
+      for (const a of multiAlbums) if (!seen.has(a.id)) (merged.push(a), seen.add(a.id));
+      for (const a of pillAlbums) if (!seen.has(a.id)) (merged.push(a), seen.add(a.id));
       return { list: merged, source: "edge" };
     }
     const s = selected();
     if (s) {
-      const extras = pillAlbums.filter((a) => a.id !== s.id);
+      const seen = new Set<string>([s.id]);
+      const extras: AlbumNodeData[] = [];
+      for (const a of multiAlbums) if (!seen.has(a.id)) (extras.push(a), seen.add(a.id));
+      for (const a of pillAlbums) if (!seen.has(a.id)) (extras.push(a), seen.add(a.id));
       return { list: [s, ...extras], source: "single" };
     }
-    if (pillAlbums.length > 0) return { list: pillAlbums, source: "edge" };
+    if (multiAlbums.length > 0 || pillAlbums.length > 0) {
+      const seen = new Set<string>();
+      const combined: AlbumNodeData[] = [];
+      for (const a of [...multiAlbums, ...pillAlbums]) {
+        if (!seen.has(a.id)) (combined.push(a), seen.add(a.id));
+      }
+      return { list: combined, source: "edge" };
+    }
     return { list: [], source: null };
   });
   const [popIndex, setPopIndex] = createSignal(0);
@@ -393,39 +438,134 @@ export function createGraphLibraryView(opts: CreateGraphLibraryViewOpts): GraphL
   const currentSel = createMemo(() => popInfo().list[popIndex()] ?? null);
   const canvasSelectedId = createMemo(() => currentSel()?.id ?? selectedArtist()?.id ?? null);
 
-  // artist popover carousel \u2014 [selectedArtist, ...relatedArtists].
-  // related artists are sourced from `opts.relatedArtists()` (last.fm
-  // map, in-library targets only) and resolved to graph nodes via the
-  // current `nodes()` snapshot so the popover only surfaces artists
-  // that are actually visible on the canvas.
-  const artistPopList = createMemo<ArtistNodeData[]>(() => {
-    const a = selectedArtist();
-    if (!a) return [];
-    const rel = opts.relatedArtists?.();
-    const relSet = rel?.get(a.artistId);
-    if (!relSet || relSet.size === 0) return [a];
-    const byArtistId = new Map<string, ArtistNodeData>();
+  // sibling albums for the album currently shown in the popover \u2014
+  // every other in-library album by the same artist. surfaced as a
+  // clickable list at the bottom of AlbumDetailPopover so the user can
+  // jump straight to another release without clearing context.
+  const sameArtistAlbums = createMemo<AlbumNodeData[]>(() => {
+    const cur = currentSel();
+    if (!cur) return [];
+    const out: AlbumNodeData[] = [];
     for (const n of nodes()) {
-      if (nodeKind(n) === "artist") {
-        const an = n as ArtistNodeData;
-        byArtistId.set(an.artistId, an);
+      if (nodeKind(n) !== "album") continue;
+      const a = n as AlbumNodeData;
+      if (a.artistId === cur.artistId) out.push(a);
+    }
+    out.sort((a, b) => {
+      const ya = a.year ?? 0;
+      const yb = b.year ?? 0;
+      if (ya !== yb) return ya - yb;
+      return a.title.localeCompare(b.title);
+    });
+    return out;
+  });
+
+  // artist popover carousel \u2014 [anchor, ...multiSelected, ...related].
+  //
+  // the anchor is the artist the user first selected; it stays stable
+  // even as the user pages through the carousel. without this anchor,
+  // paging fires `onFocusArtist` which moves `selectedArtist`, which
+  // would rebuild this list around the newly-focused artist and snap
+  // the carousel back to index 0 \u2014 the user "loses" their place and
+  // can't navigate back to the original. with the anchor, paging is
+  // free to walk through related artists without yanking the list.
+  //
+  // the anchor is re-seeded only when the user selects an artist that
+  // isn't already in the current list (treated as "explicitly picked a
+  // different anchor" rather than "paged-to from within the popover").
+  const [popoverArtistAnchorId, setPopoverArtistAnchorId] = createSignal<string | null>(null);
+  const popoverArtistAnchor = createMemo<ArtistNodeData | null>(() => {
+    const id = popoverArtistAnchorId();
+    if (!id) return null;
+    const n = nodes().find((nn) => nn.id === id) ?? null;
+    if (!n || nodeKind(n) !== "artist") return null;
+    return n as ArtistNodeData;
+  });
+  const artistPopList = createMemo<ArtistNodeData[]>(() => {
+    const anchor = popoverArtistAnchor();
+    if (!anchor) return [];
+    const seen = new Set<string>([anchor.id]);
+    const out: ArtistNodeData[] = [anchor];
+    // multi-selected artists come right after the anchor so the user
+    // can step through their explicit picks before falling into the
+    // last.fm-suggested neighbours.
+    for (const a of multiSelectedArtists()) {
+      if (!seen.has(a.id)) {
+        out.push(a);
+        seen.add(a.id);
       }
     }
-    const related: ArtistNodeData[] = [];
-    for (const aid of relSet) {
-      const node = byArtistId.get(aid);
-      if (node && node.artistId !== a.artistId) related.push(node);
+    const relSet = opts.relatedArtists?.()?.get(anchor.artistId);
+    if (relSet && relSet.size > 0) {
+      const byArtistId = new Map<string, ArtistNodeData>();
+      for (const n of nodes()) {
+        if (nodeKind(n) === "artist") {
+          const an = n as ArtistNodeData;
+          byArtistId.set(an.artistId, an);
+        }
+      }
+      const related: ArtistNodeData[] = [];
+      for (const aid of relSet) {
+        const node = byArtistId.get(aid);
+        if (node && !seen.has(node.id)) {
+          related.push(node);
+          seen.add(node.id);
+        }
+      }
+      related.sort((x, y) => x.name.localeCompare(y.name));
+      out.push(...related);
     }
-    related.sort((x, y) => x.name.localeCompare(y.name));
-    return [a, ...related];
+    return out;
   });
   const [artistPopIndex, setArtistPopIndex] = createSignal(0);
-  // reset to the anchor artist whenever the user selects a different one.
-  createEffect((prev: string | null | undefined) => {
-    const id = selectedArtist()?.id ?? null;
-    if (prev !== id) setArtistPopIndex(0);
-    return id;
-  }, null);
+  // sync anchor + index with `selectedArtist` changes. paging the
+  // carousel (which calls onFocusArtist -> setSelectedId) lands here
+  // too \u2014 but the new selection will already be in the existing list,
+  // so we only adjust the index and leave the anchor alone.
+  createEffect(() => {
+    const sel = selectedArtist();
+    untrack(() => {
+      if (!sel) {
+        // selection cleared (or moved to an album). leave the anchor
+        // in place so re-selecting the same artist restores context
+        // instantly; clear only when the anchor itself disappeared.
+        if (popoverArtistAnchor() == null) setPopoverArtistAnchorId(null);
+        return;
+      }
+      const list = artistPopList();
+      const idx = list.findIndex((a) => a.id === sel.id);
+      if (idx >= 0) {
+        // paged within the current list \u2014 keep anchor, sync index.
+        if (idx !== artistPopIndex()) setArtistPopIndex(idx);
+        return;
+      }
+      // brand new anchor: rebuild around it and reset to 0.
+      setPopoverArtistAnchorId(sel.id);
+      setArtistPopIndex(0);
+    });
+  });
+
+  // albums (in-library) that belong to the artist currently shown in
+  // the artist popover carousel. when the user pages through related
+  // artists, this updates to reflect the focused artist so the album
+  // list in the popover always matches.
+  const currentArtistAlbums = createMemo<AlbumNodeData[]>(() => {
+    const focused = artistPopList()[artistPopIndex()];
+    if (!focused) return [];
+    const out: AlbumNodeData[] = [];
+    for (const n of nodes()) {
+      if (nodeKind(n) !== "album") continue;
+      const a = n as AlbumNodeData;
+      if (a.artistId === focused.artistId) out.push(a);
+    }
+    out.sort((a, b) => {
+      const ya = a.year ?? 0;
+      const yb = b.year ?? 0;
+      if (ya !== yb) return ya - yb;
+      return a.title.localeCompare(b.title);
+    });
+    return out;
+  });
 
   // pill tap — toggle the relation in the highlight set without
   // disturbing the anchored album in the popover. when the relation
@@ -697,9 +837,12 @@ export function createGraphLibraryView(opts: CreateGraphLibraryViewOpts): GraphL
             onAddToQueue={opts.onAddToQueue}
             onViewAlbum={opts.onViewAlbum}
             onViewArtist={opts.onViewArtist}
+            onSelectArtistById={(artistId) => setSelectedId(artistNodeId(artistId))}
             onToggleFavorite={opts.onToggleFavorite}
             onEdit={opts.onEditAlbum}
             onImageClick={opts.onImageClickAlbum}
+            sameArtistAlbums={sameArtistAlbums()}
+            onSelectAlbum={(album) => setSelectedId(album.id)}
           />
         </div>
       </Show>
@@ -735,6 +878,9 @@ export function createGraphLibraryView(opts: CreateGraphLibraryViewOpts): GraphL
             bio={opts.selectedArtistBio?.() ?? null}
             isFavorite={opts.selectedArtistIsFavorite?.()}
             onToggleFavorite={opts.onToggleFavoriteArtist}
+            onViewArtist={opts.onViewArtistNode}
+            albums={currentArtistAlbums()}
+            onSelectAlbum={(album) => setSelectedId(album.id)}
           />
         </div>
       </Show>
@@ -786,6 +932,10 @@ export function createGraphLibraryView(opts: CreateGraphLibraryViewOpts): GraphL
     clearSelection: () => {
       setSelected(null);
       setMultiSelectedIds(new Set<string>());
+      // also drop any active edge-wire so escape clears EVERYTHING the
+      // user has explicitly highlighted on the canvas in one keystroke
+      // (node selection, multi-select set, and the connection wire).
+      setWireEdge(null);
     },
     selectedArtistId: () => selectedArtist()?.artistId ?? null,
   };

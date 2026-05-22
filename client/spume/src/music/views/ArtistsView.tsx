@@ -16,7 +16,7 @@ import { AlphabetNav } from "../../components/navigation/AlphabetNav";
 import { VirtualItemList, type ListItem } from "../../components/virtualized/VirtualItemList";
 import { getDataSource } from "../data";
 import { RemoteOfflineError } from "../data";
-import { showArtistEditor, showImageCarousel } from "../hooks/modals";
+import { showArtistEditor, showImageCarousel, formatImageCarouselTitle } from "../hooks/modals";
 import { useArtistSongsQuery, useArtistsQuery, useArtistQuery } from "../queries/songs";
 import { useSetRatingMutation } from "../queries/ratings";
 import { useToggleFavoriteMutation } from "../queries/favorites";
@@ -570,7 +570,7 @@ export function ArtistsView(props: ArtistsViewProps) {
 
     showImageCarousel({
       images: imageUrls,
-      title: `${artist.name} images`,
+      title: formatImageCarouselTitle(artist.name, imageUrls.length),
     });
   };
 

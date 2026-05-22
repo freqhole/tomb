@@ -1,6 +1,7 @@
 // image carousel modal - display a slideshow of images
 import { createEffect, createMemo, createSignal, Show, For, onCleanup, onMount } from "solid-js";
 import { Icon, IconNames } from "../icons/registry";
+import { pushModal, popModal } from "../../music/hooks/modals";
 
 export interface ImageCarouselModalProps {
   images: string[]; // array of image URLs
@@ -91,6 +92,14 @@ export function ImageCarouselModal(props: ImageCarouselModalProps) {
   onCleanup(() => {
     document.body.style.overflow = "";
   });
+
+  // register with the global modal stack so view-level esc handlers
+  // (e.g. the graph subview's "clear selection on esc") know to stand
+  // down while this carousel is open. otherwise pressing esc to close
+  // the carousel ALSO clears the graph selection underneath it.
+  const modalId = `image-carousel-${Math.random().toString(36).slice(2)}`;
+  onMount(() => pushModal(modalId, props.onClose));
+  onCleanup(() => popModal(modalId));
 
   let containerRef!: HTMLDivElement;
   onMount(() => containerRef?.focus());
@@ -194,23 +203,42 @@ export function ImageCarouselModal(props: ImageCarouselModalProps) {
         onClick={(e) => e.stopPropagation()}
       >
         <For each={images()}>
-          {(img, idx) => (
-            <button
-              onClick={() => setCurrentIndex(idx())}
-              class={`flex-shrink-0 w-16 h-16 overflow-hidden transition-all ${
-                idx() === currentIndex() ? "scale-110" : "opacity-60 hover:opacity-100"
-              }`}
-            >
-              <img
-                src={img}
-                alt={`thumbnail ${idx() + 1}`}
-                class="w-full h-full object-cover"
-                loading="lazy"
-                decoding="async"
-                onError={() => markFailed(img)}
-              />
-            </button>
-          )}
+          {(img, idx) => {
+            let btnRef: HTMLButtonElement | undefined;
+            // keep the currently-selected thumbnail visible when the
+            // user pages through the carousel (arrow keys, prev/next,
+            // click-to-advance). without this the strip stays parked
+            // at scroll position 0 and the active thumbnail can be
+            // fully offscreen once the selection moves past ~screen
+            // width worth of thumbs.
+            createEffect(() => {
+              if (idx() !== currentIndex()) return;
+              if (!btnRef) return;
+              btnRef.scrollIntoView({
+                behavior: "smooth",
+                block: "nearest",
+                inline: "nearest",
+              });
+            });
+            return (
+              <button
+                ref={btnRef}
+                onClick={() => setCurrentIndex(idx())}
+                class={`flex-shrink-0 w-16 h-16 overflow-hidden transition-all ${
+                  idx() === currentIndex() ? "scale-110" : "opacity-60 hover:opacity-100"
+                }`}
+              >
+                <img
+                  src={img}
+                  alt={`thumbnail ${idx() + 1}`}
+                  class="w-full h-full object-cover"
+                  loading="lazy"
+                  decoding="async"
+                  onError={() => markFailed(img)}
+                />
+              </button>
+            );
+          }}
         </For>
       </div>
     </div>

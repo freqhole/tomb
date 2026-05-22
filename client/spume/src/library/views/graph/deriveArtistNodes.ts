@@ -59,7 +59,10 @@ function pickMostCommon(m: Map<string, number>): string | null {
   return best;
 }
 
-export function deriveArtistNodes(albums: AlbumNodeData[]): ArtistNodeData[] {
+export function deriveArtistNodes(
+  albums: AlbumNodeData[],
+  favoriteArtistIds?: ReadonlySet<string>,
+): ArtistNodeData[] {
   const byArtist = new Map<string, ArtistAccum>();
   for (const a of albums) {
     if (!a.artistId) continue;
@@ -115,7 +118,7 @@ export function deriveArtistNodes(albums: AlbumNodeData[]): ArtistNodeData[] {
       tags,
       label: pickMostCommon(acc.labelCounts),
       era: pickMostCommon(acc.eraCounts),
-      isFavorite: false,
+      isFavorite: favoriteArtistIds?.has(acc.artistId) ?? false,
     });
   }
   // stable order by name for deterministic id-sorted edge building

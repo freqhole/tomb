@@ -30,7 +30,10 @@ import { adaptAlbum } from "./adaptAlbum";
 import { RemoteMusicDataSource } from "../../../music/data/remote/remoteSource";
 import { addToQueue, playQueue } from "../../../music/services/queue/queue";
 import { routes } from "../../../music/utils/routing";
-import { useToggleFavoriteMutation } from "../../../music/queries/favorites";
+import {
+  useToggleFavoriteMutation,
+  useFavoritesInfiniteQuery,
+} from "../../../music/queries/favorites";
 import { toast } from "../../../components/feedback/Toast";
 import type { TagFilter, TagOption } from "../../../components/forms/TagFilterPicker";
 import { isNarrowViewport } from "../../../config/breakpoints";
@@ -46,6 +49,7 @@ import {
   showArtistEditor,
   isAnyModalOpen,
   showImageCarousel,
+  formatImageCarouselTitle,
 } from "../../../music/hooks/modals";
 import { resolveBlobUrl } from "../../../music/services/storage/blobResolver";
 import { usesBlobResolver } from "../../../music/services/storage/transportCache";
@@ -448,7 +452,32 @@ function Inner(props: {
   // artistId (in-library only — the source albums are by definition
   // in-library). image / abbreviation / aggregated taxonomy come from
   // the constituent albums (see deriveArtistNodes for the merge rules).
-  const artistNodes = createMemo(() => deriveArtistNodes(visibleNodes()));
+  // favorite state is layered in from a favorites listing so artist
+  // nodes can participate in the `favorite` relation alongside albums.
+  const favoriteArtistsQuery = useFavoritesInfiniteQuery({
+    targetType: () => "artist",
+    pageSize: 200,
+  });
+  // auto-paginate: keep fetching pages until we've loaded every
+  // favorited artist. the list is typically small so this is cheap;
+  // doing it here means the favorite-relation chain doesn't suddenly
+  // grow as the user scrolls another view.
+  createEffect(() => {
+    if (favoriteArtistsQuery.hasNextPage && !favoriteArtistsQuery.isFetchingNextPage) {
+      void favoriteArtistsQuery.fetchNextPage();
+    }
+  });
+  const favoriteArtistIds = createMemo(() => {
+    const set = new Set<string>();
+    const pages = favoriteArtistsQuery.data?.pages ?? [];
+    for (const page of pages) {
+      for (const item of page.items) {
+        if (item.type === "artist") set.add(item.data.artist_id);
+      }
+    }
+    return set;
+  });
+  const artistNodes = createMemo(() => deriveArtistNodes(visibleNodes(), favoriteArtistIds()));
 
   const uniqueArtistIds = createMemo(() => artistNodes().map((a) => a.artistId));
 
@@ -592,7 +621,7 @@ function Inner(props: {
     const remoteId = album.sourceRemoteId ?? remoteForNode(album)?.remote_id ?? null;
     const urls = await buildImageUrls(album.image, album.imageUrl, remoteId);
     if (urls.length === 0) return;
-    showImageCarousel({ images: urls, title: `${album.title} \u2014 images` });
+    showImageCarousel({ images: urls, title: formatImageCarouselTitle(album.title, urls.length) });
   };
 
   const openArtistCarousel = async (artist: ArtistNodeData) => {
@@ -630,7 +659,7 @@ function Inner(props: {
       }
     }
     if (urls.length === 0) return;
-    showImageCarousel({ images: urls, title: `${artist.name} \u2014 images` });
+    showImageCarousel({ images: urls, title: formatImageCarouselTitle(artist.name, urls.length) });
   };
 
   const graph = createGraphLibraryView({
@@ -752,6 +781,11 @@ function Inner(props: {
     },
     onImageClickArtist: (artist) => {
       void openArtistCarousel(artist);
+    },
+    onViewArtistNode: (artist) => {
+      // artist nodes are cross-remote aggregations \u2014 navigate to the
+      // active source's artist route (null = local / active).
+      navigate(routes.artistOn(null, artist.artistId));
     },
     selectedArtistBio: () => selectedArtistQuery.data?.bio ?? null,
     selectedArtistIsFavorite: () => selectedArtistQuery.data?.is_favorite,
