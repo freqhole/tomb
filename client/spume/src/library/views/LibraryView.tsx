@@ -24,6 +24,8 @@ import { BulkEditAlbumsModal } from "../../components/modals/BulkEditAlbumsModal
 import { TagSelectorModal } from "../../components/modals/TagSelectorModal";
 import { LibraryGraphSubview } from "./graph/LibraryGraphSubview";
 import type { Remote } from "../../app/services/storage/schemas/remote";
+import { useTopNavSlots } from "../../app/shell/topNavSlots";
+import { isNarrowViewport } from "../../config/breakpoints";
 
 type LibrarySubview = "graph" | "table";
 
@@ -39,6 +41,20 @@ const SLOW_SWITCH_MS = 2000;
 
 export function LibraryView() {
   const [subview, setSubview] = createSignal<LibrarySubview>("graph");
+
+  // viewport tracking — on narrow we relocate the remote picker +
+  // subview switcher into the topnav and collapse the segmented
+  // graph/table control into a single toggle icon button.
+  const [isNarrow, setIsNarrow] = createSignal(isNarrowViewport());
+  onMount(() => {
+    const onResize = () => setIsNarrow(isNarrowViewport());
+    window.addEventListener("resize", onResize);
+    onCleanup(() => window.removeEventListener("resize", onResize));
+  });
+
+  // narrow-mode topnav slot ownership. wide mode keeps the cluster
+  // floating over the canvas (graph) / above the table (table).
+  const slots = useTopNavSlots();
 
   // view-local remote selection (encapsulates resource + default effect + memos)
   const {
@@ -328,42 +344,103 @@ export function LibraryView() {
           />
         </Show>
 
-        {/* view switcher */}
-        <div
-          class="inline-flex items-center gap-1 p-1 rounded-md bg-[var(--color-bg-elevated)] border border-[var(--color-border-subtle)]"
-          role="tablist"
-          aria-label="library view"
+        {/* view switcher — segmented control on wide; single icon
+         *  toggle on narrow (clicking flips to the other subview).
+         *  the narrow variant shows the *target* icon so the affordance
+         *  reads as "switch to X" rather than "currently X". */}
+        <Show
+          when={!isNarrow()}
+          fallback={(() => {
+            const other = () => SUBVIEWS.find((s) => s.id !== subview())!;
+            return (
+              <button
+                type="button"
+                class="inline-flex items-center justify-center p-2 rounded-md bg-[var(--color-bg-elevated)] border border-[var(--color-border-subtle)] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] cursor-pointer"
+                title={`switch to ${other().label}`}
+                aria-label={`switch to ${other().label}`}
+                onClick={() => setSubview(other().id)}
+              >
+                <Icon name={other().icon} size={14} />
+              </button>
+            );
+          })()}
         >
-          {SUBVIEWS.map((opt) => (
-            <button
-              type="button"
-              role="tab"
-              aria-selected={subview() === opt.id}
-              class="flex items-center gap-1.5 px-2.5 py-1 text-xs rounded transition-colors border-none cursor-pointer"
-              classList={{
-                "bg-[var(--color-accent-500)]/15 text-[var(--color-accent-500)]":
-                  subview() === opt.id,
-                "bg-transparent text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]":
-                  subview() !== opt.id,
-              }}
-              onClick={() => setSubview(opt.id)}
-            >
-              <Icon name={opt.icon} size={12} />
-              <span>{opt.label}</span>
-            </button>
-          ))}
-        </div>
+          <div
+            class="inline-flex items-center gap-1 p-1 rounded-md bg-[var(--color-bg-elevated)] border border-[var(--color-border-subtle)]"
+            role="tablist"
+            aria-label="library view"
+          >
+            {SUBVIEWS.map((opt) => (
+              <button
+                type="button"
+                role="tab"
+                aria-selected={subview() === opt.id}
+                class="flex items-center gap-1.5 px-2.5 py-1 text-xs rounded transition-colors border-none cursor-pointer"
+                classList={{
+                  "bg-[var(--color-accent-500)]/15 text-[var(--color-accent-500)]":
+                    subview() === opt.id,
+                  "bg-transparent text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]":
+                    subview() !== opt.id,
+                }}
+                onClick={() => setSubview(opt.id)}
+              >
+                <Icon name={opt.icon} size={12} />
+                <span>{opt.label}</span>
+              </button>
+            ))}
+          </div>
+        </Show>
       </div>
     </>
   );
+
+  // narrow-mode topnav: relocate the remote picker + subview toggle
+  // into the topnav's rightContent slot. on wide we leave the slot
+  // untouched (graph subview manages it; table subview leaves it
+  // empty). this runs as parent's createEffect — parent effects fire
+  // before child effects on initial mount, so when graph subview
+  // mounts and runs its own slot effect afterwards it will skip
+  // rightContent on narrow (see LibraryGraphSubview).
+  createEffect(() => {
+    if (!isNarrow()) {
+      // wide: relinquish the slot so the graph subview can claim it.
+      slots.setRightContent(undefined);
+      return;
+    }
+    const other = SUBVIEWS.find((s) => s.id !== subview())!;
+    slots.setRightContent(
+      <div class="flex items-center gap-2 flex-wrap">
+        <Show when={(remotes() ?? []).length > 0}>
+          <RemotePicker
+            remotes={remotes() ?? []}
+            value={selectedRemoteIds()}
+            onChange={setSelectedRemoteIds}
+            mode={subview() === "graph" && !bulkTagMode() ? "multi" : "single"}
+            layout="inline"
+          />
+        </Show>
+        <button
+          type="button"
+          class="inline-flex items-center justify-center p-2 rounded-md bg-[var(--color-bg-elevated)] border border-[var(--color-border-subtle)] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] cursor-pointer"
+          title={`switch to ${other.label}`}
+          aria-label={`switch to ${other.label}`}
+          onClick={() => setSubview(other.id)}
+        >
+          <Icon name={other.icon} size={14} />
+        </button>
+      </div>
+    );
+  });
 
   return (
     <div class="flex flex-col h-full">
       {/* header — leaves room on the left for the floating topnav button.
        *  in graph mode the cluster is rendered as an overlay inside the
        *  subview body instead (see below) so the canvas reaches full
-       *  height. */}
-      <Show when={subview() !== "graph"}>
+       *  height. on narrow viewports the entire cluster lives in the
+       *  topnav (see createEffect below) so neither in-pane variant
+       *  renders. */}
+      <Show when={subview() !== "graph" && !isNarrow()}>
         <div class="flex items-center justify-end gap-4 px-4 pt-3 pb-2 wide:pl-[140px] flex-wrap">
           {headerCluster}
         </div>
@@ -382,8 +459,10 @@ export function LibraryView() {
       {/* subview body */}
       <div class="flex-1 min-h-0 overflow-hidden relative">
         {/* graph-mode floating header — sits over the canvas like the
-         *  topnav, freeing the full pane for the graph itself. */}
-        <Show when={subview() === "graph"}>
+         *  topnav, freeing the full pane for the graph itself. on
+         *  narrow viewports the cluster has been promoted into the
+         *  topnav itself, so we skip the overlay. */}
+        <Show when={subview() === "graph" && !isNarrow()}>
           <div class="absolute top-2 right-3 z-20 flex items-center justify-end gap-4 flex-wrap max-w-[calc(100%-1rem)] pointer-events-auto">
             {headerCluster}
           </div>

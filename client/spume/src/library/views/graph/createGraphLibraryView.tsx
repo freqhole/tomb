@@ -88,6 +88,9 @@ export interface GraphLibraryView {
    *  selected anything, etc. used by callers to gate behaviours that
    *  should defer to the user (e.g. auto-fit after batched node loads). */
   userInteracted: () => boolean;
+  /** clear the current album selection (closes the detail popover).
+   *  used by the Esc keyboard shortcut in the graph subview. */
+  clearSelection: () => void;
 }
 
 export function createGraphLibraryView(opts: CreateGraphLibraryViewOpts): GraphLibraryView {
@@ -623,5 +626,6 @@ export function createGraphLibraryView(opts: CreateGraphLibraryViewOpts): GraphL
       api()?.fit();
     },
     userInteracted,
+    clearSelection: () => setSelected(null),
   };
 }

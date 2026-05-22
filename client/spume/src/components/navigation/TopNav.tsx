@@ -334,6 +334,9 @@ function RowActionsMenu(props: {
 export function TopNav(props: TopNavProps) {
   // responsive: track viewport sizes
   const [isNarrow, setIsNarrow] = createSignal(isNarrowViewport());
+  // ref to the <nav> element so a ResizeObserver can publish its
+  // actual rendered height into `--nav-height` (see onMount below).
+  let navEl: HTMLElement | undefined;
 
   // narrow viewport gets bigger touch-friendly icon buttons
   const iconBtnPad = () => (isNarrow() ? "p-2.5" : "p-1.5");
@@ -548,6 +551,28 @@ export function TopNav(props: TopNavProps) {
     window.addEventListener("resize", handleResize);
     onCleanup(() => window.removeEventListener("resize", handleResize));
 
+    // publish actual nav height to `--nav-height` whenever the nav
+    // resizes (e.g. when extra rows like selected-tag badges appear
+    // on narrow). keeps AppLayout's `padding-top: var(--nav-height)`
+    // in sync with the real strip height so content isn't hidden
+    // under the now-taller bar. only matters on narrow; on wide the
+    // nav floats over content so layout doesn't depend on its size.
+    let lastH = 0;
+    const syncNavHeight = () => {
+      if (!navEl || !isNarrow()) return;
+      const h = Math.ceil(navEl.getBoundingClientRect().height);
+      if (h === lastH || h <= 0) return;
+      lastH = h;
+      document.documentElement.style.setProperty("--nav-height", `${h}px`);
+    };
+    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(syncNavHeight) : null;
+    if (ro && navEl) ro.observe(navEl);
+    syncNavHeight();
+    onCleanup(() => {
+      ro?.disconnect();
+      document.documentElement.style.removeProperty("--nav-height");
+    });
+
     // wire up nav back/forward state tracking.
     // prefer the modern Navigation API (chromium) for accurate state.
     // otherwise we maintain our own depth/position by stamping history.state
@@ -703,6 +728,7 @@ export function TopNav(props: TopNavProps) {
   return (
     <>
       <nav
+        ref={(el) => (navEl = el)}
         class={`flex flex-col z-[1000] ${props.class || ""}`}
         classList={{
           // narrow: full-width fixed strip at top
@@ -713,7 +739,12 @@ export function TopNav(props: TopNavProps) {
             !isNarrow(),
         }}
         style={{
-          height: isNarrow() ? "var(--nav-height, 56px)" : "auto",
+          // narrow uses min-height so the strip can grow when extra
+          // rows (secondary chips, selected tag badges, feed badges)
+          // are present. actual rendered height is published to
+          // `--nav-height` via the ResizeObserver below so AppLayout's
+          // content padding tracks it.
+          "min-height": isNarrow() ? "var(--nav-height, 56px)" : undefined,
           "padding-top": isNarrow() ? "var(--safe-area-top, 0px)" : undefined,
         }}
         onMouseEnter={() => setNavHovered(true)}
@@ -1669,8 +1700,10 @@ export function TopNav(props: TopNavProps) {
           <div class="mt-1.5 px-1">{props.secondaryRowContent}</div>
         </Show>
 
-        {/* selected tag badges - desktop only, below nav bar */}
-        <Show when={!isNarrow() && hasActiveTags()}>
+        {/* selected tag badges - below nav bar (shown on narrow too,
+            in their own wrapping row, so mobile users can still see
+            and remove active filters). */}
+        <Show when={hasActiveTags()}>
           <div class="flex gap-1.5 flex-wrap mt-1.5 px-1">
             <For each={info().selectedTagFilters}>
               {(filter) => (

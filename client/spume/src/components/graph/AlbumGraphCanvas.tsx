@@ -312,7 +312,18 @@ export function AlbumGraphCanvas(props: AlbumGraphCanvasProps) {
       )
       .force("charge", forceManyBody().strength(-sz * 8)) // stronger repulsion
       .force("center", forceCenter(width / 2, height / 2))
-      .force("collide", forceCollide<SimNode>().radius(sz * 1.1))
+      // collide: hard non-overlap. radius covers the square node's
+      // bounding circle with breathing room; strength 1 + 3 iterations
+      // means the constraint actually wins against link/charge forces
+      // even on dense clusters (default 1 iteration leaves visible
+      // overlap when nodes pile up).
+      .force(
+        "collide",
+        forceCollide<SimNode>()
+          .radius(sz * 1.1)
+          .strength(1)
+          .iterations(3)
+      )
       // faster cool-down. default alphaDecay ~0.0228 ≈ 300 ticks before
       // alphaMin; bumping to 0.05 settles in ~90 ticks. velocityDecay
       // bumped a touch so nodes don't keep drifting after links shift.

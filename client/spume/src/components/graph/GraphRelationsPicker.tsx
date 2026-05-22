@@ -15,6 +15,7 @@ import { ChevronDownStrokeIcon, Icon } from "../icons/registry";
 // note: "filter" is used as the trigger glyph (closest available match
 // for "relation kinds"); the registry has no dedicated graph/branch icon.
 import { RELATION_KINDS, type RelationKindMeta } from "./relations";
+import { isNarrowViewport } from "../../config/breakpoints";
 
 const LONG_PRESS_MS = 450;
 const LONG_PRESS_MOVE_TOLERANCE_PX = 6;
@@ -40,12 +41,45 @@ export interface GraphRelationsPickerProps {
       when the parent surface (e.g. topnav second row) already renders
       its own chip list and we don't want the picker to duplicate it. */
   hideActiveChips?: boolean;
+  /** override the trigger button's size class. when set, the trigger
+      renders as a borderless square icon button matching sibling
+      icon buttons (used by GraphTopNavTools so all four controls in
+      the cluster share the same dimensions). */
+  triggerSizeClass?: string;
+  /** override the trigger icon size in px. defaults to 12. */
+  triggerIconPx?: number;
 }
 
 export function GraphRelationsPicker(props: GraphRelationsPickerProps) {
   const [open, setOpen] = createSignal(false);
+  // narrow viewports get an icon-only trigger (no "relations" label,
+  // no chevron) to free horizontal space in the mobile topnav.
+  const [isNarrow, setIsNarrow] = createSignal(isNarrowViewport());
+  // on narrow the menu is positioned via JS against the viewport so
+  // it can't clip past the screen edge (the absolute `right-0`
+  // strategy used on wide assumes the trigger is near the right side
+  // of its container, which isn't true when the picker sits inside
+  // the topnav's wrapping secondary row).
+  const [menuRect, setMenuRect] = createSignal<{ top: number; left: number; right: number } | null>(
+    null
+  );
   let menuRef: HTMLDivElement | undefined;
   let triggerRef: HTMLButtonElement | undefined;
+
+  const updateMenuRect = () => {
+    if (!triggerRef || !isNarrow()) {
+      setMenuRect(null);
+      return;
+    }
+    const r = triggerRef.getBoundingClientRect();
+    setMenuRect({
+      top: Math.round(r.bottom + 4),
+      // 8px inset from each viewport edge keeps the sheet onscreen
+      // regardless of where the trigger sits in the row.
+      left: 8,
+      right: 8,
+    });
+  };
 
   const allKinds = (): RelationKindMeta[] => [...RELATION_KINDS, ...(props.extraKinds ?? [])];
   const isEnabled = (k: string) => {
@@ -64,33 +98,75 @@ export function GraphRelationsPicker(props: GraphRelationsPickerProps) {
   onMount(() => {
     document.addEventListener("click", onDocClick);
     onCleanup(() => document.removeEventListener("click", onDocClick));
+    const onResize = () => {
+      setIsNarrow(isNarrowViewport());
+      if (open()) updateMenuRect();
+    };
+    window.addEventListener("resize", onResize);
+    window.addEventListener("scroll", onResize, true);
+    onCleanup(() => {
+      window.removeEventListener("resize", onResize);
+      window.removeEventListener("scroll", onResize, true);
+    });
   });
 
   return (
     <div class="relative">
       <div class="flex items-center gap-1.5 flex-wrap">
-        <button
-          ref={triggerRef}
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            setOpen((v) => !v);
-          }}
-          class="inline-flex items-center gap-1 px-2 py-1 rounded border border-white/15 hover:border-[var(--color-accent-500,#ff1a9e)]/60 text-white/80 hover:text-white transition-colors"
-          classList={{
-            "text-xs": props.compact,
-            "text-sm": !props.compact,
-          }}
-          title="relation kinds"
-          aria-label="relation kinds"
-          aria-expanded={open()}
+        <Show
+          when={props.triggerSizeClass && isNarrow()}
+          fallback={
+            <button
+              ref={triggerRef}
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setOpen((v) => {
+                  const next = !v;
+                  if (next) queueMicrotask(updateMenuRect);
+                  return next;
+                });
+              }}
+              class="inline-flex items-center gap-1 px-2 py-1 rounded border border-white/15 hover:border-[var(--color-accent-500,#ff1a9e)]/60 text-white/80 hover:text-white transition-colors"
+              classList={{
+                "text-xs": props.compact,
+                "text-sm": !props.compact,
+              }}
+              title="relation kinds"
+              aria-label="relation kinds"
+              aria-expanded={open()}
+            >
+              <Icon name="filter" size={props.triggerIconPx ?? 12} />
+              <Show when={!isNarrow()}>
+                <span>relations</span>
+                <span class={`transition-transform ${open() ? "rotate-180" : ""}`}>
+                  <ChevronDownStrokeIcon size={12} />
+                </span>
+              </Show>
+            </button>
+          }
         >
-          <Icon name="filter" size={12} />
-          <span>relations</span>
-          <span class={`transition-transform ${open() ? "rotate-180" : ""}`}>
-            <ChevronDownStrokeIcon size={12} />
-          </span>
-        </button>
+          {/* narrow: borderless square icon button so the trigger
+              matches sibling IconBtn dimensions in GraphTopNavTools. */}
+          <button
+            ref={triggerRef}
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setOpen((v) => {
+                const next = !v;
+                if (next) queueMicrotask(updateMenuRect);
+                return next;
+              });
+            }}
+            class={`inline-flex items-center justify-center ${props.triggerSizeClass} rounded transition-colors border-none bg-transparent text-white/65 hover:text-white hover:bg-white/10 cursor-pointer flex-shrink-0`}
+            title="relation kinds"
+            aria-label="relation kinds"
+            aria-expanded={open()}
+          >
+            <Icon name="filter" size={props.triggerIconPx ?? 18} />
+          </button>
+        </Show>
 
         {/* active-kind chips: click toggles off, long-press solos.
             suppressed when the parent renders its own chip row. */}
@@ -104,7 +180,20 @@ export function GraphRelationsPicker(props: GraphRelationsPickerProps) {
       <Show when={open()}>
         <div
           ref={menuRef}
-          class="absolute right-0 top-full mt-1 z-50 min-w-[220px] max-h-[60vh] overflow-y-auto rounded-md border border-white/15 bg-[var(--color-bg-elevated,#1a1a1a)] shadow-lg p-1"
+          class={
+            isNarrow()
+              ? "fixed z-50 max-h-[60vh] overflow-y-auto rounded-md border border-white/15 bg-[var(--color-bg-elevated,#1a1a1a)] shadow-lg p-1"
+              : "absolute right-0 top-full mt-1 z-50 min-w-[220px] max-h-[60vh] overflow-y-auto rounded-md border border-white/15 bg-[var(--color-bg-elevated,#1a1a1a)] shadow-lg p-1"
+          }
+          style={
+            isNarrow() && menuRect()
+              ? {
+                  top: `${menuRect()!.top}px`,
+                  left: `${menuRect()!.left}px`,
+                  right: `${menuRect()!.right}px`,
+                }
+              : undefined
+          }
           onClick={(e) => e.stopPropagation()}
         >
           <div class="flex items-center justify-between px-2 py-1">

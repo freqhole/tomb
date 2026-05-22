@@ -33,6 +33,7 @@ import { useToggleFavoriteMutation } from "../../../music/queries/favorites";
 import { toast } from "../../../components/feedback/Toast";
 import { Icon } from "../../../components/icons/registry";
 import type { TagFilter, TagOption } from "../../../components/forms/TagFilterPicker";
+import { isNarrowViewport } from "../../../config/breakpoints";
 import { setPageInfo, clearPageInfo } from "../../../app/services/pageInfo";
 import type { AlbumNodeData } from "../../../components/graph/types";
 
@@ -446,10 +447,51 @@ function Inner(props: {
   // wraps the factory's relation chips with library-level chips
   // (multi-remote selection counter, auto-pause indicator, bulk-tag
   // mode indicator) so the user always sees current state at a glance.
+  //
+  // narrow viewports: the topnav is space-constrained so we keep
+  // rightContent free for the parent LibraryView (remote picker +
+  // subview toggle) and fold the graph tools down into the second
+  // row alongside the chips.
+  const [isNarrow, setIsNarrow] = createSignal(isNarrowViewport());
   onMount(() => {
-    slots.setRightContent(graph.topNavTools);
-    slots.setSecondaryRowContent(
+    const onResize = () => setIsNarrow(isNarrowViewport());
+    window.addEventListener("resize", onResize);
+    onCleanup(() => window.removeEventListener("resize", onResize));
+
+    // graph-active keyboard shortcuts: `f` fit, `r` reset. these are
+    // namespaced to the graph subview by `props.isActive()` so they
+    // don't fight with table-subview shortcuts. ignored while the user
+    // is typing in an input/textarea/contenteditable.
+    const onKey = (e: KeyboardEvent) => {
+      if (!props.isActive()) return;
+      const target = e.target as HTMLElement | null;
+      const tag = target?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || target?.isContentEditable) return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.key === "f") {
+        e.preventDefault();
+        graph.fit();
+      } else if (e.key === "r") {
+        e.preventDefault();
+        graph.reset();
+      } else if (e.key === "Escape") {
+        // clear current album selection (closes the detail popover).
+        // `preventDefault` is intentionally skipped so esc still also
+        // closes any open menus/dialogs higher in the tree.
+        graph.clearSelection();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    onCleanup(() => window.removeEventListener("keydown", onKey));
+  });
+
+  // reactive slot publishing — re-runs when isNarrow flips so the
+  // topnav reflows correctly on viewport changes.
+  createEffect(() => {
+    const narrow = isNarrow();
+    const chips = (
       <div class="flex items-center gap-2 flex-wrap">
+        <Show when={narrow}>{graph.topNavTools}</Show>
         <Show when={props.remotes().length > 1}>
           <span
             class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] leading-none whitespace-nowrap border border-white/10 bg-white/5 text-white/70"
@@ -477,27 +519,11 @@ function Inner(props: {
         {graph.selectedRelationChips}
       </div>
     );
-
-    // graph-active keyboard shortcuts: `f` fit, `r` reset. these are
-    // namespaced to the graph subview by `props.isActive()` so they
-    // don't fight with table-subview shortcuts. ignored while the user
-    // is typing in an input/textarea/contenteditable.
-    const onKey = (e: KeyboardEvent) => {
-      if (!props.isActive()) return;
-      const target = e.target as HTMLElement | null;
-      const tag = target?.tagName;
-      if (tag === "INPUT" || tag === "TEXTAREA" || target?.isContentEditable) return;
-      if (e.metaKey || e.ctrlKey || e.altKey) return;
-      if (e.key === "f") {
-        e.preventDefault();
-        graph.fit();
-      } else if (e.key === "r") {
-        e.preventDefault();
-        graph.reset();
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    onCleanup(() => window.removeEventListener("keydown", onKey));
+    slots.setSecondaryRowContent(chips);
+    // on narrow, LibraryView owns rightContent (picker + subview
+    // toggle) — don't touch it here or we'd clobber the parent's
+    // write. on wide, publish the graph tools.
+    if (!narrow) slots.setRightContent(graph.topNavTools);
   });
 
   return (

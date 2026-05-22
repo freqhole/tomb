@@ -10,9 +10,10 @@
 //     GraphControls; reproduced here rather than imported so we can
 //     tune sizing/colors independently for the topnav context.
 
-import { createSignal, type JSX, Show } from "solid-js";
+import { createSignal, onCleanup, onMount, type JSX, Show } from "solid-js";
 import { Icon, type IconName } from "../icons/registry";
 import { GraphRelationsPicker, type GraphRelationsPickerProps } from "./GraphRelationsPicker";
+import { isNarrowViewport } from "../../config/breakpoints";
 
 export type GraphTool = "pan" | "lasso";
 
@@ -43,28 +44,59 @@ export interface GraphTopNavToolsProps {
 export function GraphTopNavTools(props: GraphTopNavToolsProps) {
   const toggleTool = () => props.onToolChange?.(props.tool === "pan" ? "lasso" : "pan");
 
+  // narrow viewports get larger touch-friendly buttons + icons, and
+  // all four controls share the same square dimensions for visual
+  // consistency (the relations picker matches the other icon buttons
+  // when narrow — see GraphRelationsPicker).
+  const [narrow, setNarrow] = createSignal(isNarrowViewport());
+  onMount(() => {
+    const onResize = () => setNarrow(isNarrowViewport());
+    window.addEventListener("resize", onResize);
+    onCleanup(() => window.removeEventListener("resize", onResize));
+  });
+  const btnSize = () => (narrow() ? "w-9 h-9" : "w-7 h-7");
+  const iconPx = () => (narrow() ? 18 : 14);
+
   return (
-    <div class="flex items-center gap-0.5">
+    // flex-nowrap + flex-shrink-0 so fit/lasso/tension/relations stay
+    // on a single row even when the parent surface (e.g. the topnav
+    // secondary row) wraps its other children.
+    <div class="flex items-center gap-0.5 flex-nowrap flex-shrink-0">
       {/* zoom in/out intentionally omitted from the topnav cluster:
           pinch + wheel cover zoom already, and the buttons added
           clutter to the narrow mobile layout. fit + reset remain. */}
-      <IconBtn icon="fit" label="fit to view" onClick={props.onFit} />
+      <IconBtn
+        icon="fit"
+        label="fit to view"
+        onClick={props.onFit}
+        sizeClass={btnSize()}
+        iconPx={iconPx()}
+      />
       <Divider />
       <IconBtn
         icon={props.tool === "pan" ? "drag" : "lasso"}
         label={props.tool === "pan" ? "pan mode (click for lasso)" : "lasso mode (click for pan)"}
         active={props.tool === "lasso"}
         onClick={toggleTool}
+        sizeClass={btnSize()}
+        iconPx={iconPx()}
       />
       <Show when={props.onWireTensionChange}>
         <Divider />
         <WireTensionButton
           tension={props.wireTension ?? 0}
           onTension={props.onWireTensionChange!}
+          sizeClass={btnSize()}
+          iconPx={iconPx()}
         />
       </Show>
       <Divider />
-      <GraphRelationsPicker {...props.relations} compact={props.compact} />
+      <GraphRelationsPicker
+        {...props.relations}
+        compact={props.compact}
+        triggerSizeClass={btnSize()}
+        triggerIconPx={iconPx()}
+      />
       <Show when={props.extra}>
         <Divider />
         {props.extra}
@@ -79,11 +111,13 @@ function IconBtn(props: {
   onClick?: () => void;
   active?: boolean;
   children?: JSX.Element;
+  sizeClass?: string;
+  iconPx?: number;
 }) {
   return (
     <button
       type="button"
-      class="inline-flex items-center justify-center w-7 h-7 rounded transition-colors border-none bg-transparent cursor-pointer"
+      class={`inline-flex items-center justify-center ${props.sizeClass ?? "w-7 h-7"} rounded transition-colors border-none bg-transparent cursor-pointer flex-shrink-0`}
       classList={{
         "text-[var(--color-accent-500,#ff1a9e)] bg-[var(--color-accent-500,#ff1a9e)]/15":
           props.active,
@@ -94,7 +128,7 @@ function IconBtn(props: {
       aria-label={props.label}
       aria-pressed={props.active}
     >
-      {props.children ?? <Icon name={props.icon} size={14} />}
+      {props.children ?? <Icon name={props.icon} size={props.iconPx ?? 14} />}
     </button>
   );
 }
@@ -105,7 +139,12 @@ function Divider() {
 
 // press-and-drag pad — duplicated from GraphControls so the topnav copy
 // can use a smaller footprint without affecting the floating panel.
-function WireTensionButton(props: { tension: number; onTension: (next: number) => void }) {
+function WireTensionButton(props: {
+  tension: number;
+  onTension: (next: number) => void;
+  sizeClass?: string;
+  iconPx?: number;
+}) {
   const RANGE_PX = 140;
   const [dragging, setDragging] = createSignal(false);
   const [preview, setPreview] = createSignal(props.tension);
@@ -129,7 +168,7 @@ function WireTensionButton(props: { tension: number; onTension: (next: number) =
   return (
     <button
       type="button"
-      class="inline-flex items-center justify-center w-7 h-7 rounded transition-colors border-none bg-transparent text-white/65 hover:text-white hover:bg-white/10 select-none touch-none cursor-pointer"
+      class={`inline-flex items-center justify-center ${props.sizeClass ?? "w-7 h-7"} rounded transition-colors border-none bg-transparent text-white/65 hover:text-white hover:bg-white/10 select-none touch-none cursor-pointer flex-shrink-0`}
       classList={{
         "bg-[var(--color-accent-500,#ff1a9e)]/20 text-white ring-1 ring-[var(--color-accent-500,#ff1a9e)]/60":
           dragging(),
@@ -171,8 +210,8 @@ function WireTensionButton(props: { tension: number; onTension: (next: number) =
         when={dragging()}
         fallback={
           <svg
-            width="16"
-            height="16"
+            width={props.iconPx ?? 16}
+            height={props.iconPx ?? 16}
             viewBox="0 0 24 24"
             fill="none"
             stroke="currentColor"
