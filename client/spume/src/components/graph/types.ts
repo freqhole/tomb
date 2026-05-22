@@ -1,6 +1,8 @@
 // shared types for the album graph viz
 // canvas-rendered, d3-force-laid-out node graph
 
+import type { ImageMetadata } from "../../music/services/storage/types";
+
 export type RelationKind =
   | "genre"
   | "tag"
@@ -22,8 +24,13 @@ export interface AlbumNodeData {
   artistId: string;
   artistName: string;
   year: number | null;
-  /** absolute or remote url for the album thumbnail; null = render text tile */
+  /** absolute or remote url for the album thumbnail; null = render text tile.
+   *  derived from `image` for back-compat with html-only consumers
+   *  (e.g. `AlbumNodeView`). canvas-side resolution prefers `image`. */
   imageUrl: string | null;
+  /** full image metadata for canonical resolution via the blob
+   *  resolver (handles local opfs / p2p / charnel / plain http). */
+  image: ImageMetadata | null;
 
   // taxons
   genres: string[];
@@ -43,6 +50,9 @@ export interface AlbumNodeData {
   totalDurationSec: number;
   rating?: number | null;
   isFavorite?: boolean;
+  /** which remote contributed this album. null = mocked / single-remote
+   *  story. set by the adapter so multi-remote views can disambiguate. */
+  sourceRemoteId?: string | null;
 }
 
 export interface TagRef {

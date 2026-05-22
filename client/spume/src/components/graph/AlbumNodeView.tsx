@@ -9,6 +9,7 @@
 
 import { Show } from "solid-js";
 import type { AlbumNodeData, NodeState } from "./types";
+import { MediaImage } from "../media/MediaImage";
 
 export interface AlbumNodeViewProps {
   album: AlbumNodeData;
@@ -50,7 +51,7 @@ export function AlbumNodeView(props: AlbumNodeViewProps) {
         }}
       >
         <Show
-          when={props.album.imageUrl}
+          when={props.album.image || props.album.imageUrl}
           fallback={
             <div class="w-full h-full flex flex-col items-center justify-center p-1 text-center bg-gradient-to-br from-[var(--color-bg-elevated)] to-[var(--color-bg)]">
               <div
@@ -80,12 +81,30 @@ export function AlbumNodeView(props: AlbumNodeViewProps) {
             </div>
           }
         >
-          <img
-            src={props.album.imageUrl ?? ""}
-            alt={`${props.album.title} by ${props.album.artistName}`}
-            class="w-full h-full object-cover"
-            draggable={false}
-          />
+          {/* prefer the structured ImageMetadata path (handles local
+           *  blobs, p2p, and charnel-managed remotes via MediaImage's
+           *  transport-aware resolver). fall back to the legacy
+           *  pre-resolved `imageUrl` string for storybook mocks. */}
+          <Show
+            when={props.album.image}
+            fallback={
+              <img
+                src={props.album.imageUrl ?? ""}
+                alt={`${props.album.title} by ${props.album.artistName}`}
+                class="w-full h-full object-cover"
+                draggable={false}
+              />
+            }
+          >
+            <MediaImage
+              images={[props.album.image!]}
+              alt={`${props.album.title} by ${props.album.artistName}`}
+              thumbnailSize={200}
+              domainType="album"
+              showFallback={false}
+              class="w-full h-full object-cover"
+            />
+          </Show>
         </Show>
       </div>
       <Show when={props.showLabel}>

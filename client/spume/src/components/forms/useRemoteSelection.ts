@@ -34,5 +34,20 @@ export function useRemoteSelection() {
     return (remotes() ?? []).find((r) => r.remote_id === id);
   });
 
-  return { remotes, selectedRemoteIds, setSelectedRemoteIds, selectedRemoteId, selectedRemote };
+  /** all selected remotes resolved to full Remote records, in the same
+   *  order as the underlying remotes resource. used by multi-select
+   *  consumers (e.g. the library graph subview). */
+  const selectedRemotes = createMemo<Remote[]>(() => {
+    const ids = selectedRemoteIds();
+    return (remotes() ?? []).filter((r) => ids.has(r.remote_id));
+  });
+
+  return {
+    remotes,
+    selectedRemoteIds,
+    setSelectedRemoteIds,
+    selectedRemoteId,
+    selectedRemote,
+    selectedRemotes,
+  };
 }

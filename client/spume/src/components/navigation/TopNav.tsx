@@ -1368,10 +1368,13 @@ export function TopNav(props: TopNavProps) {
               </div>
             </Show>
 
-            {/* tag filter icon - when view has tags, hidden when search expanded on small, hidden on radio */}
+            {/* tag filter icon - when view has tags, hidden when search expanded on small, hidden on radio.
+             *  also hidden on the library route — library has its own
+             *  taxon-based filtering pattern in the subview chrome. */}
             <Show
               when={
                 !isRadioRoute() &&
+                !isLibraryRoute() &&
                 info().availableTags?.length &&
                 (!isNarrow() || !searchExpanded())
               }

@@ -210,6 +210,9 @@ export function enrichAlbum(
     artistName: album.artist,
     year: album.year,
     imageUrl,
+    image: imageUrl
+      ? { remote_url: imageUrl, is_primary: true, blob_type: "thumbnail" }
+      : null,
     genres,
     tags,
     moods,

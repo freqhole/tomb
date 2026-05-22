@@ -5,7 +5,7 @@
 // phase 2: remote picker (single-select) wired to a `selectedRemoteId`
 //          signal that subviews can read.
 
-import { createEffect, createSignal, Match, onCleanup, Show, Switch } from "solid-js";
+import { createEffect, createSignal, Match, onCleanup, onMount, Show, Switch } from "solid-js";
 import { Icon } from "../../components/icons/registry";
 import { RemotePicker } from "../../components/forms/RemotePicker";
 import { useRemoteSelection } from "../../components/forms/useRemoteSelection";
@@ -22,6 +22,7 @@ import { queryClient } from "../../queryClient";
 import { toast } from "../../components/feedback/Toast";
 import { BulkEditAlbumsModal } from "../../components/modals/BulkEditAlbumsModal";
 import { TagSelectorModal } from "../../components/modals/TagSelectorModal";
+import { LibraryGraphSubview } from "./graph/LibraryGraphSubview";
 import type { Remote } from "../../app/services/storage/schemas/remote";
 
 type LibrarySubview = "graph" | "table";
@@ -40,8 +41,14 @@ export function LibraryView() {
   const [subview, setSubview] = createSignal<LibrarySubview>("table");
 
   // view-local remote selection (encapsulates resource + default effect + memos)
-  const { remotes, selectedRemoteIds, setSelectedRemoteIds, selectedRemoteId, selectedRemote } =
-    useRemoteSelection();
+  const {
+    remotes,
+    selectedRemoteIds,
+    setSelectedRemoteIds,
+    selectedRemoteId,
+    selectedRemote,
+    selectedRemotes,
+  } = useRemoteSelection();
 
   // 9a: in-pane loading indicator that appears immediately on remote switch
   // and escalates to the ConnectionProgressModal after SLOW_SWITCH_MS.
@@ -73,6 +80,18 @@ export function LibraryView() {
     prevRemoteId = newId;
   });
 
+  // when switching back to the table subview from graph multi-select,
+  // narrow the remote set to a single entry so the (single-target)
+  // table view isn't confused by multiple selected remotes. preserves
+  // whichever the underlying memo picked as the "primary".
+  createEffect(() => {
+    if (subview() !== "table") return;
+    const ids = selectedRemoteIds();
+    if (ids.size <= 1) return;
+    const primary = selectedRemoteId();
+    if (primary) setSelectedRemoteIds(new Set([primary]));
+  });
+
   // selection lifecycle (clear on route change + esc, ctrl/cmd-a select-all).
   useAlbumSelectionLifecycle();
   const selectedAlbumIds = useSelectedAlbumIds();
@@ -98,8 +117,70 @@ export function LibraryView() {
   const [bulkEditAlbumIds, setBulkEditAlbumIds] = createSignal<string[]>([]);
   const [showTagSelectorModal, setShowTagSelectorModal] = createSignal(false);
   const [tagSelectorAlbumIds, setTagSelectorAlbumIds] = createSignal<string[]>([]);
+  // when the tag modal is opened by a graph-lasso bulk-tag flow, the
+  // target remote may not be `selectedRemote()` (e.g. we narrowed for
+  // bulk-tag but then the user changed selection). pin it explicitly
+  // for the duration the modal is open.
+  const [tagSelectorRemote, setTagSelectorRemote] = createSignal<Remote | null>(null);
+
+  // ---- admin bulk-tag mode (phase 5) ----------------------------------
+  // graph-only, admin-only mode that locks the canvas into lasso and
+  // routes lasso completions into the TagSelectorModal. when entering,
+  // we narrow the remote selection to a single remote (prefer the
+  // currently primary one) so the resulting tags target a single
+  // backend unambiguously.
+  const [bulkTagMode, setBulkTagMode] = createSignal(false);
 
   const isRemoteAdmin = useRemoteIsAdmin(selectedRemote);
+
+  const enterBulkTagMode = () => {
+    if (!isRemoteAdmin()) return;
+    if (subview() !== "graph") return;
+    // narrow to a single remote so lasso completions have an
+    // unambiguous target. prefer the current primary.
+    const primary = selectedRemoteId();
+    if (primary && selectedRemoteIds().size > 1) {
+      setSelectedRemoteIds(new Set([primary]));
+    }
+    setBulkTagMode(true);
+  };
+  const exitBulkTagMode = () => setBulkTagMode(false);
+  const toggleBulkTagMode = () => (bulkTagMode() ? exitBulkTagMode() : enterBulkTagMode());
+
+  // auto-exit if admin status is revoked or we leave the graph subview.
+  createEffect(() => {
+    if (!bulkTagMode()) return;
+    if (!isRemoteAdmin() || subview() !== "graph") setBulkTagMode(false);
+  });
+
+  // keyboard: `t` toggles bulk-tag mode, `esc` exits, `g` cycles the
+  // subview (graph <-> table). only active when the user isn't typing
+  // into an input. `t`/`esc` are additionally gated on the graph
+  // subview being active + admin.
+  onMount(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      const tag = target?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || target?.isContentEditable) return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.key === "g") {
+        e.preventDefault();
+        setSubview((cur) => (cur === "graph" ? "table" : "graph"));
+        return;
+      }
+      if (subview() !== "graph") return;
+      if (e.key === "t") {
+        if (!isRemoteAdmin()) return;
+        e.preventDefault();
+        toggleBulkTagMode();
+      } else if (e.key === "Escape" && bulkTagMode()) {
+        e.preventDefault();
+        exitBulkTagMode();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    onCleanup(() => window.removeEventListener("keydown", onKey));
+  });
 
   const triggerEnrichment = (albumIds: string[]) => {
     if (albumIds.length === 0) return;
@@ -223,53 +304,70 @@ export function LibraryView() {
       );
   };
 
-  return (
-    <div class="flex flex-col h-full">
-      {/* header — leaves room on the left for the floating topnav button */}
-      <div class="flex items-center justify-end gap-4 px-4 pt-3 pb-2 wide:pl-[140px] flex-wrap">
-        <div class="flex items-center gap-2">
-          <MbProgressStrip />
-        </div>
+  // header cluster (mb progress strip + remote picker + view switcher).
+  // in graph mode this floats over the canvas like the topnav; in
+  // table mode it takes its own row above the body.
+  const headerCluster = (
+    <>
+      <div class="flex items-center gap-2">
+        <MbProgressStrip />
+      </div>
 
-        <div class="flex items-center gap-3 flex-wrap">
-          {/* remote picker (single-select for phase 2) */}
-          <Show when={(remotes() ?? []).length > 0}>
-            <RemotePicker
-              remotes={remotes() ?? []}
-              value={selectedRemoteIds()}
-              onChange={setSelectedRemoteIds}
-              mode="single"
-              layout="inline"
-            />
-          </Show>
+      <div class="flex items-center gap-3 flex-wrap">
+        {/* remote picker — multi-select in graph subview so the user
+         *  can fan a single graph out across remotes; single-select in
+         *  the table subview (table writes go to one remote). bulk-tag
+         *  mode also forces single so lasso targets are unambiguous. */}
+        <Show when={(remotes() ?? []).length > 0}>
+          <RemotePicker
+            remotes={remotes() ?? []}
+            value={selectedRemoteIds()}
+            onChange={setSelectedRemoteIds}
+            mode={subview() === "graph" && !bulkTagMode() ? "multi" : "single"}
+            layout="inline"
+          />
+        </Show>
 
-          {/* view switcher */}
-          <div
-            class="inline-flex items-center gap-1 p-1 rounded-md bg-[var(--color-bg-elevated)] border border-[var(--color-border-subtle)]"
-            role="tablist"
-            aria-label="library view"
-          >
-            {SUBVIEWS.map((opt) => (
-              <button
-                type="button"
-                role="tab"
-                aria-selected={subview() === opt.id}
-                class="flex items-center gap-1.5 px-2.5 py-1 text-xs rounded transition-colors border-none cursor-pointer"
-                classList={{
-                  "bg-[var(--color-accent-500)]/15 text-[var(--color-accent-500)]":
-                    subview() === opt.id,
-                  "bg-transparent text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]":
-                    subview() !== opt.id,
-                }}
-                onClick={() => setSubview(opt.id)}
-              >
-                <Icon name={opt.icon} size={12} />
-                <span>{opt.label}</span>
-              </button>
-            ))}
-          </div>
+        {/* view switcher */}
+        <div
+          class="inline-flex items-center gap-1 p-1 rounded-md bg-[var(--color-bg-elevated)] border border-[var(--color-border-subtle)]"
+          role="tablist"
+          aria-label="library view"
+        >
+          {SUBVIEWS.map((opt) => (
+            <button
+              type="button"
+              role="tab"
+              aria-selected={subview() === opt.id}
+              class="flex items-center gap-1.5 px-2.5 py-1 text-xs rounded transition-colors border-none cursor-pointer"
+              classList={{
+                "bg-[var(--color-accent-500)]/15 text-[var(--color-accent-500)]":
+                  subview() === opt.id,
+                "bg-transparent text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]":
+                  subview() !== opt.id,
+              }}
+              onClick={() => setSubview(opt.id)}
+            >
+              <Icon name={opt.icon} size={12} />
+              <span>{opt.label}</span>
+            </button>
+          ))}
         </div>
       </div>
+    </>
+  );
+
+  return (
+    <div class="flex flex-col h-full">
+      {/* header — leaves room on the left for the floating topnav button.
+       *  in graph mode the cluster is rendered as an overlay inside the
+       *  subview body instead (see below) so the canvas reaches full
+       *  height. */}
+      <Show when={subview() !== "graph"}>
+        <div class="flex items-center justify-end gap-4 px-4 pt-3 pb-2 wide:pl-[140px] flex-wrap">
+          {headerCluster}
+        </div>
+      </Show>
 
       {/* 9a: in-pane indicator while the first query for a new remote is
        *  in-flight. clears itself via onDataReady below or after the
@@ -283,9 +381,49 @@ export function LibraryView() {
 
       {/* subview body */}
       <div class="flex-1 min-h-0 overflow-hidden relative">
+        {/* graph-mode floating header — sits over the canvas like the
+         *  topnav, freeing the full pane for the graph itself. */}
+        <Show when={subview() === "graph"}>
+          <div class="absolute top-2 right-3 z-20 flex items-center justify-end gap-4 flex-wrap max-w-[calc(100%-1rem)] pointer-events-auto">
+            {headerCluster}
+          </div>
+        </Show>
         <Switch>
           <Match when={subview() === "graph"}>
-            <GraphPlaceholder />
+            <LibraryGraphSubview
+              remotes={selectedRemotes()}
+              isActive={() => subview() === "graph"}
+              bulkTagMode={bulkTagMode}
+              onLassoAlbums={(remote, ids) => {
+                if (ids.length === 0) return;
+                setTagSelectorRemote(remote);
+                setTagSelectorAlbumIds(ids);
+                setShowTagSelectorModal(true);
+              }}
+              extraTools={
+                <Show when={isRemoteAdmin()}>
+                  <button
+                    type="button"
+                    onClick={toggleBulkTagMode}
+                    title={
+                      bulkTagMode()
+                        ? "exit bulk-tag mode (esc / t)"
+                        : "bulk-tag albums via lasso (t)"
+                    }
+                    aria-label="toggle bulk-tag mode"
+                    aria-pressed={bulkTagMode()}
+                    class="inline-flex items-center justify-center w-7 h-7 rounded transition-colors border-none bg-transparent cursor-pointer"
+                    classList={{
+                      "text-[var(--color-accent-500,#ff1a9e)] bg-[var(--color-accent-500,#ff1a9e)]/15":
+                        bulkTagMode(),
+                      "text-white/65 hover:text-white hover:bg-white/10": !bulkTagMode(),
+                    }}
+                  >
+                    <Icon name="tag" size={14} />
+                  </button>
+                </Show>
+              }
+            />
           </Match>
           <Match when={subview() === "table"}>
             <TablePlaceholder
@@ -348,32 +486,35 @@ export function LibraryView() {
         />
       </Show>
 
-      {/* tag selector modal */}
-      <Show when={showTagSelectorModal() && selectedRemote() && tagSelectorAlbumIds().length > 0}>
+      {/* tag selector modal — shared by table bulk-edit AND graph
+          lasso bulk-tag flows. when opened from the lasso flow we pin
+          the target remote via `tagSelectorRemote` so changing the
+          picker mid-edit doesn't yank the modal's backend out from
+          under it. */}
+      <Show
+        when={
+          showTagSelectorModal() &&
+          (tagSelectorRemote() ?? selectedRemote()) &&
+          tagSelectorAlbumIds().length > 0
+        }
+      >
         <TagSelectorModal
           albumIds={tagSelectorAlbumIds()}
-          remote={selectedRemote()!}
+          remote={(tagSelectorRemote() ?? selectedRemote())!}
           onClose={() => {
             setShowTagSelectorModal(false);
             setTagSelectorAlbumIds([]);
+            setTagSelectorRemote(null);
           }}
           onSave={() => {
+            const r = tagSelectorRemote() ?? selectedRemote();
+            if (!r) return;
             void queryClient.invalidateQueries({
-              queryKey: ["library-albums", selectedRemote()!.remote_id],
+              queryKey: ["library-albums", r.remote_id],
             });
           }}
         />
       </Show>
-    </div>
-  );
-}
-
-function GraphPlaceholder() {
-  return (
-    <div class="flex flex-col items-center justify-center h-full gap-2 text-[var(--color-text-disabled)]">
-      <Icon name="share" size={32} />
-      <p class="text-sm m-0">graph viz coming soon</p>
-      <p class="text-xs m-0">force-directed albums graph driven by folksonomy tags</p>
     </div>
   );
 }

@@ -10,7 +10,7 @@
 //   artist; if the title overflows the tile width it marquee-scrolls
 // - all sizes are in world units, so labels naturally scale with zoom
 
-import { getImage } from "./imageCache";
+import { getImage, getImageFor } from "./imageCache";
 import type { AlbumNodeData, NodeState } from "./types";
 
 export interface DrawAlbumNodeArgs {
@@ -83,10 +83,16 @@ export function drawAlbumNode(args: DrawAlbumNodeArgs): void {
   ctx.fillStyle = bgColor;
   ctx.fill();
 
-  const hasImage = !!album.imageUrl;
+  const hasImage = !!(album.image || album.imageUrl);
 
   if (hasImage) {
-    const img = getImage(album.imageUrl!, onImageReady);
+    // prefer the canonical resolver (handles local opfs / p2p / charnel
+    // / plain http with the same primitives MediaImage uses). fall back
+    // to the legacy raw url if no metadata was attached (storybook /
+    // mocks).
+    const img = album.image
+      ? getImageFor(album.image, 200, onImageReady)
+      : getImage(album.imageUrl!, onImageReady);
     if (img) {
       ctx.save();
       roundRect(ctx, x0, y0, size, size, radius);

@@ -32,6 +32,12 @@ export interface GraphTopNavToolsProps {
 
   /** narrow-viewport mode — hides labels, tightens spacing */
   compact?: boolean;
+
+  /** optional trailing slot — rendered after the relations picker on
+   *  the right edge of the cluster. used by LibraryGraphSubview to
+   *  surface the admin bulk-tag toggle without the canvas/factory
+   *  needing to know anything about library-level concerns. */
+  extra?: JSX.Element;
 }
 
 export function GraphTopNavTools(props: GraphTopNavToolsProps) {
@@ -59,6 +65,10 @@ export function GraphTopNavTools(props: GraphTopNavToolsProps) {
       </Show>
       <Divider />
       <GraphRelationsPicker {...props.relations} compact={props.compact} />
+      <Show when={props.extra}>
+        <Divider />
+        {props.extra}
+      </Show>
     </div>
   );
 }
