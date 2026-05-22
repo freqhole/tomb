@@ -82,6 +82,28 @@ export const ZoomOutIcon = (props: IconProps) => (
   </BaseIcon>
 );
 
+// four L-corner brackets framing an empty interior — classic
+// "fit to view" / "center content in viewport" affordance.
+export const FitIcon = (props: IconProps) => (
+  <BaseIcon {...props} aria-label={props["aria-label"] ?? "Fit to view"}>
+    <path d="M3 3h7v2H5v5H3V3zm11 0h7v7h-2V5h-5V3zM3 14h2v5h5v2H3v-7zm16 0h2v7h-7v-2h5v-5z" />
+  </BaseIcon>
+);
+
+// freeform loop with a dangling tail + knot bead — distinct from a
+// marquee/rectangle selection and from a checkmark.
+export const LassoIcon = (props: IconProps) => (
+  <BaseIcon {...props} aria-label={props["aria-label"] ?? "Lasso"}>
+    <path
+      fill-rule="evenodd"
+      clip-rule="evenodd"
+      d="M12 3c4.97 0 9 2.91 9 6.5S16.97 16 12 16s-9-2.91-9-6.5S7.03 3 12 3zm0 2C8.13 5 5 7.01 5 9.5S8.13 14 12 14s7-2.01 7-4.5S15.87 5 12 5z"
+    />
+    <path d="M17.2 14.5l1.7-1.05 2.6 4.3-1.7 1.05z" />
+    <circle cx="20.5" cy="20.5" r="1.7" />
+  </BaseIcon>
+);
+
 export const EyeIcon = (props: IconProps) => (
   <BaseIcon {...props} defaultSize={20} aria-label={props["aria-label"] ?? "Show"}>
     <path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z" />

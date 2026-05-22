@@ -39,12 +39,13 @@ export function GraphTopNavTools(props: GraphTopNavToolsProps) {
 
   return (
     <div class="flex items-center gap-0.5">
-      <IconBtn icon="zoomIn" label="zoom in" onClick={props.onZoomIn} />
-      <IconBtn icon="zoomOut" label="zoom out" onClick={props.onZoomOut} />
-      <IconBtn icon="album" label="fit to view" onClick={props.onFit} />
+      {/* zoom in/out intentionally omitted from the topnav cluster:
+          pinch + wheel cover zoom already, and the buttons added
+          clutter to the narrow mobile layout. fit + reset remain. */}
+      <IconBtn icon="fit" label="fit to view" onClick={props.onFit} />
       <Divider />
       <IconBtn
-        icon={props.tool === "pan" ? "drag" : "check"}
+        icon={props.tool === "pan" ? "drag" : "lasso"}
         label={props.tool === "pan" ? "pan mode (click for lasso)" : "lasso mode (click for pan)"}
         active={props.tool === "lasso"}
         onClick={toggleTool}

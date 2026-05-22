@@ -100,8 +100,23 @@ export function AlbumGraphCanvas(props: AlbumGraphCanvasProps) {
 
   // resolve a color for a relation kind. user-supplied overrides win,
   // then built-in palette, then a neutral fallback for unknown kinds.
-  const kindColor = (kind: string): string =>
-    props.relationColors?.[kind] ?? RELATION_COLOR[kind as RelationKind] ?? "#9aa0aa";
+  // memoized per-instance: kindColor was a top-N cpu sample in the draw
+  // loop (called once per edge per frame). cache invalidates when the
+  // override map identity changes.
+  let colorCacheKey: typeof props.relationColors | undefined;
+  const colorCache = new Map<string, string>();
+  const kindColor = (kind: string): string => {
+    if (colorCacheKey !== props.relationColors) {
+      colorCacheKey = props.relationColors;
+      colorCache.clear();
+    }
+    let c = colorCache.get(kind);
+    if (c === undefined) {
+      c = props.relationColors?.[kind] ?? RELATION_COLOR[kind as RelationKind] ?? "#9aa0aa";
+      colorCache.set(kind, c);
+    }
+    return c;
+  };
 
   const curvature = () => Math.max(0, props.edgeCurvature ?? 0.18);
 
@@ -145,6 +160,12 @@ export function AlbumGraphCanvas(props: AlbumGraphCanvasProps) {
   let simNodes: SimNode[] = [];
   let simLinks: SimLink[] = [];
   let hitter: HitTester | null = null;
+  // lazy accessor: hit tester is invalidated on every sim tick but only
+  // rebuilt when actually queried (pointer move/down/up, lasso).
+  function getHitter(): HitTester {
+    if (!hitter) hitter = buildHitTester(simNodes, nodeSize());
+    return hitter;
+  }
 
   const nodeSize = () => props.nodeSize ?? 56;
   const enabledSet = createMemo<Set<string> | null>(() => {
@@ -170,16 +191,63 @@ export function AlbumGraphCanvas(props: AlbumGraphCanvasProps) {
     canvasEl.style.height = `${height}px`;
     if (sim) {
       sim.force("center", forceCenter(width / 2, height / 2));
-      sim.alpha(0.3).restart();
+      // gentle nudge only — resize fires on mount and on any container
+      // resize, and a 0.3 alpha here would re-explode the layout every
+      // time. 0.05 lets the center force re-balance without visible
+      // shuffle of settled nodes.
+      sim.alpha(0.05).restart();
     }
     requestDraw();
   }
 
   // ---- rebuild sim on data change --------------------------------------
 
+  // tracks whether a real layout pass has happened yet. on the very first
+  // rebuild we need to actually run forces from scratch; subsequent
+  // rebuilds (e.g. relation kind toggled) should preserve positions and
+  // only nudge the sim with a low alpha so nothing visibly shuffles.
+  let firstBuild = true;
+
   function rebuild() {
     if (!canvasEl) return;
-    simNodes = props.nodes.map((n) => ({ ...n })) as SimNode[];
+
+    // preserve positions/velocities across rebuilds: when an album's id
+    // already had a sim node, reuse its x/y/vx/vy so toggling a relation
+    // layer doesn't re-seed every node and trigger a full re-settle.
+    const prev = new Map(simNodes.map((n) => [n.id, n] as const));
+    simNodes = props.nodes.map((n) => {
+      const p = prev.get(n.id);
+      if (p) {
+        // mutate-in-place style: copy node fields (in case the upstream
+        // album payload changed e.g. new tags) but keep simulation state.
+        return Object.assign(p, n) as SimNode;
+      }
+      // brand-new node: positions filled in below from a phyllotaxis
+      // seed. clone the data so the upstream array isn't mutated by the
+      // sim.
+      return { ...n } as SimNode;
+    }) as SimNode[];
+
+    // pre-seed any node that's still missing x/y (i.e. truly new). doing
+    // this in a second pass so we have stable indices.
+    const cx = width / 2;
+    const cy = height / 2;
+    const sz0 = nodeSize();
+    let seedIdx = 0;
+    for (const n of simNodes) {
+      if (n.x == null || n.y == null) {
+        // phyllotaxis: golden-angle spiral keeps initial layout compact
+        // and roughly evenly distributed → forces converge fast.
+        const a = seedIdx * 2.399963229728653;
+        const r = Math.sqrt(seedIdx + 0.5) * sz0 * 0.9;
+        n.x = cx + r * Math.cos(a);
+        n.y = cy + r * Math.sin(a);
+        n.vx = 0;
+        n.vy = 0;
+        seedIdx++;
+      }
+    }
+
     const byId = new Map(simNodes.map((n) => [n.id, n]));
     simLinks = props.edges
       .filter((e) => {
@@ -208,10 +276,31 @@ export function AlbumGraphCanvas(props: AlbumGraphCanvasProps) {
       )
       .force("charge", forceManyBody().strength(-sz * 8)) // stronger repulsion
       .force("center", forceCenter(width / 2, height / 2))
-      .force("collide", forceCollide<SimNode>().radius(sz * 1.1));
+      .force("collide", forceCollide<SimNode>().radius(sz * 1.1))
+      // faster cool-down. default alphaDecay ~0.0228 ≈ 300 ticks before
+      // alphaMin; bumping to 0.05 settles in ~90 ticks. velocityDecay
+      // bumped a touch so nodes don't keep drifting after links shift.
+      .alphaDecay(0.05)
+      .velocityDecay(0.55);
+
+    if (firstBuild) {
+      // first pass with no prior positions: full energy so the
+      // phyllotaxis seed relaxes into a real layout.
+      sim.alpha(1).restart();
+      firstBuild = false;
+    } else {
+      // subsequent rebuilds (relation kinds toggled, nodes appended):
+      // very low alpha so existing positions barely move — just enough
+      // for new edges to tug things into place.
+      sim.alpha(0.15).restart();
+    }
 
     sim.on("tick", () => {
-      hitter = buildHitTester(simNodes, nodeSize());
+      // invalidate the hit tester rather than rebuilding it: pointer
+      // queries are rare relative to ticks (was hot in the cpu trace —
+      // quadtree.addAll on every tick). lazy getHitter() rebuilds on
+      // demand.
+      hitter = null;
       requestDraw();
     });
     if (props.paused) sim.stop();
@@ -282,6 +371,21 @@ export function AlbumGraphCanvas(props: AlbumGraphCanvasProps) {
     }
 
     ctx.lineCap = "round";
+    // edge rendering is batched in two passes:
+    //   1) "dim" edges (out-of-focus / search-miss): all share the same
+    //      alpha + lineWidth, so we can group by stroke color and stroke
+    //      each color group as a single path. this was the biggest
+    //      hotspot in the cpu trace (~830ms in `stroke` calls).
+    //   2) "highlighted" edges (involved/selected/hover/sibling): few in
+    //      number, drawn individually because their lineWidth varies
+    //      with link weight.
+    // pre-compute curvature once per draw — was being read per edge.
+    const curv = curvature();
+    // bucket edges by visual category. dim/search-dim use fixed style,
+    // so we group by color and stroke each group as a single path.
+    const dimByColor = new Map<string, SimLink[]>();
+    const searchDimByColor = new Map<string, SimLink[]>();
+    const highlighted: SimLink[] = [];
     for (const link of simLinks) {
       const s = link.source as SimNode;
       const t = link.target as SimNode;
@@ -300,39 +404,85 @@ export function AlbumGraphCanvas(props: AlbumGraphCanvasProps) {
       if (edgeFocusIds) {
         involved = isSiblingEdge;
       }
-      const w = link.weight ?? 0.5;
-      ctx.strokeStyle = kindColor(link.kind);
-      // search dim wins last: if the search set is active and neither
-      // endpoint is in the set, force dim regardless of focus.
       const searchDim = hasSearch && search && !search.has(s.id) && !search.has(t.id);
       if (searchDim && !isSelEdge && !isHovEdge) {
-        ctx.globalAlpha = 0.05;
-        ctx.lineWidth = 0.6;
-      } else if (isSelEdge) {
+        const color = kindColor(link.kind);
+        let arr = searchDimByColor.get(color);
+        if (!arr) {
+          arr = [];
+          searchDimByColor.set(color, arr);
+        }
+        arr.push(link);
+      } else if (!isSelEdge && !isHovEdge && !involved) {
+        const color = kindColor(link.kind);
+        let arr = dimByColor.get(color);
+        if (!arr) {
+          arr = [];
+          dimByColor.set(color, arr);
+        }
+        arr.push(link);
+      } else {
+        highlighted.push(link);
+      }
+    }
+
+    // helper to stroke an edge segment into the current path. inlined
+    // to avoid function-call overhead in a per-edge inner loop.
+    function appendEdgeToPath(link: SimLink) {
+      const s = link.source as SimNode;
+      const t = link.target as SimNode;
+      const sx = s.x ?? 0;
+      const sy = s.y ?? 0;
+      const tx = t.x ?? 0;
+      const ty = t.y ?? 0;
+      ctx!.moveTo(sx, sy);
+      if (curv > 0) {
+        const cp = edgeControlPoint(sx, sy, tx, ty);
+        ctx!.quadraticCurveTo(cp.cx, cp.cy, tx, ty);
+      } else {
+        ctx!.lineTo(tx, ty);
+      }
+    }
+
+    // pass 1a: bulk dim — one path per stroke color.
+    ctx.globalAlpha = 0.12;
+    ctx.lineWidth = 0.8;
+    for (const [color, links] of dimByColor) {
+      ctx.strokeStyle = color;
+      ctx.beginPath();
+      for (const link of links) appendEdgeToPath(link);
+      ctx.stroke();
+    }
+    // pass 1b: search-dim (even fainter).
+    if (searchDimByColor.size > 0) {
+      ctx.globalAlpha = 0.05;
+      ctx.lineWidth = 0.6;
+      for (const [color, links] of searchDimByColor) {
+        ctx.strokeStyle = color;
+        ctx.beginPath();
+        for (const link of links) appendEdgeToPath(link);
+        ctx.stroke();
+      }
+    }
+    // pass 2: highlighted edges — per-edge style (varies by weight).
+    for (const link of highlighted) {
+      const isHovEdge = link._key === hovEdge;
+      const isSelEdge = selEdges.has(link._key);
+      const w = link.weight ?? 0.5;
+      ctx.strokeStyle = kindColor(link.kind);
+      if (isSelEdge) {
         ctx.globalAlpha = 1;
         ctx.lineWidth = 3 + w * 2;
       } else if (isHovEdge) {
         ctx.globalAlpha = 0.95;
         ctx.lineWidth = 2.5 + w * 1.5;
-      } else if (involved) {
+      } else {
+        // involved
         ctx.globalAlpha = 0.85;
         ctx.lineWidth = 1.6 + w * 1.4;
-      } else {
-        ctx.globalAlpha = 0.12;
-        ctx.lineWidth = 0.8;
       }
       ctx.beginPath();
-      const sx = s.x ?? 0;
-      const sy = s.y ?? 0;
-      const tx = t.x ?? 0;
-      const ty = t.y ?? 0;
-      ctx.moveTo(sx, sy);
-      if (curvature() > 0) {
-        const cp = edgeControlPoint(sx, sy, tx, ty);
-        ctx.quadraticCurveTo(cp.cx, cp.cy, tx, ty);
-      } else {
-        ctx.lineTo(tx, ty);
-      }
+      appendEdgeToPath(link);
       ctx.stroke();
     }
     ctx.globalAlpha = 1;
@@ -358,7 +508,10 @@ export function AlbumGraphCanvas(props: AlbumGraphCanvasProps) {
                 : focus && focusConnected && !focusConnected.has(n.id) && n.id !== focus
                   ? "dimmed"
                   : "idle";
-      const showLabel = n.id === hov || n.id === sel || isEdgeFocus;
+      // marquee label overlay only on hover (or edge-focus). when the
+      // album is selected the AlbumDetailPopover already shows the info,
+      // so the overlay would be redundant + visually noisy.
+      const showLabel = n.id === hov || isEdgeFocus;
       drawAlbumNode({
         ctx,
         album: n,
@@ -393,7 +546,7 @@ export function AlbumGraphCanvas(props: AlbumGraphCanvasProps) {
         // ride the sag instead of floating in dead space
         let mx = ((s.x ?? 0) + (t.x ?? 0)) / 2;
         let my = ((s.y ?? 0) + (t.y ?? 0)) / 2;
-        if (curvature() > 0) {
+        if (curv > 0) {
           const cp = edgeControlPoint(s.x ?? 0, s.y ?? 0, t.x ?? 0, t.y ?? 0);
           // quadratic bezier midpoint (t=0.5)
           mx = 0.25 * (s.x ?? 0) + 0.5 * cp.cx + 0.25 * (t.x ?? 0);
@@ -568,7 +721,7 @@ export function AlbumGraphCanvas(props: AlbumGraphCanvasProps) {
     }
 
     const [wx, wy] = screenToWorld(sx, sy);
-    const hit = hitter?.find(wx, wy, nodeSize() * 0.8);
+    const hit = getHitter().find(wx, wy, nodeSize() * 0.8);
     const tool = props.tool ?? "pan";
 
     if (hit) {
@@ -624,7 +777,7 @@ export function AlbumGraphCanvas(props: AlbumGraphCanvasProps) {
     if (!d || d.pointerId !== e.pointerId) {
       // hover only
       const [wx, wy] = screenToWorld(sx, sy);
-      const hit = hitter?.find(wx, wy, nodeSize() * 0.6);
+      const hit = getHitter().find(wx, wy, nodeSize() * 0.6);
       const newHover = hit?.id ?? null;
       let changed = false;
       if (newHover !== hoverId()) {
@@ -712,7 +865,7 @@ export function AlbumGraphCanvas(props: AlbumGraphCanvasProps) {
       if (rect && (rect.w > 4 || rect.h > 4)) {
         const [x0, y0] = screenToWorld(rect.x, rect.y);
         const [x1, y1] = screenToWorld(rect.x + rect.w, rect.y + rect.h);
-        const picks = hitter?.findInRect(x0, y0, x1, y1) ?? [];
+        const picks = getHitter().findInRect(x0, y0, x1, y1);
         props.onLassoSelect?.(picks);
       }
     } else if (d.type === "pan") {
@@ -856,7 +1009,7 @@ export function AlbumGraphCanvas(props: AlbumGraphCanvasProps) {
       if (!canvasEl) return;
       const [sx, sy] = clientToScreen(ev);
       const [wx, wy] = screenToWorld(sx, sy);
-      const hit = hitter?.find(wx, wy, nodeSize() * 0.8);
+      const hit = getHitter().find(wx, wy, nodeSize() * 0.8);
       ev.preventDefault();
       if (hit && props.onNodeContextMenu) {
         props.onNodeContextMenu(hit as AlbumNodeData, ev.clientX, ev.clientY);

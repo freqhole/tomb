@@ -49,6 +49,8 @@ import {
   SortIcon,
   ZoomInIcon,
   ZoomOutIcon,
+  FitIcon,
+  LassoIcon,
   EyeIcon,
   EyeOffIcon,
 } from "./navigation";
@@ -478,6 +480,8 @@ export const IconRegistry = {
   search: SearchIcon,
   zoomIn: ZoomInIcon,
   zoomOut: ZoomOutIcon,
+  fit: FitIcon,
+  lasso: LassoIcon,
   eye: EyeIcon,
   eyeOff: EyeOffIcon,
 
@@ -582,6 +586,8 @@ export const IconNames = {
   search: "search",
   zoomIn: "zoomIn",
   zoomOut: "zoomOut",
+  fit: "fit",
+  lasso: "lasso",
   eye: "eye",
   eyeOff: "eyeOff",
 
