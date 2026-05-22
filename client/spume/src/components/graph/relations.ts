@@ -59,6 +59,14 @@ export const RELATION_KINDS: RelationKindMeta[] = [
     color: "#ef4444",
     description: "same record label",
   },
+  {
+    kind: "favorite",
+    label: "favorites",
+    // accent pink — matches the heart accent the rest of the ui uses
+    // (var(--color-accent-500) defaults to #ff1a9e).
+    color: "#ff1a9e",
+    description: "albums you've marked as a favorite",
+  },
 ];
 
 export const RELATION_COLOR: Record<RelationKind, string> = RELATION_KINDS.reduce(
@@ -203,6 +211,13 @@ export function buildRelationEdges(
     for (const [l, members] of groupBy((n) => n.label)) {
       addChain("label", l, members, 0.6);
     }
+  }
+  if (kinds.includes("favorite")) {
+    // single group: every album the user has favorited gets chained
+    // together. uses the standard fanout so large favorite sets don't
+    // explode into an N² clique.
+    const favs = nodes.filter((n) => n.isFavorite);
+    addChain("favorite", "favorites", favs, 0.6);
   }
 
   if (kinds.includes("related_artist")) {

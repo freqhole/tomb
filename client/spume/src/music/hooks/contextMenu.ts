@@ -13,6 +13,9 @@ import { showTagSelector, showShareModal } from "./modals";
 import { getDataSource, getCurrentRemote, getRemoteClient } from "../data";
 import { getRemoteById } from "../../app/services/remotes/remoteManager";
 import { isCharnelMode } from "../../app/services/charnel";
+import { RemoteMusicDataSource } from "../data/remote/remoteSource";
+import { isP2PRemote } from "../../app/services/storage/schemas/remote";
+import type { Remote } from "../../app/services/storage/schemas/remote";
 import type { ShareTarget } from "../../components/share/types";
 import type { SendPayload } from "../services/send/sendToRemote";
 import type { RemoteSong } from "../data/remote/adapters";
@@ -43,6 +46,7 @@ export function createFavoriteMenuAction(
   targetId: string,
   isFavorite: boolean,
   sha256?: string, // only needed for songs (for queue updates)
+  remote?: Remote, // when set, scope the mutation to this remote
 ): MenuAction {
   const toggleFavoriteMutation = useToggleFavoriteMutation();
 
@@ -55,6 +59,7 @@ export function createFavoriteMenuAction(
         targetId,
         sha256,
         isFavorite: !isFavorite,
+        remote,
       });
     },
   };
@@ -95,6 +100,11 @@ export interface ContextMenuOptions {
   onShuffle?: () => void | Promise<void>;
   /** callback when add to queue is clicked (for artists/genres) */
   onAddToQueue?: () => void | Promise<void>;
+  /** explicit remote to scope navigation, data fetches, and editor
+   *  modals to — overrides the globally-active data source. needed
+   *  for views (library multi-remote table/graph, federated search)
+   *  that browse one source while another is `getCurrentRemote()`. */
+  remote?: Remote;
 }
 
 /**
@@ -526,6 +536,18 @@ export function useAlbumContextMenu(
   const navigate = useNavigate();
   const actions: MenuAction[] = [];
 
+  // when an explicit remote is supplied, scope navigation, song fetches,
+  // and editor modals to that remote rather than the globally-active
+  // data source. otherwise fall back to the legacy implicit behavior.
+  const remote = options.remote;
+  const remoteId = remote?.remote_id ?? null;
+  const dataSourceFor = (): { getAlbumSongs?: (id: string) => Promise<{ items: Song[] }> } =>
+    remote ? new RemoteMusicDataSource(remote) : getDataSource();
+  const routeAlbum = (id: string): string =>
+    remote ? routes.albumOn(remoteId, id) : routes.album(id);
+  const routeArtist = (id: string): string =>
+    remote ? routes.artistOn(remoteId, id) : routes.artist(id);
+
   // play actions
   if (options.showPlayActions !== false) {
     actions.push({
@@ -533,7 +555,7 @@ export function useAlbumContextMenu(
       icon: IconNames.play,
       onClick: async () => {
         // fetch album songs and play
-        const dataSource = getDataSource();
+        const dataSource = dataSourceFor();
         if (dataSource.getAlbumSongs) {
           const response = await dataSource.getAlbumSongs(album.id);
           await playQueue(response.items, { source: { type: "album", label: album.title, entity_id: album.id } });
@@ -545,7 +567,7 @@ export function useAlbumContextMenu(
       label: "shuffle album",
       icon: IconNames.shuffle,
       onClick: async () => {
-        const dataSource = getDataSource();
+        const dataSource = dataSourceFor();
         if (dataSource.getAlbumSongs) {
           const response = await dataSource.getAlbumSongs(album.id);
           const shuffled = [...response.items].sort(() => Math.random() - 0.5);
@@ -558,7 +580,7 @@ export function useAlbumContextMenu(
       label: "add to queue",
       icon: IconNames.queue,
       onClick: async () => {
-        const dataSource = getDataSource();
+        const dataSource = dataSourceFor();
         if (dataSource.getAlbumSongs) {
           const response = await dataSource.getAlbumSongs(album.id);
           await addToQueue(response.items, { source: { type: "album", label: album.title, entity_id: album.id } });
@@ -574,7 +596,7 @@ export function useAlbumContextMenu(
     label: "view album",
     icon: IconNames.album,
     onClick: () => {
-      navigate(routes.album(album.id));
+      navigate(routeAlbum(album.id));
     },
   });
 
@@ -583,7 +605,7 @@ export function useAlbumContextMenu(
       label: "view artist",
       icon: IconNames.artist,
       onClick: () => {
-        navigate(routes.artist(album.artist_id!));
+        navigate(routeArtist(album.artist_id!));
       },
     });
   }
@@ -592,7 +614,13 @@ export function useAlbumContextMenu(
 
   // favorites
   actions.push(
-    createFavoriteMenuAction("album", album.id, options.isFavorite ?? false),
+    createFavoriteMenuAction(
+      "album",
+      album.id,
+      options.isFavorite ?? false,
+      undefined,
+      remote,
+    ),
   );
 
   // add all to playlist
@@ -600,22 +628,28 @@ export function useAlbumContextMenu(
     label: "add to playlist...",
     icon: IconNames.playlist,
     onClick: async () => {
-      const dataSource = getDataSource();
+      const dataSource = dataSourceFor();
       if (!dataSource.getAlbumSongs) return;
       const response = await dataSource.getAlbumSongs(album.id);
       showPlaylistSelector(response.items.map((s) => s.id));
     },
   });
 
-  // radio station: local (charnel) or remote (if browsing a remote)
-  if (isCharnelMode() || !!getCurrentRemote()) {
+  // radio station: requires a P2P-capable backend (tauri-managed local
+  // or a P2P remote). HTTP-only remotes don't expose the radio admin
+  // surface, so the action is hidden rather than failing at click time.
+  const currentRemote = getCurrentRemote();
+  const stationCapable = remote
+    ? isP2PRemote(remote)
+    : isCharnelMode() || (!!currentRemote && isP2PRemote(currentRemote as Remote));
+  if (stationCapable) {
     actions.push({
       label: "add to station...",
       icon: IconNames.headphones,
       onClick: () => {
         void showStationSelector(
           { kind: "album", albumId: album.id, albumTitle: album.title },
-          getCurrentRemote()?.remote_id,
+          remoteId ?? currentRemote?.remote_id,
         );
       },
     });
@@ -632,7 +666,7 @@ export function useAlbumContextMenu(
         displayTitle: album.title,
       },
       async (): Promise<SendPayload> => {
-        const dataSource = getDataSource();
+        const dataSource = dataSourceFor();
         if (!dataSource.getAlbumSongs) throw new Error("album fetch not supported");
         const response = await dataSource.getAlbumSongs(album.id);
         const songList = response.items;
@@ -673,7 +707,7 @@ export function useAlbumContextMenu(
       label: "edit info...",
       icon: IconNames.edit,
       onClick: () => {
-        showAlbumEditor({ albumId: album.id });
+        showAlbumEditor({ albumId: album.id, remote });
       },
     });
   }

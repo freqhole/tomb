@@ -8,6 +8,7 @@ import type { AlbumNodeData, RelationKindLike } from "./types";
 import { AlbumNodeView } from "./AlbumNodeView";
 import { Icon, IconNames } from "../icons/registry";
 import { MarqueeText } from "../text/MarqueeText";
+import { FavoriteHeart } from "../ratings/FavoriteHeart";
 
 // long-press timing — kept in sync with RelationLegend so the gesture
 // feels identical across both surfaces.
@@ -153,11 +154,14 @@ export function AlbumDetailPopover(props: AlbumDetailPopoverProps) {
               />
             </Show>
             <Show when={props.onToggleFavorite}>
-              <ActionButton
-                icon={album()!.isFavorite ? IconNames.favorite : IconNames.favoriteOutline}
-                label={album()!.isFavorite ? "unfavorite" : "favorite"}
-                onClick={() => props.onToggleFavorite?.(album()!)}
-                accent={album()!.isFavorite}
+              {/* presentational heart — parent owns the toggle mutation
+                  (incl. remote scoping + library-albums invalidation), so
+                  we use FavoriteHeart directly rather than the smart
+                  FavoriteToggle wrapper. fills when isFavorite is true. */}
+              <FavoriteHeart
+                isFavorite={album()!.isFavorite ?? false}
+                size="sm"
+                onToggle={() => props.onToggleFavorite?.(album()!)}
               />
             </Show>
             <Show when={props.onViewAlbum}>

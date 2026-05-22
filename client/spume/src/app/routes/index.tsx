@@ -7,7 +7,6 @@ import {
   getActiveRemote,
   getRemoteById,
   getTauriManagedRemote,
-  isP2PTransport,
 } from "../../app/services/remotes/remoteManager";
 import { connectToRemote } from "../../app/services/remotes/connectionProgress";
 import { isHttpRemote, isP2PRemote } from "../../app/services/storage/types";
@@ -272,13 +271,30 @@ function RemoteContextHandler(props: { children?: any }) {
       return;
     }
 
-    // for HTTP remotes that are offline, redirect immediately
-    if (!isP2PTransport(remote) && remote.is_offline) {
-      debug("routes", `remote ${remote.name} is offline, redirecting to fallback`);
-      toast.error(`${remote.name} is offline`);
-      await goToFallback(remoteId);
+    // fast path: this remote is already the active data source. just
+    // populate the auth-flow remoteInfo and render children immediately
+    // — no need to re-run the health check + source switch, which
+    // would briefly hide content (Show gates on isConnected) and could
+    // bounce if a transient health check fails.
+    const current = getCurrentRemote();
+    if (current && current.remote_id === remote.remote_id) {
+      setRemoteInfo({
+        remote_id: remote.remote_id,
+        name: remote.name,
+        base_url: isHttpRemote(remote) ? remote.base_url : undefined,
+        peer_addr: isP2PRemote(remote) ? remote.peer_addr : undefined,
+        is_charnel_managed: remote.is_charnel_managed,
+      });
+      setIsConnected(true);
       return;
     }
+
+    // note: we deliberately do NOT short-circuit on `remote.is_offline`
+    // here. that flag can be stale (library multi-remote views talk to
+    // remotes via `getClientForRemote` without ever clearing it). let
+    // `connectToRemote` re-run the health check below — if the remote
+    // really is offline, the check fails and the fallback path runs as
+    // it would have anyway.
 
     // attempt connection with progress modal support
     // this handles health check, data source switching, and cancellation

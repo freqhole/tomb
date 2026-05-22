@@ -745,6 +745,7 @@ function AlbumRow(props: {
       {
         showPlayActions: true,
         isFavorite: props.album.is_favorite ?? false,
+        remote: props.remote,
         customActions: [
           {
             label: selected() ? "deselect album" : "select album",

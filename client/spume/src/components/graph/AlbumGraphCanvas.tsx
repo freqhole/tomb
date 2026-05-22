@@ -70,6 +70,12 @@ export interface AlbumGraphCanvasProps {
   tool?: "pan" | "lasso";
   /** simulation paused? */
   paused?: boolean;
+  /** when true, nodes can't be dragged around the canvas. pressing a
+   *  node still selects it on release (same as a click), but the press
+   *  no longer pins the node + reheats the sim. avoids the "wobbly on
+   *  click" feel and keeps big graphs steady when the user just wants
+   *  to inspect a node. pan + lasso + zoom still work as normal. */
+  lockNodes?: boolean;
   /**
    * how much the connection wires sag / curve. 0 = straight lines.
    * positive values pull the midpoint perpendicular to the segment
@@ -883,10 +889,13 @@ export function AlbumGraphCanvas(props: AlbumGraphCanvasProps) {
     const tool = props.tool ?? "pan";
 
     if (hit) {
-      // start node drag
-      hit.fx = hit.x;
-      hit.fy = hit.y;
-      sim?.alphaTarget(0.3).restart();
+      // start node drag (or just remember the press for select-on-release
+      // when nodes are locked).
+      if (!props.lockNodes) {
+        hit.fx = hit.x;
+        hit.fy = hit.y;
+        sim?.alphaTarget(0.3).restart();
+      }
       setDrag({ type: "node", node: hit, pointerId: e.pointerId, moved: false });
     } else if (tool === "lasso") {
       setDrag({ type: "lasso", startSx: sx, startSy: sy, sx, sy, pointerId: e.pointerId });
@@ -973,6 +982,12 @@ export function AlbumGraphCanvas(props: AlbumGraphCanvasProps) {
     }
 
     if (d.type === "node") {
+      if (props.lockNodes) {
+        // locked: nodes don't follow the pointer and pressing one
+        // shouldn't wake the sim. still treat it as a press so the
+        // pointerup handler fires the selection.
+        return;
+      }
       const [wx, wy] = screenToWorld(sx, sy);
       d.node.fx = wx;
       d.node.fy = wy;
@@ -1020,7 +1035,7 @@ export function AlbumGraphCanvas(props: AlbumGraphCanvasProps) {
     if (d.type === "node") {
       d.node.fx = null;
       d.node.fy = null;
-      sim?.alphaTarget(0);
+      if (!props.lockNodes) sim?.alphaTarget(0);
       // click on node → select; clears any selected edges
       setSelectedEdgeKeys(new Set<string>());
       props.onEdgeSelect?.(null);

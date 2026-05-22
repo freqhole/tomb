@@ -11,7 +11,8 @@ export type RelationKind =
   | "mood"
   | "style"
   | "era"
-  | "label";
+  | "label"
+  | "favorite";
 
 // allow arbitrary user-defined taxon keys (e.g. "vibe", "decade") while
 // preserving autocomplete for the well-known set above.

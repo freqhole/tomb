@@ -38,7 +38,7 @@ const SUBVIEWS: { id: LibrarySubview; label: string; icon: Parameters<typeof Ico
 const SLOW_SWITCH_MS = 2000;
 
 export function LibraryView() {
-  const [subview, setSubview] = createSignal<LibrarySubview>("table");
+  const [subview, setSubview] = createSignal<LibrarySubview>("graph");
 
   // view-local remote selection (encapsulates resource + default effect + memos)
   const {
@@ -400,29 +400,10 @@ export function LibraryView() {
                 setTagSelectorAlbumIds(ids);
                 setShowTagSelectorModal(true);
               }}
-              extraTools={
-                <Show when={isRemoteAdmin()}>
-                  <button
-                    type="button"
-                    onClick={toggleBulkTagMode}
-                    title={
-                      bulkTagMode()
-                        ? "exit bulk-tag mode (esc / t)"
-                        : "bulk-tag albums via lasso (t)"
-                    }
-                    aria-label="toggle bulk-tag mode"
-                    aria-pressed={bulkTagMode()}
-                    class="inline-flex items-center justify-center w-7 h-7 rounded transition-colors border-none bg-transparent cursor-pointer"
-                    classList={{
-                      "text-[var(--color-accent-500,#ff1a9e)] bg-[var(--color-accent-500,#ff1a9e)]/15":
-                        bulkTagMode(),
-                      "text-white/65 hover:text-white hover:bg-white/10": !bulkTagMode(),
-                    }}
-                  >
-                    <Icon name="tag" size={14} />
-                  </button>
-                </Show>
-              }
+              /* note: the top-nav `tag` button is now the tag filter
+                 picker (rendered inside LibraryGraphSubview). admins
+                 still enter the lasso bulk-tag flow with the `t`
+                 keyboard shortcut (`esc` exits). */
             />
           </Match>
           <Match when={subview() === "table"}>

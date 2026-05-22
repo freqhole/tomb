@@ -29,10 +29,11 @@ import { adaptAlbum } from "./adaptAlbum";
 import { RemoteMusicDataSource } from "../../../music/data/remote/remoteSource";
 import { addToQueue, playQueue } from "../../../music/services/queue/queue";
 import { routes } from "../../../music/utils/routing";
-import { queryClient } from "../../../queryClient";
 import { useToggleFavoriteMutation } from "../../../music/queries/favorites";
 import { toast } from "../../../components/feedback/Toast";
 import { Icon } from "../../../components/icons/registry";
+import type { TagFilter, TagOption } from "../../../components/forms/TagFilterPicker";
+import { setPageInfo, clearPageInfo } from "../../../app/services/pageInfo";
 import type { AlbumNodeData } from "../../../components/graph/types";
 
 export interface LibraryGraphSubviewProps {
@@ -85,12 +86,35 @@ function RemoteAlbumsLoader(props: {
   search: () => string;
   onNodes: (remoteId: string, nodes: AlbumNodeData[]) => void;
 }) {
+  // graph wants every album, not the table's 100-row pages. start at
+  // a chunky baseline and ramp proportionally once we know `total_count`
+  // so a 10k-album library lands in ~8 fetches instead of ~100.
+  const INITIAL_PAGE_SIZE = 250;
+  const MAX_PAGE_SIZE = 1000;
+  const TARGET_PAGE_COUNT = 8;
+  const [pageSize, setPageSize] = createSignal(INITIAL_PAGE_SIZE);
   const albumsQuery = useLibraryAlbumsQuery({
     remote: () => props.remote,
     search: () => props.search() || undefined,
+    pageSizeFn: pageSize,
   });
 
-  // auto-fetch next pages — the graph wants everything, not just 100.
+  // ramp page size after we see the first response. once `total_count`
+  // is known, aim for ~8 fetches total. capped at MAX_PAGE_SIZE so we
+  // don't bury the server in a single mega-query.
+  createEffect(() => {
+    const first = albumsQuery.data?.pages?.[0];
+    if (!first) return;
+    const total = first.total ?? 0;
+    if (total <= INITIAL_PAGE_SIZE) return;
+    const target = Math.min(
+      MAX_PAGE_SIZE,
+      Math.max(INITIAL_PAGE_SIZE, Math.ceil(total / TARGET_PAGE_COUNT))
+    );
+    if (target !== pageSize()) setPageSize(target);
+  });
+
+  // auto-fetch next pages — the graph wants everything, not just one page.
   createEffect(() => {
     const q = albumsQuery;
     if (q.hasNextPage && !q.isFetchingNextPage && !q.isFetching) {
@@ -195,6 +219,91 @@ function Inner(props: {
     return out;
   });
 
+  // ---- tag filter ------------------------------------------------------
+  // wires into the shared `pageInfo` plumbing so the topnav's built-in
+  // tag picker (trigger button in row 1, selected badges in their own
+  // row below) renders identically to songs/albums views. semantics:
+  // includes are OR'd (album passes if it has any of the include tags);
+  // excludes are hard rejects (any match drops the album). filter is
+  // applied below in `visibleNodes`.
+  const [tagFilters, setTagFilters] = createSignal<TagFilter[]>([]);
+
+  const handleAddTag = (tag: string) => {
+    if (tagFilters().some((f) => f.tag === tag)) return;
+    setTagFilters([...tagFilters(), { tag, mode: "include" }]);
+  };
+  const handleRemoveTag = (tag: string) => {
+    setTagFilters(tagFilters().filter((f) => f.tag !== tag));
+  };
+  const handleToggleTagMode = (tag: string) => {
+    setTagFilters(
+      tagFilters().map((f) =>
+        f.tag === tag ? { tag: f.tag, mode: f.mode === "include" ? "exclude" : "include" } : f
+      )
+    );
+  };
+  const handleClearAllTags = () => setTagFilters([]);
+
+  const tagCounts = createMemo<Map<string, number>>(() => {
+    const counts = new Map<string, number>();
+    for (const n of nodes()) {
+      const seen = new Set<string>();
+      for (const t of n.tags) {
+        if (seen.has(t.label)) continue;
+        seen.add(t.label);
+        counts.set(t.label, (counts.get(t.label) ?? 0) + 1);
+      }
+    }
+    return counts;
+  });
+
+  const availableTagOptions = createMemo<TagOption[]>(() => {
+    const entries = [...tagCounts().entries()];
+    entries.sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+    return entries.map(([label, count]) => ({ value: label, label, count }));
+  });
+
+  const visibleNodes = createMemo<AlbumNodeData[]>(() => {
+    const filters = tagFilters();
+    if (filters.length === 0) return nodes();
+    const includes: string[] = [];
+    const excludes = new Set<string>();
+    for (const f of filters) {
+      if (f.mode === "include") includes.push(f.tag);
+      else excludes.add(f.tag);
+    }
+    return nodes().filter((n) => {
+      const labels = new Set(n.tags.map((t) => t.label));
+      // excludes are hard rejects — any match drops the album.
+      for (const exc of excludes) if (labels.has(exc)) return false;
+      // includes are OR'd — album passes if it has at least one of
+      // the picked include tags (standard multi-select-filter UX).
+      if (includes.length === 0) return true;
+      for (const inc of includes) if (labels.has(inc)) return true;
+      return false;
+    });
+  });
+
+  // push tag-filter state into the shared `pageInfo` store so the
+  // topnav renders the built-in tag picker (button in the primary row,
+  // selected badges in their own row below) — identical UX to the
+  // songs/albums views. title/count mirror what `AlbumsTable` pushes
+  // for the table subview so the page header stays consistent across
+  // subview swaps.
+  createEffect(() => {
+    setPageInfo({
+      title: "library",
+      count: visibleNodes().length,
+      availableTags: availableTagOptions(),
+      selectedTagFilters: tagFilters(),
+      onAddTag: handleAddTag,
+      onRemoveTag: handleRemoveTag,
+      onToggleTagMode: handleToggleTagMode,
+      onClearAllTags: handleClearAllTags,
+    });
+  });
+  onCleanup(() => clearPageInfo());
+
   // resolve the bare album_id from the namespaced node id
   // (`${remoteId}::${album_id}`). robust against future id encodings.
   const bareAlbumId = (n: AlbumNodeData): string => {
@@ -221,9 +330,10 @@ function Inner(props: {
   };
 
   const graph = createGraphLibraryView({
-    nodes,
+    nodes: visibleNodes,
     searchQuery,
     paused: () => !props.isActive(),
+    lockNodes: true,
     onPlay: async (album) => {
       const r = remoteForNode(album);
       if (!r) return;
@@ -261,9 +371,14 @@ function Inner(props: {
         toast.error(`failed to enqueue album: ${(err as Error).message}`);
       }
     },
-    onViewAlbum: (album) => navigate(routes.album(bareAlbumId(album))),
+    onViewAlbum: (album) => {
+      const r = remoteForNode(album);
+      navigate(routes.albumOn(r?.remote_id ?? null, bareAlbumId(album)));
+    },
     onViewArtist: (album) => {
-      if (album.artistId) navigate(routes.artist(album.artistId));
+      if (!album.artistId) return;
+      const r = remoteForNode(album);
+      navigate(routes.artistOn(r?.remote_id ?? null, album.artistId));
     },
     onToggleFavorite: (album) => {
       const r = remoteForNode(album);
@@ -272,15 +387,14 @@ function Inner(props: {
           targetType: "album",
           targetId: bareAlbumId(album),
           isFavorite: !(album.isFavorite ?? false),
+          remote: r,
         },
         {
-          onSuccess: () => {
-            if (r) {
-              void queryClient.invalidateQueries({
-                queryKey: ["library-albums", r.remote_id],
-              });
-            }
-          },
+          // note: no manual invalidation here. `useToggleFavoriteMutation`
+          // optimistically patches `["library-albums", remote_id, ...]`
+          // via `updateAlbumInCache`, so the graph node + popover heart
+          // reflect the new state instantly and persist across re-renders
+          // without a refetch flicker.
           onError: (err) => {
             toast.error(`failed to toggle favorite: ${(err as Error).message}`);
           },

@@ -1369,12 +1369,14 @@ export function TopNav(props: TopNavProps) {
             </Show>
 
             {/* tag filter icon - when view has tags, hidden when search expanded on small, hidden on radio.
-             *  also hidden on the library route — library has its own
-             *  taxon-based filtering pattern in the subview chrome. */}
+             *  library route used to be excluded here because the
+             *  table subview has its own status-filter pattern in the
+             *  topnav, but the graph subview reuses the shared
+             *  pageInfo tag picker so we let `availableTags?.length`
+             *  gate it instead. */}
             <Show
               when={
                 !isRadioRoute() &&
-                !isLibraryRoute() &&
                 info().availableTags?.length &&
                 (!isNarrow() || !searchExpanded())
               }

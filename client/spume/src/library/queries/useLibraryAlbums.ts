@@ -17,7 +17,12 @@ import { isInFlight } from "../data/mbStatusGroups";
 export interface LibraryAlbumsQueryOptions {
   remote: Accessor<Remote | undefined>;
   search?: Accessor<string | undefined>;
+  /** static page size; ignored if `pageSizeFn` is supplied. */
   pageSize?: number;
+  /** dynamic page-size accessor — re-read on every page fetch. used
+   *  by the graph subview to ramp the limit up after the first page
+   *  reports `total_count` so big libraries finish in fewer rebuilds. */
+  pageSizeFn?: Accessor<number>;
   sortBy?: Accessor<string | undefined>;
   sortDirection?: Accessor<"asc" | "desc">;
 }
@@ -25,7 +30,10 @@ export interface LibraryAlbumsQueryOptions {
 const DEFAULT_PAGE_SIZE = 100;
 
 export function useLibraryAlbumsQuery(opts: LibraryAlbumsQueryOptions) {
-  const pageSize = opts.pageSize ?? DEFAULT_PAGE_SIZE;
+  const resolvePageSize = (): number => {
+    if (opts.pageSizeFn) return opts.pageSizeFn();
+    return opts.pageSize ?? DEFAULT_PAGE_SIZE;
+  };
 
   return createInfiniteQuery(() => ({
     queryKey: [
@@ -38,6 +46,7 @@ export function useLibraryAlbumsQuery(opts: LibraryAlbumsQueryOptions) {
     enabled: !!opts.remote(),
     queryFn: async ({ pageParam }: { pageParam: number }): Promise<PaginatedResponse<AlbumSummary>> => {
       const remote = opts.remote();
+      const pageSize = resolvePageSize();
       if (!remote) {
         return { items: [], total: 0, offset: 0, limit: pageSize, has_more: false };
       }

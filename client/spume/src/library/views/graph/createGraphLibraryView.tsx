@@ -52,6 +52,9 @@ export interface CreateGraphLibraryViewOpts {
    *  no longer flip between pan / lasso. used by admin bulk-tag mode
    *  to keep the lasso active until the user exits that mode. */
   forceTool?: () => GraphTool | null;
+  /** when true, nodes cannot be dragged around the canvas. clicks
+   *  still select them. defaults to false (legacy drag-to-move). */
+  lockNodes?: boolean;
   /** optional trailing slot for the topnav tools cluster — see
    *  GraphTopNavTools.extra. e.g. an admin-only bulk-tag toggle. */
   extraTools?: JSX.Element;
@@ -122,7 +125,19 @@ export function createGraphLibraryView(opts: CreateGraphLibraryViewOpts): GraphL
     const forced = opts.forceTool?.();
     if (forced) setTool(forced);
   });
-  const [selected, setSelected] = createSignal<AlbumNodeData | null>(null);
+  // store only the id of the focused album, then re-derive the full
+  // `AlbumNodeData` from `nodes()` on every read. this keeps the popover
+  // in sync with the latest query data — e.g. when a favorite toggle
+  // optimistically patches `is_favorite` in the library-albums cache,
+  // the adapter produces a new node and `selected()` picks it up
+  // immediately instead of holding onto the stale click-time snapshot.
+  const [selectedId, setSelectedId] = createSignal<string | null>(null);
+  const selected = createMemo<AlbumNodeData | null>(() => {
+    const id = selectedId();
+    if (!id) return null;
+    return nodes().find((n) => n.id === id) ?? null;
+  });
+  const setSelected = (album: AlbumNodeData | null) => setSelectedId(album?.id ?? null);
   const [pillEdges, setPillEdges] = createSignal<Map<string, GraphEdge>>(new Map());
   const [wireEdge, setWireEdge] = createSignal<GraphEdge | null>(null);
   const [wireTension, setWireTension] = createSignal(0.44);
@@ -454,6 +469,7 @@ export function createGraphLibraryView(opts: CreateGraphLibraryViewOpts): GraphL
         nodes={nodes()}
         edges={edges()}
         enabledKinds={enabled()}
+        lockNodes={opts.lockNodes ?? false}
         selectedId={canvasSelectedId()}
         selectedEdges={canvasEdges()}
         tool={tool()}
