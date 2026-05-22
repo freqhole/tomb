@@ -101,7 +101,11 @@ export interface GraphActions {
 function edgeKey(e: GraphEdge): string {
   const s = typeof e.source === "string" ? e.source : e.source.id;
   const t = typeof e.target === "string" ? e.target : e.target.id;
-  return `${e.kind}:${s}->${t}`;
+  // include label so two links sharing (kind, src, tgt) but with
+  // different labels (e.g., albums sharing two genres) get distinct
+  // keys. without this, selEdges collapses them and sibling expansion
+  // bleeds across other labels of the same kind.
+  return `${e.kind}:${e.label ?? ""}:${s}->${t}`;
 }
 
 export function AlbumGraphCanvas(props: AlbumGraphCanvasProps) {
@@ -161,6 +165,10 @@ export function AlbumGraphCanvas(props: AlbumGraphCanvasProps) {
   const [view, setView] = createSignal<ViewportTransform>({ tx: 0, ty: 0, k: 1 });
   const [hoverId, setHoverId] = createSignal<string | null>(null);
   const [hoverEdgeKey, setHoverEdgeKey] = createSignal<string | null>(null);
+  // cursor position in screen space while hovering an edge — used to
+  // anchor the hover label as a follow-tip near the pointer rather than
+  // at the wire midpoint.
+  let hoverEdgeScreenPos: { sx: number; sy: number } | null = null;
   const [internalSelected, setInternalSelected] = createSignal<string | null>(null);
   const [selectedEdgeKeys, setSelectedEdgeKeys] = createSignal<Set<string>>(new Set());
   const selectedId = () => props.selectedId ?? internalSelected();
@@ -555,10 +563,11 @@ export function AlbumGraphCanvas(props: AlbumGraphCanvasProps) {
                 : focus && focusConnected && !focusConnected.has(n.id) && n.id !== focus
                   ? "dimmed"
                   : "idle";
-      // marquee label overlay only on hover (or edge-focus). when the
-      // album is selected the AlbumDetailPopover already shows the info,
-      // so the overlay would be redundant + visually noisy.
-      const showLabel = n.id === hov || isEdgeFocus;
+      // marquee label overlay only on hover. when an album is selected
+      // (directly or via an edge-focus that lit up its node ring) the
+      // AlbumDetailPopover already shows the info, so overlaying a
+      // marquee here would be redundant + visually noisy.
+      const showLabel = n.id === hov;
       drawAlbumNode({
         ctx,
         album: n,
@@ -577,38 +586,132 @@ export function AlbumGraphCanvas(props: AlbumGraphCanvasProps) {
     }
     ctx.restore();
 
-    // edge labels — render only for hovered/selected edges to avoid clutter.
-    // drawn in screen units so labels stay readable at any zoom and sit on
-    // top of nodes.
-    const labelLinks: SimLink[] = [];
+    // edge labels — render hovered edge as a follow-tip near the cursor,
+    // plus a scattered subset of selected edges so dense clusters don't
+    // drown the canvas in pills. labels avoid overlapping node tiles and
+    // each other; the selected-edge cap scales with viewport area.
+    type LabelCand = {
+      link: SimLink;
+      sxm: number;
+      sym: number;
+      isHover: boolean;
+    };
+    const candidates: LabelCand[] = [];
     for (const link of simLinks) {
-      if (link._key === hovEdge || selEdges.has(link._key)) labelLinks.push(link);
-    }
-    if (labelLinks.length > 0) {
-      ctx.save();
-      for (const link of labelLinks) {
+      const isHov = link._key === hovEdge;
+      const isSel = selEdges.has(link._key);
+      if (!isHov && !isSel) continue;
+      let sxm: number;
+      let sym: number;
+      if (isHov && hoverEdgeScreenPos) {
+        // anchor slightly above-right of the cursor so it doesn't
+        // obstruct the wire being inspected.
+        sxm = hoverEdgeScreenPos.sx + 14;
+        sym = hoverEdgeScreenPos.sy - 14;
+      } else {
         const s = link.source as SimNode;
         const t = link.target as SimNode;
-        // anchor labels at the bezier midpoint when curves are on so they
-        // ride the sag instead of floating in dead space
         let mx = ((s.x ?? 0) + (t.x ?? 0)) / 2;
         let my = ((s.y ?? 0) + (t.y ?? 0)) / 2;
         if (curv > 0) {
           const cp = edgeControlPoint(s.x ?? 0, s.y ?? 0, t.x ?? 0, t.y ?? 0);
-          // quadratic bezier midpoint (t=0.5)
           mx = 0.25 * (s.x ?? 0) + 0.5 * cp.cx + 0.25 * (t.x ?? 0);
           my = 0.25 * (s.y ?? 0) + 0.5 * cp.cy + 0.25 * (t.y ?? 0);
         }
-        const sxm = mx * v.k + v.tx;
-        const sym = my * v.k + v.ty;
-        const kindLabel = link.label ? `${link.kind}: ${link.label}` : link.kind;
-        ctx.font = "600 11px system-ui, sans-serif";
-        const tw = ctx.measureText(kindLabel).width;
+        sxm = mx * v.k + v.tx;
+        sym = my * v.k + v.ty;
+      }
+      candidates.push({ link, sxm, sym, isHover: isHov });
+    }
+
+    if (candidates.length > 0) {
+      ctx.save();
+      ctx.font = "600 11px system-ui, sans-serif";
+
+      // node screen rects for collision (only visible nodes worth
+      // checking against; off-screen ones can't intersect anything).
+      const ns = nodeSize() * v.k;
+      const nodeRects: { x: number; y: number; w: number; h: number }[] = [];
+      for (const n of simNodes) {
+        const nsx = (n.x ?? 0) * v.k + v.tx;
+        const nsy = (n.y ?? 0) * v.k + v.ty;
+        if (nsx + ns < 0 || nsy + ns < 0 || nsx - ns > width || nsy - ns > height) continue;
+        nodeRects.push({ x: nsx - ns / 2, y: nsy - ns / 2, w: ns, h: ns });
+      }
+
+      // cap selected-edge labels by viewport area so a 10k-node graph
+      // doesn't try to render 1000 pills at once. hover label is always
+      // drawn regardless of cap.
+      const areaCap = Math.max(4, Math.min(20, Math.floor((width * height) / 40000)));
+
+      // deterministic scatter: stable hash by `_key` so the same edges
+      // get picked across redraws (no flicker as the user pans/zooms).
+      const hash = (s: string): number => {
+        let h = 2166136261;
+        for (let i = 0; i < s.length; i++) {
+          h ^= s.charCodeAt(i);
+          h = Math.imul(h, 16777619);
+        }
+        return h >>> 0;
+      };
+      const hovCands: LabelCand[] = [];
+      const selCands: LabelCand[] = [];
+      for (const c of candidates) {
+        (c.isHover ? hovCands : selCands).push(c);
+      }
+      selCands.sort((a, b) => hash(a.link._key) - hash(b.link._key));
+
+      const placed: { x: number; y: number; w: number; h: number }[] = [];
+      const labelsToDraw: LabelCand[] = [];
+      const overlap = (
+        a: { x: number; y: number; w: number; h: number },
+        b: { x: number; y: number; w: number; h: number },
+        pad = 0
+      ): boolean =>
+        a.x < b.x + b.w + pad &&
+        a.x + a.w + pad > b.x &&
+        a.y < b.y + b.h + pad &&
+        a.y + a.h + pad > b.y;
+
+      const tryPlace = (c: LabelCand, ignoreNodeOverlap: boolean): boolean => {
+        const text = c.link.label ? `${c.link.kind}: ${c.link.label}` : (c.link.kind as string);
+        const tw = ctx.measureText(text).width;
         const padX = 6;
         const bw = tw + padX * 2;
         const bh = 18;
-        const bx = sxm - bw / 2;
-        const by = sym - bh / 2;
+        // clamp inside viewport so follow-tip doesn't drift off-screen
+        const bx = Math.min(width - bw - 4, Math.max(4, c.sxm - bw / 2));
+        const by = Math.min(height - bh - 4, Math.max(4, c.sym - bh / 2));
+        const rect = { x: bx, y: by, w: bw, h: bh };
+        if (!ignoreNodeOverlap) {
+          for (const r of nodeRects) if (overlap(rect, r, 2)) return false;
+        }
+        for (const p of placed) if (overlap(rect, p, 4)) return false;
+        placed.push(rect);
+        labelsToDraw.push({ ...c, sxm: bx + bw / 2, sym: by + bh / 2 });
+        return true;
+      };
+
+      // hover label always renders (best-effort node collision, but
+      // doesn't block).
+      for (const c of hovCands) {
+        if (!tryPlace(c, false)) tryPlace(c, true);
+      }
+      for (const c of selCands) {
+        if (labelsToDraw.length >= areaCap + hovCands.length) break;
+        tryPlace(c, false);
+      }
+
+      // actual draw pass
+      for (const c of labelsToDraw) {
+        const link = c.link;
+        const text = link.label ? `${link.kind}: ${link.label}` : (link.kind as string);
+        const tw = ctx.measureText(text).width;
+        const padX = 6;
+        const bw = tw + padX * 2;
+        const bh = 18;
+        const bx = c.sxm - bw / 2;
+        const by = c.sym - bh / 2;
         ctx.fillStyle = "rgba(20,20,28,0.92)";
         ctx.strokeStyle = kindColor(link.kind);
         ctx.lineWidth = 1.5;
@@ -629,7 +732,7 @@ export function AlbumGraphCanvas(props: AlbumGraphCanvasProps) {
         ctx.fillStyle = "#e6e6e6";
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
-        ctx.fillText(kindLabel, sxm, sym + 0.5);
+        ctx.fillText(text, c.sxm, c.sym + 0.5);
       }
       ctx.restore();
     }
@@ -838,16 +941,20 @@ export function AlbumGraphCanvas(props: AlbumGraphCanvasProps) {
         const newEdgeKey = edge?._key ?? null;
         if (newEdgeKey !== hoverEdgeKey()) {
           setHoverEdgeKey(newEdgeKey);
+          hoverEdgeScreenPos = edge ? { sx, sy } : null;
           props.onEdgeHover?.(edge ?? null, e.clientX, e.clientY);
           changed = true;
         } else if (edge && props.onEdgeHover) {
           // same edge — still update cursor position for follow-tip
+          hoverEdgeScreenPos = { sx, sy };
           props.onEdgeHover(edge, e.clientX, e.clientY);
+          changed = true;
         }
         if (canvasEl) canvasEl.style.cursor = edge ? "pointer" : "";
       } else {
         if (hoverEdgeKey() !== null) {
           setHoverEdgeKey(null);
+          hoverEdgeScreenPos = null;
           props.onEdgeHover?.(null, e.clientX, e.clientY);
           changed = true;
         }

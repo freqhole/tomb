@@ -11,13 +11,16 @@
 // does not opt in.
 
 import {
+  getCachedP2PBlobUrl,
   isP2PRemoteSync,
   isValidHttpUrl,
   resolveBlobUrl,
-  resolveImageUrlSync,
   type ThumbnailSize,
 } from "../../music/services/storage/blobResolver";
-import { getBlobObjectURL } from "../../music/services/storage/blobs";
+import {
+  getBlobObjectURL,
+  getCachedBlobObjectURL,
+} from "../../music/services/storage/blobs";
 import { isCharnelManagedRemoteSync } from "../../music/services/storage/transportCache";
 import type { ImageMetadata } from "../../music/services/storage/types";
 
@@ -29,25 +32,33 @@ type Entry =
 const cache = new Map<string, Entry>();
 
 // resolution-in-flight tracker so multiple draws for the same album
-// don't all kick off the same `resolveBlobUrl` async lookup.
+// don't all kick off the same async lookup.
 const resolving = new Set<string>();
 
-const DEFAULT_THUMB: ThumbnailSize = 200;
+// negative cache: keys that have already been tried and failed.
+// without this every redraw would re-issue the same OPFS / transport
+// lookup forever (the local opfs read in particular thrashes hard when
+// an image carries a `local_blob_id` that is only resolvable through
+// the charnel-managed remote — see MediaImage's fall-through comment).
+const failed = new Set<string>();
 
-/** append `/thumb/:size` to plain http urls; leave blob:/data:/asset:
- *  urls untouched (they are concrete object refs). */
-function withThumb(url: string, size: ThumbnailSize | undefined): string {
-  if (!size) return url;
-  const lower = url.toLowerCase();
-  if (
-    lower.startsWith("blob:") ||
-    lower.startsWith("data:") ||
-    lower.startsWith("asset://")
-  ) {
-    return url;
-  }
-  return `${url}/thumb/${size}`;
+// resolved-url memo: image identity → final url we should hand to
+// `getImage`. populated by the async branches so subsequent draws
+// short-circuit straight to the canvas image cache without re-walking
+// the priority chain.
+const resolvedFor = new Map<string, string>();
+
+function imageKey(img: ImageMetadata, size: ThumbnailSize | undefined): string {
+  return [
+    img.local_blob_id ?? "",
+    img.remote_server_id ?? "",
+    img.remote_blob_id ?? "",
+    img.remote_url ?? "",
+    size ?? 0,
+  ].join("|");
 }
+
+const DEFAULT_THUMB: ThumbnailSize = 200;
 
 /**
  * get an image synchronously if cached, otherwise kick off a load and call
@@ -105,57 +116,78 @@ export function getImageFor(
 ): HTMLImageElement | null {
   if (!image) return null;
 
-  // (1) sync resolution covers local opfs (when already in the BLOB_URL
-  // cache), cached p2p, and plain http.
-  const syncUrl = resolveImageUrlSync(image);
-  if (syncUrl) {
-    // only append `/thumb/:size` for plain http urls; blob/data urls
-    // are concrete and have no thumb endpoint.
-    return getImage(withThumb(syncUrl, thumbSize), onReady);
-  }
+  // fast path: we have already resolved this image once.
+  const memoKey = imageKey(image, thumbSize);
+  const memoed = resolvedFor.get(memoKey);
+  if (memoed) return getImage(memoed, onReady);
 
-  // (1b) local opfs blob present but not yet in the sync cache. mirror
-  // MediaImage's behavior: kick off `getBlobObjectURL` so opfs is read
-  // exactly once and the resulting object url lands in the shared
-  // BLOB_URL cache; subsequent `resolveImageUrlSync` calls return it
-  // synchronously.
+  // (1) local opfs blob. mirror MediaImage: try sync cache first, then
+  // an async `getBlobObjectURL`. if the lookup fails (charnel-managed
+  // blobs live in sqlite, not opfs), mark the key as failed and fall
+  // through to the remote branch — do NOT keep retrying every redraw.
   if (image.local_blob_id) {
-    const key = `local:${image.local_blob_id}`;
-    if (!resolving.has(key)) {
-      resolving.add(key);
-      void getBlobObjectURL(image.local_blob_id)
-        .then((url) => {
-          if (url) getImage(url, onReady);
-          else if (onReady) onReady();
-        })
-        .catch(() => {
-          if (onReady) onReady();
-        })
-        .finally(() => {
-          resolving.delete(key);
-        });
+    const cached = getCachedBlobObjectURL(image.local_blob_id);
+    if (cached) {
+      const url = cached;
+      resolvedFor.set(memoKey, url);
+      return getImage(url, onReady);
     }
-    // don't early-return: an album may have both a local_blob_id and a
-    // remote fallback. if the opfs read fails or is slow, the remote
-    // path below still kicks in.
+    const key = `local:${image.local_blob_id}`;
+    if (!failed.has(key)) {
+      if (!resolving.has(key)) {
+        resolving.add(key);
+        void getBlobObjectURL(image.local_blob_id)
+          .then((url) => {
+            if (url) {
+              resolvedFor.set(memoKey, url);
+              getImage(url, onReady);
+            } else {
+              failed.add(key);
+              if (onReady) onReady();
+            }
+          })
+          .catch(() => {
+            failed.add(key);
+            if (onReady) onReady();
+          })
+          .finally(() => {
+            resolving.delete(key);
+          });
+      }
+      // local lookup still pending — don't kick off a parallel remote
+      // fetch yet; wait for the opfs read to settle.
+      return null;
+    }
+    // local is known-bad for this blob id: fall through to remote.
   }
 
-  // (2) need an async lookup: only meaningful when we have a remote
-  // blob id + remote server id to ask through the transport layer.
+  // (2) remote with server id — check the in-memory p2p cache first,
+  // then either use a plain http url directly or kick off an async
+  // transport fetch.
   if (image.remote_blob_id && image.remote_server_id) {
+    const p2pCached = getCachedP2PBlobUrl(
+      image.remote_blob_id,
+      image.remote_server_id
+    );
+    if (p2pCached) {
+      resolvedFor.set(memoKey, p2pCached);
+      return getImage(p2pCached, onReady);
+    }
     const isP2P = isP2PRemoteSync(image.remote_server_id);
     const isCharnel = isCharnelManagedRemoteSync(image.remote_server_id);
-    // plain http remote with a usable url: just use `getImage` directly.
     if (
       isP2P === false &&
       !isCharnel &&
       isValidHttpUrl(image.remote_url)
     ) {
-      return getImage(withThumb(image.remote_url!, thumbSize), onReady);
+      // foreign http url — use as-is. /thumb/:size is a charnel-server
+      // convention and breaks arbitrary origins (picsum, etc.).
+      const url = image.remote_url!;
+      resolvedFor.set(memoKey, url);
+      return getImage(url, onReady);
     }
-    // p2p / charnel / unknown: kick off the async transport fetch.
-    const key = `${image.remote_server_id}/${image.remote_blob_id}/thumb/${thumbSize ?? 0}`;
-    if (!resolving.has(key)) {
+    const key = `remote:${image.remote_server_id}/${image.remote_blob_id}/${thumbSize ?? 0}`;
+    if (!failed.has(key) && !resolving.has(key)) {
       resolving.add(key);
       void resolveBlobUrl(
         image.remote_blob_id,
@@ -165,10 +197,11 @@ export function getImageFor(
         thumbSize
       )
         .then((url) => {
-          // prime the canvas image cache, then notify the caller.
+          resolvedFor.set(memoKey, url);
           getImage(url, onReady);
         })
         .catch(() => {
+          failed.add(key);
           if (onReady) onReady();
         })
         .finally(() => {
@@ -178,9 +211,13 @@ export function getImageFor(
     return null;
   }
 
-  // (3) last resort: plain http url with no blob ids at all.
+  // (3) last resort: plain http url with no blob ids at all (storybook
+  // mocks, externally-hosted art). use the url verbatim — /thumb/:size
+  // is a charnel-server convention and would break arbitrary origins.
   if (isValidHttpUrl(image.remote_url)) {
-    return getImage(withThumb(image.remote_url!, thumbSize), onReady);
+    const url = image.remote_url!;
+    resolvedFor.set(memoKey, url);
+    return getImage(url, onReady);
   }
 
   return null;

@@ -241,28 +241,50 @@ export function createGraphLibraryView(opts: CreateGraphLibraryViewOpts): GraphL
   //   - when `selected()` changes (user clicks a different node), snap
   //     to index 0 — that's where the newly-selected album lives in
   //     `popInfo.list` ([selected, ...pillExtras]).
+  //   - when `popIndex` changes externally (user clicked the prev/next
+  //     carousel buttons), adopt the new index as-is and re-anchor the
+  //     remembered `currentId` to whatever album sits there. without
+  //     this, the preservation branch below would see `prev.currentId`
+  //     pointing at the old position and yank the index right back.
   //   - otherwise try to preserve the album that *was* on screen across
   //     data changes (new pages landing, pill toggles, etc.) by tracking
   //     its id and re-locating it in the new list.
-  createEffect((prev: { currentId: string | null; selectedId: string | null } | undefined) => {
-    const info = popInfo();
-    const curSel = selected();
-    const selectedId = curSel?.id ?? null;
-    if (prev && prev.selectedId !== selectedId) {
-      setPopIndex(0);
-      return { currentId: info.list[0]?.id ?? null, selectedId };
-    }
-    const curId = info.list[popIndex()]?.id ?? null;
-    if (prev?.currentId) {
-      const newIdx = info.list.findIndex((a) => a.id === prev.currentId);
-      if (newIdx >= 0) {
-        if (newIdx !== popIndex()) setPopIndex(newIdx);
-        return { currentId: prev.currentId, selectedId };
+  createEffect(
+    (
+      prev: { currentId: string | null; selectedId: string | null; lastIndex: number } | undefined
+    ) => {
+      const info = popInfo();
+      const curSel = selected();
+      const selectedId = curSel?.id ?? null;
+      const curIdx = popIndex();
+      if (prev && prev.selectedId !== selectedId) {
+        if (curIdx !== 0) setPopIndex(0);
+        return { currentId: info.list[0]?.id ?? null, selectedId, lastIndex: 0 };
       }
-      setPopIndex(0);
-    }
-    return { currentId: curId, selectedId };
-  }, undefined);
+      if (prev && prev.lastIndex !== curIdx) {
+        return {
+          currentId: info.list[curIdx]?.id ?? null,
+          selectedId,
+          lastIndex: curIdx,
+        };
+      }
+      if (prev?.currentId) {
+        const newIdx = info.list.findIndex((a) => a.id === prev.currentId);
+        if (newIdx >= 0) {
+          if (newIdx !== curIdx) setPopIndex(newIdx);
+          return { currentId: prev.currentId, selectedId, lastIndex: newIdx };
+        }
+        if (curIdx !== 0) setPopIndex(0);
+        return { currentId: info.list[0]?.id ?? null, selectedId, lastIndex: 0 };
+      }
+      return {
+        currentId: info.list[curIdx]?.id ?? null,
+        selectedId,
+        lastIndex: curIdx,
+      };
+    },
+    undefined
+  );
   const currentSel = createMemo(() => popInfo().list[popIndex()] ?? null);
   const canvasSelectedId = createMemo(() => currentSel()?.id ?? null);
 
