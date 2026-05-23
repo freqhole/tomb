@@ -152,7 +152,7 @@ export function toggleAlbumSelection(albumId: string, index: number): void {
  *  global ctrl/cmd-A handler that selects all loaded rows. attach this
  *  to the LibraryView.
  *
- *  pass `isActive` to scope all behaviors to a specific subview \u2014 the
+ *  pass `isActive` to scope all behaviors to a specific subview; the
  *  graph subview doesn't want ctrl/cmd-A binding the album table's
  *  selection (which would in turn pop the AlbumBulkActionBar over the
  *  graph). when `isActive` is omitted the hook is always active. */
@@ -186,8 +186,8 @@ export function useAlbumSelectionLifecycle(isActive?: () => boolean): void {
 
   onMount(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      // gate the entire handler on subview active-ness \u2014 we don't
-      // even want escape clearing selection when the table isn't on
+      // gate the entire handler on subview active-ness; don't
+      // want escape clearing selection when the table isn't on
       // screen, since that selection isn't visible anywhere.
       if (isActive && !isActive()) return;
       if (event.key === "Escape" && selectedAlbumIds().size > 0) {

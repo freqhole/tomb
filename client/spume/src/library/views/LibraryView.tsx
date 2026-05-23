@@ -66,6 +66,37 @@ export function LibraryView() {
     selectedRemotes,
   } = useRemoteSelection();
 
+  // debounced view of `selectedRemotes` for the graph subview.
+  // toggling several remotes in quick succession on a large library
+  // would otherwise kick off a fresh graph rebuild for each change
+  // and lock the ui mid-toggle. coalesce changes into a single update
+  // after a quiet window so the user can finish picking before the
+  // expensive build runs. the first non-empty value comes through
+  // immediately so initial mount isn't artificially delayed.
+  const GRAPH_REMOTE_DEBOUNCE_MS = 1500;
+  const [debouncedSelectedRemotes, setDebouncedSelectedRemotes] = createSignal<Remote[]>([]);
+  let graphRemotesPrimed = false;
+  let graphRemotesTimer: ReturnType<typeof setTimeout> | null = null;
+  createEffect(() => {
+    const next = selectedRemotes();
+    if (!graphRemotesPrimed) {
+      // propagate the first value (empty or otherwise) immediately so
+      // the graph mounts without an artificial 1.5s wait. once a
+      // non-empty value lands we flip the flag and start debouncing.
+      setDebouncedSelectedRemotes(next);
+      if (next.length > 0) graphRemotesPrimed = true;
+      return;
+    }
+    if (graphRemotesTimer) clearTimeout(graphRemotesTimer);
+    graphRemotesTimer = setTimeout(() => {
+      graphRemotesTimer = null;
+      setDebouncedSelectedRemotes(next);
+    }, GRAPH_REMOTE_DEBOUNCE_MS);
+  });
+  onCleanup(() => {
+    if (graphRemotesTimer) clearTimeout(graphRemotesTimer);
+  });
+
   // 9a: in-pane loading indicator that appears immediately on remote switch
   // and escalates to the ConnectionProgressModal after SLOW_SWITCH_MS.
   const [switchingToName, setSwitchingToName] = createSignal<string | null>(null);
@@ -109,7 +140,7 @@ export function LibraryView() {
   });
 
   // selection lifecycle (clear on route change + esc, ctrl/cmd-a select-all).
-  // scoped to the table subview \u2014 the graph view has its own keyboard
+  // scoped to the table sub-view; the graph view has its own keyboard
   // shortcuts (f / r / esc) and shouldn't surface the album bulk-action
   // bar when the user hits ctrl/cmd-a.
   useAlbumSelectionLifecycle(() => subview() === "table");
@@ -473,7 +504,7 @@ export function LibraryView() {
         <Switch>
           <Match when={subview() === "graph"}>
             <LibraryGraphSubview
-              remotes={selectedRemotes()}
+              remotes={debouncedSelectedRemotes()}
               isActive={() => subview() === "graph"}
               bulkTagMode={bulkTagMode}
               onLassoAlbums={(remote, ids) => {
@@ -496,7 +527,7 @@ export function LibraryView() {
             />
           </Match>
         </Switch>
-        {/* bulk-action bar belongs to the table subview \u2014 hide it on
+        {/* bulk-action bar belongs to the table sub-view; hide it on
             graph so a leftover selection (e.g. from a prior table
             session) doesn't pop the toolbar over the canvas. */}
         <Show when={subview() === "table"}>

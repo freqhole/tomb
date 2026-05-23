@@ -649,8 +649,8 @@ function LookupConfirmModal(props: {
           re-query the {props.eligibleCount} remaining album{props.eligibleCount === 1 ? "" : "s"}?
         </p>
         <p class="mt-2 text-[var(--color-text-muted)] text-xs">
-          "skip them" is the default \u2014 use "include all" to re-run lookup on
-          previously-confirmed or skipped rows.
+          "skip them" is the default; use "include all" to re-run lookup on previously-confirmed or
+          skipped rows.
         </p>
       </div>
     </Modal>

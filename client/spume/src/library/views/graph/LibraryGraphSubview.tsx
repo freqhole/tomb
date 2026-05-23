@@ -494,7 +494,7 @@ function Inner(props: {
   });
   const relatedMap = createMemo(() => relatedQuery.data ?? new Map<string, Set<string>>());
 
-  // final node set passed to the graph factory \u2014 union of layer
+  // final node set passed to the graph factory union of layer
   // toggles. order: albums first, then artists, so initial layout
   // seeds the heavier album cluster before artist circles drop in.
   const graphNodes = createMemo<GraphNodeData[]>(() => {
@@ -625,7 +625,7 @@ function Inner(props: {
   };
 
   const openArtistCarousel = async (artist: ArtistNodeData) => {
-    // artist nodes don't have their own image data on the graph \u2014
+    // artist nodes don't have their own image data on the graph
     // `deriveArtistNodes` uses the first album's cover as an avatar
     // fallback (see deriveArtistNodes.ts header). that cover is NOT
     // representative of the artist, so don't seed the carousel with
@@ -738,7 +738,7 @@ function Inner(props: {
     onLassoSelect: (albums) => {
       // bulk-tag mode: forward to parent with the resolved (single)
       // remote + bare album ids. when not in bulk-tag mode this is a
-      // no-op for now \u2014 the canvas already shows the lasso selection.
+      // no-op for now the canvas already shows the lasso selection.
       if (!props.bulkTagMode?.()) return;
       if (albums.length === 0) return;
       // all lasso'd nodes should share the same remote when bulk-tag
@@ -746,7 +746,7 @@ function Inner(props: {
       // first node's source remote, falling back to all[0].
       const r = remoteForNode(albums[0]);
       if (!r) return;
-      // filter to nodes that actually belong to that remote \u2014 defensive
+      // filter to nodes that actually belong to that remote defensive
       // against any stray cross-remote nodes hanging around.
       const ids = albums.filter((a) => (a.sourceRemoteId ?? null) === r.remote_id).map(bareAlbumId);
       if (ids.length === 0) return;
@@ -783,7 +783,7 @@ function Inner(props: {
       void openArtistCarousel(artist);
     },
     onViewArtistNode: (artist) => {
-      // artist nodes are cross-remote aggregations \u2014 navigate to the
+      // artist nodes are cross-remote aggregations navigate to the
       // active source's artist route (null = local / active).
       navigate(routes.artistOn(null, artist.artistId));
     },

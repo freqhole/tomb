@@ -1065,7 +1065,11 @@ export function AlbumGraphCanvas(props: AlbumGraphCanvasProps) {
     }
 
     const [wx, wy] = screenToWorld(sx, sy);
-    const hit = getHitter().find(wx, wy, nodeSize() * 0.8);
+    // same radius math as the hover path so press-to-select behaves
+    // identically to hover for click affordance.
+    const v1 = view();
+    const pressRadius = Math.max(nodeSize() * 1.05, 12 / v1.k);
+    const hit = getHitter().find(wx, wy, pressRadius);
     const tool = props.tool ?? "pan";
 
     if (hit) {
@@ -1125,7 +1129,14 @@ export function AlbumGraphCanvas(props: AlbumGraphCanvasProps) {
     if (!d || d.pointerId !== e.pointerId) {
       // hover only
       const [wx, wy] = screenToWorld(sx, sy);
-      const hit = getHitter().find(wx, wy, nodeSize() * 0.6);
+      // hit radius for the quadtree is in world units. we want the
+      // node footprint to comfortably beat the screen-space edge
+      // threshold (~6 screen px) at every zoom level so wires
+      // passing through nodes never steal the hover. floor it at
+      // edge-threshold + a few px, converted to world units via k.
+      const v0 = view();
+      const hitRadius = Math.max(nodeSize() * 1.05, 12 / v0.k);
+      const hit = getHitter().find(wx, wy, hitRadius);
       const newHover = hit?.id ?? null;
       let changed = false;
       if (newHover !== hoverId()) {
@@ -1377,7 +1388,9 @@ export function AlbumGraphCanvas(props: AlbumGraphCanvasProps) {
       if (!canvasEl) return;
       const [sx, sy] = clientToScreen(ev);
       const [wx, wy] = screenToWorld(sx, sy);
-      const hit = getHitter().find(wx, wy, nodeSize() * 0.8);
+      const v2 = view();
+      const ctxRadius = Math.max(nodeSize() * 1.05, 12 / v2.k);
+      const hit = getHitter().find(wx, wy, ctxRadius);
       ev.preventDefault();
       if (hit && props.onNodeContextMenu) {
         props.onNodeContextMenu(hit as GraphNodeData, ev.clientX, ev.clientY);

@@ -233,12 +233,32 @@ export function createGraphLibraryView(opts: CreateGraphLibraryViewOpts): GraphL
     selected();
     setPopHidden(false);
   });
+  // same gesture for the artist-detail panel, separate signal so
+  // collapsing one panel doesn't affect the other (and so each one
+  // pops back open the next time a node of its kind is selected).
+  const [artistPopHidden, setArtistPopHidden] = createSignal(false);
+  createEffect(() => {
+    selectedArtist();
+    setArtistPopHidden(false);
+  });
 
   const edgeKey = (kind: RelationKindLike, label: string) => `${String(kind)}|${label}`;
   const edges = createMemo<GraphEdge[]>(() =>
     buildRelationEdges(nodes(), { relatedArtists: opts.relatedArtists?.() })
   );
   const counts = createMemo(() => countEdgesByKind(edges()));
+
+  // album/artist split for the bottom-right status chip. `nodes()`
+  // is mixed-kind so we tally each kind in a single pass.
+  const nodeKindCounts = createMemo(() => {
+    let albums = 0;
+    let artists = 0;
+    for (const n of nodes()) {
+      if (nodeKind(n) === "artist") artists++;
+      else if (nodeKind(n) === "album") albums++;
+    }
+    return { albums, artists };
+  });
 
   const canvasEdges = createMemo<GraphEdge[]>(() => {
     const out = Array.from(pillEdges().values());
@@ -438,7 +458,7 @@ export function createGraphLibraryView(opts: CreateGraphLibraryViewOpts): GraphL
   const currentSel = createMemo(() => popInfo().list[popIndex()] ?? null);
   const canvasSelectedId = createMemo(() => currentSel()?.id ?? selectedArtist()?.id ?? null);
 
-  // sibling albums for the album currently shown in the popover \u2014
+  // sibling albums for the album currently shown in the popover
   // every other in-library album by the same artist. surfaced as a
   // clickable list at the bottom of AlbumDetailPopover so the user can
   // jump straight to another release without clearing context.
@@ -460,13 +480,13 @@ export function createGraphLibraryView(opts: CreateGraphLibraryViewOpts): GraphL
     return out;
   });
 
-  // artist popover carousel \u2014 [anchor, ...multiSelected, ...related].
+  // artist popover carousel [anchor, ...multiSelected, ...related].
   //
   // the anchor is the artist the user first selected; it stays stable
   // even as the user pages through the carousel. without this anchor,
   // paging fires `onFocusArtist` which moves `selectedArtist`, which
   // would rebuild this list around the newly-focused artist and snap
-  // the carousel back to index 0 \u2014 the user "loses" their place and
+  // the carousel back to index 0, the user "loses" their place and
   // can't navigate back to the original. with the anchor, paging is
   // free to walk through related artists without yanking the list.
   //
@@ -520,7 +540,7 @@ export function createGraphLibraryView(opts: CreateGraphLibraryViewOpts): GraphL
   const [artistPopIndex, setArtistPopIndex] = createSignal(0);
   // sync anchor + index with `selectedArtist` changes. paging the
   // carousel (which calls onFocusArtist -> setSelectedId) lands here
-  // too \u2014 but the new selection will already be in the existing list,
+  // too, but the new selection will already be in the existing list,
   // so we only adjust the index and leave the anchor alone.
   createEffect(() => {
     const sel = selectedArtist();
@@ -535,7 +555,7 @@ export function createGraphLibraryView(opts: CreateGraphLibraryViewOpts): GraphL
       const list = artistPopList();
       const idx = list.findIndex((a) => a.id === sel.id);
       if (idx >= 0) {
-        // paged within the current list \u2014 keep anchor, sync index.
+        // paged within the current list keep anchor, sync index.
         if (idx !== artistPopIndex()) setArtistPopIndex(idx);
         return;
       }
@@ -862,10 +882,19 @@ export function createGraphLibraryView(opts: CreateGraphLibraryViewOpts): GraphL
         </button>
       </Show>
 
-      {/* artist detail popover \u2014 mutually exclusive with the album
+      {/* artist detail popover mutually exclusive with the album
           popover above because each node has exactly one kind. */}
-      <Show when={selectedArtist() && artistPopList().length > 0}>
+      <Show when={selectedArtist() && artistPopList().length > 0 && !artistPopHidden()}>
         <div class="absolute bottom-3 left-3 z-10 max-w-[min(360px,calc(100%-1.5rem))] pointer-events-auto">
+          <button
+            type="button"
+            onClick={() => setArtistPopHidden(true)}
+            title="hide details"
+            aria-label="hide details"
+            class="absolute -top-2 -right-2 z-10 w-6 h-6 inline-flex items-center justify-center rounded-full border border-white/15 bg-[var(--color-bg-elevated)]/90 backdrop-blur-sm text-white/70 hover:text-white hover:border-white/30 cursor-pointer p-0"
+          >
+            <Icon name="chevronDown" size={12} />
+          </button>
           <ArtistDetailPopover
             artists={artistPopList()}
             index={artistPopIndex()}
@@ -885,11 +914,31 @@ export function createGraphLibraryView(opts: CreateGraphLibraryViewOpts): GraphL
         </div>
       </Show>
 
+      <Show when={selectedArtist() && artistPopList().length > 0 && artistPopHidden()}>
+        <button
+          type="button"
+          onClick={() => setArtistPopHidden(false)}
+          title="show details"
+          class="absolute bottom-3 left-3 z-10 inline-flex items-center gap-1.5 px-2 py-1 rounded border border-white/15 bg-[var(--color-bg-elevated)]/90 backdrop-blur-sm text-[11px] text-white/80 hover:text-white hover:border-white/30 cursor-pointer pointer-events-auto"
+        >
+          <Icon name="chevronUp" size={12} />
+          <span class="text-[var(--color-accent-500,#ff1a9e)] font-medium">
+            {artistPopList().length}
+          </span>
+          <span class="text-white/60">artist — show details</span>
+        </button>
+      </Show>
+
       {/* bottom-right status chip — shows graph size + current selection. */}
       <div class="absolute bottom-3 right-3 z-10 pointer-events-none">
         <div class="px-2 py-1 rounded bg-[var(--color-bg-elevated)]/85 backdrop-blur-sm border border-white/10 text-[11px] text-white/70 leading-tight whitespace-nowrap">
-          <span class="text-white/90 font-medium">{nodes().length}</span>
+          <span class="text-white/90 font-medium">{nodeKindCounts().albums}</span>
           <span class="text-white/50"> albums</span>
+          <Show when={nodeKindCounts().artists > 0}>
+            <span class="text-white/30 mx-1.5">·</span>
+            <span class="text-white/90 font-medium">{nodeKindCounts().artists}</span>
+            <span class="text-white/50"> artists</span>
+          </Show>
           <Show when={popInfo().list.length > 0}>
             <span class="text-white/30 mx-1.5">·</span>
             <span class="text-[var(--color-accent-500,#ff1a9e)] font-medium">
