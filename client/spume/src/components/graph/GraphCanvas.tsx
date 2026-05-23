@@ -1,29 +1,25 @@
-// AlbumGraphCanvas — force-directed album graph rendered to html5 canvas 2d.
+// GraphCanvas — force-directed graph (album + artist nodes) rendered to html5 canvas 2d.
 //
 // responsibilities:
-// - run a d3-force simulation over the supplied nodes + edges
-// - draw nodes (via drawAlbumNode) and edges (per-kind colored strokes)
+// - drive a d3-force simulation hosted in a dedicated web worker
+//   (see [./worker/graphWorker.ts](./worker/graphWorker.ts)), receiving
+//   per-tick node positions over a transferable Float32Array buffer
+// - draw nodes (via drawAlbumNode / drawArtistNode) and edges (per-kind colored strokes)
 // - handle pan/zoom (wheel + trackpad two-finger pan + drag + pinch) and node drag
+//   (drag-pin state is forwarded to the worker via pin/unpin messages)
 // - emit hover / select events for both nodes AND edges; support optional lasso
-// - rebuild quadtree on every tick for hit testing
+// - hit-testing is fully async via the worker (quadtree owned by the
+//   worker); hover queries are rAF-coalesced + cancellable, pointerdown
+//   issues a press-pending query with timeout that auto-falls-back to
+//   pan if the worker doesn't respond in time.
 //
 // the component is presentational: the parent supplies nodes/edges + relation
 // filter state, and reacts to selection events. it does NOT fetch data.
 
 import { createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js";
-import {
-  forceCenter,
-  forceCollide,
-  forceLink,
-  forceManyBody,
-  forceSimulation,
-  type Simulation,
-  type SimulationLinkDatum,
-  type SimulationNodeDatum,
-} from "d3-force";
+import type { SimulationLinkDatum, SimulationNodeDatum } from "d3-force";
 import { drawAlbumNode } from "./drawAlbumNode";
 import { drawArtistNode } from "./drawArtistNode";
-import { buildHitTester, type HitTester } from "./hitTest";
 import { RELATION_COLOR } from "./relations";
 import type {
   AlbumNodeData,
@@ -35,10 +31,26 @@ import type {
   ViewportTransform,
 } from "./types";
 import { nodeKind } from "./types";
+import { createGraphWorkerClient, type GraphWorkerClient } from "./worker/graphWorkerClient";
+import type { EdgeDeriveConfig, SimLinkInit, SimNodeInit, UpdateMode } from "./worker/messages";
+import { bump, gauge, timing } from "./perfLog";
 
-export interface AlbumGraphCanvasProps {
+export interface GraphCanvasProps {
   nodes: GraphNodeData[];
-  edges: GraphEdge[];
+  /** legacy: pre-built edges from the parent. when omitted (and
+   *  `onEdges` is set) the worker derives edges from node taxonomy
+   *  itself — see phase 4 of the worker plan. */
+  edges?: GraphEdge[];
+  /** phase 4: subscribe to worker-derived edges. when provided,
+   *  GraphCanvas engages worker-side edge derivation: it forwards
+   *  the full node taxonomy + `relatedArtists` to the worker, the
+   *  worker runs `buildRelationEdges` off the main thread, and the
+   *  full edge list streams back through this callback. */
+  onEdges?: (edges: GraphEdge[]) => void;
+  /** phase 4: resolved related-artist relationships (artist_id →
+   *  set of related artist ids). forwarded to the worker for the
+   *  `related_artist` edge kind. ignored in legacy mode. */
+  relatedArtists?: Map<string, Set<string>>;
   /** which relation kinds to render edges for; undefined = all */
   enabledKinds?: Set<string> | string[];
   /** node tile size in world units. default 56. */
@@ -132,7 +144,7 @@ function edgeKey(e: GraphEdge): string {
   return `${e.kind}:${e.label ?? ""}:${s}->${t}`;
 }
 
-export function AlbumGraphCanvas(props: AlbumGraphCanvasProps) {
+export function GraphCanvas(props: GraphCanvasProps) {
   let canvasEl: HTMLCanvasElement | undefined;
   let containerEl: HTMLDivElement | undefined;
 
@@ -198,17 +210,113 @@ export function AlbumGraphCanvas(props: AlbumGraphCanvasProps) {
   const selectedId = () => props.selectedId ?? internalSelected();
 
   // ---- simulation -------------------------------------------------------
-  let sim: Simulation<SimNode, SimLink> | null = null;
+  // the d3-force sim lives in a web worker. main thread keeps `simNodes`
+  // + `simLinks` as the rendering substrate (still mutated x/y on each
+  // received position tick), so the existing draw / hit-test / fit
+  // paths keep working unchanged.
+  let worker: GraphWorkerClient | null = null;
   let simNodes: SimNode[] = [];
   let simLinks: SimLink[] = [];
-  let hitter: HitTester | null = null;
-  // throttle quadtree invalidation: see tick handler comment.
-  let lastHitterInvalidate = 0;
-  // lazy accessor: hit tester is invalidated on every sim tick but only
-  // rebuilt when actually queried (pointer move/down/up, lasso).
-  function getHitter(): HitTester {
-    if (!hitter) hitter = buildHitTester(simNodes, nodeSize());
-    return hitter;
+  // phase 4: when in worker-edge-derivation mode, the full edge list
+  // emitted by the worker is cached here so changes to `enabledKinds`
+  // can re-filter `simLinks` locally without round-tripping nodes
+  // through the worker.
+  let cachedDerivedEdges: GraphEdge[] = [];
+  // node lookup by id — kept in sync with simNodes on every rebuild.
+  // used to map worker hit-test responses (which only carry ids) back
+  // to the local SimNode refs that the renderer + drag code uses.
+  let simNodesById: Map<string, SimNode> = new Map();
+  // monotonically-increasing id stamped on each press; lets us
+  // discard stale worker.hitTest replies if the press was already
+  // converted/cancelled.
+  let nextPressId = 1;
+
+  // hover hit-test state. coalesces pointermove events to a single
+  // rAF-driven worker.hitTest, aborting the in-flight previous one.
+  let lastHoverScreenPos: { sx: number; sy: number; clientX: number; clientY: number } | null =
+    null;
+  let hoverHitAbort: AbortController | null = null;
+  let hoverScheduled = false;
+  function scheduleHoverHitTest() {
+    if (hoverScheduled) return;
+    hoverScheduled = true;
+    requestAnimationFrame(() => {
+      hoverScheduled = false;
+      const pos = lastHoverScreenPos;
+      if (!pos || !worker) return;
+      hoverHitAbort?.abort();
+      hoverHitAbort = new AbortController();
+      const [wx, wy] = screenToWorld(pos.sx, pos.sy);
+      const v0 = view();
+      // hit radius in world units. ~half the node side gives a hit
+      // area roughly matching the visible square (with a small
+      // fudge for the rounded corners); floored at ~12 screen px so
+      // tiny zoomed-out nodes stay clickable. larger values steal
+      // pixels from edge hit-testing and feel sticky at high zoom.
+      const hitRadius = Math.max(nodeSize() * 0.55, 12 / v0.k);
+      worker
+        .hitTest(wx, wy, hitRadius, hoverHitAbort.signal)
+        .then((nodeId) => resolveHover(nodeId, pos))
+        .catch(() => {
+          // aborted by a newer pointermove — ignore.
+        });
+    });
+  }
+  /** apply hover hit result to the canvas state. mirrors the
+   *  original sync hover branch's node + edge bookkeeping. */
+  function resolveHover(
+    nodeId: string | null,
+    pos: { sx: number; sy: number; clientX: number; clientY: number }
+  ) {
+    const hit = nodeId ? (simNodesById.get(nodeId) ?? null) : null;
+    const newHover = hit?.id ?? null;
+    let changed = false;
+    if (newHover !== hoverId()) {
+      setHoverId(newHover);
+      changed = true;
+    }
+    if (!hit) {
+      const edge = findEdgeAt(pos.sx, pos.sy);
+      const newEdgeKey = edge?._key ?? null;
+      if (newEdgeKey !== hoverEdgeKey()) {
+        setHoverEdgeKey(newEdgeKey);
+        hoverEdgeScreenPos = edge ? { sx: pos.sx, sy: pos.sy } : null;
+        props.onEdgeHover?.(edge ?? null, pos.clientX, pos.clientY);
+        changed = true;
+      } else if (edge && props.onEdgeHover) {
+        hoverEdgeScreenPos = { sx: pos.sx, sy: pos.sy };
+        props.onEdgeHover(edge, pos.clientX, pos.clientY);
+        changed = true;
+      }
+      if (canvasEl) canvasEl.style.cursor = edge ? "pointer" : "";
+    } else {
+      if (hoverEdgeKey() !== null) {
+        setHoverEdgeKey(null);
+        hoverEdgeScreenPos = null;
+        props.onEdgeHover?.(null, pos.clientX, pos.clientY);
+        changed = true;
+      }
+      if (canvasEl) canvasEl.style.cursor = "pointer";
+    }
+    if (changed) requestDraw();
+  }
+
+  /** combine multiple AbortSignals into one — fires when any input
+   *  fires. small polyfill since `AbortSignal.any` isn't yet
+   *  universally available (safari/older chromium). */
+  function anySignal(signals: AbortSignal[]): AbortSignal {
+    const ctrl = new AbortController();
+    const onAbort = (s: AbortSignal) => {
+      if (!ctrl.signal.aborted) ctrl.abort((s as AbortSignal & { reason?: unknown }).reason);
+    };
+    for (const s of signals) {
+      if (s.aborted) {
+        onAbort(s);
+        break;
+      }
+      s.addEventListener("abort", () => onAbort(s), { once: true });
+    }
+    return ctrl.signal;
   }
 
   const nodeSize = () => props.nodeSize ?? 56;
@@ -233,24 +341,17 @@ export function AlbumGraphCanvas(props: AlbumGraphCanvasProps) {
     canvasEl.height = Math.floor(height * dpr);
     canvasEl.style.width = `${width}px`;
     canvasEl.style.height = `${height}px`;
-    if (sim) {
-      sim.force("center", forceCenter(width / 2, height / 2));
+    if (worker) {
+      // tell the worker the new viewport bounds; reheat only if the
+      // user isn't actively inspecting (matches the old behaviour).
+      worker.resize(width, height, !props.quietUpdates);
       if (props.quietUpdates) {
-        // user is inspecting — don't reheat; just re-anchor the center
-        // force. existing nodes keep their positions; if the container
-        // resized, the next user interaction will refit.
         if (
           typeof console !== "undefined" &&
           (window as unknown as { __DEBUG_GRAPH__?: boolean }).__DEBUG_GRAPH__
         ) {
           console.debug("[graph] resize: quiet (no reheat)");
         }
-      } else {
-        // gentle nudge only — resize fires on mount and on any container
-        // resize, and a 0.3 alpha here would re-explode the layout every
-        // time. 0.05 lets the center force re-balance without visible
-        // shuffle of settled nodes.
-        sim.alpha(0.05).restart();
       }
     }
     requestDraw();
@@ -263,6 +364,93 @@ export function AlbumGraphCanvas(props: AlbumGraphCanvasProps) {
   // rebuilds (e.g. relation kind toggled) should preserve positions and
   // only nudge the sim with a low alpha so nothing visibly shuffles.
   let firstBuild = true;
+
+  /** phase 4: edge-derivation mode is engaged whenever the parent
+   *  provides an `onEdges` callback. in that mode GraphCanvas hands
+   *  full node taxonomy to the worker and lets it compute edges off
+   *  the main thread. when the callback is absent we fall back to
+   *  the legacy `props.edges` path. */
+  const deriveMode = (): boolean => !!props.onEdges;
+
+  /** build the payload sent to the worker on init/update. in derive
+   *  mode this includes the taxonomy fields `buildRelationEdges` needs;
+   *  in legacy mode it stays minimal (the worker uses pre-built
+   *  links instead). */
+  function buildWorkerNodes(): SimNodeInit[] {
+    if (!deriveMode()) {
+      return simNodes.map((n) => ({
+        id: n.id,
+        kind: nodeKind(n),
+        x: n.x,
+        y: n.y,
+        fx: n.fx,
+        fy: n.fy,
+      }));
+    }
+    return simNodes.map((n) => {
+      const base: SimNodeInit = {
+        id: n.id,
+        kind: nodeKind(n),
+        x: n.x,
+        y: n.y,
+        fx: n.fx,
+        fy: n.fy,
+        isFavorite: n.isFavorite,
+        genres: n.genres,
+        tagLabels: n.tags?.map((t) => t.label),
+        moods: n.moods,
+        styles: n.styles,
+        label: n.label,
+        era: n.era,
+      };
+      if (nodeKind(n) === "artist") {
+        const a = n as ArtistNodeData;
+        base.artistId = a.artistId;
+        base.name = a.name;
+      } else {
+        const a = n as AlbumNodeData;
+        base.artistId = a.artistId;
+        base.artistName = a.artistName;
+      }
+      return base;
+    });
+  }
+
+  /** snapshot the parent's current edge-derive config for the worker. */
+  function buildEdgeConfig(): EdgeDeriveConfig | undefined {
+    if (!deriveMode()) return undefined;
+    const e = props.enabledKinds;
+    const kinds = e
+      ? Array.isArray(e)
+        ? (e as RelationKind[])
+        : (Array.from(e) as RelationKind[])
+      : undefined;
+    return {
+      enabledKinds: kinds,
+      relatedArtists: props.relatedArtists,
+    };
+  }
+
+  /** rebuild `simLinks` (the renderer's substrate) from the cached
+   *  worker-derived edges, filtered by the currently enabled kinds.
+   *  drops any edge whose endpoints aren't in the current `simNodes`
+   *  (briefly possible between a topology update and the next worker
+   *  emission). */
+  function rebuildSimLinksFromCache(): void {
+    const byId = simNodesById;
+    const set = enabledSet();
+    simLinks = cachedDerivedEdges
+      .filter((e) => !set || set.has(e.kind))
+      .map((e) => {
+        const srcId = typeof e.source === "string" ? e.source : e.source.id;
+        const tgtId = typeof e.target === "string" ? e.target : e.target.id;
+        const s = byId.get(srcId);
+        const t = byId.get(tgtId);
+        if (!s || !t) return null;
+        return { ...e, source: s, target: t, _key: edgeKey(e) } as SimLink;
+      })
+      .filter((x): x is SimLink => x !== null);
+  }
 
   function rebuild() {
     if (!canvasEl) return;
@@ -305,78 +493,102 @@ export function AlbumGraphCanvas(props: AlbumGraphCanvasProps) {
     }
 
     const byId = new Map(simNodes.map((n) => [n.id, n]));
-    simLinks = props.edges
-      .filter((e) => {
-        const set = enabledSet();
-        return !set || set.has(e.kind);
-      })
-      .map((e) => {
-        const srcId = typeof e.source === "string" ? e.source : e.source.id;
-        const tgtId = typeof e.target === "string" ? e.target : e.target.id;
-        const s = byId.get(srcId);
-        const t = byId.get(tgtId);
-        if (!s || !t) return null;
-        return { ...e, source: s, target: t, _key: edgeKey(e) } as SimLink;
-      })
-      .filter((x): x is SimLink => x !== null);
+    simNodesById = byId;
 
-    if (sim) sim.stop();
-    const sz = nodeSize();
-    // dense libraries pile nodes on top of each other even with
-    // collide enabled, because link + charge balance was tuned for
-    // ~hundreds. scale the layout out as node count grows so 2k+
-    // node graphs spread their clusters apart enough to read. the
-    // breakpoints are gentle so small libraries don't suddenly
-    // explode outward on a few new nodes.
-    const nCount = simNodes.length;
-    const densityMul = nCount >= 3000 ? 1.6 : nCount >= 1500 ? 1.35 : nCount >= 800 ? 1.15 : 1;
-    const linkDist = sz * 2.8 * densityMul;
-    const chargeStr = -sz * 8 * densityMul;
-    const collideAlbum = sz * 0.95 * densityMul;
-    const collideArtist = sz * 0.65 * densityMul;
-    sim = forceSimulation<SimNode, SimLink>(simNodes)
-      .force(
-        "link",
-        forceLink<SimNode, SimLink>(simLinks)
-          .id((d) => d.id)
-          .distance(linkDist) // more breathing room — edges easier to follow
-          .strength((l) => 0.15 + 0.35 * (l.weight ?? 0.5))
-      )
-      .force("charge", forceManyBody().strength(chargeStr)) // stronger repulsion
-      .force("center", forceCenter(width / 2, height / 2))
-      // collide: hard non-overlap. radius depends on node kind so the
-      // album's square corners (which extend to sz * sqrt(2)/2 ≈
-      // 0.71 * sz from center along the diagonal) don't visually
-      // intersect an adjacent artist circle (radius sz/2). a uniform
-      // radius leaves a thin overlap band wherever an album corner
-      // points at an artist disc. strength 1 + 3 iterations means
-      // the constraint actually wins against link/charge forces even
-      // on dense clusters (default 1 iteration leaves visible overlap
-      // when nodes pile up).
-      .force(
-        "collide",
-        forceCollide<SimNode>()
-          .radius((n) => (nodeKind(n) === "album" ? collideAlbum : collideArtist))
-          .strength(1)
-          .iterations(3)
-      )
-      // faster cool-down. default alphaDecay ~0.0228 ≈ 300 ticks before
-      // alphaMin; bumping to 0.05 settles in ~90 ticks. velocityDecay
-      // bumped a touch so nodes don't keep drifting after links shift.
-      .alphaDecay(0.05)
-      .velocityDecay(0.55);
+    if (deriveMode()) {
+      // worker will derive + emit edges; rebuild simLinks from the
+      // cached set right away so the renderer has *something* until
+      // the next emission lands. (cache may be stale for one frame
+      // when nodes were just added — endpoints missing from `byId`
+      // are dropped by `rebuildSimLinksFromCache`.)
+      rebuildSimLinksFromCache();
+    } else {
+      simLinks = (props.edges ?? [])
+        .filter((e) => {
+          const set = enabledSet();
+          return !set || set.has(e.kind);
+        })
+        .map((e) => {
+          const srcId = typeof e.source === "string" ? e.source : e.source.id;
+          const tgtId = typeof e.target === "string" ? e.target : e.target.id;
+          const s = byId.get(srcId);
+          const t = byId.get(tgtId);
+          if (!s || !t) return null;
+          return { ...e, source: s, target: t, _key: edgeKey(e) } as SimLink;
+        })
+        .filter((x): x is SimLink => x !== null);
+    }
 
-    if (firstBuild) {
-      // first pass with no prior positions: full energy so the
-      // phyllotaxis seed relaxes into a real layout.
-      sim.alpha(1).restart();
+    // package the sim-relevant subset of nodes/links for the worker.
+    const workerNodes = buildWorkerNodes();
+    const workerLinks: SimLinkInit[] = deriveMode()
+      ? []
+      : simLinks.map((l) => ({
+          source: (l.source as SimNode).id,
+          target: (l.target as SimNode).id,
+          kind: l.kind,
+          weight: l.weight,
+          label: l.label,
+        }));
+    const edgeConfig = buildEdgeConfig();
+
+    const mode: UpdateMode = firstBuild ? "fresh" : props.quietUpdates ? "quiet" : "nudge";
+
+    if (!worker) {
+      worker = createGraphWorkerClient();
+      // listener writes positions back into simNodes so every
+      // downstream consumer (renderer, hitTest, fit) keeps working
+      // against the same data shape it always did. throttled
+      // hitter invalidation matches the pre-worker behaviour.
+      worker.onPositions((buf) => {
+        // length mismatch can happen briefly between an `update`
+        // dispatch and the worker's next tick: the worker may emit
+        // one last buffer of the previous size while we've already
+        // resized simNodes locally. drop those stale buffers.
+        if (buf.length === simNodes.length * 2) {
+          for (let i = 0; i < simNodes.length; i++) {
+            simNodes[i].x = buf[i * 2];
+            simNodes[i].y = buf[i * 2 + 1];
+          }
+          requestDraw();
+        }
+        worker?.release(buf);
+      });
+      worker.onTopology(() => {
+        // currently a no-op on the main thread; the alpha field is
+        // available for future "settled" UI affordances.
+      });
+      // phase 4: full edge list streams in from worker after every
+      // topology change. cache it, rebuild simLinks for the
+      // renderer, forward to the parent for ui (counts, popovers).
+      worker.onEdges((edges) => {
+        cachedDerivedEdges = edges;
+        rebuildSimLinksFromCache();
+        requestDraw();
+        props.onEdges?.(edges);
+      });
+      worker.init(
+        workerNodes,
+        workerLinks,
+        {
+          nodeSize: nodeSize(),
+          width,
+          height,
+          paused: !!props.paused,
+        },
+        edgeConfig
+      );
+      if (
+        typeof console !== "undefined" &&
+        (window as unknown as { __DEBUG_GRAPH__?: boolean }).__DEBUG_GRAPH__
+      ) {
+        console.debug(`[graph] init: nodes=${simNodes.length} links=${simLinks.length}`);
+      }
       firstBuild = false;
-    } else if (props.quietUpdates) {
-      // user is inspecting — do NOT reheat. new nodes stay at their
-      // phyllotaxis seed positions; existing nodes keep their current
-      // (already-settled) positions. avoids the periodic shift caused
-      // by paginated remote loaders dropping fresh batches every few
-      // seconds.
+      return;
+    }
+
+    if (mode === "quiet") {
       if (
         typeof console !== "undefined" &&
         (window as unknown as { __DEBUG_GRAPH__?: boolean }).__DEBUG_GRAPH__
@@ -385,15 +597,7 @@ export function AlbumGraphCanvas(props: AlbumGraphCanvasProps) {
           `[graph] rebuild: quiet (no reheat), nodes=${simNodes.length} links=${simLinks.length}`
         );
       }
-      sim.alpha(0).stop();
-      // still need a single redraw so new nodes show up.
-      requestDraw();
-    } else {
-      // subsequent rebuilds (relation kinds toggled, nodes appended):
-      // very low alpha so existing positions barely move — just enough
-      // for new edges to tug things into place. kept gentle because
-      // bulk loads can fire several rebuilds in quick succession as
-      // pages stream in.
+    } else if (mode === "nudge") {
       if (
         typeof console !== "undefined" &&
         (window as unknown as { __DEBUG_GRAPH__?: boolean }).__DEBUG_GRAPH__
@@ -402,24 +606,13 @@ export function AlbumGraphCanvas(props: AlbumGraphCanvasProps) {
           `[graph] rebuild: nudge alpha=0.08, nodes=${simNodes.length} links=${simLinks.length}`
         );
       }
-      sim.alpha(0.08).restart();
     }
-
-    sim.on("tick", () => {
-      // invalidate the hit tester rather than rebuilding it: pointer
-      // queries are rare relative to ticks (was hot in the cpu trace —
-      // quadtree.addAll on every tick). lazy getHitter() rebuilds on
-      // demand. additionally rate-limit invalidations to ~10/sec so a
-      // running sim with the pointer parked over a node doesn't trigger
-      // a fresh quadtree build on every single tick.
-      const now = performance.now();
-      if (now - lastHitterInvalidate > 100) {
-        hitter = null;
-        lastHitterInvalidate = now;
-      }
+    worker.update(workerNodes, workerLinks, mode, edgeConfig);
+    if (mode === "quiet") {
+      // worker emits one frame on quiet so new nodes show up. force a
+      // local draw too in case the buffer arrives before the rAF lands.
       requestDraw();
-    });
-    if (props.paused) sim.stop();
+    }
   }
 
   // ---- draw loop --------------------------------------------------------
@@ -432,7 +625,14 @@ export function AlbumGraphCanvas(props: AlbumGraphCanvasProps) {
     requestAnimationFrame((t) => {
       drawScheduled = false;
       lastDrawTime = t;
+      performance.mark("graph-draw-start");
+      const t0 = performance.now();
       draw(t);
+      const dt = performance.now() - t0;
+      performance.measure("graph-draw", "graph-draw-start");
+      performance.clearMarks("graph-draw-start");
+      timing("draw.frame", dt);
+      bump("draw.frame.count");
       // keep ticking while marquee scrolling
       if (animatingMarquee) requestDraw();
     });
@@ -673,6 +873,25 @@ export function AlbumGraphCanvas(props: AlbumGraphCanvasProps) {
         });
       }
     }
+    // viewport culling: only nodes whose bounding-box intersects the
+    // visible world rect are drawn. saves the per-frame drawImage +
+    // roundRect + clip cost for every off-screen node (typically the
+    // majority once the user zooms in on a cluster).
+    //
+    // bounds are computed in world units from the current pan/zoom:
+    //   wx_min = -tx / k       (left edge of canvas in world space)
+    //   wx_max = (width - tx) / k
+    // a node centred at (n.x, n.y) is visible when its half-extent
+    // brushes the rect — `pad` covers the rounded-corner border, the
+    // marquee label, and the magenta selection ring.
+    const halfNode = nodeSize() / 2;
+    const cullPad = halfNode + 8 / Math.max(v.k, 0.05);
+    const cxMin = -v.tx / v.k - cullPad;
+    const cxMax = (width - v.tx) / v.k + cullPad;
+    const cyMin = -v.ty / v.k - cullPad;
+    const cyMax = (height - v.ty) / v.k + cullPad;
+    let drawnCount = 0;
+    let culledCount = 0;
     for (const n of simNodes) {
       const isMulti = multiSel?.has(n.id) ?? false;
       // defer hovered + selected (single or multi) nodes to a
@@ -681,12 +900,24 @@ export function AlbumGraphCanvas(props: AlbumGraphCanvasProps) {
         deferred.push(n);
         continue;
       }
+      const nx = n.x ?? 0;
+      const ny = n.y ?? 0;
+      if (nx < cxMin || nx > cxMax || ny < cyMin || ny > cyMax) {
+        culledCount += 1;
+        continue;
+      }
       drawOne(n);
+      drawnCount += 1;
     }
     // second pass: deferred (hover/selected) nodes on top. multi-select
     // can be many — still cheap because we're only re-iterating the
     // small picked subset, not the full simNodes array.
     for (const n of deferred) drawOne(n);
+    gauge("nodes.total", simNodes.length);
+    gauge("edges.total", simLinks.length);
+    bump("draw.nodes.drawn", drawnCount);
+    bump("draw.nodes.culled", culledCount);
+    bump("draw.nodes.deferred", deferred.length);
     ctx.restore();
 
     // node labels (screen space) — hover/selection focus only.
@@ -1041,6 +1272,36 @@ export function AlbumGraphCanvas(props: AlbumGraphCanvasProps) {
 
   // ---- pointer interaction ---------------------------------------------
   type Drag =
+    | {
+        // pointerdown is awaiting an async hit-test result. while in
+        // this state we buffer the latest pointer position so we can
+        // either upgrade to a node-drag, or convert to pan/lasso as
+        // soon as we know whether the press landed on a node. if the
+        // user moves > 3 screen px before the result arrives we
+        // abort the request and convert to pan immediately so panning
+        // never feels stuck behind the worker's response time.
+        type: "press";
+        pointerId: number;
+        startSx: number;
+        startSy: number;
+        latestSx: number;
+        latestSy: number;
+        multi: boolean;
+        tool: "pan" | "lasso";
+        startTx: number;
+        startTy: number;
+        // monotonically-increasing press id; the worker's hit-test
+        // resolve callback checks this against the current drag to
+        // discard stale results (in case the press was already
+        // converted/cancelled by movement, timeout, or pointerup).
+        pressId: number;
+        // true if pointerup fired before the hit-test resolved \u2014
+        // when the hit eventually arrives we treat it as a click.
+        released: boolean;
+        // signal used to cancel the in-flight worker.hitTest. fires
+        // on movement-beyond-threshold or on pointerup.
+        abort: AbortController;
+      }
     | { type: "node"; node: SimNode; pointerId: number; moved: boolean }
     | {
         type: "pan";
@@ -1110,33 +1371,134 @@ export function AlbumGraphCanvas(props: AlbumGraphCanvasProps) {
     // same radius math as the hover path so press-to-select behaves
     // identically to hover for click affordance.
     const v1 = view();
-    const pressRadius = Math.max(nodeSize() * 1.05, 12 / v1.k);
-    const hit = getHitter().find(wx, wy, pressRadius);
+    const pressRadius = Math.max(nodeSize() * 0.55, 12 / v1.k);
     const tool = props.tool ?? "pan";
+    const multi = e.shiftKey || e.metaKey || e.ctrlKey;
+
+    // enter "press" state immediately so we never block the pointer
+    // pipeline on the worker. the actual node-vs-empty decision is
+    // resolved when worker.hitTest replies (or when we abort because
+    // the user started moving or released).
+    const pressId = nextPressId++;
+    const abort = new AbortController();
+    setDrag({
+      type: "press",
+      pointerId: e.pointerId,
+      startSx: sx,
+      startSy: sy,
+      latestSx: sx,
+      latestSy: sy,
+      multi,
+      tool,
+      startTx: v1.tx,
+      startTy: v1.ty,
+      pressId,
+      released: false,
+      abort,
+    });
+
+    if (!worker) {
+      // no worker (shouldn't happen post-mount) \u2014 treat as no-hit.
+      onPressResolved(pressId, null);
+      return;
+    }
+    // ~100ms timeout: if the worker is busy enough that hit-test
+    // can't return in 100ms, fall back to no-hit so panning still
+    // works snappily. callers (drag/click) will get the "wrong"
+    // result only in degenerate cases.
+    const timeoutSignal = AbortSignal.timeout(100);
+    const combined = anySignal([abort.signal, timeoutSignal]);
+    worker
+      .hitTest(wx, wy, pressRadius, combined)
+      .then((nodeId) => onPressResolved(pressId, nodeId))
+      .catch(() => {
+        // aborted (by movement, pointerup, or timeout) \u2014 if still
+        // in press state for this id, finalize as no-hit. abort by
+        // pointermove already converted to pan, so this is mostly
+        // for timeout.
+        const d = drag();
+        if (d?.type === "press" && d.pressId === pressId) {
+          onPressResolved(pressId, null);
+        }
+      });
+  }
+
+  /** finalize a press: convert the "press" drag state to node/pan/lasso
+   *  (or fire click-select if pointerup already happened). */
+  function onPressResolved(pressId: number, nodeId: string | null) {
+    const d = drag();
+    if (!d || d.type !== "press" || d.pressId !== pressId) return;
+    const hit = nodeId ? (simNodesById.get(nodeId) ?? null) : null;
+
+    if (d.released) {
+      // pointerup already fired \u2014 treat as click.
+      setDrag(null);
+      if (hit) {
+        setSelectedEdgeKeys(new Set<string>());
+        props.onEdgeSelect?.(null);
+        props.onSelect?.(hit, { multi: d.multi });
+        if (!d.multi && props.selectedId === undefined) setInternalSelected(hit.id);
+      } else {
+        // click on empty \u2014 mirror the old onPointerUp empty-pan path
+        const edge = findEdgeAt(d.startSx, d.startSy);
+        if (edge) {
+          setSelectedEdgeKeys(new Set([edge._key]));
+          props.onSelect?.(null);
+          if (props.selectedId === undefined) setInternalSelected(null);
+          props.onEdgeSelect?.(edge);
+        } else {
+          setSelectedEdgeKeys(new Set<string>());
+          props.onEdgeSelect?.(null);
+          props.onSelect?.(null);
+          if (props.selectedId === undefined) setInternalSelected(null);
+        }
+      }
+      requestDraw();
+      return;
+    }
 
     if (hit) {
-      // start node drag (or just remember the press for select-on-release
-      // when nodes are locked).
       if (!props.lockNodes) {
         hit.fx = hit.x;
         hit.fy = hit.y;
-        sim?.alphaTarget(0.3).restart();
+        worker?.pin(hit.id, hit.x ?? 0, hit.y ?? 0);
+        worker?.alphaTarget(0.3, true);
       }
-      setDrag({ type: "node", node: hit, pointerId: e.pointerId, moved: false });
-    } else if (tool === "lasso") {
-      setDrag({ type: "lasso", startSx: sx, startSy: sy, sx, sy, pointerId: e.pointerId });
-      setLassoRect({ x: sx, y: sy, w: 0, h: 0 });
+      setDrag({ type: "node", node: hit, pointerId: d.pointerId, moved: false });
+    } else if (d.tool === "lasso") {
+      setDrag({
+        type: "lasso",
+        startSx: d.startSx,
+        startSy: d.startSy,
+        sx: d.latestSx,
+        sy: d.latestSy,
+        pointerId: d.pointerId,
+      });
+      setLassoRect({
+        x: Math.min(d.startSx, d.latestSx),
+        y: Math.min(d.startSy, d.latestSy),
+        w: Math.abs(d.latestSx - d.startSx),
+        h: Math.abs(d.latestSy - d.startSy),
+      });
+      requestDraw();
     } else {
-      const v = view();
       setDrag({
         type: "pan",
-        startX: sx,
-        startY: sy,
-        startTx: v.tx,
-        startTy: v.ty,
-        pointerId: e.pointerId,
-        moved: false,
+        startX: d.startSx,
+        startY: d.startSy,
+        startTx: d.startTx,
+        startTy: d.startTy,
+        pointerId: d.pointerId,
+        moved: d.latestSx !== d.startSx || d.latestSy !== d.startSy,
       });
+      if (d.latestSx !== d.startSx || d.latestSy !== d.startSy) {
+        setView((v) => ({
+          ...v,
+          tx: d.startTx + (d.latestSx - d.startSx),
+          ty: d.startTy + (d.latestSy - d.startSy),
+        }));
+        requestDraw();
+      }
     }
   }
 
@@ -1169,48 +1531,58 @@ export function AlbumGraphCanvas(props: AlbumGraphCanvasProps) {
 
     const d = drag();
     if (!d || d.pointerId !== e.pointerId) {
-      // hover only
-      const [wx, wy] = screenToWorld(sx, sy);
-      // hit radius for the quadtree is in world units. we want the
-      // node footprint to comfortably beat the screen-space edge
-      // threshold (~6 screen px) at every zoom level so wires
-      // passing through nodes never steal the hover. floor it at
-      // edge-threshold + a few px, converted to world units via k.
-      const v0 = view();
-      const hitRadius = Math.max(nodeSize() * 1.05, 12 / v0.k);
-      const hit = getHitter().find(wx, wy, hitRadius);
-      const newHover = hit?.id ?? null;
-      let changed = false;
-      if (newHover !== hoverId()) {
-        setHoverId(newHover);
-        changed = true;
-      }
-      // edge hover only when no node hover
-      if (!hit) {
-        const edge = findEdgeAt(sx, sy);
-        const newEdgeKey = edge?._key ?? null;
-        if (newEdgeKey !== hoverEdgeKey()) {
-          setHoverEdgeKey(newEdgeKey);
-          hoverEdgeScreenPos = edge ? { sx, sy } : null;
-          props.onEdgeHover?.(edge ?? null, e.clientX, e.clientY);
-          changed = true;
-        } else if (edge && props.onEdgeHover) {
-          // same edge — still update cursor position for follow-tip
-          hoverEdgeScreenPos = { sx, sy };
-          props.onEdgeHover(edge, e.clientX, e.clientY);
-          changed = true;
+      // hover only — fully async via worker. rAF-coalesce: store
+      // the latest pointer position and let the next frame issue
+      // a single hit-test, aborting any in-flight previous one.
+      lastHoverScreenPos = { sx, sy, clientX: e.clientX, clientY: e.clientY };
+      scheduleHoverHitTest();
+      return;
+    }
+
+    // press: in-flight hit-test. if the pointer wanders > 3 px
+    // before the worker responds, abort the request and convert
+    // immediately to pan/lasso so the user never feels stuck.
+    if (d.type === "press") {
+      d.latestSx = sx;
+      d.latestSy = sy;
+      const dx = sx - d.startSx;
+      const dy = sy - d.startSy;
+      if (Math.abs(dx) + Math.abs(dy) > 3) {
+        d.abort.abort();
+        if (d.tool === "lasso") {
+          setDrag({
+            type: "lasso",
+            startSx: d.startSx,
+            startSy: d.startSy,
+            sx,
+            sy,
+            pointerId: d.pointerId,
+          });
+          setLassoRect({
+            x: Math.min(d.startSx, sx),
+            y: Math.min(d.startSy, sy),
+            w: Math.abs(sx - d.startSx),
+            h: Math.abs(sy - d.startSy),
+          });
+        } else {
+          setDrag({
+            type: "pan",
+            startX: d.startSx,
+            startY: d.startSy,
+            startTx: d.startTx,
+            startTy: d.startTy,
+            pointerId: d.pointerId,
+            moved: true,
+          });
+          props.onUserInteract?.();
+          setView((v) => ({
+            ...v,
+            tx: d.startTx + dx,
+            ty: d.startTy + dy,
+          }));
         }
-        if (canvasEl) canvasEl.style.cursor = edge ? "pointer" : "";
-      } else {
-        if (hoverEdgeKey() !== null) {
-          setHoverEdgeKey(null);
-          hoverEdgeScreenPos = null;
-          props.onEdgeHover?.(null, e.clientX, e.clientY);
-          changed = true;
-        }
-        if (canvasEl) canvasEl.style.cursor = "pointer";
+        requestDraw();
       }
-      if (changed) requestDraw();
       return;
     }
 
@@ -1224,9 +1596,10 @@ export function AlbumGraphCanvas(props: AlbumGraphCanvasProps) {
       const [wx, wy] = screenToWorld(sx, sy);
       d.node.fx = wx;
       d.node.fy = wy;
+      worker?.pin(d.node.id, wx, wy);
       if (!d.moved) props.onUserInteract?.();
       d.moved = true;
-      sim?.alphaTarget(0.3).restart();
+      worker?.alphaTarget(0.3, true);
     } else if (d.type === "pan") {
       const ndx = sx - d.startX;
       const ndy = sy - d.startY;
@@ -1265,10 +1638,20 @@ export function AlbumGraphCanvas(props: AlbumGraphCanvasProps) {
     const d = drag();
     if (!d || d.pointerId !== e.pointerId) return;
 
+    if (d.type === "press") {
+      // hit-test still in flight. mark released and let the resolver
+      // dispatch click-select. abort the worker call so it fires
+      // sooner (the abort path also calls onPressResolved).
+      d.released = true;
+      d.abort.abort();
+      return;
+    }
+
     if (d.type === "node") {
       d.node.fx = null;
       d.node.fy = null;
-      if (!props.lockNodes) sim?.alphaTarget(0);
+      worker?.unpin(d.node.id);
+      if (!props.lockNodes) worker?.alphaTarget(0);
       // click on node → select; clears any selected edges. modifier
       // keys (shift/meta/ctrl) signal the parent to add to a multi-
       // selection set instead of replacing the primary selection.
@@ -1285,8 +1668,19 @@ export function AlbumGraphCanvas(props: AlbumGraphCanvasProps) {
       if (rect && (rect.w > 4 || rect.h > 4)) {
         const [x0, y0] = screenToWorld(rect.x, rect.y);
         const [x1, y1] = screenToWorld(rect.x + rect.w, rect.y + rect.h);
-        const picks = getHitter().findInRect(x0, y0, x1, y1);
-        props.onLassoSelect?.(picks);
+        // async lasso: ask worker for the ids in this rect, then
+        // resolve to local SimNodes via the byId map.
+        if (worker) {
+          worker
+            .hitRect(x0, y0, x1, y1)
+            .then((ids) => {
+              const picks = ids.map((id) => simNodesById.get(id)).filter((n): n is SimNode => !!n);
+              props.onLassoSelect?.(picks);
+            })
+            .catch(() => {
+              // aborted/disposed — silently drop.
+            });
+        }
       }
     } else if (d.type === "pan") {
       if (!d.moved) {
@@ -1428,15 +1822,26 @@ export function AlbumGraphCanvas(props: AlbumGraphCanvasProps) {
     // accidentally pop it up.
     const onContextMenu = (ev: MouseEvent) => {
       if (!canvasEl) return;
+      // we must preventDefault synchronously to stop the browser menu;
+      // node hit-testing happens async against the worker afterwards.
+      ev.preventDefault();
+      if (!worker || !props.onNodeContextMenu) return;
       const [sx, sy] = clientToScreen(ev);
       const [wx, wy] = screenToWorld(sx, sy);
       const v2 = view();
-      const ctxRadius = Math.max(nodeSize() * 1.05, 12 / v2.k);
-      const hit = getHitter().find(wx, wy, ctxRadius);
-      ev.preventDefault();
-      if (hit && props.onNodeContextMenu) {
-        props.onNodeContextMenu(hit as GraphNodeData, ev.clientX, ev.clientY);
-      }
+      const ctxRadius = Math.max(nodeSize() * 0.55, 12 / v2.k);
+      // tight timeout: contextmenu is a single user event and a slow
+      // worker should just no-op rather than open a stale menu.
+      worker
+        .hitTest(wx, wy, ctxRadius, AbortSignal.timeout(150))
+        .then((nodeId) => {
+          if (!nodeId) return;
+          const hit = simNodesById.get(nodeId);
+          if (hit) props.onNodeContextMenu?.(hit as GraphNodeData, ev.clientX, ev.clientY);
+        })
+        .catch(() => {
+          // timeout / abort \u2014 silently drop.
+        });
     };
     canvasEl.addEventListener("contextmenu", onContextMenu);
 
@@ -1452,23 +1857,46 @@ export function AlbumGraphCanvas(props: AlbumGraphCanvasProps) {
       ro.disconnect();
       canvasEl?.removeEventListener("wheel", onWheel);
       canvasEl?.removeEventListener("contextmenu", onContextMenu);
-      sim?.stop();
+      worker?.dispose();
+      worker = null;
     });
   });
 
-  // rebuild when nodes / edges / enabledKinds change
+  // rebuild when nodes / edges change. enabledKinds is handled
+  // separately below so worker-derive mode can fast-path it without
+  // re-shipping the full taxonomy.
   createEffect(() => {
     void props.nodes;
-    void props.edges;
-    void enabledSet();
+    if (!deriveMode()) void props.edges;
     rebuild();
+  });
+
+  // enabledKinds toggles: in derive mode, just tell the worker which
+  // kinds matter (it'll re-filter its cached edges + reheat lightly)
+  // and re-filter our local simLinks from the cached edge list. in
+  // legacy mode fall through to a full rebuild so simLinks is
+  // recomputed from `props.edges`.
+  createEffect(() => {
+    const setKinds = enabledSet();
+    if (!deriveMode()) {
+      void setKinds;
+      // tracked via the rebuild effect above when props.edges changes,
+      // but enabledKinds is independent — force a rebuild here too.
+      if (worker) rebuild();
+      return;
+    }
+    if (!worker) return;
+    const kinds = setKinds ? (Array.from(setKinds) as RelationKind[]) : undefined;
+    worker.setEnabledKinds(kinds, props.quietUpdates ? "quiet" : "nudge");
+    rebuildSimLinksFromCache();
+    requestDraw();
   });
 
   // pause / resume
   createEffect(() => {
-    if (!sim) return;
-    if (props.paused) sim.stop();
-    else sim.alpha(0.2).restart();
+    if (!worker) return;
+    if (props.paused) worker.pause();
+    else worker.resume(0.2);
   });
 
   // redraw on curvature change

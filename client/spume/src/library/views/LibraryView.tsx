@@ -66,36 +66,136 @@ export function LibraryView() {
     selectedRemotes,
   } = useRemoteSelection();
 
-  // debounced view of `selectedRemotes` for the graph subview.
+  // deferred view of `selectedRemotes` for the graph subview.
+  //
   // toggling several remotes in quick succession on a large library
   // would otherwise kick off a fresh graph rebuild for each change
-  // and lock the ui mid-toggle. coalesce changes into a single update
-  // after a quiet window so the user can finish picking before the
-  // expensive build runs. the first non-empty value comes through
-  // immediately so initial mount isn't artificially delayed.
-  const GRAPH_REMOTE_DEBOUNCE_MS = 1500;
+  // and lock the ui mid-toggle. pure time-debounce is the wrong tool
+  // here: 1.5s is short enough that a thoughtful user trips it
+  // mid-selection, but long enough that quick clicks feel unresponsive.
+  //
+  // instead: commit when the user *leaves* the picker (pointer leaves
+  // AND focus leaves), with a long safety-net timer in case they hover
+  // forever. while the pointer is over the picker (`pickerActive`) we
+  // hold off entirely. once they leave, a short 250ms quiet window
+  // catches stray pointermoves before committing.
+  //
+  // the first non-empty value still comes through immediately so the
+  // initial mount isn't artificially delayed.
+  const GRAPH_REMOTE_LEAVE_MS = 250;
+  const GRAPH_REMOTE_MAX_HOLD_MS = 8000;
   const [debouncedSelectedRemotes, setDebouncedSelectedRemotes] = createSignal<Remote[]>([]);
+  const [pickerActive, setPickerActive] = createSignal(false);
   let graphRemotesPrimed = false;
-  let graphRemotesTimer: ReturnType<typeof setTimeout> | null = null;
+  let leaveTimer: ReturnType<typeof setTimeout> | null = null;
+  let maxHoldTimer: ReturnType<typeof setTimeout> | null = null;
+  let pendingRemotes: Remote[] | null = null;
+
+  const clearTimers = () => {
+    if (leaveTimer) {
+      clearTimeout(leaveTimer);
+      leaveTimer = null;
+    }
+    if (maxHoldTimer) {
+      clearTimeout(maxHoldTimer);
+      maxHoldTimer = null;
+    }
+  };
+
+  const commitPending = () => {
+    clearTimers();
+    if (pendingRemotes !== null) {
+      setDebouncedSelectedRemotes(pendingRemotes);
+      pendingRemotes = null;
+    }
+  };
+
   createEffect(() => {
     const next = selectedRemotes();
     if (!graphRemotesPrimed) {
-      // propagate the first value (empty or otherwise) immediately so
-      // the graph mounts without an artificial 1.5s wait. once a
-      // non-empty value lands we flip the flag and start debouncing.
       setDebouncedSelectedRemotes(next);
       if (next.length > 0) graphRemotesPrimed = true;
       return;
     }
-    if (graphRemotesTimer) clearTimeout(graphRemotesTimer);
-    graphRemotesTimer = setTimeout(() => {
-      graphRemotesTimer = null;
-      setDebouncedSelectedRemotes(next);
-    }, GRAPH_REMOTE_DEBOUNCE_MS);
+    pendingRemotes = next;
+    // arm the safety-net cap once per pending change.
+    if (!maxHoldTimer) {
+      maxHoldTimer = setTimeout(() => {
+        maxHoldTimer = null;
+        commitPending();
+      }, GRAPH_REMOTE_MAX_HOLD_MS);
+    }
+    // if pointer/focus already left the picker, the leave-window
+    // timer is the gating one; otherwise we wait for leave to fire.
+    if (!pickerActive()) {
+      if (leaveTimer) clearTimeout(leaveTimer);
+      leaveTimer = setTimeout(() => {
+        leaveTimer = null;
+        commitPending();
+      }, GRAPH_REMOTE_LEAVE_MS);
+    } else if (leaveTimer) {
+      // user is back in the picker — cancel any pending leave commit.
+      clearTimeout(leaveTimer);
+      leaveTimer = null;
+    }
   });
-  onCleanup(() => {
-    if (graphRemotesTimer) clearTimeout(graphRemotesTimer);
+
+  // when the user leaves the picker, schedule a short quiet-window
+  // commit. re-entering the picker cancels it.
+  createEffect(() => {
+    const active = pickerActive();
+    if (active) {
+      if (leaveTimer) {
+        clearTimeout(leaveTimer);
+        leaveTimer = null;
+      }
+      return;
+    }
+    if (pendingRemotes === null) return;
+    if (leaveTimer) clearTimeout(leaveTimer);
+    leaveTimer = setTimeout(() => {
+      leaveTimer = null;
+      commitPending();
+    }, GRAPH_REMOTE_LEAVE_MS);
   });
+
+  onCleanup(clearTimers);
+
+  // helpers for the picker host wrappers below: track pointer + focus
+  // presence so the commit can wait until the user actually walks away.
+  // `flyoutInside` covers the portalled overflow flyout/modal whose
+  // chips live outside the wrapper element.
+  let pointerInside = false;
+  let focusInside = false;
+  let flyoutInside = false;
+  const recomputeActive = () => setPickerActive(pointerInside || focusInside || flyoutInside);
+  const pickerHostHandlers = {
+    onPointerEnter: () => {
+      pointerInside = true;
+      recomputeActive();
+    },
+    onPointerLeave: () => {
+      pointerInside = false;
+      recomputeActive();
+    },
+    onFocusIn: () => {
+      focusInside = true;
+      recomputeActive();
+    },
+    onFocusOut: (e: FocusEvent) => {
+      // focusout fires before focusin on the new target — defer so
+      // intra-picker focus moves don't briefly drop `focusInside`.
+      const host = e.currentTarget as HTMLElement | null;
+      queueMicrotask(() => {
+        focusInside = !!host && !!document.activeElement && host.contains(document.activeElement);
+        recomputeActive();
+      });
+    },
+    onFlyoutActiveChange: (active: boolean) => {
+      flyoutInside = active;
+      recomputeActive();
+    },
+  };
 
   // 9a: in-pane loading indicator that appears immediately on remote switch
   // and escalates to the ConnectionProgressModal after SLOW_SWITCH_MS.
@@ -369,13 +469,21 @@ export function LibraryView() {
          *  the table subview (table writes go to one remote). bulk-tag
          *  mode also forces single so lasso targets are unambiguous. */}
         <Show when={(remotes() ?? []).length > 0}>
-          <RemotePicker
-            remotes={remotes() ?? []}
-            value={selectedRemoteIds()}
-            onChange={setSelectedRemoteIds}
-            mode={subview() === "graph" && !bulkTagMode() ? "multi" : "single"}
-            layout="inline"
-          />
+          <div
+            onPointerEnter={pickerHostHandlers.onPointerEnter}
+            onPointerLeave={pickerHostHandlers.onPointerLeave}
+            onFocusIn={pickerHostHandlers.onFocusIn}
+            onFocusOut={pickerHostHandlers.onFocusOut}
+          >
+            <RemotePicker
+              remotes={remotes() ?? []}
+              value={selectedRemoteIds()}
+              onChange={setSelectedRemoteIds}
+              mode={subview() === "graph" && !bulkTagMode() ? "multi" : "single"}
+              layout="inline"
+              onActiveChange={pickerHostHandlers.onFlyoutActiveChange}
+            />
+          </div>
         </Show>
 
         {/* view switcher — segmented control on wide; single icon
@@ -445,13 +553,21 @@ export function LibraryView() {
     slots.setRightContent(
       <div class="flex items-center gap-2 flex-wrap">
         <Show when={(remotes() ?? []).length > 0}>
-          <RemotePicker
-            remotes={remotes() ?? []}
-            value={selectedRemoteIds()}
-            onChange={setSelectedRemoteIds}
-            mode={subview() === "graph" && !bulkTagMode() ? "multi" : "single"}
-            layout="inline"
-          />
+          <div
+            onPointerEnter={pickerHostHandlers.onPointerEnter}
+            onPointerLeave={pickerHostHandlers.onPointerLeave}
+            onFocusIn={pickerHostHandlers.onFocusIn}
+            onFocusOut={pickerHostHandlers.onFocusOut}
+          >
+            <RemotePicker
+              remotes={remotes() ?? []}
+              value={selectedRemoteIds()}
+              onChange={setSelectedRemoteIds}
+              mode={subview() === "graph" && !bulkTagMode() ? "multi" : "single"}
+              layout="inline"
+              onActiveChange={pickerHostHandlers.onFlyoutActiveChange}
+            />
+          </div>
         </Show>
         <button
           type="button"

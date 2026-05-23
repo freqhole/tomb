@@ -19,13 +19,13 @@
 
 import { createEffect, createMemo, createSignal, For, onCleanup, Show, untrack } from "solid-js";
 import type { JSX } from "solid-js";
-import { AlbumGraphCanvas, type GraphActions } from "../../../components/graph/AlbumGraphCanvas";
+import { GraphCanvas, type GraphActions } from "../../../components/graph/GraphCanvas";
 import { AlbumDetailPopover } from "../../../components/graph/AlbumDetailPopover";
 import { ArtistDetailPopover } from "../../../components/graph/ArtistDetailPopover";
+import { useDetailPanelHide } from "../../../components/graph/useDetailPanelHide";
 import { GraphTopNavTools, type GraphTool } from "../../../components/graph/GraphTopNavTools";
 import { Icon } from "../../../components/icons/registry";
 import {
-  buildRelationEdges,
   countEdgesByKind,
   RELATION_COLOR,
   RELATION_KINDS,
@@ -225,27 +225,19 @@ export function createGraphLibraryView(opts: CreateGraphLibraryViewOpts): GraphL
   const [wireEdge, setWireEdge] = createSignal<GraphEdge | null>(null);
   const [wireTension, setWireTension] = createSignal(0.44);
   const [api, setApi] = createSignal<GraphActions | null>(null);
-  // narrow-viewport users can collapse the album-detail panel to give
-  // the canvas more room. resets to false whenever selection changes
-  // so opening a new album always shows the full panel.
-  const [popHidden, setPopHidden] = createSignal(false);
-  createEffect(() => {
-    selected();
-    setPopHidden(false);
-  });
-  // same gesture for the artist-detail panel, separate signal so
+  // narrow-viewport users can collapse each per-kind detail panel to
+  // give the canvas more room. each kind has its own hide signal so
   // collapsing one panel doesn't affect the other (and so each one
   // pops back open the next time a node of its kind is selected).
-  const [artistPopHidden, setArtistPopHidden] = createSignal(false);
-  createEffect(() => {
-    selectedArtist();
-    setArtistPopHidden(false);
-  });
+  const albumPanel = useDetailPanelHide(selected);
+  const artistPanel = useDetailPanelHide(selectedArtist);
 
   const edgeKey = (kind: RelationKindLike, label: string) => `${String(kind)}|${label}`;
-  const edges = createMemo<GraphEdge[]>(() =>
-    buildRelationEdges(nodes(), { relatedArtists: opts.relatedArtists?.() })
-  );
+  // phase 4: edges are derived inside the graph worker now. GraphCanvas
+  // streams the full edge list back via `onEdges`; this signal holds
+  // it for ui consumers (kind counts, popovers, status pills). it
+  // starts empty until the first worker emission lands.
+  const [edges, setEdges] = createSignal<GraphEdge[]>([]);
   const counts = createMemo(() => countEdgesByKind(edges()));
 
   // album/artist split for the bottom-right status chip. `nodes()`
@@ -749,9 +741,10 @@ export function createGraphLibraryView(opts: CreateGraphLibraryViewOpts): GraphL
 
   const pane = (
     <div class="flex-1 relative overflow-hidden">
-      <AlbumGraphCanvas
+      <GraphCanvas
         nodes={nodes()}
-        edges={edges()}
+        onEdges={setEdges}
+        relatedArtists={opts.relatedArtists?.()}
         enabledKinds={enabled()}
         lockNodes={opts.lockNodes ?? false}
         selectedId={canvasSelectedId()}
@@ -834,11 +827,11 @@ export function createGraphLibraryView(opts: CreateGraphLibraryViewOpts): GraphL
         class="absolute inset-0"
       />
 
-      <Show when={popInfo().list.length > 0 && currentSel() && !popHidden()}>
+      <Show when={popInfo().list.length > 0 && currentSel() && !albumPanel.hidden()}>
         <div class="absolute bottom-3 left-3 z-10 max-w-[min(360px,calc(100%-1.5rem))] pointer-events-auto">
           <button
             type="button"
-            onClick={() => setPopHidden(true)}
+            onClick={albumPanel.hide}
             title="hide details"
             aria-label="hide details"
             class="absolute -top-2 -right-2 z-10 w-6 h-6 inline-flex items-center justify-center rounded-full border border-white/15 bg-[var(--color-bg-elevated)]/90 backdrop-blur-sm text-white/70 hover:text-white hover:border-white/30 cursor-pointer p-0"
@@ -867,10 +860,10 @@ export function createGraphLibraryView(opts: CreateGraphLibraryViewOpts): GraphL
         </div>
       </Show>
 
-      <Show when={popInfo().list.length > 0 && currentSel() && popHidden()}>
+      <Show when={popInfo().list.length > 0 && currentSel() && albumPanel.hidden()}>
         <button
           type="button"
-          onClick={() => setPopHidden(false)}
+          onClick={albumPanel.restore}
           title="show details"
           class="absolute bottom-3 left-3 z-10 inline-flex items-center gap-1.5 px-2 py-1 rounded border border-white/15 bg-[var(--color-bg-elevated)]/90 backdrop-blur-sm text-[11px] text-white/80 hover:text-white hover:border-white/30 cursor-pointer pointer-events-auto"
         >
@@ -884,11 +877,11 @@ export function createGraphLibraryView(opts: CreateGraphLibraryViewOpts): GraphL
 
       {/* artist detail popover mutually exclusive with the album
           popover above because each node has exactly one kind. */}
-      <Show when={selectedArtist() && artistPopList().length > 0 && !artistPopHidden()}>
+      <Show when={selectedArtist() && artistPopList().length > 0 && !artistPanel.hidden()}>
         <div class="absolute bottom-3 left-3 z-10 max-w-[min(360px,calc(100%-1.5rem))] pointer-events-auto">
           <button
             type="button"
-            onClick={() => setArtistPopHidden(true)}
+            onClick={artistPanel.hide}
             title="hide details"
             aria-label="hide details"
             class="absolute -top-2 -right-2 z-10 w-6 h-6 inline-flex items-center justify-center rounded-full border border-white/15 bg-[var(--color-bg-elevated)]/90 backdrop-blur-sm text-white/70 hover:text-white hover:border-white/30 cursor-pointer p-0"
@@ -914,10 +907,10 @@ export function createGraphLibraryView(opts: CreateGraphLibraryViewOpts): GraphL
         </div>
       </Show>
 
-      <Show when={selectedArtist() && artistPopList().length > 0 && artistPopHidden()}>
+      <Show when={selectedArtist() && artistPopList().length > 0 && artistPanel.hidden()}>
         <button
           type="button"
-          onClick={() => setArtistPopHidden(false)}
+          onClick={artistPanel.restore}
           title="show details"
           class="absolute bottom-3 left-3 z-10 inline-flex items-center gap-1.5 px-2 py-1 rounded border border-white/15 bg-[var(--color-bg-elevated)]/90 backdrop-blur-sm text-[11px] text-white/80 hover:text-white hover:border-white/30 cursor-pointer pointer-events-auto"
         >

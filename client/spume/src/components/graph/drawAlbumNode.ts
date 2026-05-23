@@ -11,6 +11,7 @@
 // - all sizes are in world units, so labels naturally scale with zoom
 
 import { getImage, getImageFor } from "./imageCache";
+import { bump } from "./perfLog";
 import type { AlbumNodeData, NodeState } from "./types";
 
 export interface DrawAlbumNodeArgs {
@@ -94,12 +95,14 @@ export function drawAlbumNode(args: DrawAlbumNodeArgs): void {
       ? getImageFor(album.image, 200, onImageReady)
       : getImage(album.imageUrl!, onImageReady);
     if (img) {
+      bump("draw.album.img.ready");
       ctx.save();
       roundRect(ctx, x0, y0, size, size, radius);
       ctx.clip();
       ctx.drawImage(img, x0, y0, size, size);
       ctx.restore();
     } else {
+      bump("draw.album.img.loading");
       // placeholder while loading: subtle center dot
       ctx.fillStyle = mutedColor;
       ctx.globalAlpha *= 0.4;
@@ -109,6 +112,7 @@ export function drawAlbumNode(args: DrawAlbumNodeArgs): void {
       ctx.globalAlpha /= 0.4;
     }
   } else {
+    bump("draw.album.img.none");
     // no image — show artist + title in-tile, but only when the tile is
     // large enough on screen to be legible. below the threshold the tile
     // is just a colored placeholder; hovering / selecting reveals the
@@ -145,7 +149,7 @@ export function drawAlbumNode(args: DrawAlbumNodeArgs): void {
   // at low on-screen sizes the in-tile band ends up covering most of the
   // artwork with text that's still tiny + cramped, so we suppress it
   // here and let the canvas draw a screen-space label below the tile
-  // instead (see AlbumGraphCanvas hover/low-zoom label pass).
+  // instead (see GraphCanvas hover/low-zoom label pass).
   const overlayScreenSize = size * Math.max(zoom, 0.05);
   if (showLabel && overlayScreenSize >= 64) {
     drawLabelOverlay(

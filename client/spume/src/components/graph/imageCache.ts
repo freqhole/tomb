@@ -23,9 +23,19 @@ import {
 } from "../../music/services/storage/blobs";
 import { isCharnelManagedRemoteSync } from "../../music/services/storage/transportCache";
 import type { ImageMetadata } from "../../music/services/storage/types";
+import { bump, gauge, timing } from "./perfLog";
 
 type Entry =
-  | { state: "loading"; promise: Promise<HTMLImageElement | null> }
+  | {
+      state: "loading";
+      promise: Promise<HTMLImageElement | null>;
+      /** dedupe per-url ready listeners so repeated draws while the
+       *  image is in-flight don't pile up hundreds of `.then()`
+       *  callbacks (each draw attaches its own otherwise). a single
+       *  Set keyed by fn reference keeps the listener count to the
+       *  number of distinct callers — typically 1 per GraphCanvas. */
+      listeners: Set<() => void>;
+    }
   | { state: "ready"; image: HTMLImageElement }
   | { state: "error" };
 
@@ -46,7 +56,25 @@ const failed = new Set<string>();
 // `getImage`. populated by the async branches so subsequent draws
 // short-circuit straight to the canvas image cache without re-walking
 // the priority chain.
-const resolvedFor = new Map<string, string>();
+const _resolvedFor = new Map<string, string>();
+const resolvedFor = {
+  get(key: string): string | undefined {
+    return _resolvedFor.get(key);
+  },
+  set(key: string, url: string): void {
+    const prev = _resolvedFor.get(key);
+    if (prev && prev !== url) {
+      // a previously-resolved key now resolves to a different url —
+      // typically means the underlying ImageMetadata gained a new
+      // local/p2p source (OPFS hydration after a remote fetch) so
+      // future draws will hit a fresh (loading) cache entry and the
+      // user sees a brief placeholder flash. count it so we can see
+      // how often it happens.
+      bump("img.resolve.changed");
+    }
+    _resolvedFor.set(key, url);
+  },
+};
 
 function imageKey(img: ImageMetadata, size: ThumbnailSize | undefined): string {
   return [
@@ -70,28 +98,82 @@ export function getImage(
 ): HTMLImageElement | null {
   const hit = cache.get(url);
   if (hit) {
-    if (hit.state === "ready") return hit.image;
-    if (hit.state === "loading" && onReady) {
-      void hit.promise.then(() => onReady());
+    if (hit.state === "ready") {
+      bump("img.cache.hit");
+      return hit.image;
     }
+    if (hit.state === "loading") {
+      bump("img.cache.pending");
+      if (onReady) {
+        // Set-based dedupe: the same `requestDraw` reference from a
+        // given GraphCanvas only registers once no matter how many
+        // frames draw against this not-yet-ready image.
+        hit.listeners.add(onReady);
+      }
+      return null;
+    }
+    bump("img.cache.error");
     return null;
   }
+  bump("img.cache.miss");
 
   const img = new Image();
   img.decoding = "async";
+  const listeners = new Set<() => void>();
+  if (onReady) listeners.add(onReady);
+  const fireReady = () => {
+    for (const fn of listeners) {
+      try {
+        fn();
+      } catch {
+        // ignore listener failures — one bad onReady shouldn't take
+        // down the whole queue.
+      }
+    }
+    listeners.clear();
+  };
+  const loadStart = performance.now();
   const promise = new Promise<HTMLImageElement | null>((resolve) => {
     img.onload = () => {
-      cache.set(url, { state: "ready", image: img });
-      resolve(img);
-      if (onReady) onReady();
+      // await image.decode() so the FIRST drawImage() on the main
+      // thread doesn't pay a synchronous decode cost — that decode
+      // was the source of visible "flashes" / frame stalls right
+      // after an image finished loading (especially common while
+      // streaming many album thumbs at once).
+      const finish = () => {
+        cache.set(url, { state: "ready", image: img });
+        timing("img.load", performance.now() - loadStart);
+        bump("img.load.done");
+        gauge("img.cache.size", cache.size);
+        resolve(img);
+        fireReady();
+      };
+      const decodeOk =
+        typeof (img as HTMLImageElement & { decode?: () => Promise<void> })
+          .decode === "function";
+      if (decodeOk) {
+        img
+          .decode()
+          .then(finish)
+          .catch(() => {
+            // some browsers (or images served with restrictive headers)
+            // refuse to decode async — still usable, fall back to the
+            // sync path the browser takes on first drawImage().
+            bump("img.decode.fail");
+            finish();
+          });
+      } else {
+        finish();
+      }
     };
     img.onerror = () => {
       cache.set(url, { state: "error" });
+      bump("img.load.error");
       resolve(null);
-      if (onReady) onReady();
+      fireReady();
     };
   });
-  cache.set(url, { state: "loading", promise });
+  cache.set(url, { state: "loading", promise, listeners });
   img.src = url;
   return null;
 }

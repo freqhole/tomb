@@ -2,7 +2,7 @@
 //
 // converts an `AlbumSummary` (the wire shape returned by the library
 // query) into an `AlbumNodeData` (the graph-local shape consumed by
-// AlbumGraphCanvas, AlbumDetailPopover, and relations.ts).
+// GraphCanvas, AlbumDetailPopover, and relations.ts).
 //
 // taxons-first: prefer `taxons[].filter(kind_slug === "genre" | "mood"
 // | "style" | "era" | "label")` and fall back to the legacy top-level

@@ -11,6 +11,7 @@
 // - dimmed state respects the same alpha mask as albums
 
 import { getImage, getImageFor } from "./imageCache";
+import { bump } from "./perfLog";
 import type { ArtistNodeData, NodeState } from "./types";
 
 export interface DrawArtistNodeArgs {
@@ -62,6 +63,7 @@ export function drawArtistNode(args: DrawArtistNodeArgs): void {
       ? getImageFor(artist.image, 200, onImageReady)
       : getImage(artist.imageUrl!, onImageReady);
     if (img) {
+      bump("draw.artist.img.ready");
       ctx.save();
       ctx.beginPath();
       ctx.arc(x, y, r, 0, Math.PI * 2);
@@ -69,11 +71,13 @@ export function drawArtistNode(args: DrawArtistNodeArgs): void {
       ctx.drawImage(img, x - r, y - r, size, size);
       ctx.restore();
     } else {
+      bump("draw.artist.img.loading");
       // image is loading — fall back to acronym placeholder so the
       // node isn't a blank disc.
       drawAcronym(ctx, artist, x, y, size, textColor);
     }
   } else {
+    bump("draw.artist.img.none");
     drawAcronym(ctx, artist, x, y, size, textColor);
   }
 

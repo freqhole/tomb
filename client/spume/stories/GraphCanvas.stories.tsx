@@ -1,6 +1,6 @@
 import { createEffect, createMemo, createSignal, onCleanup, Show } from "solid-js";
 import type { Meta, StoryObj } from "storybook-solidjs-vite";
-import { AlbumGraphCanvas, type GraphActions } from "../src/components/graph/AlbumGraphCanvas";
+import { GraphCanvas, type GraphActions } from "../src/components/graph/GraphCanvas";
 import { AlbumDetailPopover } from "../src/components/graph/AlbumDetailPopover";
 import { GraphControls, type GraphTool } from "../src/components/graph/GraphControls";
 import { RelationLegend } from "../src/components/graph/RelationLegend";
@@ -499,7 +499,7 @@ function GraphDemo(props: DemoProps) {
   return (
     <div class="fixed inset-0 bg-[var(--color-bg,#0e0e12)] text-[var(--color-text,#e6e6e6)] overflow-hidden">
       <div class="absolute inset-0">
-        <AlbumGraphCanvas
+        <GraphCanvas
           nodes={props.nodes}
           edges={edges()}
           enabledKinds={enabled()}
@@ -728,7 +728,7 @@ function GraphDemo(props: DemoProps) {
 }
 
 const meta = {
-  title: "Graph/AlbumGraphCanvas",
+  title: "Graph/GraphCanvas",
   component: GraphDemo,
   parameters: {
     layout: "fullscreen",

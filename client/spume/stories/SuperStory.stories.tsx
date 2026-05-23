@@ -1133,7 +1133,7 @@ export const FullAppDemo: Story = {
           <div class="flex-1 overflow-hidden flex flex-col">{mainContent()}</div>
 
           {/* queue sidebar — inline so opening it shrinks the canvas
-              (AlbumGraphCanvas auto-resizes via ResizeObserver) instead
+              (GraphCanvas auto-resizes via ResizeObserver) instead
               of floating over the graph. */}
           <QueueSidebar
             isOpen={queueOpen()}
@@ -1196,7 +1196,7 @@ export const FullAppDemo: Story = {
 //   - the topnav's search input drives a node-highlight filter that
 //     dims everything not matching, leaving matches at full opacity.
 //   - the queue sidebar runs in "inline" mode so opening it shrinks
-//     the canvas (AlbumGraphCanvas auto-resizes via ResizeObserver).
+//     the canvas (GraphCanvas auto-resizes via ResizeObserver).
 //   - a player bar pinned to the bottom further trims the canvas height.
 // createGraphLibraryView lives in
 // src/library/views/graph/createGraphLibraryView.tsx — see the import

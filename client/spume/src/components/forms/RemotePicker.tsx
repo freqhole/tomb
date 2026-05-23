@@ -49,6 +49,13 @@ interface RemotePickerProps {
   layout?: "floating" | "inline";
   /** extra class for the outer container */
   class?: string;
+  /** fires `true` when the user opens the overflow flyout/modal and
+   *  `false` when it closes. parents that want to defer expensive work
+   *  while the picker is in use (eg. holding off a graph rebuild) can
+   *  combine this with pointer/focus tracking on the picker host. the
+   *  inline chip strip emits no events here \u2014 use pointer/focus on
+   *  the host element for that case. */
+  onActiveChange?: (active: boolean) => void;
 }
 
 const LONG_PRESS_MS = 500;
@@ -144,11 +151,13 @@ export function RemotePicker(props: RemotePickerProps) {
   // ── flyout helpers ───────────────────────────────────────────────────────
   const closeFlyout = () => {
     setFlyoutOpen(false);
+    props.onActiveChange?.(false);
     triggerRef?.focus();
   };
 
   const openFlyout = () => {
     setFocusedIndex(-1);
+    props.onActiveChange?.(true);
     if (triggerRef) {
       const rect = triggerRef.getBoundingClientRect();
       setFlyoutPos({ top: rect.bottom + 4, left: rect.left });
