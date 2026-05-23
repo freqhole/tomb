@@ -82,8 +82,14 @@ export function LibraryView() {
   //
   // the first non-empty value still comes through immediately so the
   // initial mount isn't artificially delayed.
-  const GRAPH_REMOTE_LEAVE_MS = 250;
-  const GRAPH_REMOTE_MAX_HOLD_MS = 8000;
+  //
+  // additionally: when the picker exposes a flyout/modal (i.e. when
+  // overflow forces the popover form), its close event is a strong
+  // "user is done" signal — we short-circuit the leave-window
+  // entirely and commit immediately. the inline chip-strip path has
+  // no close event so it still relies on pointer/focus tracking.
+  const GRAPH_REMOTE_LEAVE_MS = 120;
+  const GRAPH_REMOTE_MAX_HOLD_MS = 3500;
   const [debouncedSelectedRemotes, setDebouncedSelectedRemotes] = createSignal<Remote[]>([]);
   const [pickerActive, setPickerActive] = createSignal(false);
   let graphRemotesPrimed = false;
@@ -192,7 +198,16 @@ export function LibraryView() {
       });
     },
     onFlyoutActiveChange: (active: boolean) => {
+      const wasOpen = flyoutInside;
       flyoutInside = active;
+      // flyout close is the unambiguous "done selecting" signal —
+      // commit immediately, skipping the leave-window. pointer/focus
+      // may still be over the trigger chip, so we don't touch those.
+      if (wasOpen && !active) {
+        recomputeActive();
+        commitPending();
+        return;
+      }
       recomputeActive();
     },
   };

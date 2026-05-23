@@ -247,6 +247,10 @@ export interface MsgPositions {
   buf: Float32Array;
   tick: number;
   alpha: number;
+  /** milliseconds the worker spent in the most recent sim tick
+   *  (force compute + buffer copy). main forwards into perfLog so
+   *  the worker side of the cost shows up alongside `draw.frame`. */
+  tickMs?: number;
 }
 
 export interface MsgHitResult {

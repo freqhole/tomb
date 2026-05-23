@@ -31,6 +31,7 @@ import type {
   WorkerToMain,
 } from "./messages";
 import type { RelationKind } from "../types";
+import { timing } from "../perfLog";
 
 export type PositionsListener = (
   buf: Float32Array,
@@ -139,6 +140,9 @@ export function createGraphWorkerClient(): GraphWorkerClient {
       }
       case "positions": {
         const pos: MsgPositions = msg;
+        if (typeof pos.tickMs === "number") {
+          timing("worker.tick.ms", pos.tickMs);
+        }
         if (positionsListeners.size === 0) {
           safeRelease(pos.buf);
           break;

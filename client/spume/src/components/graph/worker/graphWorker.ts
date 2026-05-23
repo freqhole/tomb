@@ -120,6 +120,7 @@ function releaseToPool(buf: Float32Array) {
 }
 
 function emitPositions() {
+  const tickStart = performance.now();
   performance.mark("graph-tick-start");
   const buf = obtainBuf(simNodes.length);
   for (let i = 0; i < simNodes.length; i++) {
@@ -129,7 +130,11 @@ function emitPositions() {
   }
   tick++;
   hitTreeStale = true;
-  post({ type: "positions", buf, tick, alpha: sim?.alpha() ?? 0 }, [buf.buffer]);
+  const tickMs = performance.now() - tickStart;
+  post(
+    { type: "positions", buf, tick, alpha: sim?.alpha() ?? 0, tickMs },
+    [buf.buffer],
+  );
   performance.measure("graph-tick", "graph-tick-start");
   performance.clearMarks("graph-tick-start");
 }
@@ -146,13 +151,31 @@ function buildSim(mode: UpdateMode) {
   // scale the layout out as node count grows so 2k+ node graphs
   // spread their clusters apart enough to read. breakpoints are
   // gentle so small libraries don't suddenly explode outward on a
-  // few new nodes.
+  // few new nodes. kept conservative — collide.iterations does the
+  // anti-overlap heavy lifting now, so we don't need to inflate
+  // link distance much.
   const nCount = simNodes.length;
-  const densityMul = nCount >= 3000 ? 1.6 : nCount >= 1500 ? 1.35 : nCount >= 800 ? 1.15 : 1;
-  const linkDist = sz * 2.8 * densityMul;
-  const chargeStr = -sz * 8 * densityMul;
-  const collideAlbum = sz * 0.95 * densityMul;
-  const collideArtist = sz * 0.65 * densityMul;
+  const densityMul = nCount >= 3000 ? 1.2 : nCount >= 1500 ? 1.1 : nCount >= 800 ? 1.05 : 1;
+  // link distance: target spacing between connected nodes. tightened
+  // so clusters pack closer (was 2.8) — collide is what guarantees
+  // non-overlap, link just suggests "want to be near".
+  const linkDist = sz * 2.0 * densityMul;
+  // charge: long-range mutual repulsion. lowered (was -8) because we
+  // now lean on collide for non-overlap and let charge only handle
+  // soft cluster separation. less charge = tighter overall layout.
+  const chargeStr = -sz * 5 * densityMul;
+  // collide radii: forceCollide treats nodes as DISCS. an axis-
+  // aligned album square of edge `sz` is inscribed in a disc of
+  // radius sz/2, but two squares oriented at 45° to each other have
+  // their corners reaching sz*√2/2 ≈ 0.707*sz from center. so a
+  // collide radius below 0.707 lets adjacent squares visually
+  // overlap when their relative orientation is diagonal — that
+  // was the source of the persistent overlap report. 0.72 covers
+  // worst-case orientation with a tiny visual gap. artist circles
+  // are perfect discs of diameter sz so r >= 0.5 is the hard
+  // minimum; 0.52 gives a hair of padding.
+  const collideAlbum = sz * 0.72 * densityMul;
+  const collideArtist = sz * 0.52 * densityMul;
 
   sim = forceSimulation<SimNode, SimLink>(simNodes)
     .force(
@@ -168,15 +191,28 @@ function buildSim(mode: UpdateMode) {
     // album's square corners (which extend to sz*sqrt(2)/2 from
     // center along the diagonal) don't visually intersect an adjacent
     // artist circle.
+    //
+    // iterations bumped on dense graphs: jacobi-style collide needs
+    // more sub-passes to fully untangle overlaps when many pairs are
+    // simultaneously crowded by strong link/charge forces. small
+    // libraries already settle cleanly with a few iterations, so we
+    // only pay the extra cost where it's needed.
     .force(
       "collide",
       forceCollide<SimNode>()
         .radius((n) => (n.kind === "album" ? collideAlbum : collideArtist))
         .strength(1)
-        .iterations(3),
+        .iterations(nCount >= 3000 ? 16 : nCount >= 1500 ? 12 : nCount >= 500 ? 8 : 6),
     )
-    // faster cool-down (~90 ticks vs d3 default ~300).
-    .alphaDecay(0.05)
+    // cool-down: slower on dense graphs so collide has more ticks
+    // to untangle simultaneous overlaps before velocities die out.
+    // small libraries keep the snappy ~90-tick settle.
+    // alphaMin raised slightly above d3 default (0.001) so the sim
+    // doesn't freeze with residual link/charge tension still pushing
+    // collide-constrained pairs apart — keeping a tiny background
+    // alpha lets jacobi collide finish cleaning up the layout.
+    .alphaDecay(nCount >= 1500 ? 0.028 : 0.05)
+    .alphaMin(0.002)
     .velocityDecay(0.55);
 
   sim.on("tick", emitPositions);

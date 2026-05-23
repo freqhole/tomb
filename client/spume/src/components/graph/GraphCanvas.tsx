@@ -222,6 +222,90 @@ export function GraphCanvas(props: GraphCanvasProps) {
   // can re-filter `simLinks` locally without round-tripping nodes
   // through the worker.
   let cachedDerivedEdges: GraphEdge[] = [];
+
+  // ---- edge-pair aggregation -------------------------------------------
+  // many pairs of nodes share *several* relation kinds (e.g. same genre
+  // + same label + same era). without aggregation each one is rendered
+  // as its own quadratic bezier — but `edgeControlPoint` produces the
+  // identical curve for every kind on the same pair, so the strokes
+  // would stack on top of each other and only the last-drawn color
+  // would be visible. aggregation:
+  //   - groups all SimLinks by canonical node-pair key
+  //   - renders ONE curve per pair, split into N equal-length segments
+  //     each painted in its kind's color (so every relation is visible)
+  //   - hit-tests against the pair geometry, then maps the closest
+  //     curve parameter `t` to a specific kind/link for selection
+  // this also halves+ the inner-loop count for the dim pass on dense
+  // graphs (avg multiplicity 2-3x is typical for the large remote).
+  type EdgePair = {
+    /** canonical key: lexicographically smaller id first. */
+    key: string;
+    a: SimNode;
+    b: SimNode;
+    /** all SimLinks between a and b regardless of direction. order is
+     *  stable across rebuilds (by kind then label). */
+    links: SimLink[];
+    /** max weight across all links — used when picking line widths in
+     *  the "involved" highlight pass. */
+    maxWeight: number;
+    // transient per-frame fields, populated by the draw loop. kept on
+    // the pair to avoid per-frame Map allocations.
+    _sx?: number;
+    _sy?: number;
+    _tx?: number;
+    _ty?: number;
+    _cpx?: number;
+    _cpy?: number;
+    /** perpendicular unit vector (in world coords) along which the
+     *  parallel kind-stripes are offset. computed once per frame from
+     *  the (a → b) direction. */
+    _nx?: number;
+    _ny?: number;
+    /** true when the pair's bounding box intersects the viewport this
+     *  frame. set by the edge-cull pass and consumed by the bucket /
+     *  draw passes. */
+    _visible?: boolean;
+  };
+  let pairs: EdgePair[] = [];
+
+  function pairKeyFor(aId: string, bId: string): string {
+    return aId < bId ? `${aId}|${bId}` : `${bId}|${aId}`;
+  }
+
+  function rebuildEdgePairs(): void {
+    const byKey = new Map<string, EdgePair>();
+    for (const l of simLinks) {
+      const s = l.source as SimNode;
+      const t = l.target as SimNode;
+      const key = pairKeyFor(s.id, t.id);
+      let p = byKey.get(key);
+      if (!p) {
+        // a/b are canonicalized so curve orientation stays stable across
+        // rebuilds (otherwise toggling a kind could flip a/b and the
+        // bezier would wobble to the other side).
+        const aFirst = s.id < t.id;
+        p = {
+          key,
+          a: aFirst ? s : t,
+          b: aFirst ? t : s,
+          links: [],
+          maxWeight: 0,
+        };
+        byKey.set(key, p);
+      }
+      p.links.push(l);
+      const w = l.weight ?? 0.5;
+      if (w > p.maxWeight) p.maxWeight = w;
+    }
+    // deterministic ordering of kinds within each pair so colors don't
+    // shuffle between frames.
+    const linkSortKey = (l: SimLink): string => `${String(l.kind)}|${l.label ?? ""}`;
+    for (const p of byKey.values()) {
+      p.links.sort((x, y) => (linkSortKey(x) < linkSortKey(y) ? -1 : 1));
+    }
+    pairs = Array.from(byKey.values());
+  }
+
   // node lookup by id — kept in sync with simNodes on every rebuild.
   // used to map worker hit-test responses (which only carry ids) back
   // to the local SimNode refs that the renderer + drag code uses.
@@ -237,8 +321,34 @@ export function GraphCanvas(props: GraphCanvasProps) {
     null;
   let hoverHitAbort: AbortController | null = null;
   let hoverScheduled = false;
+  // hover-throttle: while the user is actively zooming/panning the
+  // viewport, hover hit-tests are pure overhead — the pointer is
+  // moving relative to world coords every frame so any hover state
+  // we'd resolve is stale before paint. we set `interactingUntil`
+  // ~120ms into the future on wheel/pan and skip per-frame
+  // hit-tests until then. a single trailing hit-test fires after
+  // interaction settles so hover comes back to life immediately.
+  let interactingUntil = 0;
+  let hoverTrailingTimer: ReturnType<typeof setTimeout> | null = null;
+  function markInteracting() {
+    interactingUntil = performance.now() + 120;
+  }
   function scheduleHoverHitTest() {
     if (hoverScheduled) return;
+    const now = performance.now();
+    if (now < interactingUntil) {
+      // currently panning/zooming — skip the per-frame hit-test and
+      // arm a single trailing one that fires shortly after the
+      // interaction-quiet timestamp.
+      if (!hoverTrailingTimer) {
+        const delay = Math.max(16, interactingUntil - now + 8);
+        hoverTrailingTimer = setTimeout(() => {
+          hoverTrailingTimer = null;
+          scheduleHoverHitTest();
+        }, delay);
+      }
+      return;
+    }
     hoverScheduled = true;
     requestAnimationFrame(() => {
       hoverScheduled = false;
@@ -450,6 +560,7 @@ export function GraphCanvas(props: GraphCanvasProps) {
         return { ...e, source: s, target: t, _key: edgeKey(e) } as SimLink;
       })
       .filter((x): x is SimLink => x !== null);
+    rebuildEdgePairs();
   }
 
   function rebuild() {
@@ -517,6 +628,7 @@ export function GraphCanvas(props: GraphCanvasProps) {
           return { ...e, source: s, target: t, _key: edgeKey(e) } as SimLink;
         })
         .filter((x): x is SimLink => x !== null);
+      rebuildEdgePairs();
     }
 
     // package the sim-relevant subset of nodes/links for the worker.
@@ -540,7 +652,7 @@ export function GraphCanvas(props: GraphCanvasProps) {
       // downstream consumer (renderer, hitTest, fit) keeps working
       // against the same data shape it always did. throttled
       // hitter invalidation matches the pre-worker behaviour.
-      worker.onPositions((buf) => {
+      worker.onPositions((buf, _tick, alpha) => {
         // length mismatch can happen briefly between an `update`
         // dispatch and the worker's next tick: the worker may emit
         // one last buffer of the previous size while we've already
@@ -550,6 +662,10 @@ export function GraphCanvas(props: GraphCanvasProps) {
             simNodes[i].x = buf[i * 2];
             simNodes[i].y = buf[i * 2 + 1];
           }
+          // track sim heat so deferred draws (image arrivals) can
+          // tell when the layout has settled and aggressive
+          // coalescing is safe.
+          lastSimAlpha = alpha;
           requestDraw();
         }
         worker?.release(buf);
@@ -619,12 +735,56 @@ export function GraphCanvas(props: GraphCanvasProps) {
   let drawScheduled = false;
   let animatingMarquee = false;
   let lastDrawTime = 0;
+  let lastFrameStart = 0;
+
+  // idle / deferred draw plumbing.
+  //
+  // `requestDraw` is the existing immediate path — every input,
+  // topology, and sim-tick caller still gets a next-frame rAF paint.
+  // `requestDrawDeferred` is for cheap-to-postpone redraws (today:
+  // image-cache arrivals). a slow federation backend trickles in
+  // hundreds of thumbs over many seconds; under the old code each
+  // arrival cost a full ~46k-edge repaint. coalesce a burst of
+  // arrivals into one paint per IDLE_COALESCE_MS, but escalate to
+  // immediate when the sim is still hot so newly-arrived thumbs
+  // appear in sync with the live layout. tracked via lastSimAlpha.
+  const SIM_ACTIVE_ALPHA = 0.005; // slightly above worker alphaMin (0.002)
+  const IDLE_COALESCE_MS = 160;
+  let lastSimAlpha = 1;
+  let idleCoalesceTimer: ReturnType<typeof setTimeout> | null = null;
+  function requestDrawDeferred() {
+    if (drawScheduled || idleCoalesceTimer) return;
+    if (lastSimAlpha > SIM_ACTIVE_ALPHA || animatingMarquee) {
+      // sim still warming up or marquee already painting every frame:
+      // no benefit from delaying — piggy-back on the next paint.
+      requestDraw();
+      return;
+    }
+    bump("draw.idle.coalesce");
+    idleCoalesceTimer = setTimeout(() => {
+      idleCoalesceTimer = null;
+      requestDraw();
+    }, IDLE_COALESCE_MS);
+  }
   function requestDraw() {
     if (drawScheduled) return;
+    // if a deferred draw was queued, fold it into this immediate one
+    // so we don't double-paint.
+    if (idleCoalesceTimer) {
+      clearTimeout(idleCoalesceTimer);
+      idleCoalesceTimer = null;
+    }
     drawScheduled = true;
     requestAnimationFrame((t) => {
       drawScheduled = false;
       lastDrawTime = t;
+      // inter-frame delta — gauge approximate FPS so slow zoom-out
+      // frames show up clearly against the dataset / zoom snapshot.
+      if (lastFrameStart > 0) {
+        const inter = t - lastFrameStart;
+        if (inter > 0) gauge("draw.fps", Math.round(1000 / inter));
+      }
+      lastFrameStart = t;
       performance.mark("graph-draw-start");
       const t0 = performance.now();
       draw(t);
@@ -633,6 +793,7 @@ export function GraphCanvas(props: GraphCanvasProps) {
       performance.clearMarks("graph-draw-start");
       timing("draw.frame", dt);
       bump("draw.frame.count");
+      gauge("viewport.zoom", Math.round(view().k * 100) / 100);
       // keep ticking while marquee scrolling
       if (animatingMarquee) requestDraw();
     });
@@ -687,125 +848,270 @@ export function GraphCanvas(props: GraphCanvasProps) {
     }
 
     ctx.lineCap = "round";
-    // edge rendering is batched in two passes:
-    //   1) "dim" edges (out-of-focus / search-miss): all share the same
-    //      alpha + lineWidth, so we can group by stroke color and stroke
-    //      each color group as a single path. this was the biggest
-    //      hotspot in the cpu trace (~830ms in `stroke` calls).
-    //   2) "highlighted" edges (involved/selected/hover/sibling): few in
-    //      number, drawn individually because their lineWidth varies
-    //      with link weight.
-    // pre-compute curvature once per draw — was being read per edge.
+    // edge rendering — aggregated by node-pair.
+    //
+    // many node-pairs share *several* relation kinds (genre + label +
+    // era ...). without aggregation each one is its own quadratic
+    // bezier with identical control point → strokes stack and only
+    // the last color is visible. instead, we render each pair as a
+    // *bundle of parallel stripes* — one stripe per kind, offset
+    // perpendicularly from the centerline by a small screen-constant
+    // spacing. all stripes run in the same direction so the wire's
+    // identity doesn't switch midway; the bundle's effective
+    // thickness grows with the number of relations.
+    //
+    // bucketing is per-STRIPE (i.e. per-link): if kind A is selected
+    // and kind B on the same pair is dim, A's stripe goes to
+    // `highlighted` and B's stripe goes to `dimByColor`. selection /
+    // hover / sibling state remains per-link as before.
+    //
+    // also adds viewport culling of off-screen pairs.
     const curv = curvature();
-    // bucket edges by visual category. dim/search-dim use fixed style,
-    // so we group by color and stroke each group as a single path.
-    const dimByColor = new Map<string, SimLink[]>();
-    const searchDimByColor = new Map<string, SimLink[]>();
-    const highlighted: SimLink[] = [];
-    for (const link of simLinks) {
-      const s = link.source as SimNode;
-      const t = link.target as SimNode;
-      const isHovEdge = link._key === hovEdge;
-      const isSelEdge = selEdges.has(link._key);
-      const isSiblingEdge = siblingEdgeKeys?.has(link._key) ?? false;
-      let involved = !focus && !edgeFocusIds;
-      if (focus) {
-        involved =
-          !!focusConnected &&
-          (focusConnected.has(s.id) ||
-            focusConnected.has(t.id) ||
-            s.id === focus ||
-            t.id === focus);
-      }
-      if (edgeFocusIds) {
-        involved = isSiblingEdge;
-      }
-      const searchDim = hasSearch && search && !search.has(s.id) && !search.has(t.id);
-      if (searchDim && !isSelEdge && !isHovEdge) {
-        const color = kindColor(link.kind);
-        let arr = searchDimByColor.get(color);
-        if (!arr) {
-          arr = [];
-          searchDimByColor.set(color, arr);
-        }
-        arr.push(link);
-      } else if (!isSelEdge && !isHovEdge && !involved) {
-        const color = kindColor(link.kind);
-        let arr = dimByColor.get(color);
-        if (!arr) {
-          arr = [];
-          dimByColor.set(color, arr);
-        }
-        arr.push(link);
-      } else {
-        highlighted.push(link);
-      }
-    }
-
-    // helper to stroke an edge segment into the current path. inlined
-    // to avoid function-call overhead in a per-edge inner loop.
-    function appendEdgeToPath(link: SimLink) {
-      const s = link.source as SimNode;
-      const t = link.target as SimNode;
-      const sx = s.x ?? 0;
-      const sy = s.y ?? 0;
-      const tx = t.x ?? 0;
-      const ty = t.y ?? 0;
-      ctx!.moveTo(sx, sy);
+    // subway-map style: each pair renders as ONE thick wire made of
+    // parallel stripes that BUTT against each other. spacing equals
+    // the stroke width so adjacent stripes touch — the bundle reads
+    // as a single fat wire whose thickness grows with N, not a fan
+    // of separated parallel lines. width is held constant in screen
+    // px (regardless of zoom) and a single value is reused for both
+    // spacing and lineWidth so they always stay in lock-step.
+    const STRIPE_W_SCREEN = 2.5;
+    const stripeSpacing = STRIPE_W_SCREEN / Math.max(v.k, 0.05);
+    // world-space lineWidth that produces STRIPE_W_SCREEN on screen
+    // after the ctx.scale(v.k, v.k) transform applied above. all
+    // edge passes (dim, search-dim, highlighted) share this width so
+    // the bundle is visually a single wire; we vary alpha (and a
+    // tiny lineWidth bump for sel/hov) for state, not thickness.
+    const stripeWidthWorld = stripeSpacing;
+    // LOD thresholds. when a pair's screen length is below MIN_LEN_PX
+    // it's invisible noise — skip entirely. when a multi-kind
+    // bundle would be narrower than MIN_BUNDLE_PX on screen,
+    // collapse to a single representative stripe (still tinted by
+    // the first kind's color) instead of drawing N quadratic curves
+    // that visually overlap into a single pixel anyway.
+    const lodMinLenWorld = 2 / Math.max(v.k, 0.05);
+    const lodBundleCollapse = v.k < 0.6;
+    // viewport rect in world coords (slightly padded for curve sag,
+    // line width and the stripe bundle's perpendicular spread).
+    const edgePad = 12 / Math.max(v.k, 0.05) + 4;
+    const eMinX = -v.tx / v.k - edgePad;
+    const eMaxX = (width - v.tx) / v.k + edgePad;
+    const eMinY = -v.ty / v.k - edgePad;
+    const eMaxY = (height - v.ty) / v.k + edgePad;
+    // pre-pass: per-pair geometry cache + cull test. each pair stores
+    // its world-space endpoints, bezier control point and the perp
+    // unit vector on transient fields so the bucket + draw passes can
+    // reuse them without recomputing edgeControlPoint / hypot.
+    let pairsCulled = 0;
+    let pairsDrawn = 0;
+    let multiKindPairs = 0;
+    for (const p of pairs) {
+      if (p.links.length > 1) multiKindPairs++;
+      const sx = p.a.x ?? 0;
+      const sy = p.a.y ?? 0;
+      const tx = p.b.x ?? 0;
+      const ty = p.b.y ?? 0;
+      let cpx = (sx + tx) * 0.5;
+      let cpy = (sy + ty) * 0.5;
       if (curv > 0) {
         const cp = edgeControlPoint(sx, sy, tx, ty);
-        ctx!.quadraticCurveTo(cp.cx, cp.cy, tx, ty);
-      } else {
-        ctx!.lineTo(tx, ty);
+        cpx = cp.cx;
+        cpy = cp.cy;
+      }
+      // perpendicular unit vector along the a→b direction. used to
+      // offset the parallel kind-stripes from the centerline.
+      const dx = tx - sx;
+      const dy = ty - sy;
+      const len = Math.hypot(dx, dy) || 1;
+      const nx = -dy / len;
+      const ny = dx / len;
+      const aMinX = sx < tx ? (sx < cpx ? sx : cpx) : tx < cpx ? tx : cpx;
+      const aMaxX = sx > tx ? (sx > cpx ? sx : cpx) : tx > cpx ? tx : cpx;
+      const aMinY = sy < ty ? (sy < cpy ? sy : cpy) : ty < cpy ? ty : cpy;
+      const aMaxY = sy > ty ? (sy > cpy ? sy : cpy) : ty > cpy ? ty : cpy;
+      const aabbVisible = !(aMaxX < eMinX || aMinX > eMaxX || aMaxY < eMinY || aMinY > eMaxY);
+      // LOD: drop pairs whose endpoints sit on the same screen pixel.
+      // d3 cool-down stacks many neighbour nodes inside collide
+      // radius at full-zoom-out — their edges contribute nothing
+      // visually but cost a full quadratic stroke each.
+      const visible = aabbVisible && len > lodMinLenWorld;
+      p._sx = sx;
+      p._sy = sy;
+      p._tx = tx;
+      p._ty = ty;
+      p._cpx = cpx;
+      p._cpy = cpy;
+      p._nx = nx;
+      p._ny = ny;
+      p._visible = visible;
+      if (visible) pairsDrawn++;
+      else pairsCulled++;
+    }
+    // bucket stripes by visual category. dim/search-dim/involved
+    // share a fixed style so we group by color and stroke each group
+    // as a single path — a 37k-stripe "nothing selected" frame
+    // collapses from 37k stroke() calls to ~one per kind-color. only
+    // sel/hov stripes pay per-stripe cost (they vary in width/alpha).
+    type SegEntry = { p: EdgePair; i: number };
+    type HighEntry = { p: EdgePair; i: number; vis: "sel" | "hov" };
+    const dimByColor = new Map<string, SegEntry[]>();
+    const searchDimByColor = new Map<string, SegEntry[]>();
+    const invByColor = new Map<string, SegEntry[]>();
+    const highlighted: HighEntry[] = [];
+    let totalSegments = 0;
+    for (const p of pairs) {
+      if (!p._visible) continue;
+      const aId = p.a.id;
+      const bId = p.b.id;
+      // pair-level focus / search state (same for every stripe on
+      // this pair).
+      let pairInvolvedFocus = !focus && !edgeFocusIds;
+      if (focus) {
+        pairInvolvedFocus =
+          !!focusConnected &&
+          (focusConnected.has(aId) || focusConnected.has(bId) || aId === focus || bId === focus);
+      }
+      const searchDim = hasSearch && search && !search.has(aId) && !search.has(bId);
+      // bundle-collapse LOD: at far zoom-out a multi-kind bundle
+      // shrinks to a single screen pixel anyway. emit one stripe
+      // (the first kind) and skip the rest of the pair.
+      const N = p.links.length;
+      const stripeCount = lodBundleCollapse && N > 1 ? 1 : N;
+      for (let i = 0; i < stripeCount; i++) {
+        const link = p.links[i];
+        const isHovEdge = link._key === hovEdge;
+        const isSelEdge = selEdges.has(link._key);
+        const isSiblingEdge = siblingEdgeKeys?.has(link._key) ?? false;
+        // edge-focus mode overrides: only sibling stripes are
+        // promoted to "involved", everything else dims out.
+        const involved = edgeFocusIds ? isSiblingEdge : pairInvolvedFocus;
+        if (searchDim && !isSelEdge && !isHovEdge) {
+          const color = kindColor(link.kind);
+          let arr = searchDimByColor.get(color);
+          if (!arr) {
+            arr = [];
+            searchDimByColor.set(color, arr);
+          }
+          arr.push({ p, i });
+        } else if (!isSelEdge && !isHovEdge && !involved) {
+          const color = kindColor(link.kind);
+          let arr = dimByColor.get(color);
+          if (!arr) {
+            arr = [];
+            dimByColor.set(color, arr);
+          }
+          arr.push({ p, i });
+        } else if (isSelEdge) {
+          highlighted.push({ p, i, vis: "sel" });
+        } else if (isHovEdge) {
+          highlighted.push({ p, i, vis: "hov" });
+        } else {
+          // involved — batch by color (same alpha/lineWidth as dim
+          // but at full opacity). massive win on "nothing selected"
+          // frames where every visible stripe lands here.
+          const color = kindColor(link.kind);
+          let arr = invByColor.get(color);
+          if (!arr) {
+            arr = [];
+            invByColor.set(color, arr);
+          }
+          arr.push({ p, i });
+        }
+        totalSegments++;
       }
     }
 
-    // pass 1a: bulk dim — one path per stroke color.
-    ctx.globalAlpha = 0.12;
-    ctx.lineWidth = 0.8;
-    for (const [color, links] of dimByColor) {
+    // append the i-th stripe of a pair to the current path. each
+    // stripe is the centerline curve translated perpendicularly by
+    // `(i - (N-1)/2) * stripeSpacing` so the kinds render side-by-
+    // side as a bundle. single-kind pairs (N=1) emit the original
+    // single curve (zero offset).
+    function appendPairStripeToPath(p: EdgePair, i: number): void {
+      const sx = p._sx ?? 0;
+      const sy = p._sy ?? 0;
+      const tx = p._tx ?? 0;
+      const ty = p._ty ?? 0;
+      const cpx = p._cpx ?? (sx + tx) * 0.5;
+      const cpy = p._cpy ?? (sy + ty) * 0.5;
+      const nx = p._nx ?? 0;
+      const ny = p._ny ?? 0;
+      const N = p.links.length;
+      const off = N === 1 ? 0 : (i - (N - 1) / 2) * stripeSpacing;
+      const ox = nx * off;
+      const oy = ny * off;
+      ctx!.moveTo(sx + ox, sy + oy);
+      if (curv > 0) {
+        ctx!.quadraticCurveTo(cpx + ox, cpy + oy, tx + ox, ty + oy);
+      } else {
+        ctx!.lineTo(tx + ox, ty + oy);
+      }
+    }
+
+    // pass 1a: bulk dim — one path per stroke color. lineWidth ==
+    // stripeSpacing so adjacent stripes touch and the pair reads as
+    // a single solid wire (subway-map style).
+    const edgeT0 = performance.now();
+    ctx.globalAlpha = 0.18;
+    ctx.lineWidth = stripeWidthWorld;
+    for (const [color, segs] of dimByColor) {
       ctx.strokeStyle = color;
       ctx.beginPath();
-      for (const link of links) appendEdgeToPath(link);
+      for (const s of segs) appendPairStripeToPath(s.p, s.i);
       ctx.stroke();
     }
-    // pass 1b: search-dim (even fainter).
+    // pass 1b: search-dim (even fainter, same thickness).
     if (searchDimByColor.size > 0) {
-      ctx.globalAlpha = 0.05;
-      ctx.lineWidth = 0.6;
-      for (const [color, links] of searchDimByColor) {
+      ctx.globalAlpha = 0.07;
+      ctx.lineWidth = stripeWidthWorld;
+      for (const [color, segs] of searchDimByColor) {
         ctx.strokeStyle = color;
         ctx.beginPath();
-        for (const link of links) appendEdgeToPath(link);
+        for (const s of segs) appendPairStripeToPath(s.p, s.i);
         ctx.stroke();
       }
     }
-    // pass 2: highlighted edges — per-edge style (varies by weight).
-    for (const link of highlighted) {
-      const isHovEdge = link._key === hovEdge;
-      const isSelEdge = selEdges.has(link._key);
-      const w = link.weight ?? 0.5;
+    // pass 1c: involved — batched by color. same width as dim,
+    // higher alpha. this is the hot path on idle frames (nothing
+    // selected/hovered/searched → every visible stripe lands here).
+    if (invByColor.size > 0) {
+      ctx.globalAlpha = 0.9;
+      ctx.lineWidth = stripeWidthWorld;
+      for (const [color, segs] of invByColor) {
+        ctx.strokeStyle = color;
+        ctx.beginPath();
+        for (const s of segs) appendPairStripeToPath(s.p, s.i);
+        ctx.stroke();
+      }
+    }
+    // pass 2: sel/hov stripes — per-stripe lineWidth + alpha bump
+    // so the user can see what they picked. small N so per-stripe
+    // cost doesn't matter.
+    for (const h of highlighted) {
+      const link = h.p.links[h.i];
       ctx.strokeStyle = kindColor(link.kind);
-      if (isSelEdge) {
+      if (h.vis === "sel") {
         ctx.globalAlpha = 1;
-        ctx.lineWidth = 3 + w * 2;
-      } else if (isHovEdge) {
-        ctx.globalAlpha = 0.95;
-        ctx.lineWidth = 2.5 + w * 1.5;
+        ctx.lineWidth = stripeWidthWorld * 1.35;
       } else {
-        // involved
-        ctx.globalAlpha = 0.85;
-        ctx.lineWidth = 1.6 + w * 1.4;
+        // hov
+        ctx.globalAlpha = 0.95;
+        ctx.lineWidth = stripeWidthWorld * 1.2;
       }
       ctx.beginPath();
-      appendEdgeToPath(link);
+      appendPairStripeToPath(h.p, h.i);
       ctx.stroke();
     }
     ctx.globalAlpha = 1;
+    timing("draw.edges.ms", performance.now() - edgeT0);
+    gauge("edges.pairs.total", pairs.length);
+    gauge("edges.pairs.multi", multiKindPairs);
+    bump("edges.pairs.drawn", pairsDrawn);
+    bump("edges.pairs.culled", pairsCulled);
+    bump("edges.segments.drawn", totalSegments);
 
     // (edge labels drawn below in screen space, after nodes)
 
     // nodes
+    const nodesT0 = performance.now();
     animatingMarquee = false;
     const multiSel = props.selectedIds;
     // collect hover/selection nodes to draw in a second pass so they
@@ -853,7 +1159,7 @@ export function GraphCanvas(props: GraphCanvasProps) {
           size: nodeSize(),
           state,
           zoom: v.k,
-          onImageReady: requestDraw,
+          onImageReady: requestDrawDeferred,
         });
       } else {
         drawAlbumNode({
@@ -866,7 +1172,7 @@ export function GraphCanvas(props: GraphCanvasProps) {
           zoom: v.k,
           showLabel,
           time,
-          onImageReady: requestDraw,
+          onImageReady: requestDrawDeferred,
           onMarquee: () => {
             animatingMarquee = true;
           },
@@ -918,6 +1224,7 @@ export function GraphCanvas(props: GraphCanvasProps) {
     bump("draw.nodes.drawn", drawnCount);
     bump("draw.nodes.culled", culledCount);
     bump("draw.nodes.deferred", deferred.length);
+    timing("draw.nodes.ms", performance.now() - nodesT0);
     ctx.restore();
 
     // node labels (screen space) — hover/selection focus only.
@@ -1239,32 +1546,67 @@ export function GraphCanvas(props: GraphCanvasProps) {
     return [e.clientX - rect.left, e.clientY - rect.top];
   }
 
-  /** find edge near a screen-space point; threshold in screen px. */
+  /** find edge near a screen-space point; threshold in screen px.
+   *  iterates aggregated pairs (not individual links) — much cheaper
+   *  on dense graphs since avg multiplicity is 2-3x. for multi-kind
+   *  pairs (rendered as parallel stripes), the signed perpendicular
+   *  offset of the click from the centerline picks the specific
+   *  stripe — single-clicking still selects a single relation. */
   function findEdgeAt(sx: number, sy: number, threshold = 6): SimLink | null {
     const v = view();
     let best: SimLink | null = null;
     let bestDist = threshold;
     const curved = curvature() > 0;
-    for (const l of simLinks) {
-      const s = l.source as SimNode;
-      const t = l.target as SimNode;
-      const sxA = (s.x ?? 0) * v.k + v.tx;
-      const syA = (s.y ?? 0) * v.k + v.ty;
-      const sxB = (t.x ?? 0) * v.k + v.tx;
-      const syB = (t.y ?? 0) * v.k + v.ty;
-      let d: number;
+    // stripe spacing in screen px (matches the world-space spacing
+    // used by the draw loop: STRIPE_W_SCREEN world-px-per-zoom). kept
+    // in sync with the draw-side constant.
+    const stripeSpacingScreen = 2.5;
+    for (const p of pairs) {
+      const ax = (p.a.x ?? 0) * v.k + v.tx;
+      const ay = (p.a.y ?? 0) * v.k + v.ty;
+      const bx = (p.b.x ?? 0) * v.k + v.tx;
+      const by = (p.b.y ?? 0) * v.k + v.ty;
+      let cpsx = (ax + bx) * 0.5;
+      let cpsy = (ay + by) * 0.5;
       if (curved) {
-        // bezier control point in screen space
-        const cpW = edgeControlPoint(s.x ?? 0, s.y ?? 0, t.x ?? 0, t.y ?? 0);
-        const cpsx = cpW.cx * v.k + v.tx;
-        const cpsy = cpW.cy * v.k + v.ty;
-        d = pointBezierDist(sx, sy, sxA, syA, cpsx, cpsy, sxB, syB);
-      } else {
-        d = pointSegDist(sx, sy, sxA, syA, sxB, syB);
+        const cpW = edgeControlPoint(p.a.x ?? 0, p.a.y ?? 0, p.b.x ?? 0, p.b.y ?? 0);
+        cpsx = cpW.cx * v.k + v.tx;
+        cpsy = cpW.cy * v.k + v.ty;
       }
-      if (d < bestDist) {
-        bestDist = d;
-        best = l;
+      const N = p.links.length;
+      // extra pad for the stripe bundle's perpendicular spread.
+      const bundlePad = N > 1 ? ((N - 1) / 2) * stripeSpacingScreen : 0;
+      const pad = threshold + bundlePad;
+      // cheap AABB reject: skip pairs whose curve bbox is too far
+      // from the hit point.
+      const minX = Math.min(ax, bx, cpsx) - pad;
+      const maxX = Math.max(ax, bx, cpsx) + pad;
+      if (sx < minX || sx > maxX) continue;
+      const minY = Math.min(ay, by, cpsy) - pad;
+      const maxY = Math.max(ay, by, cpsy) + pad;
+      if (sy < minY || sy > maxY) continue;
+      const r = pointCurveDistT(sx, sy, ax, ay, cpsx, cpsy, bx, by, curved);
+      if (N === 1) {
+        if (r.dist < bestDist) {
+          bestDist = r.dist;
+          best = p.links[0];
+        }
+        continue;
+      }
+      // multi-kind pair: compute signed perpendicular offset of the
+      // click from the centerline, then snap to the nearest stripe.
+      const tlen = Math.hypot(r.tanX, r.tanY) || 1;
+      const nx = -r.tanY / tlen;
+      const ny = r.tanX / tlen;
+      const signedOff = (sx - r.cx) * nx + (sy - r.cy) * ny;
+      let idx = Math.round(signedOff / stripeSpacingScreen + (N - 1) / 2);
+      if (idx < 0) idx = 0;
+      else if (idx >= N) idx = N - 1;
+      const matchedOff = (idx - (N - 1) / 2) * stripeSpacingScreen;
+      const distToStripe = Math.abs(signedOff - matchedOff);
+      if (distToStripe < bestDist) {
+        bestDist = distToStripe;
+        best = p.links[idx];
       }
     }
     return best;
@@ -1515,6 +1857,7 @@ export function GraphCanvas(props: GraphCanvasProps) {
       const b = activePointers.get(pinchState.p2.id);
       if (!a || !b) return;
       props.onUserInteract?.();
+      markInteracting();
       const newDist = Math.hypot(a.sx - b.sx, a.sy - b.sy) || 1;
       const scaleRatio = newDist / pinchState.initialDist;
       const newK = clamp(pinchState.initialK * scaleRatio, 0.1, 8);
@@ -1607,6 +1950,7 @@ export function GraphCanvas(props: GraphCanvasProps) {
         if (!d.moved) props.onUserInteract?.();
         d.moved = true;
       }
+      markInteracting();
       setView((v) => ({
         ...v,
         tx: d.startTx + ndx,
@@ -1709,6 +2053,7 @@ export function GraphCanvas(props: GraphCanvasProps) {
     if (!canvasEl) return;
     e.preventDefault();
     props.onUserInteract?.();
+    markInteracting();
     const [sx, sy] = clientToScreen(e);
     const v = view();
 
@@ -1970,48 +2315,82 @@ function clamp(v: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, v));
 }
 
-function pointSegDist(
+// distance from point to either a straight or bezier curve, plus the
+// curve parameter `t` of the closest point, the closest point
+// (`cx`,`cy`) and the (un-normalized) tangent direction at that point
+// (`tanX`,`tanY`). used by the aggregated edge hit-test to pick the
+// specific parallel stripe a click landed on (via signed perpendicular
+// offset from the centerline).
+function pointCurveDistT(
   px: number,
   py: number,
-  ax: number,
-  ay: number,
-  bx: number,
-  by: number
-): number {
-  const dx = bx - ax;
-  const dy = by - ay;
-  const lenSq = dx * dx + dy * dy;
-  if (lenSq === 0) return Math.hypot(px - ax, py - ay);
-  let t = ((px - ax) * dx + (py - ay) * dy) / lenSq;
-  t = Math.max(0, Math.min(1, t));
-  return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
-}
-
-// approximate point-to-quadratic-bezier distance by sampling. cheap and
-// good enough for ~6px hit thresholds.
-function pointBezierDist(
-  px: number,
-  py: number,
-  ax: number,
-  ay: number,
+  sx: number,
+  sy: number,
   cx: number,
   cy: number,
-  bx: number,
-  by: number,
+  tx: number,
+  ty: number,
+  curved: boolean,
   samples = 12
-): number {
+): { dist: number; t: number; cx: number; cy: number; tanX: number; tanY: number } {
+  if (!curved) {
+    const dx = tx - sx;
+    const dy = ty - sy;
+    const lenSq = dx * dx + dy * dy;
+    if (lenSq === 0) {
+      return {
+        dist: Math.hypot(px - sx, py - sy),
+        t: 0,
+        cx: sx,
+        cy: sy,
+        tanX: 1,
+        tanY: 0,
+      };
+    }
+    let t = ((px - sx) * dx + (py - sy) * dy) / lenSq;
+    t = Math.max(0, Math.min(1, t));
+    const x = sx + dx * t;
+    const y = sy + dy * t;
+    return { dist: Math.hypot(px - x, py - y), t, cx: x, cy: y, tanX: dx, tanY: dy };
+  }
+  // bezier: sample into line segments, find the closest sub-segment AND
+  // the projection parameter within it; interpolate to get the curve t.
   let best = Infinity;
-  let prevX = ax;
-  let prevY = ay;
+  let bestT = 0;
+  let bestCX = sx;
+  let bestCY = sy;
+  let prevX = sx;
+  let prevY = sy;
   for (let i = 1; i <= samples; i++) {
     const t = i / samples;
     const it = 1 - t;
-    const x = it * it * ax + 2 * it * t * cx + t * t * bx;
-    const y = it * it * ay + 2 * it * t * cy + t * t * by;
-    const d = pointSegDist(px, py, prevX, prevY, x, y);
-    if (d < best) best = d;
+    const x = it * it * sx + 2 * it * t * cx + t * t * tx;
+    const y = it * it * sy + 2 * it * t * cy + t * t * ty;
+    const ddx = x - prevX;
+    const ddy = y - prevY;
+    const lenSq = ddx * ddx + ddy * ddy;
+    let u = 0;
+    if (lenSq > 0) {
+      u = ((px - prevX) * ddx + (py - prevY) * ddy) / lenSq;
+      if (u < 0) u = 0;
+      else if (u > 1) u = 1;
+    }
+    const xx = prevX + ddx * u;
+    const yy = prevY + ddy * u;
+    const d = Math.hypot(px - xx, py - yy);
+    if (d < best) {
+      best = d;
+      const tPrev = (i - 1) / samples;
+      bestT = tPrev + (t - tPrev) * u;
+      bestCX = xx;
+      bestCY = yy;
+    }
     prevX = x;
     prevY = y;
   }
-  return best;
+  // tangent of B(t) = 2(1-t)(P1-P0) + 2t(P2-P1).
+  const itB = 1 - bestT;
+  const tanX = 2 * itB * (cx - sx) + 2 * bestT * (tx - cx);
+  const tanY = 2 * itB * (cy - sy) + 2 * bestT * (ty - cy);
+  return { dist: best, t: bestT, cx: bestCX, cy: bestCY, tanX, tanY };
 }

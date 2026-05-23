@@ -25,10 +25,21 @@ import { isCharnelManagedRemoteSync } from "../../music/services/storage/transpo
 import type { ImageMetadata } from "../../music/services/storage/types";
 import { bump, gauge, timing } from "./perfLog";
 
+// what we hand to canvas drawImage. we deliberately store the
+// HTMLImageElement and not an ImageBitmap: we tried promoting
+// to bitmap (createImageBitmap) for off-thread decode + eager
+// GPU upload, but on webkit / tauri's WKWebView that path
+// blocks the main thread for hundreds of ms per image and
+// holds a GPU texture per cache entry — with 1k+ images the
+// VRAM cost stalled paint. plain HTMLImageElement + decode()
+// is consistently fast across engines and lets the browser
+// upload lazily on first drawImage.
+type DrawableImage = HTMLImageElement;
+
 type Entry =
   | {
       state: "loading";
-      promise: Promise<HTMLImageElement | null>;
+      promise: Promise<DrawableImage | null>;
       /** dedupe per-url ready listeners so repeated draws while the
        *  image is in-flight don't pile up hundreds of `.then()`
        *  callbacks (each draw attaches its own otherwise). a single
@@ -36,7 +47,7 @@ type Entry =
        *  number of distinct callers — typically 1 per GraphCanvas. */
       listeners: Set<() => void>;
     }
-  | { state: "ready"; image: HTMLImageElement }
+  | { state: "ready"; image: DrawableImage }
   | { state: "error" };
 
 const cache = new Map<string, Entry>();
@@ -51,6 +62,45 @@ const resolving = new Set<string>();
 // an image carries a `local_blob_id` that is only resolvable through
 // the charnel-managed remote — see MediaImage's fall-through comment).
 const failed = new Set<string>();
+
+// in-flight load concurrency cap. when the graph first paints with
+// thousands of distinct album images, kicking `new Image(); img.src=
+// ...` for all of them at once does three bad things:
+//   1. saturates the browser's per-origin connection pool (http/1.1
+//      caps at ~6, http/2 multiplexes but the server-side per-conn
+//      handler queue still serializes work)
+//   2. piles up thousands of pending `onload` / `decode` callbacks
+//      that all fire in close succession when the burst lands,
+//      stalling the main thread for hundreds of ms
+//   3. any single slow / federation-timeout endpoint blocks every
+//      slot it's holding — with no cap, a flaky peer can occupy
+//      hundreds of connections for many seconds
+// the cap defers `img.src = url` until a slot frees, so the burst
+// becomes a steady trickle. listeners (`onReady`) still fire as
+// soon as each image lands, so the user sees images stream in.
+const MAX_INFLIGHT = 8;
+let inFlight = 0;
+const pending: Array<() => void> = [];
+
+function acquireSlot(start: () => void): void {
+  if (inFlight < MAX_INFLIGHT) {
+    inFlight++;
+    start();
+  } else {
+    pending.push(start);
+    gauge("img.queue.depth", pending.length);
+  }
+}
+
+function releaseSlot(): void {
+  inFlight--;
+  const next = pending.shift();
+  if (next) {
+    inFlight++;
+    gauge("img.queue.depth", pending.length);
+    next();
+  }
+}
 
 // resolved-url memo: image identity → final url we should hand to
 // `getImage`. populated by the async branches so subsequent draws
@@ -90,12 +140,13 @@ const DEFAULT_THUMB: ThumbnailSize = 200;
 
 /**
  * get an image synchronously if cached, otherwise kick off a load and call
- * `onReady` when decoded. returns the image element if already decoded.
+ * `onReady` when decoded. returns a drawable (ImageBitmap when supported,
+ * HTMLImageElement otherwise) if already decoded.
  */
 export function getImage(
   url: string,
   onReady?: () => void
-): HTMLImageElement | null {
+): DrawableImage | null {
   const hit = cache.get(url);
   if (hit) {
     if (hit.state === "ready") {
@@ -132,8 +183,8 @@ export function getImage(
     }
     listeners.clear();
   };
-  const loadStart = performance.now();
-  const promise = new Promise<HTMLImageElement | null>((resolve) => {
+  let loadStart = 0;
+  const promise = new Promise<DrawableImage | null>((resolve) => {
     img.onload = () => {
       // await image.decode() so the FIRST drawImage() on the main
       // thread doesn't pay a synchronous decode cost — that decode
@@ -145,6 +196,7 @@ export function getImage(
         timing("img.load", performance.now() - loadStart);
         bump("img.load.done");
         gauge("img.cache.size", cache.size);
+        releaseSlot();
         resolve(img);
         fireReady();
       };
@@ -169,12 +221,19 @@ export function getImage(
     img.onerror = () => {
       cache.set(url, { state: "error" });
       bump("img.load.error");
+      releaseSlot();
       resolve(null);
       fireReady();
     };
   });
   cache.set(url, { state: "loading", promise, listeners });
-  img.src = url;
+  // defer `img.src = url` until a slot is available. browsers begin
+  // the network request the moment `src` is assigned, so gating this
+  // is what actually bounds simultaneous connections.
+  acquireSlot(() => {
+    loadStart = performance.now();
+    img.src = url;
+  });
   return null;
 }
 
@@ -195,7 +254,7 @@ export function getImageFor(
   image: ImageMetadata | null | undefined,
   thumbSize: ThumbnailSize | undefined = DEFAULT_THUMB,
   onReady?: () => void
-): HTMLImageElement | null {
+): DrawableImage | null {
   if (!image) return null;
 
   // fast path: we have already resolved this image once.

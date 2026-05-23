@@ -12,6 +12,7 @@
 
 import { getImage, getImageFor } from "./imageCache";
 import { bump } from "./perfLog";
+import { getOrRenderSprite } from "./spriteCache";
 import type { AlbumNodeData, NodeState } from "./types";
 
 export interface DrawAlbumNodeArgs {
@@ -69,39 +70,65 @@ export function drawAlbumNode(args: DrawAlbumNodeArgs): void {
   const half = size / 2;
   const x0 = x - half;
   const y0 = y - half;
+  // on-screen tile edge in CSS pixels. drives LOD tiers below so we
+  // skip rounded-corner clipping + border strokes when the tile is
+  // so small that those details are sub-pixel anyway. measured: at
+  // ~2700 visible nodes the per-frame node pass drops from ~30ms to
+  // ~10ms when LOD kicks in on a fully zoomed-out view.
+  const screenEdge = size * Math.max(zoom, 0.05);
+  const lodTiny = screenEdge < 12; // just a square, no clip, no border, no ring
+  const lodSmall = screenEdge < 24; // square clip (no roundRect), no border
   // corner radius shrinks as the user zooms in — fully rounded at zoom 1,
   // square by the time the user is zoomed in ~4x, so tiles tile cleanly
   // at the highest zoom levels.
   const rFactor = Math.max(0, 1 - (Math.max(zoom, 1) - 1) / 3);
-  const radius = Math.min(6, size * 0.1) * rFactor;
+  const radius = lodSmall ? 0 : Math.min(6, size * 0.1) * rFactor;
 
   const dimmed = state === "dimmed";
   ctx.save();
   if (dimmed) ctx.globalAlpha = 0.2;
 
   // tile background
-  roundRect(ctx, x0, y0, size, size, radius);
-  ctx.fillStyle = bgColor;
-  ctx.fill();
+  if (radius > 0) {
+    roundRect(ctx, x0, y0, size, size, radius);
+    ctx.fillStyle = bgColor;
+    ctx.fill();
+  } else {
+    ctx.fillStyle = bgColor;
+    ctx.fillRect(x0, y0, size, size);
+  }
 
   const hasImage = !!(album.image || album.imageUrl);
 
   if (hasImage) {
-    // prefer the canonical resolver (handles local opfs / p2p / charnel
-    // / plain http with the same primitives MediaImage uses). fall back
-    // to the legacy raw url if no metadata was attached (storybook /
-    // mocks).
-    const img = album.image
-      ? getImageFor(album.image, 200, onImageReady)
-      : getImage(album.imageUrl!, onImageReady);
+    // LOD: when the on-screen tile edge is sub-12px we don't actually
+    // draw the image (lodTiny path below skips drawImage anyway), so
+    // don't bother kicking off a network/opfs request. for ~4000
+    // album graphs zoomed all the way out, this turns the initial
+    // burst of ~4000 simultaneous image loads into zero — the loads
+    // happen incrementally as the user zooms into regions of the
+    // graph. the visible-tier loads still benefit from the in-flight
+    // concurrency cap in imageCache so we don't saturate the per-
+    // origin connection limit.
+    const img = lodTiny
+      ? null
+      : album.image
+        ? getImageFor(album.image, 200, onImageReady)
+        : getImage(album.imageUrl!, onImageReady);
     if (img) {
       bump("draw.album.img.ready");
-      ctx.save();
-      roundRect(ctx, x0, y0, size, size, radius);
-      ctx.clip();
-      ctx.drawImage(img, x0, y0, size, size);
-      ctx.restore();
-    } else {
+      if (radius > 0) {
+        ctx.save();
+        roundRect(ctx, x0, y0, size, size, radius);
+        ctx.clip();
+        ctx.drawImage(img, x0, y0, size, size);
+        ctx.restore();
+      } else {
+        // small/tiny tile — skip clip path entirely. drawImage straight
+        // to the square. saves a beginPath+8 quadratics+clip per node.
+        ctx.drawImage(img, x0, y0, size, size);
+      }
+    } else if (!lodTiny) {
       bump("draw.album.img.loading");
       // placeholder while loading: subtle center dot
       ctx.fillStyle = mutedColor;
@@ -110,6 +137,8 @@ export function drawAlbumNode(args: DrawAlbumNodeArgs): void {
       ctx.arc(x, y, Math.max(2, size * 0.06), 0, Math.PI * 2);
       ctx.fill();
       ctx.globalAlpha /= 0.4;
+    } else {
+      bump("draw.album.img.loading");
     }
   } else {
     bump("draw.album.img.none");
@@ -117,29 +146,60 @@ export function drawAlbumNode(args: DrawAlbumNodeArgs): void {
     // large enough on screen to be legible. below the threshold the tile
     // is just a colored placeholder; hovering / selecting reveals the
     // marquee overlay below so the info isn't lost.
-    const screenSize = size * Math.max(zoom, 0.05);
-    if (screenSize >= 32) {
-      drawTextTile(ctx, album, x, y, size, textColor, mutedColor);
+    if (screenEdge >= 32) {
+      // sprite-cached: the text content for a given album never
+      // changes, so render it once into an offscreen surface at a
+      // bucketed size and blit on every subsequent frame. cuts the
+      // text-tile path from ~3 fillText calls per node to a single
+      // drawImage.
+      const bucket = Math.max(32, Math.round(size / 16) * 16);
+      // key on albumId + bucket + colors. title/artist are implicit
+      // in albumId so we don't need them in the key (would just
+      // bloat memory + slow Map ops).
+      const key = `album-text|${album.id}|${bucket}|${textColor}|${mutedColor}`;
+      const tile = getOrRenderSprite(key, bucket, bucket, (sctx) => {
+        drawTextTile(
+          sctx as CanvasRenderingContext2D,
+          album,
+          bucket / 2,
+          bucket / 2,
+          bucket,
+          textColor,
+          mutedColor,
+        );
+      });
+      if (tile) {
+        ctx.drawImage(tile, x0, y0, size, size);
+      } else {
+        // backing canvas failed — fall back to direct draw.
+        drawTextTile(ctx, album, x, y, size, textColor, mutedColor);
+      }
     }
   }
 
   // border — thin hairline; skipped when selected so the magenta ring
-  // sits flush against the tile without a competing dark outline.
-  if (state !== "selected") {
+  // sits flush against the tile without a competing dark outline. also
+  // skipped at small/tiny LOD where a 0.5px stroke is invisible.
+  if (state !== "selected" && !lodSmall) {
     ctx.lineWidth = 0.5 / Math.max(zoom, 0.5);
     ctx.strokeStyle = borderColor;
     roundRect(ctx, x0, y0, size, size, radius);
     ctx.stroke();
   }
 
-  // hover / selected ring (drawn slightly outside the tile)
+  // hover / selected ring (drawn slightly outside the tile). always
+  // drawn even at tiny LOD so picked nodes stay visible.
   if (state === "hover" || state === "selected") {
     const ringW = (state === "selected" ? 3 : 2) / Math.max(zoom, 0.5);
     ctx.lineWidth = ringW;
     ctx.strokeStyle = ringColor;
     const inset = -ringW * 0.6;
-    roundRect(ctx, x0 + inset, y0 + inset, size - inset * 2, size - inset * 2, radius);
-    ctx.stroke();
+    if (radius > 0) {
+      roundRect(ctx, x0 + inset, y0 + inset, size - inset * 2, size - inset * 2, radius);
+      ctx.stroke();
+    } else {
+      ctx.strokeRect(x0 + inset, y0 + inset, size - inset * 2, size - inset * 2);
+    }
   }
 
   // overlay label — only when showLabel (hover / selected / edge-focus).
@@ -150,8 +210,7 @@ export function drawAlbumNode(args: DrawAlbumNodeArgs): void {
   // artwork with text that's still tiny + cramped, so we suppress it
   // here and let the canvas draw a screen-space label below the tile
   // instead (see GraphCanvas hover/low-zoom label pass).
-  const overlayScreenSize = size * Math.max(zoom, 0.05);
-  if (showLabel && overlayScreenSize >= 64) {
+  if (showLabel && screenEdge >= 64) {
     drawLabelOverlay(
       ctx,
       album,
