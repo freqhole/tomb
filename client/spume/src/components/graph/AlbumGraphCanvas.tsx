@@ -202,6 +202,8 @@ export function AlbumGraphCanvas(props: AlbumGraphCanvasProps) {
   let simNodes: SimNode[] = [];
   let simLinks: SimLink[] = [];
   let hitter: HitTester | null = null;
+  // throttle quadtree invalidation: see tick handler comment.
+  let lastHitterInvalidate = 0;
   // lazy accessor: hit tester is invalidated on every sim tick but only
   // rebuilt when actually queried (pointer move/down/up, lasso).
   function getHitter(): HitTester {
@@ -320,15 +322,27 @@ export function AlbumGraphCanvas(props: AlbumGraphCanvasProps) {
 
     if (sim) sim.stop();
     const sz = nodeSize();
+    // dense libraries pile nodes on top of each other even with
+    // collide enabled, because link + charge balance was tuned for
+    // ~hundreds. scale the layout out as node count grows so 2k+
+    // node graphs spread their clusters apart enough to read. the
+    // breakpoints are gentle so small libraries don't suddenly
+    // explode outward on a few new nodes.
+    const nCount = simNodes.length;
+    const densityMul = nCount >= 3000 ? 1.6 : nCount >= 1500 ? 1.35 : nCount >= 800 ? 1.15 : 1;
+    const linkDist = sz * 2.8 * densityMul;
+    const chargeStr = -sz * 8 * densityMul;
+    const collideAlbum = sz * 0.95 * densityMul;
+    const collideArtist = sz * 0.65 * densityMul;
     sim = forceSimulation<SimNode, SimLink>(simNodes)
       .force(
         "link",
         forceLink<SimNode, SimLink>(simLinks)
           .id((d) => d.id)
-          .distance(sz * 2.8) // more breathing room — edges easier to follow
+          .distance(linkDist) // more breathing room — edges easier to follow
           .strength((l) => 0.15 + 0.35 * (l.weight ?? 0.5))
       )
-      .force("charge", forceManyBody().strength(-sz * 8)) // stronger repulsion
+      .force("charge", forceManyBody().strength(chargeStr)) // stronger repulsion
       .force("center", forceCenter(width / 2, height / 2))
       // collide: hard non-overlap. radius depends on node kind so the
       // album's square corners (which extend to sz * sqrt(2)/2 ≈
@@ -342,7 +356,7 @@ export function AlbumGraphCanvas(props: AlbumGraphCanvasProps) {
       .force(
         "collide",
         forceCollide<SimNode>()
-          .radius((n) => (nodeKind(n) === "album" ? sz * 0.95 : sz * 0.65))
+          .radius((n) => (nodeKind(n) === "album" ? collideAlbum : collideArtist))
           .strength(1)
           .iterations(3)
       )
@@ -395,8 +409,14 @@ export function AlbumGraphCanvas(props: AlbumGraphCanvasProps) {
       // invalidate the hit tester rather than rebuilding it: pointer
       // queries are rare relative to ticks (was hot in the cpu trace —
       // quadtree.addAll on every tick). lazy getHitter() rebuilds on
-      // demand.
-      hitter = null;
+      // demand. additionally rate-limit invalidations to ~10/sec so a
+      // running sim with the pointer parked over a node doesn't trigger
+      // a fresh quadtree build on every single tick.
+      const now = performance.now();
+      if (now - lastHitterInvalidate > 100) {
+        hitter = null;
+        lastHitterInvalidate = now;
+      }
       requestDraw();
     });
     if (props.paused) sim.stop();
@@ -588,7 +608,15 @@ export function AlbumGraphCanvas(props: AlbumGraphCanvasProps) {
     // nodes
     animatingMarquee = false;
     const multiSel = props.selectedIds;
-    for (const n of simNodes) {
+    // collect hover/selection nodes to draw in a second pass so they
+    // stack on top of their neighbours — helps in dense clusters
+    // where the node the user is interacting with would otherwise be
+    // half-occluded by adjacent nodes.
+    const deferred: SimNode[] = [];
+    // capture into a locally non-null binding so the helper closure
+    // below doesn't lose the narrowing across the function boundary.
+    const nctx = ctx;
+    function drawOne(n: SimNode) {
       const isEdgeFocus = edgeFocusIds?.has(n.id) ?? false;
       const searchMiss = hasSearch && search ? !search.has(n.id) : false;
       const isMulti = multiSel?.has(n.id) ?? false;
@@ -618,7 +646,7 @@ export function AlbumGraphCanvas(props: AlbumGraphCanvasProps) {
       const showLabel = n.id === hov;
       if (nodeKind(n) === "artist") {
         drawArtistNode({
-          ctx,
+          ctx: nctx,
           artist: n as ArtistNodeData,
           x: n.x ?? 0,
           y: n.y ?? 0,
@@ -629,7 +657,7 @@ export function AlbumGraphCanvas(props: AlbumGraphCanvasProps) {
         });
       } else {
         drawAlbumNode({
-          ctx,
+          ctx: nctx,
           album: n as AlbumNodeData,
           x: n.x ?? 0,
           y: n.y ?? 0,
@@ -645,6 +673,20 @@ export function AlbumGraphCanvas(props: AlbumGraphCanvasProps) {
         });
       }
     }
+    for (const n of simNodes) {
+      const isMulti = multiSel?.has(n.id) ?? false;
+      // defer hovered + selected (single or multi) nodes to a
+      // second pass so they paint on top of everything else.
+      if (n.id === hov || n.id === sel || isMulti) {
+        deferred.push(n);
+        continue;
+      }
+      drawOne(n);
+    }
+    // second pass: deferred (hover/selected) nodes on top. multi-select
+    // can be many — still cheap because we're only re-iterating the
+    // small picked subset, not the full simNodes array.
+    for (const n of deferred) drawOne(n);
     ctx.restore();
 
     // node labels (screen space) — hover/selection focus only.

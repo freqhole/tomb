@@ -168,6 +168,19 @@ export async function connectToRemote(
       }
     }
 
+    // remote responded to the health check (or we skipped it) — we're
+    // demonstrably reachable. cancel the "show modal after 1s" timer
+    // so subsequent in-flight work (whoami, transport precache,
+    // catalog hydration on a large p2p library, etc.) doesn't
+    // accidentally surface a "connecting…" modal. callers that want
+    // a "loading library" indicator should render their own ui
+    // (e.g. LibraryView's switchingToName chip) — this modal is
+    // strictly for the connection-not-responding case.
+    if (connectionTimerRef) {
+      clearTimeout(connectionTimerRef);
+      connectionTimerRef = null;
+    }
+
     // check if cancelled before switching
     if (connectionCancelled) {
       clearConnectionProgress();
