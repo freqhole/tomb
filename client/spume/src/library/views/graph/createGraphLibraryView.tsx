@@ -53,6 +53,9 @@ export interface CreateGraphLibraryViewOpts {
   relatedArtists?: () => RelatedArtistsMap | undefined;
   /** search query accessor — drives node-highlight filter. */
   searchQuery: () => string;
+  /** optional topology identity key. when it changes, GraphCanvas
+   *  performs a full sim reset instead of preserving prior positions. */
+  topologyKey?: () => string | number | undefined;
   /** album row actions; surfaced via AlbumDetailPopover. */
   onPlay?: (album: AlbumNodeData) => void;
   onShuffle?: (album: AlbumNodeData) => void;
@@ -144,6 +147,23 @@ export interface GraphLibraryView {
 
 export function createGraphLibraryView(opts: CreateGraphLibraryViewOpts): GraphLibraryView {
   const ALL_KINDS = RELATION_KINDS.map((r) => r.kind);
+  const clampRelationStrength = (v: number) => Math.max(0, Math.min(1, v));
+  const defaultRelationStrength = (kind: string): number => {
+    if (kind === "artist_album") return 1;
+    if (kind === "same_artist") return 1;
+    if (kind === "favorite") return 0.82;
+    if (kind === "related_artist") return 0.78;
+    if (kind === "tag") return 0.22;
+    return 0.5;
+  };
+  const relationStrengthDebounceMs = (count: number): number => {
+    if (count >= 4500) return 260;
+    if (count >= 3200) return 200;
+    if (count >= 2200) return 150;
+    if (count >= 1400) return 105;
+    if (count >= 800) return 70;
+    return 32;
+  };
   const nodes = opts.nodes;
 
   // big-library cliff: once we cross this threshold the sim eats real
@@ -154,6 +174,7 @@ export function createGraphLibraryView(opts: CreateGraphLibraryViewOpts): GraphL
   const INITIAL_SETTLE_MS = 4000;
   const [userInteracted, setUserInteracted] = createSignal(false);
   const [settleElapsed, setSettleElapsed] = createSignal(false);
+  let lastTopologyKey = opts.topologyKey?.();
   // start (or reset) the settle timer whenever node count first
   // crosses the threshold while user hasn't touched anything yet.
   createEffect(() => {
@@ -225,7 +246,24 @@ export function createGraphLibraryView(opts: CreateGraphLibraryViewOpts): GraphL
   const [pillEdges, setPillEdges] = createSignal<Map<string, GraphEdge>>(new Map());
   const [wireEdge, setWireEdge] = createSignal<GraphEdge | null>(null);
   const [wireTension, setWireTension] = createSignal(0.44);
+  const [relationStrengths, setRelationStrengths] = createSignal<Map<string, number>>(new Map());
+  const [appliedRelationStrengths, setAppliedRelationStrengths] = createSignal<Map<string, number>>(
+    new Map()
+  );
   const [api, setApi] = createSignal<GraphActions | null>(null);
+
+  createEffect(() => {
+    const key = opts.topologyKey?.();
+    if (key === lastTopologyKey) return;
+    lastTopologyKey = key;
+    // remote/topology switches should feel like a clean graph session.
+    setUserInteracted(false);
+    setSettleElapsed(false);
+    setSelectedId(null);
+    setMultiSelectedIds(new Set<string>());
+    setPillEdges(new Map());
+    setWireEdge(null);
+  });
   // narrow-viewport users can collapse each per-kind detail panel to
   // give the canvas more room. each kind has its own hide signal so
   // collapsing one panel doesn't affect the other (and so each one
@@ -240,6 +278,29 @@ export function createGraphLibraryView(opts: CreateGraphLibraryViewOpts): GraphL
   // starts empty until the first worker emission lands.
   const [edges, setEdges] = createSignal<GraphEdge[]>([]);
   const counts = createMemo(() => countEdgesByKind(edges()));
+  const strengthForKind = (kind: string, source: Map<string, number>): number => {
+    const cur = source.get(kind);
+    if (typeof cur === "number") return cur;
+    return defaultRelationStrength(kind);
+  };
+
+  createEffect(() => {
+    const source = relationStrengths();
+    const nodeCount = nodes().length;
+    const delay = relationStrengthDebounceMs(nodeCount);
+    const snap = new Map(source);
+    const t = setTimeout(() => {
+      setAppliedRelationStrengths(snap);
+    }, delay);
+    onCleanup(() => clearTimeout(t));
+  });
+
+  const relationStrengthConfig = createMemo<Record<string, number>>(() => {
+    const source = appliedRelationStrengths();
+    const out: Record<string, number> = {};
+    for (const kind of ALL_KINDS) out[kind] = strengthForKind(kind, source);
+    return out;
+  });
 
   // album/artist split for the bottom-right status chip. `nodes()`
   // is mixed-kind so we tally each kind in a single pass.
@@ -708,38 +769,26 @@ export function createGraphLibraryView(opts: CreateGraphLibraryViewOpts): GraphL
           const color = RELATION_COLOR[meta.kind];
           const label = RELATION_LABEL[meta.kind];
           return (
-            <span
-              class="inline-flex items-center gap-1 pl-2 pr-1 py-0.5 rounded text-[11px] leading-none whitespace-nowrap border backdrop-blur-sm"
-              style={{
-                color,
-                "border-color": `${color}55`,
-                "background-color": `${color}1a`,
-                "background-image": "linear-gradient(rgba(0,0,0,0.55), rgba(0,0,0,0.55))",
+            <RelationStrengthChip
+              label={label}
+              color={color}
+              strength={strengthForKind(meta.kind, relationStrengths())}
+              onStrengthChange={(next) => {
+                setRelationStrengths((prev) => {
+                  const map = new Map(prev);
+                  map.set(meta.kind, clampRelationStrength(next));
+                  return map;
+                });
               }}
-            >
-              <button
-                type="button"
-                onClick={() => soloKind(meta.kind)}
-                title={`solo ${label}`}
-                class="bg-transparent border-none p-0 m-0 cursor-pointer text-current"
-              >
-                {label}
-              </button>
-              <button
-                type="button"
-                onClick={() =>
-                  setEnabled((prev) => {
-                    const ns = new Set<string>(prev);
-                    ns.delete(meta.kind);
-                    return ns;
-                  })
-                }
-                title={`hide ${label}`}
-                class="bg-transparent border-none p-0 ml-0.5 cursor-pointer text-current opacity-60 hover:opacity-100 leading-none"
-              >
-                ×
-              </button>
-            </span>
+              onSolo={() => soloKind(meta.kind)}
+              onRemove={() =>
+                setEnabled((prev) => {
+                  const ns = new Set<string>(prev);
+                  ns.delete(meta.kind);
+                  return ns;
+                })
+              }
+            />
           );
         }}
       </For>
@@ -750,9 +799,11 @@ export function createGraphLibraryView(opts: CreateGraphLibraryViewOpts): GraphL
     <div class="flex-1 relative overflow-hidden">
       <GraphCanvas
         nodes={nodes()}
+        topologyKey={opts.topologyKey?.()}
         onEdges={setEdges}
         relatedArtists={opts.relatedArtists?.()}
         enabledKinds={enabled()}
+        relationStrengths={relationStrengthConfig()}
         lockNodes={opts.lockNodes ?? false}
         selectedId={canvasSelectedId()}
         selectedIds={multiSelectedIds()}
@@ -990,4 +1041,114 @@ export function createGraphLibraryView(opts: CreateGraphLibraryViewOpts): GraphL
     },
     selectedArtistId: () => selectedArtist()?.artistId ?? null,
   };
+}
+
+function RelationStrengthChip(props: {
+  label: string;
+  color: string;
+  strength: number;
+  onStrengthChange: (next: number) => void;
+  onSolo: () => void;
+  onRemove: () => void;
+}) {
+  const RANGE_PX = 140;
+  const TAP_MOVE_PX = 4;
+  const clamp = (v: number) => Math.max(0, Math.min(1, v));
+
+  const [dragging, setDragging] = createSignal(false);
+  const [preview, setPreview] = createSignal(props.strength);
+  let origin: { x: number; y: number } | null = null;
+  let base = 0;
+
+  const computeNext = (e: PointerEvent) => {
+    if (!origin) return base;
+    const dx = e.clientX - origin.x;
+    const dy = origin.y - e.clientY;
+    return clamp(base + (dx + dy) / RANGE_PX);
+  };
+
+  return (
+    <span
+      class="relative inline-flex items-center gap-1 pl-2 pr-1 py-0.5 rounded text-[11px] leading-none whitespace-nowrap border backdrop-blur-sm overflow-hidden select-none touch-none"
+      style={{
+        color: props.color,
+        "border-color": `${props.color}70`,
+        "background-color": `${props.color}14`,
+        "user-select": "none",
+        "-webkit-user-select": "none",
+      }}
+    >
+      <span
+        class="absolute inset-0 pointer-events-none"
+        style={{
+          width: `${Math.round((dragging() ? preview() : props.strength) * 100)}%`,
+          "background-color": `${props.color}66`,
+          "mix-blend-mode": "screen",
+        }}
+      />
+
+      <button
+        type="button"
+        class="relative z-10 bg-transparent border-none p-0 m-0 cursor-ew-resize text-current select-none touch-none"
+        title={`${props.label}: ${Math.round(props.strength * 100)} (click to solo, drag to adjust strength)`}
+        style={{
+          "user-select": "none",
+          "-webkit-user-select": "none",
+          "touch-action": "none",
+        }}
+        onDragStart={(e) => e.preventDefault()}
+        onPointerDown={(e) => {
+          (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+          origin = { x: e.clientX, y: e.clientY };
+          base = props.strength;
+          setPreview(props.strength);
+          setDragging(true);
+          e.preventDefault();
+        }}
+        onPointerMove={(e) => {
+          if (!dragging()) return;
+          const next = computeNext(e);
+          setPreview(next);
+          props.onStrengthChange(next);
+        }}
+        onPointerUp={(e) => {
+          if (!dragging()) return;
+          const moved = origin
+            ? Math.hypot(e.clientX - origin.x, e.clientY - origin.y)
+            : TAP_MOVE_PX + 1;
+          if (moved <= TAP_MOVE_PX) {
+            props.onSolo();
+          } else {
+            props.onStrengthChange(computeNext(e));
+          }
+          origin = null;
+          setDragging(false);
+          try {
+            (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+          } catch {
+            // capture may already be released
+          }
+        }}
+        onPointerCancel={() => {
+          origin = null;
+          setDragging(false);
+        }}
+      >
+        {props.label}
+      </button>
+
+      <span class="relative z-10 text-[10px] tabular-nums opacity-90">
+        {Math.round((dragging() ? preview() : props.strength) * 100)}
+      </span>
+
+      <button
+        type="button"
+        onClick={props.onRemove}
+        title={`hide ${props.label}`}
+        class="relative z-10 bg-transparent border-none p-0 ml-0.5 cursor-pointer text-current opacity-70 hover:opacity-100 leading-none"
+      >
+        ×
+      </button>
+    </span>
+  );
 }

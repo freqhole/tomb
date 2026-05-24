@@ -112,6 +112,9 @@ export interface MsgInit {
   /** legacy: pre-built links. ignored when `edgeConfig` is set. */
   links: SimLinkInit[];
   config: SimConfig;
+  /** optional per-kind strength sliders (0..1). affects link
+   *  distance + spring strength regardless of derive mode. */
+  relationStrengths?: Record<string, number>;
   /** phase 4: when present the worker derives edges from node
    *  taxonomy and emits `MsgEdges`. */
   edgeConfig?: EdgeDeriveConfig;
@@ -122,6 +125,7 @@ export interface MsgUpdate {
   nodes: SimNodeInit[];
   links: SimLinkInit[];
   mode: UpdateMode;
+  relationStrengths?: Record<string, number>;
   edgeConfig?: EdgeDeriveConfig;
 }
 

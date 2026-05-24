@@ -142,37 +142,54 @@ export function drawAlbumNode(args: DrawAlbumNodeArgs): void {
     }
   } else {
     bump("draw.album.img.none");
+    const hoverFallbackMarquee = showLabel && screenEdge >= 32;
     // no image — show artist + title in-tile, but only when the tile is
     // large enough on screen to be legible. below the threshold the tile
     // is just a colored placeholder; hovering / selecting reveals the
     // marquee overlay below so the info isn't lost.
-    if (screenEdge >= 32) {
+    if (screenEdge >= 32 && !hoverFallbackMarquee) {
+      // at very high zoom levels, sprite upscaling can make fallback text
+      // look soft. switch to direct text draw so glyphs stay crisp.
+      const crispTextMode = screenEdge >= 180;
+      if (crispTextMode) {
+        drawTextTile(ctx, album, x, y, size, textColor, mutedColor);
+      } else {
       // sprite-cached: the text content for a given album never
       // changes, so render it once into an offscreen surface at a
       // bucketed size and blit on every subsequent frame. cuts the
       // text-tile path from ~3 fillText calls per node to a single
       // drawImage.
-      const bucket = Math.max(32, Math.round(size / 16) * 16);
+      const dpr = Math.max(
+        1,
+        typeof window !== "undefined" ? (window.devicePixelRatio || 1) : 1,
+      );
+      const screenBucket = Math.max(32, Math.round((screenEdge * dpr) / 8) * 8);
+      const bucket = Math.min(384, screenBucket);
       // key on albumId + bucket + colors. title/artist are implicit
       // in albumId so we don't need them in the key (would just
       // bloat memory + slow Map ops).
       const key = `album-text|${album.id}|${bucket}|${textColor}|${mutedColor}`;
       const tile = getOrRenderSprite(key, bucket, bucket, (sctx) => {
+        const worldToSprite = bucket / Math.max(size, 1);
+        sctx.save();
+        sctx.scale(worldToSprite, worldToSprite);
         drawTextTile(
           sctx as CanvasRenderingContext2D,
           album,
-          bucket / 2,
-          bucket / 2,
-          bucket,
+          size / 2,
+          size / 2,
+          size,
           textColor,
           mutedColor,
         );
+        sctx.restore();
       });
       if (tile) {
         ctx.drawImage(tile, x0, y0, size, size);
       } else {
         // backing canvas failed — fall back to direct draw.
         drawTextTile(ctx, album, x, y, size, textColor, mutedColor);
+      }
       }
     }
   }
@@ -202,15 +219,14 @@ export function drawAlbumNode(args: DrawAlbumNodeArgs): void {
     }
   }
 
-  // overlay label — only when showLabel (hover / selected / edge-focus).
-  // shown for both image and text-only tiles so zoomed-out text-only tiles
-  // still get a readable marquee on hover.
+  // overlay label — only for image tiles when showLabel
+  // (hover / selected / edge-focus).
   //
   // at low on-screen sizes the in-tile band ends up covering most of the
   // artwork with text that's still tiny + cramped, so we suppress it
   // here and let the canvas draw a screen-space label below the tile
   // instead (see GraphCanvas hover/low-zoom label pass).
-  if (showLabel && screenEdge >= 64) {
+  if (hasImage && showLabel && screenEdge >= 64) {
     drawLabelOverlay(
       ctx,
       album,
@@ -223,6 +239,24 @@ export function drawAlbumNode(args: DrawAlbumNodeArgs): void {
       textColor,
       mutedColor,
       onMarquee
+    );
+  }
+
+  // no-image hover: keep text inside the fallback tile (no bottom
+  // overlay) and marquee both artist + album when they overflow.
+  if (!hasImage && showLabel && screenEdge >= 32) {
+    drawFallbackHoverMarquee(
+      ctx,
+      album,
+      x0,
+      y0,
+      size,
+      radius,
+      time,
+      zoom,
+      textColor,
+      mutedColor,
+      onMarquee,
     );
   }
 
@@ -343,12 +377,107 @@ function drawLabelOverlay(
     ctx.restore();
   }
 
-  // artist subtitle (clipped with ellipsis — no marquee)
+  // artist subtitle (marquee if overflow)
   ctx.font = `400 ${subSize}px system-ui, sans-serif`;
   ctx.fillStyle = mutedColor;
-  const sub = clip(ctx, album.artistName, innerW);
-  ctx.fillText(sub, innerLeft, titleY + titleSize * 0.6 + subSize * 0.5);
+  const sub = album.artistName;
+  const subY = titleY + titleSize * 0.6 + subSize * 0.5;
+  const sw = ctx.measureText(sub).width;
+  if (sw <= innerW) {
+    ctx.fillText(sub, innerLeft, subY);
+  } else {
+    onMarquee?.();
+    const overflow = sw - innerW;
+    const overflowScreen = overflow * zoom;
+    const durationMs = Math.max(2200, 2200 + overflowScreen * 22);
+    const phase = (time % durationMs) / durationMs;
+    const p = marqueeProgress(phase);
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(innerLeft, barY, innerW, barH);
+    ctx.clip();
+    ctx.fillText(sub, innerLeft - overflow * p, subY);
+    ctx.restore();
+  }
 
+  ctx.restore();
+}
+
+function drawFallbackHoverMarquee(
+  ctx: CanvasRenderingContext2D,
+  album: AlbumNodeData,
+  x0: number,
+  y0: number,
+  size: number,
+  radius: number,
+  time: number,
+  zoom: number,
+  textColor: string,
+  mutedColor: string,
+  onMarquee?: () => void,
+) {
+  const titleSize = Math.max(7, size * 0.12);
+  const subSize = Math.max(6, size * 0.1);
+  const padX = Math.max(4, size * 0.06);
+  const innerW = Math.max(8, size - padX * 2);
+  const cx = x0 + size / 2;
+  const titleY = y0 + size / 2 + subSize * 0.5;
+  const subY = y0 + size / 2 - titleSize * 0.7;
+
+  ctx.save();
+  roundRect(ctx, x0, y0, size, size, radius);
+  ctx.clip();
+
+  // redraw subtle backdrop to improve contrast while hovering.
+  ctx.fillStyle = "rgba(0,0,0,0.24)";
+  ctx.fillRect(x0, y0, size, size);
+
+  ctx.textBaseline = "middle";
+
+  // artist line
+  ctx.font = `400 ${subSize}px system-ui, sans-serif`;
+  ctx.fillStyle = mutedColor;
+  drawHoverMarqueeLine(ctx, album.artistName, x0 + padX, innerW, subY, time, zoom, onMarquee, cx);
+
+  // album title line
+  ctx.font = `600 ${titleSize}px system-ui, sans-serif`;
+  ctx.fillStyle = textColor;
+  drawHoverMarqueeLine(ctx, album.title, x0 + padX, innerW, titleY, time + 180, zoom, onMarquee, cx);
+
+  ctx.restore();
+}
+
+function drawHoverMarqueeLine(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  innerLeft: number,
+  innerW: number,
+  y: number,
+  time: number,
+  zoom: number,
+  onMarquee: (() => void) | undefined,
+  centerX: number,
+) {
+  const w = ctx.measureText(text).width;
+  if (w <= innerW) {
+    ctx.textAlign = "center";
+    ctx.fillText(text, centerX, y);
+    return;
+  }
+
+  onMarquee?.();
+  const overflow = w - innerW;
+  const overflowScreen = overflow * zoom;
+  const durationMs = Math.max(2000, 2000 + overflowScreen * 20);
+  const phase = (time % durationMs) / durationMs;
+  const p = marqueeProgress(phase);
+
+  ctx.save();
+  ctx.textAlign = "left";
+  ctx.beginPath();
+  ctx.rect(innerLeft, y - 16, innerW, 32);
+  ctx.clip();
+  ctx.fillText(text, innerLeft - overflow * p, y);
   ctx.restore();
 }
 

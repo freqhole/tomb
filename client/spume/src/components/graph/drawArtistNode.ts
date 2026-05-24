@@ -95,13 +95,13 @@ export function drawArtistNode(args: DrawArtistNodeArgs): void {
       // image is loading — fall back to acronym placeholder so the
       // node isn't a blank disc. tiny-LOD skips this (text would be
       // unreadable anyway).
-      drawAcronym(ctx, artist, x, y, size, textColor);
+        drawAcronym(ctx, artist, x, y, size, textColor, zoom);
     } else {
       bump("draw.artist.img.loading");
     }
   } else {
     bump("draw.artist.img.none");
-    if (!lodTiny) drawAcronym(ctx, artist, x, y, size, textColor);
+      if (!lodTiny) drawAcronym(ctx, artist, x, y, size, textColor, zoom);
   }
 
   // border (skipped when selected so the magenta ring sits flush, and
@@ -133,25 +133,41 @@ function drawAcronym(
   cx: number,
   cy: number,
   size: number,
-  textColor: string
+  textColor: string,
+  zoom?: number,
 ) {
+  const screenEdge = size * Math.max(zoom ?? 1, 0.05);
+  // high zoom: draw text directly to keep glyph edges crisp.
+  if (screenEdge >= 160) {
+    drawAcronymDirect(ctx, artist, cx, cy, size, textColor);
+    return;
+  }
   // sprite-cache the acronym: glyph content for a given artist +
   // size bucket is invariant frame-to-frame, so render once and
   // blit. fall back to direct fillText if the sprite surface
   // couldn't be created.
-  const bucket = Math.max(16, Math.round(size / 16) * 16);
+  const dpr = Math.max(
+    1,
+    typeof window !== "undefined" ? (window.devicePixelRatio || 1) : 1,
+  );
+  const screenBucket = Math.max(16, Math.round((screenEdge * dpr) / 8) * 8);
+  const bucket = Math.min(320, screenBucket);
   const label =
     artist.abbreviation || (artist.name ?? "").slice(0, 2).toUpperCase();
   const key = `artist-acronym|${label}|${bucket}|${textColor}`;
   const sprite = getOrRenderSprite(key, bucket, bucket, (sctx) => {
+    const worldToSprite = bucket / Math.max(size, 1);
+    sctx.save();
+    sctx.scale(worldToSprite, worldToSprite);
     drawAcronymDirect(
       sctx as CanvasRenderingContext2D,
       artist,
-      bucket / 2,
-      bucket / 2,
-      bucket,
+      size / 2,
+      size / 2,
+      size,
       textColor,
     );
+    sctx.restore();
   });
   if (sprite) {
     ctx.drawImage(sprite, cx - size / 2, cy - size / 2, size, size);

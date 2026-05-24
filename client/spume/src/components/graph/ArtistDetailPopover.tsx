@@ -244,9 +244,11 @@ export function ArtistDetailPopover(props: ArtistDetailPopoverProps) {
                     >
                       <AlbumNodeView album={alb} size={36} />
                       <div class="flex-1 min-w-0">
-                        <div class="text-[11px] text-white/90 truncate leading-tight">
-                          {alb.title}
-                        </div>
+                        <MarqueeText
+                          text={alb.title}
+                          class="text-[11px] text-white/90 leading-tight"
+                          hoverOnly={true}
+                        />
                         <Show when={alb.year}>
                           <div class="text-[10px] text-white/55 truncate leading-tight">
                             {alb.year}

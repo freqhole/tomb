@@ -162,14 +162,14 @@ export function AlbumDetailPopover(props: AlbumDetailPopoverProps) {
             >
               <button
                 type="button"
-                class="block w-full text-left text-xs text-white/80 hover:text-[var(--color-accent-500,#ff1a9e)] mt-0.5 cursor-pointer underline-offset-2 hover:underline truncate"
+                class="block w-full text-left text-xs text-white/80 hover:text-[var(--color-accent-500,#ff1a9e)] mt-0.5 cursor-pointer underline-offset-2 hover:underline"
                 title="focus artist on graph"
                 onClick={(e) => {
                   e.stopPropagation();
                   props.onSelectArtistById!(album()!.artistId);
                 }}
               >
-                {album()!.artistName}
+                <MarqueeText text={album()!.artistName} hoverOnly={true} />
               </button>
             </Show>
             <div class="text-[11px] text-white/65 mt-1 flex flex-wrap gap-x-2 gap-y-0.5">

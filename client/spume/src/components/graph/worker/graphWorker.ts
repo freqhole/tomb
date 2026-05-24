@@ -51,7 +51,9 @@ function post(msg: WorkerToMain, transfer: Transferable[] = []) {
 // strength scaling.
 type SimNode = SimNodeInit & SimulationNodeDatum;
 type SimLink = SimulationLinkDatum<SimNode> & {
+  kind?: string;
   weight?: number;
+  label?: string;
 };
 
 // ----- sim state --------------------------------------------------------
@@ -66,6 +68,7 @@ let simLinks: SimLink[] = [];
 // `setEnabledKinds` message can re-filter the sim-link subset
 // without re-deriving edges from scratch.
 let edgeConfig: EdgeDeriveConfig | null = null;
+let relationStrengths: Record<string, number> | undefined;
 let derivedEdges: GraphEdge[] = [];
 /** node payloads from the most recent init/update — kept around so
  *  edges can be re-derived if needed. references the same SimNode
@@ -119,9 +122,159 @@ function releaseToPool(buf: Float32Array) {
   }
 }
 
+function densityMultiplierForCount(nCount: number): number {
+  if (nCount >= 4000) return 2.2;
+  if (nCount >= 3000) return 1.95;
+  if (nCount >= 2000) return 1.7;
+  if (nCount >= 1200) return 1.45;
+  if (nCount >= 700) return 1.24;
+  return 1;
+}
+
+function collideRadiiForCount(
+  nCount: number,
+  sz: number,
+): { album: number; artist: number } {
+  const densityMul = densityMultiplierForCount(nCount);
+  const collideDensityMul = 1 + (densityMul - 1) * 0.9;
+  return {
+    album: sz * 0.82 * collideDensityMul,
+    artist: sz * 0.6 * collideDensityMul,
+  };
+}
+
+function resolveResidualOverlaps(alpha: number): void {
+  const nCount = simNodes.length;
+  if (nCount < 700) return;
+  // only spend extra overlap work while the sim is still actively
+  // cooling and not on every single tick for huge graphs.
+  if (alpha <= 0.004) return;
+  if (nCount >= 2500 && tick % 2 !== 0) return;
+
+  const sz = config.nodeSize;
+  const radii = collideRadiiForCount(nCount, sz);
+  const pad = sz * 0.06;
+  const cellSize = Math.max(sz * 2.2, (radii.album + radii.artist) * 1.1);
+  const passCount = nCount >= 3000 ? 3 : nCount >= 1500 ? 2 : 1;
+  const neighborOffsets: Array<[number, number]> = [
+    [0, 0],
+    [1, 0],
+    [0, 1],
+    [1, 1],
+    [1, -1],
+  ];
+
+  for (let pass = 0; pass < passCount; pass++) {
+    const grid = new Map<string, number[]>();
+    for (let i = 0; i < simNodes.length; i++) {
+      const n = simNodes[i];
+      const cx = Math.floor((n.x ?? 0) / cellSize);
+      const cy = Math.floor((n.y ?? 0) / cellSize);
+      const key = `${cx},${cy}`;
+      const bucket = grid.get(key);
+      if (bucket) {
+        bucket.push(i);
+      } else {
+        grid.set(key, [i]);
+      }
+    }
+
+    for (const [key, aBucket] of grid.entries()) {
+      const parts = key.split(",");
+      const cx = Number(parts[0]);
+      const cy = Number(parts[1]);
+      for (const [ox, oy] of neighborOffsets) {
+        const bKey = `${cx + ox},${cy + oy}`;
+        const bBucket = grid.get(bKey);
+        if (!bBucket) continue;
+
+        for (let ai = 0; ai < aBucket.length; ai++) {
+          const i = aBucket[ai];
+          const a = simNodes[i];
+          const ax = a.x ?? 0;
+          const ay = a.y ?? 0;
+          const ar = a.kind === "album" ? radii.album : radii.artist;
+          const aPinned = a.fx != null || a.fy != null;
+
+          const bjStart = bKey === key ? ai + 1 : 0;
+          for (let bj = bjStart; bj < bBucket.length; bj++) {
+            const j = bBucket[bj];
+            if (j === i) continue;
+            const b = simNodes[j];
+            const bx = b.x ?? 0;
+            const by = b.y ?? 0;
+            const br = b.kind === "album" ? radii.album : radii.artist;
+            const bPinned = b.fx != null || b.fy != null;
+            if (aPinned && bPinned) continue;
+
+            let dx = bx - ax;
+            let dy = by - ay;
+            let dist = Math.hypot(dx, dy);
+            const minDist = ar + br + pad;
+            if (dist >= minDist) continue;
+            if (dist < 1e-4) {
+              // deterministic tiny axis to avoid NaN when centers coincide.
+              dx = i < j ? 1 : -1;
+              dy = 0;
+              dist = 1;
+            }
+
+            const nx = dx / dist;
+            const ny = dy / dist;
+            const overlap = minDist - dist;
+
+            if (aPinned) {
+              b.x = bx + nx * overlap;
+              b.y = by + ny * overlap;
+            } else if (bPinned) {
+              a.x = ax - nx * overlap;
+              a.y = ay - ny * overlap;
+            } else {
+              const half = overlap * 0.5;
+              a.x = ax - nx * half;
+              a.y = ay - ny * half;
+              b.x = bx + nx * half;
+              b.y = by + ny * half;
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+function relationStrengthValue(kind: string | undefined): number {
+  if (!kind) return 0.5;
+  const raw = relationStrengths?.[kind];
+  if (typeof raw !== "number" || Number.isNaN(raw)) {
+    if (kind === "artist_album") return 1;
+    if (kind === "same_artist") return 1;
+    if (kind === "favorite") return 0.82;
+    if (kind === "related_artist") return 0.78;
+    if (kind === "tag") return 0.22;
+    return 0.5;
+  }
+  return Math.max(0, Math.min(1, raw));
+}
+
+function relationDistanceMultiplier(kind: string | undefined): number {
+  const s = relationStrengthValue(kind);
+  // non-linear scaling gives stronger "full" lock-in while preserving
+  // subtle low-end tuning granularity.
+  const e = Math.pow(s, 1.2);
+  return 1.52 - e * 1.12;
+}
+
+function relationStrengthMultiplier(kind: string | undefined): number {
+  const s = relationStrengthValue(kind);
+  const e = Math.pow(s, 1.35);
+  return 0.22 + e * 3.05;
+}
+
 function emitPositions() {
   const tickStart = performance.now();
   performance.mark("graph-tick-start");
+  resolveResidualOverlaps(sim?.alpha() ?? 0);
   const buf = obtainBuf(simNodes.length);
   for (let i = 0; i < simNodes.length; i++) {
     const n = simNodes[i];
@@ -147,23 +300,21 @@ function buildSim(mode: UpdateMode) {
 
   const sz = config.nodeSize;
   // dense libraries pile nodes on top of each other even with collide
-  // enabled, because link + charge balance was tuned for ~hundreds.
-  // scale the layout out as node count grows so 2k+ node graphs
-  // spread their clusters apart enough to read. breakpoints are
-  // gentle so small libraries don't suddenly explode outward on a
-  // few new nodes. kept conservative — collide.iterations does the
-  // anti-overlap heavy lifting now, so we don't need to inflate
-  // link distance much.
+  // enabled, because link + charge balance was tuned for smaller
+  // graphs. scale spacing much more aggressively once we cross
+  // 1k+ nodes so large datasets stay readable.
   const nCount = simNodes.length;
-  const densityMul = nCount >= 3000 ? 1.2 : nCount >= 1500 ? 1.1 : nCount >= 800 ? 1.05 : 1;
-  // link distance: target spacing between connected nodes. tightened
-  // so clusters pack closer (was 2.8) — collide is what guarantees
-  // non-overlap, link just suggests "want to be near".
-  const linkDist = sz * 2.0 * densityMul;
-  // charge: long-range mutual repulsion. lowered (was -8) because we
-  // now lean on collide for non-overlap and let charge only handle
-  // soft cluster separation. less charge = tighter overall layout.
-  const chargeStr = -sz * 5 * densityMul;
+  const densityMul = densityMultiplierForCount(nCount);
+  // link distance: target spacing between connected nodes. raise this
+  // as datasets grow so local clusters do not collapse into one blob.
+  const linkDist = sz * 2.6 * densityMul;
+  // link strength: on huge graphs, reduce spring pull so links do not
+  // overpower collide/charge and crush spacing back down.
+  const linkStrengthMul =
+    nCount >= 3500 ? 0.55 : nCount >= 2500 ? 0.62 : nCount >= 1500 ? 0.72 : nCount >= 700 ? 0.84 : 1;
+  // charge: long-range mutual repulsion. stronger at higher density so
+  // disconnected regions still push apart instead of stacking.
+  const chargeStr = -sz * 7.8 * densityMul;
   // collide radii: forceCollide treats nodes as DISCS. an axis-
   // aligned album square of edge `sz` is inscribed in a disc of
   // radius sz/2, but two squares oriented at 45° to each other have
@@ -174,16 +325,20 @@ function buildSim(mode: UpdateMode) {
   // worst-case orientation with a tiny visual gap. artist circles
   // are perfect discs of diameter sz so r >= 0.5 is the hard
   // minimum; 0.52 gives a hair of padding.
-  const collideAlbum = sz * 0.72 * densityMul;
-  const collideArtist = sz * 0.52 * densityMul;
+  const collide = collideRadiiForCount(nCount, sz);
 
   sim = forceSimulation<SimNode, SimLink>(simNodes)
     .force(
       "link",
       forceLink<SimNode, SimLink>(simLinks)
         .id((d) => d.id)
-        .distance(linkDist)
-        .strength((l) => 0.15 + 0.35 * ((l.weight ?? 0.5) as number)),
+        .distance((l) => linkDist * relationDistanceMultiplier(l.kind))
+        .strength(
+          (l) =>
+            (0.15 + 0.35 * ((l.weight ?? 0.5) as number)) *
+            linkStrengthMul *
+            relationStrengthMultiplier(l.kind),
+        ),
     )
     .force("charge", forceManyBody().strength(chargeStr))
     .force("center", forceCenter(config.width / 2, config.height / 2))
@@ -200,9 +355,9 @@ function buildSim(mode: UpdateMode) {
     .force(
       "collide",
       forceCollide<SimNode>()
-        .radius((n) => (n.kind === "album" ? collideAlbum : collideArtist))
+        .radius((n) => (n.kind === "album" ? collide.album : collide.artist))
         .strength(1)
-        .iterations(nCount >= 3000 ? 16 : nCount >= 1500 ? 12 : nCount >= 500 ? 8 : 6),
+        .iterations(nCount >= 4000 ? 28 : nCount >= 3000 ? 24 : nCount >= 2000 ? 20 : nCount >= 1200 ? 16 : nCount >= 700 ? 12 : 8),
     )
     // cool-down: slower on dense graphs so collide has more ticks
     // to untangle simultaneous overlaps before velocities die out.
@@ -211,9 +366,9 @@ function buildSim(mode: UpdateMode) {
     // doesn't freeze with residual link/charge tension still pushing
     // collide-constrained pairs apart — keeping a tiny background
     // alpha lets jacobi collide finish cleaning up the layout.
-    .alphaDecay(nCount >= 1500 ? 0.028 : 0.05)
-    .alphaMin(0.002)
-    .velocityDecay(0.55);
+    .alphaDecay(nCount >= 3500 ? 0.021 : nCount >= 2500 ? 0.023 : nCount >= 1500 ? 0.028 : nCount >= 700 ? 0.037 : 0.05)
+    .alphaMin(0.0015)
+    .velocityDecay(0.64);
 
   sim.on("tick", emitPositions);
 
@@ -224,7 +379,7 @@ function buildSim(mode: UpdateMode) {
     // still emit one frame so main can render any new nodes.
     emitPositions();
   } else {
-    sim.alpha(0.08).restart();
+    sim.alpha(0.05).restart();
   }
 
   post({
@@ -269,7 +424,13 @@ function rebuildLinks(incoming: SimLinkInit[]) {
       const s = byId.get(l.source);
       const t = byId.get(l.target);
       if (!s || !t) return null;
-      return { source: s, target: t, weight: l.weight } as SimLink;
+      return {
+        source: s,
+        target: t,
+        kind: String(l.kind),
+        weight: l.weight,
+        label: l.label,
+      } as SimLink;
     })
     .filter((x): x is SimLink => x !== null);
 }
@@ -341,7 +502,13 @@ function rebuildSimLinksFromDerived(): void {
       const s = byId.get(srcId);
       const t = byId.get(tgtId);
       if (!s || !t) return null;
-      return { source: s, target: t, weight: e.weight } as SimLink;
+      return {
+        source: s,
+        target: t,
+        kind: String(e.kind),
+        weight: e.weight,
+        label: e.label,
+      } as SimLink;
     })
     .filter((x): x is SimLink => x !== null);
 }
@@ -371,6 +538,7 @@ ctx.addEventListener("message", (e: MessageEvent<MainToWorker>) => {
   switch (msg.type) {
     case "init": {
       config = msg.config;
+      relationStrengths = msg.relationStrengths;
       simNodes = mergeNodes(msg.nodes);
       if (msg.edgeConfig) {
         edgeConfig = msg.edgeConfig;
@@ -387,6 +555,7 @@ ctx.addEventListener("message", (e: MessageEvent<MainToWorker>) => {
       break;
     }
     case "update": {
+      relationStrengths = msg.relationStrengths;
       simNodes = mergeNodes(msg.nodes);
       if (msg.edgeConfig) {
         edgeConfig = msg.edgeConfig;

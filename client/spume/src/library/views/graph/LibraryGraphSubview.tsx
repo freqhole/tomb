@@ -504,6 +504,15 @@ function Inner(props: {
     return out;
   });
 
+  const topologyKey = createMemo(() => {
+    const remotes = props
+      .remotes()
+      .map((r) => r.remote_id)
+      .sort()
+      .join("|");
+    return `${remotes}::${contentKind()}`;
+  });
+
   // segmented control rendered inside the topnav cluster. on narrow
   // viewports we drop the labels and show icon-only buttons so the
   // toolbar still fits.
@@ -664,6 +673,7 @@ function Inner(props: {
 
   const graph = createGraphLibraryView({
     nodes: graphNodes,
+    topologyKey,
     relatedArtists: relatedMap,
     searchQuery,
     paused: () => !props.isActive(),
@@ -886,18 +896,6 @@ function Inner(props: {
     const chips = (
       <div class="flex items-center gap-2 flex-wrap">
         <Show when={narrow}>{graph.topNavTools}</Show>
-        <Show when={props.remotes().length > 1}>
-          <span
-            class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] leading-none whitespace-nowrap border border-white/10 bg-white/5 text-white/70"
-            title="selected remotes · loaded nodes"
-          >
-            {props.remotes().length} remotes · {visibleNodes().length} albums
-            <Show when={showArtists() && artistNodes().length > 0}>
-              {" "}
-              · {artistNodes().length} artists
-            </Show>
-          </span>
-        </Show>
         <Show when={graph.autoPaused()}>
           <span
             class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] leading-none whitespace-nowrap border border-amber-400/40 bg-amber-400/10 text-amber-200"

@@ -53,6 +53,13 @@ export interface GraphCanvasProps {
   relatedArtists?: Map<string, Set<string>>;
   /** which relation kinds to render edges for; undefined = all */
   enabledKinds?: Set<string> | string[];
+  /** caller-supplied topology identity key. when this changes, the
+   *  canvas tears down worker/sim state and does a fresh rebuild
+   *  instead of preserving node positions by id. */
+  topologyKey?: string | number;
+  /** optional per-kind relation strengths (0..1). higher values pull
+   *  linked nodes closer in the force simulation. */
+  relationStrengths?: Record<string, number>;
   /** node tile size in world units. default 56. */
   nodeSize?: number;
   /** controlled selection (parent owns state) */
@@ -144,6 +151,83 @@ function edgeKey(e: GraphEdge): string {
   return `${e.kind}:${e.label ?? ""}:${s}->${t}`;
 }
 
+function stableHash32(s: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+
+function hexToRgb(hex: string): { r: number; g: number; b: number } | null {
+  const raw = hex.trim().replace(/^#/, "");
+  const full =
+    raw.length === 3
+      ? `${raw[0]}${raw[0]}${raw[1]}${raw[1]}${raw[2]}${raw[2]}`
+      : raw.length === 6
+        ? raw
+        : null;
+  if (!full) return null;
+  const n = Number.parseInt(full, 16);
+  if (!Number.isFinite(n)) return null;
+  return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
+}
+
+function rgbToHsl(r: number, g: number, b: number): { h: number; s: number; l: number } {
+  const rn = r / 255;
+  const gn = g / 255;
+  const bn = b / 255;
+  const max = Math.max(rn, gn, bn);
+  const min = Math.min(rn, gn, bn);
+  const d = max - min;
+  let h = 0;
+  if (d !== 0) {
+    if (max === rn) h = ((gn - bn) / d) % 6;
+    else if (max === gn) h = (bn - rn) / d + 2;
+    else h = (rn - gn) / d + 4;
+    h *= 60;
+    if (h < 0) h += 360;
+  }
+  const l = (max + min) / 2;
+  const s = d === 0 ? 0 : d / (1 - Math.abs(2 * l - 1));
+  return { h, s, l };
+}
+
+function hslToHex(h: number, s: number, l: number): string {
+  const c = (1 - Math.abs(2 * l - 1)) * s;
+  const hp = h / 60;
+  const x = c * (1 - Math.abs((hp % 2) - 1));
+  let r = 0;
+  let g = 0;
+  let b = 0;
+  if (hp >= 0 && hp < 1) {
+    r = c;
+    g = x;
+  } else if (hp >= 1 && hp < 2) {
+    r = x;
+    g = c;
+  } else if (hp >= 2 && hp < 3) {
+    g = c;
+    b = x;
+  } else if (hp >= 3 && hp < 4) {
+    g = x;
+    b = c;
+  } else if (hp >= 4 && hp < 5) {
+    r = x;
+    b = c;
+  } else {
+    r = c;
+    b = x;
+  }
+  const m = l - c / 2;
+  const toHex = (v: number) =>
+    Math.round((v + m) * 255)
+      .toString(16)
+      .padStart(2, "0");
+  return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+}
+
 export function GraphCanvas(props: GraphCanvasProps) {
   let canvasEl: HTMLCanvasElement | undefined;
   let containerEl: HTMLDivElement | undefined;
@@ -166,6 +250,35 @@ export function GraphCanvas(props: GraphCanvasProps) {
       colorCache.set(kind, c);
     }
     return c;
+  };
+
+  // multi-value relation kinds share one base hue but vary slightly by
+  // label value so parallel wires (e.g. multiple genres) remain distinct.
+  const VARIED_RELATION_KINDS = new Set<string>(["genre", "tag", "mood", "style", "label", "era"]);
+  const linkColorCache = new Map<string, string>();
+  const linkColor = (kind: string, label?: string): string => {
+    const k = `${kind}|${label ?? ""}`;
+    const hit = linkColorCache.get(k);
+    if (hit) return hit;
+    const base = kindColor(kind);
+    let out = base;
+    if (label && VARIED_RELATION_KINDS.has(kind)) {
+      const rgb = hexToRgb(base);
+      if (rgb) {
+        const hsl = rgbToHsl(rgb.r, rgb.g, rgb.b);
+        const hv = stableHash32(`${kind}|${label}`);
+        const hueShift = ((hv % 21) - 10) * 1.45; // ~[-14.5, +14.5]
+        const satShift = (((hv >> 5) % 15) - 7) * 0.012; // ~[-0.084,+0.084]
+        const lumShift = (((hv >> 11) % 13) - 6) * 0.008; // ~[-0.048,+0.048]
+        const h = (hsl.h + hueShift + 360) % 360;
+        const s = Math.min(0.96, Math.max(0.56, hsl.s + satShift));
+        // keep luminance bright enough to avoid muddy/dim wires.
+        const l = Math.min(0.72, Math.max(0.45, hsl.l + lumShift));
+        out = hslToHex(h, s, l);
+      }
+    }
+    linkColorCache.set(k, out);
+    return out;
   };
 
   const curvature = () => Math.max(0, props.edgeCurvature ?? 0.18);
@@ -474,6 +587,33 @@ export function GraphCanvas(props: GraphCanvasProps) {
   // rebuilds (e.g. relation kind toggled) should preserve positions and
   // only nudge the sim with a low alpha so nothing visibly shuffles.
   let firstBuild = true;
+  let lastRelationStrengthSig = "";
+  let lastTopologyKey = props.topologyKey;
+
+  function relationStrengthSigFor(map: Record<string, number> | undefined): string {
+    if (!map) return "";
+    const keys = Object.keys(map).sort();
+    let out = "";
+    for (const k of keys) {
+      const v = map[k];
+      if (typeof v !== "number" || Number.isNaN(v)) continue;
+      const clamped = Math.max(0, Math.min(1, v));
+      out += `${k}:${clamped.toFixed(3)}|`;
+    }
+    return out;
+  }
+
+  function hardResetTopologyState(): void {
+    worker?.dispose();
+    worker = null;
+    simNodes = [];
+    simLinks = [];
+    cachedDerivedEdges = [];
+    pairs = [];
+    simNodesById = new Map();
+    firstBuild = true;
+    lastRelationStrengthSig = "";
+  }
 
   /** phase 4: edge-derivation mode is engaged whenever the parent
    *  provides an `onEdges` callback. in that mode GraphCanvas hands
@@ -563,6 +703,24 @@ export function GraphCanvas(props: GraphCanvasProps) {
     rebuildEdgePairs();
   }
 
+  function seedGroupKey(node: GraphNodeData): string {
+    if (node.kind === "album") {
+      const a = node as AlbumNodeData;
+      if (a.artistId) return `artist:${a.artistId}`;
+      if (a.artistName) return `artist_name:${a.artistName.toLowerCase()}`;
+      if (a.label) return `label:${a.label.toLowerCase()}`;
+      if (a.era) return `era:${a.era.toLowerCase()}`;
+      if (a.genres[0]) return `genre:${a.genres[0].toLowerCase()}`;
+      return "album:ungrouped";
+    }
+    const r = node as ArtistNodeData;
+    if (r.artistId) return `artist:${r.artistId}`;
+    if (r.label) return `label:${r.label.toLowerCase()}`;
+    if (r.era) return `era:${r.era.toLowerCase()}`;
+    if (r.genres[0]) return `genre:${r.genres[0].toLowerCase()}`;
+    return "artist:ungrouped";
+  }
+
   function rebuild() {
     if (!canvasEl) return;
 
@@ -573,9 +731,18 @@ export function GraphCanvas(props: GraphCanvasProps) {
     simNodes = props.nodes.map((n) => {
       const p = prev.get(n.id);
       if (p) {
-        // mutate-in-place style: copy node fields (in case the upstream
-        // album payload changed e.g. new tags) but keep simulation state.
-        return Object.assign(p, n) as SimNode;
+        // build from fresh node payload and copy only simulation state.
+        // this avoids stale fields (for example old image/imageUrl)
+        // surviving when the new payload omits them.
+        return {
+          ...(n as GraphNodeData),
+          x: p.x,
+          y: p.y,
+          vx: p.vx,
+          vy: p.vy,
+          fx: p.fx,
+          fy: p.fy,
+        } as SimNode;
       }
       // brand-new node: positions filled in below from a phyllotaxis
       // seed. clone the data so the upstream array isn't mutated by the
@@ -583,23 +750,127 @@ export function GraphCanvas(props: GraphCanvasProps) {
       return { ...n } as SimNode;
     }) as SimNode[];
 
-    // pre-seed any node that's still missing x/y (i.e. truly new). doing
-    // this in a second pass so we have stable indices.
+    // pre-seed any node that's still missing x/y (i.e. truly new).
+    // grouped seeding starts each batch in coarse clusters (artist/
+    // label/era/genre) so dense pages enter already separated.
+    // this lowers early collision pressure and reduces the chance that
+    // mega-graphs collapse into overlap before forces can untangle.
     const cx = width / 2;
     const cy = height / 2;
     const sz0 = nodeSize();
-    let seedIdx = 0;
+    const golden = 2.399963229728653;
+    const allCount = simNodes.length;
+    const clusterSpacing =
+      allCount >= 3500
+        ? sz0 * 13.2
+        : allCount >= 2200
+          ? sz0 * 11.2
+          : allCount >= 1200
+            ? sz0 * 9.4
+            : sz0 * 7.6;
+    const localStep =
+      allCount >= 3500
+        ? sz0 * 1.34
+        : allCount >= 2200
+          ? sz0 * 1.22
+          : allCount >= 1200
+            ? sz0 * 1.12
+            : sz0 * 1.02;
+
+    const groups = new Map<string, SimNode[]>();
+    const centroid = new Map<string, { x: number; y: number; count: number }>();
+
     for (const n of simNodes) {
-      if (n.x == null || n.y == null) {
-        // phyllotaxis: golden-angle spiral keeps initial layout compact
-        // and roughly evenly distributed → forces converge fast.
-        const a = seedIdx * 2.399963229728653;
-        const r = Math.sqrt(seedIdx + 0.5) * sz0 * 0.9;
-        n.x = cx + r * Math.cos(a);
-        n.y = cy + r * Math.sin(a);
-        n.vx = 0;
-        n.vy = 0;
-        seedIdx++;
+      const key = seedGroupKey(n);
+      if (n.x != null && n.y != null) {
+        const c = centroid.get(key);
+        if (c) {
+          c.x += n.x;
+          c.y += n.y;
+          c.count += 1;
+        } else {
+          centroid.set(key, { x: n.x, y: n.y, count: 1 });
+        }
+      } else {
+        const list = groups.get(key);
+        if (list) list.push(n);
+        else groups.set(key, [n]);
+      }
+    }
+
+    const groupEntries = Array.from(groups.entries()).sort((a, b) => {
+      if (b[1].length !== a[1].length) return b[1].length - a[1].length;
+      return a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0;
+    });
+
+    const familyOf = (key: string): string => {
+      const i = key.indexOf(":");
+      return i > 0 ? key.slice(0, i) : key;
+    };
+    const byFamily = new Map<string, Array<[string, SimNode[]]>>();
+    for (const entry of groupEntries) {
+      const fam = familyOf(entry[0]);
+      const arr = byFamily.get(fam);
+      if (arr) arr.push(entry);
+      else byFamily.set(fam, [entry]);
+    }
+    const familyEntries = Array.from(byFamily.entries()).sort((a, b) => {
+      const sizeA = a[1].reduce((sum, item) => sum + item[1].length, 0);
+      const sizeB = b[1].reduce((sum, item) => sum + item[1].length, 0);
+      if (sizeB !== sizeA) return sizeB - sizeA;
+      return a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0;
+    });
+
+    const familySpacing = clusterSpacing * 2.15;
+    let familyIdx = 0;
+    for (const [family, entries] of familyEntries) {
+      let fx = cx;
+      let fy = cy;
+      let weighted = 0;
+      for (const [key] of entries) {
+        const c = centroid.get(key);
+        if (!c || c.count <= 0) continue;
+        fx += (c.x / c.count) * c.count;
+        fy += (c.y / c.count) * c.count;
+        weighted += c.count;
+      }
+      if (weighted > 0) {
+        fx /= weighted;
+        fy /= weighted;
+      } else {
+        const ga = familyIdx * golden;
+        const gr = Math.sqrt(familyIdx + 0.9) * familySpacing;
+        fx = cx + gr * Math.cos(ga);
+        fy = cy + gr * Math.sin(ga);
+        familyIdx++;
+      }
+
+      const groupRing = family === "artist" ? clusterSpacing * 0.42 : clusterSpacing * 0.72;
+      for (let gi = 0; gi < entries.length; gi++) {
+        const [key, bucket] = entries[gi];
+        const c = centroid.get(key);
+        let ax = fx;
+        let ay = fy;
+        if (c && c.count > 0) {
+          ax = c.x / c.count;
+          ay = c.y / c.count;
+        } else if (entries.length > 1) {
+          const ga = gi * golden;
+          const gr = Math.sqrt(gi + 0.6) * groupRing;
+          ax = fx + gr * Math.cos(ga);
+          ay = fy + gr * Math.sin(ga);
+        }
+
+        for (let i = 0; i < bucket.length; i++) {
+          const n = bucket[i];
+          const groupLocalStep = key.startsWith("artist:") ? localStep * 0.6 : localStep;
+          const a = i * golden;
+          const r = Math.sqrt(i + 0.5) * groupLocalStep;
+          n.x = ax + r * Math.cos(a);
+          n.y = ay + r * Math.sin(a);
+          n.vx = 0;
+          n.vy = 0;
+        }
       }
     }
 
@@ -643,8 +914,16 @@ export function GraphCanvas(props: GraphCanvasProps) {
           label: l.label,
         }));
     const edgeConfig = buildEdgeConfig();
+    const relationStrengths = props.relationStrengths;
+    const relationStrengthSig = relationStrengthSigFor(relationStrengths);
+    const relationStrengthsChanged = relationStrengthSig !== lastRelationStrengthSig;
 
-    const mode: UpdateMode = firstBuild ? "fresh" : props.quietUpdates ? "quiet" : "nudge";
+    let mode: UpdateMode = firstBuild ? "fresh" : props.quietUpdates ? "quiet" : "nudge";
+    if (!firstBuild && relationStrengthsChanged) {
+      // slider changes should move the layout immediately even while
+      // quietUpdates is enabled after user interaction.
+      mode = "nudge";
+    }
 
     if (!worker) {
       worker = createGraphWorkerClient();
@@ -692,7 +971,8 @@ export function GraphCanvas(props: GraphCanvasProps) {
           height,
           paused: !!props.paused,
         },
-        edgeConfig
+        edgeConfig,
+        relationStrengths
       );
       if (
         typeof console !== "undefined" &&
@@ -700,6 +980,7 @@ export function GraphCanvas(props: GraphCanvasProps) {
       ) {
         console.debug(`[graph] init: nodes=${simNodes.length} links=${simLinks.length}`);
       }
+      lastRelationStrengthSig = relationStrengthSig;
       firstBuild = false;
       return;
     }
@@ -723,7 +1004,8 @@ export function GraphCanvas(props: GraphCanvasProps) {
         );
       }
     }
-    worker.update(workerNodes, workerLinks, mode, edgeConfig);
+    worker.update(workerNodes, workerLinks, mode, edgeConfig, relationStrengths);
+    lastRelationStrengthSig = relationStrengthSig;
     if (mode === "quiet") {
       // worker emits one frame on quiet so new nodes show up. force a
       // local draw too in case the buffer arrives before the rAF lands.
@@ -996,7 +1278,7 @@ export function GraphCanvas(props: GraphCanvasProps) {
           // promoted to "involved", everything else dims out.
           const involved = edgeFocusIds ? isSiblingEdge : pairInvolvedFocus;
           if (searchDim && !isSelEdge && !isHovEdge) {
-            const color = kindColor(link.kind);
+            const color = linkColor(link.kind, link.label);
             let arr = searchDimByColor.get(color);
             if (!arr) {
               arr = [];
@@ -1004,7 +1286,7 @@ export function GraphCanvas(props: GraphCanvasProps) {
             }
             arr.push({ p, i });
           } else if (!isSelEdge && !isHovEdge && !involved) {
-            const color = kindColor(link.kind);
+            const color = linkColor(link.kind, link.label);
             let arr = dimByColor.get(color);
             if (!arr) {
               arr = [];
@@ -1019,7 +1301,7 @@ export function GraphCanvas(props: GraphCanvasProps) {
             // involved — batch by color (same alpha/lineWidth as dim
             // but at full opacity). massive win on "nothing selected"
             // frames where every visible stripe lands here.
-            const color = kindColor(link.kind);
+            const color = linkColor(link.kind, link.label);
             let arr = invByColor.get(color);
             if (!arr) {
               arr = [];
@@ -1098,7 +1380,7 @@ export function GraphCanvas(props: GraphCanvasProps) {
       // cost doesn't matter.
       for (const h of highlighted) {
         const link = h.p.links[h.i];
-        ctx.strokeStyle = kindColor(link.kind);
+        ctx.strokeStyle = linkColor(link.kind, link.label);
         if (h.vis === "sel") {
           ctx.globalAlpha = 1;
           ctx.lineWidth = stripeWidthWorld * 1.35;
@@ -1251,6 +1533,9 @@ export function GraphCanvas(props: GraphCanvasProps) {
     // tile is big enough on screen; at low zoom the in-tile overlay
     // is suppressed and this pass renders the label below the tile
     // instead so it stays legible. non-focused nodes get no label.
+    const focusLabelRects: { x: number; y: number; w: number; h: number }[] = [];
+    const focusLabelDraws: { primary: string; secondary: string | null; sx: number; sy: number }[] =
+      [];
     {
       const ns = nodeSize() * v.k;
       ctx.save();
@@ -1327,6 +1612,8 @@ export function GraphCanvas(props: GraphCanvasProps) {
         const bw = Math.max(tw1, tw2) + padX * 2;
         const bx = l.sx - bw / 2;
         const by = l.sy;
+        focusLabelRects.push({ x: bx, y: by, w: bw, h: bh });
+        focusLabelDraws.push({ primary, secondary, sx: l.sx, sy: l.sy });
         // backdrop
         ctx.fillStyle = "rgba(20,20,28,0.88)";
         const rr = 5;
@@ -1433,11 +1720,17 @@ export function GraphCanvas(props: GraphCanvasProps) {
       // checking against; off-screen ones can't intersect anything).
       const ns = nodeSize() * v.k;
       const nodeRects: { x: number; y: number; w: number; h: number }[] = [];
+      const focusNodeRects: { x: number; y: number; w: number; h: number }[] = [];
+      const multiSel = props.selectedIds;
       for (const n of simNodes) {
         const nsx = (n.x ?? 0) * v.k + v.tx;
         const nsy = (n.y ?? 0) * v.k + v.ty;
         if (nsx + ns < 0 || nsy + ns < 0 || nsx - ns > width || nsy - ns > height) continue;
-        nodeRects.push({ x: nsx - ns / 2, y: nsy - ns / 2, w: ns, h: ns });
+        const rect = { x: nsx - ns / 2, y: nsy - ns / 2, w: ns, h: ns };
+        nodeRects.push(rect);
+        const isFocused =
+          n.id === hoverId() || n.id === selectedId() || ((multiSel?.has(n.id) ?? false) && n.id);
+        if (isFocused) focusNodeRects.push(rect);
       }
 
       // cap non-hover edge labels by viewport area so a 10k-node graph
@@ -1447,14 +1740,6 @@ export function GraphCanvas(props: GraphCanvasProps) {
 
       // deterministic scatter: stable hash by `_key` so the same edges
       // get picked across redraws (no flicker as the user pans/zooms).
-      const hash = (s: string): number => {
-        let h = 2166136261;
-        for (let i = 0; i < s.length; i++) {
-          h ^= s.charCodeAt(i);
-          h = Math.imul(h, 16777619);
-        }
-        return h >>> 0;
-      };
       const hovCands: LabelCand[] = [];
       const selCands: LabelCand[] = [];
       const focusNodeCands: LabelCand[] = [];
@@ -1463,8 +1748,36 @@ export function GraphCanvas(props: GraphCanvasProps) {
         else if (c.isSelected) selCands.push(c);
         else if (c.isFocusNodeEdge) focusNodeCands.push(c);
       }
-      selCands.sort((a, b) => hash(a.link._key) - hash(b.link._key));
-      focusNodeCands.sort((a, b) => hash(a.link._key) - hash(b.link._key));
+      selCands.sort((a, b) => stableHash32(a.link._key) - stableHash32(b.link._key));
+      focusNodeCands.sort((a, b) => stableHash32(a.link._key) - stableHash32(b.link._key));
+
+      const labelKeyFor = (link: SimLink): string => `${link.kind}|${link.label ?? ""}`;
+      const uniqueByLabel = new Map<string, LabelCand>();
+      const pickUnique = (c: LabelCand) => {
+        const k = labelKeyFor(c.link);
+        const prev = uniqueByLabel.get(k);
+        if (!prev) {
+          uniqueByLabel.set(k, c);
+          return;
+        }
+        const prevPri = prev.isSelected ? 2 : prev.isFocusNodeEdge ? 1 : 0;
+        const nextPri = c.isSelected ? 2 : c.isFocusNodeEdge ? 1 : 0;
+        if (nextPri > prevPri) {
+          uniqueByLabel.set(k, c);
+          return;
+        }
+        if (nextPri === prevPri && stableHash32(c.link._key) < stableHash32(prev.link._key)) {
+          uniqueByLabel.set(k, c);
+        }
+      };
+      for (const c of selCands) pickUnique(c);
+      for (const c of focusNodeCands) pickUnique(c);
+      const uniqueLabelCands = Array.from(uniqueByLabel.values()).sort(
+        (a, b) => stableHash32(labelKeyFor(a.link)) - stableHash32(labelKeyFor(b.link))
+      );
+      const uniqueKeys = new Set(uniqueLabelCands.map((c) => c.link._key));
+      const extraSelCands = selCands.filter((c) => !uniqueKeys.has(c.link._key));
+      const extraFocusCands = focusNodeCands.filter((c) => !uniqueKeys.has(c.link._key));
 
       const placed: { x: number; y: number; w: number; h: number }[] = [];
       const labelsToDraw: LabelCand[] = [];
@@ -1488,6 +1801,10 @@ export function GraphCanvas(props: GraphCanvasProps) {
         const bx = Math.min(width - bw - 4, Math.max(4, c.sxm - bw / 2));
         const by = Math.min(height - bh - 4, Math.max(4, c.sym - bh / 2));
         const rect = { x: bx, y: by, w: bw, h: bh };
+        // edge labels should never sit on focused nodes.
+        for (const r of focusNodeRects) if (overlap(rect, r, 4)) return false;
+        // and never sit on focused node labels.
+        for (const r of focusLabelRects) if (overlap(rect, r, 6)) return false;
         if (!ignoreNodeOverlap) {
           for (const r of nodeRects) if (overlap(rect, r, 2)) return false;
         }
@@ -1511,21 +1828,38 @@ export function GraphCanvas(props: GraphCanvasProps) {
         if (!tryPlace(c, lowZoom)) tryPlace(c, true);
       }
 
-      const maxNonHover = areaCap;
+      // unique kind+label combos should each get at least one chance
+      // before duplicate labels consume the cap.
+      const maxNonHover = Math.max(areaCap, uniqueLabelCands.length);
       const maxFocusOnly = Math.max(2, Math.min(8, Math.floor(areaCap * 0.6)));
-
-      for (const c of selCands) {
-        if (labelsToDraw.length >= maxNonHover + hovCands.length) break;
-        if (!tryPlace(c, lowZoom)) tryPlace(c, true);
-      }
+      let nonHoverPlaced = 0;
 
       let focusPlaced = 0;
-      for (const c of focusNodeCands) {
-        if (labelsToDraw.length >= maxNonHover + hovCands.length) break;
+      for (const c of uniqueLabelCands) {
+        if (nonHoverPlaced >= maxNonHover) break;
+        let placedOk = tryPlace(c, lowZoom);
+        if (!placedOk) placedOk = tryPlace(c, true);
+        if (!placedOk) continue;
+        nonHoverPlaced++;
+        if (c.isFocusNodeEdge) focusPlaced++;
+      }
+
+      for (const c of extraSelCands) {
+        if (nonHoverPlaced >= maxNonHover) break;
+        let placedOk = tryPlace(c, lowZoom);
+        if (!placedOk) placedOk = tryPlace(c, true);
+        if (placedOk) nonHoverPlaced++;
+      }
+
+      for (const c of extraFocusCands) {
+        if (nonHoverPlaced >= maxNonHover) break;
         if (focusPlaced >= maxFocusOnly) break;
         let placedOk = tryPlace(c, lowZoom);
         if (!placedOk) placedOk = tryPlace(c, true);
-        if (placedOk) focusPlaced++;
+        if (placedOk) {
+          focusPlaced++;
+          nonHoverPlaced++;
+        }
       }
 
       // actual draw pass
@@ -1539,7 +1873,7 @@ export function GraphCanvas(props: GraphCanvasProps) {
         const bx = c.sxm - bw / 2;
         const by = c.sym - bh / 2;
         ctx.fillStyle = "rgba(20,20,28,0.92)";
-        ctx.strokeStyle = kindColor(link.kind);
+        ctx.strokeStyle = linkColor(link.kind, link.label);
         ctx.lineWidth = 1.5;
         const r = 9;
         ctx.beginPath();
@@ -1559,6 +1893,47 @@ export function GraphCanvas(props: GraphCanvasProps) {
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
         ctx.fillText(text, c.sxm, c.sym + 0.5);
+      }
+      ctx.restore();
+    }
+
+    // redraw focused node labels last so they stay above edge labels.
+    if (focusLabelDraws.length > 0) {
+      ctx.save();
+      ctx.font = "600 11px system-ui, sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      for (const d of focusLabelDraws) {
+        const lineH = 13;
+        const padX = 6;
+        const tw1 = ctx.measureText(d.primary).width;
+        const tw2 = d.secondary ? ctx.measureText(d.secondary).width : 0;
+        const bw = Math.max(tw1, tw2) + padX * 2;
+        const bh = d.secondary ? lineH * 2 + 4 : lineH + 4;
+        const bx = d.sx - bw / 2;
+        const by = d.sy;
+        const rr = 5;
+        ctx.fillStyle = "rgba(20,20,28,0.88)";
+        ctx.beginPath();
+        ctx.moveTo(bx + rr, by);
+        ctx.lineTo(bx + bw - rr, by);
+        ctx.quadraticCurveTo(bx + bw, by, bx + bw, by + rr);
+        ctx.lineTo(bx + bw, by + bh - rr);
+        ctx.quadraticCurveTo(bx + bw, by + bh, bx + bw - rr, by + bh);
+        ctx.lineTo(bx + rr, by + bh);
+        ctx.quadraticCurveTo(bx, by + bh, bx, by + bh - rr);
+        ctx.lineTo(bx, by + rr);
+        ctx.quadraticCurveTo(bx, by, bx + rr, by);
+        ctx.closePath();
+        ctx.fill();
+
+        ctx.fillStyle = "#e6e6e6";
+        const baseY = by + 2 + lineH / 2;
+        ctx.fillText(d.primary, d.sx, baseY);
+        if (d.secondary) {
+          ctx.fillStyle = "#9aa0aa";
+          ctx.fillText(d.secondary, d.sx, by + 2 + lineH + lineH / 2);
+        }
       }
       ctx.restore();
     }
@@ -2337,8 +2712,25 @@ export function GraphCanvas(props: GraphCanvasProps) {
   // separately below so worker-derive mode can fast-path it without
   // re-shipping the full taxonomy.
   createEffect(() => {
+    const key = props.topologyKey;
+    if (key === lastTopologyKey) return;
+    lastTopologyKey = key;
+    // topology switch (e.g. remote change): reset camera + transient
+    // picks so the new graph starts from a truly fresh baseline.
+    setView({ tx: 0, ty: 0, k: 1 });
+    setHoverId(null);
+    setHoverEdgeKey(null);
+    setInternalSelected(null);
+    setSelectedEdgeKeys(new Set<string>());
+    hoverEdgeScreenPos = null;
+    hardResetTopologyState();
+    rebuild();
+  });
+
+  createEffect(() => {
     void props.nodes;
     if (!deriveMode()) void props.edges;
+    void props.relationStrengths;
     rebuild();
   });
 

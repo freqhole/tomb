@@ -53,12 +53,14 @@ export interface GraphWorkerClient {
     links: SimLinkInit[],
     config: SimConfig,
     edgeConfig?: EdgeDeriveConfig,
+    relationStrengths?: Record<string, number>,
   ): void;
   update(
     nodes: SimNodeInit[],
     links: SimLinkInit[],
     mode: UpdateMode,
     edgeConfig?: EdgeDeriveConfig,
+    relationStrengths?: Record<string, number>,
   ): void;
   resize(width: number, height: number, reheat: boolean): void;
   pin(nodeId: string, x: number, y: number): void;
@@ -183,11 +185,11 @@ export function createGraphWorkerClient(): GraphWorkerClient {
 
   return {
     ready: () => readyPromise,
-    init(nodes, links, config, edgeConfig) {
-      post({ type: "init", nodes, links, config, edgeConfig });
+    init(nodes, links, config, edgeConfig, relationStrengths) {
+      post({ type: "init", nodes, links, config, edgeConfig, relationStrengths });
     },
-    update(nodes, links, mode, edgeConfig) {
-      post({ type: "update", nodes, links, mode, edgeConfig });
+    update(nodes, links, mode, edgeConfig, relationStrengths) {
+      post({ type: "update", nodes, links, mode, edgeConfig, relationStrengths });
     },
     resize(width, height, reheat) {
       post({ type: "resize", width, height, reheat });
