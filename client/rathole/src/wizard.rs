@@ -172,8 +172,7 @@ struct WizardApp {
     /// rathole tty's autostart-on-launch behavior.
     enable_http: bool,
     /// federation / p2p enabled in the generated config. drives
-    /// `[federation].enabled` and tty autostart. defaults to off
-    /// since haruspex creds aren't configured yet.
+    /// `[federation].enabled` and tty autostart. defaults to on.
     enable_p2p: bool,
     /// allow unknown peers to "knock" and request access. drives
     /// `[federation].knocking_enabled`. on by default so peers
@@ -205,8 +204,8 @@ impl WizardApp {
             description: String::new(),
             admin_username: d.username,
             image_path: String::new(),
-            enable_http: true,
-            enable_p2p: false,
+            enable_http: false,
+            enable_p2p: true,
             enable_knocking: true,
             enable_remote_admin: false,
             enable_radio: false,
