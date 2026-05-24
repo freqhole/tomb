@@ -28,6 +28,7 @@ pub fn enter(state: &mut AppState) {
 /// build the public spume invite url for a given p2p node id.
 /// shared by `/info`, `/copy-invite`, and `/open-invite` so the
 /// hostname only lives in one place.
+#[cfg(not(target_arch = "wasm32"))]
 fn invite_url(node_id: &str) -> String {
     format!("https://spume.freqhole.net/?r={node_id}")
 }

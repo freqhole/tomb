@@ -153,15 +153,7 @@ fn header_line(app: &App) -> Line<'static> {
 
     // remote name (or local server name) in brackets — replaces the previous
     // [home]/[admin] focus label.
-    let local_name = {
-        let cfg = grimoire::config::get_config();
-        let name = cfg.server.as_ref().map(|s| s.name.trim()).unwrap_or("");
-        if name.is_empty() {
-            "local".to_string()
-        } else {
-            name.to_string()
-        }
-    };
+    let local_name = local_server_name();
     let remote_label = if app.state.ephemeral.connected_peer.is_some() {
         if let Some(name) = app
             .state
@@ -207,6 +199,22 @@ fn header_line(app: &App) -> Line<'static> {
     push_jobs_badge(&mut spans, app.state.ephemeral.jobs_status.as_ref());
 
     Line::from(spans)
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn local_server_name() -> String {
+    let cfg = grimoire::config::get_config();
+    let name = cfg.server.as_ref().map(|s| s.name.trim()).unwrap_or("");
+    if name.is_empty() {
+        "local".to_string()
+    } else {
+        name.to_string()
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+fn local_server_name() -> String {
+    "local".to_string()
 }
 
 fn push_serve_badges(spans: &mut Vec<Span<'static>>, badge: &crate::ratcore::app::ServeBadge) {

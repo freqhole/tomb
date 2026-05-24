@@ -556,6 +556,13 @@ fn on_action(app: &mut App, action: AppAction, action_tx: &mpsc::UnboundedSender
                     });
                     app.state.ephemeral.scan_abort_confirm_for = None;
                 }
+                // submitting scan should immediately land on the scan monitor
+                // so progress is visible without requiring `/scan` again.
+                app.state.ephemeral.form = None;
+                render_scan_monitor(app);
+                app.state.ephemeral.focus = Focus::ResultPanel;
+                app.state.ephemeral.last_dispatch_scroll = 0;
+                return;
             }
             if command == "jobs_cancel_session" && response.success {
                 if let Some(scan) = app.state.ephemeral.scan_status.as_mut() {

@@ -45,6 +45,38 @@ impl Transport for NoopTransport {
         // local library spume populated in the same origin.
         super::local_songs::list_local_songs(limit).await
     }
+
+    async fn search_songs(
+        &self,
+        query: &str,
+        limit: u32,
+    ) -> Result<Vec<crate::ratcore::app::SongRow>, String> {
+        let q = query.trim().to_ascii_lowercase();
+        if q.is_empty() {
+            return Ok(vec![]);
+        }
+        // pull a reasonable local window and filter client-side so
+        // `/search` works even when no remote peer is connected.
+        let rows = super::local_songs::list_local_songs(2000).await?;
+        let mut out: Vec<crate::ratcore::app::SongRow> = rows
+            .into_iter()
+            .filter(|r| {
+                r.title.to_ascii_lowercase().contains(&q)
+                    || r.artist
+                        .as_deref()
+                        .unwrap_or("")
+                        .to_ascii_lowercase()
+                        .contains(&q)
+                    || r.album
+                        .as_deref()
+                        .unwrap_or("")
+                        .to_ascii_lowercase()
+                        .contains(&q)
+            })
+            .collect();
+        out.truncate(limit as usize);
+        Ok(out)
+    }
 }
 
 /// p2p transport backed by midden. one `MiddenNode` per page,

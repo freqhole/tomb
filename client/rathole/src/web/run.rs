@@ -264,21 +264,6 @@ fn on_palette_key(app: &mut App, code: KeyCode, _tx: &mpsc::UnboundedSender<AppA
     }
 }
 
-/// open the remotes-list view, kick off an async load from the
-/// shared `freqhole_app` IndexedDB, and let the loader fire a
-/// `RemotesLoaded` action when ready. the view shows a friendly
-/// empty state until the load completes.
-fn open_remote_list(app: &mut App, action_tx: &mpsc::UnboundedSender<AppAction>) {
-    app.state.ephemeral.focus = Focus::RemoteList;
-    app.state.ephemeral.remotes_view_cursor = 0;
-    let tx = action_tx.clone();
-    wasm_bindgen_futures::spawn_local(async move {
-        let _ = tx.unbounded_send(AppAction::RemotesLoaded {
-            remotes: load_remotes_view().await,
-        });
-    });
-}
-
 async fn load_remotes_view() -> Vec<RemoteEntry> {
     remote_store::list_remotes()
         .await
@@ -374,6 +359,7 @@ fn connect_to_peer(
     } else {
         Some(known_name.clone())
     };
+    eph.repl.status = Some(ReplStatus::info(format!("connecting to {addr}…")));
     eph.peer_input.clear();
     eph.peer_cursor = 0;
     eph.peer_error = None;
@@ -390,12 +376,16 @@ fn connect_to_peer(
         Some(known_name)
     };
     let addr_for_upsert = addr.clone();
+    let tx_for_remotes = action_tx.clone();
     wasm_bindgen_futures::spawn_local(async move {
         if let Err(e) =
             remote_store::upsert_remote(&addr_for_upsert, pre_name.as_deref(), true).await
         {
             web_sys::console::warn_1(&format!("rathole: upsert remote: {e}").into());
         }
+        let _ = tx_for_remotes.unbounded_send(AppAction::RemotesLoaded {
+            remotes: load_remotes_view().await,
+        });
     });
 
     let tx = action_tx.clone();
@@ -415,6 +405,10 @@ fn connect_to_peer(
             }
             Err(e) => {
                 web_sys::console::warn_1(&format!("rathole: hello fetch failed: {e}").into());
+                let _ = tx.unbounded_send(AppAction::PeerConnectResult {
+                    peer_addr: hello_addr,
+                    error: Some(format!("connect failed: {e}")),
+                });
             }
         }
     });
@@ -1233,6 +1227,13 @@ fn on_action(app: &mut App, action: AppAction, action_tx: &mpsc::UnboundedSender
                     });
                     app.state.ephemeral.scan_abort_confirm_for = None;
                 }
+                // submitting scan should immediately land on the scan monitor
+                // so progress is visible without requiring `/scan` again.
+                app.state.ephemeral.form = None;
+                render_scan_monitor(app);
+                app.state.ephemeral.focus = Focus::ResultPanel;
+                app.state.ephemeral.last_dispatch_scroll = 0;
+                return;
             }
             if command == "jobs_cancel_session" && response.success {
                 if let Some(scan) = app.state.ephemeral.scan_status.as_mut() {
@@ -1364,8 +1365,15 @@ fn on_action(app: &mut App, action: AppAction, action_tx: &mpsc::UnboundedSender
             }
         }
         AppAction::PeerConnectResult { peer_addr, error } => match error {
-            Some(e) => app.state.ephemeral.peer_error = Some(e),
-            None => app.state.ephemeral.connected_peer = Some(peer_addr),
+            Some(e) => {
+                app.state.ephemeral.peer_error = Some(e.clone());
+                app.state.ephemeral.repl.status = Some(ReplStatus::err(e));
+            }
+            None => {
+                app.state.ephemeral.connected_peer = Some(peer_addr.clone());
+                app.state.ephemeral.repl.status =
+                    Some(ReplStatus::ok(format!("connected: {peer_addr}")));
+            }
         },
         AppAction::LocalNodeReady { node_id } => {
             app.state.ephemeral.local_node_id = Some(node_id);
@@ -1387,6 +1395,8 @@ fn on_action(app: &mut App, action: AppAction, action_tx: &mpsc::UnboundedSender
                 .unwrap_or(false)
             {
                 app.state.ephemeral.remote_name = name.filter(|s| !s.trim().is_empty());
+                app.state.ephemeral.repl.status =
+                    Some(ReplStatus::ok(format!("connected: {peer_addr}")));
             }
         }
         AppAction::RemotesLoaded { remotes } => {
@@ -1622,7 +1632,7 @@ fn on_music_key_web(app: &mut App, code: KeyCode, action_tx: &mpsc::UnboundedSen
         (MusicMode::Results, KeyCode::Enter) => play_one_at_cursor_web(app, action_tx),
         (MusicMode::Results, KeyCode::Char('A')) => play_from_cursor_web(app, action_tx),
         (MusicMode::Results, KeyCode::Char('/') | KeyCode::Tab) => {
-            app.state.ephemeral.music.mode = MusicMode::Results;
+            app.state.ephemeral.music.mode = MusicMode::Search;
         }
         (MusicMode::Results, KeyCode::Down) => {
             let m = &mut app.state.ephemeral.music;
@@ -1790,13 +1800,38 @@ fn enqueue_now_web(
 /// play just the row under the cursor in the web shell. queue is
 /// replaced with a single-element vec.
 fn play_one_at_cursor_web(app: &mut App, action_tx: &mpsc::UnboundedSender<AppAction>) {
+    if app.player.is_none() {
+        app.state.ephemeral.repl.status = Some(ReplStatus::err("no audio backend attached"));
+        return;
+    }
     let m = &app.state.ephemeral.music;
     if m.results.is_empty() {
+        app.state.ephemeral.repl.status = Some(ReplStatus::info("no songs in results"));
         return;
     }
     let idx = m.results_cursor.min(m.results.len() - 1);
     let row = m.results[idx].clone();
+    app.state.ephemeral.repl.status = Some(ReplStatus::info(format!("playing {}…", row.title)));
     play_now_web(app, vec![row], 0, action_tx);
+}
+
+fn load_local_into_music_web(app: &mut App, action_tx: &mpsc::UnboundedSender<AppAction>) {
+    app.state.ephemeral.focus = crate::ratcore::app::Focus::MusicView;
+    app.state.ephemeral.music.mode = crate::ratcore::app::MusicMode::Results;
+    app.state.ephemeral.music.query.clear();
+    app.state.ephemeral.music.query_cursor = 0;
+    app.state.ephemeral.music.searching = true;
+    app.state.ephemeral.music.search_error = None;
+    app.state.ephemeral.repl.status = Some(ReplStatus::info("loading local songs…".to_string()));
+    let transport = app.transport.clone();
+    let tx_clone = action_tx.clone();
+    wasm_bindgen_futures::spawn_local(async move {
+        let result = transport.list_local_songs(200).await;
+        let _ = tx_clone.unbounded_send(AppAction::MusicSearchResults {
+            query: String::new(),
+            result,
+        });
+    });
 }
 
 /// load the music view's results into the player queue starting at
@@ -2173,6 +2208,7 @@ fn on_repl_key_web(app: &mut App, code: KeyCode, action_tx: &mpsc::UnboundedSend
                 use crate::ratcore::slash::SlashAction;
                 use crate::ratcore::transport::PlayerCmd;
                 let mut handled = true;
+                let mut skip_repl_finalize = false;
                 match action {
                     SlashAction::Play { query: None } => {
                         send_player_web(app, PlayerCmd::Play);
@@ -2237,28 +2273,24 @@ fn on_repl_key_web(app: &mut App, code: KeyCode, action_tx: &mpsc::UnboundedSend
                         app.state.ephemeral.repl.clear_input();
                         rk::leave(&mut app.state);
                         app.state.ephemeral.focus = crate::ratcore::app::Focus::MusicView;
-                        app.state.ephemeral.music.mode = MusicMode::Results;
+                        app.state.ephemeral.music.mode = MusicMode::Search;
                         app.state.ephemeral.repl.status =
-                            Some(ReplStatus::info("type to search music"));
+                            Some(ReplStatus::info("type and press enter to search music"));
                     }
                     SlashAction::Search { query: Some(q) } => {
-                        // FTS-ranked unified search via MiddenTransport.
-                        // results land in the result panel like in tty.
+                        // web shell: run song search directly into the
+                        // music view so enter/play controls work on results.
                         app.state.ephemeral.repl.clear_input();
                         rk::leave(&mut app.state);
-                        let transport = app.transport.clone();
-                        let tx_clone = action_tx.clone();
-                        let qc = q.clone();
-                        wasm_bindgen_futures::spawn_local(async move {
-                            let response = transport.unified_search(&qc).await;
-                            let _ = tx_clone.unbounded_send(AppAction::AdminDispatchResult {
-                                command: "search".to_string(),
-                                response,
-                            });
-                        });
+                        app.state.ephemeral.focus = crate::ratcore::app::Focus::MusicView;
+                        app.state.ephemeral.music.mode = MusicMode::Search;
+                        app.state.ephemeral.music.query = q;
+                        app.state.ephemeral.music.query_cursor =
+                            app.state.ephemeral.music.query.chars().count();
+                        fire_search_web(app, action_tx);
+                        app.state.ephemeral.music.mode = MusicMode::Results;
                         app.state.ephemeral.repl.status =
-                            Some(ReplStatus::info(format!("searching {q}\u{2026}")));
-                        app.state.ephemeral.focus = crate::ratcore::app::Focus::ResultPanel;
+                            Some(ReplStatus::info("searching music…".to_string()));
                     }
                     SlashAction::Library { kind, query } => {
                         let label = match kind {
@@ -2302,33 +2334,23 @@ fn on_repl_key_web(app: &mut App, code: KeyCode, action_tx: &mpsc::UnboundedSend
                         app.state.ephemeral.focus = crate::ratcore::app::Focus::ResultPanel;
                     }
                     SlashAction::Local => {
-                        app.state.ephemeral.focus = crate::ratcore::app::Focus::MusicView;
-                        app.state.ephemeral.music.mode = crate::ratcore::app::MusicMode::Results;
-                        app.state.ephemeral.music.searching = true;
-                        app.state.ephemeral.music.search_error = None;
-                        app.state.ephemeral.repl.status =
-                            Some(ReplStatus::info("loading local songs\u{2026}".to_string()));
-                        let transport = app.transport.clone();
-                        let tx_clone = action_tx.clone();
-                        wasm_bindgen_futures::spawn_local(async move {
-                            let result = transport.list_local_songs(200).await;
-                            let _ = tx_clone.unbounded_send(AppAction::MusicSearchResults {
-                                query: String::new(),
-                                result,
-                            });
-                        });
+                        load_local_into_music_web(app, action_tx);
+                    }
+                    SlashAction::Music => {
+                        // keep `/music` useful on web by mirroring `/local`.
+                        load_local_into_music_web(app, action_tx);
                     }
                     SlashAction::AdminDispatch { name, body } => {
+                        let mut special_handled = false;
                         if name == "__scan_monitor__" {
+                            special_handled = true;
                             if app.state.ephemeral.scan_status.is_some() {
                                 render_scan_monitor(app);
                                 app.state.ephemeral.repl.status = Some(ReplStatus::info(
                                     "scan monitor opened (use /scan add <path> [tags] to enqueue more)".to_string(),
                                 ));
                                 app.state.ephemeral.focus = crate::ratcore::app::Focus::ResultPanel;
-                                continue;
-                            }
-                            if let Some(cmd) = app
+                            } else if let Some(cmd) = app
                                 .commands
                                 .iter()
                                 .find(|c| c.name == "library_scan")
@@ -2341,92 +2363,99 @@ fn on_repl_key_web(app: &mut App, code: KeyCode, action_tx: &mpsc::UnboundedSend
                                     Some(ReplStatus::info("scan form opened".to_string()));
                                 app.state.ephemeral.repl.clear_input();
                                 maybe_fetch_select_options(app, action_tx);
-                                continue;
                             }
-                        }
-                        if name == "__scan_add__" {
-                            let Some(scan) = app.state.ephemeral.scan_status.as_ref() else {
+                            skip_repl_finalize = true;
+                        } else if name == "__scan_add__" {
+                            special_handled = true;
+                            if let Some(scan) = app.state.ephemeral.scan_status.as_ref() {
+                                if !scan.active {
+                                    app.state.ephemeral.repl.status = Some(ReplStatus::err(
+                                        "last scan session is complete; start a new one with /scan <path>".to_string(),
+                                    ));
+                                } else {
+                                    let transport = app.transport.clone();
+                                    let tx_clone = action_tx.clone();
+                                    let mut add_body = body.clone();
+                                    add_body["session_id"] = serde_json::json!(scan.session_id);
+                                    wasm_bindgen_futures::spawn_local(async move {
+                                        let response = transport
+                                            .admin_dispatch("library_scan", add_body)
+                                            .await;
+                                        let _ = tx_clone.unbounded_send(
+                                            AppAction::AdminDispatchResult {
+                                                command: "library_scan".to_string(),
+                                                response,
+                                            },
+                                        );
+                                    });
+                                    app.state.ephemeral.repl.status = Some(ReplStatus::info(
+                                        "adding directory to active scan…".to_string(),
+                                    ));
+                                    app.state.ephemeral.focus =
+                                        crate::ratcore::app::Focus::ResultPanel;
+                                }
+                            } else {
                                 app.state.ephemeral.repl.status = Some(ReplStatus::err(
                                     "no active scan session; start one with /scan <path> or /scan form".to_string(),
                                 ));
-                                continue;
-                            };
-                            if !scan.active {
-                                app.state.ephemeral.repl.status = Some(ReplStatus::err(
-                                    "last scan session is complete; start a new one with /scan <path>".to_string(),
-                                ));
-                                continue;
                             }
-                            let transport = app.transport.clone();
-                            let tx_clone = action_tx.clone();
-                            let mut add_body = body;
-                            add_body["session_id"] = serde_json::json!(scan.session_id);
-                            wasm_bindgen_futures::spawn_local(async move {
-                                let response =
-                                    transport.admin_dispatch("library_scan", add_body).await;
-                                let _ = tx_clone.unbounded_send(AppAction::AdminDispatchResult {
-                                    command: "library_scan".to_string(),
-                                    response,
-                                });
-                            });
-                            app.state.ephemeral.repl.status = Some(ReplStatus::info(
-                                "adding directory to active scan…".to_string(),
-                            ));
-                            app.state.ephemeral.focus = crate::ratcore::app::Focus::ResultPanel;
-                            continue;
-                        }
-                        if name == "__scan_abort__" {
-                            let Some(scan) = app.state.ephemeral.scan_status.as_ref() else {
-                                app.state.ephemeral.repl.status = Some(ReplStatus::err(
-                                    "no active scan session to abort".to_string(),
-                                ));
-                                continue;
-                            };
-                            app.state.ephemeral.scan_abort_confirm_for =
-                                Some(scan.session_id.clone());
-                            app.state.ephemeral.repl.status = Some(ReplStatus::info(
-                                "confirm abort with /scan abort confirm".to_string(),
-                            ));
-                            continue;
-                        }
-                        if name == "__scan_abort_confirm__" {
-                            let Some(scan) = app.state.ephemeral.scan_status.as_ref() else {
-                                app.state.ephemeral.repl.status = Some(ReplStatus::err(
-                                    "no active scan session to abort".to_string(),
-                                ));
-                                continue;
-                            };
-                            if app.state.ephemeral.scan_abort_confirm_for.as_deref()
-                                != Some(scan.session_id.as_str())
-                            {
+                            skip_repl_finalize = true;
+                        } else if name == "__scan_abort__" {
+                            special_handled = true;
+                            if let Some(scan) = app.state.ephemeral.scan_status.as_ref() {
+                                app.state.ephemeral.scan_abort_confirm_for =
+                                    Some(scan.session_id.clone());
                                 app.state.ephemeral.repl.status = Some(ReplStatus::info(
-                                    "abort not armed; run /scan abort first".to_string(),
+                                    "confirm abort with /scan abort confirm".to_string(),
                                 ));
-                                continue;
+                            } else {
+                                app.state.ephemeral.repl.status = Some(ReplStatus::err(
+                                    "no active scan session to abort".to_string(),
+                                ));
                             }
-                            let transport = app.transport.clone();
-                            let tx_clone = action_tx.clone();
-                            let sid = scan.session_id.clone();
-                            wasm_bindgen_futures::spawn_local(async move {
-                                let response = transport
-                                    .admin_dispatch(
-                                        "jobs_cancel_session",
-                                        serde_json::json!({"session_id": sid}),
-                                    )
-                                    .await;
-                                let _ = tx_clone.unbounded_send(AppAction::AdminDispatchResult {
-                                    command: "jobs_cancel_session".to_string(),
-                                    response,
-                                });
-                            });
-                            app.state.ephemeral.scan_abort_confirm_for = None;
-                            app.state.ephemeral.repl.status =
-                                Some(ReplStatus::info("aborting scan session…".to_string()));
-                            app.state.ephemeral.focus = crate::ratcore::app::Focus::ResultPanel;
-                            continue;
-                        }
-                        // /scan with no args opens the rich library_scan form.
-                        if name == "__scan_form__" {
+                            skip_repl_finalize = true;
+                        } else if name == "__scan_abort_confirm__" {
+                            special_handled = true;
+                            if let Some(scan) = app.state.ephemeral.scan_status.as_ref() {
+                                if app.state.ephemeral.scan_abort_confirm_for.as_deref()
+                                    != Some(scan.session_id.as_str())
+                                {
+                                    app.state.ephemeral.repl.status = Some(ReplStatus::info(
+                                        "abort not armed; run /scan abort first".to_string(),
+                                    ));
+                                } else {
+                                    let transport = app.transport.clone();
+                                    let tx_clone = action_tx.clone();
+                                    let sid = scan.session_id.clone();
+                                    wasm_bindgen_futures::spawn_local(async move {
+                                        let response = transport
+                                            .admin_dispatch(
+                                                "jobs_cancel_session",
+                                                serde_json::json!({"session_id": sid}),
+                                            )
+                                            .await;
+                                        let _ = tx_clone.unbounded_send(
+                                            AppAction::AdminDispatchResult {
+                                                command: "jobs_cancel_session".to_string(),
+                                                response,
+                                            },
+                                        );
+                                    });
+                                    app.state.ephemeral.scan_abort_confirm_for = None;
+                                    app.state.ephemeral.repl.status = Some(ReplStatus::info(
+                                        "aborting scan session…".to_string(),
+                                    ));
+                                    app.state.ephemeral.focus =
+                                        crate::ratcore::app::Focus::ResultPanel;
+                                }
+                            } else {
+                                app.state.ephemeral.repl.status = Some(ReplStatus::err(
+                                    "no active scan session to abort".to_string(),
+                                ));
+                            }
+                            skip_repl_finalize = true;
+                        } else if name == "__scan_form__" {
+                            special_handled = true;
                             if let Some(cmd) = app
                                 .commands
                                 .iter()
@@ -2440,51 +2469,55 @@ fn on_repl_key_web(app: &mut App, code: KeyCode, action_tx: &mpsc::UnboundedSend
                                     Some(ReplStatus::info("scan form opened".to_string()));
                                 app.state.ephemeral.repl.clear_input();
                                 maybe_fetch_select_options(app, action_tx);
-                                continue;
+                            } else {
+                                app.state.ephemeral.repl.status = Some(ReplStatus::err(
+                                    "scan form command not found".to_string(),
+                                ));
                             }
-                            app.state.ephemeral.repl.status =
-                                Some(ReplStatus::err("scan form command not found".to_string()));
-                            continue;
+                            skip_repl_finalize = true;
                         }
-                        // generic admin-rpc dispatch from /knock /users
-                        // /analytics /radio subcommands. on the web
-                        // shell the transport is remote (midden/iroh),
-                        // so handler-side progress reporting via
-                        // `grimoire::progress` happens on the server
-                        // and isn't streamed back here — the result
-                        // panel just shows the pending placeholder
-                        // until the final response lands.
-                        let transport = app.transport.clone();
-                        let tx_clone = action_tx.clone();
-                        let name_owned = name.to_string();
-                        wasm_bindgen_futures::spawn_local(async move {
-                            let response = transport.admin_dispatch(&name_owned, body).await;
-                            let _ = tx_clone.unbounded_send(AppAction::AdminDispatchResult {
-                                command: name_owned,
-                                response,
+
+                        if !special_handled {
+                            // generic admin-rpc dispatch from /knock /users
+                            // /analytics /radio subcommands. on the web
+                            // shell the transport is remote (midden/iroh),
+                            // so handler-side progress reporting via
+                            // `grimoire::progress` happens on the server
+                            // and isn't streamed back here — the result
+                            // panel just shows the pending placeholder
+                            // until the final response lands.
+                            let transport = app.transport.clone();
+                            let tx_clone = action_tx.clone();
+                            let name_owned = name.to_string();
+                            wasm_bindgen_futures::spawn_local(async move {
+                                let response = transport.admin_dispatch(&name_owned, body).await;
+                                let _ = tx_clone.unbounded_send(AppAction::AdminDispatchResult {
+                                    command: name_owned,
+                                    response,
+                                });
                             });
-                        });
-                        app.state.ephemeral.repl.status =
-                            Some(ReplStatus::info(format!("dispatching {name}\u{2026}")));
-                        // seed the result panel with a "running"
-                        // placeholder so the user sees immediate
-                        // feedback. replaced when the dispatch
-                        // returns.
-                        app.state.ephemeral.last_dispatch =
-                            Some(crate::ratcore::app::LastDispatch {
-                                command: name.to_string(),
-                                success: true,
-                                message: format!(
-                                    "running {name}\u{2026} (this may take a while for long maintenance ops)"
-                                ),
-                                data_pretty: None,
-                                rows: vec![],
-                                cursor: 0,
-                                pending: true,
-                                progress: vec![],
-                            });
-                        app.state.ephemeral.last_dispatch_scroll = 0;
-                        app.state.ephemeral.focus = crate::ratcore::app::Focus::ResultPanel;
+                            app.state.ephemeral.repl.status =
+                                Some(ReplStatus::info(format!("dispatching {name}\u{2026}")));
+                            // seed the result panel with a "running"
+                            // placeholder so the user sees immediate
+                            // feedback. replaced when the dispatch
+                            // returns.
+                            app.state.ephemeral.last_dispatch =
+                                Some(crate::ratcore::app::LastDispatch {
+                                    command: name.to_string(),
+                                    success: true,
+                                    message: format!(
+                                        "running {name}\u{2026} (this may take a while for long maintenance ops)"
+                                    ),
+                                    data_pretty: None,
+                                    rows: vec![],
+                                    cursor: 0,
+                                    pending: true,
+                                    progress: vec![],
+                                });
+                            app.state.ephemeral.last_dispatch_scroll = 0;
+                            app.state.ephemeral.focus = crate::ratcore::app::Focus::ResultPanel;
+                        }
                     }
                     _ => {
                         handled = false;
@@ -2499,8 +2532,10 @@ fn on_repl_key_web(app: &mut App, code: KeyCode, action_tx: &mpsc::UnboundedSend
                         "this command needs the web music runtime (coming soon)".to_string(),
                     ));
                 }
-                app.state.ephemeral.repl.clear_input();
-                rk::leave(&mut app.state);
+                if !skip_repl_finalize {
+                    app.state.ephemeral.repl.clear_input();
+                    rk::leave(&mut app.state);
+                }
             }
         }
         KeyCode::Tab => rk::handle_tab(&mut app.state),
