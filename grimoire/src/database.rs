@@ -23,33 +23,26 @@ static BLOB_POOL: OnceCell<SqlitePool> = OnceCell::const_new();
 // (drop runs in reverse, create runs forward).
 mod views {
     pub struct View {
-        pub name: &'static str,
         pub sql: &'static str,
     }
 
     pub const ALL: &[View] = &[
         View {
-            name: "artist_query_view",
             sql: include_str!("../../migrations/views/artist_query_view.sql"),
         },
         View {
-            name: "album_query_view",
             sql: include_str!("../../migrations/views/album_query_view.sql"),
         },
         View {
-            name: "song_query_view",
             sql: include_str!("../../migrations/views/song_query_view.sql"),
         },
         View {
-            name: "playlist_query_view",
             sql: include_str!("../../migrations/views/playlist_query_view.sql"),
         },
         View {
-            name: "playlist_song_query_view",
             sql: include_str!("../../migrations/views/playlist_song_query_view.sql"),
         },
         View {
-            name: "feed_query_view",
             sql: include_str!("../../migrations/views/feed_query_view.sql"),
         },
     ];
@@ -72,7 +65,7 @@ pub async fn run_migrations() -> GrimoireResult<()> {
 
 /// internal migration runner - shared by initialize() and run_migrations()
 async fn run_migrations_internal(pool: &SqlitePool) -> GrimoireResult<()> {
-    // drop all query views BEFORE running migrations.
+    // drop all views BEFORE running migrations.
     //
     // why: migrations that rebuild a table (e.g. CREATE _new + DROP old +
     // RENAME) cannot run while a view references the old table on stricter
@@ -80,11 +73,21 @@ async fn run_migrations_internal(pool: &SqlitePool) -> GrimoireResult<()> {
     // the views up front removes the dependency; they are recreated below
     // from the embedded view scripts after migrations finish.
     //
-    // safe to drop unconditionally: views are pure projections recreated on
-    // every startup and contain no persistent data. drop in reverse
-    // dependency order.
-    for view in views::ALL.iter().rev() {
-        pool.execute(format!("DROP VIEW IF EXISTS {};", view.name).as_str())
+    // safe to drop unconditionally: views are pure projections and contain no
+    // persistent data.
+    //
+    // we query sqlite_schema instead of only dropping views::ALL so legacy
+    // views (for example old taxonomy views like `genre_query_view`) cannot
+    // block table rebuild migrations.
+    let existing_views: Vec<String> = sqlx::query_scalar(
+        "SELECT name FROM sqlite_schema WHERE type = 'view' AND name NOT LIKE 'sqlite_%'",
+    )
+    .fetch_all(pool)
+    .await?;
+
+    for view_name in existing_views {
+        let escaped = view_name.replace('"', "\"\"");
+        pool.execute(format!("DROP VIEW IF EXISTS \"{}\";", escaped).as_str())
             .await?;
     }
 
