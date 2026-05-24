@@ -217,6 +217,10 @@ pub struct EphemeralState {
     /// top bar. fed by the same grimoire event channel that drives
     /// `jobs_status`.
     pub pending_knocks: u32,
+    /// most recent scan session status for `/scan` monitor reopen.
+    pub scan_status: Option<ScanStatus>,
+    /// if set, `/scan abort confirm` must match this session id.
+    pub scan_abort_confirm_for: Option<String>,
 }
 
 /// minimal portable view of an in-flight job session for the
@@ -232,6 +236,16 @@ pub struct JobsStatus {
     pub jobs_total: u32,
     /// jobs still pending.
     pub jobs_pending: u32,
+}
+
+/// in-memory status for the most recent `/scan` session.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ScanStatus {
+    pub session_id: String,
+    pub jobs_total: u32,
+    pub jobs_pending: u32,
+    pub percent: u8,
+    pub active: bool,
 }
 
 impl Default for EphemeralState {
@@ -259,6 +273,8 @@ impl Default for EphemeralState {
             serve: ServeBadge::default(),
             jobs_status: None,
             pending_knocks: 0,
+            scan_status: None,
+            scan_abort_confirm_for: None,
         }
     }
 }

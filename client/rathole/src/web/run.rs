@@ -608,10 +608,21 @@ fn on_form_key(app: &mut App, code: KeyCode, _shift: bool, tx: &mpsc::UnboundedS
         KeyCode::PageDown => {
             form.scroll = form.scroll.saturating_add(5);
         }
-        // Tab advances regardless of focused field (handy when the
-        // focused field is a LongText editor where Enter inserts a
-        // newline).
-        KeyCode::Tab => advance_form(app, tx),
+        // Up/Down cycles form fields (wrapping) without entering
+        // confirm/submit.
+        KeyCode::Up => {
+            form.focus_prev();
+            form.error = None;
+            maybe_fetch_select_options(app, tx);
+        }
+        KeyCode::Down => {
+            form.focus_next();
+            form.error = None;
+            maybe_fetch_select_options(app, tx);
+        }
+        // keep Tab free for browser focus traversal; rathole form
+        // navigation uses Up/Down.
+        KeyCode::Tab => {}
         KeyCode::Enter => {
             let is_long = form
                 .fields
@@ -1200,6 +1211,75 @@ fn extract_options(
 fn on_action(app: &mut App, action: AppAction, action_tx: &mpsc::UnboundedSender<AppAction>) {
     match action {
         AppAction::AdminDispatchResult { command, response } => {
+            if command == "library_scan" && response.success {
+                if let Some(sid) = response
+                    .data
+                    .as_ref()
+                    .and_then(|d| d.get("session_id"))
+                    .and_then(serde_json::Value::as_str)
+                {
+                    let jobs_created = response
+                        .data
+                        .as_ref()
+                        .and_then(|d| d.get("jobs_created"))
+                        .and_then(serde_json::Value::as_u64)
+                        .unwrap_or(0) as u32;
+                    app.state.ephemeral.scan_status = Some(crate::ratcore::app::ScanStatus {
+                        session_id: sid.to_string(),
+                        jobs_total: jobs_created,
+                        jobs_pending: jobs_created,
+                        percent: 0,
+                        active: jobs_created > 0,
+                    });
+                    app.state.ephemeral.scan_abort_confirm_for = None;
+                }
+            }
+            if command == "jobs_cancel_session" && response.success {
+                if let Some(scan) = app.state.ephemeral.scan_status.as_mut() {
+                    scan.active = false;
+                    scan.jobs_pending = 0;
+                    scan.percent = 100;
+                }
+                app.state.ephemeral.scan_abort_confirm_for = None;
+            }
+            if command == "library_scan_status" && response.success {
+                if let Some(d) = response.data.as_ref() {
+                    let pending = d
+                        .get("pending")
+                        .and_then(serde_json::Value::as_u64)
+                        .unwrap_or(0) as u32;
+                    let running = d
+                        .get("running")
+                        .and_then(serde_json::Value::as_u64)
+                        .unwrap_or(0) as u32;
+                    let completed = d
+                        .get("completed")
+                        .and_then(serde_json::Value::as_u64)
+                        .unwrap_or(0) as u32;
+                    let failed = d
+                        .get("failed")
+                        .and_then(serde_json::Value::as_u64)
+                        .unwrap_or(0) as u32;
+                    let total = d
+                        .get("total")
+                        .and_then(serde_json::Value::as_u64)
+                        .unwrap_or(0) as u32;
+                    let done = completed.saturating_add(failed);
+                    let percent = if total > 0 {
+                        ((done as u64 * 100) / total as u64) as u8
+                    } else {
+                        0
+                    };
+                    if let Some(scan) = app.state.ephemeral.scan_status.as_mut() {
+                        scan.jobs_total = total;
+                        scan.jobs_pending = pending.saturating_add(running);
+                        scan.percent = percent;
+                        scan.active = pending.saturating_add(running) > 0;
+                    }
+                    render_scan_monitor(app);
+                    return;
+                }
+            }
             let data_pretty = response
                 .data
                 .as_ref()
@@ -2239,6 +2319,133 @@ fn on_repl_key_web(app: &mut App, code: KeyCode, action_tx: &mpsc::UnboundedSend
                         });
                     }
                     SlashAction::AdminDispatch { name, body } => {
+                        if name == "__scan_monitor__" {
+                            if app.state.ephemeral.scan_status.is_some() {
+                                render_scan_monitor(app);
+                                app.state.ephemeral.repl.status = Some(ReplStatus::info(
+                                    "scan monitor opened (use /scan add <path> [tags] to enqueue more)".to_string(),
+                                ));
+                                app.state.ephemeral.focus = crate::ratcore::app::Focus::ResultPanel;
+                                continue;
+                            }
+                            if let Some(cmd) = app
+                                .commands
+                                .iter()
+                                .find(|c| c.name == "library_scan")
+                                .cloned()
+                            {
+                                app.state.ephemeral.form =
+                                    Some(crate::ratcore::app::CommandForm::new(&cmd));
+                                app.state.ephemeral.focus = crate::ratcore::app::Focus::CommandForm;
+                                app.state.ephemeral.repl.status =
+                                    Some(ReplStatus::info("scan form opened".to_string()));
+                                app.state.ephemeral.repl.clear_input();
+                                maybe_fetch_select_options(app, action_tx);
+                                continue;
+                            }
+                        }
+                        if name == "__scan_add__" {
+                            let Some(scan) = app.state.ephemeral.scan_status.as_ref() else {
+                                app.state.ephemeral.repl.status = Some(ReplStatus::err(
+                                    "no active scan session; start one with /scan <path> or /scan form".to_string(),
+                                ));
+                                continue;
+                            };
+                            if !scan.active {
+                                app.state.ephemeral.repl.status = Some(ReplStatus::err(
+                                    "last scan session is complete; start a new one with /scan <path>".to_string(),
+                                ));
+                                continue;
+                            }
+                            let transport = app.transport.clone();
+                            let tx_clone = action_tx.clone();
+                            let mut add_body = body;
+                            add_body["session_id"] = serde_json::json!(scan.session_id);
+                            wasm_bindgen_futures::spawn_local(async move {
+                                let response =
+                                    transport.admin_dispatch("library_scan", add_body).await;
+                                let _ = tx_clone.unbounded_send(AppAction::AdminDispatchResult {
+                                    command: "library_scan".to_string(),
+                                    response,
+                                });
+                            });
+                            app.state.ephemeral.repl.status = Some(ReplStatus::info(
+                                "adding directory to active scan…".to_string(),
+                            ));
+                            app.state.ephemeral.focus = crate::ratcore::app::Focus::ResultPanel;
+                            continue;
+                        }
+                        if name == "__scan_abort__" {
+                            let Some(scan) = app.state.ephemeral.scan_status.as_ref() else {
+                                app.state.ephemeral.repl.status = Some(ReplStatus::err(
+                                    "no active scan session to abort".to_string(),
+                                ));
+                                continue;
+                            };
+                            app.state.ephemeral.scan_abort_confirm_for =
+                                Some(scan.session_id.clone());
+                            app.state.ephemeral.repl.status = Some(ReplStatus::info(
+                                "confirm abort with /scan abort confirm".to_string(),
+                            ));
+                            continue;
+                        }
+                        if name == "__scan_abort_confirm__" {
+                            let Some(scan) = app.state.ephemeral.scan_status.as_ref() else {
+                                app.state.ephemeral.repl.status = Some(ReplStatus::err(
+                                    "no active scan session to abort".to_string(),
+                                ));
+                                continue;
+                            };
+                            if app.state.ephemeral.scan_abort_confirm_for.as_deref()
+                                != Some(scan.session_id.as_str())
+                            {
+                                app.state.ephemeral.repl.status = Some(ReplStatus::info(
+                                    "abort not armed; run /scan abort first".to_string(),
+                                ));
+                                continue;
+                            }
+                            let transport = app.transport.clone();
+                            let tx_clone = action_tx.clone();
+                            let sid = scan.session_id.clone();
+                            wasm_bindgen_futures::spawn_local(async move {
+                                let response = transport
+                                    .admin_dispatch(
+                                        "jobs_cancel_session",
+                                        serde_json::json!({"session_id": sid}),
+                                    )
+                                    .await;
+                                let _ = tx_clone.unbounded_send(AppAction::AdminDispatchResult {
+                                    command: "jobs_cancel_session".to_string(),
+                                    response,
+                                });
+                            });
+                            app.state.ephemeral.scan_abort_confirm_for = None;
+                            app.state.ephemeral.repl.status =
+                                Some(ReplStatus::info("aborting scan session…".to_string()));
+                            app.state.ephemeral.focus = crate::ratcore::app::Focus::ResultPanel;
+                            continue;
+                        }
+                        // /scan with no args opens the rich library_scan form.
+                        if name == "__scan_form__" {
+                            if let Some(cmd) = app
+                                .commands
+                                .iter()
+                                .find(|c| c.name == "library_scan")
+                                .cloned()
+                            {
+                                app.state.ephemeral.form =
+                                    Some(crate::ratcore::app::CommandForm::new(&cmd));
+                                app.state.ephemeral.focus = crate::ratcore::app::Focus::CommandForm;
+                                app.state.ephemeral.repl.status =
+                                    Some(ReplStatus::info("scan form opened".to_string()));
+                                app.state.ephemeral.repl.clear_input();
+                                maybe_fetch_select_options(app, action_tx);
+                                continue;
+                            }
+                            app.state.ephemeral.repl.status =
+                                Some(ReplStatus::err("scan form command not found".to_string()));
+                            continue;
+                        }
                         // generic admin-rpc dispatch from /knock /users
                         // /analytics /radio subcommands. on the web
                         // shell the transport is remote (midden/iroh),
@@ -2316,6 +2523,47 @@ fn on_repl_key_web(app: &mut App, code: KeyCode, action_tx: &mpsc::UnboundedSend
         KeyCode::Char(c) if !c.is_control() => rk::insert_char(&mut app.state, c),
         _ => {}
     }
+}
+
+fn scan_bar(percent: u8) -> String {
+    let width = 24usize;
+    let filled = ((percent as usize) * width) / 100;
+    format!(
+        "[{}{}]",
+        "#".repeat(filled),
+        "-".repeat(width.saturating_sub(filled))
+    )
+}
+
+fn render_scan_monitor(app: &mut App) {
+    let Some(scan) = app.state.ephemeral.scan_status.as_ref() else {
+        return;
+    };
+    let bar = scan_bar(scan.percent);
+    let state = if scan.active { "running" } else { "complete" };
+    app.state.ephemeral.last_dispatch = Some(LastDispatch {
+        command: "scan_monitor".to_string(),
+        success: true,
+        message: format!(
+            "scan session {state}: {}\n{} {}%  (pending {} / total {})\n\ncommands: /scan add <path> [tags], /scan abort",
+            scan.session_id, bar, scan.percent, scan.jobs_pending, scan.jobs_total
+        ),
+        data_pretty: Some(
+            serde_json::to_string_pretty(&serde_json::json!({
+                "session_id": scan.session_id,
+                "jobs_total": scan.jobs_total,
+                "jobs_pending": scan.jobs_pending,
+                "percent": scan.percent,
+                "active": scan.active,
+            }))
+            .unwrap_or_default(),
+        ),
+        rows: vec![],
+        cursor: 0,
+        pending: false,
+        progress: vec![],
+    });
+    app.state.ephemeral.last_dispatch_scroll = 0;
 }
 
 /// player-row key handler for the web shell. cursor navigation

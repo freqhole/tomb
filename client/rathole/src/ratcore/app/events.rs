@@ -286,6 +286,20 @@ pub struct CommandForm {
     /// viewport. PgUp/PgDn drive this from the form key handler;
     /// it's clamped at render time so it never overflows.
     pub scroll: u16,
+    /// transient path-tab completion state for Text/LongText fields.
+    /// when set, repeated Tab can cycle through all candidates for
+    /// the same seed token (shell-like menu completion).
+    pub path_tab_cycle: Option<PathTabCycle>,
+}
+
+/// remembers the candidate set produced by the most recent path-tab
+/// completion so subsequent Tab presses can rotate through it.
+#[derive(Debug, Clone)]
+pub struct PathTabCycle {
+    pub field_index: usize,
+    pub seed_token: String,
+    pub candidates: Vec<String>,
+    pub selected: usize,
 }
 
 impl CommandForm {
@@ -300,6 +314,7 @@ impl CommandForm {
             inflight: false,
             error: None,
             scroll: 0,
+            path_tab_cycle: None,
         }
     }
 
@@ -419,6 +434,7 @@ impl CommandForm {
             inflight: false,
             error: None,
             scroll: 0,
+            path_tab_cycle: None,
         }
     }
 

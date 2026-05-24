@@ -225,11 +225,15 @@ pub const COMMANDS: &[(&str, &str)] = &[
     ),
     (
         "knock",
-        "/knock [sub]       knocks (sub: list|accept|reject|reject-all|delete)",
+        "/knock [sub]       knocks (sub: list|all|accept|reject|reject-all|delete)",
     ),
     (
         "users",
-        "/users [sub]       users (sub: list|grant|revoke|delete)",
+        "/users [sub]       users (sub: list|grant|revoke|delete|peer-add|peer-remove)",
+    ),
+    (
+        "peers",
+        "/peers [sub]       peers (sub: list|all|remove|restore|hard-delete|reassign)",
     ),
     (
         "analytics",
@@ -238,6 +242,10 @@ pub const COMMANDS: &[(&str, &str)] = &[
     (
         "jobs",
         "/jobs [sub]        jobs (sub: list|stats|session <id>)",
+    ),
+    (
+        "scan",
+        "/scan [path] [tags]|add <path> [tags]|abort [confirm]",
     ),
     (
         "genre",
@@ -281,6 +289,7 @@ pub const GROUPS: &[(&str, &[(&str, &str)])] = &[
         "knock",
         &[
             ("list", "list pending knocks"),
+            ("all", "list all knocks including processed"),
             ("accept", "accept a knock by id"),
             ("reject", "reject a knock by id"),
             ("reject-all", "reject every pending knock"),
@@ -294,6 +303,37 @@ pub const GROUPS: &[(&str, &[(&str, &str)])] = &[
             ("grant", "grant role: /users grant <id> <role>"),
             ("revoke", "revoke admin: /users revoke <id>"),
             ("delete", "soft-delete a user by id"),
+            (
+                "peer-add",
+                "add peer node: /users peer-add <user_id> <node_id> [instance_name]",
+            ),
+            (
+                "peer-remove",
+                "remove peer node: /users peer-remove <user_id> <node_id>",
+            ),
+        ],
+    ),
+    (
+        "peers",
+        &[
+            ("list", "list active peers"),
+            ("all", "list peers including soft-deleted"),
+            (
+                "remove",
+                "soft-delete peer: /peers remove <user_id> <node_id>",
+            ),
+            (
+                "restore",
+                "restore peer: /peers restore <user_id> <node_id>",
+            ),
+            (
+                "hard-delete",
+                "hard-delete peer node globally: /peers hard-delete <node_id>",
+            ),
+            (
+                "reassign",
+                "move peer to user: /peers reassign <node_id> <user_id>",
+            ),
         ],
     ),
     (
@@ -321,6 +361,18 @@ pub const GROUPS: &[(&str, &[(&str, &str)])] = &[
             ("list", "list recent jobs"),
             ("stats", "queue stats (counts per status)"),
             ("session", "list jobs in a session: /jobs session <id>"),
+        ],
+    ),
+    (
+        "scan",
+        &[
+            ("status", "show active scan monitor"),
+            ("form", "open interactive scan form"),
+            (
+                "add",
+                "add directory to active scan: /scan add <path> [tags]",
+            ),
+            ("abort", "arm abort confirmation for active scan"),
         ],
     ),
     (
@@ -429,6 +481,7 @@ pub fn parse(input: &str) -> SlashAction {
                 hint: "usage: /fetch <url> (yt-dlp — youtube, soundcloud, bandcamp, …)",
             },
         },
+        "scan" => parse_scan_sub(arg.as_deref()),
         // /admin is an alias for /help — both surface the slash
         // command list in the result panel.
         "admin" | "a" | "commands" | "cmds" | "c" => SlashAction::Help,
@@ -465,6 +518,7 @@ pub fn parse(input: &str) -> SlashAction {
         "radio" | "r" => parse_radio_sub(arg.as_deref()),
         "knock" | "knocks" => parse_knock_sub(arg.as_deref()),
         "users" | "user" => parse_users_sub(arg.as_deref()),
+        "peers" | "peer" => parse_peers_sub(arg.as_deref()),
         "analytics" | "stats" => parse_analytics_sub(arg.as_deref()),
         "jobs" | "j" => parse_jobs_sub(arg.as_deref()),
         "genre" | "genres" | "g" => parse_genre_sub(arg.as_deref()),
@@ -632,6 +686,10 @@ fn parse_knock_sub(arg: Option<&str>) -> SlashAction {
             name: "knocks_list",
             body: serde_json::json!({}),
         },
+        "all" | "list-all" | "list_all" => SlashAction::AdminDispatch {
+            name: "knocks_list_all",
+            body: serde_json::json!({}),
+        },
         "accept" if !id.is_empty() => SlashAction::AdminDispatch {
             name: "knocks_accept",
             body: serde_json::json!({ "knock_id": id, "role": "User" }),
@@ -650,7 +708,7 @@ fn parse_knock_sub(arg: Option<&str>) -> SlashAction {
         },
         _ => SlashAction::BadArgs {
             name: "knock",
-            hint: "usage: /knock [list|accept <id>|reject <id>|reject-all|delete <id>]",
+            hint: "usage: /knock [list|all|accept <id>|reject <id>|reject-all|delete <id>]",
         },
     }
 }
@@ -679,9 +737,65 @@ fn parse_users_sub(arg: Option<&str>) -> SlashAction {
             name: "users_delete",
             body: serde_json::json!({ "user_id": first }),
         },
+        "peer-add" | "peer_add" if !first.is_empty() && !second.is_empty() => {
+            let instance_name = tokens.collect::<Vec<_>>().join(" ").trim().to_string();
+            let mut body =
+                serde_json::json!({ "user_id": first, "node_id": second, "instance_name": serde_json::Value::Null });
+            if !instance_name.is_empty() {
+                body["instance_name"] = serde_json::json!(instance_name);
+            }
+            SlashAction::AdminDispatch {
+                name: "users_add_peer_node",
+                body,
+            }
+        }
+        "peer-remove" | "peer_remove" if !first.is_empty() && !second.is_empty() => {
+            SlashAction::AdminDispatch {
+                name: "users_remove_peer_node",
+                body: serde_json::json!({ "user_id": first, "node_id": second }),
+            }
+        }
         _ => SlashAction::BadArgs {
             name: "users",
-            hint: "usage: /users [list|grant <id> <role>|revoke <id>|delete <id>]",
+            hint: "usage: /users [list|grant <id> <role>|revoke <id>|delete <id>|peer-add <user_id> <node_id> [instance_name]|peer-remove <user_id> <node_id>]",
+        },
+    }
+}
+
+/// parse `/peers [list|all|remove <user_id> <node_id>|restore <user_id> <node_id>|hard-delete <node_id>|reassign <node_id> <user_id>]`.
+fn parse_peers_sub(arg: Option<&str>) -> SlashAction {
+    let (sub, rest) = split_sub(arg);
+    let mut tokens = rest.split_whitespace();
+    let first = tokens.next().unwrap_or("").trim();
+    let second = tokens.next().unwrap_or("").trim();
+    match sub.as_str() {
+        "" | "list" => SlashAction::AdminDispatch {
+            name: "peers_list_all",
+            body: serde_json::json!({ "include_deleted": false }),
+        },
+        "all" | "list-all" | "list_all" => SlashAction::AdminDispatch {
+            name: "peers_list_all",
+            body: serde_json::json!({ "include_deleted": true }),
+        },
+        "remove" if !first.is_empty() && !second.is_empty() => SlashAction::AdminDispatch {
+            name: "peers_remove",
+            body: serde_json::json!({ "user_id": first, "node_id": second }),
+        },
+        "restore" if !first.is_empty() && !second.is_empty() => SlashAction::AdminDispatch {
+            name: "peers_restore",
+            body: serde_json::json!({ "user_id": first, "node_id": second }),
+        },
+        "hard-delete" | "hard_delete" if !first.is_empty() => SlashAction::AdminDispatch {
+            name: "peers_hard_delete",
+            body: serde_json::json!({ "node_id": first }),
+        },
+        "reassign" if !first.is_empty() && !second.is_empty() => SlashAction::AdminDispatch {
+            name: "peers_reassign_user",
+            body: serde_json::json!({ "node_id": first, "user_id": second }),
+        },
+        _ => SlashAction::BadArgs {
+            name: "peers",
+            hint: "usage: /peers [list|all|remove <user_id> <node_id>|restore <user_id> <node_id>|hard-delete <node_id>|reassign <node_id> <user_id>]",
         },
     }
 }
@@ -739,6 +853,94 @@ fn parse_jobs_sub(arg: Option<&str>) -> SlashAction {
             name: "jobs",
             hint: "usage: /jobs [list|stats|session <id>]",
         },
+    }
+}
+
+/// parse scan commands.
+///
+/// forms:
+/// - `/scan` => open scan monitor for active session (or open form)
+/// - `/scan form` => force open interactive scan form
+/// - `/scan <path> [tag_csv]` => start a new scan session
+/// - `/scan add <path> [tag_csv]` => append jobs into active session
+/// - `/scan abort` => arm confirmation
+/// - `/scan abort confirm` => cancel pending/running jobs for active session
+fn parse_scan_sub(arg: Option<&str>) -> SlashAction {
+    let raw = arg.unwrap_or("").trim();
+    if raw.is_empty() {
+        return SlashAction::AdminDispatch {
+            name: "__scan_monitor__",
+            body: serde_json::json!({}),
+        };
+    }
+    if raw.eq_ignore_ascii_case("form") {
+        return SlashAction::AdminDispatch {
+            name: "__scan_form__",
+            body: serde_json::json!({}),
+        };
+    }
+    if raw.eq_ignore_ascii_case("status") {
+        return SlashAction::AdminDispatch {
+            name: "__scan_monitor__",
+            body: serde_json::json!({}),
+        };
+    }
+    if raw.eq_ignore_ascii_case("abort") {
+        return SlashAction::AdminDispatch {
+            name: "__scan_abort__",
+            body: serde_json::json!({}),
+        };
+    }
+    if raw.eq_ignore_ascii_case("abort confirm") || raw.eq_ignore_ascii_case("abort yes") {
+        return SlashAction::AdminDispatch {
+            name: "__scan_abort_confirm__",
+            body: serde_json::json!({}),
+        };
+    }
+    if let Some(rest) = raw.strip_prefix("add ") {
+        let rest = rest.trim();
+        if rest.is_empty() {
+            return SlashAction::BadArgs {
+                name: "scan",
+                hint: "usage: /scan add <path> [tag_csv]",
+            };
+        }
+        let (path, tags) = match rest.split_once(char::is_whitespace) {
+            Some((p, t)) => (p.trim(), t.trim()),
+            None => (rest, ""),
+        };
+        if path.is_empty() {
+            return SlashAction::BadArgs {
+                name: "scan",
+                hint: "usage: /scan add <path> [tag_csv]",
+            };
+        }
+        let mut body = serde_json::json!({ "path": path, "recursive": true });
+        if !tags.is_empty() {
+            body["tags"] = serde_json::json!(tags);
+        }
+        return SlashAction::AdminDispatch {
+            name: "__scan_add__",
+            body,
+        };
+    }
+    let (path, tags) = match raw.split_once(char::is_whitespace) {
+        Some((p, t)) => (p.trim(), t.trim()),
+        None => (raw, ""),
+    };
+    if path.is_empty() {
+        return SlashAction::BadArgs {
+            name: "scan",
+            hint: "usage: /scan <path> [tag_csv]",
+        };
+    }
+    let mut body = serde_json::json!({ "path": path, "recursive": true });
+    if !tags.is_empty() {
+        body["tags"] = serde_json::json!(tags);
+    }
+    SlashAction::AdminDispatch {
+        name: "library_scan",
+        body,
     }
 }
 
@@ -1267,6 +1469,9 @@ mod tests {
         assert!(complete_sub("users", "").contains(&"grant"));
         assert!(complete_sub("analytics", "top-").contains(&"top-songs"));
         assert!(complete_sub("radio", "").contains(&"start"));
+        assert!(complete_sub("peers", "").contains(&"reassign"));
+        assert!(complete_sub("knock", "").contains(&"all"));
+        assert!(complete_sub("users", "").contains(&"peer-add"));
     }
 
     #[test]
@@ -1282,6 +1487,13 @@ mod tests {
             parse("/knock list"),
             SlashAction::AdminDispatch {
                 name: "knocks_list",
+                ..
+            }
+        ));
+        assert!(matches!(
+            parse("/knock all"),
+            SlashAction::AdminDispatch {
+                name: "knocks_list_all",
                 ..
             }
         ));
@@ -1351,8 +1563,121 @@ mod tests {
             }
         ));
         assert!(matches!(
+            parse("/users peer-add uid node123 workstation"),
+            SlashAction::AdminDispatch {
+                name: "users_add_peer_node",
+                ..
+            }
+        ));
+        assert!(matches!(
+            parse("/users peer-remove uid node123"),
+            SlashAction::AdminDispatch {
+                name: "users_remove_peer_node",
+                ..
+            }
+        ));
+        assert!(matches!(
             parse("/users grant uid"),
             SlashAction::BadArgs { name: "users", .. }
+        ));
+    }
+
+    #[test]
+    fn parses_peers_subcommands() {
+        assert!(matches!(
+            parse("/peers"),
+            SlashAction::AdminDispatch {
+                name: "peers_list_all",
+                ..
+            }
+        ));
+        assert!(matches!(
+            parse("/peers all"),
+            SlashAction::AdminDispatch {
+                name: "peers_list_all",
+                ..
+            }
+        ));
+        assert!(matches!(
+            parse("/peers remove u1 n1"),
+            SlashAction::AdminDispatch {
+                name: "peers_remove",
+                ..
+            }
+        ));
+        assert!(matches!(
+            parse("/peers restore u1 n1"),
+            SlashAction::AdminDispatch {
+                name: "peers_restore",
+                ..
+            }
+        ));
+        assert!(matches!(
+            parse("/peers hard-delete n1"),
+            SlashAction::AdminDispatch {
+                name: "peers_hard_delete",
+                ..
+            }
+        ));
+        assert!(matches!(
+            parse("/peers reassign n1 u2"),
+            SlashAction::AdminDispatch {
+                name: "peers_reassign_user",
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn parses_scan_subcommands() {
+        assert!(matches!(
+            parse("/scan"),
+            SlashAction::AdminDispatch {
+                name: "__scan_monitor__",
+                ..
+            }
+        ));
+        assert!(matches!(
+            parse("/scan form"),
+            SlashAction::AdminDispatch {
+                name: "__scan_form__",
+                ..
+            }
+        ));
+        assert!(matches!(
+            parse("/scan add /tmp/music jazz,live"),
+            SlashAction::AdminDispatch {
+                name: "__scan_add__",
+                ..
+            }
+        ));
+        assert!(matches!(
+            parse("/scan abort"),
+            SlashAction::AdminDispatch {
+                name: "__scan_abort__",
+                ..
+            }
+        ));
+        assert!(matches!(
+            parse("/scan abort confirm"),
+            SlashAction::AdminDispatch {
+                name: "__scan_abort_confirm__",
+                ..
+            }
+        ));
+        assert!(matches!(
+            parse("/scan /tmp/music"),
+            SlashAction::AdminDispatch {
+                name: "library_scan",
+                ..
+            }
+        ));
+        assert!(matches!(
+            parse("/scan /tmp/music jazz,live"),
+            SlashAction::AdminDispatch {
+                name: "library_scan",
+                ..
+            }
         ));
     }
 

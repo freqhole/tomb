@@ -83,6 +83,8 @@ fn rich_commands() -> Vec<AdminCommand> {
         builders::users::generate_api_key(),
         builders::users::revoke_api_key(),
         builders::users::hard_delete_peer_node(),
+        builders::users::add_peer_node(),
+        builders::users::remove_peer_node(),
         // -- invites --
         builders::invites::list(),
         builders::invites::generate(),
@@ -93,7 +95,11 @@ fn rich_commands() -> Vec<AdminCommand> {
         builders::peers::list_for_user(),
         builders::peers::remove(),
         builders::peers::restore(),
+        builders::peers::hard_delete(),
+        builders::peers::reassign_user(),
         builders::peers::allow(),
+        // -- library --
+        builders::library::scan(),
         // -- radio --
         builders::radio::stations_get(),
         builders::radio::stations_create(),
@@ -239,6 +245,8 @@ pub fn result_actions_for_row(
         "users_list" => &[
             ("get", "users_get"),
             ("update role", "users_update_role"),
+            ("add peer node", "users_add_peer_node"),
+            ("remove peer node", "users_remove_peer_node"),
             ("delete (soft)", "users_delete"),
             ("delete (hard)", "users_hard_delete"),
             ("restore", "users_restore"),
@@ -254,7 +262,12 @@ pub fn result_actions_for_row(
             ("update role", "invites_update_role"),
         ],
         "peers_list_all" | "peers_list_for_user" => {
-            &[("remove", "peers_remove"), ("restore", "peers_restore")]
+            &[
+                ("reassign user", "peers_reassign_user"),
+                ("remove", "peers_remove"),
+                ("restore", "peers_restore"),
+                ("hard delete", "peers_hard_delete"),
+            ]
         }
         "radio_stations_list" => &[
             ("get", "radio_stations_get"),

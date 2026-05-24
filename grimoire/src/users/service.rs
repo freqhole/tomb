@@ -1021,6 +1021,40 @@ impl UserService {
         }
     }
 
+    /// Permanently delete peer rows by node id across all user
+    /// associations. returns rows deleted.
+    pub async fn hard_delete_peer_node_by_node_id(&self, node_id: &str) -> GrimoireResponse<u64> {
+        match self
+            .repository
+            .hard_delete_peer_node_by_node_id(node_id)
+            .await
+        {
+            Ok(count) => GrimoireResponse::success("Peer node hard-deleted", count),
+            Err(err) => {
+                GrimoireResponse::failure("Failed to hard-delete peer node", vec![err.into()])
+            }
+        }
+    }
+
+    /// Move a peer-node association to a different user and clear any
+    /// soft-delete state on the peer row.
+    pub async fn reassign_peer_node_user(
+        &self,
+        node_id: &str,
+        user_id: &str,
+    ) -> GrimoireResponse<()> {
+        match self
+            .repository
+            .reassign_peer_node_user(node_id, user_id)
+            .await
+        {
+            Ok(()) => GrimoireResponse::success("Peer node reassigned", ()),
+            Err(err) => {
+                GrimoireResponse::failure("Failed to reassign peer node", vec![err.into()])
+            }
+        }
+    }
+
     /// Update last_seen_at for a peer node (called on P2P connection)
     pub async fn touch_peer_node(&self, node_id: &str) -> GrimoireResponse<()> {
         match self.repository.touch_peer_node(node_id).await {

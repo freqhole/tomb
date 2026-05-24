@@ -6,6 +6,15 @@ use crate::offal::Caller;
 use crate::response::GrimoireResponse;
 use serde_json::{json, Value as JsonValue};
 
+fn expand_tilde(path: &str) -> String {
+    if let Some(rest) = path.strip_prefix("~/") {
+        if let Ok(home) = std::env::var("HOME") {
+            return format!("{home}/{rest}");
+        }
+    }
+    path.to_string()
+}
+
 pub(in crate::admin_dispatch) async fn validate_path(
     args: JsonValue,
 ) -> GrimoireResponse<JsonValue> {
@@ -39,22 +48,48 @@ pub(in crate::admin_dispatch) async fn validate_path(
 }
 
 pub(in crate::admin_dispatch) async fn scan(args: JsonValue) -> GrimoireResponse<JsonValue> {
-    let path = match require_str(&args, "path") {
+    let raw_path = match require_str(&args, "path") {
         Ok(v) => v,
         Err(r) => return r,
     };
+    let path = expand_tilde(raw_path.trim());
+    let scan_path = std::path::Path::new(&path);
+    if !scan_path.exists() {
+        return GrimoireResponse::failure(
+            format!("scan path does not exist: {path}"),
+            vec![crate::ErrorDetail::new(
+                "path_not_found",
+                "scan path not found",
+                format!("path does not exist: {path}"),
+            )],
+        );
+    }
+    if !scan_path.is_dir() {
+        return GrimoireResponse::failure(
+            format!("scan path is not a directory: {path}"),
+            vec![crate::ErrorDetail::new(
+                "invalid_scan_path",
+                "invalid scan path",
+                format!("path is not a directory: {path}"),
+            )],
+        );
+    }
     let recursive = opt_bool(&args, "recursive").unwrap_or(true);
 
     // optional tag list to apply to the directory
-    let tags: Vec<String> = args
-        .get("tags")
-        .and_then(|v| v.as_array())
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|v| v.as_str().map(|s| s.to_string()))
-                .collect()
-        })
-        .unwrap_or_default();
+    let tags: Vec<String> = match args.get("tags") {
+        Some(serde_json::Value::Array(arr)) => arr
+            .iter()
+            .filter_map(|v| v.as_str().map(|s| s.trim().to_string()))
+            .filter(|s| !s.is_empty())
+            .collect(),
+        Some(serde_json::Value::String(csv)) => csv
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect(),
+        _ => Vec::new(),
+    };
 
     // session id can be supplied; otherwise create a fresh job session so
     // the scan inherits a real session row (foreign-key requirement).
@@ -90,6 +125,16 @@ pub(in crate::admin_dispatch) async fn scan(args: JsonValue) -> GrimoireResponse
     let count = resp.data.unwrap_or(0);
     if count > 0 {
         let _ = crate::jobs::record_scanned_directory(&path, count as i64, None).await;
+        // emit an immediate progress event so rathole's header badge
+        // appears as soon as jobs are enqueued (before first file
+        // finishes processing).
+        crate::events::emit(crate::events::GrimoireEvent::JobProgress {
+            session_id: session_id.clone(),
+            directory: path.clone(),
+            songs_added: 0,
+            jobs_pending: count as u32,
+            jobs_total: count as u32,
+        });
     }
 
     if resp.success {

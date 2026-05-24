@@ -93,7 +93,8 @@ enum Status {
 /// scan step state. lives only after main setup completes.
 struct ScanState {
     music_dir: String,
-    selected_path: bool, // true = path field selected, false = action row
+    tags_csv: String,
+    selected_path: bool, // true = path field selected, false = tags field
     /// background scan in flight (Some = scanning, None = not yet started or done)
     handle: Option<ScanHandle>,
     /// latest job-progress snapshot from grimoire events
@@ -534,6 +535,7 @@ async fn handle_key_form(app: &mut WizardApp, code: KeyCode) {
                     app.setup_result = Some(res);
                     app.phase = Phase::Scan(ScanState {
                         music_dir: String::new(),
+                        tags_csv: String::new(),
                         selected_path: true,
                         handle: None,
                         progress: None,
@@ -636,12 +638,16 @@ async fn handle_key_scan(app: &mut WizardApp, code: KeyCode) {
             if scan.selected_path {
                 scan.music_dir.pop();
                 scan.path_cycle = None;
+            } else {
+                scan.tags_csv.pop();
             }
         }
         KeyCode::Char(c) => {
             if scan.selected_path {
                 scan.music_dir.push(c);
                 scan.path_cycle = None;
+            } else {
+                scan.tags_csv.push(c);
             }
         }
         _ => {}
@@ -660,6 +666,12 @@ async fn start_scan(scan: &mut ScanState) {
         scan.error = Some(format!("not a directory: {path}"));
         return;
     }
+    let tags: Vec<String> = scan
+        .tags_csv
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
     scan.error = None;
     let cancel = CancellationToken::new();
     let enqueue: Arc<Mutex<Option<std::result::Result<usize, String>>>> =
@@ -686,6 +698,18 @@ async fn start_scan(scan: &mut ScanState) {
             return;
         }
     };
+
+    if !tags.is_empty() {
+        let tag_res =
+            jobs::add_directory_tags(&path, tags.clone(), Some("wizard-scan".to_string())).await;
+        if !tag_res.success {
+            scan.error = Some(format!(
+                "failed to apply directory tags: {}",
+                tag_res.message
+            ));
+            return;
+        }
+    }
 
     // spawn the job processor (consumes pending jobs as they appear).
     // it emits GrimoireEvent::JobProgress / JobSessionComplete which the
@@ -1076,7 +1100,7 @@ fn draw_form(f: &mut Frame, area: Rect, app: &WizardApp) {
 fn draw_scan(f: &mut Frame, area: Rect, scan: &ScanState, app: &WizardApp) {
     use Constraint::*;
     let chunks = Layout::vertical([
-        Length(4), // input
+        Length(6), // inputs
         Length(4), // progress
         Min(3),    // info
     ])
@@ -1106,6 +1130,24 @@ fn draw_scan(f: &mut Frame, area: Rect, scan: &ScanState, app: &WizardApp) {
             Span::raw(scan.music_dir.clone()),
             cursor_span,
             hint,
+        ]),
+        Line::from(vec![
+            Span::styled(
+                " tags ",
+                if !scan.selected_path && scan.handle.is_none() && scan.finished.is_none() {
+                    Style::new().fg(Color::Black).bg(Color::Magenta).bold()
+                } else {
+                    Style::new().dim()
+                },
+            ),
+            Span::raw(" "),
+            Span::raw(scan.tags_csv.clone()),
+            if !scan.selected_path && scan.handle.is_none() && scan.finished.is_none() {
+                Span::styled("█", Style::new().fg(Color::Magenta))
+            } else {
+                Span::raw(" ")
+            },
+            Span::styled("  [comma-separated optional tags]", Style::new().dim()),
         ]),
         Line::from(""),
     ];
@@ -1177,7 +1219,8 @@ fn draw_scan(f: &mut Frame, area: Rect, scan: &ScanState, app: &WizardApp) {
     } else {
         let mut s = String::from(
             "point at a directory of audio files to scan + import.\n\
-             leave default or edit, then press enter to scan.\n\
+               optional tags are applied to that directory before scan.\n\
+               leave default or edit, then press enter to scan.\n\
              press esc to skip and finish setup.\n\n",
         );
         if let Some(r) = &app.setup_result {
@@ -1244,7 +1287,7 @@ fn draw_help(f: &mut Frame, area: Rect, app: &WizardApp) {
             } else if s.handle.is_some() {
                 " esc: cancel scan  ctrl+c: abort "
             } else {
-                " tab: complete path  enter: scan  esc: skip  ctrl+c: abort "
+                " up/down: path/tags  tab: complete path  enter: scan  esc: skip  ctrl+c: abort "
             }
         }
         Phase::Done => " any key: launch rathole ",

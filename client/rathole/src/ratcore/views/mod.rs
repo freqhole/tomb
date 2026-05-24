@@ -151,8 +151,17 @@ fn header_line(app: &App) -> Line<'static> {
         Span::raw("   "),
     ];
 
-    // remote name (or `local`) in brackets — replaces the previous
+    // remote name (or local server name) in brackets — replaces the previous
     // [home]/[admin] focus label.
+    let local_name = {
+        let cfg = grimoire::config::get_config();
+        let name = cfg.server.as_ref().map(|s| s.name.trim()).unwrap_or("");
+        if name.is_empty() {
+            "local".to_string()
+        } else {
+            name.to_string()
+        }
+    };
     let remote_label = if app.state.ephemeral.connected_peer.is_some() {
         if let Some(name) = app
             .state
@@ -165,12 +174,12 @@ fn header_line(app: &App) -> Line<'static> {
         } else if let Some(peer) = &app.state.ephemeral.connected_peer {
             format!("[{}]", short_id(peer))
         } else {
-            "[local]".to_string()
+            format!("[{local_name} local]")
         }
     } else if app.state.ephemeral.local_node_id.is_some() {
-        "[local p2p]".to_string()
+        format!("[{local_name} local p2p]")
     } else {
-        "[local]".to_string()
+        format!("[{local_name} local]")
     };
     spans.push(Span::styled(
         remote_label,

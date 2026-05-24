@@ -4,9 +4,10 @@ use crate::admin_dispatch::helpers::{
     bad_request, decode, fetch_caller_user, map_response, parse_role, to_value,
 };
 use crate::admin_dispatch::types::users::{
-    AdminAccountLinkResponse, AdminUserSummary, AdminUsersDeleteRequest,
-    AdminUsersGenerateAccountLinkRequest, AdminUsersGetRequest, AdminUsersHardDeleteRequest,
-    AdminUsersListRequest, AdminUsersRestoreRequest, AdminUsersUpdateRoleRequest,
+    AdminAccountLinkResponse, AdminUserSummary, AdminUsersAddPeerNodeRequest,
+    AdminUsersDeleteRequest, AdminUsersGenerateAccountLinkRequest, AdminUsersGetRequest,
+    AdminUsersHardDeleteRequest, AdminUsersListRequest, AdminUsersRemovePeerNodeRequest,
+    AdminUsersRestoreRequest, AdminUsersUpdateRoleRequest,
 };
 use crate::offal::Caller;
 use crate::response::GrimoireResponse;
@@ -62,6 +63,48 @@ pub(in crate::admin_dispatch) async fn get(args: JsonValue) -> GrimoireResponse<
     };
     let resp = UserService::new().get_user(&req.user_id).await;
     to_value(map_response(resp, AdminUserSummary::from))
+}
+
+/// list users suitable for peer assignment pickers.
+/// excludes root-role users and the reserved `freqroot` account.
+pub(in crate::admin_dispatch) async fn list_assignable(
+    args: JsonValue,
+    caller: &Caller,
+) -> GrimoireResponse<JsonValue> {
+    let req: AdminUsersListRequest = if args.is_null() {
+        AdminUsersListRequest::default()
+    } else {
+        match decode(args) {
+            Ok(p) => p,
+            Err(r) => return r,
+        }
+    };
+    let role = match req.role.as_deref() {
+        None => None,
+        Some(s) => match parse_role(s) {
+            Ok(r) => Some(r),
+            Err(e) => return bad_request(e),
+        },
+    };
+    let params = UserQueryParams {
+        username: req.username,
+        role,
+        include_deleted: req.include_deleted.or(Some(false)),
+        limit: req.limit.or(Some(100)),
+        offset: req.offset.or(Some(0)),
+    };
+    let user = match fetch_caller_user(caller).await {
+        Ok(u) => u,
+        Err(r) => return r,
+    };
+    let resp = UserService::new().list_users(&params, &user).await;
+    to_value(map_response(resp, |users| {
+        users
+            .into_iter()
+            .filter(|u| u.role != UserRole::Root && !u.username.eq_ignore_ascii_case("freqroot"))
+            .map(AdminUserSummary::from)
+            .collect::<Vec<_>>()
+    }))
 }
 
 pub(in crate::admin_dispatch) async fn create(args: JsonValue) -> GrimoireResponse<JsonValue> {
@@ -245,6 +288,39 @@ pub(in crate::admin_dispatch) async fn hard_delete_peer_node(
     };
     let resp = UserService::new()
         .hard_delete_peer_node(&user_id, &node_id)
+        .await;
+    to_value(map_response(resp, |_| ()))
+}
+
+/// add (or re-activate) a peer node for a user.
+/// args: `{ user_id, node_id, instance_name? }`
+pub(in crate::admin_dispatch) async fn add_peer_node(
+    args: JsonValue,
+) -> GrimoireResponse<JsonValue> {
+    let req: AdminUsersAddPeerNodeRequest = match decode(args) {
+        Ok(v) => v,
+        Err(r) => return r,
+    };
+    let resp = UserService::new()
+        .upsert_peer_node(&req.user_id, &req.node_id, req.instance_name.as_deref())
+        .await;
+    to_value(map_response(
+        resp,
+        crate::admin_dispatch::types::peers::AdminPeerNodeSummary::from,
+    ))
+}
+
+/// soft-delete a peer node association for a user.
+/// args: `{ user_id, node_id }`
+pub(in crate::admin_dispatch) async fn remove_peer_node(
+    args: JsonValue,
+) -> GrimoireResponse<JsonValue> {
+    let req: AdminUsersRemovePeerNodeRequest = match decode(args) {
+        Ok(v) => v,
+        Err(r) => return r,
+    };
+    let resp = UserService::new()
+        .remove_peer_node(&req.user_id, &req.node_id)
         .await;
     to_value(map_response(resp, |_| ()))
 }

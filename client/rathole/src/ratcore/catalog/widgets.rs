@@ -38,7 +38,23 @@ pub(super) fn pick_pending_knock(name: &str) -> ArgSpec {
 pub(super) fn pick_user(name: &str, help: &str) -> ArgSpec {
     ArgSpec {
         name: name.to_string(),
-        kind: select_from("users_list", "id", "username"),
+        kind: select_from("users_list_assignable", "id", "username"),
+        required: true,
+        help: Some(help.to_string()),
+    }
+}
+
+pub(super) fn pick_user_peer_node(name: &str, user_field_name: &str, help: &str) -> ArgSpec {
+    ArgSpec {
+        name: name.to_string(),
+        kind: ArgKind::SelectFrom {
+            source_command: "peers_list_for_user".to_string(),
+            source_body: serde_json::json!({}),
+            body_from_fields: vec![("user_id".to_string(), user_field_name.to_string())],
+            data_path: String::new(),
+            value_field: "node_id".to_string(),
+            label_field: "node_id".to_string(),
+        },
         required: true,
         help: Some(help.to_string()),
     }

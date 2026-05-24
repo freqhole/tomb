@@ -534,6 +534,118 @@ fn sync_serve_badge(app: &mut App, monitor: &super::serve_monitor::ServeMonitor)
 fn on_action(app: &mut App, action: AppAction, action_tx: &mpsc::UnboundedSender<AppAction>) {
     match action {
         AppAction::AdminDispatchResult { command, response } => {
+            if command == "library_scan" && response.success {
+                if let Some(sid) = response
+                    .data
+                    .as_ref()
+                    .and_then(|d| d.get("session_id"))
+                    .and_then(serde_json::Value::as_str)
+                {
+                    let jobs_created = response
+                        .data
+                        .as_ref()
+                        .and_then(|d| d.get("jobs_created"))
+                        .and_then(serde_json::Value::as_u64)
+                        .unwrap_or(0) as u32;
+                    app.state.ephemeral.scan_status = Some(crate::ratcore::app::ScanStatus {
+                        session_id: sid.to_string(),
+                        jobs_total: jobs_created,
+                        jobs_pending: jobs_created,
+                        percent: 0,
+                        active: jobs_created > 0,
+                    });
+                    app.state.ephemeral.scan_abort_confirm_for = None;
+                }
+            }
+            if command == "jobs_cancel_session" && response.success {
+                if let Some(scan) = app.state.ephemeral.scan_status.as_mut() {
+                    scan.active = false;
+                    scan.jobs_pending = 0;
+                    scan.percent = 100;
+                }
+                app.state.ephemeral.scan_abort_confirm_for = None;
+            }
+            if command == "library_scan_status" && response.success {
+                if let Some(d) = response.data.as_ref() {
+                    let pending = d
+                        .get("pending")
+                        .and_then(serde_json::Value::as_u64)
+                        .unwrap_or(0) as u32;
+                    let running = d
+                        .get("running")
+                        .and_then(serde_json::Value::as_u64)
+                        .unwrap_or(0) as u32;
+                    let completed = d
+                        .get("completed")
+                        .and_then(serde_json::Value::as_u64)
+                        .unwrap_or(0) as u32;
+                    let failed = d
+                        .get("failed")
+                        .and_then(serde_json::Value::as_u64)
+                        .unwrap_or(0) as u32;
+                    let total = d
+                        .get("total")
+                        .and_then(serde_json::Value::as_u64)
+                        .unwrap_or(0) as u32;
+                    let done = completed.saturating_add(failed);
+                    let percent = if total > 0 {
+                        ((done as u64 * 100) / total as u64) as u8
+                    } else {
+                        0
+                    };
+                    let bar = scan_bar(percent);
+                    app.state.ephemeral.scan_status = app
+                        .state
+                        .ephemeral
+                        .scan_status
+                        .as_ref()
+                        .map(|s| crate::ratcore::app::ScanStatus {
+                            session_id: s.session_id.clone(),
+                            jobs_total: total,
+                            jobs_pending: pending.saturating_add(running),
+                            percent,
+                            active: pending.saturating_add(running) > 0,
+                        })
+                        .or_else(|| {
+                            Some(crate::ratcore::app::ScanStatus {
+                                session_id: "(unknown)".to_string(),
+                                jobs_total: total,
+                                jobs_pending: pending.saturating_add(running),
+                                percent,
+                                active: pending.saturating_add(running) > 0,
+                            })
+                        });
+                    app.state.ephemeral.last_dispatch = Some(LastDispatch {
+                        command: "scan_monitor".to_string(),
+                        success: true,
+                        message: format!(
+                            "scan session: {}\n{} {}%  (pending {} running {} done {} failed {})\n\ncommands: /scan add <path> [tags], /scan abort",
+                            app.state
+                                .ephemeral
+                                .scan_status
+                                .as_ref()
+                                .map(|s| s.session_id.clone())
+                                .unwrap_or_else(|| "(unknown)".to_string()),
+                            bar,
+                            percent,
+                            pending,
+                            running,
+                            done,
+                            failed
+                        ),
+                        data_pretty: response
+                            .data
+                            .as_ref()
+                            .map(|v| serde_json::to_string_pretty(v).unwrap_or_else(|_| v.to_string())),
+                        rows: vec![],
+                        cursor: 0,
+                        pending: false,
+                        progress: vec![],
+                    });
+                    app.state.ephemeral.last_dispatch_scroll = 0;
+                    return;
+                }
+            }
             let data_pretty = response
                 .data
                 .as_ref()
@@ -813,10 +925,59 @@ fn on_action(app: &mut App, action: AppAction, action_tx: &mpsc::UnboundedSender
                 jobs_total,
                 jobs_pending,
             });
-            let _ = session_id;
+            if app
+                .state
+                .ephemeral
+                .scan_status
+                .as_ref()
+                .map(|s| s.session_id == session_id)
+                .unwrap_or(false)
+            {
+                app.state.ephemeral.scan_status = Some(crate::ratcore::app::ScanStatus {
+                    session_id: session_id.clone(),
+                    jobs_total,
+                    jobs_pending,
+                    percent,
+                    active: jobs_pending > 0,
+                });
+                if app
+                    .state
+                    .ephemeral
+                    .last_dispatch
+                    .as_ref()
+                    .map(|ld| ld.command == "scan_monitor")
+                    .unwrap_or(false)
+                {
+                    render_scan_monitor(app);
+                }
+            }
         }
-        AppAction::JobSessionComplete { session_id: _ } => {
+        AppAction::JobSessionComplete { session_id } => {
             app.state.ephemeral.jobs_status = None;
+            if app
+                .state
+                .ephemeral
+                .scan_status
+                .as_ref()
+                .map(|s| s.session_id == session_id)
+                .unwrap_or(false)
+            {
+                if let Some(scan) = app.state.ephemeral.scan_status.as_mut() {
+                    scan.active = false;
+                    scan.jobs_pending = 0;
+                    scan.percent = 100;
+                }
+                if app
+                    .state
+                    .ephemeral
+                    .last_dispatch
+                    .as_ref()
+                    .map(|ld| ld.command == "scan_monitor")
+                    .unwrap_or(false)
+                {
+                    render_scan_monitor(app);
+                }
+            }
         }
         AppAction::KnockCreated { id: _, username: _ } => {
             app.state.ephemeral.pending_knocks =
@@ -1073,13 +1234,22 @@ fn on_form_key(
         KeyCode::PageDown => {
             form.scroll = form.scroll.saturating_add(5);
         }
-        // Tab tries path completion when the focused Text/LongText
-        // field looks path-like; otherwise advances the wizard.
+        // Up/Down cycles form fields (wrapping) without entering
+        // confirm/submit.
+        KeyCode::Up => {
+            form.focus_prev();
+            form.error = None;
+            maybe_fetch_select_options(app, tx);
+        }
+        KeyCode::Down => {
+            form.focus_next();
+            form.error = None;
+            maybe_fetch_select_options(app, tx);
+        }
+        // Tab is reserved for path completion in Text/LongText
+        // fields that look path-like.
         KeyCode::Tab => {
-            let did_complete = try_form_path_complete(form);
-            if !did_complete {
-                advance_form(app, tx);
-            }
+            let _ = try_form_path_complete(form);
         }
         // Enter advances UNLESS the focused field is a LongText
         // editor, in which case it inserts a newline.
@@ -1228,13 +1398,18 @@ fn on_form_key(
 /// fills in fully (with trailing `/` for dirs); multi-match fills
 /// in the longest common prefix.
 fn try_form_path_complete(form: &mut CommandForm) -> bool {
+    let focused = form.focused;
     let Some(field) = form.fields.get_mut(form.focused) else {
+        form.path_tab_cycle = None;
         return false;
     };
     let (buf, cursor) = match field {
         FieldState::Text { buf, cursor } => (buf, cursor),
         FieldState::LongText { buf, cursor } => (buf, cursor),
-        _ => return false,
+        _ => {
+            form.path_tab_cycle = None;
+            return false;
+        }
     };
     let prefix: String = buf.chars().take(*cursor).collect();
     let suffix: String = buf.chars().skip(*cursor).collect();
@@ -1245,18 +1420,46 @@ fn try_form_path_complete(form: &mut CommandForm) -> bool {
         .unwrap_or(0);
     let token = &prefix[token_start..];
     if !looks_like_path(token) {
+        form.path_tab_cycle = None;
         return false;
     }
-    let Some(completion) = path_complete(token) else {
+    let Some(mut cycle) = path_completion_candidates(token) else {
+        form.path_tab_cycle = None;
         return false;
     };
+
+    // if this tab press continues the same seed on the same field,
+    // rotate to the next candidate; otherwise start at the first.
+    if let Some(prev) = &form.path_tab_cycle {
+        if prev.field_index == focused
+            && prev.seed_token == cycle.seed_token
+            && !prev.candidates.is_empty()
+            && prev.candidates == cycle.candidates
+        {
+            let cur_idx = prev
+                .candidates
+                .iter()
+                .position(|c| c == token)
+                .unwrap_or(prev.selected);
+            cycle.selected = (cur_idx + 1) % prev.candidates.len();
+        }
+    }
+
+    cycle.field_index = focused;
+    let completion = cycle
+        .candidates
+        .get(cycle.selected)
+        .cloned()
+        .unwrap_or_else(|| token.to_string());
     if completion == token {
+        form.path_tab_cycle = Some(cycle);
         return false;
     }
     let new_prefix = format!("{}{}", &prefix[..token_start], completion);
     let new_cursor = new_prefix.chars().count();
     *buf = format!("{new_prefix}{suffix}");
     *cursor = new_cursor;
+    form.path_tab_cycle = Some(cycle);
     form.error = None;
     true
 }
@@ -1265,7 +1468,7 @@ fn looks_like_path(s: &str) -> bool {
     s.starts_with('/') || s.starts_with("~/") || s.starts_with("./") || s.starts_with("../")
 }
 
-fn path_complete(token: &str) -> Option<String> {
+fn path_completion_candidates(token: &str) -> Option<crate::ratcore::app::events::PathTabCycle> {
     use std::path::PathBuf;
     // expand leading ~/ to $HOME for fs lookups; preserve in the
     // completion so the user keeps their tilde-style path.
@@ -1317,19 +1520,8 @@ fn path_complete(token: &str) -> Option<String> {
     }
     matches.sort_by(|a, b| a.0.cmp(&b.0));
 
-    // longest common prefix across all matches.
-    let common = longest_common_prefix(matches.iter().map(|(n, _)| n.as_str()));
-    let chosen = if common.len() > leaf.len() {
-        common
-    } else if matches.len() == 1 {
-        matches[0].0.clone()
-    } else {
-        return None;
-    };
-
-    // rebuild the full token: original root (`~/` or empty) +
-    // parent's portion of the original token (everything before the
-    // leaf) + completed name + trailing `/` if it's a dir + single match.
+    // rebuild full tokens for every match so Tab can cycle through
+    // the complete candidate set.
     let parent_in_token = if token.ends_with('/') {
         token.to_string()
     } else {
@@ -1338,42 +1530,30 @@ fn path_complete(token: &str) -> Option<String> {
         let cut = token_chars.len().saturating_sub(leaf_chars);
         token_chars[..cut].iter().collect::<String>()
     };
-    let mut out = if !original_root.is_empty() && parent_in_token.is_empty() {
+    let base = if !original_root.is_empty() && parent_in_token.is_empty() {
         original_root.to_string()
     } else {
         parent_in_token
     };
-    out.push_str(&chosen);
-    if matches.len() == 1 && matches[0].1 && !out.ends_with('/') {
-        out.push('/');
+    let candidates: Vec<String> = matches
+        .iter()
+        .map(|(name, is_dir)| {
+            let mut out = format!("{base}{name}");
+            if *is_dir && !out.ends_with('/') {
+                out.push('/');
+            }
+            out
+        })
+        .collect();
+    if candidates.is_empty() {
+        return None;
     }
-    Some(out)
-}
-
-fn longest_common_prefix<'a, I: IntoIterator<Item = &'a str>>(iter: I) -> String {
-    let mut iter = iter.into_iter();
-    let Some(first) = iter.next() else {
-        return String::new();
-    };
-    let mut prefix = first.to_string();
-    for s in iter {
-        let new_len = prefix
-            .chars()
-            .zip(s.chars())
-            .take_while(|(a, b)| a == b)
-            .count();
-        prefix.truncate(
-            prefix
-                .char_indices()
-                .nth(new_len)
-                .map(|(i, _)| i)
-                .unwrap_or(prefix.len()),
-        );
-        if prefix.is_empty() {
-            break;
-        }
-    }
-    prefix
+    Some(crate::ratcore::app::events::PathTabCycle {
+        field_index: 0,
+        seed_token: token.to_string(),
+        candidates,
+        selected: 0,
+    })
 }
 
 /// Enter pressed on a wizard field: validate it locally, then
@@ -2926,6 +3106,122 @@ fn execute_slash_with_player(
             }
         }
         SlashAction::AdminDispatch { name, body } => {
+            if name == "__scan_monitor__" {
+                if app.state.ephemeral.scan_status.is_some() {
+                    render_scan_monitor(app);
+                    app.state.ephemeral.repl.status = Some(ReplStatus::info(
+                        "scan monitor opened (use /scan add <path> [tags] to enqueue more)"
+                            .to_string(),
+                    ));
+                    app.state.ephemeral.repl.clear_input();
+                    rk::leave(&mut app.state);
+                    app.state.ephemeral.focus = Focus::ResultPanel;
+                    return;
+                }
+                if let Some(cmd) = app
+                    .commands
+                    .iter()
+                    .find(|c| c.name == "library_scan")
+                    .cloned()
+                {
+                    app.state.ephemeral.form = Some(crate::ratcore::app::CommandForm::new(&cmd));
+                    app.state.ephemeral.focus = Focus::CommandForm;
+                    app.state.ephemeral.repl.status =
+                        Some(ReplStatus::info("scan form opened".to_string()));
+                    app.state.ephemeral.repl.clear_input();
+                    maybe_fetch_select_options(app, tx);
+                    return;
+                }
+            }
+            if name == "__scan_add__" {
+                let Some(scan) = app.state.ephemeral.scan_status.as_ref() else {
+                    app.state.ephemeral.repl.status = Some(ReplStatus::err(
+                        "no active scan session; start one with /scan <path> or /scan form"
+                            .to_string(),
+                    ));
+                    return;
+                };
+                if !scan.active {
+                    app.state.ephemeral.repl.status = Some(ReplStatus::err(
+                        "last scan session is complete; start a new one with /scan <path>"
+                            .to_string(),
+                    ));
+                    return;
+                }
+                let mut add_body = body;
+                add_body["session_id"] = serde_json::json!(scan.session_id);
+                spawn_admin_dispatch(app, "library_scan", add_body, tx);
+                app.state.ephemeral.repl.status = Some(ReplStatus::info(
+                    "adding directory to active scan…".to_string(),
+                ));
+                app.state.ephemeral.repl.clear_input();
+                rk::leave(&mut app.state);
+                app.state.ephemeral.focus = Focus::ResultPanel;
+                return;
+            }
+            if name == "__scan_abort__" {
+                let Some(scan) = app.state.ephemeral.scan_status.as_ref() else {
+                    app.state.ephemeral.repl.status = Some(ReplStatus::err(
+                        "no active scan session to abort".to_string(),
+                    ));
+                    return;
+                };
+                app.state.ephemeral.scan_abort_confirm_for = Some(scan.session_id.clone());
+                app.state.ephemeral.repl.status = Some(ReplStatus::info(
+                    "confirm abort with /scan abort confirm".to_string(),
+                ));
+                return;
+            }
+            if name == "__scan_abort_confirm__" {
+                let Some(scan) = app.state.ephemeral.scan_status.as_ref() else {
+                    app.state.ephemeral.repl.status = Some(ReplStatus::err(
+                        "no active scan session to abort".to_string(),
+                    ));
+                    return;
+                };
+                if app.state.ephemeral.scan_abort_confirm_for.as_deref()
+                    != Some(scan.session_id.as_str())
+                {
+                    app.state.ephemeral.repl.status = Some(ReplStatus::info(
+                        "abort not armed; run /scan abort first".to_string(),
+                    ));
+                    return;
+                }
+                spawn_admin_dispatch(
+                    app,
+                    "jobs_cancel_session",
+                    serde_json::json!({"session_id": scan.session_id}),
+                    tx,
+                );
+                app.state.ephemeral.scan_abort_confirm_for = None;
+                app.state.ephemeral.repl.status =
+                    Some(ReplStatus::info("aborting scan session…".to_string()));
+                app.state.ephemeral.repl.clear_input();
+                rk::leave(&mut app.state);
+                app.state.ephemeral.focus = Focus::ResultPanel;
+                return;
+            }
+            // /scan with no args opens the existing rich library_scan form
+            // (path tab-complete + field-level validation + submit feedback).
+            if name == "__scan_form__" {
+                if let Some(cmd) = app
+                    .commands
+                    .iter()
+                    .find(|c| c.name == "library_scan")
+                    .cloned()
+                {
+                    app.state.ephemeral.form = Some(crate::ratcore::app::CommandForm::new(&cmd));
+                    app.state.ephemeral.focus = Focus::CommandForm;
+                    app.state.ephemeral.repl.status =
+                        Some(ReplStatus::info("scan form opened".to_string()));
+                    app.state.ephemeral.repl.clear_input();
+                    maybe_fetch_select_options(app, tx);
+                    return;
+                }
+                app.state.ephemeral.repl.status =
+                    Some(ReplStatus::err("scan form command not found".to_string()));
+                return;
+            }
             // generic admin-rpc dispatch from /knock /users /analytics
             // /radio subcommands. result lands in the result panel
             // like any other admin call.
@@ -2955,6 +3251,47 @@ fn execute_slash_with_player(
         }
         _ => {}
     }
+}
+
+fn scan_bar(percent: u8) -> String {
+    let width = 24usize;
+    let filled = ((percent as usize) * width) / 100;
+    format!(
+        "[{}{}]",
+        "#".repeat(filled),
+        "-".repeat(width.saturating_sub(filled))
+    )
+}
+
+fn render_scan_monitor(app: &mut App) {
+    let Some(scan) = app.state.ephemeral.scan_status.as_ref() else {
+        return;
+    };
+    let bar = scan_bar(scan.percent);
+    let state = if scan.active { "running" } else { "complete" };
+    app.state.ephemeral.last_dispatch = Some(LastDispatch {
+        command: "scan_monitor".to_string(),
+        success: true,
+        message: format!(
+            "scan session {state}: {}\n{} {}%  (pending {} / total {})\n\ncommands: /scan add <path> [tags], /scan abort",
+            scan.session_id, bar, scan.percent, scan.jobs_pending, scan.jobs_total
+        ),
+        data_pretty: Some(
+            serde_json::to_string_pretty(&serde_json::json!({
+                "session_id": scan.session_id,
+                "jobs_total": scan.jobs_total,
+                "jobs_pending": scan.jobs_pending,
+                "percent": scan.percent,
+                "active": scan.active,
+            }))
+            .unwrap_or_default(),
+        ),
+        rows: vec![],
+        cursor: 0,
+        pending: false,
+        progress: vec![],
+    });
+    app.state.ephemeral.last_dispatch_scroll = 0;
 }
 
 /// load the most-recently-active remote's `peer_addr` from grimoire's
