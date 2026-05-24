@@ -527,10 +527,7 @@ impl UserService {
             let config = ManagementWordlistConfig::default();
             let init = initialize_wordlist(&config);
             if !init.success {
-                return GrimoireResponse::failure(
-                    "Failed to generate invite code",
-                    init.errors,
-                );
+                return GrimoireResponse::failure("Failed to generate invite code", init.errors);
             }
         }
 
@@ -1064,9 +1061,7 @@ impl UserService {
             .await
         {
             Ok(()) => GrimoireResponse::success("Peer node reassigned", ()),
-            Err(err) => {
-                GrimoireResponse::failure("Failed to reassign peer node", vec![err.into()])
-            }
+            Err(err) => GrimoireResponse::failure("Failed to reassign peer node", vec![err.into()]),
         }
     }
 
