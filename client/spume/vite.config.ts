@@ -114,8 +114,11 @@ export default defineConfig({
     // generate sourcemaps for debugging prod errors
     sourcemap: true,
     rollupOptions: {
-      // exclude midden WASM from Tauri builds
-      external: isCharnelBuild ? ["midden"] : [],
+      // do not mark "midden" external in Tauri builds.
+      // we rely on resolve.alias to redirect it to a local stub module.
+      // externalization leaves a bare import("midden") in output and fails
+      // at runtime under tauri:// with "does not resolve to a valid URL".
+      external: [],
       output: {
         // bundle everything into a single JS file (no code splitting)
         inlineDynamicImports: true,
