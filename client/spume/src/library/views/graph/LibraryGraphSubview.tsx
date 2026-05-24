@@ -894,25 +894,29 @@ function Inner(props: {
   createEffect(() => {
     const narrow = isNarrow();
     const chips = (
-      <div class="flex items-center gap-2 flex-wrap">
-        <Show when={narrow}>{graph.topNavTools}</Show>
-        <Show when={graph.autoPaused()}>
-          <span
-            class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] leading-none whitespace-nowrap border border-amber-400/40 bg-amber-400/10 text-amber-200"
-            title="large graph auto-paused — interact to wake"
-          >
-            sim paused — drag to wake
-          </span>
+      <div class="flex flex-col gap-1.5">
+        <div class="flex items-center gap-2 flex-wrap">
+          <Show when={narrow}>{graph.topNavTools}</Show>
+          <Show when={graph.autoPaused()}>
+            <span
+              class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] leading-none whitespace-nowrap border border-amber-400/40 bg-amber-400/10 text-amber-200"
+              title="large graph auto-paused — interact to wake"
+            >
+              sim paused — drag to wake
+            </span>
+          </Show>
+          <Show when={props.bulkTagMode?.()}>
+            <span
+              class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] leading-none whitespace-nowrap border border-[var(--color-accent-500,#ff1a9e)]/50 bg-[var(--color-accent-500,#ff1a9e)]/15 text-[var(--color-accent-500,#ff1a9e)]"
+              title="bulk-tag mode — lasso albums to tag (esc to exit)"
+            >
+              bulk-tag mode — lasso albums to tag
+            </span>
+          </Show>
+        </div>
+        <Show when={graph.visibleRelationPillCount() > 0}>
+          <div class="w-full min-w-0">{graph.selectedRelationChips}</div>
         </Show>
-        <Show when={props.bulkTagMode?.()}>
-          <span
-            class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] leading-none whitespace-nowrap border border-[var(--color-accent-500,#ff1a9e)]/50 bg-[var(--color-accent-500,#ff1a9e)]/15 text-[var(--color-accent-500,#ff1a9e)]"
-            title="bulk-tag mode — lasso albums to tag (esc to exit)"
-          >
-            bulk-tag mode — lasso albums to tag
-          </span>
-        </Show>
-        {graph.selectedRelationChips}
       </div>
     );
     slots.setSecondaryRowContent(chips);

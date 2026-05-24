@@ -20,7 +20,7 @@ import { AddRemoteModal } from "../components/modals/AddRemoteModal";
 import { ConnectionProgressModal } from "../components/modals/ConnectionProgressModal";
 import {
   getConnectionProgress,
-  cancelAndNavigate,
+  cancelConnection,
   connectToRemote,
   recheckRemote,
 } from "./services/remotes/connectionProgress";
@@ -244,6 +244,19 @@ export function AppLayout(props: AppLayoutProps) {
         await refreshRemoteAuthStatus(remote);
       }
     })();
+  });
+
+  // keep per-remote auth status warm for topnav/admin affordances.
+  // only refresh remotes that have not been queried yet.
+  createEffect(() => {
+    const list = remotes();
+    if (!list.length) return;
+    void Promise.all(
+      list.map(async (remote) => {
+        if (getAuthInfo(remote.remote_id) !== undefined) return;
+        await refreshRemoteAuthStatus(remote);
+      })
+    );
   });
 
   const canAdminSkipRadioTrack = createMemo(() => {
@@ -1636,21 +1649,25 @@ export function AppLayout(props: AppLayoutProps) {
       <AddRemoteModal
         isOpen={isAddRemoteOpen()}
         onClose={() => setIsAddRemoteOpen(false)}
-        onSuccess={() => {
+        onSuccess={(remote) => {
           debug("AppLayout", "remote added successfully");
-          // reload remotes list
+          // reload remotes, switch source to the new remote, and
+          // route to its default page.
           void (async () => {
             const allRemotes = await getAllRemotes();
             setRemotes(allRemotes);
+
+            const result = await connectToRemote(remote.remote_id, { skipHealthCheck: true });
+            if (result.success) {
+              navigate(getDefaultRoute(remote.remote_id));
+              queryClient.invalidateQueries();
+            }
           })();
         }}
       />
 
       {/* connection progress modal (appears when connecting takes >1s) */}
-      <ConnectionProgressModal
-        state={connectionProgress()}
-        onCancel={() => cancelAndNavigate(navigate)}
-      />
+      <ConnectionProgressModal state={connectionProgress()} onCancel={() => cancelConnection()} />
 
       {/* global confirm dialog */}
       <ConfirmDialog

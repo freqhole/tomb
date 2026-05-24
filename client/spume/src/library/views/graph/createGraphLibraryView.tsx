@@ -110,6 +110,7 @@ export interface CreateGraphLibraryViewOpts {
 export interface GraphLibraryView {
   topNavTools: JSX.Element;
   selectedRelationChips: JSX.Element;
+  visibleRelationPillCount: () => number;
   pane: JSX.Element;
   /** live node count accessor — for the bottom-right status chip /
    *  topnav badge in caller-controlled chrome. */
@@ -762,9 +763,13 @@ export function createGraphLibraryView(opts: CreateGraphLibraryViewOpts): GraphL
     />
   );
 
+  const visibleEnabledRelationKinds = createMemo(() =>
+    RELATION_KINDS.filter((r) => enabled().has(r.kind) && (counts()[r.kind] ?? 0) > 0)
+  );
+
   const selectedRelationChips = (
-    <div class="flex gap-1.5 overflow-x-auto overflow-y-hidden no-scrollbar">
-      <For each={RELATION_KINDS.filter((r) => enabled().has(r.kind))}>
+    <div class="flex w-full min-w-0 max-w-full gap-1.5 overflow-x-auto overflow-y-hidden no-scrollbar whitespace-nowrap">
+      <For each={visibleEnabledRelationKinds()}>
         {(meta) => {
           const color = RELATION_COLOR[meta.kind];
           const label = RELATION_LABEL[meta.kind];
@@ -1007,6 +1012,7 @@ export function createGraphLibraryView(opts: CreateGraphLibraryViewOpts): GraphL
   return {
     topNavTools,
     selectedRelationChips,
+    visibleRelationPillCount: () => visibleEnabledRelationKinds().length,
     pane,
     nodeCount: () => nodes().length,
     autoPaused,
@@ -1069,7 +1075,7 @@ function RelationStrengthChip(props: {
 
   return (
     <span
-      class="relative inline-flex items-center gap-1 pl-2 pr-1 py-0.5 rounded text-[11px] leading-none whitespace-nowrap border backdrop-blur-sm overflow-hidden select-none touch-none"
+      class="relative inline-flex flex-shrink-0 items-center gap-1 pl-2 pr-1 py-0.5 rounded text-[11px] leading-none whitespace-nowrap border backdrop-blur-sm overflow-hidden select-none touch-none"
       style={{
         color: props.color,
         "border-color": `${props.color}70`,
@@ -1083,7 +1089,6 @@ function RelationStrengthChip(props: {
         style={{
           width: `${Math.round((dragging() ? preview() : props.strength) * 100)}%`,
           "background-color": `${props.color}66`,
-          "mix-blend-mode": "screen",
         }}
       />
 

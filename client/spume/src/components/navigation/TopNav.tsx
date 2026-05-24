@@ -9,7 +9,13 @@ import {
   Show,
   type JSX,
 } from "solid-js";
+import { permissions, type UserRoleName } from "freqhole-api-client";
 import { getLocalNodeId, isCharnelMode } from "../../app/services/charnel";
+import {
+  getAuthInfo,
+  refreshOne as refreshRemoteAuthStatus,
+} from "../../app/services/remotes/authStatusStore";
+import { getRemoteById } from "../../app/services/remotes/remoteManager";
 import { getPageInfo } from "../../app/services/pageInfo";
 import { isNarrowViewport } from "../../config/breakpoints";
 import { canCreatePlaylist, canUploadMusic } from "../../music/data/permissions";
@@ -252,6 +258,7 @@ function RowActionsMenu(props: {
   isOpen: boolean;
   onToggle: () => void;
   onClose: () => void;
+  onAction?: () => void;
 }) {
   let menuRef: HTMLDivElement | undefined;
   let triggerRef: HTMLButtonElement | undefined;
@@ -313,6 +320,7 @@ function RowActionsMenu(props: {
                     e.stopPropagation();
                     if (action.disabled) return;
                     props.onClose();
+                    props.onAction?.();
                     action.onClick();
                   }}
                 >
@@ -337,6 +345,7 @@ export function TopNav(props: TopNavProps) {
   // ref to the <nav> element so a ResizeObserver can publish its
   // actual rendered height into `--nav-height` (see onMount below).
   let navEl: HTMLElement | undefined;
+  let menuTriggerEl: HTMLButtonElement | undefined;
 
   // narrow viewport gets bigger touch-friendly icon buttons
   const iconBtnPad = () => (isNarrow() ? "p-2.5" : "p-1.5");
@@ -350,6 +359,7 @@ export function TopNav(props: TopNavProps) {
   const [feedFilterLocked, setFeedFilterLocked] = createSignal(false);
   const [statusFilterOpen, setStatusFilterOpen] = createSignal(false);
   const [statusFilterLocked, setStatusFilterLocked] = createSignal(false);
+  const [isMainMenuOpen, setIsMainMenuOpen] = createSignal(false);
   let statusFilterCloseTimeout: ReturnType<typeof setTimeout> | undefined;
   const [navHovered, setNavHovered] = createSignal(false);
   const [recheckingRemoteIds, setRecheckingRemoteIds] = createSignal<Set<string>>(new Set());
@@ -370,6 +380,22 @@ export function TopNav(props: TopNavProps) {
   // which remote row currently has its actions menu open (id, or null)
   const [openMenuFor, setOpenMenuFor] = createSignal<string | null>(null);
 
+  // close top-nav overlays after mobile navigation/actions.
+  const closeTopNavMenu = () => {
+    setOpenMenuFor(null);
+    setIsMainMenuOpen(false);
+    if (!isNarrow()) return;
+    const active = document.activeElement as HTMLElement | null;
+    active?.blur();
+    document.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: "Escape",
+        code: "Escape",
+        bubbles: true,
+      })
+    );
+  };
+
   // extract a usable node id from a peer_addr that may be a 64-hex string
   // or a json blob containing { node_id, ... }
   const extractNodeIdLocal = (peerAddr: string): string => {
@@ -384,6 +410,15 @@ export function TopNav(props: TopNavProps) {
       // not json, fall through
     }
     return trimmed;
+  };
+
+  const isAdminRole = (role: string | undefined): boolean => {
+    if (!role) return false;
+    try {
+      return permissions.isAdmin(role as UserRoleName);
+    } catch {
+      return role.toLowerCase() === "admin";
+    }
   };
 
   // build context-menu actions for a remote row
@@ -470,6 +505,17 @@ export function TopNav(props: TopNavProps) {
       });
     }
 
+    const auth = getAuthInfo(remote.id);
+    if (auth?.loggedIn && isAdminRole(auth.role)) {
+      actions.push({
+        label: "admin",
+        icon: "settings",
+        onClick: () => {
+          props.onNavigate?.(`/settings/remotes/${remote.id}/admin`);
+        },
+      });
+    }
+
     if (props.onDeleteRemote && !remote.isCharnelManaged) {
       if (actions.length > 0) actions.push({ type: "separator" });
       actions.push({
@@ -550,6 +596,29 @@ export function TopNav(props: TopNavProps) {
     };
     window.addEventListener("resize", handleResize);
     onCleanup(() => window.removeEventListener("resize", handleResize));
+
+    // keep a local open-state mirror from Kobalte trigger aria-expanded.
+    // this lets us suppress secondary rows while the mobile menu is open,
+    // which avoids cross-stack rendering oddities on some mobile browsers.
+    const syncMainMenuState = () => {
+      setIsMainMenuOpen(menuTriggerEl?.getAttribute("aria-expanded") === "true");
+    };
+    syncMainMenuState();
+    const mo =
+      typeof MutationObserver !== "undefined"
+        ? new MutationObserver(() => syncMainMenuState())
+        : null;
+    if (mo && menuTriggerEl) {
+      mo.observe(menuTriggerEl, {
+        attributes: true,
+        attributeFilter: ["aria-expanded"],
+      });
+    }
+    document.addEventListener("click", syncMainMenuState, true);
+    onCleanup(() => {
+      mo?.disconnect();
+      document.removeEventListener("click", syncMainMenuState, true);
+    });
 
     // publish actual nav height to `--nav-height` whenever the nav
     // resizes (e.g. when extra rows like selected-tag badges appear
@@ -701,6 +770,8 @@ export function TopNav(props: TopNavProps) {
     )
       return;
 
+    closeTopNavMenu();
+
     // if offline, try to recheck
     if (remote.isOffline && props.onRecheckRemote) {
       setRecheckingRemoteIds((prev) => new Set([...prev, remote.id]));
@@ -761,6 +832,7 @@ export function TopNav(props: TopNavProps) {
           <KobalteNav>
             <KobalteNav.Menu>
               <KobalteNav.Trigger
+                ref={menuTriggerEl}
                 class="p-1 rounded-lg text-white hover:bg-white/10 transition-colors border-none bg-transparent cursor-pointer flex items-center justify-center"
                 style={{
                   "min-width": isNarrow() ? "44px" : "36px",
@@ -896,7 +968,10 @@ export function TopNav(props: TopNavProps) {
                           "text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]":
                             !(props.currentPath?.startsWith("/feed") ?? false),
                         }}
-                        onClick={() => props.onNavigate?.("/feed")}
+                        onClick={() => {
+                          closeTopNavMenu();
+                          props.onNavigate?.("/feed");
+                        }}
                       >
                         <Show
                           when={props.currentPath === "/feed"}
@@ -916,7 +991,10 @@ export function TopNav(props: TopNavProps) {
                           "text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]":
                             !(props.currentPath?.startsWith("/radio") ?? false),
                         }}
-                        onClick={() => props.onNavigate?.("/radio")}
+                        onClick={() => {
+                          closeTopNavMenu();
+                          props.onNavigate?.("/radio");
+                        }}
                       >
                         <Icon name="radioTower" size={14} />
                         <span class="text-sm">radio</span>
@@ -931,7 +1009,10 @@ export function TopNav(props: TopNavProps) {
                           "text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]":
                             !(props.currentPath?.startsWith("/shared") ?? false),
                         }}
-                        onClick={() => props.onNavigate?.(routes.shared())}
+                        onClick={() => {
+                          closeTopNavMenu();
+                          props.onNavigate?.(routes.shared());
+                        }}
                       >
                         <Icon name="share" size={14} />
                         <span class="text-sm">shared</span>
@@ -946,7 +1027,10 @@ export function TopNav(props: TopNavProps) {
                           "text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]":
                             !(props.currentPath?.startsWith("/library") ?? false),
                         }}
-                        onClick={() => props.onNavigate?.(routes.library())}
+                        onClick={() => {
+                          closeTopNavMenu();
+                          props.onNavigate?.(routes.library());
+                        }}
                       >
                         <Icon name="grid" size={14} />
                         <span class="text-sm">library</span>
@@ -974,7 +1058,10 @@ export function TopNav(props: TopNavProps) {
                                     props.currentSourceName !== "local library"),
                               }}
                               disabled={!!isLocalSourceActive()}
-                              onClick={() => props.onSwitchToLocal?.()}
+                              onClick={() => {
+                                closeTopNavMenu();
+                                props.onSwitchToLocal?.();
+                              }}
                             >
                               <Show
                                 when={isLocalSourceActive()}
@@ -1088,12 +1175,19 @@ export function TopNav(props: TopNavProps) {
                                         <RowActionsMenu
                                           actions={remoteContextActions(remote)}
                                           isOpen={openMenuFor() === remote.id}
-                                          onToggle={() =>
-                                            setOpenMenuFor(
-                                              openMenuFor() === remote.id ? null : remote.id
-                                            )
-                                          }
+                                          onToggle={() => {
+                                            const opening = openMenuFor() !== remote.id;
+                                            setOpenMenuFor(opening ? remote.id : null);
+                                            if (!opening) return;
+                                            if (getAuthInfo(remote.id) !== undefined) return;
+                                            void (async () => {
+                                              const fullRemote = await getRemoteById(remote.id);
+                                              if (!fullRemote) return;
+                                              await refreshRemoteAuthStatus(fullRemote);
+                                            })();
+                                          }}
                                           onClose={() => setOpenMenuFor(null)}
+                                          onAction={() => closeTopNavMenu()}
                                         />
                                       </Show>
                                     </div>
@@ -1106,7 +1200,10 @@ export function TopNav(props: TopNavProps) {
                           {/* add remote button */}
                           <button
                             class="w-full px-3 py-2 text-left text-sm text-[var(--color-accent-500)] hover:bg-[var(--color-accent-500)]/10 rounded transition-colors border-none bg-transparent cursor-pointer flex items-center gap-2 mt-2"
-                            onClick={() => props.onAddRemote?.()}
+                            onClick={() => {
+                              closeTopNavMenu();
+                              props.onAddRemote?.();
+                            }}
                           >
                             <span>+</span>
                             <span>add remote server</span>
@@ -1122,7 +1219,10 @@ export function TopNav(props: TopNavProps) {
                                 <button
                                   class="w-full px-3 py-2 text-left text-sm text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-accent-500)]/10 rounded transition-colors border-none bg-transparent cursor-pointer disabled:opacity-50"
                                   disabled={item.disabled}
-                                  onClick={item.onClick}
+                                  onClick={() => {
+                                    closeTopNavMenu();
+                                    item.onClick();
+                                  }}
                                 >
                                   {item.label}
                                 </button>
@@ -1139,7 +1239,10 @@ export function TopNav(props: TopNavProps) {
                         >
                           <button
                             class="w-full flex items-center gap-2 px-3 py-2 rounded bg-[var(--color-bg-secondary)] hover:bg-[var(--color-bg-tertiary)] text-xs text-left transition-colors border-none cursor-pointer"
-                            onClick={() => props.onNavigate?.(routes.settingsStorage())}
+                            onClick={() => {
+                              closeTopNavMenu();
+                              props.onNavigate?.(routes.settingsStorage());
+                            }}
                           >
                             <Icon name="database" size={14} />
                             <div class="flex flex-col">
@@ -1180,7 +1283,10 @@ export function TopNav(props: TopNavProps) {
                                   class="w-full hover:bg-[var(--color-accent-500)]/10 rounded transition-colors cursor-pointer data-[highlighted]:bg-[var(--color-accent-500)]/10 flex items-center gap-2 px-2 py-1"
                                   style={{ "min-height": "0", height: "auto" }}
                                   closeOnSelect={true}
-                                  onSelect={playlist.onClick}
+                                  onSelect={() => {
+                                    closeTopNavMenu();
+                                    playlist.onClick();
+                                  }}
                                 >
                                   <MediaImage
                                     images={playlist.images}
@@ -1215,6 +1321,7 @@ export function TopNav(props: TopNavProps) {
                         <button
                           class="flex-1 px-3 py-1.5 text-xs text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-accent-500)]/10 rounded transition-colors border-none bg-transparent cursor-pointer"
                           onClick={() => {
+                            closeTopNavMenu();
                             props.onViewAllPlaylists?.();
                           }}
                         >
@@ -1224,6 +1331,7 @@ export function TopNav(props: TopNavProps) {
                           <button
                             class="flex-1 px-3 py-1.5 text-xs text-[var(--color-accent-500)] hover:bg-[var(--color-accent-500)]/10 rounded transition-colors border-none bg-transparent cursor-pointer font-medium"
                             onClick={() => {
+                              closeTopNavMenu();
                               props.onCreatePlaylist?.();
                             }}
                           >
@@ -1296,7 +1404,7 @@ export function TopNav(props: TopNavProps) {
                 live to the right of the icon row, just before the search
                 input. used e.g. by the library graph view to host its
                 zoom/tool/relations cluster inline in the topnav. */}
-            <Show when={props.rightContent}>
+            <Show when={props.rightContent && !(isNarrow() && isMainMenuOpen())}>
               <div class="flex-shrink-0 order-2 flex items-center">{props.rightContent}</div>
             </Show>
 
@@ -1696,7 +1804,7 @@ export function TopNav(props: TopNavProps) {
             nav bar, above the built-in selected-tag/feed badge rows so
             view-specific chip rows (e.g. selected relations on the
             library graph) stack consistently. */}
-        <Show when={props.secondaryRowContent}>
+        <Show when={props.secondaryRowContent && !isMainMenuOpen()}>
           <div class="mt-1.5 px-1">{props.secondaryRowContent}</div>
         </Show>
 

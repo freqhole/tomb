@@ -82,11 +82,16 @@ export function GraphRelationsPicker(props: GraphRelationsPickerProps) {
   };
 
   const allKinds = (): RelationKindMeta[] => [...RELATION_KINDS, ...(props.extraKinds ?? [])];
+  const visibleKinds = (): RelationKindMeta[] => {
+    // when counts are provided, hide kinds that currently have zero edges.
+    if (!props.counts) return allKinds();
+    return allKinds().filter((m) => (props.counts?.[m.kind] ?? 0) > 0);
+  };
   const isEnabled = (k: string) => {
     const e = props.enabled;
     return Array.isArray(e) ? e.includes(k) : e.has(k);
   };
-  const enabledKinds = () => allKinds().filter((m) => isEnabled(m.kind));
+  const enabledKinds = () => visibleKinds().filter((m) => isEnabled(m.kind));
 
   // close on outside click
   const onDocClick = (e: MouseEvent) => {
@@ -215,7 +220,7 @@ export function GraphRelationsPicker(props: GraphRelationsPickerProps) {
               </button>
             </div>
           </div>
-          <For each={allKinds()}>
+          <For each={visibleKinds()}>
             {(meta) => <RelationRow meta={meta} {...props} on={isEnabled(meta.kind)} />}
           </For>
         </div>

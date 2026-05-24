@@ -69,9 +69,11 @@ export function timing(name: string, ms: number): void {
 
 /** record an instantaneous gauge — only the last value per window is kept. */
 const gauges = new Map<string, number>();
+let gaugesDirty = false;
 export function gauge(name: string, v: number): void {
   if (!enabled()) return;
   gauges.set(name, v);
+  gaugesDirty = true;
 }
 
 let flushTimer: ReturnType<typeof setInterval> | null = null;
@@ -89,7 +91,9 @@ if (typeof window !== "undefined") {
 }
 
 function snapshot(): Record<string, unknown> | null {
-  if (counters.size === 0 && timings.size === 0 && gauges.size === 0)
+  // don't emit windows when only stale gauges exist from a prior view.
+  // this prevents perpetual `[graph-perf]` logs after graph teardown.
+  if (counters.size === 0 && timings.size === 0 && !gaugesDirty)
     return null;
   const out: Record<string, unknown> = { t: Date.now() };
   for (const [k, v] of counters) out[k] = v;
@@ -109,6 +113,7 @@ function flush() {
   const snap = snapshot();
   counters.clear();
   timings.clear();
+  gaugesDirty = false;
   // intentionally keep gauges (they're a snapshot, not a delta)
   if (!snap) return;
   history.push(snap);
@@ -147,6 +152,7 @@ function ensureTimer() {
     counters.clear();
     timings.clear();
     gauges.clear();
+    gaugesDirty = false;
   }
 }
 
@@ -243,6 +249,7 @@ if (typeof window !== "undefined") {
       counters.clear();
       timings.clear();
       gauges.clear();
+      gaugesDirty = false;
       // eslint-disable-next-line no-console
       console.info("[graph-perf] history + counters reset");
     };
