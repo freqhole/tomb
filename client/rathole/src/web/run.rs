@@ -529,6 +529,8 @@ fn on_result_panel_key(app: &mut App, code: KeyCode, shift: bool) {
                             data_pretty: Some(pretty),
                             rows: vec![],
                             cursor: 0,
+                            pending: false,
+                            progress: vec![],
                         });
                         eph.last_dispatch_scroll = 0;
                         return;
@@ -839,6 +841,8 @@ fn on_action_menu_key(app: &mut App, code: KeyCode, tx: &mpsc::UnboundedSender<A
                     data_pretty: Some(pretty),
                     rows: vec![],
                     cursor: 0,
+                    pending: false,
+                    progress: vec![],
                 });
                 eph.last_dispatch_scroll = 0;
                 eph.focus = Focus::ResultPanel;
@@ -1248,6 +1252,14 @@ fn on_action(app: &mut App, action: AppAction, action_tx: &mpsc::UnboundedSender
                         .collect::<Vec<_>>()
                 })
                 .unwrap_or_default();
+            let prior_progress = app
+                .state
+                .ephemeral
+                .last_dispatch
+                .as_ref()
+                .filter(|ld| ld.command == command)
+                .map(|ld| ld.progress.clone())
+                .unwrap_or_default();
             app.state.ephemeral.last_dispatch = Some(LastDispatch {
                 command,
                 success: response.success,
@@ -1255,7 +1267,21 @@ fn on_action(app: &mut App, action: AppAction, action_tx: &mpsc::UnboundedSender
                 data_pretty,
                 rows,
                 cursor: 0,
+                pending: false,
+                progress: prior_progress,
             });
+        }
+        AppAction::AdminDispatchProgress { command, line } => {
+            if let Some(ld) = app.state.ephemeral.last_dispatch.as_mut() {
+                if ld.command == command {
+                    ld.progress.push(line);
+                    let max_lines = 2000;
+                    if ld.progress.len() > max_lines {
+                        let drop = ld.progress.len() - max_lines;
+                        ld.progress.drain(0..drop);
+                    }
+                }
+            }
         }
         AppAction::PeerConnectResult { peer_addr, error } => match error {
             Some(e) => app.state.ephemeral.peer_error = Some(e),
@@ -2051,6 +2077,9 @@ fn on_repl_key_web(app: &mut App, code: KeyCode, action_tx: &mpsc::UnboundedSend
     match code {
         KeyCode::Esc => rk::handle_escape(&mut app.state),
         KeyCode::Enter => {
+            // commit flyout selection (if any) so enter activates
+            // the highlighted entry instead of partial input.
+            rk::commit_flyout_on_enter(&mut app.state);
             let line = app.state.ephemeral.repl.input.trim().to_string();
             let action = crate::ratcore::slash::parse(&line);
             let mut exit = false;
@@ -2211,7 +2240,13 @@ fn on_repl_key_web(app: &mut App, code: KeyCode, action_tx: &mpsc::UnboundedSend
                     }
                     SlashAction::AdminDispatch { name, body } => {
                         // generic admin-rpc dispatch from /knock /users
-                        // /analytics /radio subcommands.
+                        // /analytics /radio subcommands. on the web
+                        // shell the transport is remote (midden/iroh),
+                        // so handler-side progress reporting via
+                        // `grimoire::progress` happens on the server
+                        // and isn't streamed back here — the result
+                        // panel just shows the pending placeholder
+                        // until the final response lands.
                         let transport = app.transport.clone();
                         let tx_clone = action_tx.clone();
                         let name_owned = name.to_string();
@@ -2224,6 +2259,24 @@ fn on_repl_key_web(app: &mut App, code: KeyCode, action_tx: &mpsc::UnboundedSend
                         });
                         app.state.ephemeral.repl.status =
                             Some(ReplStatus::info(format!("dispatching {name}\u{2026}")));
+                        // seed the result panel with a "running"
+                        // placeholder so the user sees immediate
+                        // feedback. replaced when the dispatch
+                        // returns.
+                        app.state.ephemeral.last_dispatch =
+                            Some(crate::ratcore::app::LastDispatch {
+                                command: name.to_string(),
+                                success: true,
+                                message: format!(
+                                    "running {name}\u{2026} (this may take a while for long maintenance ops)"
+                                ),
+                                data_pretty: None,
+                                rows: vec![],
+                                cursor: 0,
+                                pending: true,
+                                progress: vec![],
+                            });
+                        app.state.ephemeral.last_dispatch_scroll = 0;
                         app.state.ephemeral.focus = crate::ratcore::app::Focus::ResultPanel;
                     }
                     _ => {

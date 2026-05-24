@@ -182,6 +182,77 @@ pub async fn list_related_for_artist(artist_id: &str) -> GrimoireResponse<Vec<Re
     GrimoireResponse::success("ok", rows)
 }
 
+/// batched variant of [`list_related_for_artist`] — returns rows for
+/// many source artists in a single query, grouped by `source_artist_id`.
+///
+/// uses the `json_each(?)` trick for variable-length `IN`-lists (same
+/// pattern as `media_blobz::build_atlas_response`). callers that pass
+/// an empty slice get an empty map back without touching the db.
+pub async fn list_related_for_artists(
+    artist_ids: &[String],
+) -> GrimoireResponse<std::collections::HashMap<String, Vec<RelatedArtist>>> {
+    if artist_ids.is_empty() {
+        return GrimoireResponse::success("ok", std::collections::HashMap::new());
+    }
+
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => return GrimoireResponse::failure("db connect failed", vec![e.into()]),
+    };
+
+    let ids_json = serde_json::to_string(artist_ids).unwrap_or_else(|_| "[]".to_string());
+
+    let rows = match sqlx::query_as!(
+        RelatedArtist,
+        r#"
+        SELECT
+            id as "id!", source_artist_id as "source_artist_id!",
+            related_artist_id as "related_artist_id?",
+            related_name as "related_name!",
+            related_name_key as "related_name_key!",
+            related_mbid as "related_mbid?",
+            source as "source!",
+            match_score as "match_score?",
+            bandcamp_url as "bandcamp_url?",
+            bandcamp_album_urlz as "bandcamp_album_urlz?",
+            image_url as "image_url?",
+            external_urlz as "external_urlz?",
+            fetched_at as "fetched_at!", created_at as "created_at!",
+            updated_at as "updated_at!",
+            deleted_at as "deleted_at?"
+        FROM related_artistz
+        WHERE source_artist_id IN (SELECT value FROM json_each(?))
+          AND deleted_at IS NULL
+          AND status = 'accepted'
+        ORDER BY match_score DESC NULLS LAST, related_name COLLATE NOCASE ASC
+        "#,
+        ids_json,
+    )
+    .fetch_all(&pool)
+    .await
+    {
+        Ok(r) => r,
+        Err(e) => return GrimoireResponse::failure("failed to list related", vec![e.into()]),
+    };
+
+    let mut grouped: std::collections::HashMap<String, Vec<RelatedArtist>> =
+        std::collections::HashMap::with_capacity(artist_ids.len());
+    // seed with empty vecs so requesters always see a key for every
+    // input id (callers can distinguish "no rows" from "id wasn't in
+    // the request"). seed only requested ids so a row with a stale
+    // source_artist_id doesn't leak into the response.
+    for id in artist_ids {
+        grouped.entry(id.clone()).or_insert_with(Vec::new);
+    }
+    for row in rows {
+        if let Some(bucket) = grouped.get_mut(&row.source_artist_id) {
+            bucket.push(row);
+        }
+    }
+
+    GrimoireResponse::success("ok", grouped)
+}
+
 /// reverse lookup: every active row that points AT the given local
 /// artist (i.e. local artists who list this one as related).
 pub async fn list_relations_pointing_at(artist_id: &str) -> GrimoireResponse<Vec<RelatedArtist>> {

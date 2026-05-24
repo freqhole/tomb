@@ -1,15 +1,14 @@
 // useRelatedArtistsByIds
 //
-// fans out one `POST /api/related-artists/list` call per unique
-// artist id and aggregates the results into a Map<artistId, Set<related
-// artistId>>. only in-library matches (where the api returned
-// `related_artist_id` truthy) are kept — the graph can't draw a wire
-// to an artist that isn't a node.
+// issues a single `POST /api/related-artists/list-batch` call for all
+// unique artist ids and aggregates the results into a Map<artistId,
+// Set<related artistId>>. only in-library matches (where the api
+// returned `related_artist_id` truthy) are kept — the graph can't
+// draw a wire to an artist that isn't a node.
 //
-// the underlying endpoint is per-artist, so for N unique artists we
-// issue N parallel http calls. results are cached for 5 minutes (data
-// is enrichment-driven and changes rarely); the query refetches when
-// the artist-id set changes.
+// results are cached for 5 minutes (enrichment-driven data that
+// rarely changes); the query refetches when the artist-id set
+// changes.
 
 import { createQuery } from "@tanstack/solid-query";
 import type { Accessor } from "solid-js";
@@ -52,29 +51,21 @@ export function useRelatedArtistsByIds(opts: UseRelatedArtistsByIdsOptions) {
       queryFn: async (): Promise<RelatedArtistsMap> => {
         if (!remote || ids.length === 0) return EMPTY;
         const client = await getClientForRemote(remote);
-        // fan out — tolerate per-artist failures so a single bad row
-        // doesn't blank the whole map.
-        const settled = await Promise.allSettled(
-          ids.map((id) =>
-            client.music
-              .listRelatedArtists({ artist_id: id })
-              .then((resp) => ({ id, resp }))
-          )
-        );
+        const resp = await client.music.listRelatedArtistsBatch({
+          artist_ids: ids,
+        });
+        if (!resp.success || !resp.data) return EMPTY;
         const out: RelatedArtistsMap = new Map();
-        for (const r of settled) {
-          if (r.status !== "fulfilled") continue;
-          const { id, resp } = r.value;
-          if (!resp.success || !resp.data) continue;
+        for (const entry of resp.data.entries ?? []) {
           const inLibIds = new Set<string>();
-          for (const item of resp.data.items ?? []) {
+          for (const item of entry.items ?? []) {
             // only in-library matches are useful for the graph — external
             // related artists have no node to wire to.
             const target = (item as { related_artist_id?: string | null })
               .related_artist_id;
             if (target) inLibIds.add(target);
           }
-          if (inLibIds.size > 0) out.set(id, inLibIds);
+          if (inLibIds.size > 0) out.set(entry.artist_id, inLibIds);
         }
         return out;
       },

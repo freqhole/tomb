@@ -113,6 +113,8 @@ pub fn render_queue_panel(state: &mut AppState, cursor_override: Option<usize>) 
         data_pretty: None,
         rows,
         cursor,
+        pending: false,
+        progress: vec![],
     });
     state.ephemeral.last_dispatch_scroll = 0;
 }
@@ -156,6 +158,15 @@ pub fn handle_tab(state: &mut AppState) {
         r.cycle_stem = None;
         return;
     }
+    // if the user has already arrow-navigated to a specific entry
+    // (cursor > 0) and we're not yet cycling, treat tab as commit
+    // — they've made a deliberate choice, don't override it by
+    // starting a cycle at index 0.
+    if state.ephemeral.repl.cycle_stem.is_none() && state.ephemeral.repl.flyout_cursor > 0 {
+        flyout_complete(state);
+        state.ephemeral.repl.cycle_stem = None;
+        return;
+    }
     // multiple hits — capture stem on first tab so subsequent
     // tabs rotate over the same list.
     let raw = state.ephemeral.repl.input.as_str();
@@ -182,6 +193,33 @@ pub fn handle_tab(state: &mut AppState) {
     r.input = new_input;
     r.cursor = r.input.chars().count();
     r.history_cursor = None;
+}
+
+/// commit the currently-highlighted flyout entry into the input
+/// when the user has made a deliberate selection — either a sole
+/// match auto-narrowed by typing, or an explicit arrow-nav from
+/// the default cursor=0. called by enter handlers so pressing
+/// enter on a highlighted flyout entry runs that command instead
+/// of whatever the user partially typed.
+///
+/// returns true when input was rewritten; callers can use this to
+/// decide whether to clear `cycle_stem`.
+pub fn commit_flyout_on_enter(state: &mut AppState) -> bool {
+    let matches = flyout_matches(state);
+    let n = matches.len();
+    if n == 0 {
+        return false;
+    }
+    let cursor = state.ephemeral.repl.flyout_cursor;
+    // commit when there's only one candidate or the user has
+    // explicitly arrow-navigated / cycled (cursor > 0 or mid-cycle).
+    let in_cycle = state.ephemeral.repl.cycle_stem.is_some();
+    if n == 1 || cursor > 0 || in_cycle {
+        flyout_complete(state);
+        state.ephemeral.repl.cycle_stem = None;
+        return true;
+    }
+    false
 }
 
 /// compute the current flyout entries `(label, description)` for
@@ -477,6 +515,8 @@ pub fn apply_navigation(
                 data_pretty: None,
                 rows,
                 cursor: 0,
+                pending: false,
+                progress: vec![],
             });
             state.ephemeral.last_dispatch_scroll = 0;
             state.ephemeral.repl.clear_input();
@@ -691,6 +731,8 @@ pub fn apply_navigation(
                 data_pretty: None,
                 rows,
                 cursor: 0,
+                pending: false,
+                progress: vec![],
             });
             state.ephemeral.last_dispatch_scroll = 0;
             state.ephemeral.repl.clear_input();
@@ -776,6 +818,8 @@ pub fn apply_navigation(
                 data_pretty: None,
                 rows,
                 cursor: 0,
+                pending: false,
+                progress: vec![],
             });
             state.ephemeral.last_dispatch_scroll = 0;
             state.ephemeral.repl.status = Some(ReplStatus::ok("log"));
@@ -911,6 +955,8 @@ pub fn apply_navigation(
                 data_pretty: None,
                 rows,
                 cursor: 0,
+                pending: false,
+                progress: vec![],
             });
             state.ephemeral.last_dispatch_scroll = 0;
             state.ephemeral.repl.clear_input();

@@ -132,7 +132,9 @@ pub mod type_registry {
     use crate::health::{EmptyResponse, HealthResponse, ServerInfoResponse};
 
     // music types
-    use crate::media_blobz::{BlobMetadataResponse, MediaBlob};
+    use crate::media_blobz::{
+        AtlasEntry, AtlasManifest, BlobMetadataResponse, BuildAtlasRequest, MediaBlob,
+    };
     use crate::music::crud::{
         AlbumQueryResult, AlbumStatusCounts, AlbumsQueryResult, ArtistQueryResult,
         ArtistsQueryResult, BulkClearSongArtworkRequest, BulkClearSongArtworkResponse,
@@ -290,7 +292,8 @@ pub mod type_registry {
     // related artists (phase 13h)
     use crate::music::entities::related_artists::{BandcampAlbumLink, ExternalUrl};
     use crate::offal::music::related_artists::{
-        ListRelatedArtistsRequest, ListRelatedArtistsResponse, RelatedArtistApi,
+        ListRelatedArtistsBatchRequest, ListRelatedArtistsBatchResponse, ListRelatedArtistsRequest,
+        ListRelatedArtistsResponse, RelatedArtistApi, RelatedArtistsBatchEntry,
         SetRelatedArtistBandcampRequest,
     };
 
@@ -446,6 +449,12 @@ pub mod type_registry {
         registered.insert("ListRelatedArtistsRequest".to_string());
         gen.add_schema::<ListRelatedArtistsResponse>("ListRelatedArtistsResponse");
         registered.insert("ListRelatedArtistsResponse".to_string());
+        gen.add_schema::<RelatedArtistsBatchEntry>("RelatedArtistsBatchEntry");
+        registered.insert("RelatedArtistsBatchEntry".to_string());
+        gen.add_schema::<ListRelatedArtistsBatchRequest>("ListRelatedArtistsBatchRequest");
+        registered.insert("ListRelatedArtistsBatchRequest".to_string());
+        gen.add_schema::<ListRelatedArtistsBatchResponse>("ListRelatedArtistsBatchResponse");
+        registered.insert("ListRelatedArtistsBatchResponse".to_string());
         gen.add_schema::<SetRelatedArtistBandcampRequest>("SetRelatedArtistBandcampRequest");
         registered.insert("SetRelatedArtistBandcampRequest".to_string());
 
@@ -1290,6 +1299,15 @@ pub mod type_registry {
         registered.insert("HasBlobsRequest".to_string());
         gen.add_schema::<HasBlobsResponse>("HasBlobsResponse");
         registered.insert("HasBlobsResponse".to_string());
+
+        // atlas: AtlasEntry must register before AtlasManifest since
+        // AtlasManifest's HashMap value references it.
+        gen.add_schema::<AtlasEntry>("AtlasEntry");
+        registered.insert("AtlasEntry".to_string());
+        gen.add_schema::<AtlasManifest>("AtlasManifest");
+        registered.insert("AtlasManifest".to_string());
+        gen.add_schema::<BuildAtlasRequest>("BuildAtlasRequest");
+        registered.insert("BuildAtlasRequest".to_string());
 
         // upload request types
         gen.add_schema::<UploadMusicByBlake3Request>("UploadMusicByBlake3Request");

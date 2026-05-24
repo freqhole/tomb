@@ -4,6 +4,7 @@
 //! encapsulates all database logic internally
 
 mod access;
+mod atlas;
 mod cleanup;
 mod models;
 mod service;
@@ -12,6 +13,10 @@ mod service;
 pub use access::{
     build_blob_data_response, build_blob_path_response, build_blob_response,
     build_blob_thumbnail_response,
+};
+pub use atlas::{
+    build_atlas_response, AtlasEntry, AtlasManifest, AtlasResponse, BuildAtlasRequest,
+    MAX_IDS_PER_ATLAS, MAX_PAGE_DIM,
 };
 pub use cleanup::{
     can_delete_media_blob, delete_media_blob_if_unused, find_media_blob_references,

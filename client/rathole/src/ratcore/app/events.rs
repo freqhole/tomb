@@ -512,6 +512,11 @@ pub enum AppAction {
         command: String,
         response: DispatchResponse,
     },
+    /// streaming progress line emitted by an in-flight admin dispatch
+    /// (via `grimoire::progress::report`). appended to the current
+    /// `last_dispatch.progress` so long-running maintenance ops show
+    /// activity in the result panel instead of a frozen placeholder.
+    AdminDispatchProgress { command: String, line: String },
     /// result of a peer-connect attempt fired from the peer-input
     /// modal. on success the shell has already swapped the app's
     /// transport; on failure the error message is surfaced in the ui.
@@ -628,6 +633,14 @@ pub struct LastDispatch {
     pub rows: Vec<serde_json::Value>,
     /// current row cursor when `rows` is non-empty.
     pub cursor: usize,
+    /// true while an async admin dispatch is still in flight. result
+    /// panel renders a "running" badge instead of ✓/✗ so the user
+    /// has visible feedback during long-running maintenance ops.
+    pub pending: bool,
+    /// streaming progress lines (newest last) emitted by the running
+    /// dispatch via `grimoire::progress::report`. rendered below the
+    /// header in the result panel.
+    pub progress: Vec<String>,
 }
 
 /// pop-up overlay listing per-row actions available against the

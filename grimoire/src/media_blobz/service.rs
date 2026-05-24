@@ -468,12 +468,14 @@ pub async fn get_media_blob_by_blake3(blake3: &str) -> GrimoireResult<MediaBlob>
     Ok(blob_with_metadata)
 }
 
-/// count blobs that need blake3 computation (have local_path but no blake3)
+/// count blobs that need blake3 computation (no blake3 yet).
+/// covers both file-backed audio (local_path set) and db-stored blobs
+/// (images, thumbnails, waveforms in blob_data table).
 pub async fn count_blobs_needing_blake3() -> GrimoireResult<i64> {
     let pool = database::connect().await?;
 
     let result: (i64,) = sqlx::query_as(
-        "SELECT COUNT(*) FROM media_blobz WHERE local_path IS NOT NULL AND blake3 IS NULL AND deleted_at IS NULL"
+        "SELECT COUNT(*) FROM media_blobz WHERE blake3 IS NULL AND deleted_at IS NULL",
     )
     .fetch_one(&pool)
     .await?;
@@ -508,7 +510,7 @@ pub async fn list_blobs_needing_blake3(limit: i64) -> GrimoireResult<Vec<MediaBl
             height,
             blake3
          FROM media_blobz
-         WHERE local_path IS NOT NULL AND blake3 IS NULL AND deleted_at IS NULL
+         WHERE blake3 IS NULL AND deleted_at IS NULL
          ORDER BY created_at ASC
          LIMIT ?",
         limit

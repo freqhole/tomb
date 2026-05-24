@@ -164,6 +164,7 @@ pub async fn handle(
             handlers::maintenance::cleanup_orphaned_genres(args).await
         }
         "maintenance_cleanup_all" => handlers::maintenance::cleanup_all(args).await,
+        "maintenance_backfill_blake3" => handlers::maintenance::backfill_blake3(args).await,
         "maintenance_backfill_thumbnails_count" => {
             handlers::maintenance::backfill_thumbnails_count().await
         }

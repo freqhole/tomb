@@ -122,6 +122,9 @@ pub async fn dispatch(
 
         // related artists (phase 13h)
         "/api/related-artists/list" => Some(related_artists::list(caller, body.clone()).await),
+        "/api/related-artists/list-batch" => {
+            Some(related_artists::list_batch(caller, body.clone()).await)
+        }
         "/api/related-artists/set-bandcamp" => {
             Some(related_artists::set_bandcamp(caller, body.clone()).await)
         }

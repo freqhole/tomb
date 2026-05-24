@@ -1476,6 +1476,20 @@ export function createMusicMethods(call: CallFn) {
       );
     },
 
+    // batched lookup: fetch related-artist lists for many source artists in
+    // one round trip. avoids fanning out N calls when rendering large graphs.
+    listRelatedArtistsBatch: (params: s.ListRelatedArtistsBatchRequest) => {
+      return call(
+        "music",
+        "list_related_artists_batch",
+        routes.music.list_related_artists_batch.resp,
+        routes.music.list_related_artists_batch.req,
+        routes.music.list_related_artists_batch.method,
+        routes.music.list_related_artists_batch.path,
+        params,
+      );
+    },
+
     // admin-only manual override for a related artist's bandcamp links.
     setRelatedArtistBandcamp: (params: s.SetRelatedArtistBandcampRequest) => {
       return call(

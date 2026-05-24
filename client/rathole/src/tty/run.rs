@@ -571,6 +571,16 @@ fn on_action(app: &mut App, action: AppAction, action_tx: &mpsc::UnboundedSender
                         .collect::<Vec<_>>()
                 })
                 .unwrap_or_default();
+            // preserve progress lines so the user can see the final
+            // "done" line alongside the resolved response.
+            let prior_progress = app
+                .state
+                .ephemeral
+                .last_dispatch
+                .as_ref()
+                .filter(|ld| ld.command == command)
+                .map(|ld| ld.progress.clone())
+                .unwrap_or_default();
             app.state.ephemeral.last_dispatch = Some(LastDispatch {
                 command,
                 success: response.success,
@@ -578,7 +588,22 @@ fn on_action(app: &mut App, action: AppAction, action_tx: &mpsc::UnboundedSender
                 data_pretty,
                 rows,
                 cursor: 0,
+                pending: false,
+                progress: prior_progress,
             });
+        }
+        AppAction::AdminDispatchProgress { command, line } => {
+            if let Some(ld) = app.state.ephemeral.last_dispatch.as_mut() {
+                if ld.command == command {
+                    ld.progress.push(line);
+                    // cap to avoid unbounded growth on huge runs.
+                    let max_lines = 2000;
+                    if ld.progress.len() > max_lines {
+                        let drop = ld.progress.len() - max_lines;
+                        ld.progress.drain(0..drop);
+                    }
+                }
+            }
         }
         AppAction::SelectFromOptionsReady {
             command,
@@ -849,7 +874,10 @@ fn apply_music_event(
 // =========================================================================
 
 /// dispatch an admin command on the tty's local transport and forward
-/// the result back through the action channel.
+/// the result back through the action channel. handler progress lines
+/// emitted via `grimoire::progress::report` are forwarded as
+/// `AdminDispatchProgress` actions so the result panel can stream them
+/// while the dispatch is still in flight.
 fn spawn_admin_dispatch(
     app: &App,
     name: &str,
@@ -860,7 +888,24 @@ fn spawn_admin_dispatch(
     let tx = tx.clone();
     let name = name.to_string();
     tokio::task::spawn_local(async move {
-        let response = transport.admin_dispatch(&name, body).await;
+        let (prog_tx, mut prog_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
+
+        // drain progress lines into the ui action channel.
+        let forward_name = name.clone();
+        let forward_tx = tx.clone();
+        let forwarder = tokio::task::spawn_local(async move {
+            while let Some(line) = prog_rx.recv().await {
+                let _ = forward_tx.send(AppAction::AdminDispatchProgress {
+                    command: forward_name.clone(),
+                    line,
+                });
+            }
+        });
+
+        let response =
+            grimoire::progress::scope(prog_tx, transport.admin_dispatch(&name, body)).await;
+        // closing the sender (it was moved into scope) ends the forwarder.
+        let _ = forwarder.await;
         let _ = tx.send(AppAction::AdminDispatchResult {
             command: name,
             response,
@@ -942,6 +987,8 @@ fn on_result_panel_key(app: &mut App, code: KeyCode, mods: KeyModifiers) {
                             data_pretty: Some(pretty),
                             rows: vec![],
                             cursor: 0,
+                            pending: false,
+                            progress: vec![],
                         });
                         eph.last_dispatch_scroll = 0;
                         return;
@@ -1436,6 +1483,8 @@ fn on_action_menu_key(app: &mut App, code: KeyCode, tx: &mpsc::UnboundedSender<A
                     data_pretty: Some(pretty),
                     rows: vec![],
                     cursor: 0,
+                    pending: false,
+                    progress: vec![],
                 });
                 eph.last_dispatch_scroll = 0;
                 eph.focus = Focus::ResultPanel;
@@ -2600,6 +2649,10 @@ fn on_repl_key(
     match code {
         KeyCode::Esc => rk::handle_escape(&mut app.state),
         KeyCode::Enter => {
+            // if the flyout has a highlighted selection, commit it
+            // into the input first so enter activates the chosen
+            // entry rather than whatever was partially typed.
+            rk::commit_flyout_on_enter(&mut app.state);
             let line = app.state.ephemeral.repl.input.trim().to_string();
             let action = crate::ratcore::slash::parse(&line);
             let mut exit = false;
@@ -2826,6 +2879,52 @@ fn execute_slash_with_player(
             app.state.ephemeral.repl.clear_input();
             rk::leave(&mut app.state);
         }
+        SlashAction::Autostart { mode } => {
+            use crate::ratcore::slash::AutostartMode;
+            app.state.ephemeral.repl.clear_input();
+            let cfg = grimoire::config::get_config();
+            let http_on = cfg.server.as_ref().map(|s| s.enabled).unwrap_or(false);
+            let p2p_on = cfg.federation.as_ref().map(|f| f.enabled).unwrap_or(false);
+            if matches!(mode, AutostartMode::Show) {
+                app.state.ephemeral.repl.status = Some(ReplStatus::ok(format!(
+                    "autostart: http={} p2p={} (edit via /autostart off|http|p2p|auto)",
+                    http_on, p2p_on
+                )));
+                rk::leave(&mut app.state);
+            } else {
+                let (want_http, want_p2p) = match mode {
+                    AutostartMode::Off => (false, false),
+                    AutostartMode::Http => (true, false),
+                    AutostartMode::P2p => (false, true),
+                    AutostartMode::Both => (true, true),
+                    AutostartMode::Show => unreachable!(),
+                };
+                let cfg_path = grimoire::config::get_config_path();
+                match cfg_path {
+                    None => {
+                        app.state.ephemeral.repl.status = Some(ReplStatus::err(
+                            "autostart: no config file path known; cannot persist",
+                        ));
+                    }
+                    Some(path) => {
+                        match grimoire::config::set_autostart(&path, want_http, want_p2p) {
+                            Ok(()) => {
+                                app.state.ephemeral.repl.status = Some(ReplStatus::ok(format!(
+                                    "autostart updated: http={} p2p={} (takes effect on next launch; use /serve-stop to stop the current subprocess)",
+                                    want_http, want_p2p
+                                )));
+                            }
+                            Err(e) => {
+                                app.state.ephemeral.repl.status = Some(ReplStatus::err(format!(
+                                    "autostart: failed to update config: {e}"
+                                )));
+                            }
+                        }
+                    }
+                }
+                rk::leave(&mut app.state);
+            }
+        }
         SlashAction::AdminDispatch { name, body } => {
             // generic admin-rpc dispatch from /knock /users /analytics
             // /radio subcommands. result lands in the result panel
@@ -2833,6 +2932,23 @@ fn execute_slash_with_player(
             spawn_admin_dispatch(app, name, body, tx);
             app.state.ephemeral.repl.status =
                 Some(ReplStatus::info(format!("dispatching {name}\u{2026}")));
+            // seed the result panel with a "running" placeholder so
+            // the user sees immediate feedback (especially important
+            // for long-running maintenance ops). gets replaced when
+            // the AdminDispatchResult action arrives.
+            app.state.ephemeral.last_dispatch = Some(LastDispatch {
+                command: name.to_string(),
+                success: true,
+                message: format!(
+                    "running {name}\u{2026} (this may take a while for long maintenance ops)"
+                ),
+                data_pretty: None,
+                rows: vec![],
+                cursor: 0,
+                pending: true,
+                progress: vec![],
+            });
+            app.state.ephemeral.last_dispatch_scroll = 0;
             app.state.ephemeral.repl.clear_input();
             rk::leave(&mut app.state);
             app.state.ephemeral.focus = Focus::ResultPanel;

@@ -18,6 +18,6 @@ pub use models::{
 };
 pub use normalize::name_key;
 pub use repository::{
-    backfill_related_artist_for_local, list_related_for_artist, list_relations_pointing_at,
-    set_related_bandcamp, upsert_related_artist,
+    backfill_related_artist_for_local, list_related_for_artist, list_related_for_artists,
+    list_relations_pointing_at, set_related_bandcamp, upsert_related_artist,
 };

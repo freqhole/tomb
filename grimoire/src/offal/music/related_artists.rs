@@ -11,7 +11,8 @@
 use crate::api_registry::{Domain, Method, RouteAuth, RouteInfo};
 use crate::error::ErrorDetail;
 use crate::music::entities::related_artists::{
-    list_related_for_artist, set_related_bandcamp, BandcampAlbumLink, ExternalUrl, RelatedArtist,
+    list_related_for_artist, list_related_for_artists, set_related_bandcamp, BandcampAlbumLink,
+    ExternalUrl, RelatedArtist,
 };
 use crate::offal::caller::Caller;
 use crate::response::GrimoireResponse;
@@ -29,6 +30,15 @@ pub const ROUTES: &[RouteInfo] = &[
         domain: Domain::Music,
         request_type: "ListRelatedArtistsRequest",
         response_type: "ListRelatedArtistsResponse",
+        auth: RouteAuth::Authenticated,
+    },
+    RouteInfo {
+        name: "list_related_artists_batch",
+        path: "/api/related-artists/list-batch",
+        method: Method::POST,
+        domain: Domain::Music,
+        request_type: "ListRelatedArtistsBatchRequest",
+        response_type: "ListRelatedArtistsBatchResponse",
         auth: RouteAuth::Authenticated,
     },
     RouteInfo {
@@ -116,6 +126,34 @@ pub struct ListRelatedArtistsResponse {
     pub items: Vec<RelatedArtistApi>,
 }
 
+/// batch-list request payload.
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct ListRelatedArtistsBatchRequest {
+    /// ids of the local artists whose related-artist rows we want.
+    /// duplicates are tolerated server-side; capped to avoid huge
+    /// queries (see `BATCH_MAX_IDS`).
+    pub artist_ids: Vec<String>,
+}
+
+/// one entry in the batch response.
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct RelatedArtistsBatchEntry {
+    pub artist_id: String,
+    pub items: Vec<RelatedArtistApi>,
+}
+
+/// batch-list response: one entry per requested `artist_id`. entries
+/// preserve request order; ids that yield no rows still appear with
+/// an empty `items` vec.
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct ListRelatedArtistsBatchResponse {
+    pub entries: Vec<RelatedArtistsBatchEntry>,
+}
+
+/// cap on artist ids per batch request — keeps json_each scans
+/// reasonable and bounds response size.
+const BATCH_MAX_IDS: usize = 2000;
+
 /// path: POST /api/related-artists/list
 pub async fn list(_caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
     let req: ListRelatedArtistsRequest = match serde_json::from_value(body) {
@@ -140,6 +178,68 @@ pub async fn list(_caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonVal
             items,
         })
         .unwrap()
+    })
+}
+
+/// path: POST /api/related-artists/list-batch
+///
+/// returns related-artist rows for many source artists in one query.
+/// preserves request order so callers can zip results back to inputs;
+/// duplicates in the input are coalesced and ids that yield no rows
+/// still appear with an empty `items` vec.
+pub async fn list_batch(_caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
+    let req: ListRelatedArtistsBatchRequest = match serde_json::from_value(body) {
+        Ok(r) => r,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "bad request",
+                vec![ErrorDetail::new(
+                    "bad_request",
+                    "bad request",
+                    &e.to_string(),
+                )],
+            )
+        }
+    };
+
+    if req.artist_ids.len() > BATCH_MAX_IDS {
+        return GrimoireResponse::failure(
+            "too many ids",
+            vec![ErrorDetail::new(
+                "too_many_ids",
+                "too many ids",
+                &format!(
+                    "got {}, max {} per batch",
+                    req.artist_ids.len(),
+                    BATCH_MAX_IDS
+                ),
+            )],
+        );
+    }
+
+    // dedup while preserving first-seen order so the response matches
+    // the request's intent without re-querying duplicate ids.
+    let mut seen = std::collections::HashSet::with_capacity(req.artist_ids.len());
+    let mut order: Vec<String> = Vec::with_capacity(req.artist_ids.len());
+    for id in &req.artist_ids {
+        if seen.insert(id.clone()) {
+            order.push(id.clone());
+        }
+    }
+
+    let resp = list_related_for_artists(&order).await;
+    resp.map(|mut grouped| {
+        let entries: Vec<RelatedArtistsBatchEntry> = order
+            .into_iter()
+            .map(|id| {
+                let rows = grouped.remove(&id).unwrap_or_default();
+                RelatedArtistsBatchEntry {
+                    items: rows.into_iter().map(RelatedArtistApi::from).collect(),
+                    artist_id: id,
+                }
+            })
+            .collect();
+        serde_json::to_value(ListRelatedArtistsBatchResponse { entries }).unwrap()
     })
 }
 

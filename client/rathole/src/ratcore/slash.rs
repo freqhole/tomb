@@ -24,6 +24,23 @@ pub enum ServeKindArg {
     P2p,
 }
 
+/// arg to [`SlashAction::Autostart`]: which combination of serve
+/// modes rathole should autostart on next launch. mirrors the
+/// `server.enabled` / `federation.enabled` flags in the config file.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AutostartMode {
+    /// no args — just show the current setting in the repl status.
+    Show,
+    /// neither http nor p2p autostarts on next launch.
+    Off,
+    /// http only.
+    Http,
+    /// p2p only.
+    P2p,
+    /// both http + p2p.
+    Both,
+}
+
 /// a typed slash command, ready for the shell to execute. arg
 /// payloads are kept as borrowed strings against the original input
 /// where possible to avoid extra allocations in the hot path.
@@ -95,6 +112,13 @@ pub enum SlashAction {
     },
     /// stop a running serve subprocess.
     ServeStop,
+    /// view or update the autostart config (`server.enabled` /
+    /// `federation.enabled`). only changes the persisted config —
+    /// takes effect on the next rathole launch. use `/serve-stop`
+    /// to stop the currently-running serve subprocess.
+    Autostart {
+        mode: AutostartMode,
+    },
     /// dump local server config + p2p identity + paths into the
     /// result panel. like `server_info` but with extra context that
     /// only the local process knows (node_id, config path, etc.).
@@ -180,6 +204,10 @@ pub const COMMANDS: &[(&str, &str)] = &[
         "/serve-stop        stop the running serve subprocess",
     ),
     (
+        "autostart",
+        "/autostart [sub]   show/set autostart (sub: off|http|p2p|auto|both)",
+    ),
+    (
         "info",
         "/info              show server config + p2p node id + paths",
     ),
@@ -218,6 +246,10 @@ pub const COMMANDS: &[(&str, &str)] = &[
     (
         "tag",
         "/tag [sub]         album tags (sub: list|search|add|remove|of <album_id>)",
+    ),
+    (
+        "maintenance",
+        "/maintenance [sub] maintenance (sub: cleanup-*|backfill-*|hard-delete|run-full|update-*)",
     ),
     ("quit", "/quit              exit rathole"),
 ];
@@ -321,6 +353,30 @@ pub const GROUPS: &[(&str, &[(&str, &str)])] = &[
             ("delete", "delete a tag: /tag delete <tag_id>"),
         ],
     ),
+    (
+        "maintenance",
+        &[
+            ("cleanup-tags", "delete orphaned tags [dry-run]"),
+            ("cleanup-genres", "delete orphaned genres [dry-run]"),
+            (
+                "cleanup-blobs",
+                "hard-delete orphaned media blobs [min-age-days]",
+            ),
+            ("cleanup-all", "cleanup-tags + cleanup-genres [dry-run]"),
+            ("backfill-blake3", "hash missing blake3 [batch_size]"),
+            ("backfill-thumbs", "backfill thumbnails [limit] [dry-run]"),
+            (
+                "hard-delete",
+                "hard-delete old soft-deleted [retention_days] [dry-run]",
+            ),
+            (
+                "run-full",
+                "full maintenance pipeline [retention_days] [dry-run]",
+            ),
+            ("update-image", "refresh server image blob from config"),
+            ("update-spume", "extract embedded spume to static dir"),
+        ],
+    ),
 ];
 
 /// parse a raw repl input line into a typed action.
@@ -413,6 +469,7 @@ pub fn parse(input: &str) -> SlashAction {
         "jobs" | "j" => parse_jobs_sub(arg.as_deref()),
         "genre" | "genres" | "g" => parse_genre_sub(arg.as_deref()),
         "tag" | "tags" | "t" => parse_tag_sub(arg.as_deref()),
+        "maintenance" | "maint" => parse_maintenance_sub(arg.as_deref()),
         "quit" | "exit" | "q" => SlashAction::Quit,
         "help" | "?" | "h" => SlashAction::Help,
         "clear" | "cq" | "clearqueue" => SlashAction::ClearQueue,
@@ -424,6 +481,7 @@ pub fn parse(input: &str) -> SlashAction {
             kind: ServeKindArg::P2p,
         },
         "serve-stop" | "servestop" | "stop-serve" => SlashAction::ServeStop,
+        "autostart" => parse_autostart_sub(arg.as_deref()),
         "info" => SlashAction::Info,
         "copy-invite" | "copyinvite" | "invite-copy" => SlashAction::CopyInvite,
         "open-invite" | "openinvite" | "invite-open" | "invite" => SlashAction::OpenInvite,
@@ -445,6 +503,32 @@ fn parse_seek(s: &str) -> Option<u64> {
         return Some(m * 60 + ss);
     }
     s.trim().parse().ok()
+}
+
+/// parse `/autostart [off|http|p2p|auto|both]` - bare resolves to Show.
+fn parse_autostart_sub(arg: Option<&str>) -> SlashAction {
+    let sub = arg.and_then(|s| s.split_whitespace().next()).unwrap_or("");
+    match sub.to_ascii_lowercase().as_str() {
+        "" | "show" | "status" => SlashAction::Autostart {
+            mode: AutostartMode::Show,
+        },
+        "off" | "none" | "disable" | "disabled" | "false" => SlashAction::Autostart {
+            mode: AutostartMode::Off,
+        },
+        "http" => SlashAction::Autostart {
+            mode: AutostartMode::Http,
+        },
+        "p2p" => SlashAction::Autostart {
+            mode: AutostartMode::P2p,
+        },
+        "auto" | "both" | "all" | "on" | "true" => SlashAction::Autostart {
+            mode: AutostartMode::Both,
+        },
+        _ => SlashAction::BadArgs {
+            name: "autostart",
+            hint: "usage: /autostart [show|off|http|p2p|auto|both]",
+        },
+    }
 }
 
 /// parse `/serve [http|p2p|stop]` - bare resolves to Auto.
@@ -906,6 +990,115 @@ pub fn match_station_id(data: &Option<serde_json::Value>, query: Option<&str>) -
         }
     }
     exact.or(prefix).or(contains)
+}
+
+/// parse `/maintenance <sub> [args...]`. dispatches to the
+/// `maintenance_*` admin-rpc commands. flag tokens accepted:
+/// `dry-run`, `dry`, `--dry-run`.
+fn parse_maintenance_sub(arg: Option<&str>) -> SlashAction {
+    let (sub, rest) = split_sub(arg);
+    let tokens: Vec<&str> = rest.split_whitespace().collect();
+    let has_flag = |name: &str| {
+        tokens
+            .iter()
+            .any(|t| matches!(*t, "dry-run" | "dry" | "--dry-run") && name == "dry-run")
+    };
+    // first positional token that's not a known flag
+    let first_positional = tokens
+        .iter()
+        .find(|t| !matches!(**t, "dry-run" | "dry" | "--dry-run"))
+        .copied();
+    let bad = |hint: &'static str| SlashAction::BadArgs {
+        name: "maintenance",
+        hint,
+    };
+    match sub.as_str() {
+        "" | "help" | "list" => bad(
+            "usage: /maintenance <cleanup-tags|cleanup-genres|cleanup-blobs|cleanup-all|backfill-blake3|backfill-thumbs|hard-delete|run-full|update-image|update-spume> [args]",
+        ),
+        "cleanup-tags" | "cleanup_tags" => SlashAction::AdminDispatch {
+            name: "maintenance_cleanup_orphaned_tags",
+            body: serde_json::json!({ "dry_run": has_flag("dry-run") }),
+        },
+        "cleanup-genres" | "cleanup_genres" => SlashAction::AdminDispatch {
+            name: "maintenance_cleanup_orphaned_genres",
+            body: serde_json::json!({ "dry_run": has_flag("dry-run") }),
+        },
+        "cleanup-all" | "cleanup_all" => SlashAction::AdminDispatch {
+            name: "maintenance_cleanup_all",
+            body: serde_json::json!({ "dry_run": has_flag("dry-run") }),
+        },
+        "cleanup-blobs" | "cleanup_blobs" => {
+            let min_age_days = first_positional
+                .and_then(|t| t.parse::<f64>().ok())
+                .unwrap_or(30.0);
+            if min_age_days < 0.0 {
+                return bad("usage: /maintenance cleanup-blobs [min-age-days >= 0, default 30]");
+            }
+            SlashAction::AdminDispatch {
+                name: "maintenance_cleanup_orphaned_blobs",
+                body: serde_json::json!({ "min_age_days": min_age_days }),
+            }
+        }
+        "backfill-blake3" | "backfill_blake3" | "blake3" => {
+            let batch_size = first_positional
+                .and_then(|t| t.parse::<i64>().ok())
+                .unwrap_or(100);
+            if batch_size <= 0 {
+                return bad("usage: /maintenance backfill-blake3 [batch_size > 0, default 100]");
+            }
+            SlashAction::AdminDispatch {
+                name: "maintenance_backfill_blake3",
+                body: serde_json::json!({ "batch_size": batch_size }),
+            }
+        }
+        "backfill-thumbs" | "backfill_thumbs" | "backfill-thumbnails" | "thumbs" => {
+            let limit = first_positional.and_then(|t| t.parse::<u32>().ok());
+            let mut body = serde_json::json!({ "dry_run": has_flag("dry-run") });
+            if let Some(l) = limit {
+                body["limit"] = serde_json::json!(l);
+            }
+            SlashAction::AdminDispatch {
+                name: "maintenance_backfill_thumbnails",
+                body,
+            }
+        }
+        "hard-delete" | "hard_delete" => {
+            let retention_days = first_positional
+                .and_then(|t| t.parse::<u32>().ok())
+                .unwrap_or(30);
+            SlashAction::AdminDispatch {
+                name: "maintenance_hard_delete_old_records",
+                body: serde_json::json!({
+                    "retention_days": retention_days,
+                    "dry_run": has_flag("dry-run"),
+                }),
+            }
+        }
+        "run-full" | "run_full" | "full" => {
+            let retention_days = first_positional
+                .and_then(|t| t.parse::<u32>().ok())
+                .unwrap_or(30);
+            SlashAction::AdminDispatch {
+                name: "maintenance_run_full",
+                body: serde_json::json!({
+                    "retention_days": retention_days,
+                    "dry_run": has_flag("dry-run"),
+                }),
+            }
+        }
+        "update-image" | "update_image" | "server-image" => SlashAction::AdminDispatch {
+            name: "maintenance_update_server_image",
+            body: serde_json::json!({}),
+        },
+        "update-spume" | "update_spume" | "spume" => SlashAction::AdminDispatch {
+            name: "maintenance_update_spume",
+            body: serde_json::json!({}),
+        },
+        _ => bad(
+            "usage: /maintenance <cleanup-tags|cleanup-genres|cleanup-blobs|cleanup-all|backfill-blake3|backfill-thumbs|hard-delete|run-full|update-image|update-spume> [args]",
+        ),
+    }
 }
 
 #[cfg(test)]

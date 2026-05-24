@@ -20,6 +20,7 @@ const CUSTOM_ROUTES: &[&str] = &[
     // streaming routes - binary data, range requests
     "stream_blob",
     "get_blob_thumbnail",
+    "build_atlas",
     // upload routes - multipart, body size limits
     "upload_image",
     "upload_music",
@@ -106,6 +107,10 @@ pub fn build_router(max_upload_bytes: u64) -> Router<AppState> {
         .route(
             routes_map["music"]["get_blob_thumbnail"].path,
             get(blobs::blob_thumbnail_handler).head(blobs::blob_thumbnail_handler),
+        )
+        .route(
+            routes_map["music"]["build_atlas"].path,
+            post(blobs::build_atlas_handler),
         )
         .layer(axum_middleware::from_fn(auth::middleware::require_auth));
 

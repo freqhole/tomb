@@ -477,3 +477,56 @@ fn parse_range_header(range_header: &HeaderValue, file_size: u64) -> Result<(u64
 
     Err(ApiError::BadRequest("invalid range".to_string()))
 }
+
+// ============================================================================
+// Atlas (batched thumbnail packing) for the graph view
+// ============================================================================
+
+/// POST `/api/blobs/atlas` \u2014 pack a batch of pre-existing thumbnails into a
+/// single image so the graph view can issue one request per ~100 nodes
+/// instead of one per node.
+///
+/// wire format (response body, `application/octet-stream`):
+///
+/// ```text
+/// [u32 LE manifest_len][manifest_len bytes JSON][image bytes ...]
+/// ```
+///
+/// the manifest JSON is `AtlasManifest`; the image bytes are a webp
+/// containing a tightly-packed grid of the resolved thumbs. ids the
+/// server can't resolve are listed in `manifest.missing` and occupy no
+/// cell. see `grimoire::media_blobz::atlas` for details.
+///
+/// auth: required (this is in the protected blob_routes group).
+pub async fn build_atlas_handler(
+    Extension(_user): Extension<AuthenticatedUser>,
+    axum::Json(req): axum::Json<grimoire::media_blobz::BuildAtlasRequest>,
+) -> Result<Response, ApiError> {
+    let resp = grimoire::media_blobz::build_atlas_response(req)
+        .await
+        .map_err(|e| ApiError::BadRequest(format!("atlas build failed: {e}")))?;
+
+    let manifest_json = serde_json::to_vec(&resp.manifest)
+        .map_err(|e| ApiError::Internal(format!("manifest serialize failed: {e}")))?;
+
+    let manifest_len = u32::try_from(manifest_json.len())
+        .map_err(|_| ApiError::Internal("manifest too large for u32 length prefix".to_string()))?;
+
+    // single contiguous buffer to keep the response Body a single chunk.
+    // manifest is small (~100 entries * ~32 bytes), image dominates.
+    let mut body = Vec::with_capacity(4 + manifest_json.len() + resp.image_bytes.len());
+    body.extend_from_slice(&manifest_len.to_le_bytes());
+    body.extend_from_slice(&manifest_json);
+    body.extend_from_slice(&resp.image_bytes);
+
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(CONTENT_TYPE, "application/octet-stream")
+        .header(CONTENT_LENGTH, body.len())
+        // atlas pages are content-derived from a request-specific id list;
+        // safe to cache aggressively on the client side. no etag yet \u2014
+        // would need to hash (sorted ids, size) to be meaningful.
+        .header(CACHE_CONTROL, "private, max-age=3600")
+        .body(Body::from(body))
+        .map_err(|e| ApiError::Internal(format!("atlas response build failed: {e}")))
+}

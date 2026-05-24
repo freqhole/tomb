@@ -24,6 +24,11 @@ import {
 import { isCharnelManagedRemoteSync } from "../../music/services/storage/transportCache";
 import type { ImageMetadata } from "../../music/services/storage/types";
 import { bump, gauge, timing } from "./perfLog";
+import {
+  atlasEntryStatus,
+  getAtlasThumb,
+  isAtlasEligible,
+} from "./thumbAtlas";
 
 // what we hand to canvas drawImage. we deliberately store the
 // HTMLImageElement and not an ImageBitmap: we tried promoting
@@ -34,7 +39,12 @@ import { bump, gauge, timing } from "./perfLog";
 // VRAM cost stalled paint. plain HTMLImageElement + decode()
 // is consistently fast across engines and lets the browser
 // upload lazily on first drawImage.
-type DrawableImage = HTMLImageElement;
+//
+// the atlas path (see `thumbAtlas.ts`) widens this to also accept
+// HTMLCanvasElement — a sub-rect slice of a packed atlas page is
+// kept as its own small offscreen canvas, which `drawImage` accepts
+// alongside HTMLImageElement.
+type DrawableImage = HTMLImageElement | HTMLCanvasElement;
 
 type Entry =
   | {
@@ -316,6 +326,49 @@ export function getImageFor(
     }
     const isP2P = isP2PRemoteSync(image.remote_server_id);
     const isCharnel = isCharnelManagedRemoteSync(image.remote_server_id);
+
+    // atlas path: for plain-http remotes that advertise (or haven't
+    // yet ruled out) the `atlas` capability, batch this thumbnail into
+    // a packed-page request instead of issuing a per-blob fetch. on a
+    // cold graph load this collapses thousands of requests to a few
+    // dozen pages. falls through to the per-blob branches below when:
+    //   - the server has been confirmed not to support atlas (404/405
+    //     on a previous probe — see thumbAtlas.postAtlasPage)
+    //   - this specific id was listed in `manifest.missing` for its
+    //     batch (server has no thumbnail at the requested size)
+    //   - thumbSize is undefined (atlas is sized-thumbnail only)
+    if (
+      isP2P === false &&
+      !isCharnel &&
+      thumbSize !== undefined &&
+      isAtlasEligible(image.remote_server_id)
+    ) {
+      const canvas = getAtlasThumb(
+        image.remote_server_id,
+        image.remote_blob_id,
+        thumbSize,
+        onReady
+      );
+      if (canvas) {
+        bump("img.atlas.hit");
+        return canvas;
+      }
+      const status = atlasEntryStatus(
+        image.remote_server_id,
+        image.remote_blob_id,
+        thumbSize
+      );
+      if (status === "loading" || status === "absent") {
+        // batch is still in flight (absent = just enqueued, listener
+        // already registered by getAtlasThumb). don't kick off a
+        // parallel per-blob fetch; onReady will fire when the batch
+        // resolves and the canvas will redraw.
+        return null;
+      }
+      // status === "missing": fall through to the per-blob path.
+      bump("img.atlas.miss");
+    }
+
     if (
       isP2P === false &&
       !isCharnel &&

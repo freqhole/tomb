@@ -1203,6 +1203,25 @@ pub fn set_config_values(
     Ok(())
 }
 
+/// convenience wrapper for the rathole repl: set both autostart
+/// toggles (`server.enabled` + `federation.enabled`) in one call so
+/// callers don't have to depend on `toml_edit` directly. takes
+/// effect on the next process launch; current subprocesses (if any)
+/// are unaffected and must be stopped separately.
+pub fn set_autostart(
+    config_path: &Path,
+    server_enabled: bool,
+    federation_enabled: bool,
+) -> Result<(), ConfigError> {
+    set_config_values(
+        config_path,
+        &[
+            ("server.enabled", server_enabled.into()),
+            ("federation.enabled", federation_enabled.into()),
+        ],
+    )
+}
+
 /// helper to set a value at a dot-separated path, creating intermediate tables as needed
 fn set_nested_value(
     doc: &mut DocumentMut,

@@ -117,6 +117,7 @@ fn rich_commands() -> Vec<AdminCommand> {
         builders::maintenance::cleanup_orphaned_tags(),
         builders::maintenance::cleanup_orphaned_genres(),
         builders::maintenance::cleanup_all(),
+        builders::maintenance::backfill_blake3(),
         builders::maintenance::backfill_thumbnails(),
         builders::maintenance::cleanup_orphaned_blobs(),
         builders::maintenance::hard_delete_old_records(),
@@ -145,7 +146,6 @@ fn rich_commands() -> Vec<AdminCommand> {
         // -- jobs (rich) --
         builders::jobs::list(),
         // -- blobz (rich) --
-        builders::blobz::backfill_blake3(),
         builders::blobz::check_references(),
     ]
 }

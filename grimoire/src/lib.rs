@@ -24,6 +24,7 @@ pub mod metadata;
 pub mod music;
 pub mod offal;
 pub mod player;
+pub mod progress;
 pub mod radio;
 pub mod remotez;
 pub mod response;

@@ -7,7 +7,7 @@ use crate::federation::transport::handler::handle_incoming;
 use iroh::endpoint::Connection;
 use iroh::protocol::{AcceptError, ProtocolHandler};
 use std::sync::Arc;
-use tracing::info;
+use tracing::{debug, info};
 
 /// protocol handler for freqhole/1 (existing P2P protocol)
 ///
@@ -35,7 +35,7 @@ impl Default for FreqholeProtocol {
 impl ProtocolHandler for FreqholeProtocol {
     async fn accept(&self, conn: Connection) -> std::result::Result<(), AcceptError> {
         let peer_id = conn.remote_id();
-        info!(
+        debug!(
             "[freqhole-protocol] accepted connection from peer: {}",
             peer_id
         );
