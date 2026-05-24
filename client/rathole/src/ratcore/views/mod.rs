@@ -288,7 +288,34 @@ fn knock_indicator_text(app: &App) -> Option<String> {
         return None;
     }
     // ascii-only bell stand-in; lowercase prose, no emoji.
+    if n == 1 {
+        if let Some(username) = app
+            .state
+            .ephemeral
+            .pending_knock_username
+            .as_deref()
+            .filter(|s| !s.trim().is_empty())
+        {
+            let short = truncate_header_text(username.trim(), 20);
+            return Some(format!(" knock {short} "));
+        }
+    }
     Some(format!(" knock {n} "))
+}
+
+fn truncate_header_text(s: &str, max_chars: usize) -> String {
+    if max_chars == 0 {
+        return String::new();
+    }
+    let len = s.chars().count();
+    if len <= max_chars {
+        return s.to_string();
+    }
+    if max_chars <= 3 {
+        return "...".chars().take(max_chars).collect();
+    }
+    let head: String = s.chars().take(max_chars - 3).collect();
+    format!("{head}...")
 }
 
 #[allow(dead_code)]

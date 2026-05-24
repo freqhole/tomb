@@ -83,6 +83,9 @@ pub async fn boot() -> Result<(), JsValue> {
     let (action_tx, action_rx) = mpsc::unbounded::<AppAction>();
     let action_rx = Rc::new(RefCell::new(action_rx));
 
+    // hydrate the knock indicator from pending server state.
+    request_pending_knocks(app_inst.transport.clone(), action_tx.clone());
+
     // if we auto-connected to a peer, fire `/api/hello` in the
     // background so the top bar can show its friendly name on first
     // paint. silent on failure — header just shows the short node id.
@@ -150,12 +153,21 @@ pub async fn boot() -> Result<(), JsValue> {
     let app_for_draw = app.clone();
     let rx_for_draw = action_rx.clone();
     let tx_for_draw = action_tx.clone();
+    let mut last_knock_sync_ms = 0.0_f64;
     terminal.draw_web(move |frame| {
         {
             let mut app = app_for_draw.borrow_mut();
             let mut rx = rx_for_draw.borrow_mut();
             while let Ok(action) = rx.try_recv() {
                 on_action(&mut app, action, &tx_for_draw);
+            }
+            // no remote push subscription for knock events yet in
+            // web transport; reconcile pending count periodically so
+            // the header updates without restart.
+            let now = js_sys::Date::now();
+            if now - last_knock_sync_ms >= 5_000.0 {
+                request_pending_knocks(app.transport.clone(), tx_for_draw.clone());
+                last_knock_sync_ms = now;
             }
         }
         let mut app = app_for_draw.borrow_mut();
@@ -352,6 +364,7 @@ fn connect_to_peer(
 ) {
     let transport = Rc::new(MiddenTransport::new(node.clone(), addr.clone()));
     app.transport = transport.clone();
+    request_pending_knocks(transport.clone(), action_tx.clone());
     let eph = &mut app.state.ephemeral;
     eph.connected_peer = Some(addr.clone());
     eph.remote_name = if known_name.is_empty() {
@@ -1215,6 +1228,11 @@ fn extract_options(
 fn on_action(app: &mut App, action: AppAction, action_tx: &mpsc::UnboundedSender<AppAction>) {
     match action {
         AppAction::AdminDispatchResult { command, response } => {
+            let refresh_pending_knocks = response.success
+                && matches!(
+                    command.as_str(),
+                    "knocks_accept" | "knocks_reject" | "knocks_delete" | "knocks_reject_all"
+                );
             if command == "library_scan" && response.success {
                 if let Some(sid) = response
                     .data
@@ -1361,6 +1379,9 @@ fn on_action(app: &mut App, action: AppAction, action_tx: &mpsc::UnboundedSender
                 pending: false,
                 progress: prior_progress,
             });
+            if refresh_pending_knocks {
+                request_pending_knocks(app.transport.clone(), action_tx.clone());
+            }
         }
         AppAction::AdminDispatchProgress { command, line } => {
             if let Some(ld) = app.state.ephemeral.last_dispatch.as_mut() {
@@ -1586,18 +1607,68 @@ fn on_action(app: &mut App, action: AppAction, action_tx: &mpsc::UnboundedSender
                 if n == 1 { "" } else { "s" }
             )));
         }
-        // jobs / knock indicators are produced by grimoire's broadcast
-        // channel which only exists on native shells. the web shell
-        // doesn't subscribe today; arms exist solely for exhaustiveness.
-        AppAction::JobProgress { .. }
-        | AppAction::JobSessionComplete { .. }
-        | AppAction::KnockCreated { .. }
-        | AppAction::KnockProcessed { .. } => {}
+        // web doesn't subscribe to grimoire's local broadcast channel,
+        // but we still keep the indicator live via periodic
+        // `PendingKnocksSynced` snapshots and direct updates from any
+        // forwarded knock events.
+        AppAction::JobProgress { .. } | AppAction::JobSessionComplete { .. } => {}
+        AppAction::KnockCreated { username, .. } => {
+            app.state.ephemeral.pending_knocks =
+                app.state.ephemeral.pending_knocks.saturating_add(1);
+            if app.state.ephemeral.pending_knocks == 1 {
+                app.state.ephemeral.pending_knock_username = username;
+            } else {
+                app.state.ephemeral.pending_knock_username = None;
+            }
+        }
+        AppAction::KnockProcessed { .. } => {
+            app.state.ephemeral.pending_knocks =
+                app.state.ephemeral.pending_knocks.saturating_sub(1);
+            if app.state.ephemeral.pending_knocks != 1 {
+                app.state.ephemeral.pending_knock_username = None;
+            }
+        }
+        AppAction::PendingKnocksSynced { count, username } => {
+            app.state.ephemeral.pending_knocks = count;
+            app.state.ephemeral.pending_knock_username = if count == 1 { username } else { None };
+        }
         // serve subprocess control is native-only (rathole spawns a
         // child `freqhole serve`). the web shell has no subprocess
         // model; arms exist solely for exhaustiveness.
         AppAction::ServeStart { .. } | AppAction::ServeStop => {}
     }
+}
+
+fn request_pending_knocks(transport: Rc<dyn Transport>, tx: mpsc::UnboundedSender<AppAction>) {
+    wasm_bindgen_futures::spawn_local(async move {
+        let resp = transport
+            .admin_dispatch("knocks_list", serde_json::json!({}))
+            .await;
+        if !resp.success {
+            return;
+        }
+        let count = resp
+            .data
+            .as_ref()
+            .and_then(|d| d.as_array())
+            .map(|arr| arr.len() as u32)
+            .unwrap_or(0);
+        let username = resp
+            .data
+            .as_ref()
+            .and_then(|d| d.as_array())
+            .and_then(|arr| {
+                if arr.len() == 1 {
+                    arr.first()
+                        .and_then(|row| row.get("username"))
+                        .and_then(serde_json::Value::as_str)
+                        .map(|s| s.to_string())
+                } else {
+                    None
+                }
+            });
+        let _ = tx.unbounded_send(AppAction::PendingKnocksSynced { count, username });
+    });
 }
 
 /// minimal music-view key handler for the web shell. supports the

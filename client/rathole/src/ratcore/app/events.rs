@@ -600,6 +600,13 @@ pub enum AppAction {
     /// grimoire emitted a `KnockProcessed` event (accepted/rejected/
     /// deleted). the ui loop decrements the pending knocks counter.
     KnockProcessed { id: String },
+    /// snapshot refresh of pending knocks (usually from
+    /// `knocks_list`), used to hydrate on startup and keep the
+    /// header indicator correct across reconnects or missed events.
+    PendingKnocksSynced {
+        count: u32,
+        username: Option<String>,
+    },
     /// a playlist/album/etc. was fetched in the background and the
     /// ui loop should now populate the queue + start progressive
     /// blob resolution. used by the web shell to avoid holding a

@@ -217,6 +217,9 @@ pub struct EphemeralState {
     /// top bar. fed by the same grimoire event channel that drives
     /// `jobs_status`.
     pub pending_knocks: u32,
+    /// username of a pending knock when exactly one is known.
+    /// used by the header indicator to show who knocked.
+    pub pending_knock_username: Option<String>,
     /// most recent scan session status for `/scan` monitor reopen.
     pub scan_status: Option<ScanStatus>,
     /// if set, `/scan abort confirm` must match this session id.
@@ -273,6 +276,7 @@ impl Default for EphemeralState {
             serve: ServeBadge::default(),
             jobs_status: None,
             pending_knocks: 0,
+            pending_knock_username: None,
             scan_status: None,
             scan_abort_confirm_for: None,
         }

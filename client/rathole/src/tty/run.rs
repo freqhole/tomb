@@ -70,6 +70,10 @@ async fn run_inner(
     let player = super::player::RodioPlayer::spawn(action_tx.clone());
     let mut app = App::new(state, transport, commands).with_player(player);
 
+    // hydrate the knock indicator from current pending requests so
+    // the header is correct on startup even before new events arrive.
+    sync_pending_knocks(&app, &action_tx);
+
     // build the serve subprocess monitor. uses the same binary the
     // user invoked (so dev `cargo run --bin freqhole` keeps using
     // the dev build) and forwards the same --config path so both
@@ -205,6 +209,7 @@ async fn run_inner(
 
     let mut events = EventStream::new();
     let mut tick = tokio::time::interval(Duration::from_millis(250));
+    let mut last_knock_sync = std::time::Instant::now();
 
     while !app.exit {
         terminal.draw(|f| views::draw(f, &mut app))?;
@@ -220,6 +225,14 @@ async fn run_inner(
                 if let Some(m) = serve_monitor.as_mut() {
                     m.refresh();
                     sync_serve_badge(&mut app, m);
+                }
+                // grimoire's event bus is process-local. if knocks
+                // are created in a separate process (e.g. standalone
+                // server or `freqhole serve` subprocess), we won't get
+                // a live event here, so periodically reconcile.
+                if last_knock_sync.elapsed() >= Duration::from_secs(5) {
+                    sync_pending_knocks(&app, &action_tx);
+                    last_knock_sync = std::time::Instant::now();
                 }
             }
             Some(action) = action_rx.recv() => {
@@ -534,6 +547,11 @@ fn sync_serve_badge(app: &mut App, monitor: &super::serve_monitor::ServeMonitor)
 fn on_action(app: &mut App, action: AppAction, action_tx: &mpsc::UnboundedSender<AppAction>) {
     match action {
         AppAction::AdminDispatchResult { command, response } => {
+            let refresh_pending_knocks = response.success
+                && matches!(
+                    command.as_str(),
+                    "knocks_accept" | "knocks_reject" | "knocks_delete" | "knocks_reject_all"
+                );
             if command == "library_scan" && response.success {
                 if let Some(sid) = response
                     .data
@@ -710,6 +728,9 @@ fn on_action(app: &mut App, action: AppAction, action_tx: &mpsc::UnboundedSender
                 pending: false,
                 progress: prior_progress,
             });
+            if refresh_pending_knocks {
+                sync_pending_knocks(app, action_tx);
+            }
         }
         AppAction::AdminDispatchProgress { command, line } => {
             if let Some(ld) = app.state.ephemeral.last_dispatch.as_mut() {
@@ -986,15 +1007,61 @@ fn on_action(app: &mut App, action: AppAction, action_tx: &mpsc::UnboundedSender
                 }
             }
         }
-        AppAction::KnockCreated { id: _, username: _ } => {
+        AppAction::KnockCreated { id: _, username } => {
             app.state.ephemeral.pending_knocks =
                 app.state.ephemeral.pending_knocks.saturating_add(1);
+            if app.state.ephemeral.pending_knocks == 1 {
+                app.state.ephemeral.pending_knock_username = username;
+            } else {
+                app.state.ephemeral.pending_knock_username = None;
+            }
         }
         AppAction::KnockProcessed { id: _ } => {
             app.state.ephemeral.pending_knocks =
                 app.state.ephemeral.pending_knocks.saturating_sub(1);
+            if app.state.ephemeral.pending_knocks != 1 {
+                app.state.ephemeral.pending_knock_username = None;
+            }
+        }
+        AppAction::PendingKnocksSynced { count, username } => {
+            app.state.ephemeral.pending_knocks = count;
+            app.state.ephemeral.pending_knock_username = if count == 1 { username } else { None };
         }
     }
+}
+
+fn sync_pending_knocks(app: &App, tx: &mpsc::UnboundedSender<AppAction>) {
+    let transport = app.transport.clone();
+    let tx = tx.clone();
+    tokio::task::spawn_local(async move {
+        let resp = transport
+            .admin_dispatch("knocks_list", serde_json::json!({}))
+            .await;
+        if !resp.success {
+            return;
+        }
+        let count = resp
+            .data
+            .as_ref()
+            .and_then(|d| d.as_array())
+            .map(|arr| arr.len() as u32)
+            .unwrap_or(0);
+        let username = resp
+            .data
+            .as_ref()
+            .and_then(|d| d.as_array())
+            .and_then(|arr| {
+                if arr.len() == 1 {
+                    arr.first()
+                        .and_then(|row| row.get("username"))
+                        .and_then(serde_json::Value::as_str)
+                        .map(|s| s.to_string())
+                } else {
+                    None
+                }
+            });
+        let _ = tx.send(AppAction::PendingKnocksSynced { count, username });
+    });
 }
 
 fn apply_music_event(
