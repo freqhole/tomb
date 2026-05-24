@@ -129,6 +129,9 @@ pub async fn run_setup_core(
     fetch_music_dir: Option<String>,
     federation_enabled: Option<bool>,
     knocking_enabled: Option<bool>,
+    remote_admin_enabled: Option<bool>,
+    radio_enabled: Option<bool>,
+    fetch_music_enabled: Option<bool>,
 ) -> grimoire::setup::SetupResult {
     // resolve paths to canonical form (safety net for Flatpak portal paths / symlinks)
     let data_dir = canonicalize_or_original(&data_dir);
@@ -201,6 +204,9 @@ pub async fn run_setup_core(
         server_enabled: Some(false), // HTTP server disabled in charnel (tauri) mode
         federation_enabled,          // passed from UI (default: false)
         knocking_enabled,            // passed from UI (default: false)
+        remote_admin_enabled,        // passed from UI (default: false)
+        radio_enabled,               // passed from UI (default: false)
+        fetch_music_enabled,         // passed from UI (default: false)
     };
 
     let service = grimoire::setup::SetupService::new();

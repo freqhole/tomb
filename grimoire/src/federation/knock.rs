@@ -491,8 +491,21 @@ pub async fn accept_knock(
             };
             let user_result = user_service.register_user(&create_request).await;
             if !user_result.success {
+                let details = if user_result.errors.is_empty() {
+                    user_result.message.clone()
+                } else {
+                    user_result
+                        .errors
+                        .iter()
+                        .map(|e| e.detail.clone())
+                        .collect::<Vec<_>>()
+                        .join("; ")
+                };
                 return Err(crate::error::GrimoireError::ProcessingFailed {
-                    message: user_result.message,
+                    message: format!(
+                        "could not create user `{}` from knock: {}",
+                        username, details
+                    ),
                 });
             }
             user_result

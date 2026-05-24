@@ -938,6 +938,9 @@ pub fn create_config_with_server_info(
         None,  // server_enabled (use template default: true)
         None,  // federation_enabled (use template default: false)
         None,  // knocking_enabled (use template default: false)
+        None,  // remote_admin_enabled (use template default: false)
+        None,  // radio_enabled (use template default: false)
+        None,  // fetch_music_enabled (use template default: false)
     )
 }
 
@@ -959,6 +962,9 @@ pub fn create_config_with_server_info(
 /// * `server_enabled` - Optional server enabled flag (default: true)
 /// * `federation_enabled` - Optional federation enabled flag (default: false)
 /// * `knocking_enabled` - Optional knocking enabled flag (default: false)
+/// * `remote_admin_enabled` - Optional federation.remote_admin enabled flag (default: false)
+/// * `radio_enabled` - Optional radio enabled flag (default: false)
+/// * `fetch_music_enabled` - Optional server.fetch_music enabled flag (default: false)
 pub fn create_config_full(
     output_path: Option<PathBuf>,
     data_dir: Option<PathBuf>,
@@ -976,6 +982,9 @@ pub fn create_config_full(
     server_enabled: Option<bool>,
     federation_enabled: Option<bool>,
     knocking_enabled: Option<bool>,
+    remote_admin_enabled: Option<bool>,
+    radio_enabled: Option<bool>,
+    fetch_music_enabled: Option<bool>,
 ) -> Result<PathBuf, ConfigError> {
     let path = output_path.unwrap_or_else(|| PathBuf::from("freqhole-config.toml"));
     let data = data_dir.unwrap_or_else(|| PathBuf::from("./data"));
@@ -1017,6 +1026,9 @@ pub fn create_config_full(
         server_enabled,
         federation_enabled,
         knocking_enabled,
+        remote_admin_enabled,
+        radio_enabled,
+        fetch_music_enabled,
     );
 
     // write file
@@ -1047,6 +1059,9 @@ fn generate_config_template(
     server_enabled: Option<bool>,
     federation_enabled: Option<bool>,
     knocking_enabled: Option<bool>,
+    remote_admin_enabled: Option<bool>,
+    radio_enabled: Option<bool>,
+    fetch_music_enabled: Option<bool>,
 ) -> String {
     let mut doc = CONFIG_TEMPLATE
         .parse::<DocumentMut>()
@@ -1105,8 +1120,9 @@ fn generate_config_template(
         auth["allowed_origins"] = value(origins);
     }
 
-    // update fetch_music
-    doc["server"]["fetch_music"]["enabled"] = value(ytdlp_available);
+    // update fetch_music. explicit toggle wins; otherwise keep the
+    // previous behavior (enable when yt-dlp is available).
+    doc["server"]["fetch_music"]["enabled"] = value(fetch_music_enabled.unwrap_or(ytdlp_available));
     doc["server"]["fetch_music"]["output_dir"] = value(fetch_dir.display().to_string());
 
     // update fetch commands with absolute yt-dlp path if provided
@@ -1137,6 +1153,16 @@ fn generate_config_template(
     // set federation.knocking_enabled (default: false in template)
     if let Some(enabled) = knocking_enabled {
         doc["federation"]["knocking_enabled"] = value(enabled);
+    }
+
+    // set federation.remote_admin.enabled (default: false in template)
+    if let Some(enabled) = remote_admin_enabled {
+        doc["federation"]["remote_admin"]["enabled"] = value(enabled);
+    }
+
+    // set radio.enabled (default: false in template)
+    if let Some(enabled) = radio_enabled {
+        doc["radio"]["enabled"] = value(enabled);
     }
 
     doc.to_string()

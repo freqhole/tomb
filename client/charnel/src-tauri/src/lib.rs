@@ -270,6 +270,9 @@ fn mobile_auto_init(app_handle: &tauri::AppHandle) -> Result<(), Box<dyn std::er
         server_enabled: Some(false),
         federation_enabled: Some(true),
         knocking_enabled: Some(false),
+        remote_admin_enabled: Some(false),
+        radio_enabled: Some(false),
+        fetch_music_enabled: Some(false),
     };
 
     let service = grimoire::setup::SetupService::new();

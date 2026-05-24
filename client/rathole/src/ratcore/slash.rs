@@ -220,6 +220,10 @@ pub const COMMANDS: &[(&str, &str)] = &[
         "/open-invite       open spume invite link in browser",
     ),
     (
+        "invite",
+        "/invite [sub]      invites (sub: create|link|all|active|revoke|update-role)",
+    ),
+    (
         "log",
         "/log               show recent log lines (in-memory ring buffer)",
     ),
@@ -294,6 +298,20 @@ pub const GROUPS: &[(&str, &[(&str, &str)])] = &[
             ("reject", "reject a knock by id"),
             ("reject-all", "reject every pending knock"),
             ("delete", "delete a knock by id"),
+        ],
+    ),
+    (
+        "invite",
+        &[
+            ("create", "open invite-create form (regular invite codes)"),
+            (
+                "link",
+                "open account-link form (invite tied to an existing user)",
+            ),
+            ("all", "list all invites (includes inactive)"),
+            ("active", "list active invites only"),
+            ("revoke", "open invite revoke form"),
+            ("update-role", "open invite update-role form"),
         ],
     ),
     (
@@ -516,6 +534,7 @@ pub fn parse(input: &str) -> SlashAction {
             query: None,
         },
         "radio" | "r" => parse_radio_sub(arg.as_deref()),
+        "invite" | "invites" => parse_invite_sub(arg.as_deref()),
         "knock" | "knocks" => parse_knock_sub(arg.as_deref()),
         "users" | "user" => parse_users_sub(arg.as_deref()),
         "peers" | "peer" => parse_peers_sub(arg.as_deref()),
@@ -538,10 +557,46 @@ pub fn parse(input: &str) -> SlashAction {
         "autostart" => parse_autostart_sub(arg.as_deref()),
         "info" => SlashAction::Info,
         "copy-invite" | "copyinvite" | "invite-copy" => SlashAction::CopyInvite,
-        "open-invite" | "openinvite" | "invite-open" | "invite" => SlashAction::OpenInvite,
+        "open-invite" | "openinvite" | "invite-open" => SlashAction::OpenInvite,
         "log" => SlashAction::Logs,
         other => SlashAction::Unknown {
             name: other.to_string(),
+        },
+    }
+}
+
+/// parse `/invite [create|link|all|active|revoke|update-role]`.
+/// bare `/invite` opens the regular invite-create form.
+fn parse_invite_sub(arg: Option<&str>) -> SlashAction {
+    let (sub, _rest) = split_sub(arg);
+    match sub.as_str() {
+        "" | "create" | "generate" | "new" => SlashAction::AdminDispatch {
+            name: "__invite_form__",
+            body: serde_json::json!({}),
+        },
+        "link" | "account-link" | "account_link" => SlashAction::AdminDispatch {
+            name: "__invite_link_form__",
+            body: serde_json::json!({}),
+        },
+        "all" | "list" | "ls" => SlashAction::AdminDispatch {
+            name: "invites_list",
+            body: serde_json::json!({}),
+        },
+        "active" => SlashAction::AdminDispatch {
+            name: "invites_list",
+            body: serde_json::json!({ "active_only": true }),
+        },
+        "revoke" => SlashAction::AdminDispatch {
+            name: "__invite_revoke_form__",
+            body: serde_json::json!({}),
+        },
+        "update-role" | "update_role" | "rerole" | "role" => SlashAction::AdminDispatch {
+            name: "__invite_update_role_form__",
+            body: serde_json::json!({}),
+        },
+        _ => SlashAction::BadArgs {
+            name: "invite",
+            hint: "usage: /invite [create|link|all|active|revoke|update-role]",
         },
     }
 }

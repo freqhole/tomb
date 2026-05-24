@@ -41,6 +41,9 @@ enum FieldId {
     EnableHttp,
     EnableP2p,
     EnableKnocking,
+    EnableRemoteAdmin,
+    EnableRadio,
+    EnableFetchMusic,
 }
 
 const FIELDS: &[FieldId] = &[
@@ -52,6 +55,9 @@ const FIELDS: &[FieldId] = &[
     FieldId::EnableHttp,
     FieldId::EnableP2p,
     FieldId::EnableKnocking,
+    FieldId::EnableRemoteAdmin,
+    FieldId::EnableRadio,
+    FieldId::EnableFetchMusic,
 ];
 
 impl FieldId {
@@ -62,7 +68,12 @@ impl FieldId {
     fn is_bool(self) -> bool {
         matches!(
             self,
-            FieldId::EnableHttp | FieldId::EnableP2p | FieldId::EnableKnocking
+            FieldId::EnableHttp
+                | FieldId::EnableP2p
+                | FieldId::EnableKnocking
+                | FieldId::EnableRemoteAdmin
+                | FieldId::EnableRadio
+                | FieldId::EnableFetchMusic
         )
     }
 
@@ -76,6 +87,9 @@ impl FieldId {
             FieldId::EnableHttp => "http server    ",
             FieldId::EnableP2p => "p2p / federation",
             FieldId::EnableKnocking => "knocking       ",
+            FieldId::EnableRemoteAdmin => "remote admin   ",
+            FieldId::EnableRadio => "radio          ",
+            FieldId::EnableFetchMusic => "fetch music    ",
         }
     }
 }
@@ -166,6 +180,12 @@ struct WizardApp {
     /// have a built-in path to request access without out-of-band
     /// invite codes.
     enable_knocking: bool,
+    /// enable remote admin over p2p federation.
+    enable_remote_admin: bool,
+    /// enable radio subsystem.
+    enable_radio: bool,
+    /// enable server.fetch_music routes.
+    enable_fetch_music: bool,
     selected: usize,
     status: Status,
     cancelled: bool,
@@ -188,6 +208,9 @@ impl WizardApp {
             enable_http: true,
             enable_p2p: false,
             enable_knocking: true,
+            enable_remote_admin: false,
+            enable_radio: false,
+            enable_fetch_music: true,
             selected: 0,
             status: Status::Editing,
             cancelled: false,
@@ -211,7 +234,12 @@ impl WizardApp {
             // bool fields have no text buffer; callers must guard
             // with `is_bool()` before invoking this. unreachable
             // here keeps the api ergonomic for the path/text fields.
-            FieldId::EnableHttp | FieldId::EnableP2p | FieldId::EnableKnocking => {
+            FieldId::EnableHttp
+            | FieldId::EnableP2p
+            | FieldId::EnableKnocking
+            | FieldId::EnableRemoteAdmin
+            | FieldId::EnableRadio
+            | FieldId::EnableFetchMusic => {
                 unreachable!("current_buf_mut called on bool field")
             }
         }
@@ -224,6 +252,9 @@ impl WizardApp {
             FieldId::EnableHttp => self.enable_http = !self.enable_http,
             FieldId::EnableP2p => self.enable_p2p = !self.enable_p2p,
             FieldId::EnableKnocking => self.enable_knocking = !self.enable_knocking,
+            FieldId::EnableRemoteAdmin => self.enable_remote_admin = !self.enable_remote_admin,
+            FieldId::EnableRadio => self.enable_radio = !self.enable_radio,
+            FieldId::EnableFetchMusic => self.enable_fetch_music = !self.enable_fetch_music,
             _ => {}
         }
     }
@@ -295,6 +326,9 @@ impl WizardApp {
             server_enabled: Some(self.enable_http),
             federation_enabled: Some(self.enable_p2p),
             knocking_enabled: Some(self.enable_knocking),
+            remote_admin_enabled: Some(self.enable_remote_admin),
+            radio_enabled: Some(self.enable_radio),
+            fetch_music_enabled: Some(self.enable_fetch_music),
         })
     }
 }
@@ -1029,6 +1063,27 @@ fn draw_form(f: &mut Frame, area: Rect, app: &WizardApp) {
             FieldId::EnableKnocking => {
                 if app.enable_knocking {
                     "[x] enabled (peers can request access)".to_string()
+                } else {
+                    "[ ] disabled".to_string()
+                }
+            }
+            FieldId::EnableRemoteAdmin => {
+                if app.enable_remote_admin {
+                    "[x] enabled (admin over p2p)".to_string()
+                } else {
+                    "[ ] disabled".to_string()
+                }
+            }
+            FieldId::EnableRadio => {
+                if app.enable_radio {
+                    "[x] enabled".to_string()
+                } else {
+                    "[ ] disabled".to_string()
+                }
+            }
+            FieldId::EnableFetchMusic => {
+                if app.enable_fetch_music {
+                    "[x] enabled (download/upload routes)".to_string()
                 } else {
                     "[ ] disabled".to_string()
                 }

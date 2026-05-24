@@ -452,12 +452,22 @@ pub fn build_body(
                     .as_ref()
                     .ok_or_else(|| format!("`{}` not loaded yet", spec.name))?;
                 if opts.is_empty() {
-                    return Err(format!("`{}` has no options to pick from", spec.name));
+                    if spec.required {
+                        return Err(format!("`{}` has no options to pick from", spec.name));
+                    }
+                    continue;
                 }
                 let sel = (*selected).min(opts.len() - 1);
+                let picked = opts[sel].value.trim();
+                if picked.is_empty() {
+                    if spec.required {
+                        return Err(format!("`{}` is required", spec.name));
+                    }
+                    continue;
+                }
                 map.insert(
                     spec.name.clone(),
-                    serde_json::Value::String(opts[sel].value.clone()),
+                    serde_json::Value::String(picked.to_string()),
                 );
             }
             (

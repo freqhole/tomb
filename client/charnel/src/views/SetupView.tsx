@@ -85,6 +85,9 @@ export default function SetupView() {
   // federation options
   const [federationEnabled, setFederationEnabled] = createSignal(false);
   const [knockingEnabled, setKnockingEnabled] = createSignal(true);
+  const [remoteAdminEnabled, setRemoteAdminEnabled] = createSignal(false);
+  const [radioEnabled, setRadioEnabled] = createSignal(false);
+  const [fetchMusicEnabled, setFetchMusicEnabled] = createSignal(true);
   // job progress state for done step
   const [jobProgress, setJobProgress] = createSignal<{
     directory: string;
@@ -101,6 +104,7 @@ export default function SetupView() {
       // check external dependencies (ffmpeg, yt-dlp)
       const deps = await invoke<DependencyCheckResult>("check_dependencies");
       setDepCheck(deps);
+      setFetchMusicEnabled(true);
       setDepCheckLoading(false);
 
       // get default data directory (system app data dir)
@@ -226,6 +230,9 @@ export default function SetupView() {
         fetchMusicDir: fetchMusicDir() || null,
         federationEnabled: federationEnabled(),
         knockingEnabled: knockingEnabled(),
+        remoteAdminEnabled: remoteAdminEnabled(),
+        radioEnabled: radioEnabled(),
+        fetchMusicEnabled: fetchMusicEnabled(),
       });
 
       if (result.success) {
@@ -645,7 +652,73 @@ export default function SetupView() {
                 </span>
               </label>
             </div>
+            <div class="form-group" style={{ "margin-left": "1.5rem" }}>
+              <label class="checkbox-toggle">
+                <input
+                  type="checkbox"
+                  checked={remoteAdminEnabled()}
+                  onChange={(e) =>
+                    setRemoteAdminEnabled(e.currentTarget.checked)
+                  }
+                />
+                <span class="checkbox-box">
+                  <svg viewBox="0 0 14 14">
+                    <polyline points="2.5 7 5.5 10 11.5 4" />
+                  </svg>
+                </span>
+                <span class="checkbox-content">
+                  <span class="checkbox-label">
+                    enable remote admin over P2P
+                  </span>
+                  <span class="checkbox-hint">
+                    allow admin control channels over federation transport.
+                  </span>
+                </span>
+              </label>
+            </div>
           </Show>
+
+          <div class="form-group">
+            <label class="checkbox-toggle">
+              <input
+                type="checkbox"
+                checked={radioEnabled()}
+                onChange={(e) => setRadioEnabled(e.currentTarget.checked)}
+              />
+              <span class="checkbox-box">
+                <svg viewBox="0 0 14 14">
+                  <polyline points="2.5 7 5.5 10 11.5 4" />
+                </svg>
+              </span>
+              <span class="checkbox-content">
+                <span class="checkbox-label">enable radio</span>
+                <span class="checkbox-hint">
+                  enable radio routes and playback services.
+                </span>
+              </span>
+            </label>
+          </div>
+
+          <div class="form-group">
+            <label class="checkbox-toggle">
+              <input
+                type="checkbox"
+                checked={fetchMusicEnabled()}
+                onChange={(e) => setFetchMusicEnabled(e.currentTarget.checked)}
+              />
+              <span class="checkbox-box">
+                <svg viewBox="0 0 14 14">
+                  <polyline points="2.5 7 5.5 10 11.5 4" />
+                </svg>
+              </span>
+              <span class="checkbox-content">
+                <span class="checkbox-label">enable fetch music routes</span>
+                <span class="checkbox-hint">
+                  controls [server.fetch_music].enabled in config.
+                </span>
+              </span>
+            </label>
+          </div>
 
           {/* advanced toggle */}
           <button

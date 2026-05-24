@@ -6,7 +6,9 @@
 use crate::response::GrimoireResponse;
 use crate::users::models::*;
 use crate::users::repository::UserRepository;
-use crate::wordlist::generate_word_code;
+use crate::wordlist::{
+    generate_word_code, initialize_wordlist, is_initialized, ManagementWordlistConfig,
+};
 use rand::Rng;
 
 /// Service for user-related business operations
@@ -516,6 +518,19 @@ impl UserService {
                     );
                 }
                 _ => {}
+            }
+        }
+
+        // some web/server flows can hit invite generation before setup
+        // has initialized the wordlist in this process; lazily init it.
+        if !is_initialized() {
+            let config = ManagementWordlistConfig::default();
+            let init = initialize_wordlist(&config);
+            if !init.success {
+                return GrimoireResponse::failure(
+                    "Failed to generate invite code",
+                    init.errors,
+                );
             }
         }
 

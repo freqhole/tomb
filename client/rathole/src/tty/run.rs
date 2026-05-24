@@ -1936,6 +1936,7 @@ fn maybe_fetch_select_options(app: &mut App, tx: &mpsc::UnboundedSender<AppActio
     else {
         return;
     };
+    let include_blank = !spec.required && spec.name == "user_id";
     // when the body depends on sibling fields, options can go stale
     // any time those siblings change, so clear cached options on each
     // (re-)focus and re-fetch. for static-body fields, only fetch when
@@ -1992,6 +1993,7 @@ fn maybe_fetch_select_options(app: &mut App, tx: &mpsc::UnboundedSender<AppActio
                 &data_path,
                 &value_field,
                 &label_field,
+                include_blank,
             )
         };
         let _ = tx.send(AppAction::SelectFromOptionsReady {
@@ -2011,6 +2013,7 @@ fn extract_options(
     data_path: &str,
     value_field: &str,
     label_field: &str,
+    include_blank: bool,
 ) -> Result<Vec<SelectOption>, String> {
     let Some(mut node) = data else {
         return Err("source command returned no data".to_string());
@@ -2025,7 +2028,14 @@ fn extract_options(
     let arr = node
         .as_array()
         .ok_or_else(|| "source data is not an array".to_string())?;
-    let mut out = Vec::with_capacity(arr.len());
+    let mut out = Vec::with_capacity(arr.len() + if include_blank { 1 } else { 0 });
+    if include_blank {
+        out.push(SelectOption {
+            value: String::new(),
+            label: "(none — create user from username)".to_string(),
+            row: serde_json::json!({}),
+        });
+    }
     for el in arr {
         let value = el
             .get(value_field)
@@ -3113,6 +3123,37 @@ fn execute_slash_with_player(
             }
         }
         SlashAction::AdminDispatch { name, body } => {
+            if name == "__invite_form__"
+                || name == "__invite_link_form__"
+                || name == "__invite_revoke_form__"
+                || name == "__invite_update_role_form__"
+            {
+                let (target_cmd, status_msg) = match name {
+                    "__invite_form__" => ("invites_generate", "invite form opened"),
+                    "__invite_link_form__" => (
+                        "users_generate_account_link",
+                        "account-link invite form opened",
+                    ),
+                    "__invite_revoke_form__" => ("invites_revoke", "invite revoke form opened"),
+                    "__invite_update_role_form__" => {
+                        ("invites_update_role", "invite update-role form opened")
+                    }
+                    _ => unreachable!(),
+                };
+                if let Some(cmd) = app.commands.iter().find(|c| c.name == target_cmd).cloned() {
+                    app.state.ephemeral.form = Some(crate::ratcore::app::CommandForm::new(&cmd));
+                    app.state.ephemeral.focus = Focus::CommandForm;
+                    app.state.ephemeral.repl.status =
+                        Some(ReplStatus::info(status_msg.to_string()));
+                    app.state.ephemeral.repl.clear_input();
+                    maybe_fetch_select_options(app, tx);
+                    return;
+                }
+                app.state.ephemeral.repl.status = Some(ReplStatus::err(format!(
+                    "invite form command not found: {target_cmd}"
+                )));
+                return;
+            }
             if name == "__scan_monitor__" {
                 if app.state.ephemeral.scan_status.is_some() {
                     render_scan_monitor(app);
