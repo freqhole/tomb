@@ -203,7 +203,7 @@ enabled = true
 # also used for session cookie name: "{name}_session" (sanitized: lowercase, no spaces/special chars)
 name = "freqhole"
 # REQUIRED: server version (you probably should never edit this)
-version = "0.1.23"
+version = "0.1.24"
 # OPTIONAL: server description (default: null)
 description = "get yr freq on"
 

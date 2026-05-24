@@ -1,6 +1,9 @@
 /* tslint:disable */
 /* eslint-disable */
 export const memory: WebAssembly.Memory;
+export const __wbg_radiohandle_free: (a: number, b: number) => void;
+export const middennode_tune_radio: (a: number, b: number, c: number, d: number, e: number, f: any, g: any, h: any) => any;
+export const radiohandle_leave: (a: number) => void;
 export const __wbg_bistream_free: (a: number, b: number) => void;
 export const __wbg_helloimageresult_free: (a: number, b: number) => void;
 export const __wbg_middennode_free: (a: number, b: number) => void;
@@ -39,9 +42,6 @@ export const middennode_release_blob: (a: number, b: number, c: number) => [numb
 export const middennode_secret_key: (a: number) => any;
 export const middennode_start_blob_server: (a: number) => void;
 export const start: () => void;
-export const __wbg_radiohandle_free: (a: number, b: number) => void;
-export const middennode_tune_radio: (a: number, b: number, c: number, d: number, e: number, f: any, g: any, h: any) => any;
-export const radiohandle_leave: (a: number) => void;
 export const __wbg_intounderlyingbytesource_free: (a: number, b: number) => void;
 export const __wbg_intounderlyingsource_free: (a: number, b: number) => void;
 export const intounderlyingbytesource_autoAllocateChunkSize: (a: number) => number;
