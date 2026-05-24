@@ -90,6 +90,22 @@ export const FitIcon = (props: IconProps) => (
   </BaseIcon>
 );
 
+// single node marker for single-select mode.
+export const SelectSingleIcon = (props: IconProps) => (
+  <BaseIcon {...props} aria-label={props["aria-label"] ?? "Single select"}>
+    <circle cx="12" cy="12" r="3" />
+  </BaseIcon>
+);
+
+// clustered node markers for multi-select mode.
+export const SelectMultiIcon = (props: IconProps) => (
+  <BaseIcon {...props} aria-label={props["aria-label"] ?? "Multi select"}>
+    <circle cx="8" cy="8" r="2" />
+    <circle cx="16" cy="8" r="2" />
+    <circle cx="12" cy="15.5" r="2" />
+  </BaseIcon>
+);
+
 // freeform loop with a dangling tail + knot bead — distinct from a
 // marquee/rectangle selection and from a checkmark.
 export const LassoIcon = (props: IconProps) => (

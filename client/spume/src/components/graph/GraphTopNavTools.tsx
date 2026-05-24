@@ -20,6 +20,8 @@ export type GraphTool = "pan" | "lasso";
 export interface GraphTopNavToolsProps {
   tool: GraphTool;
   onToolChange?: (next: GraphTool) => void;
+  selectionMode?: "single" | "multi";
+  onSelectionModeChange?: (next: "single" | "multi") => void;
   onZoomIn?: () => void;
   onZoomOut?: () => void;
   onFit?: () => void;
@@ -42,7 +44,10 @@ export interface GraphTopNavToolsProps {
 }
 
 export function GraphTopNavTools(props: GraphTopNavToolsProps) {
-  const toggleTool = () => props.onToolChange?.(props.tool === "pan" ? "lasso" : "pan");
+  const toggleSelectionMode = () => {
+    const next = (props.selectionMode ?? "single") === "single" ? "multi" : "single";
+    props.onSelectionModeChange?.(next);
+  };
 
   // narrow viewports get larger touch-friendly buttons + icons, and
   // all four controls share the same square dimensions for visual
@@ -74,13 +79,29 @@ export function GraphTopNavTools(props: GraphTopNavToolsProps) {
       />
       <Divider />
       <IconBtn
-        icon={props.tool === "pan" ? "drag" : "lasso"}
-        label={props.tool === "pan" ? "pan mode (click for lasso)" : "lasso mode (click for pan)"}
-        active={props.tool === "lasso"}
-        onClick={toggleTool}
+        icon={(props.selectionMode ?? "single") === "single" ? "selectSingle" : "selectMulti"}
+        label={
+          (props.selectionMode ?? "single") === "single"
+            ? "single-select mode (click for multi-select)"
+            : "multi-select mode (click for single-select)"
+        }
+        active={(props.selectionMode ?? "single") === "multi"}
+        onClick={toggleSelectionMode}
         sizeClass={btnSize()}
         iconPx={iconPx()}
       />
+      {/* lasso toggle intentionally hidden for now until lasso mode
+          behavior is stabilized again.
+      <Divider />
+      <IconBtn
+        icon={props.tool === "pan" ? "drag" : "lasso"}
+        label={props.tool === "pan" ? "pan mode (click for lasso)" : "lasso mode (click for pan)"}
+        active={props.tool === "lasso"}
+        onClick={() => props.onToolChange?.(props.tool === "pan" ? "lasso" : "pan")}
+        sizeClass={btnSize()}
+        iconPx={iconPx()}
+      />
+      */}
       <Show when={props.onWireTensionChange}>
         <Divider />
         <WireTensionButton

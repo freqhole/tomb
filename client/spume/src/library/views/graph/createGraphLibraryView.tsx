@@ -169,6 +169,7 @@ export function createGraphLibraryView(opts: CreateGraphLibraryViewOpts): GraphL
 
   const [enabled, setEnabled] = createSignal<Set<string>>(new Set<string>(ALL_KINDS));
   const [tool, setTool] = createSignal<GraphTool>("pan");
+  const [selectionMode, setSelectionMode] = createSignal<"single" | "multi">("single");
   // when the caller hands us a `forceTool` accessor that returns a
   // non-null value, mirror it into the internal `tool` signal so the
   // canvas always reflects the forced mode. the topnav button is also
@@ -658,6 +659,12 @@ export function createGraphLibraryView(opts: CreateGraphLibraryViewOpts): GraphL
         setUserInteracted(true);
         setTool(next);
       }}
+      selectionMode={selectionMode()}
+      onSelectionModeChange={(next) => {
+        setUserInteracted(true);
+        setSelectionMode(next);
+        if (next === "single") setMultiSelectedIds(new Set<string>());
+      }}
       onZoomIn={() => {
         setUserInteracted(true);
         api()?.zoomIn();
@@ -759,10 +766,12 @@ export function createGraphLibraryView(opts: CreateGraphLibraryViewOpts): GraphL
         quietUpdates={userInteracted()}
         onSelect={(album, selectOpts) => {
           setUserInteracted(true);
+          const multiMode = selectionMode() === "multi";
           // modifier-add: toggle into the multi-select set, keep the
           // primary selection (and its popover) intact.
-          if (selectOpts?.multi && album) {
+          if ((selectOpts?.multi || multiMode) && album) {
             toggleMultiSelect(album);
+            if (!selectedId()) setSelected(album);
             return;
           }
           // plain click on a node or empty-space — reset multi-select

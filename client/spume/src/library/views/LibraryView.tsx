@@ -214,7 +214,7 @@ export function LibraryView() {
 
   // 9a: in-pane loading indicator that appears immediately on remote switch
   // and escalates to the ConnectionProgressModal after SLOW_SWITCH_MS.
-  const [switchingToName, setSwitchingToName] = createSignal<string | null>(null);
+  const [, setSwitchingToName] = createSignal<string | null>(null);
   let prevRemoteId: string | null = null;
   let switchTimerRef: ReturnType<typeof setTimeout> | null = null;
 
@@ -611,15 +611,8 @@ export function LibraryView() {
         </div>
       </Show>
 
-      {/* 9a: in-pane indicator while the first query for a new remote is
-       *  in-flight. clears itself via onDataReady below or after the
-       *  connection modal escalates and succeeds. */}
-      <Show when={switchingToName()}>
-        <div class="flex items-center gap-2 px-4 py-2 text-xs text-[var(--color-text-secondary)] border-b border-[var(--color-border-subtle)]">
-          <div class="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" />
-          switching to {switchingToName()}…
-        </div>
-      </Show>
+      {/* remote-switch progress banner intentionally hidden: it created
+          disruptive layout movement during picker changes. */}
 
       {/* subview body */}
       <div class="flex-1 min-h-0 overflow-hidden relative">
