@@ -75,6 +75,12 @@ export const RELATION_KINDS: RelationKindMeta[] = [
     description: "albums + artists you've marked as a favorite",
   },
   {
+    kind: "recently_added",
+    label: "recently added",
+    color: "#38bdf8",
+    description: "the most recently added albums on this remote",
+  },
+  {
     kind: "artist_album",
     label: "artist ↔ album",
     color: "#fbbf24",
@@ -106,6 +112,7 @@ const NON_VALUE_LAYER_KINDS = new Set<string>([
   "favorite",
   "same_artist",
   "related_artist",
+  "recently_added",
   "artist_album",
 ]);
 
@@ -262,35 +269,15 @@ export function buildRelationEdges(
     }
   }
   if (kinds.includes("same_artist")) {
-    // album-only: artist nodes have no peer "same artist" semantic.
-    const albumByArtist = new Map<string, AlbumNodeData[]>();
-    for (const a of albumNodes) {
-      let arr = albumByArtist.get(a.artistId);
-      if (!arr) {
-        arr = [];
-        albumByArtist.set(a.artistId, arr);
-      }
-      arr.push(a);
-    }
-    for (const [a, members] of albumByArtist) {
-      // for same-artist we want a clique (usually small) — bump fanout
-      const sorted = [...members].sort((x, y) => x.id.localeCompare(y.id));
-      // prefer the artist *name* for the label so edge tooltips read
-      // "same_artist: Aphex Twin" instead of an opaque id. fall back to
-      // the id when no name is available.
-      const labelName = sorted[0]?.artistName || a;
-      for (let i = 0; i < sorted.length; i++) {
-        for (let j = i + 1; j < sorted.length; j++) {
-          edges.push({
-            source: sorted[i].id,
-            target: sorted[j].id,
-            kind: "same_artist",
-            weight: 1,
-            label: labelName,
-          });
-        }
-      }
-    }
+    // phase 21: synthesized same_artist edges are no longer emitted.
+    // the per-remote `same_artist` hub was dropped (it was redundant
+    // with the artist circle itself) and the clique-over-shared-
+    // artist edges were visually noisy without that hub anchoring
+    // them. when phase 19 lands artists become first-class chain
+    // pivots so direct artist↔artist edges replace this entirely.
+    // popover "more by this artist" surface still works via the
+    // `sameArtistAlbums` memo in `createGraphLibraryView`, which
+    // groups by `artistId` independently of edge synthesis.
   }
   if (kinds.includes("mood")) {
     for (const [m, members] of groupBy((n) => n.moods)) {

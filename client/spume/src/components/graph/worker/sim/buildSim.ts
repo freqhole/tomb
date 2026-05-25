@@ -20,6 +20,7 @@ import {
 import { hubSizeMul } from "../../hubSize";
 import {
   CHARGE_PER_NODE_SIZE,
+  ENTITY_OUTWARD,
   HUB_COLLIDE_PADDING_MUL,
   HUB_LINK_DISTANCE_MUL,
   HUB_RING_RADIUS,
@@ -30,7 +31,7 @@ import {
   SIM_COOLDOWN,
   VALUE_HUB_CHARGE_MUL,
 } from "../forceTuning";
-import { hubDirectional } from "./hubDirectional";
+import { hubDirectional, outwardAngleFor } from "./hubDirectional";
 import * as relCurves from "./relationCurves";
 import {
   endpointCountDistanceShrink,
@@ -98,6 +99,60 @@ export function buildSimulation(deps: BuildSimDeps): Simulation<SimNode, SimLink
   }
   function relationStrengthMultiplier(kind: string | undefined): number {
     return relCurves.relationStrengthMultiplier(kind, relationStrengths);
+  }
+
+  // phase 20 — radial / conical entity fan-out.
+  //
+  // for every non-hub leaf, find its strongest hub-parent (the
+  // highest-weight link connecting it to any `hub_*` node) and
+  // compute a per-leaf outward target on a wedge centred on the
+  // parent hub's directional angle. siblings sharing a parent
+  // hub spread within the wedge via `outwardAngleFor`, so the
+  // entity tier fans open into the canvas instead of curling
+  // back through the root cluster.
+  //
+  // built once per `buildSimulation` call (i.e. once per topology
+  // change) and closed over by the entity directional forces
+  // below so per-tick lookup is a single Map.get.
+  const leafOutward = new Map<
+    string,
+    { angle: number; radiusFactor: number; strength: number }
+  >();
+  {
+    // pick the strongest hub link per leaf. links are still
+    // string-keyed at this point (d3-force replaces them with
+    // node refs only after sim construction).
+    const bestHubLink = new Map<string, { hubId: string; weight: number }>();
+    for (const l of links) {
+      const srcId =
+        typeof l.source === "object" && l.source !== null
+          ? (l.source as SimNode).id
+          : (l.source as string);
+      const tgtId =
+        typeof l.target === "object" && l.target !== null
+          ? (l.target as SimNode).id
+          : (l.target as string);
+      const srcHub = typeof srcId === "string" && srcId.startsWith("hub_");
+      const tgtHub = typeof tgtId === "string" && tgtId.startsWith("hub_");
+      // only leaf↔hub links contribute; hub↔hub edges are wired
+      // through the existing hubDirectional ring.
+      if (srcHub === tgtHub) continue;
+      const leafId = srcHub ? (tgtId as string) : (srcId as string);
+      const hubId = srcHub ? (srcId as string) : (tgtId as string);
+      const weight = (l.weight as number | undefined) ?? 0.5;
+      const cur = bestHubLink.get(leafId);
+      if (!cur || weight > cur.weight) bestHubLink.set(leafId, { hubId, weight });
+    }
+    for (const [leafId, { hubId }] of bestHubLink) {
+      const hubDir = hubDirectional(hubId);
+      if (!hubDir) continue;
+      const angle = outwardAngleFor(leafId, hubDir.angle, ENTITY_OUTWARD.wedgeHalfAngleRad);
+      leafOutward.set(leafId, {
+        angle,
+        radiusFactor: ENTITY_OUTWARD.radiusFactor,
+        strength: ENTITY_OUTWARD.strength,
+      });
+    }
   }
 
   const sim = forceSimulation<SimNode, SimLink>(nodes)
@@ -202,6 +257,50 @@ export function buildSimulation(deps: BuildSimDeps): Simulation<SimNode, SimLink
         .strength((n) => {
           if (typeof n.id !== "string") return 0;
           return hubDirectional(n.id)?.strength ?? 0;
+        }),
+    )
+    // phase 20 — per-leaf outward bias toward the parent hub's
+    // wedge. paired forceX / forceY so the leaf is gently pulled
+    // to (centre + radius * cos/sin(outwardAngle)); collide +
+    // link still own the local pixel-perfect arrangement.
+    .force(
+      "entityDirX",
+      forceX<SimNode>()
+        .x((n) => {
+          if (typeof n.id !== "string") return config.width / 2;
+          const o = leafOutward.get(n.id);
+          if (!o) return config.width / 2;
+          const baseR =
+            sz *
+            Math.max(
+              HUB_RING_RADIUS.baseMin,
+              Math.sqrt(nCount) * HUB_RING_RADIUS.sqrtFactor,
+            );
+          return config.width / 2 + baseR * o.radiusFactor * Math.cos(o.angle);
+        })
+        .strength((n) => {
+          if (typeof n.id !== "string") return 0;
+          return leafOutward.get(n.id)?.strength ?? 0;
+        }),
+    )
+    .force(
+      "entityDirY",
+      forceY<SimNode>()
+        .y((n) => {
+          if (typeof n.id !== "string") return config.height / 2;
+          const o = leafOutward.get(n.id);
+          if (!o) return config.height / 2;
+          const baseR =
+            sz *
+            Math.max(
+              HUB_RING_RADIUS.baseMin,
+              Math.sqrt(nCount) * HUB_RING_RADIUS.sqrtFactor,
+            );
+          return config.height / 2 + baseR * o.radiusFactor * Math.sin(o.angle);
+        })
+        .strength((n) => {
+          if (typeof n.id !== "string") return 0;
+          return leafOutward.get(n.id)?.strength ?? 0;
         }),
     )
     .force(

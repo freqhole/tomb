@@ -37,8 +37,8 @@ describe("densityMultiplierForCount", () => {
 describe("collideRadiiForCount", () => {
   it("uses bare per-role multipliers at low density", () => {
     const r = collideRadiiForCount(100, 10);
-    expect(r.album).toBeCloseTo(10 * 0.82);
-    expect(r.artist).toBeCloseTo(10 * 0.6);
+    expect(r.album).toBeCloseTo(10 * 0.96);
+    expect(r.artist).toBeCloseTo(10 * 0.74);
   });
   it("scales both roles up at high density", () => {
     const lo = collideRadiiForCount(100, 10);

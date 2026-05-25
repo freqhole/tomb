@@ -27,7 +27,10 @@ export function densityMultiplierForCount(nCount: number): number {
  *  artist nodes because they carry visible cover art. the 0.9
  *  damping factor on the density bump lets nodes still cluster
  *  visibly while preventing label overlap explosions on huge
- *  libraries. */
+ *  libraries. base radii bumped 2026-05-25 (album 0.82 → 0.96,
+ *  artist 0.6 → 0.74) so small drilldown subgraphs stop
+ *  overlapping each other under the tighter post-tuning link
+ *  distance. density tier still scales these for big graphs. */
 export function collideRadiiForCount(
   nCount: number,
   sz: number,
@@ -35,7 +38,7 @@ export function collideRadiiForCount(
   const densityMul = densityMultiplierForCount(nCount);
   const collideDensityMul = 1 + (densityMul - 1) * 0.9;
   return {
-    album: sz * 0.82 * collideDensityMul,
-    artist: sz * 0.6 * collideDensityMul,
+    album: sz * 0.96 * collideDensityMul,
+    artist: sz * 0.74 * collideDensityMul,
   };
 }

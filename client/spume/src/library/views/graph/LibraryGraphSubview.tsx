@@ -61,7 +61,7 @@ import {
   remoteHubId,
 } from "../../../components/graph/hubNodes";
 import { getAuthInfo, getAuthStatus } from "../../../app/services/remotes/authStatusStore";
-import { permissions, type UserRoleName } from "freqhole-api-client";
+import { permissions, type UserRoleName, type EraBin } from "freqhole-api-client";
 import {
   showAlbumEditor,
   showArtistEditor,
@@ -531,6 +531,151 @@ function Inner(props: {
     await Promise.all(toFetch.map((id) => fetchOne(id)));
   };
 
+  // ---- phase 22: era bins ---------------------------------------------
+  // synthesized release-date bins fetched lazily from the backend
+  // when the user drills into the "era" relation kind. shared across
+  // all selected remotes (`list_era_bins` queries every non-deleted
+  // album in the local corpus, no per-remote filter). once loaded,
+  // `relationValuesForNode("era", node)` consults these bins instead
+  // of the per-album 5-year fallback so value hubs are balanced.
+  const [eraBins, setEraBins] = createSignal<EraBin[]>([]);
+  const [eraBinsLoading, setEraBinsLoading] = createSignal(false);
+
+  const ensureEraBinsLoaded = async (): Promise<void> => {
+    if (eraBins().length > 0 || eraBinsLoading()) return;
+    const remote = primaryRemote();
+    if (!remote) return;
+    setEraBinsLoading(true);
+    try {
+      const ds = new RemoteMusicDataSource(remote);
+      const resp = await ds.eraBins({});
+      if (resp && resp.bins.length > 0) {
+        setEraBins(resp.bins);
+        console.debug("[eraBins] loaded", resp.bins.length, "bins");
+      } else {
+        console.debug("[eraBins] backend returned empty bins");
+      }
+    } catch (err) {
+      console.warn("[ensureEraBinsLoaded] fetch failed", err);
+    } finally {
+      setEraBinsLoading(false);
+    }
+  };
+
+  // eager prefetch DISABLED — era + recently_added hubs are deferred
+  // (see `DEFERRED_HUB_KINDS` in hubNodes.ts). flip back on alongside
+  // re-enabling the hub kind. left commented for the future:
+  //
+  //   createEffect(() => {
+  //     if (primaryRemote()) void ensureEraBinsLoaded();
+  //   });
+
+  // ---- phase 22: recently-added per-remote hub -----------------------
+  // top-N most recently added albums per remote, fetched lazily from
+  // the backend `recently_added_albums` offal route. each entry
+  // tracks the set of bare album ids that belong to that remote's
+  // "recently added" bucket; membership checks use these sets so
+  // `hasRelationMembership("recently_added", album)` is O(1).
+  const [recentlyAddedByRemote, setRecentlyAddedByRemote] = createSignal<Map<string, Set<string>>>(
+    new Map()
+  );
+  const [recentlyAddedPending, setRecentlyAddedPending] = createSignal<Set<string>>(new Set());
+
+  const ensureRecentlyAddedLoaded = async (remoteIds: Iterable<string>): Promise<void> => {
+    const have = recentlyAddedByRemote();
+    const pending = recentlyAddedPending();
+    const toFetch: string[] = [];
+    for (const id of remoteIds) {
+      if (have.has(id) || pending.has(id)) continue;
+      toFetch.push(id);
+    }
+    if (toFetch.length === 0) return;
+
+    setRecentlyAddedPending((p) => {
+      const next = new Set(p);
+      for (const id of toFetch) next.add(id);
+      return next;
+    });
+
+    const all = props.remotes();
+    await Promise.all(
+      toFetch.map(async (remoteId) => {
+        const remote = all.find((r) => r.remote_id === remoteId);
+        if (!remote) {
+          setRecentlyAddedPending((p) => {
+            const next = new Set(p);
+            next.delete(remoteId);
+            return next;
+          });
+          return;
+        }
+        try {
+          const ds = new RemoteMusicDataSource(remote);
+          const resp = await ds.recentlyAddedAlbums({ limit: 32 });
+          if (!resp) return;
+          const adapted = resp.albums.map((a) => adaptAlbumQueryResult(a, { remoteId }));
+          appendWalkAlbums(remoteId, adapted);
+          setRecentlyAddedByRemote((m) => {
+            const next = new Map(m);
+            next.set(remoteId, new Set(adapted.map((a) => a.id)));
+            return next;
+          });
+          console.debug("[recentlyAdded] loaded", adapted.length, "albums for remote", remoteId);
+        } catch (err) {
+          console.warn("[ensureRecentlyAddedLoaded] fetch failed", {
+            remoteId,
+            err,
+          });
+        } finally {
+          setRecentlyAddedPending((p) => {
+            const next = new Set(p);
+            next.delete(remoteId);
+            return next;
+          });
+        }
+      })
+    );
+  };
+
+  // fire era-bin fetch as soon as the user enters any "era"-flavored
+  // drill (kind hub OR a specific value hub). cheap idempotent —
+  // `ensureEraBinsLoaded` early-outs if bins are loaded or in flight.
+  createEffect(() => {
+    if (activeRelationKind() === "era") {
+      void ensureEraBinsLoaded();
+    }
+    if (activeRelationKind() === "recently_added") {
+      void ensureRecentlyAddedLoaded(selectedRemoteIds());
+    }
+  });
+
+  /** phase 9 entity-click walk. given a freshly-selected real entity
+   *  (album or artist — NOT a hub), surface every value-hub the
+   *  entity belongs to and fan each one out across all selected
+   *  remotes. the upsert is implicit: `relationValueHubNodes` derives
+   *  the value hubs from the active drill state + the union of
+   *  page-loaded and walk-pulled entities, so any value that appears
+   *  on the clicked entity is already a candidate hub. the walk fetch
+   *  pulls in sibling entities from other remotes that share the same
+   *  (kind, value) and edges are drawn by the existing `customEdges`
+   *  memo since walk-pulled entities flow through `mergedAlbums`. */
+  const expandWalkForEntity = (node: GraphNodeData): void => {
+    // skip hubs — they have their own drill flow.
+    if (isAnyHubId(node.id)) return;
+    const selected = selectedRemoteIds();
+    if (selected.size === 0) return;
+    for (const kind of RELATION_HUB_KINDS) {
+      if (!relationSupportsValueLayer(kind)) continue;
+      const values = relationValuesForNode(kind, node);
+      for (const valueNorm of values) {
+        // fire-and-forget; ensureHubLoaded handles dedupe + pending
+        // tracking, and the comet-trail loader surfaces in-flight
+        // state to the user.
+        void ensureHubLoaded(kind, valueNorm, selected);
+      }
+    }
+  };
+
   // ---- tag filter ------------------------------------------------------
   // historical: the topnav's built-in tag picker (button + selected
   // badges, identical UX to the songs/albums views) used to be wired
@@ -808,6 +953,15 @@ function Inner(props: {
             const related = relatedMap().get(n.artistId);
             if (related && related.size > 0) count++;
           }
+        } else if (kind === "recently_added") {
+          // phase 22: count = #albums in this remote's top-N recents
+          // bucket, fetched lazily from the backend `recently_added_
+          // albums` offal route. while the fetch is in flight (or
+          // empty) we still want the hex to render so the user can
+          // click into it, so seed with `1` whenever the fetch
+          // hasn't resolved yet.
+          const recents = recentlyAddedByRemote().get(remoteId);
+          count = recents ? recents.size : 1;
         } else if (relationSupportsValueLayer(kind)) {
           const uniq = new Set<string>();
           for (const n of albumsForRemote) {
@@ -849,6 +1003,23 @@ function Inner(props: {
       case "style":
         return node.styles.map(norm).filter(Boolean);
       case "era": {
+        // phase 22: when synthesized era bins are available from
+        // the backend (`era_bins` offal route), assign each album
+        // to its bin by looking up `node.year` against the bin
+        // spans. fall back to the per-album client-side 5-year
+        // bucket label (`node.era`) when bins haven't loaded yet
+        // or the album has no year.
+        const bins = eraBins();
+        if (bins.length > 0 && (node as AlbumNodeData).year != null) {
+          const y = (node as AlbumNodeData).year as number;
+          for (const b of bins) {
+            const lo = b.min_year ?? Number.NEGATIVE_INFINITY;
+            const hi = b.max_year ?? Number.POSITIVE_INFINITY;
+            if (y >= lo && y <= hi) {
+              return [norm(b.value_norm)];
+            }
+          }
+        }
         const e = norm(node.era);
         return e ? [e] : [];
       }
@@ -921,7 +1092,12 @@ function Inner(props: {
   const relatedQuery = useRelatedArtistsByIds({
     remote: primaryRemote,
     artistIds: uniqueArtistIds,
-    enabled: () => activeRelationKind() === "related_artist",
+    // fetch when the user is on the related-artist drill OR has
+    // drilled into ANY entity tier — the entity tier branches
+    // visible artists out to their in-library related artists
+    // (and pulls those artists' albums in), so we need the lookup
+    // populated regardless of which relation kind is active.
+    enabled: () => activeRelationKind() === "related_artist" || drillMode() === "entities",
   });
   const relatedMap = createMemo(() => relatedQuery.data ?? new Map<string, Set<string>>());
 
@@ -956,6 +1132,20 @@ function Inner(props: {
         const related = relatedMap().get(node.artistId);
         return !!related && related.size > 0;
       }
+      case "recently_added": {
+        if (node.kind !== "album") return false;
+        const map = recentlyAddedByRemote();
+        const remoteIds =
+          (node as AlbumNodeData).sourceRemoteIds ??
+          ((node as AlbumNodeData).sourceRemoteId
+            ? [(node as AlbumNodeData).sourceRemoteId as string]
+            : []);
+        for (const rid of remoteIds) {
+          const set = map.get(rid);
+          if (set && set.has(node.id)) return true;
+        }
+        return false;
+      }
       case "artist_album":
         return true;
       default:
@@ -981,9 +1171,13 @@ function Inner(props: {
     const active = activeRelationKind();
     if (!active) return [];
     if (relationSupportsValueLayer(active) && !activeRelationValueNorm()) return [];
-    return mergedAlbums().filter((n) =>
-      hasRelationMembership(active, n, activeRelationValueNorm())
-    );
+    // mark every fanout album as a primary-drill match so the canvas
+    // can size them at full scale; contextual halo albums (rendered
+    // for the same artist but NOT matching the active drill) carry
+    // `matchedByDrill: false` and render smaller.
+    return mergedAlbums()
+      .filter((n) => hasRelationMembership(active, n, activeRelationValueNorm()))
+      .map((n) => (n.matchedByDrill === true ? n : { ...n, matchedByDrill: true }));
   });
   const fanoutArtists = createMemo<ArtistNodeData[]>(() => {
     const active = activeRelationKind();
@@ -992,6 +1186,137 @@ function Inner(props: {
     return mergedArtistNodes().filter((n) =>
       hasRelationMembership(active, n, activeRelationValueNorm())
     );
+  });
+
+  // ---- entity-tier secondary branching --------------------------------
+  // once the user has drilled into an entity-tier cohort (e.g.
+  // genre=rock albums + artists) AND clicked one of the visible
+  // entities, we surface two additional layers of structure off
+  // that specific selection so the user can see how this one
+  // entity connects back into the rest of the library WITHOUT
+  // having to back out of the drill:
+  //
+  //   (a) "other taxons" — the selected entity branches into
+  //       octagons for its OTHER taxon-value memberships (the
+  //       genres / tags / moods / styles / labels it has beyond
+  //       the currently-active drill). these octagons render in
+  //       the entity tier as additional value hubs.
+  //   (b) "related artists + their albums" — when the selection
+  //       is an artist, it branches into its in-library related
+  //       artists, and those related artists chain into their
+  //       own in-library albums. gives the user a one-hop look
+  //       at neighbors in artist-space without leaving the drill.
+  //
+  // gating on selection (not "every visible entity") keeps the
+  // canvas legible — earlier passes drew secondary spokes from
+  // every entity at once, which exploded into an unreadable
+  // hairball in libraries with even modest taxon density.
+
+  const SECONDARY_TAXON_KINDS: RelationKindLike[] = ["genre", "tag", "mood", "style", "label"];
+
+  // the visible-entity selection that drives secondary branching.
+  // resolves the focused node back to its `AlbumNodeData` /
+  // `ArtistNodeData` (only entities in the current fanout are
+  // eligible — clicks on hubs or off-canvas don't trigger
+  // secondary expansion). null when no entity is selected.
+  const selectedFanoutEntity = createMemo<GraphNodeData | null>(() => {
+    if (drillMode() !== "entities") return null;
+    const focus = focusedNode();
+    if (!focus || isAnyHubId(focus.id)) return null;
+    const albumHit = fanoutAlbums().find((a) => a.id === focus.id);
+    if (albumHit) return albumHit;
+    const artistHit = fanoutArtists().find((a) => a.id === focus.id);
+    if (artistHit) return artistHit;
+    return null;
+  });
+
+  // additional (kind, valueNorm) value hubs to render in the entity
+  // tier — one per unique taxon membership held by the SELECTED
+  // entity, excluding the currently-active value hub. emitted as
+  // `ArtistNodeData` shaped octagon nodes (same convention as
+  // `relationValueHubNodes`) so the canvas treats them uniformly.
+  const secondaryValueHubs = createMemo<ArtistNodeData[]>(() => {
+    const sel = selectedFanoutEntity();
+    if (!sel) return [];
+    const active = activeRelationKind();
+    const activeValue = activeRelationValueNorm();
+    const out = new Map<string, ArtistNodeData>();
+    for (const kind of SECONDARY_TAXON_KINDS) {
+      for (const v of relationValuesForNode(kind, sel)) {
+        if (kind === active && v === activeValue) continue;
+        const id = relationValueHubId(kind, v);
+        if (out.has(id)) continue;
+        out.set(id, {
+          id,
+          kind: "artist",
+          artistId: id,
+          name: v,
+          abbreviation: v.slice(0, 3).toUpperCase(),
+          imageUrl: null,
+          image: null,
+          albumCount: 0,
+          genres: [],
+          tags: [],
+          moods: [],
+          styles: [],
+          label: null,
+          era: null,
+          isFavorite: false,
+        });
+      }
+    }
+    return [...out.values()];
+  });
+
+  // in-library related artists for the SELECTED artist (no-op when
+  // selection is an album or unset), excluding artists already in
+  // the fanout (those are wired through the primary drill instead).
+  const secondaryRelatedArtists = createMemo<ArtistNodeData[]>(() => {
+    const sel = selectedFanoutEntity();
+    if (!sel || sel.kind !== "artist") return [];
+    const map = relatedMap();
+    if (map.size === 0) return [];
+    const rel = map.get((sel as ArtistNodeData).artistId);
+    if (!rel || rel.size === 0) return [];
+    const visibleArtistIds = new Set(fanoutArtists().map((a) => a.artistId));
+    const wanted = new Set<string>();
+    for (const rid of rel) if (!visibleArtistIds.has(rid)) wanted.add(rid);
+    if (wanted.size === 0) return [];
+    return mergedArtistNodes().filter((a) => wanted.has(a.artistId));
+  });
+
+  // in-library albums belonging to the secondary related artists,
+  // so the related artists chain into their own album offshoots.
+  // de-duped against fanoutAlbums so we don't double-render.
+  const secondaryRelatedAlbums = createMemo<AlbumNodeData[]>(() => {
+    const artists = secondaryRelatedArtists();
+    if (artists.length === 0) return [];
+    const wantArtistIds = new Set(artists.map((a) => a.artistId));
+    const have = new Set(fanoutAlbums().map((a) => a.id));
+    return mergedAlbums().filter((al) => wantArtistIds.has(al.artistId) && !have.has(al.id));
+  });
+
+  // contextual album halo (phase 19): for every artist visible in the
+  // entity-tier fanout, surface that artist's OTHER in-library albums
+  // (the ones that didn't match the active drill). these render at
+  // a reduced size via the `matchedByDrill: false` flag and hang off
+  // the artist via a low-weight `artist_album` spoke, giving the
+  // user a glance at the artist's broader catalog without leaving
+  // the drill. de-duped against `fanoutAlbums` so primary matches
+  // aren't double-rendered.
+  const contextualAlbums = createMemo<AlbumNodeData[]>(() => {
+    if (drillMode() !== "entities") return [];
+    const artists = fanoutArtists();
+    if (artists.length === 0) return [];
+    const wantArtistIds = new Set(artists.map((a) => a.artistId));
+    const have = new Set(fanoutAlbums().map((a) => a.id));
+    const out: AlbumNodeData[] = [];
+    for (const al of mergedAlbums()) {
+      if (!wantArtistIds.has(al.artistId)) continue;
+      if (have.has(al.id)) continue;
+      out.push(al.matchedByDrill === false ? al : { ...al, matchedByDrill: false });
+    }
+    return out;
   });
 
   const graphNodes = createMemo<GraphNodeData[]>(() => {
@@ -1033,6 +1358,17 @@ function Inner(props: {
     }
     out.push(...fanoutAlbums());
     out.push(...fanoutArtists());
+    // contextual album halo (phase 19) — other in-library albums for
+    // each visible artist, rendered at reduced size so they read as
+    // ambient context rather than primary matches.
+    out.push(...contextualAlbums());
+    // entity-tier secondary branching: surface OTHER taxon value
+    // hubs the visible entities belong to, plus their in-library
+    // related artists (and those artists' albums). edges for these
+    // are emitted in `customEdges` below.
+    out.push(...secondaryValueHubs());
+    out.push(...secondaryRelatedArtists());
+    out.push(...secondaryRelatedAlbums());
     return out;
   });
 
@@ -1176,18 +1512,23 @@ function Inner(props: {
       }
     }
 
-    for (const album of fanoutAlbums()) {
-      for (const sourceId of sourceIds) {
-        out.push({
-          source: sourceId,
-          target: album.id,
-          kind: active,
-          weight: 0.9,
-          label: album.title,
-        });
-      }
+    // entity tier — chain `hub → artist → album` instead of
+    // burning two separate spokes (`hub → artist` AND `hub → album`)
+    // for the same (artist, album) pair. albums whose artist is NOT
+    // in the visible fanout still hang directly off the hub so they
+    // aren't orphaned.
+    const albums = fanoutAlbums();
+    const artists = fanoutArtists();
+    const visibleArtistIds = new Set(artists.map((a) => a.artistId));
+    const albumsByArtist = new Map<string, AlbumNodeData[]>();
+    for (const al of albums) {
+      const bucket = albumsByArtist.get(al.artistId);
+      if (bucket) bucket.push(al);
+      else albumsByArtist.set(al.artistId, [al]);
     }
-    for (const artist of fanoutArtists()) {
+
+    // hub → artist (one spoke per visible artist).
+    for (const artist of artists) {
       for (const sourceId of sourceIds) {
         out.push({
           source: sourceId,
@@ -1196,6 +1537,133 @@ function Inner(props: {
           weight: 0.9,
           label: artist.name,
         });
+      }
+    }
+
+    // artist → its albums (chain). uses `artist_album` kind so the
+    // edge renders with the dedicated yellow palette and doesn't
+    // visually merge with the active-relation hub spokes.
+    for (const artist of artists) {
+      const own = albumsByArtist.get(artist.artistId);
+      if (!own) continue;
+      for (const al of own) {
+        out.push({
+          source: artist.id,
+          target: al.id,
+          kind: "artist_album",
+          weight: 0.85,
+          label: al.title,
+        });
+      }
+    }
+
+    // contextual album halo (phase 19) — artist → its OTHER
+    // in-library albums (the catalog context). low weight so the
+    // halo sits at a longer link distance than primary matches,
+    // visually distinguishing "matched the drill" from "also by
+    // this artist". indexed by `artistId` so each contextual album
+    // attaches to its own artist exactly once.
+    const ctxByArtist = new Map<string, AlbumNodeData[]>();
+    for (const al of contextualAlbums()) {
+      const bucket = ctxByArtist.get(al.artistId);
+      if (bucket) bucket.push(al);
+      else ctxByArtist.set(al.artistId, [al]);
+    }
+    for (const artist of artists) {
+      const own = ctxByArtist.get(artist.artistId);
+      if (!own) continue;
+      for (const al of own) {
+        out.push({
+          source: artist.id,
+          target: al.id,
+          kind: "artist_album",
+          weight: 0.45,
+          label: al.title,
+        });
+      }
+    }
+
+    // orphan fallback: hub → album for albums whose artist isn't
+    // visible in this fanout (e.g. artist filtered out by membership).
+    for (const al of albums) {
+      if (visibleArtistIds.has(al.artistId)) continue;
+      for (const sourceId of sourceIds) {
+        out.push({
+          source: sourceId,
+          target: al.id,
+          kind: active,
+          weight: 0.9,
+          label: al.title,
+        });
+      }
+    }
+
+    // ---- entity-tier secondary branching ----------------------
+    // gated on selection — only the focused entity emits secondary
+    // spokes, so the canvas doesn't drown in cross-links from
+    // every visible album/artist.
+    const sel = selectedFanoutEntity();
+    if (sel) {
+      // (a) selected entity → its OTHER taxon value hubs. low
+      //     weight so these connections don't dominate the force
+      //     layout (the primary hub→entity spokes should still
+      //     drive cluster shape).
+      const secondaryHubs = secondaryValueHubs();
+      if (secondaryHubs.length > 0) {
+        const secondaryHubByKey = new Map<string, ArtistNodeData>();
+        for (const h of secondaryHubs) secondaryHubByKey.set(h.id, h);
+        for (const kind of SECONDARY_TAXON_KINDS) {
+          for (const v of relationValuesForNode(kind, sel)) {
+            const hubId = relationValueHubId(kind, v);
+            const hub = secondaryHubByKey.get(hubId);
+            if (!hub) continue; // skip the active value hub (already wired)
+            out.push({
+              source: sel.id,
+              target: hub.id,
+              kind,
+              weight: 0.15,
+              label: v,
+            });
+          }
+        }
+      }
+
+      // (b) when the selection is an artist, branch to in-library
+      //     related artists; those related artists chain into
+      //     their own albums.
+      if (sel.kind === "artist") {
+        const relatedArtists = secondaryRelatedArtists();
+        if (relatedArtists.length > 0) {
+          const rmap = relatedMap();
+          const relatedById = new Map(relatedArtists.map((a) => [a.artistId, a] as const));
+          const rel = rmap.get((sel as ArtistNodeData).artistId);
+          if (rel) {
+            for (const targetArtistId of rel) {
+              const tgt = relatedById.get(targetArtistId);
+              if (!tgt) continue;
+              out.push({
+                source: sel.id,
+                target: tgt.id,
+                kind: "related_artist",
+                weight: 0.18,
+                label: tgt.name,
+              });
+            }
+          }
+          // related artist → its albums (chain).
+          const relatedAlbums = secondaryRelatedAlbums();
+          for (const al of relatedAlbums) {
+            const tgt = relatedById.get(al.artistId);
+            if (!tgt) continue;
+            out.push({
+              source: tgt.id,
+              target: al.id,
+              kind: "artist_album",
+              weight: 0.6,
+              label: al.title,
+            });
+          }
+        }
       }
     }
     return out;
@@ -1470,6 +1938,11 @@ function Inner(props: {
       if (!node) {
         return;
       }
+      // phase 9: real entity click — fan out shared value-hubs across
+      // every selected remote so the walk converges. hubs short-circuit
+      // inside `expandWalkForEntity` so the existing drill branches
+      // below stay authoritative for hub clicks.
+      expandWalkForEntity(node);
       if (node.kind === "artist") {
         // remote hub: always-multi toggle. shift/cmd no longer
         // matters — every remote-hub click flips that remote in or

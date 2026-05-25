@@ -1527,9 +1527,18 @@ export function GraphCanvas(props: GraphCanvasProps) {
       if (c > maxHubCount) maxHubCount = c;
     }
     const sizeForNode = (n: SimNode): number => {
-      if (!isAnyHubId(n.id)) return nodeSize();
-      const c = (n as ArtistNodeData).albumCount ?? 0;
-      return nodeSize() * hubSizeMul(c, maxHubCount);
+      if (isAnyHubId(n.id)) {
+        const c = (n as ArtistNodeData).albumCount ?? 0;
+        return nodeSize() * hubSizeMul(c, maxHubCount);
+      }
+      // contextual album halo (phase 19): albums rendered alongside
+      // a fanout artist that did NOT match the active drill are
+      // visually demoted so the user can distinguish primary
+      // matches from ambient catalog context at a glance.
+      if (nodeKind(n) === "album" && (n as AlbumNodeData).matchedByDrill === false) {
+        return nodeSize() * 0.7;
+      }
+      return nodeSize();
     };
     function drawOne(n: SimNode) {
       const isEdgeFocus = edgeFocusIds?.has(n.id) ?? false;
@@ -1585,7 +1594,7 @@ export function GraphCanvas(props: GraphCanvasProps) {
           node: n as AlbumNodeData,
           x: n.x ?? 0,
           y: n.y ?? 0,
-          size: nodeSize(),
+          size: sizeForNode(n),
           state,
           zoom: v.k,
           showLabel,

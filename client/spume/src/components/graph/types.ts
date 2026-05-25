@@ -13,6 +13,10 @@ export type RelationKind =
   | "era"
   | "label"
   | "favorite"
+  /** synthesized per-remote "top N most recently added" hub. flat
+   *  (no value tier). populated from backend `recently_added_albums`
+   *  offal route. */
+  | "recently_added"
   /** artist node connected to one of its in-library albums */
   | "artist_album";
 
@@ -73,6 +77,13 @@ export interface AlbumNodeData {
    *  contributors. unset on legacy mocked data. use
    *  `belongsToRemote(node, remoteId)` for membership checks. */
   sourceRemoteIds?: string[];
+  /** true when this album is part of the primary drill fanout
+   *  (matched the active relation+value), false when it's a
+   *  contextual halo album rendered alongside a fanout artist
+   *  to show the artist's broader in-library catalog. unset/
+   *  undefined for albums rendered outside the entities tier
+   *  — treat missing as "true" / not a contextual album. */
+  matchedByDrill?: boolean;
 }
 
 export interface TagRef {

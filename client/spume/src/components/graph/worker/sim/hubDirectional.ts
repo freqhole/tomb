@@ -85,3 +85,26 @@ export function hubDirectional(
   }
   return null;
 }
+
+/** deterministic wedge fraction in (-1, +1] for a leaf id. siblings
+ *  sharing a parent hub angle use this to spread within the wedge
+ *  instead of stacking on a single outward target. uses the same
+ *  fnv-1a hash as `hashAngleRad` for determinism across runs +
+ *  platforms; the mod-1000 bucket gives sufficient angular
+ *  resolution for the wedge widths phase 20 cares about. */
+export function leafWedgeFraction(leafId: string): number {
+  return ((fnv1aHash(leafId) % 1000) / 999) * 2 - 1;
+}
+
+/** outward angle for an entity leaf anchored to a parent hub. fans
+ *  the leaf into the wedge centred on the parent hub's directional
+ *  angle, with deterministic per-leaf offset so siblings spread
+ *  evenly. pure: no force-tuning import on purpose so callers can
+ *  pass their own wedge width when experimenting. */
+export function outwardAngleFor(
+  leafId: string,
+  hubAngle: number,
+  wedgeHalfRad: number,
+): number {
+  return hubAngle + leafWedgeFraction(leafId) * wedgeHalfRad;
+}

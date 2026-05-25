@@ -29,11 +29,19 @@ export const HUB_PREFIX = {
 
 export type HubKind = "remote" | "relation" | "relation_value";
 
-// every RelationKind we expose as a top-level relation hub. `artist_album`
-// is intentionally excluded: it's the implicit parent/child relation that
-// always exists, not something the user drills into.
+// every RelationKind we expose as a top-level relation hub. exclusions:
+//   - `artist_album`: implicit parent/child relation that always
+//     exists, not something the user drills into.
+//   - `same_artist`: redundant with the artist circle itself — the
+//     artist node IS the shared identity. (phase 21)
+//   - `era`, `recently_added`: synthesized taxons deferred for now —
+//     era binning needs more album-year coverage to feel coherent,
+//     and the recently-added per-remote bucket made the layout
+//     glitchy. plumbing stays in place; flip these back into the
+//     hub set when revisiting phase 22.
+const DEFERRED_HUB_KINDS = new Set<string>(["artist_album", "same_artist", "era", "recently_added"]);
 export const RELATION_HUB_KINDS: RelationKind[] = RELATION_KINDS.filter(
-  (r) => r.kind !== "artist_album"
+  (r) => !DEFERRED_HUB_KINDS.has(r.kind)
 ).map((r) => r.kind) as RelationKind[];
 
 // value-layer support is now driven by `relationMeta(kind)` (see

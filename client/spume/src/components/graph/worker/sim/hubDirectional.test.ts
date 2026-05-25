@@ -12,7 +12,13 @@
 // tests pin the worker side independently.
 
 import { describe, expect, it } from "vitest";
-import { fnv1aHash, hashAngleRad, hubDirectional } from "./hubDirectional";
+import {
+  fnv1aHash,
+  hashAngleRad,
+  hubDirectional,
+  leafWedgeFraction,
+  outwardAngleFor,
+} from "./hubDirectional";
 import { HUB_DIRECTIONAL } from "../forceTuning";
 
 describe("fnv1aHash / hashAngleRad", () => {
@@ -71,5 +77,49 @@ describe("hubDirectional", () => {
     expect(a.strength).toBe(HUB_DIRECTIONAL.relationValue.strength);
     // overwhelmingly likely to differ for distinct fnv-1a inputs.
     expect(a.angle).not.toBe(b.angle);
+  });
+});
+
+describe("leafWedgeFraction", () => {
+  it("is deterministic for the same id", () => {
+    expect(leafWedgeFraction("album-123")).toBe(leafWedgeFraction("album-123"));
+  });
+  it("stays within (-1, +1]", () => {
+    for (const id of ["a", "b", "long-leaf-id-9999", "x", "ñoño"]) {
+      const v = leafWedgeFraction(id);
+      expect(v).toBeGreaterThan(-1);
+      expect(v).toBeLessThanOrEqual(1);
+    }
+  });
+  it("yields distinct fractions for distinct ids", () => {
+    const a = leafWedgeFraction("leaf-a");
+    const b = leafWedgeFraction("leaf-b");
+    const c = leafWedgeFraction("leaf-c");
+    expect(a).not.toBe(b);
+    expect(b).not.toBe(c);
+  });
+});
+
+describe("outwardAngleFor", () => {
+  it("is deterministic", () => {
+    expect(outwardAngleFor("x", 1.5, 0.7)).toBe(outwardAngleFor("x", 1.5, 0.7));
+  });
+  it("stays within ±wedgeHalfRad of the hub angle", () => {
+    const hubAngle = 0.8;
+    const wedge = Math.PI / 4;
+    for (const id of ["a", "b", "c", "d", "e", "f", "g"]) {
+      const a = outwardAngleFor(id, hubAngle, wedge);
+      expect(Math.abs(a - hubAngle)).toBeLessThanOrEqual(wedge + 1e-9);
+    }
+  });
+  it("spreads siblings sharing a parent hub angle", () => {
+    const hubAngle = 2.1;
+    const wedge = Math.PI / 3;
+    const a = outwardAngleFor("sib-1", hubAngle, wedge);
+    const b = outwardAngleFor("sib-2", hubAngle, wedge);
+    expect(a).not.toBe(b);
+  });
+  it("a zero wedge collapses to the hub angle", () => {
+    expect(outwardAngleFor("anything", 1.2, 0)).toBe(1.2);
   });
 });

@@ -190,33 +190,222 @@ pub struct EraBin {
 
 /// compute synthesized era bins for the remote's album corpus.
 ///
-/// **stub:** the binning algorithm (greedy growth, target 10..32
-/// albums per bin, decade-snap boundaries) hasn't landed yet. for
-/// now this returns an empty vec so the offal route + client wiring
-/// can ship alongside the rest of phase 22 without blocking on the
-/// binning heuristic. tracked in phase 22 of the graph viz plan.
+/// greedy decade-aware binning over `album_query_view`:
+/// 1. aggregate non-deleted albums by release year (parsed from the
+///    leading 4 chars of `album_release_date`).
+/// 2. walk years ascending, accumulating into a working bin. emit
+///    when the bin reaches `target_min` (default 10). a single year
+///    whose count meets or exceeds `target_max` (default 32) becomes
+///    a singleton bin so dense epochs stay year-granular.
+/// 3. label heuristic: singleton year → `"1995"`, decade-aligned 10y
+///    span → `"1990s"`, anything else → `"1990-1994"`.
 ///
-/// `target_min` / `target_max` are advisory bin-size hints (default
-/// 10..32) for the future implementation; currently ignored.
+/// `target_min` / `target_max` are advisory hints; both clamp to a
+/// sensible floor so callers can't degenerate the algorithm.
 pub async fn list_era_bins(
-    _target_min: Option<u32>,
-    _target_max: Option<u32>,
+    target_min: Option<u32>,
+    target_max: Option<u32>,
 ) -> GrimoireResponse<Vec<EraBin>> {
-    // TODO(phase 22): implement greedy decade-aware binning.
-    // sketch:
-    //   1. SELECT CAST(SUBSTR(release_date,1,4) AS INTEGER) AS year,
-    //      COUNT(*) FROM album_query_view WHERE release_date IS NOT
-    //      NULL AND album_deleted_at IS NULL GROUP BY year ORDER BY
-    //      year ASC.
-    //   2. greedy pass: accumulate years into a bin until count
-    //      reaches `target_min`; emit and start fresh. if a single
-    //      year exceeds `target_max`, that year is its own bin.
-    //   3. snap bin boundaries to decade edges when the span is
-    //      wider than one decade so labels read "1990s" not
-    //      "1991-2003".
-    //   4. label single-year bins as the year, multi-year as
-    //      `min-max` or `decade + "s"`.
-    GrimoireResponse::success("era bins (stub: not yet implemented)", Vec::new())
+    let target_min = target_min.unwrap_or(10).max(1);
+    let target_max = target_max.unwrap_or(32).max(target_min);
+
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "failed to connect to database",
+                vec![ErrorDetail::from(e)],
+            );
+        }
+    };
+
+    // year histogram from the view. cast the leading 4 chars of the
+    // release-date string to integer; sqlite returns 0 for unparseable
+    // strings which we filter out via the outer HAVING. wrap in a
+    // subquery so the GROUP BY / HAVING can reference the aliased
+    // column (sqlite doesn't allow alias refs in HAVING otherwise).
+    let rows = match sqlx::query!(
+        r#"
+        SELECT year as "year!: i64", COUNT(*) as "count!: i64"
+        FROM (
+            SELECT CAST(SUBSTR(album_release_date, 1, 4) AS INTEGER) as year
+            FROM album_query_view
+            WHERE album_release_date IS NOT NULL
+              AND album_release_date != ''
+              AND album_deleted_at IS NULL
+        )
+        WHERE year > 0
+        GROUP BY year
+        ORDER BY year ASC
+        "#,
+    )
+    .fetch_all(&pool)
+    .await
+    {
+        Ok(r) => r,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "failed to query year histogram",
+                vec![ErrorDetail::from(e)],
+            );
+        }
+    };
+
+    let histogram: Vec<(i32, u32)> = rows
+        .into_iter()
+        .map(|r| (r.year as i32, r.count as u32))
+        .collect();
+
+    let bins = bin_years(&histogram, target_min, target_max);
+    GrimoireResponse::success("era bins retrieved", bins)
+}
+
+/// pure greedy binning pass over `(year, count)` pairs, ascending by
+/// year. exposed for unit tests; production callers go through
+/// `list_era_bins`.
+///
+/// invariants:
+/// - input must be sorted by year ascending and have unique years.
+/// - empty input produces empty output.
+/// - every input album lands in exactly one bin.
+fn bin_years(histogram: &[(i32, u32)], target_min: u32, target_max: u32) -> Vec<EraBin> {
+    if histogram.is_empty() {
+        return Vec::new();
+    }
+
+    let mut bins: Vec<EraBin> = Vec::new();
+    let mut cur_min: Option<i32> = None;
+    let mut cur_max: i32 = 0;
+    let mut cur_count: u32 = 0;
+
+    let flush = |bins: &mut Vec<EraBin>, min: i32, max: i32, count: u32| {
+        let label = label_for_span(min, max);
+        bins.push(EraBin {
+            value_norm: label.clone(),
+            label,
+            count,
+            min_year: Some(min),
+            max_year: Some(max),
+        });
+    };
+
+    for &(year, count) in histogram {
+        // singleton: a year so dense it deserves its own bin. flush
+        // any in-progress bin first so ordering stays consistent.
+        if count >= target_max {
+            if let Some(min) = cur_min {
+                flush(&mut bins, min, cur_max, cur_count);
+                cur_min = None;
+                cur_count = 0;
+            }
+            flush(&mut bins, year, year, count);
+            continue;
+        }
+
+        // start or extend the working bin.
+        if cur_min.is_none() {
+            cur_min = Some(year);
+        }
+        cur_max = year;
+        cur_count += count;
+
+        if cur_count >= target_min {
+            if let Some(min) = cur_min {
+                flush(&mut bins, min, cur_max, cur_count);
+            }
+            cur_min = None;
+            cur_count = 0;
+        }
+    }
+
+    // trailing under-target bin: merge into the previous bin if there
+    // is one (avoids orphans), otherwise emit as-is.
+    if let Some(min) = cur_min {
+        if let Some(last) = bins.last_mut() {
+            let merged_min = last.min_year.unwrap_or(min);
+            let merged_max = cur_max;
+            let merged_count = last.count + cur_count;
+            let label = label_for_span(merged_min, merged_max);
+            last.value_norm = label.clone();
+            last.label = label;
+            last.count = merged_count;
+            last.min_year = Some(merged_min);
+            last.max_year = Some(merged_max);
+        } else {
+            flush(&mut bins, min, cur_max, cur_count);
+        }
+    }
+
+    bins
+}
+
+/// label/value-norm rule for an era bin spanning `min..=max`:
+/// - same year → `"1995"`.
+/// - exactly 10 years aligned to a decade → `"1990s"`.
+/// - otherwise → `"1990-1994"`.
+fn label_for_span(min: i32, max: i32) -> String {
+    if min == max {
+        return min.to_string();
+    }
+    if max - min == 9 && min % 10 == 0 {
+        return format!("{}s", min);
+    }
+    format!("{}-{}", min, max)
+}
+
+#[cfg(test)]
+mod era_bin_tests {
+    use super::*;
+
+    #[test]
+    fn empty_input_yields_empty_bins() {
+        assert!(bin_years(&[], 10, 32).is_empty());
+    }
+
+    #[test]
+    fn dense_year_becomes_singleton_bin() {
+        let bins = bin_years(&[(1995, 50)], 10, 32);
+        assert_eq!(bins.len(), 1);
+        assert_eq!(bins[0].label, "1995");
+        assert_eq!(bins[0].count, 50);
+    }
+
+    #[test]
+    fn decade_aligned_span_gets_decade_label() {
+        let hist: Vec<(i32, u32)> = (1990..=1999).map(|y| (y, 1)).collect();
+        let bins = bin_years(&hist, 10, 32);
+        assert_eq!(bins.len(), 1);
+        assert_eq!(bins[0].label, "1990s");
+        assert_eq!(bins[0].count, 10);
+    }
+
+    #[test]
+    fn sparse_years_merge_into_wide_bin() {
+        let bins = bin_years(&[(1930, 1), (1945, 2), (1969, 3)], 10, 32);
+        // trailing under-target merges into the (only) prior bin —
+        // which itself is the only entry here since we never hit
+        // target_min. single emit covers the full span.
+        assert_eq!(bins.len(), 1);
+        assert_eq!(bins[0].min_year, Some(1930));
+        assert_eq!(bins[0].max_year, Some(1969));
+        assert_eq!(bins[0].label, "1930-1969");
+        assert_eq!(bins[0].count, 6);
+    }
+
+    #[test]
+    fn singleton_flushes_in_progress_bin_first() {
+        let hist = vec![(1990, 5), (1991, 4), (1995, 100)];
+        let bins = bin_years(&hist, 10, 32);
+        // 1990+1991 (under target_min=10, only 9) → flushed-via-merge
+        // into the singleton's leftover-merge path? actually: the
+        // 1995 singleton emits first AFTER flushing the in-progress
+        // bin as its own span. so we get 2 bins: 1990-1991 then 1995.
+        assert_eq!(bins.len(), 2);
+        assert_eq!(bins[0].label, "1990-1991");
+        assert_eq!(bins[0].count, 9);
+        assert_eq!(bins[1].label, "1995");
+        assert_eq!(bins[1].count, 100);
+    }
 }
 
 /// batched taxon lookup for many album ids. for each requested id
