@@ -1346,4 +1346,115 @@ export class RemoteMusicDataSource implements MusicDataSource {
     }
     return result.data as import("../types").MbReleaseDetail;
   }
+
+  // ---------------------------------------------------------------------
+  // phase 11 / phase 9 — cross-remote walk routes.
+  // thin wrappers around the new offal endpoints; the graph view uses
+  // these for lazy walk-expansion when the user clicks on an entity
+  // or drills into a (kind, value) hub.
+
+  // list albums belonging to a (kind, value_norm) taxon on this remote.
+  // returns null on failure (caller decides whether to retry / surface).
+  async albumsByValue(params: {
+    kind: string;
+    value_norm: string;
+    limit?: number | null;
+    offset?: number | null;
+  }): Promise<import("freqhole-api-client").AlbumsByValueResponse | null> {
+    const result = await (await this.getClient()).music.albumsByValue({
+      kind: params.kind,
+      value_norm: params.value_norm,
+      limit: params.limit ?? null,
+      offset: params.offset ?? null,
+    });
+    if (!result.success) {
+      await this.handleFailedRequest(result);
+      return null;
+    }
+    await this.handleSuccessfulRequest();
+    return result.data;
+  }
+
+  // batched lookup: fetch taxons for many entities in one round trip.
+  // entity_kind is "album" or "artist".
+  async entityTaxonsBatch(params: {
+    entity_kind: "album" | "artist";
+    entity_ids: string[];
+  }): Promise<import("freqhole-api-client").EntityTaxonsBatchResponse | null> {
+    if (params.entity_ids.length === 0) {
+      return { entity_kind: params.entity_kind, entries: [] };
+    }
+    const result = await (await this.getClient()).music.entityTaxonsBatch({
+      entity_kind: params.entity_kind,
+      entity_ids: params.entity_ids,
+    });
+    if (!result.success) {
+      await this.handleFailedRequest(result);
+      return null;
+    }
+    await this.handleSuccessfulRequest();
+    return result.data;
+  }
+
+  // confirm which entities on this remote match a list of merged keys
+  // (lowercased "artist::title" for albums, "artist" for artists).
+  // used by popover chip rendering and cross-remote dedup confirmation.
+  async findByMergedKey(params: {
+    entity_kind: "album" | "artist";
+    keys: string[];
+  }): Promise<import("freqhole-api-client").FindByMergedKeyResponse | null> {
+    if (params.keys.length === 0) {
+      return { entity_kind: params.entity_kind, matches: [] };
+    }
+    const result = await (await this.getClient()).music.findByMergedKey({
+      entity_kind: params.entity_kind,
+      keys: params.keys,
+    });
+    if (!result.success) {
+      await this.handleFailedRequest(result);
+      return null;
+    }
+    await this.handleSuccessfulRequest();
+    return result.data;
+  }
+
+  // ---------------------------------------------------------------------
+  // phase 22 — synthesized first-order hubs.
+  // these correspond to server-computed clusters that don't map to a
+  // stored taxon (era bins, recently-added). currently mostly stubs
+  // on the backend; client wrappers exist so hub-rendering can ship
+  // and degrade gracefully when the server returns empty payloads.
+
+  // greedy decade-aware year binning for the "era" hub. server may
+  // return an empty `bins` vec while the heuristic is still pending.
+  async eraBins(
+    params: { target_min?: number | null; target_max?: number | null } = {},
+  ): Promise<import("freqhole-api-client").EraBinsResponse | null> {
+    const result = await (await this.getClient()).music.eraBins({
+      target_min: params.target_min ?? null,
+      target_max: params.target_max ?? null,
+    });
+    if (!result.success) {
+      await this.handleFailedRequest(result);
+      return null;
+    }
+    await this.handleSuccessfulRequest();
+    return result.data;
+  }
+
+  // top-N most recently added albums (enriched: includes artist +
+  // images + favorites). default 32, server-capped at 256.
+  async recentlyAddedAlbums(
+    params: { limit?: number | null } = {},
+  ): Promise<import("freqhole-api-client").RecentlyAddedAlbumsResponse | null> {
+    const result = await (await this.getClient()).music.recentlyAddedAlbums({
+      limit: params.limit ?? null,
+    });
+    if (!result.success) {
+      await this.handleFailedRequest(result);
+      return null;
+    }
+    await this.handleSuccessfulRequest();
+    return result.data;
+  }
 }

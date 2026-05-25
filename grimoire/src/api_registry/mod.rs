@@ -259,7 +259,8 @@ pub mod type_registry {
     };
     use crate::admin_dispatch::types::peers::{
         AdminPeerNodeSummary, AdminPeerSummary, AdminPeersAllowRequest, AdminPeersAllowResponse,
-        AdminPeersListAllRequest, AdminPeersListForUserRequest, AdminPeersRemoveRequest,
+        AdminPeersHardDeleteRequest, AdminPeersHardDeleteResponse, AdminPeersListAllRequest,
+        AdminPeersListForUserRequest, AdminPeersReassignUserRequest, AdminPeersRemoveRequest,
         AdminPeersRestoreRequest,
     };
     use crate::admin_dispatch::types::radio::{
@@ -270,9 +271,10 @@ pub mod type_registry {
         RadioSupervisorStationRequest, RadioSupervisorStatusResponse,
     };
     use crate::admin_dispatch::types::users::{
-        AdminAccountLinkResponse, AdminUserSummary, AdminUsersDeleteRequest,
-        AdminUsersGenerateAccountLinkRequest, AdminUsersGetRequest, AdminUsersHardDeleteRequest,
-        AdminUsersListRequest, AdminUsersRestoreRequest, AdminUsersUpdateRoleRequest,
+        AdminAccountLinkResponse, AdminUserSummary, AdminUsersAddPeerNodeRequest,
+        AdminUsersDeleteRequest, AdminUsersGenerateAccountLinkRequest, AdminUsersGetRequest,
+        AdminUsersHardDeleteRequest, AdminUsersListRequest, AdminUsersRemovePeerNodeRequest,
+        AdminUsersRestoreRequest, AdminUsersUpdateRoleRequest,
     };
 
     // blob metadata request types
@@ -296,6 +298,15 @@ pub mod type_registry {
         ListRelatedArtistsResponse, RelatedArtistApi, RelatedArtistsBatchEntry,
         SetRelatedArtistBandcampRequest,
     };
+
+    // cross-remote relations / walk (phase 11)
+    use crate::offal::music::relations::{
+        AlbumsByValueRequest, AlbumsByValueResponse, EntityTaxonsBatchRequest,
+        EntityTaxonsBatchResponse, EntityTaxonsEntry, EraBinsRequest, EraBinsResponse,
+        FindByMergedKeyRequest, FindByMergedKeyResponse, MergedKeyMatch,
+        RecentlyAddedAlbumsRequest, RecentlyAddedAlbumsResponse,
+    };
+    use crate::music::entities::relations::EraBin;
 
     // radio public types
     use crate::offal::public::radio::{
@@ -457,6 +468,36 @@ pub mod type_registry {
         registered.insert("ListRelatedArtistsBatchResponse".to_string());
         gen.add_schema::<SetRelatedArtistBandcampRequest>("SetRelatedArtistBandcampRequest");
         registered.insert("SetRelatedArtistBandcampRequest".to_string());
+
+        // cross-remote relations / walk (phase 11)
+        gen.add_schema::<AlbumsByValueRequest>("AlbumsByValueRequest");
+        registered.insert("AlbumsByValueRequest".to_string());
+        gen.add_schema::<AlbumsByValueResponse>("AlbumsByValueResponse");
+        registered.insert("AlbumsByValueResponse".to_string());
+        gen.add_schema::<EntityTaxonsEntry>("EntityTaxonsEntry");
+        registered.insert("EntityTaxonsEntry".to_string());
+        gen.add_schema::<EntityTaxonsBatchRequest>("EntityTaxonsBatchRequest");
+        registered.insert("EntityTaxonsBatchRequest".to_string());
+        gen.add_schema::<EntityTaxonsBatchResponse>("EntityTaxonsBatchResponse");
+        registered.insert("EntityTaxonsBatchResponse".to_string());
+        gen.add_schema::<MergedKeyMatch>("MergedKeyMatch");
+        registered.insert("MergedKeyMatch".to_string());
+        gen.add_schema::<FindByMergedKeyRequest>("FindByMergedKeyRequest");
+        registered.insert("FindByMergedKeyRequest".to_string());
+        gen.add_schema::<FindByMergedKeyResponse>("FindByMergedKeyResponse");
+        registered.insert("FindByMergedKeyResponse".to_string());
+
+        // phase 22: synthesized first-order hubs (era bins, recently added)
+        gen.add_schema::<EraBin>("EraBin");
+        registered.insert("EraBin".to_string());
+        gen.add_schema::<EraBinsRequest>("EraBinsRequest");
+        registered.insert("EraBinsRequest".to_string());
+        gen.add_schema::<EraBinsResponse>("EraBinsResponse");
+        registered.insert("EraBinsResponse".to_string());
+        gen.add_schema::<RecentlyAddedAlbumsRequest>("RecentlyAddedAlbumsRequest");
+        registered.insert("RecentlyAddedAlbumsRequest".to_string());
+        gen.add_schema::<RecentlyAddedAlbumsResponse>("RecentlyAddedAlbumsResponse");
+        registered.insert("RecentlyAddedAlbumsResponse".to_string());
 
         gen.add_schema::<UpdateAlbumRequest>("UpdateAlbumRequest");
         registered.insert("UpdateAlbumRequest".to_string());
@@ -1198,6 +1239,10 @@ pub mod type_registry {
         registered.insert("AdminUsersGenerateAccountLinkRequest".to_string());
         gen.add_schema::<AdminAccountLinkResponse>("AdminAccountLinkResponse");
         registered.insert("AdminAccountLinkResponse".to_string());
+        gen.add_schema::<AdminUsersAddPeerNodeRequest>("AdminUsersAddPeerNodeRequest");
+        registered.insert("AdminUsersAddPeerNodeRequest".to_string());
+        gen.add_schema::<AdminUsersRemovePeerNodeRequest>("AdminUsersRemovePeerNodeRequest");
+        registered.insert("AdminUsersRemovePeerNodeRequest".to_string());
 
         // admin dispatch: invites
         gen.add_schema::<AdminInviteInfo>("AdminInviteInfo");
@@ -1234,6 +1279,12 @@ pub mod type_registry {
         registered.insert("AdminPeersAllowRequest".to_string());
         gen.add_schema::<AdminPeersAllowResponse>("AdminPeersAllowResponse");
         registered.insert("AdminPeersAllowResponse".to_string());
+        gen.add_schema::<AdminPeersHardDeleteRequest>("AdminPeersHardDeleteRequest");
+        registered.insert("AdminPeersHardDeleteRequest".to_string());
+        gen.add_schema::<AdminPeersHardDeleteResponse>("AdminPeersHardDeleteResponse");
+        registered.insert("AdminPeersHardDeleteResponse".to_string());
+        gen.add_schema::<AdminPeersReassignUserRequest>("AdminPeersReassignUserRequest");
+        registered.insert("AdminPeersReassignUserRequest".to_string());
 
         // radio admin types
         gen.add_schema::<RadioStation>("RadioStation");

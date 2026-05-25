@@ -59,8 +59,20 @@ export interface AlbumNodeData {
   rating?: number | null;
   isFavorite?: boolean;
   /** which remote contributed this album. null = mocked / single-remote
-   *  story. set by the adapter so multi-remote views can disambiguate. */
+   *  story. set by the adapter so multi-remote views can disambiguate.
+   *
+   *  @deprecated since phase 8 — prefer `sourceRemoteIds`, which
+   *  carries every remote that contributed to a merged entity. kept
+   *  as a back-compat alias: when only one remote contributes, this
+   *  equals `sourceRemoteIds[0]`. for merged albums it is set to the
+   *  first contributor and should not be used for membership checks. */
   sourceRemoteId?: string | null;
+  /** every remote that contributed to this (potentially merged) album.
+   *  for unmerged adapter output this is `[opts.remoteId]`. for merged
+   *  entities (produced by the graph subview) this unions across all
+   *  contributors. unset on legacy mocked data. use
+   *  `belongsToRemote(node, remoteId)` for membership checks. */
+  sourceRemoteIds?: string[];
 }
 
 export interface TagRef {
@@ -129,6 +141,12 @@ export interface ArtistNodeData {
    *  view layer from the favorites feed; relations.ts reads it to
    *  include artists in the `favorite` chain alongside albums. */
   isFavorite?: boolean;
+
+  /** every remote that contributed to this (potentially merged) artist.
+   *  unioned across the contributing albums by `deriveArtistNodes`.
+   *  unset on legacy mocked data. use `belongsToRemote(node, remoteId)`
+   *  for membership checks. */
+  sourceRemoteIds?: string[];
 }
 
 /** node union as carried through the graph pipeline. */
@@ -144,6 +162,17 @@ export type HubOrArtistNodeData = ArtistNodeData;
  *  AlbumNodeData rows that pre-date the discriminator. */
 export function nodeKind(n: GraphNodeData): NodeKind {
   return (n as ArtistNodeData).kind === "artist" ? "artist" : "album";
+}
+
+/** membership check used by per-remote filters. handles both the
+ *  modern `sourceRemoteIds` field and the legacy single-id field. */
+export function belongsToRemote(
+  n: AlbumNodeData | ArtistNodeData,
+  remoteId: string
+): boolean {
+  const ids = n.sourceRemoteIds;
+  if (ids && ids.length > 0) return ids.includes(remoteId);
+  return (n as AlbumNodeData).sourceRemoteId === remoteId;
 }
 
 /** node as carried through d3-force; gets mutable x/y/vx/vy assigned by sim */

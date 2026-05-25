@@ -27,6 +27,7 @@ import { useLibraryAlbumsQuery } from "../../queries/useLibraryAlbums";
 import { useTopNavSlots } from "../../../app/shell/topNavSlots";
 import { createGraphLibraryView } from "./createGraphLibraryView";
 import { adaptAlbum } from "./adaptAlbum";
+import { adaptAlbumQueryResult } from "./adaptAlbumQueryResult";
 import { RemoteMusicDataSource } from "../../../music/data/remote/remoteSource";
 import { addToQueue, playQueue } from "../../../music/services/queue/queue";
 import { routes } from "../../../music/utils/routing";
@@ -41,6 +42,7 @@ import type {
   GraphNodeData,
   RelationKindLike,
 } from "../../../components/graph/types";
+import { belongsToRemote } from "../../../components/graph/types";
 import { deriveArtistNodes } from "./deriveArtistNodes";
 import { useRelatedArtistsByIds } from "../../queries/useRelatedArtistsByIds";
 import { RELATION_LABEL } from "../../../components/graph/relations";
@@ -375,11 +377,159 @@ function Inner(props: {
     });
   });
 
+  // ---- phase 9: walk-expansion state ----------------------------------
+  //
+  // each value-hub (`hub_relation_value::<kind>::<value>`) tracks
+  // which remotes have been fetched, which are in flight, and the
+  // merged set of entity ids contributed so far. used by both the
+  // scaffold-drill (entering entity-tier loads any selected remote
+  // not yet present in the hub) and — future — the entity-click walk.
+  type HubLoadState = {
+    loadedRemotes: Set<string>;
+    pendingRemotes: Set<string>;
+    entityIds: Set<string>;
+  };
+  const [hubLoadState, setHubLoadState] = createSignal<Map<string, HubLoadState>>(new Map());
+
+  // per-remote walk-pulled album buckets. parallels `nodesByRemote`
+  // but is append-only across hub fetches — entries here may also
+  // exist in `nodesByRemote` once a page-loader sweep reaches them
+  // (the `nodes()` union dedupes by id, and `mergedAlbums` collapses
+  // by merge-key).
+  const [walkAlbumsByRemote, setWalkAlbumsByRemote] = createSignal<Map<string, AlbumNodeData[]>>(
+    new Map()
+  );
+
   const nodes = createMemo<AlbumNodeData[]>(() => {
     const out: AlbumNodeData[] = [];
-    for (const list of nodesByRemote().values()) out.push(...list);
+    const seen = new Set<string>();
+    // page-loaded albums first — they take precedence over walk-pulled
+    // copies (they're more likely to be fresh, since the page loader
+    // re-runs on refresh while walk results are append-only).
+    for (const list of nodesByRemote().values()) {
+      for (const n of list) {
+        if (seen.has(n.id)) continue;
+        seen.add(n.id);
+        out.push(n);
+      }
+    }
+    // walk-pulled albums (phase 9). these come from
+    // `ensureHubLoaded` calling the `albums_by_value` offal route
+    // and surface entries from selected remotes whose page sweep
+    // hadn't reached this album yet. `mergedAlbums` will still merge
+    // them with any page-loaded sibling by album-merge-key, so a
+    // duplicate from a different remote unions correctly.
+    for (const list of walkAlbumsByRemote().values()) {
+      for (const n of list) {
+        if (seen.has(n.id)) continue;
+        seen.add(n.id);
+        out.push(n);
+      }
+    }
     return out;
   });
+
+  const appendWalkAlbums = (remoteId: string, incoming: AlbumNodeData[]) => {
+    if (incoming.length === 0) return;
+    setWalkAlbumsByRemote((prev) => {
+      const cur = prev.get(remoteId) ?? [];
+      const seen = new Set(cur.map((n) => n.id));
+      const append: AlbumNodeData[] = [];
+      for (const n of incoming) if (!seen.has(n.id)) append.push(n);
+      if (append.length === 0) return prev;
+      const next = new Map(prev);
+      next.set(remoteId, [...cur, ...append]);
+      return next;
+    });
+  };
+
+  // mutate hub state in one go without race-y read-modify-write.
+  const patchHubState = (hubId: string, patch: (s: HubLoadState) => void) => {
+    setHubLoadState((prev) => {
+      const next = new Map(prev);
+      const cur = next.get(hubId) ?? {
+        loadedRemotes: new Set<string>(),
+        pendingRemotes: new Set<string>(),
+        entityIds: new Set<string>(),
+      };
+      // shallow-clone the inner sets so solid sees a fresh ref.
+      const updated: HubLoadState = {
+        loadedRemotes: new Set(cur.loadedRemotes),
+        pendingRemotes: new Set(cur.pendingRemotes),
+        entityIds: new Set(cur.entityIds),
+      };
+      patch(updated);
+      next.set(hubId, updated);
+      return next;
+    });
+  };
+
+  /** kick off per-remote fetches for any remote in `selected` that's
+   *  not already loaded or in flight for this hub. resolves when all
+   *  newly-spawned fetches settle (so callers can `void` it). */
+  const ensureHubLoaded = async (
+    kind: RelationKindLike,
+    valueNorm: string,
+    selected: Iterable<string>
+  ): Promise<void> => {
+    const hubId = relationValueHubId(kind, valueNorm);
+    const known = hubLoadState().get(hubId);
+    const loaded = known?.loadedRemotes ?? new Set<string>();
+    const pending = known?.pendingRemotes ?? new Set<string>();
+    const toFetch: string[] = [];
+    for (const id of selected) {
+      if (loaded.has(id) || pending.has(id)) continue;
+      toFetch.push(id);
+    }
+    if (toFetch.length === 0) return;
+
+    const all = props.remotes();
+    const fetchOne = async (remoteId: string) => {
+      const remote = all.find((r) => r.remote_id === remoteId);
+      if (!remote) {
+        patchHubState(hubId, (s) => {
+          s.pendingRemotes.delete(remoteId);
+        });
+        return;
+      }
+      const ds = new RemoteMusicDataSource(remote);
+      try {
+        // chunky cap — the offal route enforces its own ceiling, and
+        // the graph degrades fine if a sparse hub returns fewer rows.
+        const resp = await ds.albumsByValue({
+          kind: String(kind),
+          value_norm: valueNorm,
+          limit: 500,
+          offset: 0,
+        });
+        if (!resp) {
+          patchHubState(hubId, (s) => {
+            s.pendingRemotes.delete(remoteId);
+          });
+          return;
+        }
+        const adapted = resp.albums.map((a) => adaptAlbumQueryResult(a, { remoteId }));
+        appendWalkAlbums(remoteId, adapted);
+        patchHubState(hubId, (s) => {
+          s.pendingRemotes.delete(remoteId);
+          s.loadedRemotes.add(remoteId);
+          for (const n of adapted) s.entityIds.add(n.id);
+        });
+      } catch (err) {
+        console.warn("[ensureHubLoaded] fetch failed", { hubId, remoteId, err });
+        patchHubState(hubId, (s) => {
+          s.pendingRemotes.delete(remoteId);
+        });
+      }
+    };
+
+    // mark everything pending in one batch so a re-entrant call sees
+    // them and skips, then fire fetches in parallel.
+    patchHubState(hubId, (s) => {
+      for (const id of toFetch) s.pendingRemotes.add(id);
+    });
+    await Promise.all(toFetch.map((id) => fetchOne(id)));
+  };
 
   // ---- tag filter ------------------------------------------------------
   // historical: the topnav's built-in tag picker (button + selected
@@ -495,6 +645,13 @@ function Inner(props: {
     // entity tier the per-remote scope disappears.
     setActiveRemoteId(null);
     setActiveRelationValueNorm(valueNorm);
+    // phase 9: drilling into a (kind, value) hub kicks off cross-
+    // remote walk-expansion so the hub gets populated from every
+    // selected remote, not just the ones whose page sweep has
+    // already surfaced a matching album.
+    if (valueNorm) {
+      void ensureHubLoaded(kind, valueNorm, selectedRemoteIds());
+    }
   };
 
   const mergedAlbums = createMemo<AlbumNodeData[]>(() => {
@@ -515,6 +672,7 @@ function Inner(props: {
       const tags = new Map<string, number>();
       const labels = new Map<string, number>();
       const eras = new Map<string, number>();
+      const sourceRemoteIds = new Set<string>();
       let hasFavorite = false;
       let trackCount = 0;
       let totalDurationSec = 0;
@@ -529,6 +687,13 @@ function Inner(props: {
         if (item.isFavorite) hasFavorite = true;
         trackCount = Math.max(trackCount, item.trackCount ?? 0);
         totalDurationSec = Math.max(totalDurationSec, item.totalDurationSec ?? 0);
+        // union contributing remotes — prefer modern field, fall back
+        // to legacy single id.
+        if (item.sourceRemoteIds && item.sourceRemoteIds.length > 0) {
+          for (const r of item.sourceRemoteIds) sourceRemoteIds.add(r);
+        } else if (item.sourceRemoteId) {
+          sourceRemoteIds.add(item.sourceRemoteId);
+        }
       }
 
       const topCountValue = (m: Map<string, number>): string | null => {
@@ -556,6 +721,11 @@ function Inner(props: {
         isFavorite: hasFavorite,
         trackCount,
         totalDurationSec,
+        // keep legacy field as the first contributor for back-compat;
+        // membership checks should use `belongsToRemote` against the
+        // unioned set instead.
+        sourceRemoteId: [...sourceRemoteIds][0] ?? base.sourceRemoteId ?? null,
+        sourceRemoteIds: [...sourceRemoteIds],
       });
     }
     return merged;
@@ -579,9 +749,9 @@ function Inner(props: {
   const remoteHubNodes = createMemo<ArtistNodeData[]>(() => {
     const countsByRemote = new Map<string, number>();
     for (const n of visibleNodes()) {
-      const id = n.sourceRemoteId;
-      if (!id) continue;
-      countsByRemote.set(id, (countsByRemote.get(id) ?? 0) + 1);
+      // a merged node contributes to every remote in its union.
+      const ids = n.sourceRemoteIds ?? (n.sourceRemoteId ? [n.sourceRemoteId] : []);
+      for (const id of ids) countsByRemote.set(id, (countsByRemote.get(id) ?? 0) + 1);
     }
     return props.remotes().map((r) => ({
       id: remoteHubId(r.remote_id),
@@ -612,7 +782,7 @@ function Inner(props: {
     for (const remote of props.remotes()) {
       if (!selIds.has(remote.remote_id)) continue;
       const remoteId = remote.remote_id;
-      const albumsForRemote = mergedAlbums().filter((a) => a.sourceRemoteId === remoteId);
+      const albumsForRemote = mergedAlbums().filter((a) => belongsToRemote(a, remoteId));
       // ArtistNodeData doesn't carry sourceRemoteId directly — derive
       // the per-remote artist set from the artistIds present on
       // albums sourced from this remote.
@@ -705,7 +875,7 @@ function Inner(props: {
       if (!remoteId) return null;
       const allowed = new Set<string>();
       for (const n of mergedAlbums()) {
-        if (n.sourceRemoteId !== remoteId) continue;
+        if (!belongsToRemote(n, remoteId)) continue;
         for (const v of relationValuesForNode(kind, n)) allowed.add(v);
       }
       return allowed;
@@ -944,7 +1114,7 @@ function Inner(props: {
         // values this remote contributes membership for.
         const remoteValues = new Set<string>();
         for (const n of mergedAlbums()) {
-          if (n.sourceRemoteId !== rid) continue;
+          if (!belongsToRemote(n, rid)) continue;
           for (const v of relationValuesForNode(active, n)) remoteValues.add(v);
         }
         for (const valueHub of valueHubs) {
@@ -981,7 +1151,7 @@ function Inner(props: {
         if (!hub) continue;
         const remoteValues = new Set<string>();
         for (const n of mergedAlbums()) {
-          if (n.sourceRemoteId !== rid) continue;
+          if (!belongsToRemote(n, rid)) continue;
           for (const v of relationValuesForNode(active, n)) remoteValues.add(v);
         }
         if (!remoteValues.has(activeValueHub.name)) continue;
@@ -1225,10 +1395,17 @@ function Inner(props: {
   // is mid-fetch (initial load OR auto-paging OR manual refetch)
   // gets a comet-trail spinner around its silhouette. mirrors the
   // player-bar play/pause loading ring visual.
+  //
+  // phase 9 addendum: also light up any value hub with in-flight
+  // walk-expansion fetches so the user sees feedback while cross-
+  // remote membership is being pulled in.
   const loadingNodeIds = createMemo<Set<string>>(() => {
     const out = new Set<string>();
     for (const [remoteId, fetching] of fetchingByRemote()) {
       if (fetching) out.add(remoteHubId(remoteId));
+    }
+    for (const [hubId, state] of hubLoadState()) {
+      if (state.pendingRemotes.size > 0) out.add(hubId);
     }
     return out;
   });

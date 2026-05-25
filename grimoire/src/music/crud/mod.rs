@@ -78,7 +78,16 @@ pub use query::{
     query_artists,
     query_songs,
     search_songs,
+    // shared view-row + mapper, used by relations.rs (phase 11) to
+    // reuse the same enriched (album + artist + favorites) shape as
+    // `query_albums` for the cross-remote walk routes.
+    AlbumViewRow,
 };
+
+// re-export user-prefs apply helpers — relations.rs (phase 11) needs
+// `apply_user_preferences_albums` to layer favorites/ratings onto
+// walk-fetched albums.
+pub use user_prefs::apply_user_preferences_albums;
 
 // re-export favorites query operations
 pub use query_favorites::query_favorites;

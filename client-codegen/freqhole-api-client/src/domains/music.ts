@@ -1502,6 +1502,89 @@ export function createMusicMethods(call: CallFn) {
         params,
       );
     },
+
+    // cross-remote walk routes (phase 11). all POST. used by the graph
+    // viz's lazy walk-expansion to fetch membership / taxons / merged
+    // entities in a single round trip per (remote, hub) pair.
+
+    // list albums belonging to a (kind, value_norm) taxon. supports
+    // optional limit + offset for paging large clusters.
+    albumsByValue: (params: s.AlbumsByValueRequest) => {
+      return call(
+        "music",
+        "albums_by_value",
+        routes.music.albums_by_value.resp,
+        routes.music.albums_by_value.req,
+        routes.music.albums_by_value.method,
+        routes.music.albums_by_value.path,
+        params,
+      );
+    },
+
+    // batched lookup: fetch taxons for many entities (album OR artist)
+    // in one round trip. avoids N+1 when walk-expanding a cluster.
+    entityTaxonsBatch: (params: s.EntityTaxonsBatchRequest) => {
+      return call(
+        "music",
+        "entity_taxons_batch",
+        routes.music.entity_taxons_batch.resp,
+        routes.music.entity_taxons_batch.req,
+        routes.music.entity_taxons_batch.method,
+        routes.music.entity_taxons_batch.path,
+        params,
+      );
+    },
+
+    // confirm which entities on this remote match a list of merged
+    // keys (lowercased "artist::title" / "artist"). used for
+    // per-remote chip rendering in popovers and for cross-remote
+    // dedup validation.
+    findByMergedKey: (params: s.FindByMergedKeyRequest) => {
+      return call(
+        "music",
+        "find_by_merged_key",
+        routes.music.find_by_merged_key.resp,
+        routes.music.find_by_merged_key.req,
+        routes.music.find_by_merged_key.method,
+        routes.music.find_by_merged_key.path,
+        params,
+      );
+    },
+
+    // phase 22: synthesized first-order hubs. these are server-side
+    // computed clusters that don't correspond to a stored taxon —
+    // currently stubs (era_bins returns []), but the routes are
+    // wired so the client can render hub nodes + degrade gracefully.
+
+    // greedy decade-aware year binning for the "era" hub. server
+    // returns empty bins until the heuristic ships; clients should
+    // treat zero bins as "feature not yet available".
+    eraBins: (params: s.EraBinsRequest) => {
+      return call(
+        "music",
+        "era_bins",
+        routes.music.era_bins.resp,
+        routes.music.era_bins.req,
+        routes.music.era_bins.method,
+        routes.music.era_bins.path,
+        params,
+      );
+    },
+
+    // top-N most recently added albums, ordered by album_created_at
+    // desc. enriched with artist + images + favorites so the graph
+    // can render the hub's child albums without follow-up fetches.
+    recentlyAddedAlbums: (params: s.RecentlyAddedAlbumsRequest) => {
+      return call(
+        "music",
+        "recently_added_albums",
+        routes.music.recently_added_albums.resp,
+        routes.music.recently_added_albums.req,
+        routes.music.recently_added_albums.method,
+        routes.music.recently_added_albums.path,
+        params,
+      );
+    },
   };
 }
 

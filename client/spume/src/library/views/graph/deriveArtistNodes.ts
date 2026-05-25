@@ -45,6 +45,7 @@ interface ArtistAccum {
   tags: Map<string, number>; // label → max weight
   labelCounts: Map<string, number>;
   eraCounts: Map<string, number>;
+  sourceRemoteIds: Set<string>;
 }
 
 function pickMostCommon(m: Map<string, number>): string | null {
@@ -80,6 +81,7 @@ export function deriveArtistNodes(
         tags: new Map(),
         labelCounts: new Map(),
         eraCounts: new Map(),
+        sourceRemoteIds: new Set(),
       };
       byArtist.set(a.artistId, acc);
     }
@@ -97,6 +99,13 @@ export function deriveArtistNodes(
     }
     if (a.label) acc.labelCounts.set(a.label, (acc.labelCounts.get(a.label) ?? 0) + 1);
     if (a.era) acc.eraCounts.set(a.era, (acc.eraCounts.get(a.era) ?? 0) + 1);
+    // union contributing remotes — prefer modern `sourceRemoteIds`,
+    // fall back to the legacy single id for back-compat.
+    if (a.sourceRemoteIds && a.sourceRemoteIds.length > 0) {
+      for (const r of a.sourceRemoteIds) acc.sourceRemoteIds.add(r);
+    } else if (a.sourceRemoteId) {
+      acc.sourceRemoteIds.add(a.sourceRemoteId);
+    }
   }
 
   const out: ArtistNodeData[] = [];
@@ -119,6 +128,7 @@ export function deriveArtistNodes(
       label: pickMostCommon(acc.labelCounts),
       era: pickMostCommon(acc.eraCounts),
       isFavorite: favoriteArtistIds?.has(acc.artistId) ?? false,
+      sourceRemoteIds: Array.from(acc.sourceRemoteIds),
     });
   }
   // stable order by name for deterministic id-sorted edge building

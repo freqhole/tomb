@@ -86,6 +86,7 @@ export function adaptAlbum(summary: AlbumSummary, opts: AdaptAlbumOpts): AlbumNo
     rating: summary.user_rating ?? null,
     isFavorite: summary.is_favorite ?? false,
     sourceRemoteId: opts.remoteId,
+    sourceRemoteIds: [opts.remoteId],
   };
 }
 

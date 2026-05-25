@@ -12,6 +12,7 @@ pub mod jobs;
 pub mod playlists;
 pub mod ratings;
 pub mod related_artists;
+pub mod relations;
 pub mod search;
 pub mod sessions;
 pub mod songs;
@@ -35,6 +36,7 @@ pub fn routes() -> Vec<RouteInfo> {
     all.extend_from_slice(playlists::ROUTES);
     all.extend_from_slice(ratings::ROUTES);
     all.extend_from_slice(related_artists::ROUTES);
+    all.extend_from_slice(relations::ROUTES);
     all.extend_from_slice(search::ROUTES);
     all.extend_from_slice(sessions::ROUTES);
     all.extend_from_slice(songs::ROUTES);
@@ -127,6 +129,23 @@ pub async fn dispatch(
         }
         "/api/related-artists/set-bandcamp" => {
             Some(related_artists::set_bandcamp(caller, body.clone()).await)
+        }
+
+        // cross-remote relations/walk (phase 11)
+        "/api/music/relations/albums-by-value" => {
+            Some(relations::albums_by_value(caller, body.clone()).await)
+        }
+        "/api/music/entities/taxons" => {
+            Some(relations::entity_taxons_batch(caller, body.clone()).await)
+        }
+        "/api/music/relations/by-merged-key" => {
+            Some(relations::find_by_merged_key(caller, body.clone()).await)
+        }
+        "/api/music/relations/era-bins" => {
+            Some(relations::era_bins(caller, body.clone()).await)
+        }
+        "/api/music/relations/recently-added-albums" => {
+            Some(relations::recently_added_albums(caller, body.clone()).await)
         }
 
         // favorites

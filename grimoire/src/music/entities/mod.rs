@@ -5,6 +5,7 @@ pub mod albums;
 pub mod artists;
 pub mod playlists;
 pub mod related_artists;
+pub mod relations;
 pub mod songs;
 pub mod tags;
 pub mod taxonomy;

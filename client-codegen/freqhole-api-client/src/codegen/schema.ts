@@ -156,6 +156,16 @@ export const AdminPeersAllowResponseSchema = z.object({
 });
 export type AdminPeersAllowResponse = z.infer<typeof AdminPeersAllowResponseSchema>;
 
+export const AdminPeersHardDeleteRequestSchema = z.object({
+  node_id: z.string()
+});
+export type AdminPeersHardDeleteRequest = z.infer<typeof AdminPeersHardDeleteRequestSchema>;
+
+export const AdminPeersHardDeleteResponseSchema = z.object({
+  deleted_rows: z.number()
+});
+export type AdminPeersHardDeleteResponse = z.infer<typeof AdminPeersHardDeleteResponseSchema>;
+
 export const AdminPeersListAllRequestSchema = z.object({
   include_deleted: z.boolean().nullish()
 });
@@ -166,6 +176,12 @@ export const AdminPeersListForUserRequestSchema = z.object({
   include_deleted: z.boolean().nullish()
 });
 export type AdminPeersListForUserRequest = z.infer<typeof AdminPeersListForUserRequestSchema>;
+
+export const AdminPeersReassignUserRequestSchema = z.object({
+  node_id: z.string(),
+  user_id: z.string()
+});
+export type AdminPeersReassignUserRequest = z.infer<typeof AdminPeersReassignUserRequestSchema>;
 
 export const AdminPeersRemoveRequestSchema = z.object({
   user_id: z.string(),
@@ -189,6 +205,13 @@ export const AdminUserSummarySchema = z.object({
   haruspex_user_id: z.string().nullish()
 });
 export type AdminUserSummary = z.infer<typeof AdminUserSummarySchema>;
+
+export const AdminUsersAddPeerNodeRequestSchema = z.object({
+  user_id: z.string(),
+  node_id: z.string(),
+  instance_name: z.string().nullish()
+});
+export type AdminUsersAddPeerNodeRequest = z.infer<typeof AdminUsersAddPeerNodeRequestSchema>;
 
 export const AdminUsersDeleteRequestSchema = z.object({
   user_id: z.string()
@@ -218,6 +241,12 @@ export const AdminUsersListRequestSchema = z.object({
   role: z.string().nullish()
 });
 export type AdminUsersListRequest = z.infer<typeof AdminUsersListRequestSchema>;
+
+export const AdminUsersRemovePeerNodeRequestSchema = z.object({
+  user_id: z.string(),
+  node_id: z.string()
+});
+export type AdminUsersRemovePeerNodeRequest = z.infer<typeof AdminUsersRemovePeerNodeRequestSchema>;
 
 export const AdminUsersRestoreRequestSchema = z.object({
   user_id: z.string()
@@ -612,6 +641,99 @@ export const AlbumTaxonLinkInputSchema = z.object({
   confidence: z.number().nullish()
 });
 export type AlbumTaxonLinkInput = z.infer<typeof AlbumTaxonLinkInputSchema>;
+
+export const AlbumsByValueRequestSchema = z.object({
+  kind: z.string(),
+  value_norm: z.string(),
+  limit: z.number().nullish(),
+  offset: z.number().nullish()
+});
+export type AlbumsByValueRequest = z.infer<typeof AlbumsByValueRequestSchema>;
+
+export const AlbumsByValueResponseSchema = z.object({
+  kind: z.string(),
+  value_norm: z.string(),
+  albums: z.array(z.object({
+  album: z.object({
+  id: z.string(),
+  title: z.string(),
+  album_type: z.string(),
+  release_date: z.string().nullish(),
+  label: z.string().nullish(),
+  genres: z.array(z.object({
+  id: z.string(),
+  name: z.string()
+})).nullish(),
+  taxons: z.array(z.object({
+  id: z.string(),
+  kind_slug: z.string(),
+  label: z.string()
+})).nullish(),
+  images: z.array(z.object({
+  blob_id: z.string(),
+  is_primary: z.number(),
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+})).nullish(),
+  urls: z.array(z.object({
+  id: z.string().nullish(),
+  name: z.string().nullish(),
+  url: z.string()
+})).nullish(),
+  song_count: z.number(),
+  total_duration: z.number(),
+  created_at: z.number(),
+  updated_at: z.number(),
+  deleted_at: z.number().nullish(),
+  deleted_by: z.string().nullish(),
+  created_by: z.string().nullish(),
+  updated_by: z.string().nullish(),
+  created_by_username: z.string().nullish(),
+  updated_by_username: z.string().nullish(),
+  metadata: z.string().nullish(),
+  mb_lookup_status: z.string().nullish(),
+  mb_lookup_at: z.number().nullish(),
+  mb_lookup_by: z.string().nullish()
+}),
+  artist: z.object({
+  id: z.string(),
+  name: z.string(),
+  bio: z.string().nullish(),
+  images: z.array(z.object({
+  blob_id: z.string(),
+  is_primary: z.number(),
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+})).nullish(),
+  urls: z.array(z.object({
+  id: z.string().nullish(),
+  name: z.string().nullish(),
+  url: z.string()
+})).nullish(),
+  created_at: z.number(),
+  updated_at: z.number(),
+  deleted_at: z.number().nullish(),
+  deleted_by: z.string().nullish(),
+  created_by: z.string().nullish(),
+  updated_by: z.string().nullish()
+}).nullish(),
+  genre: z.object({
+  id: z.string(),
+  name: z.string(),
+  created_at: z.number()
+}).nullish(),
+  images: z.array(z.object({
+  blob_id: z.string(),
+  is_primary: z.number(),
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+})).nullish(),
+  album_tags: z.array(z.string()).nullish(),
+  is_favorite: z.boolean().nullish(),
+  rating: z.number().nullish(),
+  favorited_at: z.number().nullish(),
+  rating_created_at: z.number().nullish()
+})),
+  count: z.number()
+});
+export type AlbumsByValueResponse = z.infer<typeof AlbumsByValueResponseSchema>;
 
 export const AlbumsQueryResultSchema = z.object({
   items: z.array(z.object({
@@ -1456,6 +1578,62 @@ export const EntityRefSchema = z.union([z.object({
 })]);
 export type EntityRef = z.infer<typeof EntityRefSchema>;
 
+export const EntityTaxonsBatchRequestSchema = z.object({
+  entity_kind: z.string(),
+  entity_ids: z.array(z.string())
+});
+export type EntityTaxonsBatchRequest = z.infer<typeof EntityTaxonsBatchRequestSchema>;
+
+export const EntityTaxonsBatchResponseSchema = z.object({
+  entity_kind: z.string(),
+  entries: z.array(z.object({
+  entity_id: z.string(),
+  taxons: z.array(z.object({
+  id: z.string(),
+  kind_slug: z.string(),
+  label: z.string()
+}))
+}))
+});
+export type EntityTaxonsBatchResponse = z.infer<typeof EntityTaxonsBatchResponseSchema>;
+
+export const EntityTaxonsEntrySchema = z.object({
+  entity_id: z.string(),
+  taxons: z.array(z.object({
+  id: z.string(),
+  kind_slug: z.string(),
+  label: z.string()
+}))
+});
+export type EntityTaxonsEntry = z.infer<typeof EntityTaxonsEntrySchema>;
+
+export const EraBinSchema = z.object({
+  value_norm: z.string(),
+  label: z.string(),
+  count: z.number(),
+  min_year: z.number().nullish(),
+  max_year: z.number().nullish()
+});
+export type EraBin = z.infer<typeof EraBinSchema>;
+
+export const EraBinsRequestSchema = z.object({
+  target_min: z.number().nullish(),
+  target_max: z.number().nullish()
+});
+export type EraBinsRequest = z.infer<typeof EraBinsRequestSchema>;
+
+export const EraBinsResponseSchema = z.object({
+  bins: z.array(z.object({
+  value_norm: z.string(),
+  label: z.string(),
+  count: z.number(),
+  min_year: z.number().nullish(),
+  max_year: z.number().nullish()
+})),
+  count: z.number()
+});
+export type EraBinsResponse = z.infer<typeof EraBinsResponseSchema>;
+
 export const ErrorDetailSchema = z.object({
   error_type: z.string(),
   title: z.string(),
@@ -2230,6 +2408,81 @@ export const FilterSetSchema = z.object({
   exclude: z.array(z.string())
 });
 export type FilterSet = z.infer<typeof FilterSetSchema>;
+
+export const FindByMergedKeyRequestSchema = z.object({
+  entity_kind: z.string(),
+  keys: z.array(z.string())
+});
+export type FindByMergedKeyRequest = z.infer<typeof FindByMergedKeyRequestSchema>;
+
+export const FindByMergedKeyResponseSchema = z.object({
+  entity_kind: z.string(),
+  matches: z.array(z.object({
+  merged_key: z.string(),
+  albums: z.array(z.object({
+  id: z.string(),
+  title: z.string(),
+  album_type: z.string(),
+  release_date: z.string().nullish(),
+  label: z.string().nullish(),
+  genres: z.array(z.object({
+  id: z.string(),
+  name: z.string()
+})).nullish(),
+  taxons: z.array(z.object({
+  id: z.string(),
+  kind_slug: z.string(),
+  label: z.string()
+})).nullish(),
+  images: z.array(z.object({
+  blob_id: z.string(),
+  is_primary: z.number(),
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+})).nullish(),
+  urls: z.array(z.object({
+  id: z.string().nullish(),
+  name: z.string().nullish(),
+  url: z.string()
+})).nullish(),
+  song_count: z.number(),
+  total_duration: z.number(),
+  created_at: z.number(),
+  updated_at: z.number(),
+  deleted_at: z.number().nullish(),
+  deleted_by: z.string().nullish(),
+  created_by: z.string().nullish(),
+  updated_by: z.string().nullish(),
+  created_by_username: z.string().nullish(),
+  updated_by_username: z.string().nullish(),
+  metadata: z.string().nullish(),
+  mb_lookup_status: z.string().nullish(),
+  mb_lookup_at: z.number().nullish(),
+  mb_lookup_by: z.string().nullish()
+})),
+  artists: z.array(z.object({
+  id: z.string(),
+  name: z.string(),
+  bio: z.string().nullish(),
+  images: z.array(z.object({
+  blob_id: z.string(),
+  is_primary: z.number(),
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+})).nullish(),
+  urls: z.array(z.object({
+  id: z.string().nullish(),
+  name: z.string().nullish(),
+  url: z.string()
+})).nullish(),
+  created_at: z.number(),
+  updated_at: z.number(),
+  deleted_at: z.number().nullish(),
+  deleted_by: z.string().nullish(),
+  created_by: z.string().nullish(),
+  updated_by: z.string().nullish()
+}))
+}))
+});
+export type FindByMergedKeyResponse = z.infer<typeof FindByMergedKeyResponseSchema>;
 
 export const FolksonomyMetadataSchema = z.object({
   musicbrainz: z.object({
@@ -3473,6 +3726,72 @@ export const MediaBlobSchema = z.object({
 });
 export type MediaBlob = z.infer<typeof MediaBlobSchema>;
 
+export const MergedKeyMatchSchema = z.object({
+  merged_key: z.string(),
+  albums: z.array(z.object({
+  id: z.string(),
+  title: z.string(),
+  album_type: z.string(),
+  release_date: z.string().nullish(),
+  label: z.string().nullish(),
+  genres: z.array(z.object({
+  id: z.string(),
+  name: z.string()
+})).nullish(),
+  taxons: z.array(z.object({
+  id: z.string(),
+  kind_slug: z.string(),
+  label: z.string()
+})).nullish(),
+  images: z.array(z.object({
+  blob_id: z.string(),
+  is_primary: z.number(),
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+})).nullish(),
+  urls: z.array(z.object({
+  id: z.string().nullish(),
+  name: z.string().nullish(),
+  url: z.string()
+})).nullish(),
+  song_count: z.number(),
+  total_duration: z.number(),
+  created_at: z.number(),
+  updated_at: z.number(),
+  deleted_at: z.number().nullish(),
+  deleted_by: z.string().nullish(),
+  created_by: z.string().nullish(),
+  updated_by: z.string().nullish(),
+  created_by_username: z.string().nullish(),
+  updated_by_username: z.string().nullish(),
+  metadata: z.string().nullish(),
+  mb_lookup_status: z.string().nullish(),
+  mb_lookup_at: z.number().nullish(),
+  mb_lookup_by: z.string().nullish()
+})),
+  artists: z.array(z.object({
+  id: z.string(),
+  name: z.string(),
+  bio: z.string().nullish(),
+  images: z.array(z.object({
+  blob_id: z.string(),
+  is_primary: z.number(),
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+})).nullish(),
+  urls: z.array(z.object({
+  id: z.string().nullish(),
+  name: z.string().nullish(),
+  url: z.string()
+})).nullish(),
+  created_at: z.number(),
+  updated_at: z.number(),
+  deleted_at: z.number().nullish(),
+  deleted_by: z.string().nullish(),
+  created_by: z.string().nullish(),
+  updated_by: z.string().nullish()
+}))
+});
+export type MergedKeyMatch = z.infer<typeof MergedKeyMatchSchema>;
+
 export const MusicImportResponseSchema = z.object({
   session_id: z.string(),
   jobs_created: z.number(),
@@ -4407,6 +4726,94 @@ export const RecentSongsRequestSchema = z.object({
   limit: z.number().nullish()
 });
 export type RecentSongsRequest = z.infer<typeof RecentSongsRequestSchema>;
+
+export const RecentlyAddedAlbumsRequestSchema = z.object({
+  limit: z.number().nullish()
+});
+export type RecentlyAddedAlbumsRequest = z.infer<typeof RecentlyAddedAlbumsRequestSchema>;
+
+export const RecentlyAddedAlbumsResponseSchema = z.object({
+  albums: z.array(z.object({
+  album: z.object({
+  id: z.string(),
+  title: z.string(),
+  album_type: z.string(),
+  release_date: z.string().nullish(),
+  label: z.string().nullish(),
+  genres: z.array(z.object({
+  id: z.string(),
+  name: z.string()
+})).nullish(),
+  taxons: z.array(z.object({
+  id: z.string(),
+  kind_slug: z.string(),
+  label: z.string()
+})).nullish(),
+  images: z.array(z.object({
+  blob_id: z.string(),
+  is_primary: z.number(),
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+})).nullish(),
+  urls: z.array(z.object({
+  id: z.string().nullish(),
+  name: z.string().nullish(),
+  url: z.string()
+})).nullish(),
+  song_count: z.number(),
+  total_duration: z.number(),
+  created_at: z.number(),
+  updated_at: z.number(),
+  deleted_at: z.number().nullish(),
+  deleted_by: z.string().nullish(),
+  created_by: z.string().nullish(),
+  updated_by: z.string().nullish(),
+  created_by_username: z.string().nullish(),
+  updated_by_username: z.string().nullish(),
+  metadata: z.string().nullish(),
+  mb_lookup_status: z.string().nullish(),
+  mb_lookup_at: z.number().nullish(),
+  mb_lookup_by: z.string().nullish()
+}),
+  artist: z.object({
+  id: z.string(),
+  name: z.string(),
+  bio: z.string().nullish(),
+  images: z.array(z.object({
+  blob_id: z.string(),
+  is_primary: z.number(),
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+})).nullish(),
+  urls: z.array(z.object({
+  id: z.string().nullish(),
+  name: z.string().nullish(),
+  url: z.string()
+})).nullish(),
+  created_at: z.number(),
+  updated_at: z.number(),
+  deleted_at: z.number().nullish(),
+  deleted_by: z.string().nullish(),
+  created_by: z.string().nullish(),
+  updated_by: z.string().nullish()
+}).nullish(),
+  genre: z.object({
+  id: z.string(),
+  name: z.string(),
+  created_at: z.number()
+}).nullish(),
+  images: z.array(z.object({
+  blob_id: z.string(),
+  is_primary: z.number(),
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])
+})).nullish(),
+  album_tags: z.array(z.string()).nullish(),
+  is_favorite: z.boolean().nullish(),
+  rating: z.number().nullish(),
+  favorited_at: z.number().nullish(),
+  rating_created_at: z.number().nullish()
+})),
+  count: z.number()
+});
+export type RecentlyAddedAlbumsResponse = z.infer<typeof RecentlyAddedAlbumsResponseSchema>;
 
 export const RecordPlayRequestSchema = z.object({
   media_blob_id: z.string(),
