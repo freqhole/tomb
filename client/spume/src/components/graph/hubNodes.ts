@@ -7,9 +7,10 @@
 //   - relation-value hubs (octagon, sub-relation) hub_relation_value::<kind>::<urlencoded value>
 //
 // these used to be scattered across LibraryGraphSubview, GraphCanvas
-// and drawArtistNode as bare string startsWith checks. centralizing
-// them here gives one source of truth for the id grammar, predicates,
-// constructors and parsers, and a stable enum for downstream branching.
+// and the old `drawArtistNode.ts` (now `draw/roles/*.ts`) as bare
+// string startsWith checks. centralizing them here gives one source
+// of truth for the id grammar, predicates, constructors and parsers,
+// and a stable enum for downstream branching.
 //
 // note on scope: relation-kind hubs are per-remote (each remote gets
 // its own hex per kind, so each remote's tree splays into its own

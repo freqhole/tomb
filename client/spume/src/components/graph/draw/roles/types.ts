@@ -1,6 +1,8 @@
-// shared arg shape for all role draw functions under `roles/`.
-// matches the pre-refactor `DrawArtistNodeArgs` so callers can build
-// a single argument object and dispatch on role.
+// shared arg shape for the three hub roles + the artist circle role
+// under `roles/`. albums use their own self-contained arg type
+// (`DrawAlbumArgs`). callers typically build a `DrawNodeArgs` (see
+// `draw/drawNode.ts`) and let the dispatcher narrow into one of
+// these per-role shapes.
 
 import type { ArtistNodeData, NodeState } from "../../types";
 

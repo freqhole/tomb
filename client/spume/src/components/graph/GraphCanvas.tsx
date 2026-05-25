@@ -1,10 +1,12 @@
-// GraphCanvas — force-directed graph (album + artist nodes) rendered to html5 canvas 2d.
+// GraphCanvas — force-directed graph (album + artist + hub nodes) rendered to html5 canvas 2d.
 //
 // responsibilities:
 // - drive a d3-force simulation hosted in a dedicated web worker
 //   (see [./worker/graphWorker.ts](./worker/graphWorker.ts)), receiving
 //   per-tick node positions over a transferable Float32Array buffer
-// - draw nodes (via drawAlbumNode / drawArtistNode) and edges (per-kind colored strokes)
+// - draw nodes (via `drawNode` in `./draw/drawNode.ts`, which
+//   dispatches per role to album / artist / remote-hub / relation-hub /
+//   relation-value-hub draw fns) and edges (per-kind colored strokes)
 // - handle pan/zoom (wheel + trackpad two-finger pan + drag + pinch) and node drag
 //   (drag-pin state is forwarded to the worker via pin/unpin messages)
 // - emit hover / select events for both nodes AND edges; support optional lasso
@@ -19,17 +21,10 @@
 import { createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js";
 import type { SimulationLinkDatum, SimulationNodeDatum } from "d3-force";
 import { drawNode } from "./draw/drawNode";
-import { hitRadiusFor } from "./draw/shared/hitRadius";
-import { nodeRole } from "./draw/shared/roleDispatch";
+import * as hitGeo from "./canvas/hitGeometry";
+import * as seedGrouping from "./canvas/seedGrouping";
 import { RELATION_COLOR } from "./relations";
-import {
-  isAnyHubId,
-  isRelationHubId,
-  isRelationValueHubId,
-  isRemoteHubId,
-  parseRelationHubId,
-  parseRelationValueHubId,
-} from "./hubNodes";
+import { isAnyHubId } from "./hubNodes";
 import { HUB_SIZE_MAX_MUL, hubSizeMul } from "./hubSize";
 import type {
   AlbumNodeData,
@@ -579,51 +574,18 @@ export function GraphCanvas(props: GraphCanvasProps) {
     return isAnyHubId((n as ArtistNodeData).artistId);
   };
 
-  // ---- shape-aware hit detection helpers ---------------------------
-  // hit-test paths previously used a single worst-case radius
-  // (`nodeSize() * 0.55 * HUB_SIZE_MAX_MUL`) for every node, which
-  // gave huge slop around small/medium hubs — clicks far outside an
-  // octagon's silhouette would still register on it. these helpers
-  // compute the actual rendered size per node (factoring hub count
-  // scaling) and a shape-matched inradius so the hit area tracks the
-  // visible polygon.
+  // shape-aware hit-test geometry. the pure helpers live in
+  // `canvas/hitGeometry.ts`; these closures bind them to the
+  // component's `simNodes` + `nodeSize()` so the rest of the file
+  // can keep calling them with the historical short signatures.
   function currentMaxHubCount(): number {
-    let m = 0;
-    for (const n of simNodes) {
-      if (!isAnyHubId(n.id)) continue;
-      const c = (n as ArtistNodeData).albumCount ?? 0;
-      if (c > m) m = c;
-    }
-    return m;
+    return hitGeo.currentMaxHubCount(simNodes);
   }
-  function effectiveNodeSize(n: SimNode, maxHub?: number): number {
-    if (!isAnyHubId(n.id)) return nodeSize();
-    const c = (n as ArtistNodeData).albumCount ?? 0;
-    const max = maxHub ?? currentMaxHubCount();
-    return nodeSize() * hubSizeMul(c, max);
-  }
-  /** per-node hit radius in world units. shape multipliers approximate
-   *  the inradius of each silhouette: square ≈ 0.55 (slight outward
-   *  slop for the rounded corners), circle = 0.5, wonky triangle ≈
-   *  0.42 (the freqhole-mark is narrow), regular hexagon ≈ 0.50
-   *  (flat-to-flat / 2), regular octagon ≈ 0.50. floored at 12 screen
-   *  pixels so small nodes stay clickable when zoomed out. */
   function effectiveHitRadius(n: SimNode, k: number, maxHub?: number): number {
-    const size = effectiveNodeSize(n, maxHub);
-    // per-role inradius factor lives co-located with each role's
-    // draw fn under `draw/roles/`; floored at 12 screen pixels so
-    // small nodes stay clickable when zoomed out.
-    return Math.max(hitRadiusFor(nodeRole(n), size), 12 / k);
+    return hitGeo.effectiveHitRadius(n, k, nodeSize(), maxHub ?? currentMaxHubCount());
   }
-  /** post-filter a coarse worker / local hit-test result: drop hits
-   *  whose centre is outside the node's effective shape radius. */
   function refineHit(n: SimNode | null, wx: number, wy: number, k: number): SimNode | null {
-    if (!n) return null;
-    const r = effectiveHitRadius(n, k);
-    const dx = (n.x ?? 0) - wx;
-    const dy = (n.y ?? 0) - wy;
-    if (dx * dx + dy * dy > r * r) return null;
-    return n;
+    return hitGeo.refineHit(n, wx, wy, k, nodeSize(), currentMaxHubCount());
   }
 
   const enabledSet = createMemo<Set<string> | null>(() => {
@@ -788,39 +750,7 @@ export function GraphCanvas(props: GraphCanvasProps) {
   }
 
   function seedGroupKey(node: GraphNodeData): string {
-    if (node.kind === "album") {
-      const a = node as AlbumNodeData;
-      if (a.artistId) return `artist:${a.artistId}`;
-      if (a.artistName) return `artist_name:${a.artistName.toLowerCase()}`;
-      if (a.label) return `label:${a.label.toLowerCase()}`;
-      if (a.era) return `era:${a.era.toLowerCase()}`;
-      if (a.genres[0]) return `genre:${a.genres[0].toLowerCase()}`;
-      return "album:ungrouped";
-    }
-    const r = node as ArtistNodeData;
-    if (isRemoteHubId(r.artistId)) {
-      // each remote gets its own seed bucket so multi-remote
-      // selections fan their triangles out instead of stacking.
-      return `hub:remote:${r.artistId}`;
-    }
-    if (isRelationHubId(r.artistId)) {
-      // each remote's relation-kind hexagons share a per-remote
-      // bucket so seeding clusters them together (and apart from
-      // sibling remotes' hexagons).
-      const remote = parseRelationHubId(r.artistId)?.remoteId ?? "_";
-      return `hub:relation:${remote}`;
-    }
-    if (isRelationValueHubId(r.artistId)) {
-      // value hubs aren't remote-scoped — split by kind so each
-      // drilled relation gets its own seed cluster.
-      const kind = parseRelationValueHubId(r.artistId)?.kind ?? "_";
-      return `hub:relation_value:${kind}`;
-    }
-    if (r.artistId) return `artist:${r.artistId}`;
-    if (r.label) return `label:${r.label.toLowerCase()}`;
-    if (r.era) return `era:${r.era.toLowerCase()}`;
-    if (r.genres[0]) return `genre:${r.genres[0].toLowerCase()}`;
-    return "artist:ungrouped";
+    return seedGrouping.seedGroupKey(node);
   }
 
   function rebuild() {
@@ -905,10 +835,7 @@ export function GraphCanvas(props: GraphCanvasProps) {
       return a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0;
     });
 
-    const familyOf = (key: string): string => {
-      const i = key.indexOf(":");
-      return i > 0 ? key.slice(0, i) : key;
-    };
+    const familyOf = seedGrouping.familyOf;
     const byFamily = new Map<string, Array<[string, SimNode[]]>>();
     for (const entry of groupEntries) {
       const fam = familyOf(entry[0]);
@@ -924,47 +851,7 @@ export function GraphCanvas(props: GraphCanvasProps) {
     });
 
     const familySpacing = clusterSpacing * 2.15;
-    // stable string-hash to produce a deterministic angle per remote
-    // / per kind so each seed bucket lands on its own ring slot
-    // around the cluster centroid. avoids the "all hexagons collapse
-    // into one spot" effect at first render.
-    const strHash = (s: string): number => {
-      let h = 2166136261 >>> 0;
-      for (let i = 0; i < s.length; i++) {
-        h ^= s.charCodeAt(i);
-        h = Math.imul(h, 16777619) >>> 0;
-      }
-      return h;
-    };
-    const hashAngle = (s: string): number => ((strHash(s) % 360) / 360) * Math.PI * 2;
-    const hubLaneOffset = (key: string): { ox: number; oy: number } | null => {
-      if (key.startsWith("hub:remote:")) {
-        const remote = key.slice("hub:remote:".length);
-        const a = hashAngle("remote::" + remote);
-        // remote triangles sit on the outer ring along the remote's
-        // angle slot. matches the worker's `hubDirectional` target so
-        // the seed agrees with the steady-state pull.
-        return { ox: 0.95 * Math.cos(a), oy: 0.95 * Math.sin(a) };
-      }
-      if (key.startsWith("hub:relation:")) {
-        const remote = key.slice("hub:relation:".length);
-        // relation hexagons share the remote's angle AND its outer-
-        // ring radius so they seed clustered around the parent
-        // triangle. link springs + collide pick the exact arrangement.
-        const a = hashAngle("remote::" + remote);
-        return { ox: 0.95 * Math.cos(a), oy: 0.95 * Math.sin(a) };
-      }
-      if (key.startsWith("hub:relation_value:")) {
-        const kind = key.slice("hub:relation_value:".length);
-        // value octagons seed in their kind's coarse direction but
-        // are pushed further out at runtime (factor 1.3) along an
-        // angle hashed per-value so siblings fan into open canvas
-        // instead of curling back through the root cluster.
-        const a = hashAngle("value::" + kind);
-        return { ox: 1.2 * Math.cos(a), oy: 1.2 * Math.sin(a) };
-      }
-      return null;
-    };
+    const hubLaneOffset = seedGrouping.hubLaneOffset;
     let familyIdx = 0;
     for (const [family, entries] of familyEntries) {
       let fx = cx;
@@ -1168,9 +1055,10 @@ export function GraphCanvas(props: GraphCanvasProps) {
   // ---- draw loop --------------------------------------------------------
   let drawScheduled = false;
   let animatingMarquee = false;
-  // set true by drawArtistNode/drawAlbumNode whenever they paint a
-  // comet-trail loading arc, so the draw loop knows to keep ticking
-  // frames until every loading node clears.
+  // set true by `drawNode` (via the per-role draw fns under
+  // `./draw/roles/`) whenever a node paints a comet-trail loading
+  // arc, so the draw loop knows to keep ticking frames until every
+  // loading node clears.
   let animatingLoading = false;
   let lastDrawTime = 0;
   let lastFrameStart = 0;

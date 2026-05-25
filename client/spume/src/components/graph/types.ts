@@ -69,13 +69,31 @@ export interface TagRef {
   weight: number;
 }
 
-/** circle-avatar artist node. derived client-side from the unique
- *  artists across the loaded album set; appears alongside album nodes
- *  in the graph when the content-kind selector is set to `artists` or
- *  `both`. carries unioned taxonomic fields so the existing relation
- *  builders (genre / tag / mood / style / era / label) connect artist
- *  nodes to album nodes (and to other artist nodes) using the same
- *  visual + interaction language. */
+/** the non-album node shape. originally introduced for circle-avatar
+ *  artist nodes (derived client-side from the unique artists across
+ *  the loaded album set), and now serves as the common payload for
+ *  FOUR distinct visual roles:
+ *
+ *    - real artist (circle avatar) — `id = artist::<artistId>`
+ *    - remote-root hub (freqhole mark) — `id = hub_remote::<remote_id>`
+ *    - relation-kind hub (hexagon) — `id = hub_relation::<remote_id>::<kind>`
+ *    - relation-value hub (octagon) — `id = hub_relation_value::<kind>::<value>`
+ *
+ *  use `nodeRole(n)` (from `draw/shared/roleDispatch.ts`) to classify
+ *  an instance; the `kind` discriminator only distinguishes album vs.
+ *  non-album, not which of the four non-album roles a node fills.
+ *
+ *  hubs piggyback on this shape because they share the same visual
+ *  vocabulary as artist circles: a glyph (image or acronym) + name +
+ *  count + unioned taxonomy. carries the taxonomic fields so the
+ *  existing relation builders (genre / tag / mood / style / era /
+ *  label) connect artist nodes to album nodes (and to other artist /
+ *  hub nodes) using one set of code paths.
+ *
+ *  TODO(phase-13): split into a proper discriminated union with
+ *  per-role variants so the `as ArtistNodeData` casts in canvas /
+ *  view code can become exhaustive switches. tracked in
+ *  `docs/graph-viz-evolution-plan.md`. */
 export interface ArtistNodeData {
   /** namespaced id: `artist::${artistId}`. avoids collision with
    *  album node ids which use `${remoteId}::${albumId}`. */
@@ -115,6 +133,12 @@ export interface ArtistNodeData {
 
 /** node union as carried through the graph pipeline. */
 export type GraphNodeData = AlbumNodeData | ArtistNodeData;
+
+/** alias for `ArtistNodeData` that better reflects its current
+ *  scope (true artists + the three hub silhouettes). prefer this
+ *  name in new code; the legacy name stays exported for back-compat
+ *  while the wider rename in phase 13 is in flight. */
+export type HubOrArtistNodeData = ArtistNodeData;
 
 /** helper: extract the node kind, defaulting to `"album"` for legacy
  *  AlbumNodeData rows that pre-date the discriminator. */
