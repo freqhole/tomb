@@ -98,6 +98,54 @@ export const RELATION_LABEL: Record<RelationKind, string> = RELATION_KINDS.reduc
   {} as Record<RelationKind, string>
 );
 
+// kinds that are NOT taxon-like — they describe an entity-to-entity
+// relationship rather than a (key, value) taxon. unknown kinds are
+// assumed taxon-like (i.e. they DO support a value-layer drill),
+// since remotes can surface arbitrary user taxons.
+const NON_VALUE_LAYER_KINDS = new Set<string>([
+  "favorite",
+  "same_artist",
+  "related_artist",
+  "artist_album",
+]);
+
+// stable per-kind fallback color for unknown kinds. tiny djb2 hash
+// rolled to an HSL so the same kind always gets the same hue without
+// colliding with neighbouring hashes too often.
+function hashedKindColor(kind: string): string {
+  let h = 5381;
+  for (let i = 0; i < kind.length; i++) {
+    h = ((h * 33) ^ kind.charCodeAt(i)) >>> 0;
+  }
+  const hue = h % 360;
+  return `hsl(${hue} 62% 62%)`;
+}
+
+function humanizeKind(kind: string): string {
+  return kind.replace(/[_-]+/g, " ").trim();
+}
+
+/** lookup metadata for a relation kind. unknown kinds fall back to
+ *  a hashed color + humanized label + assumed-taxon-like value-layer
+ *  semantics, so a remote can emit an arbitrary `(kind, value)` pair
+ *  without a client-side allowlist update. */
+export function relationMeta(kind: string | null | undefined): {
+  color: string;
+  label: string;
+  supportsValueLayer: boolean;
+} {
+  const k = (kind ?? "").trim();
+  if (!k) {
+    return { color: "#9aa0aa", label: "(none)", supportsValueLayer: false };
+  }
+  const known = RELATION_COLOR[k as RelationKind];
+  return {
+    color: known ?? hashedKindColor(k),
+    label: RELATION_LABEL[k as RelationKind] ?? humanizeKind(k),
+    supportsValueLayer: !NON_VALUE_LAYER_KINDS.has(k),
+  };
+}
+
 export interface BuildEdgesOptions {
   /** only build edges for these kinds; undefined = all */
   kinds?: RelationKind[];

@@ -18,8 +18,8 @@
 // — once the user drills into a specific value ("rock"), the same
 // octagon aggregates membership from every selected remote.
 
-import { RELATION_KINDS } from "./relations";
-import type { RelationKind } from "./types";
+import { RELATION_KINDS, relationMeta } from "./relations";
+import type { RelationKind, RelationKindLike } from "./types";
 
 export const HUB_PREFIX = {
   remote: "hub_remote::",
@@ -36,24 +36,14 @@ export const RELATION_HUB_KINDS: RelationKind[] = RELATION_KINDS.filter(
   (r) => r.kind !== "artist_album"
 ).map((r) => r.kind) as RelationKind[];
 
-const RELATION_HUB_KIND_SET = new Set<RelationKind>(RELATION_HUB_KINDS);
-
-// value-layer relations are those whose hub can be drilled into a set
-// of sub-relation (relation-value) hubs — one per distinct value the
-// underlying albums carry for that kind. e.g. "tag" splits into
-// "tag: ambient", "tag: indie", etc. kinds like "favorite",
-// "same_artist", "related_artist" do not have a value layer.
-const VALUE_LAYER_KINDS = new Set<RelationKind>([
-  "genre",
-  "tag",
-  "mood",
-  "style",
-  "era",
-  "label",
-]);
-
-export function relationSupportsValueLayer(kind: RelationKind | null | undefined): boolean {
-  return !!kind && VALUE_LAYER_KINDS.has(kind);
+// value-layer support is now driven by `relationMeta(kind)` (see
+// `relations.ts`). unknown kinds default to taxon-like, so a remote
+// can surface a brand-new `(kind, value)` pair without any client-side
+// allowlist update (phase 18).
+export function relationSupportsValueLayer(
+  kind: RelationKindLike | null | undefined
+): boolean {
+  return relationMeta(kind ?? null).supportsValueLayer;
 }
 
 // ---- predicates -------------------------------------------------------
@@ -87,11 +77,11 @@ export function remoteHubId(remoteId: string): string {
   return `${HUB_PREFIX.remote}${remoteId}`;
 }
 
-export function relationHubId(kind: RelationKind, remoteId: string): string {
+export function relationHubId(kind: RelationKindLike, remoteId: string): string {
   return `${HUB_PREFIX.relation}${remoteId}::${kind}`;
 }
 
-export function relationValueHubId(kind: RelationKind, valueNorm: string): string {
+export function relationValueHubId(kind: RelationKindLike, valueNorm: string): string {
   return `${HUB_PREFIX.relationValue}${kind}::${encodeURIComponent(valueNorm)}`;
 }
 
@@ -104,19 +94,21 @@ export function parseRemoteHubId(id: string | null | undefined): string | null {
 
 export function parseRelationHubId(
   id: string | null | undefined
-): { remoteId: string; kind: RelationKind } | null {
+): { remoteId: string; kind: RelationKindLike } | null {
   if (!isRelationHubId(id)) return null;
   const raw = id!.slice(HUB_PREFIX.relation.length);
   const sep = raw.indexOf("::");
   if (sep <= 0) return null;
   const remoteId = raw.slice(0, sep);
-  const kind = raw.slice(sep + 2) as RelationKind;
-  if (!RELATION_HUB_KIND_SET.has(kind)) return null;
+  const kind = raw.slice(sep + 2);
+  // accept ANY non-empty kind: remotes can surface novel taxon
+  // kinds and the client should round-trip them unchanged (phase 18).
+  if (!kind) return null;
   if (!remoteId) return null;
   return { remoteId, kind };
 }
 
-export function relationHubKind(id: string | null | undefined): RelationKind | null {
+export function relationHubKind(id: string | null | undefined): RelationKindLike | null {
   return parseRelationHubId(id)?.kind ?? null;
 }
 
@@ -126,13 +118,13 @@ export function relationHubRemoteId(id: string | null | undefined): string | nul
 
 export function parseRelationValueHubId(
   id: string | null | undefined
-): { kind: RelationKind; valueNorm: string } | null {
+): { kind: RelationKindLike; valueNorm: string } | null {
   if (!isRelationValueHubId(id)) return null;
   const raw = id!.slice(HUB_PREFIX.relationValue.length);
   const sep = raw.indexOf("::");
   if (sep <= 0) return null;
-  const kind = raw.slice(0, sep) as RelationKind;
-  if (!RELATION_HUB_KIND_SET.has(kind)) return null;
+  const kind = raw.slice(0, sep);
+  if (!kind) return null;
   const encoded = raw.slice(sep + 2);
   try {
     return { kind, valueNorm: decodeURIComponent(encoded) };

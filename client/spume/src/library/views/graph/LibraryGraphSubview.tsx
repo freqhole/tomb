@@ -39,7 +39,7 @@ import type {
   ArtistNodeData,
   GraphEdge,
   GraphNodeData,
-  RelationKind,
+  RelationKindLike,
 } from "../../../components/graph/types";
 import { deriveArtistNodes } from "./deriveArtistNodes";
 import { useRelatedArtistsByIds } from "../../queries/useRelatedArtistsByIds";
@@ -468,7 +468,7 @@ function Inner(props: {
   const [focusedNode, setFocusedNode] = createSignal<GraphNodeData | null>(null);
   type DrillMode = "root" | "relation_values" | "entities";
   const [drillMode, setDrillMode] = createSignal<DrillMode>("root");
-  const [activeRelationKind, setActiveRelationKind] = createSignal<RelationKind | null>(null);
+  const [activeRelationKind, setActiveRelationKind] = createSignal<RelationKindLike | null>(null);
   // remoteId of the per-remote relation-kind hub the user drilled
   // into. only meaningful in the "relation_values" drill tier —
   // value hubs are shared across remotes, so this is cleared as
@@ -482,13 +482,13 @@ function Inner(props: {
     setActiveRemoteId(null);
     setActiveRelationValueNorm(null);
   };
-  const enterRelationValuesMode = (kind: RelationKind, remoteId: string) => {
+  const enterRelationValuesMode = (kind: RelationKindLike, remoteId: string) => {
     setDrillMode("relation_values");
     setActiveRelationKind(kind);
     setActiveRemoteId(remoteId);
     setActiveRelationValueNorm(null);
   };
-  const enterEntitiesMode = (kind: RelationKind, valueNorm: string | null = null) => {
+  const enterEntitiesMode = (kind: RelationKindLike, valueNorm: string | null = null) => {
     setDrillMode("entities");
     setActiveRelationKind(kind);
     // value hubs are shared across remotes; once we drop into the
@@ -668,7 +668,7 @@ function Inner(props: {
     return out;
   });
 
-  const relationValuesForNode = (kind: RelationKind, node: GraphNodeData): string[] => {
+  const relationValuesForNode = (kind: RelationKindLike, node: GraphNodeData): string[] => {
     switch (kind) {
       case "genre":
         return node.genres.map(norm).filter(Boolean);
@@ -764,7 +764,7 @@ function Inner(props: {
   });
 
   const hasRelationMembership = (
-    kind: RelationKind,
+    kind: RelationKindLike,
     node: GraphNodeData,
     valueNorm?: string | null
   ): boolean => {

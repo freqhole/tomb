@@ -23,8 +23,8 @@ import type { SimulationLinkDatum, SimulationNodeDatum } from "d3-force";
 import { drawNode } from "./draw/drawNode";
 import * as hitGeo from "./canvas/hitGeometry";
 import * as seedGrouping from "./canvas/seedGrouping";
-import { RELATION_COLOR } from "./relations";
-import { isAnyHubId } from "./hubNodes";
+import { relationMeta } from "./relations";
+import { isAnyHubId, relationSupportsValueLayer } from "./hubNodes";
 import { HUB_SIZE_MAX_MUL, hubSizeMul } from "./hubSize";
 import type {
   AlbumNodeData,
@@ -266,7 +266,7 @@ export function GraphCanvas(props: GraphCanvasProps) {
     }
     let c = colorCache.get(kind);
     if (c === undefined) {
-      c = props.relationColors?.[kind] ?? RELATION_COLOR[kind as RelationKind] ?? "#9aa0aa";
+      c = props.relationColors?.[kind] ?? relationMeta(kind).color;
       colorCache.set(kind, c);
     }
     return c;
@@ -274,7 +274,8 @@ export function GraphCanvas(props: GraphCanvasProps) {
 
   // multi-value relation kinds share one base hue but vary slightly by
   // label value so parallel wires (e.g. multiple genres) remain distinct.
-  const VARIED_RELATION_KINDS = new Set<string>(["genre", "tag", "mood", "style", "label", "era"]);
+  // we vary anything that supports a value-layer drill (per phase 18,
+  // unknown remote-emitted kinds default in too).
   const linkColorCache = new Map<string, string>();
   const linkColor = (kind: string, label?: string): string => {
     const k = `${kind}|${label ?? ""}`;
@@ -282,7 +283,7 @@ export function GraphCanvas(props: GraphCanvasProps) {
     if (hit) return hit;
     const base = kindColor(kind);
     let out = base;
-    if (label && VARIED_RELATION_KINDS.has(kind)) {
+    if (label && relationSupportsValueLayer(kind)) {
       const rgb = hexToRgb(base);
       if (rgb) {
         const hsl = rgbToHsl(rgb.r, rgb.g, rgb.b);
