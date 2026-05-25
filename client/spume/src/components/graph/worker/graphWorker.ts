@@ -18,12 +18,30 @@ import {
   forceLink,
   forceManyBody,
   forceSimulation,
+  forceX,
+  forceY,
   type Simulation,
   type SimulationLinkDatum,
   type SimulationNodeDatum,
 } from "d3-force";
 import { quadtree, type Quadtree } from "d3-quadtree";
+import { hubSizeMul } from "../hubSize";
 import { buildRelationEdges } from "../relations";
+import {
+  CHARGE_PER_NODE_SIZE,
+  ENDPOINT_COUNT_TUNING,
+  HUB_COLLIDE_PADDING_MUL,
+  HUB_DIRECTIONAL,
+  HUB_LINK_DISTANCE_MUL,
+  HUB_RING_RADIUS,
+  LINK_DISTANCE_NODE_SIZE_MUL,
+  LINK_STRENGTH_CURVE,
+  RELATION_CURVE,
+  RELATION_HUB_CHARGE_MUL,
+  REMOTE_HUB_LINK_STRENGTH_BUMP,
+  SIM_COOLDOWN,
+  VALUE_HUB_CHARGE_MUL,
+} from "./forceTuning";
 import type {
   AlbumNodeData,
   ArtistNodeData,
@@ -261,14 +279,14 @@ function relationDistanceMultiplier(kind: string | undefined): number {
   const s = relationStrengthValue(kind);
   // non-linear scaling gives stronger "full" lock-in while preserving
   // subtle low-end tuning granularity.
-  const e = Math.pow(s, 1.2);
-  return 1.52 - e * 1.12;
+  const e = Math.pow(s, RELATION_CURVE.distance.exponent);
+  return RELATION_CURVE.distance.base - e * RELATION_CURVE.distance.slope;
 }
 
 function relationStrengthMultiplier(kind: string | undefined): number {
   const s = relationStrengthValue(kind);
-  const e = Math.pow(s, 1.35);
-  return 0.22 + e * 3.05;
+  const e = Math.pow(s, RELATION_CURVE.strength.exponent);
+  return RELATION_CURVE.strength.base + e * RELATION_CURVE.strength.slope;
 }
 
 /** pick the larger endpoint's album-count for a link. used by the
@@ -292,7 +310,10 @@ function endpointMaxCount(l: SimLink): number {
 function endpointCountDistanceShrink(l: SimLink): number {
   const c = endpointMaxCount(l);
   if (c <= 0) return 1;
-  return Math.max(0.55, 1 - Math.sqrt(c) / 28);
+  return Math.max(
+    ENDPOINT_COUNT_TUNING.distanceShrinkFloor,
+    1 - Math.sqrt(c) / ENDPOINT_COUNT_TUNING.distanceShrinkDivisor,
+  );
 }
 
 /** boost link spring strength for high-count endpoints. companion to
@@ -301,7 +322,75 @@ function endpointCountDistanceShrink(l: SimLink): number {
 function endpointCountStrengthBoost(l: SimLink): number {
   const c = endpointMaxCount(l);
   if (c <= 0) return 1;
-  return Math.min(2.4, 1 + Math.sqrt(c) / 10);
+  return Math.min(
+    ENDPOINT_COUNT_TUNING.strengthBoostCeiling,
+    1 + Math.sqrt(c) / ENDPOINT_COUNT_TUNING.strengthBoostDivisor,
+  );
+}
+
+// ---- directional hub layout helpers -----------------------------
+// each hub sits at a stable angular slot around the canvas centre so
+// the per-remote scaffold expands outward in its own direction
+// instead of stacking on top of the root cluster. angles match the
+// FNV-1a seed used by the main thread's `hubLaneOffset` so the
+// initial phyllotaxis seed and the steady-state force pull agree.
+
+function fnv1aHash(s: string): number {
+  let h = 2166136261 >>> 0;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619) >>> 0;
+  }
+  return h;
+}
+function hashAngleRad(s: string): number {
+  return ((fnv1aHash(s) % 360) / 360) * Math.PI * 2;
+}
+
+/** classify a hub id into its angle source + relative radius factor.
+ *  returns null for non-hub nodes (leaves curl back to center via the
+ *  normal forceCenter / link pull).
+ *
+ *  layout zones:
+ *  - remote hub: outer ring at angle("remote::<id>"), radiusFactor 1.0
+ *  - relation hub: SAME angle + SAME radius as its parent remote, so
+ *    the kind hexagons cluster tightly around their triangle. link
+ *    springs + collide pick the exact arrangement; identical
+ *    directional targets keep them from drifting away.
+ *  - value hub: pushed OUTSIDE the remote ring (factor 1.3) along an
+ *    angle hashed on the full id so siblings spread around the outer
+ *    canvas instead of stacking on a shared kind angle. lets the
+ *    sub-relation chain expand into empty space without curling
+ *    back through the root cluster. */
+function hubDirectional(
+  id: string,
+): { angle: number; radiusFactor: number; strength: number } | null {
+  if (id.startsWith("hub_remote::")) {
+    const remoteId = id.slice("hub_remote::".length);
+    return {
+      angle: hashAngleRad("remote::" + remoteId),
+      radiusFactor: HUB_DIRECTIONAL.remote.radiusFactor,
+      strength: HUB_DIRECTIONAL.remote.strength,
+    };
+  }
+  if (id.startsWith("hub_relation::")) {
+    const rest = id.slice("hub_relation::".length);
+    const sep = rest.indexOf("::");
+    const remoteId = sep >= 0 ? rest.slice(0, sep) : rest;
+    return {
+      angle: hashAngleRad("remote::" + remoteId),
+      radiusFactor: HUB_DIRECTIONAL.relation.radiusFactor,
+      strength: HUB_DIRECTIONAL.relation.strength,
+    };
+  }
+  if (id.startsWith("hub_relation_value::")) {
+    return {
+      angle: hashAngleRad("value::" + id),
+      radiusFactor: HUB_DIRECTIONAL.relationValue.radiusFactor,
+      strength: HUB_DIRECTIONAL.relationValue.strength,
+    };
+  }
+  return null;
 }
 
 function emitPositions() {
@@ -340,23 +429,24 @@ function buildSim(mode: UpdateMode) {
   const densityMul = densityMultiplierForCount(nCount);
   // link distance: target spacing between connected nodes. raise this
   // as datasets grow so local clusters do not collapse into one blob.
-  const linkDist = sz * 2.6 * densityMul;
+  const linkDist = sz * LINK_DISTANCE_NODE_SIZE_MUL * densityMul;
   // link strength: on huge graphs, reduce spring pull so links do not
   // overpower collide/charge and crush spacing back down.
   const linkStrengthMul =
     nCount >= 3500 ? 0.55 : nCount >= 2500 ? 0.62 : nCount >= 1500 ? 0.72 : nCount >= 700 ? 0.84 : 1;
   // charge: long-range mutual repulsion. stronger at higher density so
   // disconnected regions still push apart instead of stacking.
-  const chargeStr = -sz * 7.8 * densityMul;
-  // remote root hubs get extra charge so they spread out into a
-  // wider ring around the relation-hub cluster instead of bunching
-  // up on one side. only applied to `hub_remote::*` ids — relation
-  // and relation-value hubs keep the baseline charge so their
-  // satellite layout stays tight. kept modest (~2x) so connected
-  // relation hexagons can still settle close to their remote root
-  // — the remote↔relation link distance is also shortened (see
-  // `hubMul` in the link force) to reinforce the tight cluster.
-  const remoteHubChargeStr = chargeStr * 2;
+  const chargeStr = sz * CHARGE_PER_NODE_SIZE * densityMul;
+  // ---- hub charge: each class gets its own repulsion strength so
+  // the layout doesn't fight itself. remote hubs charge at the
+  // baseline (the directional force already spreads them around the
+  // outer ring — they don't need an extra repulsion bump). relation
+  // hubs get a much weaker charge so they cluster tightly around
+  // their parent remote rather than flying off. value hubs sit in
+  // between since they're shared across remotes and want some
+  // separation from siblings on the outer canvas.
+  const relationHubChargeStr = chargeStr * RELATION_HUB_CHARGE_MUL;
+  const valueHubChargeStr = chargeStr * VALUE_HUB_CHARGE_MUL;
   // collide radii: forceCollide treats nodes as DISCS. an axis-
   // aligned album square of edge `sz` is inscribed in a disc of
   // radius sz/2, but two squares oriented at 45° to each other have
@@ -368,6 +458,28 @@ function buildSim(mode: UpdateMode) {
   // are perfect discs of diameter sz so r >= 0.5 is the hard
   // minimum; 0.52 gives a hair of padding.
   const collide = collideRadiiForCount(nCount, sz);
+  // hubs render at a per-node size driven by their `albumCount`
+  // (see `hubSizeMul` on the main thread). previously the worker
+  // ignored this and used `collide.artist * 1.7` for every hub —
+  // i.e. the worst-case hub size + label-chip padding — which made
+  // adjacent hubs sit ~190 world units apart minimum, dwarfing the
+  // target link distance of ~30 units and producing the persistent
+  // remote↔relation gap. compute maxHubCount once and use the
+  // actual rendered size per hub so collide tracks the silhouette.
+  let maxHubCount = 0;
+  for (const n of simNodes) {
+    if (typeof n.id !== "string" || !n.id.startsWith("hub_")) continue;
+    const c = (n.albumCount ?? 0) as number;
+    if (c > maxHubCount) maxHubCount = c;
+  }
+  function hubCollideRadius(n: SimNode): number {
+    const c = (n.albumCount ?? 0) as number;
+    const mul = hubSizeMul(c, maxHubCount);
+    // small fixed padding so the silhouette doesn't kiss neighbours;
+    // label chips that overflow the silhouette are allowed to render
+    // over neighbours (visual concern, not a layout one).
+    return (sz * mul) / 2 + sz * HUB_COLLIDE_PADDING_MUL;
+  }
 
   sim = forceSimulation<SimNode, SimLink>(simNodes)
     .force(
@@ -406,8 +518,8 @@ function buildSim(mode: UpdateMode) {
           const hubMul =
             srcHub && tgtHub
               ? srcRemote || tgtRemote
-                ? 0.22
-                : 0.45
+                ? HUB_LINK_DISTANCE_MUL.remoteToRelation
+                : HUB_LINK_DISTANCE_MUL.kindToKind
               : 1;
           return linkDist * relationDistanceMultiplier(l.kind) * hubMul * endpointCountDistanceShrink(l);
         })
@@ -427,9 +539,11 @@ function buildSim(mode: UpdateMode) {
             // half-dozen relation hexagons per remote stay glued to
             // their wonky triangle instead of drifting toward the
             // shared value-hub cluster.
-            const hubStrengthBump = srcRemote || tgtRemote ? 2.2 : 1;
+            const hubStrengthBump =
+              srcRemote || tgtRemote ? REMOTE_HUB_LINK_STRENGTH_BUMP : 1;
             return (
-              (0.15 + 0.35 * ((l.weight ?? 0.5) as number)) *
+              (LINK_STRENGTH_CURVE.base +
+                LINK_STRENGTH_CURVE.slope * ((l.weight ?? 0.5) as number)) *
               linkStrengthMul *
               relationStrengthMultiplier(l.kind) *
               hubStrengthBump *
@@ -440,13 +554,62 @@ function buildSim(mode: UpdateMode) {
     )
     .force(
       "charge",
-      forceManyBody<SimNode>().strength((n) =>
-        typeof n.id === "string" && n.id.startsWith("hub_remote::")
-          ? remoteHubChargeStr
-          : chargeStr,
-      ),
+      forceManyBody<SimNode>().strength((n) => {
+        const id = n.id;
+        if (typeof id !== "string") return chargeStr;
+        if (id.startsWith("hub_relation::")) return relationHubChargeStr;
+        if (id.startsWith("hub_relation_value::")) return valueHubChargeStr;
+        return chargeStr;
+      }),
     )
     .force("center", forceCenter(config.width / 2, config.height / 2))
+    // directional hub layout: each remote / relation / value hub gets
+    // a stable angular slot and is pulled outward to a target ring
+    // along that angle. spreads multi-remote scaffolds apart so the
+    // hubs (and any non-leaf subgraph anchored to them) expand
+    // outward in their own direction instead of overlapping the root
+    // cluster. leaves (artists + albums) skip these forces and curl
+    // back inward via the regular center + link pull.
+    .force(
+      "hubDirX",
+      forceX<SimNode>()
+        .x((n) => {
+          if (typeof n.id !== "string") return config.width / 2;
+          const d = hubDirectional(n.id);
+          if (!d) return config.width / 2;
+          const baseR =
+            sz *
+            Math.max(
+              HUB_RING_RADIUS.baseMin,
+              Math.sqrt(nCount) * HUB_RING_RADIUS.sqrtFactor,
+            );
+          return config.width / 2 + baseR * d.radiusFactor * Math.cos(d.angle);
+        })
+        .strength((n) => {
+          if (typeof n.id !== "string") return 0;
+          return hubDirectional(n.id)?.strength ?? 0;
+        }),
+    )
+    .force(
+      "hubDirY",
+      forceY<SimNode>()
+        .y((n) => {
+          if (typeof n.id !== "string") return config.height / 2;
+          const d = hubDirectional(n.id);
+          if (!d) return config.height / 2;
+          const baseR =
+            sz *
+            Math.max(
+              HUB_RING_RADIUS.baseMin,
+              Math.sqrt(nCount) * HUB_RING_RADIUS.sqrtFactor,
+            );
+          return config.height / 2 + baseR * d.radiusFactor * Math.sin(d.angle);
+        })
+        .strength((n) => {
+          if (typeof n.id !== "string") return 0;
+          return hubDirectional(n.id)?.strength ?? 0;
+        }),
+    )
     // collide: hard non-overlap. radius depends on node kind so the
     // album's square corners (which extend to sz*sqrt(2)/2 from
     // center along the diagonal) don't visually intersect an adjacent
@@ -462,14 +625,13 @@ function buildSim(mode: UpdateMode) {
       forceCollide<SimNode>()
         .radius((n) => {
           if (n.kind === "album") return collide.album;
-          // hub nodes are size-scaled at render time (up to
-          // HUB_SIZE_MAX_MUL = 1.6 on the main thread) and also need
-          // padding for their label chip when the name doesn't fit
-          // inside the silhouette. bump their collide radius so
-          // hexagons + octagons stay visually clear of their
-          // neighbours and of their parent remote triangle.
+          // hub nodes: size-scaled per-node from albumCount so
+          // collide tracks the actual rendered silhouette instead of
+          // applying a worst-case worst-multiplier to every hub.
+          // crucial fix for the persistent remote↔relation gap (see
+          // `hubCollideRadius` for derivation).
           if (typeof n.id === "string" && n.id.startsWith("hub_"))
-            return collide.artist * 1.7;
+            return hubCollideRadius(n);
           return collide.artist;
         })
         .strength(1)
@@ -483,8 +645,8 @@ function buildSim(mode: UpdateMode) {
     // collide-constrained pairs apart — keeping a tiny background
     // alpha lets jacobi collide finish cleaning up the layout.
     .alphaDecay(nCount >= 3500 ? 0.021 : nCount >= 2500 ? 0.023 : nCount >= 1500 ? 0.028 : nCount >= 700 ? 0.037 : 0.05)
-    .alphaMin(0.0015)
-    .velocityDecay(0.64);
+    .alphaMin(SIM_COOLDOWN.alphaMin)
+    .velocityDecay(SIM_COOLDOWN.velocityDecay);
 
   sim.on("tick", emitPositions);
 

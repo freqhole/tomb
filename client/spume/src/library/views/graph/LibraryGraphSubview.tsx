@@ -1278,8 +1278,19 @@ function Inner(props: {
     },
     onSelectionChange: (node) => {
       setFocusedNode(node);
+      // NOTE: do NOT auto-drill back on selection clear. previously
+      // we called `backOneDrillLevel()` whenever node became null,
+      // which fired from any path that nulled the canvas selection —
+      // including pressing escape while inside a drilled-into value
+      // hub. escape would then both clear the focused album AND pop
+      // the drill, removing the value-hub fan from `graphNodes` so
+      // the just-deselected album was no longer on the canvas to
+      // re-click. drill-back is now an explicit two-step gesture:
+      // first escape clears selection; second escape pops one drill
+      // level (see the keydown handler below). click-away on empty
+      // canvas only clears the selection without popping the drill,
+      // matching user expectation.
       if (!node) {
-        backOneDrillLevel();
         return;
       }
       if (node.kind === "artist") {

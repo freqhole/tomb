@@ -18,8 +18,9 @@
 
 import { createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js";
 import type { SimulationLinkDatum, SimulationNodeDatum } from "d3-force";
-import { drawAlbumNode } from "./drawAlbumNode";
-import { drawArtistNode } from "./drawArtistNode";
+import { drawNode } from "./draw/drawNode";
+import { hitRadiusFor } from "./draw/shared/hitRadius";
+import { nodeRole } from "./draw/shared/roleDispatch";
 import { RELATION_COLOR } from "./relations";
 import {
   isAnyHubId,
@@ -609,17 +610,10 @@ export function GraphCanvas(props: GraphCanvasProps) {
    *  pixels so small nodes stay clickable when zoomed out. */
   function effectiveHitRadius(n: SimNode, k: number, maxHub?: number): number {
     const size = effectiveNodeSize(n, maxHub);
-    let shapeMul: number;
-    if (n.kind === "album") {
-      shapeMul = 0.55;
-    } else if (isRemoteHubId(n.id)) {
-      shapeMul = 0.42;
-    } else if (isRelationHubId(n.id) || isRelationValueHubId(n.id)) {
-      shapeMul = 0.5;
-    } else {
-      shapeMul = 0.5;
-    }
-    return Math.max(size * shapeMul, 12 / k);
+    // per-role inradius factor lives co-located with each role's
+    // draw fn under `draw/roles/`; floored at 12 screen pixels so
+    // small nodes stay clickable when zoomed out.
+    return Math.max(hitRadiusFor(nodeRole(n), size), 12 / k);
   }
   /** post-filter a coarse worker / local hit-test result: drop hits
    *  whose centre is outside the node's effective shape radius. */
@@ -947,21 +941,27 @@ export function GraphCanvas(props: GraphCanvasProps) {
       if (key.startsWith("hub:remote:")) {
         const remote = key.slice("hub:remote:".length);
         const a = hashAngle("remote::" + remote);
-        // remote triangles sit on the outer ring of the hub family so
-        // they don't pile on top of their child hexagons.
-        return { ox: 0.78 * Math.cos(a), oy: 0.78 * Math.sin(a) };
+        // remote triangles sit on the outer ring along the remote's
+        // angle slot. matches the worker's `hubDirectional` target so
+        // the seed agrees with the steady-state pull.
+        return { ox: 0.95 * Math.cos(a), oy: 0.95 * Math.sin(a) };
       }
       if (key.startsWith("hub:relation:")) {
         const remote = key.slice("hub:relation:".length);
-        // kind hubs share the remote's seed angle so they spawn near
-        // their parent triangle rather than around the centroid.
+        // relation hexagons share the remote's angle AND its outer-
+        // ring radius so they seed clustered around the parent
+        // triangle. link springs + collide pick the exact arrangement.
         const a = hashAngle("remote::" + remote);
-        return { ox: 0.6 * Math.cos(a), oy: 0.6 * Math.sin(a) };
+        return { ox: 0.95 * Math.cos(a), oy: 0.95 * Math.sin(a) };
       }
       if (key.startsWith("hub:relation_value:")) {
         const kind = key.slice("hub:relation_value:".length);
+        // value octagons seed in their kind's coarse direction but
+        // are pushed further out at runtime (factor 1.3) along an
+        // angle hashed per-value so siblings fan into open canvas
+        // instead of curling back through the root cluster.
         const a = hashAngle("value::" + kind);
-        return { ox: 0.32 * Math.cos(a), oy: 0.32 * Math.sin(a) };
+        return { ox: 1.2 * Math.cos(a), oy: 1.2 * Math.sin(a) };
       }
       return null;
     };
@@ -1671,9 +1671,9 @@ export function GraphCanvas(props: GraphCanvasProps) {
       // marquee here would be redundant + visually noisy.
       const showLabel = n.id === hov;
       if (nodeKind(n) === "artist") {
-        drawArtistNode({
+        drawNode({
           ctx: nctx,
-          artist: n as ArtistNodeData,
+          node: n as ArtistNodeData,
           x: n.x ?? 0,
           y: n.y ?? 0,
           size: sizeForNode(n),
@@ -1691,9 +1691,9 @@ export function GraphCanvas(props: GraphCanvasProps) {
           onImageReady: requestDrawDeferred,
         });
       } else {
-        drawAlbumNode({
+        drawNode({
           ctx: nctx,
-          album: n as AlbumNodeData,
+          node: n as AlbumNodeData,
           x: n.x ?? 0,
           y: n.y ?? 0,
           size: nodeSize(),
@@ -1808,9 +1808,9 @@ export function GraphCanvas(props: GraphCanvasProps) {
             const n = shown[i];
             const { x: px, y: py } = positions[i];
             if (nodeKind(n as SimNode) === "artist") {
-              drawArtistNode({
+              drawNode({
                 ctx: nctx,
-                artist: n as ArtistNodeData,
+                node: n as ArtistNodeData,
                 x: px,
                 y: py,
                 size: previewSize,
@@ -1822,9 +1822,9 @@ export function GraphCanvas(props: GraphCanvasProps) {
                 onImageReady: requestDrawDeferred,
               });
             } else {
-              drawAlbumNode({
+              drawNode({
                 ctx: nctx,
-                album: n as AlbumNodeData,
+                node: n as AlbumNodeData,
                 x: px,
                 y: py,
                 size: previewSize,
