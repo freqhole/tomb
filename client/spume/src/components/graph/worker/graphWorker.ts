@@ -315,6 +315,15 @@ function buildSim(mode: UpdateMode) {
   // charge: long-range mutual repulsion. stronger at higher density so
   // disconnected regions still push apart instead of stacking.
   const chargeStr = -sz * 7.8 * densityMul;
+  // remote root hubs get extra charge so they spread out into a
+  // wider ring around the relation-hub cluster instead of bunching
+  // up on one side. only applied to `hub_remote::*` ids — relation
+  // and relation-value hubs keep the baseline charge so their
+  // satellite layout stays tight. kept modest (~2x) so connected
+  // relation hexagons can still settle close to their remote root
+  // — the remote↔relation link distance is also shortened (see
+  // `hubMul` in the link force) to reinforce the tight cluster.
+  const remoteHubChargeStr = chargeStr * 2;
   // collide radii: forceCollide treats nodes as DISCS. an axis-
   // aligned album square of edge `sz` is inscribed in a disc of
   // radius sz/2, but two squares oriented at 45° to each other have
@@ -332,7 +341,39 @@ function buildSim(mode: UpdateMode) {
       "link",
       forceLink<SimNode, SimLink>(simLinks)
         .id((d) => d.id)
-        .distance((l) => linkDist * relationDistanceMultiplier(l.kind))
+        .distance((l) => {
+          // hub-to-hub edges (remote-root → relation-hub, relation-hub
+          // → relation-value-hub) get a much shorter target distance
+          // so the scaffold sits tightly around its parent instead of
+          // sprawling out into the album cloud. detected by id-prefix
+          // sniffing on the resolved source/target — by the time the
+          // distance accessor is called d3 has rewritten the link
+          // endpoints from string ids into SimNode references.
+          const srcId =
+            typeof l.source === "object" && l.source !== null
+              ? (l.source as SimNode).id
+              : (l.source as string);
+          const tgtId =
+            typeof l.target === "object" && l.target !== null
+              ? (l.target as SimNode).id
+              : (l.target as string);
+          const srcHub = typeof srcId === "string" && srcId.startsWith("hub_");
+          const tgtHub = typeof tgtId === "string" && tgtId.startsWith("hub_");
+          // remote-root → relation-hub edges get an even shorter
+          // target distance than other hub-to-hub edges so the
+          // relation hexagons hug the remote silhouette instead of
+          // floating off into the album cloud. detected by checking
+          // whether either endpoint is a `hub_remote::*` id.
+          const srcRemote = typeof srcId === "string" && srcId.startsWith("hub_remote::");
+          const tgtRemote = typeof tgtId === "string" && tgtId.startsWith("hub_remote::");
+          const hubMul =
+            srcHub && tgtHub
+              ? srcRemote || tgtRemote
+                ? 0.22
+                : 0.45
+              : 1;
+          return linkDist * relationDistanceMultiplier(l.kind) * hubMul;
+        })
         .strength(
           (l) =>
             (0.15 + 0.35 * ((l.weight ?? 0.5) as number)) *
@@ -340,7 +381,14 @@ function buildSim(mode: UpdateMode) {
             relationStrengthMultiplier(l.kind),
         ),
     )
-    .force("charge", forceManyBody().strength(chargeStr))
+    .force(
+      "charge",
+      forceManyBody<SimNode>().strength((n) =>
+        typeof n.id === "string" && n.id.startsWith("hub_remote::")
+          ? remoteHubChargeStr
+          : chargeStr,
+      ),
+    )
     .force("center", forceCenter(config.width / 2, config.height / 2))
     // collide: hard non-overlap. radius depends on node kind so the
     // album's square corners (which extend to sz*sqrt(2)/2 from

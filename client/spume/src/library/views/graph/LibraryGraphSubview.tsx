@@ -32,10 +32,8 @@ import { addToQueue, playQueue } from "../../../music/services/queue/queue";
 import { routes } from "../../../music/utils/routing";
 import { useToggleFavoriteMutation } from "../../../music/queries/favorites";
 import { toast } from "../../../components/feedback/Toast";
-import type { TagFilter, TagOption } from "../../../components/forms/TagFilterPicker";
 import { isNarrowViewport } from "../../../config/breakpoints";
 import { setPageInfo, clearPageInfo } from "../../../app/services/pageInfo";
-import { useHistoryState } from "../../../utils/historyState";
 import type {
   AlbumNodeData,
   ArtistNodeData,
@@ -45,7 +43,21 @@ import type {
 } from "../../../components/graph/types";
 import { deriveArtistNodes } from "./deriveArtistNodes";
 import { useRelatedArtistsByIds } from "../../queries/useRelatedArtistsByIds";
-import { RELATION_KINDS, RELATION_LABEL } from "../../../components/graph/relations";
+import { RELATION_LABEL } from "../../../components/graph/relations";
+import {
+  RELATION_HUB_KINDS,
+  isAnyHubId,
+  isRelationHubId,
+  isRemoteHubId,
+  isRelationValueHubId,
+  parseRelationHubId,
+  parseRelationValueHubId,
+  parseRemoteHubId,
+  relationHubId,
+  relationSupportsValueLayer,
+  relationValueHubId,
+  remoteHubId,
+} from "../../../components/graph/hubNodes";
 import { getAuthInfo, getAuthStatus } from "../../../app/services/remotes/authStatusStore";
 import { permissions, type UserRoleName } from "freqhole-api-client";
 import {
@@ -214,12 +226,9 @@ function Inner(props: {
   // setter is reserved for the upcoming topnav search input.
   const [searchQuery] = createSignal("");
 
-  // admin-ness is per-remote. consume the global authStatusStore signal
-  // (populated by AppLayout / useRemoteIsAdmin's refresh-on-demand) so
-  // we stay in sync with topnav role display. `isAnyRemoteAdmin()`
-  // gates whether the popovers offer an edit button at all;
-  // `isRemoteAdmin(remoteId)` re-checks per-node before opening the
-  // editor (in case multiple remotes are selected with mixed roles).
+  // admin-ness is per-remote. only check the *currently selected*
+  // remotes (the only ones the user is actively viewing) so popovers
+  // surface an edit button when relevant.
   const authStatus = getAuthStatus();
   const isRemoteAdmin = (remoteId: string | null | undefined): boolean => {
     if (!remoteId) return false;
@@ -228,9 +237,48 @@ function Inner(props: {
     return permissions.isAdmin(entry.role as UserRoleName);
   };
   const isAnyRemoteAdmin = (): boolean => {
-    for (const r of props.remotes()) if (isRemoteAdmin(r.remote_id)) return true;
+    for (const r of selectedRemotes()) if (isRemoteAdmin(r.remote_id)) return true;
     return false;
   };
+
+  // ---- in-graph remote selection ----
+  //
+  // the graph subview owns remote selection (instead of the parent
+  // RemotePicker). every remote in `props.remotes` is rendered as a
+  // wonky-triangle hub node, but album data is loaded only for
+  // *selected* remotes. clicking a remote hub toggles selection;
+  // single mode replaces, multi mode toggles membership.
+  //
+  // default selection: in tauri/charnel mode the local-managed remote
+  // is preferred (it lights up the user's own library on first paint);
+  // otherwise we pick the first remote in the provided list.
+  const pickDefaultRemoteId = (list: Remote[]): string | null => {
+    if (list.length === 0) return null;
+    const charnel = list.find((r) => r.is_charnel_managed);
+    return (charnel ?? list[0]).remote_id;
+  };
+  const [selectedRemoteIds, setSelectedRemoteIds] = createSignal<Set<string>>(new Set());
+  // initialize + reconcile when the available remotes change. preserves
+  // the user's existing selection when possible; falls back to default.
+  createEffect(() => {
+    const all = props.remotes();
+    const allIds = new Set(all.map((r) => r.remote_id));
+    const cur = selectedRemoteIds();
+    const filtered = new Set<string>();
+    for (const id of cur) if (allIds.has(id)) filtered.add(id);
+    if (filtered.size === 0) {
+      const def = pickDefaultRemoteId(all);
+      if (def) filtered.add(def);
+    }
+    // only write if the set actually changed (avoid re-fire loops)
+    if (filtered.size !== cur.size || [...filtered].some((id) => !cur.has(id))) {
+      setSelectedRemoteIds(filtered);
+    }
+  });
+  const selectedRemotes = createMemo<Remote[]>(() => {
+    const ids = selectedRemoteIds();
+    return props.remotes().filter((r) => ids.has(r.remote_id));
+  });
 
   // per-remote node store, keyed by remote_id. updated by each
   // RemoteAlbumsLoader child as pages arrive. flattened into `nodes()`
@@ -254,6 +302,11 @@ function Inner(props: {
     for (const v of fetchingByRemote().values()) if (v) return true;
     return false;
   };
+  // currently unreferenced — the in-canvas comet-trail spinner on
+  // each remote hub (driven by `loadingNodeIds`) replaced the corner
+  // chip overlay. kept as a public-ish hook for future chrome that
+  // wants a coarse "any remote in flight?" signal.
+  void isAnyRemoteRefetching;
 
   // batched-update plumbing: each `RemoteAlbumsLoader` reports a fresh
   // adapted list whenever a new page lands. publishing each one
@@ -292,11 +345,12 @@ function Inner(props: {
     }
   };
 
-  // when a remote is deselected, prune its entry so its nodes drop from
-  // the graph on the next tick. also clean up the per-remote fetching
-  // flag so a stale `true` doesn't keep the "refreshing…" chip lit.
+  // when a remote is deselected (or removed from props.remotes),
+  // prune its entry so its nodes drop from the graph on the next tick.
+  // also clean up the per-remote fetching flag so a stale `true`
+  // doesn't keep the "refreshing…" chip lit.
   createEffect(() => {
-    const active = new Set(props.remotes().map((r) => r.remote_id));
+    const active = new Set(selectedRemotes().map((r) => r.remote_id));
     setNodesByRemote((prev) => {
       let changed = false;
       const next = new Map(prev);
@@ -328,86 +382,33 @@ function Inner(props: {
   });
 
   // ---- tag filter ------------------------------------------------------
-  // wires into the shared `pageInfo` plumbing so the topnav's built-in
-  // tag picker (trigger button in row 1, selected badges in their own
-  // row below) renders identically to songs/albums views. semantics:
-  // includes are OR'd (album passes if it has any of the include tags);
-  // excludes are hard rejects (any match drops the album). filter is
-  // applied below in `visibleNodes`.
-  const [tagFilters, setTagFilters] = createSignal<TagFilter[]>([]);
+  // historical: the topnav's built-in tag picker (button + selected
+  // badges, identical UX to the songs/albums views) used to be wired
+  // here via `setPageInfo({ availableTags, selectedTagFilters, ... })`.
+  // it's been ripped out for the graph subview because tag filtering
+  // belongs in-canvas alongside the other relation surfaces (planned:
+  // a tag-hub node type / sub-relation drilldown). until that lands,
+  // `visibleNodes` is a pass-through over `nodes()` — the alias is
+  // kept so the downstream callers (page count, lasso targets, etc.)
+  // don't have to be re-pointed when the in-canvas picker arrives and
+  // re-introduces a filter step.
+  const visibleNodes = nodes;
 
-  const handleAddTag = (tag: string) => {
-    if (tagFilters().some((f) => f.tag === tag)) return;
-    setTagFilters([...tagFilters(), { tag, mode: "include" }]);
-  };
-  const handleRemoveTag = (tag: string) => {
-    setTagFilters(tagFilters().filter((f) => f.tag !== tag));
-  };
-  const handleToggleTagMode = (tag: string) => {
-    setTagFilters(
-      tagFilters().map((f) =>
-        f.tag === tag ? { tag: f.tag, mode: f.mode === "include" ? "exclude" : "include" } : f
-      )
-    );
-  };
-  const handleClearAllTags = () => setTagFilters([]);
-
-  const tagCounts = createMemo<Map<string, number>>(() => {
-    const counts = new Map<string, number>();
-    for (const n of nodes()) {
-      const seen = new Set<string>();
-      for (const t of n.tags) {
-        if (seen.has(t.label)) continue;
-        seen.add(t.label);
-        counts.set(t.label, (counts.get(t.label) ?? 0) + 1);
-      }
-    }
-    return counts;
-  });
-
-  const availableTagOptions = createMemo<TagOption[]>(() => {
-    const entries = [...tagCounts().entries()];
-    entries.sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
-    return entries.map(([label, count]) => ({ value: label, label, count }));
-  });
-
-  const visibleNodes = createMemo<AlbumNodeData[]>(() => {
-    const filters = tagFilters();
-    if (filters.length === 0) return nodes();
-    const includes: string[] = [];
-    const excludes = new Set<string>();
-    for (const f of filters) {
-      if (f.mode === "include") includes.push(f.tag);
-      else excludes.add(f.tag);
-    }
-    return nodes().filter((n) => {
-      const labels = new Set(n.tags.map((t) => t.label));
-      // excludes are hard rejects — any match drops the album.
-      for (const exc of excludes) if (labels.has(exc)) return false;
-      // includes are OR'd — album passes if it has at least one of
-      // the picked include tags (standard multi-select-filter UX).
-      if (includes.length === 0) return true;
-      for (const inc of includes) if (labels.has(inc)) return true;
-      return false;
-    });
-  });
-
-  // push tag-filter state into the shared `pageInfo` store so the
-  // topnav renders the built-in tag picker (button in the primary row,
-  // selected badges in their own row below) — identical UX to the
-  // songs/albums views. title/count mirror what `AlbumsTable` pushes
-  // for the table subview so the page header stays consistent across
-  // subview swaps.
+  // push graph state into the shared `pageInfo` store. title/count
+  // mirror what `AlbumsTable` pushes for the table subview so the page
+  // header stays consistent across subview swaps.
+  //
+  // the topnav tag filter picker (button + selected badges) used to be
+  // wired here, alongside the songs/albums views. it's now hidden in
+  // the graph subview \u2014 the tag-filter machinery (`tagFilters` signal,
+  // `visibleNodes` filtering, `handleAddTag` et al) is kept dormant so
+  // a future in-canvas tag picker / tag hub node can re-light it
+  // without re-importing the wiring. with no entries pushed in,
+  // `tagFilters()` stays empty and `visibleNodes` is a pass-through.
   createEffect(() => {
     setPageInfo({
       title: "library",
       count: visibleNodes().length,
-      availableTags: availableTagOptions(),
-      selectedTagFilters: tagFilters(),
-      onAddTag: handleAddTag,
-      onRemoveTag: handleRemoveTag,
-      onToggleTagMode: handleToggleTagMode,
-      onClearAllTags: handleClearAllTags,
     });
   });
   onCleanup(() => clearPageInfo());
@@ -428,7 +429,8 @@ function Inner(props: {
       const found = all.find((r) => r.remote_id === id);
       if (found) return found;
     }
-    return all[0];
+    const sel = selectedRemotes();
+    return sel[0] ?? all[0];
   };
 
   const fetchAlbumSongs = async (remote: Remote, albumId: string) => {
@@ -439,26 +441,12 @@ function Inner(props: {
 
   // ---- content-kind selector ------------------------------------------
   // user-controlled toggle between album-only, artist-only, and both
-  // node layers. persisted across navigations via useHistoryState so
-  // flipping to another view + back preserves the picked layer. when
-  // artists are visible we also fire the per-artist related-artist
-  // query so artist↔artist edges can be drawn.
-  type ContentKind = "albums" | "artists" | "both";
-  const [contentKind, setContentKind] = useHistoryState<ContentKind>(
-    "library.graph.contentKind",
-    "both"
-  );
-  const showArtists = createMemo(() => contentKind() === "artists" || contentKind() === "both");
-  const showAlbums = createMemo(() => contentKind() === "albums" || contentKind() === "both");
-  const REMOTE_HUB_PREFIX = "hub_remote::";
-  const RELATION_HUB_PREFIX = "hub_relation::";
-  const RELATION_VALUE_HUB_PREFIX = "hub_relation_value::";
+  // when drilling into a relation, both artist and album fan-out nodes
+  // are always shown together — the old albums/artists/both topnav
+  // picker is gone. the per-artist related-artist query also fires
+  // unconditionally so artist↔artist edges can be drawn.
   const MERGED_ARTIST_PREFIX = "merged_artist::";
   const MERGED_ALBUM_PREFIX = "merged_album::";
-  const RELATION_HUB_KINDS = RELATION_KINDS.filter((r) => r.kind !== "artist_album").map(
-    (r) => r.kind
-  ) as RelationKind[];
-  const RELATION_HUB_KIND_SET = new Set<RelationKind>(RELATION_HUB_KINDS);
 
   const norm = (s: string | null | undefined): string => (s ?? "").trim().toLowerCase();
   const artistMergeKey = (
@@ -473,42 +461,10 @@ function Inner(props: {
     const ak = artistMergeKey(n.artistName, n.artistId);
     return `${ak}::${norm(n.title)}`;
   };
-  const isRemoteHubId = (artistId: string | null | undefined): boolean =>
-    !!artistId && artistId.startsWith(REMOTE_HUB_PREFIX);
-  const isRelationHubId = (artistId: string | null | undefined): boolean =>
-    !!artistId && artistId.startsWith(RELATION_HUB_PREFIX);
-  const isRelationValueHubId = (artistId: string | null | undefined): boolean =>
-    !!artistId && artistId.startsWith(RELATION_VALUE_HUB_PREFIX);
-  const relationKindFromHubId = (artistId: string | null | undefined): RelationKind | null => {
-    if (!isRelationHubId(artistId)) return null;
-    const raw = artistId!.slice(RELATION_HUB_PREFIX.length) as RelationKind;
-    return RELATION_HUB_KIND_SET.has(raw) ? raw : null;
-  };
-  const relationValueHubId = (kind: RelationKind, valueNorm: string): string =>
-    `${RELATION_VALUE_HUB_PREFIX}${kind}::${encodeURIComponent(valueNorm)}`;
-  const relationValueFromHubId = (
-    artistId: string | null | undefined
-  ): { kind: RelationKind; valueNorm: string } | null => {
-    if (!isRelationValueHubId(artistId)) return null;
-    const raw = artistId!.slice(RELATION_VALUE_HUB_PREFIX.length);
-    const sep = raw.indexOf("::");
-    if (sep <= 0) return null;
-    const kind = raw.slice(0, sep) as RelationKind;
-    if (!RELATION_HUB_KIND_SET.has(kind)) return null;
-    const encoded = raw.slice(sep + 2);
-    try {
-      return { kind, valueNorm: decodeURIComponent(encoded) };
-    } catch {
-      return null;
-    }
-  };
-  const relationSupportsValueLayer = (kind: RelationKind | null): boolean =>
-    kind === "genre" ||
-    kind === "tag" ||
-    kind === "mood" ||
-    kind === "style" ||
-    kind === "era" ||
-    kind === "label";
+  // local aliases that mirror the prior in-file helper signatures so
+  // the rest of the file can keep its current call shape.
+  const relationKindFromHubId = parseRelationHubId;
+  const relationValueFromHubId = parseRelationValueHubId;
 
   const [focusedNode, setFocusedNode] = createSignal<GraphNodeData | null>(null);
   type DrillMode = "root" | "relation_values" | "entities";
@@ -619,9 +575,9 @@ function Inner(props: {
       countsByRemote.set(id, (countsByRemote.get(id) ?? 0) + 1);
     }
     return props.remotes().map((r) => ({
-      id: `${REMOTE_HUB_PREFIX}${r.remote_id}`,
+      id: remoteHubId(r.remote_id),
       kind: "artist",
-      artistId: `${REMOTE_HUB_PREFIX}${r.remote_id}`,
+      artistId: remoteHubId(r.remote_id),
       name: r.name || r.remote_id,
       abbreviation: (r.name || r.remote_id).slice(0, 3).toUpperCase(),
       imageUrl: null,
@@ -661,9 +617,9 @@ function Inner(props: {
         count = uniq.size;
       }
       return {
-        id: `${RELATION_HUB_PREFIX}${kind}`,
+        id: relationHubId(kind),
         kind: "artist",
-        artistId: `${RELATION_HUB_PREFIX}${kind}`,
+        artistId: relationHubId(kind),
         name: RELATION_LABEL[kind] ?? kind,
         abbreviation: (RELATION_LABEL[kind] ?? kind).slice(0, 3).toUpperCase(),
         imageUrl: null,
@@ -750,7 +706,9 @@ function Inner(props: {
   });
 
   const uniqueArtistIds = createMemo(() => mergedArtistNodes().map((a) => a.artistId));
-  const primaryRemote = createMemo(() => props.remotes()[0]);
+  // related-artist lookups hit one remote — pick the first selected one
+  // (the user's primary context), falling back to the first available.
+  const primaryRemote = createMemo(() => selectedRemotes()[0] ?? props.remotes()[0]);
   const relatedQuery = useRelatedArtistsByIds({
     remote: primaryRemote,
     artistIds: uniqueArtistIds,
@@ -771,12 +729,7 @@ function Inner(props: {
     node: GraphNodeData,
     valueNorm?: string | null
   ): boolean => {
-    if (
-      node.kind === "artist" &&
-      (isRemoteHubId(node.artistId) ||
-        isRelationHubId(node.artistId) ||
-        isRelationValueHubId(node.artistId))
-    ) {
+    if (node.kind === "artist" && isAnyHubId(node.artistId)) {
       return false;
     }
     if (relationSupportsValueLayer(kind)) {
@@ -860,8 +813,8 @@ function Inner(props: {
       });
       if (activeValueHub) out.push(activeValueHub);
     }
-    if (showAlbums()) out.push(...fanoutAlbums());
-    if (showArtists()) out.push(...fanoutArtists());
+    out.push(...fanoutAlbums());
+    out.push(...fanoutArtists());
     return out;
   });
 
@@ -875,8 +828,18 @@ function Inner(props: {
       ? (relations.find((n) => relationKindFromHubId(n.artistId) === active) ?? null)
       : null;
 
+    // only the currently-selected remote(s) drill into the relation
+    // scaffold — unselected remote triangles float free as pickers.
+    // when multiple remotes are selected (multi mode), they share the
+    // same relation-hub singletons, producing a fan-in shape.
+    const selectedIds = selectedRemoteIds();
+    const activeRemotes = remotes.filter((r) => {
+      const rid = parseRemoteHubId(r.artistId);
+      return rid !== null && selectedIds.has(rid);
+    });
+
     if (mode === "root" || !activeRelationHub || !active) {
-      for (const remote of remotes) {
+      for (const remote of activeRemotes) {
         for (const relation of relations) {
           const kind = relationKindFromHubId(relation.artistId);
           if (!kind) continue;
@@ -894,8 +857,8 @@ function Inner(props: {
       return out;
     }
 
-    // keep ancestry visible while drilling: remote -> active relation.
-    for (const remote of remotes) {
+    // keep ancestry visible while drilling: selected remote(s) -> active relation.
+    for (const remote of activeRemotes) {
       out.push({
         source: remote.id,
         target: activeRelationHub.id,
@@ -966,46 +929,13 @@ function Inner(props: {
     // activeRelationKind here causes createGraphLibraryView to reset
     // selection on every relation click, which immediately clears the
     // fan-out state again.
-    return `${remotes}::${contentKind()}`;
+    return remotes;
   });
-  // viewports we drop the labels and show icon-only buttons so the
-  // toolbar still fits.
-  const CONTENT_KIND_OPTIONS: { value: ContentKind; label: string; title: string }[] = [
-    { value: "albums", label: "albums", title: "show albums only" },
-    { value: "artists", label: "artists", title: "show artists only" },
-    { value: "both", label: "both", title: "show albums and artists" },
-  ];
-  const contentKindSelector = (
-    <div
-      class="inline-flex items-center rounded border border-white/10 bg-white/5 overflow-hidden"
-      role="radiogroup"
-      aria-label="graph content"
-    >
-      <For each={CONTENT_KIND_OPTIONS}>
-        {(opt) => (
-          <button
-            type="button"
-            role="radio"
-            aria-checked={contentKind() === opt.value}
-            title={opt.title}
-            onClick={() => setContentKind(opt.value)}
-            class="px-2 py-1 text-[11px] leading-none cursor-pointer border-0 bg-transparent text-white/70 hover:text-white"
-            classList={{
-              "bg-white/15 text-white": contentKind() === opt.value,
-            }}
-          >
-            {opt.label}
-          </button>
-        )}
-      </For>
-    </div>
-  );
-
-  // compose the content-kind selector ahead of any caller-supplied
-  // extraTools (e.g. the admin-only bulk-tag toggle from the parent).
-  // also includes a manual refresh button — the graph query opts out
-  // of the 5s mb-lookup re-poll (see RemoteAlbumsLoader), so this is
-  // the explicit way to pull in newly-added/updated albums.
+  // compose any caller-supplied extraTools (e.g. the admin-only bulk-tag
+  // toggle from the parent) alongside a manual refresh button — the
+  // graph query opts out of the 5s mb-lookup re-poll (see
+  // RemoteAlbumsLoader), so this is the explicit way to pull in newly-
+  // added/updated albums.
   const refreshButton = (
     <button
       type="button"
@@ -1021,7 +951,6 @@ function Inner(props: {
   );
   const composedExtraTools = (
     <div class="inline-flex items-center gap-2">
-      {contentKindSelector}
       {refreshButton}
       {props.extraTools}
     </div>
@@ -1136,17 +1065,54 @@ function Inner(props: {
     const kind = activeRelationKind();
     if (!kind) {
       enterRootMode();
+      requestRefitAfterDrill();
       return true;
     }
 
     if (mode === "entities" && relationSupportsValueLayer(kind) && activeRelationValueNorm()) {
       enterRelationValuesMode(kind);
+      requestRefitAfterDrill();
       return true;
     }
 
     enterRootMode();
+    requestRefitAfterDrill();
     return true;
   };
+
+  // after drilling back up the tree the graph swaps its node set
+  // (e.g. relation_value octagons disappear, relation hexagons
+  // reappear). the force sim keeps the previous positions, which
+  // for nodes that survive the swap can leave them flung far across
+  // the viewport. force a fit a couple frames after the swap so the
+  // remaining nodes recenter. we bypass `fitIfIdle` (which is a
+  // no-op once the user has interacted) because this is an
+  // explicit response to a user-initiated navigation, not an
+  // unsolicited camera jump.
+  let refitTimer: ReturnType<typeof setTimeout> | null = null;
+  const requestRefitAfterDrill = () => {
+    if (refitTimer != null) clearTimeout(refitTimer);
+    // wait a tick for the nodes memo + worker to settle, then fit.
+    refitTimer = setTimeout(() => {
+      refitTimer = null;
+      graph.fit();
+    }, 250);
+  };
+  onCleanup(() => {
+    if (refitTimer != null) clearTimeout(refitTimer);
+  });
+
+  // per-node loading set — every remote hub whose RemoteAlbumsLoader
+  // is mid-fetch (initial load OR auto-paging OR manual refetch)
+  // gets a comet-trail spinner around its silhouette. mirrors the
+  // player-bar play/pause loading ring visual.
+  const loadingNodeIds = createMemo<Set<string>>(() => {
+    const out = new Set<string>();
+    for (const [remoteId, fetching] of fetchingByRemote()) {
+      if (fetching) out.add(remoteHubId(remoteId));
+    }
+    return out;
+  });
 
   const graph = createGraphLibraryView({
     nodes: graphNodes,
@@ -1157,6 +1123,41 @@ function Inner(props: {
     searchQuery,
     paused: () => !props.isActive(),
     lockNodes: true,
+    loadingNodeIds,
+    getHoverPreview: (node) => {
+      // peek-on-hover: ring up to ~12 child albums around a hub so
+      // the user can sanity-check what's inside before drilling.
+      // applies to relation_value (octagon) hubs always, and to
+      // relation (hex) hubs that have no value layer (favorite,
+      // same_artist, related_artist) since those are effectively
+      // leaf relations with no sub-relation tier to peek through.
+      if (node.kind !== "artist") return [];
+      const artistId = (node as ArtistNodeData).artistId;
+      const previewCap = 12;
+      const valueHub = parseRelationValueHubId(artistId);
+      if (valueHub) {
+        const matches: GraphNodeData[] = [];
+        for (const album of mergedAlbums()) {
+          if (hasRelationMembership(valueHub.kind, album, valueHub.valueNorm)) {
+            matches.push(album);
+            if (matches.length >= previewCap + 1) break;
+          }
+        }
+        return matches;
+      }
+      const relationKind = parseRelationHubId(artistId);
+      if (relationKind && !relationSupportsValueLayer(relationKind)) {
+        const matches: GraphNodeData[] = [];
+        for (const album of mergedAlbums()) {
+          if (hasRelationMembership(relationKind, album, null)) {
+            matches.push(album);
+            if (matches.length >= previewCap + 1) break;
+          }
+        }
+        return matches;
+      }
+      return [];
+    },
     onSelectionChange: (node) => {
       setFocusedNode(node);
       if (!node) {
@@ -1164,9 +1165,42 @@ function Inner(props: {
         return;
       }
       if (node.kind === "artist") {
+        // remote hub: toggle selection. single mode replaces; multi
+        // mode toggles membership. drill state resets in single mode
+        // so the user always lands at root for a freshly-picked remote.
+        const remoteId = parseRemoteHubId(node.artistId);
+        if (remoteId) {
+          const multi = graph.selectionMode() === "multi";
+          setSelectedRemoteIds((prev) => {
+            const next = new Set(prev);
+            if (multi) {
+              if (next.has(remoteId)) {
+                // do not allow deselecting the last remaining selection
+                if (next.size > 1) next.delete(remoteId);
+              } else {
+                next.add(remoteId);
+              }
+            } else {
+              next.clear();
+              next.add(remoteId);
+            }
+            return next;
+          });
+          if (!multi) enterRootMode();
+          // clear the canvas focus so the click doesn't open a popover
+          // on the (now selected) remote hub.
+          setFocusedNode(null);
+          graph.clearSelection();
+          return;
+        }
         const valueHub = relationValueFromHubId(node.artistId);
         if (valueHub) {
           enterEntitiesMode(valueHub.kind, valueHub.valueNorm);
+          // hubs don't open a detail popover — drill and move on.
+          // (don't call graph.clearSelection() here: it would re-fire
+          // onSelectionChange(null) and trigger backOneDrillLevel,
+          // reverting the drill we just performed.)
+          setFocusedNode(null);
           return;
         }
         const kind = relationKindFromHubId(node.artistId);
@@ -1176,6 +1210,7 @@ function Inner(props: {
           } else {
             enterEntitiesMode(kind, null);
           }
+          setFocusedNode(null);
           return;
         }
       }
@@ -1459,9 +1494,6 @@ function Inner(props: {
             </span>
           </Show>
         </div>
-        <Show when={graph.visibleRelationPillCount() > 0}>
-          <div class="w-full min-w-0">{graph.selectedRelationChips}</div>
-        </Show>
       </div>
     );
     slots.setSecondaryRowContent(chips);
@@ -1475,7 +1507,7 @@ function Inner(props: {
     <div class="h-full flex flex-col">
       {/* fan-out: one loader per selected remote. queryClient dedupes
        *  by key so flipping back to the table view doesn't re-fetch. */}
-      <For each={props.remotes()}>
+      <For each={selectedRemotes()}>
         {(r) => (
           <RemoteAlbumsLoader
             remote={r}
@@ -1487,57 +1519,26 @@ function Inner(props: {
       </For>
 
       <Show when={nodes().length === 0}>
-        <div
-          class="flex items-center justify-center h-full text-[var(--color-text-disabled)] text-xs"
-          data-testid="library-graph-loading"
-          role="status"
-          aria-live="polite"
-        >
+        {/* render nothing while the first batch is in flight — the
+         *  remote hub itself shows its own comet-trail spinner via
+         *  `loadingNodeIds`, so we don't want a competing full-pane
+         *  "loading…" takeover that hides the graph. an a11y status
+         *  region keeps screen readers informed without painting any
+         *  visible chrome. */}
+        <div class="sr-only" data-testid="library-graph-loading" role="status" aria-live="polite">
           <span>loading…</span>
         </div>
       </Show>
-      <Show when={nodes().length > 0}>
+      <Show when={nodes().length > 0 || selectedRemotes().length > 0}>
         {/* graph.pane's root is `flex-1 relative overflow-hidden`, so
          *  its parent MUST be a flex container for flex-1 to take
          *  effect. without `flex` here the pane collapses to ~1px
-         *  around its absolutely-positioned canvas child. a tiny chip
-         *  in the corner signals ongoing fetches (initial pages still
-         *  streaming in, or a manual refresh round-tripping). */}
-        <div class="flex-1 min-h-0 flex relative">
-          {graph.pane}
-          <Show when={isAnyRemoteRefetching()}>
-            <div
-              class="absolute top-2 right-2 z-10 inline-flex items-center gap-1.5 px-2 py-0.5 rounded border border-white/10 bg-black/50 text-white/70 text-[10px] backdrop-blur-sm pointer-events-none"
-              role="status"
-              aria-live="polite"
-            >
-              <svg
-                class="animate-spin"
-                width="10"
-                height="10"
-                viewBox="0 0 24 24"
-                fill="none"
-                aria-hidden="true"
-              >
-                <circle
-                  cx="12"
-                  cy="12"
-                  r="10"
-                  stroke="currentColor"
-                  stroke-width="3"
-                  stroke-opacity="0.25"
-                />
-                <path
-                  d="M22 12a10 10 0 0 1-10 10"
-                  stroke="currentColor"
-                  stroke-width="3"
-                  stroke-linecap="round"
-                />
-              </svg>
-              <span>loading…</span>
-            </div>
-          </Show>
-        </div>
+         *  around its absolutely-positioned canvas child. per-remote
+         *  fetch progress is surfaced as a comet-trail spinner on the
+         *  corresponding remote hub node (see `loadingNodeIds`); we
+         *  intentionally don't render a separate corner "loading…"
+         *  chip so the graph stays the single source of truth. */}
+        <div class="flex-1 min-h-0 flex relative">{graph.pane}</div>
       </Show>
     </div>
   );

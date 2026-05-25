@@ -16,11 +16,18 @@
 // the component is presentational: the parent supplies nodes/edges + relation
 // filter state, and reacts to selection events. it does NOT fetch data.
 
-import { createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js";
+import { createEffect, createMemo, createSignal, onCleanup, onMount, Show } from "solid-js";
 import type { SimulationLinkDatum, SimulationNodeDatum } from "d3-force";
 import { drawAlbumNode } from "./drawAlbumNode";
 import { drawArtistNode } from "./drawArtistNode";
 import { RELATION_COLOR } from "./relations";
+import {
+  isAnyHubId,
+  isRelationHubId,
+  isRelationValueHubId,
+  isRemoteHubId,
+  parseRelationHubId,
+} from "./hubNodes";
 import type {
   AlbumNodeData,
   ArtistNodeData,
@@ -60,6 +67,14 @@ export interface GraphCanvasProps {
   /** optional per-kind relation strengths (0..1). higher values pull
    *  linked nodes closer in the force simulation. */
   relationStrengths?: Record<string, number>;
+  /** fired during a drag gesture on a relation hub node — the drag
+   *  translates cursor delta into a normalized strength value for the
+   *  hub's kind, instead of moving the node. parents should write the
+   *  value back into their `relationStrengths` source so the canvas
+   *  redraws + the worker eventually picks up the new weight via the
+   *  existing debounce pipeline. when not provided, relation hubs
+   *  drag like any other node. */
+  onRelationStrengthChange?: (kind: string, value: number) => void;
   /** node tile size in world units. default 56. */
   nodeSize?: number;
   /** controlled selection (parent owns state) */
@@ -127,6 +142,24 @@ export interface GraphCanvasProps {
    * `undefined` (or an empty set) to disable.
    */
   searchMatches?: Set<string> | null;
+  /**
+   * optional set of node ids that are currently loading (fetching
+   * remote data, crunching async derivations, etc). matching nodes
+   * render an animated comet-trail arc around their silhouette, just
+   * like the player-bar play/pause loading ring. pass `null` /
+   * `undefined` (or an empty set) to disable.
+   */
+  loadingNodeIds?: Set<string> | null;
+  /**
+   * optional preview-on-hover hook. when the user hovers a node that
+   * has descendants worth peeking at without committing to a drill
+   * (typically a relation hub or relation-value hub), the parent
+   * returns up to ~12 nodes here. the canvas paints them in a
+   * deterministic ring around the hovered node, on top of everything,
+   * with thin spokes — no force-sim involvement, dismissed when the
+   * hover clears. return `[]` or omit the prop to disable.
+   */
+  getHoverPreview?: (node: GraphNodeData) => GraphNodeData[];
   /** css class on the root */
   class?: string;
 }
@@ -546,12 +579,7 @@ export function GraphCanvas(props: GraphCanvasProps) {
   const nodeSize = () => props.nodeSize ?? 56;
   const isHubNode = (n: GraphNodeData): boolean => {
     if (nodeKind(n) !== "artist") return false;
-    const a = n as ArtistNodeData;
-    return (
-      !!a.artistId?.startsWith("hub_remote::") ||
-      !!a.artistId?.startsWith("hub_relation::") ||
-      !!a.artistId?.startsWith("hub_relation_value::")
-    );
+    return isAnyHubId((n as ArtistNodeData).artistId);
   };
   const enabledSet = createMemo<Set<string> | null>(() => {
     const e = props.enabledKinds;
@@ -724,9 +752,9 @@ export function GraphCanvas(props: GraphCanvasProps) {
       return "album:ungrouped";
     }
     const r = node as ArtistNodeData;
-    if (r.artistId?.startsWith("hub_remote::")) return "hub:remote";
-    if (r.artistId?.startsWith("hub_relation::")) return "hub:relation";
-    if (r.artistId?.startsWith("hub_relation_value::")) return "hub:relation_value";
+    if (isRemoteHubId(r.artistId)) return "hub:remote";
+    if (isRelationHubId(r.artistId)) return "hub:relation";
+    if (isRelationValueHubId(r.artistId)) return "hub:relation_value";
     if (r.artistId) return `artist:${r.artistId}`;
     if (r.label) return `label:${r.label.toLowerCase()}`;
     if (r.era) return `era:${r.era.toLowerCase()}`;
@@ -1044,6 +1072,10 @@ export function GraphCanvas(props: GraphCanvasProps) {
   // ---- draw loop --------------------------------------------------------
   let drawScheduled = false;
   let animatingMarquee = false;
+  // set true by drawArtistNode/drawAlbumNode whenever they paint a
+  // comet-trail loading arc, so the draw loop knows to keep ticking
+  // frames until every loading node clears.
+  let animatingLoading = false;
   let lastDrawTime = 0;
   let lastFrameStart = 0;
 
@@ -1064,7 +1096,7 @@ export function GraphCanvas(props: GraphCanvasProps) {
   let idleCoalesceTimer: ReturnType<typeof setTimeout> | null = null;
   function requestDrawDeferred() {
     if (drawScheduled || idleCoalesceTimer) return;
-    if (lastSimAlpha > SIM_ACTIVE_ALPHA || animatingMarquee) {
+    if (lastSimAlpha > SIM_ACTIVE_ALPHA || animatingMarquee || animatingLoading) {
       // sim still warming up or marquee already painting every frame:
       // no benefit from delaying — piggy-back on the next paint.
       requestDraw();
@@ -1104,8 +1136,9 @@ export function GraphCanvas(props: GraphCanvasProps) {
       timing("draw.frame", dt);
       bump("draw.frame.count");
       gauge("viewport.zoom", Math.round(view().k * 100) / 100);
-      // keep ticking while marquee scrolling
-      if (animatingMarquee) requestDraw();
+      // keep ticking while marquee scrolling or any node spinner
+      // animation is live.
+      if (animatingMarquee || animatingLoading) requestDraw();
     });
   }
 
@@ -1136,7 +1169,14 @@ export function GraphCanvas(props: GraphCanvasProps) {
       for (const id of multiSel) focusNodeIds.add(id);
     }
     const hubOnly = simNodes.length > 0 && simNodes.every((n) => isHubNode(n));
-    const showEdges = hubOnly || focusNodeIds.size > 0 || selEdges.size > 0 || hovEdge !== null;
+    // any hub node in the graph implies a drill scaffold (remote →
+    // relation → value → entity) that must stay wired up regardless
+    // of selection / hover state. otherwise the ancestry edges vanish
+    // the moment the user drills past the deepest hub onto real
+    // entity nodes (album/artist) and clears focus.
+    const hasHubNode = hubOnly || simNodes.some((n) => isHubNode(n));
+    const showEdges =
+      hubOnly || hasHubNode || focusNodeIds.size > 0 || selEdges.size > 0 || hovEdge !== null;
     const idleHubScaffold = hubOnly && !focus && selEdges.size === 0 && hovEdge === null;
     // search overlay: when non-empty, behaves like an extra focus filter
     // — nodes outside the match set go dimmed, their edges fade out.
@@ -1303,12 +1343,29 @@ export function GraphCanvas(props: GraphCanvasProps) {
           const isHovEdge = link._key === hovEdge;
           const isSelEdge = selEdges.has(link._key);
           const isSiblingEdge = siblingEdgeKeys?.has(link._key) ?? false;
-          if (!idleHubScaffold && !touchesFocused && !isSelEdge && !isHovEdge && !isSiblingEdge) {
+          // hub-scaffolding stripes (any endpoint a hub) always
+          // render so the drill ancestry chain — selected remote ─
+          // relation ─ value ─ entity — stays visible after the
+          // user clicks down past the deepest hub onto an actual
+          // album/artist node.
+          const isHubEdge = isHubNode(p.a as SimNode) || isHubNode(p.b as SimNode);
+          if (
+            !idleHubScaffold &&
+            !isHubEdge &&
+            !touchesFocused &&
+            !isSelEdge &&
+            !isHovEdge &&
+            !isSiblingEdge
+          ) {
             continue;
           }
           // edge-focus mode overrides: only sibling stripes are
           // promoted to "involved", everything else dims out.
-          const involved = edgeFocusIds ? isSiblingEdge : pairInvolvedFocus;
+          // hub-scaffolding stripes are always promoted so the drill
+          // trail reads bright, never washed into the dim bucket.
+          const involved = edgeFocusIds
+            ? isSiblingEdge || isHubEdge
+            : pairInvolvedFocus || isHubEdge;
           if (searchDim && !isSelEdge && !isHovEdge) {
             const color = linkColor(link.kind, link.label);
             let arr = searchDimByColor.get(color);
@@ -1364,18 +1421,27 @@ export function GraphCanvas(props: GraphCanvasProps) {
         const ox = nx * off;
         const oy = ny * off;
         // trim each endpoint so wires terminate at node borders,
-        // avoiding center-through intersections/overdraw.
-        const edgePad = nodeSize() * 0.38 + stripeWidthWorld * 0.45;
+        // avoiding center-through intersections/overdraw. hub
+        // silhouettes (wonky triangle / hex / octagon) are inscribed
+        // well inside their bounding box, so the default disc-radius
+        // pad would leave a visible gap between the wire tip and the
+        // shape edge. we cut hub endpoints with a much smaller pad
+        // so the wire pokes right up to the silhouette.
+        const baseEdgePad = nodeSize() * 0.38 + stripeWidthWorld * 0.45;
+        const hubEdgePad = nodeSize() * 0.18 + stripeWidthWorld * 0.45;
+        const sPad = isHubNode(p.a) ? hubEdgePad : baseEdgePad;
+        const tPad = isHubNode(p.b) ? hubEdgePad : baseEdgePad;
         const vx = tx0 - sx0;
         const vy = ty0 - sy0;
         const len = Math.hypot(vx, vy) || 1;
         const ux = vx / len;
         const uy = vy / len;
-        const cut = Math.min(edgePad, Math.max(0, len * 0.32));
-        const sx = sx0 + ux * cut;
-        const sy = sy0 + uy * cut;
-        const tx = tx0 - ux * cut;
-        const ty = ty0 - uy * cut;
+        const sCut = Math.min(sPad, Math.max(0, len * 0.32));
+        const tCut = Math.min(tPad, Math.max(0, len * 0.32));
+        const sx = sx0 + ux * sCut;
+        const sy = sy0 + uy * sCut;
+        const tx = tx0 - ux * tCut;
+        const ty = ty0 - uy * tCut;
         ctx!.moveTo(sx + ox, sy + oy);
         if (curv > 0) {
           ctx!.quadraticCurveTo(cpx + ox, cpy + oy, tx + ox, ty + oy);
@@ -1458,6 +1524,7 @@ export function GraphCanvas(props: GraphCanvasProps) {
     // nodes
     const nodesT0 = performance.now();
     animatingMarquee = false;
+    animatingLoading = false;
     // collect hover/selection nodes to draw in a second pass so they
     // stack on top of their neighbours — helps in dense clusters
     // where the node the user is interacting with would otherwise be
@@ -1466,10 +1533,13 @@ export function GraphCanvas(props: GraphCanvasProps) {
     // capture into a locally non-null binding so the helper closure
     // below doesn't lose the narrowing across the function boundary.
     const nctx = ctx;
+    const loadingSet = props.loadingNodeIds ?? null;
+    const hasLoading = !!loadingSet && loadingSet.size > 0;
     function drawOne(n: SimNode) {
       const isEdgeFocus = edgeFocusIds?.has(n.id) ?? false;
       const searchMiss = hasSearch && search ? !search.has(n.id) : false;
       const isMulti = multiSel?.has(n.id) ?? false;
+      const nodeIsLoading = hasLoading && (loadingSet?.has(n.id) ?? false);
       // selection takes precedence over every other state so that
       // explicitly-picked nodes (single click or shift/cmd add) always
       // render the magenta ring. edge-focused nodes are intentionally
@@ -1505,6 +1575,10 @@ export function GraphCanvas(props: GraphCanvasProps) {
           zoom: v.k,
           showLabel,
           time,
+          loading: nodeIsLoading,
+          onLoading: () => {
+            animatingLoading = true;
+          },
           onMarquee: () => {
             animatingMarquee = true;
           },
@@ -1521,6 +1595,10 @@ export function GraphCanvas(props: GraphCanvasProps) {
           zoom: v.k,
           showLabel,
           time,
+          loading: nodeIsLoading,
+          onLoading: () => {
+            animatingLoading = true;
+          },
           onImageReady: requestDrawDeferred,
           onMarquee: () => {
             animatingMarquee = true;
@@ -1568,6 +1646,124 @@ export function GraphCanvas(props: GraphCanvasProps) {
     // can be many — still cheap because we're only re-iterating the
     // small picked subset, not the full simNodes array.
     for (const n of deferred) drawOne(n);
+
+    // hover preview: when the parent supplies a `getHoverPreview` hook
+    // and the user is hovering a node that returns a non-empty list
+    // (typically a relation hub or relation-value hub), render those
+    // child nodes in a fixed ring around the hovered node. positions
+    // are deterministic (evenly spaced around the silhouette), nodes
+    // are not part of the force sim, and the whole overlay vanishes
+    // as soon as the hover clears. thin spokes from hub center to
+    // each preview node give a quick visual cue that they belong to
+    // the hovered hub. when the parent returns more than `previewCap`
+    // entries, the overflow is hinted by a small "+N" chip near the
+    // last preview node.
+    const previewProvider = props.getHoverPreview;
+    if (previewProvider && hov) {
+      const hovered = simNodes.find((n) => n.id === hov);
+      if (hovered) {
+        let previewList: GraphNodeData[] = [];
+        try {
+          previewList = previewProvider(hovered);
+        } catch {
+          previewList = [];
+        }
+        if (previewList.length > 0) {
+          const previewCap = 12;
+          const shown = previewList.slice(0, previewCap);
+          const overflow = previewList.length - shown.length;
+          const hubR = nodeSize() / 2;
+          const previewSize = nodeSize() * 0.55;
+          const ringR = hubR + previewSize * 0.85 + 6 / Math.max(v.k, 0.05);
+          const hx = hovered.x ?? 0;
+          const hy = hovered.y ?? 0;
+          // spokes under the preview nodes
+          ctx.save();
+          ctx.lineWidth = 1.2 / Math.max(v.k, 0.5);
+          ctx.strokeStyle = "rgba(255, 210, 244, 0.55)";
+          const startAngle = -Math.PI / 2;
+          const positions: { x: number; y: number }[] = [];
+          for (let i = 0; i < shown.length; i++) {
+            const a = startAngle + (i * Math.PI * 2) / shown.length;
+            const px = hx + Math.cos(a) * ringR;
+            const py = hy + Math.sin(a) * ringR;
+            positions.push({ x: px, y: py });
+            ctx.beginPath();
+            ctx.moveTo(hx, hy);
+            ctx.lineTo(px, py);
+            ctx.stroke();
+          }
+          ctx.restore();
+          // preview nodes on top
+          for (let i = 0; i < shown.length; i++) {
+            const n = shown[i];
+            const { x: px, y: py } = positions[i];
+            if (nodeKind(n as SimNode) === "artist") {
+              drawArtistNode({
+                ctx: nctx,
+                artist: n as ArtistNodeData,
+                x: px,
+                y: py,
+                size: previewSize,
+                state: "idle",
+                zoom: v.k,
+                showLabel: false,
+                time,
+                loading: false,
+                onImageReady: requestDrawDeferred,
+              });
+            } else {
+              drawAlbumNode({
+                ctx: nctx,
+                album: n as AlbumNodeData,
+                x: px,
+                y: py,
+                size: previewSize,
+                state: "idle",
+                zoom: v.k,
+                showLabel: false,
+                time,
+                loading: false,
+                onImageReady: requestDrawDeferred,
+              });
+            }
+          }
+          // overflow chip near the last preview node
+          if (overflow > 0 && positions.length > 0) {
+            const last = positions[positions.length - 1];
+            ctx.save();
+            const chipFont = `600 ${Math.max(9, previewSize * 0.28)}px system-ui, sans-serif`;
+            ctx.font = chipFont;
+            ctx.textAlign = "center";
+            ctx.textBaseline = "middle";
+            const label = `+${overflow}`;
+            const textW = ctx.measureText(label).width;
+            const padX = 6 / Math.max(v.k, 0.5);
+            const padY = 3 / Math.max(v.k, 0.5);
+            const chipW = textW + padX * 2;
+            const chipH = Math.max(9, previewSize * 0.28) + padY * 2;
+            const cx = last.x + previewSize * 0.6;
+            const cy = last.y + previewSize * 0.6;
+            ctx.fillStyle = "rgba(20, 20, 28, 0.92)";
+            ctx.strokeStyle = "rgba(255, 210, 244, 0.7)";
+            ctx.lineWidth = 1 / Math.max(v.k, 0.5);
+            ctx.beginPath();
+            const rr = chipH / 2;
+            ctx.moveTo(cx - chipW / 2 + rr, cy - chipH / 2);
+            ctx.arcTo(cx + chipW / 2, cy - chipH / 2, cx + chipW / 2, cy + chipH / 2, rr);
+            ctx.arcTo(cx + chipW / 2, cy + chipH / 2, cx - chipW / 2, cy + chipH / 2, rr);
+            ctx.arcTo(cx - chipW / 2, cy + chipH / 2, cx - chipW / 2, cy - chipH / 2, rr);
+            ctx.arcTo(cx - chipW / 2, cy - chipH / 2, cx + chipW / 2, cy - chipH / 2, rr);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+            ctx.fillStyle = "#ffd2f4";
+            ctx.fillText(label, cx, cy);
+            ctx.restore();
+          }
+        }
+      }
+    }
     gauge("nodes.total", simNodes.length);
     gauge("edges.total", simLinks.length);
     bump("draw.nodes.drawn", drawnCount);
@@ -1613,8 +1809,7 @@ export function GraphCanvas(props: GraphCanvasProps) {
         const kind = nodeKind(n);
         if (kind === "artist") {
           const a = n as ArtistNodeData;
-          const isSyntheticHub =
-            a.artistId?.startsWith("hub_remote::") || a.artistId?.startsWith("hub_relation::");
+          const isSyntheticHub = isAnyHubId(a.artistId);
           if (isSyntheticHub) continue;
           focusLabels.push({
             text: a.name ?? a.abbreviation ?? "",
@@ -2072,6 +2267,16 @@ export function GraphCanvas(props: GraphCanvasProps) {
       siblingEdgeKeys: Set<string> | null;
     }
   ): boolean {
+    // hub-scaffolding edges (any edge with a hub node on either end)
+    // are always drawn so the drill ancestry chain — selected remote ─
+    // relation ─ value ─ entity — stays visible no matter how deep the
+    // user walks. without this, the entire trail vanishes the instant
+    // the drill leaves a parent hub, because the parent edge no longer
+    // touches a focused node.
+    const src = typeof link.source === "object" ? (link.source as SimNode) : null;
+    const tgt = typeof link.target === "object" ? (link.target as SimNode) : null;
+    if ((src && isHubNode(src)) || (tgt && isHubNode(tgt))) return true;
+
     if (!scope.showEdges) return false;
     const touchesFocused = scope.focusNodeIds.has(aId) || scope.focusNodeIds.has(bId);
     if (touchesFocused) return true;
@@ -2199,7 +2404,31 @@ export function GraphCanvas(props: GraphCanvasProps) {
         // on movement-beyond-threshold or on pointerup.
         abort: AbortController;
       }
-    | { type: "node"; node: SimNode; pointerId: number; moved: boolean }
+    | {
+        type: "node";
+        node: SimNode;
+        pointerId: number;
+        moved: boolean;
+        /** when set, this drag is a "strength gesture" on a relation
+         *  hub: cursor delta maps to a 0..1 strength value for the
+         *  hub's kind instead of moving the node. populated only if
+         *  the hit was a relation hub AND the parent provided an
+         *  `onRelationStrengthChange` callback. */
+        strength?: {
+          kind: string;
+          baseValue: number;
+          startSx: number;
+          startSy: number;
+          /** latest cursor position — used to anchor the overlay
+           *  label so it tracks the pointer during the drag. */
+          latestSx: number;
+          latestSy: number;
+          /** most recently committed value; used for the overlay
+           *  label + ring arc and for the no-op short-circuit when
+           *  the cursor hasn't moved. */
+          currentValue: number;
+        };
+      }
     | {
         type: "pan";
         startX: number;
@@ -2405,13 +2634,34 @@ export function GraphCanvas(props: GraphCanvasProps) {
     }
 
     if (hit) {
-      if (!props.lockNodes) {
+      // relation hub + parent wants strength control → enter a
+      // "strength drag" sub-mode instead of pinning/moving the node.
+      // we still use the "node" Drag variant so the existing
+      // press/select pipeline keeps working (a tap without movement
+      // still selects the hub).
+      let strength: Extract<Drag, { type: "node" }>["strength"] | undefined;
+      if (isRelationHubId(hit.artistId) && props.onRelationStrengthChange) {
+        const kind = parseRelationHubId(hit.artistId);
+        if (kind) {
+          const baseValue = clamp(props.relationStrengths?.[kind] ?? 0.5, 0, 1);
+          strength = {
+            kind,
+            baseValue,
+            startSx: d.startSx,
+            startSy: d.startSy,
+            latestSx: d.latestSx,
+            latestSy: d.latestSy,
+            currentValue: baseValue,
+          };
+        }
+      }
+      if (!strength && !props.lockNodes) {
         hit.fx = hit.x;
         hit.fy = hit.y;
         worker?.pin(hit.id, hit.x ?? 0, hit.y ?? 0);
         worker?.alphaTarget(0.3, true);
       }
-      setDrag({ type: "node", node: hit, pointerId: d.pointerId, moved: false });
+      setDrag({ type: "node", node: hit, pointerId: d.pointerId, moved: false, strength });
     } else if (d.tool === "lasso") {
       setDrag({
         type: "lasso",
@@ -2535,6 +2785,31 @@ export function GraphCanvas(props: GraphCanvasProps) {
     }
 
     if (d.type === "node") {
+      // relation hub strength gesture: translate cursor delta into a
+      // normalized 0..1 strength for the hub's kind. don't pin / move
+      // the node, and don't reheat the sim — the parent's strength
+      // write triggers its own (debounced) worker update.
+      if (d.strength) {
+        const dx = sx - d.strength.startSx;
+        // up = positive; combining vertical + horizontal makes the
+        // gesture work whether the user prefers swiping up or right.
+        const dy = d.strength.startSy - sy;
+        const RANGE_PX = 140;
+        const next = clamp(d.strength.baseValue + (dx + dy) / RANGE_PX, 0, 1);
+        if (!d.moved && Math.abs(dx) + Math.abs(dy) > 3) {
+          d.moved = true;
+          props.onUserInteract?.();
+        }
+        // mutate in-place so the next move sees the latest values
+        // (createSignal cmp would otherwise be a no-op).
+        d.strength.latestSx = sx;
+        d.strength.latestSy = sy;
+        d.strength.currentValue = next;
+        // re-emit the signal so the overlay <Show/> reacts.
+        setDrag({ ...d, strength: { ...d.strength } });
+        props.onRelationStrengthChange?.(d.strength.kind, next);
+        return;
+      }
       if (props.lockNodes) {
         // locked: nodes don't follow the pointer and pressing one
         // shouldn't wake the sim. still treat it as a press so the
@@ -2597,10 +2872,23 @@ export function GraphCanvas(props: GraphCanvasProps) {
     }
 
     if (d.type === "node") {
-      d.node.fx = null;
-      d.node.fy = null;
-      worker?.unpin(d.node.id);
-      if (!props.lockNodes) worker?.alphaTarget(0);
+      // relation hub strength gesture: no pin/unpin to undo and no
+      // selection change on release if the user actually dragged.
+      // a no-move release still falls through to the click-select
+      // path below so a plain tap on the hub keeps working.
+      if (d.strength) {
+        if (d.moved) {
+          setDrag(null);
+          requestDraw();
+          return;
+        }
+        // fall through: treat as click-select
+      } else {
+        d.node.fx = null;
+        d.node.fy = null;
+        worker?.unpin(d.node.id);
+        if (!props.lockNodes) worker?.alphaTarget(0);
+      }
       // click on node → select; clears any selected edges. modifier
       // keys (shift/meta/ctrl) signal the parent to add to a multi-
       // selection set instead of replacing the primary selection.
@@ -2878,6 +3166,13 @@ export function GraphCanvas(props: GraphCanvasProps) {
     requestDraw();
   });
 
+  // redraw when the loading-node set changes so newly-flagged nodes
+  // start their comet trail (and cleared ones stop) on the next frame.
+  createEffect(() => {
+    void props.loadingNodeIds;
+    requestDraw();
+  });
+
   // sync controlled selectedEdges prop → internal edge-key set. matching
   // is done by (kind,label) so callers can synthesise edges without
   // knowing the canvas's per-link generated keys. every link that matches
@@ -2929,6 +3224,31 @@ export function GraphCanvas(props: GraphCanvasProps) {
           if (changed) requestDraw();
         }}
       />
+      {/* relation-hub strength gesture overlay \u2014 small floating label
+          showing the current strength as a percentage. positioned at
+          the cursor so it doesn't get hidden under the pointer. */}
+      <Show
+        when={(() => {
+          const d = drag();
+          return d?.type === "node" && d.strength ? d : null;
+        })()}
+        keyed
+      >
+        {(d) => {
+          const s = d.strength!;
+          return (
+            <div
+              class="pointer-events-none absolute z-20 rounded-md border border-white/20 bg-black/70 px-2 py-1 text-[11px] font-mono leading-none text-white shadow-lg backdrop-blur-sm"
+              style={{
+                left: `${s.latestSx + 14}px`,
+                top: `${s.latestSy + 14}px`,
+              }}
+            >
+              {s.kind} strength: {Math.round(s.currentValue * 100)}%
+            </div>
+          );
+        }}
+      </Show>
     </div>
   );
 }

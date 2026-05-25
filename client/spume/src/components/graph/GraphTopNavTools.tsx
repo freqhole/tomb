@@ -1,8 +1,13 @@
 // inline horizontal cluster of graph controls designed to live in the
 // topnav's right-side icon row. exposes the same affordances as the
 // floating GraphControls panel (zoom in/out/fit, pan/lasso tool toggle,
-// wire-tension drag pad, relation-kind picker) but with a flat,
-// borderless look that blends with the topnav's other icon buttons.
+// wire-tension drag pad) but with a flat, borderless look that blends
+// with the topnav's other icon buttons.
+//
+// note: the per-kind relation picker (filter + strength chips) used to
+// live here. it's been removed — relation kinds are always all
+// enabled, and per-kind strength is now controlled by dragging the
+// relation hub nodes directly on the canvas.
 //
 // styling notes:
 //   - icon buttons mirror the topnav's white/60 -> white hover idiom.
@@ -12,7 +17,6 @@
 
 import { createSignal, onCleanup, onMount, type JSX, Show } from "solid-js";
 import { Icon, type IconName } from "../icons/registry";
-import { GraphRelationsPicker, type GraphRelationsPickerProps } from "./GraphRelationsPicker";
 import { isNarrowViewport } from "../../config/breakpoints";
 
 export type GraphTool = "pan" | "lasso";
@@ -30,13 +34,10 @@ export interface GraphTopNavToolsProps {
   wireTension?: number;
   onWireTensionChange?: (next: number) => void;
 
-  /** relation picker bindings — passed straight through */
-  relations: GraphRelationsPickerProps;
-
   /** narrow-viewport mode — hides labels, tightens spacing */
   compact?: boolean;
 
-  /** optional trailing slot — rendered after the relations picker on
+  /** optional trailing slot — rendered after the last control on
    *  the right edge of the cluster. used by LibraryGraphSubview to
    *  surface the admin bulk-tag toggle without the canvas/factory
    *  needing to know anything about library-level concerns. */
@@ -111,13 +112,6 @@ export function GraphTopNavTools(props: GraphTopNavToolsProps) {
           iconPx={iconPx()}
         />
       </Show>
-      <Divider />
-      <GraphRelationsPicker
-        {...props.relations}
-        compact={props.compact}
-        triggerSizeClass={btnSize()}
-        triggerIconPx={iconPx()}
-      />
       <Show when={props.extra}>
         <Divider />
         {props.extra}

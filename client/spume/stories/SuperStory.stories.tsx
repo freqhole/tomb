@@ -1044,9 +1044,7 @@ export const FullAppDemo: Story = {
               </div>
             ) : undefined
           }
-          secondaryRowContent={
-            currentRoute() === "library" ? libraryGraph.selectedRelationChips : undefined
-          }
+          secondaryRowContent={undefined}
           onNavigate={(path) => {
             // map topnav's built-in route buttons onto the demo's Route
             // set so they actually change the visible view. only
@@ -1268,7 +1266,6 @@ export const LibraryGraphView: Story = {
             />
           }
           rightContent={graph.topNavTools}
-          secondaryRowContent={graph.selectedRelationChips}
           mainNavSections={[
             {
               items: [

@@ -45,6 +45,12 @@ export interface DrawAlbumNodeArgs {
   onImageReady?: () => void;
   /** called when this node is marquee-scrolling and needs continuous redraw */
   onMarquee?: () => void;
+  /** when true, paint an animated comet-trail arc around the tile so
+   *  the user sees that this node is fetching/crunching data. */
+  loading?: boolean;
+  /** notify caller that the comet trail is active and needs another
+   *  frame to keep animating. */
+  onLoading?: () => void;
 }
 
 export function drawAlbumNode(args: DrawAlbumNodeArgs): void {
@@ -65,6 +71,8 @@ export function drawAlbumNode(args: DrawAlbumNodeArgs): void {
     borderColor = "#2a2a32",
     onImageReady,
     onMarquee,
+    loading = false,
+    onLoading,
   } = args;
 
   const half = size / 2;
@@ -217,6 +225,40 @@ export function drawAlbumNode(args: DrawAlbumNodeArgs): void {
     } else {
       ctx.strokeRect(x0 + inset, y0 + inset, size - inset * 2, size - inset * 2);
     }
+  }
+
+  // loading comet-trail — mirrors the player-bar play/pause ring.
+  // stroked along the tile silhouette so the trail traces the actual
+  // node shape (rounded square). 3 layered passes fake a tapered
+  // comet head with magenta→purple gradient.
+  if (loading) {
+    onLoading?.();
+    const trailW = 2.5 / Math.max(zoom, 0.5);
+    ctx.save();
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.lineWidth = trailW;
+    const perim = size * 4;
+    const speed = perim / 1500;
+    const offset = (time * speed) % perim;
+    const passes: Array<{ dash: number; alpha: number; color: string }> = [
+      { dash: perim * 0.32, alpha: 0.18, color: "#ec4899" },
+      { dash: perim * 0.18, alpha: 0.5, color: "#c026d3" },
+      { dash: perim * 0.08, alpha: 0.95, color: "#a855f7" },
+    ];
+    for (const p of passes) {
+      ctx.setLineDash([p.dash, perim - p.dash]);
+      ctx.lineDashOffset = -offset;
+      ctx.globalAlpha = p.alpha;
+      ctx.strokeStyle = p.color;
+      if (radius > 0) {
+        roundRect(ctx, x0, y0, size, size, radius);
+        ctx.stroke();
+      } else {
+        ctx.strokeRect(x0, y0, size, size);
+      }
+    }
+    ctx.restore();
   }
 
   // overlay label — only for image tiles when showLabel

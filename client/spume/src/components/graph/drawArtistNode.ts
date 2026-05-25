@@ -14,6 +14,7 @@ import { getImage, getImageFor } from "./imageCache";
 import { bump } from "./perfLog";
 import { getOrRenderSprite } from "./spriteCache";
 import type { ArtistNodeData, NodeState } from "./types";
+import { isRelationHubId, isRelationValueHubId, isRemoteHubId } from "./hubNodes";
 
 export interface DrawArtistNodeArgs {
   ctx: CanvasRenderingContext2D;
@@ -35,6 +36,15 @@ export interface DrawArtistNodeArgs {
   time?: number;
   /** notify caller that marquee is active and needs another frame. */
   onMarquee?: () => void;
+  /** when true, paint an animated comet-trail arc around the node's
+   *  silhouette so the user sees that this node is fetching/crunching
+   *  data. mirrors the player-bar play/pause loading ring. caller is
+   *  responsible for keeping the canvas redrawing each frame while
+   *  any node is loading (see `onLoading` callback). */
+  loading?: boolean;
+  /** notify caller that the comet trail is active and needs another
+   *  frame to keep animating. */
+  onLoading?: () => void;
 }
 
 export function drawArtistNode(args: DrawArtistNodeArgs): void {
@@ -54,14 +64,26 @@ export function drawArtistNode(args: DrawArtistNodeArgs): void {
     onImageReady,
     time = 0,
     onMarquee,
+    loading = false,
+    onLoading,
   } = args;
 
   const r = size / 2;
-  const isRelationHub = artist.artistId?.startsWith("hub_relation::") ?? false;
-  const isRemoteHub = artist.artistId?.startsWith("hub_remote::") ?? false;
-  const isRelationValueHub = artist.artistId?.startsWith("hub_relation_value::") ?? false;
-  const isHub = isRelationHub || isRemoteHub;
-  const isHoverLabelHub = isRelationHub || isRemoteHub || isRelationValueHub;
+  const isRelationHub = isRelationHubId(artist.artistId);
+  const isRemoteHub = isRemoteHubId(artist.artistId);
+  const isRelationValueHub = isRelationValueHubId(artist.artistId);
+  // `isHub` gates the text renderer path: hubs render through
+  // `drawHubText` (name + count, polygon-aware bounds); everything
+  // else falls to `drawAcronym`. relation_value (octagon) hubs were
+  // historically excluded, which silently dropped their album count
+  // — they now share the same code path as hex / wonky-triangle hubs.
+  const isHub = isRelationHub || isRemoteHub || isRelationValueHub;
+  const isHoverLabelHub = isHub;
+  // when drawHubText falls back to an acronym (full name doesn't fit
+  // inside the hub silhouette at the current size), promote the
+  // external label chip from hover-only to always-on so the user can
+  // still read the full label even with the abbreviated glyph inside.
+  let usedHubAcronym = false;
   // LOD: at small on-screen size, skip clip path + border. the
   // circle-clip + stroke geometry is sub-pixel and just burns time.
   const screenEdge = size * Math.max(zoom, 0.05);
@@ -128,6 +150,36 @@ export function drawArtistNode(args: DrawArtistNodeArgs): void {
     ctx.fill();
   }
 
+  // border first (was previously stroked AFTER the in-shape glyph,
+  // which caused the outline to draw on top of any text whose bounding
+  // box brushed the silhouette edge — visible as a hairline cutting
+  // through the letterforms on hubs). painting the border before the
+  // text means the glyph sits on top of the stroke and never gets
+  // sliced. skipped when selected (magenta ring sits flush) or when
+  // small/tiny since the stroke would be sub-pixel anyway.
+  if (state !== "selected" && !lodSmall) {
+    ctx.lineWidth = 0.5 / Math.max(zoom, 0.5);
+    ctx.strokeStyle = isRemoteHub ? "#7b2d70" : isRelationHub ? "#335d8a" : borderColor;
+    drawHubShapePath();
+    ctx.stroke();
+  }
+
+  // hover / selected ring — drawn BEFORE the in-shape glyph for the
+  // same reason as the border above: at high zoom the 2-3px ring at
+  // the silhouette edge would otherwise cut across the text on hubs.
+  // we lay it down on top of the fill but under the glyph so the
+  // letterforms always sit on top of any chrome. uses the node's
+  // silhouette path (hub triangle / hex / octagon / circle) so the
+  // ring traces the actual node shape instead of an always-round
+  // halo around polygonal hubs.
+  if (state === "hover" || state === "selected") {
+    const ringW = (state === "selected" ? 3 : 2) / Math.max(zoom, 0.5);
+    ctx.lineWidth = ringW;
+    ctx.strokeStyle = ringColor;
+    drawHubShapePath();
+    ctx.stroke();
+  }
+
   const hasImage = !!(artist.image || artist.imageUrl);
   if (hasImage && !isHub) {
     const img = artist.image
@@ -161,69 +213,104 @@ export function drawArtistNode(args: DrawArtistNodeArgs): void {
   } else {
     bump("draw.artist.img.none");
     if (!lodTiny) {
+      // hover/selected hubs pop their glyph to pure white so the
+      // label reads as the focused element; the dim default
+      // (`#9aa0aa`) is reserved for resting hubs.
+      const glyphColor = state === "hover" || state === "selected" ? "#ffffff" : textColor;
       if (isHub) {
-        drawHubText(ctx, artist, x, y, size, textColor, zoom);
+        usedHubAcronym = drawHubText(ctx, artist, x, y, size, glyphColor, zoom);
       } else {
-        drawAcronym(ctx, artist, x, y, size, textColor, zoom);
+        drawAcronym(ctx, artist, x, y, size, glyphColor, zoom);
       }
     }
   }
 
-  // border (skipped when selected so the magenta ring sits flush, and
-  // when small/tiny since the stroke is invisible).
-  if (state !== "selected" && !lodSmall) {
-    ctx.lineWidth = 0.5 / Math.max(zoom, 0.5);
-    ctx.strokeStyle = isRemoteHub ? "#7b2d70" : isRelationHub ? "#335d8a" : borderColor;
-    drawHubShapePath();
-    ctx.stroke();
-  }
-
-  // hover / selected ring — always drawn so picks remain visible.
-  if (state === "hover" || state === "selected") {
-    const ringW = (state === "selected" ? 3 : 2) / Math.max(zoom, 0.5);
-    ctx.lineWidth = ringW;
-    ctx.strokeStyle = ringColor;
-    if (isHub) {
-      ctx.beginPath();
-      ctx.arc(x, y, r + ringW * 0.6, 0, Math.PI * 2);
-    } else {
+  // loading comet-trail — mirrors the player-bar play/pause ring.
+  // stroked over the silhouette path with a long dash that sweeps
+  // around the perimeter. layered as several passes with shrinking
+  // dash lengths + brightening alpha to fake a tapered comet head.
+  if (loading) {
+    onLoading?.();
+    const trailW = 2.5 / Math.max(zoom, 0.5);
+    ctx.save();
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.lineWidth = trailW;
+    // perimeter estimate — uses bounding circle circumference as a
+    // coarse-but-good-enough length for dash math; the actual path
+    // perimeter doesn't need to be exact since dashes wrap around
+    // and the visual is forgiving.
+    const perim = 2 * Math.PI * r;
+    // sweep one full lap every 1.5s, same speed as the player bar.
+    const speed = perim / 1500;
+    const offset = (time * speed) % perim;
+    // 3-pass comet: tail (long, dim), body (medium, mid), head
+    // (short, bright). all share the same lineDashOffset so the
+    // bright head leads and faint tail trails behind.
+    const passes: Array<{ dash: number; alpha: number; color: string }> = [
+      { dash: perim * 0.32, alpha: 0.18, color: "#ec4899" },
+      { dash: perim * 0.18, alpha: 0.5, color: "#c026d3" },
+      { dash: perim * 0.08, alpha: 0.95, color: "#a855f7" },
+    ];
+    for (const p of passes) {
+      ctx.setLineDash([p.dash, perim - p.dash]);
+      ctx.lineDashOffset = -offset;
+      ctx.globalAlpha = p.alpha;
+      ctx.strokeStyle = p.color;
       drawHubShapePath();
+      ctx.stroke();
     }
-    ctx.stroke();
+    ctx.restore();
   }
 
-  // hub labels are hover-only.
-  if (isHoverLabelHub && showLabel) {
+  // hub labels are hover-only, except when the in-shape glyph
+  // collapsed to an acronym — in that case we always render the
+  // chip so the full name stays visible at every zoom level.
+  if (isHoverLabelHub && (showLabel || usedHubAcronym)) {
     const label = artist.name ?? artist.abbreviation ?? "";
     if (label) {
-      const maxW = size * (isRemoteHub ? 2.8 : 2.4);
-      const h = Math.max(12, size * 0.32);
-      const lx = x - maxW / 2;
-      const ly = y + r + h * 0.2;
+      const fontSize = Math.max(8, size * 0.2);
+      ctx.font = `600 ${fontSize}px system-ui, sans-serif`;
+      const textW = ctx.measureText(label).width;
+      // chip shrinks to fit its text + horizontal padding, capped at
+      // a hub-kind ceiling so very long names still scroll as a
+      // marquee inside a known-width pill rather than ballooning the
+      // chip across the canvas. previously the chip was always drawn
+      // at the ceiling width, leaving short labels marooned in a sea
+      // of empty backdrop.
       const pad = Math.max(4, size * 0.08);
+      const maxChipW = size * (isRemoteHub ? 2.8 : 2.4);
+      const fitsWithoutScroll = textW + pad * 2 <= maxChipW;
+      const chipW = fitsWithoutScroll
+        ? Math.max(size * 0.6, textW + pad * 2)
+        : maxChipW;
+      const h = Math.max(12, size * 0.32);
+      const lx = x - chipW / 2;
+      const ly = y + r + h * 0.2;
       ctx.fillStyle = "rgba(18,18,24,0.86)";
-      roundedRectPath(ctx, lx, ly, maxW, h, Math.min(5, h * 0.35));
+      roundedRectPath(ctx, lx, ly, chipW, h, Math.min(5, h * 0.35));
       ctx.fill();
 
-      const fontSize = Math.max(8, size * 0.2);
       ctx.fillStyle = "#e6e6e6";
-      ctx.font = `600 ${fontSize}px system-ui, sans-serif`;
-      ctx.textAlign = "left";
       ctx.textBaseline = "middle";
 
       const clipX = lx + pad;
       const clipY = ly + 1;
-      const clipW = maxW - pad * 2;
+      const clipW = chipW - pad * 2;
       const clipH = h - 2;
-      const textW = ctx.measureText(label).width;
 
       ctx.save();
       ctx.beginPath();
       ctx.rect(clipX, clipY, clipW, clipH);
       ctx.clip();
       if (textW <= clipW) {
-        ctx.fillText(label, clipX, ly + h / 2);
+        // short label — anchor in the chip's geometric center so
+        // the text sits visually balanced against the pill.
+        ctx.textAlign = "center";
+        ctx.fillText(label, lx + chipW / 2, ly + h / 2);
       } else {
+        // long label — marquee scroll inside the bounded pill.
+        ctx.textAlign = "left";
         const gap = Math.max(20, fontSize * 1.7);
         const cycle = textW + gap;
         const speed = 0.028;
@@ -319,27 +406,78 @@ function drawHubText(
   size: number,
   textColor: string,
   zoom?: number
-) {
+): boolean {
   const screenEdge = size * Math.max(zoom ?? 1, 0.05);
-  const isRelationHub = artist.artistId?.startsWith("hub_relation::") ?? false;
+  const isRelationHub = isRelationHubId(artist.artistId);
+  const isRemoteHub = isRemoteHubId(artist.artistId);
   const full = artist.name ?? "";
   const short = artist.abbreviation || full.slice(0, 3).toUpperCase();
   const countText = String(Math.max(0, Math.round(artist.albumCount ?? 0)));
+  // wonky-triangle centroid offset. the freqhole-mark silhouette is
+  // asymmetric so the bbox center sits slightly above-and-left of the
+  // visual mass center. mean of the four vertices gives ~(0.54, 0.51)
+  // of the size×size cell, so we nudge the text anchor right + down a
+  // hair to land in the optical middle of the polygon.
+  const remoteCx = isRemoteHub ? cx + size * 0.04 : cx;
+  const remoteCy = isRemoteHub ? cy + size * 0.012 : cy;
   // low zoom: shorthand in-node (full label still available on hover).
   if (!full || screenEdge < 44) {
     drawAcronymDirect(
       ctx,
       { ...artist, abbreviation: short, name: short },
-      cx,
-      cy,
+      isRemoteHub ? remoteCx : cx,
+      isRemoteHub ? remoteCy : cy,
       size,
       textColor
     );
-    return;
+    return true;
   }
 
-  const maxW = size * 0.82;
-  const maxH = size * 0.46;
+  if (isRemoteHub) {
+    // wonky triangle is much narrower than the bounding circle —
+    // at the centroid's y its inscribed horizontal span is roughly
+    // 0.45 × size. keep text well inside that with padding so glyphs
+    // never bleed past the outline.
+    const maxW = size * 0.4;
+    let fontSize = Math.max(8, size * 0.17);
+    ctx.font = `700 ${fontSize}px system-ui, sans-serif`;
+    while (fontSize > 7 && ctx.measureText(full).width > maxW) {
+      fontSize -= 0.5;
+      ctx.font = `700 ${fontSize}px system-ui, sans-serif`;
+    }
+    if (fontSize <= 7 && ctx.measureText(full).width > maxW) {
+      // can't fit cleanly — fall back to the acronym placeholder and
+      // let the caller surface the full name as a permanent label
+      // chip below the node (see `forceLabelChip` in drawArtistNode).
+      drawAcronymDirect(
+        ctx,
+        { ...artist, abbreviation: short, name: short },
+        remoteCx,
+        remoteCy,
+        size,
+        textColor
+      );
+      return true;
+    }
+    ctx.save();
+    ctx.fillStyle = textColor;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.beginPath();
+    ctx.rect(remoteCx - maxW / 2, remoteCy - size * 0.16, maxW, size * 0.32);
+    ctx.clip();
+    ctx.fillText(full, remoteCx, remoteCy);
+    ctx.restore();
+    return false;
+  }
+
+  // hexagon-inscribed text bounds. flat-edge-to-flat-edge width of a
+  // pointy-top hex of radius r is √3·r ≈ 0.866·size, but glyphs that
+  // reach right to that limit visually collide with the hex border.
+  // 0.7·size leaves a comfortable margin so longer relation kind
+  // names like "related_artist" never overlap the silhouette.
+  const maxW = size * 0.7;
+  const maxH = size * 0.42;
 
   if (isRelationHub) {
     let nameSize = Math.max(7, size * 0.17);
@@ -365,7 +503,7 @@ function drawHubText(
         size,
         textColor
       );
-      return;
+      return true;
     }
     ctx.save();
     ctx.textAlign = "center";
@@ -375,42 +513,62 @@ function drawHubText(
     ctx.clip();
     ctx.fillStyle = textColor;
     ctx.font = `700 ${nameSize}px system-ui, sans-serif`;
-    ctx.fillText(full, cx, cy - countSize * 0.45 - 1);
+    // pull the name up a hair so the count, pushed further down,
+    // doesn't crowd the hex's bottom edge.
+    ctx.fillText(full, cx, cy - nameSize * 0.2);
     ctx.fillStyle = "#ffd2f4";
     ctx.font = `600 ${countSize}px system-ui, sans-serif`;
-    ctx.fillText(countText, cx, cy + nameSize * 0.35);
+    ctx.fillText(countText, cx, cy + nameSize * 0.7 + countSize * 0.05);
     ctx.restore();
-    return;
+    return false;
   }
 
-  let fontSize = Math.max(8, size * 0.19);
-  ctx.font = `700 ${fontSize}px system-ui, sans-serif`;
-  while (fontSize > 6 && ctx.measureText(full).width > maxW) {
-    fontSize -= 0.5;
-    ctx.font = `700 ${fontSize}px system-ui, sans-serif`;
+  // relation-value (octagon) hub. mirrors the hex layout above —
+  // name on top, album count beneath in the same pink — but uses
+  // the octagon's wider inscribed area so we can give the text a
+  // touch more room. count sits a bit lower than the name's baseline
+  // for visual separation, matching the hex treatment.
+  {
+    let nameSize = Math.max(7, size * 0.18);
+    let countSize = Math.max(7, size * 0.15);
+    const fits = () => {
+      ctx.font = `700 ${nameSize}px system-ui, sans-serif`;
+      const w1 = ctx.measureText(full).width;
+      ctx.font = `600 ${countSize}px system-ui, sans-serif`;
+      const w2 = ctx.measureText(countText).width;
+      const h = nameSize + countSize + 2;
+      return Math.max(w1, w2) <= maxW && h <= maxH;
+    };
+    while ((nameSize > 6.2 || countSize > 6.2) && !fits()) {
+      nameSize = Math.max(6, nameSize - 0.4);
+      countSize = Math.max(6, countSize - 0.35);
+    }
+    if (!fits()) {
+      drawAcronymDirect(
+        ctx,
+        { ...artist, abbreviation: short, name: short },
+        cx,
+        cy,
+        size,
+        textColor
+      );
+      return true;
+    }
+    ctx.save();
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.beginPath();
+    ctx.rect(cx - maxW / 2, cy - maxH / 2, maxW, maxH);
+    ctx.clip();
+    ctx.fillStyle = textColor;
+    ctx.font = `700 ${nameSize}px system-ui, sans-serif`;
+    ctx.fillText(full, cx, cy - nameSize * 0.2);
+    ctx.fillStyle = "#ffd2f4";
+    ctx.font = `600 ${countSize}px system-ui, sans-serif`;
+    ctx.fillText(countText, cx, cy + nameSize * 0.7 + countSize * 0.05);
+    ctx.restore();
+    return false;
   }
-
-  if (fontSize <= 6 && ctx.measureText(full).width > maxW) {
-    drawAcronymDirect(
-      ctx,
-      { ...artist, abbreviation: short, name: short },
-      cx,
-      cy,
-      size,
-      textColor
-    );
-    return;
-  }
-
-  ctx.save();
-  ctx.fillStyle = textColor;
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  ctx.beginPath();
-  ctx.rect(cx - maxW / 2, cy - size * 0.18, maxW, size * 0.36);
-  ctx.clip();
-  ctx.fillText(full, cx, cy - size * 0.02);
-  ctx.restore();
 }
 
 function drawAcronymDirect(

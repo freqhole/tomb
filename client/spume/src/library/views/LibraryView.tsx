@@ -57,123 +57,21 @@ export function LibraryView() {
   const slots = useTopNavSlots();
 
   // view-local remote selection (encapsulates resource + default effect + memos)
-  const {
-    remotes,
-    selectedRemoteIds,
-    setSelectedRemoteIds,
-    selectedRemoteId,
-    selectedRemote,
-    selectedRemotes,
-  } = useRemoteSelection();
+  const { remotes, selectedRemoteIds, setSelectedRemoteIds, selectedRemoteId, selectedRemote } =
+    useRemoteSelection();
 
-  // deferred view of `selectedRemotes` for the graph subview.
-  //
-  // toggling several remotes in quick succession on a large library
-  // would otherwise kick off a fresh graph rebuild for each change
-  // and lock the ui mid-toggle. pure time-debounce is the wrong tool
-  // here: 1.5s is short enough that a thoughtful user trips it
-  // mid-selection, but long enough that quick clicks feel unresponsive.
-  //
-  // instead: commit when the user *leaves* the picker (pointer leaves
-  // AND focus leaves), with a long safety-net timer in case they hover
-  // forever. while the pointer is over the picker (`pickerActive`) we
-  // hold off entirely. once they leave, a short 250ms quiet window
-  // catches stray pointermoves before committing.
-  //
-  // the first non-empty value still comes through immediately so the
-  // initial mount isn't artificially delayed.
-  //
-  // additionally: when the picker exposes a flyout/modal (i.e. when
-  // overflow forces the popover form), its close event is a strong
-  // "user is done" signal — we short-circuit the leave-window
-  // entirely and commit immediately. the inline chip-strip path has
-  // no close event so it still relies on pointer/focus tracking.
-  const GRAPH_REMOTE_LEAVE_MS = 120;
-  const GRAPH_REMOTE_MAX_HOLD_MS = 3500;
-  const [debouncedSelectedRemotes, setDebouncedSelectedRemotes] = createSignal<Remote[]>([]);
-  const [pickerActive, setPickerActive] = createSignal(false);
-  let graphRemotesPrimed = false;
-  let leaveTimer: ReturnType<typeof setTimeout> | null = null;
-  let maxHoldTimer: ReturnType<typeof setTimeout> | null = null;
-  let pendingRemotes: Remote[] | null = null;
-
-  const clearTimers = () => {
-    if (leaveTimer) {
-      clearTimeout(leaveTimer);
-      leaveTimer = null;
-    }
-    if (maxHoldTimer) {
-      clearTimeout(maxHoldTimer);
-      maxHoldTimer = null;
-    }
-  };
-
-  const commitPending = () => {
-    clearTimers();
-    if (pendingRemotes !== null) {
-      setDebouncedSelectedRemotes(pendingRemotes);
-      pendingRemotes = null;
-    }
-  };
-
-  createEffect(() => {
-    const next = selectedRemotes();
-    if (!graphRemotesPrimed) {
-      setDebouncedSelectedRemotes(next);
-      if (next.length > 0) graphRemotesPrimed = true;
-      return;
-    }
-    pendingRemotes = next;
-    // arm the safety-net cap once per pending change.
-    if (!maxHoldTimer) {
-      maxHoldTimer = setTimeout(() => {
-        maxHoldTimer = null;
-        commitPending();
-      }, GRAPH_REMOTE_MAX_HOLD_MS);
-    }
-    // if pointer/focus already left the picker, the leave-window
-    // timer is the gating one; otherwise we wait for leave to fire.
-    if (!pickerActive()) {
-      if (leaveTimer) clearTimeout(leaveTimer);
-      leaveTimer = setTimeout(() => {
-        leaveTimer = null;
-        commitPending();
-      }, GRAPH_REMOTE_LEAVE_MS);
-    } else if (leaveTimer) {
-      // user is back in the picker — cancel any pending leave commit.
-      clearTimeout(leaveTimer);
-      leaveTimer = null;
-    }
-  });
-
-  // when the user leaves the picker, schedule a short quiet-window
-  // commit. re-entering the picker cancels it.
-  createEffect(() => {
-    const active = pickerActive();
-    if (active) {
-      if (leaveTimer) {
-        clearTimeout(leaveTimer);
-        leaveTimer = null;
-      }
-      return;
-    }
-    if (pendingRemotes === null) return;
-    if (leaveTimer) clearTimeout(leaveTimer);
-    leaveTimer = setTimeout(() => {
-      leaveTimer = null;
-      commitPending();
-    }, GRAPH_REMOTE_LEAVE_MS);
-  });
-
-  onCleanup(clearTimers);
-
-  // helpers for the picker host wrappers below: track pointer + focus
-  // presence so the commit can wait until the user actually walks away.
-  // `flyoutInside` covers the portalled overflow flyout/modal whose
-  // chips live outside the wrapper element.
+  // pointer/focus tracking for the RemotePicker host wrappers in the
+  // topnav. used to drive the picker's flyout/inline mode transitions
+  // (when the user is interacting we keep the chip-strip mounted; once
+  // they walk away we let it collapse). the graph subview previously
+  // also used these signals to debounce selection commits, but now
+  // owns remote selection internally so only the picker layout cares.
   let pointerInside = false;
   let focusInside = false;
   let flyoutInside = false;
+  // active getter is unread now — kept as the setter target only so
+  // the host handlers continue to update it for any future consumer.
+  const [, setPickerActive] = createSignal(false);
   const recomputeActive = () => setPickerActive(pointerInside || focusInside || flyoutInside);
   const pickerHostHandlers = {
     onPointerEnter: () => {
@@ -198,16 +96,7 @@ export function LibraryView() {
       });
     },
     onFlyoutActiveChange: (active: boolean) => {
-      const wasOpen = flyoutInside;
       flyoutInside = active;
-      // flyout close is the unambiguous "done selecting" signal —
-      // commit immediately, skipping the leave-window. pointer/focus
-      // may still be over the trigger chip, so we don't touch those.
-      if (wasOpen && !active) {
-        recomputeActive();
-        commitPending();
-        return;
-      }
       recomputeActive();
     },
   };
@@ -226,6 +115,17 @@ export function LibraryView() {
         switchTimerRef = null;
       }
     });
+    // graph subview drives its own per-remote loading visuals (the
+    // comet-trail spinner around each remote hub) and supports
+    // multi-remote selection where there is no single "switching to"
+    // target. so we only run the table-style switch detection +
+    // ConnectionProgressModal escalation when the table subview is
+    // active. without this guard, every graph multi-select toggle that
+    // changes the primary remote would pop the connection modal.
+    if (subview() !== "table") {
+      prevRemoteId = newId;
+      return;
+    }
     if (prevRemoteId !== null && newId !== null && prevRemoteId !== newId) {
       const stashedPrev = prevRemoteId;
       setSwitchingToName(selectedRemote()?.name ?? null);
@@ -479,11 +379,12 @@ export function LibraryView() {
       </div>
 
       <div class="flex items-center gap-3 flex-wrap">
-        {/* remote picker — multi-select in graph subview so the user
-         *  can fan a single graph out across remotes; single-select in
-         *  the table subview (table writes go to one remote). bulk-tag
-         *  mode also forces single so lasso targets are unambiguous. */}
-        <Show when={(remotes() ?? []).length > 0}>
+        {/* remote picker — hidden in graph subview because remotes
+         *  are rendered as triangle hub nodes inside the graph itself.
+         *  single-select in the table subview (table writes go to one
+         *  remote). bulk-tag mode also forces single so lasso targets
+         *  are unambiguous. */}
+        <Show when={subview() !== "graph" && (remotes() ?? []).length > 0}>
           <div
             onPointerEnter={pickerHostHandlers.onPointerEnter}
             onPointerLeave={pickerHostHandlers.onPointerLeave}
@@ -567,7 +468,7 @@ export function LibraryView() {
     const other = SUBVIEWS.find((s) => s.id !== subview())!;
     slots.setRightContent(
       <div class="flex items-center gap-2 flex-wrap">
-        <Show when={(remotes() ?? []).length > 0}>
+        <Show when={subview() !== "graph" && (remotes() ?? []).length > 0}>
           <div
             onPointerEnter={pickerHostHandlers.onPointerEnter}
             onPointerLeave={pickerHostHandlers.onPointerLeave}
@@ -628,7 +529,7 @@ export function LibraryView() {
         <Switch>
           <Match when={subview() === "graph"}>
             <LibraryGraphSubview
-              remotes={debouncedSelectedRemotes()}
+              remotes={remotes() ?? []}
               isActive={() => subview() === "graph"}
               bulkTagMode={bulkTagMode}
               onLassoAlbums={(remote, ids) => {

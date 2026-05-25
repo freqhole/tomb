@@ -3,21 +3,25 @@
 // shared factory used by both the storybook LibraryGraphView and the
 // real LibraryView's graph subview. owns all graph-local state
 // (selection, pill toggles, wire click, wire tension, relation
-// enablement) and returns three JSX slots:
+// enablement) and returns two JSX slots:
 //   - `topNavTools` — the GraphTopNavTools cluster (drop into TopNav's
 //     `rightContent` slot).
-//   - `selectedRelationChips` — horizontally-scrollable chip row of the
-//     currently-enabled relation kinds (drop into TopNav's
-//     `secondaryRowContent` slot).
 //   - `pane` — the canvas + floating AlbumDetailPopover wrapper. drop
 //     into a flex-1 cell in the main content area.
+//
+// note: a horizontally-scrollable `selectedRelationChips` row (drag to
+// adjust per-kind strength, click to solo, x to remove) used to be
+// returned here too. it's been removed alongside the topnav relations
+// picker — per-kind strength is now controlled by dragging the
+// relation hub nodes directly on the canvas, and which kinds are
+// visible is governed by the drilldown state machine in the subview.
 //
 // caller supplies a `nodes` accessor (so the same factory drives both
 // the static-mock story and the live, page-streamed real view), a
 // `searchQuery` accessor for the topnav search field, and optional
 // action callbacks (play/shuffle/queue/view/favorite/lasso).
 
-import { createEffect, createMemo, createSignal, For, onCleanup, Show, untrack } from "solid-js";
+import { createEffect, createMemo, createSignal, onCleanup, Show, untrack } from "solid-js";
 import type { JSX } from "solid-js";
 import { GraphCanvas, type GraphActions } from "../../../components/graph/GraphCanvas";
 import { AlbumDetailPopover } from "../../../components/graph/AlbumDetailPopover";
@@ -25,12 +29,7 @@ import { ArtistDetailPopover } from "../../../components/graph/ArtistDetailPopov
 import { useDetailPanelHide } from "../../../components/graph/useDetailPanelHide";
 import { GraphTopNavTools, type GraphTool } from "../../../components/graph/GraphTopNavTools";
 import { Icon } from "../../../components/icons/registry";
-import {
-  countEdgesByKind,
-  RELATION_COLOR,
-  RELATION_KINDS,
-  RELATION_LABEL,
-} from "../../../components/graph/relations";
+import { RELATION_KINDS } from "../../../components/graph/relations";
 import type {
   AlbumNodeData,
   ArtistNodeData,
@@ -40,6 +39,7 @@ import type {
   RelationKindLike,
 } from "../../../components/graph/types";
 import { nodeKind } from "../../../components/graph/types";
+import { isAnyHubId } from "../../../components/graph/hubNodes";
 import { artistNodeId } from "./deriveArtistNodes";
 import type { RelatedArtistsMap } from "../../queries/useRelatedArtistsByIds";
 
@@ -116,12 +116,20 @@ export interface CreateGraphLibraryViewOpts {
   /** optional precomputed relation counts for picker/flyout badges.
    *  when provided, these override edge-derived counts. */
   relationCounts?: () => Partial<Record<RelationKind, number>>;
+  /** optional set of node ids that are currently loading (fetching
+   *  data, crunching async derivations). matching nodes render a
+   *  comet-trail spinner around their silhouette, same visual
+   *  language as the player-bar play/pause loading ring. */
+  loadingNodeIds?: () => Set<string> | null;
+  /** optional hover-preview hook. when the user hovers a node, the
+   *  parent returns up to ~12 related nodes to peek at without
+   *  drilling. the canvas paints them in a ring around the hovered
+   *  node with thin spokes. return `[]` (or omit) to disable. */
+  getHoverPreview?: (node: GraphNodeData) => GraphNodeData[];
 }
 
 export interface GraphLibraryView {
   topNavTools: JSX.Element;
-  selectedRelationChips: JSX.Element;
-  visibleRelationPillCount: () => number;
   pane: JSX.Element;
   /** live node count accessor — for the bottom-right status chip /
    *  topnav badge in caller-controlled chrome. */
@@ -155,6 +163,20 @@ export interface GraphLibraryView {
    *  fetching (bio, favorite state) that they then feed back via
    *  the `selectedArtistBio` / `selectedArtistIsFavorite` opts. */
   selectedArtistId: () => string | null;
+  /** current node-selection mode ("single" replaces selection on click;
+   *  "multi" toggles set membership). exposed so the graph subview can
+   *  reuse the same toggle for multi-remote selection on remote hubs. */
+  selectionMode: () => "single" | "multi";
+  setSelectionMode: (next: "single" | "multi") => void;
+  /** read live per-kind relation strength (defaulted via
+   *  `defaultRelationStrength` when not explicitly set). used by the
+   *  in-canvas relation-hub drag gesture to seed its base value. */
+  getRelationStrength: (kind: string) => number;
+  /** write per-kind relation strength (0..1, clamped). the
+   *  in-canvas drag gesture on a relation hub calls this on every
+   *  pointermove; the existing debounce-into-`appliedRelationStrengths`
+   *  effect smooths the write into the worker. */
+  setRelationStrength: (kind: string, value: number) => void;
 }
 
 export function createGraphLibraryView(opts: CreateGraphLibraryViewOpts): GraphLibraryView {
@@ -253,6 +275,11 @@ export function createGraphLibraryView(opts: CreateGraphLibraryViewOpts): GraphL
     if (!id) return null;
     const n = nodes().find((n) => n.id === id) ?? null;
     if (!n || nodeKind(n) !== "artist") return null;
+    // hub nodes (remote / relation / relation-value triangles) reuse
+    // the artist node type for layout but should never open the
+    // artist detail popover — their interaction model is click-to-
+    // drill + drag-to-set-strength, with no inspector surface.
+    if (isAnyHubId((n as ArtistNodeData).artistId)) return null;
     return n as ArtistNodeData;
   });
 
@@ -314,15 +341,11 @@ export function createGraphLibraryView(opts: CreateGraphLibraryViewOpts): GraphL
   // it for ui consumers (kind counts, popovers, status pills). it
   // starts empty until the first worker emission lands.
   const [edges, setEdges] = createSignal<GraphEdge[]>([]);
-  const counts = createMemo(() => {
-    const base = countEdgesByKind(edges());
-    const override = opts.relationCounts?.();
-    if (!override) return base;
-    return {
-      ...base,
-      ...override,
-    };
-  });
+  // per-kind edge counts — previously consumed by the topnav relations
+  // picker. unused now that the picker is gone, but the memo body is
+  // cheap and might be useful for an in-canvas hub badge later, so we
+  // keep the helper inlined where needed instead of as a top-level
+  // memo. (see `countEdgesByKind(edges())` if you need it.)
 
   createEffect(() => {
     const custom = opts.customEdges;
@@ -752,15 +775,17 @@ export function createGraphLibraryView(opts: CreateGraphLibraryViewOpts): GraphL
     requestAnimationFrame(() => api()?.fit());
   };
 
-  // relation-kind solo (from the topnav picker)
-  const soloKind = (kind: string) => {
-    setEnabled(new Set<string>([kind]));
-    setPillEdges((prev) => {
-      const next = new Map<string, GraphEdge>();
-      for (const [k, v] of prev) if (String(v.kind) === kind) next.set(k, v);
-      return next;
-    });
-  };
+  // relation-kind solo (now unused; topnav picker is gone). kept
+  // commented as documentation in case a future in-canvas solo gesture
+  // wants the same shape.
+  // const soloKind = (kind: string) => {
+  //   setEnabled(new Set<string>([kind]));
+  //   setPillEdges((prev) => {
+  //     const next = new Map<string, GraphEdge>();
+  //     for (const [k, v] of prev) if (String(v.kind) === kind) next.set(k, v);
+  //     return next;
+  //   });
+  // };
 
   const topNavTools = (
     <GraphTopNavTools
@@ -791,63 +816,8 @@ export function createGraphLibraryView(opts: CreateGraphLibraryViewOpts): GraphL
       }}
       wireTension={wireTension()}
       onWireTensionChange={setWireTension}
-      relations={{
-        enabled: enabled(),
-        counts: counts(),
-        onToggle: (kind, next) => {
-          setEnabled((prev) => {
-            const ns = new Set<string>(prev);
-            if (next) ns.add(kind);
-            else ns.delete(kind);
-            return ns;
-          });
-        },
-        onSolo: soloKind,
-        onSelectAll: () => setEnabled(new Set<string>(ALL_KINDS)),
-        onDeselectAll: () => setEnabled(new Set<string>()),
-        // chips are surfaced via the topnav second row; suppress the
-        // inline ones in the picker so they aren't shown twice.
-        hideActiveChips: true,
-      }}
       extra={opts.extraTools}
     />
-  );
-
-  const visibleEnabledRelationKinds = createMemo(() =>
-    RELATION_KINDS.filter((r) => enabled().has(r.kind) && (counts()[r.kind] ?? 0) > 0)
-  );
-
-  const selectedRelationChips = (
-    <div class="flex w-full min-w-0 max-w-full gap-1.5 overflow-x-auto overflow-y-hidden no-scrollbar whitespace-nowrap">
-      <For each={visibleEnabledRelationKinds()}>
-        {(meta) => {
-          const color = RELATION_COLOR[meta.kind];
-          const label = RELATION_LABEL[meta.kind];
-          return (
-            <RelationStrengthChip
-              label={label}
-              color={color}
-              strength={strengthForKind(meta.kind, relationStrengths())}
-              onStrengthChange={(next) => {
-                setRelationStrengths((prev) => {
-                  const map = new Map(prev);
-                  map.set(meta.kind, clampRelationStrength(next));
-                  return map;
-                });
-              }}
-              onSolo={() => soloKind(meta.kind)}
-              onRemove={() =>
-                setEnabled((prev) => {
-                  const ns = new Set<string>(prev);
-                  ns.delete(meta.kind);
-                  return ns;
-                })
-              }
-            />
-          );
-        }}
-      </For>
-    </div>
   );
 
   const pane = (
@@ -860,6 +830,14 @@ export function createGraphLibraryView(opts: CreateGraphLibraryViewOpts): GraphL
         relatedArtists={opts.relatedArtists?.()}
         enabledKinds={enabled()}
         relationStrengths={relationStrengthConfig()}
+        onRelationStrengthChange={(kind, value) => {
+          setUserInteracted(true);
+          setRelationStrengths((prev) => {
+            const map = new Map(prev);
+            map.set(kind, clampRelationStrength(value));
+            return map;
+          });
+        }}
         lockNodes={opts.lockNodes ?? false}
         selectedId={canvasSelectedId()}
         selectedIds={multiSelectedIds()}
@@ -867,6 +845,8 @@ export function createGraphLibraryView(opts: CreateGraphLibraryViewOpts): GraphL
         tool={tool()}
         edgeCurvature={wireTension() * 0.5}
         searchMatches={searchMatches()}
+        loadingNodeIds={opts.loadingNodeIds?.() ?? null}
+        getHoverPreview={opts.getHoverPreview}
         paused={(opts.paused?.() ?? false) || autoPaused()}
         onReady={(a) => setApi(a)}
         onUserInteract={() => setUserInteracted(true)}
@@ -1062,8 +1042,6 @@ export function createGraphLibraryView(opts: CreateGraphLibraryViewOpts): GraphL
 
   return {
     topNavTools,
-    selectedRelationChips,
-    visibleRelationPillCount: () => visibleEnabledRelationKinds().length,
     pane,
     nodeCount: () => nodes().length,
     autoPaused,
@@ -1097,114 +1075,15 @@ export function createGraphLibraryView(opts: CreateGraphLibraryViewOpts): GraphL
       setWireEdge(null);
     },
     selectedArtistId: () => selectedArtist()?.artistId ?? null,
+    selectionMode,
+    setSelectionMode,
+    getRelationStrength: (kind: string) => strengthForKind(kind, relationStrengths()),
+    setRelationStrength: (kind: string, value: number) => {
+      setRelationStrengths((prev) => {
+        const map = new Map(prev);
+        map.set(kind, clampRelationStrength(value));
+        return map;
+      });
+    },
   };
-}
-
-function RelationStrengthChip(props: {
-  label: string;
-  color: string;
-  strength: number;
-  onStrengthChange: (next: number) => void;
-  onSolo: () => void;
-  onRemove: () => void;
-}) {
-  const RANGE_PX = 140;
-  const TAP_MOVE_PX = 4;
-  const clamp = (v: number) => Math.max(0, Math.min(1, v));
-
-  const [dragging, setDragging] = createSignal(false);
-  const [preview, setPreview] = createSignal(props.strength);
-  let origin: { x: number; y: number } | null = null;
-  let base = 0;
-
-  const computeNext = (e: PointerEvent) => {
-    if (!origin) return base;
-    const dx = e.clientX - origin.x;
-    const dy = origin.y - e.clientY;
-    return clamp(base + (dx + dy) / RANGE_PX);
-  };
-
-  return (
-    <span
-      class="relative inline-flex flex-shrink-0 items-center gap-1 pl-2 pr-1 py-0.5 rounded text-[11px] leading-none whitespace-nowrap border backdrop-blur-sm overflow-hidden select-none touch-none"
-      style={{
-        color: props.color,
-        "border-color": `${props.color}70`,
-        "background-color": `${props.color}14`,
-        "user-select": "none",
-        "-webkit-user-select": "none",
-      }}
-    >
-      <span
-        class="absolute inset-0 pointer-events-none"
-        style={{
-          width: `${Math.round((dragging() ? preview() : props.strength) * 100)}%`,
-          "background-color": `${props.color}66`,
-        }}
-      />
-
-      <button
-        type="button"
-        class="relative z-10 bg-transparent border-none p-0 m-0 cursor-ew-resize text-current select-none touch-none"
-        title={`${props.label}: ${Math.round(props.strength * 100)} (click to solo, drag to adjust strength)`}
-        style={{
-          "user-select": "none",
-          "-webkit-user-select": "none",
-          "touch-action": "none",
-        }}
-        onDragStart={(e) => e.preventDefault()}
-        onPointerDown={(e) => {
-          (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-          origin = { x: e.clientX, y: e.clientY };
-          base = props.strength;
-          setPreview(props.strength);
-          setDragging(true);
-          e.preventDefault();
-        }}
-        onPointerMove={(e) => {
-          if (!dragging()) return;
-          const next = computeNext(e);
-          setPreview(next);
-          props.onStrengthChange(next);
-        }}
-        onPointerUp={(e) => {
-          if (!dragging()) return;
-          const moved = origin
-            ? Math.hypot(e.clientX - origin.x, e.clientY - origin.y)
-            : TAP_MOVE_PX + 1;
-          if (moved <= TAP_MOVE_PX) {
-            props.onSolo();
-          } else {
-            props.onStrengthChange(computeNext(e));
-          }
-          origin = null;
-          setDragging(false);
-          try {
-            (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
-          } catch {
-            // capture may already be released
-          }
-        }}
-        onPointerCancel={() => {
-          origin = null;
-          setDragging(false);
-        }}
-      >
-        {props.label}
-      </button>
-
-      <span class="relative z-10 text-[10px] tabular-nums opacity-90">
-        {Math.round((dragging() ? preview() : props.strength) * 100)}
-      </span>
-
-      <button
-        type="button"
-        onClick={props.onRemove}
-        title={`hide ${props.label}`}
-        class="relative z-10 bg-transparent border-none p-0 ml-0.5 cursor-pointer text-current opacity-70 hover:opacity-100 leading-none"
-      >
-        ×
-      </button>
-    </span>
-  );
 }
