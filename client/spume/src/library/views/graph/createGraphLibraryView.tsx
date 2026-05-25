@@ -35,7 +35,6 @@ import type {
   ArtistNodeData,
   GraphEdge,
   GraphNodeData,
-  RelationKind,
   RelationKindLike,
 } from "../../../components/graph/types";
 import { nodeKind } from "../../../components/graph/types";
@@ -113,9 +112,6 @@ export interface CreateGraphLibraryViewOpts {
    *  this topology directly (legacy edge mode) instead of deriving
    *  edges in the worker from node taxonomies. */
   customEdges?: () => GraphEdge[];
-  /** optional precomputed relation counts for picker/flyout badges.
-   *  when provided, these override edge-derived counts. */
-  relationCounts?: () => Partial<Record<RelationKind, number>>;
   /** optional set of node ids that are currently loading (fetching
    *  data, crunching async derivations). matching nodes render a
    *  comet-trail spinner around their silhouette, same visual
@@ -134,6 +130,9 @@ export interface GraphLibraryView {
   /** live node count accessor — for the bottom-right status chip /
    *  topnav badge in caller-controlled chrome. */
   nodeCount: () => number;
+  /** live edge count accessor — mirror of `nodeCount` for the same
+   *  status chip. counts raw graph edges (pre pair-collapse). */
+  edgeCount: () => number;
   /** true when the sim is auto-paused after the initial settle of a
    *  large library (nodes >= 2000) and the user hasn't interacted yet.
    *  consumers can use this to render a "sim paused — drag to wake"
@@ -163,25 +162,14 @@ export interface GraphLibraryView {
    *  fetching (bio, favorite state) that they then feed back via
    *  the `selectedArtistBio` / `selectedArtistIsFavorite` opts. */
   selectedArtistId: () => string | null;
-  /** current node-selection mode ("single" replaces selection on click;
-   *  "multi" toggles set membership). exposed so the graph subview can
-   *  reuse the same toggle for multi-remote selection on remote hubs. */
-  selectionMode: () => "single" | "multi";
-  setSelectionMode: (next: "single" | "multi") => void;
-  /** read live per-kind relation strength (defaulted via
-   *  `defaultRelationStrength` when not explicitly set). used by the
-   *  in-canvas relation-hub drag gesture to seed its base value. */
-  getRelationStrength: (kind: string) => number;
-  /** write per-kind relation strength (0..1, clamped). the
-   *  in-canvas drag gesture on a relation hub calls this on every
-   *  pointermove; the existing debounce-into-`appliedRelationStrengths`
-   *  effect smooths the write into the worker. */
-  setRelationStrength: (kind: string, value: number) => void;
 }
 
 export function createGraphLibraryView(opts: CreateGraphLibraryViewOpts): GraphLibraryView {
   const ALL_KINDS = RELATION_KINDS.map((r) => r.kind);
-  const clampRelationStrength = (v: number) => Math.max(0, Math.min(1, v));
+  // per-kind relation strength defaults. previously the in-canvas
+  // hub-drag gesture could mutate these at runtime; that ux has been
+  // removed, so the worker just receives these constants for the
+  // lifetime of the view.
   const defaultRelationStrength = (kind: string): number => {
     if (kind === "artist_album") return 1;
     if (kind === "same_artist") return 1;
@@ -189,14 +177,6 @@ export function createGraphLibraryView(opts: CreateGraphLibraryViewOpts): GraphL
     if (kind === "related_artist") return 0.78;
     if (kind === "tag") return 0.22;
     return 0.5;
-  };
-  const relationStrengthDebounceMs = (count: number): number => {
-    if (count >= 4500) return 260;
-    if (count >= 3200) return 200;
-    if (count >= 2200) return 150;
-    if (count >= 1400) return 105;
-    if (count >= 800) return 70;
-    return 32;
   };
   const nodes = opts.nodes;
 
@@ -224,7 +204,6 @@ export function createGraphLibraryView(opts: CreateGraphLibraryViewOpts): GraphL
 
   const [enabled, setEnabled] = createSignal<Set<string>>(new Set<string>(ALL_KINDS));
   const [tool, setTool] = createSignal<GraphTool>("pan");
-  const [selectionMode, setSelectionMode] = createSignal<"single" | "multi">("single");
   // when the caller hands us a `forceTool` accessor that returns a
   // non-null value, mirror it into the internal `tool` signal so the
   // canvas always reflects the forced mode. the topnav button is also
@@ -240,11 +219,6 @@ export function createGraphLibraryView(opts: CreateGraphLibraryViewOpts): GraphL
   // the adapter produces a new node and `selected()` picks it up
   // immediately instead of holding onto the stale click-time snapshot.
   const [selectedId, setSelectedId] = createSignal<string | null>(null);
-  // additional node ids picked via shift/cmd/ctrl + click. these stack
-  // on top of the primary `selectedId` and render the same magenta
-  // ring on the canvas. clicking a node WITHOUT a modifier clears the
-  // set so single-click always means "only this".
-  const [multiSelectedIds, setMultiSelectedIds] = createSignal<Set<string>>(new Set<string>());
   // selected() narrows to `AlbumNodeData` only — artist nodes are
   // selectable on the canvas (for ring highlight) but never open the
   // detail popover (artist detail UI is reachable elsewhere).
@@ -256,17 +230,6 @@ export function createGraphLibraryView(opts: CreateGraphLibraryViewOpts): GraphL
     return n as AlbumNodeData;
   });
   const setSelected = (node: GraphNodeData | null) => setSelectedId(node?.id ?? null);
-  // toggle a node into the multi-select set. when the node is also the
-  // primary selection, demote the primary first so the user's mental
-  // model stays consistent ("only the picks in the set are selected").
-  const toggleMultiSelect = (node: GraphNodeData) => {
-    setMultiSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(node.id)) next.delete(node.id);
-      else next.add(node.id);
-      return next;
-    });
-  };
   // mirror of `selected()` but for artist nodes — drives the artist
   // detail popover. mutually exclusive with `selected()` because each
   // node has exactly one kind.
@@ -310,10 +273,6 @@ export function createGraphLibraryView(opts: CreateGraphLibraryViewOpts): GraphL
   const [pillEdges, setPillEdges] = createSignal<Map<string, GraphEdge>>(new Map());
   const [wireEdge, setWireEdge] = createSignal<GraphEdge | null>(null);
   const [wireTension, setWireTension] = createSignal(0.44);
-  const [relationStrengths, setRelationStrengths] = createSignal<Map<string, number>>(new Map());
-  const [appliedRelationStrengths, setAppliedRelationStrengths] = createSignal<Map<string, number>>(
-    new Map()
-  );
   const [api, setApi] = createSignal<GraphActions | null>(null);
 
   createEffect(() => {
@@ -324,7 +283,6 @@ export function createGraphLibraryView(opts: CreateGraphLibraryViewOpts): GraphL
     setUserInteracted(false);
     setSettleElapsed(false);
     setSelectedId(null);
-    setMultiSelectedIds(new Set<string>());
     setPillEdges(new Map());
     setWireEdge(null);
   });
@@ -352,41 +310,17 @@ export function createGraphLibraryView(opts: CreateGraphLibraryViewOpts): GraphL
     if (!custom) return;
     setEdges(custom());
   });
-  const strengthForKind = (kind: string, source: Map<string, number>): number => {
-    const cur = source.get(kind);
-    if (typeof cur === "number") return cur;
-    return defaultRelationStrength(kind);
-  };
-
-  createEffect(() => {
-    const source = relationStrengths();
-    const nodeCount = nodes().length;
-    const delay = relationStrengthDebounceMs(nodeCount);
-    const snap = new Map(source);
-    const t = setTimeout(() => {
-      setAppliedRelationStrengths(snap);
-    }, delay);
-    onCleanup(() => clearTimeout(t));
-  });
 
   const relationStrengthConfig = createMemo<Record<string, number>>(() => {
-    const source = appliedRelationStrengths();
     const out: Record<string, number> = {};
-    for (const kind of ALL_KINDS) out[kind] = strengthForKind(kind, source);
+    for (const kind of ALL_KINDS) out[kind] = defaultRelationStrength(kind);
     return out;
   });
 
-  // album/artist split for the bottom-right status chip. `nodes()`
-  // is mixed-kind so we tally each kind in a single pass.
-  const nodeKindCounts = createMemo(() => {
-    let albums = 0;
-    let artists = 0;
-    for (const n of nodes()) {
-      if (nodeKind(n) === "artist") artists++;
-      else if (nodeKind(n) === "album") albums++;
-    }
-    return { albums, artists };
-  });
+  // album/artist split was the old status-chip source. now the chip
+  // shows `N nodes · M edges` directly, so this memo is no longer
+  // needed (kept as a comment marker in case a future ui surface
+  // wants the by-kind breakdown back).
 
   const canvasEdges = createMemo<GraphEdge[]>(() => {
     const out = Array.from(pillEdges().values());
@@ -462,35 +396,9 @@ export function createGraphLibraryView(opts: CreateGraphLibraryViewOpts): GraphL
     out.sort((a, b) => a.title.localeCompare(b.title));
     return out;
   });
-  // album nodes the user has shift/cmd-clicked into the multi-select
-  // set. these get folded into both popover carousels so the user can
-  // page through everything they've explicitly picked.
-  const multiSelectedAlbums = createMemo<AlbumNodeData[]>(() => {
-    const ids = multiSelectedIds();
-    if (ids.size === 0) return [];
-    const byId = new Map(nodes().map((n) => [n.id, n] as const));
-    const out: AlbumNodeData[] = [];
-    for (const id of ids) {
-      const a = byId.get(id);
-      if (a && nodeKind(a) === "album") out.push(a as AlbumNodeData);
-    }
-    return out;
-  });
-  const multiSelectedArtists = createMemo<ArtistNodeData[]>(() => {
-    const ids = multiSelectedIds();
-    if (ids.size === 0) return [];
-    const byId = new Map(nodes().map((n) => [n.id, n] as const));
-    const out: ArtistNodeData[] = [];
-    for (const id of ids) {
-      const n = byId.get(id);
-      if (n && nodeKind(n) === "artist") out.push(n as ArtistNodeData);
-    }
-    return out;
-  });
 
   const popInfo = createMemo<{ list: AlbumNodeData[]; source: "edge" | "single" | null }>(() => {
     const pillAlbums = pillClusterAlbums();
-    const multiAlbums = multiSelectedAlbums();
     const w = wireEdge();
     if (w) {
       const byId = new Map(nodes().map((n) => [n.id, n] as const));
@@ -511,7 +419,6 @@ export function createGraphLibraryView(opts: CreateGraphLibraryViewOpts): GraphL
       wireList.sort((a, b) => a.title.localeCompare(b.title));
       const seen = new Set<string>(wireList.map((a) => a.id));
       const merged = [...wireList];
-      for (const a of multiAlbums) if (!seen.has(a.id)) (merged.push(a), seen.add(a.id));
       for (const a of pillAlbums) if (!seen.has(a.id)) (merged.push(a), seen.add(a.id));
       return { list: merged, source: "edge" };
     }
@@ -519,17 +426,11 @@ export function createGraphLibraryView(opts: CreateGraphLibraryViewOpts): GraphL
     if (s) {
       const seen = new Set<string>([s.id]);
       const extras: AlbumNodeData[] = [];
-      for (const a of multiAlbums) if (!seen.has(a.id)) (extras.push(a), seen.add(a.id));
       for (const a of pillAlbums) if (!seen.has(a.id)) (extras.push(a), seen.add(a.id));
       return { list: [s, ...extras], source: "single" };
     }
-    if (multiAlbums.length > 0 || pillAlbums.length > 0) {
-      const seen = new Set<string>();
-      const combined: AlbumNodeData[] = [];
-      for (const a of [...multiAlbums, ...pillAlbums]) {
-        if (!seen.has(a.id)) (combined.push(a), seen.add(a.id));
-      }
-      return { list: combined, source: "edge" };
+    if (pillAlbums.length > 0) {
+      return { list: pillAlbums.slice(), source: "edge" };
     }
     return { list: [], source: null };
   });
@@ -608,7 +509,7 @@ export function createGraphLibraryView(opts: CreateGraphLibraryViewOpts): GraphL
     return out;
   });
 
-  // artist popover carousel [anchor, ...multiSelected, ...related].
+  // artist popover carousel [anchor, ...related].
   //
   // the anchor is the artist the user first selected; it stays stable
   // even as the user pages through the carousel. without this anchor,
@@ -634,15 +535,6 @@ export function createGraphLibraryView(opts: CreateGraphLibraryViewOpts): GraphL
     if (!anchor) return [];
     const seen = new Set<string>([anchor.id]);
     const out: ArtistNodeData[] = [anchor];
-    // multi-selected artists come right after the anchor so the user
-    // can step through their explicit picks before falling into the
-    // last.fm-suggested neighbours.
-    for (const a of multiSelectedArtists()) {
-      if (!seen.has(a.id)) {
-        out.push(a);
-        seen.add(a.id);
-      }
-    }
     const relSet = opts.relatedArtists?.()?.get(anchor.artistId);
     if (relSet && relSet.size > 0) {
       const byArtistId = new Map<string, ArtistNodeData>();
@@ -796,12 +688,6 @@ export function createGraphLibraryView(opts: CreateGraphLibraryViewOpts): GraphL
         setUserInteracted(true);
         setTool(next);
       }}
-      selectionMode={selectionMode()}
-      onSelectionModeChange={(next) => {
-        setUserInteracted(true);
-        setSelectionMode(next);
-        if (next === "single") setMultiSelectedIds(new Set<string>());
-      }}
       onZoomIn={() => {
         setUserInteracted(true);
         api()?.zoomIn();
@@ -830,17 +716,8 @@ export function createGraphLibraryView(opts: CreateGraphLibraryViewOpts): GraphL
         relatedArtists={opts.relatedArtists?.()}
         enabledKinds={enabled()}
         relationStrengths={relationStrengthConfig()}
-        onRelationStrengthChange={(kind, value) => {
-          setUserInteracted(true);
-          setRelationStrengths((prev) => {
-            const map = new Map(prev);
-            map.set(kind, clampRelationStrength(value));
-            return map;
-          });
-        }}
         lockNodes={opts.lockNodes ?? false}
         selectedId={canvasSelectedId()}
-        selectedIds={multiSelectedIds()}
         selectedEdges={canvasEdges()}
         tool={tool()}
         edgeCurvature={wireTension() * 0.5}
@@ -851,19 +728,10 @@ export function createGraphLibraryView(opts: CreateGraphLibraryViewOpts): GraphL
         onReady={(a) => setApi(a)}
         onUserInteract={() => setUserInteracted(true)}
         quietUpdates={userInteracted()}
-        onSelect={(album, selectOpts) => {
+        onSelect={(album, _selectOpts) => {
           setUserInteracted(true);
-          const multiMode = selectionMode() === "multi";
-          // modifier-add: toggle into the multi-select set, keep the
-          // primary selection (and its popover) intact.
-          if ((selectOpts?.multi || multiMode) && album) {
-            toggleMultiSelect(album);
-            if (!selectedId()) setSelected(album);
-            return;
-          }
-          // plain click on a node or empty-space — reset multi-select
-          // so the user's single pick is the only selection.
-          setMultiSelectedIds(new Set<string>());
+          // graph subview is single-select only; multi-remote scoping
+          // happens via remote-hub clicks (see LibraryGraphSubview).
           setSelected(album);
           setWireEdge(null);
         }}
@@ -1018,16 +886,17 @@ export function createGraphLibraryView(opts: CreateGraphLibraryViewOpts): GraphL
         </button>
       </Show>
 
-      {/* bottom-right status chip — shows graph size + current selection. */}
+      {/* bottom-right status chip — shows graph size + current selection.
+          counts total nodes + edges so the user can get a feel for
+          where the layout starts to get heavy (groundwork for the
+          soft-cap GC work later). */}
       <div class="absolute bottom-3 right-3 z-10 pointer-events-none">
         <div class="px-2 py-1 rounded bg-[var(--color-bg-elevated)]/85 backdrop-blur-sm border border-white/10 text-[11px] text-white/70 leading-tight whitespace-nowrap">
-          <span class="text-white/90 font-medium">{nodeKindCounts().albums}</span>
-          <span class="text-white/50"> albums</span>
-          <Show when={nodeKindCounts().artists > 0}>
-            <span class="text-white/30 mx-1.5">·</span>
-            <span class="text-white/90 font-medium">{nodeKindCounts().artists}</span>
-            <span class="text-white/50"> artists</span>
-          </Show>
+          <span class="text-white/90 font-medium">{nodes().length}</span>
+          <span class="text-white/50"> nodes</span>
+          <span class="text-white/30 mx-1.5">·</span>
+          <span class="text-white/90 font-medium">{edges().length}</span>
+          <span class="text-white/50"> edges</span>
           <Show when={popInfo().list.length > 0}>
             <span class="text-white/30 mx-1.5">·</span>
             <span class="text-[var(--color-accent-500,#ff1a9e)] font-medium">
@@ -1044,6 +913,7 @@ export function createGraphLibraryView(opts: CreateGraphLibraryViewOpts): GraphL
     topNavTools,
     pane,
     nodeCount: () => nodes().length,
+    edgeCount: () => edges().length,
     autoPaused,
     fit: () => {
       setUserInteracted(true);
@@ -1068,22 +938,11 @@ export function createGraphLibraryView(opts: CreateGraphLibraryViewOpts): GraphL
     userInteracted,
     clearSelection: () => {
       setSelected(null);
-      setMultiSelectedIds(new Set<string>());
       // also drop any active edge-wire so escape clears EVERYTHING the
       // user has explicitly highlighted on the canvas in one keystroke
-      // (node selection, multi-select set, and the connection wire).
+      // (node selection + the connection wire).
       setWireEdge(null);
     },
     selectedArtistId: () => selectedArtist()?.artistId ?? null,
-    selectionMode,
-    setSelectionMode,
-    getRelationStrength: (kind: string) => strengthForKind(kind, relationStrengths()),
-    setRelationStrength: (kind: string, value: number) => {
-      setRelationStrengths((prev) => {
-        const map = new Map(prev);
-        map.set(kind, clampRelationStrength(value));
-        return map;
-      });
-    },
   };
 }

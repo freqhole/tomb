@@ -16,7 +16,7 @@
 // the component is presentational: the parent supplies nodes/edges + relation
 // filter state, and reacts to selection events. it does NOT fetch data.
 
-import { createEffect, createMemo, createSignal, onCleanup, onMount, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js";
 import type { SimulationLinkDatum, SimulationNodeDatum } from "d3-force";
 import { drawAlbumNode } from "./drawAlbumNode";
 import { drawArtistNode } from "./drawArtistNode";
@@ -27,7 +27,9 @@ import {
   isRelationValueHubId,
   isRemoteHubId,
   parseRelationHubId,
+  parseRelationValueHubId,
 } from "./hubNodes";
+import { HUB_SIZE_MAX_MUL, hubSizeMul } from "./hubSize";
 import type {
   AlbumNodeData,
   ArtistNodeData,
@@ -65,25 +67,14 @@ export interface GraphCanvasProps {
    *  instead of preserving node positions by id. */
   topologyKey?: string | number;
   /** optional per-kind relation strengths (0..1). higher values pull
-   *  linked nodes closer in the force simulation. */
+   *  linked nodes closer in the force simulation. constant for the
+   *  lifetime of the canvas \u2014 the in-canvas drag gesture that used
+   *  to mutate these has been removed. */
   relationStrengths?: Record<string, number>;
-  /** fired during a drag gesture on a relation hub node — the drag
-   *  translates cursor delta into a normalized strength value for the
-   *  hub's kind, instead of moving the node. parents should write the
-   *  value back into their `relationStrengths` source so the canvas
-   *  redraws + the worker eventually picks up the new weight via the
-   *  existing debounce pipeline. when not provided, relation hubs
-   *  drag like any other node. */
-  onRelationStrengthChange?: (kind: string, value: number) => void;
   /** node tile size in world units. default 56. */
   nodeSize?: number;
   /** controlled selection (parent owns state) */
   selectedId?: string | null;
-  /** additional selected node ids (for shift/cmd multi-select). these
-   *  render the same magenta ring as `selectedId` but don't drive
-   *  popovers or edge-focus highlighting — the parent decides what to
-   *  do with the extra picks. */
-  selectedIds?: Set<string>;
   /** node click — second arg conveys keyboard modifier intent:
    *  `multi=true` when shift/meta/ctrl was held during the click,
    *  signalling the parent to toggle into a multi-selection set. */
@@ -507,9 +498,11 @@ export function GraphCanvas(props: GraphCanvasProps) {
       // hit radius in world units. ~half the node side gives a hit
       // area roughly matching the visible square (with a small
       // fudge for the rounded corners); floored at ~12 screen px so
-      // tiny zoomed-out nodes stay clickable. larger values steal
-      // pixels from edge hit-testing and feel sticky at high zoom.
-      const hitRadius = Math.max(nodeSize() * 0.55, 12 / v0.k);
+      // tiny zoomed-out nodes stay clickable. scaled by the max hub
+      // size multiplier so the largest count-scaled hub silhouettes
+      // remain fully clickable; nearest-hit semantics keep this safe
+      // (smaller siblings still win when actually closer).
+      const hitRadius = Math.max(nodeSize() * 0.55 * HUB_SIZE_MAX_MUL, 12 / v0.k);
       worker
         .hitTest(wx, wy, hitRadius, hoverHitAbort.signal)
         .then((nodeId) => resolveHover(nodeId, pos))
@@ -525,7 +518,10 @@ export function GraphCanvas(props: GraphCanvasProps) {
     pos: { sx: number; sy: number; clientX: number; clientY: number }
   ) {
     const workerHit = nodeId ? (simNodesById.get(nodeId) ?? null) : null;
-    const hit = workerHit ?? localHitFromHover(pos.sx, pos.sy);
+    const [hwx, hwy] = screenToWorld(pos.sx, pos.sy);
+    const vh = view();
+    const refined = refineHit(workerHit, hwx, hwy, vh.k);
+    const hit = refined ?? localHitFromHover(pos.sx, pos.sy);
     const newHover = hit?.id ?? null;
     let changed = false;
     if (newHover !== hoverId()) {
@@ -581,6 +577,61 @@ export function GraphCanvas(props: GraphCanvasProps) {
     if (nodeKind(n) !== "artist") return false;
     return isAnyHubId((n as ArtistNodeData).artistId);
   };
+
+  // ---- shape-aware hit detection helpers ---------------------------
+  // hit-test paths previously used a single worst-case radius
+  // (`nodeSize() * 0.55 * HUB_SIZE_MAX_MUL`) for every node, which
+  // gave huge slop around small/medium hubs — clicks far outside an
+  // octagon's silhouette would still register on it. these helpers
+  // compute the actual rendered size per node (factoring hub count
+  // scaling) and a shape-matched inradius so the hit area tracks the
+  // visible polygon.
+  function currentMaxHubCount(): number {
+    let m = 0;
+    for (const n of simNodes) {
+      if (!isAnyHubId(n.id)) continue;
+      const c = (n as ArtistNodeData).albumCount ?? 0;
+      if (c > m) m = c;
+    }
+    return m;
+  }
+  function effectiveNodeSize(n: SimNode, maxHub?: number): number {
+    if (!isAnyHubId(n.id)) return nodeSize();
+    const c = (n as ArtistNodeData).albumCount ?? 0;
+    const max = maxHub ?? currentMaxHubCount();
+    return nodeSize() * hubSizeMul(c, max);
+  }
+  /** per-node hit radius in world units. shape multipliers approximate
+   *  the inradius of each silhouette: square ≈ 0.55 (slight outward
+   *  slop for the rounded corners), circle = 0.5, wonky triangle ≈
+   *  0.42 (the freqhole-mark is narrow), regular hexagon ≈ 0.50
+   *  (flat-to-flat / 2), regular octagon ≈ 0.50. floored at 12 screen
+   *  pixels so small nodes stay clickable when zoomed out. */
+  function effectiveHitRadius(n: SimNode, k: number, maxHub?: number): number {
+    const size = effectiveNodeSize(n, maxHub);
+    let shapeMul: number;
+    if (n.kind === "album") {
+      shapeMul = 0.55;
+    } else if (isRemoteHubId(n.id)) {
+      shapeMul = 0.42;
+    } else if (isRelationHubId(n.id) || isRelationValueHubId(n.id)) {
+      shapeMul = 0.5;
+    } else {
+      shapeMul = 0.5;
+    }
+    return Math.max(size * shapeMul, 12 / k);
+  }
+  /** post-filter a coarse worker / local hit-test result: drop hits
+   *  whose centre is outside the node's effective shape radius. */
+  function refineHit(n: SimNode | null, wx: number, wy: number, k: number): SimNode | null {
+    if (!n) return null;
+    const r = effectiveHitRadius(n, k);
+    const dx = (n.x ?? 0) - wx;
+    const dy = (n.y ?? 0) - wy;
+    if (dx * dx + dy * dy > r * r) return null;
+    return n;
+  }
+
   const enabledSet = createMemo<Set<string> | null>(() => {
     const e = props.enabledKinds;
     if (!e) return null;
@@ -695,6 +746,7 @@ export function GraphCanvas(props: GraphCanvasProps) {
         const a = n as ArtistNodeData;
         base.artistId = a.artistId;
         base.name = a.name;
+        base.albumCount = a.albumCount;
       } else {
         const a = n as AlbumNodeData;
         base.artistId = a.artistId;
@@ -752,9 +804,24 @@ export function GraphCanvas(props: GraphCanvasProps) {
       return "album:ungrouped";
     }
     const r = node as ArtistNodeData;
-    if (isRemoteHubId(r.artistId)) return "hub:remote";
-    if (isRelationHubId(r.artistId)) return "hub:relation";
-    if (isRelationValueHubId(r.artistId)) return "hub:relation_value";
+    if (isRemoteHubId(r.artistId)) {
+      // each remote gets its own seed bucket so multi-remote
+      // selections fan their triangles out instead of stacking.
+      return `hub:remote:${r.artistId}`;
+    }
+    if (isRelationHubId(r.artistId)) {
+      // each remote's relation-kind hexagons share a per-remote
+      // bucket so seeding clusters them together (and apart from
+      // sibling remotes' hexagons).
+      const remote = parseRelationHubId(r.artistId)?.remoteId ?? "_";
+      return `hub:relation:${remote}`;
+    }
+    if (isRelationValueHubId(r.artistId)) {
+      // value hubs aren't remote-scoped — split by kind so each
+      // drilled relation gets its own seed cluster.
+      const kind = parseRelationValueHubId(r.artistId)?.kind ?? "_";
+      return `hub:relation_value:${kind}`;
+    }
     if (r.artistId) return `artist:${r.artistId}`;
     if (r.label) return `label:${r.label.toLowerCase()}`;
     if (r.era) return `era:${r.era.toLowerCase()}`;
@@ -863,10 +930,39 @@ export function GraphCanvas(props: GraphCanvasProps) {
     });
 
     const familySpacing = clusterSpacing * 2.15;
+    // stable string-hash to produce a deterministic angle per remote
+    // / per kind so each seed bucket lands on its own ring slot
+    // around the cluster centroid. avoids the "all hexagons collapse
+    // into one spot" effect at first render.
+    const strHash = (s: string): number => {
+      let h = 2166136261 >>> 0;
+      for (let i = 0; i < s.length; i++) {
+        h ^= s.charCodeAt(i);
+        h = Math.imul(h, 16777619) >>> 0;
+      }
+      return h;
+    };
+    const hashAngle = (s: string): number => ((strHash(s) % 360) / 360) * Math.PI * 2;
     const hubLaneOffset = (key: string): { ox: number; oy: number } | null => {
-      if (key === "hub:remote") return { ox: -0.72, oy: -0.58 };
-      if (key === "hub:relation") return { ox: 0.74, oy: -0.06 };
-      if (key === "hub:relation_value") return { ox: 0.28, oy: 0.72 };
+      if (key.startsWith("hub:remote:")) {
+        const remote = key.slice("hub:remote:".length);
+        const a = hashAngle("remote::" + remote);
+        // remote triangles sit on the outer ring of the hub family so
+        // they don't pile on top of their child hexagons.
+        return { ox: 0.78 * Math.cos(a), oy: 0.78 * Math.sin(a) };
+      }
+      if (key.startsWith("hub:relation:")) {
+        const remote = key.slice("hub:relation:".length);
+        // kind hubs share the remote's seed angle so they spawn near
+        // their parent triangle rather than around the centroid.
+        const a = hashAngle("remote::" + remote);
+        return { ox: 0.6 * Math.cos(a), oy: 0.6 * Math.sin(a) };
+      }
+      if (key.startsWith("hub:relation_value:")) {
+        const kind = key.slice("hub:relation_value:".length);
+        const a = hashAngle("value::" + kind);
+        return { ox: 0.32 * Math.cos(a), oy: 0.32 * Math.sin(a) };
+      }
       return null;
     };
     let familyIdx = 0;
@@ -1157,7 +1253,6 @@ export function GraphCanvas(props: GraphCanvasProps) {
     // edges
     const hov = hoverId();
     const sel = selectedId();
-    const multiSel = props.selectedIds;
     const selEdges = selectedEdgeKeys();
     const hovEdge = hoverEdgeKey();
     const focus = sel ?? hov;
@@ -1165,9 +1260,6 @@ export function GraphCanvas(props: GraphCanvasProps) {
     const focusNodeIds = new Set<string>();
     if (hov) focusNodeIds.add(hov);
     if (sel) focusNodeIds.add(sel);
-    if (multiSel && multiSel.size > 0) {
-      for (const id of multiSel) focusNodeIds.add(id);
-    }
     const hubOnly = simNodes.length > 0 && simNodes.every((n) => isHubNode(n));
     // any hub node in the graph implies a drill scaffold (remote →
     // relation → value → entity) that must stay wired up regardless
@@ -1535,18 +1627,32 @@ export function GraphCanvas(props: GraphCanvasProps) {
     const nctx = ctx;
     const loadingSet = props.loadingNodeIds ?? null;
     const hasLoading = !!loadingSet && loadingSet.size > 0;
+    // per-frame max hub count, used to normalize the per-hub size
+    // multiplier so heavier hubs render bigger than sparser ones.
+    // computed once over the full sim node list (cheap — bounded by
+    // total hub count, which is small even for large libraries).
+    let maxHubCount = 0;
+    for (const n of simNodes) {
+      if (!isAnyHubId(n.id)) continue;
+      const c = (n as ArtistNodeData).albumCount ?? 0;
+      if (c > maxHubCount) maxHubCount = c;
+    }
+    const sizeForNode = (n: SimNode): number => {
+      if (!isAnyHubId(n.id)) return nodeSize();
+      const c = (n as ArtistNodeData).albumCount ?? 0;
+      return nodeSize() * hubSizeMul(c, maxHubCount);
+    };
     function drawOne(n: SimNode) {
       const isEdgeFocus = edgeFocusIds?.has(n.id) ?? false;
       const searchMiss = hasSearch && search ? !search.has(n.id) : false;
-      const isMulti = multiSel?.has(n.id) ?? false;
       const nodeIsLoading = hasLoading && (loadingSet?.has(n.id) ?? false);
       // selection takes precedence over every other state so that
-      // explicitly-picked nodes (single click or shift/cmd add) always
-      // render the magenta ring. edge-focused nodes are intentionally
-      // demoted to "idle" so they remain visible without inheriting
-      // the selection ring — only direct user picks earn the ring.
+      // explicitly-picked nodes always render the magenta ring.
+      // edge-focused nodes are intentionally demoted to "idle" so they
+      // remain visible without inheriting the selection ring — only
+      // direct user picks earn the ring.
       const state =
-        n.id === sel || isMulti
+        n.id === sel
           ? "selected"
           : n.id === hov
             ? "hover"
@@ -1570,7 +1676,7 @@ export function GraphCanvas(props: GraphCanvasProps) {
           artist: n as ArtistNodeData,
           x: n.x ?? 0,
           y: n.y ?? 0,
-          size: nodeSize(),
+          size: sizeForNode(n),
           state,
           zoom: v.k,
           showLabel,
@@ -1617,7 +1723,9 @@ export function GraphCanvas(props: GraphCanvasProps) {
     // a node centred at (n.x, n.y) is visible when its half-extent
     // brushes the rect — `pad` covers the rounded-corner border, the
     // marquee label, and the magenta selection ring.
-    const halfNode = nodeSize() / 2;
+    // account for the largest possible hub bloat so big hubs near
+    // the viewport edge aren't culled while still partially visible.
+    const halfNode = (nodeSize() * HUB_SIZE_MAX_MUL) / 2;
     const cullPad = halfNode + 8 / Math.max(v.k, 0.05);
     const cxMin = -v.tx / v.k - cullPad;
     const cxMax = (width - v.tx) / v.k + cullPad;
@@ -1626,10 +1734,9 @@ export function GraphCanvas(props: GraphCanvasProps) {
     let drawnCount = 0;
     let culledCount = 0;
     for (const n of simNodes) {
-      const isMulti = multiSel?.has(n.id) ?? false;
-      // defer hovered + selected (single or multi) nodes to a
-      // second pass so they paint on top of everything else.
-      if (n.id === hov || n.id === sel || isMulti) {
+      // defer hovered + selected nodes to a second pass so they paint
+      // on top of everything else.
+      if (n.id === hov || n.id === sel) {
         deferred.push(n);
         continue;
       }
@@ -1672,7 +1779,9 @@ export function GraphCanvas(props: GraphCanvasProps) {
           const previewCap = 12;
           const shown = previewList.slice(0, previewCap);
           const overflow = previewList.length - shown.length;
-          const hubR = nodeSize() / 2;
+          // anchor the preview ring at the hub's actual rendered
+          // silhouette (post-count-scale), not the base nodeSize.
+          const hubR = sizeForNode(hovered) / 2;
           const previewSize = nodeSize() * 0.55;
           const ringR = hubR + previewSize * 0.85 + 6 / Math.max(v.k, 0.05);
           const hx = hovered.x ?? 0;
@@ -1969,15 +2078,13 @@ export function GraphCanvas(props: GraphCanvasProps) {
       const ns = nodeSize() * v.k;
       const nodeRects: { x: number; y: number; w: number; h: number }[] = [];
       const focusNodeRects: { x: number; y: number; w: number; h: number }[] = [];
-      const multiSel = props.selectedIds;
       for (const n of simNodes) {
         const nsx = (n.x ?? 0) * v.k + v.tx;
         const nsy = (n.y ?? 0) * v.k + v.ty;
         if (nsx + ns < 0 || nsy + ns < 0 || nsx - ns > width || nsy - ns > height) continue;
         const rect = { x: nsx - ns / 2, y: nsy - ns / 2, w: ns, h: ns };
         nodeRects.push(rect);
-        const isFocused =
-          n.id === hoverId() || n.id === selectedId() || ((multiSel?.has(n.id) ?? false) && n.id);
+        const isFocused = n.id === hoverId() || n.id === selectedId();
         if (isFocused) focusNodeRects.push(rect);
       }
 
@@ -2219,16 +2326,12 @@ export function GraphCanvas(props: GraphCanvasProps) {
   } {
     const hov = hoverId();
     const sel = selectedId();
-    const multiSel = props.selectedIds;
     const selectedEdgeKeysSet = selectedEdgeKeys();
     const hoveredEdgeKey = hoverEdgeKey();
 
     const focusNodeIds = new Set<string>();
     if (hov) focusNodeIds.add(hov);
     if (sel) focusNodeIds.add(sel);
-    if (multiSel && multiSel.size > 0) {
-      for (const id of multiSel) focusNodeIds.add(id);
-    }
 
     const showEdges =
       focusNodeIds.size > 0 || selectedEdgeKeysSet.size > 0 || hoveredEdgeKey !== null;
@@ -2409,25 +2512,6 @@ export function GraphCanvas(props: GraphCanvasProps) {
         node: SimNode;
         pointerId: number;
         moved: boolean;
-        /** when set, this drag is a "strength gesture" on a relation
-         *  hub: cursor delta maps to a 0..1 strength value for the
-         *  hub's kind instead of moving the node. populated only if
-         *  the hit was a relation hub AND the parent provided an
-         *  `onRelationStrengthChange` callback. */
-        strength?: {
-          kind: string;
-          baseValue: number;
-          startSx: number;
-          startSy: number;
-          /** latest cursor position — used to anchor the overlay
-           *  label so it tracks the pointer during the drag. */
-          latestSx: number;
-          latestSy: number;
-          /** most recently committed value; used for the overlay
-           *  label + ring arc and for the no-op short-circuit when
-           *  the cursor hasn't moved. */
-          currentValue: number;
-        };
       }
     | {
         type: "pan";
@@ -2497,7 +2581,7 @@ export function GraphCanvas(props: GraphCanvasProps) {
     // same radius math as the hover path so press-to-select behaves
     // identically to hover for click affordance.
     const v1 = view();
-    const pressRadius = Math.max(nodeSize() * 0.55, 12 / v1.k);
+    const pressRadius = Math.max(nodeSize() * 0.55 * HUB_SIZE_MAX_MUL, 12 / v1.k);
     const tool = props.tool ?? "pan";
     const multi = e.shiftKey || e.metaKey || e.ctrlKey;
 
@@ -2557,8 +2641,12 @@ export function GraphCanvas(props: GraphCanvasProps) {
   function localHitFromPress(d: Extract<Drag, { type: "press" }>): SimNode | null {
     const wx = (d.startSx - d.startTx) / d.startK;
     const wy = (d.startSy - d.startTy) / d.startK;
-    const r = Math.max(nodeSize() * 0.55, 12 / d.startK);
-    const r2 = r * r;
+    // broad-phase: coarse radius (max possible hub size) then per-node
+    // shape-aware narrow-phase so the hit area matches the rendered
+    // silhouette.
+    const broadR = Math.max(nodeSize() * 0.55 * HUB_SIZE_MAX_MUL, 12 / d.startK);
+    const broadR2 = broadR * broadR;
+    const maxHub = currentMaxHubCount();
     let best: SimNode | null = null;
     let bestD2 = Infinity;
     for (const n of simNodes) {
@@ -2567,7 +2655,9 @@ export function GraphCanvas(props: GraphCanvasProps) {
       const dx = nx - wx;
       const dy = ny - wy;
       const d2 = dx * dx + dy * dy;
-      if (d2 > r2) continue;
+      if (d2 > broadR2) continue;
+      const r = effectiveHitRadius(n, d.startK, maxHub);
+      if (d2 > r * r) continue;
       if (d2 < bestD2) {
         bestD2 = d2;
         best = n;
@@ -2579,8 +2669,9 @@ export function GraphCanvas(props: GraphCanvasProps) {
   function localHitFromHover(sx: number, sy: number): SimNode | null {
     const [wx, wy] = screenToWorld(sx, sy);
     const v0 = view();
-    const r = Math.max(nodeSize() * 0.55, 12 / v0.k);
-    const r2 = r * r;
+    const broadR = Math.max(nodeSize() * 0.55 * HUB_SIZE_MAX_MUL, 12 / v0.k);
+    const broadR2 = broadR * broadR;
+    const maxHub = currentMaxHubCount();
     let best: SimNode | null = null;
     let bestD2 = Infinity;
     for (const n of simNodes) {
@@ -2589,7 +2680,9 @@ export function GraphCanvas(props: GraphCanvasProps) {
       const dx = nx - wx;
       const dy = ny - wy;
       const d2 = dx * dx + dy * dy;
-      if (d2 > r2) continue;
+      if (d2 > broadR2) continue;
+      const r = effectiveHitRadius(n, v0.k, maxHub);
+      if (d2 > r * r) continue;
       if (d2 < bestD2) {
         bestD2 = d2;
         best = n;
@@ -2603,7 +2696,14 @@ export function GraphCanvas(props: GraphCanvasProps) {
   function onPressResolved(pressId: number, nodeId: string | null) {
     const d = drag();
     if (!d || d.type !== "press" || d.pressId !== pressId) return;
-    const fromWorker = nodeId ? (simNodesById.get(nodeId) ?? null) : null;
+    // narrow the coarse worker quadtree hit to the actual rendered
+    // shape so clicks far outside an octagon/hex silhouette don't
+    // register on it (the worker uses a single worst-case radius).
+    const pwx = (d.startSx - d.startTx) / d.startK;
+    const pwy = (d.startSy - d.startTy) / d.startK;
+    const fromWorker = nodeId
+      ? refineHit(simNodesById.get(nodeId) ?? null, pwx, pwy, d.startK)
+      : null;
     const hit = fromWorker ?? localHitFromPress(d);
 
     if (d.released) {
@@ -2634,34 +2734,13 @@ export function GraphCanvas(props: GraphCanvasProps) {
     }
 
     if (hit) {
-      // relation hub + parent wants strength control → enter a
-      // "strength drag" sub-mode instead of pinning/moving the node.
-      // we still use the "node" Drag variant so the existing
-      // press/select pipeline keeps working (a tap without movement
-      // still selects the hub).
-      let strength: Extract<Drag, { type: "node" }>["strength"] | undefined;
-      if (isRelationHubId(hit.artistId) && props.onRelationStrengthChange) {
-        const kind = parseRelationHubId(hit.artistId);
-        if (kind) {
-          const baseValue = clamp(props.relationStrengths?.[kind] ?? 0.5, 0, 1);
-          strength = {
-            kind,
-            baseValue,
-            startSx: d.startSx,
-            startSy: d.startSy,
-            latestSx: d.latestSx,
-            latestSy: d.latestSy,
-            currentValue: baseValue,
-          };
-        }
-      }
-      if (!strength && !props.lockNodes) {
+      if (!props.lockNodes) {
         hit.fx = hit.x;
         hit.fy = hit.y;
         worker?.pin(hit.id, hit.x ?? 0, hit.y ?? 0);
         worker?.alphaTarget(0.3, true);
       }
-      setDrag({ type: "node", node: hit, pointerId: d.pointerId, moved: false, strength });
+      setDrag({ type: "node", node: hit, pointerId: d.pointerId, moved: false });
     } else if (d.tool === "lasso") {
       setDrag({
         type: "lasso",
@@ -2785,31 +2864,6 @@ export function GraphCanvas(props: GraphCanvasProps) {
     }
 
     if (d.type === "node") {
-      // relation hub strength gesture: translate cursor delta into a
-      // normalized 0..1 strength for the hub's kind. don't pin / move
-      // the node, and don't reheat the sim — the parent's strength
-      // write triggers its own (debounced) worker update.
-      if (d.strength) {
-        const dx = sx - d.strength.startSx;
-        // up = positive; combining vertical + horizontal makes the
-        // gesture work whether the user prefers swiping up or right.
-        const dy = d.strength.startSy - sy;
-        const RANGE_PX = 140;
-        const next = clamp(d.strength.baseValue + (dx + dy) / RANGE_PX, 0, 1);
-        if (!d.moved && Math.abs(dx) + Math.abs(dy) > 3) {
-          d.moved = true;
-          props.onUserInteract?.();
-        }
-        // mutate in-place so the next move sees the latest values
-        // (createSignal cmp would otherwise be a no-op).
-        d.strength.latestSx = sx;
-        d.strength.latestSy = sy;
-        d.strength.currentValue = next;
-        // re-emit the signal so the overlay <Show/> reacts.
-        setDrag({ ...d, strength: { ...d.strength } });
-        props.onRelationStrengthChange?.(d.strength.kind, next);
-        return;
-      }
       if (props.lockNodes) {
         // locked: nodes don't follow the pointer and pressing one
         // shouldn't wake the sim. still treat it as a press so the
@@ -2872,23 +2926,10 @@ export function GraphCanvas(props: GraphCanvasProps) {
     }
 
     if (d.type === "node") {
-      // relation hub strength gesture: no pin/unpin to undo and no
-      // selection change on release if the user actually dragged.
-      // a no-move release still falls through to the click-select
-      // path below so a plain tap on the hub keeps working.
-      if (d.strength) {
-        if (d.moved) {
-          setDrag(null);
-          requestDraw();
-          return;
-        }
-        // fall through: treat as click-select
-      } else {
-        d.node.fx = null;
-        d.node.fy = null;
-        worker?.unpin(d.node.id);
-        if (!props.lockNodes) worker?.alphaTarget(0);
-      }
+      d.node.fx = null;
+      d.node.fy = null;
+      worker?.unpin(d.node.id);
+      if (!props.lockNodes) worker?.alphaTarget(0);
       // click on node → select; clears any selected edges. modifier
       // keys (shift/meta/ctrl) signal the parent to add to a multi-
       // selection set instead of replacing the primary selection.
@@ -3067,14 +3108,16 @@ export function GraphCanvas(props: GraphCanvasProps) {
       const [sx, sy] = clientToScreen(ev);
       const [wx, wy] = screenToWorld(sx, sy);
       const v2 = view();
-      const ctxRadius = Math.max(nodeSize() * 0.55, 12 / v2.k);
+      const ctxRadius = Math.max(nodeSize() * 0.55 * HUB_SIZE_MAX_MUL, 12 / v2.k);
       // tight timeout: contextmenu is a single user event and a slow
       // worker should just no-op rather than open a stale menu.
       worker
         .hitTest(wx, wy, ctxRadius, AbortSignal.timeout(150))
         .then((nodeId) => {
           if (!nodeId) return;
-          const hit = simNodesById.get(nodeId);
+          const candidate = simNodesById.get(nodeId);
+          if (!candidate) return;
+          const hit = refineHit(candidate, wx, wy, v2.k);
           if (hit) props.onNodeContextMenu?.(hit as GraphNodeData, ev.clientX, ev.clientY);
         })
         .catch(() => {
@@ -3224,31 +3267,6 @@ export function GraphCanvas(props: GraphCanvasProps) {
           if (changed) requestDraw();
         }}
       />
-      {/* relation-hub strength gesture overlay \u2014 small floating label
-          showing the current strength as a percentage. positioned at
-          the cursor so it doesn't get hidden under the pointer. */}
-      <Show
-        when={(() => {
-          const d = drag();
-          return d?.type === "node" && d.strength ? d : null;
-        })()}
-        keyed
-      >
-        {(d) => {
-          const s = d.strength!;
-          return (
-            <div
-              class="pointer-events-none absolute z-20 rounded-md border border-white/20 bg-black/70 px-2 py-1 text-[11px] font-mono leading-none text-white shadow-lg backdrop-blur-sm"
-              style={{
-                left: `${s.latestSx + 14}px`,
-                top: `${s.latestSy + 14}px`,
-              }}
-            >
-              {s.kind} strength: {Math.round(s.currentValue * 100)}%
-            </div>
-          );
-        }}
-      </Show>
     </div>
   );
 }

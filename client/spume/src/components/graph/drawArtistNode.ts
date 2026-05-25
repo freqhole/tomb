@@ -421,14 +421,18 @@ function drawHubText(
   const remoteCx = isRemoteHub ? cx + size * 0.04 : cx;
   const remoteCy = isRemoteHub ? cy + size * 0.012 : cy;
   // low zoom: shorthand in-node (full label still available on hover).
-  if (!full || screenEdge < 44) {
-    drawAcronymDirect(
+  // threshold lowered so the album count stays visible further out;
+  // hub size now scales by count, and seeing the number is the whole
+  // point of the scaling.
+  if (!full || screenEdge < 28) {
+    drawHubAcronymWithCount(
       ctx,
       { ...artist, abbreviation: short, name: short },
       isRemoteHub ? remoteCx : cx,
       isRemoteHub ? remoteCy : cy,
       size,
-      textColor
+      textColor,
+      countText
     );
     return true;
   }
@@ -449,6 +453,7 @@ function drawHubText(
       // can't fit cleanly — fall back to the acronym placeholder and
       // let the caller surface the full name as a permanent label
       // chip below the node (see `forceLabelChip` in drawArtistNode).
+      // remote hubs don't show a count, so plain acronym is fine.
       drawAcronymDirect(
         ctx,
         { ...artist, abbreviation: short, name: short },
@@ -495,13 +500,14 @@ function drawHubText(
       countSize = Math.max(6, countSize - 0.35);
     }
     if (!fits()) {
-      drawAcronymDirect(
+      drawHubAcronymWithCount(
         ctx,
         { ...artist, abbreviation: short, name: short },
         cx,
         cy,
         size,
-        textColor
+        textColor,
+        countText
       );
       return true;
     }
@@ -544,13 +550,14 @@ function drawHubText(
       countSize = Math.max(6, countSize - 0.35);
     }
     if (!fits()) {
-      drawAcronymDirect(
+      drawHubAcronymWithCount(
         ctx,
         { ...artist, abbreviation: short, name: short },
         cx,
         cy,
         size,
-        textColor
+        textColor,
+        countText
       );
       return true;
     }
@@ -569,6 +576,44 @@ function drawHubText(
     ctx.restore();
     return false;
   }
+}
+
+// fallback used by `drawHubText` when the full name + count don't fit
+// inside the hub silhouette: render the acronym (smaller than the
+// regular acronym so we can fit a count beneath) plus the count, both
+// vertically stacked. when the count is empty / "0" we fall through to
+// the plain acronym to keep remote hubs (which don't carry counts)
+// looking the same as before.
+function drawHubAcronymWithCount(
+  ctx: CanvasRenderingContext2D,
+  artist: ArtistNodeData,
+  cx: number,
+  cy: number,
+  size: number,
+  textColor: string,
+  countText: string
+) {
+  if (!countText || countText === "0") {
+    drawAcronymDirect(ctx, artist, cx, cy, size, textColor);
+    return;
+  }
+  const text = artist.abbreviation || (artist.name ?? "").slice(0, 2).toUpperCase();
+  const charCount = Math.max(1, text.length);
+  // shrink the acronym vs the no-count fallback to make headroom for
+  // the count glyphs beneath.
+  const baseFraction = charCount <= 2 ? 0.32 : 0.26;
+  const acronymSize = Math.max(8, size * baseFraction);
+  const countSize = Math.max(7, size * 0.18);
+  ctx.save();
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillStyle = textColor;
+  ctx.font = `700 ${acronymSize}px system-ui, sans-serif`;
+  ctx.fillText(text, cx, cy - acronymSize * 0.42);
+  ctx.fillStyle = "#ffd2f4";
+  ctx.font = `600 ${countSize}px system-ui, sans-serif`;
+  ctx.fillText(countText, cx, cy + acronymSize * 0.42);
+  ctx.restore();
 }
 
 function drawAcronymDirect(

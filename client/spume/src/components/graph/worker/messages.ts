@@ -51,6 +51,11 @@ export interface SimNodeInit {
   styles?: string[];
   label?: string | null;
   era?: string | null;
+  /** for artist (incl. hub) nodes: the album-count this node
+   *  represents. used in the worker to scale link strength + shorten
+   *  link distance for high-count endpoints so popular artists /
+   *  heavy hubs render as tight visual clusters. */
+  albumCount?: number;
 }
 
 /** edge as carried over the wire. d3-force tolerates string source/target

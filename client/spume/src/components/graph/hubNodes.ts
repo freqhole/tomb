@@ -3,13 +3,19 @@
 // shared identity + predicates for the synthetic "hub" nodes the
 // graph viz uses to anchor its hierarchy:
 //   - remote hubs        (wonky triangle)        hub_remote::<remote_id>
-//   - relation hubs      (hexagon)               hub_relation::<kind>
+//   - relation hubs      (hexagon)               hub_relation::<remote_id>::<kind>
 //   - relation-value hubs (octagon, sub-relation) hub_relation_value::<kind>::<urlencoded value>
 //
 // these used to be scattered across LibraryGraphSubview, GraphCanvas
 // and drawArtistNode as bare string startsWith checks. centralizing
 // them here gives one source of truth for the id grammar, predicates,
 // constructors and parsers, and a stable enum for downstream branching.
+//
+// note on scope: relation-kind hubs are per-remote (each remote gets
+// its own hex per kind, so each remote's tree splays into its own
+// region of the canvas). relation-value hubs are shared across remotes
+// — once the user drills into a specific value ("rock"), the same
+// octagon aggregates membership from every selected remote.
 
 import { RELATION_KINDS } from "./relations";
 import type { RelationKind } from "./types";
@@ -80,8 +86,8 @@ export function remoteHubId(remoteId: string): string {
   return `${HUB_PREFIX.remote}${remoteId}`;
 }
 
-export function relationHubId(kind: RelationKind): string {
-  return `${HUB_PREFIX.relation}${kind}`;
+export function relationHubId(kind: RelationKind, remoteId: string): string {
+  return `${HUB_PREFIX.relation}${remoteId}::${kind}`;
 }
 
 export function relationValueHubId(kind: RelationKind, valueNorm: string): string {
@@ -95,10 +101,26 @@ export function parseRemoteHubId(id: string | null | undefined): string | null {
   return id!.slice(HUB_PREFIX.remote.length);
 }
 
-export function parseRelationHubId(id: string | null | undefined): RelationKind | null {
+export function parseRelationHubId(
+  id: string | null | undefined
+): { remoteId: string; kind: RelationKind } | null {
   if (!isRelationHubId(id)) return null;
-  const raw = id!.slice(HUB_PREFIX.relation.length) as RelationKind;
-  return RELATION_HUB_KIND_SET.has(raw) ? raw : null;
+  const raw = id!.slice(HUB_PREFIX.relation.length);
+  const sep = raw.indexOf("::");
+  if (sep <= 0) return null;
+  const remoteId = raw.slice(0, sep);
+  const kind = raw.slice(sep + 2) as RelationKind;
+  if (!RELATION_HUB_KIND_SET.has(kind)) return null;
+  if (!remoteId) return null;
+  return { remoteId, kind };
+}
+
+export function relationHubKind(id: string | null | undefined): RelationKind | null {
+  return parseRelationHubId(id)?.kind ?? null;
+}
+
+export function relationHubRemoteId(id: string | null | undefined): string | null {
+  return parseRelationHubId(id)?.remoteId ?? null;
 }
 
 export function parseRelationValueHubId(

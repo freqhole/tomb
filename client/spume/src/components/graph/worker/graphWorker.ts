@@ -271,6 +271,39 @@ function relationStrengthMultiplier(kind: string | undefined): number {
   return 0.22 + e * 3.05;
 }
 
+/** pick the larger endpoint's album-count for a link. used by the
+ *  count-aware link distance/strength tweaks below — popular artists
+ *  / heavy hubs should pull their satellites in tighter than sparse
+ *  ones. handles either string-id or resolved-node endpoint forms
+ *  (d3 swaps strings for SimNode refs after init). */
+function endpointMaxCount(l: SimLink): number {
+  const src = l.source;
+  const tgt = l.target;
+  const sc = typeof src === "object" && src !== null ? ((src as SimNode).albumCount ?? 0) : 0;
+  const tc = typeof tgt === "object" && tgt !== null ? ((tgt as SimNode).albumCount ?? 0) : 0;
+  const c = Math.max(sc, tc);
+  return c > 0 ? c : 0;
+}
+
+/** shrink link target distance for high-count endpoints. sqrt curve so
+ *  the first few albums move the needle a lot and the curve flattens
+ *  out for very large hubs. floored at 0.55 so even huge hubs don't
+ *  collapse into a single point. */
+function endpointCountDistanceShrink(l: SimLink): number {
+  const c = endpointMaxCount(l);
+  if (c <= 0) return 1;
+  return Math.max(0.55, 1 - Math.sqrt(c) / 28);
+}
+
+/** boost link spring strength for high-count endpoints. companion to
+ *  the distance-shrink so heavy hubs lock their satellites in tightly
+ *  instead of just declaring a shorter rest length. capped at ~2.4x. */
+function endpointCountStrengthBoost(l: SimLink): number {
+  const c = endpointMaxCount(l);
+  if (c <= 0) return 1;
+  return Math.min(2.4, 1 + Math.sqrt(c) / 10);
+}
+
 function emitPositions() {
   const tickStart = performance.now();
   performance.mark("graph-tick-start");
@@ -359,11 +392,15 @@ function buildSim(mode: UpdateMode) {
               : (l.target as string);
           const srcHub = typeof srcId === "string" && srcId.startsWith("hub_");
           const tgtHub = typeof tgtId === "string" && tgtId.startsWith("hub_");
-          // remote-root → relation-hub edges get an even shorter
-          // target distance than other hub-to-hub edges so the
-          // relation hexagons hug the remote silhouette instead of
-          // floating off into the album cloud. detected by checking
-          // whether either endpoint is a `hub_remote::*` id.
+          // remote-root → relation-hub edges get a shorter target
+          // distance than other hub-to-hub edges so each remote's
+          // per-remote kind hexagons stay clustered around their
+          // triangle instead of drifting into the album cloud. with
+          // per-remote relation hubs (post phase 6) each remote owns
+          // its own copy of every hex, so we relax the multiplier a
+          // hair (was 0.22) to give the half-dozen kind hubs per
+          // remote room to spread around the triangle rather than
+          // stack on top of each other.
           const srcRemote = typeof srcId === "string" && srcId.startsWith("hub_remote::");
           const tgtRemote = typeof tgtId === "string" && tgtId.startsWith("hub_remote::");
           const hubMul =
@@ -372,13 +409,33 @@ function buildSim(mode: UpdateMode) {
                 ? 0.22
                 : 0.45
               : 1;
-          return linkDist * relationDistanceMultiplier(l.kind) * hubMul;
+          return linkDist * relationDistanceMultiplier(l.kind) * hubMul * endpointCountDistanceShrink(l);
         })
         .strength(
-          (l) =>
-            (0.15 + 0.35 * ((l.weight ?? 0.5) as number)) *
-            linkStrengthMul *
-            relationStrengthMultiplier(l.kind),
+          (l) => {
+            const srcId =
+              typeof l.source === "object" && l.source !== null
+                ? (l.source as SimNode).id
+                : (l.source as string);
+            const tgtId =
+              typeof l.target === "object" && l.target !== null
+                ? (l.target as SimNode).id
+                : (l.target as string);
+            const srcRemote = typeof srcId === "string" && srcId.startsWith("hub_remote::");
+            const tgtRemote = typeof tgtId === "string" && tgtId.startsWith("hub_remote::");
+            // remote↔kind-hub edges get a much stronger spring so the
+            // half-dozen relation hexagons per remote stay glued to
+            // their wonky triangle instead of drifting toward the
+            // shared value-hub cluster.
+            const hubStrengthBump = srcRemote || tgtRemote ? 2.2 : 1;
+            return (
+              (0.15 + 0.35 * ((l.weight ?? 0.5) as number)) *
+              linkStrengthMul *
+              relationStrengthMultiplier(l.kind) *
+              hubStrengthBump *
+              endpointCountStrengthBoost(l)
+            );
+          },
         ),
     )
     .force(
@@ -403,7 +460,18 @@ function buildSim(mode: UpdateMode) {
     .force(
       "collide",
       forceCollide<SimNode>()
-        .radius((n) => (n.kind === "album" ? collide.album : collide.artist))
+        .radius((n) => {
+          if (n.kind === "album") return collide.album;
+          // hub nodes are size-scaled at render time (up to
+          // HUB_SIZE_MAX_MUL = 1.6 on the main thread) and also need
+          // padding for their label chip when the name doesn't fit
+          // inside the silhouette. bump their collide radius so
+          // hexagons + octagons stay visually clear of their
+          // neighbours and of their parent remote triangle.
+          if (typeof n.id === "string" && n.id.startsWith("hub_"))
+            return collide.artist * 1.7;
+          return collide.artist;
+        })
         .strength(1)
         .iterations(nCount >= 4000 ? 28 : nCount >= 3000 ? 24 : nCount >= 2000 ? 20 : nCount >= 1200 ? 16 : nCount >= 700 ? 12 : 8),
     )

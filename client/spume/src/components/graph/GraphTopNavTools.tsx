@@ -24,8 +24,6 @@ export type GraphTool = "pan" | "lasso";
 export interface GraphTopNavToolsProps {
   tool: GraphTool;
   onToolChange?: (next: GraphTool) => void;
-  selectionMode?: "single" | "multi";
-  onSelectionModeChange?: (next: "single" | "multi") => void;
   onZoomIn?: () => void;
   onZoomOut?: () => void;
   onFit?: () => void;
@@ -45,11 +43,6 @@ export interface GraphTopNavToolsProps {
 }
 
 export function GraphTopNavTools(props: GraphTopNavToolsProps) {
-  const toggleSelectionMode = () => {
-    const next = (props.selectionMode ?? "single") === "single" ? "multi" : "single";
-    props.onSelectionModeChange?.(next);
-  };
-
   // narrow viewports get larger touch-friendly buttons + icons, and
   // all four controls share the same square dimensions for visual
   // consistency (the relations picker matches the other icon buttons
@@ -78,19 +71,9 @@ export function GraphTopNavTools(props: GraphTopNavToolsProps) {
         sizeClass={btnSize()}
         iconPx={iconPx()}
       />
-      <Divider />
-      <IconBtn
-        icon={(props.selectionMode ?? "single") === "single" ? "selectSingle" : "selectMulti"}
-        label={
-          (props.selectionMode ?? "single") === "single"
-            ? "single-select mode (click for multi-select)"
-            : "multi-select mode (click for single-select)"
-        }
-        active={(props.selectionMode ?? "single") === "multi"}
-        onClick={toggleSelectionMode}
-        sizeClass={btnSize()}
-        iconPx={iconPx()}
-      />
+      {/* single/multi-select toggle removed: graph subview is
+          single-select only; remote-hub clicks toggle multi-remote
+          membership directly (see LibraryGraphSubview). */}
       {/* lasso toggle intentionally hidden for now until lasso mode
           behavior is stabilized again.
       <Divider />

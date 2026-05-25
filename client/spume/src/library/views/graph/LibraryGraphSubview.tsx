@@ -463,28 +463,37 @@ function Inner(props: {
   };
   // local aliases that mirror the prior in-file helper signatures so
   // the rest of the file can keep its current call shape.
-  const relationKindFromHubId = parseRelationHubId;
   const relationValueFromHubId = parseRelationValueHubId;
 
   const [focusedNode, setFocusedNode] = createSignal<GraphNodeData | null>(null);
   type DrillMode = "root" | "relation_values" | "entities";
   const [drillMode, setDrillMode] = createSignal<DrillMode>("root");
   const [activeRelationKind, setActiveRelationKind] = createSignal<RelationKind | null>(null);
+  // remoteId of the per-remote relation-kind hub the user drilled
+  // into. only meaningful in the "relation_values" drill tier —
+  // value hubs are shared across remotes, so this is cleared as
+  // soon as the user descends past the value layer into entities.
+  const [activeRemoteId, setActiveRemoteId] = createSignal<string | null>(null);
   const [activeRelationValueNorm, setActiveRelationValueNorm] = createSignal<string | null>(null);
 
   const enterRootMode = () => {
     setDrillMode("root");
     setActiveRelationKind(null);
+    setActiveRemoteId(null);
     setActiveRelationValueNorm(null);
   };
-  const enterRelationValuesMode = (kind: RelationKind) => {
+  const enterRelationValuesMode = (kind: RelationKind, remoteId: string) => {
     setDrillMode("relation_values");
     setActiveRelationKind(kind);
+    setActiveRemoteId(remoteId);
     setActiveRelationValueNorm(null);
   };
   const enterEntitiesMode = (kind: RelationKind, valueNorm: string | null = null) => {
     setDrillMode("entities");
     setActiveRelationKind(kind);
+    // value hubs are shared across remotes; once we drop into the
+    // entity tier the per-remote scope disappears.
+    setActiveRemoteId(null);
     setActiveRelationValueNorm(valueNorm);
   };
 
@@ -593,55 +602,68 @@ function Inner(props: {
     }));
   });
 
-  const relationHubNodes = createMemo<ArtistNodeData[]>(() =>
-    RELATION_HUB_KINDS.map<ArtistNodeData>((kind) => {
-      let count = 0;
-      if (kind === "favorite") {
-        count =
-          mergedAlbums().filter((n) => !!n.isFavorite).length +
-          mergedArtistNodes().filter((n) => !!n.isFavorite).length;
-      } else if (kind === "same_artist") {
-        for (const n of mergedArtistNodes()) {
-          if ((albumsPerMergedArtist().get(n.artistId) ?? 0) > 1) count++;
+  // per-remote relation-kind hubs. each selected remote gets its own
+  // hex per relation kind, so the tree splays into separate regions
+  // of the canvas instead of fighting over a single shared hub.
+  // counts are per-remote (membership filtered by sourceRemoteId).
+  const relationHubNodes = createMemo<ArtistNodeData[]>(() => {
+    const out: ArtistNodeData[] = [];
+    const selIds = selectedRemoteIds();
+    for (const remote of props.remotes()) {
+      if (!selIds.has(remote.remote_id)) continue;
+      const remoteId = remote.remote_id;
+      const albumsForRemote = mergedAlbums().filter((a) => a.sourceRemoteId === remoteId);
+      // ArtistNodeData doesn't carry sourceRemoteId directly — derive
+      // the per-remote artist set from the artistIds present on
+      // albums sourced from this remote.
+      const remoteArtistIds = new Set<string>();
+      for (const a of albumsForRemote) remoteArtistIds.add(a.artistId);
+      const artistsForRemote = mergedArtistNodes().filter((n) => remoteArtistIds.has(n.artistId));
+      for (const kind of RELATION_HUB_KINDS) {
+        let count = 0;
+        if (kind === "favorite") {
+          count =
+            albumsForRemote.filter((n) => !!n.isFavorite).length +
+            artistsForRemote.filter((n) => !!n.isFavorite).length;
+        } else if (kind === "same_artist") {
+          const albumsPerArtist = new Map<string, number>();
+          for (const a of albumsForRemote) {
+            albumsPerArtist.set(a.artistId, (albumsPerArtist.get(a.artistId) ?? 0) + 1);
+          }
+          for (const n of artistsForRemote) {
+            if ((albumsPerArtist.get(n.artistId) ?? 0) > 1) count++;
+          }
+        } else if (kind === "related_artist") {
+          for (const n of artistsForRemote) {
+            const related = relatedMap().get(n.artistId);
+            if (related && related.size > 0) count++;
+          }
+        } else if (relationSupportsValueLayer(kind)) {
+          const uniq = new Set<string>();
+          for (const n of albumsForRemote) {
+            for (const v of relationValuesForNode(kind, n)) uniq.add(v);
+          }
+          count = uniq.size;
         }
-      } else if (kind === "related_artist") {
-        for (const n of mergedArtistNodes()) {
-          const related = relatedMap().get(n.artistId);
-          if (related && related.size > 0) count++;
-        }
-      } else if (relationSupportsValueLayer(kind)) {
-        const uniq = new Set<string>();
-        for (const n of mergedAlbums()) {
-          for (const v of relationValuesForNode(kind, n)) uniq.add(v);
-        }
-        count = uniq.size;
+        if (count <= 0) continue;
+        out.push({
+          id: relationHubId(kind, remoteId),
+          kind: "artist",
+          artistId: relationHubId(kind, remoteId),
+          name: RELATION_LABEL[kind] ?? kind,
+          abbreviation: (RELATION_LABEL[kind] ?? kind).slice(0, 3).toUpperCase(),
+          imageUrl: null,
+          image: null,
+          albumCount: count,
+          genres: [],
+          tags: [],
+          moods: [],
+          styles: [],
+          label: null,
+          era: null,
+          isFavorite: false,
+        });
       }
-      return {
-        id: relationHubId(kind),
-        kind: "artist",
-        artistId: relationHubId(kind),
-        name: RELATION_LABEL[kind] ?? kind,
-        abbreviation: (RELATION_LABEL[kind] ?? kind).slice(0, 3).toUpperCase(),
-        imageUrl: null,
-        image: null,
-        albumCount: count,
-        genres: [],
-        tags: [],
-        moods: [],
-        styles: [],
-        label: null,
-        era: null,
-        isFavorite: false,
-      };
-    }).filter((n) => n.albumCount > 0)
-  );
-
-  const relationCountsForPicker = createMemo<Partial<Record<RelationKind, number>>>(() => {
-    const out: Partial<Record<RelationKind, number>> = {};
-    for (const n of relationHubNodes()) {
-      const kind = relationKindFromHubId(n.artistId);
-      if (!kind) continue;
-      out[kind] = n.albumCount;
     }
     return out;
   });
@@ -669,14 +691,31 @@ function Inner(props: {
     }
   };
 
+  // shared (kind, value) hubs across all selected remotes. when the
+  // user has drilled into a specific remote's relation-kind hub, we
+  // narrow to only the values with membership from that remote;
+  // counts always reflect the aggregate across every selected remote
+  // so the convergence point shows the full cross-remote picture.
   const relationValueHubNodes = createMemo<ArtistNodeData[]>(() => {
     const kind = activeRelationKind();
     if (!kind || !relationSupportsValueLayer(kind)) return [];
     const counts = new Map<string, number>();
+    const allowedValues = (() => {
+      const remoteId = activeRemoteId();
+      if (!remoteId) return null;
+      const allowed = new Set<string>();
+      for (const n of mergedAlbums()) {
+        if (n.sourceRemoteId !== remoteId) continue;
+        for (const v of relationValuesForNode(kind, n)) allowed.add(v);
+      }
+      return allowed;
+    })();
     for (const n of mergedAlbums()) {
       for (const v of relationValuesForNode(kind, n)) counts.set(v, (counts.get(v) ?? 0) + 1);
     }
-    const entries = [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+    const entries = [...counts.entries()]
+      .filter(([v]) => allowedValues == null || allowedValues.has(v))
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
     return entries.map(([valueNorm, count]) => ({
       id: relationValueHubId(kind, valueNorm),
       kind: "artist",
@@ -790,8 +829,17 @@ function Inner(props: {
     out.push(...remoteHubNodes());
     const mode = drillMode();
     const active = activeRelationKind();
+    const activeRemote = activeRemoteId();
+    // pick the per-remote relation-kind hub the user drilled into.
+    // in entities mode (after descending past the value tier) the
+    // remote scope is gone, so fall back to the first matching hub
+    // across all selected remotes so the ancestry chip stays visible.
     const activeRelationHub = active
-      ? (relationHubNodes().find((n) => relationKindFromHubId(n.artistId) === active) ?? null)
+      ? (relationHubNodes().find((n) => {
+          const parsed = parseRelationHubId(n.artistId);
+          if (!parsed || parsed.kind !== active) return false;
+          return activeRemote == null || parsed.remoteId === activeRemote;
+        }) ?? null)
       : null;
 
     if (mode === "root" || !active || !activeRelationHub) {
@@ -824,31 +872,38 @@ function Inner(props: {
     const relations = relationHubNodes();
     const mode = drillMode();
     const active = activeRelationKind();
-    const activeRelationHub = active
-      ? (relations.find((n) => relationKindFromHubId(n.artistId) === active) ?? null)
-      : null;
+    const activeRemote = activeRemoteId();
 
-    // only the currently-selected remote(s) drill into the relation
-    // scaffold — unselected remote triangles float free as pickers.
-    // when multiple remotes are selected (multi mode), they share the
-    // same relation-hub singletons, producing a fan-in shape.
+    // selected remote(s) own the relation scaffold beneath them.
+    // unselected remote triangles float free as pickers.
     const selectedIds = selectedRemoteIds();
     const activeRemotes = remotes.filter((r) => {
       const rid = parseRemoteHubId(r.artistId);
       return rid !== null && selectedIds.has(rid);
     });
 
-    if (mode === "root" || !activeRelationHub || !active) {
+    // index per-remote relation hubs by (remoteId, kind) for cheap lookups.
+    const relationHubByRemoteKind = new Map<string, ArtistNodeData>();
+    for (const r of relations) {
+      const parsed = parseRelationHubId(r.artistId);
+      if (!parsed) continue;
+      relationHubByRemoteKind.set(`${parsed.remoteId}::${parsed.kind}`, r);
+    }
+
+    // root scaffold: every selected remote splays into its own kind hubs.
+    if (mode === "root" || !active) {
       for (const remote of activeRemotes) {
-        for (const relation of relations) {
-          const kind = relationKindFromHubId(relation.artistId);
-          if (!kind) continue;
+        const rid = parseRemoteHubId(remote.artistId);
+        if (!rid) continue;
+        for (const kind of RELATION_HUB_KINDS) {
+          const hub = relationHubByRemoteKind.get(`${rid}::${kind}`);
+          if (!hub) continue;
           out.push({
             source: remote.id,
-            target: relation.id,
+            target: hub.id,
             kind,
             // keep the root scaffold connected, but loose enough that
-            // collide force can maintain clear separation between hub nodes.
+            // collide force can maintain clear separation between hubs.
             weight: 0.32,
             label: remote.name,
           });
@@ -857,11 +912,16 @@ function Inner(props: {
       return out;
     }
 
-    // keep ancestry visible while drilling: selected remote(s) -> active relation.
+    // drilled past root: connect every selected remote to its own
+    // per-remote relation-kind hub so the ancestry stays visible.
     for (const remote of activeRemotes) {
+      const rid = parseRemoteHubId(remote.artistId);
+      if (!rid) continue;
+      const hub = relationHubByRemoteKind.get(`${rid}::${active}`);
+      if (!hub) continue;
       out.push({
         source: remote.id,
-        target: activeRelationHub.id,
+        target: hub.id,
         kind: active,
         weight: 0.34,
         label: remote.name,
@@ -869,52 +929,104 @@ function Inner(props: {
     }
 
     if (mode === "relation_values" && relationSupportsValueLayer(active)) {
-      for (const valueHub of relationValueHubNodes()) {
-        out.push({
-          source: activeRelationHub.id,
-          target: valueHub.id,
-          kind: active,
-          // value hubs should orbit the relation hub, not collapse into it.
-          weight: 0.38,
-          label: valueHub.name,
-        });
+      // every per-remote kind hub fans out into the shared value
+      // hubs it has membership for. when the user drilled into a
+      // single remote (activeRemote set), only that remote's hub
+      // gets wired up; the others stay hung off their remote
+      // triangle without value spokes.
+      const valueHubs = relationValueHubNodes();
+      for (const remote of activeRemotes) {
+        const rid = parseRemoteHubId(remote.artistId);
+        if (!rid) continue;
+        if (activeRemote != null && rid !== activeRemote) continue;
+        const hub = relationHubByRemoteKind.get(`${rid}::${active}`);
+        if (!hub) continue;
+        // values this remote contributes membership for.
+        const remoteValues = new Set<string>();
+        for (const n of mergedAlbums()) {
+          if (n.sourceRemoteId !== rid) continue;
+          for (const v of relationValuesForNode(active, n)) remoteValues.add(v);
+        }
+        for (const valueHub of valueHubs) {
+          const parsed = relationValueFromHubId(valueHub.artistId);
+          if (!parsed) continue;
+          if (!remoteValues.has(parsed.valueNorm)) continue;
+          out.push({
+            source: hub.id,
+            target: valueHub.id,
+            kind: active,
+            weight: 0.38,
+            label: valueHub.name,
+          });
+        }
       }
       return out;
     }
 
+    // entities tier: at most one value hub is in play; entities hang
+    // off that value hub (shared sink) or directly off the kind hubs
+    // for non-value-layer kinds (favorite / same_artist / related_artist).
     const activeValueHub = relationValueHubNodes().find((n) => {
       const parsed = relationValueFromHubId(n.artistId);
       return !!parsed && parsed.kind === active && parsed.valueNorm === activeRelationValueNorm();
     });
-    const sourceId = activeValueHub?.id ?? activeRelationHub.id;
-
+    const sourceIds: string[] = [];
     if (activeValueHub) {
-      out.push({
-        source: activeRelationHub.id,
-        target: activeValueHub.id,
-        kind: active,
-        weight: 0.4,
-        label: activeValueHub.name,
-      });
+      // wire every selected remote's kind hub into the shared value hub
+      // so the convergence is visible.
+      for (const remote of activeRemotes) {
+        const rid = parseRemoteHubId(remote.artistId);
+        if (!rid) continue;
+        const hub = relationHubByRemoteKind.get(`${rid}::${active}`);
+        if (!hub) continue;
+        const remoteValues = new Set<string>();
+        for (const n of mergedAlbums()) {
+          if (n.sourceRemoteId !== rid) continue;
+          for (const v of relationValuesForNode(active, n)) remoteValues.add(v);
+        }
+        if (!remoteValues.has(activeValueHub.name)) continue;
+        out.push({
+          source: hub.id,
+          target: activeValueHub.id,
+          kind: active,
+          weight: 0.4,
+          label: activeValueHub.name,
+        });
+      }
+      sourceIds.push(activeValueHub.id);
+    } else {
+      // no value tier (favorite/same_artist/related_artist) — entities
+      // hang off every selected remote's per-remote kind hub directly.
+      for (const remote of activeRemotes) {
+        const rid = parseRemoteHubId(remote.artistId);
+        if (!rid) continue;
+        const hub = relationHubByRemoteKind.get(`${rid}::${active}`);
+        if (!hub) continue;
+        sourceIds.push(hub.id);
+      }
     }
 
     for (const album of fanoutAlbums()) {
-      out.push({
-        source: sourceId,
-        target: album.id,
-        kind: active,
-        weight: 0.9,
-        label: album.title,
-      });
+      for (const sourceId of sourceIds) {
+        out.push({
+          source: sourceId,
+          target: album.id,
+          kind: active,
+          weight: 0.9,
+          label: album.title,
+        });
+      }
     }
     for (const artist of fanoutArtists()) {
-      out.push({
-        source: sourceId,
-        target: artist.id,
-        kind: active,
-        weight: 0.9,
-        label: artist.name,
-      });
+      for (const sourceId of sourceIds) {
+        out.push({
+          source: sourceId,
+          target: artist.id,
+          kind: active,
+          weight: 0.9,
+          label: artist.name,
+        });
+      }
     }
     return out;
   });
@@ -1070,9 +1182,16 @@ function Inner(props: {
     }
 
     if (mode === "entities" && relationSupportsValueLayer(kind) && activeRelationValueNorm()) {
-      enterRelationValuesMode(kind);
-      requestRefitAfterDrill();
-      return true;
+      // stepping up from entities (where activeRemoteId is null) into
+      // relation_values requires a remote scope. fall back to any
+      // currently selected remote so the value tier still has a
+      // valid drill context.
+      const fallbackRemote = activeRemoteId() ?? selectedRemoteIds().values().next().value ?? null;
+      if (fallbackRemote) {
+        enterRelationValuesMode(kind, fallbackRemote);
+        requestRefitAfterDrill();
+        return true;
+      }
     }
 
     enterRootMode();
@@ -1117,7 +1236,6 @@ function Inner(props: {
   const graph = createGraphLibraryView({
     nodes: graphNodes,
     customEdges,
-    relationCounts: relationCountsForPicker,
     topologyKey,
     relatedArtists: relatedMap,
     searchQuery,
@@ -1145,7 +1263,7 @@ function Inner(props: {
         }
         return matches;
       }
-      const relationKind = parseRelationHubId(artistId);
+      const relationKind = parseRelationHubId(artistId)?.kind ?? null;
       if (relationKind && !relationSupportsValueLayer(relationKind)) {
         const matches: GraphNodeData[] = [];
         for (const album of mergedAlbums()) {
@@ -1165,30 +1283,26 @@ function Inner(props: {
         return;
       }
       if (node.kind === "artist") {
-        // remote hub: toggle selection. single mode replaces; multi
-        // mode toggles membership. drill state resets in single mode
-        // so the user always lands at root for a freshly-picked remote.
+        // remote hub: always-multi toggle. shift/cmd no longer
+        // matters — every remote-hub click flips that remote in or
+        // out of the selection set (with a floor of 1 so the user
+        // can't end up with zero remotes).
         const remoteId = parseRemoteHubId(node.artistId);
         if (remoteId) {
-          const multi = graph.selectionMode() === "multi";
           setSelectedRemoteIds((prev) => {
             const next = new Set(prev);
-            if (multi) {
-              if (next.has(remoteId)) {
-                // do not allow deselecting the last remaining selection
-                if (next.size > 1) next.delete(remoteId);
-              } else {
-                next.add(remoteId);
-              }
+            if (next.has(remoteId)) {
+              if (next.size > 1) next.delete(remoteId);
             } else {
-              next.clear();
               next.add(remoteId);
             }
             return next;
           });
-          if (!multi) enterRootMode();
-          // clear the canvas focus so the click doesn't open a popover
-          // on the (now selected) remote hub.
+          // if we just deselected the remote currently being drilled,
+          // step back to root so the drill state stays consistent.
+          if (activeRemoteId() === remoteId && !selectedRemoteIds().has(remoteId)) {
+            enterRootMode();
+          }
           setFocusedNode(null);
           graph.clearSelection();
           return;
@@ -1203,12 +1317,12 @@ function Inner(props: {
           setFocusedNode(null);
           return;
         }
-        const kind = relationKindFromHubId(node.artistId);
-        if (kind) {
-          if (relationSupportsValueLayer(kind)) {
-            enterRelationValuesMode(kind);
+        const parsedRelation = parseRelationHubId(node.artistId);
+        if (parsedRelation) {
+          if (relationSupportsValueLayer(parsedRelation.kind)) {
+            enterRelationValuesMode(parsedRelation.kind, parsedRelation.remoteId);
           } else {
-            enterEntitiesMode(kind, null);
+            enterEntitiesMode(parsedRelation.kind, null);
           }
           setFocusedNode(null);
           return;
