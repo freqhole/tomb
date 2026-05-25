@@ -36,6 +36,7 @@ import type {
   ArtistNodeData,
   GraphEdge,
   GraphNodeData,
+  RelationKind,
   RelationKindLike,
 } from "../../../components/graph/types";
 import { nodeKind } from "../../../components/graph/types";
@@ -102,9 +103,19 @@ export interface CreateGraphLibraryViewOpts {
   /** when true, nodes cannot be dragged around the canvas. clicks
    *  still select them. defaults to false (legacy drag-to-move). */
   lockNodes?: boolean;
+  /** fires whenever the focused node selection changes. null means
+   *  selection cleared (e.g. escape or empty-space click). */
+  onSelectionChange?: (node: GraphNodeData | null) => void;
   /** optional trailing slot for the topnav tools cluster — see
    *  GraphTopNavTools.extra. e.g. an admin-only bulk-tag toggle. */
   extraTools?: JSX.Element;
+  /** optional custom edge accessor. when provided, the graph uses
+   *  this topology directly (legacy edge mode) instead of deriving
+   *  edges in the worker from node taxonomies. */
+  customEdges?: () => GraphEdge[];
+  /** optional precomputed relation counts for picker/flyout badges.
+   *  when provided, these override edge-derived counts. */
+  relationCounts?: () => Partial<Record<RelationKind, number>>;
 }
 
 export interface GraphLibraryView {
@@ -244,6 +255,31 @@ export function createGraphLibraryView(opts: CreateGraphLibraryViewOpts): GraphL
     if (!n || nodeKind(n) !== "artist") return null;
     return n as ArtistNodeData;
   });
+
+  let lastSelectionEmitId: string | null | undefined = undefined;
+  createEffect(() => {
+    if (!opts.onSelectionChange) return;
+    const id = selectedId();
+    if (!id) {
+      if (lastSelectionEmitId !== null) {
+        lastSelectionEmitId = null;
+        opts.onSelectionChange(null);
+      }
+      return;
+    }
+    const n = nodes().find((x) => x.id === id) ?? null;
+    if (!n) {
+      setSelectedId(null);
+      if (lastSelectionEmitId !== null) {
+        lastSelectionEmitId = null;
+        opts.onSelectionChange(null);
+      }
+      return;
+    }
+    if (lastSelectionEmitId === n.id) return;
+    lastSelectionEmitId = n.id;
+    opts.onSelectionChange(n);
+  });
   const [pillEdges, setPillEdges] = createSignal<Map<string, GraphEdge>>(new Map());
   const [wireEdge, setWireEdge] = createSignal<GraphEdge | null>(null);
   const [wireTension, setWireTension] = createSignal(0.44);
@@ -278,7 +314,21 @@ export function createGraphLibraryView(opts: CreateGraphLibraryViewOpts): GraphL
   // it for ui consumers (kind counts, popovers, status pills). it
   // starts empty until the first worker emission lands.
   const [edges, setEdges] = createSignal<GraphEdge[]>([]);
-  const counts = createMemo(() => countEdgesByKind(edges()));
+  const counts = createMemo(() => {
+    const base = countEdgesByKind(edges());
+    const override = opts.relationCounts?.();
+    if (!override) return base;
+    return {
+      ...base,
+      ...override,
+    };
+  });
+
+  createEffect(() => {
+    const custom = opts.customEdges;
+    if (!custom) return;
+    setEdges(custom());
+  });
   const strengthForKind = (kind: string, source: Map<string, number>): number => {
     const cur = source.get(kind);
     if (typeof cur === "number") return cur;
@@ -804,8 +854,9 @@ export function createGraphLibraryView(opts: CreateGraphLibraryViewOpts): GraphL
     <div class="flex-1 relative overflow-hidden">
       <GraphCanvas
         nodes={nodes()}
+        edges={opts.customEdges ? edges() : undefined}
         topologyKey={opts.topologyKey?.()}
-        onEdges={setEdges}
+        onEdges={opts.customEdges ? undefined : setEdges}
         relatedArtists={opts.relatedArtists?.()}
         enabledKinds={enabled()}
         relationStrengths={relationStrengthConfig()}

@@ -491,7 +491,8 @@ export function GraphCanvas(props: GraphCanvasProps) {
     nodeId: string | null,
     pos: { sx: number; sy: number; clientX: number; clientY: number }
   ) {
-    const hit = nodeId ? (simNodesById.get(nodeId) ?? null) : null;
+    const workerHit = nodeId ? (simNodesById.get(nodeId) ?? null) : null;
+    const hit = workerHit ?? localHitFromHover(pos.sx, pos.sy);
     const newHover = hit?.id ?? null;
     let changed = false;
     if (newHover !== hoverId()) {
@@ -543,6 +544,15 @@ export function GraphCanvas(props: GraphCanvasProps) {
   }
 
   const nodeSize = () => props.nodeSize ?? 56;
+  const isHubNode = (n: GraphNodeData): boolean => {
+    if (nodeKind(n) !== "artist") return false;
+    const a = n as ArtistNodeData;
+    return (
+      !!a.artistId?.startsWith("hub_remote::") ||
+      !!a.artistId?.startsWith("hub_relation::") ||
+      !!a.artistId?.startsWith("hub_relation_value::")
+    );
+  };
   const enabledSet = createMemo<Set<string> | null>(() => {
     const e = props.enabledKinds;
     if (!e) return null;
@@ -714,6 +724,9 @@ export function GraphCanvas(props: GraphCanvasProps) {
       return "album:ungrouped";
     }
     const r = node as ArtistNodeData;
+    if (r.artistId?.startsWith("hub_remote::")) return "hub:remote";
+    if (r.artistId?.startsWith("hub_relation::")) return "hub:relation";
+    if (r.artistId?.startsWith("hub_relation_value::")) return "hub:relation_value";
     if (r.artistId) return `artist:${r.artistId}`;
     if (r.label) return `label:${r.label.toLowerCase()}`;
     if (r.era) return `era:${r.era.toLowerCase()}`;
@@ -822,6 +835,12 @@ export function GraphCanvas(props: GraphCanvasProps) {
     });
 
     const familySpacing = clusterSpacing * 2.15;
+    const hubLaneOffset = (key: string): { ox: number; oy: number } | null => {
+      if (key === "hub:remote") return { ox: -0.72, oy: -0.58 };
+      if (key === "hub:relation") return { ox: 0.74, oy: -0.06 };
+      if (key === "hub:relation_value") return { ox: 0.28, oy: 0.72 };
+      return null;
+    };
     let familyIdx = 0;
     for (const [family, entries] of familyEntries) {
       let fx = cx;
@@ -859,6 +878,15 @@ export function GraphCanvas(props: GraphCanvasProps) {
           const gr = Math.sqrt(gi + 0.6) * groupRing;
           ax = fx + gr * Math.cos(ga);
           ay = fy + gr * Math.sin(ga);
+        }
+
+        // synthetic hub classes use fixed lane offsets so remote /
+        // relation / value hubs don't collapse onto each other across
+        // rebuilds when centroid reuse would otherwise preserve overlap.
+        const lane = hubLaneOffset(key);
+        if (lane) {
+          ax = fx + lane.ox * clusterSpacing;
+          ay = fy + lane.oy * clusterSpacing;
         }
 
         for (let i = 0; i < bucket.length; i++) {
@@ -1107,7 +1135,9 @@ export function GraphCanvas(props: GraphCanvasProps) {
     if (multiSel && multiSel.size > 0) {
       for (const id of multiSel) focusNodeIds.add(id);
     }
-    const showEdges = focusNodeIds.size > 0 || selEdges.size > 0 || hovEdge !== null;
+    const hubOnly = simNodes.length > 0 && simNodes.every((n) => isHubNode(n));
+    const showEdges = hubOnly || focusNodeIds.size > 0 || selEdges.size > 0 || hovEdge !== null;
+    const idleHubScaffold = hubOnly && !focus && selEdges.size === 0 && hovEdge === null;
     // search overlay: when non-empty, behaves like an extra focus filter
     // — nodes outside the match set go dimmed, their edges fade out.
     const search = props.searchMatches;
@@ -1273,7 +1303,9 @@ export function GraphCanvas(props: GraphCanvasProps) {
           const isHovEdge = link._key === hovEdge;
           const isSelEdge = selEdges.has(link._key);
           const isSiblingEdge = siblingEdgeKeys?.has(link._key) ?? false;
-          if (!touchesFocused && !isSelEdge && !isHovEdge && !isSiblingEdge) continue;
+          if (!idleHubScaffold && !touchesFocused && !isSelEdge && !isHovEdge && !isSiblingEdge) {
+            continue;
+          }
           // edge-focus mode overrides: only sibling stripes are
           // promoted to "involved", everything else dims out.
           const involved = edgeFocusIds ? isSiblingEdge : pairInvolvedFocus;
@@ -1319,18 +1351,31 @@ export function GraphCanvas(props: GraphCanvasProps) {
       // side as a bundle. single-kind pairs (N=1) emit the original
       // single curve (zero offset).
       function appendPairStripeToPath(p: EdgePair, i: number): void {
-        const sx = p._sx ?? 0;
-        const sy = p._sy ?? 0;
-        const tx = p._tx ?? 0;
-        const ty = p._ty ?? 0;
-        const cpx = p._cpx ?? (sx + tx) * 0.5;
-        const cpy = p._cpy ?? (sy + ty) * 0.5;
+        const sx0 = p._sx ?? 0;
+        const sy0 = p._sy ?? 0;
+        const tx0 = p._tx ?? 0;
+        const ty0 = p._ty ?? 0;
+        const cpx = p._cpx ?? (sx0 + tx0) * 0.5;
+        const cpy = p._cpy ?? (sy0 + ty0) * 0.5;
         const nx = p._nx ?? 0;
         const ny = p._ny ?? 0;
         const N = p.links.length;
         const off = N === 1 ? 0 : (i - (N - 1) / 2) * stripeSpacing;
         const ox = nx * off;
         const oy = ny * off;
+        // trim each endpoint so wires terminate at node borders,
+        // avoiding center-through intersections/overdraw.
+        const edgePad = nodeSize() * 0.38 + stripeWidthWorld * 0.45;
+        const vx = tx0 - sx0;
+        const vy = ty0 - sy0;
+        const len = Math.hypot(vx, vy) || 1;
+        const ux = vx / len;
+        const uy = vy / len;
+        const cut = Math.min(edgePad, Math.max(0, len * 0.32));
+        const sx = sx0 + ux * cut;
+        const sy = sy0 + uy * cut;
+        const tx = tx0 - ux * cut;
+        const ty = ty0 - uy * cut;
         ctx!.moveTo(sx + ox, sy + oy);
         if (curv > 0) {
           ctx!.quadraticCurveTo(cpx + ox, cpy + oy, tx + ox, ty + oy);
@@ -1458,6 +1503,11 @@ export function GraphCanvas(props: GraphCanvasProps) {
           size: nodeSize(),
           state,
           zoom: v.k,
+          showLabel,
+          time,
+          onMarquee: () => {
+            animatingMarquee = true;
+          },
           onImageReady: requestDrawDeferred,
         });
       } else {
@@ -1563,6 +1613,9 @@ export function GraphCanvas(props: GraphCanvasProps) {
         const kind = nodeKind(n);
         if (kind === "artist") {
           const a = n as ArtistNodeData;
+          const isSyntheticHub =
+            a.artistId?.startsWith("hub_remote::") || a.artistId?.startsWith("hub_relation::");
+          if (isSyntheticHub) continue;
           focusLabels.push({
             text: a.name ?? a.abbreviation ?? "",
             sx: nsx,
@@ -2131,6 +2184,7 @@ export function GraphCanvas(props: GraphCanvasProps) {
         latestSy: number;
         multi: boolean;
         tool: "pan" | "lasso";
+        startK: number;
         startTx: number;
         startTy: number;
         // monotonically-increasing press id; the worker's hit-test
@@ -2233,6 +2287,7 @@ export function GraphCanvas(props: GraphCanvasProps) {
       latestSy: sy,
       multi,
       tool,
+      startK: v1.k,
       startTx: v1.tx,
       startTy: v1.ty,
       pressId,
@@ -2266,12 +2321,61 @@ export function GraphCanvas(props: GraphCanvasProps) {
       });
   }
 
+  // fallback local hit-test used only for press resolution when the
+  // worker hit-test returns null (often timeout under load). this keeps
+  // click-select responsive for small hub sets without depending on an
+  // async round-trip.
+  function localHitFromPress(d: Extract<Drag, { type: "press" }>): SimNode | null {
+    const wx = (d.startSx - d.startTx) / d.startK;
+    const wy = (d.startSy - d.startTy) / d.startK;
+    const r = Math.max(nodeSize() * 0.55, 12 / d.startK);
+    const r2 = r * r;
+    let best: SimNode | null = null;
+    let bestD2 = Infinity;
+    for (const n of simNodes) {
+      const nx = n.x ?? 0;
+      const ny = n.y ?? 0;
+      const dx = nx - wx;
+      const dy = ny - wy;
+      const d2 = dx * dx + dy * dy;
+      if (d2 > r2) continue;
+      if (d2 < bestD2) {
+        bestD2 = d2;
+        best = n;
+      }
+    }
+    return best;
+  }
+
+  function localHitFromHover(sx: number, sy: number): SimNode | null {
+    const [wx, wy] = screenToWorld(sx, sy);
+    const v0 = view();
+    const r = Math.max(nodeSize() * 0.55, 12 / v0.k);
+    const r2 = r * r;
+    let best: SimNode | null = null;
+    let bestD2 = Infinity;
+    for (const n of simNodes) {
+      const nx = n.x ?? 0;
+      const ny = n.y ?? 0;
+      const dx = nx - wx;
+      const dy = ny - wy;
+      const d2 = dx * dx + dy * dy;
+      if (d2 > r2) continue;
+      if (d2 < bestD2) {
+        bestD2 = d2;
+        best = n;
+      }
+    }
+    return best;
+  }
+
   /** finalize a press: convert the "press" drag state to node/pan/lasso
    *  (or fire click-select if pointerup already happened). */
   function onPressResolved(pressId: number, nodeId: string | null) {
     const d = drag();
     if (!d || d.type !== "press" || d.pressId !== pressId) return;
-    const hit = nodeId ? (simNodesById.get(nodeId) ?? null) : null;
+    const fromWorker = nodeId ? (simNodesById.get(nodeId) ?? null) : null;
+    const hit = fromWorker ?? localHitFromPress(d);
 
     if (d.released) {
       // pointerup already fired \u2014 treat as click.

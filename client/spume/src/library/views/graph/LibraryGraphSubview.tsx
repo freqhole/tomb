@@ -30,18 +30,22 @@ import { adaptAlbum } from "./adaptAlbum";
 import { RemoteMusicDataSource } from "../../../music/data/remote/remoteSource";
 import { addToQueue, playQueue } from "../../../music/services/queue/queue";
 import { routes } from "../../../music/utils/routing";
-import {
-  useToggleFavoriteMutation,
-  useFavoritesInfiniteQuery,
-} from "../../../music/queries/favorites";
+import { useToggleFavoriteMutation } from "../../../music/queries/favorites";
 import { toast } from "../../../components/feedback/Toast";
 import type { TagFilter, TagOption } from "../../../components/forms/TagFilterPicker";
 import { isNarrowViewport } from "../../../config/breakpoints";
 import { setPageInfo, clearPageInfo } from "../../../app/services/pageInfo";
 import { useHistoryState } from "../../../utils/historyState";
-import type { AlbumNodeData, GraphNodeData } from "../../../components/graph/types";
+import type {
+  AlbumNodeData,
+  ArtistNodeData,
+  GraphEdge,
+  GraphNodeData,
+  RelationKind,
+} from "../../../components/graph/types";
 import { deriveArtistNodes } from "./deriveArtistNodes";
 import { useRelatedArtistsByIds } from "../../queries/useRelatedArtistsByIds";
+import { RELATION_KINDS, RELATION_LABEL } from "../../../components/graph/relations";
 import { getAuthInfo, getAuthStatus } from "../../../app/services/remotes/authStatusStore";
 import { permissions, type UserRoleName } from "freqhole-api-client";
 import {
@@ -56,7 +60,6 @@ import { usesBlobResolver } from "../../../music/services/storage/transportCache
 import { resolveLocalBlobUrl } from "../../../music/utils/images";
 import { useArtistQuery } from "../../../music/queries/songs";
 import type { ImageMetadata } from "../../../music/services/storage/types";
-import type { ArtistNodeData } from "../../../components/graph/types";
 
 export interface LibraryGraphSubviewProps {
   /** every selected remote whose albums should be merged into the graph. */
@@ -447,60 +450,509 @@ function Inner(props: {
   );
   const showArtists = createMemo(() => contentKind() === "artists" || contentKind() === "both");
   const showAlbums = createMemo(() => contentKind() === "albums" || contentKind() === "both");
+  const REMOTE_HUB_PREFIX = "hub_remote::";
+  const RELATION_HUB_PREFIX = "hub_relation::";
+  const RELATION_VALUE_HUB_PREFIX = "hub_relation_value::";
+  const MERGED_ARTIST_PREFIX = "merged_artist::";
+  const MERGED_ALBUM_PREFIX = "merged_album::";
+  const RELATION_HUB_KINDS = RELATION_KINDS.filter((r) => r.kind !== "artist_album").map(
+    (r) => r.kind
+  ) as RelationKind[];
+  const RELATION_HUB_KIND_SET = new Set<RelationKind>(RELATION_HUB_KINDS);
 
-  // derive artist nodes from the album set. one node per unique
-  // artistId (in-library only — the source albums are by definition
-  // in-library). image / abbreviation / aggregated taxonomy come from
-  // the constituent albums (see deriveArtistNodes for the merge rules).
-  // favorite state is layered in from a favorites listing so artist
-  // nodes can participate in the `favorite` relation alongside albums.
-  const favoriteArtistsQuery = useFavoritesInfiniteQuery({
-    targetType: () => "artist",
-    pageSize: 200,
-  });
-  // auto-paginate: keep fetching pages until we've loaded every
-  // favorited artist. the list is typically small so this is cheap;
-  // doing it here means the favorite-relation chain doesn't suddenly
-  // grow as the user scrolls another view.
-  createEffect(() => {
-    if (favoriteArtistsQuery.hasNextPage && !favoriteArtistsQuery.isFetchingNextPage) {
-      void favoriteArtistsQuery.fetchNextPage();
+  const norm = (s: string | null | undefined): string => (s ?? "").trim().toLowerCase();
+  const artistMergeKey = (
+    artistName: string | null | undefined,
+    artistId?: string | null
+  ): string => {
+    const byName = norm(artistName);
+    if (byName) return byName;
+    return `id:${norm(artistId)}`;
+  };
+  const albumMergeKey = (n: AlbumNodeData): string => {
+    const ak = artistMergeKey(n.artistName, n.artistId);
+    return `${ak}::${norm(n.title)}`;
+  };
+  const isRemoteHubId = (artistId: string | null | undefined): boolean =>
+    !!artistId && artistId.startsWith(REMOTE_HUB_PREFIX);
+  const isRelationHubId = (artistId: string | null | undefined): boolean =>
+    !!artistId && artistId.startsWith(RELATION_HUB_PREFIX);
+  const isRelationValueHubId = (artistId: string | null | undefined): boolean =>
+    !!artistId && artistId.startsWith(RELATION_VALUE_HUB_PREFIX);
+  const relationKindFromHubId = (artistId: string | null | undefined): RelationKind | null => {
+    if (!isRelationHubId(artistId)) return null;
+    const raw = artistId!.slice(RELATION_HUB_PREFIX.length) as RelationKind;
+    return RELATION_HUB_KIND_SET.has(raw) ? raw : null;
+  };
+  const relationValueHubId = (kind: RelationKind, valueNorm: string): string =>
+    `${RELATION_VALUE_HUB_PREFIX}${kind}::${encodeURIComponent(valueNorm)}`;
+  const relationValueFromHubId = (
+    artistId: string | null | undefined
+  ): { kind: RelationKind; valueNorm: string } | null => {
+    if (!isRelationValueHubId(artistId)) return null;
+    const raw = artistId!.slice(RELATION_VALUE_HUB_PREFIX.length);
+    const sep = raw.indexOf("::");
+    if (sep <= 0) return null;
+    const kind = raw.slice(0, sep) as RelationKind;
+    if (!RELATION_HUB_KIND_SET.has(kind)) return null;
+    const encoded = raw.slice(sep + 2);
+    try {
+      return { kind, valueNorm: decodeURIComponent(encoded) };
+    } catch {
+      return null;
     }
-  });
-  const favoriteArtistIds = createMemo(() => {
-    const set = new Set<string>();
-    const pages = favoriteArtistsQuery.data?.pages ?? [];
-    for (const page of pages) {
-      for (const item of page.items) {
-        if (item.type === "artist") set.add(item.data.artist_id);
+  };
+  const relationSupportsValueLayer = (kind: RelationKind | null): boolean =>
+    kind === "genre" ||
+    kind === "tag" ||
+    kind === "mood" ||
+    kind === "style" ||
+    kind === "era" ||
+    kind === "label";
+
+  const [focusedNode, setFocusedNode] = createSignal<GraphNodeData | null>(null);
+  type DrillMode = "root" | "relation_values" | "entities";
+  const [drillMode, setDrillMode] = createSignal<DrillMode>("root");
+  const [activeRelationKind, setActiveRelationKind] = createSignal<RelationKind | null>(null);
+  const [activeRelationValueNorm, setActiveRelationValueNorm] = createSignal<string | null>(null);
+
+  const enterRootMode = () => {
+    setDrillMode("root");
+    setActiveRelationKind(null);
+    setActiveRelationValueNorm(null);
+  };
+  const enterRelationValuesMode = (kind: RelationKind) => {
+    setDrillMode("relation_values");
+    setActiveRelationKind(kind);
+    setActiveRelationValueNorm(null);
+  };
+  const enterEntitiesMode = (kind: RelationKind, valueNorm: string | null = null) => {
+    setDrillMode("entities");
+    setActiveRelationKind(kind);
+    setActiveRelationValueNorm(valueNorm);
+  };
+
+  const mergedAlbums = createMemo<AlbumNodeData[]>(() => {
+    const grouped = new Map<string, AlbumNodeData[]>();
+    for (const album of visibleNodes()) {
+      const key = albumMergeKey(album);
+      const list = grouped.get(key);
+      if (list) list.push(album);
+      else grouped.set(key, [album]);
+    }
+
+    const merged: AlbumNodeData[] = [];
+    for (const [key, list] of grouped) {
+      const base = list[0];
+      const genres = new Set<string>();
+      const moods = new Set<string>();
+      const styles = new Set<string>();
+      const tags = new Map<string, number>();
+      const labels = new Map<string, number>();
+      const eras = new Map<string, number>();
+      let hasFavorite = false;
+      let trackCount = 0;
+      let totalDurationSec = 0;
+
+      for (const item of list) {
+        for (const g of item.genres) genres.add(g);
+        for (const m of item.moods) moods.add(m);
+        for (const s of item.styles) styles.add(s);
+        for (const t of item.tags) tags.set(t.label, Math.max(tags.get(t.label) ?? 0, t.weight));
+        if (item.label) labels.set(item.label, (labels.get(item.label) ?? 0) + 1);
+        if (item.era) eras.set(item.era, (eras.get(item.era) ?? 0) + 1);
+        if (item.isFavorite) hasFavorite = true;
+        trackCount = Math.max(trackCount, item.trackCount ?? 0);
+        totalDurationSec = Math.max(totalDurationSec, item.totalDurationSec ?? 0);
       }
+
+      const topCountValue = (m: Map<string, number>): string | null => {
+        let best: string | null = null;
+        let bestCount = -1;
+        for (const [k, c] of m) {
+          if (c > bestCount) {
+            best = k;
+            bestCount = c;
+          }
+        }
+        return best;
+      };
+
+      merged.push({
+        ...base,
+        id: `${MERGED_ALBUM_PREFIX}${key}`,
+        artistId: `${MERGED_ARTIST_PREFIX}${artistMergeKey(base.artistName, base.artistId)}`,
+        genres: [...genres],
+        moods: [...moods],
+        styles: [...styles],
+        tags: [...tags.entries()].map(([label, weight]) => ({ label, weight })),
+        label: topCountValue(labels),
+        era: topCountValue(eras),
+        isFavorite: hasFavorite,
+        trackCount,
+        totalDurationSec,
+      });
     }
+    return merged;
+  });
+
+  const mergedFavoriteArtistIds = createMemo(() => {
+    const set = new Set<string>();
+    const byArtist = new Map<string, boolean>();
+    for (const album of mergedAlbums()) {
+      const cur = byArtist.get(album.artistId) ?? false;
+      byArtist.set(album.artistId, cur || !!album.isFavorite);
+    }
+    for (const [artistId, fav] of byArtist) if (fav) set.add(artistId);
     return set;
   });
-  const artistNodes = createMemo(() => deriveArtistNodes(visibleNodes(), favoriteArtistIds()));
 
-  const uniqueArtistIds = createMemo(() => artistNodes().map((a) => a.artistId));
+  const mergedArtistNodes = createMemo(() =>
+    deriveArtistNodes(mergedAlbums(), mergedFavoriteArtistIds())
+  );
 
-  // fan-out per-artist related-artist queries. only enabled when
-  // artists are visible (otherwise we'd issue N http calls for nothing).
-  // currently keyed against the first selected remote — related-artist
-  // data lives per-remote and merging cross-remote relations is a
-  // future enhancement.
+  const remoteHubNodes = createMemo<ArtistNodeData[]>(() => {
+    const countsByRemote = new Map<string, number>();
+    for (const n of visibleNodes()) {
+      const id = n.sourceRemoteId;
+      if (!id) continue;
+      countsByRemote.set(id, (countsByRemote.get(id) ?? 0) + 1);
+    }
+    return props.remotes().map((r) => ({
+      id: `${REMOTE_HUB_PREFIX}${r.remote_id}`,
+      kind: "artist",
+      artistId: `${REMOTE_HUB_PREFIX}${r.remote_id}`,
+      name: r.name || r.remote_id,
+      abbreviation: (r.name || r.remote_id).slice(0, 3).toUpperCase(),
+      imageUrl: null,
+      image: null,
+      albumCount: countsByRemote.get(r.remote_id) ?? 0,
+      genres: [],
+      tags: [],
+      moods: [],
+      styles: [],
+      label: null,
+      era: null,
+      isFavorite: false,
+    }));
+  });
+
+  const relationHubNodes = createMemo<ArtistNodeData[]>(() =>
+    RELATION_HUB_KINDS.map<ArtistNodeData>((kind) => {
+      let count = 0;
+      if (kind === "favorite") {
+        count =
+          mergedAlbums().filter((n) => !!n.isFavorite).length +
+          mergedArtistNodes().filter((n) => !!n.isFavorite).length;
+      } else if (kind === "same_artist") {
+        for (const n of mergedArtistNodes()) {
+          if ((albumsPerMergedArtist().get(n.artistId) ?? 0) > 1) count++;
+        }
+      } else if (kind === "related_artist") {
+        for (const n of mergedArtistNodes()) {
+          const related = relatedMap().get(n.artistId);
+          if (related && related.size > 0) count++;
+        }
+      } else if (relationSupportsValueLayer(kind)) {
+        const uniq = new Set<string>();
+        for (const n of mergedAlbums()) {
+          for (const v of relationValuesForNode(kind, n)) uniq.add(v);
+        }
+        count = uniq.size;
+      }
+      return {
+        id: `${RELATION_HUB_PREFIX}${kind}`,
+        kind: "artist",
+        artistId: `${RELATION_HUB_PREFIX}${kind}`,
+        name: RELATION_LABEL[kind] ?? kind,
+        abbreviation: (RELATION_LABEL[kind] ?? kind).slice(0, 3).toUpperCase(),
+        imageUrl: null,
+        image: null,
+        albumCount: count,
+        genres: [],
+        tags: [],
+        moods: [],
+        styles: [],
+        label: null,
+        era: null,
+        isFavorite: false,
+      };
+    }).filter((n) => n.albumCount > 0)
+  );
+
+  const relationCountsForPicker = createMemo<Partial<Record<RelationKind, number>>>(() => {
+    const out: Partial<Record<RelationKind, number>> = {};
+    for (const n of relationHubNodes()) {
+      const kind = relationKindFromHubId(n.artistId);
+      if (!kind) continue;
+      out[kind] = n.albumCount;
+    }
+    return out;
+  });
+
+  const relationValuesForNode = (kind: RelationKind, node: GraphNodeData): string[] => {
+    switch (kind) {
+      case "genre":
+        return node.genres.map(norm).filter(Boolean);
+      case "tag":
+        return node.tags.map((t) => norm(t.label)).filter(Boolean);
+      case "mood":
+        return node.moods.map(norm).filter(Boolean);
+      case "style":
+        return node.styles.map(norm).filter(Boolean);
+      case "era": {
+        const e = norm(node.era);
+        return e ? [e] : [];
+      }
+      case "label": {
+        const l = norm(node.label);
+        return l ? [l] : [];
+      }
+      default:
+        return [];
+    }
+  };
+
+  const relationValueHubNodes = createMemo<ArtistNodeData[]>(() => {
+    const kind = activeRelationKind();
+    if (!kind || !relationSupportsValueLayer(kind)) return [];
+    const counts = new Map<string, number>();
+    for (const n of mergedAlbums()) {
+      for (const v of relationValuesForNode(kind, n)) counts.set(v, (counts.get(v) ?? 0) + 1);
+    }
+    const entries = [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+    return entries.map(([valueNorm, count]) => ({
+      id: relationValueHubId(kind, valueNorm),
+      kind: "artist",
+      artistId: relationValueHubId(kind, valueNorm),
+      name: valueNorm,
+      abbreviation: valueNorm.slice(0, 3).toUpperCase(),
+      imageUrl: null,
+      image: null,
+      albumCount: count,
+      genres: [],
+      tags: [],
+      moods: [],
+      styles: [],
+      label: null,
+      era: null,
+      isFavorite: false,
+    }));
+  });
+
+  const artistNodesById = createMemo(() => {
+    const out = new Map<string, ArtistNodeData>();
+    for (const a of mergedArtistNodes()) out.set(a.id, a);
+    for (const a of remoteHubNodes()) out.set(a.id, a);
+    for (const a of relationHubNodes()) out.set(a.id, a);
+    for (const a of relationValueHubNodes()) out.set(a.id, a);
+    return out;
+  });
+
+  const uniqueArtistIds = createMemo(() => mergedArtistNodes().map((a) => a.artistId));
   const primaryRemote = createMemo(() => props.remotes()[0]);
   const relatedQuery = useRelatedArtistsByIds({
     remote: primaryRemote,
     artistIds: uniqueArtistIds,
-    enabled: showArtists,
+    enabled: () => activeRelationKind() === "related_artist",
   });
   const relatedMap = createMemo(() => relatedQuery.data ?? new Map<string, Set<string>>());
 
-  // final node set passed to the graph factory union of layer
-  // toggles. order: albums first, then artists, so initial layout
-  // seeds the heavier album cluster before artist circles drop in.
+  const albumsPerMergedArtist = createMemo(() => {
+    const out = new Map<string, number>();
+    for (const album of mergedAlbums()) {
+      out.set(album.artistId, (out.get(album.artistId) ?? 0) + 1);
+    }
+    return out;
+  });
+
+  const hasRelationMembership = (
+    kind: RelationKind,
+    node: GraphNodeData,
+    valueNorm?: string | null
+  ): boolean => {
+    if (
+      node.kind === "artist" &&
+      (isRemoteHubId(node.artistId) ||
+        isRelationHubId(node.artistId) ||
+        isRelationValueHubId(node.artistId))
+    ) {
+      return false;
+    }
+    if (relationSupportsValueLayer(kind)) {
+      const values = relationValuesForNode(kind, node);
+      if (values.length === 0) return false;
+      if (!valueNorm) return true;
+      return values.includes(valueNorm);
+    }
+    switch (kind) {
+      case "favorite":
+        return !!node.isFavorite;
+      case "same_artist":
+        return (albumsPerMergedArtist().get(node.artistId) ?? 0) > 1;
+      case "related_artist": {
+        const related = relatedMap().get(node.artistId);
+        return !!related && related.size > 0;
+      }
+      case "artist_album":
+        return true;
+      default:
+        return false;
+    }
+  };
+
+  createEffect(() => {
+    const focus = focusedNode();
+    if (!focus) return;
+    if (focus.kind === "artist") {
+      if (artistNodesById().has(focus.id)) return;
+      setFocusedNode(null);
+      return;
+    }
+    const exists = mergedAlbums().some((n) => n.id === focus.id);
+    if (!exists) {
+      setFocusedNode(null);
+    }
+  });
+
+  const fanoutAlbums = createMemo<AlbumNodeData[]>(() => {
+    const active = activeRelationKind();
+    if (!active) return [];
+    if (relationSupportsValueLayer(active) && !activeRelationValueNorm()) return [];
+    return mergedAlbums().filter((n) =>
+      hasRelationMembership(active, n, activeRelationValueNorm())
+    );
+  });
+  const fanoutArtists = createMemo<ArtistNodeData[]>(() => {
+    const active = activeRelationKind();
+    if (!active) return [];
+    if (relationSupportsValueLayer(active) && !activeRelationValueNorm()) return [];
+    return mergedArtistNodes().filter((n) =>
+      hasRelationMembership(active, n, activeRelationValueNorm())
+    );
+  });
+
   const graphNodes = createMemo<GraphNodeData[]>(() => {
     const out: GraphNodeData[] = [];
-    if (showAlbums()) out.push(...visibleNodes());
-    if (showArtists()) out.push(...artistNodes());
+    out.push(...remoteHubNodes());
+    const mode = drillMode();
+    const active = activeRelationKind();
+    const activeRelationHub = active
+      ? (relationHubNodes().find((n) => relationKindFromHubId(n.artistId) === active) ?? null)
+      : null;
+
+    if (mode === "root" || !active || !activeRelationHub) {
+      out.push(...relationHubNodes());
+      return out;
+    }
+
+    out.push(activeRelationHub);
+
+    if (mode === "relation_values" && relationSupportsValueLayer(active)) {
+      out.push(...relationValueHubNodes());
+      return out;
+    }
+
+    if (mode === "entities" && relationSupportsValueLayer(active) && activeRelationValueNorm()) {
+      const activeValueHub = relationValueHubNodes().find((n) => {
+        const parsed = relationValueFromHubId(n.artistId);
+        return !!parsed && parsed.kind === active && parsed.valueNorm === activeRelationValueNorm();
+      });
+      if (activeValueHub) out.push(activeValueHub);
+    }
+    if (showAlbums()) out.push(...fanoutAlbums());
+    if (showArtists()) out.push(...fanoutArtists());
+    return out;
+  });
+
+  const customEdges = createMemo<GraphEdge[]>(() => {
+    const out: GraphEdge[] = [];
+    const remotes = remoteHubNodes();
+    const relations = relationHubNodes();
+    const mode = drillMode();
+    const active = activeRelationKind();
+    const activeRelationHub = active
+      ? (relations.find((n) => relationKindFromHubId(n.artistId) === active) ?? null)
+      : null;
+
+    if (mode === "root" || !activeRelationHub || !active) {
+      for (const remote of remotes) {
+        for (const relation of relations) {
+          const kind = relationKindFromHubId(relation.artistId);
+          if (!kind) continue;
+          out.push({
+            source: remote.id,
+            target: relation.id,
+            kind,
+            // keep the root scaffold connected, but loose enough that
+            // collide force can maintain clear separation between hub nodes.
+            weight: 0.32,
+            label: remote.name,
+          });
+        }
+      }
+      return out;
+    }
+
+    // keep ancestry visible while drilling: remote -> active relation.
+    for (const remote of remotes) {
+      out.push({
+        source: remote.id,
+        target: activeRelationHub.id,
+        kind: active,
+        weight: 0.34,
+        label: remote.name,
+      });
+    }
+
+    if (mode === "relation_values" && relationSupportsValueLayer(active)) {
+      for (const valueHub of relationValueHubNodes()) {
+        out.push({
+          source: activeRelationHub.id,
+          target: valueHub.id,
+          kind: active,
+          // value hubs should orbit the relation hub, not collapse into it.
+          weight: 0.38,
+          label: valueHub.name,
+        });
+      }
+      return out;
+    }
+
+    const activeValueHub = relationValueHubNodes().find((n) => {
+      const parsed = relationValueFromHubId(n.artistId);
+      return !!parsed && parsed.kind === active && parsed.valueNorm === activeRelationValueNorm();
+    });
+    const sourceId = activeValueHub?.id ?? activeRelationHub.id;
+
+    if (activeValueHub) {
+      out.push({
+        source: activeRelationHub.id,
+        target: activeValueHub.id,
+        kind: active,
+        weight: 0.4,
+        label: activeValueHub.name,
+      });
+    }
+
+    for (const album of fanoutAlbums()) {
+      out.push({
+        source: sourceId,
+        target: album.id,
+        kind: active,
+        weight: 0.9,
+        label: album.title,
+      });
+    }
+    for (const artist of fanoutArtists()) {
+      out.push({
+        source: sourceId,
+        target: artist.id,
+        kind: active,
+        weight: 0.9,
+        label: artist.name,
+      });
+    }
     return out;
   });
 
@@ -510,10 +962,12 @@ function Inner(props: {
       .map((r) => r.remote_id)
       .sort()
       .join("|");
+    // keep topology stable while drilling relation hubs; including
+    // activeRelationKind here causes createGraphLibraryView to reset
+    // selection on every relation click, which immediately clears the
+    // fan-out state again.
     return `${remotes}::${contentKind()}`;
   });
-
-  // segmented control rendered inside the topnav cluster. on narrow
   // viewports we drop the labels and show icon-only buttons so the
   // toolbar still fits.
   const CONTENT_KIND_OPTIONS: { value: ContentKind; label: string; title: string }[] = [
@@ -580,7 +1034,12 @@ function Inner(props: {
   const [graphRef, setGraphRef] = createSignal<ReturnType<typeof createGraphLibraryView> | null>(
     null
   );
-  const selectedArtistQuery = useArtistQuery(() => graphRef()?.selectedArtistId() ?? undefined);
+  const selectedArtistQuery = useArtistQuery(() => {
+    const id = graphRef()?.selectedArtistId() ?? null;
+    if (!id) return undefined;
+    if (isRemoteHubId(id) || isRelationHubId(id) || isRelationValueHubId(id)) return undefined;
+    return id;
+  });
 
   // resolve every URL we can pull out of an ImageMetadata + optional
   // pre-resolved url. handles charnel-managed (tauri) and p2p remotes
@@ -671,13 +1130,56 @@ function Inner(props: {
     showImageCarousel({ images: urls, title: formatImageCarouselTitle(artist.name, urls.length) });
   };
 
+  const backOneDrillLevel = (): boolean => {
+    const mode = drillMode();
+    if (mode === "root") return false;
+    const kind = activeRelationKind();
+    if (!kind) {
+      enterRootMode();
+      return true;
+    }
+
+    if (mode === "entities" && relationSupportsValueLayer(kind) && activeRelationValueNorm()) {
+      enterRelationValuesMode(kind);
+      return true;
+    }
+
+    enterRootMode();
+    return true;
+  };
+
   const graph = createGraphLibraryView({
     nodes: graphNodes,
+    customEdges,
+    relationCounts: relationCountsForPicker,
     topologyKey,
     relatedArtists: relatedMap,
     searchQuery,
     paused: () => !props.isActive(),
     lockNodes: true,
+    onSelectionChange: (node) => {
+      setFocusedNode(node);
+      if (!node) {
+        backOneDrillLevel();
+        return;
+      }
+      if (node.kind === "artist") {
+        const valueHub = relationValueFromHubId(node.artistId);
+        if (valueHub) {
+          enterEntitiesMode(valueHub.kind, valueHub.valueNorm);
+          return;
+        }
+        const kind = relationKindFromHubId(node.artistId);
+        if (kind) {
+          if (relationSupportsValueLayer(kind)) {
+            enterRelationValuesMode(kind);
+          } else {
+            enterEntitiesMode(kind, null);
+          }
+          return;
+        }
+      }
+    },
     onPlay: async (album) => {
       const r = remoteForNode(album);
       if (!r) return;
@@ -781,6 +1283,13 @@ function Inner(props: {
       : undefined,
     onEditArtistNode: isAnyRemoteAdmin()
       ? (artist: ArtistNodeData) => {
+          if (
+            isRemoteHubId(artist.artistId) ||
+            isRelationHubId(artist.artistId) ||
+            isRelationValueHubId(artist.artistId)
+          ) {
+            return;
+          }
           // artist nodes are cross-remote aggregations — just open the
           // editor by artist_id and let the modal pick its source.
           showArtistEditor({ artistId: artist.artistId });
@@ -790,9 +1299,23 @@ function Inner(props: {
       void openAlbumCarousel(album);
     },
     onImageClickArtist: (artist) => {
+      if (
+        isRemoteHubId(artist.artistId) ||
+        isRelationHubId(artist.artistId) ||
+        isRelationValueHubId(artist.artistId)
+      ) {
+        return;
+      }
       void openArtistCarousel(artist);
     },
     onViewArtistNode: (artist) => {
+      if (
+        isRemoteHubId(artist.artistId) ||
+        isRelationHubId(artist.artistId) ||
+        isRelationValueHubId(artist.artistId)
+      ) {
+        return;
+      }
       // artist nodes are cross-remote aggregations navigate to the
       // active source's artist route (null = local / active).
       navigate(routes.artistOn(null, artist.artistId));
@@ -800,6 +1323,13 @@ function Inner(props: {
     selectedArtistBio: () => selectedArtistQuery.data?.bio ?? null,
     selectedArtistIsFavorite: () => selectedArtistQuery.data?.is_favorite,
     onToggleFavoriteArtist: (artist, next) => {
+      if (
+        isRemoteHubId(artist.artistId) ||
+        isRelationHubId(artist.artistId) ||
+        isRelationValueHubId(artist.artistId)
+      ) {
+        return;
+      }
       // artist favorites use the active data source (no per-artist
       // remote since artist nodes are cross-remote aggregations).
       favoriteMutation.mutate(
@@ -819,6 +1349,13 @@ function Inner(props: {
   // publish the graph ref so the artist query above can read its
   // `selectedArtistId()` accessor reactively.
   setGraphRef(graph);
+
+  createEffect(() => {
+    const kind = activeRelationKind();
+    if (!kind) return;
+    void activeRelationValueNorm();
+    requestAnimationFrame(() => graph.fit());
+  });
 
   // wire the batched-flush hook to the now-instantiated graph. each
   // flush schedules a fit, but successive flushes within ~200ms coalesce
@@ -868,6 +1405,14 @@ function Inner(props: {
       // would close the modal AND clear the selection in one keystroke.
       if (e.key === "Escape") {
         if (isAnyModalOpen()) return;
+        // when something is selected, clear it first; onSelectionChange(null)
+        // will run backOneDrillLevel deterministically.
+        if (focusedNode()) {
+          graph.clearSelection();
+          return;
+        }
+        // no active selection: still allow hierarchical back-step.
+        if (backOneDrillLevel()) return;
         graph.clearSelection();
         return;
       }
