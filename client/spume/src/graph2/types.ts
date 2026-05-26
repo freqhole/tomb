@@ -1,7 +1,14 @@
 // graph2/types.ts — core types for the greenfield graph walker.
 // kept separate from src/components/graph/* on purpose.
 
-export type NodeRole = "root" | "remote" | "relation" | "value" | "artist" | "album";
+export type NodeRole =
+  | "root"
+  | "remote"
+  | "relation"
+  | "value"
+  | "artist"
+  | "album"
+  | "ghost_artist"; // artists referenced in metadata (e.g. collaborators) but not in any remote's library
 
 export interface WalkNode {
   id: string;

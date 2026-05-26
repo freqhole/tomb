@@ -21,6 +21,9 @@ export interface TopologyEdge {
   targetIdx: number;
   /** breadcrumb edges are drawn differently (highlighted path) */
   isBreadcrumb: boolean;
+  /** synthesized link between matched nodes in different remotes (artist or
+   *  album). drawn amber-dashed so federation is visually obvious. */
+  isCrossRemote?: boolean;
 }
 
 // ---- main → worker ---------------------------------------------------------

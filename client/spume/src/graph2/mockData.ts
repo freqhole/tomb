@@ -50,6 +50,20 @@ function album(remoteId: string, albumId: string, title: string): WalkNode {
   };
 }
 
+/** ghost artist — referenced in collaborator/metadata edges but not present
+ *  in any remote's library. label-only render, no shape, no click target.
+ *  id deliberately namespaced with `ghost::` (no remote prefix) so the
+ *  cross-remote name matcher skips them. */
+function ghostArtist(ghostId: string, name: string): WalkNode {
+  return {
+    id: `ghost::${ghostId}`,
+    role: "ghost_artist",
+    label: name,
+    parentId: null,
+    childCount: 0,
+  };
+}
+
 function edge(source: string, target: string): WalkEdge {
   return { source, target };
 }
@@ -433,6 +447,7 @@ function buildGraph(): WalkGraph {
     ["recent_albums", "recent albums", 12],
     ["era", "era", 5],
     ["mood", "mood", 8],
+    ["collaborators", "collaborators", 6],
   ];
   for (const [kind, label, count] of localRelations) {
     nodes.push(relation("local", kind, label, count));
@@ -913,6 +928,38 @@ function buildGraph(): WalkGraph {
   // favorites → artist edges (local)
   for (const aId of ["a01", "a03", "a05", "a09", "a12", "a14", "a20", "a21", "a27", "a31", "a42", "a54", "a55"]) {
     edges.push(edge("relation::local::favorites", `artist::local::${aId}`));
+  }
+
+  // ghost artists — referenced as collaborators but not in any library.
+  // these surface as label-only nodes when pivoting on a real artist who
+  // worked with them, or when pivoting on the `collaborators` relation hub.
+  const LOCAL_GHOSTS: WalkNode[] = [
+    ghostArtist("g01", "Liz Harris"),         // Grouper (a01)
+    ghostArtist("g02", "Drew McDowall"),      // Coil (a31)
+    ghostArtist("g03", "Mick Harris"),        // industrial percussion
+    ghostArtist("g04", "Lawrence English"),   // ambient producer
+    ghostArtist("g05", "Carla Bozulich"),     // post-punk collaborator
+    ghostArtist("g06", "Stephen O'Malley"),   // sunn o))) (also a10 himself but treat as a guest)
+  ];
+  nodes.push(...LOCAL_GHOSTS);
+  // collaborators relation → ghost nodes
+  for (const g of LOCAL_GHOSTS) {
+    edges.push(edge("relation::local::collaborators", g.id));
+  }
+  // artist → ghost edges (so pivoting on the artist surfaces their collaborators)
+  const collabPairs: [string, string][] = [
+    ["a01", "ghost::g01"], // Grouper ↔ Liz Harris
+    ["a01", "ghost::g04"], // Grouper ↔ Lawrence English
+    ["a31", "ghost::g02"], // Coil ↔ Drew McDowall
+    ["a31", "ghost::g03"], // Coil ↔ Mick Harris
+    ["a10", "ghost::g04"], // Sunn O))) ↔ Lawrence English
+    ["a09", "ghost::g05"], // Swans ↔ Carla Bozulich
+    ["a16", "ghost::g04"], // Tim Hecker ↔ Lawrence English
+    ["a35", "ghost::g03"], // Throbbing Gristle ↔ Mick Harris
+    ["a39", "ghost::g06"], // Merzbow ↔ Stephen O'Malley
+  ];
+  for (const [aId, gId] of collabPairs) {
+    edges.push(edge(`artist::local::${aId}`, gId));
   }
 
   // recent_albums → album edges (most recently added to library)

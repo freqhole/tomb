@@ -75,6 +75,8 @@ function edgeKindColor(a: VisibleNode | undefined, b: VisibleNode | undefined): 
 const EDGE_COLOR = "#6b7280"; // visible on black
 const EDGE_ALBUM = "#94a3b8"; // lighter for artist→album wires
 const EDGE_BREADCRUMB = "#f59e0b";
+const CROSS_REMOTE_COLOR = "#fbbf24"; // amber, slightly brighter than breadcrumb — used dashed
+const GHOST_LABEL_COLOR = "rgba(241,245,249,0.55)"; // dimmed label tint for ghost artists
 const PIVOT_RING_COLOR = "#ffffff";
 const BREADCRUMB_COLOR = "#fcd34d";
 const LABEL_COLOR = "#f1f5f9";
@@ -163,6 +165,10 @@ function drawNode(
   y: number,
   radius: number
 ) {
+  // ghost artists are label-only: skip all shape/fill/stroke; drawLabel
+  // handles their text styling in the label pass.
+  if (n.role === "ghost_artist") return;
+
   const color = nodeFillColor(n);
   ctx.fillStyle = color;
   // value nodes get a colored stroke based on their taxon kind so different
@@ -203,10 +209,17 @@ function drawLabel(
   cy: number
 ) {
   const fontSize = n.role === "album" ? 10 : 12;
-  ctx.font = `${fontSize}px system-ui,sans-serif`;
+  const italic = n.role === "ghost_artist" ? "italic " : "";
+  ctx.font = `${italic}${fontSize}px system-ui,sans-serif`;
 
   const label = n.label.length > 18 ? n.label.slice(0, 17) + "…" : n.label;
-  const color = n.isPivot ? "#ffffff" : n.isBreadcrumb ? BREADCRUMB_COLOR : LABEL_COLOR;
+  const color = n.isPivot
+    ? "#ffffff"
+    : n.isBreadcrumb
+      ? BREADCRUMB_COLOR
+      : n.role === "ghost_artist"
+        ? GHOST_LABEL_COLOR
+        : LABEL_COLOR;
 
   let lx: number, ly: number;
 
@@ -230,6 +243,12 @@ function drawLabel(
       ctx.textAlign = "center";
       ctx.textBaseline = "top";
     }
+  } else if (n.role === "ghost_artist") {
+    // no shape — center label exactly on node position
+    lx = x;
+    ly = y;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
   } else {
     lx = x;
     ly = y + radius + 12;
@@ -330,6 +349,12 @@ export default function WalkCanvas(props: WalkCanvasProps) {
   // it's a pan; otherwise a click that fires hit-test on pointerup.
   const PAN_THRESHOLD = 3;
 
+  // latched when the user manually pans (drag or wheel-pan). disables the
+  // proportional pivot-follow until the next pivot change clears it, so we
+  // never fight the user when they're exploring far from the pivot.
+  let userPanned = false;
+  let lastPivotId: string | null = null;
+
   const client = createWalkerClient();
   onCleanup(() => {
     cancelAnimationFrame(rafId);
@@ -341,6 +366,12 @@ export default function WalkCanvas(props: WalkCanvasProps) {
   client.onTopology((nds, eds) => {
     nodes = nds;
     edges = eds;
+    // re-engage auto-follow whenever the pivot changes
+    const piv = nds.find((n) => n.isPivot)?.id ?? null;
+    if (piv !== lastPivotId) {
+      lastPivotId = piv;
+      userPanned = false;
+    }
   });
   client.onFrame((pos) => {
     positions = pos;
@@ -380,6 +411,44 @@ export default function WalkCanvas(props: WalkCanvasProps) {
         return;
       }
 
+      // ---- gentle pivot-follow pan ------------------------------------------
+      // proportional controller: if the pivot drifts outside the viewport
+      // (with a screen-px margin), nudge tx/ty a small fraction toward
+      // bringing it just inside. produces zero delta when in-frame, so it
+      // self-stops; never touches k. skipped while user is actively
+      // dragging or pinching so we don't fight input. also skipped once the
+      // user has manually panned — they're exploring, leave them alone
+      // until they pick a new pivot.
+      if (!userPanned && !panState() && !pinchState) {
+        const pi = nodes.findIndex((n) => n.isPivot);
+        if (pi !== -1) {
+          const wx = positions[pi * 2];
+          const wy = positions[pi * 2 + 1];
+          if (Number.isFinite(wx) && Number.isFinite(wy)) {
+            const vNow = view();
+            const sx = wx * vNow.k + vNow.tx;
+            const sy = wy * vNow.k + vNow.ty;
+            const margin = 80;
+            const W = w();
+            const H = h();
+            let dx = 0;
+            let dy = 0;
+            if (sx < margin) dx = margin - sx;
+            else if (sx > W - margin) dx = W - margin - sx;
+            if (sy < margin) dy = margin - sy;
+            else if (sy > H - margin) dy = H - margin - sy;
+            if (dx !== 0 || dy !== 0) {
+              const FOLLOW_RATE = 0.12;
+              setView({
+                k: vNow.k,
+                tx: vNow.tx + dx * FOLLOW_RATE,
+                ty: vNow.ty + dy * FOLLOW_RATE,
+              });
+            }
+          }
+        }
+      }
+
       const v = view();
       // world → device px:  (world * k + t) * dpr
       ctx.setTransform(dpr * v.k, 0, 0, dpr * v.k, dpr * v.tx, dpr * v.ty);
@@ -402,21 +471,31 @@ export default function WalkCanvas(props: WalkCanvasProps) {
         // taxon edges (anything touching a value node) inherit the value
         // kind's color so all "tagged-with" wires for a given kind share a hue.
         const kindEdge = edgeKindColor(nodes[e.sourceIdx], nodes[e.targetIdx]);
-        ctx.strokeStyle = e.isBreadcrumb
-          ? EDGE_BREADCRUMB
-          : kindEdge
-            ? kindEdge
-            : isAlbumEdge
-              ? EDGE_ALBUM
-              : EDGE_COLOR;
-        ctx.lineWidth = e.isBreadcrumb ? 2.5 : 1;
-        ctx.globalAlpha = e.isBreadcrumb ? 0.9 : kindEdge ? 0.65 : isAlbumEdge ? 0.8 : 0.7;
+        // cross-remote synthetic links: drawn amber-dashed so federation is
+        // visually obvious and distinguishable from the breadcrumb path.
+        if (e.isCrossRemote) {
+          ctx.setLineDash([6, 4]);
+          ctx.strokeStyle = CROSS_REMOTE_COLOR;
+          ctx.lineWidth = 1.5;
+          ctx.globalAlpha = 0.75;
+        } else {
+          ctx.strokeStyle = e.isBreadcrumb
+            ? EDGE_BREADCRUMB
+            : kindEdge
+              ? kindEdge
+              : isAlbumEdge
+                ? EDGE_ALBUM
+                : EDGE_COLOR;
+          ctx.lineWidth = e.isBreadcrumb ? 2.5 : 1;
+          ctx.globalAlpha = e.isBreadcrumb ? 0.9 : kindEdge ? 0.65 : isAlbumEdge ? 0.8 : 0.7;
+        }
         ctx.stroke();
+        ctx.setLineDash([]);
         ctx.globalAlpha = 1;
       }
 
-      // draw nodes (back to front: albums, artists, values, relations, remotes, root)
-      const roleOrder = ["album", "artist", "value", "relation", "remote", "root"];
+      // draw nodes (back to front: ghosts (label-only) first, then albums, artists, values, relations, remotes, root)
+      const roleOrder = ["ghost_artist", "album", "artist", "value", "relation", "remote", "root"];
       const sorted = [...nodes.keys()].sort((a, b) => {
         return roleOrder.indexOf(nodes[a].role) - roleOrder.indexOf(nodes[b].role);
       });
@@ -548,6 +627,7 @@ export default function WalkCanvas(props: WalkCanvasProps) {
       if (!ps.moved && Math.abs(dx) + Math.abs(dy) > PAN_THRESHOLD) {
         setPanState({ ...ps, moved: true });
         setHoveredId(null); // clear hover on pan start
+        userPanned = true; // disable auto-follow until next pivot change
       }
       if (ps.moved || Math.abs(dx) + Math.abs(dy) > PAN_THRESHOLD) {
         setView((v) => ({ ...v, tx: ps.startTx + dx, ty: ps.startTy + dy }));
@@ -602,6 +682,7 @@ export default function WalkCanvas(props: WalkCanvasProps) {
 
     if (isTrackpadPan) {
       setView({ ...v, tx: v.tx - e.deltaX, ty: v.ty - e.deltaY });
+      userPanned = true;
       return;
     }
     // zoom anchored on cursor

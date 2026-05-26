@@ -69,6 +69,32 @@ const nodeMap = new Map<string, WalkNode>();
 const childrenOf = new Map<string, string[]>(); // parentId -> [childId]
 const parentsOf  = new Map<string, string[]>(); // childId  -> [parentId]
 
+// phase 3: synthesized cross-remote links (artist↔artist, album↔album) keyed
+// by a sorted "a||b" string for fast lookup at emit time. populated by
+// indexGraph() from name-based matching across remotes.
+const crossRemoteEdges = new Set<string>();
+
+function crossKey(a: string, b: string): string {
+  return a < b ? `${a}||${b}` : `${b}||${a}`;
+}
+
+/** case-insensitive, punctuation-collapsing slug — used for cross-remote
+ *  name matching (artists, album titles). matches "MF DOOM" with "Mf Doom",
+ *  "Sunn O)))" with "sunn o", "Post-Punk" with "post punk". */
+function slug(s: string): string {
+  return s.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+}
+
+/** parse the remote id out of an entity id like `artist::raid::r01`. returns
+ *  null for ids that aren't entity-scoped. used so we only build cross-remote
+ *  links between different remotes (not within the same remote). */
+function remoteOfId(id: string): string | null {
+  const parts = id.split("::");
+  if (parts.length < 3) return null;
+  if (parts[0] !== "artist" && parts[0] !== "album") return null;
+  return parts[1];
+}
+
 function pivot(): string {
   return breadcrumb[breadcrumb.length - 1] ?? "";
 }
@@ -83,6 +109,7 @@ function nodeRadius(role: string, childCount: number): number {
     case "value":    return 14 + Math.min(Math.sqrt(childCount) * 3, 16);
     case "artist":   return 18;
     case "album":    return 11;
+    case "ghost_artist": return 8; // text-only, small footprint just for layout
     default:         return 14;
   }
 }
@@ -337,6 +364,7 @@ function buildSim() {
   // build sim edges (between visible nodes only)
   const simLinks: SimLink[] = [];
   const visibleEdges: TopologyEdge[] = [];
+  const emittedEdgeKeys = new Set<string>(); // dedupe forward + cross-remote
 
   for (const e of fullGraph.edges) {
     const src = typeof e.source === "string" ? e.source : (e.source as SimNode).id;
@@ -347,6 +375,22 @@ function buildSim() {
     const isBC = breadcrumbSet.has(src) && breadcrumbSet.has(tgt);
     simLinks.push({ source: src, target: tgt, isBreadcrumb: isBC });
     visibleEdges.push({ sourceIdx: si, targetIdx: ti, isBreadcrumb: isBC });
+    emittedEdgeKeys.add(crossKey(src, tgt));
+  }
+
+  // phase 3: emit synthesized cross-remote artist/album links for any pair
+  // whose both endpoints are currently visible. flagged so the renderer can
+  // style them distinctly (amber dashed). also added as sim links with a
+  // longer rest distance so counterparts don't crash into each other.
+  for (const key of crossRemoteEdges) {
+    if (emittedEdgeKeys.has(key)) continue;
+    const [a, b] = key.split("||");
+    const si = idToIdx.get(a);
+    const ti = idToIdx.get(b);
+    if (si === undefined || ti === undefined) continue;
+    simLinks.push({ source: a, target: b, isBreadcrumb: false });
+    visibleEdges.push({ sourceIdx: si, targetIdx: ti, isBreadcrumb: false, isCrossRemote: true });
+    emittedEdgeKeys.add(key);
   }
 
   // emit topology before starting sim so main thread can render immediately
@@ -471,6 +515,62 @@ function indexGraph() {
       childrenOf.get(tgt)!.push(src);
     }
   }
+
+  // phase 3: build cross-remote name-match links for artists + albums.
+  // ids differ across remotes (`a01` vs `r01`) so matching is by slug of
+  // the human label. albums also key on their parent artist's slug since
+  // two unrelated artists can share a title (e.g. "Untitled").
+  crossRemoteEdges.clear();
+  const artistByKey = new Map<string, string[]>(); // slug(label) -> [artistId]
+  const albumByKey  = new Map<string, string[]>(); // slug(artistLabel)::slug(albumLabel) -> [albumId]
+
+  // index artists first so albums can look up their parent's slug
+  for (const n of fullGraph.nodes) {
+    if (n.role !== "artist") continue;
+    const k = slug(n.label);
+    if (!k) continue;
+    if (!artistByKey.has(k)) artistByKey.set(k, []);
+    artistByKey.get(k)!.push(n.id);
+  }
+
+  // each album finds its artist parent via parentsOf (role==artist)
+  for (const n of fullGraph.nodes) {
+    if (n.role !== "album") continue;
+    const parents = parentsOf.get(n.id) ?? [];
+    const artistParent = parents
+      .map((pid) => nodeMap.get(pid))
+      .find((p) => p?.role === "artist");
+    if (!artistParent) continue;
+    const k = `${slug(artistParent.label)}::${slug(n.label)}`;
+    if (!k) continue;
+    if (!albumByKey.has(k)) albumByKey.set(k, []);
+    albumByKey.get(k)!.push(n.id);
+  }
+
+  // all-pairs cross-remote links per matched group (different remotes only)
+  function linkGroup(ids: string[]) {
+    if (ids.length < 2) return;
+    for (let i = 0; i < ids.length; i++) {
+      for (let j = i + 1; j < ids.length; j++) {
+        const a = ids[i];
+        const b = ids[j];
+        if (remoteOfId(a) === remoteOfId(b)) continue; // same remote — skip
+        crossRemoteEdges.add(crossKey(a, b));
+        // augment adjacency so getVisible() surfaces counterparts as
+        // pseudo-children of the pivoted artist/album.
+        if (!childrenOf.has(a)) childrenOf.set(a, []);
+        if (!childrenOf.has(b)) childrenOf.set(b, []);
+        childrenOf.get(a)!.push(b);
+        childrenOf.get(b)!.push(a);
+        if (!parentsOf.has(a)) parentsOf.set(a, []);
+        if (!parentsOf.has(b)) parentsOf.set(b, []);
+        parentsOf.get(a)!.push(b);
+        parentsOf.get(b)!.push(a);
+      }
+    }
+  }
+  for (const ids of artistByKey.values()) linkGroup(ids);
+  for (const ids of albumByKey.values()) linkGroup(ids);
 }
 
 // ---- message handler -------------------------------------------------------
@@ -544,6 +644,8 @@ ctx.onmessage = (evt: MessageEvent<MainToWorker>) => {
       let best: string | null = null;
       let bestDist = Infinity;
       for (const n of nodes) {
+        // ghost artists are non-interactive (label-only, no shape)
+        if (n.role === "ghost_artist") continue;
         const dx = (n.x ?? 0) - msg.x;
         const dy = (n.y ?? 0) - msg.y;
         const dist = Math.sqrt(dx * dx + dy * dy);
