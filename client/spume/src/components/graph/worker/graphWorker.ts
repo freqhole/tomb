@@ -17,9 +17,6 @@ import {
   type Simulation,
 } from "d3-force";
 import { buildRelationEdges } from "../relations";
-import {
-  collideRadiiForCount,
-} from "./sim/collideRadii";
 import { createHitTreeCache } from "./hit/hitTreeCache";
 import { createPositionBufferPool } from "./sim/positionBufferPool";
 import { buildSimulation } from "./sim/buildSim";
@@ -90,125 +87,26 @@ let tick = 0;
 // lasso). extracted to `./hit/hitTreeCache.ts` (phase 12).
 const hitCache = createHitTreeCache<SimNode>();
 
-// density-aware collide radii extracted to `./sim/collideRadii.ts`
-// (phase 12).
+// density-aware collide radii used to live in `./sim/collideRadii.ts`
+// (deleted in the phase 1 reset, 2026-05-26). a follow-up
+// `resolveResidualOverlaps` post-tick separation pass was also
+// deleted in phase 2.5 (2026-05-26) — it was a perf workaround for
+// 700+ node graphs that we no longer render at that scale, and it
+// was actively pushing nodes apart that d3-force's stock
+// `forceCollide` would otherwise leave alone.
 
-function resolveResidualOverlaps(alpha: number): void {
-  const nCount = simNodes.length;
-  if (nCount < 700) return;
-  // only spend extra overlap work while the sim is still actively
-  // cooling and not on every single tick for huge graphs.
-  if (alpha <= 0.004) return;
-  if (nCount >= 2500 && tick % 2 !== 0) return;
+// relation curve helpers + buildSim live in `./sim/buildSim.ts`.
+// the per-relation strength lookup is no longer consulted there
+// after the phase 1 reset (2026-05-26) deleted the directional /
+// endpoint-count / relation-curve scaffolding.
 
-  const sz = config.nodeSize;
-  const radii = collideRadiiForCount(nCount, sz);
-  const pad = sz * 0.06;
-  const cellSize = Math.max(sz * 2.2, (radii.album + radii.artist) * 1.1);
-  const passCount = nCount >= 3000 ? 3 : nCount >= 1500 ? 2 : 1;
-  const neighborOffsets: Array<[number, number]> = [
-    [0, 0],
-    [1, 0],
-    [0, 1],
-    [1, 1],
-    [1, -1],
-  ];
+// endpoint-count link tuning was removed in the phase 1 reset.
 
-  for (let pass = 0; pass < passCount; pass++) {
-    const grid = new Map<string, number[]>();
-    for (let i = 0; i < simNodes.length; i++) {
-      const n = simNodes[i];
-      const cx = Math.floor((n.x ?? 0) / cellSize);
-      const cy = Math.floor((n.y ?? 0) / cellSize);
-      const key = `${cx},${cy}`;
-      const bucket = grid.get(key);
-      if (bucket) {
-        bucket.push(i);
-      } else {
-        grid.set(key, [i]);
-      }
-    }
-
-    for (const [key, aBucket] of grid.entries()) {
-      const parts = key.split(",");
-      const cx = Number(parts[0]);
-      const cy = Number(parts[1]);
-      for (const [ox, oy] of neighborOffsets) {
-        const bKey = `${cx + ox},${cy + oy}`;
-        const bBucket = grid.get(bKey);
-        if (!bBucket) continue;
-
-        for (let ai = 0; ai < aBucket.length; ai++) {
-          const i = aBucket[ai];
-          const a = simNodes[i];
-          const ax = a.x ?? 0;
-          const ay = a.y ?? 0;
-          const ar = a.kind === "album" ? radii.album : radii.artist;
-          const aPinned = a.fx != null || a.fy != null;
-
-          const bjStart = bKey === key ? ai + 1 : 0;
-          for (let bj = bjStart; bj < bBucket.length; bj++) {
-            const j = bBucket[bj];
-            if (j === i) continue;
-            const b = simNodes[j];
-            const bx = b.x ?? 0;
-            const by = b.y ?? 0;
-            const br = b.kind === "album" ? radii.album : radii.artist;
-            const bPinned = b.fx != null || b.fy != null;
-            if (aPinned && bPinned) continue;
-
-            let dx = bx - ax;
-            let dy = by - ay;
-            let dist = Math.hypot(dx, dy);
-            const minDist = ar + br + pad;
-            if (dist >= minDist) continue;
-            if (dist < 1e-4) {
-              // deterministic tiny axis to avoid NaN when centers coincide.
-              dx = i < j ? 1 : -1;
-              dy = 0;
-              dist = 1;
-            }
-
-            const nx = dx / dist;
-            const ny = dy / dist;
-            const overlap = minDist - dist;
-
-            if (aPinned) {
-              b.x = bx + nx * overlap;
-              b.y = by + ny * overlap;
-            } else if (bPinned) {
-              a.x = ax - nx * overlap;
-              a.y = ay - ny * overlap;
-            } else {
-              const half = overlap * 0.5;
-              a.x = ax - nx * half;
-              a.y = ay - ny * half;
-              b.x = bx + nx * half;
-              b.y = by + ny * half;
-            }
-          }
-        }
-      }
-    }
-  }
-}
-
-// relation curve helpers + buildSim moved to `./sim/buildSim.ts`
-// (phase 12). all force-tuning + per-relation strength lookups now
-// happen inside the extracted module; the worker keeps just the
-// state (sim, simNodes, simLinks, relationStrengths) and forwards
-// it on each rebuild.
-
-// endpoint-count link tuning extracted to
-// `./sim/endpointCountTuning.ts` (phase 12).
-
-// ---- directional hub layout helpers -----------------------------
-// extracted to `./sim/hubDirectional.ts` (phase 12).
+// directional hub layout helpers were removed in the phase 1 reset.
 
 function emitPositions() {
   const tickStart = performance.now();
   performance.mark("graph-tick-start");
-  resolveResidualOverlaps(sim?.alpha() ?? 0);
   const buf = bufPool.obtain(simNodes.length);
   for (let i = 0; i < simNodes.length; i++) {
     const n = simNodes[i];
@@ -337,7 +235,10 @@ function rebuildLinks(incoming: SimLinkInit[]) {
 function adaptNodesForEdgeDerivation(incoming: SimNodeInit[]): GraphNodeData[] {
   return incoming.map((n) => {
     const tags = (n.tagLabels ?? []).map((label) => ({ label, weight: 0 }));
-    if (n.kind === "artist") {
+    // hubs flow through the artist branch — they share the artist node-data
+    // shape on the main thread, and their taxonomy arrays are empty so the
+    // relation-edge builder produces nothing for them either way.
+    if (n.kind === "artist" || n.kind === "hub") {
       return {
         id: n.id,
         kind: "artist",

@@ -24,7 +24,6 @@
 import { createEffect, createMemo, createSignal, onCleanup, Show, untrack } from "solid-js";
 import type { JSX } from "solid-js";
 import { GraphCanvas, type GraphActions } from "../../../components/graph/GraphCanvas";
-import { GraphForceTuningPanel } from "../../../components/graph/GraphForceTuningPanel";
 import { AlbumDetailPopover } from "../../../components/graph/AlbumDetailPopover";
 import { ArtistDetailPopover } from "../../../components/graph/ArtistDetailPopover";
 import { useDetailPanelHide } from "../../../components/graph/useDetailPanelHide";
@@ -890,14 +889,7 @@ export function createGraphLibraryView(opts: CreateGraphLibraryViewOpts): GraphL
         </button>
       </Show>
 
-      {/* bottom-right status chip + debug tuning panel */}
-      <GraphForceTuningPanel
-        nodeCount={() => nodes().length}
-        edgeCount={() => edges().length}
-        selectionCount={() => popInfo().list.length}
-        sendTuning={() => api()?.sendTuning}
-        onFullReset={() => api()?.fullReset()}
-      />
+      {/* debug force-tuning panel removed in phase 1 reset (2026-05-26). */}
     </div>
   );
 

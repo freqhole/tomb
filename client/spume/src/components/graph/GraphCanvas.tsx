@@ -686,10 +686,17 @@ export function GraphCanvas(props: GraphCanvasProps) {
    *  in legacy mode it stays minimal (the worker uses pre-built
    *  links instead). */
   function buildWorkerNodes(): SimNodeInit[] {
+    // hub silhouettes still tag as kind:"artist" in the main-thread
+    // node-data union; the worker wants to branch on layout class
+    // without re-parsing the id, so we emit kind:"hub" here.
+    function workerKind(n: GraphNodeData): "album" | "artist" | "hub" {
+      if (isAnyHubId(n.id)) return "hub";
+      return nodeKind(n);
+    }
     if (!deriveMode()) {
       return simNodes.map((n) => ({
         id: n.id,
-        kind: nodeKind(n),
+        kind: workerKind(n),
         x: n.x,
         y: n.y,
         fx: n.fx,
@@ -699,7 +706,7 @@ export function GraphCanvas(props: GraphCanvasProps) {
     return simNodes.map((n) => {
       const base: SimNodeInit = {
         id: n.id,
-        kind: nodeKind(n),
+        kind: workerKind(n),
         x: n.x,
         y: n.y,
         fx: n.fx,
@@ -802,29 +809,18 @@ export function GraphCanvas(props: GraphCanvasProps) {
     // pre-seed any node that's still missing x/y (i.e. truly new).
     // grouped seeding starts each batch in coarse clusters (artist/
     // label/era/genre) so dense pages enter already separated.
-    // this lowers early collision pressure and reduces the chance that
-    // mega-graphs collapse into overlap before forces can untangle.
+    // phase 2.5 (2026-05-26): replaced the piecewise density-aware
+    // spacing tables (cluster sz*7.6 \u2192 13.2 by node count) with
+    // small constants. we now walk out incrementally with much
+    // smaller graphs, and the old spread-by-1000-px seeding was
+    // landing nodes so far apart that link springs couldn't pull
+    // them back into a tight layout.
     const cx = width / 2;
     const cy = height / 2;
     const sz0 = nodeSize();
     const golden = 2.399963229728653;
-    const allCount = simNodes.length;
-    const clusterSpacing =
-      allCount >= 3500
-        ? sz0 * 13.2
-        : allCount >= 2200
-          ? sz0 * 11.2
-          : allCount >= 1200
-            ? sz0 * 9.4
-            : sz0 * 7.6;
-    const localStep =
-      allCount >= 3500
-        ? sz0 * 1.34
-        : allCount >= 2200
-          ? sz0 * 1.22
-          : allCount >= 1200
-            ? sz0 * 1.12
-            : sz0 * 1.02;
+    const clusterSpacing = sz0 * 2.5;
+    const localStep = sz0 * 1.0;
 
     const groups = new Map<string, SimNode[]>();
     const centroid = new Map<string, { x: number; y: number; count: number }>();

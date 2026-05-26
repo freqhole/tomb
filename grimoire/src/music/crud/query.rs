@@ -704,6 +704,21 @@ fn add_global_filters(
         query.and_where(Expr::col(CommonColumns::ArtistId).eq(artist_id));
     }
 
+    // Batch variant of artist_id: artist_ids = [..]. used by the graph
+    // viz artist-walk expansion to fetch albums for many related artists
+    // in one request rather than N (phase 3, 2026-05-26). silently
+    // ignores non-string entries; empty array is a no-op (no filter
+    // added, matches existing artist_id behaviour when absent).
+    if let Some(artist_ids) = params.filters.get("artist_ids").and_then(|v| v.as_array()) {
+        let ids: Vec<String> = artist_ids
+            .iter()
+            .filter_map(|v| v.as_str().map(|s| s.to_string()))
+            .collect();
+        if !ids.is_empty() {
+            query.and_where(Expr::col(CommonColumns::ArtistId).is_in(ids));
+        }
+    }
+
     if let Some(album_id) = params.filters.get("album_id").and_then(|v| v.as_str()) {
         query.and_where(Expr::col(CommonColumns::AlbumId).eq(album_id));
     }
@@ -1238,6 +1253,19 @@ pub async fn query_artists(
     // Handle artist_id filter for querying specific artist
     if let Some(artist_id) = params.filters.get("artist_id").and_then(|v| v.as_str()) {
         query.and_where(Expr::col(ArtistView::ArtistId).eq(artist_id));
+    }
+
+    // Batch variant: artist_ids = [..]. used by the graph viz
+    // artist-walk expansion to load multiple artist payloads in one
+    // request (phase 3, 2026-05-26).
+    if let Some(artist_ids) = params.filters.get("artist_ids").and_then(|v| v.as_array()) {
+        let ids: Vec<String> = artist_ids
+            .iter()
+            .filter_map(|v| v.as_str().map(|s| s.to_string()))
+            .collect();
+        if !ids.is_empty() {
+            query.and_where(Expr::col(ArtistView::ArtistId).is_in(ids));
+        }
     }
 
     // Handle starts_with filter for artists

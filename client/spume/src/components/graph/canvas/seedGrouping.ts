@@ -90,8 +90,9 @@ export function hubLaneOffset(key: string): { ox: number; oy: number } | null {
     const remote = key.slice("hub:remote:".length);
     const a = hashAngle("remote::" + remote);
     // remote triangles sit on the outer ring along the remote's
-    // angle slot. matches the worker's `hubDirectional` target so
-    // the seed agrees with the steady-state pull.
+    // angle slot. provides an initial spread hint only \u2014 the worker
+    // no longer runs directional forces (phase 1 reset, 2026-05-26),
+    // so the steady-state placement is driven by link + collide alone.
     return { ox: 0.95 * Math.cos(a), oy: 0.95 * Math.sin(a) };
   }
   if (key.startsWith("hub:relation:")) {

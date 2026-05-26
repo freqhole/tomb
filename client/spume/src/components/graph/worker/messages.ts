@@ -23,7 +23,13 @@ import type { GraphEdge, GraphNodeData, RelationKind, RelationKindLike } from ".
  *  keep posting pre-built `links` in MsgInit/MsgUpdate. */
 export interface SimNodeInit {
   id: string;
-  kind: "album" | "artist";
+  /** "hub" carries the three hub silhouettes (remote triangle, relation
+   *  hexagon, relation_value octagon, and the phase 2b "more" aggregate).
+   *  the main-thread node-data model still tags every non-album row as
+   *  `"artist"` (see ArtistNodeData); GraphCanvas.buildWorkerNodes()
+   *  inspects the id with `isAnyHubId()` and emits `"hub"` here so the
+   *  worker can branch on layout class without re-parsing the id. */
+  kind: "album" | "artist" | "hub";
   /** optional initial position hint; if absent the sim seeds
    *  positions via phyllotaxis on its side. */
   x?: number;
@@ -227,42 +233,25 @@ export interface MsgQuit {
 
 /** debug: live force-tuning overrides. every field is optional — omit
  *  a field to keep the compiled-in default from `forceTuning.ts`.
- *  send via `MsgTuning`; the worker rebuilds the sim on receipt. */
+ *  send via `MsgTuning`; the worker rebuilds the sim on receipt.
+ *
+ *  phase 1 reset (2026-05-26): trimmed from 23 fields to 5. the dropped
+ *  knobs targeted the prescriptive hub-ring + entity-wedge layout that
+ *  was removed in this phase; those forces are gone, so their tuning
+ *  fields would be no-ops. only the five live knobs that still feed
+ *  buildSim.ts remain. */
 export interface TuningOverrides {
-  // link + spring
+  /** multiplier on link distance vs node size. (default: LINK_DISTANCE_NODE_SIZE_MUL) */
   linkDistanceMul?: number;
-  linkStrengthBase?: number;
-  linkStrengthSlope?: number;
-  // charge / repulsion
+  /** baseline forceManyBody charge per node size (negative). (default: CHARGE_PER_NODE_SIZE) */
   chargePerNodeSize?: number;
-  relationHubChargeMul?: number;
-  valueHubChargeMul?: number;
-  // hub scaffold spacing
-  hubLinkDistRemoteToRelation?: number;
-  hubLinkDistKindToKind?: number;
-  remoteHubLinkStrengthBump?: number;
-  hubRingRadiusSqrtFactor?: number;
-  // hub directional pull (ring layout)
-  remoteRadiusFactor?: number;
-  remoteStrength?: number;
-  relationRadiusFactor?: number;
-  relationStrength?: number;
-  valueRadiusFactor?: number;
-  valueStrength?: number;
-  // entity fan-out (phase 20)
-  entityOutwardWedgeHalfDeg?: number;
-  entityOutwardRadiusFactor?: number;
-  entityOutwardStrength?: number;
-  // sim dynamics
+  /** d3-force velocityDecay. (default: SIM_COOLDOWN.velocityDecay) */
   velocityDecay?: number;
-  /** weak per-node forceX/Y toward the canvas centre. counteracts drift
-   *  for lightly-linked nodes (e.g. remote hub nodes when directional
-   *  forces are off). 0 = off; 0.02-0.05 is a noticeable effect. */
-  centerGravityStrength?: number;
-  /** alpha-decay rate per tick (0 = use density-based auto). lower values
-   *  mean the sim runs longer before cooling — useful when nodes need time
-   *  to regroup after a large topology change. d3 default ≈ 0.023. */
+  /** alpha-decay rate per tick. 0 = use density-based auto pick in buildSim. */
   alphaDecay?: number;
+  /** weak per-node forceX/Y toward canvas centre. 0 = off (default);
+   *  0.02-0.05 is a noticeable bias without overpowering link/charge. */
+  centerGravityStrength?: number;
 }
 
 /** debug: push live force-tuning overrides to the worker. the worker

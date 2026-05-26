@@ -48,16 +48,16 @@ import { useRelatedArtistsByIds } from "../../queries/useRelatedArtistsByIds";
 import { RELATION_LABEL } from "../../../components/graph/relations";
 import {
   RELATION_HUB_KINDS,
+  LOW_COUNT_HUB_THRESHOLD,
   isAnyHubId,
-  isRelationHubId,
-  isRemoteHubId,
-  isRelationValueHubId,
   parseRelationHubId,
   parseRelationValueHubId,
+  parseRelationValueMoreHubId,
   parseRemoteHubId,
   relationHubId,
   relationSupportsValueLayer,
   relationValueHubId,
+  relationValueMoreHubId,
   remoteHubId,
 } from "../../../components/graph/hubNodes";
 import { getAuthInfo, getAuthStatus } from "../../../app/services/remotes/authStatusStore";
@@ -771,17 +771,37 @@ function Inner(props: {
   const [activeRemoteId, setActiveRemoteId] = createSignal<string | null>(null);
   const [activeRelationValueNorm, setActiveRelationValueNorm] = createSignal<string | null>(null);
 
+  // phase 2b: set of relation kinds whose value-hub list is currently
+  // in "expanded aggregate" mode \u2014 i.e. the user clicked the
+  // synthetic "show more" hub for that kind, so the long-tail
+  // low-count hubs are visible and the high-count hubs are hidden.
+  // mutually exclusive on purpose (the more-hub is a toggle): keeps
+  // the visible node count down so the canvas doesn't get noisier
+  // when the user is trying to scan the sparse tail.
+  const [expandedAggregateKinds, setExpandedAggregateKinds] = createSignal<Set<string>>(new Set());
+  const toggleAggregateExpanded = (kind: RelationKindLike) => {
+    setExpandedAggregateKinds((prev) => {
+      const next = new Set(prev);
+      const key = String(kind);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
   const enterRootMode = () => {
     setDrillMode("root");
     setActiveRelationKind(null);
     setActiveRemoteId(null);
     setActiveRelationValueNorm(null);
+    setExpandedAggregateKinds(new Set<string>());
   };
   const enterRelationValuesMode = (kind: RelationKindLike, remoteId: string) => {
     setDrillMode("relation_values");
     setActiveRelationKind(kind);
     setActiveRemoteId(remoteId);
     setActiveRelationValueNorm(null);
+    setExpandedAggregateKinds(new Set<string>());
   };
   const enterEntitiesMode = (kind: RelationKindLike, valueNorm: string | null = null) => {
     setDrillMode("entities");
@@ -1037,6 +1057,14 @@ function Inner(props: {
   // narrow to only the values with membership from that remote;
   // counts always reflect the aggregate across every selected remote
   // so the convergence point shows the full cross-remote picture.
+  //
+  // phase 2b: long-tail aggregation. value hubs with count strictly
+  // below `LOW_COUNT_HUB_THRESHOLD` are folded into a single synthetic
+  // "show more" hub per kind. clicking that hub flips the kind into
+  // "expanded aggregate" mode (tracked in `expandedAggregateKinds`),
+  // which inverts the visibility: only the low-count hubs render,
+  // and the high-count hubs hide. mutually exclusive on purpose
+  // \u2014 keeps the visible node count down.
   const relationValueHubNodes = createMemo<ArtistNodeData[]>(() => {
     const kind = activeRelationKind();
     if (!kind || !relationSupportsValueLayer(kind)) return [];
@@ -1057,12 +1085,29 @@ function Inner(props: {
     const entries = [...counts.entries()]
       .filter(([v]) => allowedValues == null || allowedValues.has(v))
       .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
-    return entries.map(([valueNorm, count]) => ({
-      id: relationValueHubId(kind, valueNorm),
+
+    const expanded = expandedAggregateKinds().has(String(kind));
+    const highCount: typeof entries = [];
+    const lowCount: typeof entries = [];
+    for (const e of entries) {
+      if (e[1] >= LOW_COUNT_HUB_THRESHOLD) highCount.push(e);
+      else lowCount.push(e);
+    }
+
+    // pick which set is visible. when collapsed (default): show
+    // high-count + a synthetic "more" stub if any low-count exist.
+    // when expanded: show low-count only (the more stub is the
+    // toggle target itself, still visible so the user can click it
+    // again to collapse).
+    const visible = expanded ? lowCount : highCount;
+    const hiddenCount = expanded ? highCount.length : lowCount.length;
+
+    const toNode = (id: string, name: string, count: number): ArtistNodeData => ({
+      id,
       kind: "artist",
-      artistId: relationValueHubId(kind, valueNorm),
-      name: valueNorm,
-      abbreviation: valueNorm.slice(0, 3).toUpperCase(),
+      artistId: id,
+      name,
+      abbreviation: name.slice(0, 3).toUpperCase(),
       imageUrl: null,
       image: null,
       albumCount: count,
@@ -1073,7 +1118,22 @@ function Inner(props: {
       label: null,
       era: null,
       isFavorite: false,
-    }));
+    });
+
+    const out: ArtistNodeData[] = visible.map(([valueNorm, count]) =>
+      toNode(relationValueHubId(kind, valueNorm), valueNorm, count)
+    );
+
+    // emit the "more" stub whenever there's something on the other
+    // side of the toggle. label encodes direction: collapsed shows
+    // how many sparse values are hidden; expanded shows how many
+    // dense values are hidden ("show fewer").
+    if (hiddenCount > 0) {
+      const moreLabel = expanded ? `show fewer (${hiddenCount})` : `show more (${hiddenCount})`;
+      out.push(toNode(relationValueMoreHubId(kind), moreLabel, hiddenCount));
+    }
+
+    return out;
   });
 
   const artistNodesById = createMemo(() => {
@@ -1441,6 +1501,12 @@ function Inner(props: {
       // gets wired up; the others stay hung off their remote
       // triangle without value spokes.
       const valueHubs = relationValueHubNodes();
+      // phase 2b: the synthetic "show more / show fewer" stub has
+      // no membership of its own \u2014 anchor it directly to every
+      // selected remote's kind hub so it stays grouped with its
+      // sibling value hubs instead of floating.
+      const moreHubId = relationValueMoreHubId(active);
+      const moreHubPresent = valueHubs.some((h) => h.artistId === moreHubId);
       for (const remote of activeRemotes) {
         const rid = parseRemoteHubId(remote.artistId);
         if (!rid) continue;
@@ -1454,6 +1520,7 @@ function Inner(props: {
           for (const v of relationValuesForNode(active, n)) remoteValues.add(v);
         }
         for (const valueHub of valueHubs) {
+          if (valueHub.artistId === moreHubId) continue;
           const parsed = relationValueFromHubId(valueHub.artistId);
           if (!parsed) continue;
           if (!remoteValues.has(parsed.valueNorm)) continue;
@@ -1463,6 +1530,17 @@ function Inner(props: {
             kind: active,
             weight: 0.38,
             label: valueHub.name,
+          });
+        }
+        if (moreHubPresent) {
+          out.push({
+            source: hub.id,
+            target: moreHubId,
+            kind: active,
+            // looser than real value-hub spokes \u2014 it's a navigation
+            // stub, not a real membership edge.
+            weight: 0.25,
+            label: "more",
           });
         }
       }
@@ -1717,7 +1795,7 @@ function Inner(props: {
   const selectedArtistQuery = useArtistQuery(() => {
     const id = graphRef()?.selectedArtistId() ?? null;
     if (!id) return undefined;
-    if (isRemoteHubId(id) || isRelationHubId(id) || isRelationValueHubId(id)) return undefined;
+    if (isAnyHubId(id)) return undefined;
     return id;
   });
 
@@ -1979,6 +2057,16 @@ function Inner(props: {
           setFocusedNode(null);
           return;
         }
+        // phase 2b: "show more / show fewer" aggregate hub.
+        // toggles which slice of the value-hub list is visible for
+        // this relation kind \u2014 doesn't change the drill tier.
+        const moreHub = parseRelationValueMoreHubId(node.artistId);
+        if (moreHub) {
+          toggleAggregateExpanded(moreHub.kind);
+          setFocusedNode(null);
+          graph.clearSelection();
+          return;
+        }
         const parsedRelation = parseRelationHubId(node.artistId);
         if (parsedRelation) {
           if (relationSupportsValueLayer(parsedRelation.kind)) {
@@ -2094,11 +2182,7 @@ function Inner(props: {
       : undefined,
     onEditArtistNode: isAnyRemoteAdmin()
       ? (artist: ArtistNodeData) => {
-          if (
-            isRemoteHubId(artist.artistId) ||
-            isRelationHubId(artist.artistId) ||
-            isRelationValueHubId(artist.artistId)
-          ) {
+          if (isAnyHubId(artist.artistId)) {
             return;
           }
           // artist nodes are cross-remote aggregations — just open the
@@ -2110,21 +2194,13 @@ function Inner(props: {
       void openAlbumCarousel(album);
     },
     onImageClickArtist: (artist) => {
-      if (
-        isRemoteHubId(artist.artistId) ||
-        isRelationHubId(artist.artistId) ||
-        isRelationValueHubId(artist.artistId)
-      ) {
+      if (isAnyHubId(artist.artistId)) {
         return;
       }
       void openArtistCarousel(artist);
     },
     onViewArtistNode: (artist) => {
-      if (
-        isRemoteHubId(artist.artistId) ||
-        isRelationHubId(artist.artistId) ||
-        isRelationValueHubId(artist.artistId)
-      ) {
+      if (isAnyHubId(artist.artistId)) {
         return;
       }
       // artist nodes are cross-remote aggregations navigate to the
@@ -2134,11 +2210,7 @@ function Inner(props: {
     selectedArtistBio: () => selectedArtistQuery.data?.bio ?? null,
     selectedArtistIsFavorite: () => selectedArtistQuery.data?.is_favorite,
     onToggleFavoriteArtist: (artist, next) => {
-      if (
-        isRemoteHubId(artist.artistId) ||
-        isRelationHubId(artist.artistId) ||
-        isRelationValueHubId(artist.artistId)
-      ) {
+      if (isAnyHubId(artist.artistId)) {
         return;
       }
       // artist favorites use the active data source (no per-artist

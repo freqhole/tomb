@@ -5,6 +5,9 @@
 //   - remote hubs        (wonky triangle)        hub_remote::<remote_id>
 //   - relation hubs      (hexagon)               hub_relation::<remote_id>::<kind>
 //   - relation-value hubs (octagon, sub-relation) hub_relation_value::<kind>::<urlencoded value>
+//   - relation-value "more" aggregate hub        hub_relation_value_more::<kind>
+//     (phase 2b: progressive disclosure — collapses the long tail of
+//     low-count value hubs into one clickable stub.)
 //
 // these used to be scattered across LibraryGraphSubview, GraphCanvas
 // and the old `drawArtistNode.ts` (now `draw/roles/*.ts`) as bare
@@ -24,10 +27,21 @@ import type { RelationKind, RelationKindLike } from "./types";
 export const HUB_PREFIX = {
   remote: "hub_remote::",
   relation: "hub_relation::",
+  // NOTE: order matters in `isRelationValueHubId` — the "more" prefix
+  // shares the `hub_relation_value` substring with the value prefix,
+  // so the predicates below check the more-prefix first.
   relationValue: "hub_relation_value::",
+  relationValueMore: "hub_relation_value_more::",
 } as const;
 
-export type HubKind = "remote" | "relation" | "relation_value";
+export type HubKind = "remote" | "relation" | "relation_value" | "relation_value_more";
+
+// phase 2b: value hubs with a child count strictly below this
+// threshold are folded into the synthetic "show more" hub instead
+// of being rendered individually. hardcoded for now — applies
+// uniformly across every relation kind that supports a value layer
+// (taxon-name-agnostic, since remotes can surface arbitrary kinds).
+export const LOW_COUNT_HUB_THRESHOLD = 2;
 
 // every RelationKind we expose as a top-level relation hub. exclusions:
 //   - `artist_album`: implicit parent/child relation that always
@@ -65,14 +79,27 @@ export function isRelationHubId(id: string | null | undefined): boolean {
 }
 
 export function isRelationValueHubId(id: string | null | undefined): boolean {
-  return !!id && id.startsWith(HUB_PREFIX.relationValue);
+  // exclude the more-aggregate prefix, which shares the
+  // `hub_relation_value` substring but is a different node kind.
+  if (!id || !id.startsWith(HUB_PREFIX.relationValue)) return false;
+  return !id.startsWith(HUB_PREFIX.relationValueMore);
+}
+
+export function isRelationValueMoreHubId(id: string | null | undefined): boolean {
+  return !!id && id.startsWith(HUB_PREFIX.relationValueMore);
 }
 
 export function isAnyHubId(id: string | null | undefined): boolean {
-  return isRemoteHubId(id) || isRelationHubId(id) || isRelationValueHubId(id);
+  return (
+    isRemoteHubId(id) ||
+    isRelationHubId(id) ||
+    isRelationValueHubId(id) ||
+    isRelationValueMoreHubId(id)
+  );
 }
 
 export function hubKindOf(id: string | null | undefined): HubKind | null {
+  if (isRelationValueMoreHubId(id)) return "relation_value_more";
   if (isRelationValueHubId(id)) return "relation_value";
   if (isRelationHubId(id)) return "relation";
   if (isRemoteHubId(id)) return "remote";
@@ -91,6 +118,10 @@ export function relationHubId(kind: RelationKindLike, remoteId: string): string 
 
 export function relationValueHubId(kind: RelationKindLike, valueNorm: string): string {
   return `${HUB_PREFIX.relationValue}${kind}::${encodeURIComponent(valueNorm)}`;
+}
+
+export function relationValueMoreHubId(kind: RelationKindLike): string {
+  return `${HUB_PREFIX.relationValueMore}${kind}`;
 }
 
 // ---- parsers ----------------------------------------------------------
@@ -139,4 +170,13 @@ export function parseRelationValueHubId(
   } catch {
     return null;
   }
+}
+
+export function parseRelationValueMoreHubId(
+  id: string | null | undefined
+): { kind: RelationKindLike } | null {
+  if (!isRelationValueMoreHubId(id)) return null;
+  const kind = id!.slice(HUB_PREFIX.relationValueMore.length);
+  if (!kind) return null;
+  return { kind };
 }

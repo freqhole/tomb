@@ -1,162 +1,49 @@
 // force-tuning constants for the d3-force simulation running in the
-// graph web worker. centralized here so adjusting layout feel doesn't
-// require hunting through 900 lines of `buildSim` to find the magic
-// number you want to nudge.
+// graph web worker.
 //
-// the breakpoints in `densityMultiplierForCount`, `collideRadiiForCount`,
-// link-strength piecewise, alpha-decay piecewise, and collide-iterations
-// piecewise live alongside their helpers in `graphWorker.ts` for now —
-// extracting them here would force every helper to take a settings
-// object, trading one indirection for another. the scalar knobs below
-// are the high-signal ones: change a single number and the whole
-// layout reflows.
+// phase 2.5 (2026-05-26): collapsed further toward stock d3 defaults.
+// the absolute scales used to be 4–6× d3 default link distance and
+// 15–20× d3 default charge (since everything multiplied nodeSize=56).
+// that meant tightly-knit clusters drifted apart and never re-converged.
+// the new scales target near-stock spacing (linkDistance ≈ nodeSize,
+// charge ≈ -2.5 * nodeSize) so the layout actually pulls in. the
+// weight-driven link-strength override + the density bump on big
+// graphs were both removed — d3's degree-aware default link strength
+// + uniform charge gives a clean radial tree out of the box.
+//
+// previously deleted exports (phase 1): HUB_DIRECTIONAL, ENTITY_OUTWARD,
+// HUB_RING_RADIUS, HUB_LINK_DISTANCE_MUL, REMOTE_HUB_LINK_STRENGTH_BUMP,
+// RELATION_HUB_CHARGE_MUL, VALUE_HUB_CHARGE_MUL, ENDPOINT_COUNT_TUNING,
+// RELATION_CURVE.
+// phase 2.5 also dropped: LINK_STRENGTH_CURVE, LINK_STRENGTH_MIX.
 
-/** link-distance multiplier vs the configured node size. higher = more
- *  breathing room between connected nodes. lowered 2026-05-25 from
- *  2.6 → 2.05 to pull connected nodes visibly closer now that the
- *  drilldown topology keeps the rendered subgraph small enough that
- *  long links read as "adrift" rather than "spacious". */
-export const LINK_DISTANCE_NODE_SIZE_MUL = 2.05;
+/** link-distance multiplier vs the configured node size. phase 2.5
+ *  (2026-05-26) shrunk 2.2 → 1.2 so connected nodes sit just over
+ *  one node-width apart (d3 stock default is 30 px regardless of
+ *  node size; this keeps it node-relative for visual consistency
+ *  while landing in the same ballpark). */
+export const LINK_DISTANCE_NODE_SIZE_MUL = 1.2;
 
-/** baseline charge (negative = repulsion) per node size. multiplied by
- *  the count-driven density multiplier in `buildSim`. bumped
- *  2026-05-25 from -7.8 → -8.6 so non-connected nodes still push apart
- *  cleanly under the tighter link distance + stiffer springs. */
-export const CHARGE_PER_NODE_SIZE = -8.6;
-
-/** relation hubs cluster tightly around their parent remote, so their
- *  long-range repulsion is much weaker than leaves. multiplier applied
- *  to the baseline charge. */
-export const RELATION_HUB_CHARGE_MUL = 0.25;
-
-/** value hubs sit on the outer canvas and want moderate separation
- *  from siblings — between leaf charge and relation-hub charge. */
-export const VALUE_HUB_CHARGE_MUL = 0.5;
-
-/** hub-to-hub link distance multipliers applied on top of the base
- *  `linkDist`. lower = scaffold collapses tighter. */
-export const HUB_LINK_DISTANCE_MUL = {
-  /** remote-root → relation-hub or relation-hub → remote-root. */
-  remoteToRelation: 0.22,
-  /** any other hub↔hub edge (kind hex → value octagon, etc.). */
-  kindToKind: 0.45,
-} as const;
-
-/** spring-strength bump for remote↔kind-hub edges so the half-dozen
- *  relation hexagons per remote stay glued to their triangle. */
-export const REMOTE_HUB_LINK_STRENGTH_BUMP = 2.2;
+/** baseline charge (negative = repulsion) per node size. phase 2.5
+ *  (2026-05-26) softened -8.0 → -2.5. with nodeSize=56 this yields
+ *  ≈ -140 (vs d3's stock -30) — still a touch stronger so node
+ *  sprites have visible breathing room, but no longer the 15×
+ *  blow-up that pushed clusters off-canvas. */
+export const CHARGE_PER_NODE_SIZE = -2.5;
 
 /** padding (as fraction of node size) added to hub collide radius so
- *  hub silhouettes don't kiss neighbours. label chips that overflow
- *  the silhouette are allowed to render over neighbours — that's a
- *  visual concern, not a layout one. */
+ *  hub silhouettes don't kiss neighbours. */
 export const HUB_COLLIDE_PADDING_MUL = 0.08;
 
-/** base ring radius for hub directional pull: nodeSize *
- *  max(BASE_MIN, sqrt(nCount) * SQRT_FACTOR). */
-export const HUB_RING_RADIUS = {
-  baseMin: 8,
-  sqrtFactor: 1.4,
-} as const;
+/** collide radius for leaf (album / artist) nodes, as a fraction of
+ *  node size. */
+export const LEAF_COLLIDE_RADIUS_MUL = 0.52;
 
-/** per-hub-class directional pull configuration. each hub gets a
- *  stable angular slot around the canvas centre and is pulled outward
- *  to a target ring along that angle. */
-export const HUB_DIRECTIONAL = {
-  remote: {
-    /** ring radius multiplier (1.0 = baseline ring). */
-    radiusFactor: 1.0,
-    /** forceX/Y strength on this class. */
-    strength: 0.22,
-  },
-  relation: {
-    /** shares the parent remote's angle + radius so kind hexagons
-     *  cluster around their triangle. */
-    radiusFactor: 1.0,
-    strength: 0.22,
-  },
-  relationValue: {
-    /** pushed outside the remote ring so value octagons spread on the
-     *  outer canvas. */
-    radiusFactor: 1.3,
-    strength: 0.14,
-  },
-} as const;
-
-/** simulation cool-down. lower alphaDecay = sim runs longer, more
- *  time for collide to untangle overlaps. velocityDecay lowered
- *  2026-05-25 from 0.64 → 0.46 to restore springy / elastic motion
- *  — prior value was tuned for huge graphs (3k+ nodes) where
- *  bouncy layouts felt chaotic; with the drilldown subgraph
- *  staying small, the extra damping just made layout feel sticky. */
+/** simulation cool-down knobs. velocityDecay + alphaDecay are exposed
+ *  live via TuningOverrides; alphaMin stays hard-coded since it just
+ *  stops the sim from spinning at low energy. pinned to d3 defaults. */
 export const SIM_COOLDOWN = {
-  /** raised above d3 default 0.001 so the sim doesn't freeze with
-   *  residual link/charge tension still pushing collide-constrained
-   *  pairs apart. */
   alphaMin: 0.0015,
-  velocityDecay: 0.46,
-} as const;
-
-/** link spring strength: base + slope * weight. stiffened 2026-05-25
- *  (base 0.15 → 0.24, slope 0.35 → 0.52) so connected nodes pull
- *  visibly closer instead of drifting on a slack spring. */
-export const LINK_STRENGTH_CURVE = {
-  base: 0.24,
-  slope: 0.52,
-} as const;
-
-/** count-aware link tweaks for heavy hubs. */
-export const ENDPOINT_COUNT_TUNING = {
-  /** floor for distance shrink so huge hubs don't collapse to a point. */
-  distanceShrinkFloor: 0.55,
-  /** divisor in the sqrt(c) / X curve for distance shrink. */
-  distanceShrinkDivisor: 28,
-  /** ceiling for strength boost. */
-  strengthBoostCeiling: 2.4,
-  /** divisor in the sqrt(c) / X curve for strength boost. */
-  strengthBoostDivisor: 10,
-} as const;
-
-/** non-linear exponent curves for per-relation distance/strength
- *  multipliers (see `relationDistanceMultiplier` /
- *  `relationStrengthMultiplier` in graphWorker.ts). */
-export const RELATION_CURVE = {
-  distance: {
-    exponent: 1.2,
-    base: 1.52,
-    slope: 1.12,
-  },
-  strength: {
-    exponent: 1.35,
-    base: 0.22,
-    slope: 3.05,
-  },
-} as const;
-
-/** phase 20 — radial / conical fan-out for entity leaves.
- *
- *  every non-hub node whose strongest link is to a hub gets a
- *  per-leaf outward target along the parent hub's directional
- *  angle, spread within a wedge so siblings don't stack on a
- *  shared point. forceX/Y pulls them gently toward that target
- *  so the entity-tier fanout actually opens outward into the
- *  canvas instead of curling back through the root cluster.
- *
- *  the wedge is intentionally wide (±60°) so the spread reads
- *  as a soft cone rather than a strict ring — collide + link
- *  still own the local pixel-perfect arrangement; this force
- *  just biases the overall direction. */
-export const ENTITY_OUTWARD = {
-  /** half-angle of the wedge entities fan into around their
-   *  parent hub's directional angle. π/3 = 60° → 120° total. */
-  wedgeHalfAngleRad: Math.PI / 3,
-  /** ring radius multiplier (vs the base hub ring radius). > 1
-   *  pushes entities further out than value hubs (1.3) so the
-   *  fanout reads as descending from the hub. */
-  radiusFactor: 1.6,
-  /** forceX / forceY strength on leaves with an outward target.
-   *  intentionally gentle so collide + link still dominate the
-   *  local arrangement; this is a directional bias, not a
-   *  position lock. */
-  strength: 0.05,
+  velocityDecay: 0.4,
+  alphaDecay: 0.0228,
 } as const;

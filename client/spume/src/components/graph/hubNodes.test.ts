@@ -6,12 +6,18 @@
 
 import { describe, expect, it } from "vitest";
 import {
+  hubKindOf,
+  isAnyHubId,
+  isRelationValueHubId,
+  isRelationValueMoreHubId,
   parseRelationHubId,
   parseRelationValueHubId,
+  parseRelationValueMoreHubId,
   relationHubId,
   relationHubKind,
   relationSupportsValueLayer,
   relationValueHubId,
+  relationValueMoreHubId,
 } from "./hubNodes";
 
 describe("relation hub id round-trip", () => {
@@ -78,5 +84,39 @@ describe("relationSupportsValueLayer", () => {
     expect(relationSupportsValueLayer(null)).toBe(false);
     expect(relationSupportsValueLayer(undefined)).toBe(false);
     expect(relationSupportsValueLayer("")).toBe(false);
+  });
+});
+
+describe("relation-value 'more' aggregate hub (phase 2b)", () => {
+  it("constructs + parses with known kind", () => {
+    const id = relationValueMoreHubId("genre");
+    expect(id).toBe("hub_relation_value_more::genre");
+    expect(parseRelationValueMoreHubId(id)).toEqual({ kind: "genre" });
+    expect(isRelationValueMoreHubId(id)).toBe(true);
+    expect(hubKindOf(id)).toBe("relation_value_more");
+    expect(isAnyHubId(id)).toBe(true);
+  });
+
+  it("constructs + parses with novel kind", () => {
+    const id = relationValueMoreHubId("vibe");
+    expect(parseRelationValueMoreHubId(id)).toEqual({ kind: "vibe" });
+  });
+
+  it("is disjoint from the regular value-hub prefix", () => {
+    const more = relationValueMoreHubId("genre");
+    const value = relationValueHubId("genre", "rock");
+    expect(isRelationValueHubId(more)).toBe(false);
+    expect(isRelationValueMoreHubId(more)).toBe(true);
+    expect(isRelationValueHubId(value)).toBe(true);
+    expect(isRelationValueMoreHubId(value)).toBe(false);
+    expect(parseRelationValueHubId(more)).toBeNull();
+    expect(parseRelationValueMoreHubId(value)).toBeNull();
+  });
+
+  it("rejects malformed ids", () => {
+    expect(parseRelationValueMoreHubId("hub_relation_value_more::")).toBeNull();
+    expect(parseRelationValueMoreHubId("hub_relation_value::genre::rock")).toBeNull();
+    expect(parseRelationValueMoreHubId(null)).toBeNull();
+    expect(parseRelationValueMoreHubId("")).toBeNull();
   });
 });
