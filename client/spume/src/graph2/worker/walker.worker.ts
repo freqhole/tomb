@@ -88,11 +88,24 @@ function nodeRadius(role: string, childCount: number): number {
 }
 
 // ---- bloom target positions ------------------------------------------------
-// deterministic wedge placement: pivot at center, children on ring at
-// depth*RING_STEP, each child gets a wedge of the parent's arc.
+// wedge layout: pivot at center, children fan out to the right (angle=0).
+// ancestors go left. within each depth ring, nodes with more children sit
+// at the base radius (they'll grow a dense sub-tree there); nodes with fewer
+// children get pushed further out into open space.
 
-const RING_STEP = 170;
-const MAX_WEDGE = Math.PI * 1.6; // cap so children don't wrap fully around
+const RING_STEP = 120;        // base distance per depth level (multiplied by sqrt(depth))
+const SPREAD   = 70;          // extra radius added for childless/sparse nodes
+const FORWARD  = 0;           // wedge points right (→)
+const INIT_WEDGE = Math.PI * 1.1; // ~200° forward arc for first level
+const MAX_WEDGE  = Math.PI * 0.9; // sub-wedge cap per child
+
+/** radius for a node at `depth` with `childCount` children.
+ *  uses sqrt(depth) so deeper rings grow gracefully instead of marching away.
+ *  hubs with many children stay close; leaves drift further out. */
+function ringRadius(depth: number, childCount: number): number {
+  const spread = SPREAD * (1 / (childCount + 1));
+  return RING_STEP * Math.sqrt(depth) + spread;
+}
 
 function computeTargets(
   pivotId: string,
@@ -107,12 +120,20 @@ function computeTargets(
   function place(nodeId: string, depth: number, midAngle: number, wedge: number) {
     const kids = (childrenOf.get(nodeId) ?? []).filter((id) => visibleIds.has(id));
     if (kids.length === 0) return;
-    const r = RING_STEP * depth;
     const step = Math.min(wedge / kids.length, (Math.PI * 2) / Math.max(kids.length, 1));
     const startAngle = midAngle - (step * (kids.length - 1)) / 2;
     for (let i = 0; i < kids.length; i++) {
       if (targets.has(kids[i])) continue;
       const angle = startAngle + i * step;
+      const kid = nodeMap.get(kids[i]);
+      const kidCount = kid?.childCount ?? 0;
+      let r = ringRadius(depth, kidCount);
+      // stagger leaf nodes (albums) and artists across two depth bands so
+      // they don't all land on the same radius and form a crowded line.
+      // alternates: even index → base ring, odd index → 22% further out.
+      if (kid?.role === "album" || kid?.role === "artist") {
+        r *= 1 + (i % 2) * 0.22;
+      }
       targets.set(kids[i], {
         x: cx + Math.cos(angle) * r,
         y: cy + Math.sin(angle) * r,
@@ -122,16 +143,16 @@ function computeTargets(
     }
   }
 
-  // place children of pivot in full 360, starting upward
-  place(pivotId, 1, -Math.PI / 2, Math.PI * 2);
+  // fan children forward (→), ancestors go left (←)
+  place(pivotId, 1, FORWARD, INIT_WEDGE);
 
-  // breadcrumb ancestors: spread them out above center so they don't
-  // collide with pivot's children
+  // breadcrumb ancestors: place them to the left, fanning slightly so
+  // they don't stack on top of each other
   const ancestors = breadcrumb.slice(0, -1).reverse();
   for (let i = 0; i < ancestors.length; i++) {
     const id = ancestors[i];
     if (!visibleIds.has(id) || targets.has(id)) continue;
-    const angle = Math.PI + (i - ancestors.length / 2) * 0.4;
+    const angle = Math.PI + (i - ancestors.length / 2) * 0.35;
     const r = RING_STEP * (i + 1);
     targets.set(id, { x: cx + Math.cos(angle) * r, y: cy + Math.sin(angle) * r });
   }
@@ -267,7 +288,11 @@ function buildSim() {
         .distance((d) => {
           const s = d.source as SimNode;
           const t = d.target as SimNode;
-          return (s.radius + t.radius) * 2.2;
+          const base = (s.radius + t.radius) * 2.2;
+          // give artist→album links extra slack so the collision force
+          // can spread albums without fighting a tight spring
+          if (s.role === "artist" && t.role === "album") return base * 1.5;
+          return base;
         })
         .strength(0.35),
     )

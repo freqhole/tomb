@@ -37,7 +37,6 @@ const EDGE_BREADCRUMB = "#f59e0b";
 const PIVOT_RING_COLOR = "#ffffff";
 const BREADCRUMB_COLOR = "#fcd34d";
 const LABEL_COLOR = "#f1f5f9";
-const LABEL_SHADOW = "#000000";
 const HOVER_RING_COLOR = "rgba(255,255,255,0.5)";
 
 // ---- shape drawing ---------------------------------------------------------
@@ -151,22 +150,63 @@ function drawLabel(
   n: VisibleNode,
   x: number,
   y: number,
-  radius: number
+  radius: number,
+  cx: number,
+  cy: number
 ) {
   const fontSize = n.role === "album" ? 10 : 12;
   ctx.font = `${fontSize}px system-ui,sans-serif`;
-  ctx.textAlign = "center";
-  ctx.textBaseline = "top";
 
   const label = n.label.length > 18 ? n.label.slice(0, 17) + "…" : n.label;
-  const textY = y + radius + 4;
+  const color = n.isPivot ? "#ffffff" : n.isBreadcrumb ? BREADCRUMB_COLOR : LABEL_COLOR;
 
-  // shadow
-  ctx.fillStyle = LABEL_SHADOW;
-  ctx.fillText(label, x + 1, textY + 1);
+  let lx: number, ly: number;
 
-  ctx.fillStyle = n.isPivot ? "#ffffff" : n.isBreadcrumb ? BREADCRUMB_COLOR : LABEL_COLOR;
-  ctx.fillText(label, x, textY);
+  if (n.role === "artist" || n.role === "album") {
+    // radial label: offset away from canvas center so labels don't crowd
+    const angle = Math.atan2(y - cy, x - cx);
+    const dist = radius + 12; // clear the hover ring (gap=6) plus a small margin
+    lx = x + Math.cos(angle) * dist;
+    ly = y + Math.sin(angle) * dist;
+    const a = Math.abs(angle);
+    if (a < Math.PI / 4) {
+      ctx.textAlign = "left";
+      ctx.textBaseline = "middle";
+    } else if (a > (Math.PI * 3) / 4) {
+      ctx.textAlign = "right";
+      ctx.textBaseline = "middle";
+    } else if (angle < 0) {
+      ctx.textAlign = "center";
+      ctx.textBaseline = "bottom";
+    } else {
+      ctx.textAlign = "center";
+      ctx.textBaseline = "top";
+    }
+  } else {
+    lx = x;
+    ly = y + radius + 12;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "top";
+  }
+
+  // semi-transparent pill behind the label for legibility
+  const tw = ctx.measureText(label).width;
+  const pw = 4,
+    ph = 2;
+  let bx: number;
+  if (ctx.textAlign === "right") bx = lx - tw;
+  else if (ctx.textAlign === "center") bx = lx - tw / 2;
+  else bx = lx;
+  let by: number;
+  if (ctx.textBaseline === "bottom") by = ly - fontSize;
+  else if (ctx.textBaseline === "middle") by = ly - fontSize / 2;
+  else by = ly;
+  ctx.fillStyle = "rgba(0,0,0,0.65)";
+  ctx.beginPath();
+  ctx.roundRect(bx - pw, by - ph, tw + pw * 2, fontSize + ph * 2, 3);
+  ctx.fill();
+  ctx.fillStyle = color;
+  ctx.fillText(label, lx, ly);
 }
 
 // ---- component -------------------------------------------------------------
@@ -271,6 +311,7 @@ export default function WalkCanvas(props: WalkCanvasProps) {
         return roleOrder.indexOf(nodes[a].role) - roleOrder.indexOf(nodes[b].role);
       });
 
+      // pass 1: shapes + hover rings (back to front)
       for (const i of sorted) {
         const n = nodes[i];
         const x = positions[i * 2];
@@ -279,7 +320,6 @@ export default function WalkCanvas(props: WalkCanvasProps) {
 
         const r = nodeDisplayRadius(n);
 
-        // hover ring — follows the node's actual shape outline
         if (hov === n.id) {
           const gap = n.role === "remote" ? 5 : 6;
           nodeShapePath(ctx, n.role, x, y, r + gap);
@@ -289,10 +329,21 @@ export default function WalkCanvas(props: WalkCanvasProps) {
         }
 
         drawNode(ctx, n, x, y, r);
-        if (hov !== n.id) drawLabel(ctx, n, x, y, r);
       }
 
-      // draw hovered node's label last so it's never buried
+      // pass 2: all labels for non-hovered nodes
+      const cx = w() / 2;
+      const cy = h() / 2;
+      for (const i of sorted) {
+        const n = nodes[i];
+        if (hov === n.id) continue; // drawn in pass 3
+        const x = positions[i * 2];
+        const y = positions[i * 2 + 1];
+        if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+        drawLabel(ctx, n, x, y, nodeDisplayRadius(n), cx, cy);
+      }
+
+      // pass 3: hovered node label — always on top regardless of role
       if (hov !== null) {
         const hi = nodes.findIndex((n) => n.id === hov);
         if (hi !== -1 && Number.isFinite(positions[hi * 2])) {
@@ -301,7 +352,9 @@ export default function WalkCanvas(props: WalkCanvasProps) {
             nodes[hi],
             positions[hi * 2],
             positions[hi * 2 + 1],
-            nodeDisplayRadius(nodes[hi])
+            nodeDisplayRadius(nodes[hi]),
+            cx,
+            cy
           );
         }
       }
