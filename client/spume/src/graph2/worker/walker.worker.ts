@@ -192,6 +192,39 @@ function computeTargets(
     targets.set(id, { x: cx + Math.cos(angle) * r, y: cy + Math.sin(angle) * r });
   }
 
+  // relation hubs surfaced for visible value children (see getVisible) need an
+  // explicit slot — they aren't a child of pivot, so they'd hit the random
+  // fallback. anchor each just beyond the centroid of its visible values so
+  // the kind-tinted wires fan inward toward the hub from a consistent side.
+  for (const id of visibleIds) {
+    if (targets.has(id)) continue;
+    const node = nodeMap.get(id);
+    if (node?.role !== "relation") continue;
+    // gather positioned value children of this hub
+    let sx = 0;
+    let sy = 0;
+    let count = 0;
+    for (const childId of childrenOf.get(id) ?? []) {
+      const t = targets.get(childId);
+      if (!t) continue;
+      sx += t.x;
+      sy += t.y;
+      count++;
+    }
+    if (count === 0) continue;
+    const ax = sx / count;
+    const ay = sy / count;
+    // push outward from pivot by ~one ring step past the values' centroid
+    const dx = ax - cx;
+    const dy = ay - cy;
+    const dist = Math.hypot(dx, dy) || 1;
+    const push = RING_STEP * 0.9;
+    targets.set(id, {
+      x: ax + (dx / dist) * push,
+      y: ay + (dy / dist) * push,
+    });
+  }
+
   // any remaining visible node (shouldn't happen often)
   let fallback = 0;
   for (const id of visibleIds) {
@@ -237,6 +270,19 @@ function getVisible(): Set<string> {
         const parent = nodeMap.get(parentId);
         if (parent?.role === "artist") visible.add(parentId);
       }
+    }
+  }
+  // surface the taxon-hub (relation node) for every visible value, so users
+  // can see at a glance which kind a value belongs to and have a launch point
+  // back into that taxon. the forward relation→value edge already exists in
+  // fullGraph.edges, so the wire draws automatically once both sides are
+  // visible. skips the case where the relation is already on the breadcrumb.
+  for (const id of [...visible]) {
+    const wn = nodeMap.get(id);
+    if (wn?.role !== "value") continue;
+    for (const parentId of parentsOf.get(id) ?? []) {
+      const parent = nodeMap.get(parentId);
+      if (parent?.role === "relation") visible.add(parentId);
     }
   }
   return visible;

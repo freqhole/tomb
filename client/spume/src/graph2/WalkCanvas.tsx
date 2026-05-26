@@ -31,6 +31,47 @@ const ROLE_COLOR: Record<string, string> = {
   album: "#475569",
 };
 
+// deterministic per-kind color for value nodes. derived from a small string
+// hash of the kind so any new taxon kind (genres / tags / era / mood / decade /
+// whatever) gets a stable, well-separated hue without a manual table. used as
+// the node stroke + as the edge color for wires touching a value node.
+function hashKind(kind: string): number {
+  // djb2 — small, no deps, fine spread for short strings
+  let h = 5381;
+  for (let i = 0; i < kind.length; i++) h = (h * 33 + kind.charCodeAt(i)) | 0;
+  // multiply by a prime coprime to 360 so similar prefixes don't cluster hues
+  return ((h >>> 0) * 137) % 360;
+}
+
+/** mid-lightness "active" tone — for strokes + edges (pops on black). */
+function valueKindStroke(kind: string): string {
+  return `hsl(${hashKind(kind)} 75% 62%)`;
+}
+
+function valueKind(id: string): string | undefined {
+  // `value::KIND::val` → KIND
+  const parts = id.split("::");
+  return parts[0] === "value" ? parts[1] : undefined;
+}
+
+// fills stay role-neutral so labels rendered on top keep consistent contrast.
+// per-kind color only shows up on the stroke + outgoing edge lines.
+function nodeFillColor(n: VisibleNode): string {
+  return ROLE_COLOR[n.role] ?? "#888";
+}
+
+/** color for an edge based on its endpoints — value endpoints win and tint
+ *  the wire with their kind's color so "tagged with" relationships are
+ *  visually grouped. returns null if neither endpoint is a value. */
+function edgeKindColor(a: VisibleNode | undefined, b: VisibleNode | undefined): string | null {
+  for (const n of [a, b]) {
+    if (!n || n.role !== "value") continue;
+    const kind = valueKind(n.id);
+    if (kind) return valueKindStroke(kind);
+  }
+  return null;
+}
+
 const EDGE_COLOR = "#6b7280"; // visible on black
 const EDGE_ALBUM = "#94a3b8"; // lighter for artist→album wires
 const EDGE_BREADCRUMB = "#f59e0b";
@@ -122,14 +163,21 @@ function drawNode(
   y: number,
   radius: number
 ) {
-  const color = n.isBreadcrumb ? (ROLE_COLOR[n.role] ?? "#888") : (ROLE_COLOR[n.role] ?? "#888");
+  const color = nodeFillColor(n);
   ctx.fillStyle = color;
+  // value nodes get a colored stroke based on their taxon kind so different
+  // taxons fanning out around an artist/album are visually distinct. pivot +
+  // breadcrumb states still win since they convey navigation state.
+  const valueStroke =
+    n.role === "value" ? (valueKind(n.id) && valueKindStroke(valueKind(n.id)!)) || null : null;
   ctx.strokeStyle = n.isPivot
     ? PIVOT_RING_COLOR
     : n.isBreadcrumb
       ? BREADCRUMB_COLOR
-      : "rgba(255,255,255,0.15)";
-  ctx.lineWidth = n.isPivot ? 3 : n.isBreadcrumb ? 2 : 1;
+      : valueStroke
+        ? valueStroke
+        : "rgba(255,255,255,0.15)";
+  ctx.lineWidth = n.isPivot ? 3 : n.isBreadcrumb ? 2 : valueStroke ? 2 : 1;
 
   nodeShapePath(ctx, n.role, x, y, radius);
   ctx.fill();
@@ -351,9 +399,18 @@ export default function WalkCanvas(props: WalkCanvasProps) {
         ctx.lineTo(x1, y1);
         const isAlbumEdge =
           nodes[e.sourceIdx]?.role === "album" || nodes[e.targetIdx]?.role === "album";
-        ctx.strokeStyle = e.isBreadcrumb ? EDGE_BREADCRUMB : isAlbumEdge ? EDGE_ALBUM : EDGE_COLOR;
+        // taxon edges (anything touching a value node) inherit the value
+        // kind's color so all "tagged-with" wires for a given kind share a hue.
+        const kindEdge = edgeKindColor(nodes[e.sourceIdx], nodes[e.targetIdx]);
+        ctx.strokeStyle = e.isBreadcrumb
+          ? EDGE_BREADCRUMB
+          : kindEdge
+            ? kindEdge
+            : isAlbumEdge
+              ? EDGE_ALBUM
+              : EDGE_COLOR;
         ctx.lineWidth = e.isBreadcrumb ? 2.5 : 1;
-        ctx.globalAlpha = e.isBreadcrumb ? 0.9 : isAlbumEdge ? 0.8 : 0.7;
+        ctx.globalAlpha = e.isBreadcrumb ? 0.9 : kindEdge ? 0.65 : isAlbumEdge ? 0.8 : 0.7;
         ctx.stroke();
         ctx.globalAlpha = 1;
       }
